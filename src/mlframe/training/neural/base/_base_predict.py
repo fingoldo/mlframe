@@ -15,7 +15,7 @@ import numpy as np
 import torch
 import lightning as L
 from sklearn.base import ClassifierMixin, RegressorMixin
-from sklearn.metrics import accuracy_score, r2_score
+from mlframe.metrics.core import accuracy_ratio, fast_r2_score
 
 from .._base_tensor_helpers import to_numpy_safe
 
@@ -473,10 +473,14 @@ class _PredictMixin:
         """Returns the coefficient of determination R^2 for regression or accuracy for classification."""
         y_pred = self.predict(X)
         if isinstance(self, RegressorMixin):
-            return r2_score(y, y_pred, sample_weight=sample_weight)
+            return fast_r2_score(y, y_pred, sample_weight=sample_weight)
         elif isinstance(self, ClassifierMixin):
             # y_pred is already class labels from PytorchLightningClassifier.predict()
-            return accuracy_score(y, y_pred, sample_weight=sample_weight)
+            if sample_weight is None:
+                return accuracy_ratio(np.asarray(y), np.asarray(y_pred))
+            sw = np.asarray(sample_weight, dtype=np.float64)
+            correct = (np.asarray(y) == np.asarray(y_pred)).astype(np.float64)
+            return float((correct * sw).sum() / sw.sum())
         else:
             raise TypeError(f"Estimator must be a RegressorMixin or ClassifierMixin, got {type(self).__name__}")
 

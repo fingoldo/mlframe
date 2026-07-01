@@ -122,9 +122,9 @@ def bench_paired_bootstrap():
         p_strongest = y + rng.normal(0, 0.5, n)  # better
         p_runner = y + rng.normal(0, 0.6, n)  # slightly worse
         # Build a minimal table for the helper
-        from sklearn.metrics import mean_squared_error
-        rmse_s = float(np.sqrt(mean_squared_error(y, p_strongest)))
-        rmse_r = float(np.sqrt(mean_squared_error(y, p_runner)))
+        from mlframe.metrics.core import fast_root_mean_squared_error
+        rmse_s = float(fast_root_mean_squared_error(y, p_strongest))
+        rmse_r = float(fast_root_mean_squared_error(y, p_runner))
         table = pd.DataFrame(
             {"val_RMSE": [rmse_s, rmse_r]},
             index=["strongest", "runner_up"],

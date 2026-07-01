@@ -15,9 +15,9 @@ import numpy as np
 import pandas as pd
 
 from sklearn.base import is_classifier, is_regressor
-from sklearn.metrics import make_scorer, mean_squared_error
+from sklearn.metrics import make_scorer
 
-from mlframe.metrics.core import compute_probabilistic_multiclass_error
+from mlframe.metrics.core import compute_probabilistic_multiclass_error, fast_mean_squared_error
 
 from .._helpers import _detect_multithreaded
 
@@ -109,5 +109,5 @@ def resolve_default_scoring(scoring, estimator):
         )
     if is_regressor(estimator):
         logger.info("Scoring omitted, using mean_squared_error by default.")
-        return make_scorer(score_func=mean_squared_error, greater_is_better=False)
+        return make_scorer(score_func=fast_mean_squared_error, greater_is_better=False)
     raise ValueError(f"Appropriate scoring not known for estimator type: {estimator}")

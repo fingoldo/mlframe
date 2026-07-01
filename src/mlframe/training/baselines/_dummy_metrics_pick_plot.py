@@ -24,12 +24,11 @@ import numpy as np
 import pandas as pd
 import sklearn
 from sklearn.metrics import (
-    log_loss,
-    mean_absolute_error,
+    log_loss,  # multiclass / labels-pinned degenerate-resample path only; binary AUC uses fast_roc_auc
     mean_pinball_loss,
-    mean_squared_error,
-    roc_auc_score,
+    roc_auc_score,  # multiclass one-vs-rest macro only; binary path uses fast_roc_auc
 )
+from mlframe.metrics.core import fast_roc_auc, fast_mean_absolute_error, fast_root_mean_squared_error
 
 from ._dummy_baseline_compute import _safe_metric
 from ._dummy_report_type import BaselineReport
@@ -111,18 +110,14 @@ def _compute_metrics_table(
             vp = val_preds.get(name)
             tp = test_preds.get(name)
             if vp is not None and val_y is not None and len(vp) == len(val_y):
-                row["val_RMSE"] = _safe_metric(
-                    lambda y, p: np.sqrt(mean_squared_error(y, p)), val_y, vp,
-                )
-                row["val_MAE"] = _safe_metric(mean_absolute_error, val_y, vp)
+                row["val_RMSE"] = _safe_metric(fast_root_mean_squared_error, val_y, vp)
+                row["val_MAE"] = _safe_metric(fast_mean_absolute_error, val_y, vp)
             else:
                 row["val_RMSE"] = float("nan")
                 row["val_MAE"] = float("nan")
             if tp is not None and test_y is not None and len(tp) == len(test_y):
-                row["test_RMSE"] = _safe_metric(
-                    lambda y, p: np.sqrt(mean_squared_error(y, p)), test_y, tp,
-                )
-                row["test_MAE"] = _safe_metric(mean_absolute_error, test_y, tp)
+                row["test_RMSE"] = _safe_metric(fast_root_mean_squared_error, test_y, tp)
+                row["test_MAE"] = _safe_metric(fast_mean_absolute_error, test_y, tp)
             else:
                 row["test_RMSE"] = float("nan")
                 row["test_MAE"] = float("nan")
@@ -147,7 +142,7 @@ def _compute_metrics_table(
                     )
                     if target_type == "binary_classification":
                         row[f"{split_name}_AUC"] = _safe_metric(
-                            roc_auc_score, y, p[:, 1],
+                            fast_roc_auc, y, p[:, 1],
                         )
                     else:
                         row[f"{split_name}_AUC_macro"] = _safe_metric(

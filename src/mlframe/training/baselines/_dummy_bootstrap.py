@@ -19,7 +19,7 @@ from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import log_loss, mean_absolute_error, mean_squared_error
+from mlframe.metrics.core import fast_mean_absolute_error, fast_root_mean_squared_error
 
 # Numba kernels live in the ``_dummy_numba_kernels.py`` leaf so this sibling
 # can depend on them without re-entering the parent module.
@@ -209,10 +209,10 @@ def _paired_bootstrap_vs_runner_up(
         # paths raised.
         if "RMSE" in primary_metric:
             def fn(y, p):
-                return float(np.sqrt(mean_squared_error(y, p)))
+                return float(fast_root_mean_squared_error(y, p))
         elif "MAE" in primary_metric:
             def fn(y, p):
-                return float(mean_absolute_error(y, p))
+                return float(fast_mean_absolute_error(y, p))
         elif "log_loss_macro" in primary_metric:
             return None  # multi-output; cost > value at this gate
         elif "log_loss" in primary_metric:
@@ -480,10 +480,10 @@ def _bootstrap_ci_for_strongest(
         try:
             if "RMSE" in primary_metric:
                 def fn(yi, pi):
-                    return float(np.sqrt(mean_squared_error(yi, pi)))
+                    return float(fast_root_mean_squared_error(yi, pi))
             elif "MAE" in primary_metric:
                 def fn(yi, pi):
-                    return float(mean_absolute_error(yi, pi))
+                    return float(fast_mean_absolute_error(yi, pi))
             elif "log_loss_macro" in primary_metric:
                 # Multilabel macro: average over labels; here we use per-row
                 # log_loss approx (cheap CI is best-effort for multilabel).

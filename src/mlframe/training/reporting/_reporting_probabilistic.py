@@ -739,7 +739,10 @@ def report_probabilistic_model_perf(
                             zero_division=0, target_names=_names,
                         )
                     else:
-                        _cls_report_text = classification_report(targets, preds, zero_division=0, digits=report_ndigits)
+                        _nclasses = max(int(_y_true.max()) + 1, int(_y_pred.max()) + 1, 2) if len(_y_true) else 2
+                        _cls_report_text = format_classification_report(
+                            _y_true, _y_pred, nclasses=_nclasses, digits=report_ndigits, zero_division=0,
+                        )
                 else:
                     _nclasses = max(int(_y_true.max()) + 1, int(_y_pred.max()) + 1, 2) if len(_y_true) else 2
                     _cls_report_text = format_classification_report(

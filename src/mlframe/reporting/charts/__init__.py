@@ -83,6 +83,9 @@ from mlframe.reporting.charts.temporal import (
     build_temporal_audit_spec, compose_target_acf_figure,
 )
 from mlframe.reporting.charts.training_curve import compose_training_curve_figure
+from mlframe.reporting.charts.confusion_matrix_plot import (
+    plot_confusion_matrix, confusion_matrix_counts,
+)
 # Public re-export of the chart-sampling helpers so cross-package consumers (renderers, diagnostics_dispatch, training-side reporting) import them from the package surface instead of the ``_sampling`` implementation module.
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes, prebin_histogram
 
@@ -101,6 +104,8 @@ __all__ = [
     "compose_binary_figure",
     "binary_decile_table",
     "compose_multiclass_figure",
+    "plot_confusion_matrix",
+    "confusion_matrix_counts",
     "compose_multilabel_figure",
     "compose_ltr_figure",
     "compose_quantile_figure",

@@ -619,7 +619,7 @@ def adversarial_auc(
     """
     import lightgbm as lgb
     import pandas as pd
-    from sklearn.metrics import roc_auc_score, roc_curve
+    from mlframe.metrics.core import fast_roc_auc, fast_roc_curve
     from sklearn.model_selection import StratifiedKFold, cross_val_predict
 
     cols_a, names_a = _frame_columns(feature_frame_a, feature_names)
@@ -676,8 +676,8 @@ def adversarial_auc(
     k = max(2, min(int(n_splits), int(min(len(ia), len(ib)))))
     cv = StratifiedKFold(n_splits=k, shuffle=True, random_state=seed)
     oof = cross_val_predict(clf, X, y, cv=cv, method="predict_proba")[:, 1]
-    auc = float(roc_auc_score(y, oof))
-    fpr, tpr, _ = roc_curve(y, oof)
+    auc = float(fast_roc_auc(y, oof))
+    fpr, tpr, _ = fast_roc_curve(y, oof)
 
     # Importances come from a single full-data fit (the per-fold models are discarded by cross_val_predict); a full fit
     # gives the most stable ranking of which features carry the separating signal.

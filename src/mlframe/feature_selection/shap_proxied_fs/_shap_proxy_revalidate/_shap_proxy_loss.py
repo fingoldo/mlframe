@@ -15,8 +15,9 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.metrics import (
-    brier_score_loss, log_loss, mean_absolute_error, roc_auc_score, root_mean_squared_error,
+    log_loss, roc_auc_score, root_mean_squared_error,
 )
+from mlframe.metrics.core import fast_brier_score_loss, fast_log_loss, fast_roc_auc, fast_mean_absolute_error
 
 logger = logging.getLogger(__name__)
 
@@ -272,16 +273,17 @@ def _loss_from_predictions(p_or_pred, y_ev, classification, metric):
         if np.ndim(p) > 1:  # multiclass probability matrix (n, C)
             return _multiclass_loss_from_proba(p, y_ev, metric)
         if metric == "brier":
-            return float(brier_score_loss(y_ev, p))
+            return float(fast_brier_score_loss(y_ev, p))
         if metric == "logloss":
-            return float(log_loss(y_ev, np.clip(p, 1e-7, 1 - 1e-7), labels=[0, 1]))
+            # eps=1e-7 reproduces the previous np.clip(p, 1e-7, 1 - 1e-7) floor bit-for-bit (kernel clips internally).
+            return float(fast_log_loss(y_ev, p, eps=1e-7))
         # A single-class holdout has no defined AUC; return NaN (dropped by every downstream finite-mask) rather than a magic
         # 1.0 that masquerades as a measured loss and biases the corrector / stable-score ranking on rare-class anchors.
         if len(np.unique(y_ev)) < 2:
             return float("nan")
-        return float(1.0 - roc_auc_score(y_ev, p))
+        return float(1.0 - fast_roc_auc(y_ev, p))
     pred = p_or_pred
-    return float(mean_absolute_error(y_ev, pred)) if metric == "mae" else float(root_mean_squared_error(y_ev, pred))
+    return float(fast_mean_absolute_error(y_ev, pred)) if metric == "mae" else float(root_mean_squared_error(y_ev, pred))
 
 
 def _multiclass_loss_from_proba(proba, y_ev, metric):

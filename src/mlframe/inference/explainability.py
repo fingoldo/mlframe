@@ -25,7 +25,7 @@ from typing import Tuple
 import numpy as np, pandas as pd
 from pyutilz.system import tqdmu
 from mlframe.metrics.core import show_calibration_plot as show_custom_calibration_plot
-from sklearn.metrics import classification_report
+from mlframe.metrics.core import format_classification_report
 
 
 def init_model_instance(model_class: object, params: dict) -> object:
@@ -193,7 +193,9 @@ def compute_shap_on_cv(
                 hard_pred = (probs[:, 1] > 0.5).astype(np.int8)
             else:
                 hard_pred = np.argmax(probs, axis=1).astype(np.int8)
-            classification_report_text = classification_report(all_true_values, hard_pred, target_names=display_labels.values())
+            classification_report_text = format_classification_report(
+                all_true_values, hard_pred, nclasses=nclasses, target_names=list(display_labels.values())
+            )
             print(classification_report_text)
         show_custom_calibration_plot(
             y=all_true_values,

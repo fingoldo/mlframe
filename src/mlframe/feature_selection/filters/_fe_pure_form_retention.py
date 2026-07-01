@@ -231,7 +231,7 @@ def retain_usable_pure_forms(
                 # multiclass) -- no trapped nonlinear interaction a pure form could recover. A polynomial /
                 # interaction target leaves the raw-only logistic AUC well below 0.92 -> proceed.
                 from sklearn.linear_model import LogisticRegression as _LogR
-                from sklearn.metrics import roc_auc_score as _auc, accuracy_score as _acc
+                from mlframe.metrics.core import fast_roc_auc as _auc
 
                 _ycodes_g = np.unique(_yg, return_inverse=True)[1]
                 if np.unique(_ycodes_g).size >= 2:
@@ -239,7 +239,8 @@ def retain_usable_pure_forms(
                     if np.unique(_ycodes_g).size == 2:
                         _sc = float(_auc(_ycodes_g, _clf.predict_proba(_Xg)[:, 1]))
                     else:
-                        _sc = float(_acc(_ycodes_g, _clf.predict(_Xg)))
+                        # multiclass accuracy = fraction correct (accuracy_ratio is CAP-AR, a different quantity)
+                        _sc = float(np.mean(_ycodes_g == _clf.predict(_Xg)))
                     if _sc >= 0.92:
                         return []  # raws already separate the classes -- nothing nonlinear to recover
             else:

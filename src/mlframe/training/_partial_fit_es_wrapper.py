@@ -56,8 +56,7 @@ def _resolve_metric(metric: str | Callable | None, is_classification: bool) -> t
         return metric, getattr(metric, "__name__", "custom"), "min"
     if metric in (None, ""):
         if is_classification:
-            from sklearn.metrics import log_loss
-            return (lambda y, p: log_loss(y, p, labels=np.unique(y))), "log_loss", "min"
+            return _binary_or_multiclass_log_loss(), "log_loss", "min"
         else:
             from mlframe.metrics.scoring import fast_rmse as _fast_rmse
             return (lambda y, p: _fast_rmse(y, p)), "rmse", "min"
@@ -67,12 +66,41 @@ def _resolve_metric(metric: str | Callable | None, is_classification: bool) -> t
     if metric == "mae":
         return (lambda y, p: float(np.mean(np.abs(np.asarray(p) - np.asarray(y))))), "mae", "min"
     if metric == "logloss":
-        from sklearn.metrics import log_loss
-        return (lambda y, p: log_loss(y, p)), "log_loss", "min"
+        return _binary_or_multiclass_log_loss(), "log_loss", "min"
     if metric == "auc":
-        from sklearn.metrics import roc_auc_score
-        return (lambda y, p: roc_auc_score(y, p)), "auc", "max"
+        return _binary_or_multiclass_auc(), "auc", "max"
     raise ValueError(f"Unknown metric: {metric}")
+
+
+def _binary_or_multiclass_log_loss() -> Callable:
+    """Log-loss scorer: our fast binary kernel on (n,) positive-class proba, sklearn on the (n,C>2) multiclass matrix
+    (fast_log_loss_binary is binary-only). ``_predict_for_eval`` collapses binary proba to (n,), so 2-D input here is
+    genuinely multiclass."""
+    from mlframe.metrics.core import fast_log_loss_binary
+
+    def _log_loss(y, p):
+        p = np.asarray(p)
+        if p.ndim == 1:
+            return float(fast_log_loss_binary(np.asarray(y), p))
+        from sklearn.metrics import log_loss
+        return float(log_loss(y, p, labels=np.unique(y)))
+
+    return _log_loss
+
+
+def _binary_or_multiclass_auc() -> Callable:
+    """ROC-AUC scorer: our fast binary kernel on (n,) positive-class proba, sklearn one-vs-rest on the (n,C>2)
+    multiclass matrix (fast_roc_auc is binary-only)."""
+    from mlframe.metrics.core import fast_roc_auc
+
+    def _auc(y, p):
+        p = np.asarray(p)
+        if p.ndim == 1:
+            return float(fast_roc_auc(np.asarray(y), p))
+        from sklearn.metrics import roc_auc_score
+        return float(roc_auc_score(y, p, multi_class="ovr"))
+
+    return _auc
 
 
 class PartialFitESWrapper:

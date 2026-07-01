@@ -155,8 +155,8 @@ def tune_decision_threshold(
         from sklearn.metrics import f1_score
         scorer = lambda yt, yp: f1_score(yt, yp, zero_division=0)
     elif metric == "balanced_accuracy":
-        from sklearn.metrics import balanced_accuracy_score
-        scorer = balanced_accuracy_score
+        from mlframe.metrics.core import balanced_accuracy_binary
+        scorer = balanced_accuracy_binary
     else:
         raise ValueError(f"tune_decision_threshold: unsupported metric {metric!r}; use 'f1' or 'balanced_accuracy'.")
 

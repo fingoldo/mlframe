@@ -24,11 +24,6 @@ try:
 except ImportError:
     plt = None  # type: ignore[assignment]
 
-try:
-    from sklearn.metrics import classification_report
-except ImportError:
-    classification_report = None  # type: ignore[assignment]
-
 
 
 # Wave 97 (2026-05-21): _canonical_multilabel_y / _maybe_display + the

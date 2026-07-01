@@ -1096,12 +1096,12 @@ def _build_cross_target_ensemble_for_target(
                     # flags BEST_MODEL_BELOW_DUMMY when the ensemble (stacked on lag_predict)
                     # is the actual winner on strong-AR targets.
                     try:
-                        from sklearn.metrics import mean_absolute_error, root_mean_squared_error
+                        from mlframe.metrics.core import fast_mean_absolute_error, fast_root_mean_squared_error
                         _y_arr = np.asarray(_y_split, dtype=np.float64).reshape(-1)
                         _ens_arr = _ens_preds.reshape(-1)
                         _ens_scalar_metrics = {
-                            f"{_split_name}_RMSE": float(root_mean_squared_error(_y_arr, _ens_arr)),
-                            f"{_split_name}_MAE": float(mean_absolute_error(_y_arr, _ens_arr)),
+                            f"{_split_name}_RMSE": float(fast_root_mean_squared_error(_y_arr, _ens_arr)),
+                            f"{_split_name}_MAE": float(fast_mean_absolute_error(_y_arr, _ens_arr)),
                             "model_name": f"CT_ENSEMBLE[{_ce_strategy}]",
                         }
                         metadata.setdefault("cross_target_ensemble_metrics", {}) \

@@ -151,7 +151,8 @@ def _roc_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePanelSpec:
     ``label_subset`` (composer passes one past the large-K threshold) restricts the drawn curves to those label
     indices and appends a macro-average curve, so large K shows ~8 readable curves + macro instead of K spaghetti.
     """
-    from sklearn.metrics import roc_curve, auc
+    from sklearn.metrics import auc
+    from mlframe.metrics.core import fast_roc_curve
 
     K = y_true.shape[1]
     draw_idx = list(range(K)) if label_subset is None else [int(k) for k in label_subset]
@@ -175,7 +176,7 @@ def _roc_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePanelSpec:
             series.append(np.full_like(x_grid, np.nan))
             series_labels.append(f"{labels[k]} (n/a)")
             continue
-        fpr, tpr, _ = roc_curve(bin_yf, colf)
+        fpr, tpr, _ = fast_roc_curve(bin_yf, colf)
         roc_auc = auc(fpr, tpr)
         curve = np.interp(x_grid, fpr, tpr)
         series.append(curve)

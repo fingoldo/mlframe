@@ -147,14 +147,14 @@ def _permutation_feature_importances(
         preds_arr = np.asarray(preds)
         y_arr_local = np.asarray(y)
         if preds_arr.dtype.kind == "f" and y_arr_local.dtype.kind in {"f", "i", "u"}:
-            from sklearn.metrics import r2_score
+            from mlframe.metrics.core import fast_r2_score
             try:
-                return float(r2_score(y_arr_local, preds_arr))
+                return float(fast_r2_score(y_arr_local, preds_arr))
             except Exception:
                 return -np.inf
-        from sklearn.metrics import accuracy_score
+        from mlframe.metrics.core import accuracy_ratio
         try:
-            return float(accuracy_score(y_arr_local, preds_arr))
+            return float(accuracy_ratio(y_arr_local, preds_arr))
         except Exception:
             return -np.inf
     # Threading backend (NOT loky / multiprocessing):
@@ -268,8 +268,8 @@ def _cuda_batched_permutation_importance(
     except Exception as exc:
         logger.warning("cuda-batched FI setup failed (%s); falling back.", exc)
         return _fail()
-    from sklearn.metrics import r2_score
-    baseline_score = float(r2_score(y_arr, baseline_pred))
+    from mlframe.metrics.core import fast_r2_score
+    baseline_score = float(fast_r2_score(y_arr, baseline_pred))
     importances = np.zeros(n_features, dtype=np.float64)
     importances_std = np.zeros(n_features, dtype=np.float64)
     try:
@@ -288,7 +288,7 @@ def _cuda_batched_permutation_importance(
                     scores = np.empty(n_repeats, dtype=np.float64)
                     for r in range(n_repeats):
                         offset = (slot * n_repeats + r) * n
-                        scores[r] = r2_score(y_arr, preds[offset:offset + n])
+                        scores[r] = fast_r2_score(y_arr, preds[offset:offset + n])
                     importances[j] = baseline_score - scores.mean()
                     # baseline_score is constant, so the per-repeat importance dispersion is just std(scores).
                     importances_std[j] = float(scores.std())

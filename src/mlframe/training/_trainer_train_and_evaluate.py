@@ -43,12 +43,9 @@ from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_c
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import (
-    mean_absolute_error,
     max_error,
-    r2_score,
     root_mean_squared_error,
     make_scorer,
-    classification_report,
 )
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoostingClassifier

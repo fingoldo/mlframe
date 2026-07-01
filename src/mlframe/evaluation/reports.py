@@ -25,9 +25,17 @@ import pandas as pd, numpy as np
 from matplotlib import pyplot as plt
 
 from sklearn.calibration import calibration_curve
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.metrics import classification_report, precision_score, accuracy_score, recall_score, balanced_accuracy_score
+from mlframe.reporting.charts import confusion_matrix_counts, plot_confusion_matrix
+from mlframe.metrics.core import (
+    fast_mean_absolute_error,
+    fast_mean_squared_error,
+    fast_r2_score,
+    fast_classification_report,
+    format_classification_report,
+    balanced_accuracy_binary,
+    average_precision_score,
+    fast_roc_curve,
+)
 
 from sklearn.exceptions import UndefinedMetricWarning
 from sklearn.base import is_classifier, is_regressor
@@ -93,7 +101,7 @@ def get_predicted_classes(predictions: np.ndarray, thresholds: np.ndarray = None
 
 def regression_stats(y_test, preds, format: str = "_.8f") -> str:
     mes = []
-    for func in (mean_absolute_error, mean_squared_error, r2_score):
+    for func in (fast_mean_absolute_error, fast_mean_squared_error, fast_r2_score):
         res = "{:{fmt}}".format(func(y_test, preds), fmt=format)
         mes += [f"{func.__name__}: {res}"]
     return ", ".join(mes)
@@ -250,7 +258,13 @@ def evaluate_estimators(
                         from ..utils.nan_safe import argmax_classes_safe
                         preds = argmax_classes_safe(probs, context="evaluation.reports")
 
-                    mes = f"Balanced accuracy on {test_size} samples: {balanced_accuracy_score(y_test_test,preds):.2%}"
+                    if nclasses == 2:
+                        _bal_acc = balanced_accuracy_binary(y_test_test, preds)
+                    else:
+                        # balanced_accuracy_binary is binary-only; multiclass recall-macro has no fast kernel.
+                        from sklearn.metrics import balanced_accuracy_score
+                        _bal_acc = balanced_accuracy_score(y_test_test, preds)
+                    mes = f"Balanced accuracy on {test_size} samples: {_bal_acc:.2%}"
                     if classification_thresholds is not None:
                         mes += "\n" + regression_stats(pd.Series(y_test_test).map(classification_thresholds), pd.Series(preds).map(classification_thresholds))
 
@@ -291,41 +305,61 @@ def evaluate_estimators(
                         labels_to_use = None
                         target_names_to_use = target_names
 
+                    # Ordered target-name list for the fast report/plot (their kernels index by
+                    # class 0..nclasses-1). target_names_to_use is a {label: display-name} dict.
+                    if isinstance(target_names_to_use, dict):
+                        _tn = [target_names_to_use.get(i, str(i)) for i in range(nclasses)]
+                    elif target_names_to_use is not None:
+                        _tn = list(target_names_to_use)
+                    else:
+                        _tn = None
+
                     if show_classification_report:
 
-                        classification_report_text = classification_report(y_test_test, preds, labels=labels_to_use, target_names=target_names_to_use)
+                        classification_report_text = format_classification_report(
+                            y_test_test, preds, nclasses=nclasses, target_names=_tn
+                        )
                         logger.info("classification report:\n%s", classification_report_text)
 
                         if results_log:
-                            classification_report_dict = classification_report(
-                                y_test_test, preds, labels=labels_to_use, target_names=target_names_to_use, output_dict=True
+                            hits, misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_avgs, weighted_avgs = (
+                                fast_classification_report(y_test_test, preds, nclasses=nclasses)
                             )
+                            classification_report_dict = {
+                                str((_tn[i] if _tn else i)): {
+                                    "precision": float(precisions[i]),
+                                    "recall": float(recalls[i]),
+                                    "f1-score": float(f1s[i]),
+                                    "support": int(supports[i]),
+                                }
+                                for i in range(nclasses)
+                            }
+                            classification_report_dict["accuracy"] = float(accuracy)
 
                             log_result(results_log, f"classification_report_dict", classification_report_dict)
                             log_result(results_log, f"classification_report_text", classification_report_text)
 
                     if show_confusion_matrix:
 
-                        # plot_confusion_matrix(pipe, X_test_test, y_test_test, display_labels=display_labels,normalize ='pred',values_format='.2%');
-
-                        cm = confusion_matrix(y_test_test, preds, labels=labels_to_use, normalize=cfm_normalize)
-                        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=display_labels)
-                        disp.plot(
-                            include_values=cfm_include_values,
+                        cm, _cm_labels = confusion_matrix_counts(y_test_test, preds, labels=labels_to_use)
+                        fig_cm, ax_cm = plot_confusion_matrix(
+                            y_test_test,
+                            preds,
+                            labels=labels_to_use,
+                            display_labels=display_labels,
+                            normalize=cfm_normalize,
                             cmap=cfm_cmap,
                             ax=cfm_ax,
-                            xticks_rotation=cfm_xticks_rotation,
                             values_format=cfm_values_format,
                             colorbar=cfm_colorbar,
                         )
 
-                        # plt.rcParams['axes.grid'] = False
-                        plt.grid(visible=None)
+                        ax_cm.grid(visible=None)
                         if confusion_matrix_file:
-                            plt.savefig(confusion_matrix_file, dpi=dpi, bbox_inches="tight")
+                            fig_cm.savefig(confusion_matrix_file, dpi=dpi, bbox_inches="tight")
 
                         # Library code must not leave figures open (memory leak under repeated evaluation) nor block on plt.show().
-                        plt.close(getattr(disp, "figure_", None) or plt.gcf())
+                        plt.close(fig_cm or plt.gcf())
 
                     if show_calibration_plot:
 
@@ -385,9 +419,43 @@ def evaluate_grouped(
     """
     if all_cats is None:
         all_cats = {}
-    from sklearn.metrics import classification_report
 
     target_names = {k: v for k, v in sorted(all_cats.items(), key=lambda item: item[1])}
+
+    def _report_dict(y_true, y_pred) -> dict:
+        """output_dict-style report (per-label + 'weighted avg') via our fast kernel.
+
+        Remaps the observed labels to 0..K-1 (fast_classification_report indexes by
+        contiguous class id), computes per-class precision/recall/f1/support, and
+        assembles the sklearn-shaped dict the callers below read ('support', 'precision',
+        'recall' per label plus the 'weighted avg' aggregate)."""
+        yt = np.asarray(y_true)
+        yp = np.asarray(y_pred)
+        labels_arr = np.unique(np.concatenate([yt.ravel(), yp.ravel()])) if yt.size or yp.size else np.array([])
+        K = len(labels_arr)
+        if K == 0:
+            return {}
+        pos = {lab: i for i, lab in enumerate(labels_arr)}
+        yt_pos = np.array([pos[v] for v in yt.ravel()], dtype=np.int64)
+        yp_pos = np.array([pos[v] for v in yp.ravel()], dtype=np.int64)
+        (hits, misses, accuracy, balanced_accuracy, supports, precisions,
+         recalls, f1s, macro_avgs, weighted_avgs) = fast_classification_report(yt_pos, yp_pos, nclasses=K)
+        out: dict = {}
+        for i, lab in enumerate(labels_arr):
+            out[str(lab)] = {
+                "precision": float(precisions[i]),
+                "recall": float(recalls[i]),
+                "f1-score": float(f1s[i]),
+                "support": int(supports[i]),
+            }
+        out["accuracy"] = float(accuracy)
+        out["weighted avg"] = {
+            "precision": float(weighted_avgs[0]),
+            "recall": float(weighted_avgs[1]),
+            "f1-score": float(weighted_avgs[2]),
+            "support": int(supports.sum()),
+        }
+        return out
 
     res = []
     with warnings.catch_warnings():
@@ -398,7 +466,7 @@ def evaluate_grouped(
             idx = X_test[by_column] == position
 
             preds = pipe.predict(X_test[idx])
-            rp = classification_report(y_test[idx], preds, labels=None, target_names=None, sample_weight=None, digits=2, output_dict=True, zero_division="warn")
+            rp = _report_dict(y_test[idx], preds)
 
             failed = False
             for label, stats in rp.items():
@@ -466,17 +534,17 @@ def plot_beautified_lift(
     Supported metrics: 'auroc', 'auprc', 'precision_at_top_decile', 'brier'.
     Returns the matplotlib Figure (does not call plt.show()).
     """
-    from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss
+    from mlframe.metrics.core import fast_roc_auc, fast_brier_score_loss, average_precision_score
 
     y = np.asarray(y)
     preds = np.asarray(preds, dtype=float)
 
     if metric == "auroc":
-        _score = roc_auc_score
+        _score = fast_roc_auc
     elif metric == "auprc":
         _score = average_precision_score
     elif metric == "brier":
-        _score = lambda y_, p_: brier_score_loss(y_, p_)
+        _score = lambda y_, p_: fast_brier_score_loss(y_, p_)
     elif metric == "precision_at_top_decile":
         _score = _precision_at_top_decile
     else:
@@ -521,14 +589,8 @@ def plot_pr_curve(
     (ROC / PR / SCORE_DIST / KS / THRESHOLD / GAIN); this helper stays for direct notebook use.
     Curve vertices are decimated to ~2000 points for plotting; all displayed metrics use full data.
     """
-    from sklearn.metrics import (
-        precision_recall_curve,
-        average_precision_score,
-        roc_curve,
-        auc,
-        brier_score_loss,
-        classification_report,
-    )
+    from sklearn.metrics import precision_recall_curve, auc
+    from mlframe.metrics.core import fast_brier_score_loss, average_precision_score, fast_roc_curve
 
     y = np.asarray(y)
     preds = np.asarray(preds, dtype=float)
@@ -553,7 +615,7 @@ def plot_pr_curve(
     else:
         fig = ax.figure
 
-    ax.set_title("PRC/ROC, BrierLoss=%.3f" % brier_score_loss(y, preds))
+    ax.set_title("PRC/ROC, BrierLoss=%.3f" % fast_brier_score_loss(y, preds))
     ax.step(recall, precision, color="b", alpha=0.4, label="PR AUC=%.2f/%.2fR" % (pr_auc, dummy_pr_auc), where="post")
     ax.fill_between(recall, precision, alpha=0.2, color="b", step="post")
     ax.step(dummy_recall, dummy_precision, color="r", alpha=0.1, where="post")
@@ -563,7 +625,7 @@ def plot_pr_curve(
     ax.set_ylim([0.0, 1.05])
     ax.set_xlim([0.0, 1.0])
 
-    fpr, tpr, _ = roc_curve(y, preds)
+    fpr, tpr, _ = fast_roc_curve(y, preds)
     roc_auc = auc(fpr, tpr)
     fpr_d, tpr_d = _decimate_curve_vertices((fpr, tpr))
     ax.plot(fpr_d, tpr_d, "b", label="ROC AUC=%0.3f" % roc_auc)
@@ -581,7 +643,7 @@ def plot_pr_curve(
         fig.savefig(save_as, bbox_inches="tight")
 
     try:
-        logger.info("classification report at thresh=%s:\n%s", thresh, classification_report(y, preds > thresh))
+        logger.info("classification report at thresh=%s:\n%s", thresh, format_classification_report(y, (preds > thresh).astype(np.int64), nclasses=2))
     except Exception as exc:
         logger.warning("classification_report failed: %s", exc)
 
@@ -600,12 +662,13 @@ def plot_roc_curve(
     Source: OldEnsembling.plot_roc (preferred over the Models.py duplicate
     because it includes the calibration overlay).
     """
-    from sklearn.metrics import roc_curve, auc
+    from sklearn.metrics import auc
+    from mlframe.metrics.core import fast_roc_curve
 
     y = np.asarray(y)
     preds = np.asarray(preds, dtype=float)
 
-    fpr, tpr, _ = roc_curve(y, preds)
+    fpr, tpr, _ = fast_roc_curve(y, preds)
     roc_auc = auc(fpr, tpr)
     fpr_d, tpr_d = _decimate_curve_vertices((fpr, tpr))
 

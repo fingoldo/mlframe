@@ -101,10 +101,10 @@ from sklearn.pipeline import Pipeline
 try:
     from sklearn.metrics import root_mean_squared_error  # noqa: F401
 except ImportError:
-    from sklearn.metrics import mean_squared_error
+    from mlframe.metrics.core import fast_mean_squared_error
 
     def root_mean_squared_error(y_true, y_pred, *, sample_weight=None, multioutput="uniform_average"):
-        output_errors = np.sqrt(mean_squared_error(y_true, y_pred, sample_weight=sample_weight, multioutput="raw_values"))
+        output_errors = np.sqrt(fast_mean_squared_error(y_true, y_pred, sample_weight=sample_weight, multioutput="raw_values"))
         if isinstance(multioutput, str):
             if multioutput == "raw_values":
                 return output_errors
@@ -590,7 +590,7 @@ def _compute_metric(metric: str, y_true: np.ndarray, y_pred: np.ndarray) -> floa
     Without this guard, callers passing 2-D probs hit sklearn's
     ``ValueError: bad input shape`` deep inside the metric.
     """
-    from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss, mean_squared_error
+    from mlframe.metrics.core import fast_roc_auc, average_precision_score, fast_brier_score_loss, fast_mean_squared_error
 
     y_pred = np.asarray(y_pred)
     if y_pred.ndim == 2 and y_pred.shape[1] == 2:
@@ -599,13 +599,13 @@ def _compute_metric(metric: str, y_true: np.ndarray, y_pred: np.ndarray) -> floa
     if metric == "roc_auc":
         if len(np.unique(y_true)) < 2:
             return float("nan")
-        return float(roc_auc_score(y_true, y_pred))
+        return float(fast_roc_auc(np.asarray(y_true), y_pred))
     if metric == "average_precision":
-        return float(average_precision_score(y_true, y_pred))
+        return float(average_precision_score(np.asarray(y_true), y_pred))
     if metric == "brier":
-        return float(brier_score_loss(y_true, y_pred))
+        return float(fast_brier_score_loss(np.asarray(y_true), y_pred))
     if metric == "mse":
-        return float(mean_squared_error(y_true, y_pred))
+        return float(fast_mean_squared_error(y_true, y_pred))
     raise ValueError(f"Unsupported metric: {metric}")
 
 

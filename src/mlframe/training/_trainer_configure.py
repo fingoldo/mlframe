@@ -43,13 +43,11 @@ from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_c
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import (
-    mean_absolute_error,
     max_error,
-    r2_score,
     root_mean_squared_error,
     make_scorer,
-    classification_report,
 )
+from mlframe.metrics.core import fast_mean_absolute_error
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoostingClassifier
 from sklearn.utils.validation import check_is_fitted
@@ -312,7 +310,7 @@ def configure_training_params(
         metamodel_func = _identity
 
     if default_regression_scoring is None:
-        default_regression_scoring = dict(score_func=mean_absolute_error, response_method="predict", greater_is_better=False)
+        default_regression_scoring = dict(score_func=fast_mean_absolute_error, response_method="predict", greater_is_better=False)
 
     if default_classification_scoring is None:
         default_classification_scoring = dict(score_func=fast_roc_auc, response_method="predict_proba", greater_is_better=True)

@@ -24,11 +24,6 @@ try:
 except ImportError:
     plt = None  # type: ignore[assignment] -- plot branches gated; headless envs skip
 
-try:
-    from sklearn.metrics import classification_report
-except ImportError:
-    classification_report = None  # type: ignore[assignment] -- only used in optional sklearn-multilabel report path
-
 from sklearn.base import ClassifierMixin, RegressorMixin, is_classifier
 # Metrics: use mlframe's fast njit versions, not sklearn
 from sklearn.preprocessing import LabelEncoder

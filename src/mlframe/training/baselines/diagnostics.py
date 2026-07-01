@@ -194,13 +194,13 @@ def _compute_metric(
         diff = y_true.astype(np.float64) - y_pred.astype(np.float64)
         return float(np.sqrt(np.mean(diff * diff)))
     if metric_name == "AUC":
-        from sklearn.metrics import roc_auc_score
+        from mlframe.metrics.core import fast_roc_auc
         # Single-class evaluation set (e.g. tiny val sample where one
         # class is missing) -> AUC undefined; report nan and let caller
         # decide. Caller already guards on min sample size.
         if len(np.unique(y_true)) < 2:
             return float("nan")
-        return float(roc_auc_score(y_true, y_pred))
+        return float(fast_roc_auc(y_true, y_pred))
     raise ValueError(f"Unsupported metric: {metric_name}")
 
 

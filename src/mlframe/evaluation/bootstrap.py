@@ -633,12 +633,12 @@ def auc_ci(
     it is instant / deterministic / RNG-free. Re-run the named bench before claiming a DeLong accuracy edge.
     """
     if method == "bootstrap":
-        from sklearn.metrics import roc_auc_score
+        from mlframe.metrics.core import fast_roc_auc
 
         yt = np.asarray(y_true).ravel()
         sc = np.asarray(score, dtype=np.float64).ravel()
         res = bootstrap_metric(
-            yt, sc, lambda a, b: float(roc_auc_score(a, b)),
+            yt, sc, lambda a, b: float(fast_roc_auc(a, b)),
             n_bootstrap=n_bootstrap, alpha=alpha, random_state=random_state,
             stratify=yt, method="bca",
         )

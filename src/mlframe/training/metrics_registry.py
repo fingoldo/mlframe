@@ -459,10 +459,10 @@ def _register_builtin_multi_target_regression():
                 weakest target rather than the average).
     """
     import numpy as _np
-    from sklearn.metrics import (
-        mean_absolute_error as _mae_fn,
-        mean_squared_error as _mse_fn,
-        r2_score as _r2_fn,
+    from mlframe.metrics.core import (
+        fast_mean_absolute_error as _mae_fn,
+        fast_mean_squared_error as _mse_fn,
+        fast_r2_score as _r2_fn,
     )
 
     def _coerce_nk(y_true, preds):

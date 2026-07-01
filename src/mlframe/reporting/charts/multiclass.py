@@ -357,7 +357,8 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
     (it reads the same stratified subsample). A wide bracket on a rare class flags that its
     AUC is not yet pinned down by the data, which a single point estimate hides.
     """
-    from sklearn.metrics import auc, roc_curve
+    from sklearn.metrics import auc
+    from mlframe.metrics.core import fast_roc_curve
     from mlframe.reporting.charts.calibration import delong_auc_ci
 
     K = len(classes)
@@ -391,7 +392,7 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
             labels.append(f"{classes[k]} (n/a)")
             colors.append(_class_color(k))
             continue
-        fpr, tpr, _ = roc_curve(bin_y, col)
+        fpr, tpr, _ = fast_roc_curve(bin_y, col)
         roc_auc = auc(fpr, tpr)
         curve = np.interp(x_grid, fpr, tpr)
         interpolated.append(curve)
@@ -444,7 +445,8 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_s
     ``class_subset`` (composer passes one past the large-K threshold) restricts the drawn curves to those class
     indices and appends a macro-average PR curve, so large K shows ~8 readable curves + macro instead of K.
     """
-    from sklearn.metrics import average_precision_score, precision_recall_curve
+    from sklearn.metrics import precision_recall_curve
+    from mlframe.metrics.core import average_precision_score
 
     K = len(classes)
     draw_idx = list(range(K)) if class_subset is None else [int(k) for k in class_subset]

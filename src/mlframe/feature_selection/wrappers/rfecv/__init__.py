@@ -31,7 +31,7 @@ from sklearn.base import (
     is_regressor,
 )
 from sklearn.dummy import DummyClassifier, DummyRegressor  # noqa: F401
-from sklearn.metrics import make_scorer, mean_squared_error
+from sklearn.metrics import make_scorer  # noqa: F401
 from sklearn.model_selection import (
     GroupKFold,
     GroupShuffleSplit,  # noqa: F401

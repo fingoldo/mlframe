@@ -34,7 +34,6 @@ from xgboost.callback import TrainingCallback
 
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
 
 from pyutilz.system import get_gpuinfo_gpu_info, tqdmu, get_own_memory_usage

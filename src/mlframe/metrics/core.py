@@ -13,7 +13,7 @@ from scipy.special import expit
 import matplotlib
 from matplotlib import pyplot as plt
 import numpy as np, pandas as pd, polars as pl
-from sklearn.metrics import log_loss, average_precision_score
+from sklearn.metrics import log_loss  # multiclass log-loss re-export; average_precision_score is OUR own (see _core_auc_brier import below)
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
 from collections import defaultdict
@@ -65,6 +65,7 @@ from ._core_cb_logits import (  # noqa: F401, E402
 # ``make_brier_precision_scorer``) resolve at module scope.
 from ._core_auc_brier import (  # noqa: F401, E402
     fast_roc_auc, fast_roc_auc_unstable, fast_numba_auc_nonw, fast_numba_auc_weighted,
+    fast_roc_curve, average_precision_score,
     make_bootstrap_auc_resampler,
     fast_aucs, fast_numba_aucs, fast_numba_aucs_with_ks,
     _fast_brier_score_loss_seq, _fast_brier_score_loss_par,

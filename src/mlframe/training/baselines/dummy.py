@@ -76,13 +76,6 @@ if sklearn.__version__ < "1.0":
     )
 
 from sklearn.dummy import DummyClassifier, DummyRegressor
-from sklearn.metrics import (
-    log_loss,
-    mean_absolute_error,
-    mean_pinball_loss,
-    mean_squared_error,
-    roc_auc_score,
-)
 
 from .diagnostics import _to_1d_numpy
 from ..evaluation import _canonical_multilabel_y

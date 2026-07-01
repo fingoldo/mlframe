@@ -30,7 +30,8 @@ import pandas as pd, polars as pl
 from typing import Optional, Dict, Any, Union
 from types import SimpleNamespace
 from pyutilz.system import clean_ram
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score  # multiclass one-vs-rest only; binary path uses fast_roc_auc
+from mlframe.metrics.core import fast_roc_auc
 
 from .configs import AutoMLConfig
 from .utils import log_ram_usage, get_pandas_view_of_polars_df
@@ -130,7 +131,7 @@ def train_autogluon_model(
                 if test_probs.ndim == 2 and test_probs.shape[1] > 2:
                     auc = roc_auc_score(test_target, test_probs, multi_class='ovr')
                 else:
-                    auc = roc_auc_score(test_target, test_probs[:, 1])
+                    auc = fast_roc_auc(np.asarray(test_target), test_probs[:, 1])
                 logger.info("AutoGluon test AUC: %.4f", auc)
                 metrics["test_auc"] = auc
             except (ValueError, TypeError):
@@ -264,7 +265,7 @@ def train_lama_model(
                 if test_probs.ndim == 2 and test_probs.shape[1] > 2:
                     auc = roc_auc_score(test_target, test_probs, multi_class='ovr')
                 else:
-                    auc = roc_auc_score(test_target, test_probs[:, 1])
+                    auc = fast_roc_auc(np.asarray(test_target), test_probs[:, 1])
                 logger.info("LAMA test AUC: %.4f", auc)
                 metrics["test_auc"] = auc
             except (ValueError, TypeError):

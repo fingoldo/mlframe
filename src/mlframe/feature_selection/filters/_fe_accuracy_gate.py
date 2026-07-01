@@ -68,8 +68,8 @@ def measure_feature_uplift(
     X_base, X_eng, y = X_base[finite], X_eng[finite], y[finite]
 
     from sklearn.linear_model import LogisticRegression, Ridge
-    from sklearn.metrics import accuracy_score, r2_score, roc_auc_score
     from sklearn.model_selection import KFold, StratifiedKFold
+    from mlframe.metrics.core import fast_roc_auc, fast_r2_score
     from sklearn.preprocessing import StandardScaler
 
     X_aug = np.concatenate([X_base, X_eng], axis=1)
@@ -101,11 +101,13 @@ def measure_feature_uplift(
                     m = LogisticRegression(max_iter=200, C=1.0)
                     m.fit(Xt, y_enc[tr])
                     if binary:
-                        return roc_auc_score(y_enc[va], m.predict_proba(Xv)[:, 1])
-                    return accuracy_score(y_enc[va], m.predict(Xv))
+                        return fast_roc_auc(y_enc[va], m.predict_proba(Xv)[:, 1])
+                    # Multiclass accuracy (fraction correct); accuracy_ratio is CAP-AR (2*AUC-1),
+                    # a different quantity, so compute the exact hit-rate directly.
+                    return float(np.mean(y_enc[va] == m.predict(Xv)))
                 m = Ridge(alpha=1.0)
                 m.fit(Xt, y_enc[tr])
-                return r2_score(y_enc[va], m.predict(Xv))
+                return fast_r2_score(y_enc[va], m.predict(Xv))
 
             deltas.append(_score(X_aug) - _score(X_base))
     except Exception as exc:  # pragma: no cover - the probe must never break a fit

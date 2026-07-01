@@ -177,12 +177,12 @@ def _oof_r2(Xs: np.ndarray, y: np.ndarray, n_components: int, gamma: float, alph
     from sklearn.kernel_approximation import RBFSampler
     from sklearn.linear_model import Ridge
     from sklearn.model_selection import KFold, cross_val_predict
-    from sklearn.metrics import r2_score
+    from mlframe.metrics.core import fast_r2_score
 
     rbf = RBFSampler(gamma=gamma, n_components=n_components, random_state=seed)
     Phi = rbf.fit_transform(Xs)
     pred = cross_val_predict(Ridge(alpha=alpha), Phi, y, cv=KFold(n_splits, shuffle=True, random_state=seed))
-    return float(r2_score(y, pred))
+    return float(fast_r2_score(y, pred))
 
 
 # ---------------------------------------------------------------------------------------------

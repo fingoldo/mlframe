@@ -55,10 +55,10 @@ def render_mtr_report(
     # same build_regression_panel_spec -> render_and_save pipeline as the single-target report.
     if plot_outputs and plot_file:
         try:
-            from sklearn.metrics import (
-                mean_absolute_error as _mae_for_chart,
-                mean_squared_error as _mse_for_chart,
-                r2_score as _r2_for_chart,
+            from mlframe.metrics.core import (
+                fast_mean_absolute_error as _mae_for_chart,
+                fast_root_mean_squared_error as _rmse_for_chart,
+                fast_r2_score as _r2_for_chart,
             )
             from mlframe.reporting.charts.regression import build_regression_panel_spec
             from mlframe.reporting.output import parse_plot_output_dsl
@@ -86,7 +86,7 @@ def render_mtr_report(
                     continue
                 _audit_k = audit_residuals(_yt_k[_mask_k], _yp_k[_mask_k], seed=42)
                 _mae_k = float(_mae_for_chart(_yt_k[_mask_k], _yp_k[_mask_k]))
-                _rmse_k = float(np.sqrt(_mse_for_chart(_yt_k[_mask_k], _yp_k[_mask_k])))
+                _rmse_k = float(_rmse_for_chart(_yt_k[_mask_k], _yp_k[_mask_k]))
                 _r2_k = float(_r2_for_chart(_yt_k[_mask_k], _yp_k[_mask_k]))
                 _metrics_str = (
                     f"target {_k_idx}: R^2={_r2_k:+.4f} "

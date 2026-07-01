@@ -50,8 +50,8 @@ from typing import Callable
 import numpy as np
 from sklearn.base import BaseEstimator, is_regressor, clone
 from sklearn.utils.validation import check_is_fitted
-from sklearn.metrics import accuracy_score
 from sklearn.linear_model import SGDClassifier
+from mlframe.metrics.core import accuracy_ratio, fast_root_mean_squared_error
 
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
@@ -83,7 +83,7 @@ class EarlyStoppingWrapper(BaseEstimator):
         tolerance: float = 0.0,
         # CV
         validation_fraction: float = 0.1,
-        scoring: Callable = accuracy_score,
+        scoring: Callable = accuracy_ratio,
         warm_start_step: int = None,
         random_state: int = None,
     ):
@@ -100,10 +100,8 @@ class EarlyStoppingWrapper(BaseEstimator):
         in when the caller left the default scorer in place.
         """
         scoring = self.scoring
-        if self._is_regressor and scoring is accuracy_score:
-            from sklearn.metrics import mean_squared_error
-
-            scoring = lambda _yt, _yp: -float(np.sqrt(mean_squared_error(_yt, _yp)))  # noqa: E731
+        if self._is_regressor and scoring is accuracy_ratio:
+            scoring = lambda _yt, _yp: -float(fast_root_mean_squared_error(_yt, _yp))  # noqa: E731
         return scoring
 
     def _split(self, X, y):
@@ -338,4 +336,4 @@ if __name__ == "__main__":
     early_stopping_model.fit(X_train, y_train)
     y_pred = early_stopping_model.predict(X_test)
 
-    print(f"Accuracy: {accuracy_score(y_test, y_pred)}")
+    print(f"Accuracy: {accuracy_ratio(y_test, y_pred)}")
