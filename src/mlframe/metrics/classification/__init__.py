@@ -42,3 +42,8 @@ from ._classification_extras import (  # noqa: F401
     hosmer_lemeshow_test,
     accuracy_ratio,
 )
+
+from ._threshold_optimization import (  # noqa: F401
+    optimal_threshold,
+    THRESHOLD_METRICS,
+)
