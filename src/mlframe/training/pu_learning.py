@@ -154,7 +154,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
     auto_strategy_unbiased_count_threshold : int, default 1000
         For ``strategy="auto"``: use ``unbiased_only`` if the unbiased
         subset has at least this many positive AND this many negative
-        samples; else fall back to ``importance_weighted``.
+        samples; else fall back to ``prior_shift_correction``.
 
     Attributes
     ----------
@@ -397,7 +397,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
             logger.warning(
                 "Estimated c=%.4f is below %.2f -- recovered probabilities "
                 "f(x)=g(x)/c will be sensitive to noise in g(x). Consider "
-                "switching to unbiased_only or importance_weighted; both "
+                "switching to unbiased_only or prior_shift_correction; both "
                 "tend to beat elkan_noto when the unbiased subset is small.",
                 self.c_, self.min_c_warn,
             )

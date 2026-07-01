@@ -4,55 +4,39 @@ from __future__ import annotations
 import numpy as np
 from numba import njit
 from scipy.stats import rankdata
-from sklearn.metrics import roc_auc_score, brier_score_loss
 from sklearn.utils import check_random_state
+# Project numba metrics, proven sklearn-equivalent by mlframe.metrics tests; used here over
+# sklearn.metrics.{roc_auc_score,brier_score_loss} to avoid sklearn call overhead in the hot loop.
+from mlframe.metrics.core import fast_roc_auc, fast_brier_score_loss
 
 
-@njit(cache=True)
-def generate_probs_from_outcomes(
-    outcomes: np.ndarray, chunk_size: int = 20, scale: float = 0.1, nbins: int = 10, bins_std: float = 0.1, flip_percent: float = 0.6, random_state: int = 0
+@njit(cache=True, nogil=True)
+def _generate_probs_from_outcomes_kernel(
+    outcomes: np.ndarray,
+    indices: np.ndarray,
+    bin_offsets: np.ndarray,
+    noise: np.ndarray,
+    chunk_size: int,
+    scale: float,
+    nbins: int,
+    flip_percent: float,
 ) -> np.ndarray:
-    """Can we generate hypothetical ground truth probs knowing the outcomes in advance?
-    Our model probs will (hopefully) be calibrated. So, we need synthetic probs to be calibrated, too. With some degree of fitness.
-    We also need to cover broad range of probs.
-    So, how to achieve this?
-
-    0)  if flip_percent is specified, for a random portion of data zeroes and ones are flipped. this will lower ROC AUC.
-        Indices to flip are drawn WITHOUT replacement so exactly ``floor(n*flip_percent)``
-        distinct observations are flipped.
-    1) we can work with small random chunks/subsets of data
-    2) for every chunk, its real freq is computed.
-    3) for every observation, 'exact' prob is drawn from some distribution (uniform or, say, gaussian) with center in real freq.
-    then, if bins_std is specified, constant bin noise is applied to all observations of the chunk.
-
-    final result is clipped to [0,1]
+    """Pure-compute njit core: all randomness (``indices`` permutation, per-bin ``bin_offsets``,
+    per-row ``noise``) is drawn by the Python wrapper from a per-call seeded Generator and passed
+    in, so this kernel is deterministic AND thread-safe (no process-global / njit-global RNG state).
+    ``noise`` is a length-n uniform-[0,1) draw sliced per chunk in the same order the old per-chunk
+    ``np.random.random(size=chunk_size)`` consumed it.
     """
-    # Seed numba's (njit-local) RNG from ``random_state`` so the synthetic probs are reproducible at a fixed seed. numba's RNG is independent of numpy's process-global
-    # stream, so callers' ``np.random`` state is untouched.
-    np.random.seed(random_state)
     n = len(outcomes)
-    indices = np.arange(n)
-    np.random.shuffle(indices)
-
-    # Wave 24 P0 (2026-05-20): pre-fix used ``np.empty`` for ``probs``;
-    # the chunked loop below terminates at ``r = (n // chunk_size) *
-    # chunk_size`` which is STRICTLY LESS than n whenever
-    # ``n % chunk_size != 0``. Rows ``[r:n]`` were never written and
-    # contained whatever garbage np.empty allocated. The final
-    # ``np.clip(probs, 0, 1)`` only fixed values outside [0,1] -- any
-    # garbage that happened to land in range slipped through silently.
-    # Use zeros so the worst case is a tail of zeros (which downstream
-    # detectors recognise) rather than arbitrary uninitialised floats.
+    # ``np.zeros`` (not empty): the chunk loop stops at ``r = (n // chunk_size) * chunk_size < n``
+    # when ``n % chunk_size != 0``; the residual block below fills the tail, but zero-init keeps
+    # the worst case a recognisable tail of zeros rather than uninitialised garbage.
     probs = np.zeros(n, dtype=np.float32)
-    bin_offsets = (np.random.random(size=nbins) - 0.5) * bins_std
 
     if flip_percent:
-        # Flip some bits to worsen our so far perfect predictive power. Previous impl used
-        # np.random.choice(indices, size=flip_size) which samples WITH replacement: duplicates
-        # flip the same index twice (a no-op), so fewer than flip_size observations ended up
-        # flipped. The shuffled `indices` above already gives a uniform random permutation, so
-        # taking the first flip_size entries is a without-replacement sample — exactly what the
-        # flip_percent contract wants.
+        # Without-replacement flip: ``indices`` is already a uniform permutation, so its first
+        # ``floor(n*flip_percent)`` entries are a without-replacement sample (WITH-replacement
+        # np.random.choice would let duplicates cancel and flip fewer than requested).
         flip_size = int(n * flip_percent)
         if flip_size:
             outcomes = outcomes.copy()
@@ -72,26 +56,56 @@ def generate_probs_from_outcomes(
         freq = freq + bin_offsets[bin_idx]
 
         # add small symmetric random noise. it must be higher when freq approaches [0;1] borders.
-        probs[l:r] = freq + (np.random.random(size=chunk_size) - 0.5) * scale * np.abs(freq - 0.5)
+        probs[l:r] = freq + (noise[l:r] - 0.5) * scale * np.abs(freq - 0.5)
 
         l = r
 
-    # Wave 24 P0 follow-up: handle the tail rows ``[l:n]`` that the
-    # chunked loop above skipped when ``n % chunk_size != 0``. Pre-fix
-    # those rows kept their np.empty-allocated garbage value; post-fix
-    # the ``np.zeros`` init makes the worst case a tail of zeros, but
-    # we should still compute a meaningful freq for them. Use the same
-    # per-chunk synthesis routine on the residual.
+    # Residual tail rows ``[l:n]`` the chunked loop skipped when ``n % chunk_size != 0``.
     if l < n:
-        _resid = n - l
         freq = outcomes[l:n].mean()
         bin_idx = int(freq * nbins)
         if bin_idx >= nbins:
             bin_idx = nbins - 1
         freq = freq + bin_offsets[bin_idx]
-        probs[l:n] = freq + (np.random.random(size=_resid) - 0.5) * scale * np.abs(freq - 0.5)
+        probs[l:n] = freq + (noise[l:n] - 0.5) * scale * np.abs(freq - 0.5)
 
     return np.clip(probs, 0.0, 1.0)
+
+
+def generate_probs_from_outcomes(
+    outcomes: np.ndarray, chunk_size: int = 20, scale: float = 0.1, nbins: int = 10, bins_std: float = 0.1, flip_percent: float = 0.6, random_state: int = 0
+) -> np.ndarray:
+    """Generate hypothetical, roughly-calibrated ground-truth probs from known outcomes.
+
+    Our model probs will (hopefully) be calibrated, so the synthetic probs must be calibrated too, with
+    some fitness, and cover a broad prob range:
+
+    0)  if flip_percent is specified, a random WITHOUT-replacement portion of data has zeroes/ones flipped
+        (lowers ROC AUC): exactly ``floor(n*flip_percent)`` distinct observations flip.
+    1) work with small random chunks/subsets of data;
+    2) for every chunk compute its real freq;
+    3) draw each observation's 'exact' prob around the chunk freq, plus a constant per-bin ``bins_std`` noise.
+
+    Final result is clipped to [0,1].
+
+    Reproducibility / thread-safety: ALL randomness (the row permutation, per-bin offsets, per-row noise) is
+    drawn HERE from a per-call ``np.random.default_rng(random_state)`` and passed into the pure-compute njit
+    kernel. The previous version called ``np.random.seed(random_state)`` INSIDE the njit body, which mutates
+    numba's njit-GLOBAL RNG stream -- racy under concurrent threaded callers (one thread's seed clobbers
+    another's mid-flight, so results depended on inter-thread ordering). Threading a per-call Generator makes
+    the output a deterministic function of ``random_state`` alone, independent of concurrency, and leaves both
+    numpy's and numba's global RNG state untouched.
+    """
+    outcomes = np.asarray(outcomes)
+    n = len(outcomes)
+    rng = np.random.default_rng(random_state)
+    indices = rng.permutation(n).astype(np.int64)
+    bin_offsets = (rng.random(size=nbins) - 0.5) * bins_std
+    # One length-n uniform draw sliced per chunk (same consumption order as the old per-chunk draws).
+    noise = rng.random(size=n) if n else np.empty(0, dtype=np.float64)
+    return _generate_probs_from_outcomes_kernel(
+        outcomes, indices, bin_offsets, noise, int(chunk_size), float(scale), int(nbins), float(flip_percent)
+    )
 
 
 from scipy.special import logit, expit
@@ -165,8 +179,8 @@ def generate_similar_probs(predicted_probs, true_outcomes, noise_scale=0.05, n_i
         np.ndarray: A similar_probs array with approximately the same Brier Score and ROC AUC.
     """
     rng = check_random_state(random_state)
-    original_brier_score = brier_score_loss(true_outcomes, predicted_probs)
-    original_auc = roc_auc_score(true_outcomes, predicted_probs)
+    original_brier_score = fast_brier_score_loss(true_outcomes, predicted_probs)
+    original_auc = fast_roc_auc(true_outcomes, predicted_probs)
 
     similar_probs = None
     # Track the best candidate seen so far (minimum joint distance to the target metrics)
@@ -182,8 +196,8 @@ def generate_similar_probs(predicted_probs, true_outcomes, noise_scale=0.05, n_i
         noisy_probs = np.clip(noisy_probs, 0, 1)
 
         # Calculate new Brier Score and AUC
-        new_brier_score = brier_score_loss(true_outcomes, noisy_probs)
-        new_auc = roc_auc_score(true_outcomes, noisy_probs)
+        new_brier_score = fast_brier_score_loss(true_outcomes, noisy_probs)
+        new_auc = fast_roc_auc(true_outcomes, noisy_probs)
 
         score = abs(new_brier_score - original_brier_score) / max(abs(original_brier_score), 1e-12) + \
                 abs(new_auc - original_auc) / max(abs(original_auc), 1e-12)

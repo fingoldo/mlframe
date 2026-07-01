@@ -43,6 +43,28 @@ SMALL_SAMPLE_THRESHOLD: int = 1000
 
 CANDIDATE_NAMES: tuple[str, ...] = ("Sigmoid", "Isotonic", "Beta", "Spline")
 
+# RAM ceiling (bytes) for the one-time (n_bootstrap x n) int64 resample-index matrix in
+# ``_build_resample_indices``. The matrix draw-order is pinned (chunking / dtype change benched +
+# rejected, see that docstring), so instead of silently allocating an oversized matrix we raise a
+# clear MemoryError with the projected size + remediation before the ``np.empty`` alloc. Default
+# ~1 GiB; override at runtime via ``MLFRAME_CALIBRATION_RESAMPLE_MAX_BYTES`` (read per-call).
+DEFAULT_RESAMPLE_MATRIX_MAX_BYTES: int = 1 << 30
+
+
+def _resample_matrix_max_bytes() -> int:
+    """RAM ceiling (bytes) for the resample-index matrix; env-overridable per call."""
+    raw = os.environ.get("MLFRAME_CALIBRATION_RESAMPLE_MAX_BYTES")
+    if raw is None or not raw.strip():
+        return DEFAULT_RESAMPLE_MATRIX_MAX_BYTES
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning(
+            "MLFRAME_CALIBRATION_RESAMPLE_MAX_BYTES=%r is not an int; using default %d",
+            raw, DEFAULT_RESAMPLE_MATRIX_MAX_BYTES,
+        )
+        return DEFAULT_RESAMPLE_MATRIX_MAX_BYTES
+
 
 try:
     from numba import njit as _njit  # type: ignore
@@ -133,8 +155,39 @@ def _ece_score_idx_numba_serial(y: np.ndarray, p: np.ndarray, idx: np.ndarray, n
     return total / n_finite
 
 
+def _normalize_binary_labels(y: np.ndarray) -> np.ndarray:
+    """Validate + map ``y`` to {0, 1} for the ECE kernel (which is correct only there).
+
+    The numba ECE kernel computes per-bin accuracy as ``mean(y in bin)``, valid only for
+    ``y in {0, 1}``. Non-0/1 encodings ({-1,+1}, {1,2}, ...) make that accuracy meaningless
+    and the reported ECE silently wrong, so -- mirroring the explicit 0/1 guard
+    ``auc_variance`` / ``delong_test`` enforce -- require exactly two distinct FINITE values
+    and map the larger to 1, the smaller to 0. Already-{0,1} input is returned as an int
+    array unchanged in ordering (max==1 -> positive stays 1). NaNs in ``y`` are ignored for
+    the distinct-value check (the kernel skips non-finite rows) but must leave >= 2 finite
+    values, else there is no valid binary label set and we raise.
+    """
+    arr = np.asarray(y).ravel()
+    finite = arr[np.isfinite(arr.astype(np.float64))] if arr.dtype.kind == "f" else arr
+    uniq = np.unique(finite)
+    if uniq.size != 2:
+        raise ValueError(
+            f"_ece_score: y_true must have exactly 2 distinct (finite) label values for binary "
+            f"ECE; got {uniq.size} distinct value(s): {uniq.tolist()[:10]}"
+        )
+    if uniq[0] == 0 and uniq[1] == 1:
+        return arr.astype(np.int64)
+    hi = uniq.max()
+    return (arr == hi).astype(np.int64)
+
+
 def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE_NBINS) -> float:
     """Equal-width ECE over ``n_bins`` for binary probability ``p_pred[:, 1]`` or 1-D ``p_pred``.
+
+    ``y_true`` is validated + normalised to {0, 1} (see ``_normalize_binary_labels``): the ECE
+    kernel's per-bin accuracy ``mean(y in bin)`` is correct only for 0/1 labels, so non-0/1
+    encodings ({-1,+1}, {1,2}, ...) are remapped (larger value -> 1) and inputs without exactly
+    two distinct finite labels raise -- mirroring the 0/1 guard in ``auc_variance``/``delong_test``.
 
     Standard ECE: ``sum_b (|B_b| / N) * |acc(B_b) - conf(B_b)|`` over equal-width
     confidence bins on ``[0, 1]``. Returns nan when ``p_pred`` is empty or all-nan.
@@ -177,7 +230,8 @@ def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE
     ):
         if p_pred.size == 0 or y_true.size != p_pred.size:
             return float("nan")
-        return _ece_score_numba_serial(y_true, p_pred, int(n_bins))
+        y_norm = _normalize_binary_labels(y_true)
+        return _ece_score_numba_serial(y_norm, p_pred, int(n_bins))
     p = np.asarray(p_pred, dtype=np.float64)
     if p.ndim == 2 and p.shape[1] >= 2:
         p = p[:, 1]
@@ -188,8 +242,10 @@ def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE
     # numba dispatch widens at the accumulator, identical to the upfront
     # cast result. Bench n=100k: int64 1.40x, int8 1.27x, float64 0.99x
     # (no harm); n=25k int64 (bootstrap typical) 1.33x. Bit-equivalent.
-    y = np.ascontiguousarray(np.asarray(y_true).ravel())
-    if p.size == 0 or y.size != p.size:
+    if p.size == 0:
+        return float("nan")
+    y = np.ascontiguousarray(_normalize_binary_labels(y_true))
+    if y.size != p.size:
         return float("nan")
     return _ece_score_numba_serial(y, p, int(n_bins))
 
@@ -278,22 +334,38 @@ def _build_resample_indices(
     the identical resample per candidate (every candidate shares n / stratify /
     seed; only y_pred differs).
 
-    RAM ceiling: the matrix is ``n_bootstrap x resample_len`` int64 ->
-    ``8 * n_bootstrap * n`` bytes (~0.8 GB at n=200k, ~2 GB at n=500k for the
-    1000-resample default). This is a ONE-TIME shared allocation reused across
-    ALL candidates (not a per-candidate or per-resample hot copy), so it does
-    not compound; OOF-train ECE inputs are the calibration set (typically
-    << the 100 GB feature frame), so the ceiling is acceptable. If a caller
-    ever bootstraps an OOF set so large this matrix dominates RAM, lower
-    ``n_bootstrap`` rather than materialising it. A chunked-block stream (cap peak to ``8 * block * n``) is
-    bit-identical and ~15x smaller at block=64 but forces a per-block candidate re-walk; benched + rejected as
-    unjustified for the small one-time shared alloc (_benchmarks/bench_resample_index_ram_chunked.py).
+    RAM ceiling: the matrix is ``n_bootstrap x resample_len`` **int32** ->
+    ``4 * n_bootstrap * n`` bytes (~0.4 GB at n=200k, ~1 GB at n=500k for the
+    1000-resample default). Resample indices live in ``[0, n)`` with n far below
+    2**31, so int32 stores them exactly. Crucially, ``np.random.Generator.integers``
+    consumes entropy based on the *range* [0, n), not the requested output dtype,
+    so the int32 draws are BIT-IDENTICAL to the former int64 draws (verified) --
+    the pinned bootstrap draw-order (which downstream ECE CIs depend on) is fully
+    preserved while peak RAM is halved. This is a ONE-TIME shared allocation reused
+    across ALL candidates, so it does not compound.
+
+    A proactive size guard computes the projected ``4 * n_bootstrap * n`` bytes
+    BEFORE any allocation and raises ``MemoryError`` (with the projected GiB +
+    advice to lower ``n_bootstrap``) once it exceeds ``_resample_matrix_max_bytes()``
+    (default ~1 GiB, override via ``MLFRAME_CALIBRATION_RESAMPLE_MAX_BYTES``), so an
+    oversized request fails early and explicitly instead of OOM-ing the process.
     """
+    projected_bytes = 4 * int(n_bootstrap) * int(n)
+    ceiling = _resample_matrix_max_bytes()
+    if projected_bytes > ceiling:
+        raise MemoryError(
+            f"_build_resample_indices: projected resample-index matrix is "
+            f"{projected_bytes / (1 << 30):.2f} GiB (n_bootstrap={n_bootstrap} x n={n} x 4 bytes), "
+            f"exceeding the {ceiling / (1 << 30):.2f} GiB ceiling. Lower n_bootstrap, or raise "
+            f"MLFRAME_CALIBRATION_RESAMPLE_MAX_BYTES if the RAM is available."
+        )
     rng = np.random.default_rng(random_state)
     if stratify is None:
-        out = np.empty((n_bootstrap, n), dtype=np.int64)
+        # int32 indices: exact for n < 2**31 and bit-identical draws to int64
+        # (Generator.integers keys entropy off the range, not the dtype).
+        out = np.empty((n_bootstrap, n), dtype=np.int32)
         for b in range(n_bootstrap):
-            out[b] = rng.integers(0, n, size=n, dtype=np.int64)
+            out[b] = rng.integers(0, n, size=n, dtype=np.int32)
         return out
     stratify = np.asarray(stratify).ravel()
     groups = {int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}
@@ -303,7 +375,7 @@ def _build_resample_indices(
     _class_offsets[0] = 0
     _class_offsets[1:] = np.cumsum(_class_sizes)
     _total_n = int(_class_sizes.sum())
-    out = np.empty((n_bootstrap, _total_n), dtype=np.int64)
+    out = np.empty((n_bootstrap, _total_n), dtype=np.int32)
     # FUTURE: this stratified resample nests a Python loop over (n_bootstrap x n_classes) with a per-class
     # rng.integers + fancy-index gather. A fully vectorized rewrite (draw all per-class random offsets in one
     # rng.integers call shaped (n_bootstrap, _sz), gather without the per-bootstrap Python loop) is possible but
@@ -384,25 +456,29 @@ def _cis_overlap(ci_a: tuple[float, float], ci_b: tuple[float, float]) -> bool:
 
 
 def _stratified_inner_folds(y: np.ndarray, n_splits: int, random_state: Optional[int]) -> list[np.ndarray]:
-    """Return ``n_splits`` held-out index arrays, stratified on ``y`` when binary.
+    """Return ``n_splits`` stratified held-out index arrays for BINARY ``y``.
 
     Each candidate is fitted on the complement of a fold and scored on the fold, so the reported ECE reflects
     generalisation to rows the calibrator never saw -- not the same-data interpolation that lets Isotonic drive
     its in-sample ECE to ~0.
+
+    Contract: the calibration candidates are binary-only, so ``y`` MUST have exactly two distinct classes.
+    A ``>2``-class input raises ``ValueError`` -- the previous code silently fell through to a GLOBAL (un-stratified)
+    shuffle despite the ``_stratified_`` name, which could hand a fold a class the fitted calibrator never saw.
     """
-    rng = np.random.default_rng(random_state)
     n = y.shape[0]
     classes = np.unique(y)
+    if classes.size != 2:
+        raise ValueError(
+            f"_stratified_inner_folds: binary calibration requires exactly 2 classes; "
+            f"got {classes.size} distinct value(s): {classes.tolist()[:10]}"
+        )
+    rng = np.random.default_rng(random_state)
     fold_of = np.empty(n, dtype=np.int64)
-    if classes.size == 2:
-        for c in classes:
-            members = np.flatnonzero(y == c)
-            rng.shuffle(members)
-            fold_of[members] = np.arange(members.shape[0]) % n_splits
-    else:
-        order = np.arange(n)
-        rng.shuffle(order)
-        fold_of[order] = np.arange(n) % n_splits
+    for c in classes:
+        members = np.flatnonzero(y == c)
+        rng.shuffle(members)
+        fold_of[members] = np.arange(members.shape[0]) % n_splits
     return [np.flatnonzero(fold_of == k) for k in range(n_splits)]
 
 
@@ -452,20 +528,23 @@ def _heldout_ece_ci(point: float, fold_eces: Sequence[float], alpha: float) -> t
     """CI for the mean held-out ECE from the per-fold held-out distribution.
 
     Built from the SAME held-out resampling as ``point`` so the interval brackets the reported number (the prior
-    code paired this held-out point with an in-sample bootstrap CI that did not). With few folds we use the normal
-    interval ``mean +- z * SE`` where ``SE = std(fold_eces, ddof=1)/sqrt(k)``; a single fold has no spread so the CI
-    degenerates to the point. The interval is centred on the per-fold mean (== ``point``), guaranteeing containment.
+    code paired this held-out point with an in-sample bootstrap CI that did not). With few folds we use a
+    Student-t interval ``mean +- t_{k-1} * SE`` where ``SE = std(fold_eces, ddof=1)/sqrt(k)`` and ``t_{k-1}`` is
+    the Student-t quantile with ``k-1`` degrees of freedom -- the correct small-sample quantile when the SE is
+    itself estimated from the same k folds (the prior normal-z quantile understated the interval width at the
+    typical k=5). A single fold has no spread so the CI degenerates to the point. The interval is centred on the
+    per-fold mean (== ``point``), guaranteeing containment.
     """
     arr = np.asarray(list(fold_eces), dtype=np.float64)
     k = arr.size
     mean = float(np.mean(arr))
     if k < 2:
         return (mean, mean)
-    from scipy.stats import norm
+    from scipy.stats import t as _student_t
 
     se = float(np.std(arr, ddof=1)) / np.sqrt(k)
-    z = float(norm.ppf(1.0 - alpha / 2.0))
-    half = z * se
+    tq = float(_student_t.ppf(1.0 - alpha / 2.0, k - 1))
+    half = tq * se
     return (max(0.0, mean - half), mean + half)
 
 

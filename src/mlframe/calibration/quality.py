@@ -33,16 +33,15 @@ from matplotlib import pyplot as plt
 from sklearn.feature_selection import mutual_info_regression
 from properscoring import brier_score, crps_ensemble
 from sklearn.metrics import (
-    mean_squared_error,
-    mean_absolute_error,
     median_absolute_error,
     explained_variance_score,
-    r2_score,
     mean_squared_log_error,
     mean_absolute_percentage_error,
 )  # ,mean_pinball_loss
 
-from sklearn.metrics import brier_score_loss  # , log_loss
+# fast_brier_score_loss is the project's numba Brier, proven sklearn-equivalent by metrics tests;
+# use it over sklearn.metrics.brier_score_loss (avoids the sklearn call overhead in the calibration path).
+from mlframe.metrics.core import fast_brier_score_loss, fast_r2_score  # sklearn-equivalent, faster
 
 from scipy.stats import ks_1samp, cramervonmises, anderson, chisquare, entropy
 
@@ -72,7 +71,7 @@ def crps(y: np.ndarray, y_preds: np.ndarray) -> float:
 
 METRICS_TO_SHOW = {
     #
-    "R2": r2_score,
+    "R2": fast_r2_score,
     # "EV": explained_variance_score,
     #
     # "MSE": mean_squared_error,
@@ -80,7 +79,7 @@ METRICS_TO_SHOW = {
     # "MAE": mean_absolute_error,
     # "MAPE": mean_absolute_percentage_error,
     # "MEAE": median_absolute_error,
-    "BR": brier_score_loss,
+    "BR": fast_brier_score_loss,
     # "HS": hyvarinen_score,
     "CRPS": crps,
     #
@@ -248,7 +247,7 @@ def estimate_calibration_quality_binned(
         {
             # Brier is a per-sample proper scoring rule — compute on raw (y_true, y_pred).
             # All other metrics evaluate calibration curve fidelity — compute on binned pockets.
-            fname: (f(y_true, y_pred) if f is brier_score_loss else f(pockets_true, pockets_predicted))
+            fname: (f(y_true, y_pred) if f is fast_brier_score_loss else f(pockets_true, pockets_predicted))
             for fname, f in metrics_to_show.items()
         },
     )
@@ -359,6 +358,17 @@ def show_classifier_calibration(
 # ---------------------------------------------------------------------------------------------------------------
 # Probability Integral Transform (PIT)
 # ---------------------------------------------------------------------------------------------------------------
+#
+# BINARY PIT CAVEAT (applies to every GoF statistic below -- KS / Cramer-von Mises / Anderson-Darling /
+# chi-square / ECI / MSD / WPD):
+# The PIT construction ``pit = where(y==1, p, 1-p)`` yields a genuinely continuous Uniform(0,1) only for a
+# continuous forecast of a continuous outcome. For a BINARY outcome the PIT is a TWO-ATOM MIXTURE (mass at p
+# and at 1-p per row), NOT a continuous Uniform(0,1) even when the model is perfectly calibrated. All the
+# distribution-vs-uniform GoF tests below therefore SYSTEMATICALLY REJECT well-calibrated binary models (the
+# empirical CDF is a step function that cannot match the continuous uniform CDF), so their p-values are not
+# interpretable for binary calibration. For binary models prefer a reliability-diagram / ECE-style metric
+# (see ``estimate_calibration_quality_binned`` here and ``calibration/policy._ece_score``); treat these PIT
+# statistics as relative-ranking diagnostics only, never as absolute calibration hypothesis tests.
 
 
 def build_pit_diagram_spec(
@@ -535,7 +545,17 @@ def anderson_darling_statistic(pit_values: np.ndarray) -> float:
 
 
 def chi_square_statistic(pit_values: np.ndarray, bins: int = 10) -> float:
-    """Calculate the Chi-Square statistic for PIT values."""
+    """Calculate the Chi-Square statistic for PIT values (raw statistic only).
+
+    Returns ONLY the raw Pearson chi-square statistic ``sum (O_i - E_i)^2 / E_i`` over the ``bins``
+    equal-width PIT bins against the uniform expectation ``E_i = n / bins``. The associated p-value from
+    ``scipy.stats.chisquare`` is deliberately discarded: it assumes ``dof = bins - 1``, but the expected
+    counts here are FIXED (uniform, no parameters estimated from the data), and -- see the binary-PIT caveat
+    above -- a binary PIT is a two-atom mixture, not a continuous uniform, so the chi-square reference
+    distribution does not hold. Compare the raw statistic across models/bins as a relative diagnostic; do
+    NOT read it as a calibration hypothesis test. (If a p-value is ever needed, recompute it explicitly with
+    the correct dof rather than trusting the default here.)
+    """
     # Empty pit_values gives all-zero observed AND expected counts, and chisquare then returns silent NaN
     # (0/0); mirror the n==0 guard in anderson_darling_statistic and surface NaN explicitly.
     if len(pit_values) == 0:
@@ -551,7 +571,7 @@ def entropy_calibration_index(pit_values: np.ndarray, bins: int = 10, miller_mad
 
     ECI = log(bins) - H(binned PIT). A perfectly-calibrated model has a uniform PIT distribution, true entropy log(bins), and true ECI exactly 0.
 
-    The plug-in entropy estimator H_hat = -sum p_i log p_i is negatively biased at finite n (~ -(K-1)/(2N)), which inflates ECI above 0 and spuriously reports miscalibration even on a calibrated model. ``miller_madow=True`` (default) applies the Miller-Madow correction H_mm = H_hat + (K_obs - 1)/(2N) using the count of non-empty bins K_obs, cancelling that leading bias term. Bench `_benchmarks/bench_eci_miller_madow.py`: at n=500, MM is closer to the true 0 in 12/14 cells (bins=10/20 x 7 seeds), mean |ECI| 0.0132 -> 0.0039. Pass ``miller_madow=False`` for the legacy plug-in estimate.
+    The plug-in entropy estimator H_hat = -sum p_i log p_i is negatively biased at finite n (~ -(K-1)/(2N)), which inflates ECI above 0 and spuriously reports miscalibration even on a calibrated model. ``miller_madow=True`` (default) applies the Miller-Madow correction H_mm = H_hat + (K_obs - 1)/(2N) using the count of NON-EMPTY bins K_obs, which REDUCES (but does not exactly cancel) that leading bias term: the exact -(K-1)/(2N) bias uses the full support size K=bins, so the MM term only fully cancels it when every bin is occupied (K_obs == bins); with empty bins (K_obs < bins) it under-corrects. It is nonetheless a strict improvement over the raw plug-in in practice. Bench `_benchmarks/bench_eci_miller_madow.py`: at n=500, MM is closer to the true 0 in 12/14 cells (bins=10/20 x 7 seeds), mean |ECI| 0.0132 -> 0.0039. Pass ``miller_madow=False`` for the legacy plug-in estimate.
 
     Uses raw counts normalized to a probability distribution (feeding ``density=True`` to ``scipy.stats.entropy`` gives wrong entropy whenever bin width != 1).
     """
