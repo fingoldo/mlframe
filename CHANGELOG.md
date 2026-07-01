@@ -18,6 +18,7 @@ history.
 - Nadaraya-Watson kernel regression / smoothing (`mlframe.feature_engineering.nadaraya_watson`): `nadaraya_watson_smooth` (flat signal, gaussian/epanechnikov/boxcar/tricube kernels, optional per-sample weight composable with recency weights) and `per_group_nadaraya_watson_smooth` (per-entity denoising). Parallel query kernel dispatched by query count.
 - Robust location estimators (`mlframe.core.robust_location`): `robust_mean_mestimator` (redescending Meshalkin/Huber/Tukey M-estimator with MAD scale, prange-dispatched at large n), `geometric_median` (Weiszfeld spatial median), and `trimmed_mean` / `winsorized_mean` (classic tail-robust location). Robust aggregators for contaminated data.
 - Proportion statistics (`mlframe.core.proportion_stats`): `wilson_interval`, `required_n_for_proportion`, `proportions_significantly_different`, `z_for_confidence` — confidence intervals and sample-size planning for probability/rate estimates.
+- Spectral matrix seriation (`mlframe.core.matrix_seriation`): `spectral_seriation` / `seriate` reorder a similarity/correlation matrix (Fiedler or leading-singular-vector) to surface block structure — for readable correlation heatmaps and feature-block detection.
 
 ## [0.9.0]
 
