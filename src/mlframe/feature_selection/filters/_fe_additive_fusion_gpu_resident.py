@@ -251,7 +251,10 @@ def propose_additive_fusions_gpu(
             # GPU-routed internally). Pull the fused codes back ONCE -- a per-ACCEPTED-pair probe-input D2H,
             # not a binning D2H (binning stayed resident above). Bounded by the number of admitted fusions.
             fvb = cp.asnumpy(fvb_dev)
-            fused_mi = float(_cmi_from_binned(fvb, y_dense, None))     # GPU-routed internally under the flag
+            # Score the fused-candidate marginal MI from the RESIDENT codes (``_cmi_from_binned`` dispatches to
+            # the cupy resident-input branch) so the candidate never re-crosses H2D at the ``cmi_cand_x`` site;
+            # ``fvb`` (host) is still needed below for the CPU-interface raw-subsumption probe.
+            fused_mi = float(_cmi_from_binned(fvb_dev, y_dense, None))  # resident codes -> no re-upload
             _strong = ha if ha["mi"] >= hb["mi"] else hb
             # Fusion admission razor (not grid-snapped): fused_mi vs strong-half mi + margin*floor. The cupy-vs-
             # numpy reduction-order delta (~1e-12) is far below the floor-margin band, so it cannot flip this gate
