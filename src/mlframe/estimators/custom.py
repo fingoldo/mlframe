@@ -190,6 +190,13 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
             return self
 
 class PdOrdinalEncoder(OrdinalEncoder):
+    """Ordinal encoder that preserves pandas column names and always emits int32 codes.
+
+    Wraps sklearn's ``OrdinalEncoder``: ``transform`` returns a DataFrame with the
+    original column labels when given a DataFrame, else an ndarray. Missing values are
+    encoded as ``-1`` by default (not NaN) so codes stay in a well-defined integer range;
+    NaN codes in the output raise rather than silently casting to a platform ``INT_MIN``.
+    """
 
     # Wave 50 (2026-05-20): default ``encoded_missing_value`` flipped from
     # ``np.nan`` to ``-1``. Pre-fix, NaN -> int32 produced platform-dependent
@@ -227,6 +234,12 @@ class PdOrdinalEncoder(OrdinalEncoder):
 
 
 class PdKBinsDiscretizer(KBinsDiscretizer):
+    """K-bins discretizer that preserves pandas column names and emits int32 bin codes.
+
+    Wraps sklearn's ``KBinsDiscretizer``: ``transform`` densifies any sparse (onehot)
+    output and returns a DataFrame with the original column labels when given a DataFrame,
+    else an ndarray, casting the result to int32.
+    """
 
     def __init__(self, n_bins=5, encode='onehot', strategy='quantile', dtype=None, subsample=200_000, random_state=None):
         super().__init__(n_bins=n_bins,encode=encode, strategy=strategy, dtype=dtype, subsample=subsample, random_state=random_state)
@@ -250,6 +263,13 @@ class PdKBinsDiscretizer(KBinsDiscretizer):
             return X
 
 class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
+    """Binary classifier that averages the first ``nprobs`` columns of X as the positive-class probability.
+
+    Treats X as a matrix of pre-computed probabilities (e.g. outputs of several base models).
+    ``predict_proba`` clips those columns to [0, 1], takes their arithmetic mean as P(class=1),
+    and returns ``[1 - p, p]``; ``predict`` is the argmax over ``classes_``.
+    """
+
     def __init__(self, nprobs):
         self.nprobs = nprobs
 
@@ -282,6 +302,13 @@ class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
 
 
 class GeomAvgClassifier(BaseEstimator, ClassifierMixin):
+    """Binary classifier that geometrically averages the first ``nprobs`` columns of X as the positive-class probability.
+
+    Like ``ArithmAvgClassifier`` but combines the pre-computed probability columns via a
+    geometric mean, computed in log space (``exp(mean(log(clip(x, eps, 1))))``) for numerical
+    stability. Returns ``[1 - p, p]`` from ``predict_proba``; ``predict`` is the argmax.
+    """
+
     def __init__(self, nprobs):
         self.nprobs = nprobs
 
@@ -424,22 +451,37 @@ def create_dummy_lagged_predictions(y_true: np.ndarray, strategy: str = "constan
 
 
 def qubed(x):
+    """Return ``x ** 3`` elementwise (a target transform; its inverse is the cube root)."""
     return np.power(x, 3)
 
 
 def log_plus_c(x, c: float = 0.0):
+    """Return ``log(x + c)`` with the argument clipped to a tiny positive floor to avoid ``log(0)``/negatives.
+
+    Shift ``c`` moves the domain so non-positive targets become loggable. Inverse: ``inv_log_plus_c``.
+    """
     return np.log(np.clip(x + c, 1e-16, None))
 
 
 def inv_log_plus_c(x, c: float = 0.0):
+    """Inverse of ``log_plus_c``: return ``exp(x) - c``."""
     return np.exp(x) - c
 
 
 def box_cox_plus_c(x, c: float = 50.0, lmbda: float = -1):
+    """Return the Box-Cox transform of ``x + c`` with fixed power ``lmbda`` (argument clipped positive).
+
+    The ``+ c`` shift makes non-positive targets Box-Cox-able. Inverse: ``inv_box_cox_plus_c``.
+    """
     return boxcox(np.clip(x + c, 1e-16, None), lmbda)
 
 
 def inv_box_cox_plus_c(x, c: float = 50.0, lmbda: float = -1, transformer: "PowerTransformer | None" = None):
+    """Inverse of ``box_cox_plus_c``: undo the Box-Cox with the given ``lmbda`` then subtract ``c``.
+
+    Requires a fitted ``PowerTransformer`` passed via ``transformer=`` (used for the inverse
+    Box-Cox); raises ``NotFittedError`` otherwise.
+    """
     if transformer is None:
         raise NotFittedError(
             "inv_box_cox_plus_c requires a fitted PowerTransformer passed via `transformer=`. "
@@ -515,6 +557,7 @@ def soft_winsorize(
 
 
 def identity(x):
+    """Return ``x`` unchanged (no-op target transform / its own inverse)."""
     return x
 
 
@@ -575,6 +618,10 @@ def clip_to_quantiles(arr: np.ndarray, quantile: float = 0.01, method: str = "wi
 
 
 def clip_to_quantiles_winsor_quantile(arr):
+    """Soft-winsorize ``arr`` to its 1%/99% quantiles (quantile-spread tails, 5% relative margin).
+
+    Preset wrapper over ``clip_to_quantiles`` for use as a target transform.
+    """
     return clip_to_quantiles(
         arr,
         quantile=0.01,
@@ -584,6 +631,7 @@ def clip_to_quantiles_winsor_quantile(arr):
 
 
 def clip_to_quantiles_hard(arr):
+    """Hard-clip (``np.clip``) ``arr`` to its 1%/99% quantiles. Preset wrapper over ``clip_to_quantiles``."""
     return clip_to_quantiles(arr, quantile=0.01, method="hard")
 
 
@@ -641,10 +689,19 @@ class IdentityEstimator(BaseEstimator):
 
 
 class IdentityRegressor(IdentityEstimator, RegressorMixin):
+    """Regressor flavour of ``IdentityEstimator``: ``predict`` returns the selected feature column(s) verbatim."""
+
     pass
 
 
 class IdentityClassifier(IdentityEstimator, ClassifierMixin):
+    """Classifier flavour of ``IdentityEstimator``: treats selected feature column(s) as pre-computed class probabilities.
+
+    ``predict`` returns the raw feature slice; ``predict_proba`` coerces it into a valid
+    probability matrix (one clipped, row-normalised column per class in ``classes_`` order).
+    Useful as a benchmarking baseline that feeds an existing probability column through the metrics.
+    """
+
     def predict_proba(self, X):
         last_class_probs = self.predict(X)
         if len(self.classes_) == 2 and last_class_probs.ndim == 1:

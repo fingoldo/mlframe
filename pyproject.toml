@@ -581,3 +581,24 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 warn_return_any = true
 no_implicit_optional = true
+
+# Beachhead expansion (per the gradual-strict plan): four already-well-typed, cohesive leaf modules
+# that surfaced 0-3 errors each under strict mode and are now clean:
+#   * mlframe.system._gpu_guard            -- 0 errors (fully annotated GPU import guard)
+#   * mlframe.metrics._numba_params        -- 1 (shared njit kwargs + length-check guard)
+#   * mlframe.metrics.rank_correlation     -- 1 (Spearman njit kernels; np-scalar float() casts)
+#   * mlframe.metrics._core_precision_mape -- 3 (precision / classification-report / MAPE kernels)
+# All are self-contained numba/kernel leaves with a stable public surface and low optional-dep churn,
+# so the blast radius stays small. Further metrics.* / core.* modules join only after a dedicated
+# typing pass drives their remaining np-return-any / untyped-def counts to zero.
+[[tool.mypy.overrides]]
+module = [
+    "mlframe.system._gpu_guard",
+    "mlframe.metrics._numba_params",
+    "mlframe.metrics.rank_correlation",
+    "mlframe.metrics._core_precision_mape",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_return_any = true
+no_implicit_optional = true

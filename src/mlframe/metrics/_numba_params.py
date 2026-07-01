@@ -10,13 +10,15 @@ variant beats the sequential one on an 8-thread numba runtime.
 """
 from __future__ import annotations
 
+from typing import Any
+
 NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
 
 _PARALLEL_REDUCTION_THRESHOLD: int = 100_000
 _PARALLEL_MULTILABEL_THRESHOLD: int = 50_000
 
 
-def _check_equal_length(y_true, y_pred) -> None:
+def _check_equal_length(y_true: Any, y_pred: Any) -> None:
     """Raise ``ValueError`` when the two arrays differ in leading-axis length.
 
     The fast_* numba kernels loop on ``len(y_true)`` and index ``y_pred[i]`` with

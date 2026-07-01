@@ -692,6 +692,12 @@ def fast_numba_aucs_with_ks(y_true: np.ndarray, y_score: np.ndarray, desc_score_
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices: np.ndarray) -> tuple[float, float]:
+    """Numba-fast ROC AUC and PR AUC (average precision) in one descending-score pass.
+
+    ``desc_score_indices`` must order rows by descending ``y_score``. Ties fold into a single
+    threshold boundary. PR AUC matches ``sklearn.average_precision_score`` (anchored at recall 0).
+    Returns ``(roc_auc, pr_auc)``; ``(nan, nan)`` when ``y_true`` is single-class (both undefined).
+    """
     y_score_sorted = y_score[desc_score_indices]
     y_true_sorted = y_true[desc_score_indices]
 

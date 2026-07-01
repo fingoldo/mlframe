@@ -107,19 +107,23 @@ if _HAS_NUMBA:
 # ----------------------------------------------------------------------
 
 def cbrt_y_fit(y: np.ndarray) -> Dict[str, Any]:
+    """Fit the signed cube-root transform: no learned parameters (returns an empty dict)."""
     return {}
 
 
 def cbrt_y_forward(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
+    """Signed cube-root ``sign(y) * |y|**(1/3)`` (tail compression that preserves sign)."""
     return np.cbrt(np.asarray(y, dtype=np.float64))
 
 
 def cbrt_y_inverse(t: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
+    """Inverse of the signed cube-root: ``t ** 3``."""
     arr = np.asarray(t, dtype=np.float64)
     return arr * arr * arr
 
 
 def cbrt_y_domain(y: np.ndarray) -> np.ndarray:
+    """Domain mask for the signed cube-root: valid wherever ``y`` is finite (defined on all real y)."""
     return np.isfinite(np.asarray(y, dtype=np.float64))
 
 
@@ -169,18 +173,21 @@ def signed_power_y_fit(y: np.ndarray) -> Dict[str, Any]:
 
 
 def signed_power_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """Signed power transform ``sign(y) * |y|**p`` using the fitted exponent ``params["p"]``."""
     p = float(params["p"])
     arr = np.asarray(y, dtype=np.float64)
     return np.sign(arr) * np.abs(arr) ** p
 
 
 def signed_power_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """Inverse of the signed power transform: ``sign(t) * |t|**(1/p)``."""
     p = float(params["p"])
     arr = np.asarray(t, dtype=np.float64)
     return np.sign(arr) * np.abs(arr) ** (1.0 / p)
 
 
 def signed_power_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
+    """Domain mask for the signed power transform: valid wherever ``y`` is finite."""
     return np.isfinite(np.asarray(y, dtype=np.float64))
 
 
@@ -193,6 +200,7 @@ _LOG_OFFSET_SAFETY: float = 1.0
 
 
 def log_y_fit(y: np.ndarray) -> Dict[str, Any]:
+    """Fit the shifted-log offset so ``min(y_train) + offset > 0`` (plus a safety margin)."""
     arr = np.asarray(y, dtype=np.float64)
     finite = arr[np.isfinite(arr)]
     if finite.size == 0:
@@ -203,6 +211,7 @@ def log_y_fit(y: np.ndarray) -> Dict[str, Any]:
 
 
 def log_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """Shifted log ``log(y + offset)`` using the fitted ``params["offset"]``."""
     offset = float(params["offset"])
     # offset normally lifts y into the positive domain; a stray non-positive row yields NaN (handled by the
     # downstream domain/clip guards) -- silence the expected invalid-log RuntimeWarning rather than spam it.
@@ -211,11 +220,13 @@ def log_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
 
 
 def log_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """Inverse of the shifted log: ``exp(t) - offset``."""
     offset = float(params["offset"])
     return np.exp(np.asarray(t, dtype=np.float64)) - offset
 
 
 def log_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
+    """Domain mask for the shifted log: valid where ``y`` is finite and ``y + offset > 0``."""
     arr = np.asarray(y, dtype=np.float64)
     if params is None:
         return np.isfinite(arr)
@@ -339,14 +350,17 @@ def yeo_johnson_y_fit(y: np.ndarray) -> Dict[str, Any]:
 
 
 def yeo_johnson_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """Yeo-Johnson forward transform using the fitted ``params["lambda"]`` (defined on all real y)."""
     return _yj_forward(np.asarray(y, dtype=np.float64), float(params["lambda"]))
 
 
 def yeo_johnson_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """Closed-form inverse of the Yeo-Johnson transform for the fitted ``params["lambda"]``."""
     return _yj_inverse(np.asarray(t, dtype=np.float64), float(params["lambda"]))
 
 
 def yeo_johnson_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
+    """Domain mask for Yeo-Johnson: valid wherever ``y`` is finite."""
     return np.isfinite(np.asarray(y, dtype=np.float64))
 
 
@@ -375,6 +389,7 @@ def quantile_normal_y_fit(y: np.ndarray, n_quantiles: int = 1000) -> Dict[str, A
 
 
 def quantile_normal_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """Map ``y`` to a standard Normal via the fitted empirical CDF knots then the Normal quantile function."""
     from scipy.special import ndtri
     knots_y = np.asarray(params["knots_y"], dtype=np.float64)
     knots_q = np.asarray(params["knots_q"], dtype=np.float64)
@@ -388,6 +403,7 @@ def quantile_normal_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarr
 
 
 def quantile_normal_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """Inverse of the quantile-normal map: Normal CDF then interpolate back through the fitted CDF knots to y."""
     from scipy.special import ndtr
     knots_y = np.asarray(params["knots_y"], dtype=np.float64)
     knots_q = np.asarray(params["knots_q"], dtype=np.float64)
@@ -398,6 +414,7 @@ def quantile_normal_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarr
 
 
 def quantile_normal_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
+    """Domain mask for the quantile-normal map: valid wherever ``y`` is finite."""
     return np.isfinite(np.asarray(y, dtype=np.float64))
 
 
@@ -436,6 +453,7 @@ def chain_bivariate_then_unary_forward(
     bivariate_forward: Callable[[np.ndarray, np.ndarray, Dict[str, Any]], np.ndarray],
     unary: UnaryFns,
 ) -> np.ndarray:
+    """Forward a bivariate-then-unary chain: bivariate ``(y, base) -> T1`` then unary ``T1 -> T2``."""
     t1 = bivariate_forward(y, base, params["bivariate_params"])
     return unary[1](t1, params["unary_params"])
 
@@ -447,6 +465,7 @@ def chain_bivariate_then_unary_inverse(
     bivariate_inverse: Callable[[np.ndarray, np.ndarray, Dict[str, Any]], np.ndarray],
     unary: UnaryFns,
 ) -> np.ndarray:
+    """Invert a bivariate-then-unary chain in reverse order: unary inverse then bivariate inverse."""
     t1_hat = unary[2](t2, params["unary_params"])
     return bivariate_inverse(t1_hat, base, params["bivariate_params"])
 
@@ -491,6 +510,7 @@ def chain_multi_stage_forward(
     bivariate_forward: Callable[[np.ndarray, np.ndarray, Dict[str, Any]], np.ndarray],
     unary_stages: list[UnaryFns],
 ) -> np.ndarray:
+    """Forward a multi-stage chain: bivariate then each unary stage in order."""
     t = bivariate_forward(y, base, params["bivariate_params"])
     for (_fit, forward_fn, _inv), p in zip(unary_stages, params["unary_stage_params"]):
         t = forward_fn(t, p)
@@ -505,6 +525,7 @@ def chain_multi_stage_inverse(
     bivariate_inverse: Callable[[np.ndarray, np.ndarray, Dict[str, Any]], np.ndarray],
     unary_stages: list[UnaryFns],
 ) -> np.ndarray:
+    """Invert a multi-stage chain: unary stages in reverse order then the bivariate inverse."""
     t = t_final
     # Unary stages: reverse order at inverse time.
     for (_fit, _forward, inv_fn), p in zip(
