@@ -776,27 +776,47 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
 
     n, K = cand_gpu.shape
     is_f32 = cand_gpu.dtype == cp.float32
-    # cupy 'linear' positions for the nbins-1 interior quantiles (q in (0,1)), float64 throughout.
-    qfr = np.linspace(0.0, 100.0, int(nbins) + 1)[1:-1] / 100.0   # (nbins-1,) fractions
-    idx = qfr * (n - 1)
-    bel = np.floor(idx).astype(np.int64)
-    abv = np.minimum(bel + 1, n - 1)
-    uniq = np.unique(np.concatenate([bel, abv]))                   # the order-statistic ranks to extract
-    R = int(uniq.size)
-    if R > _RADIX_SELECT_MAXR:
-        return None
-    # shared-mem budget: R*256 uint32 histogram (host gate vs the device's per-block shared limit). The gate
-    # must reserve the kernels' STATIC __shared__ footprint too -- dynamic ``shmem`` ALONE near the limit, plus
-    # the static arrays, overflows the per-block budget and cuLaunchKernel raises CUDA_ERROR_INVALID_VALUE.
-    shmem = R * 256 * 4
-    try:
-        dev = cp.cuda.Device()
-        sh_limit = int(dev.attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
-    except Exception:
-        sh_limit = 48 * 1024
-    if shmem > sh_limit - _RADIX_STATIC_SHARED_BYTES:
-        return None
-    ranks_g = cp.asarray(uniq, dtype=cp.int64)
+    # ALL of the order-statistic geometry (ranks, R, shared-mem gate, the cupy 'linear' interp gathers bi/ai/w,
+    # the device rank vector ranks_g) depends ONLY on (n, nbins) -- NOT the candidate data -- so compute it ONCE
+    # per (n, nbins) and cache it. Was recomputed on EVERY per-candidate call (~11.6k x on the FE pair scan): the
+    # np.unique host sort (cProfile 2026-07-01: 12,149 calls / 4.05s = the top host-CPU cost on this path), the
+    # linspace/floor, the per-call device-attribute lookup, AND the ranks H2D -- all data-independent. A cached
+    # None records the "radix inapplicable" verdict (R over the kernel cap / shared-mem over the device limit) so
+    # the caller's cp.percentile fallback is taken without recomputing. Selection-IDENTICAL: same ranks -> same
+    # order statistics -> bit-identical edges.
+    _ik = (int(n), int(nbins))
+    if _ik not in _RADIX_INTERP_CACHE:
+        # cupy 'linear' positions for the nbins-1 interior quantiles (q in (0,1)), float64 throughout.
+        qfr = np.linspace(0.0, 100.0, int(nbins) + 1)[1:-1] / 100.0   # (nbins-1,) fractions
+        idx = qfr * (n - 1)
+        bel = np.floor(idx).astype(np.int64)
+        abv = np.minimum(bel + 1, n - 1)
+        uniq = np.unique(np.concatenate([bel, abv]))                   # the order-statistic ranks to extract
+        R = int(uniq.size)
+        # shared-mem budget: R*256 uint32 histogram (host gate vs the device's per-block shared limit). The gate
+        # must reserve the kernels' STATIC __shared__ footprint too -- dynamic ``shmem`` ALONE near the limit, plus
+        # the static arrays, overflows the per-block budget and cuLaunchKernel raises CUDA_ERROR_INVALID_VALUE.
+        shmem = R * 256 * 4
+        try:
+            dev = cp.cuda.Device()
+            sh_limit = int(dev.attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
+        except Exception:
+            sh_limit = 48 * 1024
+        if R > _RADIX_SELECT_MAXR or shmem > sh_limit - _RADIX_STATIC_SHARED_BYTES:
+            _RADIX_INTERP_CACHE[_ik] = None                           # radix path inapplicable for this (n, nbins)
+        else:
+            # cupy 'linear' interp gather indices + weight (bi/ai/w) -- needed BEFORE the kernel for the fused f64
+            # path, which interpolates in-kernel.
+            ranks_g = cp.asarray(uniq, dtype=cp.int64)
+            pos = {int(r): i for i, r in enumerate(uniq)}
+            bi = cp.asarray(np.asarray([pos[int(b)] for b in bel], dtype=np.int64))
+            ai = cp.asarray(np.asarray([pos[int(a)] for a in abv], dtype=np.int64))
+            w = cp.asarray(np.ascontiguousarray(idx - bel))           # float64 weight_above = idx - floor(idx)
+            _RADIX_INTERP_CACHE[_ik] = (bi, ai, w, ranks_g, int(R), int(shmem))
+    _ic = _RADIX_INTERP_CACHE[_ik]
+    if _ic is None:
+        return None                                                   # cached: radix inapplicable -> cp.percentile
+    bi, ai, w, ranks_g, R, shmem = _ic
     # COLUMN-MAJOR input (nvprof-driven, 2026-06-20): one block/column previously read data[i*K+col] from
     # the (n,K) row-major buffer -> stride-K, gld_efficiency 12.5% (1/8 coalesced) on the dominant n-loop
     # (4 byte-passes x n reads). Transpose to (K,n) C-order so consecutive threads read consecutive memory
@@ -810,18 +830,6 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
     else:
         data_cm = _transpose_to_cm(cand_gpu)   # (K, n) C-order = column-major (coalesced tiled-transpose kernel)
     threads = _resolve_radix_threads(n)    # Lever B: per-host KTC-tuned block size (bit-identical edges)
-    # cupy 'linear' interp gather indices + weight (bi/ai/w), cached per (n, nbins) -- needed BEFORE the kernel
-    # for the fused f64 path, which interpolates in-kernel.
-    _ik = (int(n), int(nbins))
-    _ic = _RADIX_INTERP_CACHE.get(_ik)
-    if _ic is None:
-        pos = {int(r): i for i, r in enumerate(uniq)}
-        bi = cp.asarray(np.asarray([pos[int(b)] for b in bel], dtype=np.int64))
-        ai = cp.asarray(np.asarray([pos[int(a)] for a in abv], dtype=np.int64))
-        w = cp.asarray(np.ascontiguousarray(idx - bel))   # float64 weight_above = idx - floor(idx)
-        _RADIX_INTERP_CACHE[_ik] = (bi, ai, w)
-    else:
-        bi, ai, w = _ic
     ne_rows = int(bi.shape[0])
     if not is_f32:
         # FUSED select+interp (launch-reduction): the f64 radix select keeps its R order statistics in shared
