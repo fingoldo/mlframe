@@ -227,12 +227,15 @@ def raw_and_product_mi_resident(
         # RAW baseline through the SAME resident plug-in (uploaded once via the operand cache). The host scorer's
         # _mi_classif_batch(raw_X) under STRICT already routes here; reproducing it keeps the baseline -- and thus
         # the uplift ratio + the abs-MI floor -- selection-equivalent.
-        from .._fe_resident_operands import resident_operand
+        from .._fe_resident_operands import assemble_resident_matrix
         raw_cols = list(raw_X.columns)
         raw_np = np.ascontiguousarray(raw_X.to_numpy(dtype=np.float64))
-        raw_gpu = resident_operand(raw_np, ("xbasis_raw_baseline", tuple(raw_cols)), dtype=cp.float64)
-        if raw_gpu.ndim == 1:
-            raw_gpu = raw_gpu[:, None]
+        # DEVICE-ASSEMBLE the raw baseline from its per-column resident operands: each raw column is already
+        # uploaded once by the basis builders, so stacking the resident columns content-hits the cache and the
+        # whole (n, k) matrix never crosses H2D (vs the prior single whole-matrix upload, a distinct blob that
+        # never deduped). Column j is raw_X[raw_cols[j]] verbatim -> same bytes -> selection-identical.
+        raw_gpu = assemble_resident_matrix(raw_np, raw_cols, ("xbasis_raw_baseline", tuple(raw_cols)),
+                                           dtype=cp.float64)
         raw_mi = _resident_mi(cp, raw_gpu, y, nbins)
         raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
         return raw_mi_map, eng_mi

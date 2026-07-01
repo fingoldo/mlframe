@@ -420,7 +420,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     # y is a FIT-CONSTANT re-uploaded on every orth-family call (univariate-decide / pair-cross / triplet /
     # quadruplet / meta-scorer / adaptive-arity each re-run this builder over the SAME X/y). Route through the
     # resident operand cache so it is uploaded ONCE per fit (selection-equivalent: same int64 labels).
-    from .._fe_resident_operands import resident_operand
+    from .._fe_resident_operands import resident_operand, assemble_resident_matrix
     y_gpu = resident_operand(y_arr, "orth_uni_y", dtype=np.int64)
     # y min/max is a fit-constant -> compute ONCE and reuse for both the raw-MI and the eng-MI resident
     # calls below, instead of each recomputing it (cp.min/max + scalar D2H). Bit-identical (y is invariant).
@@ -435,11 +435,12 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     raw_mat = None
     if raw_cols:
         # raw_mat is the base raw feature-column matrix, a FIT-CONSTANT re-built+re-uploaded per orth-family
-        # call over the SAME X. Route through the resident operand cache keyed on the raw-column tuple so a
-        # distinct col-set gets a distinct entry (the shape+fingerprint guards still apply). Uploaded ONCE per
-        # fit; value-identical f64 -> selection-equivalent.
-        raw_mat = resident_operand(
-            X[raw_cols].to_numpy(dtype=np.float64), ("orth_raw_mat", tuple(raw_cols)), dtype=np.float64,
+        # call over the SAME X. DEVICE-ASSEMBLE it from its per-column resident operands: each raw column is
+        # already uploaded once by the basis builders, so stacking the resident columns content-hits the cache
+        # and the whole (n, k) matrix never crosses H2D (vs the prior single whole-matrix upload, a distinct
+        # blob that never deduped). Column j is X[raw_cols[j]] verbatim -> same bytes -> selection-equivalent.
+        raw_mat = assemble_resident_matrix(
+            X[raw_cols].to_numpy(dtype=np.float64), raw_cols, ("orth_raw_mat", tuple(raw_cols)), dtype=np.float64,
         )
     code = _BASIS_CODE
     # Routing + skips run on the HOST (cheap njit / moment fingerprint), mirroring the host builder;

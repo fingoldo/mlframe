@@ -96,9 +96,46 @@ def resident_operand(arr, key, *, dtype=None, contiguous: bool = True):
     return g
 
 
+def assemble_resident_matrix(host, names, fallback_key, *, dtype=None):
+    """Return a resident ``(n, k)`` device matrix DEVICE-ASSEMBLED from its per-column resident operands.
+
+    Several FE scorers upload a fit-constant raw baseline matrix WHOLE via a single ``resident_operand`` keyed
+    on the ``(n, k)`` blob's content -- but that blob is a distinct fingerprint that never dedups, even though
+    every one of its columns is the SAME raw source column already uploaded ONCE elsewhere (the basis /
+    cross-basis device builders upload each source column column-by-column). Stacking the resident PER-COLUMN
+    operands on device instead lets each column content-hit the operand cache, so the whole matrix never
+    crosses H2D (only the few distinct columns upload once, shared with every other consumer of that column).
+
+    ``host`` is the ``(n, k)`` (or ``(n,)``) host matrix; column ``j`` MUST be exactly the raw column named
+    ``names[j]`` (same float bytes) so the per-column upload is the SAME content -> content-keyed dedup ->
+    selection-IDENTICAL. When ``names`` is missing / length-mismatched / STRICT-residency is off / any per-column
+    upload faults, falls back to uploading the whole matrix under ``fallback_key`` (the prior behaviour, so a
+    layout mismatch is a perf no-op, never a correctness change). ``dtype`` is the final kernel dtype (folded
+    into every per-column upload so all consumers of a column share one buffer)."""
+    import cupy as cp
+    import numpy as np
+
+    host = np.asarray(host)
+    if dtype is not None:
+        host = host.astype(dtype, copy=False)
+    host = np.ascontiguousarray(host)
+    if host.ndim == 1:
+        host = host[:, None]
+    _n, _k = host.shape
+    if (not _disabled()) and names is not None and len(names) == _k and _k >= 1:
+        try:
+            cols = [resident_operand(np.ascontiguousarray(host[:, j]), ("xbasis_op", names[j]), dtype=dtype)
+                    for j in range(_k)]
+            return cp.stack(cols, axis=1) if _k > 1 else cols[0][:, None]
+        except Exception:
+            pass
+    g = resident_operand(host, fallback_key, dtype=dtype)
+    return g[:, None] if g.ndim == 1 else g
+
+
 def clear_fe_resident_operands() -> None:
     """Drop the fit-constant FE operand device cache (call at FE-step teardown; mirrors the mempool free)."""
     _FE_RESIDENT_OPERANDS.clear()
 
 
-__all__ = ["resident_operand", "clear_fe_resident_operands"]
+__all__ = ["resident_operand", "assemble_resident_matrix", "clear_fe_resident_operands"]

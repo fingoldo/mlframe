@@ -79,7 +79,7 @@ def resident_raw_baseline_mi(
         if n == 0 or k == 0:
             return np.zeros(k, dtype=np.float64)
 
-        from ._fe_resident_operands import resident_operand
+        from ._fe_resident_operands import resident_operand, assemble_resident_matrix
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 
         # DEVICE-ASSEMBLE the raw baseline matrix from the resident PER-COLUMN operands rather than uploading it
@@ -91,18 +91,7 @@ def resident_raw_baseline_mi(
         # SAME bytes -> content-keyed dedup -> selection-identical. Any shape/name mismatch -> upload the matrix.
         _names = role_key[1] if (isinstance(role_key, tuple) and len(role_key) >= 2
                                  and isinstance(role_key[1], (tuple, list))) else None
-        Xd = None
-        if _names is not None and len(_names) == host.shape[1] and host.shape[1] >= 1:
-            try:
-                _cols_g = [resident_operand(np.ascontiguousarray(host[:, j]), ("xbasis_op", _names[j]),
-                                            dtype=cp.float64) for j in range(host.shape[1])]
-                Xd = cp.stack(_cols_g, axis=1) if len(_cols_g) > 1 else _cols_g[0][:, None]
-            except Exception:
-                Xd = None
-        if Xd is None:
-            Xd = resident_operand(host, role_key, dtype=cp.float64)
-        if Xd.ndim == 1:
-            Xd = Xd[:, None]
+        Xd = assemble_resident_matrix(host, _names, role_key, dtype=cp.float64)
 
         _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()
         yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
