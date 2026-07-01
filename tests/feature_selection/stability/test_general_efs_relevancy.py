@@ -178,6 +178,68 @@ def test_relevancy_with_explicit_mi_ranking_skips_benchmark():
 
 
 # ----------------------------------------------------------------------------
+# Statistical calibration: Miller-Madow bias correction + Benjamini-Hochberg FDR
+# ----------------------------------------------------------------------------
+
+
+def _build_pure_null_bins(n: int = 2000, n_features: int = 60, seed: int = 0) -> pl.DataFrame:
+    """Target and every feature drawn INDEPENDENTLY -> no feature is genuinely relevant.
+
+    The raw plug-in MI is positively biased even here, so the pre-fix ``>=`` exceedance over the RAW
+    MI over-selects a chunk of these pure-noise features. The bias-corrected + BH-controlled test must
+    keep the false-positive count small.
+    """
+    rng = np.random.default_rng(seed)
+    cols = [rng.integers(0, 15, size=n, dtype=np.int8)]
+    names = ["target"]
+    for i in range(n_features):
+        cols.append(rng.integers(0, 15, size=n, dtype=np.int8))
+        names.append(f"noise_{i}")
+    arr = np.column_stack(cols).astype(np.int8)
+    return pl.DataFrame(arr, schema=names)
+
+
+def test_relevancy_fdr_controls_false_positives_on_pure_null():
+    """On a pure-null dataset (many independent features), the calibrated test must NOT retain more than
+    a tiny handful of features. FDR control at alpha=0.05 bounds expected false discoveries; we allow a
+    small slack for the discrete asymptotics."""
+    bins = _build_pure_null_bins(n=2000, n_features=60, seed=0)
+    cols_to_drop, _, _, _ = estimate_features_relevancy(
+        bins=bins,
+        target_columns=["target"],
+        mi_algorithms_ranking=[grok_compute_mutual_information],
+        benchmark_mi_algorithms=False,
+        min_randomized_permutations=5,
+        min_permuted_mi_evaluations=10,
+        fdr_alpha=0.05,
+        verbose=0,
+    )
+    n_features = bins.shape[1] - 1  # minus target
+    kept = n_features - len([c for c in cols_to_drop if c != "target"])
+    # Expect near-zero survivors on pure noise; allow <=3 as discrete-asymptotic slack.
+    assert kept <= 3, f"pure-null over-selection: {kept}/{n_features} noise features retained; FDR failed to control false positives"
+
+
+def test_relevancy_keeps_genuine_signal_under_fdr():
+    """The FDR gate must NOT be so aggressive that it discards genuinely-relevant features. With a couple
+    of informative features embedded among noise, those informative ones survive (are not dropped)."""
+    bins = _build_bins_with_known_signal(n=2000, n_informative=2, n_noise=40, seed=1)
+    cols_to_drop, _, _, _ = estimate_features_relevancy(
+        bins=bins,
+        target_columns=["target"],
+        mi_algorithms_ranking=[grok_compute_mutual_information],
+        benchmark_mi_algorithms=False,
+        min_randomized_permutations=5,
+        min_permuted_mi_evaluations=10,
+        fdr_alpha=0.05,
+        verbose=0,
+    )
+    drops = set(cols_to_drop)
+    for i in range(2):
+        assert f"inf_{i}" not in drops, f"inf_{i} is genuinely relevant but was dropped under FDR; got {drops}"
+
+
+# ----------------------------------------------------------------------------
 # benchmark_mi_algos — slow path, only one smoke test
 # ----------------------------------------------------------------------------
 

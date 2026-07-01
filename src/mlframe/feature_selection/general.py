@@ -28,6 +28,55 @@ from pyutilz.benchmarking import benchmark_algos_by_runtime
 
 from mlframe.feature_selection.mi import grok_compute_mutual_information, chatgpt_compute_mutual_information, deepseek_compute_mutual_information
 
+# Statistically-calibrated MI null. ``analytic_mi_null`` returns the Miller-Madow plug-in bias floor
+# ``(Bx-1)(By-1)/(2N)`` (the permutation-null MEAN) plus a chi-square G-test p-value; it is the same
+# machinery the modern filters/mrmr path uses. Reused here rather than reimplemented so the legacy
+# ``estimate_features_relevancy`` selection driver is calibrated to a nominal significance level with a
+# genuine multiple-comparison (Benjamini-Hochberg) correction instead of ad-hoc raw-MI exceedances.
+from mlframe.feature_selection.filters._analytic_mi_null import analytic_mi_null
+
+
+def _occupied_bins(codes: np.ndarray) -> int:
+    """Number of distinct non-negative integer bin codes actually occupied in ``codes``.
+
+    This is ``Bx`` / ``By`` in the Miller-Madow bias term ``(Bx-1)(By-1)/(2N)`` and the G-test degrees
+    of freedom ``(Bx-1)(By-1)``. Counting OCCUPIED (not nominal) bins is what makes the bias floor and
+    the chi-square df match the actual contingency table, exactly as ``filters/_analytic_mi_null`` does.
+    """
+    c = np.asarray(codes)
+    if c.size == 0:
+        return 0
+    c = c[c >= 0]
+    if c.size == 0:
+        return 0
+    return int(np.unique(c).size)
+
+
+def _benjamini_hochberg_reject(p_values: np.ndarray, alpha: float) -> np.ndarray:
+    """Benjamini-Hochberg (1995) FDR-controlling rejection mask.
+
+    Returns a boolean mask, ``True`` where the null is REJECTED (feature deemed relevant) while
+    controlling the false-discovery rate at ``alpha`` across all tested features. This is the
+    multiple-comparison control the legacy per-feature ``>=`` exceedance lacked entirely: with hundreds
+    of independent noise features the raw exceedance over-selects at ~``max_permuted_prevalence_percent``
+    per feature, whereas BH bounds the expected fraction of false positives among the selected set.
+    """
+    p = np.asarray(p_values, dtype=float)
+    m = p.size
+    if m == 0:
+        return np.zeros(0, dtype=bool)
+    order = np.argsort(p)
+    ranked = p[order]
+    thresholds = (np.arange(1, m + 1) / m) * alpha
+    passing = ranked <= thresholds
+    if not passing.any():
+        rejected = np.zeros(m, dtype=bool)
+        return rejected
+    cutoff_idx = int(np.where(passing)[0].max())
+    rejected = np.zeros(m, dtype=bool)
+    rejected[order[: cutoff_idx + 1]] = True
+    return rejected
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -68,6 +117,8 @@ def estimate_features_relevancy(
     min_permuted_mi_evaluations: int = 500,
     min_randomized_permutations: int = 1,
     max_permuted_prevalence_percent: float = 0.05,
+    # multiple-comparison control (statistical calibration of the relevancy test)
+    fdr_alpha: float = 0.05,
     # stopping criteria
     max_runtime_mins: float = None,
     # rng
@@ -80,11 +131,19 @@ def estimate_features_relevancy(
     """Computes relevancy of all features to the targets, using integer bins computed at previous step.
     Suggests for droppping columns that have no firm impact on any of the targets.
 
-    We think that a feature has impact on target if:
-        it's MI with original target is higher than MI with permuted target in (1-max_permuted_prevalence_percent)
-            (default ALL) permutations we tried;
-        it's MI with original target is at least min_mi_prevalence times higher than permuted_max_mi_quantile
-            (default MAXIMUM) MI with permuted target across all features and permutaions we tried.
+    A feature is deemed to impact the target only if it passes ALL THREE of the following. The observed
+    plug-in MI is first BIAS-CORRECTED by subtracting the Miller-Madow floor ``(Bx-1)(By-1)/(2N)`` (the
+    permutation-null mean), so raw-MI positive bias no longer counts as signal:
+        1. its bias-corrected MI exceeds the permuted-target MI in (1-max_permuted_prevalence_percent)
+           (default ALL) permutations tried;
+        2. its bias-corrected MI is at least ``min_mi_prevalence`` times higher than the
+           ``permuted_max_mi_quantile`` (default MAXIMUM) permuted MI across all features/permutations;
+        3. it survives a Benjamini-Hochberg FDR correction (at ``fdr_alpha``) over the per-feature
+           analytic G-test p-values ``chi2.sf(2*N*MI, (Bx-1)(By-1))`` -- the multiple-comparison control
+           that keeps many independent noise features from over-selecting at scale.
+
+    The bias floor and p-values reuse ``feature_selection.filters._analytic_mi_null`` (the same
+    calibrated machinery as the modern filters/mrmr path).
 
     Either min_randomized_permutations or max_runtime_mins should be specified.
 
@@ -199,6 +258,11 @@ def estimate_features_relevancy(
 
     features_usefulness = np.zeros(bins.shape[1], dtype=np.int32)
 
+    n_samples = arr.shape[0]
+    # Per-column occupied-bin counts drive both the Miller-Madow bias floor and the G-test df. Computed
+    # once here (not per target) since the codes are the same across targets.
+    occupied_bins_per_col = np.array([_occupied_bins(arr[:, j]) for j in range(bins.shape[1])], dtype=np.int64)
+
     for target_idx, target_col_idx in enumerate(target_indices):
         target_name = target_columns[target_idx]
 
@@ -217,6 +281,24 @@ def estimate_features_relevancy(
                 logger.info("Skipping target=%s: permuted MI array is empty after stacking.", target_name)
             continue
 
+        by = int(occupied_bins_per_col[target_col_idx])  # occupied target bins
+
+        # ----------------------------------------------------------------------------------------------
+        # Bias-correct the observed MI before ANY comparison. Raw plug-in MI is positively biased by the
+        # Miller-Madow floor ``(Bx-1)(By-1)/(2N)`` even for independent variables; subtracting the same
+        # per-feature floor that ``analytic_mi_null`` reports puts the observed statistic on the null's
+        # own scale so the raw-MI exceedance tests below are no longer fooled by the bias mean.
+        # ----------------------------------------------------------------------------------------------
+        raw_mi_row = np.asarray(original_mi_results[target_idx], dtype=np.float64)
+        null_mean_row = np.empty(bins.shape[1], dtype=np.float64)
+        p_values = np.ones(bins.shape[1], dtype=np.float64)  # default 1.0 == non-significant
+        for j in range(bins.shape[1]):
+            bx = int(occupied_bins_per_col[j])
+            nm, p = analytic_mi_null(float(raw_mi_row[j]) if np.isfinite(raw_mi_row[j]) else 0.0, n_samples, bx, by)
+            null_mean_row[j] = nm
+            p_values[j] = p
+        debiased_mi = np.where(np.isfinite(raw_mi_row), raw_mi_row - null_mean_row, -np.inf)
+
         if not permuted_max_mi_quantile:
             # Wave 21 P1: nanmax so NaN-MI permutations don't poison the max.
             baseline_mi = np.nanmax(all_permuted_mis[target_name]) * min_mi_prevalence
@@ -228,25 +310,33 @@ def estimate_features_relevancy(
             baseline_mi = np.nanquantile(all_permuted_mis[target_name], permuted_max_mi_quantile) * min_mi_prevalence
 
         target_features_usefulness = np.zeros(bins.shape[1], dtype=np.int32)
-        # test #1: original MI must be above highest permuted MI for this feature.
+        # test #1: BIAS-CORRECTED original MI must be above the highest permuted MI for this feature.
         # The exceedance uses ``>=`` (a permuted MI that ties the observed counts as a failure); on discrete / low-cardinality data ties are frequent, so this is mildly
         # conservative (it can demote a genuinely-weak feature whose null occasionally ties it). Tolerated here because the prevalence is rate-thresholded against
         # ``max_permuted_prevalence_percent`` rather than requiring zero exceedances, and ``nanmax`` / ``nanquantile`` already guard the NaN-MI degenerate-pair case below.
-        permuted_prevalence = (current_permuted_mis[target_name] >= original_mi_results[target_idx]).sum(axis=0)
+        permuted_prevalence = (current_permuted_mis[target_name] >= debiased_mi).sum(axis=0)
         passed_permutation = ((permuted_prevalence / current_permuted_mis[target_name].shape[0]) <= max_permuted_prevalence_percent).astype(np.int32)
         target_features_usefulness = target_features_usefulness + passed_permutation
 
-        # test #2: original MI must be significanly above highest permuted MI of all features (for this target) seen so far
-        passed_baseline = (original_mi_results[target_idx] > baseline_mi).astype(np.int32)
+        # test #2: bias-corrected original MI must be significantly above the highest permuted MI of all features (for this target) seen so far
+        passed_baseline = (debiased_mi > baseline_mi).astype(np.int32)
         target_features_usefulness = target_features_usefulness + passed_baseline
+
+        # test #3: Benjamini-Hochberg FDR control across the per-feature analytic (G-test) p-values. This
+        # is the multiple-comparison control the ad-hoc per-feature exceedance lacked: with many noise
+        # features the raw ``>=`` test admits ~``max_permuted_prevalence_percent`` false positives PER
+        # feature (over-selection at scale), whereas BH bounds the expected false-discovery FRACTION of
+        # the selected set at ``fdr_alpha``. Targets/degenerate columns get p=1.0 above and never pass.
+        passed_fdr = _benjamini_hochberg_reject(p_values, fdr_alpha).astype(np.int32)
+        target_features_usefulness = target_features_usefulness + passed_fdr
 
         if verbose > 1:
             logger.info(
-                "Target=%s, baseline_mi=%.7f, baseline_n_passed=%s, permutation_n_passed=%s",
-                target_name, baseline_mi, f"{passed_baseline.sum():_}", f"{passed_permutation.sum():_}",
+                "Target=%s, baseline_mi=%.7f, baseline_n_passed=%s, permutation_n_passed=%s, fdr_n_passed=%s",
+                target_name, baseline_mi, f"{passed_baseline.sum():_}", f"{passed_permutation.sum():_}", f"{passed_fdr.sum():_}",
             )
 
-        features_usefulness += (target_features_usefulness >= 2).astype(np.int32)  # both tests must be passed
+        features_usefulness += (target_features_usefulness >= 3).astype(np.int32)  # all three tests must be passed
 
     for feature_idx, feature_name in enumerate(bins.columns):
         if features_usefulness[feature_idx] == 0 and feature_idx not in target_indices:
