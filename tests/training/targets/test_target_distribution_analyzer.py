@@ -385,3 +385,18 @@ class TestMergeIntoConfig:
         user_config = {"mlp_kwargs": None}
         merged = rep.merge_into_config(user_config)
         assert merged["mlp_kwargs"] is None
+
+
+def test_fused_moments_match_standalone_helpers():
+    """analyze_target_distribution derives excess_kurtosis + skew from a single standardised-z pass reusing the already
+    computed mu/sigma, instead of calling _excess_kurtosis / _skewness (which each recompute mean+std and re-materialise
+    z). Regression sensor: the fused diagnostics must stay bit-identical to the standalone helpers on the same input, so
+    a future edit to either side that silently diverges the moment math is caught."""
+    rng = np.random.default_rng(7)
+    for seed_shift in range(6):
+        n = 5000 + 1000 * seed_shift
+        y = rng.standard_normal(n).astype(np.float64)
+        y[: n // 40] += 9.0  # inject a heavy right tail so kurtosis + skew are clearly non-zero
+        rep = analyze_target_distribution(y, target_type="regression", has_time_axis=False)
+        assert rep.diagnostics["excess_kurtosis"] == _excess_kurtosis(y)
+        assert rep.diagnostics["skew"] == _skewness(y)
