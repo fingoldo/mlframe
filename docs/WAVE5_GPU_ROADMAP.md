@@ -10,6 +10,17 @@ The kernel_tuning_cache + dispatcher infrastructure (commits b886011 ..
 previous WAVE 4 + WAVE 6) remains in place and continues to dispatch
 the active MRMR + discretization + FE-unary paths.
 
+> Path note (docs actualised): the code sites referenced below by their
+> old names have since been replatformed. The shipped 1/4 FE-unary wire
+> now lives in `feature_selection/filters/_feature_engineering_pairs/`
+> (gate at `_pairs_setup.py`), not `feature_engineering.py:compute_fe_pairs`;
+> the composite predict/aggregation path moved to
+> `training/composite/estimator/`; votenrank rules stay at
+> `votenrank/leaderboard/_rules.py`. Note also that a much larger,
+> separately-tracked GPU-resident FE generation + MI subsystem
+> (`_gpu_resident_*.py` under the same package) has since landed and
+> dwarfs the shipped 1/4 item — it is not covered by this closed roadmap.
+
 ## 1. ``feature_engineering/transformer/`` GPU broadcast -- SHIPPED 228db3c
 
 **Wire site landed**: ``filters/feature_engineering.py:compute_fe_pairs``

@@ -1,6 +1,6 @@
 """JMIM vs Fleuret-CMIM on XOR + collinear-noise reflection (Wave 8).
 
-Designed per Agent B's critique (docs/MRMR_RESEARCH_2026_05_28.md):
+Designed per the MRMR research survey (docs/MRMR_RESEARCH.md):
 
     "Bench: synthetic XOR + 10 collinear noise reflections of one
     informative feature; current Fleuret will reject the second XOR

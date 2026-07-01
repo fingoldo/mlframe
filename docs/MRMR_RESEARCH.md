@@ -1,8 +1,27 @@
-# MRMR research synthesis — 2026-05-28
+# MRMR research synthesis
 
-Three parallel research agents produced findings for the next sprint of MRMR / feature-selection improvements. Below: clean markdown extracts of each agent's final report, with priorities + cross-references.
+Three parallel research agents produced MRMR / feature-selection findings. Below: clean markdown extracts of each agent's final report, with priorities + cross-references. Kept as a literature survey + FS competition matrix; the actionable proposals have largely shipped.
 
-**Status update:** several of the items below have since shipped and are no longer "next sprint" — JMIM, RelaxMRMR (3-way redundancy), Chao-Shen and KSG MI estimators, CPT (conditional permutation test), PID (partial information decomposition), the per-feature adaptive bin-count chooser, and cluster-stability selection are all implemented. The remaining items stay as forward research.
+**Shipping status (verified against `feature_selection/filters/`).** ✅ **DONE:**
+JMIM (`_jmim_scorer.py`, `_orthogonal_jmim_fe.py`), RelaxMRMR / 3-way redundancy
+(`_relaxmrmr_3d.py`), MRwMR-BUR (`_bur_term.py`), Chao-Shen entropy (`_chao_shen.py`),
+KSG estimator (`_ksg.py`, `mi_estimator="ksg"`), CMI-permutation stop + UAED elbow
+(`_cmi_perm_stop.py`), Conditional Permutation Test (`_conditional_permutation.py`),
+PID decomposition (`_pid_decomposition.py`), adaptive bin-count + Knuth / Bayesian-Blocks
+binning (`_adaptive_nbins.py`, `discretization/`), interaction-information / JMI term
+(`_interaction_information.py`), Cluster Stability + Complementary-Pairs SS
+(`_stability_cluster.py`, `stability_selection_method='complementary_pairs'`), Sotoca-Pla
+hierarchical CMI clustering (`_dynamic_cluster_discovery/`, `dcd_distance='sotoca_pla'`),
+and kernel_tuning_cache'd cluster thresholds (new DCD layer). The six FS methods mapped in
+Agent C's competition matrix all exist (`boruta_shap`, `wrappers/_knockoffs`,
+`wrappers/_univariate_ht`, `shap_proxied_fs`, `wrappers/rfecv`, MRMR filters); the synthetic
+bench scenarios are partially realized under `_benchmarks/`.
+
+**Still forward research (NOT started):** matrix-based Rényi α-entropy CMI estimator (#5),
+Quadratic-MI / Cauchy-Schwarz plugin-free estimator (#4, QMIFS), FCBF-style ordered pruning
+of `_cluster_aggregate`, and Inf-FS eigenvector-centrality re-ranking (Agent B rec).
+Everything else below has landed — the surveys, weakness analyses, and the 6-method ×
+15-relationship competition matrix are kept for reference and future estimator work.
 
 This file consolidates the final reports for easier reading.
 

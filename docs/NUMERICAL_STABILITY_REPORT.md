@@ -164,10 +164,22 @@ better precision than Welford in mean+var case.
 
 ## Recommendations
 
-### Phase 1 — quick wins (apply directly to numerical.py)
+**Shipping status (verified against `_numerical_numba.py` / `numerical.py`).**
+Phase 1 and Phase 2 are ✅ **DONE**: the weighted-moments bug fix, Kahan-compensated
+inner variance sum (`_make_compute_simple_stats(use_kahan=...)`), Welford/compensated
+skew-kurt (`_make_compute_moments_slope_mi(use_kahan, ...)`, `compensated=` param),
+and Kahan `slope_over/under/r_sum` accumulators all landed and are covered by
+`tests/feature_engineering/test_numerical_stability_bench.py`. **Still open (Phase 3):**
+items 5 (geomean always-log-mode — code still uses the multiply-then-switch heuristic),
+6 (rolling initial-window still uses uncompensated `np.sum(arr[:n])`), and the
+`var/mean^2 < 1e-12` cheap auto-detect switch (routing is via the explicit
+`compensated=` flag, not the automatic heuristic). Those three are the live TODO.
 
-1. **Fix line 740 bug** ✅ DONE in this changeset
-2. **Replace inner variance sum** (line 151) with Kahan compensated:
+### Phase 1 — quick wins ✅ DONE
+
+1. **Fix line 740 bug** ✅ DONE
+2. **Replace inner variance sum** with Kahan compensated ✅ DONE
+   (`_make_compute_simple_stats(use_kahan=...)`):
    ```python
    # Old: std_val = std_val + summand
    # New: t = std_val + summand
@@ -177,7 +189,7 @@ better precision than Welford in mean+var case.
    ```
    Per-line-overhead small, recovery 1-2 orders of magnitude.
 
-### Phase 2 — moments stability
+### Phase 2 — moments stability ✅ DONE
 
 3. Replace `compute_moments_slope_mi` skew/kurt accumulators with Welford-Pébay
    (`welford_moments_seq` is the reference impl). Acceptable runtime cost
@@ -188,7 +200,7 @@ better precision than Welford in mean+var case.
    compensated sums. Cheap (~1.2× cost), critical for regression-feature
    correctness on long time series.
 
-### Phase 3 — geomean / harmonic / drawdown
+### Phase 3 — geomean / harmonic / drawdown (OPEN — not started)
 
 5. Replace heuristic geomean log-mode (line 340-354) with always-log-mode
    for non-negative input + Kahan log-sum:

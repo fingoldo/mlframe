@@ -29,10 +29,9 @@ where relevant), not user API documentation.
 
 | File | Topic |
 |---|---|
-| [`MRMR_RESEARCH_2026_05_28.md`](MRMR_RESEARCH_2026_05_28.md) | MRMR / feature-selection literature survey (scorers, MI estimators); several items shipped |
+| [`MRMR_RESEARCH.md`](MRMR_RESEARCH.md) | MRMR / feature-selection literature survey + FS competition matrix; most proposals shipped, 4 open estimator ideas |
+| [`FE_MRMR_IDEAS_BACKLOG.md`](FE_MRMR_IDEAS_BACKLOG.md) | FE gate/operator backlog status note — shipped / rejected / 3 open items |
 | [`pysr_fe_upgrade_research.md`](pysr_fe_upgrade_research.md) | PySR symbolic-regression FE tuning survey + operator-preset design (shipped) |
 | [`date_features_kaggle_research.md`](date_features_kaggle_research.md) | Calendar / cyclical date-feature survey behind `create_date_features` |
 | [`NUMERICAL_STABILITY_REPORT.md`](NUMERICAL_STABILITY_REPORT.md) | Catastrophic-cancellation audit + benchmark of the numba moment kernels |
-| [`audit_2026_05_24_summary.md`](audit_2026_05_24_summary.md) | Snapshot summary of a calibration / diagnostics audit pass |
 | [`WAVE5_GPU_ROADMAP.md`](WAVE5_GPU_ROADMAP.md) | GPU-acceleration roadmap notes |
-| [`internal/`](internal/) | Harness-internal notes (e.g. `fuzz_audit.md` — the combinatorial fuzz harness) |

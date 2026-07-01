@@ -6,6 +6,13 @@ Research compiled 2026-05-26 to inform the extended defaults shipped in
 Kaggle GMs and the industry-canonical tabular libraries actually emit
 from a single datetime column.
 
+**Status: ✅ SHIPPED.** Everything this survey recommended for the defaults is
+live and tested in `basic.py` (`create_date_features`, `add_cyclical_date_features`;
+tests under `tests/feature_engineering/`) — see §7. The §5 domain-specific
+features (`days_since_event`, `payday_distance`, `week_of_month`, `is_month_*`,
+`time_of_day`, `lunar_phase`, `days_to_holiday`, `Elapsed`) were intentionally
+left out of the unconditional defaults and remain the only open menu.
+
 ## 1. Default integer date parts (the "calendar" features)
 
 Across the canonical recipes the universally-emitted set is:
@@ -97,10 +104,9 @@ Top Kaggle solutions ship BOTH:
 The integer form costs ~1 byte/col with int8; the sin/cos pair costs
 8 bytes/col (2 x float32). On a 100M row frame the cyclical encoding
 adds ~600MB across all 5 default periods -- not free, but the standard
-stacker / NN-blender will use them. The default we ship is OPT-IN
-(`cyclical=False`) so the unconditional cost is zero for users who only
-train trees. Callers that include a linear / NN base learner flip
-`cyclical=True`.
+stacker / NN-blender will use them. As shipped, `create_date_features`
+emits the cyclical pairs by **default** (`add_cyclical=True`); users who only
+train trees pass `add_cyclical=False` to drop the sin/cos cost.
 
 One-hot encoding of date parts (NVIDIA blog Approach 1) is generally
 discouraged for high-cardinality components (day_of_year -> 366 OHE

@@ -55,14 +55,12 @@ markdown_extensions:
 # Internal / research / roadmap notes still build (so docs/README.md links keep
 # resolving) but are intentionally kept out of the navigation sidebar.
 not_in_nav: |
-  /internal/*
-  /MRMR_RESEARCH_2026_05_28.md
+  /MRMR_RESEARCH.md
   /pysr_fe_upgrade_research.md
   /date_features_kaggle_research.md
   /NUMERICAL_STABILITY_REPORT.md
-  /audit_2026_05_24_summary.md
   /WAVE5_GPU_ROADMAP.md
-  /FE_MRMR_IDEAS_BACKLOG_2026-06-03.md
+  /FE_MRMR_IDEAS_BACKLOG.md
 
 nav:
   - Home: README.md

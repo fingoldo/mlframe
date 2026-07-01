@@ -10,6 +10,25 @@ Verified against PySR master @ 2026-05-17 (constructor signature lifted from
 and the v2.0.0-alpha series release notes
 ([GitHub releases](https://github.com/MilesCranmer/PySR/releases)).
 
+**Shipping status (verified against `feature_engineering/pysr_operators.py` +
+`training/pipeline/_pipeline_extensions.py`).** ✅ **DONE:** the named
+operator-preset system (`pysr_operator_preset` = `minimal` / `standard` /
+`physics`, `VALID_PRESETS`), `safe_log` / `safe_sqrt` with faithful Julia +
+`sp.Piecewise` sympy replay for predict-time (fixes the NaN leak),
+`complexity_of_operators` and `nested_constraints` per preset,
+`extra_sympy_mappings` replay, `parsimony=1e-4`, `weight_optimize=0.001`,
+`heap_size_hint_in_bytes` (fixed 256 MB, deliberate), `PYTHON_JULIACALL_THREADS`
++ `JULIA_NUM_THREADS` at import, and `warm_start` (`pysr_warm_start` knob).
+
+**Still open:** (a) wire a real `pysr_extra_operators` config knob — the extra
+operator signatures (gauss / softplus / harmonic_mean / xlogy) exist in
+`OPERATOR_JULIA_SIGNATURES` but there is no user-facing knob to enable them
+without a code edit; (b) apply (or explicitly document declining) the
+recommended **400_000** default `pysr_sample_size` cap — the knob exists but
+defaults to no cap. GPU (`SymbolicRegressionGPU.jl`) remains intentionally
+out of scope. Sections below are retained as the reference for the next tuning
+pass.
+
 ## 1. Release-history scan
 
 Working backward from the latest tag. Only entries that change FE-relevant
