@@ -95,19 +95,55 @@ def retention_form_is_subsumed(
 
     try:
         cand = np.nan_to_num(cand, nan=0.0, posinf=0.0, neginf=0.0)
-        cand_bin = np.asarray(_quantile_bin(cand, nbins=nbins)).astype(np.int64).ravel()
-        inc_bins = [
-            np.asarray(_quantile_bin(np.nan_to_num(c, nan=0.0, posinf=0.0, neginf=0.0), nbins=nbins)).astype(np.int64).ravel()
-            for c in inc
-        ]
+        _inc_clean = [np.nan_to_num(c, nan=0.0, posinf=0.0, neginf=0.0) for c in inc]
+        # DEVICE-BORN candidate + support residency (default ON under strict-resident; opt-out
+        # MLFRAME_FE_GATE_RESIDENT_CANDS=0), mirroring the raw-redundancy drop. Device-bin the candidate + each
+        # incumbent ONCE (resident int64 codes = same percentile-edge partition as the host _quantile_bin) and
+        # join the support ON device, so the candidate codes + Z never re-cross H2D at the cmi_cand_x / cmi_z
+        # sites. Host copies (the D2H of the SAME partition) remain the byte-path fallback for _renumber_joint
+        # and the CPU sites. Any non-finite / cupy fault falls back to the host quantile binner.
+        import os as _os
+        _resident = False
+        if _os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
+            try:
+                from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+                from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
+                _resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
+            except Exception:
+                _resident = False
+        cand_dev = None
+        z_support_dev = None
+        if _resident and np.isfinite(cand).all() and all(np.isfinite(c).all() for c in _inc_clean):
+            try:
+                import cupy as _cp
+                from ._mi_greedy_cmi_fe import _quantile_bin_gpu_resident, _renumber_joint_gpu
+                cand_dev = _quantile_bin_gpu_resident(cand, int(nbins))
+                _inc_dev = [_quantile_bin_gpu_resident(c, int(nbins)) for c in _inc_clean]
+                if cand_dev is not None and _inc_dev and all(d is not None for d in _inc_dev):
+                    cand_bin = _cp.asnumpy(cand_dev).astype(np.int64).ravel()   # host copy = D2H of the partition
+                    inc_bins = [_cp.asnumpy(d).astype(np.int64).ravel() for d in _inc_dev]
+                    z_support_dev, _ = _renumber_joint_gpu(*_inc_dev)
+                else:
+                    cand_dev = None
+            except Exception:
+                cand_dev = None
+                z_support_dev = None
+        if cand_dev is None:
+            cand_bin = np.asarray(_quantile_bin(cand, nbins=nbins)).astype(np.int64).ravel()
+            inc_bins = [np.asarray(_quantile_bin(c, nbins=nbins)).astype(np.int64).ravel() for c in _inc_clean]
         z_support, _ = _renumber_joint(*inc_bins)
+        # Prefer the resident candidate codes + device-born support for the scoring (resident-input branches);
+        # host otherwise.
+        _cb = cand_dev if cand_dev is not None else cand_bin
+        _zc = z_support_dev if z_support_dev is not None else z_support
         # Candidate's OWN marginal debiased excess (the reference scale for the relative bar).
-        marg_floor, marg_null_mean = _conditional_perm_null(cand_bin, y_arr, None, seed=seed)
-        marg_cmi = float(_cmi_from_binned(cand_bin, y_arr, None))
+        marg_floor, marg_null_mean = _conditional_perm_null(_cb, y_arr, None, seed=seed)
+        marg_cmi = float(_cmi_from_binned(_cb, y_arr, None))
         marg_excess = max(0.0, marg_cmi - marg_null_mean)
         # Conditional CMI given the incumbent engineered survivors.
-        cmi = float(_cmi_from_binned(cand_bin, y_arr, z_support))
-        floor, null_mean = _conditional_perm_null(cand_bin, y_arr, z_support, seed=seed)
+        cmi = float(_cmi_from_binned(_cb, y_arr, _zc))
+        floor, null_mean = _conditional_perm_null(
+            _cb, y_arr, z_support, seed=seed, z_support_dev=z_support_dev)
         excess = max(0.0, cmi - null_mean)
     except Exception:
         return False
