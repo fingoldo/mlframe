@@ -82,7 +82,25 @@ def resident_raw_baseline_mi(
         from ._fe_resident_operands import resident_operand
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 
-        Xd = resident_operand(host, role_key, dtype=cp.float64)
+        # DEVICE-ASSEMBLE the raw baseline matrix from the resident PER-COLUMN operands rather than uploading it
+        # whole: this same raw data is already resident column-by-column under the ("xbasis_op", col) role (the
+        # basis / cross-basis device builders upload each source column once), so stacking the resident columns
+        # on device content-hits that cache and the (n, k) matrix never crosses H2D. ``role_key`` carries the
+        # column names as its second element (e.g. ("raw_noise_floor", tuple(cols))), and column j of ``host`` is
+        # that column verbatim (the callers build ``raw_X[cols].to_numpy()``), so the per-column upload is the
+        # SAME bytes -> content-keyed dedup -> selection-identical. Any shape/name mismatch -> upload the matrix.
+        _names = role_key[1] if (isinstance(role_key, tuple) and len(role_key) >= 2
+                                 and isinstance(role_key[1], (tuple, list))) else None
+        Xd = None
+        if _names is not None and len(_names) == host.shape[1] and host.shape[1] >= 1:
+            try:
+                _cols_g = [resident_operand(np.ascontiguousarray(host[:, j]), ("xbasis_op", _names[j]),
+                                            dtype=cp.float64) for j in range(host.shape[1])]
+                Xd = cp.stack(_cols_g, axis=1) if len(_cols_g) > 1 else _cols_g[0][:, None]
+            except Exception:
+                Xd = None
+        if Xd is None:
+            Xd = resident_operand(host, role_key, dtype=cp.float64)
         if Xd.ndim == 1:
             Xd = Xd[:, None]
 
