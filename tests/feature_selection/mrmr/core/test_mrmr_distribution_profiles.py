@@ -43,7 +43,7 @@ import pytest
 from mlframe.feature_selection.filters.mrmr import MRMR
 from tests.feature_selection import _synthetic_distributions as sd
 # Reuse the battle-tested tolerant matcher from the uniform suite (no duplication).
-from tests.feature_selection.mrmr.test_mrmr_create_keep_drop import _artifact_path, _covers, _operand_tokens
+from tests.feature_selection.mrmr.core.test_mrmr_create_keep_drop import _artifact_path, _covers, _operand_tokens
 
 SEED = 42
 FIT_TIMEOUT = 360
@@ -473,12 +473,12 @@ def _recovery_subprocess_src(kind: str, formula: str, profile, n: int) -> str:
     genuine keep-signal is recovered, 3 when it is lost (a real regression)."""
     if kind == "distro":
         body = (
-            "from tests.feature_selection.mrmr import test_mrmr_distribution_profiles as M\n"
+            "from tests.feature_selection.mrmr.core import test_mrmr_distribution_profiles as M\n"
             f"sel, keep_fail, drop_fail = M._fit_profile({formula!r}, {profile!r}, {int(n)})\n"
         )
     else:
         body = (
-            "from tests.feature_selection.mrmr import test_mrmr_create_keep_drop as M\n"
+            "from tests.feature_selection.mrmr.core import test_mrmr_create_keep_drop as M\n"
             f"spec, sel, failures = M._fit_and_eval({formula!r}, {int(n)}, "
             f"fe_max_steps=M.FORMULAS[{formula!r}].get('fe_max_steps', 1))\n"
             "keep_fail = [f for f in failures if f.get('kind') == 'missing_signal']\n"
