@@ -326,8 +326,11 @@ def propose_additive_fusions_gpu(
                                            ("addfusion_rawprobe", _rn))                     # 1 col, cached once
                 _rvb_dev, _kxr = _gpu_quantile_bin_codes(_rv_dev[None, :], qs)              # resident bin codes
                 _rvb = cp.asnumpy(_rvb_dev[0])                                              # probe-input D2H
+                # Hand the probe the RESIDENT raw candidate + fused-child codes so its conditioning support is
+                # built DEVICE-BORN (no cmi_z / order/z_rank H2D); the host copies stay the fallback.
                 _retains = raw_retains_signal_given_genuine_children(
                     raw_bin=_rvb, y_bin=y_dense, genuine_child_bins=[fvb], seed=seed,
+                    raw_bin_dev=_rvb_dev[0], genuine_child_bins_dev=[fvb_dev],
                 )
                 if not _retains:
                     subsumed_raws.add(_rn)

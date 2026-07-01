@@ -162,6 +162,8 @@ def raw_retains_signal_given_genuine_children(
     self_retain_frac: float = RAW_SELF_RETAIN_FRAC,
     allow_linear_usability: bool = False,
     seed: int = 0,
+    genuine_child_bins_dev: Optional[Sequence] = None,
+    raw_bin_dev=None,
 ) -> bool:
     """KEEP-rule probe reused by the PSEUDO-CHILD MASKED-RAW RESCUE (2026-06-13).
 
@@ -187,9 +189,11 @@ def raw_retains_signal_given_genuine_children(
     # ``_renumber_joint``-ed here (the children build ``z_support``), so upload it ONCE as resident int64 codes
     # and thread that handle into both ``_excess_and_floor`` calls -- the candidate never re-crosses H2D at the
     # ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x`` sites. Host codes on any fault / when off.
-    _rb_cand = rb
+    # Prefer an ALREADY-RESIDENT raw candidate code handed in (the caller device-binned it) so the raw never
+    # re-crosses H2D; else upload once via the content-keyed cache.
+    _rb_cand = raw_bin_dev if raw_bin_dev is not None else rb
     import os as _os
-    if _os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
+    if raw_bin_dev is None and _os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
         try:
             from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
@@ -202,7 +206,19 @@ def raw_retains_signal_given_genuine_children(
     if not _gc:
         return True  # no genuine subsumer survives -> the raw cannot be proven redundant
     z_support, _ = _renumber_joint(*_gc)
-    cmi, floor, excess = _excess_and_floor(_rb_cand, yb, z_support, seed=seed)
+    # DEVICE-BORN conditioning support when the caller hands resident child codes: join them on device
+    # (``_renumber_joint_gpu``, same partition -> selection-identical) so the support never crosses H2D (cmi_z +
+    # perm-null order/z_rank). None if any child lacks a resident twin -> host z scored.
+    z_support_dev = None
+    if genuine_child_bins_dev is not None:
+        _gcd = [g for g in genuine_child_bins_dev if g is not None]
+        if _gcd and len(_gcd) == len(_gc):
+            try:
+                from ._mi_greedy_cmi_fe import _renumber_joint_gpu
+                z_support_dev, _ = _renumber_joint_gpu(*_gcd)
+            except Exception:
+                z_support_dev = None
+    cmi, floor, excess = _excess_and_floor(_rb_cand, yb, z_support, seed=seed, z_support_dev=z_support_dev)
     if (cmi > floor) and (excess >= self_retain_frac * max(0.0, marg_excess)):
         return True
     # LINEAR-USABILITY leg (variant-3): a linearly-usable raw whose conditional CMI collapsed
