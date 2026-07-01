@@ -13,6 +13,7 @@ import pytest
 pytest.importorskip("pandas")
 
 from mlframe.feature_selection.filters._fe_raw_redundancy_drop import (
+    _heldout_ridge_r2,
     raw_retains_linear_signal_given_children,
 )
 
@@ -70,3 +71,26 @@ def test_drop_verdict_unchanged_when_child_is_linear_equivalent() -> None:
     child = raw + rng.standard_normal(n) * 1e-6   # child IS raw linearly
     y = 3.0 * child + rng.standard_normal(n) * 0.01
     assert raw_retains_linear_signal_given_children(raw, y, [child], seed=909) is False
+
+
+def test_heldout_ridge_r2_separates_good_from_lossy_feature_set() -> None:
+    """The downstream no-harm guard reverts a raw-redundancy DROP when the KEPT set's held-out Ridge R^2 falls
+    below the raw-only baseline. This pins the guard's core discriminator: the held-out Ridge probe must score
+    a linearly-faithful raw set materially ABOVE a linearly-lossy engineered replacement. ``b**3`` is monotone
+    in ``b`` (so the rank-MI/CMI drop verdict deems it a subsumer) but is NOT a linear equivalent -- exactly the
+    prewarp/product entanglement that harmed I4b/I5 on lognormal terrain."""
+    rng = np.random.default_rng(3)
+    n = 4000
+    b = rng.standard_normal(n)
+    a = rng.standard_normal(n)
+    y = 2.0 * b + 0.3 * a  # linear in b (and a)
+    r_raw = _heldout_ridge_r2(np.column_stack([a, b]), y)          # raw-only baseline: recovers y
+    r_lossy = _heldout_ridge_r2(np.column_stack([a, b ** 3]), y)   # linearly-lossy replacement of b
+    assert r_raw is not None and r_lossy is not None
+    assert r_raw > 0.9
+    # The lossy set is materially worse -> a drop that replaced raw b with b**3 would fall below raw-only by
+    # more than the guard's epsilon and be reverted.
+    assert r_lossy < r_raw - 0.05
+    # Degenerate inputs return None (guard leaves the drop unchanged): too few rows, constant y.
+    assert _heldout_ridge_r2(np.column_stack([a[:10], b[:10]]), y[:10]) is None
+    assert _heldout_ridge_r2(np.column_stack([a, b]), np.zeros(n)) is None

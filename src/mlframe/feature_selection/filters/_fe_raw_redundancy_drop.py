@@ -99,6 +99,19 @@ RAW_SELF_RETAIN_FRAC = 0.05
 # referenced by the verdict.
 RAW_SUPERSET_MULT = 3.0
 
+# Downstream no-harm epsilon for the raw-redundancy DROP outcome guard: the maximum held-out linear (Ridge)
+# R^2 the full drop may cost before it is reverted (the child is judged linearly lossy and the raws are kept).
+# Well inside the I4b/I5 contract's 0.05 no-harm bar, so a genuine harm reverts while a neutral cosmetic drop
+# (the child captures the raw linearly, R^2 unchanged) is never disturbed.
+_RAW_DROP_NO_HARM_EPS = 0.01
+
+# The downstream no-harm guard's held-out Ridge R^2 probe is meaningful only for a CONTINUOUS (regression)
+# target. For classification the caller passes the discrete class labels as ``y_continuous``, and a Ridge R^2
+# on those is unreliable (spuriously reverts a drop, re-breaking the strict-drop invariant). Treat a target
+# with fewer than this many distinct values as classification-like and SKIP the guard (a regression target is
+# effectively continuous -> ~n distinct values, far above this floor).
+_MIN_TARGET_DISTINCT_FOR_GUARD = 20
+
 # Equi-frequency bins for raw / engineered / target columns. 10 matches the S5
 # gate; deliberately NOT finer -- a very fine engineered binning fragments the
 # conditioning strata at large n and re-inflates the residual (measured: 32 bins
@@ -438,6 +451,32 @@ def raw_retains_linear_signal_given_children(
         null[k] = abs(float(perm @ ryc) / denom) if denom > 0.0 else 0.0
     floor_p95 = float(np.percentile(null[np.isfinite(null)], 95)) if np.any(np.isfinite(null)) else 1.0
     return abs(pcorr) > floor_p95
+
+
+def _heldout_ridge_r2(X: np.ndarray, y: np.ndarray, frac: float = 0.7) -> Optional[float]:
+    """Held-out StandardScaler+Ridge R^2 -- the SAME linear probe the I4b downstream no-harm contract measures
+    with (first ``frac`` rows train, remainder score; no shuffle, matching the endtoend uplift split). Returns
+    None on any degenerate/estimator fault so the caller leaves its decision unchanged."""
+    try:
+        from sklearn.linear_model import Ridge
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.pipeline import make_pipeline
+        from sklearn.metrics import r2_score
+    except Exception:
+        return None
+    X = np.nan_to_num(np.asarray(X, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+    y = np.nan_to_num(np.asarray(y, dtype=np.float64).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
+    if X.ndim != 2 or X.shape[0] != y.shape[0]:
+        return None
+    n = X.shape[0]
+    sp = int(n * frac)
+    if sp < 50 or (n - sp) < 50 or float(np.std(y[:sp])) < 1e-12:
+        return None
+    try:
+        model = make_pipeline(StandardScaler(), Ridge(alpha=1.0)).fit(X[:sp], y[:sp])
+        return float(r2_score(y[sp:], model.predict(X[sp:])))
+    except Exception:
+        return None
 
 
 def drop_redundant_raw_operands(
@@ -1167,6 +1206,56 @@ def drop_redundant_raw_operands(
 
     if not drop_idx_set:
         return sel, []
+
+    # DOWNSTREAM NO-HARM GUARD (2026-07-01). The per-raw CMI/rank-MI verdict can DROP a raw whose engineered
+    # child is LINEARLY LOSSY on skewed terrain: a prewarp/product ENTANGLES its operands so a linear (or tree)
+    # model cannot recover the raw's private contribution -- e.g. dropping ``b`` beside ``mul(sqr(a),prewarp(b))``
+    # on lognormal costs ~0.23 held-out R^2 (the I4b/I5 no-harm violation). A per-raw linear-usability probe
+    # cannot separate this from a genuinely-subsumed operand (the product masks b's per-raw residual), so verify
+    # the drop at the OUTCOME level against the SAME reference the contract measures: does the KEPT set's HELD-OUT
+    # linear fit (StandardScaler+Ridge) fall materially below the RAW-ONLY baseline (all raw features)? If so,
+    # revert the whole drop. The baseline is ALL RAWS, NOT kept+dropped -- the latter is over-sensitive (adding
+    # any column rarely lowers held-out Ridge, so it reverts even a delta-neutral cosmetic drop and re-breaks the
+    # strict-drop check on uniform terrain, measured). On well-behaved terrain the child captures the raw linearly
+    # so the kept set matches raw-only and the drop stands; only a genuinely lossy child drops the kept set below
+    # raw-only and reverts. Regression-only (needs continuous y); best-effort. ``_RAW_DROP_NO_HARM_EPS`` is the
+    # held-out-R^2 shortfall below raw-only tolerated before reverting (well inside the contract's 0.05 bar).
+    _yv = np.asarray(y_continuous, dtype=np.float64).ravel() if y_continuous is not None else None
+    _guard_on = (
+        _yv is not None
+        and _yv.shape[0] == n_rows
+        and len(np.unique(_yv)) >= _MIN_TARGET_DISTINCT_FOR_GUARD  # regression only (see constant)
+        and _os.environ.get("MLFRAME_FE_DROP_NO_HARM", "1").strip().lower() in ("1", "true", "on", "yes")
+    )
+    if _guard_on:
+        try:
+            def _cont_of(i):
+                nm = cols[i]
+                if nm in raw_name_set and raw_X is not None and hasattr(raw_X, "columns") and nm in raw_X.columns:
+                    return np.asarray(raw_X[nm], dtype=np.float64).ravel()
+                if engineered_continuous and nm in engineered_continuous:
+                    return np.asarray(engineered_continuous[nm], dtype=np.float64).ravel()
+                return np.asarray(data[:, i], dtype=np.float64).ravel()
+
+            _kept_idx = [i for i in sel if i not in drop_idx_set]
+            _raw_names = ([c for c in raw_X.columns if c in raw_name_set]
+                          if (raw_X is not None and hasattr(raw_X, "columns")) else [])
+            if _kept_idx and _raw_names and _yv.shape[0] == n_rows:
+                _X_kept = np.column_stack([_cont_of(i) for i in _kept_idx])
+                _X_rawonly = np.column_stack([np.asarray(raw_X[c], dtype=np.float64).ravel() for c in _raw_names])
+                _r_kept = _heldout_ridge_r2(_X_kept, _yv)
+                _r_rawonly = _heldout_ridge_r2(_X_rawonly, _yv)
+                if _r_kept is not None and _r_rawonly is not None and _r_kept < _r_rawonly - _RAW_DROP_NO_HARM_EPS:
+                    if verbose:
+                        logger.info(
+                            "raw-redundancy: REVERT drop of %s -- kept-set held-out Ridge R2 %.4f is below raw-only "
+                            "%.4f by %.4f > %.4f eps (the engineered child is linearly lossy); keep the raws.",
+                            drop_names, _r_kept, _r_rawonly, _r_rawonly - _r_kept, _RAW_DROP_NO_HARM_EPS,
+                        )
+                    return sel, []
+        except Exception:
+            pass
+
     kept = [i for i in sel if i not in drop_idx_set]
     return kept, drop_names
 
