@@ -5,7 +5,7 @@ Random fuzz combos profiled under cProfile at n_rows=300k via
 pick the top mlframe-side hotspot, optimize (measured + bit-identical + regression
 test), commit. Termination = 100 consecutive REJECTs (see CLAUDE.md policy).
 
-Consecutive-reject streak: 1
+Consecutive-reject streak: 2
 
 | iter | seed | mlframe hotspot | verdict | notes |
 |------|------|-----------------|---------|-------|
@@ -18,3 +18,4 @@ Consecutive-reject streak: 1
 | 7 | 8675309 | top items all already-optimized (calibration band, analyzer, accuracy_ratio), deferred (robust_fit TheilSen=FUTURE), or at floor (`_ice_metric.compute_probabilistic_multiclass_error` 23ms self-time = irreducible (N,K) coercion, batched kernel already) | REJECT | no cheap bit-identical mlframe hotspot at this profile; readily-profiled paths now optimized. Streak→1. Next: sample fresh combo-pool / prefer-models to reach un-profiled code paths. |
 | 8 | 9001 (--no-charts) | `_detect_multi_modal` recomputed np.std(y) already computed by the analyzer (charts-off profile surfaced the training/FS path; chart render was ~90% of wall) | RESOLVED (redundant pass) | -1.65ms of 5.82ms (~28%) @ n300k; analyze ~41→31.7ms; bit-identical 60 cases; guard preserved. Added profiler --no-charts flag. Streak reset→0. commit 1b45449f |
 | 9 | 314159 (--no-charts, 6 combos) | #1 `_ice_metric.compute_probabilistic_multiclass_error` 2.06s tottime = the `@njit(parallel=True)` `_batch_per_class_ice_kernel` (cProfile njit-to-caller attribution; real Python overhead 0.004s); #2/#3 `bootstrap_metric`/`_jackknife_metric` = exhaustively-optimized resample/LOO loops (np.take/threading already rejected w/ bench) | REJECT | microbench-confirmed at-floor/njit; no Python-optimizable bit-identical hotspot. Streak→1. Codebase training/FS/metric path is at its optimized floor across both profiling modes. |
+| 10 | 271828 (--no-charts, 8 combos) | identical top-3 to iter 9 (deterministic pool + prefer-models re-selects the same combos, overwriting by short_id); fresh candidate `_data_helpers._extract_target_subset` (0.097s self-time) already at documented floor (.values[idx] 9x-over-.iloc bench) | REJECT | all candidates njit-attribution / exhaustively-benched / at-floor. Streak→2. Readily-profiled combo space (lgb,xgb,cb) is mined out across chart-on + charts-off × multiple seeds. |
