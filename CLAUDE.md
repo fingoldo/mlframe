@@ -1240,6 +1240,8 @@ The user runs **parallel agent sessions** on this repo and frequent in-flight pr
 
 Sibling rule for processes: never kill processes without explicit user authorisation (the user has separately reinforced that one).
 
+**Sibling rule for `ruff --fix` (and any tree-wide auto-fixer):** run it ONLY after an explicit commit or backup of the current work, and scope it to the exact files you touched (`ruff check --fix <files>`), never `ruff check --fix tests/` or the whole repo. `ruff --fix` rewrites every file under its path, so "undo it" turns into a broad `git restore`/`checkout` — which is banned above and, on 2026-07-01, wiped uncommitted in-flight work co-located in the same tree. To undo an over-reaching auto-fix, re-edit the specific offending files; never `git restore/checkout/stash/reset`. Mutation subagents must be told the same.
+
 ## Test pollution: never rebind module objects without snapshot/restore (CRITICAL)
 
 `del sys.modules['mlframe.X']` + re-import, or `importlib.reload(mlframe.X)`, replaces the module object that `sys.modules['mlframe.X']` points at. Every other test file that did `from mlframe.X import Y` at file-load time keeps a reference to the OLD `Y`; every lazy `from .X import Y` inside a function body (used in `_mrmr_fit_impl.py`, `_predict_main.py`, etc.) resolves to the NEW `Y` on the next call. The two ends of the codebase now disagree on what `Y` is.
