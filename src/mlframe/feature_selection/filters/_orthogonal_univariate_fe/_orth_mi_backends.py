@@ -308,7 +308,14 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
 
             from ..hermite_fe import _plugin_mi_classif_batch_cuda_resident
 
-            Xd = cp.asarray(np.ascontiguousarray(np.asarray(X, dtype=np.float64)))
+            # RESIDENT-INPUT fast path: a device-born caller may hand an ALREADY-RESIDENT cupy candidate matrix
+            # (built on device from the resident raw operands) -- use it as-is so it never re-crosses H2D at this
+            # :311 site. (It also fixes a latent crash: np.asarray on a cupy array raises, so the host path below
+            # must NOT run for a device input.) Host ndarray inputs take the exact prior upload path.
+            if isinstance(X, cp.ndarray):
+                Xd = X.astype(cp.float64, copy=False)
+            else:
+                Xd = cp.asarray(np.ascontiguousarray(np.asarray(X, dtype=np.float64)))
             if Xd.ndim == 1:
                 Xd = Xd[:, None]
             # X is the per-candidate batch (transient, device-bound only for this call) -> NOT cached. y is a
