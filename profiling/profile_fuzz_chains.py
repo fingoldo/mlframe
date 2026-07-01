@@ -113,9 +113,15 @@ def _build_fte_from_combo(
 
 def _profile_one_combo(
     combo: FuzzCombo, top: int = 20, save_dir: Optional[str] = None,
+    save_charts: bool = True,
 ) -> Optional[pstats.Stats]:
     """Run one combo under cProfile + print top hotspots. Returns the
-    pstats object so an outer aggregator can sum across combos."""
+    pstats object so an outer aggregator can sum across combos.
+
+    ``save_charts=False`` skips the matplotlib/plotly diagnostic-panel
+    rendering (which otherwise dominates ~90% of the wall at 300k), so the
+    training / feature-selection / metric code paths surface as the hotspots.
+    """
     print(
         f"\n{'='*80}\n"
         f"Combo {combo.short_id()}\n"
@@ -148,7 +154,7 @@ def _profile_one_combo(
                 target_type=fte._resolve_target_type(),
                 mlframe_models=list(combo.models),
                 hyperparams_config={"iterations": max(combo.iterations, 30)},
-                output_config=OutputConfig(data_dir=tmpdir, models_dir="models"),
+                output_config=OutputConfig(data_dir=tmpdir, models_dir="models", save_charts=save_charts),
                 use_mlframe_ensembles=combo.use_ensembles,
                 behavior_config={"prefer_gpu_configs": False},
                 verbose=0,
@@ -222,6 +228,11 @@ def main():
     p.add_argument("--save-dir", type=str, default=None,
                    help="If set, write one .prof file per combo here for later "
                         "aggregation via aggregate_prof.py.")
+    p.add_argument("--no-charts", action="store_true",
+                   help="Disable diagnostic-chart rendering (save_charts=False). The "
+                        "matplotlib/plotly panel export dominates ~90%% of the wall at "
+                        "300k and buries the training / feature-selection / metric code "
+                        "paths; turn it off to profile those instead.")
     args = p.parse_args()
     if args.save_dir:
         os.makedirs(args.save_dir, exist_ok=True)
@@ -253,7 +264,7 @@ def main():
     all_stats = []
     for combo in sample:
         resized = _resize_combo(combo, args.rows_target)
-        s = _profile_one_combo(resized, top=args.top, save_dir=args.save_dir)
+        s = _profile_one_combo(resized, top=args.top, save_dir=args.save_dir, save_charts=not args.no_charts)
         if s is not None:
             all_stats.append(s)
 

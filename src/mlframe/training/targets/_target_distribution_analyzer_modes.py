@@ -26,7 +26,8 @@ from ._target_distribution_analyzer import (
 
 def _detect_multi_modal(y: np.ndarray, n_bins: int = _MULTI_MODAL_KDE_BINS,
                         min_peak_sep_stds: float = _MULTI_MODAL_MIN_PEAK_SEP_STDS,
-                        valley_depth_ratio: float = _MULTI_MODAL_VALLEY_DEPTH_RATIO) -> tuple[bool, int, float]:
+                        valley_depth_ratio: float = _MULTI_MODAL_VALLEY_DEPTH_RATIO,
+                        sigma: "float | None" = None) -> tuple[bool, int, float]:
     """Detect >= 2 well-separated peaks via smoothed histogram + antimode check.
 
     A unimodal but noisy histogram can grow many local maxima from binning
@@ -47,7 +48,9 @@ def _detect_multi_modal(y: np.ndarray, n_bins: int = _MULTI_MODAL_KDE_BINS,
     """
     if y.size < 50:
         return False, 0, 0.0
-    sigma = float(np.std(y))
+    # Reuse the caller's already-computed std when supplied (the analyzer computes it once for the moment stats) to skip
+    # a redundant full-n np.std pass here; np.std(y) recomputed gives the identical float, so this is bit-identical.
+    sigma = float(np.std(y)) if sigma is None else float(sigma)
     if sigma <= 0.0:
         return False, 0, 0.0
     hist, edges = np.histogram(y, bins=n_bins)

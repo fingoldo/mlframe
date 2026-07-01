@@ -420,3 +420,23 @@ def test_lag_autocorr_matches_corrcoef_reference():
     # Guards: constant slice -> 0.0; too-short -> 0.0.
     assert _lag_autocorr(np.ones(100), 1) == 0.0
     assert _lag_autocorr(np.array([1.0, 2.0, 3.0]), 5) == 0.0
+
+
+def test_detect_multi_modal_sigma_passthrough_bit_identical():
+    """_detect_multi_modal accepts the caller's already-computed sigma to skip a redundant full-n np.std pass (the
+    analyzer computes std once for the moment stats). Regression sensor: passing sigma must be bit-identical to
+    recomputing it, across unimodal and clearly-bimodal inputs, and the sigma<=0 guard must still short-circuit."""
+    from mlframe.training.targets._target_distribution_analyzer import _detect_multi_modal
+
+    for s in range(40):
+        r = np.random.default_rng(s)
+        n = int(r.integers(50, 20000))
+        if s % 2:
+            y = np.concatenate([r.standard_normal(n // 2) - 4.0, r.standard_normal(n - n // 2) + 4.0])
+        else:
+            y = r.standard_normal(n)
+        assert _detect_multi_modal(y) == _detect_multi_modal(y, sigma=float(np.std(y)))
+    # constant input -> sigma 0 guard fires regardless of how sigma arrives.
+    yc = np.ones(200)
+    assert _detect_multi_modal(yc) == (False, 0, 0.0)
+    assert _detect_multi_modal(yc, sigma=0.0) == (False, 0, 0.0)

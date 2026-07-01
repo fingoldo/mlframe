@@ -164,7 +164,7 @@ def analyze_target_distribution(
             # operator knows it's worth investigating that path.
 
         # Multi-modal
-        is_mm, n_peaks, max_sep = _detect_multi_modal(y_for_stats)
+        is_mm, n_peaks, max_sep = _detect_multi_modal(y_for_stats, sigma=sigma)
         diagnostics["n_modal_peaks"] = float(n_peaks)
         diagnostics["modal_peak_separation_stds"] = float(max_sep)
         if is_mm:
