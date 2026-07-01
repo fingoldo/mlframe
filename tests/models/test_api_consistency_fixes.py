@@ -57,7 +57,7 @@ def test_api5_gpu_enabled_default_consistent():
 
     ctr_default = inspect.signature(create_ctr_params).parameters["GPU_ENABLED"].default
     opt_default = inspect.signature(CatboostParamsOptimizer.__init__).parameters["GPU_ENABLED"].default
-    assert ctr_default == opt_default == False
+    assert ctr_default is False and opt_default is False
 
 
 # ----------------------------------------------------------------------------------------------------------------------------

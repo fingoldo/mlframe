@@ -544,7 +544,6 @@ def test_fix8_behavior_config_has_hash_suffix_flag():
 def test_fix9_build_logging_fires_on_dmatrix(caplog):
     """Every xgb.DMatrix construction must emit one INFO ``[dataset-build]``
     log line with shape + duration + callsite."""
-    import logging
     from mlframe.training import trainer  # noqa: F401
     # Lazy-applied patches: invoke explicitly (see comment on
     # test_fix9_build_logging_fires_on_pool).
@@ -566,7 +565,6 @@ def test_fix9_build_logging_fires_on_dmatrix(caplog):
 def test_fix9_build_logging_fires_on_pool(caplog):
     """Every catboost.Pool construction must emit one INFO
     ``[dataset-build]`` log line."""
-    import logging
     from mlframe.training import trainer  # noqa: F401
     # The third-party-patches are now applied lazily (deferred from
     # module-import to suite-entry / factory call). Invoke explicitly so
@@ -590,7 +588,6 @@ def test_internal_loop_build_demoted_to_debug_via_stack_scan(caplog):
     """A dataset build fired from inside an internal fit loop (composite / screening / OOF) must log at DEBUG, not
     INFO, even when the nearest non-library frame is mlframe's own dataset-build shim. The demotion now scans the full
     stack for a loop ancestor instead of the single (shim-masked) call site. A build from a normal frame stays INFO."""
-    import logging
     from mlframe.training import trainer  # noqa: F401
     from mlframe.training._model_factories import apply_third_party_patches_once
     apply_third_party_patches_once()
@@ -622,7 +619,6 @@ def test_internal_loop_build_demoted_to_debug_via_stack_scan(caplog):
 def test_fix9_build_logging_fires_on_lgb_dataset(caplog):
     """Every lightgbm.Dataset construction must emit one INFO
     ``[dataset-build]`` log line."""
-    import logging
     from mlframe.training import trainer  # noqa: F401
     from mlframe.training._model_factories import apply_third_party_patches_once
     apply_third_party_patches_once()

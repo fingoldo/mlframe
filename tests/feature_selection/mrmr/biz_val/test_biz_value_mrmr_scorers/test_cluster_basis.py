@@ -227,10 +227,9 @@ class TestAggregateDenoising:
         """
         from mlframe.feature_selection.filters._orthogonal_cluster_basis_fe import (
             compute_cluster_aggregate,
-            _evaluate_basis_column,  # noqa: F401 -- used inline below
+            _evaluate_basis_column,
         )
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
-            _evaluate_basis_column,
             _mi_classif_batch,
         )
         X, y, members = _build_aggregate_signal_frame(seed, n=4000, member_noise=0.7)

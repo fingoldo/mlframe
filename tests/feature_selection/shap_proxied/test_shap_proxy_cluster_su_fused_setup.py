@@ -104,9 +104,9 @@ def test_fused_setup_with_nbins_hints():
 
     # Padded bin slots have probability 0 (no samples) - constancy check sees
     # only the realized bin counts.
-    assert const[0] == False, "f0 has two distinct bins -> not constant"
-    assert const[1] == False, "f1 has three distinct bins -> not constant"
-    assert const[2] == True, "f2 is constant (all zeros)"
+    assert not const[0], "f0 has two distinct bins -> not constant"
+    assert not const[1], "f1 has three distinct bins -> not constant"
+    assert const[2], "f2 is constant (all zeros)"
 
     # Probabilities normalize over the realized bins, padded bins stay 0.
     assert math.isclose(freqs[offsets[0] + 0], 0.5), f"f0 bin0 should be 0.5"
@@ -186,7 +186,7 @@ def test_compute_marginals_packed_handles_padded_constant_column():
         bins_packed, nbins, freqs_offsets, freqs_packed, h_marginals, constant_mask,
     )
 
-    assert constant_mask[0] == True, "single-bin column with padded nb must be marked constant"
+    assert constant_mask[0], "single-bin column with padded nb must be marked constant"
     assert h_marginals[0] == 0.0, "entropy of constant column must be 0"
     assert freqs_packed[0] == 1.0, "realized bin probability must be 1.0"
     assert freqs_packed[1] == 0.0, "padded bin probability must be 0.0"

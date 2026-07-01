@@ -366,7 +366,7 @@ def check_gpu_available():
     try:
         from numba.cuda import is_available as is_cuda_available
         return is_cuda_available()
-    except:
+    except Exception:
         return False
 
 

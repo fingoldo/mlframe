@@ -409,7 +409,6 @@ class TestCompositeIntegration:
         # by the isfinite check above; only enforce the tight 0.5x /
         # 1.5x bounds when a composite wrap is in place to provide the
         # clip.
-        from mlframe.training.composite import CompositeTargetEstimator
         _has_composite_clip = isinstance(
             ens_model, (CompositeCrossTargetEnsemble, CompositeTargetEstimator),
         )

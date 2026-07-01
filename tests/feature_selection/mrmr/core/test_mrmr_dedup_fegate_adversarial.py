@@ -279,7 +279,7 @@ def test_polars_empty_frame_does_not_silently_pass():
                        "b": pl.Series("b", [], dtype=pl.Float64)})
     y = np.array([], dtype=int)
     sel = _mk(fe_max_steps=0)
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 -- contract is "errors OR falls back", any exception type is acceptable; asserting a specific type would over-constrain
         sel.fit(df, y)
 
 

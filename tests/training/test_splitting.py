@@ -13,6 +13,7 @@ import pytest
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
+from pydantic import ValidationError
 
 from mlframe.training.splitting import make_train_test_split
 
@@ -723,7 +724,7 @@ class TestValPlacementBackward:
         # Default
         assert TrainingSplitConfig().val_placement == "forward"
         # Typo must fail
-        with pytest.raises(Exception):  # pydantic ValidationError
+        with pytest.raises(ValidationError):
             TrainingSplitConfig(val_placement="middle")
 
     def test_backward_emits_visible_log_line(self, caplog):

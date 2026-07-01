@@ -400,7 +400,6 @@ def test_bocpd_serial_parallel_backends_match() -> None:
     """The prange-over-groups parallel driver must be bit-equivalent to the
     serial driver (and both to the numpy fallback) on the same input."""
     import os
-    pytest = __import__("pytest")
     pytest.importorskip("numba")
     from mlframe.feature_engineering import bayesian as B
     if not B._NUMBA_AVAILABLE:
@@ -427,7 +426,6 @@ def test_bocpd_serial_parallel_backends_match() -> None:
 
 def test_oblr_serial_parallel_backends_match() -> None:
     import os
-    pytest = __import__("pytest")
     pytest.importorskip("numba")
     from mlframe.feature_engineering import bayesian as B
     if not B._NUMBA_AVAILABLE:
@@ -495,7 +493,6 @@ def _anchor_test_frame(n_wells: int = 10, rows_per_well: int = 250, seed: int = 
 def test_anchor_numba_cores_match_python_fallback() -> None:
     """Every anchor feature's njit core must reproduce the list-based Python
     reference (positions, residuals, EWM weights, window gaps) exactly."""
-    pytest = __import__("pytest")
     pytest.importorskip("numba")
     from mlframe.feature_engineering import anchor as A
     if not A._NUMBA_AVAILABLE:

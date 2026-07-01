@@ -167,7 +167,7 @@ def test_composite_estimator_clone_refuses_from_fitted_inner():
         fitted_inner=inner, transform_name="diff", base_column="b",
         transform_fitted_params={}, y_train=np.arange(20).astype(float),
     )
-    with pytest.raises(Exception):
+    with pytest.raises(NotImplementedError):
         clone(wrapped)
 
 

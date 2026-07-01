@@ -18,7 +18,7 @@ Time budget: ~10-15 minutes on a 16-core CPU box.
 from __future__ import annotations
 
 import time
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pytest
@@ -1546,11 +1546,11 @@ def test_iter6_kin8nm_large():
     _print_matrix(records)
 
 
-def test_iter6_friedman1():
-    """Friedman1 synthetic via sklearn — canonical kernel-friendly regression."""
+def test_iter6_friedman1_large():
+    """Friedman1 synthetic via sklearn, uncapped rows — see if lift scales with N."""
     X, y, task = _load_friedman1()
-    print(f"\n[iter6] Friedman1: X.shape={X.shape}, task={task}")
-    records = _run_matrix(X, y, task, "Friedman1_iter6", builders=FEATURE_BUILDERS_ITER5)
+    print(f"\n[iter6] Friedman1-large: X.shape={X.shape}, task={task}")
+    records = _run_matrix(X, y, task, "Friedman1_large_iter6", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
 
 

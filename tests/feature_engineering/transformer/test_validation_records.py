@@ -165,7 +165,6 @@ def _build_iter77(X_tr, X_te, y_tr, task, seed):
 
 # Local seeded versions of the FE primitives.
 def _features_rff_seeded(X_tr, X_te, y_tr, task, seed):
-    from mlframe.feature_engineering import compute_rff_features
     import polars as pl
     rff_tr = compute_rff_features(pl.DataFrame(X_tr), n_features=256, seed=seed, sigma="median").to_numpy()
     rff_te = compute_rff_features(pl.DataFrame(X_te), n_features=256, seed=seed, sigma="median").to_numpy()

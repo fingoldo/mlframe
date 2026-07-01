@@ -5,6 +5,7 @@ import pytest
 pytest.importorskip("sklearn")
 
 from sklearn.utils.validation import check_is_fitted
+from sklearn.exceptions import NotFittedError
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
@@ -45,7 +46,7 @@ def test_avg_classifier_sklearn_compliance(cls, xy):
 
 def test_avg_classifier_predict_requires_fit():
     clf = ArithmAvgClassifier(nprobs=2)
-    with pytest.raises(Exception):
+    with pytest.raises(NotFittedError):
         clf.predict(np.ones((3, 3)))
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from mlframe.training.configs import ReportingConfig
 
@@ -204,7 +205,7 @@ class TestCalibrationAndReliabilityKnobs:
         assert ReportingConfig(calibration_binning="quantile").calibration_binning == "quantile"
 
     def test_calibration_binning_rejects_unknown(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ReportingConfig(calibration_binning="bogus")
 
     def test_reliability_show_ci_default_on(self):

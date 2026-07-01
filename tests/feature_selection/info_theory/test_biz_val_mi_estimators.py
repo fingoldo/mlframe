@@ -82,14 +82,12 @@ class TestMixedKSG:
 
 class TestKSGLNC:
     def test_alpha_default_canonical(self):
-        from mlframe.feature_selection.filters._ksg import ksg_lnc_mi
         x, y = _gauss_copula(RHO_HIGH, seed=42)
         mi = ksg_lnc_mi(x, y, k=5)
         # Canonical alpha=0.25 (NPEET_LNC default).
         assert 0.30 < mi < 0.50, f"KSG-LNC out of spec band: {mi}"
 
     def test_low_entropy_skip_falls_back_to_mksg(self):
-        from mlframe.feature_selection.filters._ksg import ksg_lnc_mi
         rng = np.random.default_rng(0)
         x = rng.standard_normal(N_DEFAULT)
         y = (x > 0).astype(np.float64)

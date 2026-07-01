@@ -20,6 +20,7 @@ from mlframe.training.composite import (
     CompositeTargetEstimator,
     make_per_column_specs,
 )
+from mlframe.training.composite.transforms import UnknownTransformError
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +163,7 @@ def test_skip_failed_false_reraises():
         ],
         skip_failed_columns=False,
     )
-    with pytest.raises(Exception):
+    with pytest.raises(UnknownTransformError):
         est.fit(X, Y)
 
 

@@ -317,7 +317,6 @@ class TestBizValueMultiBaseBeatsSingle:
 # ---------------------------------------------------------------------------
 
 import pandas as pd
-import pytest
 
 lgb = pytest.importorskip("lightgbm")
 

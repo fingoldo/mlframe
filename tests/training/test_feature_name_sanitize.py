@@ -111,7 +111,7 @@ def test_xgboost_rejects_bracket_name_then_accepts_sanitized():
     rng = np.random.default_rng(1)
     X = pd.DataFrame(rng.normal(size=(120, 2)), columns=["emb[0]", "f0"])
     y = (X["f0"] > 0).astype(int)
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         xgb.XGBClassifier(n_estimators=5, verbosity=0).fit(X, y)
     Xs = sanitize_frame_columns(X)
     assert not has_hostile_name(Xs.columns)

@@ -1385,7 +1385,6 @@ class TestFastAucsOverallParity:
         ICE manually using the same parts and assert equality."""
         from mlframe.metrics.core import (
             fast_aucs,
-            fast_brier_score_loss,
             fast_calibration_binning,
             fast_ice_only,
             calibration_metrics_from_freqs,

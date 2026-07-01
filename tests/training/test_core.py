@@ -2548,10 +2548,6 @@ class TestPolarsNativeFastpath:
         # Capture the DataFrame type that reaches model.fit()
         fit_df_types = []
         import mlframe.training.trainer as trainer_mod
-        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
-        from mlframe.training import _trainer_configure as _tc_mod
-        from mlframe.training import _training_loop as _tl_mod
-
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
@@ -2625,10 +2621,6 @@ class TestPolarsNativeFastpath:
 
         fit_df_types = []
         import mlframe.training.trainer as trainer_mod
-        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
-        from mlframe.training import _trainer_configure as _tc_mod
-        from mlframe.training import _training_loop as _tl_mod
-
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
@@ -2789,10 +2781,6 @@ class TestPolarsNativeFastpath:
 
         fit_df_types = []
         import mlframe.training.trainer as trainer_mod
-        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
-        from mlframe.training import _trainer_configure as _tc_mod
-        from mlframe.training import _training_loop as _tl_mod
-
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
@@ -3104,10 +3092,6 @@ class TestPolarsNativeFastpath:
 
         fit_df_types = []
         import mlframe.training.trainer as trainer_mod
-        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
-        from mlframe.training import _trainer_configure as _tc_mod
-        from mlframe.training import _training_loop as _tl_mod
-
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
@@ -3647,10 +3631,6 @@ class TestPolarsNativeFastpath:
 
         fit_df_types = []
         import mlframe.training.trainer as trainer_mod
-        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
-        from mlframe.training import _trainer_configure as _tc_mod
-        from mlframe.training import _training_loop as _tl_mod
-
         original_train = trainer_mod._train_model_with_fallback
 
         def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):

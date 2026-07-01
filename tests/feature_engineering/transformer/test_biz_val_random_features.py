@@ -45,7 +45,6 @@ def _cv_r2(model_ctor, X: np.ndarray, y: np.ndarray, n_splits: int = 5, seed: in
 
     ``model_ctor`` is a zero-arg callable that returns a fresh sklearn-compatible regressor. We fit per fold and score on the fold's val rows; mean across folds.
     """
-    from sklearn.model_selection import KFold
     splitter = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
     r2s = []
     for train_idx, val_idx in splitter.split(X):

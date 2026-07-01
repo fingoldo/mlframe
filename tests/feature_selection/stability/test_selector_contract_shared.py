@@ -192,7 +192,7 @@ class TestPicklePersistence:
     def test_pickle_roundtrip_preserves_transform(self, spec):
         sel = fitted_binary(spec)
         if not spec.pickle_safe:
-            with pytest.raises(Exception):
+            with pytest.raises(Exception):  # noqa: B017 -- pickling an unpicklable selector may raise PicklingError/TypeError/AttributeError depending on what is unpicklable; the contract is only "must not silently succeed"
                 pickle.dumps(sel)
             return
         blob = pickle.dumps(sel)  # NO try/except: a pickle regression must FAIL

@@ -107,7 +107,7 @@ def test_outlier_filters_train_pandas():
     )
     assert len(tr) == n - 1
     assert tr_mask.sum() == n - 1
-    assert tr_mask[-1] == False
+    assert not tr_mask[-1]
     assert len(tr_idx) == n - 1
 
 

@@ -318,7 +318,6 @@ class TestSuiteKwarg:
         suite raises at start with a combined error message."""
         from mlframe.training.feature_handling import (
             LearnableEmbeddingParams,
-            ModelHandlingOverride,
         )
         # learnable_text_embedding on XGB is invalid (neural-only).
         bad_fhc = FeatureHandlingConfig(

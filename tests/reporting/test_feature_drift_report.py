@@ -348,7 +348,6 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         # and catastrophically OOD-extrapolates under covariate shift (prod
         # TVT 2026-05-22: stacked Identity went to ~-17 sigma on test split,
         # R^2=-326 while Ridge R^2=1.00 on the same data).
-        import torch
         assert out["model_params"]["optimizer_kwargs"]["weight_decay"] == pytest.approx(1e-4)
         assert out["network_params"]["activation_function"] is torch.nn.Identity
         assert out["network_params"]["first_layer_num_neurons"] == 32

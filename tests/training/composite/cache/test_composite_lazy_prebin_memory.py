@@ -136,7 +136,6 @@ def _fit_frame(n=4000, seed=7):
 
 
 def _run_fit(force_lazy: str, monkeypatch):
-    from mlframe.training.composite.discovery import CompositeTargetDiscovery
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
     monkeypatch.setenv("MLFRAME_DISCOVERY_LAZY_PREBIN", force_lazy)

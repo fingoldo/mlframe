@@ -342,7 +342,6 @@ class TestOtherContract:
         X, y = make_classification(n_samples=150, n_features=6, n_informative=3, random_state=0)
         rfecv = RFECV(estimator=LogisticRegression(max_iter=200), cv=3, max_refits=2, random_state=0)
         rfecv.fit(X, y)
-        from sklearn.model_selection import StratifiedKFold
         assert isinstance(rfecv.cv_, StratifiedKFold), \
             f"Expected StratifiedKFold auto-resolved for classifier; got {type(rfecv.cv_).__name__}"
 

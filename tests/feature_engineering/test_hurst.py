@@ -248,8 +248,6 @@ def test_hurst_closed_form_fit_matches_lstsq(seed):
 
     h_new, c_new = compute_hurst_exponent(arr)
 
-    from mlframe.feature_engineering.hurst import precompute_hurst_exponent
-
     ws, rs = precompute_hurst_exponent(arr=arr, min_window=5, max_window=-1, windows_log_step=0.25, take_diffs=False)
     rs_arr = np.asarray(rs, dtype=float)
     ws_arr = np.asarray(ws, dtype=float)

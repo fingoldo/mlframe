@@ -956,7 +956,6 @@ class TestHypothesisSaveLoad:
     @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
     def test_roundtrip_preserves_dict(self, model_data):
         """Property: save then load should return identical dict."""
-        import tempfile
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = os.path.join(tmpdir, "model.zst")
 
@@ -974,7 +973,6 @@ class TestHypothesisSaveLoad:
     @settings(max_examples=20)
     def test_roundtrip_preserves_numpy_array(self, float_list):
         """Property: numpy arrays should be preserved after save/load."""
-        import tempfile
         arr = np.array(float_list)
         model = {"array": arr}
 

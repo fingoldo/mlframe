@@ -529,7 +529,7 @@ class TestPytorchLightningEstimator:
         # Tuning might fail gracefully
         try:
             clf.fit(classification_data['X_train'], classification_data['y_train'])
-        except:
+        except Exception:
             pass  # Tuning can fail in some environments
 
     def test_verbose_output(self, estimator_params_classifier, classification_data, capsys):
@@ -973,7 +973,7 @@ class TestNetworkResetAndClone:
         cloned = clone(clf)
 
         assert cloned is not clf, "Clone should create a new object"
-        assert type(cloned) == type(clf), "Clone should have same type"
+        assert type(cloned) is type(clf), "Clone should have same type"
 
         # Check all params are copied
         for key, value in clf.get_params().items():

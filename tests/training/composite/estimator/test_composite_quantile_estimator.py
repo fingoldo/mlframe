@@ -15,6 +15,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 from sklearn.exceptions import NotFittedError
 
 from mlframe.training.composite import CompositeQuantileEstimator
+from mlframe.training.composite.transforms import UnknownTransformError
 from mlframe.training.composite.quantile import _set_inner_quantile_alpha
 
 
@@ -214,7 +215,7 @@ def test_bad_quantiles_raise():
 
 def test_unknown_transform_raises_at_fit():
     X, y = _make_xy()
-    with pytest.raises(Exception):
+    with pytest.raises(UnknownTransformError):
         CompositeQuantileEstimator(
             base_estimator=_StubQuantileInner(), base_column="base",
             transform_name="not_a_transform",
