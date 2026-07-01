@@ -474,12 +474,14 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
         if (_yc.size == cand_x[0].size and cand_x[0].size >= 30
                 and np.isfinite(_yc).all() and float(np.std(_yc)) >= 1e-12):
             try:
-                # _Mr is the candidate-column matrix derived from the SAME X base columns; value-identical
-                # across orth-family calls for a fixed cand_cols set. Route through the resident operand cache
-                # keyed on the candidate-column tuple (distinct col-sets -> distinct entries; shape+fingerprint
-                # guard id-recycle). Uploaded ONCE per fit; value-identical f64 -> selection-equivalent.
-                _Mr = resident_operand(
-                    np.column_stack(cand_x), ("orth_Mr", tuple(cand_cols)), dtype=np.float64,
+                # _Mr is the candidate-column matrix -- each column is a RAW X base column (cand_x[j] =
+                # X[cand_cols[j]] verbatim). DEVICE-ASSEMBLE it from the per-column resident operands so it
+                # never crosses H2D as a whole (n, n_cand) blob: each raw column is already resident under the
+                # shared ("xbasis_op", col) role, so stacking the resident columns content-hits the cache.
+                # Column j is the raw column verbatim -> same bytes -> selection-equivalent; a name/shape
+                # mismatch or cupy fault falls back to the whole-matrix upload.
+                _Mr = assemble_resident_matrix(
+                    np.column_stack(cand_x), cand_cols, ("orth_Mr", tuple(cand_cols)), dtype=np.float64,
                 )
                 _gpu_routed = _gpu_route_bases_batched(
                     cp, _Mr, cp.asarray(_yc), list(_POLY_BASES), tuple(degrees), robust_axis=ra,
