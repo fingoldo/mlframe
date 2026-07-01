@@ -328,6 +328,12 @@ def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform"
             arr_finite = arr[_mask]
         quantiles = np.linspace(0, 100, n_bins + 1)
         bin_edges = np.asarray(np.percentile(arr_finite, quantiles))
+    else:
+        # Any method other than "uniform"/"quantile" previously fell through
+        # leaving ``bin_edges`` unbound -> UnboundLocalError at the return. Fail
+        # explicitly instead. njit supports raising with a literal message only
+        # (no f-string interpolation of ``method`` inside nopython mode).
+        raise ValueError("get_binning_edges: unknown binning method; expected 'uniform' or 'quantile'")
     return bin_edges
 
 

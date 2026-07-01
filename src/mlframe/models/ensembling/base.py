@@ -36,6 +36,7 @@ logger = logging.getLogger("mlframe.models.ensembling")
 
 from typing import Optional, Sequence
 
+from scipy.stats import rankdata
 import psutil
 from joblib import delayed
 import pandas as pd, numpy as np
@@ -153,13 +154,27 @@ try:  # pragma: no cover -- env-dependent
         for m in _numba.prange(M):
             for k_class in range(K):
                 col_m = -preds_arr[m, :, k_class]
-                # Stable sort to match the numpy fallback's tie-breaking on equal probabilities (positional order on
-                # ties). numba's argsort only supports "quicksort"/"mergesort"; mergesort is the stable one.
+                # Stable sort so equal probabilities form contiguous runs in
+                # `order`. numba's argsort supports only "quicksort"/"mergesort";
+                # mergesort is the stable one.
                 order = np.argsort(col_m, kind="mergesort")
-                for n_pos in range(N):
-                    rank = n_pos
-                    row_idx = order[n_pos]
-                    per_member_recip[m, row_idx, k_class] = 1.0 / (k + rank + 1)
+                # Canonical RRF assigns TIED items EQUAL (averaged) ranks so
+                # genuine ties contribute identical reciprocal-rank mass
+                # regardless of array index. Detect tied runs of equal
+                # `col_m` value and give every member of a run the average of
+                # the 1-based positions it spans. Matches scipy
+                # rankdata(method="average") used in the numpy fallback.
+                n_pos = 0
+                while n_pos < N:
+                    j = n_pos + 1
+                    while j < N and col_m[order[j]] == col_m[order[n_pos]]:
+                        j += 1
+                    # positions n_pos..j-1 (0-based) tie; average 1-based rank
+                    avg_rank = (n_pos + 1 + j) / 2.0  # mean of (n_pos+1 .. j)
+                    recip = 1.0 / (k + avg_rank)
+                    for t in range(n_pos, j):
+                        per_member_recip[m, order[t], k_class] = recip
+                    n_pos = j
         aggregated = np.zeros((N, K), dtype=np.float64)
         for m in range(M):
             for n in range(N):
@@ -510,12 +525,16 @@ def _rrf_aggregate_probs(preds_arr: np.ndarray, k: int = 60) -> np.ndarray:
     for k_class in range(K):
         # (M, N) -> per-column ranks across N rows for each member, descending.
         col = preds_arr[:, :, k_class]  # (M, N)
-        # argsort-of-argsort gives 0-based ranks (largest -> 0). RRF wants 1-based.
-        order = np.argsort(-col, axis=1, kind="stable")  # (M, N), positions
-        ranks = np.empty_like(order)
-        np.put_along_axis(ranks, order, np.arange(N), axis=1)
-        # 1-based ranks: rank+1.
-        rr = 1.0 / (k + (ranks + 1).astype(np.float64))
+        # Canonical RRF assigns TIED items EQUAL (averaged) ranks so genuine
+        # ties contribute identical reciprocal-rank mass regardless of their
+        # array index. The prior argsort-of-argsort broke ties by position,
+        # injecting index-dependent fusion noise on equal probabilities. Use
+        # scipy rankdata(method="average") over the N axis. rankdata ranks
+        # ascending (1=smallest); we want 1=largest, so rank on -col. This
+        # CHANGES fused scores on ties vs. the old positional path (a
+        # correctness fix, not bit-identical).
+        ranks = rankdata(-col, method="average", axis=1)  # (M, N), 1-based avg ranks
+        rr = 1.0 / (k + ranks.astype(np.float64))
         aggregated[:, k_class] = rr.sum(axis=0)
 
     # Re-normalise per-row to sum-1 when K > 1 (proper probability simplex).

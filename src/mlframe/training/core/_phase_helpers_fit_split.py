@@ -126,12 +126,27 @@ def _resolve_timeseries_timestamps(timestamps, split_config, df, *, verbose: boo
     ``split_config.cv_strategy`` is ``"timeseries"``/``"purged"`` and ``split_config.time_column`` is set,
     reads that column from ``df`` and returns it as the timestamps array (``make_train_test_split`` then
     splits chronologically). Default ``cv_strategy="random"`` -> returns ``timestamps`` (None) unchanged.
-    ("purged" currently routes the same forward-walk as "timeseries" for the main split; an embargo gap
-    between train/val/test is a follow-up -- the conformal calib carve already purges.)
+    ("purged" routes the same forward-walk as "timeseries" for the main split, plus an embargo gap:
+    ``_apply_purge_embargo`` trims the train->holdout boundary and ``_apply_val_test_embargo`` trims the
+    val->test boundary, so both boundaries carry the ``cv_purge`` gap.)
     """
     if timestamps is not None:
         return timestamps
     if getattr(split_config, "cv_strategy", "random") not in ("timeseries", "purged"):
+        # Lookahead-leakage foot-gun: a time_column is configured but cv_strategy is left at
+        # the "random" default, so the MAIN split shuffles rows across time and the model can
+        # train on future rows to predict past ones (val/test metrics inflate; production drops).
+        # We do NOT silently override the user's split; we WARN loudly so the choice is deliberate.
+        if getattr(split_config, "time_column", None):
+            logger.warning(
+                "Time-data foot-gun: time_column=%r is configured but cv_strategy=%r -> the "
+                "train/val/test split is a RANDOM shuffle, ignoring time order (lookahead-leakage "
+                "risk: rows from the future can land in train while their past lands in val/test). "
+                "Set cv_strategy='timeseries' (forward-walk) or 'purged' (forward-walk + embargo) "
+                "to honor the time column.",
+                getattr(split_config, "time_column", None),
+                getattr(split_config, "cv_strategy", "random"),
+            )
         return timestamps
     tcol = getattr(split_config, "time_column", None)
     if not tcol or df is None:
@@ -160,6 +175,26 @@ def _apply_purge_embargo(train_idx, timestamps, purge: int):
     ts = np.asarray(timestamps)[ti]
     keep_order = np.argsort(ts, kind="stable")[: ti.size - int(purge)]  # drop the newest `purge` train rows
     return ti[np.sort(keep_order)]
+
+
+def _apply_val_test_embargo(val_idx, timestamps, purge: int):
+    """Drop the most-recent ``purge`` VAL rows (largest timestamps) to embargo the val/test boundary.
+
+    In a forward-walk split the block order is [train][val][test]; ``_apply_purge_embargo`` only gaps
+    train->val/test, leaving NO gap between val and test. A windowed/overlapping label on the newest val
+    rows shares its label window with the oldest test rows, so val<->test leaks the same way train<->holdout
+    would. Trimming the newest ``purge`` val rows inserts the same embargo gap at that boundary: after the
+    trim ``max(val_ts) < min(test_ts)`` with at least the label-window separation the purge encodes.
+
+    Pure index trim (val only shrinks); no-op when purge<=0, timestamps is None, or the trim would empty val.
+    Does not touch train/test. Symmetric with ``_apply_purge_embargo``.
+    """
+    if purge <= 0 or timestamps is None or val_idx is None or len(val_idx) <= purge:
+        return val_idx
+    vi = np.asarray(val_idx)
+    ts = np.asarray(timestamps)[vi]
+    keep_order = np.argsort(ts, kind="stable")[: vi.size - int(purge)]  # drop the newest `purge` val rows
+    return vi[np.sort(keep_order)]
 
 
 def _phase_train_val_test_split(
@@ -432,6 +467,13 @@ def _phase_train_val_test_split(
             train_idx = _apply_purge_embargo(train_idx, timestamps, int(split_config.cv_purge))
             if verbose and train_idx is not None and len(train_idx) < _n_before:
                 logger.info("E2 embargo: dropped %d most-recent train rows (cv_purge=%d).", _n_before - len(train_idx), split_config.cv_purge)
+            # val<->test embargo: forward-walk order is [train][val][test]; the train trim above only gaps
+            # train->holdout. Trim the newest val rows too so a windowed label on the val tail cannot leak
+            # into the test head (guaranteeing max(val_ts) < min(test_ts) by the embargo width).
+            _nv_before = len(val_idx) if val_idx is not None else 0
+            val_idx = _apply_val_test_embargo(val_idx, timestamps, int(split_config.cv_purge))
+            if verbose and val_idx is not None and len(val_idx) < _nv_before:
+                logger.info("E2 embargo: dropped %d most-recent val rows to gap val<->test (cv_purge=%d).", _nv_before - len(val_idx), split_config.cv_purge)
     if verbose:
         log_ram_usage()
 

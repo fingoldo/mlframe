@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mlframe.training._tta import tta_predict, tta_predict_spread
+from mlframe.training._tta import tta_predict, tta_predict_spread, tta_point_mean_spread
 
 
 def test_tta_noop_when_sigma_zero_or_single_sample():
@@ -80,3 +80,56 @@ def test_biz_val_tta_improves_noisy_regression_rmse():
     out = tta_predict(jittery, X, n=64, sigma_scale=0.25, seed=2)
     rmse_tta = np.sqrt(np.mean((out - true) ** 2))
     assert rmse_tta <= rmse_clean * 0.98, (rmse_tta, rmse_clean)
+
+
+def _identity_stack(Z):
+    return Z.copy()
+
+
+def test_tta_reproducible_under_fixed_seed():
+    """A fixed seed gives byte-identical output across repeated calls (SeedSequence.spawn determinism)."""
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((50, 4))
+    a = tta_predict(_identity_stack, X, n=8, sigma_scale=0.1, seed=123)
+    b = tta_predict(_identity_stack, X, n=8, sigma_scale=0.1, seed=123)
+    np.testing.assert_array_equal(a, b)
+
+
+def test_tta_different_seeds_diverge():
+    """Two builds with DIFFERENT seeds draw different noise -> different TTA means (independent diversity)."""
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((50, 4))
+    a = tta_predict(_identity_stack, X, n=8, sigma_scale=0.1, seed=1)
+    c = tta_predict(_identity_stack, X, n=8, sigma_scale=0.1, seed=2)
+    assert not np.allclose(a, c)
+
+
+def test_tta_passes_are_mutually_diverse():
+    """The n-1 jittered passes must use INDEPENDENT noise streams, not a repeated draw.
+
+    Regression for the per-member-seed fix: spawn(n-1) yields distinct child streams, so per-pass
+    predictions differ from each other (a positive TTA spread on a sensitive model).
+    """
+    rng = np.random.default_rng(1)
+    X = rng.standard_normal((40, 3))
+
+    def sens(Z):
+        return Z[:, 0] * 3.0 + Z[:, 1]
+
+    sp = tta_predict_spread(sens, X, n=12, sigma_scale=0.2, seed=9)
+    assert np.mean(sp) > 0.0  # passes are not identical
+
+
+def test_tta_point_mean_spread_matches_standalone_helpers():
+    """The fused streaming helper uses the SAME spawn scheme, so mean/spread match the standalone functions."""
+    rng = np.random.default_rng(2)
+    X = rng.standard_normal((60, 3))
+
+    def f(Z):
+        return Z[:, 0] * 2.0 - Z[:, 2]
+
+    mean_std = tta_predict(f, X, n=10, sigma_scale=0.15, seed=7)
+    spread_std = tta_predict_spread(f, X, n=10, sigma_scale=0.15, seed=7)
+    _, mean_f, spread_f = tta_point_mean_spread(f, X, n=10, sigma_scale=0.15, seed=7)
+    np.testing.assert_allclose(mean_f, mean_std, atol=1e-9)
+    np.testing.assert_allclose(spread_f, spread_std, atol=1e-9)

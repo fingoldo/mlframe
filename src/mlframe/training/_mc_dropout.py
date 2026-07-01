@@ -34,6 +34,12 @@ def mc_dropout_predict(module, X, *, n: int = 16):
     ``module`` is a ``torch.nn.Module``; ``X`` a tensor it accepts. The module's original train/eval mode is
     restored on exit. ``mean``/``std`` are numpy arrays shaped like one forward pass. ``n_dropout_layers==0``
     means the spread is ~0 (no stochasticity) -- the caller can treat that as "MC-dropout unavailable".
+
+    NOTE: ``std`` is the POPULATION standard deviation over the ``n`` passes (numpy default ``ddof=0``). For
+    small ``n`` this is a low-biased estimate of the true predictive sd (it divides by ``n`` rather than
+    ``n-1``); do NOT treat it as a calibrated sample sd. This is a diagnostic spread, so the bias is
+    acceptable, but a consumer computing calibrated intervals should either use a large ``n`` or rescale by
+    ``sqrt(n/(n-1))``.
     """
     import torch
 

@@ -76,3 +76,29 @@ def test_noise_ensemble_does_not_help_low_variance_ols():
     rmse_ols = np.sqrt(np.mean((LinearRegression().fit(X, y).predict(Xte) - yte) ** 2))
     rmse_ens = np.sqrt(np.mean((NoiseAugmentedEnsemble(LinearRegression(), k=15, sigma_scale=0.5, seed=1).fit(X, y).predict(Xte) - yte) ** 2))
     assert rmse_ens > rmse_ols  # pins the negative result so nobody enables B3 for low-variance OLS expecting a win
+
+
+def test_noise_ensemble_members_are_diverse_and_reproducible():
+    """Per-member spawn: clones get INDEPENDENT noise (diverse members) and a fixed seed is reproducible.
+
+    Regression for the per-member-seed fix. Two builds with the same seed must produce identical
+    predictions; the individual members within a build must not be all-identical (independent streams).
+    """
+    pytest.importorskip("sklearn")
+    from sklearn.neighbors import KNeighborsRegressor
+
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((80, 4))
+    y = X[:, 0]
+
+    e1 = NoiseAugmentedEnsemble(KNeighborsRegressor(n_neighbors=1), k=5, sigma_scale=0.3, seed=11).fit(X, y)
+    e2 = NoiseAugmentedEnsemble(KNeighborsRegressor(n_neighbors=1), k=5, sigma_scale=0.3, seed=11).fit(X, y)
+    np.testing.assert_allclose(e1.predict(X), e2.predict(X))  # reproducible under fixed seed
+
+    # Members trained on independent noise draws are not all identical.
+    member_preds = [est.predict(X) for est in e1.estimators_]
+    assert not all(np.allclose(member_preds[0], mp) for mp in member_preds[1:])
+
+    # A different seed diverges.
+    e3 = NoiseAugmentedEnsemble(KNeighborsRegressor(n_neighbors=1), k=5, sigma_scale=0.3, seed=12).fit(X, y)
+    assert not np.allclose(e1.predict(X), e3.predict(X))
