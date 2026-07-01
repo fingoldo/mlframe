@@ -860,6 +860,15 @@ def fit(
         kept_specs = list(kept_specs) + list(_extra) if _extra else kept_specs
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "opt_in_steps_done")
+        # Re-run the structural-fragility gate on the auto-chain-DISCOVERED specs: the early pass (before the rerank)
+        # could not see them (auto_chain surfaces chains only here), so a base-additive chain like
+        # ``chain_monotonic_residual_yj`` on a per-group-level base slipped through to the val-split gate, which
+        # (val != test) let it survive and collapse to R^2<0 on test. This pass is idempotent for the already-passed
+        # specs and cheap (30k sample); it runs only when auto-chain actually appended new specs.
+        if _extra and kept_specs and getattr(self.config, "structural_fragility_gate_enabled", True):
+            from ._yscale_holdout_gate import apply_structural_fragility_gate
+
+            kept_specs = apply_structural_fragility_gate(self, df, kept_specs, train_idx, y_full)
 
     # y-scale group-aware holdout gate. Drop specs whose predict-T -> invert-to-y pipeline collapses
     # on a group-disjoint holdout (the prod failure the forward-only MI / i.i.d. honest-holdout never

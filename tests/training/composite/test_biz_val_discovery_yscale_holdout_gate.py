@@ -219,3 +219,20 @@ def test_biz_val_structural_gate_drops_chain_linres_variants_on_per_well_base():
     assert "y-linresCbrt-base" not in names, "chain_linres_cbrt on a per-well base must be dropped"
     assert "y-chainlinres-base" not in names, "chain_linear_residual_yj on a per-well base must be dropped"
     assert "y-linresYj-x1" in names, "a row-level base (no between-well level) chain must still survive"
+
+
+def test_biz_val_structural_gate_drops_chain_monres_on_per_well_base():
+    """chain_monres_* (monotonic_residual + unary tail) also re-inject a per-group-level base at inverse; its bivariate
+    has no ``alpha`` so sensitivity resolves to 1.0 (base-additive). Prod TVT 2026-07: chain_monotonic_residual_yj on
+    pf_tvt_post_p90 was auto-chain-discovered AFTER the early structural pass, bypassed it, and collapsed R^2=-4.44 on
+    test; the second structural pass (after opt-in steps) + this sensitivity must drop it on a per-well base."""
+    df, groups, y = _per_well_base_frame()
+    disc = _make_gate_ctx(groups)
+    monres = _spec_t("y-monresYj-base", "chain_monotonic_residual_yj", "base",
+                     {"bivariate_params": {"iso": 1}, "unary_stage_params": [{}]})
+    good = _spec_t("y-monresYj-x1", "chain_monres_yj", "x1",
+                   {"bivariate_params": {"iso": 1}, "unary_stage_params": [{}]})
+    survivors = apply_structural_fragility_gate(disc, df, [monres, good], np.arange(len(df)), y)
+    names = {s.name for s in survivors}
+    assert "y-monresYj-base" not in names, "chain_monres on a per-well base must be dropped (re-injects base)"
+    assert "y-monresYj-x1" in names, "a row-level base chain_monres must survive"
