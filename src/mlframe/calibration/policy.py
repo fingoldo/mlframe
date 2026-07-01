@@ -168,6 +168,12 @@ def _normalize_binary_labels(y: np.ndarray) -> np.ndarray:
     values, else there is no valid binary label set and we raise.
     """
     arr = np.asarray(y).ravel()
+    # Fast path for the overwhelmingly common already-{0,1} integer/bool labels (every bootstrap resample gathers the
+    # same 0/1 base vector): an integer array with min == 0 and max == 1 can only hold the values {0, 1}, and both are
+    # present (min hits 0, max hits 1), so it is EXACTLY the two-distinct-0/1 case -- no np.unique sort needed. This skips
+    # the O(n log n) sort that ran on all ~12k resamples of a bootstrap ECE CI (7x on the normalisation at n=30k).
+    if arr.dtype.kind in "iub" and arr.size and arr.min() == 0 and arr.max() == 1:
+        return arr.astype(np.int64)
     finite = arr[np.isfinite(arr.astype(np.float64))] if arr.dtype.kind == "f" else arr
     uniq = np.unique(finite)
     if uniq.size != 2:

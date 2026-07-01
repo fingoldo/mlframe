@@ -83,3 +83,33 @@ def test_wrapper_fast_path_matches_coercion_path():
     p2 = np.column_stack([1.0 - p, p])  # 2-D -> coercion path picks col 1
     slow = _ece_score(y.astype(np.float64), p2, n_bins=15)
     assert fast == slow
+
+
+def test_normalize_binary_labels_fast_path_equals_general_path():
+    """_normalize_binary_labels short-circuits already-{0,1} integer/bool labels (min==0/max==1 => exactly the two
+    0/1 values, both present) to skip the np.unique sort that ran on every bootstrap-ECE resample. Regression sensor:
+    the fast path must equal the np.unique general path on 0/1 inputs, still remap non-0/1 encodings ({1,2}, {-1,+1})
+    via the general path, and preserve the <2-distinct-values raise."""
+    import numpy as np
+    from mlframe.calibration.policy import _normalize_binary_labels
+
+    rng = np.random.default_rng(0)
+    for _ in range(30):
+        y01 = rng.integers(0, 2, int(rng.integers(10, 4000)))
+        if np.unique(y01).size < 2:
+            y01[0], y01[-1] = 0, 1
+        out = _normalize_binary_labels(y01)
+        assert out.dtype == np.int64 and np.array_equal(out, y01.astype(np.int64))
+
+    # bool 0/1 also hits the fast path
+    yb = np.array([True, False, True, False])
+    assert np.array_equal(_normalize_binary_labels(yb), np.array([1, 0, 1, 0]))
+
+    # Non-0/1 encodings still remap (larger -> 1) via the general path.
+    assert np.array_equal(_normalize_binary_labels(np.array([1, 2, 2, 1])), np.array([0, 1, 1, 0]))
+    assert np.array_equal(_normalize_binary_labels(np.array([-1, 1, 1, -1])), np.array([0, 1, 1, 0]))
+
+    # <2 distinct finite values must still raise.
+    import pytest
+    with pytest.raises(ValueError):
+        _normalize_binary_labels(np.array([1, 1, 1]))
