@@ -11,6 +11,11 @@ history.
 
 ## [Unreleased]
 
+### Added
+
+- Recency-weighting primitives (`mlframe.core.recency_weights`): parametric poly/exp/power weight vectors over ordered histories, generalizing the exponential `ewma`. Identity parameters reproduce uniform weights.
+- Per-entity recency-weighted feature primitives (`mlframe.feature_engineering`): `per_group_recency_weighted_mean` (weighted mean / event-rate), `per_group_recency_weighted_mode` (weighted Parzen-density mode), and `per_group_behavioral_stability` (density-peak-height predictability score). Opt-in; identity params match the plain unweighted mean. Parallel (`prange`) KDE kernel dispatched by entity count.
+
 ## [0.9.0]
 
 ### Added

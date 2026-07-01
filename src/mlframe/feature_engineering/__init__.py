@@ -12,6 +12,8 @@ Submodules:
     hurst              - Hurst exponent (R/S analysis) + rolling DFA / Higuchi FD.
     mps                - Maximum Profit System target/regions.
     numerical          - rich numerical aggregates for 1d vectors.
+    recency_aggregation - per-entity recency-weighted mean/event-rate (Dyakonov weighted-scheme estimator).
+    recency_density    - per-entity recency-weighted Parzen density: mode prediction + behavioral-stability score.
     spatial            - XY / N-D Euclidean kNN aggregator features (geo / point-cloud).
     spectral           - FFT-based rolling band energies, spectral entropy, dominant freq.
     stationarity       - frac_diff (Lopez de Prado fractional differencing) + future ADF/KPSS.
@@ -72,6 +74,11 @@ from .grouped import (
     per_group_rolling_reduce,
     per_group_shift,
     per_group_sliding_window,
+)
+from .recency_aggregation import per_group_recency_weighted_mean
+from .recency_density import (
+    per_group_behavioral_stability,
+    per_group_recency_weighted_mode,
 )
 from .hurst import (
     compute_hurst_exponent,
@@ -155,6 +162,9 @@ from .transformer import (
 )
 
 __all__ = [
+    "per_group_recency_weighted_mean",
+    "per_group_recency_weighted_mode",
+    "per_group_behavioral_stability",
     "add_anchor_extrapolation_features",
     "add_fast_rolling_stats",
     "add_ohlcv_ratios_rlags",
