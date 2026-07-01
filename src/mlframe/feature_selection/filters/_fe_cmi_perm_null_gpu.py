@@ -125,8 +125,8 @@ def conditional_perm_null_gpu(
     # content-keyed cache path (uploaded once per fit; the cache hits the copy the per-candidate CMI scorer made).
     dx = x.astype(cp.int64, copy=False).ravel() if isinstance(x, cp.ndarray) else None
     if dx is None:
-        from ._fe_resident_operands import resident_operand
-        dx = resident_operand(np.asarray(x).ravel(), "permnull_cand_x", dtype=np.int64)
+        from ._fe_resident_operands import resident_code_operand
+        dx = resident_code_operand(np.asarray(x).ravel(), "permnull_cand_x")
     y_h = np.ascontiguousarray(y_i, dtype=np.int64).ravel()
     n = int(dx.size)
 

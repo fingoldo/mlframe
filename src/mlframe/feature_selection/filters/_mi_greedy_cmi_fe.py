@@ -931,7 +931,8 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
     if isinstance(x, cp.ndarray):
         dx = x.astype(cp.int64, copy=False).ravel()
     else:
-        dx = resident_operand(np.asarray(x).ravel(), "cmi_cand_x", dtype=np.int64)
+        from ._fe_resident_operands import resident_code_operand
+        dx = resident_code_operand(np.asarray(x).ravel(), "cmi_cand_x")
     dy = resident_operand(y, "cmi_y", dtype=np.int64)
     n = float(max(1, int(dx.size)))
     inv_n = 1.0 / n
@@ -1005,11 +1006,11 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     # through the content-keyed resident cache: it typically HITS the entry the per-candidate CMI already uploaded
     # (content key is role-agnostic) -> no extra H2D, and a re-evaluated candidate never re-uploads. y / z are
     # fit/round-constants. Cardinalities are label-invariant -> selection-identical.
-    from ._fe_resident_operands import resident_operand
+    from ._fe_resident_operands import resident_operand, resident_code_operand
     if isinstance(x, cp.ndarray):
         dx = x.astype(cp.int64, copy=False).ravel()
     else:
-        dx = resident_operand(np.asarray(x).ravel(), "card_cand_x", dtype=np.int64)
+        dx = resident_code_operand(np.asarray(x).ravel(), "card_cand_x")
     dy = resident_operand(y, "card_y", dtype=np.int64)
     dz = resident_operand(z, "card_z", dtype=np.int64)
     Kx = (int(dx.max()) + 1) if dx.size else 1

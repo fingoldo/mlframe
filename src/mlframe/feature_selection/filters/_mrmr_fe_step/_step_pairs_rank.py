@@ -41,8 +41,8 @@ def _resident_cand(codes):
     HITS that copy (no re-upload at the ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x`` sites). Returns
     the host ``codes`` unchanged on any cupy fault / when residency is off (the device sites then upload it)."""
     try:
-        from .._fe_resident_operands import resident_operand
-        return resident_operand(np.asarray(codes).ravel(), "cmi_cand_x", dtype=np.int64)
+        from .._fe_resident_operands import resident_code_operand
+        return resident_code_operand(np.asarray(codes).ravel(), "cmi_cand_x")
     except Exception:
         return codes
 

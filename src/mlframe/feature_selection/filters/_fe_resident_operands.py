@@ -133,9 +133,31 @@ def assemble_resident_matrix(host, names, fallback_key, *, dtype=None):
     return g[:, None] if g.ndim == 1 else g
 
 
+def resident_code_operand(codes, role):
+    """Upload candidate BIN CODES once in the NARROWEST safe integer dtype and return them cast to int64 on the
+    device for the joint-histogram kernels.
+
+    Candidate codes are equi-frequency bin indices in ``0..nbins-1`` (nbins a few dozen), so they fit int8 (1 B)
+    or int16 (2 B) -- uploading them as int64 (8 B) was 4-8x the bytes at every ``cmi_cand_x`` / ``card_cand_x``
+    / ``permnull_cand_x`` re-upload site. Upload the narrow codes (content-keyed, so identical content still
+    dedups) and return the int64 cast the CMI / entropy kernels index histograms with. BIT-IDENTICAL: int8/int16
+    hold ``0..nbins-1`` exactly and the widening cast restores the same int64 values the kernels saw before, so
+    the partition -- and every downstream MI / cardinality -- is unchanged (not merely selection-equivalent).
+    The narrow array is cached + reused across calls; only the transient int64 view is rebuilt per call (a cheap
+    device widen), so the H2D shrinks 4-8x with no re-upload."""
+    import cupy as cp
+    import numpy as np
+
+    host = np.ascontiguousarray(np.asarray(codes).ravel())
+    _m = int(host.max()) if host.size else 0
+    _dt = np.int8 if 0 <= _m < 128 else (np.int16 if 0 <= _m < 32768 else np.int64)
+    dev = resident_operand(host, role, dtype=_dt)
+    return dev.astype(cp.int64) if dev.dtype != cp.int64 else dev
+
+
 def clear_fe_resident_operands() -> None:
     """Drop the fit-constant FE operand device cache (call at FE-step teardown; mirrors the mempool free)."""
     _FE_RESIDENT_OPERANDS.clear()
 
 
-__all__ = ["resident_operand", "assemble_resident_matrix", "clear_fe_resident_operands"]
+__all__ = ["resident_operand", "resident_code_operand", "assemble_resident_matrix", "clear_fe_resident_operands"]

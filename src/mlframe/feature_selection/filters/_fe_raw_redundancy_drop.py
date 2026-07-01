@@ -198,8 +198,8 @@ def raw_retains_signal_given_genuine_children(
             from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
             if bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled()):
-                from ._fe_resident_operands import resident_operand
-                _rb_cand = resident_operand(rb, "cmi_cand_x", dtype=np.int64)
+                from ._fe_resident_operands import resident_code_operand
+                _rb_cand = resident_code_operand(rb, "cmi_cand_x")
         except Exception:
             _rb_cand = rb
     _, _, marg_excess = _excess_and_floor(_rb_cand, yb, None, seed=seed)
@@ -565,8 +565,8 @@ def drop_redundant_raw_operands(
         if not _gate_resident:
             return None
         try:
-            from ._fe_resident_operands import resident_operand
-            return resident_operand(np.asarray(_codes).ravel(), "cmi_cand_x", dtype=np.int64)
+            from ._fe_resident_operands import resident_code_operand
+            return resident_code_operand(np.asarray(_codes).ravel(), "cmi_cand_x")
         except Exception:
             return None
 
