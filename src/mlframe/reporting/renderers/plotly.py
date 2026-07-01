@@ -41,8 +41,23 @@ from ._kaleido import (  # noqa: F401
 )
 from ._plotly_interactivity import apply_interactivity, html_config
 from ._plotly_color import _MPL_TO_PLOTLY, _axis_ref, _rgba, _mpl_to_plotly_cmap  # noqa: F401
+from ._shared_helpers import _finite_range, _thin_tick_positions
 
 logger = logging.getLogger(__name__)
+
+# plotly is an optional, heavy dependency: keep the import lazy (deferred off module load) but declare it
+# once here and cache the module so the ~8 render methods reuse a single import instead of re-importing.
+_GO_MODULE = None
+
+
+def _go():
+    """Lazily import and cache ``plotly.graph_objects``; reused across all render methods."""
+    global _GO_MODULE
+    if _GO_MODULE is None:
+        import plotly.graph_objects as go
+        _GO_MODULE = go
+    return _GO_MODULE
+
 
 # Text-wrap budgets mirror the matplotlib renderer (~90 chars/line for the full-width suptitle, ~46 for one panel); plotly annotations need ``<br>`` (not ``\n``). Wrappers live inline because strict file-ownership scopes this fix to plotly.py.
 _SUPTITLE_WRAP_CHARS = 90
@@ -77,25 +92,6 @@ _SCATTER_DOWNSAMPLE_WARNED = False
 # Above this many heatmap cells, per-cell text is unreadable soup AND the plotly add_annotation loop (one layout
 # copy per cell) stalls; skip the text past it (matches the matplotlib renderer cap).
 _HEATMAP_CELL_TEXT_MAX = 400
-# A density heatmap bins into ~80x80 cells; one tick per cell-label overlaps into unreadable soup. Cap at this many
-# evenly-spaced ticks per axis (the full grid is still drawn).
-_HEATMAP_MAX_TICKS = 8
-
-
-def _thin_tick_positions(n: int, max_ticks: int = _HEATMAP_MAX_TICKS):
-    """Evenly-spaced tick indices for an axis of ``n`` labels, always including the first and last."""
-    if n <= max_ticks:
-        return list(range(n))
-    return sorted({int(round(i * (n - 1) / (max_ticks - 1))) for i in range(max_ticks)})
-
-
-def _finite_range(mat):
-    """``(vmin, vmax)`` over finite entries, or ``None`` when the matrix is empty / all non-finite."""
-    a = np.asarray(mat, dtype=float)
-    finite = a[np.isfinite(a)]
-    if finite.size == 0:
-        return None
-    return float(finite.min()), float(finite.max())
 
 
 def _warn_scatter_downsample(n: int) -> None:
@@ -146,7 +142,7 @@ class PlotlyRenderer:
         hover tooltips, so legends stay off there; a STATIC export (png/svg/pdf) has no hover, so when the
         save-format set includes one the caller passes ``static_legend=True`` to make the export readable.
         """
-        import plotly.graph_objects as go
+        go = _go()
         from plotly.subplots import make_subplots
 
         rows = len(spec.panels)
@@ -309,7 +305,7 @@ class PlotlyRenderer:
         fig.update_yaxes(visible=False, row=row, col=col)
 
     def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
-        import plotly.graph_objects as go
+        go = _go()
 
         x = np.asarray(p.x)
         y = np.asarray(p.y)
@@ -457,7 +453,7 @@ class PlotlyRenderer:
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
 
     def _histogram(self, fig, p: HistogramPanelSpec, row: int, col: int) -> None:
-        import plotly.graph_objects as go
+        go = _go()
 
         # ``overlay_x_lo/hi`` anchors the Normal-overlay grid. When we pre-bin (here or upstream) they come from
         # the bin EDGES, avoiding two extra full-n min/max passes over raw values (PERF-18).
@@ -550,7 +546,7 @@ class PlotlyRenderer:
         self._heatmap(fig, heat, row, col)
 
     def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
-        import plotly.graph_objects as go
+        go = _go()
         from mlframe.reporting.colors import resolve_heatmap_cmap
         cmap_name = resolve_heatmap_cmap(p.colormap)
 
@@ -626,7 +622,7 @@ class PlotlyRenderer:
                          tickmode="array", tickvals=[p.row_labels[i] for i in _yt])
 
     def _bar(self, fig, p: BarPanelSpec, row: int, col: int) -> None:
-        import plotly.graph_objects as go
+        go = _go()
 
         from mlframe.reporting.colors import line_color
         horizontal = p.orientation == "horizontal"
@@ -700,7 +696,7 @@ class PlotlyRenderer:
             fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
 
     def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
-        import plotly.graph_objects as go
+        go = _go()
         from mlframe.reporting.colors import line_color
 
         ys = p.y if isinstance(p.y, tuple) else (p.y,)
@@ -828,7 +824,7 @@ class PlotlyRenderer:
                           row=row, col=col)
 
     def _violin(self, fig, p: ViolinPanelSpec, row: int, col: int) -> None:
-        import plotly.graph_objects as go
+        go = _go()
         from mlframe.reporting.colors import line_color
 
         for i, group in enumerate(p.groups):
@@ -856,7 +852,7 @@ class PlotlyRenderer:
     _NETWORK_MAX_ARROWS = 500
 
     def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
-        import plotly.graph_objects as go
+        go = _go()
 
         node_x = np.asarray(p.node_x, dtype=float)
         node_y = np.asarray(p.node_y, dtype=float)

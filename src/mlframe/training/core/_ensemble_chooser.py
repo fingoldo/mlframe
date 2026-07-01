@@ -92,6 +92,7 @@ def _read_ensemble_metric(ens_result, split: str, metric: str):
             return None
         return _f
     except Exception:
+        logger.debug("failed reading metric %r from %r split of ensemble result; skipping flavour", metric, split, exc_info=True)
         return None
 
 

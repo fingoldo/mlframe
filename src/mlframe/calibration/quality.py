@@ -391,11 +391,6 @@ def show_classifier_calibration(
             if is_profit:
                 ax.axhline(0.0, color="g", linestyle="--")
                 ax.axvline(0.0, color="g", linestyle="--")
-            # if x_max>=1:
-            #    ax.ylim([-.10, 1])
-            #    ax.xlim([-.10, 1])
-        # plt.show(block=False)
-        # plt.pause(0.001)
     if show_table:
         if is_profit:
             return pd.DataFrame(data, columns=["Predicted ROI", "TotalWinnings", "NBets", "Real ROI"])

@@ -32,6 +32,8 @@ from typing import Any
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, clone
 
+from ._booster_margin import inner_raw_margin
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,36 +60,11 @@ def _inner_raw_margin(model: Any, X: Any) -> np.ndarray:
     Returns ``(n,)`` for binary and ``(n, K)`` for multiclass -- shape preserved
     so the softmax/sigmoid caller can add the matching base margin.
     """
-    out = None
-    try:
-        import lightgbm as lgb
-        if isinstance(model, lgb.LGBMClassifier):
-            out = model.predict(X, raw_score=True)
-    except Exception:
-        pass
-    if out is None:
-        try:
-            import xgboost as xgb
-            if isinstance(model, xgb.XGBClassifier):
-                out = model.predict(X, output_margin=True)
-        except Exception:
-            pass
-    if out is None:
-        try:
-            import catboost as cb
-            if isinstance(model, cb.CatBoostClassifier):
-                out = model.predict(X, prediction_type="RawFormulaVal")
-        except Exception:
-            pass
-    if out is None:
-        raise NotImplementedError(
-            f"CompositeClassificationEstimator: inner {type(model).__name__!r} has no "
-            "raw-margin path (LightGBM raw_score / XGBoost output_margin / CatBoost "
-            "RawFormulaVal). The base-margin residual contract is undefined without "
-            "one -- use a gradient-boosting inner or a plain classifier instead."
-        )
-    arr = np.asarray(out, dtype=np.float64)
-    return arr.reshape(-1) if arr.ndim == 1 or arr.shape[1] == 1 else arr
+    return inner_raw_margin(
+        model, X,
+        lgbm_attr="LGBMClassifier", xgb_attr="XGBClassifier", catboost_attr="CatBoostClassifier",
+        wrapper_name="CompositeClassificationEstimator", keep_2d=True,
+    )
 
 
 def _fit_inner_with_init_score(model: Any, X: Any, y: np.ndarray, init_score: np.ndarray, n_classes: int, sample_weight=None) -> None:

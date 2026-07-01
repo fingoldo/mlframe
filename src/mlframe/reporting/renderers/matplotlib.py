@@ -19,6 +19,8 @@ from mlframe.reporting.spec import (
     ScatterPanelSpec, ViolinPanelSpec,
 )
 
+from ._shared_helpers import _finite_range, _thin_tick_positions
+
 logger = logging.getLogger(__name__)
 
 # Panel-title rendering: wrap long titles onto multiple lines (so a verbose diagnostic title doesn't
@@ -46,29 +48,6 @@ _HIST_PREBIN_THRESHOLD = 50_000
 # Above this many heatmap cells the per-cell text turns to unreadable soup; skip it (also keeps the plotly
 # per-annotation O(cells) loop from stalling on a degenerate huge-K grid).
 _HEATMAP_CELL_TEXT_MAX = 400
-# A density heatmap bins into ~80x80 cells, so one tick per cell-label overlaps into unreadable soup. Above this
-# many labels, show at most ``_HEATMAP_MAX_TICKS`` evenly-spaced ticks (the rest of the grid is still drawn).
-_HEATMAP_MAX_TICKS = 8
-
-
-def _thin_tick_positions(n: int, max_ticks: int = _HEATMAP_MAX_TICKS):
-    """Evenly-spaced tick indices for an axis of ``n`` labels, always including the first and last."""
-    if n <= max_ticks:
-        return list(range(n))
-    return sorted({int(round(i * (n - 1) / (max_ticks - 1))) for i in range(max_ticks)})
-
-
-def _finite_range(mat):
-    """``(vmin, vmax)`` over finite entries, or ``None`` when the matrix is empty / all non-finite.
-
-    Heatmap cell-text color resolution needs a real value range; ``np.nanmin`` raises on an empty array and
-    returns NaN on an all-NaN matrix, so callers gate the per-cell text loop on a non-None result.
-    """
-    a = np.asarray(mat, dtype=float)
-    finite = a[np.isfinite(a)]
-    if finite.size == 0:
-        return None
-    return float(finite.min()), float(finite.max())
 
 
 def _err_to_mpl(err):

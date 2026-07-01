@@ -25,7 +25,6 @@ from sklearn.model_selection import ParameterSampler
 from sklearn.model_selection import train_test_split
 
 from pyutilz import db
-import logging
 
 import random as _stdlib_random
 import pandas as pd, numpy as np
@@ -746,76 +745,12 @@ class CatboostParamsOptimizer(ParamsOptimizer):
             ],  # Bootstrap type. Defines the method for sampling the weights of objects.
             "task_type": ["GPU" if GPU_ENABLED else "CPU"],
         }
-        if False:
-            if task == MLTaskType.Regression:
-                self.params["loss_function"] = "MAE MAPE Poisson Quantile RMSE LogLinQuantile LogCosh".split() + [
-                    "Lq:q=" + str(loguniform(1, 100).rvs(random_state=self._rng)),
-                    "Expectile:alpha=" + str(loguniform(0.01, 1 - 0.01).rvs(random_state=self._rng)),
-                    "Tweedie:variance_power=" + str(uniform(1.01, 1.99 - 1.01).rvs(random_state=self._rng)),
-                    "Huber:delta=" + str(loguniform(0.1, 100).rvs(random_state=self._rng)),
-                    # "MultiQuantile:alpha=" + str(loguniform(0.01, 1 - 0.01).rvs()) + "," + str(loguniform(0.01, 1 - 0.01).rvs()), # if MultiQuantile is chosen, it hs to be both a loss and eval_metric!
-                ]  # RMSEWithUncertainty needs double target #Alpha parameter for expectile metric should be in interval [0, 1]
-                self.params["eval_metric"] = (
-                    self.params["loss_function"]
-                    + "FairLoss SMAPE R2 MSLE MedianAbsoluteError".split()
-                    + ["NumErrors:greater_than=" + str(loguniform(1, 100).rvs(random_state=self._rng))]
-                )
-                if not GPU_ENABLED:
-                    self.params[
-                        "feature_border_type"
-                    ] = (
-                        "Median Uniform UniformAndQuantiles MaxLogSum MinEntropy GreedyLogSum".split()
-                    )  # The quantization type for the label value. Only used for regression problems.
-            elif task == MLTaskType.Multiregression:
-                self.params["loss_function"] = "MultiRMSE MultiRMSEWithMissingValues".split()
-                self.params["eval_metric"] = self.params["loss_function"]
-            elif task == MLTaskType.Classification:
-                self.params["loss_function"] = "Logloss CrossEntropy".split()
-                self.params["eval_metric"] = (
-                    self.params["loss_function"]
-                    + "Precision Recall F1 BalancedAccuracy BalancedErrorRate MCC Accuracy AUC NormalizedGini BrierScore HingeLoss HammingLoss ZeroOneLoss Kappa WKappa LogLikelihoodOfPrediction".split()
-                    + ["F:beta=" + str(loguniform(0.01, 100).rvs(random_state=self._rng))]
-                )  # CtrFactor cannot be used for overfitting detection or selecting best iteration on validation
-                # QueryAUC : Groupwise loss/metrics require nontrivial groups
-            elif task == MLTaskType.Multiclassification:
-                self.params["loss_function"] = "MultiClass MultiClassOneVsAll".split()
-                self.params["eval_metric"] = (
-                    self.params["loss_function"] + " Precision Recall F F1 TotalF1 MCC Accuracy HingeLoss HammingLoss ZeroOneLoss Kappa WKappa AUC".split()
-                )
-            elif task == MLTaskType.MultilabelClassification:
-                self.params["loss_function"] = "MultiLogloss MultiCrossEntropy".split()
-                self.params["eval_metric"] = self.params["loss_function"] + " Precision Recall F F1 Accuracy HammingLoss".split()
-            elif task == MLTaskType.Ranking:
-                self.params[
-                    "loss_function"
-                ] = "PairLogit PairLogitPairwise YetiRank YetiRankPairwise StochasticFilter StochasticRank QueryCrossEntropy QueryRMSE QuerySoftMax".split()
-                self.params["eval_metric"] = (
-                    self.params["loss_function"] + "PairAccuracy PFound NDCG DCG FilteredDCG AverageGain PrecisionAt RecallAt MAP ERR MRR AUC QueryAUC".split()
-                )
-                self.params["force_unit_auto_pair_weights"] = [False, True]
-            else:
-                raise ValueError("Unknown task %s", task)
-
-            # all kinds of classification
-            if task in (MLTaskType.Classification, MLTaskType.Multiclassification, MLTaskType.MultilabelClassification):
-                self.params["auto_class_weights"] = [
-                    None,
-                    "Balanced",
-                    "SqrtBalanced",
-                ]  # The values are used as multipliers for the object weights. This parameter can be used for solving binary classification and multiclassification problems.
-
-            if not need_training_continuation:
-                self.params["model_shrink_mode"] = [
-                    "Constant",
-                    "Decreasing",
-                ]  # Model shrinkage in combination with learning continuation is not implemented yet. Reset model_shrink_rate to 0.
-                if not GPU_ENABLED:
-                    self.params["model_shrink_rate"] = [
-                        None,
-                        loguniform(0.01, 1.0),
-                    ]  # The constant used to calculate the coefficient for multiplying the model on each iteration.The actual model shrinkage coefficient calculated at each iteration depends on the value of the --model-shrink-mode.The resulting value of the coefficient should be always in the range (0, 1].
-                self.params["boost_from_average"] = [False, True]  # You can't use boost_from_average with initial model now
-                self.params["grow_policy"] = ["SymmetricTree", "Depthwise", "Lossguide"]  # Models summation supported only for symmetric trees
+        # CatBoost per-task loss_function/eval_metric options are not swept here; see CatBoost docs for the full menu per task type:
+        #   Regression: MAE/MAPE/Poisson/Quantile/RMSE/LogLinQuantile/LogCosh/Lq/Expectile/Tweedie/Huber (eval also FairLoss/SMAPE/R2/MSLE/MedianAbsoluteError/NumErrors)
+        #   Multiregression: MultiRMSE/MultiRMSEWithMissingValues
+        #   Classification: Logloss/CrossEntropy (eval also Precision/Recall/F1/BalancedAccuracy/MCC/Accuracy/AUC/NormalizedGini/BrierScore/...)
+        #   Multiclassification: MultiClass/MultiClassOneVsAll; MultilabelClassification: MultiLogloss/MultiCrossEntropy
+        #   Ranking: PairLogit/YetiRank/YetiRankPairwise/StochasticRank/QueryCrossEntropy/QueryRMSE/QuerySoftMax (eval also PFound/NDCG/DCG/MAP/ERR/MRR/QueryAUC)
 
         if params_override:
             self.params.update(params_override)

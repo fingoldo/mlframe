@@ -41,6 +41,8 @@ from typing import Any
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
+from ._booster_margin import inner_raw_margin
+
 logger = logging.getLogger(__name__)
 
 
@@ -79,35 +81,11 @@ def _inner_raw_margin(model: Any, X: Any) -> np.ndarray:
     ``raw_score`` / XGBoost ``output_margin`` / CatBoost ``RawFormulaVal`` output.
     For a log-link objective this is the log-scale residual prediction.
     """
-    out = None
-    try:
-        import lightgbm as lgb
-        if isinstance(model, lgb.LGBMRegressor):
-            out = model.predict(X, raw_score=True)
-    except Exception:
-        pass
-    if out is None:
-        try:
-            import xgboost as xgb
-            if isinstance(model, xgb.XGBRegressor):
-                out = model.predict(X, output_margin=True)
-        except Exception:
-            pass
-    if out is None:
-        try:
-            import catboost as cb
-            if isinstance(model, cb.CatBoostRegressor):
-                out = model.predict(X, prediction_type="RawFormulaVal")
-        except Exception:
-            pass
-    if out is None:
-        raise NotImplementedError(
-            f"CompositeGLMEstimator: inner {type(model).__name__!r} has no raw-margin "
-            "path (LightGBM raw_score / XGBoost output_margin / CatBoost RawFormulaVal). "
-            "The log-link residual contract is undefined without one -- use a "
-            "gradient-boosting regressor (LightGBM / XGBoost / CatBoost) as the inner."
-        )
-    return np.asarray(out, dtype=np.float64).reshape(-1)
+    return inner_raw_margin(
+        model, X,
+        lgbm_attr="LGBMRegressor", xgb_attr="XGBRegressor", catboost_attr="CatBoostRegressor",
+        wrapper_name="CompositeGLMEstimator", keep_2d=False,
+    )
 
 
 def _fit_inner_with_offset(

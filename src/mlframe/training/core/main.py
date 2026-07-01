@@ -74,14 +74,11 @@ from . import _phase_runners as pr
 from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df  # noqa: F401
 
 
-# Module-level handles for the prelude patch functions. They're populated
-# lazily on the first ``train_mlframe_models_suite`` call (delays the
-# joblib / lightgbm / catboost / xgboost touches that the patches do).
-# Module-level binding lets tests monkeypatch them.
-apply_loky_cpu_count_override = None
-apply_third_party_patches_once = None
-
-
+# The prelude patch handles (apply_loky_cpu_count_override /
+# apply_third_party_patches_once) live on ``_main_train_suite`` -- the module
+# that actually holds the ``train_mlframe_models_suite`` body and whose globals
+# the live prelude resolves against. This facade only re-exports the callable,
+# so no module-level seam is kept here.
 
 
 # Re-export predict / load entry points for back-compat.
