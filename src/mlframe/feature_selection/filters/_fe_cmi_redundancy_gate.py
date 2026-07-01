@@ -200,6 +200,7 @@ def _conditional_perm_null(
     seed: int = 0,
     salt: int = 0,
     precomp_cards: Optional[tuple] = None,
+    z_support_dev=None,
 ) -> tuple[float, float]:
     """Conditional-permutation null for ``CMI(cand; y | z_support)``.
 
@@ -299,7 +300,7 @@ def _conditional_perm_null(
     if _HAVE_CHI2 and analytic_null_enabled() and n_size >= _cmi_analytic_null_min_n():
         try:
             _n = float(max(1, n_size))
-            if z_support is None or z_support.size == 0:
+            if (z_support is None or z_support.size == 0) and z_support_dev is None:
                 _xh = _host_x()
                 xy, _ = _renumber_joint(_xh, y)
                 _, k_x = _entropy_from_classes(_xh)
@@ -308,7 +309,10 @@ def _conditional_perm_null(
                 _df = (int(k_x) - 1) * (int(k_y) - 1)
                 _cells = max(1, int(k_x) * int(k_y))
             else:
-                _z = np.ascontiguousarray(z_support, dtype=np.int64).ravel()
+                # z_support may be host OR None with a resident z_support_dev (device-born support). Keep _z host
+                # only if a host consumer is actually reached (the no-precomp-cards renumber fallback below);
+                # the precomp_cards + resident joint_cardinalities paths need no host z (no D2H).
+                _z = np.ascontiguousarray(z_support, dtype=np.int64).ravel() if z_support is not None else None
                 # GPU route (2026-06-25): the analytic-null df needs only the OCCUPIED-cell counts
                 # (k_z/k_xz/k_yz/k_xyz) -> device cp.unique(...).size replaces the host renumber+entropy.
                 # Label-invariant -> same df. Gated (STRICT / MLFRAME_CMI_GPU), falls back to CPU on error.
@@ -319,14 +323,21 @@ def _conditional_perm_null(
                 elif _cmi_gpu_enabled():
                     try:
                         from ._mi_greedy_cmi_fe import joint_cardinalities_cupy
-                        # RESIDENT candidate code (joint_cardinalities_cupy resident-input branch) -> no re-upload
-                        # at the ``card_cand_x`` site; host code otherwise.
-                        _ks = joint_cardinalities_cupy(cand_dev if cand_dev is not None else _host_x(), y, _z)
+                        # RESIDENT candidate code + RESIDENT support (joint_cardinalities_cupy resident-input
+                        # branch) -> no re-upload at the ``card_cand_x`` / ``cmi_z`` sites; host code otherwise.
+                        _ks = joint_cardinalities_cupy(
+                            cand_dev if cand_dev is not None else _host_x(), y,
+                            _z if _z is not None else z_support_dev)
                     except Exception:
                         _ks = None
                 if _ks is not None:
                     k_z, k_xz, k_yz, k_xyz = _ks
                 else:
+                    # Host renumber fallback (no precomp_cards + no resident cards): materialise the support on
+                    # host from the device-born copy (rare -- a single D2H only when both device card paths miss).
+                    if _z is None and z_support_dev is not None:
+                        import cupy as _cp
+                        _z = np.ascontiguousarray(_cp.asnumpy(z_support_dev), dtype=np.int64).ravel()
                     _xh = _host_x()
                     xz, _ = _renumber_joint(_xh, _z)
                     yz, _ = _renumber_joint(y, _z)
@@ -358,7 +369,29 @@ def _conditional_perm_null(
 
     rng = np.random.default_rng(np.random.SeedSequence([int(seed) & 0xFFFFFFFF, int(salt) & 0xFFFFFFFF]))
 
-    if z_support is None or z_support.size == 0:
+    # RESIDENT-SUPPORT conditional perm-null: a device-born z_support is available -> run the GPU-resident
+    # conditional null with order/z_rank DERIVED ON DEVICE from the resident z (conditional_perm_null_gpu), so
+    # the support / order / z_rank / candidate never cross H2D. Only on a cupy fault does control fall through to
+    # the host order/z_rank path below (which materialises z from the device copy). Selection-equivalent (this
+    # GPU null already uses a device-RNG shuffle; the device stratum grouping is another valid grouping).
+    if (z_support is None or (hasattr(z_support, "size") and z_support.size == 0)) and z_support_dev is not None \
+            and getattr(z_support_dev, "size", 0) > 0 and _cmi_gpu_enabled() and int(n_permutations) > 1:
+        try:
+            from ._fe_cmi_perm_null_gpu import perm_null_gpu_resident_enabled, conditional_perm_null_gpu
+            if perm_null_gpu_resident_enabled():
+                return conditional_perm_null_gpu(
+                    cand_dev if cand_dev is not None else _host_x(), y, z_support_dev,
+                    order=None, z_rank=None,
+                    n_permutations=int(n_permutations), quantile=quantile, seed=seed, salt=salt,
+                )
+        except Exception:
+            logger.debug("resident-support GPU conditional perm-null failed; host order/z_rank path", exc_info=True)
+        # GPU path unavailable/failed -> materialise host z once for the host order/z_rank fallback below.
+        if z_support is None and z_support_dev is not None:
+            import cupy as _cp
+            z_support = np.ascontiguousarray(_cp.asnumpy(z_support_dev), dtype=np.int64).ravel()
+
+    if (z_support is None or z_support.size == 0) and z_support_dev is None:
         # Marginal-permutation null (seed step): free shuffle of the candidate
         # -> null MARGINAL MI(cand; y). Mean estimates the marginal MI bias at
         # this n; the seed's debiased excess = max(0, marginal_mi - this mean).
@@ -741,6 +774,12 @@ def apply_cmi_redundancy_gate(
 
     accepted: list[str] = []          # admitted candidate names, in selection order
     accepted_bins: list[np.ndarray] = []
+    # Parallel list of the RESIDENT (device) code for each admitted feature (None where that feature fell back to
+    # host binning). When every admitted feature has a resident code the round conditioning support Z is built
+    # DEVICE-BORN (``_renumber_joint_gpu``) and threaded RESIDENT through the round-batched CMI, the per-candidate
+    # CMI, AND the conditional perm-null (device order/z_rank), so Z never crosses H2D (the ``cmi_z`` +
+    # order/z_rank uploads). A mixed / host-fallback round keeps the host ``_renumber_joint`` support.
+    accepted_bins_dev: list = []
     admitted_excess: list[float] = []  # DEBIASED-EXCESS CMI of admitted features (for the rel bar)
     remaining = set(names)
     frag_cap = max(2, n_rows // _SUPPORT_FRAG_DIVISOR)
@@ -785,6 +824,7 @@ def apply_cmi_redundancy_gate(
     seed_excess = max(0.0, marg[seed_name] - seed_null_mean)
     accepted.append(seed_name)
     accepted_bins.append(cand_bins[seed_name])
+    accepted_bins_dev.append(cand_bins_dev.get(seed_name) if cand_bins_dev else None)
     admitted_excess.append(seed_excess)
     remaining.discard(seed_name)
     diagnostics[seed_name] = dict(
@@ -794,7 +834,26 @@ def apply_cmi_redundancy_gate(
     )
 
     while remaining:
-        z_support, _ = _renumber_joint(*accepted_bins)
+        # DEVICE-BORN conditioning support Z: when every admitted feature has a resident code, join them ON the
+        # device (``_renumber_joint_gpu``) so Z never crosses H2D -- threaded RESIDENT through the round-batched
+        # CMI, the per-candidate CMI, and the conditional perm-null (which derives order/z_rank on device). The
+        # device join yields a different dense-id numbering than the host njit factorize but the SAME partition
+        # -> the same CMI, so admit/reject is selection-identical. Mixed / host-fallback rounds keep the host
+        # join. The host ``z_support`` is still built when NOT device-born (or as a rare perm-null fallback).
+        z_support_dev = None
+        if _gate_resident and accepted_bins_dev and all(_b is not None for _b in accepted_bins_dev):
+            try:
+                from ._mi_greedy_cmi_fe import _renumber_joint_gpu
+                z_support_dev, _ = _renumber_joint_gpu(*accepted_bins_dev)
+            except Exception:
+                z_support_dev = None
+        if z_support_dev is None:
+            z_support, _ = _renumber_joint(*accepted_bins)
+        else:
+            z_support = None   # host support built lazily only if a host consumer needs it this round
+        # z handed to the DEVICE scorers (round-batched CMI + per-candidate CMI): the resident support when
+        # device-born, else the host support -- both accepted by the cupy resident-input branches.
+        _z_scored = z_support_dev if z_support_dev is not None else z_support
         # Relative bar is a fraction of the WEAKEST admitted feature's DEBIASED
         # EXCESS CMI -- n-invariant because the finite-sample bias cancels in the
         # excess (cmi_obs - null_mean). A redundant candidate's excess ~ 0; a
@@ -839,12 +898,12 @@ def apply_cmi_redundancy_gate(
                     _Xc = np.empty((y_dense.shape[0], len(_rem_list)), dtype=np.int64)
                     for _j, _nm in enumerate(_rem_list):
                         _Xc[:, _j] = cand_bins[_nm]
-                _cmis, _kz, _kxz, _kyz, _kxyz = batched_cmi_gpu(_Xc, y_dense, z_support, return_cards=True)
+                _cmis, _kz, _kxz, _kyz, _kxyz = batched_cmi_gpu(_Xc, y_dense, _z_scored, return_cards=True)
                 _cmis = np.asarray(_cmis, dtype=np.float64)
                 _round_cmi = {_nm: float(_cmis[_j]) for _j, _nm in enumerate(_rem_list)}
                 # cards for EVERY candidate -> pass to the per-candidate permutation-null fallback so it never
                 # recomputes joint_cardinalities_cupy (z_support is conditional here, so cards apply).
-                if z_support is not None:
+                if _z_scored is not None:
                     _kxz_a = np.asarray(_kxz); _kxyz_a = np.asarray(_kxyz)
                     _round_cards = {_nm: (int(_kz), int(_kxz_a[_j]), int(_kyz), int(_kxyz_a[_j]))
                                     for _j, _nm in enumerate(_rem_list)}
@@ -873,7 +932,7 @@ def apply_cmi_redundancy_gate(
             _cb = cand_bins_dev.get(nm) if cand_bins_dev else None
             if _cb is None:
                 _cb = cand_bins[nm]
-            cmi = _round_cmi[nm] if nm in _round_cmi else float(_cmi_from_binned(_cb, y_dense, z_support))
+            cmi = _round_cmi[nm] if nm in _round_cmi else float(_cmi_from_binned(_cb, y_dense, _z_scored))
             if nm in _round_floor:
                 floor, null_mean = _round_floor[nm]
             else:
@@ -881,7 +940,7 @@ def apply_cmi_redundancy_gate(
                     _cb, y_dense, z_support,
                     n_permutations=n_permutations, quantile=quantile, seed=seed,
                     salt=zlib.crc32(nm.encode("utf-8")),
-                    precomp_cards=_round_cards.get(nm),
+                    precomp_cards=_round_cards.get(nm), z_support_dev=z_support_dev,
                 )
             cmi_excess = max(0.0, cmi - null_mean)
             scored[nm] = (cmi, cmi_excess)
@@ -927,6 +986,9 @@ def apply_cmi_redundancy_gate(
         candidate_support, _ = _renumber_joint(*(accepted_bins + [new_bin]))
         if int(np.unique(candidate_support).size) <= frag_cap:
             accepted_bins.append(new_bin)
+            # Keep the resident-code list in lockstep so the NEXT round's device-born support join includes
+            # this winner (None where it fell back to host binning -> that round takes the host support).
+            accepted_bins_dev.append(cand_bins_dev.get(best_name) if cand_bins_dev else None)
         # else: keep accepted_bins frozen; the feature is still admitted.
         accepted.append(best_name)
         admitted_excess.append(best_excess)

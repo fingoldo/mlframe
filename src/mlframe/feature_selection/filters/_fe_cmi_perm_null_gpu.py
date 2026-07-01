@@ -143,9 +143,27 @@ def conditional_perm_null_gpu(
     # order / z_rank are per-support derivations (argsort + stratum-rank). Measured DISTINCT across the gate's
     # perm-null calls (the conditioning support grows as features are selected), so they are NOT resident-cached
     # (caching them would only pin per-call VRAM with no reuse); a fresh transient upload, freed below.
-    z_h = np.ascontiguousarray(z_i, dtype=np.int64).ravel()
-    order_d = cp.asarray(np.ascontiguousarray(order, dtype=np.int64).ravel())
-    z_rank_d = cp.asarray(np.ascontiguousarray(z_rank, dtype=np.float64).ravel())[:, None]   # (n, 1)
+    # RESIDENT-SUPPORT: a device-born z_support (the CMI-redundancy gate's ``_renumber_joint_gpu`` of the
+    # resident candidate codes) is handed in AS a cupy array -> derive the stratum grouping (``order``) and dense
+    # stratum rank ON device so the support codes / order / z_rank never cross H2D (the ``cmi_z`` upload + the
+    # ``permnull_cand_x`` order/z_rank uploads). ``cp.argsort(z)`` groups rows by stratum with a DIFFERENT
+    # tie-order than the host ``np.argsort(kind='stable')``, but this GPU-resident null is ALREADY selection-
+    # equivalent (its shuffle keys are device-RNG, not numpy's), and any valid stratum grouping yields the same
+    # conditional null in distribution -> the floor/mean agree within the gate's razor tolerance. Host z_i keeps
+    # the passed-in host order/z_rank (byte path unchanged).
+    if isinstance(z_i, cp.ndarray):
+        z_for_cmi = z_i.astype(cp.int64, copy=False).ravel()
+        order_d = cp.argsort(z_for_cmi)                          # stratum grouping on device (ties broken by sort)
+        _sorted_z = z_for_cmi[order_d]
+        z_rank_1d = cp.zeros(n, dtype=cp.float64)
+        if n > 1:
+            z_rank_1d[1:] = cp.cumsum((_sorted_z[1:] != _sorted_z[:-1]).astype(cp.float64))   # dense block index
+        z_rank_d = z_rank_1d[:, None]
+        del _sorted_z, z_rank_1d
+    else:
+        z_for_cmi = np.ascontiguousarray(z_i, dtype=np.int64).ravel()
+        order_d = cp.asarray(np.ascontiguousarray(order, dtype=np.int64).ravel())
+        z_rank_d = cp.asarray(np.ascontiguousarray(z_rank, dtype=np.float64).ravel())[:, None]   # (n, 1)
     x_sorted_d = dx[order_d]                                     # x reordered into contiguous stratum blocks
 
     keys = rs.random_sample(size=(n, nperm))                     # device draw -> keys in [0,1), distinct per row
@@ -154,11 +172,11 @@ def conditional_perm_null_gpu(
     Xp_d[order_d, :] = x_sorted_d[within]                        # xp[order] = x_sorted[within], per perm
     del keys, within, x_sorted_d, z_rank_d, order_d            # free the (n,nperm) build + per-call order/zrank
     # (dx is resident-cached -> retained by the cache, not freed here)
-    nulls = _batched_cmi_resident_chunked(Xp_d, y_h, z_h)
+    nulls = _batched_cmi_resident_chunked(Xp_d, y_h, z_for_cmi)
     return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
 
 
-def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z_h: np.ndarray) -> np.ndarray:
+def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z) -> np.ndarray:
     """CMI(perm_col; y | z) for every column of the RESIDENT (n, nperm) permutation matrix ``Xp_d``, chunking
     the perms so each ``batched_cmi_gpu`` call's dense joint fits free VRAM.
 
@@ -177,10 +195,18 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z_h: np.ndarray) -> np.
 
     nperm = int(Xp_d.shape[1])
     # dense joint width per perm = Kx * Kyz; size the chunk from free VRAM (host-cheap cardinalities). The
-    # permutation does not change x's value set, so Xp_d.max() == the unpermuted candidate's max.
+    # permutation does not change x's value set, so Xp_d.max() == the unpermuted candidate's max. ``z`` is the
+    # conditioning support: a RESIDENT cupy array (device-born support -> no cmi_z H2D; cardinalities computed on
+    # device) or a host ndarray (legacy path). ``batched_cmi_gpu`` accepts either z form directly.
     Kx = (int(Xp_d.max()) + 1) if Xp_d.size else 1
-    Kz = (int(z_h.max()) + 1) if z_h.size else 1
-    Kyz = (int((y_h * Kz + z_h).max()) + 1) if z_h.size else 1
+    if isinstance(z, cp.ndarray):
+        _yz = cp.asarray(np.ascontiguousarray(y_h, dtype=np.int64).ravel()) if not isinstance(y_h, cp.ndarray) else y_h
+        Kz = (int(z.max()) + 1) if z.size else 1
+        Kyz = (int((_yz * Kz + z).max()) + 1) if z.size else 1
+        del _yz
+    else:
+        Kz = (int(z.max()) + 1) if z.size else 1
+        Kyz = (int((y_h * Kz + z).max()) + 1) if z.size else 1
     joint_bytes = max(1, Kx * Kyz * 8)
     try:
         free_b, _ = cp.cuda.runtime.memGetInfo()
@@ -194,7 +220,7 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z_h: np.ndarray) -> np.
         c = min(chunk, nperm - s)
         try:
             cols = cp.ascontiguousarray(Xp_d[:, s:s + c])       # contiguous (n, c) for the joint-hist kernels
-            nulls[s:s + c] = np.asarray(batched_cmi_gpu(cols, y_h, z_h), dtype=np.float64)
+            nulls[s:s + c] = np.asarray(batched_cmi_gpu(cols, y_h, z), dtype=np.float64)
             del cols
             s += c
         except cp.cuda.memory.OutOfMemoryError:

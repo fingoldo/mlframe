@@ -507,6 +507,37 @@ def _renumber_joint(*cols: np.ndarray) -> tuple[np.ndarray, int]:
     return joint, int(mult)
 
 
+def _renumber_joint_gpu(*cols):
+    """Device twin of :func:`_renumber_joint`: collapse ALREADY-RESIDENT integer class arrays into a single
+    dense class id ON the device, returning ``(joint_dev, nclasses)`` -- ``joint_dev`` a resident int64 cupy
+    array densely numbered 0..nclasses-1.
+
+    Used by the CMI-redundancy gate to build the round conditioning support Z as a device-born join of the
+    resident candidate codes, so Z never crosses H2D (the ``cmi_z`` upload). The dense-id ASSIGNMENT differs
+    from the host njit first-seen numbering (``cupy.unique`` numbers in sorted-value order), but the PARTITION
+    -- which rows share a class -- is IDENTICAL to :func:`_renumber_joint`, and every downstream consumer (the
+    entropy / joint-count histograms in ``batched_cmi_gpu`` / ``_cmi_from_binned_cupy`` / the perm-null) depends
+    ONLY on the partition, so the CMI -- and the gate's admit/reject decision -- is selection-identical. Each
+    fold refactorises so ``mult`` stays bounded by the occupied cardinality (<= n), so the combine key
+    ``joint + c*mult`` (c <= nbins-1) cannot overflow int64. Any cupy fault raises to the caller (host fallback)."""
+    import cupy as cp
+
+    if not cols:
+        return cp.zeros(0, dtype=cp.int64), 1
+    joint = cp.ascontiguousarray(cols[0].astype(cp.int64, copy=False).ravel())
+    _, joint = cp.unique(joint, return_inverse=True)          # densify col 0 -> 0..k0-1 (value-order)
+    joint = joint.astype(cp.int64, copy=False).ravel()
+    mult = (int(joint.max()) + 1) if joint.size else 1
+    for c in cols[1:]:
+        c64 = c.astype(cp.int64, copy=False).ravel()
+        # joint in [0, mult) -> ``joint + c*mult`` is a unique key per (joint, c) pair; refactorise to dense so
+        # mult tracks the occupied joint cardinality (not the cartesian product) fold-to-fold.
+        _, joint = cp.unique(joint + c64 * mult, return_inverse=True)
+        joint = joint.astype(cp.int64, copy=False).ravel()
+        mult = (int(joint.max()) + 1) if joint.size else 1
+    return joint, int(mult)
+
+
 @njit(cache=True)
 def _entropy_from_classes_njit(classes: np.ndarray) -> tuple:
     """Single-pass plug-in entropy + occupied-cell count for a dense integer
@@ -911,8 +942,16 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
             h_xy, k_xy = _entc([dx, dy], [Kx, ky])
         mi = max(0.0, (h_x + h_y - h_xy) - (k_x + k_y - k_xy - 1) / (2.0 * n))
         return (mi, None) if return_cards else mi
-    dz = resident_operand(z_joint, "cmi_z", dtype=np.int64)  # z_support round-constant -> cached
-    kz = _cached_card(z_joint, dz)         # z_support is round-constant -> cardinality cached
+    # RESIDENT-INPUT: the CMI-redundancy gate hands a DEVICE-BORN z_support (``_renumber_joint_gpu`` of the
+    # resident candidate codes) -> use it as-is so the round conditioning support never crosses H2D (the
+    # ``cmi_z`` upload); ``resident_operand``/``np.asarray`` on a cupy array would raise. Host z rides the
+    # content-keyed cache (uploaded once per round). Selection-identical: same partition -> same CMI.
+    if isinstance(z_joint, cp.ndarray):
+        dz = z_joint.astype(cp.int64, copy=False).ravel()
+        kz = (int(dz.max()) + 1) if dz.size else 1   # device z: cardinality on device (host-byte cache N/A)
+    else:
+        dz = resident_operand(z_joint, "cmi_z", dtype=np.int64)  # z_support round-constant -> cached
+        kz = _cached_card(z_joint, dz)     # z_support is round-constant -> cardinality cached
     # FOUR joint entropies (z, xz, yz, xyz) in ONE launch when the (x,y,z) joint fits shared -- the #1
     # cuLaunchKernel source on the STRICT redundancy gate. Bit-identical; falls back to the per-joint path.
     from ._fe_batched_mi import cmi_joint_entropies_gpu
