@@ -17,6 +17,7 @@ as they were in the inline block.
 from __future__ import annotations
 
 import logging
+import os
 
 import numpy as np
 
@@ -101,6 +102,21 @@ def materialise_and_finalise_fe_candidates(
         _, _y_dense = np.unique(_y_codes, return_inverse=True)
         _y_dense = _y_dense.astype(np.int64)
 
+        # DEVICE-BORN marginal MI (default ON under fe_gpu_strict_resident_enabled; opt-out
+        # MLFRAME_FE_GATE_RESIDENT_CANDS=0). The seed/relative-bar anchor marginal MI is computed by binning
+        # each candidate's continuous ``_vals`` ONCE on device and scoring MI from the RESIDENT int64 codes
+        # (``_cmi_from_binned`` dispatches to the cupy resident-input branch), so the candidate float + codes
+        # never re-cross H2D at this ``qbin_x`` / ``cmi_cand_x`` site. Falls back per-candidate to the host
+        # ``_quantile_bin`` on any cupy fault. Selection-equivalent (same device partition as the gate's binning).
+        _gate_resident = False
+        if os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
+            try:
+                from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
+                from .._mi_greedy_cmi_fe import _cmi_gpu_enabled
+                _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
+            except Exception:
+                _gate_resident = False
+
         _cmi_cands: dict = {}
         for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
             if not _tpf or _tvals is None or not _ncols:
@@ -109,7 +125,15 @@ def materialise_and_finalise_fe_candidates(
                 if _tvals.shape[1] <= _jc:
                     continue
                 _vals = np.asarray(_tvals[:, _jc], dtype=np.float64)
-                _vb = _quantile_bin(_vals, nbins=int(self.quantization_nbins))
+                _vb = None
+                if _gate_resident and np.isfinite(_vals).all():
+                    try:
+                        from .._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
+                        _vb = _quantile_bin_gpu_resident(_vals, int(self.quantization_nbins))
+                    except Exception:
+                        _vb = None
+                if _vb is None:
+                    _vb = _quantile_bin(_vals, nbins=int(self.quantization_nbins))
                 _marg = float(_cmi_from_binned(_vb, _y_dense, None))
                 _cmi_cands[_cname] = (_vals, _marg)
 
@@ -782,7 +806,19 @@ def materialise_and_finalise_fe_candidates(
                         if _tvals.shape[1] <= _jc:
                             continue
                         _cv = np.asarray(_tvals[:, _jc], dtype=np.float64)
-                        _cb = _esc_qbin(_cv, nbins=int(self.quantization_nbins))
+                        # DEVICE-BORN admitted-pool marginal MI (same residency contract as the gate's _cmi_cands
+                        # build above): bin the admitted engineered column ONCE on device and score its marginal
+                        # MI from the RESIDENT codes so the candidate float + codes never re-cross H2D. Host
+                        # fallback per-column on any cupy fault. Selection-equivalent (same device partition).
+                        _cb = None
+                        if _gate_resident and np.isfinite(_cv).all():
+                            try:
+                                from .._mi_greedy_cmi_fe import _quantile_bin_gpu_resident as _qbr_esc
+                                _cb = _qbr_esc(_cv, int(self.quantization_nbins))
+                            except Exception:
+                                _cb = None
+                        if _cb is None:
+                            _cb = _esc_qbin(_cv, nbins=int(self.quantization_nbins))
                         _esc_admitted_pool[_cname] = (_cv, float(_esc_mi(_cb, _esc_y_dense, None)))
                 # Per-pair admitted-capture values: UNDERDELIVERY-triggered pairs
                 # get their proposers fit on the RESIDUAL of the target given the

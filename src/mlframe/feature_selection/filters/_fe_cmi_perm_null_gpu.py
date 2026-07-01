@@ -118,10 +118,15 @@ def conditional_perm_null_gpu(
 
     # x is held resident on device; y/z stay host (``batched_cmi_gpu`` consumes the (n,nperm) candidate matrix
     # on device but reads y/z as host ndarrays -- it does its own H2D for them, once per call, not per perm).
-    # The candidate is the SAME content the per-candidate CMI scorer already uploaded, so the content-keyed
-    # resident cache hits that resident copy (no extra H2D); a re-evaluated candidate never re-uploads.
-    from ._fe_resident_operands import resident_operand
-    dx = resident_operand(np.asarray(x).ravel(), "permnull_cand_x", dtype=np.int64)
+    # RESIDENT-INPUT fast path (device-born candidate-code foundation): the CMI-redundancy gate device-bins each
+    # candidate ONCE (``_quantile_bin_gpu_resident``) and hands the ALREADY-RESIDENT int64 codes here -- use them
+    # as-is so the candidate never re-crosses H2D at the ``permnull_cand_x`` site (and ``np.asarray`` on a cupy
+    # array would raise, so the host path below must NOT run for a device input). A host candidate takes the
+    # content-keyed cache path (uploaded once per fit; the cache hits the copy the per-candidate CMI scorer made).
+    dx = x.astype(cp.int64, copy=False).ravel() if isinstance(x, cp.ndarray) else None
+    if dx is None:
+        from ._fe_resident_operands import resident_operand
+        dx = resident_operand(np.asarray(x).ravel(), "permnull_cand_x", dtype=np.int64)
     y_h = np.ascontiguousarray(y_i, dtype=np.int64).ravel()
     n = int(dx.size)
 

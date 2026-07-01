@@ -117,6 +117,36 @@ def _quantile_bin_gpu(a: np.ndarray, nbins: int):
         return None
 
 
+def _quantile_bin_gpu_resident(a: np.ndarray, nbins: int):
+    """DEVICE-RESIDENT equi-frequency bin of an all-finite 1-D float column -> RESIDENT cupy int64 codes.
+
+    Identical partition to :func:`_quantile_bin_gpu` (same content-keyed ``qbin_x`` float upload, same ravelled
+    ``cp.percentile`` + ``cp.unique`` edge-dedup + ``cp.searchsorted``), but returns the codes RESIDENT on the
+    device instead of ``cp.asnumpy``-ing them. This is the device-born candidate-code foundation for the
+    CMI-redundancy gate: a candidate is binned ONCE here and its resident int64 codes are handed straight to the
+    resident-input branches of ``_cmi_from_binned_cupy`` / ``batched_cmi_gpu`` / ``conditional_perm_null_gpu``,
+    so the derived candidate codes never re-cross H2D (the ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x``
+    re-uploads the host-code path incurred). Returns ``None`` on any cupy failure so the caller keeps the
+    host ``_quantile_bin`` path (which yields a host int64 array the existing content-keyed cache then uploads).
+    NEVER frees the cupy memory pool. Selection-equivalent to the host binning (documented in ``_quantile_bin``)."""
+    try:
+        import cupy as cp
+
+        from ._fe_resident_operands import resident_operand
+        xd = resident_operand(a, "qbin_x", dtype=cp.float64)
+        qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
+        edges = cp.unique(cp.percentile(xd, qs))   # raveled 1-D -> cp.percentile is correct (no axis=0 bug)
+        if int(edges.size) <= 2:
+            out = cp.zeros(xd.size, dtype=cp.int64)
+            if int(edges.size) == 2:
+                out[:] = (xd >= edges[1]).astype(cp.int64)
+            return out
+        return cp.searchsorted(edges[1:-1], xd, side="right").astype(cp.int64)
+    except Exception:
+        logger.debug("GPU-resident _quantile_bin failed; host fallback", exc_info=True)
+        return None
+
+
 __all__ = [
     "score_candidates_by_cmi",
     "greedy_cmi_fe_construct",
@@ -914,12 +944,17 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
 
     from ._fe_batched_mi import joint_counts_gpu
 
-    # The candidate column is also scored by the per-candidate CMI (_cmi_from_binned_cupy) with the SAME int64
-    # content, so route it through the content-keyed resident cache too: it typically HITS the entry that path
-    # already uploaded (content key is role-agnostic) -> no extra H2D, and a re-evaluated candidate never
-    # re-uploads. y / z are fit/round-constants. Cardinalities are label-invariant -> selection-identical.
+    # RESIDENT-INPUT fast path (device-born candidate-code foundation): a caller may hand ALREADY-RESIDENT int64
+    # candidate codes (device-binned once, e.g. the CMI-redundancy gate) -> use them as-is so they never re-cross
+    # H2D at the ``card_cand_x`` site (and ``np.asarray`` on a cupy array would raise). A host candidate is routed
+    # through the content-keyed resident cache: it typically HITS the entry the per-candidate CMI already uploaded
+    # (content key is role-agnostic) -> no extra H2D, and a re-evaluated candidate never re-uploads. y / z are
+    # fit/round-constants. Cardinalities are label-invariant -> selection-identical.
     from ._fe_resident_operands import resident_operand
-    dx = resident_operand(np.asarray(x).ravel(), "card_cand_x", dtype=np.int64)
+    if isinstance(x, cp.ndarray):
+        dx = x.astype(cp.int64, copy=False).ravel()
+    else:
+        dx = resident_operand(np.asarray(x).ravel(), "card_cand_x", dtype=np.int64)
     dy = resident_operand(y, "card_y", dtype=np.int64)
     dz = resident_operand(z, "card_z", dtype=np.int64)
     Kx = (int(dx.max()) + 1) if dx.size else 1

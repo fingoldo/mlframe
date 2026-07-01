@@ -246,7 +246,31 @@ def _conditional_perm_null(
     # joint cardinality climbs into the thousands).
     from ._mi_greedy_cmi_fe import _cmi_from_binned, _cmi_gpu_enabled, _entropy_from_classes, _renumber_joint, cmi_from_binned_fixed_yz, precompute_cmi_yz_terms
 
-    x = np.ascontiguousarray(cand_bin, dtype=np.int64).ravel()
+    # ``cand_bin`` may be an ALREADY-RESIDENT cupy int64 code (device-born binning) OR a host int64 array. Keep
+    # the resident handle ``cand_dev`` so the GPU-resident perm-null branch below consumes it WITHOUT a re-upload
+    # (``conditional_perm_null_gpu`` has an ``isinstance(x, cp.ndarray)`` resident-input branch); the host ``x``
+    # is derived LAZILY (one D2H) only when a genuine host path is reached (the analytic marginal-seed renumber,
+    # or the batched / CPU permutation fallbacks). On the dominant large-n analytic conditional path with
+    # ``precomp_cards`` supplied, ``x`` is never materialised at all.
+    cand_dev = None
+    try:
+        import cupy as _cp_c
+        if isinstance(cand_bin, _cp_c.ndarray):
+            cand_dev = cand_bin.astype(_cp_c.int64, copy=False).ravel()
+    except Exception:
+        cand_dev = None
+
+    def _host_x():
+        # D2H the resident code once (cached on the closure via the list cell) or contiguous-cast a host input.
+        if _host_x._v is None:
+            if cand_dev is not None:
+                import cupy as _cp2
+                _host_x._v = np.ascontiguousarray(_cp2.asnumpy(cand_dev), dtype=np.int64).ravel()
+            else:
+                _host_x._v = np.ascontiguousarray(cand_bin, dtype=np.int64).ravel()
+        return _host_x._v
+    _host_x._v = None
+
     y = np.ascontiguousarray(y_bin, dtype=np.int64).ravel()
 
     # ANALYTIC CMI NULL (2026-06-20). The 25 within-stratum permutations exist only to estimate
@@ -271,12 +295,14 @@ def _conditional_perm_null(
         from ._analytic_mi_null import _HAVE_CHI2, _chi2, _min_expected_cell, analytic_null_enabled
     except Exception:
         _HAVE_CHI2 = False
-    if _HAVE_CHI2 and analytic_null_enabled() and x.size >= _cmi_analytic_null_min_n():
+    n_size = int(cand_dev.size) if cand_dev is not None else int(np.asarray(cand_bin).size)
+    if _HAVE_CHI2 and analytic_null_enabled() and n_size >= _cmi_analytic_null_min_n():
         try:
-            _n = float(max(1, x.size))
+            _n = float(max(1, n_size))
             if z_support is None or z_support.size == 0:
-                xy, _ = _renumber_joint(x, y)
-                _, k_x = _entropy_from_classes(x)
+                _xh = _host_x()
+                xy, _ = _renumber_joint(_xh, y)
+                _, k_x = _entropy_from_classes(_xh)
                 _, k_y = _entropy_from_classes(y)
                 _, k_xy = _entropy_from_classes(xy)
                 _df = (int(k_x) - 1) * (int(k_y) - 1)
@@ -293,15 +319,18 @@ def _conditional_perm_null(
                 elif _cmi_gpu_enabled():
                     try:
                         from ._mi_greedy_cmi_fe import joint_cardinalities_cupy
-                        _ks = joint_cardinalities_cupy(x, y, _z)
+                        # RESIDENT candidate code (joint_cardinalities_cupy resident-input branch) -> no re-upload
+                        # at the ``card_cand_x`` site; host code otherwise.
+                        _ks = joint_cardinalities_cupy(cand_dev if cand_dev is not None else _host_x(), y, _z)
                     except Exception:
                         _ks = None
                 if _ks is not None:
                     k_z, k_xz, k_yz, k_xyz = _ks
                 else:
-                    xz, _ = _renumber_joint(x, _z)
+                    _xh = _host_x()
+                    xz, _ = _renumber_joint(_xh, _z)
                     yz, _ = _renumber_joint(y, _z)
-                    xyz, _ = _renumber_joint(x, y, _z)
+                    xyz, _ = _renumber_joint(_xh, y, _z)
                     _, k_z = _entropy_from_classes(_z)
                     _, k_xz = _entropy_from_classes(xz)
                     _, k_yz = _entropy_from_classes(yz)
@@ -348,27 +377,30 @@ def _conditional_perm_null(
         if _resident and _cmi_gpu_enabled() and nperm > 1:
             try:
                 from ._fe_cmi_perm_null_gpu import conditional_perm_null_gpu
+                # Pass the RESIDENT candidate code directly (conditional_perm_null_gpu resident-input branch) so
+                # the marginal seed null never re-uploads the candidate; host code otherwise.
                 return conditional_perm_null_gpu(
-                    x, y, None, order=None, z_rank=None,
+                    cand_dev if cand_dev is not None else _host_x(), y, None, order=None, z_rank=None,
                     n_permutations=nperm, quantile=quantile, seed=seed, salt=salt,
                 )
             except Exception:
                 logger.debug("GPU-resident marginal perm-null failed; using host/CPU path", exc_info=True)
         # BATCHED marginal null under STRICT (default OFF -> CPU loop): all nperm free-shuffled columns
         # into one (n, nperm) matrix (SAME rng draws) -> one batched_cmi_gpu(..., z=None) call.
+        _xh = _host_x()
         if _cmi_gpu_enabled() and nperm > 1:
             try:
                 from ._fe_batched_mi import batched_cmi_gpu
-                Xp = np.empty((x.size, nperm), dtype=np.int64)
+                Xp = np.empty((_xh.size, nperm), dtype=np.int64)
                 for i in range(nperm):
-                    Xp[:, i] = x[rng.permutation(x.size)]
+                    Xp[:, i] = _xh[rng.permutation(_xh.size)]
                 nulls = np.asarray(batched_cmi_gpu(Xp, y, None), dtype=np.float64)
                 return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
             except Exception:
                 pass
         nulls = np.empty(nperm, dtype=np.float64)
         for i in range(nperm):
-            x_perm = x[rng.permutation(x.size)]
+            x_perm = _xh[rng.permutation(_xh.size)]
             nulls[i] = float(_cmi_from_binned(x_perm, y, None))
         return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
 
@@ -397,7 +429,10 @@ def _conditional_perm_null(
     # the SAME conditional permutation null (Berrett et al. 2020) -- only the RNG draw sequence changes,
     # so the floor/mean are unchanged in expectation (verified: identical feature selection on the
     # canonical recovery fit). ``order``/``sorted_z`` were computed once above.
-    x_sorted = x[order]
+    # ``x_sorted`` (x reordered into contiguous stratum blocks) is only consumed by the HOST fallbacks below
+    # (the batched-device build and the per-perm CPU loop); the DEFAULT-ON GPU-resident branch does the reorder
+    # on device from the resident ``cand_dev``. Defer it (via ``_host_x()``) so the resident path never D2Hs the
+    # candidate just to build a host reorder it will not use.
     # SINGLE-KEY argsort within-stratum shuffle (perf, 2026-06-21). The per-perm
     # ``np.lexsort((keys, sorted_z))`` runs TWO stable radix passes (one per key) over all n
     # rows every permutation -- and at a high-cardinality conditioning support (thousands of
@@ -411,8 +446,8 @@ def _conditional_perm_null(
     # identical ``keys`` draw the resulting order is bit-identical (verified: ``sorted_z`` after
     # both reorderings is equal element-for-element), so the RNG draw sequence and every null
     # value are unchanged -- selection is bit-identical, not merely equivalent.
-    z_rank = np.zeros(x.size, dtype=np.float64)
-    if x.size > 1:
+    z_rank = np.zeros(n_size, dtype=np.float64)
+    if n_size > 1:
         z_rank[1:] = np.cumsum(sorted_z[1:] != sorted_z[:-1])
     _nperm = int(n_permutations)
     # GPU-RESIDENT conditional null (DEFAULT ON under the RESIDENT path -> opt-out MLFRAME_FE_CMI_PERM_NULL_GPU=0).
@@ -437,8 +472,11 @@ def _conditional_perm_null(
     if _resident and _cmi_gpu_enabled() and _nperm > 1:
         try:
             from ._fe_cmi_perm_null_gpu import conditional_perm_null_gpu
+            # Pass the RESIDENT candidate code directly (conditional_perm_null_gpu resident-input branch reorders
+            # ``dx[order]`` on device), so the candidate never re-crosses H2D at the ``permnull_cand_x`` site;
+            # host code otherwise.
             return conditional_perm_null_gpu(
-                x, y_i, z_i, order=order, z_rank=z_rank,
+                cand_dev if cand_dev is not None else _host_x(), y_i, z_i, order=order, z_rank=z_rank,
                 n_permutations=_nperm, quantile=quantile, seed=seed, salt=salt,
             )
         except Exception:
@@ -460,24 +498,28 @@ def _conditional_perm_null(
             # np.argsort(kind="stable") element-for-element -> identical Xp -> identical nulls -> identical
             # floor/null-mean -> bit-identical selection (NOT merely statistically equivalent). One batched
             # (n,_nperm) device argsort replaces _nperm host argsorts; codes stay resident for the CMI.
-            keys = np.empty((x.size, _nperm), dtype=np.float64)
+            _xh = _host_x()
+            x_sorted = _xh[order]
+            keys = np.empty((n_size, _nperm), dtype=np.float64)
             for i in range(_nperm):
-                keys[:, i] = rng.random(x.size)                    # per-perm draw -> SAME sequence as the CPU loop
+                keys[:, i] = rng.random(n_size)                    # per-perm draw -> SAME sequence as the CPU loop
             z_rank_d = cp.asarray(z_rank)[:, None]
             within = cp.argsort(z_rank_d + cp.asarray(keys), axis=0)   # (n, _nperm) within-stratum orders
             x_sorted_d = cp.asarray(x_sorted)
             order_d = cp.asarray(order)
-            Xp_d = cp.empty((x.size, _nperm), dtype=cp.int64)
+            Xp_d = cp.empty((n_size, _nperm), dtype=cp.int64)
             Xp_d[order_d, :] = x_sorted_d[within]                  # xp[order] = x_sorted[within], per perm
             nulls = np.asarray(batched_cmi_gpu(Xp_d, y_i, z_i), dtype=np.float64)
             return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
         except Exception:
             pass  # any cupy error -> exact per-perm CPU loop below
+    _xh = _host_x()
+    x_sorted = _xh[order]
     nulls = np.empty(_nperm, dtype=np.float64)
     for i in range(_nperm):
-        keys = rng.random(x.size)
+        keys = rng.random(n_size)
         within = np.argsort(z_rank + keys, kind="stable")  # within each (already-sorted) stratum block: random order
-        x_perm = np.empty_like(x)
+        x_perm = np.empty_like(_xh)
         x_perm[order] = x_sorted[within]
         nulls[i] = float(cmi_from_binned_fixed_yz(x_perm, y_i, z_i, h_yz, h_z, k_yz, k_z, n_f))
     return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
@@ -561,6 +603,24 @@ def apply_cmi_redundancy_gate(
     if not names:
         return set(), diagnostics
 
+    # DEVICE-BORN candidate-code residency (default ON under fe_gpu_strict_resident_enabled; env opt-out
+    # MLFRAME_FE_GATE_RESIDENT_CANDS=0). When on, each candidate is quantile-binned ONCE on the device and its
+    # int64 codes are KEPT RESIDENT, then routed through the resident-input branches of the round-batched CMI /
+    # per-candidate CMI / conditional perm-null so the derived candidate codes never re-cross H2D (the
+    # ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x`` re-uploads the host-code path incurred, plus the
+    # ``qbin_x`` float that the host binner used to D2H back). The host int64 copy (``cand_bins``) is the D2H of
+    # the SAME resident partition, retained for the host-only sites (partition-dedup hashing, ``_renumber_joint``
+    # support building on admit, and the CPU fallbacks) -- byte-identical to the device codes, so selection is
+    # unchanged. Falls back per-candidate to the host ``_quantile_bin`` on any cupy fault.
+    _gate_resident = False
+    if _os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
+        try:
+            from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+            from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
+            _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
+        except Exception:
+            _gate_resident = False
+
     y_arr = np.asarray(y_bin)
     if not np.issubdtype(y_arr.dtype, np.integer):
         y_arr = y_arr.astype(np.int64)
@@ -581,10 +641,29 @@ def apply_cmi_redundancy_gate(
 
     # Bin every candidate once (production quantile binner). Done BEFORE the cost
     # cap so the cap can collapse exact-partition duplicates first (see below).
+    # ``cand_bins`` holds the HOST int64 codes (source of truth for the host-only sites); ``cand_bins_dev``
+    # holds the RESIDENT cupy int64 codes fed to the three device-scoring paths (empty when the resident path is
+    # off). Under residency each candidate is device-binned ONCE and the host copy is the D2H of that SAME
+    # resident partition (byte-identical), so no separate host ``np.quantile`` runs and the two forms cannot
+    # diverge; a per-candidate cupy fault falls back to the host ``_quantile_bin`` (no resident code -> that
+    # candidate's device sites re-upload the host code, exactly as before this change).
     cand_bins: dict = {}
+    cand_bins_dev: dict = {}
     for nm in names:
         vals = np.asarray(candidates[nm][0], dtype=np.float64)
-        cand_bins[nm] = _quantile_bin(vals, nbins=nbins)
+        _dev = None
+        if _gate_resident and np.isfinite(vals).all():
+            try:
+                from ._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
+                _dev = _quantile_bin_gpu_resident(vals, nbins)
+            except Exception:
+                _dev = None
+        if _dev is not None:
+            import cupy as _cp
+            cand_bins_dev[nm] = _dev
+            cand_bins[nm] = _cp.asnumpy(_dev).astype(np.int64)   # host copy = D2H of the SAME resident partition
+        else:
+            cand_bins[nm] = _quantile_bin(vals, nbins=nbins)
     marg = {nm: float(candidates[nm][1]) for nm in names}
 
     # PARTITION DEDUP (2026-06-11): a monotone/linear remap of an admitted feature
@@ -696,8 +775,10 @@ def apply_cmi_redundancy_gate(
         return (-marg[nm], nm.count("__"), nm.count("("), nm)
 
     seed_name = min(remaining, key=_tie_key)
+    # Seed marginal perm-null from the RESIDENT candidate code when available (device-born), else host.
     seed_floor, seed_null_mean = _conditional_perm_null(
-        cand_bins[seed_name], y_dense, None,
+        cand_bins_dev.get(seed_name, cand_bins[seed_name]) if cand_bins_dev else cand_bins[seed_name],
+        y_dense, None,
         n_permutations=n_permutations, quantile=quantile, seed=seed,
         salt=zlib.crc32(seed_name.encode("utf-8")),
     )
@@ -745,9 +826,19 @@ def apply_cmi_redundancy_gate(
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
             if _cmi_gpu_enabled() and len(_rem_list) > 1:
                 from ._fe_batched_mi import batched_cmi_gpu
-                _Xc = np.empty((y_dense.shape[0], len(_rem_list)), dtype=np.int64)
-                for _j, _nm in enumerate(_rem_list):
-                    _Xc[:, _j] = cand_bins[_nm]
+                # RESIDENT candidate-matrix build: when every round candidate has a device-resident code
+                # (device-born binning), stack them into a RESIDENT (n, K) cupy matrix so the derived codes
+                # never re-cross H2D into ``batched_cmi_gpu`` (which accepts a resident ``x_cols``). Mixed /
+                # host-fallback rounds keep the host int64 build (byte-identical codes -> same CMI).
+                if cand_bins_dev and all(_nm in cand_bins_dev for _nm in _rem_list):
+                    import cupy as _cp
+                    _Xc = _cp.empty((y_dense.shape[0], len(_rem_list)), dtype=_cp.int64)
+                    for _j, _nm in enumerate(_rem_list):
+                        _Xc[:, _j] = cand_bins_dev[_nm]
+                else:
+                    _Xc = np.empty((y_dense.shape[0], len(_rem_list)), dtype=np.int64)
+                    for _j, _nm in enumerate(_rem_list):
+                        _Xc[:, _j] = cand_bins[_nm]
                 _cmis, _kz, _kxz, _kyz, _kxyz = batched_cmi_gpu(_Xc, y_dense, z_support, return_cards=True)
                 _cmis = np.asarray(_cmis, dtype=np.float64)
                 _round_cmi = {_nm: float(_cmis[_j]) for _j, _nm in enumerate(_rem_list)}
@@ -775,12 +866,19 @@ def apply_cmi_redundancy_gate(
             _round_cmi = {}
             _round_floor = {}
         for nm in _rem_list:
-            cmi = _round_cmi[nm] if nm in _round_cmi else float(_cmi_from_binned(cand_bins[nm], y_dense, z_support))
+            # Prefer the RESIDENT candidate code for the per-candidate CMI + perm-null fallbacks (both dispatch
+            # to the cupy resident-input branch: ``_cmi_from_binned`` -> ``_cmi_from_binned_cupy(isinstance
+            # cp.ndarray)``; ``conditional_perm_null_gpu(isinstance cp.ndarray)``), so a candidate that misses the
+            # round-batched result is scored from its resident codes without a re-upload. Host code otherwise.
+            _cb = cand_bins_dev.get(nm) if cand_bins_dev else None
+            if _cb is None:
+                _cb = cand_bins[nm]
+            cmi = _round_cmi[nm] if nm in _round_cmi else float(_cmi_from_binned(_cb, y_dense, z_support))
             if nm in _round_floor:
                 floor, null_mean = _round_floor[nm]
             else:
                 floor, null_mean = _conditional_perm_null(
-                    cand_bins[nm], y_dense, z_support,
+                    _cb, y_dense, z_support,
                     n_permutations=n_permutations, quantile=quantile, seed=seed,
                     salt=zlib.crc32(nm.encode("utf-8")),
                     precomp_cards=_round_cards.get(nm),
