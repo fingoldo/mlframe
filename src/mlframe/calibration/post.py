@@ -70,6 +70,27 @@ except Exception as e:
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+def _try_import_class(module_path: str, class_name: str):
+    """Import ``class_name`` from ``module_path``, or None when the optional dep is missing."""
+    try:
+        module = __import__(module_path, fromlist=[class_name])
+        return getattr(module, class_name)
+    except ImportError:
+        return None
+
+
+# Calibrators that expect a 2D (n_samples, n_classes) prob matrix, as (module_path, class_name) pairs;
+# each is imported lazily so optional deps (dirichletcal / netcal / pycalib / venn_abers) may be absent.
+_NEEDS_2D_CALIBRATORS = (
+    ("venn_abers", "VennAbersCalibrator"),
+    ("netcal.scaling", "LogisticCalibration"),
+    ("netcal.scaling", "LogisticCalibrationDependent"),
+    ("pycalib.models", "LogisticCalibration"),
+    ("dirichletcal.calib.fulldirichlet", "FullDirichletCalibrator"),
+    ("sklearn.calibration", "CalibratedClassifierCV"),
+)
+
+
 class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
     """sklearn-compatible adapter that wraps a third-party binary calibrator behind a uniform interface.
 
@@ -96,38 +117,11 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         relevant calibrator classes (imported lazily so optional deps can be missing).
         """
         # Late imports: some of these are optional (dirichletcal) or may be reshuffled upstream.
-        needs_2d_types: list = []
-        try:
-            from venn_abers import VennAbersCalibrator as _VA
-
-            needs_2d_types.append(_VA)
-        except ImportError:
-            pass
-        try:
-            from netcal.scaling import LogisticCalibration as _LC
-            from netcal.scaling import LogisticCalibrationDependent as _LCD
-
-            needs_2d_types.extend([_LC, _LCD])
-        except ImportError:
-            pass
-        try:
-            from pycalib.models import LogisticCalibration as _PLC
-
-            needs_2d_types.append(_PLC)
-        except ImportError:
-            pass
-        try:
-            from dirichletcal.calib.fulldirichlet import FullDirichletCalibrator as _FDC
-
-            needs_2d_types.append(_FDC)
-        except ImportError:
-            pass
-        try:
-            from sklearn.calibration import CalibratedClassifierCV as _CCCV
-
-            needs_2d_types.append(_CCCV)
-        except ImportError:
-            pass
+        needs_2d_types = [
+            cls
+            for module_path, class_name in _NEEDS_2D_CALIBRATORS
+            if (cls := _try_import_class(module_path, class_name)) is not None
+        ]
         # "Top" calibrators (e.g. TopLabelCalibrator style) preserve 2D shape; match by class-name
         # prefix here as there is no single importable base — minimal remaining substring check.
         if type(calibrator).__name__.startswith("Top"):
@@ -138,11 +132,8 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
     def _is_venn_abers(calibrator) -> bool:
         """isinstance check against VennAbersCalibrator so subclasses dispatch correctly
         (substring matching on the class name routed subclasses to the wrong branch)."""
-        try:
-            from venn_abers import VennAbersCalibrator as _VA
-        except ImportError:
-            return False
-        return isinstance(calibrator, _VA)
+        _VA = _try_import_class("venn_abers", "VennAbersCalibrator")
+        return _VA is not None and isinstance(calibrator, _VA)
 
     def _transform_probs(self, probs) -> np.ndarray:
         if probs.ndim == 2 and not self._calibrator_needs_2d_probs(self.calibrator):

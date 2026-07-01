@@ -417,10 +417,12 @@ class MetaFERecommender:
 
 
 def _stable_bucket_key(fp: Mapping[str, Any]) -> str:
-    import json
-    return json.dumps(
-        bucketize_fingerprint(fp), sort_keys=True, separators=(",", ":"), default=str
-    )
+    import orjson
+    # orjson emits compact output (no spaces), matching the old
+    # ``separators=(",", ":")``; decode to keep the ``str`` return contract.
+    return orjson.dumps(
+        bucketize_fingerprint(fp), default=str, option=orjson.OPT_SORT_KEYS
+    ).decode("utf-8")
 
 
 __all__ = [

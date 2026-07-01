@@ -137,6 +137,7 @@ def train_mlframe_ranker_suite(
                 import polars as _pl
                 df = _pl.read_parquet(df)
             except Exception:
+                logger.debug("polars read_parquet failed for %r; falling back to pandas", df, exc_info=True)
                 df = pd.read_parquet(df)
         else:
             raise ValueError(
@@ -590,6 +591,7 @@ def train_mlframe_ranker_suite(
                     _doc_va = _doc_full[val_idx]
                     _doc_te = _doc_full[test_idx]
                 except Exception:
+                    logger.debug("failed to slice doc_ids field %r for LTR popularity baseline; disabling doc_ids", _doc_field, exc_info=True)
                     _doc_tr = _doc_va = _doc_te = None
             with _phase_ctx("dummy_baselines:learning_to_rank", target=target_name):
                 _db_report = compute_dummy_baselines(
@@ -766,6 +768,7 @@ def train_mlframe_ranker_suite(
                     try:
                         _rho, _ = spearmanr(_vi, _vj)
                     except Exception:
+                        logger.debug("spearmanr failed for diversity gate between models %d and %d; skipping pair", _i, _j, exc_info=True)
                         continue
                     if _rho is not None and np.isfinite(_rho) and _rho > 0.99:
                         _drop_div.add(_j)
@@ -951,6 +954,8 @@ def train_mlframe_ranker_suite(
         meta_path = os.path.join(save_dir, f"{_safe_model_name}_metadata.json")
         with open(meta_path, "w", encoding="utf-8") as f:
             # numpy types aren't json-serialisable; coerce.
+            # NOTE: no shared numpy->json coercer exists in mlframe.utils or
+            # pyutilz today; not worth a new util for this single call site.
             def _coerce(o):
                 if isinstance(o, (np.integer,)):
                     return int(o)

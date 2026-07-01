@@ -318,12 +318,12 @@ def compute_model_input_fingerprint(
     differed in (e.g.) target column or preprocessing would collide on
     the same model filename. The extra fields close that gap.
 
-    Canonical JSON via ``json.dumps(..., sort_keys=True)`` -- required by
-    the user's memory rule ``feedback_json_hash_sort_keys`` so the hash
-    is deterministic across Python builds with different dict orderings.
+    Canonical JSON via ``orjson.dumps(..., option=OPT_SORT_KEYS)`` -- required
+    by the user's memory rule ``feedback_json_hash_sort_keys`` so the hash is
+    deterministic across Python builds with different dict orderings.
     """
     import hashlib
-    import json as _json
+    import orjson
 
     if df_at_fit is None:
         # CACHE-Low-1: marker length must equal SHA-256 prefix length (10) so
@@ -385,7 +385,7 @@ def compute_model_input_fingerprint(
             else:
                 payload = repr(cfg)
             return hashlib.blake2b(
-                _json.dumps(payload, sort_keys=True, default=str).encode("utf-8"),
+                orjson.dumps(payload, default=str, option=orjson.OPT_SORT_KEYS),
                 digest_size=8,
             ).hexdigest()
         except Exception:
@@ -408,8 +408,8 @@ def compute_model_input_fingerprint(
         "val_idx": _idx_digest(val_idx),
     }
 
-    canonical = _json.dumps(payload, sort_keys=True, default=str)
-    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:10]
+    canonical = orjson.dumps(payload, default=str, option=orjson.OPT_SORT_KEYS)
+    digest = hashlib.sha256(canonical).hexdigest()[:10]
     return digest, schema
 
 

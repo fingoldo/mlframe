@@ -139,7 +139,7 @@ class LocalDiskBackend:
                     self._touch_lru(key)
                     self._evict_to_caps()
             except Exception:
-                pass
+                logger.warning("LRU cap enforcement failed after writing key %r; cache may exceed configured caps", key, exc_info=True)
 
     def exists(self, key: str) -> bool:
         """Advisory existence check; subject to TOCTOU races with concurrent
@@ -161,7 +161,7 @@ class LocalDiskBackend:
                     if lru.pop(key, None) is not None:
                         self._save_lru(lru)
             except Exception:
-                pass
+                logger.warning("failed removing key %r from LRU sidecar after delete; ledger may retain a stale entry", key, exc_info=True)
 
     # ---- LRU sidecar -------------------------------------------------
     # Mirrors DiscoveryCache's sidecar: NTFS / noatime mounts make atime

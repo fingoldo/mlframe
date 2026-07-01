@@ -117,7 +117,6 @@ def BinByUniqueValues(array, l, r, m, mask):
         while i < r:
             groupedIndices[array[i]].append(i)
             i += 1
-    # print("l=",l,"r=",r) #,groupedIndices,'\n'
     return groupedIndices
     # cGrowthFactor=2
     # if v>m:
@@ -196,7 +195,6 @@ def arrayCountingArgSortThreaded(array, maxval, mask=_EMPTY_INT32_MASK, maxThrea
         nThreads = min(max(arrayLen // effectiveSize, 1), maxThreads)
     groups = [[emptyListOfInts() for k in range(0)] for _ in range(nThreads)]
     chunkSize = arrayLen // nThreads
-    # print("nThreads=",nThreads)
     for k in prange(nThreads):
         lBound = chunkSize * k
         rBound = chunkSize * (k + 1)
@@ -233,7 +231,6 @@ def arrayCountingArgSortAndUniqueValuesThreaded(array, maxval, mask=_EMPTY_INT32
         nThreads = min(max(arrayLen // effectiveSize, 1), maxThreads)
     groups = [[emptyListOfInts() for k in range(0)] for _ in range(nThreads)]
     chunkSize = arrayLen // nThreads
-    # print("nThreads=",nThreads)
     for k in prange(nThreads):
         lBound = chunkSize * k
         rBound = chunkSize * (k + 1)

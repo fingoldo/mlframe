@@ -175,6 +175,7 @@ def _build_full_column_from_splits(
             col_vals = _split_df[col_name].to_numpy() if hasattr(_split_df[col_name], "to_numpy") \
                 else _np.asarray(_split_df[col_name])
         except Exception:
+            logger.debug("failed materialising column %r from split frame; skipping", col_name, exc_info=True)
             continue
         col_vals = _np.asarray(col_vals).reshape(-1).astype(_np.float64, copy=False)
         idx_arr = _np.asarray(_split_idx).reshape(-1)
@@ -726,6 +727,7 @@ def _auto_detect_feature_types(
                         try:
                             _first = next((v for v in _series.head(8) if v is not None), None)
                         except Exception:
+                            logger.debug("failed probing object column %r for embedding detection; treating as non-embedding", col, exc_info=True)
                             _first = None
                         _is_embedding = _first is not None and (
                             hasattr(_first, "shape")
@@ -926,6 +928,7 @@ def _maybe_clear_shim_cache(est):
         try:
             fn()
         except Exception:
+            logger.debug("clear_cache() raised on estimator %r; ignoring", type(est).__name__, exc_info=True)
             pass
 
 

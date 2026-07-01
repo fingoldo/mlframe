@@ -466,6 +466,8 @@ def _write_save_meta_sidecar(bundle_path: str, *, durable: bool = False) -> None
     not yet readable the field is omitted rather than written as a placeholder
     -- callers downstream can detect absence vs. mismatch unambiguously.
     """
+    # stdlib json (not orjson): this .meta.json sidecar is human-readable and
+    # written with indent=2 for operator inspection, which orjson does not support.
     import json
     import datetime as _dt
     payload: Dict[str, Any] = {
