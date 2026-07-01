@@ -47,3 +47,10 @@ from ._threshold_optimization import (  # noqa: F401
     optimal_threshold,
     THRESHOLD_METRICS,
 )
+
+from ._gains_lift import (  # noqa: F401
+    cumulative_gains_curve,
+    lift_curve,
+    gains_table,
+    exploss,
+)
