@@ -172,8 +172,9 @@ def test_f2_one_compound_under_distribution(profile):
     assert "c" in _cols(full[0]), f"[{profile}] compound dropped the log(c) factor: {full[0]}"
 
 
-# Production-scale grid for the SCALE GUARD below. 1M is the real deployment size; 100k is where the
-# single-step (fe_max_steps=1) recovery fragments (4 features) -- the two-step default fuses through it.
+# Production-scale grid for the SCALE GUARD below. 1M is the real deployment size; 100k is a mid scale.
+# The two-step default recovers exactly one compound at both; the single-step fragmentation regression
+# (documented + pinned in test_f2_single_step_fragmentation below) is what the default fuses through.
 _SCALE_NS = [
     100_000,
     pytest.param(1_000_000, marks=pytest.mark.slow_only),
@@ -213,3 +214,53 @@ def test_f2_exactly_one_compound_at_scale(n):
     # STRICT contract: the one compound recovers the whole deterministic signal, so nothing else should
     # survive selection next to it -- no extra compound, no fragment, no raw operand.
     assert len(names) == 1, f"[n={n}] expected EXACTLY the one compound and nothing else, got {len(names)}: {names}"
+
+
+# ROOT CAUSE of the single-step fragmentation (2026-07-01, per-run instrumentation of the failing point):
+# At fe_max_steps=1 the C2 additive-fusion (_fe_additive_fusion.propose_additive_fusions) correctly builds
+# the fused compound add(div(sqr(a),neg(b)),mul(log(c),sin(d))) AND correctly drops the two halves it fused
+# (both land in _fe_subsumed_recipes_ / _fe_stability_vote_dropped_). The regression is that at certain data
+# points the FE ALSO admits, as separate survivors, ALTERNATE forms of the SAME two halves --
+# div(sqr(a),identity(b)) (= a**2/b, the sign-flip twin of the fused neg(b) half) and mul(log(c),identity(d))
+# (~= log(c)*sin(d) because d in [0,1] makes sin(d) ~ d) -- PLUS a spurious add(exp(a),log(c)). The
+# engineered-vs-engineered CMI redundancy gate and the retention-subsumption guard drop the EXACT columns C2
+# fused, but neither recognises these alternate/spurious forms as subsumed by the fused compound:
+#   * the two alternate-form halves ARE information-subsumed by the compound and COULD be dropped by a
+#     generalised post-fusion subsumption sweep (tractable);
+#   * but the spurious add(exp(a),log(c)) references BOTH a and c (so it reads as a 2nd 'full' compound) and
+#     leaks enough independent-looking exp(a) signal that the rank-MI/CMI gate cannot separate it from the
+#     true compound -- the SAME class of gap as the with_outliers xfail above (rank-MI cannot distinguish a
+#     spurious-but-high-MI form from the true one). So a correct fix is a validated selection-core change, not
+#     a local patch, and must clear the canonical + biz_value gates.
+# The DEFAULT fe_max_steps=2 does NOT fragment (its step-2 engineered-operand re-screen re-fuses/cleans these)
+# -- verified clean at n in {10k,100k,1M} x seeds {7,42,43,44} and guarded by test_f2_exactly_one_compound_at_scale
+# above. This pin fixes the single-step path at a REPRODUCIBLE failing point; strict=True removes the xfail the
+# moment a fix lands (self-policing, not a deferred bug). n=30_000 == the FE subsample size, so this failure is
+# NOT a subsampling artifact -- it is the full-data selection admitting redundant alternate forms.
+_FE1_FRAG_XFAIL = (
+    "GOAL: single-step FE (fe_max_steps=1) must also recover EXACTLY ONE compound. At the (n=30k, seed=44) "
+    "point the fused compound is built + its exact halves dropped, but alternate forms of those halves "
+    "(div(sqr(a),identity(b)), mul(log(c),identity(d))) plus a spurious add(exp(a),log(c)) survive. Dropping "
+    "the alternate-form halves is tractable (post-fusion subsumption sweep); the spurious full compound is the "
+    "with_outliers-class gap (rank-MI/CMI cannot separate spurious-high-MI from true). Needs a validated "
+    "selection-core fix gated on canonical + biz_value. The DEFAULT fe_max_steps=2 is clean (see scale guard)."
+)
+
+
+@pytest.mark.no_xdist
+@pytest.mark.xfail(strict=True, reason=_FE1_FRAG_XFAIL)
+def test_f2_single_step_fragmentation():
+    """Single-step (fe_max_steps=1) must recover EXACTLY ONE compound too -- no alternate-form fragments and
+    no spurious 2nd compound alongside the fused one. Pinned at a reproducible failing point (n=30k, seed=44).
+    See the _FE1_FRAG_XFAIL root-cause note above. xfail(strict) so the guard flips green (and this xfail must
+    be removed) the moment the selection-core fix lands."""
+    df, y = _make("uniform", n=30_000, seed=44)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=1,
+                  fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
+    names = [str(s) for s in fs.get_feature_names_out()]
+    full, frag_ab, frag_cd = _classify(names)
+    assert len(full) == 1, f"expected exactly ONE fused compound, got {len(full)}: {full} :: {names}"
+    assert not frag_ab and not frag_cd, f"redundant fragment(s) alongside the compound: {frag_ab + frag_cd} :: {names}"
+    assert len(names) == 1, f"expected EXACTLY the one compound and nothing else, got {len(names)}: {names}"
