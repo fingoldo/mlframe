@@ -374,8 +374,8 @@ def _conditional_perm_null(
     # the support / order / z_rank / candidate never cross H2D. Only on a cupy fault does control fall through to
     # the host order/z_rank path below (which materialises z from the device copy). Selection-equivalent (this
     # GPU null already uses a device-RNG shuffle; the device stratum grouping is another valid grouping).
-    if (z_support is None or (hasattr(z_support, "size") and z_support.size == 0)) and z_support_dev is not None \
-            and getattr(z_support_dev, "size", 0) > 0 and _cmi_gpu_enabled() and int(n_permutations) > 1:
+    if z_support_dev is not None and getattr(z_support_dev, "size", 0) > 0 \
+            and _cmi_gpu_enabled() and int(n_permutations) > 1:
         try:
             from ._fe_cmi_perm_null_gpu import perm_null_gpu_resident_enabled, conditional_perm_null_gpu
             if perm_null_gpu_resident_enabled():

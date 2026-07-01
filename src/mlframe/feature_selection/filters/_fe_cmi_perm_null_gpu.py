@@ -200,10 +200,16 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z) -> np.ndarray:
     # device) or a host ndarray (legacy path). ``batched_cmi_gpu`` accepts either z form directly.
     Kx = (int(Xp_d.max()) + 1) if Xp_d.size else 1
     if isinstance(z, cp.ndarray):
-        _yz = cp.asarray(np.ascontiguousarray(y_h, dtype=np.int64).ravel()) if not isinstance(y_h, cp.ndarray) else y_h
+        # y is the FIT-CONSTANT target -> route through the content-keyed resident cache (cmi_y) so the device
+        # Kyz reduction never re-uploads it (a fresh cp.asarray here was a per-call n*8B H2D). Cache hit reuses
+        # the copy batched_cmi_gpu already made.
+        if isinstance(y_h, cp.ndarray):
+            _yz = y_h
+        else:
+            from ._fe_resident_operands import resident_operand
+            _yz = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
         Kz = (int(z.max()) + 1) if z.size else 1
         Kyz = (int((_yz * Kz + z).max()) + 1) if z.size else 1
-        del _yz
     else:
         Kz = (int(z.max()) + 1) if z.size else 1
         Kyz = (int((y_h * Kz + z).max()) + 1) if z.size else 1

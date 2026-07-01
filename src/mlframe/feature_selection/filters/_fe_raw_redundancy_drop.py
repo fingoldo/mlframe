@@ -272,13 +272,22 @@ def _subexpr_continuous(recipe, raw_X) -> Optional[np.ndarray]:
         return None
 
 
-def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0):
+def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0, z_support_dev=None):
     """Return ``(cmi, floor, excess)`` for ``CMI(cand; y | z_support)`` using the
     S5 conditional-permutation null (within-stratum shuffle reproduces the same
     finite-sample bias, so ``excess = max(0, cmi - null_mean)`` is n-invariant).
-    ``z_support=None`` -> marginal MI / free-shuffle null (used for the anchor)."""
+    ``z_support=None`` -> marginal MI / free-shuffle null (used for the anchor).
+
+    ``z_support_dev`` (optional): a DEVICE-BORN conditioning support (``_renumber_joint_gpu`` of the resident
+    conditioning codes). When supplied it is scored RESIDENT -- the CMI reads it via ``_cmi_from_binned_cupy``'s
+    resident-z branch and the perm-null derives order/z_rank on device -- so the support never crosses H2D (the
+    ``cmi_z`` + order/z_rank uploads). The host ``z_support`` stays the byte-path fallback (and NULL if the
+    caller only has the device form)."""
     from ._mi_greedy_cmi_fe import _cmi_from_binned
     from ._fe_cmi_redundancy_gate import _conditional_perm_null
+
+    # z handed to the resident CMI scorer: the device-born support when available, else the host support.
+    _z_scored = z_support_dev if z_support_dev is not None else z_support
 
     # bench-attempt-rejected (2026-06-26): computing cmi + the analytic-null df cards from ONE
     # batched_cmi_gpu(return_cards) call (to skip the perm-null's joint_cardinalities via precomp_cards)
@@ -287,18 +296,20 @@ def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0):
     # heavier (~11 launches) than _cmi_from_binned (~5) + joint_cardinalities (~4) separately. This path is
     # genuinely per-raw with VARYING conditioning z (base / full-composite / sibling), so it is not
     # batchable with the fixed-y/z primitives -- keep the per-call _cmi_from_binned.
-    if z_support is None:
-        cmi = float(_cmi_from_binned(cand_bin, y_bin, z_support))
-        floor, null_mean = _conditional_perm_null(cand_bin, y_bin, z_support, seed=seed)
+    if z_support is None and z_support_dev is None:
+        cmi = float(_cmi_from_binned(cand_bin, y_bin, None))
+        floor, null_mean = _conditional_perm_null(cand_bin, y_bin, None, seed=seed)
     else:
         # CONDITIONAL: the observed CMI call already computes the four occupied-cell cards
         # (k_z, k_xz, k_yz, k_xyz) as a byproduct of its fused entropy+nnz pass; hand them to the analytic
         # null via precomp_cards so it skips recomputing the IDENTICAL four joints (joint_cardinalities on
         # GPU / renumber+entropy on CPU). Same occupied-cell definition -> bit-identical df -> selection-
         # identical; removes ~4 histograms per conditional raw on the redundancy gate (both backends).
-        cmi_v, _cards = _cmi_from_binned(cand_bin, y_bin, z_support, return_cards=True)
+        # ``_z_scored`` is the device-born support when available (resident -> no cmi_z H2D) else the host one.
+        cmi_v, _cards = _cmi_from_binned(cand_bin, y_bin, _z_scored, return_cards=True)
         cmi = float(cmi_v)
-        floor, null_mean = _conditional_perm_null(cand_bin, y_bin, z_support, seed=seed, precomp_cards=_cards)
+        floor, null_mean = _conditional_perm_null(
+            cand_bin, y_bin, z_support, seed=seed, precomp_cards=_cards, z_support_dev=z_support_dev)
     return cmi, floor, max(0.0, cmi - null_mean)
 
 
@@ -693,6 +704,9 @@ def drop_redundant_raw_operands(
             _raw_codes(_rname, _ridx)
         return _raw_dev_cache.get(_ridx)
     eng_bin: dict[int, np.ndarray] = {}
+    # RESIDENT (device) twin of each engineered conditioning code (None where it fell back to host binning). Used
+    # to build the round conditioning support DEVICE-BORN (``_renumber_joint_gpu``) so it never crosses H2D.
+    eng_bin_dev: dict = {}
     eng_anchor_excess: dict[int, float] = {}
     for ei in eng_idx:
         _ename = cols[ei]
@@ -716,6 +730,7 @@ def drop_redundant_raw_operands(
             eb = np.asarray(data[:, ei]).astype(np.int64).ravel()
             _eb_dev = _dev_from_codes(eb)
         eng_bin[ei] = eb
+        eng_bin_dev[ei] = _eb_dev
         # Score the anchor MI from the RESIDENT codes when available so the candidate never re-crosses H2D at
         # the ``cmi_cand_x`` / ``permnull_cand_x`` sites; host codes otherwise.
         _, _, exc = _excess_and_floor(_eb_dev if _eb_dev is not None else eb, y_arr, None, seed=seed)
@@ -797,6 +812,9 @@ def drop_redundant_raw_operands(
     _recipes = recipes or {}
     # (rname, ei) -> binned clean sub-expression conditioning column (or None).
     _clean_subexpr_bin: dict[tuple, Optional[np.ndarray]] = {}
+    # (rname, ei) -> RESIDENT (device) twin of the clean sub-expression code (None where host-binned), so a
+    # conditioning support that uses the clean sub-expression can still be built DEVICE-BORN.
+    _clean_subexpr_bin_dev: dict = {}
     if _recipes and raw_X is not None:
         # Pre-extract each consumer's sub-recipe tree once.
         _consumer_subtrees: dict[int, dict] = {}
@@ -841,9 +859,17 @@ def drop_redundant_raw_operands(
                 _vals = _subexpr_continuous(_best_sub, raw_X)
                 if _vals is None or _vals.shape[0] != n_rows:
                     continue
-                _clean_subexpr_bin[(_rn, ei)] = _quantile_bin(
-                    np.asarray(_vals, dtype=np.float64), nbins=_eng_card
-                )
+                # Device-bin the clean sub-expression ONCE (resident twin for the device-born support build); the
+                # host copy is the D2H of the SAME percentile-edge partition (byte-identical to _quantile_bin).
+                _cvals_clean = np.asarray(_vals, dtype=np.float64)
+                _cs_dev = _dev_from_cont(_cvals_clean)
+                if _cs_dev is not None:
+                    import cupy as _cp
+                    _clean_subexpr_bin[(_rn, ei)] = _cp.asnumpy(_cs_dev).astype(np.int64)
+                    _clean_subexpr_bin_dev[(_rn, ei)] = _cs_dev
+                else:
+                    _clean_subexpr_bin[(_rn, ei)] = _quantile_bin(_cvals_clean, nbins=_eng_card)
+                    _clean_subexpr_bin_dev[(_rn, ei)] = None
                 if verbose:
                     logger.info(
                         "raw-redundancy: conditioning raw %s on CLEAN nested sub-expression "
@@ -852,6 +878,20 @@ def drop_redundant_raw_operands(
                     )
 
     drop_names: list[str] = []
+    def _join_dev(*dev_codes):
+        """DEVICE-BORN conditioning-support join of the resident conditioning codes (``_renumber_joint_gpu``), so
+        the support never crosses H2D (the ``cmi_z`` + perm-null order/z_rank uploads). Returns the resident
+        joint OR None when any code lacks a resident twin (resident path off / host-fallback binning) / on any
+        cupy fault -> the caller scores the host support (byte path unchanged). Same partition as the host
+        ``_renumber_joint`` -> selection-identical CMI."""
+        if not dev_codes or any(_d is None for _d in dev_codes):
+            return None
+        try:
+            from ._mi_greedy_cmi_fe import _renumber_joint_gpu
+            return _renumber_joint_gpu(*dev_codes)[0]
+        except Exception:
+            return None
+
     drop_idx_set: set[int] = set()
     for ri in raw_sel_idx:
         rname = cols[ri]
@@ -916,8 +956,15 @@ def drop_redundant_raw_operands(
             _clean_subexpr_bin.get((rname, ei), eng_bin[ei])
             for ei in consumers
         ]
+        # RESIDENT twin of each conditioning column (clean sub-expr dev if that column used one, else eng dev),
+        # for the device-born support join. None-safe: any missing twin -> host support scored.
+        _cond_bins_dev = [
+            (_clean_subexpr_bin_dev.get((rname, ei)) if (rname, ei) in _clean_subexpr_bin else eng_bin_dev.get(ei))
+            for ei in consumers
+        ]
         z_support, _ = _renumber_joint(*_cond_bins)
-        cmi, floor, excess = _excess_and_floor(rb_cand, y_arr, z_support, seed=seed)
+        z_support_dev = _join_dev(*_cond_bins_dev)
+        cmi, floor, excess = _excess_and_floor(rb_cand, y_arr, z_support, seed=seed, z_support_dev=z_support_dev)
         # SIBLING-OPERAND CONDITIONING (BUG1 non-invertible-fusion subsumer, 2026-06-16). A
         # consuming composite can FUSE ``rname`` with a SECOND signal-bearing operand in a
         # form that is not invertible from the composite alone -- e.g. ``add(a, sin(c))``
@@ -962,7 +1009,9 @@ def drop_redundant_raw_operands(
             _clean = _clean_subexpr_bin.get((rname, ei))
             if _clean is not None:
                 _z_full, _ = _renumber_joint(eng_bin[ei])
-                _cmi_f, _floor_f, _excess_f = _excess_and_floor(rb_cand, y_arr, _z_full, seed=seed)
+                _z_full_dev = _join_dev(eng_bin_dev.get(ei))
+                _cmi_f, _floor_f, _excess_f = _excess_and_floor(
+                    rb_cand, y_arr, _z_full, seed=seed, z_support_dev=_z_full_dev)
                 if _excess_f < excess:
                     cmi, floor, excess = _cmi_f, _floor_f, _excess_f
         _sibling_names: list = []
@@ -974,6 +1023,7 @@ def drop_redundant_raw_operands(
             _sibling_names.sort(key=lambda nm: -_raw_marginal(nm)[2])
             _budget = max(1, n_rows // _SUPPORT_FRAG_DIVISOR)
             _sib_cond = list(_cond_bins)
+            _sib_cond_dev = list(_cond_bins_dev)   # parallel resident twins for the device-born support join
             _added = False
             for _sn in _sibling_names:
                 try:
@@ -985,10 +1035,13 @@ def drop_redundant_raw_operands(
                 if (int(np.unique(_trial).size) if _trial.size else 1) > _budget:
                     continue  # adding this sibling would over-fragment the joint strata
                 _sib_cond.append(_sb)
+                _sib_cond_dev.append(_raw_dev(_sn, _sidx))   # resident twin (None if host-fallback -> host z)
                 _added = True
             if _added:
                 _z_sib, _ = _renumber_joint(*_sib_cond)
-                _cmi_s, _floor_s, _excess_s = _excess_and_floor(rb_cand, y_arr, _z_sib, seed=seed)
+                _z_sib_dev = _join_dev(*_sib_cond_dev)
+                _cmi_s, _floor_s, _excess_s = _excess_and_floor(
+                    rb_cand, y_arr, _z_sib, seed=seed, z_support_dev=_z_sib_dev)
                 # Take the conditioning that gives the SMALLEST debiased excess -- the
                 # strongest evidence of subsumption -- carrying its own (cmi, floor) so the
                 # floor check below stays consistent with the chosen conditioning.
