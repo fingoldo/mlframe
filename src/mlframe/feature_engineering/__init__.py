@@ -14,6 +14,7 @@ Submodules:
     numerical          - rich numerical aggregates for 1d vectors.
     recency_aggregation - per-entity recency-weighted mean/event-rate (Dyakonov weighted-scheme estimator).
     recency_density    - per-entity recency-weighted Parzen density: mode prediction + behavioral-stability score.
+    nadaraya_watson    - Nadaraya-Watson kernel regression / smoothing (flat + per-entity), sample-weight composable.
     spatial            - XY / N-D Euclidean kNN aggregator features (geo / point-cloud).
     spectral           - FFT-based rolling band energies, spectral entropy, dominant freq.
     stationarity       - frac_diff (Lopez de Prado fractional differencing) + future ADF/KPSS.
@@ -79,6 +80,10 @@ from .recency_aggregation import per_group_recency_weighted_mean
 from .recency_density import (
     per_group_behavioral_stability,
     per_group_recency_weighted_mode,
+)
+from .nadaraya_watson import (
+    nadaraya_watson_smooth,
+    per_group_nadaraya_watson_smooth,
 )
 from .hurst import (
     compute_hurst_exponent,
@@ -165,6 +170,8 @@ __all__ = [
     "per_group_recency_weighted_mean",
     "per_group_recency_weighted_mode",
     "per_group_behavioral_stability",
+    "nadaraya_watson_smooth",
+    "per_group_nadaraya_watson_smooth",
     "add_anchor_extrapolation_features",
     "add_fast_rolling_stats",
     "add_ohlcv_ratios_rlags",
