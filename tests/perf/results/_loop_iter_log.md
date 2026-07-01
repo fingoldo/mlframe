@@ -5,7 +5,7 @@ Random fuzz combos profiled under cProfile at n_rows=300k via
 pick the top mlframe-side hotspot, optimize (measured + bit-identical + regression
 test), commit. Termination = 100 consecutive REJECTs (see CLAUDE.md policy).
 
-Consecutive-reject streak: 1
+Consecutive-reject streak: 0
 
 | iter | seed | mlframe hotspot | verdict | notes |
 |------|------|-----------------|---------|-------|
@@ -16,3 +16,4 @@ Consecutive-reject streak: 1
 | 5 | 13579 | `calibration/policy._normalize_binary_labels` — np.unique (O(n log n) sort) per bootstrap-ECE resample on already-0/1 labels | RESOLVED+7x | 210us→29.5us @ n30k; min==0/max==1 int/bool short-circuit; bit-identical incl {1,2}/{-1,+1} remap + raise. commit 21dd2f51. (bootstrap_metric core kernels already exhaustively tuned — many rejected-bench notes.) |
 | 6 | 2468013 | `metrics/classification/_classification_calibration.accuracy_ratio` — per-row Python loop tie-folding equal-score blocks | RESOLVED+56x (tie-fold) | 17.9ms→0.32ms @ n60k; reduceat over sorted block starts; bit-identical 200 inputs, AR==2·AUC-1 preserved. FUTURE: `robust_fit_endpoints` TheilSen fit 786ms/call (real, not attribution) — cap-reduction changes the drawn line, needs visual-equivalence call. commit 45e3c176 |
 | 7 | 8675309 | top items all already-optimized (calibration band, analyzer, accuracy_ratio), deferred (robust_fit TheilSen=FUTURE), or at floor (`_ice_metric.compute_probabilistic_multiclass_error` 23ms self-time = irreducible (N,K) coercion, batched kernel already) | REJECT | no cheap bit-identical mlframe hotspot at this profile; readily-profiled paths now optimized. Streak→1. Next: sample fresh combo-pool / prefer-models to reach un-profiled code paths. |
+| 8 | 9001 (--no-charts) | `_detect_multi_modal` recomputed np.std(y) already computed by the analyzer (charts-off profile surfaced the training/FS path; chart render was ~90% of wall) | RESOLVED (redundant pass) | -1.65ms of 5.82ms (~28%) @ n300k; analyze ~41→31.7ms; bit-identical 60 cases; guard preserved. Added profiler --no-charts flag. Streak reset→0. commit 1b45449f |
