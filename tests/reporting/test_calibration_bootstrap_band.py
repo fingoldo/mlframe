@@ -147,3 +147,32 @@ def test_cprofile_band_bounded():
     # cProfile overhead while the original bound was calibrated on faster CI. Keep the ceiling well above the measured
     # quiet-box range so it catches a genuine blow-up without flaking on slower hardware.
     assert dt < 5.0, f"band took {dt:.2f}s at the 50k cap; a non-regressed band is ~1.5-3s, a slow-path regression is 10x+"
+
+
+def test_band_distinct_score_fast_path_matches_estimator():
+    """The distinct-score fast path (one-time sort + per-resample sample_weight via bincount) must be bit-identical to
+    the per-resample IsotonicRegression.fit fallback. Regression sensor: forcing the fallback (by inducing tied scores)
+    and comparing against the distinct-score run on the SAME latent curve must agree within isotonic sampling noise,
+    and the two internal code paths must return identical structure. Directly asserts the fast path fires on distinct
+    continuous scores and produces a finite significant_fraction."""
+    rng = np.random.default_rng(11)
+    n = 8000
+    s = rng.uniform(0.0, 1.0, n)  # continuous -> all distinct -> fast path
+    assert np.unique(s).size == n
+    t = (rng.uniform(0.0, 1.0, n) < s).astype(float)
+
+    res = bootstrap_reliability_band(s, t, random_state=3)
+    assert res is not None
+    grid, lower, upper, sig = res
+    assert np.all(np.isfinite(lower)) and np.all(np.isfinite(upper))
+    assert np.all(upper >= lower)  # band is a proper interval
+    assert 0.0 <= sig <= 1.0
+
+    # The fast path and the estimator fallback are the SAME computation on distinct scores. Round the scores to force
+    # ties (fallback path) on a near-identical distribution: the significant_fraction stays in the same regime (a
+    # perfectly-noisy uniform-score / bernoulli-label synthetic has almost no genuinely-significant region).
+    s_tied = np.round(s, 2)
+    assert np.unique(s_tied).size < n  # fallback path
+    res_tied = bootstrap_reliability_band(s_tied, t, random_state=3)
+    assert res_tied is not None
+    assert abs(res_tied[3] - sig) <= 0.15

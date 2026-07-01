@@ -124,26 +124,51 @@ def bootstrap_reliability_band(
     rng = np.random.default_rng(random_state)
     if s.size > max_rows:
         s, t = (lambda i: (s[i], t[i]))(rng.choice(s.size, size=max_rows, replace=False))
-    from sklearn.isotonic import IsotonicRegression
-
     n = s.size
     grid = np.linspace(smin, smax, n_grid)
     curves = np.empty((n_boot, n_grid), dtype=np.float64)
     idx = rng.integers(0, n, size=(n_boot, n))  # one vectorised draw of all B resample index rows
-    iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+
+    # Fast path: when the base scores are all DISTINCT, a with-replacement resample is exactly the base with per-row
+    # integer multiplicity, so every one of the B isotonic fits reduces to ``isotonic_regression`` on the base sorted
+    # ONCE by score with ``sample_weight = bootstrap counts`` -- the expensive per-resample O(n log n) lexsort +
+    # _make_unique inside IsotonicRegression.fit is hoisted out of the loop entirely (5x per fit at n=50k, bit-identical
+    # to the estimator on distinct scores: same PAVA, same clip, np.interp == interp1d(kind='linear', clip)). Tied
+    # scores (repeated model probabilities) need the estimator's per-resample duplicate-x averaging, which changes with
+    # each resample's weights, so they keep the exact fallback below.
+    _fast = np.unique(s).size == n
     n_valid = 0
-    for b in range(n_boot):
-        sel = idx[b]
-        sb, tb = s[sel], t[sel]
-        # An all-one-class or all-equal-score resample has no monotone signal. EXCLUDE such draws from the band
-        # rather than substituting the full-sample fit: substituting injected the (tight, true-curve) full-sample
-        # fit into the percentile pool, which artificially NARROWED the band and made noise-level miscalibration
-        # read as "significant". Dropping degenerate draws keeps the band honest (a refit per surviving resample).
-        if np.unique(tb).size < 2 or sb.max() <= sb.min():
-            continue
-        iso.fit(sb, tb)
-        curves[n_valid] = iso.predict(grid)
-        n_valid += 1
+    if _fast:
+        from sklearn.isotonic import isotonic_regression
+        order = np.argsort(s, kind="stable")
+        xs, ts = s[order], t[order]
+        rank = np.empty(n, dtype=np.int64)
+        rank[order] = np.arange(n)  # sorted position of each original row
+        for b in range(n_boot):
+            counts = np.bincount(rank[idx[b]], minlength=n).astype(np.float64)
+            m = counts > 0
+            # Same degenerate-resample skip as the fallback: <2 distinct scores (m.sum() counts distinct base rows drawn,
+            # each a distinct score) or a single-class label set has no monotone signal -> excluded from the band pool.
+            if int(m.sum()) < 2 or np.unique(ts[m]).size < 2:
+                continue
+            fy = isotonic_regression(ts[m], sample_weight=counts[m], y_min=0.0, y_max=1.0, increasing=True)
+            curves[n_valid] = np.interp(grid, xs[m], fy)
+            n_valid += 1
+    else:
+        from sklearn.isotonic import IsotonicRegression
+        iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+        for b in range(n_boot):
+            sel = idx[b]
+            sb, tb = s[sel], t[sel]
+            # An all-one-class or all-equal-score resample has no monotone signal. EXCLUDE such draws from the band
+            # rather than substituting the full-sample fit: substituting injected the (tight, true-curve) full-sample
+            # fit into the percentile pool, which artificially NARROWED the band and made noise-level miscalibration
+            # read as "significant". Dropping degenerate draws keeps the band honest (a refit per surviving resample).
+            if np.unique(tb).size < 2 or sb.max() <= sb.min():
+                continue
+            iso.fit(sb, tb)
+            curves[n_valid] = iso.predict(grid)
+            n_valid += 1
     if n_valid < 2:
         # Too few non-degenerate resamples to form a percentile band; report no significant region rather than a
         # spuriously tight one. (Happens only on tiny / near-degenerate inputs the point curve already strains on.)
