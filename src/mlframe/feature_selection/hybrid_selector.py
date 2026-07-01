@@ -505,7 +505,7 @@ class HybridSelector:
         # would crash at the first ``X.columns.has_duplicates``. Bridge to an Arrow-backed pandas VIEW once at the boundary (zero-copy for numeric cols),
         # which captures the REAL polars column names. The defensive LGBM ``feature_names_in_`` setter shim guards the inner LightGBM fits against the
         # LightGBM 4.x + sklearn read-only-property write-path defect when a non-pandas input slips through to a member.
-        from mlframe.training._model_factories import _patch_lgb_feature_names_in_setter
+        from mlframe.training import _patch_lgb_feature_names_in_setter
         _patch_lgb_feature_names_in_setter()
         X = _as_pandas_view(X)
         # Duplicate column names make ``X[label]`` return a DataFrame (not a Series) and crash the member selectors (MRMR / LightGBM FI / cluster expand) that assume unique names. Surface a clear error at fit entry.

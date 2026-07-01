@@ -21,7 +21,10 @@ from typing import Any, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 
-from mlframe.reporting import colors as _colors
+# Import the leaf ``colors`` module directly (not ``from mlframe.reporting import colors``) so this module's load-time
+# dependency is the leaf, not the ``mlframe.reporting`` package surface -- that back-edge closes the reporting.charts
+# facade into one import SCC. ``colors`` has no internal imports, so this is a true leaf edge.
+import mlframe.reporting.colors as _colors
 
 
 # ----------------------------------------------------------------------------

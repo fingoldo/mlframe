@@ -40,6 +40,7 @@ from ._target_distribution_analyzer import (  # noqa: F401
 )
 from ._train_eval_select_target import select_target  # noqa: F401
 from ._ttr_eval_set_scaling import _TTRWithEvalSetScaling  # noqa: F401
+from ._target_distribution_analyzer_stats import _lag1_autocorr_grouped  # noqa: F401
 
 __all__ = [
     "audit_targets_over_time",

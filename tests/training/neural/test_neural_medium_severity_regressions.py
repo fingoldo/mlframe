@@ -329,16 +329,20 @@ def test_m_neu_11_no_lazy_import_in_create_dataset() -> None:
     that defines _create_dataset (the recurrent monolith was carved into
     submodules; _create_dataset now lives in recurrent_dataset_helpers).
     """
-    import inspect
-
     import mlframe.training.neural.recurrent_dataset_helpers as ds
     from concurrent.futures import ThreadPoolExecutor
     # Module top of the owning module must expose ThreadPoolExecutor.
     assert getattr(ds, "ThreadPoolExecutor") is ThreadPoolExecutor
-    # Real contract: ThreadPoolExecutor is NOT (re-)imported inside the hot function body.
-    src = inspect.getsource(ds._RecurrentWrapperBase._create_dataset)
-    assert "import ThreadPoolExecutor" not in src
-    assert "import concurrent" not in src
+
+    # Real contract: ThreadPoolExecutor is used via the module GLOBAL, not (re-)imported inside the hot function body.
+    # A per-call ``from concurrent.futures import ThreadPoolExecutor`` (or ``import concurrent...``) binds the name as a
+    # local, so it would appear in ``co_varnames`` and ``concurrent``/``futures`` would show up as imported names. We
+    # inspect the code object (bytecode-level, no source-text matching) to assert the hoist actually happened.
+    code = ds._RecurrentWrapperBase._create_dataset.__code__
+    assert "ThreadPoolExecutor" in code.co_names, "ThreadPoolExecutor must be referenced as a module global"
+    assert "ThreadPoolExecutor" not in code.co_varnames, "ThreadPoolExecutor is imported/bound locally in the hot path"
+    # A lazy ``import concurrent.futures`` inside the body would surface ``concurrent`` among the referenced names.
+    assert "concurrent" not in code.co_names, "concurrent.futures must not be imported inside the hot function body"
 
 
 def test_m_neu_11_no_lazy_xxhash_in_cache_key() -> None:

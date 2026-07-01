@@ -20,6 +20,7 @@ from ._reporting import (  # noqa: F401
     report_model_perf,
     report_regression_model_perf,
     report_probabilistic_model_perf,
+    display_estimator_name,
     _canonical_multilabel_y,
     _style_with_caption,
     _maybe_display,
@@ -35,6 +36,7 @@ __all__ = [
     "report_model_perf",
     "report_regression_model_perf",
     "report_probabilistic_model_perf",
+    "display_estimator_name",
     "_canonical_multilabel_y",
     "_style_with_caption",
 ]

@@ -31,7 +31,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from mlframe.reporting import colors as _colors
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels,
 )
@@ -695,6 +694,10 @@ def _density_overlay_panel(
     ``nbins`` vertices regardless of row count. cProfile at 2.9M total rows: ~120 ms, all in ``np.histogram`` bin
     search + the single train ``np.percentile`` partition -- no actionable speedup, this is the aggregate floor.
     """
+    # Imported function-locally (not at module top) so this chart submodule does not pull in the ``mlframe.reporting``
+    # package surface at load time -- that back-edge closes the whole reporting.charts facade into one import SCC.
+    from mlframe.reporting import colors as _colors
+
     edges = _common_edges(groups, nbins)
     if edges is None:
         from mlframe.reporting.spec import AnnotationPanelSpec

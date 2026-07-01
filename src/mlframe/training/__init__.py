@@ -249,6 +249,11 @@ _LAZY_IMPORTS = {
     # Model-tag formatting helpers (public surface; underscore source remains the implementation).
     "short_model_tag": ("._format", "short_model_tag"),
     "strip_shim_suffix": ("._format", "strip_shim_suffix"),
+    # LightGBM feature-name setter shim — re-exported (lazily) so cross-package
+    # consumers (feature_selection.hybrid_selector) don't reach into the private
+    # ``_model_factories`` module directly. Lazy to avoid eagerly importing the
+    # heavy model-factory module (which pulls in feature_selection) at package import.
+    "_patch_lgb_feature_names_in_setter": ("._model_factories", "_patch_lgb_feature_names_in_setter"),
 }
 
 _cache = {}

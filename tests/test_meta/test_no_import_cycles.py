@@ -92,12 +92,9 @@ _USER_DEFERRED_CYCLES: set[str] = {
     # re-exports them at its bottom). Supersedes the earlier ``_reporting_regression`` 3-node entry above (that carve's
     # cycle no longer closes as a top-level SCC).
     "mlframe.training.reporting._reporting → mlframe.training.reporting._reporting_probabilistic → mlframe.training.reporting._reporting_probabilistic_calib",
-    # PRE-EXISTING (not from the 1k-LOC carve wave): the ``reporting.charts`` package facade. ``charts/__init__``
-    # re-exports every chart builder submodule, and several submodules import shared helpers back from the ``charts`` /
-    # ``reporting`` package surface, so the whole package forms one top-level SCC through the facade. Runtime-safe (the
-    # package imports cleanly); flagged here so the suite is green. Owner action: break one facade edge via a leaf
-    # ``charts._common`` so submodules stop importing the package surface at module load.
-    "mlframe.reporting → mlframe.reporting.catalog → mlframe.reporting.charts → mlframe.reporting.charts._layout → mlframe.reporting.charts.binary → mlframe.reporting.charts.calibration → mlframe.reporting.charts.calibration_by_feature → mlframe.reporting.charts.calibration_drift → mlframe.reporting.charts.calibration_heatmap_2d → mlframe.reporting.charts.decision_curve → mlframe.reporting.charts.drift → mlframe.reporting.charts.error_analysis → mlframe.reporting.charts.fairness_calibration → mlframe.reporting.charts.ltr → mlframe.reporting.charts.model_card → mlframe.reporting.charts.model_comparison → mlframe.reporting.charts.multiclass → mlframe.reporting.charts.multilabel → mlframe.reporting.charts.pdp_ice → mlframe.reporting.charts.quantile → mlframe.reporting.charts.regression → mlframe.reporting.charts.slice_finder → mlframe.reporting.charts.split_comparison → mlframe.reporting.charts.temporal → mlframe.reporting.charts.training_curve → mlframe.reporting.spec",
+    # (removed) The ``reporting.charts`` facade SCC was broken by importing the leaf ``colors`` module directly in
+    # ``spec.py`` (``import mlframe.reporting.colors``) and lazy-importing ``colors`` in ``charts.error_analysis`` --
+    # the two back-edges that closed the facade into the ``mlframe.reporting`` package surface at module load.
 }
 
 

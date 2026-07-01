@@ -71,7 +71,7 @@ def _recompute_lag1_ar_per_group(y_full, group_ids, train_idx) -> Optional[float
     directly. Returns None on any size/finite/degenerate issue (caller treats None as "no AR signal").
     """
     try:
-        from mlframe.training.targets._target_distribution_analyzer_stats import _lag1_autocorr_grouped
+        from mlframe.training.targets import _lag1_autocorr_grouped
         _y = np.asarray(y_full)
         _g = np.asarray(group_ids).reshape(-1)
         _ti = np.asarray(train_idx)
