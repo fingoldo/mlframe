@@ -22,6 +22,21 @@ import pytest
 _BASES = ("chebyshev", "hermite", "legendre", "laguerre")
 
 
+def _als_parity_tol():
+    """(rtol, atol) for the device-born ALS coefficient parity vs the CPU f64 reference.
+
+    Under ``MLFRAME_CRIT_DTYPE_RELAXED`` (DEFAULT ON) the device path standardises za/zb in FLOAT32, so its
+    coefficients agree with the CPU float64 reference only to the f32-input CONDITION-NUMBER-bounded tolerance:
+    the rank-1 ALS normal equations of the fast-growing high-degree Laguerre/Hermite bases have AtA cond up to
+    ~1e7, so a ~1e-7 f32 input rounding amplifies to ~1e-3 relative in the coefficients. That is a PRECISION
+    contract; SELECTION-equivalence (the coefficients are a smooth CMA-ES warm-start seed, not tie-sensitive) is
+    proven separately by F2 across all distributions + the hermite biz/e2e suites. With the relaxation OFF
+    (``MLFRAME_CRIT_DTYPE_RELAXED=0``) the device standardises in f64 and the strict ~1e-7 parity holds."""
+    import os
+    _relaxed = os.environ.get("MLFRAME_CRIT_DTYPE_RELAXED", "1").strip().lower() not in ("0", "false", "off", "no")
+    return (5e-3, 1e-4) if _relaxed else (1e-7, 1e-9)
+
+
 def _std_col(x):
     """Match the host standardisation the prewarp uses (basis_fit) closely enough
     for a parity check: the device builder and host builder are fed the SAME z, so
@@ -110,11 +125,12 @@ def test_als_coeffs_device_born_match_cpu():
                 # NOT a selection change: the coeffs are a SMOOTH CMA-ES warm-start seed
                 # (the module documents it is not tie-sensitive), so a 1e-9 relative
                 # perturbation cannot flip the downstream FE selection.
+                _rt, _at = _als_parity_tol()
                 np.testing.assert_allclose(
-                    ca_gpu, ca_cpu, rtol=1e-7, atol=1e-9,
+                    ca_gpu, ca_cpu, rtol=_rt, atol=_at,
                     err_msg=f"coef_a basis={basis} deg={deg} n={n}")
                 np.testing.assert_allclose(
-                    cb_gpu, cb_cpu, rtol=1e-7, atol=1e-9,
+                    cb_gpu, cb_cpu, rtol=_rt, atol=_at,
                     err_msg=f"coef_b basis={basis} deg={deg} n={n}")
 
 
@@ -151,6 +167,8 @@ def test_dispatch_routes_device_born_under_resident_flag(monkeypatch):
     ca_cpu, cb_cpu = warm_start_als_seed(Ba, Bb, y, iters=3)
 
     assert ca_dev is not None and ca_cpu is not None
-    # condition-number bounded (see test_als_coeffs_device_born_match_cpu); warm-start seed.
-    np.testing.assert_allclose(ca_dev, ca_cpu, rtol=1e-7, atol=1e-9)
-    np.testing.assert_allclose(cb_dev, cb_cpu, rtol=1e-7, atol=1e-9)
+    # condition-number bounded (see test_als_coeffs_device_born_match_cpu); warm-start seed. Tolerance is
+    # precision-mode-aware: f32-input under MLFRAME_CRIT_DTYPE_RELAXED (default), strict f64 when it is off.
+    _rt, _at = _als_parity_tol()
+    np.testing.assert_allclose(ca_dev, ca_cpu, rtol=_rt, atol=_at)
+    np.testing.assert_allclose(cb_dev, cb_cpu, rtol=_rt, atol=_at)

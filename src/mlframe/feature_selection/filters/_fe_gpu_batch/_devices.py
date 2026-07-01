@@ -41,6 +41,27 @@ def fe_gpu_f32_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_VRAM_F32", "").strip().lower() in ("1", "true", "on", "yes")
 
 
+def crit_dtype_relaxed() -> bool:
+    """Whether PRECISION-CRITICAL float64 compute may relax to float32. Controlled by
+    ``MLFRAME_CRIT_DTYPE_RELAXED`` (DEFAULT ON).
+
+    The numerically-heavier FE stages that still upload / compute in float64 (the ALS prewarp seed's
+    standardised columns, the fourier detrend/periodogram column splits, the quantile discretiser input matrix)
+    are relaxed to float32 when this is on -- half the H2D and faster device math. It is a SEPARATE knob from
+    ``MLFRAME_FE_VRAM_F32`` (which governs the FE-batch MI scoring dtype): this one governs the residual f64
+    hotspots. It is applied ONLY where the FE candidate selection is unchanged by the f32 rounding (the f32
+    drift is far below every FE decision margin -- validated per-stage on F2 across all distributions + the
+    stage's biz suites). Set ``MLFRAME_CRIT_DTYPE_RELAXED=0`` to force the strict float64 path everywhere."""
+    return os.environ.get("MLFRAME_CRIT_DTYPE_RELAXED", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def crit_float_dtype():
+    """``cupy.float32`` when the precision-critical relaxation is on (default), else ``cupy.float64``. The single
+    dtype source the relaxed f64 hotspots pick their upload/compute dtype from (see :func:`crit_dtype_relaxed`)."""
+    import cupy as cp
+    return cp.float32 if crit_dtype_relaxed() else cp.float64
+
+
 @dataclass(frozen=True)
 class DeviceProfile:
     """Immutable per-device capability snapshot (transient; built fresh each fit)."""

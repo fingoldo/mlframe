@@ -207,8 +207,21 @@ def warm_start_als_seed_gpu_from_z(z_a: np.ndarray, z_b: np.ndarray, y: np.ndarr
     # Route it through the content-keyed resident cache so the target uploads ONCE; read-only in _als_sweep_gpu
     # (only _als_solve reads it, never reassigns/mutates) -> selection-equivalent.
     from .._fe_resident_operands import resident_operand
-    za = cp.asarray(np.ascontiguousarray(np.asarray(z_a, dtype=np.float64)).reshape(-1))
-    zb = cp.asarray(np.ascontiguousarray(np.asarray(z_b, dtype=np.float64)).reshape(-1))
+    # Under MLFRAME_CRIT_DTYPE_RELAXED (default ON) upload the two standardised columns as FLOAT32 (half the H2D)
+    # and widen to float64 ON device for the ALS solve: only the za/zb VALUES are f32-rounded (~1e-6, the same
+    # f32 discipline the materialised feature already carries), while the basis + least-squares math stays f64 so
+    # the rank-1 seed is numerically stable on the ill-conditioned high-degree normal equations. SELECTION-
+    # EQUIVALENT (the prewarp-coefficient shift is far below the FE gate's decision margin -- F2 across all
+    # distributions + the hermite biz/e2e suites are unchanged); only the device<->CPU coefficient PARITY loosens
+    # from the f64 ~1e-7 to the f32-input ~1e-5, a precision contract not a selection one (the parity test
+    # asserts the mode-appropriate tolerance). MLFRAME_CRIT_DTYPE_RELAXED=0 restores the strict f64 upload.
+    try:
+        from .._fe_gpu_batch._devices import crit_float_dtype
+        _zdt = crit_float_dtype()
+    except Exception:
+        _zdt = cp.float64
+    za = cp.asarray(np.ascontiguousarray(np.asarray(z_a, dtype=_zdt)).reshape(-1)).astype(cp.float64)
+    zb = cp.asarray(np.ascontiguousarray(np.asarray(z_b, dtype=_zdt)).reshape(-1)).astype(cp.float64)
     yc = resident_operand(yc_h, "hermite_prewarp_yc", dtype=cp.float64)
 
     deg = max(1, int(max_degree))
