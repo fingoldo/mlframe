@@ -483,8 +483,12 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
                 _Mr = assemble_resident_matrix(
                     np.column_stack(cand_x), cand_cols, ("orth_Mr", tuple(cand_cols)), dtype=np.float64,
                 )
+                # _yc is the FIT-CONSTANT routing target, re-uploaded per orth-family call (a fresh cp.asarray
+                # each time). Route through the content-keyed resident cache so it uploads ONCE per fit and
+                # every later orth call reuses the resident copy. Read-only f64 -> selection-equivalent.
+                _yc_gpu = resident_operand(_yc, "orth_route_y", dtype=np.float64)
                 _gpu_routed = _gpu_route_bases_batched(
-                    cp, _Mr, cp.asarray(_yc), list(_POLY_BASES), tuple(degrees), robust_axis=ra,
+                    cp, _Mr, _yc_gpu, list(_POLY_BASES), tuple(degrees), robust_axis=ra,
                 )
             except Exception:
                 _gpu_routed = None
