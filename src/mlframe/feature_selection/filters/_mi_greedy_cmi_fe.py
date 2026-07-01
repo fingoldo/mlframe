@@ -79,6 +79,22 @@ logger = logging.getLogger(__name__)
 _GPU_QBIN_MIN_ROWS = 50_000
 
 
+def _qbin_float_dtype():
+    """Float dtype for the ``qbin_x`` candidate-column upload the device quantile binners do. Under
+    ``MLFRAME_FE_VRAM_F32`` (the FE-generation dtype discipline) bin in FLOAT32 -- the candidate float upload is
+    HALF the bytes and the equi-frequency partition is selection-equivalent to float64 (f32 percentile edges
+    agree with f64 at all but ~1e-5 of near-edge rows, below the bin resolution the redundancy gate keys on;
+    this is the SAME f32/f64 discipline the FE materialise + the GPU discretiser already use). Falls back to
+    float64 when the flag is off or the probe fails, keeping BOTH binners on ONE dtype so identical candidate
+    content still content-dedups in the resident-operand cache."""
+    import cupy as cp
+    try:
+        from ._fe_gpu_batch._devices import fe_gpu_f32_enabled
+        return cp.float32 if fe_gpu_f32_enabled() else cp.float64
+    except Exception:
+        return cp.float64
+
+
 def _quantile_bin_gpu(a: np.ndarray, nbins: int):
     """Device equi-frequency bin of an all-finite 1-D float column -> host int64 codes, selection-equivalent
     to the numpy ``_quantile_bin`` fast path.
@@ -102,7 +118,7 @@ def _quantile_bin_gpu(a: np.ndarray, nbins: int):
         # content-keyed resident cache so a repeat bin of identical content reuses the resident copy (no
         # re-upload); selection-identical (same values -> same percentile edges -> same codes). Distinct columns
         # still upload once (genuine data).
-        xd = resident_operand(a, "qbin_x", dtype=cp.float64)
+        xd = resident_operand(a, "qbin_x", dtype=_qbin_float_dtype())
         qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
         edges = cp.unique(cp.percentile(xd, qs))   # raveled 1-D -> cp.percentile is correct (no axis=0 bug)
         if int(edges.size) <= 2:
@@ -133,7 +149,7 @@ def _quantile_bin_gpu_resident(a: np.ndarray, nbins: int):
         import cupy as cp
 
         from ._fe_resident_operands import resident_operand
-        xd = resident_operand(a, "qbin_x", dtype=cp.float64)
+        xd = resident_operand(a, "qbin_x", dtype=_qbin_float_dtype())
         qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
         edges = cp.unique(cp.percentile(xd, qs))   # raveled 1-D -> cp.percentile is correct (no axis=0 bug)
         if int(edges.size) <= 2:
