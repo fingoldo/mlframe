@@ -170,3 +170,46 @@ def test_f2_one_compound_under_distribution(profile):
     assert len(full) == 1, f"[{profile}] expected exactly ONE fused compound, got {len(full)}: {full}"
     # the c/d half must keep the log(c) factor (not degrade to bare sin(d))
     assert "c" in _cols(full[0]), f"[{profile}] compound dropped the log(c) factor: {full[0]}"
+
+
+# Production-scale grid for the SCALE GUARD below. 1M is the real deployment size; 100k is where the
+# single-step (fe_max_steps=1) recovery fragments (4 features) -- the two-step default fuses through it.
+_SCALE_NS = [
+    100_000,
+    pytest.param(1_000_000, marks=pytest.mark.slow_only),
+]
+
+
+@pytest.mark.slow
+@pytest.mark.no_xdist
+@pytest.mark.parametrize("n", _SCALE_NS)
+def test_f2_exactly_one_compound_at_scale(n):
+    """SCALE GUARD (2026-07-01): the uniform F2 signal must recover EXACTLY ONE clean compound at
+    PRODUCTION n, not just the 10k unit size the profile test above uses.
+
+    y = a**2/b + f/5 + log|c|*sin(d) carries an IRREDUCIBLE f/5 noise term, so the single compound
+    ``add(div(sqr(a),b), mul(log(c),sin(d)))`` captures the WHOLE deterministic signal. Therefore ANYTHING
+    selected alongside it -- a 2nd 'full' compound, an a/b or c/d fragment, or a surviving raw operand --
+    is redundant BY CONSTRUCTION; the assertion is the strict ``len(names) == 1``. Measured clean at
+    n in {10k, 100k, 1M} x seeds {7, 42, 43, 44} (2026-07-01). This is what the 10k-only profile test did
+    NOT cover, and what a large-n over-materialisation (a too-lax redundancy gate at scale) would break.
+
+    NOTE: the SINGLE-step config (fe_max_steps=1) recovers the compound at 10k/1M but FRAGMENTS into 4
+    features at 100k -- which is precisely why ``fe_max_steps`` defaults to 2: the step-2 additive fusion
+    stabilises the recovery across n. This guard therefore uses the default two-step config.
+    """
+    df, y = _make("uniform", n=n, seed=42)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2,
+                  fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
+    names = [str(s) for s in fs.get_feature_names_out()]
+    full, frag_ab, frag_cd = _classify(names)
+    assert all("e" not in _cols(nm) for nm in names), f"[n={n}] noise 'e' referenced: {names}"
+    assert len(full) == 1, f"[n={n}] expected exactly ONE fused compound, got {len(full)}: {full} :: {names}"
+    assert not frag_cd, f"[n={n}] redundant c/d-only fragment(s) alongside the compound: {frag_cd} :: {names}"
+    assert not frag_ab, f"[n={n}] redundant a/b-only fragment(s) alongside the compound: {frag_ab} :: {names}"
+    assert "c" in _cols(full[0]), f"[n={n}] compound dropped the log(c) factor: {full[0]}"
+    # STRICT contract: the one compound recovers the whole deterministic signal, so nothing else should
+    # survive selection next to it -- no extra compound, no fragment, no raw operand.
+    assert len(names) == 1, f"[n={n}] expected EXACTLY the one compound and nothing else, got {len(names)}: {names}"
