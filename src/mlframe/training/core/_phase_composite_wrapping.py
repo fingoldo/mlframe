@@ -103,7 +103,8 @@ def _emit_yscale_composite_chart(
     # ``model_name`` attribute (if present) carries the inner backend
     # name; fall back to the inner class name.
     _outer = getattr(inner_entry, "model", None) or inner_entry
-    _inner_class = type(getattr(_outer, "estimator_", _outer)).__name__
+    from mlframe.training.reporting._reporting import display_estimator_name
+    _inner_class = display_estimator_name(type(getattr(_outer, "estimator_", _outer)).__name__)
     # Header stats are the TEST-split mean/std (y_target is the test slice), distinct from the suite's MTTR (TRAIN-split mean) -- label them as such to avoid cross-reading drift.
     _mttr = float(np.mean(y_target))
     _mtts = float(np.std(y_target))
@@ -238,7 +239,8 @@ def emit_per_model_composite_y_scale_test(
         _inner_for_label = (
             _wrapper.estimator_ if hasattr(_wrapper, "estimator_") else _inner
         )
-        _inner_cls = type(_inner_for_label).__name__
+        from mlframe.training.reporting._reporting import display_estimator_name
+        _inner_cls = display_estimator_name(type(_inner_for_label).__name__)
         logger.info(
             "TEST %s %s %s [y-scale, per-model immediate] "
             "MAE=%.4f RMSE=%.4f R2=%.4f n=%d",

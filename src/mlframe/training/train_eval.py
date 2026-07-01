@@ -513,7 +513,8 @@ def process_model(
     start = timer()
     if verbose and not use_cached_model:
         pipeline_label = pre_pipeline_name.strip() if pre_pipeline_name else ""
-        model_type_name = type(model_obj).__name__
+        from mlframe.training.reporting._reporting import display_estimator_name
+        model_type_name = display_estimator_name(type(model_obj).__name__)
         logger.info(
             f"Starting train_and_evaluate {model_type_name} on {target_type} {pipeline_label} {model_name.strip()}"
             f", RAM usage {get_own_memory_usage():.1f}GBs...".replace("  ", " ")
