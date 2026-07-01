@@ -24,6 +24,8 @@ history.
 - Single-population targeting curves (`mlframe.metrics.classification`): `cumulative_gains_curve` (CAP/Lorenz), `lift_curve`, `gains_table` (decile marketing table), and `exploss` (exponential proper scoring rule) — for how-deep-to-target model evaluation, distinct from the per-group LTR lift in `metrics.ranking`.
 - Weighted / Quadratic Weighted Kappa (`mlframe.metrics.classification.quadratic_weighted_kappa`, `weighted_kappa`): distance-weighted agreement for ordinal multiclass targets (bit-matches `sklearn.cohen_kappa_score(weights=)`).
 - Set-similarity coefficients (`mlframe.core.set_similarity`): `jaccard`, `dice`, `overlap`, `braun_blanquet`, `ochiai`, `kulczynski`, `tversky` over two boolean masks or Python sets — for set/interval/cluster-pair targets.
+- RMSPE (`mlframe.metrics.regression.fast_rmspe`): root-mean-square percentage error (the Rossmann metric), scale-free squared-relative error excluding zero targets.
+- Optimal ordinal cutpoints (`mlframe.metrics.classification.optimal_ordinal_cutpoints`, `apply_cutpoints`): tune the thresholds that digitize a continuous prediction into ordinal grades to maximize QWK/accuracy (the CrowdFlower direct-functional-tuning technique).
 
 ## [0.9.0]
 

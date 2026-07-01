@@ -60,3 +60,9 @@ from ._weighted_kappa import (  # noqa: F401
     weighted_kappa,
     KAPPA_WEIGHTS,
 )
+
+from ._ordinal_cutpoints import (  # noqa: F401
+    optimal_ordinal_cutpoints,
+    apply_cutpoints,
+    CUTPOINT_METRICS,
+)

@@ -29,6 +29,7 @@ __all__ = [
     "fast_mrae",
     "fast_percent_better",
     "fast_logcosh_loss",
+    "fast_rmspe",
 ]
 
 _NJIT = dict(fastmath=False, cache=True, nogil=True)
@@ -162,3 +163,31 @@ def fast_logcosh_loss(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     if yt.shape[0] != yp.shape[0]:
         raise ValueError("fast_logcosh_loss: length mismatch.")
     return float(_logcosh_kernel(yt, yp))
+
+
+@njit(**_NJIT)
+def _rmspe_kernel(y_true, y_pred):
+    n = y_true.shape[0]
+    s = 0.0
+    cnt = 0
+    for i in range(n):
+        if y_true[i] != 0.0:
+            r = (y_pred[i] - y_true[i]) / y_true[i]
+            s += r * r
+            cnt += 1
+    return np.sqrt(s / cnt) if cnt > 0 else np.nan
+
+
+def fast_rmspe(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Root Mean Square Percentage Error: ``sqrt(mean over y!=0 of ((pred-true)/true)^2))`` (the Rossmann metric).
+
+    A percentage analogue of RMSE that penalizes relative error; the squared-relative counterpart of MAPE. Objects
+    with ``y_true == 0`` are excluded (the ratio is undefined), matching the Kaggle Rossmann Store Sales definition.
+    """
+    yt = np.ascontiguousarray(y_true, dtype=np.float64)
+    yp = np.ascontiguousarray(y_pred, dtype=np.float64)
+    if yt.shape[0] != yp.shape[0]:
+        raise ValueError("fast_rmspe: y_true and y_pred length mismatch.")
+    if yt.shape[0] == 0:
+        return np.nan
+    return float(_rmspe_kernel(yt, yp))

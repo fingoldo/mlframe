@@ -61,4 +61,5 @@ from ._regression_benchmark import (  # noqa: F401
     fast_mrae,
     fast_percent_better,
     fast_logcosh_loss,
+    fast_rmspe,
 )
