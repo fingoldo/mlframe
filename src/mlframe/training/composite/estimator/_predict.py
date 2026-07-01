@@ -324,6 +324,12 @@ def predict_pre_clip(self, X: Any) -> np.ndarray:
 
 
 def predict(self, X: Any) -> np.ndarray:
+    """Predict on the original target scale (bound as ``CompositeTargetEstimator.predict``).
+
+    Runs the inner estimator, inverts the fitted target transform (with domain-aware fallback for
+    out-of-domain / NaN bases), then clips predictions to the fitted train envelope, counting
+    violations for observability. Returns the original-scale ``y_hat``.
+    """
     y_hat, n, meta = self._predict_unclipped(X)
     params = meta["params"]
     n_violation = meta["n_violation"]

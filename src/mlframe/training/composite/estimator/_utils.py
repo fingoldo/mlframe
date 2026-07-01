@@ -61,14 +61,26 @@ def _require_inner_attr(self, attr: str) -> Any:
 
 
 def feature_importances_(self) -> np.ndarray:
+    """Delegate to the fitted inner estimator's ``feature_importances_`` (bound as a property on the wrapper).
+
+    Raises ``NotFittedError`` before ``fit`` and ``AttributeError`` if the fitted inner has none.
+    """
     return self._require_inner_attr("feature_importances_")
 
 
 def coef_(self) -> np.ndarray:
+    """Delegate to the fitted inner estimator's ``coef_`` (bound as a property on the wrapper).
+
+    Raises ``NotFittedError`` before ``fit`` and ``AttributeError`` if the fitted inner has none.
+    """
     return self._require_inner_attr("coef_")
 
 
 def intercept_(self) -> float:
+    """Delegate to the fitted inner estimator's ``intercept_`` (bound as a property on the wrapper).
+
+    Raises ``NotFittedError`` before ``fit`` and ``AttributeError`` if the fitted inner has none.
+    """
     return self._require_inner_attr("intercept_")
 
 

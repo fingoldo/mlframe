@@ -17,6 +17,14 @@ from pyutilz.system import get_own_memory_usage
 logger = logging.getLogger(__name__)
 
 class UniversalCallback:
+    """Booster-agnostic training callback: time budget, periodic reporting, and early stopping.
+
+    Holds the shared early-stopping logic (patience / min_delta on a monitored dataset+metric, optional
+    time budget, external stop flag, and slice-stable aggregation over multiple eval shards). The
+    booster-specific subclasses (``LightGBMCallback`` / ``XGBoostCallback`` / ``CatBoostCallback``) adapt
+    their framework's per-iteration hook to this common logic.
+    """
+
     def __init__(
         self,
         time_budget_mins: float | None = None,
@@ -362,6 +370,8 @@ class UniversalCallback:
 
 
 class LightGBMCallback(UniversalCallback):
+    """``UniversalCallback`` adapted to LightGBM's ``callback(env)`` protocol (defaults monitor to ``valid_0``)."""
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.monitor_dataset = self.monitor_dataset or "valid_0"
@@ -387,6 +397,8 @@ class LightGBMCallback(UniversalCallback):
 
 
 class XGBoostCallback(UniversalCallback, TrainingCallback):
+    """``UniversalCallback`` adapted to XGBoost's ``TrainingCallback`` protocol (>= 2.x isinstance requirement)."""
+
     # XGBoost >= 2.x CallbackContainer rejects callbacks that aren't isinstance
     # of TrainingCallback. The MRO `(UniversalCallback, TrainingCallback)` lets
     # `super().__init__()` inside UniversalCallback chain into
@@ -416,6 +428,8 @@ class XGBoostCallback(UniversalCallback, TrainingCallback):
 
 
 class CatBoostCallback(UniversalCallback):
+    """``UniversalCallback`` adapted to CatBoost's ``after_iteration(info)`` protocol (defaults monitor to ``validation``)."""
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.monitor_dataset = self.monitor_dataset or "validation"

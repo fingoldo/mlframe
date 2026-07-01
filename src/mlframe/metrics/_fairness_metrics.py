@@ -226,7 +226,13 @@ def create_fairness_subgroups_indices(
 
 
 def create_robustness_standard_bins(group_name: str, npoints: int, cont_nbins: int, seed: int = 0) -> tuple:
+    """Build the ``**ORDER**`` / ``**RANDOM**`` pseudo-feature bin labels for robustness subgrouping.
 
+    Splits ``npoints`` rows into ``cont_nbins`` contiguous equal-size bins (the final bin absorbs the
+    remainder so every cell is defined). For ``group_name == "**RANDOM**"`` the labels are shuffled with a
+    seeded RNG (reproducible baseline). Returns ``(bins, unique_bins)`` where ``bins`` is the per-row label
+    array and ``unique_bins`` is the range of label ids.
+    """
     step_size = npoints // cont_nbins
     # int16 wraps if cont_nbins > 32767. Use a range-aware narrowest dtype
     # that fits the caller's cont_nbins-1 max so unusual callers don't wrap

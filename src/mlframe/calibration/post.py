@@ -71,6 +71,15 @@ except Exception as e:
 
 
 class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
+    """sklearn-compatible adapter that wraps a third-party binary calibrator behind a uniform interface.
+
+    Normalises the many calibrator libraries (netcal, pycalib, betacal, dirichletcal, venn-abers,
+    sklearn, verified_calibration) that differ in fit/transform method names and 1D-vs-2D probability
+    shape. ``fit`` trains the wrapped calibrator on calibration-set probabilities/targets;
+    ``postcalibrate_probs`` (aliased as ``predict_proba``) maps raw probabilities to calibrated ones,
+    always returning a 2D ``(n_samples, 2)`` matrix.
+    """
+
     def __init__(
         self,
         calibrator: object,
@@ -201,6 +210,12 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
 
 @dataclass
 class NamedCalibrator:
+    """A ``BinaryPostCalibrator`` paired with display metadata (name, library, parameter string).
+
+    ``full_name()`` builds a stable human-readable identifier like ``lib.Name[param_str]`` used as the
+    row key when comparing calibrators.
+    """
+
     calibrator: BinaryPostCalibrator
     name: Optional[str] = None
     param_str: Optional[str] = ""
@@ -227,6 +242,11 @@ def named_calibrator(
     lib: Optional[str] = None,
     **postcal_kwargs,
 ) -> NamedCalibrator:
+    """Wrap a raw calibrator object into a ``NamedCalibrator`` (with a ``BinaryPostCalibrator`` adapter).
+
+    ``name``/``param_str``/``lib`` feed the display identifier; extra kwargs are forwarded to the
+    ``BinaryPostCalibrator`` (e.g. ``fit_method_name``, ``transform_method_name``).
+    """
     return NamedCalibrator(
         calibrator=BinaryPostCalibrator(calibrator=calibrator_obj, **postcal_kwargs),
         name=name,
@@ -236,6 +256,11 @@ def named_calibrator(
 
 
 def should_run(name: str, include: list[str] = None, skip: list[str] = None) -> bool:
+    """Return whether a calibrator ``name`` passes the include/skip regex filters.
+
+    ``True`` only when ``name`` matches at least one ``include`` pattern (or ``include`` is empty)
+    and matches no ``skip`` pattern. Patterns are treated as regexes via ``re.search``.
+    """
     if include and not any(_compile_pattern(p).search(name) for p in include):
         return False
     if skip and any(_compile_pattern(p).search(name) for p in skip):
@@ -244,7 +269,13 @@ def should_run(name: str, include: list[str] = None, skip: list[str] = None) -> 
 
 
 def get_postcalibrators(calib_target, num_bins: int) -> list:
+    """Build the zoo of candidate ``NamedCalibrator`` instances across all supported calibration libraries.
 
+    Instantiates sklearn, ml_insights, verified_calibration, betacal, venn-abers, netcal (binning +
+    scaling), pycalib and (if available) dirichletcal calibrators, sizing binning methods by ``num_bins``
+    and the calibration-set length. Optional libraries that are absent or renamed upstream are skipped.
+    Returns the list used by ``compare_postcalibrators``.
+    """
     import netcal, pycalib
     from pycalib import models  # noqa: F401  used via pycalib.models.LogisticCalibration in named_calibrator chains
     from netcal import binning  # noqa: F401  exercised through netcal.binning.BBQ etc.

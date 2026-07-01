@@ -9,6 +9,7 @@ import logging
 from typing import Tuple
 
 import numba
+from numba import get_num_threads, get_thread_id, njit, prange  # type: ignore[attr-defined]  # numba ships no type stubs for its dynamic exports
 import numpy as np
 
 from ._numba_params import NUMBA_NJIT_PARAMS
@@ -16,8 +17,13 @@ from ._numba_params import NUMBA_NJIT_PARAMS
 logger = logging.getLogger(__name__)
 
 
-@numba.njit(**NUMBA_NJIT_PARAMS)
-def fast_precision(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0):
+@njit(**NUMBA_NJIT_PARAMS)
+def fast_precision(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0) -> float:
+    """Numba-fast precision of the last (highest-index) class: ``hits / predicted`` for that class.
+
+    Counts predictions per class and how many were correct, returning the precision of class
+    ``nclasses - 1`` (the positive class in the binary case). Out-of-range predicted labels are ignored.
+    """
     # storage inits
     allpreds = np.zeros(nclasses, dtype=np.int64)
     hits = np.zeros(nclasses, dtype=np.int64)
@@ -31,11 +37,13 @@ def fast_precision(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, ze
     for c in range(nclasses):
         if allpreds[c] > 0:
             precisions[c] = hits[c] / allpreds[c]
-    return precisions[-1]
+    return float(precisions[-1])
 
 
-@numba.njit(**NUMBA_NJIT_PARAMS)
-def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0, macro_over_present: bool = True):
+@njit(**NUMBA_NJIT_PARAMS)
+def fast_classification_report(
+    y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0, macro_over_present: bool = True
+) -> Tuple[np.ndarray, np.ndarray, float, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Custom classification report, proof of concept.
 
     ``macro_over_present`` (default True) averages macro precision/recall/F1 only over classes that appear in
@@ -125,7 +133,7 @@ def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses:
     return hits, misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_averages, weighted_averages
 
 
-@numba.njit(**NUMBA_NJIT_PARAMS)
+@njit(**NUMBA_NJIT_PARAMS)
 def _max_abs_pct_error_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[float, int, int]:
     """Returns (max MAPE value, count of y_true==0 entries, count of non-finite pairs).
 
@@ -150,7 +158,7 @@ def _max_abs_pct_error_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[f
     return np.nanmax(mape), n_zero, n_nonfinite
 
 
-@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+@njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _max_abs_pct_error_kernel_par(y_true: np.ndarray, y_pred: np.ndarray, nthr: int) -> Tuple[float, int, int]:
     """Parallel variant. ~2.3x faster than seq at N=1M.
 
@@ -169,7 +177,7 @@ def _max_abs_pct_error_kernel_par(y_true: np.ndarray, y_pred: np.ndarray, nthr: 
     per_thread_max = np.zeros(nthr, dtype=np.float64)
     n_zero = 0
     n_nonfinite = 0
-    for i in numba.prange(n):
+    for i in prange(n):
         if y_true[i] == 0.0:
             n_zero += 1
         if not (np.isfinite(y_true[i]) and np.isfinite(y_pred[i])):
@@ -180,7 +188,7 @@ def _max_abs_pct_error_kernel_par(y_true: np.ndarray, y_pred: np.ndarray, nthr: 
         err = abs(y_pred[i] - y_true[i]) / denom
         # NaN guard: np.nanmax in seq variant skips NaNs; mirror that.
         if err == err:  # not NaN
-            tid = numba.get_thread_id()
+            tid = get_thread_id()
             if err > per_thread_max[tid]:
                 per_thread_max[tid] = err
     max_err = 0.0
@@ -199,17 +207,23 @@ _MAPE_ZERO_WARN_SEEN: set = set()
 
 
 def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Worst-case absolute percentage error: ``max_i |y_pred_i - y_true_i| / max(|y_true_i|, eps)``.
+
+    Auto-dispatches between serial and parallel numba kernels by input size. Returns NaN if any
+    row is non-finite; warns (once per shape) when ``y_true`` contains zeros, since the epsilon
+    fallback then dominates and the percentage becomes unreliable.
+    """
     # Auto seq/par dispatch. Parallel only wins at large N (race-free
     # max via per-thread accumulator + final reduction; lose-band runs
     # to ~200k due to setup cost).
     if len(y_true) >= 500_000:
-        value, n_zero, n_nonfinite = _max_abs_pct_error_kernel_par(y_true, y_pred, numba.get_num_threads())
+        value, n_zero, n_nonfinite = _max_abs_pct_error_kernel_par(y_true, y_pred, get_num_threads())
     else:
         value, n_zero, n_nonfinite = _max_abs_pct_error_kernel(y_true, y_pred)
     # A non-finite y_true/y_pred row makes the max error unknown; nanmax silently drops
     # it and returns a finite value that looks like a clean score. Propagate NaN instead.
     if n_nonfinite > 0:
-        return np.nan
+        return float(np.nan)
     if n_zero > 0:
         # Rate-limit: emit the warning once per (n_zero, n_total) shape per
         # process. The metric is computed on train/val/test/OOF splits and
@@ -226,4 +240,4 @@ def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) ->
                 "(further identical warnings suppressed this process)",
                 n_zero, len(y_true),
             )
-    return value
+    return float(value)

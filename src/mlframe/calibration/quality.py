@@ -217,7 +217,13 @@ def bin_predictions(
     indices: np.array,
     nbins: int = 20,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Equal-mass reliability binning: split rows (ordered by ``indices``) into ``nbins`` equal-population pockets.
 
+    Numba kernel. ``indices`` should sort ``y_pred`` ascending; each pocket's mean predicted probability and
+    mean observed outcome (both NaN-aware) form one point of the reliability curve. Returns
+    ``(pockets_predicted, pockets_true, data)`` where ``data`` has one row per bin with columns
+    ``[avg_pred, sum_true, count, avg_true]``.
+    """
     pockets_predicted, pockets_true = np.zeros(nbins, dtype=np.float64), np.zeros(nbins, dtype=np.float64)
     data = np.zeros((nbins, 4), dtype=np.float64)
     s = len(y_pred)
@@ -254,6 +260,16 @@ def estimate_calibration_quality_binned(
     indices: np.array | None = None,
     metrics_to_show: dict = METRICS_TO_SHOW,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    """Bin predictions into equal-mass pockets and score calibration-curve fidelity.
+
+    Argsorts ``y_pred`` (unless ``indices`` given), calls ``bin_predictions`` to build the reliability
+    curve, then evaluates ``metrics_to_show`` (Brier on raw samples; the rest on the binned pockets).
+    ``nbins`` is capped to the sample count. Returns
+    ``(pockets_predicted, pockets_true, data, metrics_dict)``.
+
+    Note: the equal-mass binning here is NOT comparable to the equal-width or data-adaptive ECE schemes
+    elsewhere in the codebase; compare ECE only within one scheme.
+    """
     # ECE binning scheme here is EQUAL-MASS (equal-count): predictions are argsorted and split into
     # ``nbins`` equal-population pockets (see ``bin_predictions``). This is NOT comparable to the
     # equal-width-[0,1] ECE in ``calibration/policy._ece_score`` nor the data-adaptive
@@ -303,7 +319,13 @@ def show_classifier_calibration(
     metrics_to_show: dict = METRICS_TO_SHOW,
     skip_plotting: bool = False,
 ) -> dict | list | pd.DataFrame | None:
+    """Plot a reliability (calibration) curve for one class and return its calibration metrics.
 
+    Splits the data into ``nintervals`` sequential chunks, bins each via ``estimate_calibration_quality_binned``,
+    and (unless ``skip_plotting``) draws predicted-vs-observed points against the perfect-calibration diagonal on
+    ``ax``. Returns the metrics dict for a single interval, a list of dicts for multiple intervals, the per-bin
+    table as a DataFrame when ``show_table=True``, or ``None`` if binning fails.
+    """
     if nintervals < 1:
         raise ValueError(f"show_classifier_calibration: nintervals must be >= 1, got {nintervals}")
 

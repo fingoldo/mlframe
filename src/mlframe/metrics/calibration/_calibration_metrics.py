@@ -38,6 +38,16 @@ def calibration_metrics_from_freqs(
     use_sqrt_weighting: bool = False,
     use_power_weighting: bool = True,
 ):
+    """Weighted calibration MAE/STD and coverage from pre-binned reliability-curve frequencies.
+
+    Given per-bin mean predicted probability (``freqs_predicted``), observed positive rate
+    (``freqs_true``) and bin population (``hits``), returns
+    ``(calibration_mae, calibration_std, calibration_coverage)`` where the MAE is the
+    (optionally hit-count-weighted) mean absolute gap ``|predicted - true|`` across bins,
+    STD is its weighted spread, and coverage is the fraction of the ``nbins`` grid that carries
+    any prediction. Weighting mode is selected by the ``use_*_weighting`` flags (power ``hits**0.8``
+    by default); with ``use_weights=False`` all populated bins are weighted equally.
+    """
     # Coverage = fraction of the nbins grid that actually carries predictions. This is a stable structural
     # quantity (a populated bin stays populated under tiny score perturbations), unlike the prior measure
     # (distinct values of ``round(freqs_predicted, prec)`` / nbins), which was a float-rounding artifact: a
@@ -407,6 +417,11 @@ def compute_ece_brier_full_and_debiased(
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, use_weights: bool = False, verbose: int = 0):
+    """One-shot calibration MAE/STD/coverage: bin ``(y_true, y_pred)`` into ``nbins`` then reduce.
+
+    Convenience wrapper that runs the equal-mass binning pass and feeds the per-bin frequencies to
+    ``calibration_metrics_from_freqs``. Returns ``(calibration_mae, calibration_std, calibration_coverage)``.
+    """
     # Call the serial njit binning kernel directly: ``fast_calibration_binning`` is a plain-Python size dispatcher (not njit), so referencing it from inside this nopython body fails type inference. This wrapper is a one-shot small-n convenience path, so the serial kernel is the right njit-callable choice.
     freqs_predicted, freqs_true, hits = _fast_calibration_binning_serial(y_true, y_pred, nbins)
     if verbose:

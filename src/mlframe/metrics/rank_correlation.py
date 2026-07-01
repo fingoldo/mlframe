@@ -31,10 +31,13 @@ import numpy as np
 
 try:
     import numba
+    from numba import njit, prange  # type: ignore[attr-defined]  # numba ships no type stubs for its dynamic njit/prange exports
 
     _HAS_NUMBA = True
 except ImportError:
     numba = None  # type: ignore
+    njit = None  # type: ignore
+    prange = range  # type: ignore
     _HAS_NUMBA = False
 
 from ._numba_params import NUMBA_NJIT_PARAMS
@@ -92,7 +95,7 @@ def _spearmanr_batched_numpy(
 
 if _HAS_NUMBA:
 
-    @numba.njit(**NUMBA_NJIT_PARAMS)
+    @njit(**NUMBA_NJIT_PARAMS)
     def _average_rank_inplace(x: np.ndarray, out: np.ndarray) -> bool:
         """Compute average-rank of x (length W) into ``out`` (length W).
 
@@ -117,7 +120,7 @@ if _HAS_NUMBA:
             i = j + 1
         return True
 
-    @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+    @njit(**NUMBA_NJIT_PARAMS, parallel=True)
     def _spearmanr_scalar_njit(x: np.ndarray, y: np.ndarray) -> float:
         """Single-series Spearman rho for one (x, y) pair of length n.
 
@@ -129,12 +132,12 @@ if _HAS_NUMBA:
         n = x.shape[0]
         if n < 2:
             return np.nan
-        for i in numba.prange(n):
+        for i in prange(n):
             if not (np.isfinite(x[i]) and np.isfinite(y[i])):
                 return np.nan
         rx = np.empty(n, dtype=np.float64)
         ry = np.empty(n, dtype=np.float64)
-        for which in numba.prange(2):
+        for which in prange(2):
             if which == 0:
                 _average_rank_inplace(x, rx)
             else:
@@ -144,7 +147,7 @@ if _HAS_NUMBA:
         cov = 0.0
         vx = 0.0
         vy = 0.0
-        for k in numba.prange(n):
+        for k in prange(n):
             dx = rx[k] - mr
             dy = ry[k] - mr
             cov += dx * dy
@@ -153,9 +156,9 @@ if _HAS_NUMBA:
         denom = (vx * vy) ** 0.5
         if denom == 0.0:
             return np.nan
-        return cov / denom
+        return float(cov / denom)
 
-    @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+    @njit(**NUMBA_NJIT_PARAMS, parallel=True)
     def _spearmanr_batched_njit(
         X: np.ndarray, Y: np.ndarray, rho: np.ndarray,
     ) -> None:
@@ -163,7 +166,7 @@ if _HAS_NUMBA:
         ``rho`` (shape ``(N,)``)."""
         N = X.shape[0]
         W = X.shape[1]
-        for i in numba.prange(N):
+        for i in prange(N):
             rx = np.empty(W, dtype=np.float64)
             ry = np.empty(W, dtype=np.float64)
             okx = _average_rank_inplace(X[i], rx)

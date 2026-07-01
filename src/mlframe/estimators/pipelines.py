@@ -154,6 +154,12 @@ def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: object, cv_result
 
 
 def compare_cv_metrics(cv_results: dict, metric: str = "root_mean_squared_error", extended: bool = False, cmap=cm.viridis, figsize=(20, 8), agg_fcn=np.median):
+    """Plot per-fold values of ``metric`` for every estimator in a cross-validation results dict.
+
+    Reads ``cv_results["results"]["cv_results"][estimator][metrics|extended_metrics][metric]``, aggregates
+    each estimator's folds with ``agg_fcn`` for the legend, sorts estimators by that aggregate, and draws one
+    line per estimator (dummy baselines dotted). Returns the matplotlib figure.
+    """
     fig = plt.figure(figsize=figsize)
 
     mean_scores = {}
@@ -189,6 +195,11 @@ def compare_cv_metrics(cv_results: dict, metric: str = "root_mean_squared_error"
 
 
 def compute_ml_metrics(y_true, y_preds, scorers: Sequence, storage: dict = None) -> dict:
+    """Score predictions against every callable in ``scorers``, keyed by the scorer's ``__name__``.
+
+    Returns a ``{scorer_name: score}`` dict. When ``storage`` is given, each score is also appended to
+    ``storage[scorer_name]`` (accumulating across calls, e.g. across CV folds).
+    """
     metrics = {}
     for scorer in scorers:
         scorer_name = scorer.__name__
@@ -208,6 +219,11 @@ def visualize_prediction_vs_truth(
     title="",
     metrics: dict = None,
 ):
+    """Plot predicted vs. true target series for a few selected samples side by side.
+
+    Draws one subplot per index in ``samples`` overlaying ``y_true`` and ``y_preds`` for that sample, with
+    any provided RMSE / competition-RMSE / MI values folded into the figure title.
+    """
     if metrics is None:
         metrics = {}
     fig, axs = plt.subplots(1, len(samples), sharey=False, figsize=(20, 5))
