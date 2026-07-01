@@ -16,6 +16,8 @@ history.
 - Recency-weighting primitives (`mlframe.core.recency_weights`): parametric poly/exp/power weight vectors over ordered histories, generalizing the exponential `ewma`. Identity parameters reproduce uniform weights.
 - Per-entity recency-weighted feature primitives (`mlframe.feature_engineering`): `per_group_recency_weighted_mean` (weighted mean / event-rate), `per_group_recency_weighted_mode` (weighted Parzen-density mode), and `per_group_behavioral_stability` (density-peak-height predictability score). Opt-in; identity params match the plain unweighted mean. Parallel (`prange`) KDE kernel dispatched by entity count.
 - Nadaraya-Watson kernel regression / smoothing (`mlframe.feature_engineering.nadaraya_watson`): `nadaraya_watson_smooth` (flat signal, gaussian/epanechnikov/boxcar/tricube kernels, optional per-sample weight composable with recency weights) and `per_group_nadaraya_watson_smooth` (per-entity denoising). Parallel query kernel dispatched by query count.
+- Robust location estimators (`mlframe.core.robust_location`): `robust_mean_mestimator` (redescending Meshalkin/Huber/Tukey M-estimator with MAD scale, prange-dispatched at large n) and `geometric_median` (Weiszfeld spatial median). Robust aggregators for contaminated data.
+- Proportion statistics (`mlframe.core.proportion_stats`): `wilson_interval`, `required_n_for_proportion`, `proportions_significantly_different`, `z_for_confidence` — confidence intervals and sample-size planning for probability/rate estimates.
 
 ## [0.9.0]
 

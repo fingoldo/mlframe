@@ -5,6 +5,8 @@ Submodules:
     stats    - statistical helpers (rolling, correlation, summary).
     ewma     - exponentially-weighted moving averages.
     recency_weights - parametric recency/importance weight vectors (poly/exp/power).
+    robust_location - robust location estimators (M-estimator mean, geometric median).
+    proportion_stats - proportion confidence intervals + required sample size.
     helpers  - general-purpose helper utilities used across the package.
 """
 
@@ -15,4 +17,6 @@ from mlframe.core.arrays import *  # noqa: F401,F403
 from mlframe.core.stats import *  # noqa: F401,F403
 from mlframe.core.ewma import *  # noqa: F401,F403
 from mlframe.core.recency_weights import *  # noqa: F401,F403
+from mlframe.core.robust_location import *  # noqa: F401,F403
+from mlframe.core.proportion_stats import *  # noqa: F401,F403
 from mlframe.core.helpers import *  # noqa: F401,F403
