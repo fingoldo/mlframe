@@ -1345,6 +1345,8 @@ def greedy_cmi_fe_construct(
             if _cmi_gpu_enabled() and len(sample_names) > 1:
                 from ._fe_batched_mi import batched_cmi_gpu
 
+                # bench-attempt-rejected (2026-07): np.column_stack([cand_bins[nm] ...]).astype(int64) vs this per-column loop was noise
+                # across n{50k,200k,1M} x k{24,100} x dtype{i32,i64}: -9.8%..+8.8%, no consistent >=5% win (memory-bandwidth-bound copy either way).
                 _Xs = np.empty((int(y_shuf.shape[0]), len(sample_names)), dtype=np.int64)
                 for _j, _nm in enumerate(sample_names):
                     _Xs[:, _j] = cand_bins[_nm]
@@ -1399,6 +1401,7 @@ def greedy_cmi_fe_construct(
             if _cmi_gpu_enabled() and len(_scan) > 1:
                 from ._fe_batched_mi import batched_cmi_gpu, cmi_device_argmax
 
+                # bench-attempt-rejected (2026-07): np.column_stack(...).astype(int64) vs this per-column loop was noise (-9.8%..+8.8%, no consistent >=5%).
                 _Xc = np.empty((int(y_bin.shape[0]), len(_scan)), dtype=np.int64)
                 for _j, _nm in enumerate(_scan):
                     _Xc[:, _j] = cand_bins[_nm]

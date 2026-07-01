@@ -6,7 +6,6 @@
   "calibration/post.py::should_run",
   "calibration/quality.py::bin_predictions",
   "calibration/quality.py::estimate_calibration_quality_binned",
-  "calibration/quality.py::hyvarinen_score",
   "calibration/quality.py::show_classifier_calibration",
   "config.py::CategoricalsAssigning",
   "config.py::CategoricalsHandling",

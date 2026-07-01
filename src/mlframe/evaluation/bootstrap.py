@@ -122,7 +122,8 @@ def _jackknife_metric(
         keep_mask[i] = False
         try:
             v = float(metric_fn(y_true[keep_mask], y_pred[keep_mask]))
-        except Exception:
+        except Exception as exc:
+            logger.debug("jackknife LOO metric failed at i=%d: %r", i, exc, exc_info=True)
             keep_mask[i] = True
             continue
         keep_mask[i] = True
@@ -162,7 +163,8 @@ def _jackknife_metric_idx(
         keep_mask[i] = False
         try:
             v = float(metric_fn_idx(full[keep_mask]))
-        except Exception:
+        except Exception as exc:
+            logger.debug("jackknife-idx LOO metric failed at i=%d: %r", i, exc, exc_info=True)
             keep_mask[i] = True
             continue
         keep_mask[i] = True
@@ -322,6 +324,7 @@ def bootstrap_metric(
             failures += 1
             if first_err is None:
                 first_err = f"{type(exc).__name__}: {exc}"
+            logger.debug("bootstrap resample failed: %r", exc, exc_info=True)
             continue
         if not _isfinite(v):
             failures += 1
@@ -476,6 +479,7 @@ def bootstrap_metrics(
                 failures[name] += 1
                 if first_err[name] is None:
                     first_err[name] = f"{type(exc).__name__}: {exc}"
+                logger.debug("bootstrap_metrics[%s] resample failed: %r", name, exc, exc_info=True)
                 continue
             if not _isfinite(v):
                 failures[name] += 1
@@ -491,6 +495,7 @@ def bootstrap_metrics(
                 failures[name] += 1
                 if first_err[name] is None:
                     first_err[name] = f"{type(exc).__name__}: {exc}"
+                logger.debug("bootstrap_metrics[%s] idx-resample failed: %r", name, exc, exc_info=True)
                 continue
             if not _isfinite(v):
                 failures[name] += 1

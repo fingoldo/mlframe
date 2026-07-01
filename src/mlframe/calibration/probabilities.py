@@ -239,7 +239,13 @@ def generate_similar_probs_by_ranking(predicted_probs, true_outcomes, n_bins: in
 
     similar_probs = predicted_probs.copy()
 
-    # Shuffle within each bin
+    # Shuffle within each bin.
+    # bench-attempt-rejected (2026-07): replacing this np.unique + per-bin np.where scan with a
+    # single stable-argsort-by-bin + contiguous-slice walk was bit-identical (stable sort preserves
+    # ascending intra-bin index order -> same rng.shuffle draw order) but SLOWER at every tested cell
+    # (n in {1e5,1e6} x n_bins in {10,100}): e.g. n=1e6,n_bins=10 old 96ms vs argsort 220ms/contig
+    # 223ms (0.43x). The O(n_bins*N) boolean scans are vectorized cache-friendly passes and n_bins is
+    # small, so they beat the O(N log N) argsort + fancy-index gather/scatter.
     for bin_value in np.unique(bins):
         bin_indices = np.where(bins == bin_value)[0]
         # Extract the probabilities in this bin

@@ -56,8 +56,34 @@ uniform_cdf = lambda x: x  # CDF of uniform distribution [0, 1]
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def hyvarinen_score(y: np.ndarray, y_preds: np.ndarray) -> float:
+def mutual_information_score(y: np.ndarray, y_preds: np.ndarray) -> float:
+    """Estimate the mutual information (in nats) between true outcomes ``y`` and predictions ``y_preds``.
+
+    Thin wrapper over sklearn's ``mutual_info_regression`` (a k-nearest-neighbour MI estimator,
+    Kraskov/Stoegbauer/Grassberger) with ``n_neighbors=2``. Both inputs are reshaped to column
+    vectors; the single scalar MI estimate is returned. Higher is better (more shared information
+    between prediction and outcome). This is NOT the Hyvarinen score (a proper scoring rule based on
+    the score function of the density) despite the historical misnomer -- see the deprecated
+    ``hyvarinen_score`` alias below.
+    """
     return mutual_info_regression(y.reshape(-1, 1), y_preds.reshape(-1, 1), n_neighbors=2)[0]
+
+
+def hyvarinen_score(y: np.ndarray, y_preds: np.ndarray) -> float:
+    """Deprecated alias for :func:`mutual_information_score`.
+
+    Historically misnamed: this never computed the Hyvarinen score -- it returns a kNN mutual-information
+    estimate. Kept as a warning-emitting shim for backward compatibility; use ``mutual_information_score``.
+    """
+    import warnings
+
+    warnings.warn(
+        "hyvarinen_score is a misnomer (it returns a kNN mutual-information estimate, not the "
+        "Hyvarinen score) and is deprecated; use mutual_information_score instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return mutual_information_score(y, y_preds)
 
 
 def crps(y: np.ndarray, y_preds: np.ndarray) -> float:
@@ -80,7 +106,7 @@ METRICS_TO_SHOW = {
     # "MAPE": mean_absolute_percentage_error,
     # "MEAE": median_absolute_error,
     "BR": fast_brier_score_loss,
-    # "HS": hyvarinen_score,
+    # "MI": mutual_information_score,
     "CRPS": crps,
     #
     # "MPL": mean_pinball_loss,
@@ -206,6 +232,12 @@ def bin_predictions(
         # poison the (avg_x, avg_y) pair -> propagates into ECE/MCE numbers
         # reported on the calibration chart. Operator may spot the NaN bin
         # but the numeric metrics would be silently wrong.
+        # bench-attempt-rejected (2026-07): fusing these two np.nanmean passes into a single scalar
+        # nan-aware loop over indices[l:r] was bit-identical but SLOWER at typical n: the vectorized
+        # y_pred[indices[l:r]] gather feeds np.nanmean a contiguous SIMD-friendly buffer, whereas the
+        # fused loop does two random-access gathers per element (poor cache locality). n=1e6/nbins=20
+        # 15.3ms->27.7ms (0.55x), n=1e5/nbins=20+10%NaN 0.58ms->1.27ms (0.46x). Only wins when nbins
+        # is large vs n (per-call nanmean overhead dominates), which is not the ECE common case.
         avg_x = np.nanmean(y_pred[indices[l:r]])
         avg_y = np.nanmean(y_true[indices[l:r]])
         pockets_predicted[i] = avg_x

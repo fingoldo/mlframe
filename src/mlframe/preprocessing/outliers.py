@@ -166,6 +166,35 @@ def _nanminmax_cols(X: np.ndarray):
     return mins, maxs
 
 
+@njit
+def _nanminmax_cols_serial(X: np.ndarray):
+    """Serial per-column NaN-ignoring min/max in one pass; bit-identical to ``_nanminmax_cols`` but without the per-thread reduce buffer + join.
+
+    The parallel kernel's thread-spawn + (nt, d) buffer allocation + reduction join lose to a plain serial sweep on small frames; the dispatcher in
+    ``compute_naive_outlier_score`` routes small ``n*d`` here (crossover ~20k measured 2026-07: serial 46-83% faster below, parallel wins above)."""
+    n, d = X.shape
+    mins = np.full(d, np.inf, dtype=X.dtype)
+    maxs = np.full(d, -np.inf, dtype=X.dtype)
+    for i in range(n):
+        for j in range(d):
+            v = X[i, j]
+            if v == v:  # not NaN
+                if v < mins[j]:
+                    mins[j] = v
+                if v > maxs[j]:
+                    maxs[j] = v
+    for j in range(d):
+        # All-NaN column: collapse to NaN like numpy's empty-slice nanmin/nanmax (mirrors the parallel kernel).
+        if mins[j] == np.inf:
+            mins[j] = np.nan
+            maxs[j] = np.nan
+    return mins, maxs
+
+
+# Below this n*d the serial nanminmax sweep beats the parallel one (thread-spawn + reduce-buffer overhead dominates); measured crossover ~20k (2026-07).
+_NANMINMAX_PARALLEL_MIN_ELEMS = 20_000
+
+
 def compute_naive_outlier_score(X_train: np.ndarray, X_test: np.ndarray) -> np.ndarray:
     """Percentage of features in each X_test row outside train min/max bounds.
 
@@ -181,7 +210,10 @@ def compute_naive_outlier_score(X_train: np.ndarray, X_test: np.ndarray) -> np.n
     if X_train.shape[1] != X_test.shape[1]:
         raise ValueError(f"compute_naive_outlier_score: X_train has {X_train.shape[1]} features but X_test has {X_test.shape[1]}; feature counts must match.")
     if _HAS_NUMBA:
-        mins, maxs = _nanminmax_cols(X_train)
+        if X_train.shape[0] * X_train.shape[1] < _NANMINMAX_PARALLEL_MIN_ELEMS:
+            mins, maxs = _nanminmax_cols_serial(X_train)
+        else:
+            mins, maxs = _nanminmax_cols(X_train)
     else:
         mins = np.nanmin(X_train, axis=0)
         maxs = np.nanmax(X_train, axis=0)

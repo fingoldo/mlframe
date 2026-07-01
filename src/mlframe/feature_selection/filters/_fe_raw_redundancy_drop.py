@@ -642,7 +642,10 @@ def drop_redundant_raw_operands(
             return sel, []
 
     # raw_name -> list of engineered survivor column indices that consume it.
+    # Cache the per-engineered raw-base set on this first pass; the identical
+    # token-split + raw-base lookup is reused below to build ``_eng_signal_parents``.
     eng_consumers: dict[str, list[int]] = {}
+    _eng_base_sets: dict[int, set[str]] = {}
     for ei in eng_idx:
         toks = [t for t in _TOKEN_SPLIT.split(cols[ei]) if t]
         # Map ``a__He3``-style warped tokens back to their raw base too.
@@ -652,6 +655,7 @@ def drop_redundant_raw_operands(
                 bases.add(t)
             elif "__" in t and t.split("__", 1)[0] in raw_name_set:
                 bases.add(t.split("__", 1)[0])
+        _eng_base_sets[ei] = bases
         for base in bases:
             eng_consumers.setdefault(base, []).append(ei)
 
@@ -836,12 +840,15 @@ def drop_redundant_raw_operands(
     # each engineered survivor so we can tell a true combination from a self-transform.
     _eng_signal_parents: dict[int, set[str]] = {}
     for ei in eng_idx:
-        _parents = set()
-        _toks = [t for t in _TOKEN_SPLIT.split(cols[ei]) if t]
-        for t in _toks:
-            base = t if t in raw_name_set else (t.split("__", 1)[0] if ("__" in t and t.split("__", 1)[0] in raw_name_set) else None)
-            if base is not None:
-                _parents.add(base)
+        # Reuse the raw-base set cached during the ``eng_consumers`` pass above
+        # (identical token-split + raw-base extraction) instead of recomputing it.
+        _parents = _eng_base_sets.get(ei)
+        if _parents is None:
+            _parents = set()
+            for t in (t for t in _TOKEN_SPLIT.split(cols[ei]) if t):
+                base = t if t in raw_name_set else (t.split("__", 1)[0] if ("__" in t and t.split("__", 1)[0] in raw_name_set) else None)
+                if base is not None:
+                    _parents.add(base)
         _eng_signal_parents[ei] = {p for p in _parents if _raw_is_signal_bearing(p)}
 
     # NESTED-OPERAND CLEAN-SUBEXPRESSION ANCHOR (BUG1, 2026-06-12). A selected

@@ -266,6 +266,9 @@ def is_variable_truly_continuous(
         else:
             # Sort the fractional part ONCE; the per-precision distinct-count below rounds inline over this single sorted array
             # (round is monotone, so sort-then-round == round-then-sort), avoiding an O(n log n) re-sort + a rounded-copy alloc per precision.
+            # bench-attempt-rejected (2026-07): fusing all precisions into one kernel pass (running per-precision prev/count) was SLOWER at every
+            # max_fract_digits {5,8,12,16}: -6% .. -14% (n=100k continuous). The per-precision kernel wins via its simpler inner loop + early break on
+            # distinct-saturation; the fused pass recomputes np.rint for all precisions per element even after a precision saturates. See _benchmarks/bench_fused_precision_scan.py.
             if fract_part.dtype.kind == "f":
                 _sorted_fract = np.sort(fract_part)
                 _count_rounded = _get_count_distinct_rounded_njit()
