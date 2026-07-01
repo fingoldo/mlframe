@@ -18,6 +18,11 @@ from numba import cuda, njit, prange
 # reduction), so dropping nnan/ninf does NOT block vectorisation the way it would for a sum-reduction.
 _MINMAX_FASTMATH = {"nsz", "arcp", "contract", "afn", "reassoc"}
 
+# Module-level empty-int32 mask singleton used as the default ``mask`` for the counting-argsort njit kernels.
+# Building it once here (instead of ``np.array([], np.int32)`` in each signature) keeps the default a read-only,
+# zero-length typed array with the same numba signature while avoiding a call in the argument default.
+_EMPTY_INT32_MASK = np.array([], np.int32)
+
 
 @njit(fastmath=_MINMAX_FASTMATH, cache=True)
 def arrayMinMax(x, l=0, r=0):
@@ -123,7 +128,7 @@ def BinByUniqueValues(array, l, r, m, mask):
 
 
 @njit(fastmath=True, cache=True)
-def arrayCountingArgSort(array, maxval, mask=np.array([], np.int32)):
+def arrayCountingArgSort(array, maxval, mask=_EMPTY_INT32_MASK):
     m = maxval + 1
 
     # Allocate output array
@@ -146,7 +151,7 @@ def arrayCountingArgSort(array, maxval, mask=np.array([], np.int32)):
 
 
 @njit(fastmath=True, cache=True)
-def arrayCountingArgSortAndUniqueValues(array, maxval, mask=np.array([], np.int32)):
+def arrayCountingArgSortAndUniqueValues(array, maxval, mask=_EMPTY_INT32_MASK):
     m = maxval + 1
 
     # Allocate output array
@@ -173,7 +178,7 @@ def arrayCountingArgSortAndUniqueValues(array, maxval, mask=np.array([], np.int3
 
 
 @njit(fastmath=True, parallel=True, cache=True)
-def arrayCountingArgSortThreaded(array, maxval, mask=np.array([], np.int32), maxThreads=2):
+def arrayCountingArgSortThreaded(array, maxval, mask=_EMPTY_INT32_MASK, maxThreads=2):
     m = maxval + 1
 
     # Allocate output array
@@ -211,7 +216,7 @@ def arrayCountingArgSortThreaded(array, maxval, mask=np.array([], np.int32), max
 
 
 @njit(fastmath=True, parallel=True, cache=True)
-def arrayCountingArgSortAndUniqueValuesThreaded(array, maxval, mask=np.array([], np.int32), maxThreads=2):
+def arrayCountingArgSortAndUniqueValuesThreaded(array, maxval, mask=_EMPTY_INT32_MASK, maxThreads=2):
     m = maxval + 1
     # Allocate output array
     if len(mask) > 0:

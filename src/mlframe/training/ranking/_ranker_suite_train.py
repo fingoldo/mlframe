@@ -430,7 +430,7 @@ def train_mlframe_ranker_suite(
             # cast them to pandas Categorical before fit.
             _dn = str(_dt)
             _is_str_like = (
-                _dt == object
+                _dt == object  # noqa: E721 -- pandas dtype `== object` comparison is intended
                 or _dn in ("string", "str")
                 or "string" in _dn.lower()
             )

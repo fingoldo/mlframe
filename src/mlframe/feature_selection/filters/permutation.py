@@ -20,6 +20,11 @@ from joblib import Parallel, delayed
 from numba import njit, prange
 
 from ._internals import NMAX_NONPARALLEL_ITERS
+
+# Typed uint64 zero used as the default ``base_seed`` for the njit permutation kernels. Built once as a
+# module-level singleton so the argument default keeps its exact ``np.uint64`` dtype (the kernels do
+# ``state >> np.uint64(..)`` arithmetic) without a function call in the signature default.
+_DEFAULT_BASE_SEED = np.uint64(0)
 from .info_theory import (
     compute_mi_from_classes, merge_vars, mi_or_su_from_classes,
     # 2026-05-28: njit-callable dispatcher used inside permutation kernels;
@@ -353,7 +358,7 @@ def parallel_mi(
     original_mi: float,
     max_failed: int,
     dtype: type = np.int32,
-    base_seed: np.uint64 = np.uint64(0),
+    base_seed: np.uint64 = _DEFAULT_BASE_SEED,
     use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from mi_direct.
     perm_offset: int = 0,  # 2026-05-30 Wave 9.1 iter 18: cumulative permutation index offset for n_workers-independent seeding.
 ) -> tuple[int, int]:
@@ -420,7 +425,7 @@ def parallel_mi_with_null(
     original_mi: float,
     max_failed: int,
     dtype: type = np.int32,
-    base_seed: np.uint64 = np.uint64(0),
+    base_seed: np.uint64 = _DEFAULT_BASE_SEED,
     use_su: bool = False,
     perm_offset: int = 0,
 ) -> tuple:

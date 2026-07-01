@@ -36,6 +36,14 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # ``_FIT_CACHE_LOCK`` so any other holder of the cache can take the same canonical lock.
 _MRMR_FIT_CACHE_LOCK = threading.RLock()
 
+
+def _pgn_raw_budget(ceiling: int, n_engineered: int) -> int:
+    """Raw-feature budget under the p>=n FP-control cap: the total ``ceiling`` (= ``max(20, p//3)``) minus the
+    engineered survivors that already reach the transform output, floored at 0. Engineered features are charged
+    against the ceiling so the p>=n total (raw + engineered) never exceeds it; a higher ``n_engineered`` therefore
+    tightens the raw budget. Pulled out as a pure function so the cap arithmetic is unit-testable in isolation."""
+    return max(0, int(ceiling) - int(n_engineered))
+
 # Above this many bytes of nullable-column data, densify masked columns one-per-``assign`` instead of all at once
 # so peak extra RAM stays ~one float64 column rather than ~2x the whole nullable subset (100GB-frame safe).
 _NULLABLE_DENSIFY_EAGER_MAX_BYTES = 2 * 1024 ** 3
@@ -6019,7 +6027,6 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     if "X_cd" in _fe_live: del X_cd
     if "X_wv" in _fe_live: del X_wv
     if "X_rg" in _fe_live: del X_rg
-    if "X_ta" in _fe_live: del X_ta
     del _fe_live
     import gc as _gc
     _gc.collect()
@@ -8939,9 +8946,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _pgn_p = int(getattr(self, "n_features_in_", 0) or 0)
     if _pgn_p > 0 and _pgn_n > 0 and _pgn_p >= _pgn_n and selected_vars:
         _pgn_ceiling = max(20, _pgn_p // 3)
-        _pgn_eng = int(n_engineered_out) if "n_engineered_out" in dir() else 0
-        _pgn_raw_budget = max(0, _pgn_ceiling - _pgn_eng)
-        if len(selected_vars) > _pgn_raw_budget:
+        # ``n_engineered_out`` is not yet bound at this point (assigned further below near ``n_features_``); read the
+        # engineered count straight off ``self._engineered_recipes_`` (populated by the main sweep above) so engineered
+        # survivors are actually charged against the p>=n ceiling instead of silently degrading the count to 0.
+        _pgn_eng = len(getattr(self, "_engineered_recipes_", None) or [])
+        _pgn_budget = _pgn_raw_budget(_pgn_ceiling, _pgn_eng)
+        if len(selected_vars) > _pgn_budget:
             # LOCAL cached_MIs (see the cluster-rep note above): self.cached_MIs is unset until the end of
             # _fit_impl, so on a fresh fit this read degraded to {} and the p>=n cap sort collapsed to index order.
             _pgn_cached = cached_MIs if ("cached_MIs" in dir() and isinstance(cached_MIs, dict)) else {}
@@ -8953,11 +8963,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _ci = _pgn_n2ci.get(_nm)
                 return float(_pgn_cached.get((_ci,), 0.0)) if _ci is not None else 0.0
             # Descending relevance, stable secondary key on the raw index so ties are column-order invariant.
-            selected_vars = [v for v in sorted(selected_vars, key=lambda v: (-_pgn_rel(v), int(v)))][:_pgn_raw_budget]
+            selected_vars = [v for v in sorted(selected_vars, key=lambda v: (-_pgn_rel(v), int(v)))][:_pgn_budget]
             if verbose:
                 logger.info(
                     "MRMR p>=n FP-control: capped raw support to top-%d by relevance (p=%d >= n=%d, ceiling=%d, engineered=%d).",
-                    _pgn_raw_budget, _pgn_p, _pgn_n, _pgn_ceiling, _pgn_eng,
+                    _pgn_budget, _pgn_p, _pgn_n, _pgn_ceiling, _pgn_eng,
                 )
 
     # EMIT-BOTH OPERAND RE-ATTACH. A feature selector must not destroy linearly-usable raw signal: for every SELECTED engineered feature, surface its raw operand

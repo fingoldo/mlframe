@@ -147,7 +147,7 @@ def create_mlflow_run_label(params: dict=None, category: str = None) -> str:
             if isinstance(value, Enum):
                 label.append(f"{key}={value.name}")
             else:
-                if type(value) == type:
+                if type(value) is type:
                     label.append(f"{key}={value.__name__}")
                 else:
                     label.append(f"{key}={value}")

@@ -23,6 +23,7 @@ import os
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings
 from collections import defaultdict
+from typing import Optional
 
 import numpy as np
 import pandas as pd

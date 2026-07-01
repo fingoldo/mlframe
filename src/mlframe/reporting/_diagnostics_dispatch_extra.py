@@ -452,16 +452,10 @@ def render_target_dist_overlay(
 
 
 __all__ = [
-    "render_split_error_diagnostics",
-    "render_target_drift_diagnostics",
+    # render_* diagnostics that live in the parent ``diagnostics_dispatch`` (split/target-drift/pdp/slice/
+    # decision-curve/calibration-drift/target-acf/shap) are intentionally NOT re-exported here; they are not
+    # defined in this carved-out module. Only the names actually defined below are listed.
     "render_target_dist_overlay",
-    "render_pdp_ice_diagnostic",
-    "render_pdp_2d_diagnostic",
-    "render_slice_finder_diagnostic",
-    "render_decision_curve_diagnostic",
-    "render_calibration_drift_diagnostic",
-    "render_target_acf_diagnostic",
-    "render_shap_diagnostic",
     "render_model_comparison_diagnostic",
     "render_model_comparison_from_suite",
     "render_decile_table_diagnostic",

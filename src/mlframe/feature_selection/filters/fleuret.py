@@ -36,7 +36,7 @@ from numba.core import types
 
 from pyutilz.numbalib import python_dict_2_numba_dict
 
-from .permutation import distribute_permutations, _perm_pvalue
+from .permutation import distribute_permutations, _perm_pvalue, _DEFAULT_BASE_SEED
 from ._internals import LARGE_CONST
 from .evaluation import evaluate_gain
 from .info_theory import use_su_normalization
@@ -230,7 +230,7 @@ def get_fleuret_criteria_confidence(
     entropy_cache: dict = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
-    base_seed: np.uint64 = np.uint64(0),
+    base_seed: np.uint64 = _DEFAULT_BASE_SEED,
     use_su: bool = False,  # 2026-05-28: threaded from Python-level parallel_fleuret.
 ) -> tuple:
     """Sub to njit work with random shuffling as well.

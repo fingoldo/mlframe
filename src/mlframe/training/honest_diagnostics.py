@@ -61,7 +61,7 @@ def _is_binary_classif(y: np.ndarray) -> bool:
         u = np.unique(y[np.isfinite(y) if y.dtype.kind in "fc" else slice(None)])
     except Exception:
         return False
-    return u.size == 2 and set(u.tolist()).issubset({0, 1, 0.0, 1.0, True, False})
+    return u.size == 2 and set(u.tolist()).issubset({0, 1})
 
 
 def _derive_seed(master_seed: int, key: str) -> int:

@@ -74,13 +74,15 @@ def train_test_split_from_generator(gen: object, X=None, y=None, groups=None):
         return train_indices, test_indices
 
 
-def get_predicted_classes(predictions: np.ndarray, thresholds: np.ndarray = np.array([0.0, 0.1, 0.5, 1.0])):
+def get_predicted_classes(predictions: np.ndarray, thresholds: np.ndarray = None):
     """
     Turns scores predicted by regression into class labels, knowing thresholds used to encode labels.
     >>>_,preds=get_predicted_classes(predictions=np.array([0.83157152, 0.91605568, 0.34691267, 0.01739674]),thresholds=np.array([0.0,0.1,0.5,1.0]));preds
     >>>preds
     [3, 3, 2, 0]
     """
+    if thresholds is None:
+        thresholds = np.array([0.0, 0.1, 0.5, 1.0])
     distances = np.abs(thresholds - predictions.reshape(-1, 1))
     distances = np.abs(1 - distances)
     sum_dst = distances.sum(axis=1)
@@ -166,7 +168,7 @@ def evaluate_estimators(
 
             est_type = type(est).__name__
 
-            if type(est) == tuple:
+            if type(est) is tuple:
                 est_name, est = est
             else:
                 est_name = est_type
@@ -186,7 +188,7 @@ def evaluate_estimators(
                 # Just a classifier with early stopping... Need to get early stopping set for it...
                 # ----------------------------------------------------------------------------------------------------------------------------
 
-                if type(val_size) == float:
+                if type(val_size) is float:
                     X_test_test, X_test_val, y_test_test, y_test_val = train_test_split(X_test, y_test, test_size=val_size, shuffle=shuffle, stratify=stratify)
                 else:
                     train_indices, test_indices = train_test_split_from_generator(gen=val_size, X=X_test, groups=groups)
@@ -400,7 +402,7 @@ def evaluate_grouped(
 
             failed = False
             for label, stats in rp.items():
-                if type(stats) == dict:
+                if type(stats) is dict:
                     if stats.get("support", 0) < min_population:
                         failed = True
                         break

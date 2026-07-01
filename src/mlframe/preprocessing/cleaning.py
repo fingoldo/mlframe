@@ -758,7 +758,7 @@ def analyse_and_clean_features(
                     else:
                         real_val = val
                 if (real_val is not None) and (na_val is not True):
-                    if type(real_val) == str:
+                    if type(real_val) is str:
                         repl_value: Any = "not " + real_val
                     else:
                         if col_is_numeric:

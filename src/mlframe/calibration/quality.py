@@ -171,7 +171,7 @@ def make_custom_calibration_plot(
                 prob_pos = 1.0 - X[named_vars].sum(axis=1)
                 var_name = named_vars[0]  # any of them
 
-            if type(prob_pos) != np.ndarray:
+            if type(prob_pos) is not np.ndarray:
                 prob_pos = prob_pos.values
             var_name = "_".join(var_name.split("_")[1:])
             show_classifier_calibration(

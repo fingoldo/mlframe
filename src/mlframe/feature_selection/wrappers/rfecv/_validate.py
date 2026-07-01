@@ -147,7 +147,7 @@ def _sanitize_X_inputs(self, X, y):
                 _dtype = _ser.dtype
                 if pd.api.types.is_numeric_dtype(_dtype) or pd.api.types.is_bool_dtype(_dtype):
                     _arr = _ser.to_numpy()
-                elif isinstance(_dtype, pd.CategoricalDtype) or _dtype == object or pd.api.types.is_string_dtype(_dtype):
+                elif isinstance(_dtype, pd.CategoricalDtype) or _dtype == object or pd.api.types.is_string_dtype(_dtype):  # noqa: E721 -- pandas dtype `== object` comparison is intended
                     # ``factorize`` is the canonical pandas pathway for collapsing label semantics into a code sequence dedup can compare; ``use_na_sentinel=True`` keeps NaN distinct from any real label without forcing a fillna copy.
                     _codes, _ = pd.factorize(_ser, use_na_sentinel=True)
                     _arr = _codes

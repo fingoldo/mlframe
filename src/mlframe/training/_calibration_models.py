@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any
 from sklearn.isotonic import IsotonicRegression
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from .configs import TargetTypes
 
 logger = logging.getLogger(__name__)
