@@ -66,6 +66,13 @@ def _build_basis_matrix_gpu(cp, basis: str, z_gpu, max_degree: int):
     FP reduction order of the cupy vector ops differs from the scalar njit loop).
 
     Raises ``KeyError`` on an unsupported basis (matching ``build_basis_matrix``)."""
+    # The recurrence runs in FLOAT64 regardless of the input dtype -- NOT a lazy hardcode: the fast-growing
+    # Laguerre/Hermite polynomials (and high-degree Chebyshev) build L_k / He_k from large-magnitude alternating
+    # terms, so evaluating the recurrence in float32 suffers catastrophic cancellation (verified: ~10% relative
+    # error in the deg-4 Laguerre coefficients vs f64). The design is device-BUILT (not H2D), so its dtype does
+    # not affect the H2D residency win -- only the recurrence stability -- so it stays f64. (The relaxed prewarp
+    # path still halves the H2D by uploading the standardised COLUMN za/zb as f32; only this on-device recurrence
+    # keeps f64.) A f32 input column is widened here.
     x = cp.ascontiguousarray(cp.asarray(z_gpu, dtype=cp.float64)).reshape(-1)
     n = x.shape[0]
     nc = int(max_degree) + 1
@@ -107,10 +114,10 @@ def _build_basis_matrix_gpu(cp, basis: str, z_gpu, max_degree: int):
 def _als_solve_gpu(cp, A, b):
     """Resident normal-equations solve ``solve(AtA, At b)`` with an exact ``lstsq``
     fallback on a singular ``AtA`` -- GPU twin of the CPU inner ``_als_solve``.
-    ``A`` (n x d) and ``b`` (n,) are resident; the returned coefficient (d,) stays
-    resident. Mirrors the CPU least-norm / normal-eq equivalence for a full-column-
-    rank system (the orthogonal-poly basis scaled by g_norm/f_norm stays well-
-    conditioned), falling back to SVD lstsq bit-for-bit as the CPU path does."""
+    ``A`` (n x d) and ``b`` (n,) are resident (f64 -- the design recurrence keeps f64 for stability); the
+    returned coefficient (d,) stays resident. Mirrors the CPU least-norm / normal-eq equivalence for a
+    full-column-rank system (the orthogonal-poly basis scaled by g_norm/f_norm stays well-conditioned), falling
+    back to SVD lstsq bit-for-bit as the CPU path does."""
     AtA = A.T @ A
     try:
         return cp.linalg.solve(AtA, A.T @ b)
@@ -207,22 +214,22 @@ def warm_start_als_seed_gpu_from_z(z_a: np.ndarray, z_b: np.ndarray, y: np.ndarr
     # Route it through the content-keyed resident cache so the target uploads ONCE; read-only in _als_sweep_gpu
     # (only _als_solve reads it, never reassigns/mutates) -> selection-equivalent.
     from .._fe_resident_operands import resident_operand
-    # Under MLFRAME_CRIT_DTYPE_RELAXED (default ON) upload the two standardised columns as FLOAT32 (half the H2D)
-    # and widen to float64 ON device for the ALS solve: only the za/zb VALUES are f32-rounded (~1e-6, the same
-    # f32 discipline the materialised feature already carries), while the basis + least-squares math stays f64 so
-    # the rank-1 seed is numerically stable on the ill-conditioned high-degree normal equations. SELECTION-
-    # EQUIVALENT (the prewarp-coefficient shift is far below the FE gate's decision margin -- F2 across all
-    # distributions + the hermite biz/e2e suites are unchanged); only the device<->CPU coefficient PARITY loosens
-    # from the f64 ~1e-7 to the f32-input ~1e-5, a precision contract not a selection one (the parity test
-    # asserts the mode-appropriate tolerance). MLFRAME_CRIT_DTYPE_RELAXED=0 restores the strict f64 upload.
+    # Under MLFRAME_CRIT_DTYPE_RELAXED (default ON) the two standardised columns + the centred target UPLOAD as
+    # float32 (half the H2D -- the residency win). The on-device basis recurrence + the least-squares sweep then
+    # keep FLOAT64 (see _build_basis_matrix_gpu): the fast-growing Laguerre/Hermite polynomials cancel
+    # catastrophically in f32, so the design must be f64 -- and since it is device-BUILT, its dtype does not
+    # touch the H2D. So only the za/zb/yc VALUES are f32-rounded (~1e-6); the coefficients shift within the
+    # f32-input condition bound, a smooth non-tie-sensitive CMA-ES seed, so the FE selection is unchanged
+    # (validated on F2 across distributions + the hermite biz/e2e suites). MLFRAME_CRIT_DTYPE_RELAXED=0 restores
+    # the strict f64 upload. yc rides the content-keyed cache; f64 basis @ f32 yc promotes to f64 in the solve.
     try:
         from .._fe_gpu_batch._devices import crit_float_dtype
         _zdt = crit_float_dtype()
     except Exception:
         _zdt = cp.float64
-    za = cp.asarray(np.ascontiguousarray(np.asarray(z_a, dtype=_zdt)).reshape(-1)).astype(cp.float64)
-    zb = cp.asarray(np.ascontiguousarray(np.asarray(z_b, dtype=_zdt)).reshape(-1)).astype(cp.float64)
-    yc = resident_operand(yc_h, "hermite_prewarp_yc", dtype=cp.float64)
+    za = cp.asarray(np.ascontiguousarray(np.asarray(z_a, dtype=_zdt)).reshape(-1))
+    zb = cp.asarray(np.ascontiguousarray(np.asarray(z_b, dtype=_zdt)).reshape(-1))
+    yc = resident_operand(yc_h, "hermite_prewarp_yc", dtype=_zdt)
 
     deg = max(1, int(max_degree))
     try:

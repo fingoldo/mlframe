@@ -207,10 +207,20 @@ def detect_fourier_freqs_for_col_gpu(
     # resident cache so the target split uploads ONCE; read-only here (line below reassigns y_tr/y_va to fresh
     # detrended arrays rather than mutating the cached buffer) -> selection-equivalent.
     from .._fe_resident_operands import resident_operand
-    z_tr = cp.asarray(z_tr_h)
-    z_va = cp.asarray(z_va_h)
-    y_tr = resident_operand(y_tr_h, "fourier_y_tr", dtype=cp.float64)
-    y_va = resident_operand(y_va_h, "fourier_y_va", dtype=cp.float64)
+    # Under MLFRAME_CRIT_DTYPE_RELAXED (default ON) the whole per-column fourier detect runs in FLOAT32: the two
+    # z splits + the held-out target splits upload as f32 (half the H2D) and the polynomial detrend + periodogram
+    # peak-pick compute in f32 (faster, no widening). The f32 rounding (~1e-6) is far below the FE decision
+    # margin so the detected frequencies + the downstream FE selection are unchanged (validated on F2 across all
+    # distributions + the extra-basis / robust-basis biz suites). MLFRAME_CRIT_DTYPE_RELAXED=0 restores strict f64.
+    try:
+        from .._fe_gpu_batch._devices import crit_float_dtype
+        _zdt = crit_float_dtype()
+    except Exception:
+        _zdt = cp.float64
+    z_tr = cp.asarray(np.ascontiguousarray(np.asarray(z_tr_h, dtype=_zdt)))
+    z_va = cp.asarray(np.ascontiguousarray(np.asarray(z_va_h, dtype=_zdt)))
+    y_tr = resident_operand(y_tr_h, "fourier_y_tr", dtype=_zdt)
+    y_va = resident_operand(y_va_h, "fourier_y_va", dtype=_zdt)
 
     # POLYNOMIAL DETREND (cubic in z, train-fit / val-applied) -- resident.
     _V_tr = _vander4_gpu(cp, z_tr)

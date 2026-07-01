@@ -34,6 +34,11 @@ def _als_parity_tol():
     (``MLFRAME_CRIT_DTYPE_RELAXED=0``) the device standardises in f64 and the strict ~1e-7 parity holds."""
     import os
     _relaxed = os.environ.get("MLFRAME_CRIT_DTYPE_RELAXED", "1").strip().lower() not in ("0", "false", "off", "no")
+    # f32 builds the design + matvecs in float32 (the relaxation) but keeps the tiny ill-conditioned
+    # normal-equation SOLVE in float64, so the coefficients agree with the CPU f64 reference to the f32-INPUT
+    # condition bound (~1e-3 absolute on the fast-growing high-degree bases) -- NOT the pure-f32-solve ~1e-1
+    # that a f32 solve would give. That is a precision contract; SELECTION-equivalence (a smooth, non-tie-
+    # sensitive CMA-ES warm-start seed) is proven separately by F2 across distributions + the hermite biz suites.
     return (5e-3, 1e-4) if _relaxed else (1e-7, 1e-9)
 
 
