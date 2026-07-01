@@ -49,6 +49,7 @@ batching + early-reject already applied. See ``_benchmarks/bench_conditional_gat
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from itertools import combinations
 from typing import Optional, Sequence
@@ -214,9 +215,51 @@ def _responded(feat_mi: float, baseline: float, null_hi: float, min_margin: floa
     return (feat_mi - baseline) >= min_margin and feat_mi > (null_hi + null_margin)
 
 
-def _perm_null_hi(feat: np.ndarray, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
+def _gate_cands_resident() -> bool:
+    """Whether the SCORED gate / row-argmax candidate float is uploaded ONCE and its resident cupy handle threaded
+    through the marginal MI + the 12-perm null -- so the candidate never re-crosses H2D at the ``_mi_classif_batch``
+    :318 upload site (measured: 80 MB/x10 from ``cheap_row_argmax_scan``, 3 MB/x12 from ``_perm_null_hi`` on a 1M
+    STRICT-resident F2 fit). Default ON under ``fe_gpu_strict_resident_enabled`` + ``_cmi_gpu_enabled`` (the same
+    predicate pair the CMI-gate / raw-redundancy candidate residency uses); opt-out ``MLFRAME_FE_GATE_RESIDENT_CANDS=0``.
+    Any import fault -> off (the exact host upload path runs)."""
+    if os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return False
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
+        return bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
+    except Exception:
+        return False
+
+
+def _resident_cand(feat: np.ndarray, role):
+    """Upload a SCORED candidate float column ONCE and return its RESIDENT cupy handle (content-keyed via
+    ``resident_operand`` under ``role``), so ``_mi`` / ``_perm_null_hi`` read it device-side instead of re-uploading
+    the same host float at every MI kernel call. Returns the ORIGINAL host array unchanged when residency is off, on a
+    non-finite column (the resident percentile-edge binner needs an all-finite operand -> host path preserves the CPU
+    NaN handling), or on ANY cupy fault -> the host MI path runs (selection-identical, no work hidden)."""
+    if not _gate_cands_resident():
+        return feat
+    host = np.ascontiguousarray(np.asarray(feat, dtype=np.float64)).ravel()
+    if not np.all(np.isfinite(host)):
+        return feat
+    try:
+        from ._fe_resident_operands import resident_operand
+        import cupy as cp  # noqa: F401  (import guard: skip residency when cupy is absent)
+        return resident_operand(host, role, dtype=np.float64)
+    except Exception:
+        logger.debug("gate resident-candidate upload failed; host fallback", exc_info=True)
+        return feat
+
+
+def _perm_null_hi(feat, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
     """Upper band (mean + z*std) of the fixed feature's MI under y permutation -- the noise reference the feature MI must clear.
-    The feature is fixed; only y is shuffled (cheap, n_perm small)."""
+    The feature is fixed; only y is shuffled (cheap, n_perm small).
+
+    ``feat`` may be a host ndarray OR an ALREADY-RESIDENT cupy handle (the gate / row-argmax scorer uploads the scored
+    candidate ONCE and threads the resident handle here): the fixed candidate is FIT-CONSTANT across all ``n_perm``
+    shuffles, so a resident handle is uploaded once and reused for every permutation instead of re-uploading the same
+    float 12x. ``_mi`` takes the resident-input branch; only y is shuffled (a fresh host int64 per perm, as before)."""
     rng = np.random.default_rng(seed)
     yi = np.asarray(y).astype(np.int64)
     vals = np.empty(n_perm, dtype=np.float64)
@@ -358,10 +401,14 @@ def cheap_row_argmax_scan(
         budget -= 1
         operand_floor = best_existing_op_mi(arrs, tri, yi, nbins)
         feat = np.argmax(np.stack([arrs[c] for c in tri], axis=1), axis=1).astype(np.float64)
-        feat_mi = _mi(feat, yi, nbins=nbins)
+        # The SCORED argmax candidate is fit-constant and re-crosses H2D at the :318 MI upload site on both the
+        # marginal MI and the 12-perm null (measured 80 MB/x10 on a 1M STRICT fit). Upload it ONCE and thread the
+        # resident handle through both (host array unchanged when residency is off / non-finite / cupy fault).
+        feat_r = _resident_cand(feat, ("gate_cand_argmax", tuple(str(c) for c in tri)))
+        feat_mi = _mi(feat_r, yi, nbins=nbins)
         # Early-reject: the null only matters for a triple already clearing the operand margin (``_responded`` needs BOTH).
         if (feat_mi - operand_floor) >= _MIN_MARGIN:
-            null_hi = _perm_null_hi(feat, yi, nbins, seed=seed)
+            null_hi = _perm_null_hi(feat_r, yi, nbins, seed=seed)
         else:
             null_hi = float("inf")
         hits.append(ArgmaxHit(tuple(tri), feat_mi, operand_floor, null_hi))
@@ -568,7 +615,11 @@ def cheap_conditional_gate_scan(
             if (best_mi - baseline) >= _MIN_MARGIN:
                 # Recompute just the best column on host for the cheap permutation null (one column, not the grid).
                 best_col = _build_feats(mode, operands, np.asarray([taus[best_j]], dtype=np.float64))[:, 0]
-                null_hi = _perm_null_hi(best_col, yi, nbins, seed=seed)
+                # The best-tau column is fit-constant across the 12-perm null: upload it ONCE and thread the
+                # resident handle so it never re-crosses H2D at the :318 MI upload site (host array unchanged when
+                # residency is off / non-finite / cupy fault).
+                best_col_r = _resident_cand(best_col, ("gate_cand_best", mode, ctup, best_tau))
+                null_hi = _perm_null_hi(best_col_r, yi, nbins, seed=seed)
             else:
                 null_hi = float("inf")
             hits.append(GateHit(mode, ctup, best_tau, best_mi, baseline, null_hi))

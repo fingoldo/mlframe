@@ -355,6 +355,17 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
         pass   # cupy/strict-module absent OR a genuine device fault -> exact CPU njit below.
         # NOTE (FIX1): ValueError / IndexError are intentionally NOT caught here -- a -1 / out-of-range
         # code raised by _assert_codes_in_range (illegal-address guard) must surface, not degrade to CPU.
+    # A RESIDENT-INPUT caller (device-born matrix or the gate / row-argmax scorer that threads a resident cupy
+    # candidate) may reach this CPU fallback on a genuine device fault -> bring the operands back to host so the
+    # njit / sklearn path actually runs instead of crashing on ``np.asarray(cupy)``. Host inputs pass through.
+    try:
+        import cupy as _cp_fb  # type: ignore
+        if isinstance(X, _cp_fb.ndarray):
+            X = _cp_fb.asnumpy(X)
+        if isinstance(y, _cp_fb.ndarray):
+            y = _cp_fb.asnumpy(y)
+    except Exception:
+        pass
     if _MI_BACKEND == "numba":
         return _mi_classif_batch_numba(X, y, nbins=nbins)
     return _mi_classif_batch_sklearn(X, y, nbins=nbins)

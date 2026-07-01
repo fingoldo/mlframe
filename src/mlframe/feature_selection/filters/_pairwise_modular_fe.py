@@ -64,6 +64,22 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+
+def _is_cupy_ndarray(x) -> bool:
+    """True iff ``x`` is a resident cupy ndarray -- WITHOUT hard-importing cupy (no import when it is a host array).
+
+    Used by ``_mi`` (and the conditional-gate / row-argmax scorers that thread a resident candidate handle) to
+    take the resident-input branch instead of ``np.asarray`` (which raises on a cupy array). Returns False for
+    any host array / when cupy is absent -> the exact host path runs."""
+    if type(x).__module__.split(".", 1)[0] != "cupy":
+        return False
+    try:
+        import cupy as cp
+        return isinstance(x, cp.ndarray)
+    except Exception:
+        return False
+
+
 __all__ = [
     "ModularHit",
     "COARSE_MODULI",
@@ -107,7 +123,14 @@ def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
 
     Routes the gate/operator-edge MI through the RANK resident binner under ``MLFRAME_FE_GPU_STRICT_RESIDENT``
     (default OFF -> byte-for-byte the prior path) so the STRICT gate MI byte-matches the CPU njit rank MI on
-    tied operator outputs (the edge resident path would lower MI on the ~50%-tied gate_mask)."""
+    tied operator outputs (the edge resident path would lower MI on the ~50%-tied gate_mask).
+
+    RESIDENT-INPUT branch: a device-born caller may hand an ALREADY-RESIDENT cupy candidate column (e.g. the
+    conditional-gate / row-argmax scorer, which uploads the scored candidate ONCE and reuses the resident handle
+    across its marginal MI + the 12-perm null). Pass it straight to ``_mi_classif_batch`` -- which accepts a
+    resident cupy input (isinstance branch, no upload) -- so the candidate float never re-crosses H2D at the
+    :318 MI upload site. ``np.asarray`` on a cupy array would raise, so the resident branch MUST bypass it. Host
+    columns take the exact prior ``np.asarray`` upload path -> byte-identical default."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
     try:
@@ -115,7 +138,10 @@ def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
         _rb = fe_gpu_strict_resident_enabled()
     except Exception:
         _rb = False
-    arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
+    if _is_cupy_ndarray(col):
+        arr = col  # resident (n,) or (n,1) cupy -> _mi_classif_batch reshapes 1-D to a column itself
+    else:
+        arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
     return float(_mi_classif_batch(arr, np.asarray(y).astype(np.int64), nbins=nbins, rank_binning=_rb)[0])
 
 
