@@ -208,7 +208,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload bandit results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bandit-report
@@ -251,7 +251,7 @@ jobs:
           /tmp/smoke/bin/python -c "import mlframe; print('mlframe', mlframe.__version__, 'at', mlframe.__file__)"
           /tmp/smoke/bin/python -c "from mlframe.metrics.core import *; from mlframe.training import train_and_evaluate_model; from mlframe.models.ensembling import *; from mlframe.calibration.quality import *; print('smoke OK')"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
