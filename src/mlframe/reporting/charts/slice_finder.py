@@ -313,13 +313,16 @@ def find_weak_slices(
                 _strides2 = np.array([int(_s0[_k2]), 1], dtype=np.int64)
                 _pair_agg[_c] = (_bsums[_k2, :_nc].copy(), _bcounts[_k2, :_nc].copy(), _strides2)
 
-    # Aggregate every combo; collect slices above the support floor.
-    rec_features: List[Tuple[str, ...]] = []
-    rec_bounds: List[str] = []
+    # Aggregate every combo; collect slices above the support floor. Only the cheap numeric records (mean / support /
+    # score) plus the minimal slice IDENTITY (the combo's feature indices + the decoded per-feature bin row) are kept
+    # here -- the expensive human-readable ``bounds`` / ``features`` labels (thousands of ``_bin_label`` calls + f-string
+    # formatting + " & ".join) are deferred to AFTER the top_k selection below, so labels are built for only the ~top_k
+    # displayed rows instead of every candidate cell across all combos (the caller discards all but top_k).
+    rec_combo: List[Tuple[int, ...]] = []
+    rec_bins: List[Tuple[int, ...]] = []
     rec_mean: List[float] = []
     rec_support: List[int] = []
     rec_score: List[float] = []
-    sqrt_n = float(np.sqrt(n))
     for combo in combos:
         _cached = _pair_agg.get(combo)
         if _cached is not None:
@@ -334,6 +337,8 @@ def find_weak_slices(
         support_frac = counts / n
         scores = degradation * np.sqrt(support_frac)
         cell_ids = np.flatnonzero(valid & (degradation > 0.0))
+        if cell_ids.size == 0:
+            continue
         # Decode every selected mixed-radix cell id at once: bins[:,k] = (rem // stride_k), rem %= stride_k.
         # Same integer recurrence as the per-cell Python loop (np.unravel_index arithmetic), bit-identical
         # by construction, but vectorized over all selected cells of the combo instead of a python row loop.
@@ -344,14 +349,10 @@ def find_weak_slices(
             sk = int(strides[k])
             decoded[:, k] = rem // sk
             rem %= sk
+        decoded_rows = decoded.tolist()
         for ci, cid in enumerate(cell_ids):
-            bins_of_cell = decoded[ci]
-            bounds = " & ".join(
-                f"{names[combo[k]]} {_bin_label(all_edges[combo[k]], int(bins_of_cell[k]))}"
-                for k in range(m)
-            )
-            rec_features.append(tuple(names[f] for f in combo))
-            rec_bounds.append(bounds)
+            rec_combo.append(combo)
+            rec_bins.append(tuple(decoded_rows[ci]))
             rec_mean.append(float(means[cid]))
             rec_support.append(int(counts[cid]))
             rec_score.append(float(scores[cid]))
@@ -371,7 +372,20 @@ def find_weak_slices(
     # errors keep their score-built order), then take the top_k. The candidate pool itself is still built by the
     # degradation x support score above -- only the displayed ordering is by error.
     order = np.argsort(np.asarray(rec_mean), kind="stable")[::-1][:top_k]
-    support_arr = np.asarray(rec_support, dtype=np.float64)
+    # Build the expensive bounds / features labels ONLY for the displayed top_k rows (see the deferral note above).
+    def _features_for(i: int) -> Tuple[str, ...]:
+        return tuple(names[f] for f in rec_combo[i])
+
+    def _bounds_for(i: int) -> str:
+        combo_i = rec_combo[i]
+        bins_i = rec_bins[i]
+        return " & ".join(
+            f"{names[combo_i[k]]} {_bin_label(all_edges[combo_i[k]], int(bins_i[k]))}"
+            for k in range(len(combo_i))
+        )
+
+    rec_features = {i: _features_for(i) for i in order}
+    rec_bounds = {i: _bounds_for(i) for i in order}
     table = pd.DataFrame({
         "features": [rec_features[i] for i in order],
         "bounds": [rec_bounds[i] for i in order],

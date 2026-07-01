@@ -76,20 +76,33 @@ def _resize_combo(combo: FuzzCombo, n_rows: int) -> FuzzCombo:
     return dataclasses.replace(combo, n_rows=n_rows)
 
 
-def _build_fte_from_combo(combo: FuzzCombo) -> SimpleFeaturesAndTargetsExtractor:
+def _build_fte_from_combo(
+    combo: FuzzCombo, target_col: str,
+) -> SimpleFeaturesAndTargetsExtractor:
     """Build a SimpleFeaturesAndTargetsExtractor with the right target_type
-    + group_field / weight_schemas matching the combo."""
+    + group_field / weight_schemas matching the combo.
+
+    ``target_col`` is the authoritative column name returned by
+    ``build_frame_for_combo``. It also disambiguates multi_target_regression:
+    that path emits a 2-D ``target`` column only when every model natively
+    handles a 2-D continuous target, else it downgrades the frame to a 1-D
+    ``target_reg`` column (see frame_builder ``_NATIVE_MTR_MODELS``). A
+    downgraded MTR combo is REGRESSION at the data level, so we mirror the
+    pytest suite's disambiguation instead of a fixed target-type map that
+    KeyErrors on MTR.
+    """
+    _effective_target_type = combo.target_type
+    if combo.target_type == "multi_target_regression" and target_col != "target":
+        _effective_target_type = "regression"
     target_type_map = {
         "regression": TargetTypes.REGRESSION,
         "binary_classification": TargetTypes.BINARY_CLASSIFICATION,
         "multiclass_classification": TargetTypes.MULTICLASS_CLASSIFICATION,
         "multilabel_classification": TargetTypes.MULTILABEL_CLASSIFICATION,
         "learning_to_rank": TargetTypes.LEARNING_TO_RANK,
+        "multi_target_regression": TargetTypes.MULTI_TARGET_REGRESSION,
     }
-    tt = target_type_map[combo.target_type]
-    target_col = "target_reg" if combo.target_type == "regression" else (
-        "relevance" if combo.target_type == "learning_to_rank" else "target"
-    )
+    tt = target_type_map[_effective_target_type]
     return SimpleFeaturesAndTargetsExtractor(
         target_column=target_col,
         target_type=tt,
@@ -120,7 +133,7 @@ def _profile_one_combo(
         print(f"  ! frame-build error ({type(e).__name__}): {e}")
         return None
 
-    fte = _build_fte_from_combo(combo)
+    fte = _build_fte_from_combo(combo, target_col)
 
     profiler = cProfile.Profile()
     t0 = time.time()
@@ -132,7 +145,7 @@ def _profile_one_combo(
                 target_name=combo.short_id(),
                 model_name=f"profile_{combo.short_id()}",
                 features_and_targets_extractor=fte,
-                target_type=_build_fte_from_combo(combo)._resolve_target_type(),
+                target_type=fte._resolve_target_type(),
                 mlframe_models=list(combo.models),
                 hyperparams_config={"iterations": max(combo.iterations, 30)},
                 output_config=OutputConfig(data_dir=tmpdir, models_dir="models"),
@@ -192,8 +205,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--combos", type=int, default=3,
                    help="Number of fuzz combos to profile in this batch.")
-    p.add_argument("--rows-target", type=int, default=150_000,
-                   help="Override n_rows on each combo (~150k = ~50-100MB).")
+    p.add_argument("--rows-target", type=int, default=300_000,
+                   help="Override n_rows on each combo (~300k = production profiling shape).")
     p.add_argument("--seed", type=int, default=42,
                    help="RNG seed for which combos are picked from the 150-combo space.")
     p.add_argument("--top", type=int, default=20,

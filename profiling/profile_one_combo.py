@@ -5,7 +5,7 @@ hotspot is identified in the fuzz-chain run, this script lets you
 re-run the same combo before/after a fix to verify the speedup.
 
 Usage:
-    python profiling/profile_one_combo.py --combo c0042 --rows 100000 --top 30
+    python profiling/profile_one_combo.py --combo c0042 --rows 300000 --top 30
 """
 
 from __future__ import annotations
@@ -45,18 +45,23 @@ from mlframe.training.configs import (  # noqa: E402
 )
 
 
-def _build_fte(combo):
+def _build_fte(combo, target_col):
+    """``target_col`` is the authoritative name from build_frame_for_combo;
+    it also disambiguates a downgraded multi_target_regression combo (1-D
+    ``target_reg`` -> REGRESSION) from the native 2-D ``target`` path, mirroring
+    the pytest fuzz suite. A fixed target-type map would KeyError on MTR."""
+    _effective_target_type = combo.target_type
+    if combo.target_type == "multi_target_regression" and target_col != "target":
+        _effective_target_type = "regression"
     target_type_map = {
         "regression": TargetTypes.REGRESSION,
         "binary_classification": TargetTypes.BINARY_CLASSIFICATION,
         "multiclass_classification": TargetTypes.MULTICLASS_CLASSIFICATION,
         "multilabel_classification": TargetTypes.MULTILABEL_CLASSIFICATION,
         "learning_to_rank": TargetTypes.LEARNING_TO_RANK,
+        "multi_target_regression": TargetTypes.MULTI_TARGET_REGRESSION,
     }
-    tt = target_type_map[combo.target_type]
-    target_col = "target_reg" if combo.target_type == "regression" else (
-        "relevance" if combo.target_type == "learning_to_rank" else "target"
-    )
+    tt = target_type_map[_effective_target_type]
     return SimpleFeaturesAndTargetsExtractor(
         target_column=target_col,
         target_type=tt,
@@ -68,7 +73,7 @@ def _build_fte(combo):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--combo", required=True, help="combo short_id, e.g. c0042")
-    p.add_argument("--rows", type=int, default=100_000)
+    p.add_argument("--rows", type=int, default=300_000)
     p.add_argument("--top", type=int, default=30)
     p.add_argument("--combo-pool", type=int, default=150)
     p.add_argument("--master-seed", type=int, default=2026_04_22,
@@ -106,8 +111,8 @@ def main():
         flush=True,
     )
 
-    df, _, _ = build_frame_for_combo(combo)
-    fte = _build_fte(combo)
+    df, target_col, _ = build_frame_for_combo(combo)
+    fte = _build_fte(combo, target_col)
 
     profiler = cProfile.Profile()
     t0 = time.time()

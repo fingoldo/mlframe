@@ -8,20 +8,20 @@ MODELS: tuple[str, ...] = ("cb", "xgb", "lgb", "hgb", "linear", "mlp")
 
 AXES: dict[str, tuple[Any, ...]] = {
     "input_type": ("pandas", "polars_utf8", "polars_enum", "polars_nullable"),
-    # 2026-05-21: bumped from (300, 600, 1000, 5000) to (1000, 200_000) so the
-    # large tier matches the /loop iteration target (profile_one_combo.py
-    # --rows 200000) and the size the library is actually deployed against.
+    # The large tier matches the /loop iteration target (profile_one_combo.py
+    # --rows 300000) and the size the library is actually deployed against.
     # Most recent features (FE subsample, mini-HPT, composite-discovery,
     # mrmr GPU dispatch, kernel_tuning_cache, target-distribution-analyzer)
-    # only branch above ~50k rows; without a 200k tier the fuzz suite never
-    # exercises those code paths.
+    # only branch above ~50k rows; without a large tier the fuzz suite never
+    # exercises those code paths. 300k is the production-shape profiling scale
+    # (bumped from 200k) so cProfile hotspots reflect prod-scale attribution.
     #
     # 1000 stays as the "small tier" so the n_rows-gated slow models
     # (recurrent at >600, RFECV at >1200) still get fuzz coverage. Both
     # canonicalisers (rare_1pct min=4000, rare_5pct min=800) tolerate 1000:
     # rare_5pct still fuzz-active, rare_1pct canonicalises to balanced
-    # (covered by the 200k tier where rare_1pct fits comfortably).
-    "n_rows": (1000, 200_000),
+    # (covered by the large tier where rare_1pct fits comfortably).
+    "n_rows": (1000, 300_000),
     # cat_feature_count 15 stresses one-hot blow-up (~15 levels × 15 cols ~=
     # 225 generated features) and exercises the high-card branch of MRMR /
     # encoder. Was 20 in 2026-04 — reduced 2026-04-27 for fuzz speed; the
