@@ -65,6 +65,25 @@ class TestRRF:
         expected_top = 3 * (1.0 / (60 + 1))
         assert out[0] == pytest.approx(expected_top)
 
+    def test_rrf_tied_items_get_equal_ranks(self):
+        """Canonical RRF gives genuinely TIED items EQUAL (averaged) ranks.
+
+        The prior dense-positional scheme broke ties by array index, so two
+        rows with identical member scores received DIFFERENT fused mass --
+        position-dependent fusion noise. With average-rank tie handling, rows
+        that tie across every member must get bit-identical fused scores.
+        """
+        gids = np.zeros(4, dtype=int)
+        # Rows 1 and 2 tie (0.5) in BOTH members -> must get identical output.
+        scores_per_model = [
+            np.array([0.9, 0.5, 0.5, 0.1]),
+            np.array([0.8, 0.5, 0.5, 0.2]),
+        ]
+        out = ensemble_ranker_scores(scores_per_model, gids, method="rrf", rrf_k=60)
+        assert out[1] == pytest.approx(out[2])
+        # Averaged rank for the tied pair is (2+3)/2 = 2.5 -> 2 * 1/(60+2.5).
+        assert out[1] == pytest.approx(2 * (1.0 / (60 + 2.5)))
+
     def test_rrf_invariant_to_monotone_transform(self, three_aligned_models):
         """Apply softmax / log to one model -> RRF result identical."""
         scores_per_model, gids = three_aligned_models

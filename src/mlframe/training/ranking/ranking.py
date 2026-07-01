@@ -611,18 +611,24 @@ def predict_ranker_scores(fitted: dict, X: Any, group_ids: np.ndarray | None = N
 
 
 def _ranks_within_group(scores: np.ndarray, group_starts: np.ndarray, *, descending: bool = True) -> np.ndarray:
-    """Per-group dense rank assignment.
+    """Per-group AVERAGE rank assignment.
 
     For each group's slice ``scores[group_starts[i]:group_starts[i+1]]``,
     assign rank 1 to the highest score (when ``descending=True``), 2 to
-    the next, etc. Ties get adjacent ranks (stable secondary order by
-    input index).
+    the next, etc. Genuinely TIED items get EQUAL ranks -- the average of
+    the 1-based positions they span (scipy ``rankdata(method="average")``
+    semantics). This is the canonical RRF/Borda tie handling: two items
+    with identical scores must contribute identical reciprocal-rank mass
+    regardless of their array index. The prior dense-positional scheme
+    broke ties by input position, injecting index-dependent fusion noise
+    on genuine ties (a correctness fix, not bit-identical on ties).
 
-    Returns a 1-D ``(n_rows,)`` array of int ranks (1-indexed).
+    Returns a 1-D ``(n_rows,)`` array of float ranks (1-indexed).
 
     Vectorised via a single lexsort over (-score, group_id_proxy): the
     per-group Python loop with argsort-per-group was O(n_groups) Python
-    calls and dominated wall-clock on >50k-query workloads.
+    calls and dominated wall-clock on >50k-query workloads. Tie-averaging
+    is applied vectorised over the sorted order (no per-group loop).
     """
     n = len(scores)
     if n == 0:
@@ -646,11 +652,33 @@ def _ranks_within_group(scores: np.ndarray, group_starts: np.ndarray, *, descend
     # Position within group = (cumulative count) - (group start) after order.
     # Each element's group_id appears `group_sizes[g]` times; in `order`,
     # the i-th element of each group lands at position group_starts[g] + i.
-    # So rank = (its index in order) - group_starts[group_id] + 1.
-    # Inverse permutation: pos[order[k]] = k.
+    # So dense 1-based rank = (its index in order) - group_starts[group_id] + 1.
     pos = np.empty(n, dtype=np.intp)
     pos[order] = np.arange(n, dtype=np.intp)
-    ranks = (pos - group_starts[group_ids] + 1).astype(np.float64)
+    dense_ranks = (pos - group_starts[group_ids] + 1).astype(np.float64)
+
+    # Average-rank tie correction, vectorised over the sorted order. Two
+    # sorted-adjacent rows tie iff they share a group AND an equal score.
+    # Ranks in sorted order are strictly increasing per group, so for each
+    # maximal tied run we replace the dense ranks by their mean. Compute
+    # run boundaries in sorted order, then broadcast the per-run mean back.
+    ranks_sorted = dense_ranks[order]  # dense ranks laid out in sorted order
+    prim_sorted = primary[order]
+    gid_sorted = group_ids[order]
+    # A new tied run starts at position i (>0) when group or score changes.
+    same_as_prev = np.empty(n, dtype=bool)
+    same_as_prev[0] = False
+    same_as_prev[1:] = (gid_sorted[1:] == gid_sorted[:-1]) & (prim_sorted[1:] == prim_sorted[:-1])
+    run_id = np.cumsum(~same_as_prev) - 1  # 0-based run index in sorted order
+    n_runs = int(run_id[-1]) + 1
+    run_sum = np.bincount(run_id, weights=ranks_sorted, minlength=n_runs)
+    run_cnt = np.bincount(run_id, minlength=n_runs)
+    run_mean = run_sum / run_cnt
+    avg_sorted = run_mean[run_id]
+
+    # Scatter averaged ranks back to original row order.
+    ranks = np.empty(n, dtype=np.float64)
+    ranks[order] = avg_sorted
     return ranks
 
 

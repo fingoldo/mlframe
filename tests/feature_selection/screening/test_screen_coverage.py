@@ -38,6 +38,38 @@ def _common_kwargs(factors_data, factors_nbins, targets_data, targets_nbins, **o
     return base
 
 
+def test_screen_predictors_does_not_mutate_global_numpy_rng():
+    """screen_predictors must NOT mutate the process-global numpy RNG state.
+
+    Regression for the MRMR global-RNG fix: the prior code called ``np.random.seed(random_seed)`` (mutating
+    the process-wide MT19937 generator, racy under threads/joblib). The modern kernels thread ``random_seed``
+    into their own local generators, so the global ``np.random`` state must be byte-identical across the call.
+    """
+    fd, fn, td, tn = _make_data(seed=3)
+
+    # Prime the global generator to a known, non-default state.
+    np.random.seed(999)
+    before = np.random.get_state()
+
+    out = screen_predictors(**_common_kwargs(fd, fn, td, tn, random_seed=42))
+    assert out is not None
+
+    after = np.random.get_state()
+    # State tuple: (name, keys array, pos, has_gauss, cached_gauss).
+    assert before[0] == after[0]
+    np.testing.assert_array_equal(before[1], after[1])
+    assert before[2] == after[2]
+
+
+def test_screen_predictors_reproducible_under_fixed_seed():
+    """Two calls with the same random_seed produce identical selected vars (determinism preserved)."""
+    fd, fn, td, tn = _make_data(seed=4)
+    out1 = screen_predictors(**_common_kwargs(fd, fn, td, tn, random_seed=7))
+    out2 = screen_predictors(**_common_kwargs(fd, fn, td, tn, random_seed=7))
+    # First tuple element is the selected-vars list.
+    assert out1[0] == out2[0]
+
+
 def test_screen_state_defaults():
     """ScreenState dataclass field defaults init cleanly."""
     s = ScreenState()

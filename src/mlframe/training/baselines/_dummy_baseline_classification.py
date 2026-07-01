@@ -57,25 +57,40 @@ def _compute_classification_baselines(
     bincounts = np.bincount(train_y_int, minlength=n_classes).astype(np.float64)
     train_prior = bincounts / bincounts.sum() if bincounts.sum() > 0 else np.full(n_classes, 1.0 / n_classes)
 
-    # No-skill prior / most_frequent baselines: scored on the EVALUATION split, so the
-    # floor must reflect that split's OWN class prevalence. Under label shift the train
-    # prevalence differs from val/test, and a train-prior floor would be biased (too
-    # optimistic or pessimistic) -- it would not represent the best no-skill predictor a
-    # practitioner could form on the eval distribution. Fall back to the train prior only
-    # when the eval split's labels are unavailable (predict-only deployment).
-    val_prior = _prior_from(val_y)
-    test_prior = _prior_from(test_y)
+    # No-skill prior / most_frequent baselines: an HONEST no-skill floor is what a
+    # practitioner could actually predict having seen ONLY the training labels, so the
+    # primary "prior" / "most_frequent" baselines use ``train_prior`` (fit on train, then
+    # applied unchanged to val/test). Building them from the eval split's OWN class
+    # marginal (``_prior_from(val_y)`` / ``_prior_from(test_y)``) is an eval-peek: the
+    # baseline "knows" the label distribution of the very split it is scored on, which is
+    # a label-informed, optimistic floor a real deployed constant predictor cannot form.
+    # A reviewer comparing the model to that floor would be comparing against something
+    # the model itself never got. The eval-distribution reference is still computed but
+    # exposed ONLY under the explicit ``oracle_prior`` name so it can never be mistaken
+    # for the honest baseline.
+    val_prior = train_prior
+    test_prior = train_prior
+    oracle_val_prior = _prior_from(val_y)
+    oracle_test_prior = _prior_from(test_y)
 
-    # prior baseline: constant per-class prob = eval-split prior
+    # prior baseline: constant per-class prob = TRAIN prior (honest, train-only fit)
     if n_val > 0:
         val_probs["prior"] = np.tile(val_prior, (n_val, 1))
         test_probs["prior"] = np.tile(test_prior, (n_test, 1))
 
-    # most_frequent: predict argmax of the eval-split prior with one-hot probs
+    # most_frequent: predict argmax of the TRAIN prior with one-hot probs (train-only fit)
     val_mf_row = np.zeros(n_classes); val_mf_row[int(np.argmax(val_prior))] = 1.0
     test_mf_row = np.zeros(n_classes); test_mf_row[int(np.argmax(test_prior))] = 1.0
     val_probs["most_frequent"] = np.tile(val_mf_row, (n_val, 1))
     test_probs["most_frequent"] = np.tile(test_mf_row, (n_test, 1))
+
+    # oracle_prior: label-informed reference floor built from the EVAL split's own class
+    # marginal. NOT an honest baseline (it peeks at the eval labels); surfaced under a
+    # distinct name so it reads as an upper reference for the best-possible no-skill
+    # constant, never as the floor the deployed model must beat.
+    if n_val > 0:
+        val_probs["oracle_prior"] = np.tile(oracle_val_prior, (n_val, 1))
+        test_probs["oracle_prior"] = np.tile(oracle_test_prior, (n_test, 1))
 
     # uniform: 1/K per row
     uniform_probs_row = np.full(n_classes, 1.0 / n_classes)

@@ -33,10 +33,18 @@ class NoiseAugmentedEnsemble:
 
         Xf = np.asarray(X, dtype=np.float64)
         std = Xf.std(axis=0).reshape(1, -1)
-        rng = np.random.default_rng(self.seed)
+        # Per-member independent RNG streams derived from the parent seed via
+        # SeedSequence.spawn: each clone draws statistically independent noise
+        # (proper ensemble diversity), and the whole set is reproducible under
+        # a fixed `seed`. spawn() is preferred over a single shared Generator
+        # because independence is guaranteed by construction rather than by
+        # sequential-draw ordering, and it composes when NoiseAugmentedEnsembles
+        # are stacked (distinct parent seeds -> disjoint child streams).
+        n_members = max(1, self.k)
+        child_rngs = np.random.default_rng(self.seed).spawn(n_members)
         self.estimators_ = []
-        for _ in range(max(1, self.k)):
-            Xn = Xf + rng.standard_normal(Xf.shape) * (self.sigma_scale * std)
+        for member_rng in child_rngs:
+            Xn = Xf + member_rng.standard_normal(Xf.shape) * (self.sigma_scale * std)
             est = clone(self.base_estimator)
             est.fit(Xn, y)
             self.estimators_.append(est)

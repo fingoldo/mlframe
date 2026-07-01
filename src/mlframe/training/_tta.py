@@ -41,10 +41,14 @@ def tta_predict(
     if feature_std is None:
         feature_std = Xf.std(axis=0)
     feature_std = np.asarray(feature_std, dtype=np.float64).reshape(1, -1)
-    rng = np.random.default_rng(seed)
+    # Per-pass independent RNG streams via SeedSequence.spawn: each jittered
+    # augmentation draws statistically independent noise (proper diversity),
+    # reproducible under a fixed `seed`, and composable when several TTA
+    # ensembles are stacked (distinct parent seeds -> disjoint child streams).
+    child_rngs = np.random.default_rng(seed).spawn(n - 1)
     preds = [clean]
-    for _ in range(n - 1):
-        noise = rng.standard_normal(Xf.shape) * (sigma_scale * feature_std)
+    for pass_rng in child_rngs:
+        noise = pass_rng.standard_normal(Xf.shape) * (sigma_scale * feature_std)
         preds.append(np.asarray(predict_fn(Xf + noise)))
     stacked = np.stack(preds, axis=0)
     if agg == "median":
@@ -61,15 +65,21 @@ def tta_predict_spread(
     feature_std: Optional[np.ndarray] = None,
     seed: int = 0,
 ) -> np.ndarray:
-    """Per-row std of the prediction across the ``n`` perturbed passes -- an (approximate, uncalibrated) input-sensitivity spread."""
+    """Per-row std of the prediction across the ``n`` perturbed passes -- an (approximate, uncalibrated) input-sensitivity spread.
+
+    NOTE: this is the POPULATION standard deviation (numpy ``np.std`` default ``ddof=0``), which is low-biased
+    for small ``n`` (divides by ``n``, not ``n-1``). Treat it as a diagnostic spread, not a calibrated sample
+    sd; rescale by ``sqrt(n/(n-1))`` if an unbiased sd estimate is required.
+    """
     Xf = np.asarray(X, dtype=np.float64)
     if feature_std is None:
         feature_std = Xf.std(axis=0)
     feature_std = np.asarray(feature_std, dtype=np.float64).reshape(1, -1)
-    rng = np.random.default_rng(seed)
+    # Per-pass independent RNG streams via SeedSequence.spawn (see tta_predict).
+    child_rngs = np.random.default_rng(seed).spawn(max(0, n - 1))
     preds = [np.asarray(predict_fn(Xf))]
-    for _ in range(max(0, n - 1)):
-        noise = rng.standard_normal(Xf.shape) * (sigma_scale * feature_std)
+    for pass_rng in child_rngs:
+        noise = pass_rng.standard_normal(Xf.shape) * (sigma_scale * feature_std)
         preds.append(np.asarray(predict_fn(Xf + noise)))
     return np.std(np.stack(preds, axis=0), axis=0)
 
@@ -88,11 +98,14 @@ def tta_point_mean_spread(
     Fuses what ``predict_fn(X)`` + ``tta_predict(..., agg="mean")`` + ``tta_predict_spread(...)`` would otherwise do in three separate
     sweeps (3 clean passes + 2*(n-1) jittered passes = 2n+1 model calls) into a single sweep of n model calls: one clean pass reused as
     both the point estimate and the first augmentation member, plus n-1 jittered passes accumulated via Welford. The clean pass and the
-    jittered noise sequence (``default_rng(seed)``) are identical to those of the two standalone functions, so ``mean`` and ``spread`` match
-    them to floating-point reduction-order tolerance (Welford streaming vs two-pass ``np.mean``/``np.std`` differ by ~1e-9 ULP only).
+    per-pass jittered noise streams (``default_rng(seed).spawn(n-1)``) are identical to those of the two standalone functions, so ``mean``
+    and ``spread`` match them to floating-point reduction-order tolerance (Welford streaming vs two-pass ``np.mean``/``np.std`` differ by ~1e-9 ULP only).
 
     Returns ``(point, mean, spread)``; ``mean`` and ``spread`` are over the same n-member population as the standalone helpers. With
     ``n<=1`` or ``sigma_scale<=0`` the mean equals the clean point and the spread is all-zero.
+
+    NOTE: ``spread`` is the POPULATION standard deviation (``ddof=0``, ``sqrt(m2/count)``), low-biased for small ``n``; it is a diagnostic
+    spread, not a calibrated sample sd. Rescale by ``sqrt(n/(n-1))`` if an unbiased sd estimate is required.
     """
     Xf = np.asarray(X, dtype=np.float64)
     point = np.asarray(predict_fn(Xf), dtype=np.float64)
@@ -101,13 +114,16 @@ def tta_point_mean_spread(
     if feature_std is None:
         feature_std = Xf.std(axis=0)
     feature_std = np.asarray(feature_std, dtype=np.float64).reshape(1, -1)
-    rng = np.random.default_rng(seed)
+    # Per-pass independent RNG streams via SeedSequence.spawn (see tta_predict);
+    # identical spawn scheme to tta_predict / tta_predict_spread, so mean and
+    # spread match those standalone helpers member-for-member.
+    child_rngs = np.random.default_rng(seed).spawn(n - 1)
     # Welford accumulators seeded with the clean pass as member #1.
     count = 1
     mean = point.astype(np.float64).copy()
     m2 = np.zeros_like(mean)
-    for _ in range(n - 1):
-        noise = rng.standard_normal(Xf.shape) * (sigma_scale * feature_std)
+    for pass_rng in child_rngs:
+        noise = pass_rng.standard_normal(Xf.shape) * (sigma_scale * feature_std)
         x = np.asarray(predict_fn(Xf + noise), dtype=np.float64)
         count += 1
         delta = x - mean

@@ -349,21 +349,24 @@ def screen_predictors(
     start_time = timer()
     run_out_of_time = False
 
-    # Global-RNG hygiene: snapshot the process-wide MT19937 state on entry,
-    # seed it (numpy + numba + cupy) for the screening duration so downstream
-    # ``np.random.shuffle`` calls in permutation / fleuret kernels stay
-    # deterministic, then restore in a ``finally`` so the caller's state is
-    # byte-identical on EVERY exit path (happy return AND any mid-screen raise).
-    # Wave 49 (2026-05-20): also restore numba and cupy seeds (the prior
-    # implementation acknowledged the leak in comments but didn't fix it).
-    # Numba/CuPy expose no portable get_state, so we re-seed them at finally
-    # time with a high-entropy random64 captured pre-entry from os.urandom --
-    # not byte-identical but indistinguishable to any downstream consumer.
-    _np_state_snapshot = None
+    # RNG hygiene. numpy: the modern screening / permutation / fleuret kernels
+    # each thread ``random_seed`` explicitly (inline-LCG Fisher-Yates, or their
+    # own local ``default_rng``), so we no longer seed or snapshot the
+    # process-global MT19937 state here -- the prior ``np.random.seed`` mutated
+    # a process-wide generator (racy under threads/joblib workers and a hidden
+    # side effect on the caller's state). Instead we build a LOCAL Generator
+    # from ``random_seed`` for any numpy-side draw; the caller's global
+    # ``np.random`` state is left untouched. All current downstream numpy draws
+    # are threaded via ``random_seed`` into their own local Generators / LCG, so
+    # no direct global-numpy draw remains on this path.
+    #
+    # numba/cupy: these expose no portable Generator threading for the njit
+    # kernels, so their global seeds are still set for the screening duration
+    # and restored in ``finally`` with a fresh-entropy reseed (Wave 49), which
+    # is byte-indistinguishable to any downstream consumer.
     _numba_restore_seed = None
     _cp_restore_seed = None
     if random_seed is not None:
-        _np_state_snapshot = np.random.get_state()
         # Capture a fresh entropy-derived seed to restore numba/cupy with on
         # finally; mathematically equivalent (from the consumer's view) to
         # "the seed they would have had if no inner seed call had fired".
@@ -378,7 +381,6 @@ def screen_predictors(
         # contexts and tears down the test runner.
         if use_gpu:
             _cp_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
-        np.random.seed(random_seed)
         set_numba_random_seed(random_seed)
         # 2026-05-30 Wave 9.1 fix (loop iter 25): the prior
         # ``try: cp.random.seed(random_seed); except NameError: pass``
@@ -943,12 +945,9 @@ def screen_predictors(
         # defined unconditionally above; on the CPU path it IS ``classes_y_safe``.
         return selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe_host, freqs_y, dcd_state
     finally:
-        # Restore the global numpy RNG state captured at entry. Executes on the
-        # happy return AND on any raise inside the try -- pre-fix code only restored on
-        # the happy path, leaving the global state seeded after mid-screen exceptions.
-        if _np_state_snapshot is not None:
-            np.random.set_state(_np_state_snapshot)
-        # Wave 49 (2026-05-20): also restore numba + cupy (the prior comment block
+        # numpy global state is no longer mutated by this function (a local
+        # Generator is used instead), so there is nothing to restore for numpy.
+        # Wave 49 (2026-05-20): still restore numba + cupy (the prior comment block
         # acknowledged the leak; this closes it with a fresh-entropy reseed).
         if _numba_restore_seed is not None:
             try:

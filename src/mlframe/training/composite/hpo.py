@@ -2,16 +2,24 @@
 
 ``optimize_composite`` searches JOINTLY over (transform choice, inner-estimator
 hyperparameters) to minimise leakage-free CV (or purged-CV) out-of-sample error,
-returning the best ``(transform_name, inner_params, cv_score)`` plus a
+returning the best ``(transform_name, inner_params, selection_score)`` plus a
 :class:`CompositeTargetEstimator` re-fitted on ALL rows with the winning config.
 
 Why joint search: the best transform and the best inner depth are coupled -- a
 log-residual base may favour a shallow tree while a raw-diff base needs depth to
 recover curvature. Optimising the two independently (pick transform by MI, then
-tune the inner) misses the interaction and ships a sub-optimal pair. The objective
-here is the honest CV OOS error of the FULL composite (transform applied on the
-fit fold, inverted on the score fold), so the winner is the pair that actually
-predicts ``y`` best out of sample, not the pair that looks best on a proxy.
+tune the inner) misses the interaction and ships a sub-optimal pair. Each trial's
+CV error is leakage-free per FOLD (transform applied on the fit fold, inverted on
+the score fold), so the winner is the pair that predicts ``y`` best out of sample.
+
+IMPORTANT -- ``selection_score`` is a SELECTION score, NOT an unbiased OOS estimate.
+It is the CV error of the WINNING trial, i.e. the minimum over ``n_trials`` noisy
+CV estimates. Taking the min (argmax of goodness) over many noisy estimates is
+optimistically biased downward ("winner's curse" / selection bias): the reported
+number is systematically better than the true generalisation error of the chosen
+config. There is NO nested CV here to de-bias it. To report an HONEST OOS number,
+re-estimate the returned ``estimator`` on a DISJOINT holdout the search never saw
+(or wrap ``optimize_composite`` in an outer CV loop for full nested CV).
 
 Backend: uses Optuna when importable (TPE over a mixed categorical/numeric space);
 falls back to a self-contained random search when Optuna is absent -- never a hard
@@ -102,17 +110,32 @@ class CompositeHPOResult:
 
     ``estimator`` is a :class:`CompositeTargetEstimator` already fitted on all
     rows with the winning ``(transform, inner_params)`` pair, ready to predict.
-    ``cv_score`` is the mean CV OOS error of that pair (lower is better).
-    ``trials`` records every evaluated ``(transform, params, score)`` for audit.
+    ``selection_score`` is the CV error of the WINNING trial (lower is better).
+    It is a SELECTION score, NOT an unbiased OOS estimate: it is the minimum over
+    ``n_trials`` noisy CV estimates and is therefore optimistically biased
+    (winner's curse). For an honest generalisation number, re-score ``estimator``
+    on a disjoint holdout the search never saw. ``trials`` records every evaluated
+    ``(transform, params, score)`` for audit.
+
+    ``cv_score`` is retained as a read-only backward-compatible alias of
+    ``selection_score`` (older callers); prefer ``selection_score`` in new code so
+    the optimistic-bias caveat is visible at the call site.
     """
 
     transform: str
     inner_params: Dict[str, Any]
-    cv_score: float
+    selection_score: float
     estimator: CompositeTargetEstimator
     backend: str
     n_trials: int
     trials: List[Tuple[str, Dict[str, Any], float]] = field(default_factory=list)
+
+    @property
+    def cv_score(self) -> float:
+        """Deprecated alias of :attr:`selection_score` (a selection score, not an
+        unbiased OOS estimate). Kept so existing ``result.cv_score`` callers keep
+        working; new code should read ``selection_score`` and honor its caveat."""
+        return self.selection_score
 
 
 # ----------------------------------------------------------------------
@@ -237,6 +260,13 @@ def _resolve_splits(
     on the time-sorted row order is used (honest temporal OOS); else a plain
     integer ``cv`` (or default 5) drives a contiguous KFold. Folds are computed
     once and reused across every trial so all candidates see identical splits.
+
+    Caveat: the default integer-``cv`` KFold is CONTIGUOUS with NO shuffle -- each
+    fold is a solid block of consecutive rows. For ordered-but-non-temporal data
+    (rows sorted by an id, a category, or any non-random key that is NOT a time
+    axis) this concentrates whole regions in single folds and gives a biased CV
+    estimate; pass an explicit shuffled ``cv`` (e.g. ``KFold(shuffle=True)``) for
+    such data, or a ``time_ordering`` when the order really is temporal.
     """
     if cv is not None and hasattr(cv, "split"):
         return [(np.asarray(tr), np.asarray(te)) for tr, te in cv.split(X)]
@@ -324,8 +354,10 @@ def optimize_composite(
     Returns
     -------
     CompositeHPOResult
-        Winning transform + inner params + CV score + an all-rows-fitted
-        composite estimator + the full trial log.
+        Winning transform + inner params + ``selection_score`` (the winning
+        trial's CV error -- a SELECTION score, optimistically biased by the
+        min-over-trials selection; re-score on a disjoint holdout for an honest
+        OOS number) + an all-rows-fitted composite estimator + the full trial log.
     """
     if n_trials < 1:
         raise ValueError(f"n_trials must be >= 1, got {n_trials}")
@@ -373,7 +405,7 @@ def optimize_composite(
     return CompositeHPOResult(
         transform=best_transform,
         inner_params=best_params,
-        cv_score=best_score,
+        selection_score=best_score,
         estimator=final_est,
         backend=backend,
         n_trials=n_trials,
