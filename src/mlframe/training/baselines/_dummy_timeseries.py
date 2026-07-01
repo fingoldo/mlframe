@@ -58,6 +58,11 @@ def _normalize_timestamps(ts: Any) -> np.ndarray | None:
                 # could not do at all on tz-aware DatetimeIndex -- raised TypeError that the outer
                 # try/except swallowed, returning None and silently disabling temporal logic).
                 _dti = pd.to_datetime(ts, utc=True, errors="coerce")
+                _n_nat = int(pd.isna(_dti).sum())
+                if _n_nat > 0:
+                    logger.warning(
+                        "dummy_timeseries: %d timestamp value(s) were unparseable and coerced to NaT.", _n_nat,
+                    )
                 if getattr(_dti, "tz", None) is not None:
                     _dti = _dti.tz_convert(None)
                 # Pin the datetime64 unit to ns BEFORE .view("int64"). pandas

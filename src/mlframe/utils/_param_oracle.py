@@ -69,13 +69,14 @@ objective. This keeps the store tiny, privacy-safe, and portable.
 from __future__ import annotations
 
 import itertools
-import json
 import logging
 import math
 import os
 import random
 import time
 from typing import Any, Callable, Mapping, Optional, Sequence
+
+import orjson
 
 logger = logging.getLogger(__name__)
 
@@ -848,7 +849,7 @@ def _loads(s: Optional[str]) -> dict:
     if not s:
         return {}
     try:
-        return json.loads(s)
+        return orjson.loads(s)
     except Exception:
         return {}
 

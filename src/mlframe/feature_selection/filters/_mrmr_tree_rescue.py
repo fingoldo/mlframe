@@ -105,7 +105,15 @@ class MRMRTreeRescued(MRMR):
                     if np.isnan(Xnum).any():
                         Xnum[np.isnan(Xnum)] = 0.0
                 except (ValueError, TypeError):
-                    Xnum = Xf.apply(pd.to_numeric, errors="coerce").fillna(0.0).to_numpy(dtype=float)
+                    _coerced = Xf.apply(pd.to_numeric, errors="coerce")
+                    _nan_fill = int(_coerced.isna().to_numpy().sum())
+                    if _nan_fill:
+                        logger.warning(
+                            "tree_rescue: %d cell(s) across the feature frame were unparseable and coerced to 0.0 "
+                            "(non-numeric columns become all-zero, biasing the rescue LGBM). Columns: %s",
+                            _nan_fill, list(Xf.columns[_coerced.isna().any().to_numpy()]),
+                        )
+                    Xnum = _coerced.fillna(0.0).to_numpy(dtype=float)
             else:
                 Xnum = np.asarray(X, dtype=float)
             if Xnum.shape[1] != int(self.n_features_in_):

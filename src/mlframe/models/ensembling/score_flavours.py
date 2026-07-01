@@ -328,7 +328,6 @@ def apply_quality_gate_kn(
     ensembling_methods: list,
     res: dict,
     verbose: bool,
-    compute_member_quality_gate_fn: Any = None,
 ) -> Tuple[list, List[str], List[str], str, float, float, float, float, Any]:
     """K>2 quality gate: drop members whose per-member MAE exceeds the relative/absolute thresholds.
 
@@ -336,10 +335,9 @@ def apply_quality_gate_kn(
 
     Returns the (possibly reduced) member list + tag lists + the rebuilt ensemble_name + zeroed max_* thresholds + ``_gate_stats`` (None when the gate did not fire).
 
-    ``compute_member_quality_gate_fn`` is injected by the caller so existing tests that monkey-patch ``_ensembling_score.compute_member_quality_gate`` see their patch hit -- without injection the helper would resolve the function via its own top-level import and silently bypass the test's spy. When ``None`` (the default), falls back to ``_ensembling_quality_gate.compute_member_quality_gate``.
+    ``compute_member_quality_gate`` is resolved lazily from its canonical module ``quality_gate`` at call time, so tests that monkey-patch ``mlframe.models.ensembling.quality_gate.compute_member_quality_gate`` (the real import site) see their spy hit.
     """
-    if compute_member_quality_gate_fn is None:
-        from .quality_gate import compute_member_quality_gate as compute_member_quality_gate_fn  # noqa: E501
+    from .quality_gate import compute_member_quality_gate as compute_member_quality_gate_fn
 
     _gate_stats: Any = None
     if not (_gate_preds_for_check is not None and len(_gate_preds_for_check) > 2):

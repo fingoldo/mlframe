@@ -507,7 +507,11 @@ def train_postcalibrators(
             continue
         try:
             _tt_np = _tt.values if hasattr(_tt, "values") else np.asarray(_tt)
-        except Exception:
+        except Exception as exc:
+            logger.debug(
+                "train_postcalibrators: could not coerce model %r test_target for calib==test safety check; "
+                "skipping this model in the identity guard: %r", _name, exc, exc_info=True
+            )
             continue
         if _tt_np.shape == _calib_target_np.shape:
             # array_equal handles dtype mismatches and avoids deprecation noise on ndarray==

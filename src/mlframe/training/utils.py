@@ -781,7 +781,15 @@ def get_pandas_view_of_polars_df(
     _coerced_temporal_cols = []
     for name in _arrow_temporal_cols:
         if not pd.api.types.is_datetime64_any_dtype(pandas_df[name]):
+            _pre_na = int(pandas_df[name].isna().sum())
             pandas_df[name] = pd.to_datetime(pandas_df[name], errors="coerce")
+            _new_nat = int(pandas_df[name].isna().sum()) - _pre_na
+            if _new_nat > 0:
+                logger.warning(
+                    "get_pandas_view_of_polars_df: restoring temporal column %r coerced %d "
+                    "additional cell(s) to NaT (unparseable timestamps silently dropped).",
+                    name, _new_nat,
+                )
             _coerced_temporal_cols.append(name)
     if _coerced_temporal_cols and logger.isEnabledFor(logging.DEBUG):
         logger.debug(

@@ -54,6 +54,8 @@ class PlotOutputSpec:
 # Match a single backend clause: "plotly[html,png]" with optional whitespace.
 # Group 1 = backend name (alpha only), Group 2 = format list inside [].
 _CLAUSE_RE = re.compile(r"^\s*([A-Za-z]+)\s*\[\s*([A-Za-z0-9_,\s]+?)\s*\]\s*$")
+# Split the plot_outputs DSL on '+' with optional surrounding whitespace.
+_CLAUSE_SPLIT_RE = re.compile(r"\s*\+\s*")
 
 
 def parse_plot_output_dsl(s: str) -> PlotOutputSpec:
@@ -73,7 +75,7 @@ def parse_plot_output_dsl(s: str) -> PlotOutputSpec:
     raw = s
     # Split on '+' (allowing whitespace around it). Keep order so callers
     # can rely on (matplotlib first → primary) when both are requested.
-    clauses = [c.strip() for c in re.split(r"\s*\+\s*", s) if c.strip()]
+    clauses = [c.strip() for c in _CLAUSE_SPLIT_RE.split(s) if c.strip()]
     if not clauses:
         raise ValueError(f"plot_outputs DSL has no clauses: {s!r}")
 

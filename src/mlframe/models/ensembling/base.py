@@ -181,12 +181,9 @@ except Exception:  # pragma: no cover
     _rrf_aggregate_probs_njit = None
 
 
-try:  # pragma: no cover -- env-dependent
-    import cupy as _cupy_lazy  # noqa: F401
+from mlframe.system._gpu_guard import try_import_cupy  # noqa: E402
 
-    _HAS_CUPY = True
-except Exception:  # pragma: no cover
-    _HAS_CUPY = False
+_, _HAS_CUPY = try_import_cupy()  # pragma: no cover -- env-dependent
 
 
 def _stacked_corrcoef(M: np.ndarray) -> np.ndarray:

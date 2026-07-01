@@ -22,10 +22,13 @@ There is no opt-in flag: ``explain_selection`` is a method you call on a fitted 
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 # Map a binding rejection gate to the single knob a user would relax to admit more
@@ -68,7 +71,11 @@ _SCREEN_CHAR_CAP = 2600
 def _fmt_margin_band(series: pd.Series) -> str:
     """Render a "-0.04..-0.11" style margin band from a numeric margin column; '' if none."""
     try:
-        vals = pd.to_numeric(series, errors="coerce").dropna()
+        _coerced = pd.to_numeric(series, errors="coerce")
+        _n_dropped = int(_coerced.isna().sum() - series.isna().sum()) if hasattr(series, "isna") else int(_coerced.isna().sum())
+        if _n_dropped > 0:
+            logger.warning("mrmr-explain: margin-band render dropped %d unparseable margin value(s).", _n_dropped)
+        vals = _coerced.dropna()
     except Exception:
         return ""
     if vals.empty:
@@ -104,6 +111,9 @@ def _survivor_section(mrmr_self: Any) -> str:
     # ``_N``, which would make ``getattr(row, ...)`` silently miss the gain.
     if "mrmr_gain" in prov.columns:
         gains = pd.to_numeric(prov["mrmr_gain"], errors="coerce")
+        _n_bad_gain = int(gains.isna().sum() - pd.isna(prov["mrmr_gain"]).sum())
+        if _n_bad_gain > 0:
+            logger.warning("mrmr-explain: %d mrmr_gain value(s) were unparseable and excluded from the attribution roster.", _n_bad_gain)
         ranked = prov.assign(gain_attr=gains)
         scored = ranked[ranked["gain_attr"].notna()].sort_values("gain_attr", ascending=False)
         roster = scored if not scored.empty else ranked
@@ -175,6 +185,9 @@ def _whatif_section(mrmr_self: Any, binding_gate: str | None) -> str:
         return "What-if-flip: ledger empty -- no relaxation would re-admit anything this fit."
     gate_col = led["gate"].astype(str)
     margin_col = pd.to_numeric(led["margin"], errors="coerce")
+    _n_bad_margin = int(margin_col.isna().sum() - pd.isna(led["margin"]).sum())
+    if _n_bad_margin > 0:
+        logger.warning("mrmr-explain: %d rejection-ledger margin value(s) were unparseable and treated as NaN in the what-if-flip preview.", _n_bad_margin)
     lines: list[str] = []
     # Lead with the binding gate, then any other recorded gate that maps to a knob.
     ordered = []

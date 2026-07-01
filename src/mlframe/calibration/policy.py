@@ -434,7 +434,8 @@ def _bootstrap_ece_with_indices(
             idx = idx_matrix[b]
             try:
                 v = float(metric_fn(y_true[idx], y_pred[idx]))
-            except Exception:
+            except Exception as exc:
+                logger.debug("bootstrap-ECE: metric_fn on resample %d failed; skipping resample: %r", b, exc, exc_info=True)
                 continue
             if not np.isfinite(v):
                 continue

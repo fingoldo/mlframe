@@ -5,11 +5,11 @@ threshold. The parent re-exports ``score_ensemble`` so historical
 ``from mlframe.models.ensembling import score_ensemble`` imports continue
 to resolve.
 
-Most of the heavy work happens via parent-module helpers
-(``compute_member_quality_gate``, ``_process_single_ensemble_method``,
-``ensemble_probabilistic_predictions``, ``compute_high_correlation_pairs``,
-``_build_votenrank_leaderboard_from_results``); imported lazily here to
-dodge the ``ensembling -> _ensembling_score -> ensembling`` import cycle.
+Most of the heavy work happens via sibling helpers
+(``_process_single_ensemble_method``, ``compute_high_correlation_pairs``,
+the ``score_flavours`` gate/blend dispatchers, and
+``_build_votenrank_leaderboard_from_results``); some imported lazily here to
+dodge the ``ensembling -> score -> ensembling`` import cycle.
 """
 from __future__ import annotations
 
@@ -23,13 +23,11 @@ import pandas as pd
 # (quality_gate / predict / process_method) come from their own siblings.
 # No ``from .ensembling import`` here: the parent re-imports this module at
 # its bottom; routing every dependency through leaves breaks the cycle.
-from .base import (  # noqa: F401
+from .base import (
     SIMPLE_ENSEMBLING_METHODS,
     compute_high_correlation_pairs,
 )
-from .predict import ensemble_probabilistic_predictions  # noqa: F401 -- re-exported for monkey-patch
 from .process_method import _process_single_ensemble_method
-from .quality_gate import compute_member_quality_gate  # noqa: F401 -- monkey-patched by tests
 from .score_validate import _validate_score_ensemble_inputs
 from .score_gate import (
     catastrophic_drop_k2,
@@ -318,11 +316,6 @@ def score_ensemble(
         ensembling_methods=ensembling_methods,
         res=res,
         verbose=verbose,
-        # Pass the parent-module bound name so tests that monkey-patch
-        # ``mlframe.models.score.compute_member_quality_gate`` still
-        # see their spy hit. Resolved here per-call (not closed over) so the
-        # patch can be installed AFTER the helper module has been imported.
-        compute_member_quality_gate_fn=compute_member_quality_gate,
     )
 
     # Observational diversity check: pairs of kept members whose val-pred Pearson correlation exceeds the threshold are

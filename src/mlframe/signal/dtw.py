@@ -40,12 +40,9 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-try:
-    import cupy as cp  # type: ignore
-    _HAS_CUPY = True
-except Exception:
-    cp = None  # type: ignore
-    _HAS_CUPY = False
+from mlframe.system._gpu_guard import try_import_cupy
+
+cp, _HAS_CUPY = try_import_cupy()
 
 try:
     from numba import cuda as _nb_cuda  # type: ignore

@@ -179,6 +179,9 @@ def make_train_test_split(
     ):
         try:
             _ts = pd.to_datetime(timestamps, errors="coerce")
+            _n_nat = int(pd.isna(_ts).sum())
+            if _n_nat > 0:
+                logger.debug("splitting: temporal-layout diagnostic coerced %d unparseable timestamp(s) to NaT.", _n_nat)
             _ts_sorted = _ts.sort_values().reset_index(drop=True)
             _n = len(_ts_sorted)
             if _n >= 3:

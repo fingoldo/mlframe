@@ -28,9 +28,12 @@ fit. The suite turns it on and routes linear/additive models to the linear list.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _raw_numeric_frame(X: Any, feature_names: list[str]):
@@ -55,6 +58,12 @@ def _raw_numeric_frame(X: Any, feature_names: list[str]):
         v = np.asarray(col, dtype=np.float64)
         if not np.isfinite(v).any():
             continue
+        _n_coerced = int((~np.isfinite(v)).sum())
+        if _n_coerced:
+            logger.warning(
+                "usability: raw column %r had %d/%d non-finite/unparseable value(s) coerced to 0.0.",
+                name, _n_coerced, v.size,
+            )
         v = np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
         if float(np.nanstd(v)) < 1e-12:
             continue  # constant column carries no usability signal
@@ -158,8 +167,14 @@ def materialize_usability_features(candidates: list, X: Any):
             src = X[cand.name] if isinstance(X, pd.DataFrame) else None
             if src is None:
                 raise ValueError(f"raw usability feature {cand.name!r} needs a DataFrame X to replay")
-            return np.nan_to_num(pd.to_numeric(src, errors="coerce").to_numpy(dtype=np.float64),
-                                 nan=0.0, posinf=0.0, neginf=0.0)
+            _replayed = pd.to_numeric(src, errors="coerce").to_numpy(dtype=np.float64)
+            _n_coerced = int((~np.isfinite(_replayed)).sum())
+            if _n_coerced:
+                logger.warning(
+                    "usability: replay of raw column %r produced %d/%d non-finite/unparseable value(s) coerced to 0.0.",
+                    cand.name, _n_coerced, _replayed.size,
+                )
+            return np.nan_to_num(_replayed, nan=0.0, posinf=0.0, neginf=0.0)
         return np.nan_to_num(np.asarray(apply_recipe(cand.recipe, X), dtype=np.float64),
                              nan=0.0, posinf=0.0, neginf=0.0)
 

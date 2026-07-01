@@ -56,20 +56,18 @@ def test_member_quality_gate_routes_to_oof_not_val():
     )
 
     recorded = {}
-    # ``score_ensemble`` lives in the ``_ensembling_score`` sibling after the
-    # monolith split and imports ``compute_member_quality_gate`` at its OWN
-    # module top. Patching the re-exporter on ``mlframe.models.ensembling``
-    # has no effect on that binding - we must patch the score module's
-    # local reference. (Same pattern as the rrf_njit dispatch fix.)
-    import mlframe.models.ensembling.score as ens_score_mod
-    real_gate = ens_score_mod.compute_member_quality_gate
+    # ``apply_quality_gate_kn`` resolves ``compute_member_quality_gate`` lazily
+    # from its canonical module ``quality_gate`` at call time, so patching the
+    # real import site here is picked up by the production code path.
+    import mlframe.models.ensembling.quality_gate as ens_gate_mod
+    real_gate = ens_gate_mod.compute_member_quality_gate
 
     def _spy_gate(preds_list, **kw):
         # Compare against oof_c (outlier marker) to confirm we got the OOF arrays, not val.
         recorded["arrays"] = [np.asarray(p).copy() for p in preds_list]
         return real_gate(preds_list, **kw)
 
-    ens_score_mod.compute_member_quality_gate = _spy_gate
+    ens_gate_mod.compute_member_quality_gate = _spy_gate
     try:
         # max_ensembling_level=1 keeps the call cheap; only the gate path matters here.
         # train_target supplied so the regression path doesn't crash on missing y.
@@ -92,7 +90,7 @@ def test_member_quality_gate_routes_to_oof_not_val():
             k2_catastrophic_mae_ratio=float("inf"),
         )
     finally:
-        ens_score_mod.compute_member_quality_gate = real_gate
+        ens_gate_mod.compute_member_quality_gate = real_gate
 
     assert "arrays" in recorded, "compute_member_quality_gate was never invoked"
     # The third recorded array must equal oof_c (the outlier-bearing OOF series), not val_c (bland).

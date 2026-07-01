@@ -6,11 +6,12 @@ sort-keys JSON serialiser keys oracle rows. Re-exported from the parent.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import uuid
 from typing import Any, Sequence
+
+import orjson
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ _STORE_COLUMNS = (
 
 
 def _stable_json(obj: Any) -> str:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), default=str)
+    return orjson.dumps(obj, option=orjson.OPT_SORT_KEYS, default=str).decode("utf-8")
 
 
 def stable_json(obj: Any) -> str:
@@ -124,8 +125,12 @@ class _ParquetStore:
                 if ts > latest_ts:
                     latest_ts = ts
                 try:
-                    obj = json.loads(r.get("objective_json") or "{}")
-                except Exception:
+                    obj = orjson.loads(r.get("objective_json") or "{}")
+                except Exception as e:
+                    logger.warning(
+                        "param_oracle: corrupt objective_json on row (fn_name=%s, host=%s, param_combo_json=%s): %s",
+                        r.get("fn_name"), r.get("host"), r.get("param_combo_json"), e,
+                    )
                     obj = {}
                 w = int(r.get("n_obs", 1) or 1)
                 for mk, mv in obj.items():

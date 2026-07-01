@@ -20,6 +20,9 @@ import numpy as np
 
 logger = logging.getLogger("mlframe.models.ensembling")
 
+# Matches the "[member+tags]" label bracket inside an ensemble_name, e.g. "[cb+xgb] level2".
+_ENSEMBLE_LABEL_RE = re.compile(r"\[[^\]]+\]")
+
 
 def select_gate_source_split(
     *,
@@ -320,10 +323,9 @@ def catastrophic_drop_k2(
                 try:
                     _kept_tags = _ensemble_short_tags
                     _re_label = "[" + "+".join(_kept_tags) + "]"
-                    if re.search(r"\[[^\]]+\]", ensemble_name):
+                    if _ENSEMBLE_LABEL_RE.search(ensemble_name):
                         _label_value = _re_label
-                        ensemble_name = re.sub(
-                            r"\[[^\]]+\]",
+                        ensemble_name = _ENSEMBLE_LABEL_RE.sub(
                             lambda _m, _v=_label_value: _v,
                             ensemble_name, count=1,
                         )

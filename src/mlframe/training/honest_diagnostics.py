@@ -50,7 +50,8 @@ def _safe_arr(x: Any) -> Optional[np.ndarray]:
         if a.size == 0:
             return None
         return a
-    except Exception:
+    except Exception as exc:
+        logger.debug("honest_diagnostics: _safe_arr coercion failed: %r", exc, exc_info=True)
         return None
 
 

@@ -24,9 +24,13 @@ does not pick it and the pass is a no-op -- so the default selection stays byte-
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import numpy as np
+
+# Splits an engineered-feature name into raw-operand tokens (any run of non-word chars).
+_OPERAND_TOKEN_RE = re.compile(r"[^0-9A-Za-z_]+")
 
 
 def _gpu_usability_on() -> bool:
@@ -168,13 +172,12 @@ def retain_usable_pure_forms(
         # src_names entries and would be mis-counted as a pure PAIR. Resolve each src token down to the
         # raw bases it references (intersect its name tokens with the input feature set) so the
         # cross-mix-vs-pure-pair classification is over genuine raw-operand arity.
-        import re as _re_pre
         _raw_base_set = set(base_names)
 
         def _raw_operands(recipe) -> set:
             toks = set()
             for s in (getattr(recipe, "src_names", ()) or ()):
-                for t in _re_pre.split(r"[^0-9A-Za-z_]+", str(s)):
+                for t in _OPERAND_TOKEN_RE.split(str(s)):
                     if t in _raw_base_set:
                         toks.add(t)
             return toks

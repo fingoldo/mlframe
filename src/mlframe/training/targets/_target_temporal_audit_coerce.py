@@ -82,6 +82,16 @@ def coerce_timestamps_for_audit(
         # resulting numpy view IS datetime64[ns]. WARN-log when tz info gets
         # dropped so the operator knows the audit assumes UTC.
         _coerced = pd.to_datetime(arr, utc=True, errors="coerce")
+        try:
+            _n_nat = int(pd.isna(_coerced).sum())
+            if _n_nat > 0:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "coerce_timestamps_for_audit: %d timestamp value(s) were unparseable "
+                    "and coerced to NaT (silently dropped from the temporal audit).", _n_nat,
+                )
+        except Exception:
+            pass
         _had_tz = (getattr(_coerced.dtype, "tz", None) is not None)
         if _had_tz:
             _coerced = _coerced.tz_convert("UTC").tz_localize(None)

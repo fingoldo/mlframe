@@ -116,7 +116,8 @@ def _permutation_feature_importances(
     try:
         X_arr = X.to_numpy() if isinstance(X, pd.DataFrame) else np.asarray(X)
         y_arr = y.to_numpy() if isinstance(y, pd.Series) else np.asarray(y)
-    except Exception:
+    except Exception as exc:
+        logger.debug("permutation FI: X/y coercion to ndarray failed; skipping FI: %r", exc, exc_info=True)
         return _fail()
     if X_arr.ndim != 2 or X_arr.shape[0] == 0 or X_arr.shape[0] != y_arr.shape[0]:
         return _fail()
@@ -142,7 +143,8 @@ def _permutation_feature_importances(
             # shuffles it in place across n_repeats, so predicting on it directly makes the next shuffle raise
             # "assignment destination is read-only". Predict on a private copy to keep sklearn's buffer writeable.
             preds = estimator.predict(np.array(X, copy=True) if isinstance(X, np.ndarray) else X)
-        except Exception:
+        except Exception as exc:
+            logger.debug("permutation FI: adaptive scorer predict failed; scoring as -inf: %r", exc, exc_info=True)
             return -np.inf
         preds_arr = np.asarray(preds)
         y_arr_local = np.asarray(y)
@@ -150,12 +152,14 @@ def _permutation_feature_importances(
             from mlframe.metrics.core import fast_r2_score
             try:
                 return float(fast_r2_score(y_arr_local, preds_arr))
-            except Exception:
+            except Exception as exc:
+                logger.debug("permutation FI: fast_r2_score scoring failed; scoring as -inf: %r", exc, exc_info=True)
                 return -np.inf
         from mlframe.metrics.core import accuracy_ratio
         try:
             return float(accuracy_ratio(y_arr_local, preds_arr))
-        except Exception:
+        except Exception as exc:
+            logger.debug("permutation FI: accuracy_ratio scoring failed; scoring as -inf: %r", exc, exc_info=True)
             return -np.inf
     # Threading backend (NOT loky / multiprocessing):
     # ``profiling/bench_permutation_fi_nn.py`` (2026-05-26) measured a
@@ -246,7 +250,8 @@ def _cuda_batched_permutation_importance(
     try:
         X_arr = X.to_numpy() if isinstance(X, pd.DataFrame) else np.asarray(X)
         y_arr = y.to_numpy() if isinstance(y, pd.Series) else np.asarray(y)
-    except Exception:
+    except Exception as exc:
+        logger.debug("cuda-batched FI: X/y coercion to ndarray failed; falling back: %r", exc, exc_info=True)
         return _fail()
     if X_arr.ndim != 2 or X_arr.shape[0] != y_arr.shape[0]:
         return _fail()

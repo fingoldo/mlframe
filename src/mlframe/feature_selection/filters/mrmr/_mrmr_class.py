@@ -164,7 +164,8 @@ def _mrmr_y_is_multioutput(y) -> bool:
         return y.shape[1] >= 2
     try:
         arr = np.asarray(y)
-    except Exception:
+    except Exception as exc:
+        logger.debug("mrmr: multi-target detection np.asarray(y) failed; treating as single-target: %r", exc, exc_info=True)
         return False
     return arr.ndim >= 2 and arr.shape[-1] >= 2
 
@@ -288,8 +289,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                     _v = int(tuned.get("subsample_n", 0) or 0)
                     if _v > 0:
                         return _v
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("mrmr: fast_search screen_n KTC lookup failed; using fallback %d: %r", _fallback, exc, exc_info=True)
         return _fallback
 
     # DEFAULT screen-subsample for the MI/FE candidate search, resolved (HW/size-aware) via the
@@ -325,8 +326,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                     _v = int(tuned.get("subsample_n", 0) or 0)
                     if _v > 0:
                         return _v
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("mrmr: default screen_n KTC lookup failed; using fallback %d: %r", _fallback, exc, exc_info=True)
         return _fallback
 
     def _apply_default_screen_subsample(self, n_rows: int) -> dict:
@@ -345,7 +346,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                 for p in inspect.signature(type(self).__init__).parameters.values()
                 if p.default is not inspect._empty
             }
-        except Exception:
+        except Exception as exc:
+            logger.debug("mrmr: ctor-default introspection failed in _apply_default_screen_subsample; leaving knobs unchanged: %r", exc, exc_info=True)
             return saved
         _screen_n = self._default_screen_subsample_n()
         # Below the screen size there is nothing to subsample -- leave the knobs at their (full-n) default
@@ -379,7 +381,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                 for p in inspect.signature(type(self).__init__).parameters.values()
                 if p.default is not inspect._empty
             }
-        except Exception:
+        except Exception as exc:
+            logger.debug("mrmr: ctor-default introspection failed in _apply_fast_search_profile; treating all knobs as user-set: %r", exc, exc_info=True)
             _defaults = {}
 
         def _override(attr, fast_value):
@@ -3236,7 +3239,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         # exactly -- a resurrected legacy pickle then behaves identically to a new one (no ctor-vs-legacy drift).
         try:
             _fresh = type(self)()
-        except Exception:
+        except Exception as exc:
+            logger.debug("mrmr: fresh-instance ctor-default injection for legacy pickle failed; using roster defaults only: %r", exc, exc_info=True)
             _fresh = None
         for k, v in _ctor.items():
             if k in state:
@@ -3346,8 +3350,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                     "[MRMR] no engineered features survived the MI-prevalence gate "
                     "(fe_min_engineered_mi_prevalence); selection is raw-only"
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("mrmr: selection-summary print failed (diagnostic only): %r", exc, exc_info=True)
 
     @hygienic_fit
     def fit(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, sample_weight: np.ndarray | pd.Series | None = None, **fit_params):
@@ -3414,7 +3418,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                 try:
                     import polars as _pl
                     _struct_cols = [c for c, dt in zip(X.columns, X.dtypes) if dt == _pl.Struct]
-                except Exception:
+                except Exception as exc:
+                    logger.debug("mrmr: polars Struct-column detection failed; assuming none: %r", exc, exc_info=True)
                     _struct_cols = []
                 if _struct_cols:
                     raise ValueError(
@@ -3455,8 +3460,8 @@ class MRMR(BaseEstimator, TransformerMixin):
             from .._param_accuracy_warnings import warn_accuracy_suboptimal_params
 
             warn_accuracy_suboptimal_params(self)
-        except Exception:
-            pass  # a diagnostic warning must never break a fit
+        except Exception as exc:
+            logger.debug("mrmr: accuracy-suboptimal param warning failed (diagnostic only): %r", exc, exc_info=True)  # a diagnostic warning must never break a fit
 
         # Stability-selection outer-loop short-circuit.
         # When ``stability_selection_method`` is 'cluster' or
@@ -3516,7 +3521,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         try:
             from .._mrmr_degenerate import audit_degenerate_columns
             self.degenerate_columns_ = audit_degenerate_columns(X)
-        except Exception:
+        except Exception as exc:
+            logger.debug("mrmr: degenerate-column audit failed (diagnostic only): %r", exc, exc_info=True)
             self.degenerate_columns_ = {}
 
         # #2 cross-target identity cache.
@@ -3771,13 +3777,15 @@ class MRMR(BaseEstimator, TransformerMixin):
             _n_rows_for_screen = int(X.shape[0]) if hasattr(X, "shape") else None
             if _n_rows_for_screen is not None:
                 _default_screen_saved = self._apply_default_screen_subsample(_n_rows_for_screen)
-        except Exception:
+        except Exception as exc:
+            logger.debug("mrmr: default screen-subsample application failed; screening at full n: %r", exc, exc_info=True)
             _default_screen_saved = {}
         _fast_search_saved: dict = {}
         if bool(getattr(self, "fe_fast_search", False)):
             try:
                 _fast_search_saved = self._apply_fast_search_profile()
-            except Exception:
+            except Exception as exc:
+                logger.debug("mrmr: fast-search profile application failed; using unmodified knobs: %r", exc, exc_info=True)
                 _fast_search_saved = {}
         # LAZY ctor-alias reconciliation (sklearn ``get_params`` stays byte-identical to what the user
         # passed). The constructor no longer promotes ``random_state`` -> ``random_seed`` nor folds the
@@ -3845,8 +3853,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                     "n_rows": _n_rows,
                     "seed": _seed_for_provenance,
                 }
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("mrmr: provenance_ metadata build failed (diagnostic only): %r", exc, exc_info=True)
             # Stash X-fingerprint -> identity-bool in cross-target cache so a SUBSEQUENT fit (different y, same X) can early-skip the FE pipeline.
             if _identity_skip and _x_fp is not None:
                 try:
@@ -3869,8 +3877,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                             "fits on this X will short-circuit.",
                             _x_fp,
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("mrmr: cross-target identity-cache store failed (optimisation only): %r", exc, exc_info=True)
             # populate ``fe_provenance_`` from
             # the sibling module so users can audit which engineered
             # columns landed in support_, why (origin + mechanism

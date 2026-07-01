@@ -522,13 +522,21 @@ def _bootstrap_ci_for_strongest(
                 # works the same; the CI is naturally returned in metric
                 # units regardless of direction.
                 return None
-        except Exception:
+        except Exception as exc:
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "dummy_baselines: bootstrap metric-fn build failed: %r", exc, exc_info=True
+            )
             return None
 
         # Point estimate
         try:
             point = fn(y, p)
-        except Exception:
+        except Exception as exc:
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "dummy_baselines: bootstrap point-estimate failed: %r", exc, exc_info=True
+            )
             return None
         if not np.isfinite(point):
             return None

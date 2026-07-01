@@ -44,6 +44,9 @@ except Exception:  # polars is a mlframe runtime dep, but keep the module import
 
 logger = logging.getLogger(__name__)
 
+# Collapse any run of non-word chars to a single underscore when sanitising a subgroup name.
+_SLICE_NAME_SANITISE_RE = re.compile(r"[^0-9A-Za-z_]+")
+
 
 _SliceSource = Literal["random", "temporal", "fairness", "both"]
 
@@ -81,7 +84,7 @@ class SliceEvalSet:
 
 def _sanitize_name_component(s: str) -> str:
     """Make a subgroup name safe to splice into ``valid_shard_f_<name>``."""
-    return re.sub(r"[^0-9A-Za-z_]+", "_", str(s)).strip("_") or "_"
+    return _SLICE_NAME_SANITISE_RE.sub("_", str(s)).strip("_") or "_"
 
 
 def _is_polars_df(obj: Any) -> bool:

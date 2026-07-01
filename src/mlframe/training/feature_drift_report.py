@@ -503,7 +503,8 @@ def _col_value_counts(df: Any, col: str) -> Optional[Dict[Any, int]]:
                 # individually (1.9x at 20 cats, 4.5x at 2000). dict(zip(...)) is
                 # bit-identical (same keys, same Python-int values).
                 return dict(zip(_vc.index.tolist(), _vc.values.tolist()))
-            except Exception:
+            except Exception as exc:
+                logger.debug("drift: pandas value_counts on col %r failed: %r", col, exc, exc_info=True)
                 return None
         # polars path
         if hasattr(df, "schema") and hasattr(df, "columns"):
@@ -521,9 +522,11 @@ def _col_value_counts(df: Any, col: str) -> Optional[Dict[Any, int]]:
                 # boxing; dict(zip(...)) is bit-identical and skips it.
                 _cnts = _vc[_cnt_col].to_list()
                 return dict(zip(_vals, _cnts))
-            except Exception:
+            except Exception as exc:
+                logger.debug("drift: polars value_counts on col %r failed: %r", col, exc, exc_info=True)
                 return None
-    except Exception:
+    except Exception as exc:
+        logger.debug("drift: value_counts dispatch on col %r failed: %r", col, exc, exc_info=True)
         return None
     return None
 
@@ -653,7 +656,8 @@ def _col_to_numpy(df: Any, col: str) -> Optional[np.ndarray]:
         if hasattr(df, "to_numpy") and hasattr(df, "columns"):
             # polars frame
             return df[col].to_numpy()
-    except Exception:
+    except Exception as exc:
+        logger.debug("drift: to_numpy on col %r failed: %r", col, exc, exc_info=True)
         return None
     return None
 
@@ -682,7 +686,8 @@ def _drift_invariant_cache_key(
     """
     try:
         from .pipeline._pipeline_cache import _content_fingerprint_for_cache
-    except Exception:
+    except Exception as exc:
+        logger.debug("drift: content-fingerprint helper import failed; drift cache disabled: %r", exc, exc_info=True)
         return None
     try:
         key = (
@@ -694,7 +699,8 @@ def _drift_invariant_cache_key(
         )
         hash(key)  # force-uncached on any unhashable (embedding) component.
         return key
-    except Exception:
+    except Exception as exc:
+        logger.debug("drift: cache-key build failed (unhashable component?); drift cache disabled: %r", exc, exc_info=True)
         return None
 
 
