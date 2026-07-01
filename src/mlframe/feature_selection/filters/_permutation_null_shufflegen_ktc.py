@@ -110,6 +110,18 @@ def shufflegen_use_gpu(n: int, nperm: int) -> bool:
         return True
     if _force in ("numba", "numpy"):
         return False
+    # STRICT GPU-RESIDENT (no KTC on this path): the residency contract is 100% device data+kernels, wall-loss
+    # on a weak card ACCEPTED. ``permnull_use_resident`` already forces the resident floor under STRICT; the
+    # shuffle-gen must match or the (nperm,n) y_perms matrix is host-generated then uploaded (a bulk H2D that
+    # violates residency). The device argsort-keys gen yields a statistically-equivalent uniform null (each row
+    # a true permutation) -> selection-equivalent (not byte-identical); the resident gen self-guards to a host
+    # fallback if VRAM is short, so this never crashes. Verified F2 selection unchanged.
+    try:
+        from ._fe_gpu_strict import fe_gpu_strict_enabled
+        if fe_gpu_strict_enabled():
+            return True
+    except Exception:
+        pass
     if _SHUFFLEGEN_SPEC is None:
         return False
     pb = min(_SHUFFLEGEN_SWEEP_NPERM, key=lambda b: abs(b - int(nperm)))
