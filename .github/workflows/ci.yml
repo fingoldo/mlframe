@@ -126,7 +126,7 @@ jobs:
         # restore-keys prefix falls back to the newest prior cache (numba then recompiles only changed kernels,
         # so a stale restore is still a large net win). All shards of one (os, python) share the key, so the
         # first to finish populates it for the rest. Save happens in the post-job step.
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/.numba-cache
           key: numba-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('src/**/*.py') }}
