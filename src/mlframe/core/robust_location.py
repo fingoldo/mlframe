@@ -32,7 +32,7 @@ from numba import njit, prange
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["robust_mean_mestimator", "geometric_median", "WEIGHTS"]
+__all__ = ["robust_mean_mestimator", "geometric_median", "trimmed_mean", "winsorized_mean", "WEIGHTS"]
 
 WEIGHTS = ("meshalkin", "huber", "tukey")
 
@@ -163,6 +163,45 @@ def robust_mean_mestimator(
     if x.shape[0] >= _ROBUST_MEAN_PARALLEL_MIN_N:
         return float(_robust_mean_irls_parallel(x, wcode, param, float(scale), int(max_iter), float(tol)))
     return float(_robust_mean_irls(x, wcode, param, float(scale), int(max_iter), float(tol)))
+
+
+def trimmed_mean(x: np.ndarray, proportion: float = 0.1) -> float:
+    """Symmetric trimmed mean: drop the lowest and highest ``proportion`` of values, average the rest.
+
+    From PZAD univariate-analysis (усечённое среднее): a simple robust location that discards the tails.
+    ``proportion=0`` -> arithmetic mean; ``proportion`` in [0, 0.5). Reduces to the median as proportion -> 0.5.
+    """
+    if not (0.0 <= proportion < 0.5):
+        raise ValueError(f"trimmed_mean: proportion must be in [0, 0.5), got {proportion}.")
+    x = np.ascontiguousarray(x, dtype=np.float64)
+    n = x.shape[0]
+    if n == 0:
+        return np.nan
+    k = int(np.floor(n * proportion))
+    xs = np.sort(x)
+    core = xs[k : n - k] if n - k > k else xs
+    return float(core.mean())
+
+
+def winsorized_mean(x: np.ndarray, proportion: float = 0.1) -> float:
+    """Winsorized mean: clamp the lowest/highest ``proportion`` of values to the trim thresholds, then average.
+
+    Unlike the trimmed mean (which drops tails), winsorizing REPLACES them by the nearest kept value, so every
+    observation still contributes. More efficient than trimming when the tails carry some (bounded) information.
+    """
+    if not (0.0 <= proportion < 0.5):
+        raise ValueError(f"winsorized_mean: proportion must be in [0, 0.5), got {proportion}.")
+    x = np.ascontiguousarray(x, dtype=np.float64)
+    n = x.shape[0]
+    if n == 0:
+        return np.nan
+    k = int(np.floor(n * proportion))
+    if k == 0:
+        return float(x.mean())
+    xs = np.sort(x)
+    lo = xs[k]
+    hi = xs[n - k - 1]
+    return float(np.clip(x, lo, hi).mean())
 
 
 @njit(fastmath=False, cache=True)

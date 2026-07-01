@@ -5,7 +5,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.core.robust_location import geometric_median, robust_mean_mestimator
+from mlframe.core.robust_location import (
+    geometric_median,
+    robust_mean_mestimator,
+    trimmed_mean,
+    winsorized_mean,
+)
 
 
 # ---------------------------------------------------------------- unit
@@ -76,6 +81,38 @@ def test_biz_val_geometric_median_beats_coordinate_mean_under_contamination():
     err_mean = np.linalg.norm(X.mean(axis=0) - center)
     err_gm = np.linalg.norm(geometric_median(X) - center)
     assert err_gm < err_mean / 3.0, f"geomedian err {err_gm:.3f} should beat mean err {err_mean:.3f} by >=3x"
+
+
+def test_trimmed_and_winsorized_identity_at_zero():
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    assert np.isclose(trimmed_mean(x, 0.0), x.mean())
+    assert np.isclose(winsorized_mean(x, 0.0), x.mean())
+
+
+def test_trimmed_mean_invalid_proportion():
+    import pytest as _pt
+
+    with _pt.raises(ValueError):
+        trimmed_mean(np.arange(5.0), 0.5)
+    with _pt.raises(ValueError):
+        winsorized_mean(np.arange(5.0), -0.1)
+
+
+def test_trimmed_mean_empty():
+    assert np.isnan(trimmed_mean(np.array([])))
+    assert np.isnan(winsorized_mean(np.array([])))
+
+
+def test_biz_val_trimmed_mean_resists_outliers():
+    """20% trimmed/winsorized mean recovers the true center under 15% one-sided contamination far better than the mean."""
+    rng = np.random.default_rng(5)
+    center = 10.0
+    x = np.concatenate([rng.normal(center, 1.0, size=850), rng.uniform(60, 90, size=150)])
+    err_mean = abs(x.mean() - center)
+    err_trim = abs(trimmed_mean(x, 0.2) - center)
+    err_wins = abs(winsorized_mean(x, 0.2) - center)
+    assert err_trim < err_mean / 3.0, f"trimmed {err_trim:.2f} should beat mean {err_mean:.2f}"
+    assert err_wins < err_mean / 2.0, f"winsorized {err_wins:.2f} should beat mean {err_mean:.2f}"
 
 
 def test_biz_val_meshalkin_lambda_controls_robustness():
