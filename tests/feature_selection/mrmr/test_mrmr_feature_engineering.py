@@ -212,17 +212,22 @@ class TestMRMRFeatureEngineering:
         # (3) exactly one fused compound (no duplicate near-identical compounds).
         assert len(full) == 1, f"expected exactly ONE fused compound, got {len(full)}: {full}"
 
-        # (4) the compound must be the CLEAN ADDITIVE form add(div(sqr(a),b), mul(log(c),sin(d))) -- NOT a
-        #     monotone-distorted variant. MI is monotone-invariant, so the search can pick a warped form
-        #     (log(a**2/b), double-prewarp, sub instead of add) that is MI-equivalent but ugly + less
-        #     linearly usable. The target is ADDITIVE (a**2/b + log(c)*sin(d)), so the recovered compound
-        #     must be additive with each half left CLEAN. Enforce:
+        # (4) the compound must be the CLEAN ADDITIVE-SEPARABLE form of add(div(sqr(a),b), mul(log(c),sin(d)))
+        #     -- NOT a monotone-distorted variant. MI is monotone-invariant, so the search can pick a warped
+        #     form (log(a**2/b), double-prewarp) that is MI-equivalent but ugly + less linearly usable. The
+        #     target is ADDITIVE (a**2/b + log(c)*sin(d)), so the recovered compound must be a SIGNED SUM of
+        #     the two CLEAN halves. Enforce:
         compound = full[0]
         #   (4a) no learned prewarp warp anywhere -- the inner log(c)*sin(d) is library-expressible, so a
         #        prewarp form is only monotone-equivalent and must lose to the clean library form.
         assert "prewarp" not in compound, f"compound uses a monotone-distorting prewarp warp: {compound}"
-        #   (4b) additive top-level combination (a**2/b + log(c)*sin(d)), not a subtraction/quotient of halves.
-        assert compound.startswith("add("), f"compound is not an additive (add) combination: {compound}"
+        #   (4b) additive-SEPARABLE top-level combination -- a SIGNED SUM of the two clean halves. Each half is
+        #        chosen by SIGN-INVARIANT MI, so a half can arrive sign-flipped (div(sqr(a),neg(b)) = -a**2/b);
+        #        the sign-aware fusion then materialises the correctly-aligned signed sum, which is 'add(...)'
+        #        OR 'sub(...)' (e.g. sub(-a**2/b, log(c)sin(d)) = -(a**2/b + log(c)sin(d)) = -y, a clean
+        #        full-signal compound the downstream model reads up to a global sign). What must NOT win is a
+        #        NON-additive top-level combination (a mul/div/etc. of the two halves).
+        assert compound.startswith(("add(", "sub(")), f"compound is not an additive-separable (add/sub) combination: {compound}"
         #   (4c) the c/d half is the CLEAN log(c)*sin(d) (no warp), and (4d) the a/b half is NOT log-wrapped
         #        (the a**2/b term must stay magnitude-carrying, not collapsed to log(a**2/b)).
         assert "log(c)" in compound and "sin(d)" in compound, f"c/d half is not the clean log(c)*sin(d): {compound}"

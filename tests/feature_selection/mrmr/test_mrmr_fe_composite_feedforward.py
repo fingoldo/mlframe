@@ -232,22 +232,33 @@ def test_fe_max_steps_2_discovers_additive_composite_of_two_engineered():
 
 @pytest.mark.slow
 @pytest.mark.timeout(600)
-def test_fe_max_steps_1_unchanged_no_composite():
-    """``fe_max_steps=1`` (opt-in since 2026-06-10 -- the default is now 2) must NOT
-    build engineered-x-engineered composites -- selection keeps the two real step-1
-    engineered features only. Pins that the single-step path stays reachable and
-    unchanged after the default flip to 2."""
+def test_fe_max_steps_1_fuses_to_single_compound():
+    """``fe_max_steps=1`` recovers the additively-separable canonical signal (y = a**2/b + f/5 +
+    log(c)*sin(d)) as ONE clean fused compound. SUPERSEDED PREMISE (2026-07-01): the prior contract here was
+    "fe_max_steps=1 must NOT build composites -- keep the two separate halves". That predates C2 additive-
+    fusion (_fe_additive_fusion.propose_additive_fusions, 2026-06-24), which runs at the END of EACH FE step --
+    including step 1 -- and fuses two disjoint additively-separable halves into a single add/sub compound. So
+    the single-step path now correctly returns ONE compound covering BOTH signal groups (the sign-aware fusion
+    makes it a clean, correctly-aligned recovery -- see test_f2_single_step_one_compound), not two fragments.
+    What fe_max_steps=1 still does NOT do is the STEP-2 feed-forward compositing over an engineered-augmented
+    operand pool (guarded by test_fe_max_steps_2_discovers_additive_composite_of_two_engineered)."""
     df, y = _canonical_fixture(seed=0, n=100_000)
     fs = MRMR(verbose=0, fe_max_steps=1, n_workers=1)  # serial: avoid loky-worker OOM flakiness
     fs.fit(df, y)
     sel = list(fs.get_feature_names_out())
-    assert not any(_is_composite(s) for s in sel), (
-        f"fe_max_steps=1 unexpectedly built a composite: {sel}"
+    # ONE additive-separable compound (the C2 within-step fusion of the two clean halves), covering BOTH the
+    # {a,b} and {c,d} signal groups -- no fragmentation, no spurious extra.
+    comps = [s for s in sel if _is_composite(s)]
+    assert len(comps) == 1, f"fe_max_steps=1 must recover exactly ONE fused compound, got: {sel}"
+    comp = comps[0]
+    assert comp.startswith(("add(", "sub(")), f"compound is not an additive-separable (add/sub) form: {comp}"
+    assert {"a", "b"} <= _bare_vars(comp) and {"c", "d"} <= _bare_vars(comp), (
+        f"the single compound must cover BOTH signal groups: {comp}"
     )
-    # The two real engineered features are still recovered.
-    eng = [s for s in sel if "(" in s]
-    assert any({"a", "b"} <= _bare_vars(s) and not ({"c", "d"} & _bare_vars(s)) for s in eng), sel
-    assert any({"c", "d"} <= _bare_vars(s) for s in eng), sel
+    # No stray a/b-only or c/d-only single-pair fragment left over beside the fused compound.
+    frags = [s for s in sel if "(" in s and not _is_composite(s)
+             and (_bare_vars(s) <= {"a", "b"} or _bare_vars(s) <= {"c", "d"})]
+    assert not frags, f"fe_max_steps=1 left redundant single-pair fragment(s) beside the compound: {frags} :: {sel}"
 
 
 def test_fe_max_engineered_operands_zero_disables_feedforward():
@@ -296,11 +307,14 @@ def test_strict_pin_clean_additive_composite_covers_both_pairs_two_operand(seed)
     composites = [s for s in sel if _is_composite(s)]
     assert composites, f"[seed={seed}] no engineered-x-engineered composite: {sel}"
 
-    # Among the composites, find one that is the CLEAN additive cross-pair form.
+    # Among the composites, find one that is the CLEAN additive-separable cross-pair form. The top-level binary
+    # is a SIGNED sum of the two halves: 'add(...)' OR 'sub(...)' -- sign-aware fusion picks 'sub' when a half
+    # arrives sign-flipped (chosen by sign-invariant MI), which is the correctly-aligned additive form, not an
+    # ugly variant.
     clean = [
         s
         for s in composites
-        if s.startswith("add(")  # additive top-level binary
+        if s.startswith(("add(", "sub("))  # additive-separable top-level binary (signed sum of the halves)
         and {"a", "b"} <= _bare_vars(s)  # the (a,b) signal pair present
         and {"c", "d"} <= _bare_vars(s)  # the (c,d) signal pair present
         and _has_cd_two_operand_side(s)  # (c,d) is a real TWO-operand side, not c-only

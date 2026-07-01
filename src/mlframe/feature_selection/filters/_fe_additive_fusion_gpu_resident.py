@@ -243,19 +243,27 @@ def propose_additive_fusions_gpu(
             # no interpolation drift). The sum + binning both stay resident -- no binning D2H.
             ca = vals_dev[:, ha["col"]]
             cb = vals_dev[:, hb["col"]]
-            fused_dev = ca + cb
-            fused_dev = cp.nan_to_num(fused_dev, nan=0.0, posinf=0.0, neginf=0.0)
-            fvb_dev, _kxf = _gpu_quantile_bin_codes(fused_dev[None, :], qs)   # (1, n) resident codes
-            fvb_dev = fvb_dev[0]
-            # ``_cmi_from_binned`` + the raw-subsumption probe are CPU-interface helpers (host int codes,
-            # GPU-routed internally). Pull the fused codes back ONCE -- a per-ACCEPTED-pair probe-input D2H,
-            # not a binning D2H (binning stayed resident above). Bounded by the number of admitted fusions.
-            fvb = cp.asnumpy(fvb_dev)
-            # Score the fused-candidate marginal MI from the RESIDENT codes (``_cmi_from_binned`` dispatches to
-            # the cupy resident-input branch) so the candidate never re-crosses H2D at the ``cmi_cand_x`` site;
-            # ``fvb`` (host) is still needed below for the CPU-interface raw-subsumption probe.
-            fused_mi = float(_cmi_from_binned(fvb_dev, y_dense, None))  # resident codes -> no re-upload
+            # SIGN-AWARE ALIGNMENT (2026-07-01, mirrors the CPU path in _fe_additive_fusion.py). Each half is
+            # picked by SIGN-INVARIANT MI, so ``ca + cb`` can be DESTRUCTIVE toward y (a garbage compound that
+            # still clears the gate and forces retention re-attachment -> fragmentation). Build BOTH ``ca + cb``
+            # and ``ca - cb`` resident, bin each with the same distinct-edge-dedup binner, and keep the one whose
+            # binned MI with y is higher; prefer ``add`` unless ``sub`` beats it by more than the stronger half's
+            # marginal-perm floor. Selection-equivalent to the CPU add/sub decision: the choice is by a floor-
+            # scaled MI margin, so the cupy-vs-numpy reduction delta (~1e-12) cannot flip the alignment.
             _strong = ha if ha["mi"] >= hb["mi"] else hb
+            _fadd = cp.nan_to_num(ca + cb, nan=0.0, posinf=0.0, neginf=0.0)
+            _fsub = cp.nan_to_num(ca - cb, nan=0.0, posinf=0.0, neginf=0.0)
+            _bcodes, _kxf = _gpu_quantile_bin_codes(cp.stack([_fadd, _fsub], axis=0), qs)  # (2, n) resident codes
+            _mi_add = float(_cmi_from_binned(_bcodes[0], y_dense, None))  # resident codes -> no re-upload
+            _mi_sub = float(_cmi_from_binned(_bcodes[1], y_dense, None))
+            if _mi_sub > _mi_add + _floor_margin * _strong["floor"]:
+                _binary, fused_dev, fvb_dev, fused_mi = "sub", _fsub, _bcodes[1], _mi_sub
+            else:
+                _binary, fused_dev, fvb_dev, fused_mi = "add", _fadd, _bcodes[0], _mi_add
+            # ``_cmi_from_binned`` scored above from the RESIDENT codes; the raw-subsumption probe below is a
+            # CPU-interface helper, so pull the CHOSEN fused codes back ONCE -- a per-ACCEPTED-pair probe-input
+            # D2H, not a binning D2H (binning stayed resident). Bounded by the number of admitted fusions.
+            fvb = cp.asnumpy(fvb_dev)
             # Fusion admission razor (not grid-snapped): fused_mi vs strong-half mi + margin*floor. The cupy-vs-
             # numpy reduction-order delta (~1e-12) is far below the floor-margin band, so it cannot flip this gate
             # in practice; the direct fusion-parity check (resident vs CPU proposed fusions) + F2 confirm the same
@@ -277,7 +285,7 @@ def propose_additive_fusions_gpu(
             # "values" the caller materialises) -- the SAME single array the CPU path holds -- so pull the
             # resident sum back ONCE here, only on an ADMITTED pair (bounded by the number of fusions).
             fused_vals = cp.asnumpy(fused_dev)
-            name = f"add({ha['name']},{hb['name']})"
+            name = f"{_binary}({ha['name']},{hb['name']})"
             base = name
             k = 2
             while name in existing_names:
@@ -287,7 +295,7 @@ def propose_additive_fusions_gpu(
                 name=name,
                 src_a_name=ha["name"], src_b_name=hb["name"],
                 unary_a_name="identity", unary_b_name="identity",
-                binary_name="add",
+                binary_name=_binary,
                 unary_preset=str(getattr(self, "fe_unary_preset", "medium")),
                 binary_preset=str(getattr(self, "fe_binary_preset", "minimal")),
                 quantization_nbins=self.quantization_nbins,

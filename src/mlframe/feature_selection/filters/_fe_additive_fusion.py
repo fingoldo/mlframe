@@ -11,10 +11,13 @@ fused feature. This is the FUSION-blocked failure mode of the distribution-robus
 (``test_f2_single_compound_across_distributions`` heavy_tailed / mixed).
 
 The fix reuses the EXISTING ``unary_binary`` recipe machinery -- NO new recipe kind. A
-fused candidate ``add(half_a, half_b)`` is built with ``binary_name='add'``,
-``unary_names=('identity','identity')`` and ``nested_parent_a/b`` set to the two halves'
-own ``EngineeredRecipe`` objects, so it replays byte-exactly by recursively replaying the
-parents (``_recipe_unary_binary.py``). The candidate is proposed ONLY when two surviving
+fused candidate ``add(half_a, half_b)`` (or ``sub`` -- see SIGN-AWARE ALIGNMENT below) is built with
+``binary_name in {'add','sub'}``, ``unary_names=('identity','identity')`` and ``nested_parent_a/b`` set to
+the two halves' own ``EngineeredRecipe`` objects, so it replays byte-exactly by recursively replaying the
+parents (``_recipe_unary_binary.py``). SIGN-AWARE ALIGNMENT: since each half is chosen by SIGN-INVARIANT MI,
+a half may arrive sign-flipped; the builder scores BOTH ``ha+hb`` and ``ha-hb`` against y and keeps the
+better-aligned one (``binary_name`` records which), so a destructive sum is never materialised. The candidate
+is proposed ONLY when two surviving
 engineered features (or one engineered + one raw operand) have:
   * DISJOINT raw-token sets (no shared raw operand -- they cover different signal groups);
   * each half RELEVANT (its binned MI clears a marginal-permutation null floor);
@@ -265,15 +268,34 @@ def propose_additive_fusions(
             # DISJOINT raw-token sets -- the two halves cover DIFFERENT signal groups.
             if ha["tokens"] & hb["tokens"]:
                 continue
-            fused_vals = ha["vals"] + hb["vals"]
-            fused_vals = np.nan_to_num(fused_vals, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-            fvb = _quantile_bin(fused_vals, nbins=int(nbins))
-            fused_mi = float(_cmi_from_binned(fvb, y_dense, None))
-            # GENUINE ADDITIVE SEPARABILITY: the sum must carry strictly MORE target
-            # information than the STRONGER half by more than that half's marginal-perm
-            # floor (a chance-fluctuation scale). Two unrelated features whose sum has no
-            # genuine joint uplift (fused_mi ~= the stronger half +/- noise) are NOT fused.
+            # SIGN-AWARE ALIGNMENT (2026-07-01). The a/b (and c/d) pair search picks each half by SIGN-INVARIANT
+            # MI, so a half can arrive sign-flipped -- e.g. ``div(sqr(a),neg(b))`` = -a**2/b won the a/b pair
+            # although the target carries +a**2/b. A blind ``ha + hb`` is then DESTRUCTIVE toward y: on F2
+            # ``add(-a**2/b, log(c)sin(d))`` measures |corr(.,y)|=0.03 (garbage) while ``sub`` = -(a**2/b +
+            # log(c)sin(d)) = -y measures 0.998. The destructive sum still clears the binned-MI/OLS gate and gets
+            # selected, then the retention pass correctly re-attaches the real halves to fix the sign -> the
+            # single-step fragmentation regression. Build BOTH the ``add`` and ``sub`` alignment, bin each, and
+            # keep the one whose binned MI with y is higher -- the SUM's alignment is NOT sign-invariant even
+            # though each half's marginal MI is. Prefer ``add`` unless ``sub`` beats it by more than the stronger
+            # half's marginal-permutation floor (the SAME chance-fluctuation scale the admission razor uses
+            # below), so a pair already best-aligned as ``add`` stays byte-identical (no spurious binned-MI-noise
+            # flips). OLS multiple-R is NOT usable to pick the sign -- it fits FREE per-column coefficients, so
+            # ``R(ha,hb) == R(ha,-hb)`` exactly (same column space); it gates admission only, never the sign.
             _strong = ha if ha["mi"] >= hb["mi"] else hb
+            _fv_add = np.nan_to_num(ha["vals"] + hb["vals"], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+            _fv_sub = np.nan_to_num(ha["vals"] - hb["vals"], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+            _fvb_add = _quantile_bin(_fv_add, nbins=int(nbins))
+            _fvb_sub = _quantile_bin(_fv_sub, nbins=int(nbins))
+            _mi_add = float(_cmi_from_binned(_fvb_add, y_dense, None))
+            _mi_sub = float(_cmi_from_binned(_fvb_sub, y_dense, None))
+            if _mi_sub > _mi_add + _floor_margin * _strong["floor"]:
+                _binary, fused_vals, fvb, fused_mi = "sub", _fv_sub, _fvb_sub, _mi_sub
+            else:
+                _binary, fused_vals, fvb, fused_mi = "add", _fv_add, _fvb_add, _mi_add
+            # GENUINE ADDITIVE SEPARABILITY: the chosen-alignment fused feature must carry strictly MORE target
+            # information than the STRONGER half by more than that half's marginal-perm floor (a chance-
+            # fluctuation scale). Two unrelated features whose combination has no genuine joint uplift
+            # (fused_mi ~= the stronger half +/- noise) are NOT fused.
             _binned_mi_passes = fused_mi > _strong["mi"] + _floor_margin * _strong["floor"]
             # OLS LINEAR-USABILITY SEPARABILITY (2026-06-24, default-ON, ALONGSIDE the binned-MI
             # gate). Under variance imbalance the coarse binned-MI WRONGLY rejects a genuine
@@ -302,8 +324,10 @@ def propose_additive_fusions(
                 _ols_passes = _r_fused > _r_best_single + _r_margin
             if not (_binned_mi_passes or _ols_passes):
                 continue
-            # Build the fused recipe via the EXISTING unary_binary + nested-parent machinery.
-            name = f"add({ha['name']},{hb['name']})"
+            # Build the fused recipe via the EXISTING unary_binary + nested-parent machinery. The display name
+            # and the recipe ``binary_name`` both record the CHOSEN alignment (``add``/``sub``); ``sub`` replays
+            # byte-exactly through the identical field-driven machinery (binary_funcs[binary_name]).
+            name = f"{_binary}({ha['name']},{hb['name']})"
             base = name
             k = 2
             while name in existing_names:
@@ -313,7 +337,7 @@ def propose_additive_fusions(
                 name=name,
                 src_a_name=ha["name"], src_b_name=hb["name"],
                 unary_a_name="identity", unary_b_name="identity",
-                binary_name="add",
+                binary_name=_binary,
                 unary_preset=str(getattr(self, "fe_unary_preset", "medium")),
                 binary_preset=str(getattr(self, "fe_binary_preset", "minimal")),
                 quantization_nbins=self.quantization_nbins,

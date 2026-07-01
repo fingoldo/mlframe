@@ -78,6 +78,62 @@ class TestApplyRecipeUnaryBinary:
         expected = simple_pair_data["a"].to_numpy() * simple_pair_data["b"].to_numpy()
         np.testing.assert_allclose(out, expected, rtol=1e-5)
 
+    @pytest.mark.fast
+    def test_sub_pair_replays_exactly(self, simple_pair_data):
+        """``sub(identity(a), identity(b))`` == ``a - b`` element-wise. Guards the sign-aware C2 fusion's
+        'sub' alignment (chosen when a half arrives sign-flipped): 'sub' must replay through the identical
+        field-driven machinery as 'add'/'mul'."""
+        recipe = build_unary_binary_recipe(
+            name="sub(a,b)",
+            src_a_name="a", src_b_name="b",
+            unary_a_name="identity", unary_b_name="identity",
+            binary_name="sub",
+            unary_preset="minimal", binary_preset="minimal",
+            quantization_nbins=None,
+            quantization_method=None,
+            quantization_dtype=np.float32,
+        )
+        out = apply_recipe(recipe, simple_pair_data)
+        expected = simple_pair_data["a"].to_numpy() - simple_pair_data["b"].to_numpy()
+        np.testing.assert_allclose(out, expected, rtol=1e-5)
+
+    def test_sub_of_nested_parents_replays_exactly(self):
+        """The EXACT shape the sign-aware C2 fusion emits: ``sub(half_a, half_b)`` with identity unaries and
+        ``nested_parent_a/b`` set to two engineered half-recipes. Replay must equal ``half_a - half_b``
+        byte-exactly by recursively replaying the parents -- identical machinery to the 'add' fusion."""
+        rng = np.random.default_rng(7)
+        n = 128
+        df = pd.DataFrame({
+            "a": rng.uniform(0.1, 10.0, n), "b": rng.uniform(0.5, 5.0, n),
+            "c": rng.uniform(0.1, 10.0, n), "d": rng.uniform(0.0, 6.28, n),
+        })
+        parent_a = build_unary_binary_recipe(
+            name="div(sqr(a),neg(b))", src_a_name="a", src_b_name="b",
+            unary_a_name="sqr", unary_b_name="neg", binary_name="div",
+            unary_preset="minimal", binary_preset="minimal",
+            quantization_nbins=None, quantization_method=None, quantization_dtype=np.float32,
+        )
+        parent_b = build_unary_binary_recipe(
+            name="mul(log(c),sin(d))", src_a_name="c", src_b_name="d",
+            unary_a_name="log", unary_b_name="sin", binary_name="mul",
+            unary_preset="minimal", binary_preset="minimal",
+            quantization_nbins=None, quantization_method=None, quantization_dtype=np.float32,
+        )
+        va = apply_recipe(parent_a, df)
+        vb = apply_recipe(parent_b, df)
+        fused = build_unary_binary_recipe(
+            name="sub(div(sqr(a),neg(b)),mul(log(c),sin(d)))",
+            src_a_name="div(sqr(a),neg(b))", src_b_name="mul(log(c),sin(d))",
+            unary_a_name="identity", unary_b_name="identity", binary_name="sub",
+            unary_preset="minimal", binary_preset="minimal",
+            quantization_nbins=None, quantization_method=None, quantization_dtype=np.float32,
+            fit_values_for_edges=(va - vb),
+            nested_parent_a=parent_a, nested_parent_b=parent_b,
+        )
+        out = apply_recipe(fused, df)
+        expected = np.nan_to_num(va - vb, nan=0.0, posinf=0.0, neginf=0.0)
+        np.testing.assert_allclose(out, expected, rtol=1e-5)
+
     def test_log_sin_mul_replays(self, simple_pair_data):
         """``mul(log(a), sin(b))`` matches numpy reference computation
         exactly on the same inputs (modulo NaN/Inf scrubbing). ``log``,
