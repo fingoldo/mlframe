@@ -19,6 +19,7 @@ history.
 - Robust location estimators (`mlframe.core.robust_location`): `robust_mean_mestimator` (redescending Meshalkin/Huber/Tukey M-estimator with MAD scale, prange-dispatched at large n), `geometric_median` (Weiszfeld spatial median), and `trimmed_mean` / `winsorized_mean` (classic tail-robust location). Robust aggregators for contaminated data.
 - Proportion statistics (`mlframe.core.proportion_stats`): `wilson_interval`, `required_n_for_proportion`, `proportions_significantly_different`, `z_for_confidence` — confidence intervals and sample-size planning for probability/rate estimates.
 - Spectral matrix seriation (`mlframe.core.matrix_seriation`): `spectral_seriation` / `seriate` reorder a similarity/correlation matrix (Fiedler or leading-singular-vector) to surface block structure — for readable correlation heatmaps and feature-block detection.
+- Benchmark-relative & threshold regression metrics (`mlframe.metrics.regression`): `fast_epsilon_band_accuracy` (fraction within ±ε, the dunnhumby acceptance functional), `fast_rel_mae` / `fast_mrae` / `fast_percent_better` (error relative to an arbitrary benchmark prediction), and `fast_logcosh_loss` (overflow-safe smooth loss).
 
 ## [0.9.0]
 

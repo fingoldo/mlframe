@@ -54,3 +54,11 @@ from ._regression_deviance import (  # noqa: F401
     _tweedie_deviance_general_kernel,
     _tweedie_deviance_poisson_kernel,
 )
+
+from ._regression_benchmark import (  # noqa: F401
+    fast_epsilon_band_accuracy,
+    fast_rel_mae,
+    fast_mrae,
+    fast_percent_better,
+    fast_logcosh_loss,
+)
