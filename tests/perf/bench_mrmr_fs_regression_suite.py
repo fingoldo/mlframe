@@ -1,7 +1,7 @@
 """iter145 fuzz-profile harness: an MRMR-FS-on regression suite (richer than the ridge-only
 baseline harness) so the profile surfaces the feature-selection + FE leg, not just linear fit.
 
-Run: CUDA_VISIBLE_DEVICES="" python -m tests.perf._iter145_profile --n-rows 4000
+Run: CUDA_VISIBLE_DEVICES="" python -m tests.perf.bench_mrmr_fs_regression_suite --n-rows 4000
 Prints top mlframe-own cumulative frames (src/mlframe paths) so the loop can pick a hotspot.
 """
 

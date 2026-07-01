@@ -8,7 +8,7 @@ is the one cProfile measures.
 
 Run::
 
-    python -m tests.perf._iter135_suite_orchestration --n-rows 5000 --top 40
+    python -m tests.perf.bench_suite_orchestration --n-rows 5000 --top 40
 """
 from __future__ import annotations
 

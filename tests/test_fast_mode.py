@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import fast_subset, is_fast_mode
+from tests.conftest import fast_n_estimators, fast_subset, is_fast_mode
 
 
 def test_fast_subset_identity_outside_fast(monkeypatch):
@@ -37,6 +37,30 @@ def test_fast_subset_handles_pytest_param(monkeypatch):
     out = fast_subset(entries, representative=2)
     assert len(out) == 1
     assert out[0].values == (2,)
+
+
+def test_fast_n_estimators_identity_outside_fast(monkeypatch):
+    monkeypatch.delenv("MLFRAME_FAST", raising=False)
+    assert fast_n_estimators(300) == 300
+    assert fast_n_estimators(5) == 5
+
+
+def test_fast_n_estimators_shrinks_in_fast(monkeypatch):
+    monkeypatch.setenv("MLFRAME_FAST", "1")
+    assert fast_n_estimators(300) == 40
+    assert fast_n_estimators(300, fast=20) == 20
+
+
+def test_fast_n_estimators_never_exceeds_full(monkeypatch):
+    monkeypatch.setenv("MLFRAME_FAST", "1")
+    # a budget already smaller than the fast target stays put, not inflated to 40
+    assert fast_n_estimators(10) == 10
+    assert fast_n_estimators(1) == 1
+
+
+def test_fast_n_estimators_respects_floor(monkeypatch):
+    monkeypatch.setenv("MLFRAME_FAST", "1")
+    assert fast_n_estimators(300, fast=0, floor=1) == 1
 
 
 def test_is_fast_mode_rejects_falsey(monkeypatch):

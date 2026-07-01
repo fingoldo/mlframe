@@ -214,6 +214,24 @@ def fast_subset(values, *, representative=None, keep: int = 1):
     return values[:keep]
 
 
+def fast_n_estimators(full: int, *, fast: int = 40, floor: int = 1) -> int:
+    """Shrink a boosting/ensemble iteration budget in fast mode, else return ``full``.
+
+    The `--fast` / `fast_subset` machinery only trims parametrize *variants*; it
+    does nothing for the model dimension, so business-value tests that fit real
+    LGBM/XGB/CatBoost models with ``n_estimators``/``iterations`` in the 200-300
+    range still pay full training cost under `--fast`. Wrap that budget in
+    ``fast_n_estimators(300)`` to drop it (default 40) in fast mode while keeping
+    the exact same code path exercised. Outside fast mode it is an identity.
+
+    ``fast`` is clamped to ``[floor, full]`` so callers passing a budget already
+    smaller than the fast target keep their (smaller) value.
+    """
+    if not is_fast_mode():
+        return full
+    return max(floor, min(fast, full))
+
+
 def running_under_xdist() -> bool:
     """True when executing inside a pytest-xdist worker (i.e. the full ``-n`` parallel run)."""
     return bool(os.environ.get("PYTEST_XDIST_WORKER"))
