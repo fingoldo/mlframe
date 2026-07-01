@@ -110,8 +110,8 @@ def test_no_inspect_getsource_in_test_files() -> None:
 # remaining sites explicitly (never silently passed). Use forward slashes.
 SOURCE_POSITION_PROXY_WHITELIST: set[str] = {
     "training/test_dataset_cache_fingerprint.py",
-    "training/test_mlp_ttr_regression_no_collapse.py",
-    "training/test_t_scale_composite_report_skip.py",
+    "training/neural/test_mlp_ttr_regression_no_collapse.py",
+    "training/reporting/test_t_scale_composite_report_skip.py",
 }
 
 _PROD_SOURCE_PATH_MARKERS = ("mlframe", "__file__")

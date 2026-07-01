@@ -32,16 +32,16 @@ _PYPROJECT = _REPO_ROOT / "pyproject.toml"
 # helpers, bootstrap, etc.) deliberately stay outside the matrix because they exercise mlframe-internal helpers, not
 # sklearn delegate-property surface.
 _SKLEARN_MATRIX_FILES = (
-    "tests/training/test_composite.py",
-    "tests/training/test_composite_polish.py",
-    "tests/training/test_composite_polish_refinement.py",
+    "tests/training/composite/test_composite.py",
+    "tests/training/composite/test_composite_polish.py",
+    "tests/training/composite/test_composite_polish_refinement.py",
     "tests/training/composite/test_composite_provenance.py",
-    "tests/training/test_composite_perf.py",
-    "tests/training/test_composite_business_value_locks.py",
-    "tests/training/composite/test_composite_discovery.py",
-    "tests/training/test_composite_gate_and_edges.py",
-    "tests/training/composite/test_composite_ensemble.py",
-    "tests/training/test_composite_x_feature_selection.py",
+    "tests/training/composite/eval/test_composite_perf.py",
+    "tests/training/composite/test_composite_business_value_locks.py",
+    "tests/training/composite/discovery/test_composite_discovery.py",
+    "tests/training/composite/screening/test_composite_gate_and_edges.py",
+    "tests/training/composite/ensemble/test_composite_ensemble.py",
+    "tests/training/composite/discovery/test_composite_x_feature_selection.py",
 )
 
 

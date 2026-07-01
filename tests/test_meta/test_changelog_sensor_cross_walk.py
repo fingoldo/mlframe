@@ -100,28 +100,11 @@ def test_each_fix_bullet_mentions_a_sensor_or_meta_test():
         )
 
 
-def test_known_wave17_findings_cite_their_sensors():
-    """Explicit per-finding cross-walk on the Wave 17 entries.
-
-    Reads the WHOLE CHANGELOG (not just the first ``_load_audit_cycle_section``
-    head) so newer ``## YYYY-MM-DD - Wave N`` entries pushed ahead of Wave 17
-    don't move the cited sensors out of the soft-scoped scan window. The
-    citations must persist anywhere in the file.
-    """
-    content = _CHANGELOG.read_text(encoding="utf-8")
-    required = {
-        "A5#4": "test_regression_w17_get_training_configs_memo.py",
-        "A5#16": "test_regression_w17_get_training_configs_memo.py",
-        "B1 F8": "test_regression_w17_b1_f8_multilabel_chain_order_metamorphic.py",
-        "sklearn_matrix marker": "test_sklearn_matrix_marker_invariants.py",
-    }
-    missing: list[str] = []
-    for finding, sensor in required.items():
-        if sensor not in content:
-            missing.append(f"{finding!r} -> {sensor}")
-    assert not missing, (
-        "the following Wave 17 entries do not cite the expected sensor file in "
-        "CHANGELOG.md -- either the sensor was renamed, the entry was omitted, "
-        "or the citation is missing:\n  "
-        + "\n  ".join(missing)
-    )
+# NOTE: the former ``test_known_wave17_findings_cite_their_sensors`` was removed
+# when CHANGELOG.md was rewritten into a lean, user-facing Keep-a-Changelog file.
+# That test hard-pinned specific ``test_regression_w17_*`` sensor FILENAMES to
+# appear verbatim in the CHANGELOG; the lean rewrite intentionally moved that
+# per-fix engineering detail into git history, and several of those sensor files
+# were themselves renamed to drop wave-N tokens. The generic drift signal
+# (``test_each_fix_bullet_mentions_a_sensor_or_meta_test``) still applies to any
+# future dated audit-cycle section.
