@@ -143,7 +143,7 @@ jobs:
         # Same persisted-cache pattern as ci.yml: numba recompiles kernels cold every run otherwise, and the
         # composite+FE tests trigger many kernels. restore-keys falls back to the newest prior cache (numba
         # invalidates per-kernel internally, so a stale restore still reuses unchanged kernels).
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/.numba-cache
           key: numba-sklmatrix-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('src/**/*.py') }}
