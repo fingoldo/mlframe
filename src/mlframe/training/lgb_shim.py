@@ -775,6 +775,11 @@ class _DatasetReuseMixin:
         return X.assign(**_realign) if _realign else X
 
     def predict(self, X, *args, **kwargs):
+        """Predict after re-aligning X's categorical dtypes to the train-time category sets.
+
+        LightGBM requires the predict-time categorical categories to match those seen at fit;
+        ``_align_cats_for_predict`` restores them before delegating to the base LGBM predict.
+        """
         return super().predict(self._align_cats_for_predict(X), *args, **kwargs)
 
 
@@ -834,6 +839,9 @@ if _LGB_AVAILABLE:
             return self._le.transform(np.asarray(y))
 
         def predict_proba(self, X, *args, **kwargs):
+            """Predict class probabilities after re-aligning X's categorical dtypes to the
+            train-time category sets (LightGBM requires matching categories at predict);
+            delegates to the base LGBMClassifier.predict_proba."""
             return super().predict_proba(self._align_cats_for_predict(X), *args, **kwargs)
 
 

@@ -104,6 +104,13 @@ except ImportError:
     from mlframe.metrics.core import fast_mean_squared_error
 
     def root_mean_squared_error(y_true, y_pred, *, sample_weight=None, multioutput="uniform_average"):
+        """RMSE = sqrt of the per-output MSE, sklearn-compatible signature.
+
+        Backs RMSE with the project's own ``fast_mean_squared_error`` kernel (no sklearn
+        dependency): computes ``sqrt(MSE)`` per output, then reduces per ``multioutput`` —
+        ``"raw_values"`` returns the per-output vector, ``"uniform_average"`` the unweighted
+        mean, or an array of per-output weights.
+        """
         output_errors = np.sqrt(fast_mean_squared_error(y_true, y_pred, sample_weight=sample_weight, multioutput="raw_values"))
         if isinstance(multioutput, str):
             if multioutput == "raw_values":
