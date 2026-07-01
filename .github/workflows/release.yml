@@ -34,6 +34,18 @@ jobs:
         with:
           enable-cache: true
 
+      # Guard against a tag/version mismatch: the release fires on a `v*` tag but
+      # the wheel version comes from `mlframe.__version__` (version.py). Publishing
+      # a wheel whose version disagrees with the tag is silent and unrecoverable
+      # on PyPI, so fail fast. Skipped for manual dispatch runs (no tag ref).
+      - name: Assert git tag matches package version
+        if: github.event_name == 'release'
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(python -c "ns={}; exec(open('src/mlframe/version.py').read(), ns); print(ns['__version__'])")
+          echo "tag=$TAG package=$PKG"
+          test "$TAG" = "$PKG" || { echo "::error::git tag ($TAG) != mlframe.__version__ ($PKG)"; exit 1; }
+
       - name: Build distributions
         run: uv build
 

@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Keep GitHub Actions pinned-tags fresh and surface supply-chain advisories.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  # Keep pre-commit hook revisions (ruff/black/mypy/...) from drifting behind.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # The dependency graph is extras-heavy; only monitor, don't auto-bump the
+    # whole tree. github-actions above is the priority ecosystem.
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"

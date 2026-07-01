@@ -245,6 +245,9 @@ jobs:
           /tmp/smoke/bin/pip install --upgrade pip
           /tmp/smoke/bin/pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git"
           /tmp/smoke/bin/pip install dist/*.whl
+          # Assert the PEP 561 py.typed marker actually shipped in the wheel so a
+          # package-data regression (dropping typing support) fails the build.
+          python -c "import zipfile, glob, sys; w = glob.glob('dist/*.whl')[0]; names = zipfile.ZipFile(w).namelist(); sys.exit('py.typed missing from wheel' if 'mlframe/py.typed' not in names else 0)"
           /tmp/smoke/bin/python -c "import mlframe; print('mlframe', mlframe.__version__, 'at', mlframe.__file__)"
           /tmp/smoke/bin/python -c "from mlframe.metrics.core import *; from mlframe.training import train_and_evaluate_model; from mlframe.models.ensembling import *; from mlframe.calibration.quality import *; print('smoke OK')"
 

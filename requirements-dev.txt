@@ -1,3 +1,7 @@
+# DEVELOPMENT convenience file — NOT the minimal runtime install.
+# It pulls the ENTIRE non-GPU graph plus dev tooling (~several GB: torch, mlflow,
+# pysr+julia, ...). For a lightweight install pick focused extras instead.
+#
 # Dependencies are declared in pyproject.toml — that is the single source of truth.
 #
 # Install the package with the extras you need instead of using this file:

@@ -37,7 +37,7 @@ optional extras:
 ```bash
 pip install -e "./mlframe[boosting]"             # catboost + lightgbm + xgboost
 pip install -e "./mlframe[calibration]"          # shap + venn-abers + netcal + betacal + pycalib
-pip install -e "./mlframe[neural]"               # torch + pytorch-lightning
+pip install -e "./mlframe[neural]"               # torch + lightning + captum + transformers
 pip install -e "./mlframe[automl]"               # flaml (HPO)
 pip install -e "./mlframe[feature_engineering]"  # pysr (symbolic regression) + optbinning
 pip install -e "./mlframe[sampling]"             # imbalanced-learn + category-encoders + iterative-stratification

@@ -145,8 +145,12 @@ calibration = [
 ]
 
 # Neural-network training stack (PyTorch + Lightning).
-# `lightning` is the canonical post-2.0 distribution name; the older
-# `pytorch-lightning` alias is a thin re-export package.
+# `lightning` is the canonical post-2.0 distribution name and the only one we
+# depend on: every neural module imports `lightning`/`lightning.pytorch`, with
+# `pytorch_lightning` used purely as a defensive fallback for users who happen
+# to have that legacy re-export installed. We deliberately do NOT pin
+# `pytorch-lightning` here — installing both is redundant and invites
+# version-skew warnings (`lightning` already vendors the same code).
 # `captum` powers the native NN feature-importance path
 # (``_captum_integrated_gradients_importance`` in evaluation.py);
 # 2026-05-26 bench matched permutation recall@10=1.00 with a ~5x
@@ -161,7 +165,6 @@ neural = [
     #   pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128
     "torch>=2.0",
     "lightning>=2.0",
-    "pytorch-lightning>=2.0",
     "captum>=0.7",
     # Frozen text-embedding path for neural models (HuggingFaceProvider: AutoTokenizer + AutoModel -> pooled vectors).
     "transformers>=4.30",
@@ -295,8 +298,11 @@ transformer_ann = [
     # via the `ann_backend="hnswlib"` parameter but it's not in the extra to avoid surprise installs of a broken wheel.
     "pynndescent>=0.5",
 ]
+# cupy window kept identical to the `gpu` extra (same lower bound + `[ctk]`
+# bundled CUDA libs) so `mlframe[gpu,transformer_gpu]` resolves without a
+# conflicting intersection and both paths runtime-compile against the same libs.
 transformer_gpu = [
-    "cupy-cuda12x>=13.0,<15.0",
+    "cupy-cuda12x[ctk]>=14.0,<15.0",
 ]
 # CUDA-11 variant (Python <=3.12 only -- no cuda11x wheel for cupy 14 / Python 3.13+).
 transformer_gpu_cuda11 = [
@@ -306,7 +312,9 @@ transformer_full = [
     "mlframe[transformer_ann,transformer_gpu]",
 ]
 
-# Convenience meta-extra: union of all runtime extras.
+# Convenience meta-extra: union of all runtime extras (CPU only; GPU via [gpu]
+# / [transformer_gpu], docs via [docs], dev tooling via [dev] are intentionally
+# excluded since they are not runtime concerns).
 all = [
     "mlframe[boosting,calibration,neural,automl,feature_engineering,sampling,polars_ext,viz,mlflow,db,signal,unsupervised,stats,transformer_ann]",
 ]

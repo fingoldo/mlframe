@@ -35,7 +35,7 @@ repos:
   # ``format-lint-warn`` hook below. Apply explicitly with
   # ``pre-commit run --hook-stage manual ruff`` / ``... ruff-format`` / ``... black``.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.8.6
     hooks:
       - id: ruff
         args: ['--fix']
@@ -47,7 +47,7 @@ repos:
   # [tool.black] in pyproject.toml). target-version matches setup.cfg /
   # pyproject (py39-py313).
   - repo: https://github.com/psf/black
-    rev: 24.10.0
+    rev: 25.1.0
     hooks:
       - id: black
         language_version: python3
@@ -57,7 +57,7 @@ repos:
   # files= regex is gated on a separate review per the gradual-typing
   # policy in CONTRIBUTING.md.
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
+    rev: v1.14.1
     hooks:
       - id: mypy
         files: '^src/mlframe/calibration/'
@@ -89,7 +89,7 @@ repos:
   # rate is near-zero after the de-star cleanup (F821/F822 are genuine bugs).
   # Stylistic rules (format, import order, naming) are WARN-ONLY via format-lint-warn.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.8.6
     hooks:
       - id: ruff
         name: "ruff (real bugs block)"
