@@ -400,3 +400,23 @@ def test_fused_moments_match_standalone_helpers():
         rep = analyze_target_distribution(y, target_type="regression", has_time_axis=False)
         assert rep.diagnostics["excess_kurtosis"] == _excess_kurtosis(y)
         assert rep.diagnostics["skew"] == _skewness(y)
+
+
+def test_lag_autocorr_matches_corrcoef_reference():
+    """_lag_autocorr computes Pearson autocorrelation directly via three dot products instead of np.corrcoef (2.9x on
+    the lag-scan at n=300k). Regression sensor: the direct form must match the np.corrcoef reference to within reduction-
+    order noise (~1e-12) across lags and array shapes, and preserve the constant-slice -> 0.0 and too-short -> 0.0 guards
+    that the strong-AR detector relies on."""
+    from mlframe.training.targets._target_distribution_analyzer_stats import _lag_autocorr
+
+    rng = np.random.default_rng(5)
+    for s in range(50):
+        r = np.random.default_rng(s)
+        y = np.cumsum(r.standard_normal(int(r.integers(50, 8000)))).astype(np.float64)
+        for lag in (1, 2, 3, 5):
+            a, b = y[:-lag], y[lag:]
+            ref = float(np.corrcoef(a, b)[0, 1])
+            assert abs(_lag_autocorr(y, lag) - ref) < 1e-12, (s, lag)
+    # Guards: constant slice -> 0.0; too-short -> 0.0.
+    assert _lag_autocorr(np.ones(100), 1) == 0.0
+    assert _lag_autocorr(np.array([1.0, 2.0, 3.0]), 5) == 0.0
