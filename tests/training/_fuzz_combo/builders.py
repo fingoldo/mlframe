@@ -58,9 +58,9 @@ def build_mrmr_kwargs_from_flat(
     # fe_smart_polynom subsample. 0 = disabled (legacy full-frame path);
     # >0 AND < len(X) fires the subsample MI sweep with full-n survivor
     # rebuild. Both subsamples share the unified FE subsample upstream
-    # (FE_DEFAULT_SUBSAMPLE_N now aliases UNIFIED_FE_SUBSAMPLE_N=30_000 as of
-    # 2026-06-25); this fuzz builder pins its OWN explicit budget below so its
-    # behavior is independent of the upstream default.
+    # (UNIFIED_FE_SUBSAMPLE_N=30_000 as of 2026-06-25); this fuzz builder pins
+    # its OWN explicit budget below so its behavior is independent of the
+    # upstream default.
     fe_check_pairs_subsample_n: int = 0,
     fe_smart_polynom_subsample_n: int = 0,
     # Suite-side fuzz-speed pins. Callers can override.
@@ -458,7 +458,7 @@ def build_mrmr_kwargs_from_flat(
         _nbins_kw["collapsed_fallback_nbins"] = collapsed_fallback_nbins
     if _nbins_kw:
         kwargs["nbins_strategy_kwargs"] = _nbins_kw
-    # The MRMR subsample knobs default to FE_DEFAULT_SUBSAMPLE_N upstream; only
+    # The MRMR subsample knobs default to UNIFIED_FE_SUBSAMPLE_N upstream; only
     # override when the fuzz axis sets a non-zero budget so existing combos
     # don't accidentally flip the path on.
     if fe_check_pairs_subsample_n > 0:
@@ -488,7 +488,7 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
     # n_rows exceeds the budget. Couples the new fe_check_pairs_subsample_n_cfg
     # axis to both fe_npermutations / fe_ntop_features (any > 0 fires the FE
     # block) and the smart-polynom subsample (shares the same budget by
-    # FE_DEFAULT_SUBSAMPLE_N upstream).
+    # UNIFIED_FE_SUBSAMPLE_N upstream).
     _subsample_active = (
         combo.use_mrmr_fs
         and combo.fe_check_pairs_subsample_n_cfg > 0

@@ -208,33 +208,23 @@ def _fe_effective_buffer_budget_bytes(available_bytes: int, n_workers: int = 1) 
     return int(raw / (_FE_PEAK_OVERHEAD_FACTOR * nw))
 
 
-# UNIFIED FE/screen subsample (2026-06-25). The FE block historically carried THREE separate
-# subsample constants -- the relevance SCREEN (_DEFAULT_SCREEN_SUBSAMPLE_N=30_000), the FE PAIR-SEARCH
-# (FE_DEFAULT_SUBSAMPLE_N=200_000), and a documented "fast" preset (FE_FAST_SUBSAMPLE_N=25_000) -- that
-# all cluster near ~25-30k except the conservative 200k pair-search ctor default. Two facts collapse them
-# to ONE knob with NO accuracy loss:
+# UNIFIED FE/screen subsample (2026-06-25). ONE knob for the whole FE block -- the relevance SCREEN, the FE
+# PAIR-SEARCH, and the "fast" preset all read this single value. Two facts justify 30k with NO accuracy loss:
 #   * The FE-screen accuracy bench (bench_fe_pair_subsample_accuracy.py) measured survivor-jaccard=1.0 and
 #     winner-match 5/5 vs the FULL-n screen for every n_eff >= 25_000; 30_000 sits above that validated
 #     floor with headroom for the gate-detection MI band (the screen's >25k requirement). 10_000 is the
 #     marginal floor (jaccard slips) -- DO NOT go below 25_000.
-#   * Since 2026-06-20 the default ``MRMR()`` fit ALREADY shrinks ``fe_check_pairs_subsample_n`` (and
-#     ``fe_smart_polynom_subsample_n``) to the 30k screen size at large n via
-#     ``_apply_default_screen_subsample`` -- so the 200k pair-search ctor default was already overridden
-#     at every n>30k where it would matter; it was vestigial. Verified BIT-IDENTICAL selection (chosen
-#     features, recipe names, get_feature_names_out order) at the unified 30k vs the legacy mixed
-#     200k/30k/25k across the F2 goal (uniform/scaled_1_5/heavy_tailed/mixed) + the canonical biz_value
-#     suite + engineered-replay. The 2026-05-18 "200k kept a marginal hermite feature vs 100k" note is
-#     superseded: that path (fe_smart_polynom_subsample_n) is likewise screen-shrunk to 30k by the default
-#     profile and the canonical suite (which exercises it) passes at 30k.
-# This is the SINGLE source of truth; the legacy names alias it (kept for import back-compat) and the
-# per-host KTC tune (cache key ``mrmr_default_screen_n``, resolved by ``MRMR._default_screen_subsample_n``)
-# is the ONE place a host re-tunes the value -- never re-introduce a second tunable subsample constant.
+#   * Since 2026-06-20 the default ``MRMR()`` fit shrinks ``fe_check_pairs_subsample_n`` (and
+#     ``fe_smart_polynom_subsample_n``) to this screen size at large n via ``_apply_default_screen_subsample``.
+#     Verified BIT-IDENTICAL selection (chosen features, recipe names, get_feature_names_out order) at the
+#     unified 30k vs the legacy mixed 200k/30k/25k across the F2 goal (uniform/scaled_1_5/heavy_tailed/mixed)
+#     + the canonical biz_value suite + engineered-replay. The 2026-05-18 "200k kept a marginal hermite
+#     feature vs 100k" note is superseded: that path (fe_smart_polynom_subsample_n) is likewise screen-shrunk
+#     to 30k by the default profile and the canonical suite (which exercises it) passes at 30k.
+# This is the SINGLE source of truth (no back-compat aliases -- every FE site reads THIS name); the per-host
+# KTC tune (cache key ``mrmr_default_screen_n``, resolved by ``MRMR._default_screen_subsample_n``) is the ONE
+# place a host re-tunes the value -- never re-introduce a second subsample constant.
 UNIFIED_FE_SUBSAMPLE_N: int = 30_000
-
-# Back-compat aliases -- both now resolve to the single unified knob above (were 200_000 / 25_000). Kept
-# so external importers of these names keep working; new code should read UNIFIED_FE_SUBSAMPLE_N.
-FE_DEFAULT_SUBSAMPLE_N: int = UNIFIED_FE_SUBSAMPLE_N
-FE_FAST_SUBSAMPLE_N: int = UNIFIED_FE_SUBSAMPLE_N
 
 
 def _rebuild_full_survivor_col(

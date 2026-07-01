@@ -91,7 +91,7 @@ from .discretization import (
     discretize_array,
 )
 from .feature_engineering import (
-    FE_DEFAULT_SUBSAMPLE_N,
+    UNIFIED_FE_SUBSAMPLE_N,
     check_prospective_fe_pairs,
     compute_pairs_mis,
     create_binary_transformations,

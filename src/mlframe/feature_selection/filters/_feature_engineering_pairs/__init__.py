@@ -54,11 +54,11 @@ from ._pairs_chunks import (
     _compute_one_fe_chunk,
     _plan_fe_chunks,
 )
-from ._pairs_core import FE_DEFAULT_SUBSAMPLE_N, check_prospective_fe_pairs
+from ._pairs_core import UNIFIED_FE_SUBSAMPLE_N, check_prospective_fe_pairs
 
 __all__ = [
     "check_prospective_fe_pairs",
-    "FE_DEFAULT_SUBSAMPLE_N",
+    "UNIFIED_FE_SUBSAMPLE_N",
     "_gate_med_apply",
     "_select_single_best",
     "_neg_name_key",

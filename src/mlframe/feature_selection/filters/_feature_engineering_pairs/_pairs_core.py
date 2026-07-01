@@ -41,21 +41,13 @@ def _short_fe_name(name, maxlen: int = 30) -> str:
     return s[:head] + ".." + s[-tail:]
 
 
-# Subsample default for the FE pair-search entry point. UNIFIED (2026-06-25) onto the single
-# ``feature_engineering.UNIFIED_FE_SUBSAMPLE_N`` source of truth (30k) -- see the full rationale there.
-# This duplicate constant used to hold an independent 200_000; it now aliases the unified knob so the FE
-# block has ONE subsample value. (Lazy local import to avoid a circular import at module load: this
-# package is imported by feature_engineering's transitive deps; the value is a plain int, read at def time.)
-def _unified_fe_subsample_n() -> int:
-    from ..feature_engineering import UNIFIED_FE_SUBSAMPLE_N
-
-    return int(UNIFIED_FE_SUBSAMPLE_N)
-
-
+# Subsample default for the FE pair-search entry point: the single ``feature_engineering.UNIFIED_FE_SUBSAMPLE_N``
+# source of truth (30k) -- see the full rationale there. The try/except guards a circular import at module load
+# (this package is imported by feature_engineering's transitive deps); the value is a plain int read at def time.
 try:
-    FE_DEFAULT_SUBSAMPLE_N: int = _unified_fe_subsample_n()
+    from ..feature_engineering import UNIFIED_FE_SUBSAMPLE_N
 except Exception:
-    FE_DEFAULT_SUBSAMPLE_N = 30_000  # bootstrap fallback if feature_engineering not yet importable
+    UNIFIED_FE_SUBSAMPLE_N = 30_000  # bootstrap fallback if feature_engineering not yet importable
 
 logger = logging.getLogger(__name__)
 
@@ -167,11 +159,11 @@ def check_prospective_fe_pairs(
     # transformed_vars + shared_buffer allocations scale with subsample_n rather
     # than the (possibly multi-million-row) full X. Survivor columns are still
     # produced at full n via _rebuild_full_survivor_col so the caller contract
-    # is preserved. Default 200_000 matches polynom_pair_fe's existing knob
-    # (FE_DEFAULT_SUBSAMPLE_N); the standalone accuracy bench in
-    # bench_fe_pair_subsample_accuracy.py shows jaccard=1.0 vs full at n_eff
-    # >= 50k on synthetic 3-pair-competition data. 0 = use full data (legacy).
-    subsample_n: int = FE_DEFAULT_SUBSAMPLE_N,
+    # is preserved. Default is the unified UNIFIED_FE_SUBSAMPLE_N (30k); the
+    # standalone accuracy bench in bench_fe_pair_subsample_accuracy.py shows
+    # jaccard=1.0 vs full at n_eff >= 50k on synthetic 3-pair-competition data.
+    # 0 = use full data (legacy).
+    subsample_n: int = UNIFIED_FE_SUBSAMPLE_N,
     subsample_seed: int = 42,
     # ONE shared FE subsample (2026-06-25). When the caller (``_mrmr_fe_step``) passes the fit's single
     # shared row-index draw, the MI-sweep REUSES it verbatim instead of drawing its own subsample here --

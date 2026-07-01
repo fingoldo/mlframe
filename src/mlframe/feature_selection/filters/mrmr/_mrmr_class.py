@@ -117,7 +117,6 @@ from ..discretization import (  # noqa: F401
     discretize_array,
 )
 from ..feature_engineering import (  # noqa: F401
-    FE_DEFAULT_SUBSAMPLE_N,
     UNIFIED_FE_SUBSAMPLE_N,
     check_prospective_fe_pairs,
     compute_pairs_mis,
@@ -1067,21 +1066,21 @@ class MRMR(BaseEstimator, TransformerMixin):
         #
         # Set to ``None`` / 0 / negative to disable (use full data).
         # unified with check_prospective_fe_pairs via the shared
-        # FE_DEFAULT_SUBSAMPLE_N constant; both FE entry points now scale their
+        # UNIFIED_FE_SUBSAMPLE_N constant; both FE entry points now scale their
         # MI-sweep buffer with the same knob. Re-tune in feature_engineering.py
         # to land both sites consistently.
-        fe_smart_polynom_subsample_n: int = FE_DEFAULT_SUBSAMPLE_N,
+        fe_smart_polynom_subsample_n: int = UNIFIED_FE_SUBSAMPLE_N,
         # Subsample rows for check_prospective_fe_pairs's
         # MI sweep. The hoisted shared scratch buffer scales linearly with n; on
         # n=4M with the medium preset it lands at ~17.6 GiB and crashes the suite.
         # Bench (bench_fe_pair_subsample_accuracy.py): jaccard=1.0 vs full-n at
-        # 50k+, 0.88 at 5k. Default 200_000 matches fe_smart_polynom_subsample_n
-        # for cross-block consistency. 0 = use full data (legacy).
-        # R2 FAST SETTING (2026-06-18): 25_000 is a VALIDATED fast value -- survivor jaccard 1.0 /
-        # winner-match 5/5 vs the full-n screen (see FE_FAST_SUBSAMPLE_N in feature_engineering.py),
-        # ~8x smaller MI-sweep buffer. 10_000 is the marginal floor; do NOT set below 25_000. The
-        # default stays 200_000 (bit-stable); pass 25_000 for the validated fast screen.
-        fe_check_pairs_subsample_n: int = FE_DEFAULT_SUBSAMPLE_N,
+        # 50k+, 0.88 at 5k. Default is the unified UNIFIED_FE_SUBSAMPLE_N (30k),
+        # shared with fe_smart_polynom_subsample_n for cross-block consistency.
+        # 0 = use full data (legacy). 30_000 is a VALIDATED value -- survivor
+        # jaccard 1.0 / winner-match 5/5 vs the full-n screen (see
+        # UNIFIED_FE_SUBSAMPLE_N in feature_engineering.py). 10_000 is the
+        # marginal floor; do NOT set below 25_000.
+        fe_check_pairs_subsample_n: int = UNIFIED_FE_SUBSAMPLE_N,
         # STRATIFIED FE SUBSAMPLE (R1, 2026-06-18). The FE MI-sweep / pure-form-retention /
         # polynom-pair subsamplers above draw rows with a PLAIN uniform ``rng.choice`` -- no
         # class balance for classification, no y-quantile coverage for regression. On a small

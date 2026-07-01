@@ -333,7 +333,7 @@ AXES: dict[str, tuple[Any, ...]] = {
     # the suite signature default; toggling exercises the skip path.
     "enable_target_distribution_analyzer_cfg": (True, False),
     # 2026-05-21 -- MRMR FE pair-check subsample knob. When 0, the check
-    # runs on the full frame (legacy + n_rows < FE_DEFAULT_SUBSAMPLE_N
+    # runs on the full frame (legacy + n_rows < UNIFIED_FE_SUBSAMPLE_N
     # path). When set positive AND below n_rows, the MI sweep runs on a
     # uniform sample of that size while survivor columns are still rebuilt
     # at full-n (caller contract). 50_000 forces the subsample path at
