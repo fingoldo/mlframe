@@ -22,6 +22,8 @@ history.
 - Benchmark-relative & threshold regression metrics (`mlframe.metrics.regression`): `fast_epsilon_band_accuracy` (fraction within ±ε, the dunnhumby acceptance functional), `fast_rel_mae` / `fast_mrae` / `fast_percent_better` (error relative to an arbitrary benchmark prediction), and `fast_logcosh_loss` (overflow-safe smooth loss).
 - Optimal decision-threshold search (`mlframe.metrics.classification.optimal_threshold`): given scores and binary labels, find the threshold maximizing `f1` / `balanced_accuracy` / `mcc` / `youden` / `accuracy` via one O(n log n) confusion-count sweep — a per-functional operating-point picker (the F1-optimal and BA-optimal cuts differ under class imbalance).
 - Single-population targeting curves (`mlframe.metrics.classification`): `cumulative_gains_curve` (CAP/Lorenz), `lift_curve`, `gains_table` (decile marketing table), and `exploss` (exponential proper scoring rule) — for how-deep-to-target model evaluation, distinct from the per-group LTR lift in `metrics.ranking`.
+- Weighted / Quadratic Weighted Kappa (`mlframe.metrics.classification.quadratic_weighted_kappa`, `weighted_kappa`): distance-weighted agreement for ordinal multiclass targets (bit-matches `sklearn.cohen_kappa_score(weights=)`).
+- Set-similarity coefficients (`mlframe.core.set_similarity`): `jaccard`, `dice`, `overlap`, `braun_blanquet`, `ochiai`, `kulczynski`, `tversky` over two boolean masks or Python sets — for set/interval/cluster-pair targets.
 
 ## [0.9.0]
 

@@ -54,3 +54,9 @@ from ._gains_lift import (  # noqa: F401
     gains_table,
     exploss,
 )
+
+from ._weighted_kappa import (  # noqa: F401
+    quadratic_weighted_kappa,
+    weighted_kappa,
+    KAPPA_WEIGHTS,
+)
