@@ -5,7 +5,7 @@ Random fuzz combos profiled under cProfile at n_rows=300k via
 pick the top mlframe-side hotspot, optimize (measured + bit-identical + regression
 test), commit. Termination = 100 consecutive REJECTs (see CLAUDE.md policy).
 
-Consecutive-reject streak: 2
+Consecutive-reject streak: 0
 
 | iter | seed | mlframe hotspot | verdict | notes |
 |------|------|-----------------|---------|-------|
@@ -19,3 +19,4 @@ Consecutive-reject streak: 2
 | 8 | 9001 (--no-charts) | `_detect_multi_modal` recomputed np.std(y) already computed by the analyzer (charts-off profile surfaced the training/FS path; chart render was ~90% of wall) | RESOLVED (redundant pass) | -1.65ms of 5.82ms (~28%) @ n300k; analyze ~41→31.7ms; bit-identical 60 cases; guard preserved. Added profiler --no-charts flag. Streak reset→0. commit 1b45449f |
 | 9 | 314159 (--no-charts, 6 combos) | #1 `_ice_metric.compute_probabilistic_multiclass_error` 2.06s tottime = the `@njit(parallel=True)` `_batch_per_class_ice_kernel` (cProfile njit-to-caller attribution; real Python overhead 0.004s); #2/#3 `bootstrap_metric`/`_jackknife_metric` = exhaustively-optimized resample/LOO loops (np.take/threading already rejected w/ bench) | REJECT | microbench-confirmed at-floor/njit; no Python-optimizable bit-identical hotspot. Streak→1. Codebase training/FS/metric path is at its optimized floor across both profiling modes. |
 | 10 | 271828 (--no-charts, 8 combos) | identical top-3 to iter 9 (deterministic pool + prefer-models re-selects the same combos, overwriting by short_id); fresh candidate `_data_helpers._extract_target_subset` (0.097s self-time) already at documented floor (.values[idx] 9x-over-.iloc bench) | REJECT | all candidates njit-attribution / exhaustively-benched / at-floor. Streak→2. Readily-profiled combo space (lgb,xgb,cb) is mined out across chart-on + charts-off × multiple seeds. |
+| 11 | (chart-render, user-approved non-bit-identical) | `renderers/_trend.robust_fit_endpoints` — Theil-Sen fit ~786ms/call on default-ON pred-vs-actual overlay (largest single reporting cost); slope is max_subpopulation-dominated, cap-insensitive above ~3k pts | RESOLVED+5.5x | _TREND_FIT_CAP 20000→3000; 820ms→149ms @ n60k; endpoint shift ≤1.7% of y-range over 25 clouds (within Theil-Sen's own sampling variance); visual-equivalence regression test. Streak→0. commit f1768d66 |
