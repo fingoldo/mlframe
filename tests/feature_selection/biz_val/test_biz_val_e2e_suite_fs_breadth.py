@@ -59,6 +59,9 @@ _MRMR_KW = {
 }
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _signal_noise_frame(n, n_signal=4, n_noise=8, seed=0, kind="binary"):
     """Linear-signal frame: ``n_signal`` informative columns ``s0..`` + ``n_noise`` pure-noise
     ``noise_0..``. ``kind`` in {binary, multiclass, regression} sets the target.

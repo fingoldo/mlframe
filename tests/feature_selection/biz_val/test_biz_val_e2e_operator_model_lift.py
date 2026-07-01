@@ -33,6 +33,7 @@ from sklearn.metrics import roc_auc_score
 from lightgbm import LGBMClassifier
 
 from mlframe.feature_selection.filters.mrmr import MRMR
+from tests.conftest import fast_n_estimators
 
 # Every default-ON FE generator OFF, INCLUDING the four structural operators -> MRMR selects RAW columns only.
 _ALL_FE_OFF = dict(
@@ -72,7 +73,7 @@ def _select_train_predict(kwargs, df, y):
     Xtr = np.nan_to_num(np.asarray(fs.transform(df_tr), float), nan=0.0, posinf=0.0, neginf=0.0)
     Xte = np.nan_to_num(np.asarray(fs.transform(df_te), float), nan=0.0, posinf=0.0, neginf=0.0)
     assert Xtr.shape[1] > 0, f"selection empty -> 0 features downstream; names={names}"
-    m = LGBMClassifier(n_estimators=60, num_leaves=15, random_state=0, verbose=-1)
+    m = LGBMClassifier(n_estimators=fast_n_estimators(60), num_leaves=15, random_state=0, verbose=-1)
     m.fit(Xtr, y_tr.values)
     return float(roc_auc_score(y_te.values, m.predict_proba(Xte)[:, 1])), names
 

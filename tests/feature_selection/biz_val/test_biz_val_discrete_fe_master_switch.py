@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
 
 _DISCRETE_PREFIXES = ("il_", "pmod_", "argmax_", "gate_")
 

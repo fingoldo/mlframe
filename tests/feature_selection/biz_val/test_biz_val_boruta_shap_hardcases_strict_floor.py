@@ -45,6 +45,9 @@ _N_TRIALS = 10 if is_fast_mode() else 20
 _N_EST = 40 if is_fast_mode() else 60
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _make_clf_model(seed: int):
     from sklearn.ensemble import RandomForestClassifier
 

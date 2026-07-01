@@ -62,6 +62,9 @@ N_NOISE = 6
 SIGNAL = {0, 1}
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _design(seed: int):
     rng = np.random.default_rng(seed)
     x_sig = rng.normal(size=(N, N_SIGNAL))

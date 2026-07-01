@@ -68,6 +68,9 @@ from tests.feature_selection.conftest import fast_subset
 # ---------------------------------------------------------------------------
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _build_mcar(seed: int, n: int = 1500, nan_rate: float = 0.2):
     """One MCAR-informative feature (random NaN, still drives y) + pure noise."""
     rng = np.random.default_rng(seed)

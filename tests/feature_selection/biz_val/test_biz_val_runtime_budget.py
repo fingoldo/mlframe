@@ -49,6 +49,9 @@ _BUDGET_SECS = _BUDGET_MINS * 60.0
 _BUDGET_SLACK = 4.0
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _signal_noise_df(n: int, p: int, seed: int = 42):
     """``p``-column frame: 3 informative + (p-3) pure-noise; linear binary target.
     Returns ``(DataFrame, Series)`` with ``x0..x{p-1}`` column names."""

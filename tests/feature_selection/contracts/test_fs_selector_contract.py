@@ -307,11 +307,24 @@ class TestSklearnParity:
         has_support = callable(getattr(sel, "get_support", None))
         assert has_names or has_support, f"{name}: neither get_feature_names_out nor get_support defined"
 
+    # Selectors that are DELIBERATELY exempt from get_feature_names_out (declared
+    # sklearn-parity gap). Empty today: MRMR / RFECV / ShapProxiedFS all provide it.
+    # A regression that drops gfno on any non-exempt selector must fail loudly here,
+    # NOT skip silently.
+    _GFNO_EXEMPT: frozenset[str] = frozenset()
+
     def test_get_feature_names_out_matches_transform_cols(self, name, factory, binary_df):
         X, y = binary_df
         sel = _fit_safe(factory("binary"), X, y)
-        if not callable(getattr(sel, "get_feature_names_out", None)):
-            pytest.skip(f"{name} has no get_feature_names_out (known asymmetry)")
+        has_gfno = callable(getattr(sel, "get_feature_names_out", None))
+        if name in self._GFNO_EXEMPT:
+            assert not has_gfno, (
+                f"{name} is listed in _GFNO_EXEMPT but now DOES expose "
+                "get_feature_names_out -- remove it from the exempt set")
+            return
+        assert has_gfno, (
+            f"{name}: get_feature_names_out missing but selector is not in the "
+            f"declared-exempt set {sorted(self._GFNO_EXEMPT)} -- sklearn-parity regression")
         names = sel.get_feature_names_out()
         Xt = sel.transform(X)
         assert len(names) == Xt.shape[1], f"{name}: get_feature_names_out len != transform cols"

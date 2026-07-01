@@ -60,6 +60,9 @@ _CLUSTER_PREFIX = "vif"
 _CLUSTER_SIZE = 5
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def make_multicollinear_pollution(n: int = 600, seed: int = 0):
     """Signal+noise frame polluted with all four degeneracy forms (a)-(d). See module docstring.
 

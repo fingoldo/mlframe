@@ -40,6 +40,9 @@ from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 SEEDS = (1, 7, 13, 42, 101)
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _build_pair_add_mod(seed: int, n: int = 4000, m: int = 7):
     """y = ((a+b) mod m) >= m//2, with a weakly-informative raw col so MRMR screening has an anchor and
     does not 0-fallback (the modular residue, not the raw cols, carries the signal)."""

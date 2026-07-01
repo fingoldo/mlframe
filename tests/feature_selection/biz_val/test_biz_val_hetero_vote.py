@@ -26,6 +26,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote, _importance
+from tests.conftest import fast_n_estimators
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +37,9 @@ from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote, 
 
 _SIGNAL_WEIGHTS = np.array([1.5, -1.2, 1.0, 0.9])
 
+
+
+pytestmark = pytest.mark.timeout(120)  # untimed biz_val real-fit tier: surface a hang fast (the multi-shadow-trial RF/Ridge/kNN panel legitimately needs >60s; global --timeout=600 is a coarse backstop)
 
 def _reg_data(seed: int = 0, n: int = 1500, p_sig: int = 4, p_noise: int = 20):
     """Continuous target ``y = z @ [1.5,-1.2,1.0,0.9] + 0.3*noise``."""
@@ -191,7 +195,7 @@ def test_hetero_vote_custom_two_model_panel():
     """A user-supplied 2-member panel: info['n_models']==2 and model_weights keys == panel keys."""
     X, y, signal, _ = _clf_data(seed=0)
     panel = {
-        "rf": RandomForestClassifier(n_estimators=120, random_state=0),
+        "rf": RandomForestClassifier(n_estimators=fast_n_estimators(120), random_state=0),
         "lr": make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)),
     }
     accepted, info = heterogeneous_relevance_vote(
@@ -331,7 +335,7 @@ def _two_signal_with_blind_panel(seed: int = 0, n: int = 1500):
     for j in range(6):
         cols[f"noise_{j}"] = rng.standard_normal(n)
     panel = {
-        "tree": RandomForestClassifier(n_estimators=120, random_state=0),
+        "tree": RandomForestClassifier(n_estimators=fast_n_estimators(120), random_state=0),
         "dist": make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)),
         "blind": _BlindFI(strategy="prior"),
     }

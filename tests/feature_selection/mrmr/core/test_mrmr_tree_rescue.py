@@ -11,6 +11,8 @@ import pytest
 
 from mlframe.feature_selection.filters import MRMR, MRMRTreeRescued
 
+from tests.conftest import fast_n_estimators
+
 
 def _wide_interaction(n=2000, p_noise=80, seed=0):
     """y driven by a PURE interaction a*b (zero-marginal operands) + a linear term; >60 cols so MRMR under-selects."""
@@ -88,7 +90,7 @@ def test_bizvalue_rescue_lifts_downstream_auc_on_interaction_data():
     def auc(sel):
         sel.fit(Xtr, ytr)
         Ztr, Zte = sel.transform(Xtr), sel.transform(Xte)
-        m = lgb.LGBMClassifier(n_estimators=200, verbose=-1).fit(Ztr, ytr)
+        m = lgb.LGBMClassifier(n_estimators=fast_n_estimators(200, fast=80), verbose=-1).fit(Ztr, ytr)
         return roc_auc_score(yte, m.predict_proba(Zte)[:, 1])
 
     a_off = auc(MRMR(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=1))

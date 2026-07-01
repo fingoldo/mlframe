@@ -27,8 +27,13 @@ import pytest
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 
+from tests.conftest import fast_n_estimators
+
 
 # --------------------------------------------------------------------- synthetic beds
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _xor_bed(n=2000, seed=0, n_pairs=3, n_noise=24):
     rng = np.random.default_rng(seed)
     cols, logit = {}, np.zeros(n)
@@ -66,7 +71,7 @@ def _honest_auc(Xtr, ytr, Xte, yte, sel, seed):
     feats = [c for c in sel if c in Xtr.columns]
     if not feats:
         return 0.5
-    m = lgb.LGBMClassifier(n_estimators=300, num_leaves=31, learning_rate=0.05, n_jobs=-1,
+    m = lgb.LGBMClassifier(n_estimators=fast_n_estimators(300, fast=120), num_leaves=31, learning_rate=0.05, n_jobs=-1,
                            verbose=-1, random_state=seed)
     m.fit(Xtr[feats], ytr)
     return float(roc_auc_score(yte, m.predict_proba(Xte[feats])[:, 1]))

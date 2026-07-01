@@ -56,6 +56,9 @@ _NPS = [(40, 150), (60, 150), (60, 300), (80, 300)]
 _SEEDS = [0] if is_fast_mode() else [0, 1, 2]
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def make_p_gt_n(n: int, p: int, p_signal: int = _P_SIGNAL, seed: int = 0):
     """Linear-additive binary target on ``p_signal`` informative cols + (p - p_signal) iid N(0,1) noise.
 

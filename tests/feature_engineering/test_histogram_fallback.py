@@ -30,23 +30,37 @@ def test_numerical_module_imports_even_when_astropy_broken() -> None:
     sensor — fails if a future change makes the astropy import
     unconditional again.
 
-    The reload rebinds module-level symbols; snapshot+restore the entry so
-    other tests that imported ``cont_entropy`` / ``histogram`` at module
-    load time still see the same callables. Without the restore this test
-    polluted every later consumer of ``mlframe.feature_engineering.numerical``.
+    Run the fresh-import probe in a SUBPROCESS: an in-process
+    ``importlib.reload`` rebinds this module's globals in the parent
+    interpreter (the sys.modules restore does not undo the reload), which
+    would pollute every later consumer of
+    ``mlframe.feature_engineering.numerical``. A subprocess keeps the parent
+    interpreter pristine while still exercising the from-scratch import path.
     """
-    import importlib
+    import os
+    import subprocess
     import sys
-    _key = "mlframe.feature_engineering.numerical"
-    _saved = sys.modules.get(_key)
-    try:
+    import textwrap
+
+    import mlframe as _mlframe_pkg
+    _src_root = os.path.dirname(os.path.dirname(_mlframe_pkg.__file__))
+    _env = {**os.environ, "PYTHONPATH": _src_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
+    _probe = textwrap.dedent("""
+        import sys
         import mlframe.feature_engineering.numerical as mod
-        importlib.reload(mod)
-        assert hasattr(mod, "cont_entropy")
-        assert hasattr(mod, "histogram")
-    finally:
-        if _saved is not None:
-            sys.modules[_key] = _saved
+        ok = hasattr(mod, "cont_entropy") and hasattr(mod, "histogram")
+        sys.stdout.write("NUMERICAL_IMPORT_OK=" + str(ok))
+    """)
+    _res = subprocess.run(
+        [sys.executable, "-c", _probe],
+        capture_output=True, text=True, timeout=180, env=_env,
+    )
+    assert _res.returncode == 0, f"probe subprocess failed: {_res.stderr}"
+    assert "NUMERICAL_IMPORT_OK=True" in _res.stdout, (
+        f"mlframe.feature_engineering.numerical failed the fresh-import "
+        f"contract (cont_entropy / histogram missing) -- probe printed "
+        f"{_res.stdout!r}, stderr {_res.stderr!r}"
+    )
 
 
 def test_histogram_shim_matches_np_histogram_signature() -> None:

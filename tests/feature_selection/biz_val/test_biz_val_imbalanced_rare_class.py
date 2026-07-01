@@ -2,6 +2,9 @@
 
 The existing biz_value suite almost exclusively uses ~balanced binary targets
 (``y`` near 50/50). That hides a whole failure dimension: when the positive
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 class is TINY (1-10% of rows), univariate relevance / MI signals computed on
 the rare class collapse toward noise, and a selector can silently (a) lose the
 informative columns, (b) select NOTHING, or (c) select EVERYTHING (failing to

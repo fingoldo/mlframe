@@ -40,6 +40,9 @@ from tests.feature_selection.conftest import is_fast_mode, fast_subset
 # ---------------------------------------------------------------------------
 # generators
 # ---------------------------------------------------------------------------
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _make_mixed_frame(n: int, seed: int, *, high_card: bool = True,
                       as_category: bool = True):
     """Mixed frame with known signal/noise roles.

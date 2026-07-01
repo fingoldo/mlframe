@@ -48,6 +48,9 @@ SEEDS = (1, 7, 42)
 # ---------------------------------------------------------------------------
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _build_lognormal(seed: int):
     """Heavy-tailed y = exp(1.5*x1 + 0.8*x2 + 0.5*x3 + noise) + 6 noise cols.
 

@@ -76,6 +76,9 @@ AR_COEF = 0.7  # lead1 (look-ahead) ties lag1 at corr ~= AR_COEF by AR(1) symmet
 # ---------------------------------------------------------------------------
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _make_warp_frame(n: int = 3000, seed: int = 0, n_noise: int = 5,
                      reverse: bool = False):
     """f ~ N(0,1); g = exp(4 f) (strictly monotone, rank-identical to f, so binned

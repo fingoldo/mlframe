@@ -41,6 +41,9 @@ from mlframe.feature_selection.filters._fe_subsample import (
 # =====================================================================================
 # UNIT
 # =====================================================================================
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def test_unit_rare_class_kept_where_uniform_drops_it():
     """njit clf path keeps >=2 of a 1% class at a small size; uniform drops it most of the time."""
     n, size = 2000, 50

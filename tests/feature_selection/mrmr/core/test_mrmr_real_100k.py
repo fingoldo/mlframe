@@ -72,6 +72,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import fast_n_estimators
+
 pytestmark = pytest.mark.slow
 
 
@@ -260,7 +262,7 @@ def _downstream_auc(X_tr, y_tr, X_te, y_te, cols, seed: int) -> float:
         import lightgbm as lgb
 
         gbm = lgb.LGBMClassifier(
-            n_estimators=120, num_leaves=31, learning_rate=0.05,
+            n_estimators=fast_n_estimators(120, fast=80), num_leaves=31, learning_rate=0.05,
             subsample=0.8, colsample_bytree=0.8, random_state=seed, n_jobs=2, verbose=-1,
         )
         gbm.fit(Xtr, np.asarray(y_tr))

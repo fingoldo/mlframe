@@ -36,6 +36,9 @@ from mlframe.feature_selection.filters._integer_lattice_fe import (
 from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _build_gcd_target(seed: int, n: int = 4000):
     """y = gcd(a,b) >= 3, with a weakly-informative raw col so MRMR screening has an anchor and does not 0-fallback
     (the gcd column, not the raw cols, carries the signal)."""

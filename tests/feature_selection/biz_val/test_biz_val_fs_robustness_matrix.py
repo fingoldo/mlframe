@@ -17,6 +17,9 @@ _SEEDS = [0, 1, 7]
 _KINDS = ["regression", "binary", "multiclass", "count", "ordinal"]
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _make(kind, n, seed, *, nan_frac=0.0, with_cat=False):
     """3 signal numeric cols (s0..s2) + ``N_NOISE`` noise (n0..) + target by ``kind``; optional NaN injection and
     an informative categorical (``cat_inf``) + high-cardinality noise categorical (``cat_noise``)."""

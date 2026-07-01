@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import fast_n_estimators
 from tests.feature_selection.conftest import fast_subset, is_fast_mode
 
 
@@ -32,6 +33,9 @@ from tests.feature_selection.conftest import fast_subset, is_fast_mode
 # Synthetic generators (recipes from the gaps_selection_masking verified findings).
 # --------------------------------------------------------------------------------------------------------------------
 
+
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
 
 def _make_heavy_tail_label_noise(seed: int = 0, n: int = 2000, p_noise: int = 7, flip: float = 0.10):
     """3 informative ``standard_t(df=2)`` columns driving a linear logit, with ``flip`` fraction of labels flipped
@@ -130,7 +134,7 @@ def _fit_boruta(X, y, *, seed: int = 0, n_trials: int = 30):
     # RandomForestClassifier, so the gini shadow gate is non-deterministic run-to-run (the same data + seed
     # can accept/reject a borderline column across processes). A seeded surrogate makes every per-seed
     # decision reproducible, which the fixed-seed majority contracts below depend on.
-    model = RandomForestClassifier(n_estimators=100, random_state=seed)
+    model = RandomForestClassifier(n_estimators=fast_n_estimators(100), random_state=seed)
     sel = BorutaShap(model=model, importance_measure="gini", classification=True, n_trials=n_trials,
                      random_state=seed, verbose=False, optimistic=True)
     sel.fit(X, y)

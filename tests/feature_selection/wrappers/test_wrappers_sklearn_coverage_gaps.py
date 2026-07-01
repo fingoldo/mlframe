@@ -5,9 +5,9 @@ that sklearn's `test_rfe.py` covers but mlframe's wrappers test suite did
 NOT. This file adds a regression test per category. Tests fall into 5
 groups: input types, CV-edge, estimator-edge, transformer contract, other.
 
-Each test is wrapped so a genuine bug fails loudly, while sklearn-RFE-
-specific contract differences (e.g. mlframe's cv_results_ schema vs
-sklearn's per-split keys) get an explicit xfail with reason.
+Each test asserts the concrete supported behaviour (real fit + n_features_
+survivor count, or a specific ``pytest.raises`` for deliberately-rejected
+inputs) so a genuine regression fails loudly.
 """
 from __future__ import annotations
 
@@ -50,23 +50,17 @@ class TestInputTypes:
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200), cv=3, max_refits=3, random_state=0,
         )
-        # mlframe RFECV does not currently support scipy.sparse as 1st-class input. Expect a clear failure mode.
-        try:
-            rfecv.fit(X_sp, y)
-            assert rfecv.n_features_ >= 1
-        except (TypeError, ValueError, AttributeError) as exc:
-            pytest.xfail(f"mlframe RFECV does not yet accept scipy.sparse X (sklearn does): {type(exc).__name__}")
+        # mlframe RFECV now accepts scipy.sparse (CSR) as 1st-class input.
+        rfecv.fit(X_sp, y)
+        assert rfecv.n_features_ >= 1
 
     def test_sparse_X_csc(self):
         from scipy.sparse import csc_matrix
         X, y = make_classification(n_samples=120, n_features=10, n_informative=4, random_state=0)
         X_sp = csc_matrix(X)
         rfecv = RFECV(estimator=LogisticRegression(max_iter=200), cv=3, max_refits=3, random_state=0)
-        try:
-            rfecv.fit(X_sp, y)
-            assert rfecv.n_features_ >= 1
-        except (TypeError, ValueError, AttributeError) as exc:
-            pytest.xfail(f"mlframe RFECV does not yet accept scipy.sparse X (sklearn does): {type(exc).__name__}")
+        rfecv.fit(X_sp, y)
+        assert rfecv.n_features_ >= 1
 
     def test_sparse_X_dense_over_2gb_refused(self):
         """The boundary densify is RAM-guarded: a sparse matrix whose DENSE form would exceed 2 GB is refused with a
@@ -104,11 +98,8 @@ class TestInputTypes:
             cv=3, max_refits=2, random_state=0,
             importance_getter="permutation",
         )
-        try:
-            rfecv.fit(X, y)
-            assert rfecv.n_features_ >= 1
-        except (ValueError, NotImplementedError, AttributeError) as exc:
-            pytest.xfail(f"NaN-in-X smoke: {type(exc).__name__}: {exc}")
+        rfecv.fit(X, y)
+        assert rfecv.n_features_ >= 1
 
     def test_2d_y_rejected_with_clear_error(self):
         """Multi-output y: the default now handles it (multioutput_strategy='union' fits one single-target RFECV per column);
@@ -128,11 +119,8 @@ class TestInputTypes:
         y = (X[:, 1] > 0).astype(int)
         pipe = make_pipeline(SimpleImputer(), LogisticRegression(max_iter=200))
         rfecv = RFECV(estimator=pipe, cv=3, max_refits=2, random_state=0)
-        try:
-            rfecv.fit(X, y)
-            assert rfecv.n_features_ >= 1
-        except (ValueError, AttributeError) as exc:
-            pytest.xfail(f"Pipeline+SimpleImputer+NaN passthrough: {type(exc).__name__}: {exc}")
+        rfecv.fit(X, y)
+        assert rfecv.n_features_ >= 1
 
 
 # =====================================================================
@@ -200,11 +188,8 @@ class TestEstimatorEdge:
             pytest.skip("PLSRegression unavailable")
         X, y = make_regression(n_samples=100, n_features=10, n_informative=4, random_state=0)
         rfecv = RFECV(estimator=PLSRegression(n_components=2), cv=3, max_refits=2, random_state=0)
-        try:
-            rfecv.fit(X, y)
-            assert rfecv.n_features_ >= 1
-        except (ValueError, AttributeError) as exc:
-            pytest.xfail(f"PLS smoke: {type(exc).__name__}: {exc}")
+        rfecv.fit(X, y)
+        assert rfecv.n_features_ >= 1
 
     def test_transformed_target_regressor(self):
         """sklearn test_rfe_wrapped_estimator (gh-15312)."""
@@ -216,11 +201,8 @@ class TestEstimatorEdge:
         )
         rfecv = RFECV(estimator=est, cv=3, max_refits=2, random_state=0,
                       importance_getter="regressor_.coef_")
-        try:
-            rfecv.fit(X, y_pos)
-            assert rfecv.n_features_ >= 1
-        except (ValueError, AttributeError) as exc:
-            pytest.xfail(f"TransformedTargetRegressor + dotted importance_getter: {type(exc).__name__}: {exc}")
+        rfecv.fit(X, y_pos)
+        assert rfecv.n_features_ >= 1
 
     def test_pipeline_dotted_importance_getter(self):
         """sklearn test_w_pipeline_2d_coef_: ``importance_getter='named_steps.lr.coef_''."""
@@ -228,11 +210,8 @@ class TestEstimatorEdge:
         pipe = Pipeline([("scaler", StandardScaler()), ("lr", LogisticRegression(max_iter=200))])
         rfecv = RFECV(estimator=pipe, cv=3, max_refits=2, random_state=0,
                       importance_getter="named_steps.lr.coef_")
-        try:
-            rfecv.fit(X, y)
-            assert rfecv.n_features_ >= 1
-        except (AttributeError, ValueError) as exc:
-            pytest.xfail(f"Pipeline + dotted importance_getter not yet supported: {type(exc).__name__}: {exc}")
+        rfecv.fit(X, y)
+        assert rfecv.n_features_ >= 1
 
     def test_max_nfeatures_exceeds_p_clamps(self):
         """sklearn test_rfe_n_features_to_select_warning: setting max > n_features must not blow up."""
@@ -363,8 +342,8 @@ class TestOtherContract:
         X, y = make_classification(n_samples=150, n_features=6, n_informative=3, random_state=0)
         rfecv = RFECV(estimator=LogisticRegression(max_iter=200), cv=3, max_refits=2, random_state=0)
         rfecv.fit(X, y)
-        from sklearn.model_selection import StratifiedKFold as SK
-        assert isinstance(rfecv.cv_, SK), \
+        from sklearn.model_selection import StratifiedKFold
+        assert isinstance(rfecv.cv_, StratifiedKFold), \
             f"Expected StratifiedKFold auto-resolved for classifier; got {type(rfecv.cv_).__name__}"
 
     def test_sample_weight_doubling_equivalent_to_row_duplication(self):

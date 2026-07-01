@@ -60,6 +60,9 @@ from tests.feature_selection.conftest import fast_subset, is_fast_mode
 # ---------------------------------------------------------------------------
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _mrmr_kwargs(seed: int, fe: bool = False) -> dict:
     kw = dict(
         random_seed=seed,

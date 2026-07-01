@@ -22,6 +22,9 @@ import pytest
 from mlframe.feature_selection.hybrid_selector import HybridSelector
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _interaction_bed(seed: int = 0, n: int = 1000, p_noise: int = 4):
     """y = Bernoulli(sigmoid(3 * a*b)): a pure two-way interaction. a, b each carry ~0 MARGINAL signal (their
     individual MI with y is near zero), so only a model that branches on both together -- or engineers their

@@ -22,6 +22,11 @@ from sklearn.model_selection import train_test_split
 
 from mlframe.feature_selection.wrappers.rfecv import RFECV
 
+from tests.conftest import fast_n_estimators
+
+
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
 
 def _make_many_steady(seed=1, n=900):
     rng = np.random.default_rng(seed)
@@ -41,7 +46,7 @@ def _make_many_steady(seed=1, n=900):
 
 def _fit_select(X, y, rule, seed=1):
     r = RFECV(
-        estimator=RandomForestClassifier(n_estimators=80, max_depth=6, n_jobs=-1, random_state=seed),
+        estimator=RandomForestClassifier(n_estimators=fast_n_estimators(80), max_depth=6, n_jobs=-1, random_state=seed),
         cv=3, scoring=None, verbose=0, max_refits=8, random_state=seed,
         importance_getter="feature_importances_", elimination_rule=rule,
         n_features_selection_rule="one_se_min",
@@ -53,7 +58,7 @@ def _fit_select(X, y, rule, seed=1):
 def _holdout_auc(X, y, rule, seed=1):
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=seed, stratify=y)
     cols = _fit_select(Xtr, ytr, rule, seed)
-    m = RandomForestClassifier(n_estimators=250, max_depth=8, n_jobs=-1, random_state=seed)
+    m = RandomForestClassifier(n_estimators=fast_n_estimators(250, fast=100), max_depth=8, n_jobs=-1, random_state=seed)
     m.fit(Xtr[cols], ytr)
     return float(roc_auc_score(yte, m.predict_proba(Xte[cols])[:, 1])), cols
 

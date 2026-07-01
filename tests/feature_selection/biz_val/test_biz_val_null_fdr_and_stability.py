@@ -58,6 +58,9 @@ _NULL_P = 15
 _NULL_SEEDS = [0] if is_fast_mode() else [0, 1]
 
 
+
+pytestmark = pytest.mark.timeout(60)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop)
+
 def _null_data(seed: int):
     rng = np.random.default_rng(seed)
     X = pd.DataFrame(rng.standard_normal((_NULL_N, _NULL_P)),
