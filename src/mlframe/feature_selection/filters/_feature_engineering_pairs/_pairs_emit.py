@@ -263,74 +263,93 @@ def _emit_pair_features(
                     # ``searchsorted`` (NaN -> rightmost bin), identically. Writing into a
                     # float64 buffer (not float32) preserves the bin_func's native precision
                     # so the percentile edges match the 1-D path to the bit.
-                    _ev_buf = np.empty((len(X), _ev_K), dtype=np.float64)
                     _ev_op_codes = _njit_binary_op_codes(binary_transformations)
-                    if _ev_op_codes is not None:
-                        # NJIT materialise: ALL (ext x op) candidate columns in one nogil
-                        # kernel (bit-identical to the numpy bin_funcs; see
-                        # ``_materialise_extval_njit``). Column order ext-outer/op-inner ==
-                        # the numpy ``for ext: for bin_func`` order, so the discretise +
-                        # MI + max reduction below is unchanged. ``param_a`` may be a
-                        # float32 buffer slice; the kernel upcasts per-element to float64.
-                        # bench-attempt-rejected (2026-06-07): "drop the _ev_pb_mat repack"
-                        # (Q7). The external-factor columns are DISTINCT memoised arrays
-                        # (_extval_raw_col per var) so they genuinely must be assembled into
-                        # a 2-D matrix for the njit kernel; there is no view to substitute.
-                        # This per-column-assign loop is already the fastest assembly
-                        # (n_ext=50/150/300: 0.68/1.39/3.13ms vs np.column_stack
-                        # 0.96/2.10/3.98ms) and is a tiny fraction of the per-call kernel +
-                        # discretise + MI cost (never appears in the scene sampler top-30).
-                        # No actionable speedup; kept as-is.
-                        _ev_pb_mat = np.empty((len(X), len(_ev_param_bs)), dtype=np.float64)
-                        for _ei, _pb_vals in enumerate(_ev_param_bs):
-                            _ev_pb_mat[:, _ei] = _pb_vals
-                        _materialise_extval_njit(
-                            np.ascontiguousarray(param_a), _ev_pb_mat, _ev_op_codes,
-                            _ev_buf[:, :_ev_K],
-                        )
-                        _ev_col = _ev_K
-                    else:
-                        # NUMPY FALLBACK: a bin_func is not njit-coded (maximal-preset
-                        # special) -> materialise per-candidate with the exact numpy ufuncs.
-                        _ev_col = 0
-                        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                            for _pb_vals in _ev_param_bs:
-                                for valid_bin_func in _ev_bin_funcs:
-                                    _ev_buf[:, _ev_col] = valid_bin_func(param_a, _pb_vals)
-                                    _ev_col += 1
-                    _ev_disc = None
-                    # GPU BINNING (2026-06-23): the ext-val survivor binning (full n) gets the same
-                    # dedicated binning crossover -- bit-identical to the CPU njit binning (maxdiff 0)
-                    # and much faster at large n. Any GPU failure falls back to the CPU discretise below.
                     _ev_code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
-                    try:
-                        from ._pairs_core import _fe_gpu_binning_enabled
-                        if _fe_gpu_binning_enabled(_ev_buf.shape[0], _ev_col):
-                            from .._gpu_resident_fe import gpu_discretize_codes_host
-                            # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
-                            # whose resident-CUDA gate consumes the DEVICE codes in place; the host buffer is
-                            # filled lazily only on a host-reading branch. Skips the (n, K) codes D2H whenever
-                            # the resident gate is the consumer. Bit-identical (host buffer == device.get()).
-                            _ev_disc = gpu_discretize_codes_host(
-                                _ev_buf[:, :_ev_col], int(quantization_nbins), dtype=_ev_code_dtype,
-                                defer_host_fill=True,
+                    _ev_col = _ev_K
+                    _ev_disc = None
+                    # DEVICE-BORN EXT-VAL CANDIDATES (Phase-1 residency, 2026-07-01). Build out[:, e*n_ops+o] =
+                    # op(param_a, ext_e) RESIDENT in float64 + quantile-bin RESIDENT, so the (n, K) candidate
+                    # matrix NEVER crosses H2D -- only param_a + the external-factor columns upload (once, small),
+                    # killing the ~46 MB gpu_discretize_codes_host bulk H2D at full n. Engaged only on the strict-
+                    # resident path (no KTC crossover -- residency contract, wall-loss accepted) AND when every op
+                    # is registry-coded; any cupy fault returns None -> the exact host njit + upload path below.
+                    # The device ops are the float64 numpy bin_func semantics op-for-op and NaN/inf are NOT
+                    # scrubbed (routed to the rightmost bin by the same resident binner, as nanpercentile +
+                    # searchsorted do on the host) -> codes selection-equivalent (see
+                    # _gpu_resident_extval.gpu_materialise_extval_codes_host).
+                    if _ev_op_codes is not None:
+                        try:
+                            from .._gpu_strict_fe import fe_gpu_strict_resident_enabled as _ev_resident_on
+                            _ev_use_dev = bool(_ev_resident_on())
+                        except Exception:
+                            _ev_use_dev = False
+                        if _ev_use_dev:
+                            from .._gpu_resident_extval import gpu_materialise_extval_codes_host
+                            _ev_disc = gpu_materialise_extval_codes_host(
+                                param_a, _ev_param_bs, _ev_op_codes, int(quantization_nbins), dtype=_ev_code_dtype,
                             )
-                    except Exception:
-                        _ev_disc = None
                     if _ev_disc is None:
-                        _ev_disc = discretize_2d_quantile_batch(
-                            _ev_buf[:, :_ev_col], n_bins=quantization_nbins,
-                            dtype=_ev_code_dtype,
-                            # OPT-A extension (2026-06-07): the marginal-uplift gate's
-                            # discretise ran the SERIAL searchsorted kernel on the main
-                            # thread (post-OPT-D the top sampler hotspot, ~21% of fit) while
-                            # the other cores sat idle. ``check_prospective_fe_pairs`` carries
-                            # ``serial_main_thread`` down from _mrmr_fe_step's ``len(X)<50000``
-                            # dispatch, so the same OPT-A predicate that already gates the
-                            # main chunk's discretise (line ~907) safely selects the
-                            # byte-identical column-prange twin here too (no joblib nest).
-                            parallel=_fe_use_parallel_kernels(_ev_col, serial_main_thread),
-                        )
+                        # HOST PATH (unchanged): materialise the (n, K) float64 buffer then discretise.
+                        _ev_buf = np.empty((len(X), _ev_K), dtype=np.float64)
+                        if _ev_op_codes is not None:
+                            # NJIT materialise: ALL (ext x op) candidate columns in one nogil
+                            # kernel (bit-identical to the numpy bin_funcs; see
+                            # ``_materialise_extval_njit``). Column order ext-outer/op-inner ==
+                            # the numpy ``for ext: for bin_func`` order, so the discretise +
+                            # MI + max reduction below is unchanged. ``param_a`` may be a
+                            # float32 buffer slice; the kernel upcasts per-element to float64.
+                            # bench-attempt-rejected (2026-06-07): "drop the _ev_pb_mat repack"
+                            # (Q7). The external-factor columns are DISTINCT memoised arrays
+                            # (_extval_raw_col per var) so they genuinely must be assembled into
+                            # a 2-D matrix for the njit kernel; there is no view to substitute.
+                            _ev_pb_mat = np.empty((len(X), len(_ev_param_bs)), dtype=np.float64)
+                            for _ei, _pb_vals in enumerate(_ev_param_bs):
+                                _ev_pb_mat[:, _ei] = _pb_vals
+                            _materialise_extval_njit(
+                                np.ascontiguousarray(param_a), _ev_pb_mat, _ev_op_codes,
+                                _ev_buf[:, :_ev_K],
+                            )
+                            _ev_col = _ev_K
+                        else:
+                            # NUMPY FALLBACK: a bin_func is not njit-coded (maximal-preset
+                            # special) -> materialise per-candidate with the exact numpy ufuncs.
+                            _ev_col = 0
+                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                                for _pb_vals in _ev_param_bs:
+                                    for valid_bin_func in _ev_bin_funcs:
+                                        _ev_buf[:, _ev_col] = valid_bin_func(param_a, _pb_vals)
+                                        _ev_col += 1
+                        # GPU BINNING (2026-06-23): the ext-val survivor binning (full n) gets the same
+                        # dedicated binning crossover -- bit-identical to the CPU njit binning (maxdiff 0)
+                        # and much faster at large n. Any GPU failure falls back to the CPU discretise below.
+                        try:
+                            from ._pairs_core import _fe_gpu_binning_enabled
+                            if _fe_gpu_binning_enabled(_ev_buf.shape[0], _ev_col):
+                                from .._gpu_resident_fe import gpu_discretize_codes_host
+                                # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
+                                # whose resident-CUDA gate consumes the DEVICE codes in place; the host buffer is
+                                # filled lazily only on a host-reading branch. Skips the (n, K) codes D2H whenever
+                                # the resident gate is the consumer. Bit-identical (host buffer == device.get()).
+                                _ev_disc = gpu_discretize_codes_host(
+                                    _ev_buf[:, :_ev_col], int(quantization_nbins), dtype=_ev_code_dtype,
+                                    defer_host_fill=True,
+                                )
+                        except Exception:
+                            _ev_disc = None
+                        if _ev_disc is None:
+                            _ev_disc = discretize_2d_quantile_batch(
+                                _ev_buf[:, :_ev_col], n_bins=quantization_nbins,
+                                dtype=_ev_code_dtype,
+                                # OPT-A extension (2026-06-07): the marginal-uplift gate's
+                                # discretise ran the SERIAL searchsorted kernel on the main
+                                # thread (post-OPT-D the top sampler hotspot, ~21% of fit) while
+                                # the other cores sat idle. ``check_prospective_fe_pairs`` carries
+                                # ``serial_main_thread`` down from _mrmr_fe_step's ``len(X)<50000``
+                                # dispatch, so the same OPT-A predicate that already gates the
+                                # main chunk's discretise (line ~907) safely selects the
+                                # byte-identical column-prange twin here too (no joblib nest).
+                                parallel=_fe_use_parallel_kernels(_ev_col, serial_main_thread),
+                            )
                     _ev_mi = _dispatch_batch_mi_with_noise_gate(
                         disc_2d=_ev_disc,
                         quantization_nbins=quantization_nbins,
