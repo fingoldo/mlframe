@@ -928,12 +928,12 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
     # candidate codes (binned on device from the resident raw operand, e.g. the raw-redundancy CMI) -> use them
     # as-is so they never re-cross H2D (and np.asarray on a cupy array would raise). Host inputs take the
     # content-keyed cache path above.
+    from ._fe_resident_operands import resident_code_operand
     if isinstance(x, cp.ndarray):
         dx = x.astype(cp.int64, copy=False).ravel()
     else:
-        from ._fe_resident_operands import resident_code_operand
         dx = resident_code_operand(np.asarray(x).ravel(), "cmi_cand_x")
-    dy = resident_operand(y, "cmi_y", dtype=np.int64)
+    dy = resident_code_operand(y, "cmi_y")
     n = float(max(1, int(dx.size)))
     inv_n = 1.0 / n
 
@@ -1011,7 +1011,7 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
         dx = x.astype(cp.int64, copy=False).ravel()
     else:
         dx = resident_code_operand(np.asarray(x).ravel(), "card_cand_x")
-    dy = resident_operand(y, "card_y", dtype=np.int64)
+    dy = resident_code_operand(y, "card_y")
     dz = resident_operand(z, "card_z", dtype=np.int64)
     Kx = (int(dx.max()) + 1) if dx.size else 1
 
@@ -1063,9 +1063,9 @@ def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> floa
     # x is the per-permutation candidate (transient) -> NOT cached. y_i / z_i are fit/round-constants reused
     # across every permutation in this CMI-null loop (H2D instrumentation: 100x / 800 MB each at 1M) ->
     # resident operand cache (uploaded once per fit; CMI is value-order invariant).
-    from ._fe_resident_operands import resident_operand
+    from ._fe_resident_operands import resident_operand, resident_code_operand
     dx = cp.asarray(np.ascontiguousarray(x, dtype=np.int64).ravel())
-    dy = resident_operand(y_i, "fixedyz_y", dtype=np.int64)
+    dy = resident_code_operand(y_i, "fixedyz_y")
     dz = resident_operand(z_i, "fixedyz_z", dtype=np.int64)
     inv_n = 1.0 / float(n)
 
@@ -1290,8 +1290,8 @@ def greedy_cmi_fe_construct(
     if _cmi_gpu_enabled():
         try:
             import cupy as _cp  # noqa: F401
-            from ._fe_resident_operands import resident_operand as _resident_operand
-            y_bin_dev = _resident_operand(y_bin, "cmi_greedy_y_fixed", dtype=np.int64)
+            from ._fe_resident_operands import resident_code_operand as _resident_code_operand
+            y_bin_dev = _resident_code_operand(y_bin, "cmi_greedy_y_fixed")
         except Exception:
             y_bin_dev = None
     z_joint: Optional[np.ndarray] = None

@@ -406,8 +406,8 @@ def binned_mi_from_codes_gpu(code_cols, y_codes, kx_per_col=None, ky: int = 0, c
     if isinstance(y_codes, cp.ndarray):
         y = y_codes.astype(cp.int64, copy=False).ravel()
     else:
-        from ._fe_resident_operands import resident_operand
-        y = resident_operand(np.asarray(y_codes).ravel(), "binned_mi_ycodes", dtype=np.int64)
+        from ._fe_resident_operands import resident_code_operand
+        y = resident_code_operand(np.asarray(y_codes).ravel(), "binned_mi_ycodes")
     Ky = int(ky) if ky > 0 else (int(y.max()) + 1 if y.size else 1)
     Kx = int(np.max(np.asarray(kx_per_col))) if kx_per_col is not None else (int(C.max()) + 1 if C.size else 1)
     Kx = max(Kx, 1)
@@ -516,7 +516,8 @@ def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False, c
     if isinstance(y, cp.ndarray):
         dy = y.astype(cp.int64, copy=False).ravel()
     else:
-        dy = resident_operand(np.asarray(y).ravel(), "cmi_y", dtype=np.int64)
+        from ._fe_resident_operands import resident_code_operand
+        dy = resident_code_operand(np.asarray(y).ravel(), "cmi_y")
     nf = float(max(1, n))
     inv_n = 1.0 / nf
     Kx = int(X.max()) + 1 if X.size else 1

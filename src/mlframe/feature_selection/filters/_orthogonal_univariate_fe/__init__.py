@@ -420,8 +420,8 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     # y is a FIT-CONSTANT re-uploaded on every orth-family call (univariate-decide / pair-cross / triplet /
     # quadruplet / meta-scorer / adaptive-arity each re-run this builder over the SAME X/y). Route through the
     # resident operand cache so it is uploaded ONCE per fit (selection-equivalent: same int64 labels).
-    from .._fe_resident_operands import resident_operand, assemble_resident_matrix
-    y_gpu = resident_operand(y_arr, "orth_uni_y", dtype=np.int64)
+    from .._fe_resident_operands import resident_operand, resident_code_operand, assemble_resident_matrix
+    y_gpu = resident_code_operand(y_arr, "orth_uni_y")
     # y min/max is a fit-constant -> compute ONCE and reuse for both the raw-MI and the eng-MI resident
     # calls below, instead of each recomputing it (cp.min/max + scalar D2H). Bit-identical (y is invariant).
     _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))

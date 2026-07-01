@@ -134,23 +134,29 @@ def assemble_resident_matrix(host, names, fallback_key, *, dtype=None):
 
 
 def resident_code_operand(codes, role):
-    """Upload candidate BIN CODES once in the NARROWEST safe integer dtype and return them cast to int64 on the
-    device for the joint-histogram kernels.
+    """Upload candidate BIN CODES once as int16 (with an int64 escape for genuinely high-cardinality inputs) and
+    return them cast to int64 on the device for the joint-histogram kernels.
 
-    Candidate codes are equi-frequency bin indices in ``0..nbins-1`` (nbins a few dozen), so they fit int8 (1 B)
-    or int16 (2 B) -- uploading them as int64 (8 B) was 4-8x the bytes at every ``cmi_cand_x`` / ``card_cand_x``
-    / ``permnull_cand_x`` re-upload site. Upload the narrow codes (content-keyed, so identical content still
-    dedups) and return the int64 cast the CMI / entropy kernels index histograms with. BIT-IDENTICAL: int8/int16
-    hold ``0..nbins-1`` exactly and the widening cast restores the same int64 values the kernels saw before, so
-    the partition -- and every downstream MI / cardinality -- is unchanged (not merely selection-equivalent).
-    The narrow array is cached + reused across calls; only the transient int64 view is rebuilt per call (a cheap
-    device widen), so the H2D shrinks 4-8x with no re-upload."""
+    Candidate codes are equi-frequency bin indices in ``0..nbins-1`` (nbins a few dozen), so int16 (2 B) holds
+    them with a wide safety margin (up to 32767 bins) -- uploading them as int64 (8 B) was 4x the bytes at every
+    ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x`` (and the fit-constant y-code) re-upload site. int16 is
+    chosen over int8 deliberately: int8 would save another 2x but only holds 0..127, so a higher-resolution
+    binning (or a code array that is not a plain per-column bin index) would need a per-array range check to stay
+    safe; int16 needs no such reasoning and is robust to any realistic nbins. The rare array whose max does not
+    fit int16 (e.g. a densified high-cardinality JOINT accidentally routed here) falls back to int64. Upload the
+    narrow codes (content-keyed, so identical content still dedups) and return the int64 cast the CMI / entropy
+    kernels index histograms with. BIT-IDENTICAL: int16 holds ``0..nbins-1`` exactly and the widening cast
+    restores the same int64 values the kernels saw before, so the partition -- and every downstream MI /
+    cardinality -- is unchanged, not merely selection-equivalent. The narrow array is cached + reused across
+    calls; only the transient int64 view is rebuilt per call (a cheap device widen), so the H2D shrinks 4x with
+    no re-upload."""
     import cupy as cp
     import numpy as np
 
     host = np.ascontiguousarray(np.asarray(codes).ravel())
     _m = int(host.max()) if host.size else 0
-    _dt = np.int8 if 0 <= _m < 128 else (np.int16 if 0 <= _m < 32768 else np.int64)
+    _mn = int(host.min()) if host.size else 0
+    _dt = np.int16 if (0 <= _mn and _m < 32768) else np.int64
     dev = resident_operand(host, role, dtype=_dt)
     return dev.astype(cp.int64) if dev.dtype != cp.int64 else dev
 
