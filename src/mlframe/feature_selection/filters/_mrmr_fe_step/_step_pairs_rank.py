@@ -10,6 +10,7 @@ args (no closure capture); selection is byte-for-byte identical to the inline bl
 from __future__ import annotations
 
 import logging
+import os
 
 import numpy as np
 from collections import defaultdict
@@ -17,6 +18,33 @@ from collections import defaultdict
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+
+def _pair_gate_resident_enabled() -> bool:
+    """True when the device-born candidate-code residency is active for the prospective-pair CMI gate.
+
+    Mirrors the CMI-redundancy gate (409d63fe): default ON under ``fe_gpu_strict_resident_enabled`` +
+    ``_cmi_gpu_enabled``; opt-out ``MLFRAME_FE_GATE_RESIDENT_CANDS=0``. Any import fault -> off (host path)."""
+    if os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return False
+    try:
+        from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        from .._mi_greedy_cmi_fe import _cmi_gpu_enabled
+        return bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
+    except Exception:
+        return False
+
+
+def _resident_cand(codes):
+    """Upload an ALREADY-BINNED host int64 candidate column ONCE and return the RESIDENT cupy codes, routed
+    through the content-keyed resident cache so the SAME content the gate / earlier scorers already uploaded
+    HITS that copy (no re-upload at the ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x`` sites). Returns
+    the host ``codes`` unchanged on any cupy fault / when residency is off (the device sites then upload it)."""
+    try:
+        from .._fe_resident_operands import resident_operand
+        return resident_operand(np.asarray(codes).ravel(), "cmi_cand_x", dtype=np.int64)
+    except Exception:
+        return codes
 
 
 def score_prospective_pairs(
@@ -57,6 +85,14 @@ def score_prospective_pairs(
     # (a,b) term (esc_poly candidate MI 0.032 ~ the simple a**2/b, downstream R^2
     # 0.947 -> 0.997) while cross-mix/noise pairs propose nothing or are gated out.
     _prevalence_failed_synergy: dict = {}
+    # DEVICE-BORN candidate-code residency for the conditional-MI gates below (asymmetric-synergy relaxation +
+    # the data-driven perm-null admission). Both read a candidate operand's ALREADY-BINNED int codes from
+    # ``data`` and score CMI / conditional-perm-null on them; under residency the SCORED candidate is uploaded
+    # ONCE and threaded resident (``_cmi_from_binned`` cupy resident-input branch + ``_conditional_perm_null``
+    # resident-input branch) so it never re-crosses H2D at the ``cmi_cand_x`` / ``card_cand_x`` /
+    # ``permnull_cand_x`` sites. The partner / anchor stays host (it is the conditioning ``z``, uploaded by the
+    # primitives). Computed once (fit-constant predicate). Byte-identical: same int codes, same partition.
+    _pair_resident = _pair_gate_resident_enabled()
     for raw_vars_pair, pair_mi in sort_dict_by_value(cached_MIs).items():
         if len(raw_vars_pair) == 2:
             if raw_vars_pair in checked_pairs:
@@ -150,9 +186,11 @@ def score_prospective_pairs(
                             _bcodes = np.ascontiguousarray(data[:, int(_boot_idx)], dtype=np.int64)
                             _pcodes = np.ascontiguousarray(data[:, int(_partner_idx)], dtype=np.int64)
                             _yc = np.ascontiguousarray(classes_y, dtype=np.int64)
-                            _cmi_obs = float(_cmi_from_binned(_bcodes, _yc, _pcodes))
+                            # RESIDENT bootstrap-operand candidate (scored x) -> no re-upload; partner stays host z.
+                            _bcand = _resident_cand(_bcodes) if _pair_resident else _bcodes
+                            _cmi_obs = float(_cmi_from_binned(_bcand, _yc, _pcodes))
                             _cfloor, _cnull_mean = _conditional_perm_null(
-                                _bcodes, _yc, _pcodes,
+                                _bcand, _yc, _pcodes,
                                 seed=int(getattr(self, "random_seed", 0) or 0) + 6271 * int(_boot_idx) + int(_partner_idx),
                             )
                             if _cmi_obs > _cfloor and (_cmi_obs - _cnull_mean) >= _cfloor:
@@ -201,9 +239,11 @@ def score_prospective_pairs(
                         _cand_codes = np.ascontiguousarray(data[:, _cand_i], dtype=np.int64)
                         _anchor_codes = np.ascontiguousarray(data[:, _anchor_i], dtype=np.int64)
                         _y_codes = np.ascontiguousarray(classes_y, dtype=np.int64)
-                        _cmi_obs = float(_cmi_from_binned(_cand_codes, _y_codes, _anchor_codes))
+                        # RESIDENT candidate (scored x) -> no re-upload; anchor stays host z.
+                        _cand_dev = _resident_cand(_cand_codes) if _pair_resident else _cand_codes
+                        _cmi_obs = float(_cmi_from_binned(_cand_dev, _y_codes, _anchor_codes))
                         _floor, _null_mean = _conditional_perm_null(
-                            _cand_codes, _y_codes, _anchor_codes,
+                            _cand_dev, _y_codes, _anchor_codes,
                             seed=int(getattr(self, "random_seed", 0) or 0) + 7919 * _ia + _ib,
                         )
                         _excess_frac = float(getattr(self, "fe_pair_perm_null_excess_frac", 0.05))

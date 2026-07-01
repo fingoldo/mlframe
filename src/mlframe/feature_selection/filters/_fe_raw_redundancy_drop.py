@@ -182,11 +182,27 @@ def raw_retains_signal_given_genuine_children(
     _gc = [g for g in genuine_child_bins if g is not None]
     rb = np.asarray(raw_bin).astype(np.int64).ravel()
     yb = np.asarray(y_bin).astype(np.int64).ravel()
-    _, _, marg_excess = _excess_and_floor(rb, yb, None, seed=seed)
+    # DEVICE-BORN candidate residency (same contract as ``drop_redundant_raw_operands``; opt-out
+    # MLFRAME_FE_GATE_RESIDENT_CANDS=0). The raw ``rb`` is scored (marginal + conditional) but never
+    # ``_renumber_joint``-ed here (the children build ``z_support``), so upload it ONCE as resident int64 codes
+    # and thread that handle into both ``_excess_and_floor`` calls -- the candidate never re-crosses H2D at the
+    # ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x`` sites. Host codes on any fault / when off.
+    _rb_cand = rb
+    import os as _os
+    if _os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
+        try:
+            from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+            from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
+            if bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled()):
+                from ._fe_resident_operands import resident_operand
+                _rb_cand = resident_operand(rb, "cmi_cand_x", dtype=np.int64)
+        except Exception:
+            _rb_cand = rb
+    _, _, marg_excess = _excess_and_floor(_rb_cand, yb, None, seed=seed)
     if not _gc:
         return True  # no genuine subsumer survives -> the raw cannot be proven redundant
     z_support, _ = _renumber_joint(*_gc)
-    cmi, floor, excess = _excess_and_floor(rb, yb, z_support, seed=seed)
+    cmi, floor, excess = _excess_and_floor(_rb_cand, yb, z_support, seed=seed)
     if (cmi > floor) and (excess >= self_retain_frac * max(0.0, marg_excess)):
         return True
     # LINEAR-USABILITY leg (variant-3): a linearly-usable raw whose conditional CMI collapsed
@@ -468,12 +484,64 @@ def drop_redundant_raw_operands(
     Degenerate (too few rows, no engineered survivors, no raw operands): returns
     ``selected_cols_idx`` unchanged.
     """
+    import os as _os
+
     from ._mi_greedy_cmi_fe import _quantile_bin, _renumber_joint
 
     sel = list(selected_cols_idx)
     n_rows = int(np.asarray(y_binned).shape[0])
     if n_rows < _MIN_ROWS or len(sel) < 2:
         return sel, []
+
+    # DEVICE-BORN candidate-code residency (default ON under fe_gpu_strict_resident_enabled; env opt-out
+    # MLFRAME_FE_GATE_RESIDENT_CANDS=0), mirroring the CMI-redundancy gate (409d63fe). The raw-redundancy
+    # sweep scores each engineered survivor's marginal MI (anchor) and each raw operand's marginal + conditional
+    # CMI / perm-null on HOST-binned int64 codes, so the SAME candidate content the gate already device-binned
+    # (roles ``qbin_x`` / ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x``) re-crossed H2D at every scoring
+    # site here. When on, each SCORED candidate (the engineered anchor ``eb``, the raw operand ``rb`` / ``_rb``)
+    # is quantile-binned ONCE on device (``_quantile_bin_gpu_resident``, identical percentile-edge partition to
+    # the host ``_quantile_bin``) and its RESIDENT int64 codes are threaded through ``_excess_and_floor`` -->
+    # ``_cmi_from_binned`` (cupy resident-input branch) + ``_conditional_perm_null`` (resident-input branch), so
+    # the candidate never re-uploads. A byte-identical host copy is retained for the genuinely host-only sites
+    # (the ``_renumber_joint`` support build, where the same column serves as a CONDITIONING z / sibling). A
+    # non-finite column or any cupy fault falls back per-candidate to the host ``_quantile_bin`` (no resident
+    # code -> that candidate's device sites re-upload the host code, exactly as before this change).
+    _gate_resident = False
+    if _os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
+        try:
+            from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+            from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
+            _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
+        except Exception:
+            _gate_resident = False
+
+    def _dev_from_cont(_vals) -> "object | None":
+        """RESIDENT int64 codes from CONTINUOUS values via the device equi-frequency binner (identical
+        partition to ``_quantile_bin``), or ``None`` when residency is off / the column is non-finite / cupy
+        faults -- the caller then keeps the host ``_quantile_bin`` codes."""
+        if not _gate_resident:
+            return None
+        try:
+            _v = np.asarray(_vals, dtype=np.float64)
+            if not np.isfinite(_v).all():
+                return None
+            from ._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
+            return _quantile_bin_gpu_resident(_v, int(_eng_card))
+        except Exception:
+            return None
+
+    def _dev_from_codes(_codes) -> "object | None":
+        """RESIDENT int64 codes for an ALREADY-BINNED host int column (the lossy ``data`` screening codes),
+        uploaded ONCE and kept resident so the scored candidate's device sites read it without re-crossing
+        H2D. Routed through the content-keyed resident cache (``cmi_cand_x``), so the SAME content the gate /
+        anchor already uploaded HITS that copy. ``None`` when residency is off or cupy faults."""
+        if not _gate_resident:
+            return None
+        try:
+            from ._fe_resident_operands import resident_operand
+            return resident_operand(np.asarray(_codes).ravel(), "cmi_cand_x", dtype=np.int64)
+        except Exception:
+            return None
 
     sel_names = [cols[i] for i in sel]
     # Engineered survivors = selected columns whose name is not a raw column.
@@ -581,40 +649,76 @@ def drop_redundant_raw_operands(
     # resolution the selector saw. Fair-comparison rationale: the raw and the consuming survivor are then
     # binned at the SAME cardinality, so the conditional-excess verdict is not skewed by a resolution gap.
     _raw_codes_cache: dict = {}
+    # Parallel RESIDENT-code cache: for each raw ``_ridx`` the device-born int64 codes (byte-identical to the
+    # host ``_raw_codes`` partition) fed to the SCORED-candidate device sites. Populated on the first
+    # ``_raw_codes`` build; ``None`` for a column that failed the device binner (host fallback).
+    _raw_dev_cache: dict = {}
     def _raw_codes(_rname, _ridx):
         if _ridx in _raw_codes_cache:
             return _raw_codes_cache[_ridx]
         _fit = np.asarray(data[:, _ridx]).astype(np.int64).ravel()
         _levels = (int(_fit.max()) + 1) if _fit.size else 0
         _out = _fit
+        _dev = None
         if raw_X is not None and 0 < _levels < _eng_card:
             try:
                 _rc = None
                 if hasattr(raw_X, "columns") and _rname in getattr(raw_X, "columns", []):
                     _rc = np.asarray(raw_X[_rname], dtype=np.float64).ravel()
                 if _rc is not None and _rc.shape[0] == n_rows and np.isfinite(_rc).any():
-                    _out = np.ascontiguousarray(
-                        _quantile_bin(np.nan_to_num(_rc, nan=0.0, posinf=0.0, neginf=0.0), nbins=_eng_card)
-                    ).astype(np.int64)
+                    _clean = np.nan_to_num(_rc, nan=0.0, posinf=0.0, neginf=0.0)
+                    _dev = _dev_from_cont(_clean)   # device-born codes = same percentile-edge partition
+                    if _dev is not None:
+                        import cupy as _cp
+                        _out = _cp.asnumpy(_dev).astype(np.int64)   # host copy = D2H of the SAME resident partition
+                    else:
+                        _out = np.ascontiguousarray(
+                            _quantile_bin(_clean, nbins=_eng_card)
+                        ).astype(np.int64)
             except Exception:
                 _out = _fit
+                _dev = None
+        if _dev is None:
+            # The lossy ``data`` fit codes (or a host-fallback bin): upload once, kept resident so the scored
+            # candidate reads it without re-crossing H2D (host copy stays the source of truth for _renumber_joint).
+            _dev = _dev_from_codes(_out)
         _raw_codes_cache[_ridx] = _out
+        _raw_dev_cache[_ridx] = _dev
         return _out
+
+    def _raw_dev(_rname, _ridx):
+        """RESIDENT int64 codes for the raw operand scored as the CANDIDATE, byte-identical to ``_raw_codes``;
+        ``None`` -> the caller passes the host codes (which the device sites then upload, as before)."""
+        if _ridx not in _raw_codes_cache:
+            _raw_codes(_rname, _ridx)
+        return _raw_dev_cache.get(_ridx)
     eng_bin: dict[int, np.ndarray] = {}
     eng_anchor_excess: dict[int, float] = {}
     for ei in eng_idx:
         _ename = cols[ei]
         _cont = _eng_cont.get(_ename)
+        _eb_dev = None
         if _cont is not None and np.asarray(_cont).shape[0] == n_rows:
-            # Fine binning from the continuous engineered values (preferred).
-            eb = _quantile_bin(np.asarray(_cont, dtype=np.float64), nbins=_eng_card)
+            # Fine binning from the continuous engineered values (preferred). Device-bin ONCE (resident codes
+            # for the scored anchor MI); the host copy = D2H of the SAME partition, kept for the ``_renumber_joint``
+            # conditioning-support build (``eng_bin[ei]`` feeds ``z_support`` below). Host fallback on cupy fault.
+            _cvals = np.asarray(_cont, dtype=np.float64)
+            _eb_dev = _dev_from_cont(_cvals)
+            if _eb_dev is not None:
+                import cupy as _cp
+                eb = _cp.asnumpy(_eb_dev).astype(np.int64)
+            else:
+                eb = _quantile_bin(_cvals, nbins=_eng_card)
         else:
             # Fallback: the lossy screening codes already in ``data`` (use as-is;
             # re-binning coarse codes gains nothing). Conservative -- a missing
             # continuous value can only make the gate KEEP more (smaller anchor).
             eb = np.asarray(data[:, ei]).astype(np.int64).ravel()
+            _eb_dev = _dev_from_codes(eb)
         eng_bin[ei] = eb
-        _, _, exc = _excess_and_floor(eb, y_arr, None, seed=seed)
+        # Score the anchor MI from the RESIDENT codes when available so the candidate never re-crosses H2D at
+        # the ``cmi_cand_x`` / ``permnull_cand_x`` sites; host codes otherwise.
+        _, _, exc = _excess_and_floor(_eb_dev if _eb_dev is not None else eb, y_arr, None, seed=seed)
         eng_anchor_excess[ei] = exc
 
     # DPI-TRAP GUARD (2026-06-10): an engineered child is a LEGITIMATE subsumer of a
@@ -648,7 +752,8 @@ def drop_redundant_raw_operands(
             _raw_marg_cache[_rname] = (0.0, 0.0, 0.0)
             return _raw_marg_cache[_rname]
         _rb = _raw_codes(_rname, _ridx)
-        _res = _excess_and_floor(_rb, y_arr, None, seed=seed)
+        _rb_dev = _raw_dev(_rname, _ridx)   # RESIDENT candidate code (scored marginal) -> no re-upload; host otherwise
+        _res = _excess_and_floor(_rb_dev if _rb_dev is not None else _rb, y_arr, None, seed=seed)
         _raw_marg_cache[_rname] = _res
         return _res
 
@@ -795,6 +900,12 @@ def drop_redundant_raw_operands(
         # _eng_card ONLY when the fit binning is COARSER than the survivors' resolution (the coarse-nbins
         # washout fix), never finer than _eng_card (the prior finer-binning inflation concern is honoured).
         rb = _raw_codes(cols[ri], ri)
+        # RESIDENT candidate code for the raw scored below (byte-identical to ``rb``): threaded into every
+        # ``_excess_and_floor(rb, ...)`` scoring call so the raw operand never re-crosses H2D at the
+        # ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x`` sites; the host ``rb`` still builds the
+        # ``_renumber_joint`` conditioning support (siblings). ``None`` -> host codes are scored (as before).
+        rb_dev = _raw_dev(cols[ri], ri)
+        rb_cand = rb_dev if rb_dev is not None else rb
         # Per-consumer conditioning column: prefer the CLEAN nested ``rname``-containing
         # sub-expression (BUG1) when it was successfully isolated/replayed above, else the
         # whole consuming survivor's bin. The clean sub-expression isolates the raw's
@@ -806,7 +917,7 @@ def drop_redundant_raw_operands(
             for ei in consumers
         ]
         z_support, _ = _renumber_joint(*_cond_bins)
-        cmi, floor, excess = _excess_and_floor(rb, y_arr, z_support, seed=seed)
+        cmi, floor, excess = _excess_and_floor(rb_cand, y_arr, z_support, seed=seed)
         # SIBLING-OPERAND CONDITIONING (BUG1 non-invertible-fusion subsumer, 2026-06-16). A
         # consuming composite can FUSE ``rname`` with a SECOND signal-bearing operand in a
         # form that is not invertible from the composite alone -- e.g. ``add(a, sin(c))``
@@ -851,7 +962,7 @@ def drop_redundant_raw_operands(
             _clean = _clean_subexpr_bin.get((rname, ei))
             if _clean is not None:
                 _z_full, _ = _renumber_joint(eng_bin[ei])
-                _cmi_f, _floor_f, _excess_f = _excess_and_floor(rb, y_arr, _z_full, seed=seed)
+                _cmi_f, _floor_f, _excess_f = _excess_and_floor(rb_cand, y_arr, _z_full, seed=seed)
                 if _excess_f < excess:
                     cmi, floor, excess = _cmi_f, _floor_f, _excess_f
         _sibling_names: list = []
@@ -877,7 +988,7 @@ def drop_redundant_raw_operands(
                 _added = True
             if _added:
                 _z_sib, _ = _renumber_joint(*_sib_cond)
-                _cmi_s, _floor_s, _excess_s = _excess_and_floor(rb, y_arr, _z_sib, seed=seed)
+                _cmi_s, _floor_s, _excess_s = _excess_and_floor(rb_cand, y_arr, _z_sib, seed=seed)
                 # Take the conditioning that gives the SMALLEST debiased excess -- the
                 # strongest evidence of subsumption -- carrying its own (cmi, floor) so the
                 # floor check below stays consistent with the chosen conditioning.
