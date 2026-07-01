@@ -55,7 +55,7 @@ dependencies = [
     "scipy>=1.10",
     # >=1.6: category-encoders (a hard dep below) imports ``sklearn.utils.Tags``, which only exists from
     # sklearn 1.6; on older sklearn ``import category_encoders`` fails, so 1.6 is mlframe's effective floor.
-    "scikit-learn>=1.6",
+    "scikit-learn>=1.7.2",
     "pyarrow>=10.0",
     "joblib>=1.2",
     "tqdm>=4.65",
