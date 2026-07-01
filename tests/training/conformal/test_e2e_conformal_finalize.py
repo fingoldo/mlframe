@@ -33,7 +33,7 @@ def _run_regression_suite(tmp_path, calib_size, seed=17, conformal_config=None, 
         ReportingConfig,
     )
     from mlframe.training._preprocessing_configs import TrainingSplitConfig
-    from .shared import SimpleFeaturesAndTargetsExtractor
+    from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
     return train_mlframe_models_suite(

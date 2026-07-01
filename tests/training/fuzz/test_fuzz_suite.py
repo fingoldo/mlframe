@@ -20,7 +20,7 @@ import pytest
 # from the default test run; pass pytest --run-fuzz to include.
 pytestmark = pytest.mark.fuzz
 
-from ._fuzz_combo import (
+from tests.training._fuzz_combo import (
     FuzzCombo,
     build_frame_for_combo,
     enumerate_combos,
@@ -28,7 +28,7 @@ from ._fuzz_combo import (
     xfail_reason,
     build_mrmr_kwargs,
 )
-from .shared import SimpleFeaturesAndTargetsExtractor
+from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 # 2026-04-27: train_mlframe_models_suite signature collapsed several
 # top-level kwargs (outlier_detector / data_dir / use_mrmr_fs / ...) into
@@ -55,7 +55,7 @@ COMBOS: list[FuzzCombo] = enumerate_combos(target=150, master_seed=_FUZZ_MASTER_
 
 # Non-test helpers carved into a sibling module so this stays a lean
 # pytest-discoverable test file (CLAUDE.md: 'Monolith split').
-from ._fuzz_suite_helpers import (
+from tests.training._fuzz_suite_helpers import (
     _safe_cfg_kwargs,
     _config_for_models,
     _configs_for_combo,
@@ -138,7 +138,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     """
     import os as _os
     if _os.environ.get("MLFRAME_FUZZ_PERF_MODE", "").lower() in ("1", "yes", "true", "on"):
-        from ._fuzz_combo import apply_perf_mode
+        from tests.training._fuzz_combo import apply_perf_mode
         combo = apply_perf_mode(combo)
     _skip_if_deps_missing(combo.models)
 
@@ -729,7 +729,7 @@ def test_enumerator_produces_unique_combos():
 
 def test_enumerator_hits_all_models():
     """Every supported model must appear at least once across the 150 combos."""
-    from ._fuzz_combo import MODELS
+    from tests.training._fuzz_combo import MODELS
     seen = {m for c in COMBOS for m in c.models}
     missing = set(MODELS) - seen
     assert not missing, f"Models never exercised by fuzz: {missing}"

@@ -32,7 +32,7 @@ from mlframe.training.core import (
     train_mlframe_models_suite,
 )
 
-from .shared import SimpleFeaturesAndTargetsExtractor, TimestampedFeaturesExtractor
+from tests.training.shared import SimpleFeaturesAndTargetsExtractor, TimestampedFeaturesExtractor
 from tests.conftest import fast_subset
 
 

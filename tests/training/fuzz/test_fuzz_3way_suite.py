@@ -52,7 +52,7 @@ import pytest
 # fuzz marker.
 pytestmark = [pytest.mark.fuzz, pytest.mark.slow]
 
-from ._fuzz_combo import (
+from tests.training._fuzz_combo import (
     FuzzCombo,
     build_frame_for_combo,
     enumerate_combos_3way,
@@ -65,7 +65,7 @@ from mlframe.training import (
     OutputConfig,
 )
 
-from .shared import SimpleFeaturesAndTargetsExtractor
+from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 # Import config/invariant helpers from the pairwise suite — they stay
 # in one place (DRY across pairwise + 3-way).
@@ -238,7 +238,7 @@ def test_3way_enumerator_covers_all_triples():
     regresses, either ``_3WAY_AXES`` grew beyond what the current target
     can cover, or the greedy picker is starving — raise the target or
     prune an axis."""
-    from ._fuzz_combo import _all_axis_triples, _combo_triples
+    from tests.training._fuzz_combo import _all_axis_triples, _combo_triples
 
     required = _all_axis_triples()
     covered: set = set()

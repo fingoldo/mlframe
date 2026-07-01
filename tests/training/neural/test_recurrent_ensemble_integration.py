@@ -23,9 +23,7 @@ import pytest
 from mlframe.training.configs import OutputConfig, PreprocessingConfig
 from mlframe.training.core import train_mlframe_models_suite
 
-# pylint: disable=wrong-import-position
-sys.path.insert(0, os.path.dirname(__file__))
-from shared import SimpleFeaturesAndTargetsExtractor  # noqa: E402
+from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 
 pytestmark = [pytest.mark.requires_torch, pytest.mark.requires_cb, pytest.mark.uses_torch]

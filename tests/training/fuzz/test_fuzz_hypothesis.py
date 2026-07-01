@@ -29,14 +29,14 @@ pytestmark = pytest.mark.fuzz
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 
-from ._fuzz_combo import FuzzCombo, build_frame_for_combo
+from tests.training._fuzz_combo import FuzzCombo, build_frame_for_combo
 from mlframe.training import (
     FeatureSelectionConfig,
     OutlierDetectionConfig,
     OutputConfig,
 )
 
-from .shared import SimpleFeaturesAndTargetsExtractor
+from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 from .test_fuzz_suite import (
     _assert_prediction_invariants,
     _preprocessing_for_combo,

@@ -23,7 +23,7 @@ pytestmark = pytest.mark.fuzz
 # the existing module. ``test_fuzz_train_mlframe_models_suite`` is the
 # test function; we re-parametrize a thinner combo set against the same
 # implementation.
-from ._fuzz_combo import enumerate_combos
+from tests.training._fuzz_combo import enumerate_combos
 
 # Quick slice: 10 combos, same master seed as the full suite so the
 # selected combos are deterministic across CI runs. Increase / decrease

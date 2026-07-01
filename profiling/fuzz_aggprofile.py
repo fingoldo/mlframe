@@ -61,7 +61,7 @@ def _run_one(idx: int, n_rows: int, include_torch: bool = False,
     """Profile a single combo by pool index; emit PROF:/ELAPSED:/ERR: lines."""
     from tests.training._fuzz_combo import build_frame_for_combo
     from tests.training.shared import SimpleFeaturesAndTargetsExtractor
-    from tests.training.test_fuzz_suite import (
+    from tests.training.fuzz.test_fuzz_suite import (
         _preprocessing_for_combo, _config_for_models, _configs_for_combo,
         _custom_pre_pipelines_for_combo, _outlier_detector_for_combo,
     )

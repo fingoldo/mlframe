@@ -30,8 +30,8 @@ import pytest
 # deselected from the default test run; pass pytest --run-fuzz to include.
 pytestmark = pytest.mark.fuzz
 
-from ._fuzz_combo import FuzzCombo, build_frame_for_combo
-from .shared import SimpleFeaturesAndTargetsExtractor
+from tests.training._fuzz_combo import FuzzCombo, build_frame_for_combo
+from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 
 @pytest.fixture(autouse=True)
