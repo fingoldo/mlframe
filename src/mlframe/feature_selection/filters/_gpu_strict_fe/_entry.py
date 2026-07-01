@@ -216,6 +216,28 @@ def fe_gpu_device_born_uplift_univariate_enabled() -> bool:
     return fe_gpu_strict_resident_enabled()
 
 
+def fe_gpu_device_born_extra_basis_enabled() -> bool:
+    """Whether the EXTRA-BASIS MI-uplift scorer (``score_features_by_mi_uplift`` on spline / Fourier / chirp /
+    wavelet columns) builds its ENGINEERED matrix DEVICE-BORN from the resident raw operands + the per-column
+    fit ``meta`` (exact frequencies / knots / lo/span/mean/std the host baked in) and scores it -- plus the raw
+    baseline -- through the resident plug-in MI, instead of host-materialising the whole matrix and uploading it
+    at ``_orth_mi_backends.py:311``.
+
+    DEFAULT ON under STRICT-residency (``fe_gpu_strict_resident_enabled``). This is the sibling of
+    ``fe_gpu_device_born_uplift_univariate_enabled`` (poly legs He/T/L/LL) for the extra-basis families the poly
+    twin bailed on: ALL of them are ported (Fourier ``sin``/``cos`` on the ``power`` argument, chirp on the
+    ``u = sign(z)*z^2`` axis, Haar wavelet via the shipped device leg, cubic B-spline via device Cox-de Boor), so
+    the WHOLE extra-basis matrix is built on device; if ANY column carries an unrecognised basis, or on any cupy
+    fault, the scorer returns None and the WHOLE matrix stays on the exact host path (safety fallback, not a
+    per-column split). Each device column reproduces the host formula verbatim so the binned-MI partition is
+    selection-identical, and BOTH engineered + raw baseline use the SAME percentile-edge resident estimator (the
+    uplift RATIO stays internally consistent). ``MLFRAME_FE_GPU_DEVICE_BORN_EXTRA_BASIS=0`` is the explicit
+    OPT-OUT. The non-strict DEFAULT path is untouched (host build + host scorer) -> byte-identical."""
+    if os.environ.get("MLFRAME_FE_GPU_DEVICE_BORN_EXTRA_BASIS", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return False
+    return fe_gpu_strict_resident_enabled()
+
+
 def fe_gpu_device_born_modular_enabled() -> bool:
     """Whether the pairwise-modular FE scan (``_pairwise_modular_fe``) collapses its per-call single-column
     residue MI uploads -- the baseline ``_mi``, the residue grid, and the dominant 12-permutation null -- by

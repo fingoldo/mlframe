@@ -552,6 +552,7 @@ def score_features_by_mi_uplift(
     y: np.ndarray,
     *,
     nbins: int = 10,
+    meta: dict = None,
 ) -> pd.DataFrame:
     """Score each engineered column by MI uplift vs its raw source column.
 
@@ -594,9 +595,21 @@ def score_features_by_mi_uplift(
     # plug-in MI (no host materialise/upload) -- the uplift RATIO stays internally consistent (numerator + baseline
     # on the SAME estimator). EXTRA-BASIS columns (spline/Fourier/chirp/wavelet) are not GPU-ported -> the helper
     # returns None and the engineered matrix stays on the host chunked scorer (SF1c irreducible born-fresh transient).
-    from ._uplift_univariate_resident import uplift_univariate_eng_mi_resident
+    # ENGINEERED-matrix MI, device-born when possible so the host matrix never uploads at _orth_mi_backends:311.
+    # ``meta`` (supplied by the EXTRA-BASIS caller) carries per-column fit params (freq/knots/lo/span/mean/std),
+    # so the extra-basis families (spline/Fourier/chirp/wavelet) rebuild ON device from the resident raw operands
+    # (SF1c all-device). Without meta (the poly-univariate caller) the poly-leg twin rebuilds from the names.
+    # Either device path returns None (STRICT off / non-poly / unrecognised basis / cupy fault) -> the exact host
+    # chunked scorer (bit-identical, bounds peak RAM). BOTH engineered + raw baseline use the SAME resident
+    # estimator so the uplift RATIO stays internally consistent.
+    if meta is not None:
+        from ._extra_basis_resident import extra_basis_eng_mi_resident
 
-    eng_mi = uplift_univariate_eng_mi_resident(raw_X, engineered_X, y_arr, nbins=nbins)
+        eng_mi = extra_basis_eng_mi_resident(raw_X, engineered_X, y_arr, meta, nbins=nbins)
+    else:
+        from ._uplift_univariate_resident import uplift_univariate_eng_mi_resident
+
+        eng_mi = uplift_univariate_eng_mi_resident(raw_X, engineered_X, y_arr, nbins=nbins)
     if eng_mi is None:
         # Column-chunked MI scoring -> bit-identical, bounds peak RAM at scale (see mi_classif_batch_chunked).
         eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)

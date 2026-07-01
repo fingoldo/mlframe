@@ -188,6 +188,12 @@ def generate_extra_basis_features(
             # A Fourier/spline/chirp basis over a NaN-containing column is unsound: the nanmean-imputed basis becomes a MISSINGNESS PROXY (its binned
             # MI ties / beats the genuine missingness-FE columns and displaces them from MRMR selection) AND the recipe replay does not impute
             # (transform() emits all-NaN). Skip; the missingness signal belongs to the dedicated missingness-FE family.
+            # TODO(imputation): skipping the WHOLE column on a single NaN forfeits a genuine periodic/spline signal
+            # whenever the column is only lightly missing. A proper fix is a fit-time imputation (e.g. median, or a
+            # model-based fill) BAKED INTO the recipe so transform() replays the SAME fill -- then the basis is a
+            # genuine signal, not an all-NaN replay, and it no longer doubles as a missingness proxy (pair it with an
+            # explicit missing-indicator column so the missingness signal still lands in its dedicated family). Until
+            # then the conservative skip stays (correctness over coverage).
             continue
         # Auto-gate: only let the adaptive Fourier/chirp operators fire where the raw column is NOT already a strong smooth predictor of y (see _ADAPTIVE_FE_RAW_USABILITY_CAP).
         _adaptive_fe_ok = True
@@ -508,7 +514,9 @@ def hybrid_orth_extra_basis_fe_with_recipes(
         return X.copy(), empty_scores, []
     from . import score_features_by_mi_uplift
     raw_X = _Xd[[c for c in (cols or _Xd.columns) if c in _Xd.columns and pd.api.types.is_numeric_dtype(_Xd[c])]]
-    scores = score_features_by_mi_uplift(raw_X, engineered, _yd, nbins=nbins)
+    # Pass the per-column fit ``meta`` so the ENGINEERED extra-basis matrix is rebuilt DEVICE-BORN from the
+    # resident raw operands (SF1c :311 collapse) instead of the host matrix uploading; None-safe host fallback.
+    scores = score_features_by_mi_uplift(raw_X, engineered, _yd, nbins=nbins, meta=meta)
     raw_baselines = scores["baseline_mi"].to_numpy()
     max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
     legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
