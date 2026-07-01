@@ -144,6 +144,10 @@ if _NUMBA_AVAILABLE:
             # the small K used in PIT diagrams); carry the paired alpha along.
             # O(K^2), but K is the number of predicted quantile levels in a PIT diagram (typically <=20, often <10),
             # so K^2 is tiny and an njit argsort here would not pay -- left as the simple stable insertion sort.
+            # bench-attempt-rejected (2026-07): njit np.argsort dispatch above K~50 is 5-12x SLOWER even at
+            # K=200 (0.08x-0.18x, N=20k-50k) -- per-row argsort allocs an index array while this insertion
+            # sort is branch-predictable on the near-sorted predicted-quantile rows. See
+            # _benchmarks/bench_pit_argsort_large_k.py. Do not re-try an argsort threshold here.
             for j in range(1, k):
                 vq = sq[j]
                 va = sa[j]
@@ -443,9 +447,9 @@ def crps_from_quantiles(
     -------
     Scalar CRPS averaged across rows.
     """
-    y = np.asarray(y_true, dtype=np.float64)
-    p = np.asarray(preds_NK, dtype=np.float64)
-    a = np.asarray(alphas, dtype=np.float64)
+    y = np.ascontiguousarray(np.asarray(y_true, dtype=np.float64))
+    p = np.ascontiguousarray(np.asarray(preds_NK, dtype=np.float64))
+    a = np.ascontiguousarray(np.asarray(alphas, dtype=np.float64))
     if y.shape[0] == 0 or p.size == 0:
         return float("nan")
     if p.ndim != 2:
@@ -460,10 +464,13 @@ def crps_from_quantiles(
         )
     if not np.all(np.diff(a) > 0):
         raise ValueError("alphas must be strictly increasing")
-    # Per-alpha mean pinball loss vector (length K).
-    per_alpha = np.empty(a.shape[0], dtype=np.float64)
-    for k in range(a.shape[0]):
-        per_alpha[k] = pinball_loss(y, p[:, k], float(a[k]))
+    # Per-alpha mean pinball loss vector (length K). One fused row-major pass over
+    # the C-contiguous (N, K) matrix scores every alpha at once, replacing K separate
+    # ``pinball_loss(y, p[:, k], a[k])`` calls -- each of which copied a strided column
+    # and crossed a fresh JIT boundary. Bit-identical to the per-column loop (same
+    # per-element accumulation order per column); 2.2x-6.9x faster over N in {10k..1M},
+    # K in {10,19}. See _benchmarks/bench_crps_fused_per_alpha.py.
+    per_alpha = _fast_pinball_per_alpha(y, p, a)
     # Trapezoidal integration over alpha in [a[0], a[-1]], then scale by 2.
     # Manual formula (np.trapz removed in NumPy 2; np.trapezoid only exists
     # from 2.0) keeps the kernel numpy-version-agnostic.

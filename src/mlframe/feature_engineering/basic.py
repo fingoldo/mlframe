@@ -314,14 +314,19 @@ def create_date_features(
     precomputed_bases: Dict[Tuple[str, str], np.ndarray] = {}
     if is_pandas:
         df = df.copy(deep=False)
+        # Accumulate every derived field and insert them in ONE pd.concat instead of column-at-a-time
+        # assignment (which fragments the block manager -> PerformanceWarning + ~O(n_cols^2) copies).
+        new_cols: Dict[str, pd.Series] = {}
         for col in cols:
             obj = df[col].dt
             for method, dtype in methods.items():
                 field = _resolve_pandas_method(obj, method, dtype)
-                df[col + "_" + method] = field
+                new_cols[col + "_" + method] = field
                 # Cache the just-extracted integer field so the cyclical pass below reuses it instead of re-decoding .dt.
                 if add_cyclical and method != "is_weekend":
                     precomputed_bases[(col, method)] = field.to_numpy()
+        if new_cols:
+            df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1, copy=False)
     else:
         all_exprs = []
         for col in cols:
@@ -420,6 +425,9 @@ def add_cyclical_date_features(
 
     if is_pandas:
         df = df.copy(deep=False)
+        # Batch all sin/cos columns into one pd.concat (see create_date_features) to avoid
+        # block-manager fragmentation from column-at-a-time assignment.
+        new_cols: Dict[str, np.ndarray] = {}
         for col in cols:
             obj = df[col].dt
             for period_name, period_value in periods:
@@ -433,8 +441,10 @@ def add_cyclical_date_features(
                     base = _resolve_pandas_method(obj, period_name, np.float64).to_numpy()
                     base = np.ascontiguousarray(base, dtype=np.float64)
                 s, c = _cyclical_sincos_njit(base, two_pi / float(period_value))
-                df[f"{col}_{period_name}_sin"] = s
-                df[f"{col}_{period_name}_cos"] = c
+                new_cols[f"{col}_{period_name}_sin"] = s
+                new_cols[f"{col}_{period_name}_cos"] = c
+        if new_cols:
+            df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1, copy=False)
         if delete_original_cols:
             df = df.drop(columns=cols)
     else:
