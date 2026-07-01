@@ -201,6 +201,8 @@ def _cluster_medoids(
     return medoids
 
 
+# TransformerMixin (not SelectorMixin): the wrapped mRMR estimator's transform can add engineered features,
+# so it is not a pure mask-based selector and SelectorMixin's mask-only contract would be wrong here.
 class GroupAwareMRMR(BaseEstimator, TransformerMixin):
     """Wraps an mRMR-family estimator with correlation pre-clustering.
 

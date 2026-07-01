@@ -150,11 +150,14 @@ The wrapper above is the manual entry point. `train_mlframe_models_suite` also r
 **Per-target metric panel.** `fast_calibration_report` computes the Brier
 reliability / resolution / uncertainty decomposition, ICE bands, ECE, ROC/PR AUC,
 and the classification scores in one numba-accelerated pass, returning them as a
-flat tuple (and, optionally, the calibration figure).
+`CalibrationReport` `NamedTuple` (and, optionally, the calibration figure). The
+result unpacks positionally and indexes exactly like the historical flat tuple, and
+also exposes every element as a named attribute (`report.brier_loss`, `report.ece`, ...).
 
 ```python
 from mlframe.metrics import fast_calibration_report
 
+# Positional unpacking still works (back-compatible with the flat 17-tuple):
 (brier_loss, cal_mae, cal_std, cal_coverage,
  ece, brier_rel, brier_res, brier_unc,
  roc_auc, pr_auc, ice, ll, precision, recall, f1,
@@ -165,6 +168,16 @@ from mlframe.metrics import fast_calibration_report
     show_plots=False,
 )
 print(brier_rel, brier_res, brier_unc, ece)
+
+# Or keep the result and use named access (clearer, index-safe):
+report = fast_calibration_report(
+    y_true=y_test,
+    y_pred=clf.predict_proba(X_test)[:, 1],
+    nbins=15,
+    show_plots=False,
+)
+print(report.brier_reliability, report.brier_resolution, report.ece, report.roc_auc)
+print(report[0] == report.brier_loss)  # True — positional indexing preserved
 ```
 
 **MRMR / RFECV feature selection.** Several MRMR variants (FCQ, MID, FCD, plus

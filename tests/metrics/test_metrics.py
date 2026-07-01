@@ -681,6 +681,63 @@ class TestCalibration:
         # And the debiased default genuinely differs from the legacy plug-in (the flip is observable, not a no-op).
         assert abs(ece - ece_k) > 1e-6
 
+    def test_fast_calibration_report_namedtuple_positional_and_named_agree(self):
+        """CalibrationReport is a NamedTuple: positional unpacking / indexing and named-field access return the SAME values."""
+        from mlframe.metrics import CalibrationReport, fast_calibration_report as fcr_pkg
+        y_true, y_pred = self._synthetic_binary_data()
+        out = fast_calibration_report(y_true=y_true, y_pred=y_pred, nbins=10, show_plots=False, plot_file="")
+
+        # It is the documented NamedTuple subclass, still a tuple (back-compat).
+        assert isinstance(out, CalibrationReport)
+        assert isinstance(out, tuple)
+        assert len(out) == 17
+
+        # Positional unpacking still works exactly as the historical flat 17-tuple.
+        (brier_loss, cal_mae, cal_std, cal_cov, ece, brier_rel, brier_res, brier_unc,
+         roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, fig) = out
+
+        # Named access must equal both the unpacked names AND positional indexing, field for field.
+        expected = [
+            (out.brier_loss, brier_loss, out[0]),
+            (out.calibration_mae, cal_mae, out[1]),
+            (out.calibration_std, cal_std, out[2]),
+            (out.calibration_coverage, cal_cov, out[3]),
+            (out.ece, ece, out[4]),
+            (out.brier_reliability, brier_rel, out[5]),
+            (out.brier_resolution, brier_res, out[6]),
+            (out.brier_uncertainty, brier_unc, out[7]),
+            (out.roc_auc, roc_auc, out[8]),
+            (out.pr_auc, pr_auc, out[9]),
+            (out.ice, ice, out[10]),
+            (out.ll, ll, out[11]),
+            (out.precision, precision, out[12]),
+            (out.recall, recall, out[13]),
+            (out.f1, f1, out[14]),
+            (out.metrics_string, metrics_string, out[15]),
+            (out.fig, fig, out[16]),
+        ]
+        for named, unpacked, indexed in expected:
+            assert named is unpacked or named == unpacked
+            assert named is indexed or named == indexed
+
+        assert out._fields == (
+            "brier_loss", "calibration_mae", "calibration_std", "calibration_coverage",
+            "ece", "brier_reliability", "brier_resolution", "brier_uncertainty",
+            "roc_auc", "pr_auc", "ice", "ll", "precision", "recall", "f1",
+            "metrics_string", "fig",
+        )
+        # The package-level export resolves to the same function object as the module-level one.
+        assert fcr_pkg is fast_calibration_report
+
+    def test_fast_calibration_report_importable_from_package(self):
+        """README documents ``from mlframe.metrics import fast_calibration_report``; it must be a first-class export."""
+        import mlframe.metrics as m
+        from mlframe.metrics import fast_calibration_report, CalibrationReport
+        assert "fast_calibration_report" in m.__all__
+        assert "CalibrationReport" in m.__all__
+        assert callable(fast_calibration_report)
+        assert issubclass(CalibrationReport, tuple)
+
     # ============================================================
     # Title-metrics token rendering
     # ============================================================

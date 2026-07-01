@@ -8,7 +8,11 @@ resolves transparently.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
+if TYPE_CHECKING:
+    from ..feature_handling.config import FeatureHandlingConfig
+    from ..neural._recurrent_config import RecurrentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -100,17 +104,62 @@ apply_loky_cpu_count_override = None
 apply_third_party_patches_once = None
 
 
+def _infer_target_is_classification(values: Any) -> bool:
+    """Infer whether ``target_name``'s column is a classification target.
+
+    Reuses the project heuristic (``slicing._slice_helpers._is_classification_target``:
+    integer/bool dtype + small cardinality). Float continuous columns fall through to
+    regression. Object/string columns are treated as classification (label targets).
+    """
+    from ..slicing._slice_helpers import _is_classification_target
+
+    if isinstance(values, (pd.Series, pl.Series)):
+        arr = values.to_numpy()
+    else:
+        arr = np.asarray(values)
+    if arr.dtype.kind in ("O", "U", "S"):
+        return True
+    return _is_classification_target(arr)
+
+
+def _build_default_extractor(df: Union[pl.DataFrame, pd.DataFrame, str], target_name: str):
+    """Construct a ``SimpleFeaturesAndTargetsExtractor`` from ``target_name`` alone.
+
+    Infers the task type from the target column's dtype/cardinality: a continuous
+    float target becomes a regression target, a low-cardinality int/categorical/string
+    target becomes a classification target. Used only when the caller omits an explicit
+    extractor (the ergonomic ``train_mlframe_models_suite(df, target_name="y")`` path).
+    """
+    from ..extractors import SimpleFeaturesAndTargetsExtractor
+
+    # Read just the target column so the dtype can be inspected without loading the
+    # full frame when a parquet path was supplied.
+    if isinstance(df, str):
+        target_values = pl.read_parquet(df, columns=[target_name])[target_name]
+    else:
+        if target_name not in df.columns:
+            raise KeyError(
+                f"target_name '{target_name}' not found in df columns; cannot build a default "
+                f"extractor. Available (first 10): {list(df.columns)[:10]}"
+            )
+        target_values = df[target_name]
+
+    if _infer_target_is_classification(target_values):
+        return SimpleFeaturesAndTargetsExtractor(classification_targets=[target_name])
+    return SimpleFeaturesAndTargetsExtractor(regression_targets=[target_name])
+
+
 
 
 def train_mlframe_models_suite(
     df: Union[pl.DataFrame, pd.DataFrame, str],
     target_name: str,
-    model_name: str,
-    features_and_targets_extractor: FeaturesAndTargetsExtractor,
+    model_name: str = "model",
+    features_and_targets_extractor: Optional[FeaturesAndTargetsExtractor] = None,
     # Model selection (top-level kwargs - these answer "what does this suite do")
     mlframe_models: Optional[List[str]] = None,
     recurrent_models: Optional[List[str]] = None,
-    recurrent_config: Optional[Any] = None,
+    recurrent_config: Optional[Union["RecurrentConfig", Dict]] = None,
     sequences: Optional[List[np.ndarray]] = None,
     use_ordinary_models: bool = True,
     use_mlframe_ensembles: bool = True,
@@ -140,7 +189,7 @@ def train_mlframe_models_suite(
     regression_calibration_config: Optional[Union["RegressionCalibrationConfig", Dict]] = None,
     # MLFRAME_DISABLE_COMPOSITE=1 env var forces OFF regardless of config (kill switch).
     composite_target_discovery_config: Optional[Union["CompositeTargetDiscoveryConfig", Dict]] = None,
-    feature_handling_config: Optional[Any] = None,
+    feature_handling_config: Optional[Union["FeatureHandlingConfig", Dict]] = None,
     precomputed: Optional["TrainMlframeSuitePrecomputed"] = None,
     # mini-HPT (target distribution analyzer): inspect the target
     # distribution after the train/val/test split and recommend hyperparameter
@@ -156,11 +205,18 @@ def train_mlframe_models_suite(
     """
     Train a suite of ML models on a dataset.
 
+    Happy path (extractor inferred from the target column):
+
+        models, metadata = train_mlframe_models_suite(df, target_name="y")
+
     Args:
         df: DataFrame or path to parquet file
         target_name: Name of the target to predict
-        model_name: Base name for the models
-        features_and_targets_extractor: FeaturesAndTargetsExtractor instance for computing targets
+        model_name: Base name for the models (defaults to ``"model"``)
+        features_and_targets_extractor: FeaturesAndTargetsExtractor instance for computing targets.
+            Optional: when None, a ``SimpleFeaturesAndTargetsExtractor`` is built from ``target_name``,
+            with the task type (regression vs classification) inferred from the target column's
+            dtype/cardinality. Pass an explicit extractor to override.
 
         mlframe_models: List of model types to train (cb, lgb, xgb, mlp, hgb, linear, ridge, etc.)
         recurrent_models: List of recurrent model types to train (lstm, gru, rnn, transformer).
@@ -228,7 +284,9 @@ def train_mlframe_models_suite(
             metadata. None (default) preserves legacy behaviour: every step computes inline.
 
     Returns:
-        Tuple of (models_dict, metadata_dict)
+        A ``SuiteResult`` — a NamedTuple that is fully back-compatible with the historical
+        ``(models_dict, metadata_dict)`` 2-tuple (unpacks + indexes identically) and adds
+        ``.models`` / ``.metadata`` / ``get_model(name, task=None)`` / ``best_model(task=None)``.
 
     Example:
         ```python
@@ -266,6 +324,14 @@ def train_mlframe_models_suite(
     # cached entry whose underlying state belongs to the prior suite. The session reset guarantees
     # each suite starts from a fresh FH cache namespace.
     reset_fh_session()
+
+    # Ergonomic happy path: when no extractor is supplied, build a
+    # SimpleFeaturesAndTargetsExtractor from ``target_name`` alone, inferring the
+    # task type (regression vs classification) from the target column. An explicit
+    # extractor always overrides this. Requires ``df`` already materialised as a
+    # frame (paths are loaded here so the target dtype can be inspected).
+    if features_and_targets_extractor is None:
+        features_and_targets_extractor = _build_default_extractor(df, target_name)
 
     df = validate_suite_inputs(df, target_name, model_name, features_and_targets_extractor)
 
@@ -755,4 +821,4 @@ def train_mlframe_models_suite(
     # happen along any control-flow path. Clearing frees per-column nan-imputation arrays.
     _dropped_high_card_data.clear()
 
-    return dict(models), metadata
+    return SuiteResult(dict(models), metadata)

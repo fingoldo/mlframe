@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import math
 import warnings
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -196,6 +196,34 @@ def compute_pr_recall_f1_metrics(y_true, y_pred):
     return _compute_pr_recall_f1_metrics_seq(y_true, y_pred)
 
 
+class CalibrationReport(NamedTuple):
+    """Return type of :func:`fast_calibration_report`.
+
+    A ``typing.NamedTuple`` so it is fully back-compatible with the historical flat 17-element positional tuple: it still
+    unpacks positionally (``brier_loss, cal_mae, ... = fast_calibration_report(...)``) and indexes (``result[0]``), while
+    also exposing every element as a named attribute (``result.brier_loss``). Field ORDER is load-bearing and MUST NOT
+    change — external callers rely on positional unpacking and indexing.
+    """
+
+    brier_loss: float
+    calibration_mae: float
+    calibration_std: float
+    calibration_coverage: float
+    ece: float
+    brier_reliability: float
+    brier_resolution: float
+    brier_uncertainty: float
+    roc_auc: float
+    pr_auc: float
+    ice: float
+    ll: Optional[float]
+    precision: float
+    recall: float
+    f1: float
+    metrics_string: str
+    fig: Any
+
+
 def fast_calibration_report(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -226,7 +254,7 @@ def fast_calibration_report(
     _precomputed_aucs: Optional[Tuple[float, float]] = None,
     dpi: Optional[int] = None,
     **ice_kwargs,
-):
+) -> "CalibrationReport":
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs.
     Input arrays y_true and y_pred are 1d.
 
@@ -270,7 +298,7 @@ def fast_calibration_report(
         score -- treat a 0.5 from this path as "AUC not computable on this split", not as a real
         random-ranking result.
         """
-        return (
+        return CalibrationReport(
             1.0, 1.0, 1.0, 0.0,            # brier, cal_mae, cal_std, cal_cov
             1.0, 1.0, 0.0, 0.0,            # ece, rel, res, unc
             0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0,  # roc, pr, ice, ll, precision, recall, f1
@@ -479,7 +507,7 @@ def fast_calibration_report(
             dpi=dpi,
         )
 
-    return (
+    return CalibrationReport(
         brier_loss, calibration_mae, calibration_std, calibration_coverage,
         ece, brier_reliability, brier_resolution, brier_uncertainty,
         roc_auc, pr_auc, ice, ll, precision, recall, f1,

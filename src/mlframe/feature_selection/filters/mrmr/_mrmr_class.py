@@ -184,6 +184,8 @@ def _mrmr_y_columns(y):
         yield f"y{k}", arr[:, k]
 
 
+# TransformerMixin (not SelectorMixin): MRMR's transform can add engineered features (_engineered_features_, FE pair-composites),
+# so it is not a pure mask-based selector and SelectorMixin's mask-only contract would be wrong here.
 class MRMR(BaseEstimator, TransformerMixin):
     """Finds subset of features having highest impact on target and least redundancy.
 

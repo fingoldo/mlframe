@@ -291,4 +291,39 @@ __all__ = [
     "Resampling",
     "TargetTransformer",
     "ClassWeights",
+    # Lazily resolved headline training symbols (see ``__getattr__`` below).
+    "train_mlframe_models_suite",
+    "SimpleFeaturesAndTargetsExtractor",
+    "SuiteResult",
+    "FeaturesAndTargetsExtractor",
+    "TargetTypes",
 ]
+
+
+# Headline training symbols resolved lazily so ``import mlframe;
+# mlframe.train_mlframe_models_suite`` works WITHOUT eagerly importing the heavy
+# training stack at package load. Each entry points at the deepest module that
+# defines the symbol so resolution pulls in the minimum surface. Mirrors the lazy
+# ``__getattr__`` pattern in ``mlframe.training.__init__``.
+_LAZY_TOPLEVEL = {
+    "train_mlframe_models_suite": ("mlframe.training.core._main_train_suite", "train_mlframe_models_suite"),
+    "SimpleFeaturesAndTargetsExtractor": ("mlframe.training.extractors._extractors_simple", "SimpleFeaturesAndTargetsExtractor"),
+    "FeaturesAndTargetsExtractor": ("mlframe.training.extractors", "FeaturesAndTargetsExtractor"),
+    "SuiteResult": ("mlframe.training.core._main_train_suite_encoding", "SuiteResult"),
+    "TargetTypes": ("mlframe.training.configs", "TargetTypes"),
+}
+
+_lazy_toplevel_cache: dict = {}
+
+
+def __getattr__(name: str):
+    """Lazily resolve headline training symbols on first access."""
+    if name in _LAZY_TOPLEVEL:
+        if name not in _lazy_toplevel_cache:
+            import importlib
+
+            module_name, attr_name = _LAZY_TOPLEVEL[name]
+            module = importlib.import_module(module_name)
+            _lazy_toplevel_cache[name] = getattr(module, attr_name)
+        return _lazy_toplevel_cache[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

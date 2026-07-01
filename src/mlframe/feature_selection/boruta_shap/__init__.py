@@ -61,6 +61,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# Pure selector (shadow features are internal, transform emits a column subset), but it intentionally hand-rolls the
+# SelectorMixin surface (get_support / get_feature_names_out) rather than inheriting SelectorMixin, to keep full control
+# over the fitted-mask semantics; SelectorMixin is deliberately NOT added to avoid clashing with those hand-rolled methods.
 class BorutaShap(BaseEstimator, TransformerMixin):
 
     """

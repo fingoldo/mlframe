@@ -179,6 +179,7 @@ from .classification._classification_report import (  # noqa: F401, E402
     _compute_pr_recall_f1_metrics_seq,
     _compute_pr_recall_f1_metrics_par,
     compute_pr_recall_f1_metrics,
+    CalibrationReport,
     fast_calibration_report,
     _batch_per_class_ice_kernel,
     fast_ice_only,
