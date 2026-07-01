@@ -252,6 +252,33 @@ def _resident_cand(feat: np.ndarray, role):
         return feat
 
 
+def _argmax_resident(arrs, tri):
+    """DEVICE-BORN the row-argmax candidate ``argmax_k(operand_k)`` from the RESIDENT operand columns, returning
+    the resident float64 index column, or ``None`` when residency is off / any operand is non-finite / cupy faults
+    (the caller then takes the host ``np.argmax`` + one-shot resident upload).
+
+    ``cp.argmax`` returns the FIRST occurrence of the max along the axis -- identical to ``np.argmax`` -- and the
+    operand floats are byte-identical to the host columns, so the argmax INDEX codes are selection-identical. The
+    win: the DISTINCT argmax candidate is BORN on device from the raw operands (each uploaded once, shared via the
+    content-keyed cache) and never crosses H2D, instead of a host ``np.argmax`` whose float column re-uploads."""
+    if not _gate_cands_resident():
+        return None
+    try:
+        import cupy as cp
+
+        from ._fe_resident_operands import resident_operand
+        _ops = []
+        for c in tri:
+            _h = np.ascontiguousarray(np.asarray(arrs[c], dtype=np.float64))
+            if not np.all(np.isfinite(_h)):
+                return None   # host np.argmax NaN semantics differ -> keep the host path for a non-finite operand
+            _ops.append(resident_operand(_h, ("argmax_op", str(c)), dtype=cp.float64))
+        return cp.argmax(cp.stack(_ops, axis=1), axis=1).astype(cp.float64)
+    except Exception:
+        logger.debug("device-born row-argmax failed; host fallback", exc_info=True)
+        return None
+
+
 def _perm_null_hi(feat, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
     """Upper band (mean + z*std) of the fixed feature's MI under y permutation -- the noise reference the feature MI must clear.
     The feature is fixed; only y is shuffled (cheap, n_perm small).
@@ -400,11 +427,16 @@ def cheap_row_argmax_scan(
             break
         budget -= 1
         operand_floor = best_existing_op_mi(arrs, tri, yi, nbins)
-        feat = np.argmax(np.stack([arrs[c] for c in tri], axis=1), axis=1).astype(np.float64)
-        # The SCORED argmax candidate is fit-constant and re-crosses H2D at the :318 MI upload site on both the
-        # marginal MI and the 12-perm null (measured 80 MB/x10 on a 1M STRICT fit). Upload it ONCE and thread the
-        # resident handle through both (host array unchanged when residency is off / non-finite / cupy fault).
-        feat_r = _resident_cand(feat, ("gate_cand_argmax", tuple(str(c) for c in tri)))
+        # DEVICE-BORN the argmax candidate from the RESIDENT operand columns: cp.argmax of the resident operand
+        # stack returns the FIRST-max index exactly as np.argmax on the SAME floats -> selection-identical index
+        # codes, and the DISTINCT candidate is generated on device from raw so it NEVER uploads (only the few base
+        # operands upload once, shared via the resident cache). The resident handle is then threaded through the
+        # marginal MI + the 12-perm null. Falls back to host np.argmax + a one-shot resident upload when residency
+        # is off / an operand is non-finite (host argmax NaN semantics) / any cupy fault.
+        feat_r = _argmax_resident(arrs, tri)
+        if feat_r is None:
+            feat = np.argmax(np.stack([arrs[c] for c in tri], axis=1), axis=1).astype(np.float64)
+            feat_r = _resident_cand(feat, ("gate_cand_argmax", tuple(str(c) for c in tri)))
         feat_mi = _mi(feat_r, yi, nbins=nbins)
         # Early-reject: the null only matters for a triple already clearing the operand margin (``_responded`` needs BOTH).
         if (feat_mi - operand_floor) >= _MIN_MARGIN:
