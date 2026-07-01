@@ -847,7 +847,14 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
     # resident cache too: a repeat score of the same codes reuses the resident copy (no re-upload), a genuinely
     # distinct candidate still uploads once. Selection-identical (same int64 codes). y is a FIT-CONSTANT and
     # z_joint (below) round-constant -> cached likewise (uploaded once per fit).
-    dx = resident_operand(np.asarray(x).ravel(), "cmi_cand_x", dtype=np.int64)
+    # RESIDENT-INPUT fast path (device-born-generation foundation): a caller may hand ALREADY-RESIDENT int64
+    # candidate codes (binned on device from the resident raw operand, e.g. the raw-redundancy CMI) -> use them
+    # as-is so they never re-cross H2D (and np.asarray on a cupy array would raise). Host inputs take the
+    # content-keyed cache path above.
+    if isinstance(x, cp.ndarray):
+        dx = x.astype(cp.int64, copy=False).ravel()
+    else:
+        dx = resident_operand(np.asarray(x).ravel(), "cmi_cand_x", dtype=np.int64)
     dy = resident_operand(y, "cmi_y", dtype=np.int64)
     n = float(max(1, int(dx.size)))
     inv_n = 1.0 / n
