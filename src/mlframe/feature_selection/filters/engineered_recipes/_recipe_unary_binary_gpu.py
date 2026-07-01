@@ -172,59 +172,76 @@ def _gpu_binary(cp, name: str, a, b):
     raise ValueError(f"GPU binary missing for {name!r}")
 
 
-def apply_unary_binary_gpu(recipe: EngineeredRecipe, X: Any) -> Optional[np.ndarray]:
-    """GPU-resident replay of a ``unary_binary`` recipe.
+def _materialise_recipe_gpu(recipe: EngineeredRecipe, X: Any, cp, dt):
+    """RECURSIVELY materialise a ``unary_binary`` recipe ON device, returning a RESIDENT cupy ``(n,)`` array, or
+    ``None`` when the recipe (or any nested parent) is not GPU-eligible.
 
-    Returns the materialised engineered column as a host 1-D ``np.ndarray``, or
-    ``None`` when the recipe is NOT GPU-eligible (nested-engineered operands, a
-    ``prewarp`` / ``gate_med`` pseudo-unary, or an unmapped unary/binary name) so
-    the caller falls back to the numpy ``_apply_unary_binary``. Raises on a cupy
-    runtime failure -- the caller's try/except logs debug + falls back.
-    """
+    This is the device twin of the host ``_apply_unary_binary`` recursion (``_nested_continuous`` -> replay the
+    parent WITHOUT quantization -> continuous operand). A NESTED-engineered operand is materialised device-born
+    by recursing here instead of bailing to CPU -- so a compound like ``add(div(sqr(a),b), mul(log(c),d))`` is
+    built entirely on device from the resident raw base columns, its intermediate product/ratio operands never
+    crossing H2D. A raw operand rides the content-keyed resident-operand cache (uploaded once, shared). The
+    pseudo-unaries (prewarp / gate_med) + unmapped unary/binary names still bail (``None``) so the caller keeps
+    the exact CPU replay; a nested parent that bails propagates the ``None`` up. Selection-equivalent: the
+    device unary/binary kernels mirror the numpy registry op-for-op (see ``_gpu_unary`` / ``_gpu_binary``)."""
     if len(recipe.src_names) != 2 or len(recipe.unary_names) != 2:
-        return None  # let the numpy path raise its descriptive ValueError
-
+        return None
     u_a, u_b = recipe.unary_names
-    # Pseudo-unaries are closed-form from fit-time state (leak-safe, complex);
-    # keep them on the proven CPU path.
     if u_a in _PSEUDO or u_b in _PSEUDO:
         return None
     if u_a not in _GPU_UNARY or u_b not in _GPU_UNARY:
         return None
     if recipe.binary_name not in _GPU_BINARY:
         return None
-    # Nested-engineered operands recurse through ``apply_recipe`` -- leave on CPU.
-    if recipe.extra.get("nested_parent_a") is not None or recipe.extra.get("nested_parent_b") is not None:
-        return None
 
-    import cupy as cp
+    from .._fe_resident_operands import resident_operand
+
+    def _operand_gpu(side_name, nested_parent):
+        # Nested-engineered operand: replay the parent WITHOUT quantization ON device (recurse). Raw operand:
+        # ride the resident cache (uploaded once per fit, shared across every recipe reusing the column).
+        if nested_parent is not None:
+            _parent = nested_parent
+            if getattr(_parent, "quantization", None) is not None:
+                import dataclasses as _dc
+                _parent = _dc.replace(_parent, quantization=None)
+            return _materialise_recipe_gpu(_parent, X, cp, dt)
+        vals = _extract_column(X, side_name)
+        try:
+            return resident_operand(vals, ("recipe_src", side_name), dtype=dt)
+        except Exception:
+            return cp.asarray(np.ascontiguousarray(vals), dtype=dt)
 
     name_a, name_b = recipe.src_names
-    vals_a = _extract_column(X, name_a)
-    vals_b = _extract_column(X, name_b)
-
-    dt = cp.float32 if _vram_f32() else cp.float64
-    # The recipe set replays MANY winners that share a handful of base source columns, so each base column was
-    # re-uploaded once per recipe that uses it (H2D audit: 31 calls / ~5 distinct sources -> ~97 MB of
-    # re-uploads). Route both operands through the content-keyed resident-operand cache so an identical source
-    # column uploads ONCE and every later recipe reusing it hits the resident copy; a distinct column still
-    # uploads once. Read-only inputs (the unary/binary kernels write a fresh output buffer) -> bit-identical
-    # materialised column. Falls back to a plain upload if the cache is unavailable.
-    try:
-        from .._fe_resident_operands import resident_operand
-        a_gpu = resident_operand(vals_a, ("recipe_src", name_a), dtype=dt)
-        b_gpu = resident_operand(vals_b, ("recipe_src", name_b), dtype=dt)
-    except Exception:
-        a_gpu = cp.asarray(np.ascontiguousarray(vals_a), dtype=dt)
-        b_gpu = cp.asarray(np.ascontiguousarray(vals_b), dtype=dt)
+    a_gpu = _operand_gpu(name_a, recipe.extra.get("nested_parent_a"))
+    if a_gpu is None:
+        return None
+    b_gpu = _operand_gpu(name_b, recipe.extra.get("nested_parent_b"))
+    if b_gpu is None:
+        return None
 
     ta = _gpu_unary(cp, u_a, a_gpu, recipe, "a")
     tb = _gpu_unary(cp, u_b, b_gpu, recipe, "b")
     out_gpu = _gpu_binary(cp, recipe.binary_name, ta, tb)
+    # Match fit-time NaN/Inf scrubbing in check_prospective_fe_pairs + the CPU replay's nan_to_num.
+    return cp.nan_to_num(out_gpu, nan=0.0, posinf=0.0, neginf=0.0)
 
-    # Match fit-time NaN/Inf scrubbing in ``check_prospective_fe_pairs`` and the
-    # CPU replay's ``np.nan_to_num(..., nan=0, posinf=0, neginf=0)``.
-    out_gpu = cp.nan_to_num(out_gpu, nan=0.0, posinf=0.0, neginf=0.0)
 
+def apply_unary_binary_gpu(recipe: EngineeredRecipe, X: Any) -> Optional[np.ndarray]:
+    """GPU-resident replay of a ``unary_binary`` recipe -> host 1-D ``np.ndarray``.
+
+    Returns ``None`` when the recipe is NOT GPU-eligible (a ``prewarp`` / ``gate_med`` pseudo-unary or an
+    unmapped unary/binary name, at any nesting level) so the caller falls back to the numpy
+    ``_apply_unary_binary``. NESTED-engineered operands are now materialised device-born (recursion in
+    ``_materialise_recipe_gpu``) rather than bailing to CPU. Raises on a cupy runtime failure -- the caller's
+    try/except logs debug + falls back."""
+    if len(recipe.src_names) != 2 or len(recipe.unary_names) != 2:
+        return None  # let the numpy path raise its descriptive ValueError
+
+    import cupy as cp
+
+    dt = cp.float32 if _vram_f32() else cp.float64
+    out_gpu = _materialise_recipe_gpu(recipe, X, cp, dt)
+    if out_gpu is None:
+        return None
     # The ONE legitimate output transfer: the materialised engineered column D2H.
     return cp.asnumpy(out_gpu)
