@@ -17,10 +17,12 @@ never changes selection.
 """
 from __future__ import annotations
 
+from typing import Any, Sequence
+
 import numpy as np
 
 
-def collect_and_score(matrices, y_codes, nbins: int = 10):
+def collect_and_score(matrices: Sequence[Any], y_codes: np.ndarray, nbins: int = 10) -> list[np.ndarray]:
     """Score a list of per-family candidate matrices (each (n, k_f), same n) in ONE batched MI call via the
     dispatcher (CPU/GPU by flags+hardware). Returns a list of per-family (k_f,) float64 MI arrays in input
     order -- bit-identical to scoring each separately (per-column MI is independent), just reassembled by

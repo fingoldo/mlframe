@@ -47,7 +47,7 @@ default path untouched). NEVER ``free_all_blocks`` (mempool teardown owns that).
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -93,7 +93,7 @@ def _emit_kind_gpu(cp, z, kind: str):
     raise ValueError(f"conditional_dispersion: unknown kind {kind!r}")
 
 
-def build_dispersion_matrix_gpu(cp, X: pd.DataFrame, col_specs: Sequence[dict]):
+def build_dispersion_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict]) -> Any:
     """Build the conditional-dispersion candidate matrix ON the device, one column per ``col_specs`` entry, in
     the GIVEN order. Reproduces ``generate_conditional_dispersion_features``'s per-pair body on device from
     resident operand columns.
@@ -158,7 +158,7 @@ def build_dispersion_matrix_gpu(cp, X: pd.DataFrame, col_specs: Sequence[dict]):
     return cp.ascontiguousarray(cp.stack(out_cols, axis=1).astype(cp.float64, copy=False))
 
 
-def build_residual_abs_matrix_gpu(cp, X: pd.DataFrame, col_specs: Sequence[dict]):
+def build_residual_abs_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict]) -> Any:
     """Build the ABSOLUTE Family-B mean-residual matrix ``|x_i - E[x_i|bin(x_j)]|`` ON the device, one column
     per ``col_specs`` entry, in the GIVEN order. Reproduces ``_extra_fe_families.generate_conditional_residual_features``'s
     per-pair body on device from resident operand columns -- the SAME bin-code gather + per-bin-mean subtract
@@ -217,7 +217,7 @@ def build_residual_abs_matrix_gpu(cp, X: pd.DataFrame, col_specs: Sequence[dict]
 
 def dual_uplift_sibling_mi_resident(
     raw_X: pd.DataFrame,
-    y_bin,
+    y_bin: Any,
     col_specs: Sequence[dict],
     *,
     nbins: int,
@@ -259,7 +259,7 @@ def dual_uplift_sibling_mi_resident(
 
 def local_mi_gate_dispersion_resident(
     enc_df: pd.DataFrame,
-    y,
+    y: Any,
     raw_X: pd.DataFrame,
     recipes: dict,
     *,

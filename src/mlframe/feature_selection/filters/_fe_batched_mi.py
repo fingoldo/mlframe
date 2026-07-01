@@ -14,6 +14,8 @@ one H2D of the (n,K) candidate code matrix. Same Miller-Madow plug-in CMI as the
 """
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 
@@ -283,8 +285,8 @@ def _get_mi_mm_from_values_kernel():
     return _MI_MM_FROM_VALUES_KERNEL
 
 
-def binned_mm_mi_from_values_gpu(x_vals, interior_edges, y_codes, nbins, ky, h_y, k_y, codes_trusted: bool = False,
-                                 return_device: bool = False):
+def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, h_y: float, k_y: int, codes_trusted: bool = False,
+                                 return_device: bool = False) -> Any:
     """Miller-Madow MARGINAL MI(col_k; y) for an (n,K) float matrix binned by per-column ``interior_edges``
     ((nbins-1, K) cupy), in ONE fused RawKernel (bin + joint hist + MM-MI). ``ky`` is the y-cardinality
     (histogram width; y codes in [0, ky)); ``h_y`` / ``k_y`` are the shared target plug-in entropy +
@@ -348,7 +350,7 @@ def _get_mi_from_values_kernel():
     return _MI_FROM_VALUES_KERNEL
 
 
-def binned_mi_from_values_gpu(x_vals, interior_edges, y_codes, nbins: int, ky: int, codes_trusted: bool = False):
+def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, codes_trusted: bool = False) -> np.ndarray | None:
     """Plug-in MI(col_k; y) for an (n,K) float matrix ``x_vals`` binned by per-column ``interior_edges``
     ((nbins-1, K) cupy) in ONE fused RawKernel (bin + joint histogram + MI), replacing _searchsorted_codes
     + binned_mi_from_codes_gpu. Returns a host (K,) float64 array. Selection-equivalent (codes match
@@ -384,7 +386,7 @@ def _get_mi_from_codes_kernel():
     return _MI_FROM_CODES_KERNEL
 
 
-def binned_mi_from_codes_gpu(code_cols, y_codes, kx_per_col=None, ky: int = 0, codes_trusted: bool = False):
+def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = None, ky: int = 0, codes_trusted: bool = False) -> np.ndarray:
     """Plug-in MI(col_k; y) for EVERY column of ``code_cols`` (n,K) in ONE fused RawKernel launch.
 
     Drop-in for ``_wavelet_basis_fe_batched.batched_binned_mi_gpu`` (same plain plug-in MI, no MM bias).
@@ -425,7 +427,7 @@ def binned_mi_from_codes_gpu(code_cols, y_codes, kx_per_col=None, ky: int = 0, c
     return cp.asnumpy(mi_out)
 
 
-def batched_quantile_bin_gpu(x_cols, nbins: int):
+def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     """Born-on-device equi-frequency binning of an (n,K) float matrix -> (n,K) int codes, RESIDENT on GPU.
 
     Device twin of ``_mi_greedy_cmi_fe._quantile_bin`` applied per column. ONE batched ``cp.percentile``
@@ -457,7 +459,7 @@ def batched_quantile_bin_gpu(x_cols, nbins: int):
     return codes
 
 
-def cmi_device_argmax(mi_d):
+def cmi_device_argmax(mi_d: Any) -> tuple[int, float]:
     """First-max argmax of a RESIDENT (K,) cupy CMI vector, returning ONLY ``(int best_idx, float best_val)``
     via one tiny scalar D2H -- NOT the (K,) vector.
 
@@ -476,8 +478,8 @@ def cmi_device_argmax(mi_d):
     return best_idx, best_val
 
 
-def batched_cmi_gpu(x_cols, y: np.ndarray, z=None, return_cards: bool = False, codes_trusted: bool = False,
-                    return_device: bool = False):
+def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: bool = False, codes_trusted: bool = False,
+                    return_device: bool = False) -> Any:
     """Miller-Madow plug-in CMI(x_k; y | z) in nats for EVERY column of ``x_cols``, in ONE device workload.
 
     ``x_cols`` (n,K) int codes -- a host ndarray OR an already-resident cupy array (born-on-device codes

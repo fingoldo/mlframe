@@ -33,6 +33,8 @@ Any cupy / device error falls back to the CPU njit detector, so the default
 """
 from __future__ import annotations
 
+from typing import Sequence
+
 import numpy as np
 
 _TWO_PI = 2.0 * np.pi
@@ -146,7 +148,7 @@ def detect_fourier_freqs_for_col_gpu(
     z01: np.ndarray,
     y: np.ndarray,
     *,
-    f_grid,
+    f_grid: Sequence[float],
     min_val_corr: float = 0.15,
     min_rows: int = 800,
     max_freqs: int = 4,

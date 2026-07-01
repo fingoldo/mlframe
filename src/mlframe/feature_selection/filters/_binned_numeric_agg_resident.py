@@ -43,7 +43,7 @@ default path untouched). NEVER ``free_all_blocks`` (mempool teardown owns that).
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -115,8 +115,8 @@ def _per_cell_stats_gpu(cp, codes_g, v_g, n_cells: int, stats: Sequence[str]) ->
 
 
 def build_binagg_oof_matrix_gpu(
-    cp, X: pd.DataFrame, col_specs: Sequence[dict], fold_ids: np.ndarray, n_folds: int,
-):
+    cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], fold_ids: np.ndarray, n_folds: int,
+) -> Any:
     """Build the OOF binned-aggregate candidate matrix ON the device, one column per ``col_specs`` entry, in
     the GIVEN order. Reproduces ``fit_binned_numeric_agg``'s OOF loop on device from resident operand columns.
 
@@ -198,7 +198,7 @@ def build_binagg_oof_matrix_gpu(
 
 def local_mi_gate_binagg_resident(
     feat_df: pd.DataFrame,
-    y,
+    y: Any,
     raw_X: pd.DataFrame,
     recipes: dict,
     *,

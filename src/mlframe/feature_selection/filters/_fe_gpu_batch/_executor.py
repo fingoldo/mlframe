@@ -15,6 +15,7 @@ candidate matrices fed to the batcher are nan-filled upstream.)
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import numpy as np
 
@@ -87,7 +88,7 @@ def multi_gpu_fe_batch_mi(
     y_codes: np.ndarray,
     nbins: int = 10,
     *,
-    profiles=None,
+    profiles: Any = None,
     scrub: bool = True,
     dtype: "np.dtype | type" = np.float64,
 ) -> np.ndarray:

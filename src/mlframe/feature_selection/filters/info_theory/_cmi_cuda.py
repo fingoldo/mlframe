@@ -40,7 +40,7 @@ from __future__ import annotations
 import logging
 import sys
 import threading
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -304,8 +304,8 @@ def conditional_mi_batched_cuda(
     nbins_y: int,
     nbins_z: int,
     block_size: int = 256,
-    y_g=None,
-    z_g=None,
+    y_g: Any = None,
+    z_g: Any = None,
 ) -> np.ndarray:
     """Compute ``I(X_j; Y | Z)`` for all ``p`` candidate columns in one launch -> (p,) float64.
 

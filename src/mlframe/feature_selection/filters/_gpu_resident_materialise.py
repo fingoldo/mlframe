@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import threading
 from collections import OrderedDict
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -357,7 +358,7 @@ def fe_gpu_resident_operands_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_GPU_RESIDENT_OPERANDS", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
-def register_prebuilt_operand_table(transformed_vars, device_table) -> None:
+def register_prebuilt_operand_table(transformed_vars: np.ndarray, device_table: Any) -> None:
     """Register a GPU-RESIDENT device mirror ``device_table`` for the host operand table ``transformed_vars``
     (keyed on the host array's weakref identity). ``_resident_operand_table`` then returns ``device_table``
     for that exact host object WITHOUT re-uploading. Pass ``device_table=None`` to clear. The device array
@@ -497,7 +498,7 @@ def _get_batch_unary_kernel():
     return _BATCH_UNARY_KERNEL
 
 
-def build_resident_operand_table(transformed_vars, col_specs, *, fallback_unaries=()):
+def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequence[Any], *, fallback_unaries: Sequence[str] = ()) -> Any:
     """Build a GPU-RESIDENT (n, n_operands) row-major float32 cupy mirror of the host operand table
     ``transformed_vars``, producing the bulk PLAIN-UNARY columns ON the GPU (via ``_unary_apply`` -- the
     same math the CPU ``unary_transformations`` applied) and COPYING the rest (prewarp / gate_med /
@@ -639,7 +640,7 @@ def build_resident_operand_table(transformed_vars, col_specs, *, fallback_unarie
 
 def gpu_materialise_discretize_codes_host(
     transformed_vars: np.ndarray, a_cols: np.ndarray, b_cols: np.ndarray, op_codes: np.ndarray,
-    nbins: int, *, dtype=np.int8, out_cand: np.ndarray | None = None,
+    nbins: int, *, dtype: Any = np.int8, out_cand: np.ndarray | None = None,
 ) -> np.ndarray:
     """GPU fast path for the FE chunk's MATERIALISE + BINNING. Uploads the operand table
     ``transformed_vars`` (n, n_operands) float32 ONCE, then for each VRAM-bounded column block: generates
@@ -754,7 +755,7 @@ def gpu_materialise_discretize_codes_host(
     return out
 
 
-def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype=np.int8, defer_host_fill: bool = False) -> np.ndarray:
+def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype: Any = np.int8, defer_host_fill: bool = False) -> np.ndarray:
     """Quantile-bin a host (n, K) float candidate matrix to ordinal codes via the GPU, returning a host
     ``(n, K)`` array of ``dtype``. The FE candidate buffer is ALREADY float32, so the matrix is kept at
     its native dtype (NO f64 up-cast) and binned in float32 (the input's native dtype) -- removing a

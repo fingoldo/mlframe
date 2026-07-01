@@ -31,7 +31,7 @@ returns ``None`` -> the EXACT host scorer (byte-identical default path untouched
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -82,7 +82,7 @@ def _specs_from_engineered_names(eng_names, raw_cols):
 def uplift_univariate_eng_mi_resident(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
-    y,
+    y: Any,
     *,
     nbins: int,
     basis: str = "auto",

@@ -34,6 +34,7 @@ Pickle-safe: this cache is module-level and NEVER stored on an MRMR instance (mi
 
 import os as _os
 from collections import OrderedDict
+from typing import Any
 
 # content signature (shape + dtype-str + content hash)  ->  device_array. OrderedDict gives O(1) LRU: hits
 # move-to-end (hot), overflow pops the front (coldest).
@@ -53,7 +54,7 @@ def _disabled() -> bool:
     return _os.environ.get("MLFRAME_FE_RESIDENT_OPERANDS", "1").strip().lower() in ("0", "false", "off", "no")
 
 
-def resident_operand(arr, key, *, dtype=None, contiguous: bool = True):
+def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool = True) -> Any:
     """Return a cached device copy of host ``arr`` (uploaded ONCE per fit), keyed on its CONTENT.
 
     ``key`` is a ROLE label (e.g. ``"cmi_y"``, ``("op", col_name)``) retained only for call-site readability

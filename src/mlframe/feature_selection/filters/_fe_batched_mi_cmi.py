@@ -11,6 +11,7 @@ re-exports every public name for back-compat; importers continue to use ``from .
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import numpy as np
 
@@ -384,7 +385,7 @@ def _ent_nnz_1d(c, inv_n):
         return float(-(p * cp.log(p)).sum()), int((cf > 0).sum())
 
 
-def joint_counts_gpu(codes, cards):
+def joint_counts_gpu(codes: Any, cards: Any) -> Any:
     """Joint-histogram counts of 1-3 device code arrays via an in-kernel flat key + atomic add (ONE launch,
     no intermediate key array, no cp.bincount cub_any passes). ``codes`` are cupy int64 (n,); ``cards`` the
     matching cardinalities (upper bounds; empty bins cost only memory). Returns a cupy int64 (prod(cards),)
@@ -486,7 +487,7 @@ def _get_joint_entropy_kernels():
     return _JOINT_ENTROPY_KERNELS
 
 
-def joint_entropy_gpu(codes, cards, inv_n):
+def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]:
     """Plug-in entropy (h) + occupied-cell count (k) of the joint of 1-3 device code arrays in ONE launch
     when the joint cell count fits shared memory (block builds the histogram in shared + reduces entropy);
     else the two-kernel path (joint_counts_gpu + ent_nnz_1d). ``codes`` cupy int64 (n,); ``cards`` the
@@ -566,7 +567,7 @@ void cmi_joint_entropies(const long long* __restrict__ x, const long long* __res
 _CMI_JOINT_ENTROPIES_KERNEL = None
 
 
-def cmi_joint_entropies_gpu(dx, dy, dz, Kx, ky, kz, inv_n):
+def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int, inv_n: float) -> Any:
     """The four conditional-CMI joint (plug-in entropy, occupied-cell count) terms -- (z), (x,z), (y,z),
     (x,y,z) -- in ONE launch. Returns ((h_z,k_z),(h_xz,k_xz),(h_yz,k_yz),(h_xyz,k_xyz)), or None when the
     largest (x,y,z) joint won't fit the per-block shared limit (caller falls back to four joint_entropy_gpu
@@ -636,7 +637,7 @@ void marginal_mi_entropies(const long long* __restrict__ x, const long long* __r
 _MARGINAL_MI_ENTROPIES_KERNEL = None
 
 
-def marginal_mi_entropies_gpu(dx, dy, Kx, ky, inv_n):
+def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) -> Any:
     """The three marginal-MI joint terms -- (x), (y), (x,y) -- in ONE launch. Returns
     ((h_x,k_x),(h_y,k_y),(h_xy,k_xy)), or None when the (x,y) joint won't fit the per-block shared limit
     (caller falls back to three joint_entropy_gpu launches). Bit-identical to the three separate calls."""
@@ -718,7 +719,7 @@ def _get_joint_nnz_kernels():
     return _JOINT_NNZ_KERNELS
 
 
-def joint_nnz_gpu(codes, cards):
+def joint_nnz_gpu(codes: Any, cards: Any) -> int:
     """Occupied-cell COUNT (cardinality) of the joint of 1-3 device code arrays in ONE launch -- the
     histogram atomicAdd and the nonzero count fuse via the atomicAdd-returns-old 0->1 trick, so no separate
     cp.bincount / _nnz reduction. ``codes`` cupy int64 (n,); ``cards`` the matching cardinalities. Returns a

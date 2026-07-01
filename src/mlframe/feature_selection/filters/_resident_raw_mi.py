@@ -30,7 +30,7 @@ EXACT host scorer. NEVER ``free_all_blocks`` (the mempool teardown owns that).
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -41,8 +41,8 @@ __all__ = ["resident_raw_baseline_mi"]
 
 def resident_raw_baseline_mi(
     mat: np.ndarray,
-    y,
-    role_key,
+    y: Any,
+    role_key: Any,
     *,
     nbins: int,
     rank_binning: bool = False,

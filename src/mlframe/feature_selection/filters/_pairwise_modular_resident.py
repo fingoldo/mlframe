@@ -29,7 +29,7 @@ untouched). NEVER ``free_all_blocks``.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional, Sequence
 
 import numpy as np
 
@@ -40,7 +40,7 @@ __all__ = ["perm_null_residue_mis_resident", "residue_grid_mis_resident", "combi
 
 def combiner_mi_resident(
     c: np.ndarray,
-    y,
+    y: Any,
     *,
     nbins: int,
     rank_binning: bool,
@@ -89,8 +89,8 @@ def combiner_mi_resident(
 
 def residue_grid_mis_resident(
     c: np.ndarray,
-    y,
-    mods,
+    y: Any,
+    mods: Sequence[int],
     *,
     nbins: int,
 ) -> Optional[np.ndarray]:
@@ -148,8 +148,8 @@ def residue_grid_mis_resident(
 
 def perm_null_residue_mis_resident(
     r: np.ndarray,
-    y,
-    perms,
+    y: Any,
+    perms: Sequence[np.ndarray],
     *,
     eff_nbins: int,
     rank_binning: bool,

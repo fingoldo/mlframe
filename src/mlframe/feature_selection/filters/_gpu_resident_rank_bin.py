@@ -41,7 +41,7 @@ CPU njit rank path -- byte-for-byte the legacy behavior.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -61,7 +61,7 @@ def _bin_boundaries(n: int, n_bins: int) -> np.ndarray:
     return np.cumsum(sizes)
 
 
-def rank_bin_codes_gpu_resident(x_gpu, n_bins: int):
+def rank_bin_codes_gpu_resident(x_gpu: Any, n_bins: int) -> Any:
     """RANK (argsort equi-frequency) bin codes for a RESIDENT 1-D cupy column. Returns an (n,) cupy int32 code
     vector, or ``None`` on any cupy failure.
 
@@ -94,7 +94,7 @@ def rank_bin_codes_gpu_resident(x_gpu, n_bins: int):
         return None
 
 
-def rank_bin_codes_batch_gpu_resident(X_gpu, n_bins: int):
+def rank_bin_codes_batch_gpu_resident(X_gpu: Any, n_bins: int) -> Any:
     """Batched RANK bin codes for a RESIDENT (n, k) cupy matrix -- per-column argsort equi-frequency. Returns
     an (n, k) cupy int32 code matrix, or ``None`` on any cupy failure. Each column is binned INDEPENDENTLY,
     bit-identical (per-column) to :func:`rank_bin_codes_gpu_resident`."""
@@ -143,7 +143,7 @@ def rank_bin_codes_batch_gpu_resident(X_gpu, n_bins: int):
 
 
 def plugin_mi_classif_batch_rank_cuda_resident(
-    X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None,
+    X_gpu: Any, y_gpu: Any, n_bins: int = 20, *, y_min: int | None = None, n_classes: int | None = None,
 ) -> Optional[np.ndarray]:
     """RANK-binned plug-in MI on ALREADY-RESIDENT cupy arrays -- the rank twin of
     ``_hermite_fe_mi._plugin_mi_classif_batch_cuda_resident`` (which bins by percentile EDGES). Bins each

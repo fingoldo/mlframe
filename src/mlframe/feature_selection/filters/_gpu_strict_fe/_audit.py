@@ -8,6 +8,7 @@ would false-fail; what must be zero is BULK transfer (arrays whose size scales w
 from __future__ import annotations
 
 import contextlib
+from typing import Iterator
 
 # bytes at/above which a transfer is "bulk" (a scalar / tiny index is far below; one operand column at
 # n_sub=30k f32 is 120KB, so 8KB cleanly separates scalar decisions from bulk data).
@@ -15,6 +16,9 @@ BULK_BYTES = 8192
 
 
 class ResidencyReport:
+    """Tally of host<->device transfer byte sizes recorded by :func:`residency_audit`, split into bulk
+    (``>= BULK_BYTES``) vs scalar transfers so the resident-FE contract can be asserted on bulk volume."""
+
     def __init__(self):
         self.h2d = []   # list of byte sizes
         self.d2h = []
@@ -37,7 +41,7 @@ class ResidencyReport:
 
 
 @contextlib.contextmanager
-def residency_audit():
+def residency_audit() -> Iterator[ResidencyReport]:
     """Context manager yielding a :class:`ResidencyReport`. Records H2D bytes (``cp.asarray`` of a host array)
     and D2H bytes (``ndarray.get`` / ``cp.asnumpy``) for the enclosed region. No-op (empty report) when cupy is
     unavailable. Intended for tests / profiling, not the production path."""

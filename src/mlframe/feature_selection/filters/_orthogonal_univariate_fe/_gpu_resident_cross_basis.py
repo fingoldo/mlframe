@@ -42,7 +42,7 @@ path untouched). NEVER ``free_all_blocks`` (mempool teardown owns that).
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -88,7 +88,7 @@ def _operand_filled(X: pd.DataFrame, col: str) -> np.ndarray:
     return x
 
 
-def build_leg_product_matrix_gpu(cp, X: pd.DataFrame, col_specs: Sequence[dict], *, basis: str = "auto"):
+def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], *, basis: str = "auto") -> Any:
     """Build the cross-basis product matrix ON the device, one column per ``col_specs`` entry, in the GIVEN
     order. Reproduces the host generators' per-cell body (``prod_i basis(x_i)_deg_i``) on device from resident
     operand columns.
@@ -194,7 +194,7 @@ def _resident_mi(cp, mat_gpu, y, nbins: int) -> np.ndarray:
 def raw_and_product_mi_resident(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
-    y,
+    y: Any,
     col_specs: Sequence[dict],
     *,
     nbins: int,

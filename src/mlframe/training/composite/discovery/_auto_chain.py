@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -175,7 +175,7 @@ def build_chain_transform(residual_name: str, unary_name: str) -> Transform:
     )
 
 
-def reregister_auto_chain_transforms(transform_names) -> list[str]:
+def reregister_auto_chain_transforms(transform_names: Iterable[str] | None) -> list[str]:
     """Re-register auto-discovered chain transforms (``chain_<residual>_<unary>``) that are referenced by name but
     absent from the registry -- the case after a discovery CACHE replay, where the in-process registration done by
     ``_run_auto_chain`` (``_TRANSFORMS_REGISTRY.setdefault`` + provenance) never ran, so a cached spec naming such a

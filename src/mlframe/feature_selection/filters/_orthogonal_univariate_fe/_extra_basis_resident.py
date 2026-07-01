@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -153,7 +153,7 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict):
 def extra_basis_eng_mi_resident(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
-    y,
+    y: Any,
     meta: dict,
     *,
     nbins: int,

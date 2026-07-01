@@ -8,6 +8,7 @@ default-OFF resident flag, so STRICT itself is unaffected too."""
 from __future__ import annotations
 
 import os
+from typing import Any
 
 
 def fe_gpu_strict_resident_enabled() -> bool:
@@ -257,7 +258,7 @@ def fe_gpu_device_born_modular_enabled() -> bool:
     return fe_gpu_strict_resident_enabled()
 
 
-def run_fe_step_gpu_strict(self, **kwargs):
+def run_fe_step_gpu_strict(self, **kwargs: Any) -> Any:
     """One FE step, fully GPU-resident, multi-GPU + hw-spec aware. Returns the SAME contract as
     ``_run_fe_step`` (``data, cols, nbins, X, selected_vars, n_recommended_features`` + mutated
     ``engineered_recipes``).
