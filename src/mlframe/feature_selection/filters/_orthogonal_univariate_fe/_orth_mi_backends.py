@@ -323,15 +323,24 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
             # instrumentation: 54x / 86 MB on a 250k F2 strict fit). Read it from the resident operand cache
             # keyed on the y array identity + content fingerprint so it is uploaded ONCE per fit
             # (selection-equivalent: same int64 labels, just not re-uploaded).
-            _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()
-            from .._fe_resident_operands import resident_operand
-            yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
-            # y is a fit-constant: derive y_min / n_classes on the HOST (cheap O(n) pass) and pass them down so
-            # the resident plug-in skips the per-call GPU cp.min + cp.max + stack reduction (nsys's #1
-            # cuLaunchKernel source on this STRICT MI path, hit by every gate-grid / pairwise / perm-null /
-            # chunked caller). Same data -> identical min/max -> bit-identical bincount layout and MI.
-            _ymin = int(_yi.min()) if _yi.size else 0
-            _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
+            if isinstance(y, cp.ndarray):
+                # DEVICE-BORN y (Phase-1 residency): a resident caller (the conditional gate's rank-prune,
+                # threading a DEVICE-sliced label vector) hands an already-resident cupy y -> use it in place, so
+                # the per-split y subset never crosses H2D at the y_mi_classif site (the 14+10 distinct hi/lo
+                # subsamples the gate loop uploaded). y_min / n_classes read on-device (bounded scalar D2H).
+                yd = y.astype(cp.int64, copy=False).ravel()
+                _ymin = int(yd.min()) if yd.size else 0
+                _ncls = (int(yd.max()) - _ymin + 1) if yd.size else 1
+            else:
+                _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()
+                from .._fe_resident_operands import resident_operand
+                yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
+                # y is a fit-constant: derive y_min / n_classes on the HOST (cheap O(n) pass) and pass them down so
+                # the resident plug-in skips the per-call GPU cp.min + cp.max + stack reduction (nsys's #1
+                # cuLaunchKernel source on this STRICT MI path, hit by every gate-grid / pairwise / perm-null /
+                # chunked caller). Same data -> identical min/max -> bit-identical bincount layout and MI.
+                _ymin = int(_yi.min()) if _yi.size else 0
+                _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
             # GATE MI rank route: when the caller is the conditional gate (rank_binning=True) AND the resident
             # opt-in is on, bin by argsort equi-frequency RANK so the STRICT gate MI byte-matches the CPU njit
             # rank MI on the gate's heavily-tied columns (edge would lump tied zeros into one bin -> lower MI).

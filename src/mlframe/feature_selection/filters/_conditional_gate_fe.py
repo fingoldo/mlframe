@@ -495,14 +495,43 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
     probe_idx = [operand_order[i] for i in range(n_probe)]
     probe = mat[:, probe_idx]  # (n, n_probe)
     div = np.zeros(len(cols), dtype=np.float64)
+    # DEVICE-BORN GATE RANK-PRUNE (Phase-1 residency, 2026-07-01). Each gate candidate splits the probe operand
+    # matrix by ``cv > median(cv)`` and scores each side's MI. Without residency the probe SLICE (measured ~24 MB,
+    # the _mi_classif_batch upload) AND the per-split y SUBSET (~38 MB, the 14+10 distinct hi/lo subsamples of the
+    # y_mi_classif role) re-upload every iteration -- the two biggest remaining candidate-code uploads. Keep the
+    # operand matrix + the label y RESIDENT and do the median split + boolean slice ON device, so both sides stay
+    # on the GPU (mat_dev content-HITS the ("gate_prune_raw", cols) upload already made at ~:485 -> no extra H2D;
+    # float64 -> the device median split is byte-identical to the host np.median split -> selection-identical).
+    # Any cupy fault -> the exact host path below (correctness first).
+    _gate_dev = None
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled as _grs
+        if _grs():
+            import cupy as _cp
+            from ._fe_resident_operands import assemble_resident_matrix, resident_operand
+            _mat_dev = assemble_resident_matrix(mat, cols, ("gate_prune_raw", tuple(cols)), dtype=_cp.float64)
+            _yi_dev = resident_operand(np.ascontiguousarray(np.asarray(yi)).astype(np.int64), "y_mi_classif", dtype=np.int64)
+            _gate_dev = (_cp, _mat_dev, _yi_dev, _mat_dev[:, probe_idx])
+    except Exception:
+        _gate_dev = None
     for gi in range(len(cols)):
-        cv = arrs[gi]
-        hi = cv > np.median(cv)
-        lo = ~hi
-        if hi.sum() < nbins or lo.sum() < nbins:
-            continue  # degenerate split (near-constant gate column) -> no usable regime
-        mi_hi = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[hi]), yi[hi], nbins=nbins, rank_binning=_rb), dtype=np.float64)
-        mi_lo = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[lo]), yi[lo], nbins=nbins, rank_binning=_rb), dtype=np.float64)
+        if _gate_dev is not None:
+            _cp, _mat_dev, _yi_dev, _probe_dev = _gate_dev
+            _cvd = _mat_dev[:, gi]
+            _hi = _cvd > _cp.median(_cvd)
+            _nhi = int(_hi.sum())
+            if _nhi < nbins or (int(_cvd.shape[0]) - _nhi) < nbins:
+                continue  # degenerate split (near-constant gate column) -> no usable regime
+            mi_hi = np.asarray(_mi_classif_batch(_probe_dev[_hi], _yi_dev[_hi], nbins=nbins, rank_binning=_rb), dtype=np.float64)
+            mi_lo = np.asarray(_mi_classif_batch(_probe_dev[~_hi], _yi_dev[~_hi], nbins=nbins, rank_binning=_rb), dtype=np.float64)
+        else:
+            cv = arrs[gi]
+            hi = cv > np.median(cv)
+            lo = ~hi
+            if hi.sum() < nbins or lo.sum() < nbins:
+                continue  # degenerate split (near-constant gate column) -> no usable regime
+            mi_hi = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[hi]), yi[hi], nbins=nbins, rank_binning=_rb), dtype=np.float64)
+            mi_lo = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[lo]), yi[lo], nbins=nbins, rank_binning=_rb), dtype=np.float64)
         div[gi] = float(np.abs(mi_hi - mi_lo).sum())
     gate_order = list(np.argsort(div)[::-1])
     gate_cols = [cols[i] for i in gate_order][: max(1, int(k_gate))]
