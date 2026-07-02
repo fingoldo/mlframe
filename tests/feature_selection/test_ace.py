@@ -202,3 +202,103 @@ def test_biz_val_ace_masking_recovers_correlated_signal():
     acc_single = int(res_single.accepted[signal_idx].sum())
     assert acc_multi >= acc_single, "masking loop must not accept fewer signals than a single round"
     assert acc_multi >= 2, f"masking run should recover >= 2/3 signals, got {acc_multi}"
+
+
+# ------------------------------------------------------------------------------------------------
+# Suite reachability: ACESelector adapter + registry registration + pre-pipeline routing.
+# ------------------------------------------------------------------------------------------------
+
+
+def test_ace_selector_adapter_fit_selects_signal_drops_noise():
+    """The sklearn-compatible ACESelector adapter fits, exposes the support contract, and narrows to the
+    informative column while dropping pure noise (mirrors the fit/get_support/transform contract the suite
+    drives every selector through)."""
+    pd = pytest.importorskip("pandas")
+    from sklearn.exceptions import NotFittedError
+    from mlframe.feature_selection.ace import ACESelector
+
+    rng = np.random.default_rng(0)
+    n = 1200
+    sig = rng.normal(size=n)
+    y = (2.0 * sig + rng.normal(scale=0.5, size=n) > 0).astype(int)
+    df = pd.DataFrame({"signal": sig, "noise_a": rng.normal(size=n), "noise_b": rng.normal(size=n)})
+
+    sel = ACESelector(n_replicates=15, contrast_percentile=100.0, random_state=0)
+    with pytest.raises(NotFittedError):
+        sel.transform(df)
+    sel.fit(df, y)
+
+    assert sel.support_.dtype == bool and sel.support_.shape == (3,)
+    assert list(sel.feature_names_in_) == ["signal", "noise_a", "noise_b"]
+    assert "signal" in sel.selected_features_
+    assert "noise_a" not in sel.selected_features_ and "noise_b" not in sel.selected_features_
+    out = sel.transform(df)
+    assert list(out.columns) == sel.selected_features_
+    assert out.shape[0] == n
+    # get_support(indices) + get_feature_names_out agree with support_.
+    assert list(sel.get_support(indices=True)) == list(np.where(sel.support_)[0])
+    assert list(sel.get_feature_names_out()) == sel.selected_features_
+
+
+def test_ace_registered_and_instantiates_adapter():
+    from mlframe.feature_selection.registry import available, get
+    from mlframe.feature_selection.ace import ACESelector
+
+    assert "ACE" in available()
+    inst = get("ACE").instantiate(n_replicates=5, random_state=0)
+    assert isinstance(inst, ACESelector)
+    assert inst.n_replicates == 5
+
+
+def test_use_ace_fs_routes_through_pre_pipeline_builder():
+    """use_ace_fs=True must add exactly one ACE selector (kind marker 'ACE') to the pre-pipelines, mirroring
+    the shap-proxied wiring. Off by default: no ACE branch when the flag is unset."""
+    from mlframe.training.core._setup_helpers_pre_pipelines import _build_pre_pipelines
+    from mlframe.training.core._phase_train_one_target import _selector_kind
+    from mlframe.feature_selection.ace import ACESelector
+
+    pipelines, names = _build_pre_pipelines(
+        use_ordinary_models=False, rfecv_models=[], rfecv_models_params={},
+        use_mrmr_fs=False, mrmr_kwargs={}, use_ace_fs=True, ace_kwargs={"n_replicates": 5}, fs_random_seed=7,
+    )
+    ace_objs = [p for p in pipelines if isinstance(p, ACESelector)]
+    assert len(ace_objs) == 1
+    assert "ACE " in names
+    assert _selector_kind(ace_objs[0]) == "ACE"
+    # fs_random_seed defaults ACE's random_state when the operator didn't pin one.
+    assert ace_objs[0].random_state == 7
+
+    pipelines_off, _ = _build_pre_pipelines(
+        use_ordinary_models=False, rfecv_models=[], rfecv_models_params={},
+        use_mrmr_fs=False, mrmr_kwargs={}, use_ace_fs=False,
+    )
+    assert not any(isinstance(p, ACESelector) for p in pipelines_off)
+
+
+def test_ace_config_flag_and_kwargs_validation():
+    from mlframe.training._feature_selection_config import FeatureSelectionConfig
+
+    cfg = FeatureSelectionConfig(use_ace_fs=True, ace_kwargs={"n_replicates": 10})
+    assert cfg.use_ace_fs is True and cfg.ace_kwargs == {"n_replicates": 10}
+    # kwargs without the master flag is a loud config error (mirrors shap-proxied).
+    with pytest.raises(ValueError):
+        FeatureSelectionConfig(ace_kwargs={"n_replicates": 10})
+    # unknown kwarg key rejected at config time.
+    with pytest.raises(ValueError):
+        FeatureSelectionConfig(use_ace_fs=True, ace_kwargs={"not_a_real_knob": 1})
+
+
+def test_compare_selectors_jaccard_matches_core_implementation():
+    """CHANGE 2 equivalence: the core set_similarity.jaccard used by compare_selectors reproduces the
+    former local _jaccard on name sets (index sets), including the both-empty -> 1.0 convention."""
+    from mlframe.core.set_similarity import jaccard
+
+    def _old(a, b):
+        if not a and not b:
+            return 1.0
+        union = a | b
+        return 1.0 if not union else len(a & b) / len(union)
+
+    cases = [({"a", "b"}, {"b", "c"}), (set(), set()), ({"x"}, set()), ({"a", "b", "c"}, {"a", "b", "c"})]
+    for a, b in cases:
+        assert jaccard(a, b) == _old(a, b)

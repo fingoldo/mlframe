@@ -178,6 +178,15 @@ def _make_hybrid(task: str = "binary"):
     return HybridSelector(use_fe=False, use_tree_member=False, random_state=0)
 
 
+def _make_ace(task: str = "binary"):
+    # Small forest + few replicates keep the contract fit fast; ACE auto-derives task from y dtype.
+    from mlframe.feature_selection.ace import ACESelector
+    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+    est = (RandomForestRegressor(n_estimators=10, random_state=0, n_jobs=1) if task == "regression"
+           else RandomForestClassifier(n_estimators=10, random_state=0, n_jobs=1))
+    return ACESelector(estimator=est, n_replicates=5, n_masking_rounds=1, random_state=0)
+
+
 def _make_group_aware_rfecv(task: str = "binary"):
     # The PRODUCTION-DEFAULT wrap the training suite instantiates via the registry
     # (cluster_reduce=True). Built through the registry so the contract exercises
@@ -222,6 +231,14 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
         column_order_invariant=False,       # composed members' ordering
         validates_transform_width=False,    # no transform-time width guard (backlog)
         slow=True, needs_shap=True,
+    ),
+    "ACE": SelectorSpec(
+        name="ACE", make=_make_ace, tasks=("binary", "regression"),
+        supports_sample_weight=False, rejects_single_class_y=False,
+        nan_in_X_policy="unknown", determinism=1.0,
+        column_order_invariant=False,       # RF split-subset ordering is column-order sensitive
+        validates_transform_width=False,    # transform narrows positionally; no width guard
+        slow=True,
     ),
     "GroupAware(RFECV)": SelectorSpec(
         name="GroupAware(RFECV)", make=_make_group_aware_rfecv, tasks=("binary",),

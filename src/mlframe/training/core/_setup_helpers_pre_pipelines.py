@@ -66,6 +66,8 @@ def _build_pre_pipelines(
     boruta_shap_kwargs: dict[str, Any] | None = None,
     use_shap_proxied_fs: bool = False,
     shap_proxied_fs_kwargs: dict[str, Any] | None = None,
+    use_ace_fs: bool = False,
+    ace_kwargs: dict[str, Any] | None = None,
     use_sample_weights_in_fs: bool = False,
     mrmr_identity_cache: dict | None = None,
     target_type: Any = None,
@@ -246,6 +248,22 @@ def _build_pre_pipelines(
         setattr(_sp, "_mlframe_selector_kind_", "ShapProxiedFS")
         pre_pipelines.append(_sp)
         pre_pipeline_names.append("ShapProxiedFS ")
+
+    if use_ace_fs:
+        # Registry-driven dispatch (mirrors ShapProxiedFS). The ACE spec hides the lazy-import (sklearn ensembles +
+        # scipy.stats) behind ``instantiate`` so it only loads when this branch fires. ACE auto-derives
+        # classification/regression from the target dtype internally, so unlike BorutaShap / ShapProxiedFS there is
+        # no ``classification`` key to fill from target_type here.
+        from mlframe.feature_selection.registry import get as _get_selector_spec
+        _ace_spec = _get_selector_spec("ACE")
+        _ace_kwargs = dict(ace_kwargs or {})
+        # Reproducibility: default ACE's seed from the split seed when the operator didn't pin one. Explicit wins.
+        if fs_random_seed is not None and "random_state" not in _ace_kwargs:
+            _ace_kwargs["random_state"] = int(fs_random_seed)
+        _ace = _ace_spec.instantiate(**_ace_kwargs)
+        setattr(_ace, "_mlframe_selector_kind_", "ACE")
+        pre_pipelines.append(_ace)
+        pre_pipeline_names.append("ACE ")
 
     if custom_pre_pipelines:
         # Clone every user-supplied pre-pipeline before insertion so fit-time
