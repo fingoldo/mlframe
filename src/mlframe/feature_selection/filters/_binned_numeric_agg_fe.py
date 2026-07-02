@@ -493,6 +493,11 @@ def binned_numeric_agg_with_recipes(
         for nm in feat_df.columns:
             srcs = [c for c in (raw[nm].get("group_col"), raw[nm].get("agg_col")) if c in X.columns]
             z_joint = _renumber_joint(*[_src_bins(c) for c in srcs])[0] if srcs else None
+            # bench-attempt-rejected (2026-07-02): routing this binning through batched_quantile_bin_gpu (with a
+            # _renumber_joint_gpu joint) FAILED the redundancy suite -- its partition differs from _quantile_bin
+            # (a genuinely redundant binagg column survived). Unnecessary anyway: _quantile_bin itself already
+            # routes large columns to its device twin under the STRICT-resident path (size-gated
+            # _quantile_bin_gpu), so this gate's binning is device-backed without a partition change.
             cand_bin = _quantile_bin(feat_df[nm].to_numpy(dtype=np.float64), nbins=nbins_base)
             cmi = _cmi_from_binned(cand_bin, y_cls, z_joint)
             null_ceiling = 0.0
