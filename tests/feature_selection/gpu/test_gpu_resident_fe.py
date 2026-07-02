@@ -474,7 +474,15 @@ def test_gpu_pairs_fe_mi_matches_cpu_dispatch_analytic(monkeypatch):
     )
     gpu = gpu_pairs_fe_mi(cand, 20, yc, yc, fy, 3, 0.0, False)
     assert gpu is not None, "expected the analytic GPU branch to engage at n>=50k"
-    np.testing.assert_array_equal(np.asarray(gpu, dtype=np.float64), np.asarray(cpu, dtype=np.float64))
+    gpu = np.asarray(gpu, dtype=np.float64)
+    cpu = np.asarray(cpu, dtype=np.float64)
+    # Selection-equivalence, not bit-identity: the device-resident path computes the observed MI entropy ON the
+    # GPU (that is the residency win -- the (n,K) codes never leave the device), so its parallel reduction order
+    # differs from the CPU njit by ULP-level rounding (~4e-16 here). That can never flip the chi2 keep/reject or
+    # the argmax, so the gated MI vector agrees to full double precision and the same columns are kept + ranked.
+    np.testing.assert_allclose(gpu, cpu, rtol=1e-12, atol=1e-12)
+    assert int(np.argmax(gpu)) == int(np.argmax(cpu))
+    np.testing.assert_array_equal(gpu > 0.0, cpu > 0.0)   # identical keep/reject set
     assert int(np.argmax(gpu)) == int(np.argmax(cpu))
 
 

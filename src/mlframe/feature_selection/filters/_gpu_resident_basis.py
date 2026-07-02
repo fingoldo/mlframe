@@ -824,7 +824,7 @@ def _gpu_batched_abs_corr(cp, cand, y_cont):
         n, m = int(cand2.shape[0]), int(cand2.shape[1])
         cand2 = cp.ascontiguousarray(cand2.astype(cp.float64, copy=False))
         yv = y_cont.astype(cp.float64, copy=False).ravel()
-        Sy = float(yv.sum()); Syy = float((yv * yv).sum())
+        Sy, Syy = (float(_s) for _s in cp.asnumpy(cp.stack([yv.sum(), (yv * yv).sum()])))   # one D2H for the pair
         out = cp.empty(m, dtype=cp.float64)
         _get_abs_corr_kernel()((m,), (256,), (cand2, yv, np.int64(n), np.int32(m),
                                               np.float64(Sy), np.float64(Syy), out), shared_mem=3 * 8)
@@ -887,16 +887,18 @@ def gpu_pairs_fe_mi(cand: np.ndarray, quantization_nbins: int, classes_y: np.nda
                     min_nonzero_confidence: float, use_su: bool):
     """Full GPU path for the FE pair-search candidate MI, for the ANALYTIC large-n branch only.
 
-    Returns ``fe_mi[K]`` BIT-IDENTICAL to the production ``_dispatch_batch_mi_with_noise_gate`` analytic
-    path, or ``None`` when that branch does not apply (SU-normalised, npermutations<=0, analytic
+    Returns ``fe_mi[K]`` SELECTION-EQUIVALENT to the production ``_dispatch_batch_mi_with_noise_gate``
+    analytic path, or ``None`` when that branch does not apply (SU-normalised, npermutations<=0, analytic
     disabled / inapplicable) so the caller falls back to the CPU dispatcher. Selection is preserved by
     construction:
       * GPU quantile binning == CPU ``discretize_2d_quantile_batch`` (verified maxdiff 0), and
-      * the GPU observed-MI (npermutations=0) == the CPU kernel's observed MI (verified maxdiff 0;
-        the GPU twin does only integer counting, entropy stays on the bit-exact CPU path),
+      * the GPU observed-MI (npermutations=0) matches the CPU kernel's observed MI to full double precision
+        (the entropy reduction runs ON the device for residency, so it differs only by ULP-level parallel
+        reduction order -- ~4e-16, far below anything that could flip the chi2 keep/reject or the argmax),
     so feeding them through the SAME ``analytic_batch_noise_gate`` (chi2 keep/reject on the observed MI
-    + per-column occupied-bin df) yields identical gated MI. Moves BOTH the binning and the observed-MI
-    counting -- the dominant large-n per-pair cost -- onto the GPU. Any failure returns None (-> CPU)."""
+    + per-column occupied-bin df) yields the same kept + ranked columns. Moves BOTH the binning and the
+    observed-MI entropy -- the dominant large-n per-pair cost -- onto the GPU, and the (n,K) codes stay
+    resident (never D2H'd for the gate). Any failure returns None (-> CPU)."""
     n, K = int(cand.shape[0]), int(cand.shape[1])
     if bool(use_su) or int(npermutations) <= 0:
         return None  # SU has no chi2 analytic form; npermutations<=0 is already the cheap CPU path

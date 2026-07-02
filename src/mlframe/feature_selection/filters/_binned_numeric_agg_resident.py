@@ -194,10 +194,12 @@ def build_binagg_oof_matrix_gpu(
             _mkey = ("m", f)
             if _mkey not in fold_stat_cache:
                 tr_mask = (fold_g != f) & finite_g
-                if not bool(tr_mask.any()):
+                # cp.where already drains once to size its output, so tr_idx.size (a host-side shape read, no
+                # extra sync) subsumes the old bool(tr_mask.any()) drain -- one D2H per fold instead of two.
+                tr_idx = cp.where(tr_mask)[0]
+                if tr_idx.size == 0:
                     fold_stat_cache[_mkey] = None     # degenerate fold: recorded so siblings skip the recheck
                 else:
-                    tr_idx = cp.where(tr_mask)[0]
                     moments = _per_cell_raw_moments_gpu(cp, codes_g[tr_idx], av_g[tr_idx], n_cells)
                     fold_stat_cache[_mkey] = {"__moments__": moments}
             per_s_all = fold_stat_cache[_mkey]
