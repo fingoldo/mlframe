@@ -330,6 +330,7 @@ from .highlevel import discover_and_wrap, DiscoverAndWrapResult  # noqa: E402,F4
 # Composite VALUE report (per-group did-it-help), the not-worse-than-lag MoE selection gate, and the Winkler interval score.
 from ._value_report import build_composite_value_report, render_composite_value_report  # noqa: E402,F401
 from ._moe_gate import MoESelectionGate  # noqa: E402,F401
+from ._regime_headroom import regime_headroom_map, render_regime_headroom_map  # noqa: E402,F401
 from ._winkler import (  # noqa: E402,F401
     winkler_interval_score, winkler_score_per_row, winkler_score_per_group,
     mean_coverage, interval_quality_summary,
@@ -358,6 +359,7 @@ __all__ = [
     "MissingAwareComposite", "CompositeFeatureGenerator", "stability_select_specs",
     "CompositeSimplexEstimator", "CompositeQRFEstimator", "aitchison_distance",
     "build_composite_value_report", "render_composite_value_report", "MoESelectionGate",
+    "regime_headroom_map", "render_regime_headroom_map",
     "winkler_interval_score", "winkler_score_per_row", "winkler_score_per_group",
     "mean_coverage", "interval_quality_summary",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
