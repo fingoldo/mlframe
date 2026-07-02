@@ -558,6 +558,9 @@ def _conditional_perm_null(
     return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
 
 
+_Y_DENSE_MEMO: dict = {}
+
+
 def apply_cmi_redundancy_gate(
     candidates: dict,
     y_bin: np.ndarray,
@@ -657,8 +660,24 @@ def apply_cmi_redundancy_gate(
     y_arr = np.asarray(y_bin)
     if not np.issubdtype(y_arr.dtype, np.integer):
         y_arr = y_arr.astype(np.int64)
-    _, y_dense = np.unique(y_arr, return_inverse=True)
-    y_dense = y_dense.astype(np.int64)
+    # Content-memoised dense renumber: y_bin is a fit-constant handed to every gate call, and the dense
+    # renumber is a full-n np.unique sort each time. Same pattern as _coerce_y_classes / infer_classification
+    # (bounded FIFO; a COPY is returned into the local so a mutating consumer cannot poison the cache).
+    _yk = None
+    try:
+        _yk = (y_arr.shape, str(y_arr.dtype), hash(y_arr.tobytes()))
+        _yhit = _Y_DENSE_MEMO.get(_yk)
+    except Exception:
+        _yhit = None
+    if _yhit is not None:
+        y_dense = _yhit.copy()
+    else:
+        _, y_dense = np.unique(y_arr, return_inverse=True)
+        y_dense = y_dense.astype(np.int64)
+        if _yk is not None:
+            if len(_Y_DENSE_MEMO) > 8:
+                _Y_DENSE_MEMO.pop(next(iter(_Y_DENSE_MEMO)))
+            _Y_DENSE_MEMO[_yk] = y_dense.copy()
     n_rows = int(y_dense.size)
 
     # Degenerate: nothing to condition on, or too few rows for a reliable
