@@ -61,6 +61,21 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     composite_achievable_ceiling_holdout_frac: float = 0.3     # group-disjoint holdout fraction for the optimistic composite
     composite_achievable_ceiling_strong_floor_frac: float = 0.5  # strong-AR fast-path floor on min(raw,lag)/std(y)
 
+    # Near-copy increment-learnability precheck: before dropping a near-copy-of-y base (|corr|>base_max_abs_corr_with_y),
+    # measure whether the residual y-base retains LEARNABLE signal from the other features (permutation-null-corrected
+    # bin-MI). If it does, the composite genuinely helps -> keep the base; else drop as before. Distinguishes a strong
+    # legitimate base from one that adds nothing over feeding base as a plain feature. Default ON. Causal-provenance bases
+    # stay exempt regardless (see causal_base_gate_exempt).
+    near_copy_increment_learnability_precheck: bool = True
+    near_copy_increment_learnability_mi_threshold: float = 0.05  # min null-corrected residual bin-MI to keep the base
+    near_copy_precheck_max_sample: int = 5000                    # row cap for the precheck measurement
+
+    # MoE selection gate at the composite deploy boundary (run_composite_post_processing): route the shipped prediction
+    # among {composite, raw, lag} per group with a never-worse-than-lag guarantee. Default ON; no-op without lag / groups.
+    moe_gate_enabled: bool = True
+    moe_gate_shrink_rtol: float = 0.0        # a non-lag expert must beat lag by this margin to be chosen over the failsafe
+    moe_gate_min_group_rows: int = 1         # groups below this row count defer to the lag failsafe
+
     # Emit the composite-target VALUE report (per-group did-it-help / hurt / worse-than-lag breakdown + net weighted lift).
     emit_composite_value_report: bool = True
 
