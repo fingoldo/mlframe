@@ -632,8 +632,10 @@ def cheap_conditional_gate_scan(
         feats = np.empty((cv.shape[0], len(taus)), dtype=np.float64)
         if mode == "mask":
             av = operands[1]
+            # ``av * (cv > tau)`` (bool upcast) preserves the off-region NaN semantics of the prior
+            # ``(cv > tau).astype(float) * av`` (0*NaN=NaN) while skipping the explicit astype temp; ~1.1x.
             for j, tau in enumerate(taus):
-                feats[:, j] = (cv > tau).astype(np.float64) * av
+                np.multiply(av, cv > tau, out=feats[:, j])
         else:  # select
             av, bv = operands[1], operands[2]
             for j, tau in enumerate(taus):
