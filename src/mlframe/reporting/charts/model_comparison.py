@@ -231,6 +231,12 @@ def _corr_heatmap_panel(per_model: Mapping[str, Mapping[str, Any]], subsample: i
     if mat.shape[0] < 2:
         return AnnotationPanelSpec(text="Correlation heatmap: < 2 aligned finite rows", title="Prediction correlation")
     corr = _spearman_corr_matrix(mat)
+    # Seriate the square symmetric correlation matrix so correlated model clusters form contiguous blocks (arbitrary
+    # model order otherwise hides them); apply the SAME permutation to rows, cols and labels.
+    from mlframe.core.matrix_seriation import seriate
+
+    corr, perm = seriate(corr)
+    names = [names[int(i)] for i in perm]
     return HeatmapPanelSpec(
         matrix=corr,
         row_labels=tuple(names),
