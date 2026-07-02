@@ -214,11 +214,15 @@ def main():
     p.add_argument("--rows-target", type=int, default=300_000,
                    help="Override n_rows on each combo (~300k = production profiling shape).")
     p.add_argument("--seed", type=int, default=42,
-                   help="RNG seed for which combos are picked from the 150-combo space.")
+                   help="RNG seed for which combos are picked from the enumerated combo space.")
+    p.add_argument("--master-seed", type=int, default=20260422,
+                   help="Seed for enumerate_combos itself: DIFFERENT master seeds enumerate DISJOINT combo spaces "
+                        "(0 overlap), so vary this to reach genuinely fresh combos rather than re-profiling the same "
+                        "pool with a different --seed shuffle. Mirrors profile_one_combo.py --master-seed.")
     p.add_argument("--top", type=int, default=20,
                    help="How many hotspots to print per combo.")
     p.add_argument("--combo-pool", type=int, default=150,
-                   help="Size of the combo space to sample from.")
+                   help="Size of the combo space to enumerate + sample from.")
     p.add_argument("--prefer-models", type=str, default="lgb,xgb,cb",
                    help="Comma-separated whitelist of models. Combos pass only "
                         "when ALL of their models are in this list. Set empty "
@@ -245,7 +249,7 @@ def main():
         pass
     print("done.\n")
 
-    combos = enumerate_combos(target=args.combo_pool)
+    combos = enumerate_combos(target=args.combo_pool, master_seed=args.master_seed)
     rng = random.Random(args.seed)
     if args.prefer_models:
         prefer = set(m.strip() for m in args.prefer_models.split(",") if m.strip())
