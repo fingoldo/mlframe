@@ -460,7 +460,8 @@ def drop_redundant_raw_operands(
         eng_bin_dev[ei] = _eb_dev
         # Score the anchor MI from the RESIDENT codes when available so the candidate never re-crosses H2D at
         # the ``cmi_cand_x`` / ``permnull_cand_x`` sites; host codes otherwise.
-        _, _, exc = _excess_and_floor(_eb_dev if _eb_dev is not None else eb, y_arr, None, seed=seed)
+        _, _, exc = _excess_and_floor(_eb_dev if _eb_dev is not None else eb, y_arr, None, seed=seed,
+                                      kx=(int(eb.max()) + 1 if getattr(eb, "size", 0) else 1))
         eng_anchor_excess[ei] = exc
 
     # DPI-TRAP GUARD (2026-06-10): an engineered child is a LEGITIMATE subsumer of a
@@ -495,7 +496,8 @@ def drop_redundant_raw_operands(
             return _raw_marg_cache[_rname]
         _rb = _raw_codes(_rname, _ridx)
         _rb_dev = _raw_dev(_rname, _ridx)   # RESIDENT candidate code (scored marginal) -> no re-upload; host otherwise
-        _res = _excess_and_floor(_rb_dev if _rb_dev is not None else _rb, y_arr, None, seed=seed)
+        _res = _excess_and_floor(_rb_dev if _rb_dev is not None else _rb, y_arr, None, seed=seed,
+                                 kx=(int(_rb.max()) + 1 if getattr(_rb, "size", 0) else 1))
         _raw_marg_cache[_rname] = _res
         return _res
 
@@ -692,9 +694,10 @@ def drop_redundant_raw_operands(
             (_clean_subexpr_bin_dev.get((rname, ei)) if (rname, ei) in _clean_subexpr_bin else eng_bin_dev.get(ei))
             for ei in consumers
         ]
-        z_support, _ = _renumber_joint(*_cond_bins)
+        z_support, _zcard = _renumber_joint(*_cond_bins)   # _renumber_joint returns the occupied cardinality
         z_support_dev = _join_dev(*_cond_bins_dev)
-        cmi, floor, excess = _excess_and_floor(rb_cand, y_arr, z_support, seed=seed, z_support_dev=z_support_dev)
+        cmi, floor, excess = _excess_and_floor(rb_cand, y_arr, z_support, seed=seed, z_support_dev=z_support_dev,
+                                               kx=(int(rb.max()) + 1 if getattr(rb, "size", 0) else 1), kz=int(_zcard))
         # SIBLING-OPERAND CONDITIONING (BUG1 non-invertible-fusion subsumer, 2026-06-16). A
         # consuming composite can FUSE ``rname`` with a SECOND signal-bearing operand in a
         # form that is not invertible from the composite alone -- e.g. ``add(a, sin(c))``

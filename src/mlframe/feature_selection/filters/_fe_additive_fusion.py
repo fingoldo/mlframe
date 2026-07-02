@@ -286,8 +286,9 @@ def propose_additive_fusions(
             _fv_sub = np.nan_to_num(ha["vals"] - hb["vals"], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
             _fvb_add = _quantile_bin(_fv_add, nbins=int(nbins))
             _fvb_sub = _quantile_bin(_fv_sub, nbins=int(nbins))
-            _mi_add = float(_cmi_from_binned(_fvb_add, y_dense, None))
-            _mi_sub = float(_cmi_from_binned(_fvb_sub, y_dense, None))
+            # kx=nbins: codes are nbins-binned -> [0, nbins-1], a safe upper bound that skips int(dx.max()).
+            _mi_add = float(_cmi_from_binned(_fvb_add, y_dense, None, kx=int(nbins)))
+            _mi_sub = float(_cmi_from_binned(_fvb_sub, y_dense, None, kx=int(nbins)))
             if _mi_sub > _mi_add + _floor_margin * _strong["floor"]:
                 _binary, fused_vals, fvb, fused_mi = "sub", _fv_sub, _fvb_sub, _mi_sub
             else:

@@ -97,19 +97,21 @@ def raw_retains_signal_given_genuine_children(
                 _rb_cand = resident_code_operand(rb, "cmi_cand_x")
         except Exception:
             _rb_cand = rb
-    _, _, marg_excess = _excess_and_floor(_rb_cand, yb, None, seed=seed)
+    _rb_kx = (int(rb.max()) + 1 if getattr(rb, "size", 0) else 1)   # host raw codes -> free cardinality
+    _, _, marg_excess = _excess_and_floor(_rb_cand, yb, None, seed=seed, kx=_rb_kx)
     if not _gc:
         return True  # no genuine subsumer survives -> the raw cannot be proven redundant
     # DEVICE-BORN conditioning support when the caller hands resident child codes: join them on device
     # (``_renumber_joint_gpu``, same partition -> selection-identical) so the support never crosses H2D (cmi_z +
     # perm-null order/z_rank). None if any child lacks a resident twin -> host z scored.
     z_support_dev = None
+    _zcard = 0   # occupied cardinality of the conditioning support (from whichever join runs) -> kz, no device read
     if genuine_child_bins_dev is not None:
         _gcd = [g for g in genuine_child_bins_dev if g is not None]
         if _gcd and len(_gcd) == len(_gc):
             try:
                 from ._mi_greedy_cmi_fe import _renumber_joint_gpu
-                z_support_dev, _ = _renumber_joint_gpu(*_gcd)
+                z_support_dev, _zcard = _renumber_joint_gpu(*_gcd)
             except Exception:
                 z_support_dev = None
     # HOST join only when the device join is unavailable: _excess_and_floor explicitly supports
@@ -118,8 +120,9 @@ def raw_retains_signal_given_genuine_children(
     # unique SORT per gate call -- a measurable host sink that was paid even when the device join was used.
     z_support = None
     if z_support_dev is None:
-        z_support, _ = _renumber_joint(*_gc)
-    cmi, floor, excess = _excess_and_floor(_rb_cand, yb, z_support, seed=seed, z_support_dev=z_support_dev)
+        z_support, _zcard = _renumber_joint(*_gc)
+    cmi, floor, excess = _excess_and_floor(_rb_cand, yb, z_support, seed=seed, z_support_dev=z_support_dev,
+                                           kx=_rb_kx, kz=int(_zcard))
     if (cmi > floor) and (excess >= self_retain_frac * max(0.0, marg_excess)):
         return True
     # LINEAR-USABILITY leg (variant-3): a linearly-usable raw whose conditional CMI collapsed
@@ -189,7 +192,7 @@ def _subexpr_continuous(recipe, raw_X) -> Optional[np.ndarray]:
         return None
 
 
-def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0, z_support_dev=None):
+def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0, z_support_dev=None, kx=0, kz=0):
     """Return ``(cmi, floor, excess)`` for ``CMI(cand; y | z_support)`` using the
     S5 conditional-permutation null (within-stratum shuffle reproduces the same
     finite-sample bias, so ``excess = max(0, cmi - null_mean)`` is n-invariant).
@@ -214,7 +217,7 @@ def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0, z_support_dev=None)
     # genuinely per-raw with VARYING conditioning z (base / full-composite / sibling), so it is not
     # batchable with the fixed-y/z primitives -- keep the per-call _cmi_from_binned.
     if z_support is None and z_support_dev is None:
-        cmi = float(_cmi_from_binned(cand_bin, y_bin, None))
+        cmi = float(_cmi_from_binned(cand_bin, y_bin, None, kx=kx))
         floor, null_mean = _conditional_perm_null(cand_bin, y_bin, None, seed=seed)
     else:
         # CONDITIONAL: the observed CMI call already computes the four occupied-cell cards
@@ -223,7 +226,7 @@ def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0, z_support_dev=None)
         # GPU / renumber+entropy on CPU). Same occupied-cell definition -> bit-identical df -> selection-
         # identical; removes ~4 histograms per conditional raw on the redundancy gate (both backends).
         # ``_z_scored`` is the device-born support when available (resident -> no cmi_z H2D) else the host one.
-        cmi_v, _cards = _cmi_from_binned(cand_bin, y_bin, _z_scored, return_cards=True)
+        cmi_v, _cards = _cmi_from_binned(cand_bin, y_bin, _z_scored, return_cards=True, kx=kx, kz=kz)
         cmi = float(cmi_v)
         floor, null_mean = _conditional_perm_null(
             cand_bin, y_bin, z_support, seed=seed, precomp_cards=_cards, z_support_dev=z_support_dev)
