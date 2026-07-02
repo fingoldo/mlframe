@@ -174,6 +174,16 @@ def build_binagg_oof_matrix_gpu(
     code_cache: dict = {}   # gcol -> (codes_g, n_cells)
     pair_cache: dict = {}   # (gcol, acol) -> (av_g, finite_g, v_safe, finite_f, per-fold moments/stat cache)
 
+    # Stats requested per (group, agg) pair -> derive ALL of a pair's stats from the shared per-fold moments in
+    # ONE _stats_from_moments_gpu pass (was one call per (pair, fold, stat): mean/std/skew/kurt each derived by a
+    # SEPARATE call, so the shared safe/mean was recomputed per stat and the std block re-ran for every one of the
+    # high-moment stats). Same arithmetic (each stat's raw derivation is per-cell independent), just fewer launches.
+    pair_stats: dict = {}
+    for spec in col_specs:
+        _sl = pair_stats.setdefault((spec["group_col"], spec["agg_col"]), [])
+        if spec["stat"] not in _sl:
+            _sl.append(spec["stat"])
+
     out_cols = []
     for spec in col_specs:
         gcol = spec["group_col"]
@@ -212,29 +222,31 @@ def build_binagg_oof_matrix_gpu(
         # OOF: init the whole column to the global fallback, then overwrite each fold's TEST rows with the
         # train-fold per-cell stat (global where the cell was empty in train). Structurally identical to host.
         # LAUNCH-BATCHED (2026-07-02, NVTX-driven): the fold caches are keyed so the expensive device work runs
-        # ONCE per reuse unit -- raw MOMENTS per (pair, fold) shared by ALL of the pair's stats (was per
-        # (fold, stat): the same 5 bincounts re-ran for each of the pair's 4 stat columns = 4x the launches),
-        # test indices/codes per (gcol, fold) shared by every pair of that group column, train indices per
-        # (pair, fold). Values ULP-identical (same bincounts, same gathers -- just cached).
+        # ONCE per reuse unit -- raw MOMENTS *and all of the pair's stats* per (pair, fold), derived in a SINGLE
+        # _stats_from_moments_gpu pass shared by ALL of the pair's stat columns (was per (fold, stat): the same 5
+        # bincounts re-ran for each of the pair's 4 stat columns = 4x the launches, and each per-stat call
+        # re-derived the shared safe/mean + std), test indices/codes per (gcol, fold) shared by every pair of that
+        # group column, train indices per (pair, fold). Values ULP-identical (same bincounts, same gathers/stat
+        # arithmetic -- just cached).
         # Fully sync-free OOF loop: train moments via masked scatter-add (no row index), test-row overwrite via
         # a full-length gather + elementwise select (no test index). The whole fold loop stays resident -- no
         # cp.where, no per-fold D2H. A degenerate fold (no finite train rows) needs no special case: its 0/1
         # weight is all-zero, so every cell count is 0, _stats_from_moments emits NaN, and the isfinite select
         # below leaves those test rows at the global fallback -- exactly the old degenerate branch.
+        _pstats = pair_stats[(gcol, acol)]
         oof = cp.full(n, glob, dtype=cp.float64)
         for f in range(nf):
-            _mkey = ("m", f)
-            if _mkey not in fold_stat_cache:
+            _skey = ("stats", f)
+            per_s_all = fold_stat_cache.get(_skey)
+            if per_s_all is None:
                 # w = 1.0 on this fold's TRAIN rows (other folds AND finite), 0.0 elsewhere. finite_f is shared;
-                # (fold_g != f) is the only per-fold term. Moments shared across the pair's stats (cached).
+                # (fold_g != f) is the only per-fold term. Moments -> ALL of the pair's stats in one pass (cached),
+                # so every stat column of this (pair, fold) reuses the single derivation instead of re-launching.
                 w = cp.where(fold_g != f, finite_f, 0.0)
                 moments = _per_cell_raw_moments_masked_gpu(cp, codes_g, v_safe, w, n_cells)
-                fold_stat_cache[_mkey] = {"__moments__": moments}
-            per_s_all = fold_stat_cache[_mkey]
-            per_s = per_s_all.get(stat)
-            if per_s is None:
-                per_s = _stats_from_moments_gpu(cp, per_s_all["__moments__"], [stat])[stat]
-                per_s_all[stat] = per_s
+                per_s_all = _stats_from_moments_gpu(cp, moments, _pstats)
+                fold_stat_cache[_skey] = per_s_all
+            per_s = per_s_all[stat]
             # Per-row stat by gathering the per-cell stat at EVERY row's code (known-size gather -> no sync),
             # then select this fold's TEST rows (fold_g == f) via elementwise where, empty cells -> global.
             row_vals = per_s[codes_g]

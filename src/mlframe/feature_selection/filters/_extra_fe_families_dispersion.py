@@ -114,6 +114,34 @@ def engineered_name_conditional_dispersion(x_i: str, x_j: str, kind: str) -> str
     return f"{x_i}__{suffix}_by__{x_j}"
 
 
+@njit(cache=True, nogil=True)
+def _bin_sum_cnt_njit(xi_f, codes_f, n_bins):
+    """Per-bin sum + count in a single O(n) walk. Replaces two ``np.add.at`` scatter-adds (the tottime sink in
+    ``_per_bin_mean_std``): ``np.add.at`` runs an un-buffered Python-level ufunc reduction, ~10-50x slower than
+    a compiled loop. Accumulates in the SAME row order as ``np.add.at`` (ascending i, same per-bucket float
+    additions) so ``bin_sum``/``bin_cnt`` are BIT-IDENTICAL, not merely close."""
+    bin_sum = np.zeros(n_bins, dtype=np.float64)
+    bin_cnt = np.zeros(n_bins, dtype=np.float64)
+    for i in range(xi_f.shape[0]):
+        c = codes_f[i]
+        bin_sum[c] += xi_f[i]
+        bin_cnt[c] += 1.0
+    return bin_sum, bin_cnt
+
+
+@njit(cache=True, nogil=True)
+def _bin_css_njit(xi_f, codes_f, bin_mean, n_bins):
+    """Per-bin centred sum of squares ``sum((x_i - bin_mean[bin])^2)`` in a single O(n) walk -- the njit twin of
+    the ``np.add.at(bin_css, codes_f, centred*centred)`` pass. Same per-row op (subtract bin mean, square) in the
+    SAME ascending-i order as ``np.add.at``, so ``bin_css`` is BIT-IDENTICAL."""
+    bin_css = np.zeros(n_bins, dtype=np.float64)
+    for i in range(xi_f.shape[0]):
+        c = codes_f[i]
+        d = xi_f[i] - bin_mean[c]
+        bin_css[c] += d * d
+    return bin_css
+
+
 def _per_bin_mean_std(
     xi: np.ndarray,
     codes_j: np.ndarray,
@@ -137,18 +165,17 @@ def _per_bin_mean_std(
     if not np.isfinite(global_std) or global_std < _DISPERSION_SIGMA_FLOOR:
         global_std = 1.0  # degenerate x_i -> unit normaliser (residual ~0 anyway)
 
-    bin_sum = np.zeros(n_bins_eff, dtype=np.float64)
-    bin_cnt = np.zeros(n_bins_eff, dtype=np.float64)
-    np.add.at(bin_sum, codes_f, xi_f)
-    np.add.at(bin_cnt, codes_f, 1.0)
+    # Per-bin sum + count in one compiled O(n) walk (bit-identical to the two ``np.add.at`` scatter-adds it
+    # replaces -- same ascending-i accumulation order -- but ~10-50x faster; ``np.add.at`` was the tottime sink).
+    codes_f = np.ascontiguousarray(codes_f).astype(np.int64)
+    xi_f = np.ascontiguousarray(xi_f, dtype=np.float64)
+    bin_sum, bin_cnt = _bin_sum_cnt_njit(xi_f, codes_f, int(n_bins_eff))
     bin_mean = np.where(
         bin_cnt > 0.0, bin_sum / np.maximum(bin_cnt, 1.0), global_mean,
     )
-    # Centred sum of squares per bin: sum((x_i - bin_mean[bin])^2). Subtract each
-    # row's bin mean, square, scatter-add -- one extra O(n) pass, no per-bin loop.
-    centred = xi_f - bin_mean[codes_f]
-    bin_css = np.zeros(n_bins_eff, dtype=np.float64)
-    np.add.at(bin_css, codes_f, centred * centred)
+    # Centred sum of squares per bin: sum((x_i - bin_mean[bin])^2). Same compiled single-pass accumulation as the
+    # ``np.add.at(bin_css, codes_f, centred*centred)`` it replaces (bit-identical order + per-row op).
+    bin_css = _bin_css_njit(xi_f, codes_f, np.ascontiguousarray(bin_mean, dtype=np.float64), int(n_bins_eff))
     # Population std per bin (ddof=0): sqrt(CSS / count). Bins below the min-row
     # floor or with a (near-)constant x_i fall back to the global std.
     with np.errstate(invalid="ignore", divide="ignore"):
