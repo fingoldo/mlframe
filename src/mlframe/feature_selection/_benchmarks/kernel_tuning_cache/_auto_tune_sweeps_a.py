@@ -401,12 +401,23 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
     """
     from mlframe.feature_selection.filters.hermite_fe import (
         polyeval_dispatch as _disp,  # noqa: F401  -- import for module init
-        _NJIT_FUNCS, _NJIT_PAR_FUNCS, _CUDA_AVAILABLE,
     )
-    if _CUDA_AVAILABLE:
+    # Resolve the backend tables + cuda flag + cuda fn from THIS module's globals so tests (and any host
+    # override) can monkeypatch them; when absent, import the real hermite_fe backends (deferred so this
+    # benchmarks module stays light to import). An already-present (monkeypatched) value always wins.
+    g = globals()
+    if not all(k in g for k in ("_NJIT_FUNCS", "_NJIT_PAR_FUNCS", "_CUDA_AVAILABLE")):
         from mlframe.feature_selection.filters.hermite_fe import (
-            _polyeval_cuda, _ensure_cuda_kernels,
+            _NJIT_FUNCS as _nf, _NJIT_PAR_FUNCS as _npf, _CUDA_AVAILABLE as _ca,
         )
+        g.setdefault("_NJIT_FUNCS", _nf)
+        g.setdefault("_NJIT_PAR_FUNCS", _npf)
+        g.setdefault("_CUDA_AVAILABLE", _ca)
+    if g["_CUDA_AVAILABLE"] and "_polyeval_cuda" not in g:
+        from mlframe.feature_selection.filters.hermite_fe import (
+            _polyeval_cuda as _pc, _ensure_cuda_kernels,
+        )
+        g.setdefault("_polyeval_cuda", _pc)
         _ensure_cuda_kernels()
 
     rng = np.random.default_rng(11)

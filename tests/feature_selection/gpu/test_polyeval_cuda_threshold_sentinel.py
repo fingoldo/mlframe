@@ -21,7 +21,11 @@ def test_polyeval_sweep_disables_cuda_when_it_never_wins(monkeypatch):
     # Patch the three backend dicts so njit_par is always fast and cuda is always slow -> cuda never wins.
     import numpy as np
 
-    fast = lambda x, c: np.zeros_like(x)  # noqa: E731
+    # O(1) fake: allocating np.zeros_like(x) at n=1e6 is an 8MB alloc that under Windows paging can exceed the
+    # 2ms cuda sleep below, making njit_par spuriously the LOSER at large n (flaky). Return a cached tiny array
+    # so njit_par is reliably microseconds at every swept n -> the "cuda never wins" world the test asserts.
+    _tiny = np.zeros(1)
+    fast = lambda x, c: _tiny  # noqa: E731
     monkeypatch.setattr(mod, "_NJIT_FUNCS", {b: fast for b in ("hermite", "legendre", "chebyshev", "laguerre")}, raising=False)
     monkeypatch.setattr(mod, "_NJIT_PAR_FUNCS", {b: fast for b in ("hermite", "legendre", "chebyshev", "laguerre")}, raising=False)
 
