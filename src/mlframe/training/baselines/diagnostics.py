@@ -313,6 +313,21 @@ class BaselineDiagnostics:
         try:
             y = _to_1d_numpy(train_target)
             X = _coerce_to_pandas(train_df, feature_cols)
+            # The quick model is LightGBM, which rejects object/string feature columns ("pandas dtypes must be int,
+            # float or bool") even when they are named in categorical_feature -- it needs pandas 'category' dtype.
+            # Cast the declared categoricals that arrive as object/string ONCE on the full frame (via assign, so the
+            # untouched numeric blocks are reused -- no whole-frame copy on a possibly-huge frame) so the sample /
+            # split / ablation all inherit consistent category codes. Without this the ENTIRE diagnostic was silently
+            # skipped (broad-except-swallowed) for any frame carrying string categoricals -- e.g. a pandas frame with
+            # string cat columns, or a multi_target_regression combo downgraded to regression. Polars Categorical /
+            # Enum columns already arrive as 'category' via the Arrow bridge and are left untouched.
+            _needs_cat = [
+                c for c in cat_features
+                if c in X.columns
+                and not (X[c].dtype.kind in "iufb" or isinstance(X[c].dtype, pd.CategoricalDtype))
+            ]
+            if _needs_cat:
+                X = X.assign(**{c: X[c].astype("category") for c in _needs_cat})
             # Sanity: align lengths (FTE drift can produce mismatches if
             # caller passes the wrong slice).
             if len(X) != len(y):

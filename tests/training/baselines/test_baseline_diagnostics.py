@@ -511,3 +511,35 @@ class TestRecommendationClassifier:
         rec, reason = bd._build_recommendation([], init_score_baseline=None)
         assert rec == "unlikely_to_help"
         assert "no ablation" in reason
+
+
+def test_fit_and_report_survives_string_categorical_features():
+    """Regression: a train frame carrying OBJECT/STRING categorical feature columns must NOT crash the quick-model
+    fit. LightGBM rejects object columns ("pandas dtypes must be int, float or bool") even when they are named in
+    categorical_feature -- it needs pandas 'category' dtype. Pre-fix the whole diagnostic was silently skipped
+    (broad-except-swallowed) for such frames; fit_and_report now casts the declared string categoricals to 'category'
+    once (via assign, no whole-frame copy) so the ablation runs. The caller's frame must stay unmutated."""
+    import numpy as np
+    import pandas as pd
+    from mlframe.training.configs import BaselineDiagnosticsConfig
+    from mlframe.training.baselines.diagnostics import BaselineDiagnostics
+
+    rng = np.random.default_rng(0)
+    n = 4000
+    df = pd.DataFrame({"x0": rng.standard_normal(n), "x1": rng.standard_normal(n)})
+    cat_cols = [f"cat{j}" for j in range(12)]
+    for c in cat_cols:
+        df[c] = rng.choice(list("ABCDE"), n)  # object/string dtype -- the shape that crashed LightGBM
+    y = (2.0 * df["x0"] - 1.5 * df["x1"] + rng.standard_normal(n) * 0.5).to_numpy()
+
+    bd = BaselineDiagnostics(BaselineDiagnosticsConfig(enabled=True))
+    rep = bd.fit_and_report(
+        train_df=df, train_target=y, target_name="target_reg", target_type="regression",
+        feature_cols=list(df.columns), cat_features=cat_cols,
+    )
+    d = rep.to_dict()
+    # Not skipped, and the ablation actually ran (proves the quick LightGBM fit succeeded on the string cats).
+    assert d.get("status") != "skipped", d.get("reason")
+    assert len(d.get("ablation", [])) >= 1
+    # Caller frame is untouched (no in-place category cast on the possibly-huge input).
+    assert df["cat0"].dtype == object
