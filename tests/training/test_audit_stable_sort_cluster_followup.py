@@ -93,6 +93,12 @@ def _read(rel: str) -> str:
         sibling = MLFRAME_ROOT / "feature_selection" / "filters" / "_cat_interactions_step.py"
         if sibling.exists():
             primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    elif rel == "feature_engineering/numerical.py":
+        # The top-modes kernel (np.lexsort tie-break site) was carved to the
+        # ``_numerical_counts.py`` sibling and re-exported from numerical.py.
+        sibling = MLFRAME_ROOT / "feature_engineering" / "_numerical_counts.py"
+        if sibling.exists():
+            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     return primary
 
 
