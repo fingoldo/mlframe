@@ -327,6 +327,14 @@ from .sklearn_compat import (  # noqa: E402,F401
 from .autoconfig import suggest_discovery_config  # noqa: E402,F401
 from .highlevel import discover_and_wrap, DiscoverAndWrapResult  # noqa: E402,F401
 
+# Composite VALUE report (per-group did-it-help), the not-worse-than-lag MoE selection gate, and the Winkler interval score.
+from ._value_report import build_composite_value_report, render_composite_value_report  # noqa: E402,F401
+from ._moe_gate import MoESelectionGate  # noqa: E402,F401
+from ._winkler import (  # noqa: E402,F401
+    winkler_interval_score, winkler_score_per_row, winkler_score_per_group,
+    mean_coverage, interval_quality_summary,
+)
+
 # Curated public surface for ``from ...composite import *`` -- excludes the
 # submodule names + stdlib leakage (logging / annotations) that bare star-import
 # would otherwise pull in. Direct ``from ...composite import <submodule>`` and
@@ -349,6 +357,9 @@ __all__ = [
     "CompositeRankEstimator", "CompositePanelEstimator", "TailCompositeEstimator",
     "MissingAwareComposite", "CompositeFeatureGenerator", "stability_select_specs",
     "CompositeSimplexEstimator", "CompositeQRFEstimator", "aitchison_distance",
+    "build_composite_value_report", "render_composite_value_report", "MoESelectionGate",
+    "winkler_interval_score", "winkler_score_per_row", "winkler_score_per_group",
+    "mean_coverage", "interval_quality_summary",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
