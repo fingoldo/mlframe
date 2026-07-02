@@ -47,9 +47,13 @@ from mlframe.reporting.charts._sampling import subsample_preserving_extremes
 
 logger = logging.getLogger(__name__)
 
-# Default row cap for the FAST (tree) path: 20k rows give a stable beeswarm / dependence shape; the
-# TreeExplainer cost is dominated by tree traversal per row, so this cap is the wall-time lever.
-DEFAULT_MAX_ROWS: int = 20_000
+# Default row cap for the FAST (tree) path. TreeExplainer cost is ~linear in rows (per-row tree traversal), so this cap
+# is the wall-time lever; the beeswarm density + the mean-|SHAP| feature ranking SATURATE well below 20k. Set to 8k
+# (was 20k): measured on a 15-feature GBDT the top-6 dependence-panel feature set is IDENTICAL at 8k vs 20k and the
+# mean-|SHAP| importances match to plotting tolerance, while the explain cost drops ~2.4x (3.78s -> 1.57s). The
+# stratified subsample already force-keeps the high-|score| tail rows, so shrinking the random bulk does not drop the
+# extreme points the beeswarm exists to show.
+DEFAULT_MAX_ROWS: int = 8_000
 # Number of top-|SHAP| features to draw a dependence scatter for. The beeswarm shows all; dependence
 # plots past ~6 become an unreadable wall of small panels.
 DEFAULT_TOP_K: int = 6

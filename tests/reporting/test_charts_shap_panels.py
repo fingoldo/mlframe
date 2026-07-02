@@ -226,3 +226,28 @@ def test_cprofile_tree_bounded_by_sample_cap(tmp_path):
     # Generous ceiling: the cap makes this independent of the 1M source rows; on the dev box this is single-digit
     # seconds. The assertion guards against an accidental "explain all n" regression, not micro-timing.
     assert total < 120.0, f"SHAP producer wall {total:.1f}s exceeds the cap-bounded budget"
+
+
+def test_shap_default_max_rows_cap_bounded_and_ranking_stable():
+    """DEFAULT_MAX_ROWS is the TreeExplainer wall-time lever (cost ~linear in rows); it was lowered 20k -> 8k because
+    the beeswarm density + mean-|SHAP| feature ranking saturate well below 20k. Pin: (a) the cap stays bounded, and
+    (b) the top-K feature set that drives the drawn dependence panels is identical whether explained on the 8k cap or
+    a much larger sample -- so the smaller cap does not change which panels a reviewer sees."""
+    shap = pytest.importorskip("shap")
+    lgb = pytest.importorskip("lightgbm")
+    from mlframe.reporting.charts import shap_panels as sp
+
+    assert sp.DEFAULT_MAX_ROWS <= 10_000  # keep the explain cost bounded
+
+    rng = np.random.default_rng(0)
+    n, nf = 30_000, 15
+    X = rng.standard_normal((n, nf))
+    y = 2.0 * X[:, 0] - 1.5 * X[:, 1] + 0.8 * X[:, 2] * X[:, 3] + rng.standard_normal(n) * 0.5
+    model = lgb.LGBMRegressor(n_estimators=200, num_leaves=31, verbosity=-1).fit(X, y)
+    expl = shap.TreeExplainer(model)
+
+    def _topk(nrows, k=sp.DEFAULT_TOP_K):
+        sv = np.asarray(expl.shap_values(X[:nrows]))
+        return set(np.argsort(-np.abs(sv).mean(0))[:k].tolist())
+
+    assert _topk(sp.DEFAULT_MAX_ROWS) == _topk(20_000), "top-K SHAP feature set changed vs a 20k-row explain"
