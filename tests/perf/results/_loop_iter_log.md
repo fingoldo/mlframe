@@ -5,7 +5,7 @@ Random fuzz combos profiled under cProfile at n_rows=300k via
 pick the top mlframe-side hotspot, optimize (measured + bit-identical + regression
 test), commit. Termination = 100 consecutive REJECTs (see CLAUDE.md policy).
 
-Consecutive-reject streak: 2
+Consecutive-reject streak: 3
 
 | iter | seed | mlframe hotspot | verdict | notes |
 |------|------|-----------------|---------|-------|
@@ -30,3 +30,4 @@ Consecutive-reject streak: 2
 | FUTURE | biggest remaining chart cost = DIFFUSE matplotlib layout (~70s of ~96s report: constrained_layout iterative solve + get_tightbbox across ~24 figures) | needs visual sign-off | Only lever is a layout-engine swap (tight_layout + manual suptitle-space reservation, ~10x cheaper than the iterative constrained solve). CANNOT validate no-collision headless across diverse panels → requires rendered before/after human review. Tracked, not dropped. |
 
 **Loop convergence (as of iter 15):** profiled 3 modes (charts-on / charts-off / cb-only) × 8 seeds × 3 combo classes. Every run returns the same top-cost set, each confirmed by code-read to be njit-at-floor, exhaustively-benched, or library-bound (matplotlib/plotly/shap/sklearn/catboost). 10 optimizations shipped (6 bit-identical + 3 chart-render + 1 redundant-pass) + 1 correctness bug fix (SHAP categorical crash) + 1 stale-test re-frame. Architectural convergence reached; the sole remaining big lever (matplotlib layout) needs a visual-equivalence sign-off.
+| 16 | (matplotlib-layout A/B, direct wall measurement) | tested the 'FUTURE: matplotlib layout' lever directly on a representative 3-panel figure: constrained=537ms vs tight=545ms (NO win) vs no-layout=382ms (1.4x but crops/cramps output) | REJECT (measured) | the profile's ~35s constrained_layout cumtime was cProfile deep-stack INFLATION (~10x caveat), not real wall — direct A/B shows the layout engine is not a lever; savefig is dominated by inherent Agg rasterization + PNG encode (~380ms floor). Retires the FUTURE item. bbox_inches='tight' also only 1.12x when constrained is on. Streak→3. |
