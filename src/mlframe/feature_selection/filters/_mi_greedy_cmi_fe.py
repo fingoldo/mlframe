@@ -551,6 +551,28 @@ def _renumber_joint(*cols: np.ndarray) -> tuple[np.ndarray, int]:
     return joint, int(mult)
 
 
+def _dense_renumber_device(cp, keys):
+    """Value-order dense renumber of a resident int64 key array WITHOUT a device->host sync.
+
+    Bit-identical to ``cp.unique(keys, return_inverse=True)`` (the dense ids follow sorted-value order), but
+    cp.unique syncs to size its unique-value output, whereas this keeps the cardinality as a DEVICE 0-dim scalar:
+    argsort the keys, mark run boundaries (a value is new iff it differs from its sorted predecessor), cumsum the
+    boundary flags to dense ids in sorted order, then scatter those back to the original positions. Returns
+    ``(inv, k)`` -- ``inv`` the resident densified codes, ``k`` the occupied cardinality as a device 0-dim int
+    (so the caller can broadcast it into ``joint + c*k`` with no host read; read it once at the very end)."""
+    if keys.size == 0:
+        return keys.astype(cp.int64, copy=False), cp.asarray(1, dtype=cp.int64)
+    order = cp.argsort(keys, kind="stable")
+    ks = keys[order]
+    is_new = cp.empty(ks.shape, dtype=cp.bool_)
+    is_new[0] = True
+    is_new[1:] = ks[1:] != ks[:-1]
+    dense_sorted = cp.cumsum(is_new.astype(cp.int64)) - 1     # dense ids in sorted-value order
+    inv = cp.empty(keys.shape, dtype=cp.int64)
+    inv[order] = dense_sorted
+    return inv, dense_sorted[-1] + 1                          # k stays a device 0-dim scalar
+
+
 def _renumber_joint_gpu(*cols):
     """Device twin of :func:`_renumber_joint`: collapse ALREADY-RESIDENT integer class arrays into a single
     dense class id ON the device, returning ``(joint_dev, nclasses)`` -- ``joint_dev`` a resident int64 cupy
@@ -569,19 +591,17 @@ def _renumber_joint_gpu(*cols):
     if not cols:
         return cp.zeros(0, dtype=cp.int64), 1
     joint = cp.ascontiguousarray(cols[0].astype(cp.int64, copy=False).ravel())
-    # mult = u.size, NOT int(joint.max())+1: cp.unique already materialised the unique-value array u (its length
-    # is a host-side shape read, no extra sync), and the return_inverse codes span [0, len(u)-1], so len(u) IS
-    # max+1. This drops the second per-fold D2H (the max read) -- bit-identical densified codes + cardinality.
-    u, joint = cp.unique(joint, return_inverse=True)          # densify col 0 -> 0..k0-1 (value-order)
-    joint = joint.astype(cp.int64, copy=False).ravel()
-    mult = int(u.size) if joint.size else 1
+    # Device-driven dense renumber (2026-07-02): replaces cp.unique(return_inverse), which SYNCS to size its
+    # output, with a manual argsort -> boundary-mark -> cumsum renumber that is bit-identical (value-order dense
+    # ids == cp.unique inverse) but keeps the fold multiplier ``mult`` as a DEVICE 0-dim scalar. ``joint + c*mult``
+    # broadcasts the device scalar with no host read, so the whole multi-column densify runs sync-free; only the
+    # final cardinality crosses the bus once (int(mult) in the return).
+    joint, mult = _dense_renumber_device(cp, joint)
     for c in cols[1:]:
         c64 = c.astype(cp.int64, copy=False).ravel()
         # joint in [0, mult) -> ``joint + c*mult`` is a unique key per (joint, c) pair; refactorise to dense so
         # mult tracks the occupied joint cardinality (not the cartesian product) fold-to-fold.
-        u, joint = cp.unique(joint + c64 * mult, return_inverse=True)
-        joint = joint.astype(cp.int64, copy=False).ravel()
-        mult = int(u.size) if joint.size else 1
+        joint, mult = _dense_renumber_device(cp, joint + c64 * mult)
     return joint, int(mult)
 
 
