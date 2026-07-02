@@ -159,10 +159,13 @@ def test_subsample_is_index_subset_no_frame_copy():
 # ---------------------------------------------------------------------------
 
 def test_biz_val_stability_keeps_genuine_drops_noise():
-    """On data with ONE genuine strong base (a near-deterministic autoregressive
-    driver of y) plus pure-noise features, the genuine composite spec attains a
-    high selection frequency across subsample replicates while specs built on
-    noise features fall below the threshold and are dropped. Floor 0.8 on the
+    """On data with ONE genuine composite base (a near-copy of y whose residual
+    ``y - base`` still carries LEARNABLE signal from another feature) plus pure-
+    noise features, the genuine composite spec attains a high selection frequency
+    across subsample replicates while specs built on noise features fall below the
+    threshold and are dropped. Because the residual is genuinely learnable the
+    near-copy increment-learnability precheck EXEMPTS the base from the near-copy-
+    of-y drop, so the genuine composite legitimately survives. Floor 0.8 on the
     genuine frequency; measured ~1.0."""
     pd = pytest.importorskip("pandas")
     from mlframe.training.composite import CompositeTargetDiscovery
@@ -171,8 +174,12 @@ def test_biz_val_stability_keeps_genuine_drops_noise():
     rng = np.random.default_rng(7)
     n = 4_000
     base = np.cumsum(rng.standard_normal(n)).astype(np.float64)
-    y = base + rng.standard_normal(n) * 0.2  # y is base + small noise
+    # GENUINE composite: y = base + 3*x_signal + noise, so the residual y - base = 3*x_signal + noise
+    # has REAL learnable signal from ``x_signal`` (a feature) -- the precheck detects it and keeps the base.
+    x_signal = rng.standard_normal(n).astype(np.float64)
+    y = base + 3.0 * x_signal + rng.standard_normal(n) * 0.2
     feats = {f"noise{j}": rng.standard_normal(n) for j in range(6)}
+    feats["x_signal"] = x_signal
     feats["genuine_base"] = base
     df = pd.DataFrame({"y": y, **feats})
     feature_cols = [c for c in df.columns if c != "y"]
