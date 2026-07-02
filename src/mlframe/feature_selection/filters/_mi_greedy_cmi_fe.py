@@ -543,16 +543,19 @@ def _renumber_joint_gpu(*cols):
     if not cols:
         return cp.zeros(0, dtype=cp.int64), 1
     joint = cp.ascontiguousarray(cols[0].astype(cp.int64, copy=False).ravel())
-    _, joint = cp.unique(joint, return_inverse=True)          # densify col 0 -> 0..k0-1 (value-order)
+    # mult = u.size, NOT int(joint.max())+1: cp.unique already materialised the unique-value array u (its length
+    # is a host-side shape read, no extra sync), and the return_inverse codes span [0, len(u)-1], so len(u) IS
+    # max+1. This drops the second per-fold D2H (the max read) -- bit-identical densified codes + cardinality.
+    u, joint = cp.unique(joint, return_inverse=True)          # densify col 0 -> 0..k0-1 (value-order)
     joint = joint.astype(cp.int64, copy=False).ravel()
-    mult = (int(joint.max()) + 1) if joint.size else 1
+    mult = int(u.size) if joint.size else 1
     for c in cols[1:]:
         c64 = c.astype(cp.int64, copy=False).ravel()
         # joint in [0, mult) -> ``joint + c*mult`` is a unique key per (joint, c) pair; refactorise to dense so
         # mult tracks the occupied joint cardinality (not the cartesian product) fold-to-fold.
-        _, joint = cp.unique(joint + c64 * mult, return_inverse=True)
+        u, joint = cp.unique(joint + c64 * mult, return_inverse=True)
         joint = joint.astype(cp.int64, copy=False).ravel()
-        mult = (int(joint.max()) + 1) if joint.size else 1
+        mult = int(u.size) if joint.size else 1
     return joint, int(mult)
 
 
@@ -946,7 +949,14 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
         # fits shared, else the two-kernel path. Same partition counts -> selection-equivalent.
         return joint_entropy_gpu(codes, cards, inv_n)
 
-    Kx = (int(dx.max()) + 1) if dx.size else 1
+    # Content-cache the candidate cardinality on the host-input path: the same candidate is re-scored across
+    # greedy steps (identical content), so its max-code fingerprint hits and skips the int(dx.max()) D2H sync.
+    # A resident cp.ndarray input has no cheap host fingerprint (that would itself need a D2H), so keep the
+    # direct max there.
+    if isinstance(x, cp.ndarray):
+        Kx = (int(dx.max()) + 1) if dx.size else 1
+    else:
+        Kx = _cached_card(x, dx)
     ky = _cached_card(y, dy)               # y is a fit-constant -> its cardinality is cached
     if z_joint is None or (hasattr(z_joint, "size") and z_joint.size == 0):
         # H(x), H(y), H(x,y) in ONE launch when the (x,y) joint fits shared (always tiny). All three from this
