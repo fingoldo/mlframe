@@ -188,7 +188,12 @@ def score_prospective_pairs(
                             _yc = np.ascontiguousarray(classes_y, dtype=np.int64)
                             # RESIDENT bootstrap-operand candidate (scored x) -> no re-upload; partner stays host z.
                             _bcand = _resident_cand(_bcodes) if _pair_resident else _bcodes
-                            _cmi_obs = float(_cmi_from_binned(_bcand, _yc, _pcodes))
+                            # kx/kz from the HOST code columns (numpy .max, no device sync): _bcand's resident
+                            # codes share _bcodes' cardinality, so passing it skips the device int(dx.max()) read
+                            # in _cmi_from_binned_cupy (the observed CMI's dominant per-pair scalar sync).
+                            _kx = (int(_bcodes.max()) + 1) if _bcodes.size else 1
+                            _kz = (int(_pcodes.max()) + 1) if _pcodes.size else 1
+                            _cmi_obs = float(_cmi_from_binned(_bcand, _yc, _pcodes, kx=_kx, kz=_kz))
                             _cfloor, _cnull_mean = _conditional_perm_null(
                                 _bcand, _yc, _pcodes,
                                 seed=int(getattr(self, "random_seed", 0) or 0) + 6271 * int(_boot_idx) + int(_partner_idx),

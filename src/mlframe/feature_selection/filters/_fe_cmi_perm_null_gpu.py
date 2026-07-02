@@ -53,6 +53,28 @@ import numpy as np
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+def _floor_mean_from_nulls_dev(cp, nulls_dev, quantile: float):
+    """Reduce a RESIDENT null-CMI vector to ``(floor, null_mean)`` fully on-device, one D2H for the pair.
+
+    Implements the module's documented design (the quantile + mean are reduced ON DEVICE; only the two scalars
+    cross back) which the earlier code violated by ``np.quantile`` on a host-copied array. Uses a manual sort +
+    linear interpolation quantile (numpy's default method) rather than ``cp.quantile``, which -- like
+    ``cp.percentile`` -- does an internal host index read that would resync. ``quantile`` is a host float, so the
+    interpolation position/indices are host-computed; only ``nulls_dev[lo]/[hi]`` and the mean are device reads,
+    stacked into a single D2H. The null vector itself never leaves the device."""
+    m = int(nulls_dev.size)
+    if m == 0:
+        return 0.0, 0.0
+    vs = cp.sort(nulls_dev.ravel())
+    pos = float(quantile) * (m - 1)
+    lo = int(np.floor(pos))
+    hi = min(lo + 1, m - 1)
+    frac = pos - lo
+    q_dev = vs[lo] * (1.0 - frac) + vs[hi] * frac         # device 0-dim
+    both = cp.asnumpy(cp.stack([q_dev, cp.mean(nulls_dev)]))   # single D2H for (floor, mean)
+    return float(both[0]), float(both[1])
+
+
 def perm_null_gpu_resident_enabled() -> bool:
     """Whether the GPU-RESIDENT permutation null engages. DEFAULT ON under the resident FE path.
 
@@ -141,8 +163,8 @@ def conditional_perm_null_gpu(
         keys = rs.randint(0, np.iinfo(np.int32).max, size=(n, nperm), dtype=cp.int32)
         perm = cp.argsort(keys, axis=0)                          # (n, nperm) free permutations
         Xp_d = dx[perm]                                          # (n, nperm) shuffled candidate columns
-        nulls = np.asarray(batched_cmi_gpu(Xp_d, y_h, None), dtype=np.float64)
-        return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+        nulls_dev = batched_cmi_gpu(Xp_d, y_h, None, return_device=True)   # null CMI vector stays RESIDENT
+        return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
 
     # CONDITIONAL null: within-stratum uniform shuffle via the single-key argsort (z_rank + key), SAME as CPU.
     # order / z_rank are per-support derivations (argsort + stratum-rank). Measured DISTINCT across the gate's
@@ -227,8 +249,7 @@ def conditional_perm_null_gpu(
                 cmi = cp.maximum(
                     (h_xz + float(h_yz[0]) - float(h_z[0]) - h_xyz)
                     - (k_xyz + float(k_z[0]) - k_xz - float(k_yz[0])) * (0.5 * inv_n), 0.0)
-                nulls = cp.asnumpy(cmi).astype(np.float64)
-                return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+                return _floor_mean_from_nulls_dev(cp, cmi, quantile)   # cmi stays resident
         except Exception:
             logger.debug("sparse perm-null CMI failed; dense chunked path", exc_info=True)
 
@@ -236,8 +257,8 @@ def conditional_perm_null_gpu(
     Xp_d[order_d, :] = x_sorted_d[within]                        # xp[order] = x_sorted[within], per perm
     del keys, within, x_sorted_d, z_rank_d, order_d            # free the (n,nperm) build + per-call order/zrank
     # (dx is resident-cached -> retained by the cache, not freed here)
-    nulls = _batched_cmi_resident_chunked(Xp_d, y_h, z_for_cmi)
-    return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+    nulls_dev = _batched_cmi_resident_chunked(Xp_d, y_h, z_for_cmi)
+    return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
 
 
 def _sparse_batched_entropy_k(cp, keys2d, inv_n: float):
@@ -272,7 +293,7 @@ def _perm_null_sparse_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_CMI_PERM_NULL_SPARSE", "0").strip().lower() in ("1", "true", "on", "yes")
 
 
-def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z) -> np.ndarray:
+def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z):
     """CMI(perm_col; y | z) for every column of the RESIDENT (n, nperm) permutation matrix ``Xp_d``, chunking
     the perms so each ``batched_cmi_gpu`` call's dense joint fits free VRAM.
 
@@ -325,20 +346,20 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z) -> np.ndarray:
         free_b = 1 << 30
     # 0.30 of free VRAM leaves headroom for batched_cmi_gpu's sort / entropy temporaries beyond the dense joint.
     chunk = max(1, min(nperm, int(free_b * 0.30) // joint_bytes))
-    nulls = np.empty(nperm, dtype=np.float64)
+    nulls_dev = cp.empty(nperm, dtype=cp.float64)               # assembled RESIDENT -> reduced on-device by caller
     s = 0
     while s < nperm:
         c = min(chunk, nperm - s)
         try:
             cols = cp.ascontiguousarray(Xp_d[:, s:s + c])       # contiguous (n, c) for the joint-hist kernels
-            nulls[s:s + c] = np.asarray(batched_cmi_gpu(cols, _dy, z, precomp_yz=_precomp, kx=Kx), dtype=np.float64)
+            nulls_dev[s:s + c] = batched_cmi_gpu(cols, _dy, z, precomp_yz=_precomp, kx=Kx, return_device=True)
             del cols
             s += c
         except cp.cuda.memory.OutOfMemoryError:
             if c == 1:
                 raise                                            # one perm still won't fit -> caller -> CPU loop
             chunk = max(1, c // 2)                               # halve and retry this slice
-    return nulls
+    return nulls_dev
 
 
 __all__ = ["conditional_perm_null_gpu", "perm_null_gpu_resident_enabled"]

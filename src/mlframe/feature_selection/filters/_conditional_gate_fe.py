@@ -519,11 +519,15 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
             _cp, _mat_dev, _yi_dev, _probe_dev = _gate_dev
             _cvd = _mat_dev[:, gi]
             _hi = _cvd > _cp.median(_cvd)
-            _nhi = int(_hi.sum())
-            if _nhi < nbins or (int(_cvd.shape[0]) - _nhi) < nbins:
+            # Integer row indices (not boolean masks): cp.where syncs once to size each index, but then the four
+            # regime gathers (_probe_dev / _yi_dev for hi + lo) are known-size integer gathers with NO sync, and
+            # the degenerate-split check reads .size (host shape, free) instead of a separate int(_hi.sum()) D2H.
+            _hi_idx = _cp.where(_hi)[0]
+            _lo_idx = _cp.where(~_hi)[0]
+            if int(_hi_idx.size) < nbins or int(_lo_idx.size) < nbins:
                 continue  # degenerate split (near-constant gate column) -> no usable regime
-            mi_hi = np.asarray(_mi_classif_batch(_probe_dev[_hi], _yi_dev[_hi], nbins=nbins, rank_binning=_rb), dtype=np.float64)
-            mi_lo = np.asarray(_mi_classif_batch(_probe_dev[~_hi], _yi_dev[~_hi], nbins=nbins, rank_binning=_rb), dtype=np.float64)
+            mi_hi = np.asarray(_mi_classif_batch(_probe_dev[_hi_idx], _yi_dev[_hi_idx], nbins=nbins, rank_binning=_rb), dtype=np.float64)
+            mi_lo = np.asarray(_mi_classif_batch(_probe_dev[_lo_idx], _yi_dev[_lo_idx], nbins=nbins, rank_binning=_rb), dtype=np.float64)
         else:
             cv = arrs[gi]
             hi = cv > np.median(cv)

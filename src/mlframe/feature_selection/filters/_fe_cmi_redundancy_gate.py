@@ -423,12 +423,15 @@ def _conditional_perm_null(
         _xh = _host_x()
         if _cmi_gpu_enabled() and nperm > 1:
             try:
+                import cupy as cp
                 from ._fe_batched_mi import batched_cmi_gpu
+                from ._fe_cmi_perm_null_gpu import _floor_mean_from_nulls_dev
                 Xp = np.empty((_xh.size, nperm), dtype=np.int64)
                 for i in range(nperm):
                     Xp[:, i] = _xh[rng.permutation(_xh.size)]
-                nulls = np.asarray(batched_cmi_gpu(Xp, y, None), dtype=np.float64)
-                return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+                # null CMI vector reduced on-device -> stays resident, one D2H for (floor, mean)
+                nulls_dev = batched_cmi_gpu(Xp, y, None, return_device=True)
+                return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
             except Exception:
                 pass
         nulls = np.empty(nperm, dtype=np.float64)
@@ -542,8 +545,9 @@ def _conditional_perm_null(
             order_d = cp.asarray(order)
             Xp_d = cp.empty((n_size, _nperm), dtype=cp.int64)
             Xp_d[order_d, :] = x_sorted_d[within]                  # xp[order] = x_sorted[within], per perm
-            nulls = np.asarray(batched_cmi_gpu(Xp_d, y_i, z_i), dtype=np.float64)
-            return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+            from ._fe_cmi_perm_null_gpu import _floor_mean_from_nulls_dev
+            nulls_dev = batched_cmi_gpu(Xp_d, y_i, z_i, return_device=True)   # stays resident
+            return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
         except Exception:
             pass  # any cupy error -> exact per-perm CPU loop below
     _xh = _host_x()
@@ -943,6 +947,15 @@ def apply_cmi_redundancy_gate(
         except Exception:
             _round_cmi = {}
             _round_floor = {}
+        # z_support is FIXED within the round, so read its occupied cardinality ONCE here (one D2H) and pass it
+        # to every per-candidate CMI fallback as kz -- otherwise _cmi_from_binned_cupy re-reads int(dz.max()) per
+        # candidate. Candidate codes are nbins-binned, so kx=nbins is a safe (empty-bin) upper bound with no read.
+        _zcard = 0
+        if _z_scored is not None:
+            try:
+                _zcard = (int(_z_scored.max()) + 1) if getattr(_z_scored, "size", 0) else 0
+            except Exception:
+                _zcard = 0
         for nm in _rem_list:
             # Prefer the RESIDENT candidate code for the per-candidate CMI + perm-null fallbacks (both dispatch
             # to the cupy resident-input branch: ``_cmi_from_binned`` -> ``_cmi_from_binned_cupy(isinstance
@@ -951,7 +964,7 @@ def apply_cmi_redundancy_gate(
             _cb = cand_bins_dev.get(nm) if cand_bins_dev else None
             if _cb is None:
                 _cb = cand_bins[nm]
-            cmi = _round_cmi[nm] if nm in _round_cmi else float(_cmi_from_binned(_cb, y_dense, _z_scored))
+            cmi = _round_cmi[nm] if nm in _round_cmi else float(_cmi_from_binned(_cb, y_dense, _z_scored, kx=int(nbins), kz=int(_zcard)))
             if nm in _round_floor:
                 floor, null_mean = _round_floor[nm]
             else:

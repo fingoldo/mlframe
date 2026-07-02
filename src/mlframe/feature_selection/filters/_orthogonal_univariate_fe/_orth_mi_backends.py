@@ -329,8 +329,12 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
                 # the per-split y subset never crosses H2D at the y_mi_classif site (the 14+10 distinct hi/lo
                 # subsamples the gate loop uploaded). y_min / n_classes read on-device (bounded scalar D2H).
                 yd = y.astype(cp.int64, copy=False).ravel()
-                _ymin = int(yd.min()) if yd.size else 0
-                _ncls = (int(yd.max()) - _ymin + 1) if yd.size else 1
+                if yd.size:
+                    _ymin, _ymax = (int(_v) for _v in cp.asnumpy(cp.stack([yd.min(), yd.max()])))  # one D2H
+                    _ncls = _ymax - _ymin + 1
+                else:
+                    _ymin = 0
+                    _ncls = 1
             else:
                 _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()
                 from .._fe_resident_operands import resident_operand
