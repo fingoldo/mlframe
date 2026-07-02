@@ -24,6 +24,7 @@ from ..composite.cache import (
     make_discovery_cache_key,
 )
 from ..configs import TargetTypes
+from ._achievable_ceiling import run_achievable_ceiling_precheck
 from ._ar_skip import (
     _RERANK_SKIP_RATIO_BOUNDED_DEFAULT,
     _extreme_ar_discovery_skip,
@@ -483,6 +484,51 @@ def run_composite_target_discovery(
                     }]
                 continue
 
+            # Measured achievable-ceiling precheck. On a bounded subsample it MEASURES raw-y / lag_predict / optimistic-
+            # composite RMSE on a group-disjoint holdout; when even the optimistic composite cannot beat min(raw, lag) by
+            # the margin AND the failsafe already carries the target, discovery is futile -> SKIP and deploy the lag. This
+            # reads its OWN flag (composite_achievable_ceiling_precheck, default True) and is ORTHOGONAL to the legacy
+            # extreme_ar_group_aware_skip: flipping that flag OFF disables only the crude autocorr-heuristic skip above,
+            # NOT this measured ceiling nor the lag_predict failsafe (the prod footgun fix). The verdict is the single
+            # source of truth for did-we-skip-and-why (logged once at INFO inside the precheck).
+            _grp_train = None
+            if group_ids is not None:
+                try:
+                    _grp_full_pc = np.asarray(group_ids).reshape(-1)
+                    if _grp_full_pc.shape[0] > int(np.max(filtered_train_idx)):
+                        _grp_train = _grp_full_pc[filtered_train_idx]
+                except (TypeError, ValueError, IndexError):
+                    _grp_train = None
+            _ceiling_verdict = None
+            try:
+                _ceiling_verdict = run_achievable_ceiling_precheck(
+                    config=composite_target_discovery_config,
+                    df=filtered_train_df,
+                    target_col=_tname_disc,
+                    feature_cols=_disc_feature_cols,
+                    y_train=_y_train_aligned,
+                    group_ids_train=_grp_train,
+                )
+            except Exception as _pc_err:  # noqa: BLE001 -- a precheck failure must never abort discovery
+                logger.info(
+                    "[CompositeTargetDiscovery] achievable-ceiling precheck raised for target='%s' (%s); discovery proceeds.",
+                    _tname_disc, _pc_err,
+                )
+                _ceiling_verdict = None
+            if _ceiling_verdict is not None:
+                metadata.setdefault("composite_precheck_verdict", {}).setdefault(
+                    str(_tt_disc), {})[_tname_disc] = _ceiling_verdict
+                if _ceiling_verdict.get("decision") == "skip":
+                    metadata["composite_target_failures"].setdefault(
+                        str(_tt_disc), {})[_tname_disc] = [{
+                            "name": _tname_disc, "kept": False, "rejected": True,
+                            "reason": _ceiling_verdict.get(
+                                "reason",
+                                "achievable-ceiling precheck: optimistic composite cannot beat min(raw, lag)",
+                            ),
+                        }]
+                    continue
+
             _disc_df = _build_disc_df_for_target(filtered_train_df, _tname_disc, _y_train_aligned)
 
             # If hint enabled and BD ran, derive per-target config with dominant_features_hint from ablation top-K.
@@ -822,6 +868,14 @@ def run_composite_target_discovery(
                             "target='%s' (%s); ignored.",
                             _tname_disc, _cache_err,
                         )
+
+            # Record the measured achievable-ceiling verdict on the discovery instance (single source of truth also lives
+            # in metadata["composite_precheck_verdict"]); both the cache-replay and fresh-fit ``_disc`` accept the attr.
+            if _ceiling_verdict is not None:
+                try:
+                    _disc.composite_precheck_verdict_ = _ceiling_verdict
+                except Exception:  # noqa: BLE001 -- exotic/read-only _disc; the verdict already lives in metadata
+                    pass
 
             # Apply frozen (train-fitted) params to ALL rows so the per-target loop has T for val/test.
             # NaN rows (domain violations on val/test) get imputed with median(T_train).
