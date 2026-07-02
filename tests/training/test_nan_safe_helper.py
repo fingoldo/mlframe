@@ -180,6 +180,13 @@ def test_wave21_production_site_migrated(rel, must_contain):
             _p = _dir / _nm
             if _p.exists():
                 src += "\n" + _p.read_text(encoding="utf-8")
+    # The ``numerical.py`` monolith split carved the quantile/count kernels
+    # (including the ``np.nanquantile`` migration) into the sibling
+    # ``_numerical_counts.py``. Search the parent + that sibling.
+    if rel == "feature_engineering/numerical.py":
+        _p = _root / "feature_engineering" / "_numerical_counts.py"
+        if _p.exists():
+            src += "\n" + _p.read_text(encoding="utf-8")
     assert must_contain in src, (
         f"Wave 21 P1/P2 regression: {rel} no longer contains {must_contain!r}. "
         f"Pre-fix raw np.argmax/np.quantile/np.median over potentially-NaN "

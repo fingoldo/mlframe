@@ -501,11 +501,9 @@ def test_fix8_fingerprint_json_canonicalisation_uses_sorted_keys():
         "a": pl.Series("a", ["x"] * 5).cast(pl.Categorical),
     })
     got_hash, schema = compute_model_input_fingerprint(df, cat_features=["a"])
-    # Prod hashes a stdlib-json canonical (separators ", " / ": ") -- using
-    # orjson here would yield a different byte string (compact, no spaces)
-    # and the test would fail. Pull stdlib json via importlib so the
-    # convention test (orjson-only at imports) doesn't flag this line.
-    stdlib_json = __import__("importlib").import_module("json")
+    # Prod hashes an orjson canonical with ``OPT_SORT_KEYS`` (compact separators,
+    # nested keys sorted). Mirror that here so the reproduction matches byte-for-byte.
+    import orjson
     payload = {
         "schema": schema,
         "n_rows": int(len(df)),
@@ -517,15 +515,14 @@ def test_fix8_fingerprint_json_canonicalisation_uses_sorted_keys():
         "train_idx": "none",
         "val_idx": "none",
     }
-    canonical = stdlib_json.dumps(payload, sort_keys=True, default=str)
-    expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:10]
+    canonical = orjson.dumps(payload, default=str, option=orjson.OPT_SORT_KEYS)
+    expected = hashlib.sha256(canonical).hexdigest()[:10]
     assert got_hash == expected
-    # Sanity: payload with un-sorted keys would produce a different hash on
-    # at least one Python build with dict-insertion-order semantics; sorting
-    # the keys is the only stable behaviour.
-    unsorted = stdlib_json.dumps(payload, sort_keys=False, default=str)
+    # Sanity: dropping the sort-keys option yields insertion-order serialisation,
+    # which must NOT reproduce the sorted-keys hash (proves sort_keys is load-bearing).
+    unsorted = orjson.dumps(payload, default=str)
     if unsorted != canonical:
-        assert hashlib.sha256(unsorted.encode("utf-8")).hexdigest()[:10] != got_hash
+        assert hashlib.sha256(unsorted).hexdigest()[:10] != got_hash
 
 
 def test_fix8_behavior_config_has_hash_suffix_flag():
