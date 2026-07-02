@@ -238,6 +238,8 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         recurrence_continuation: bool = False,
         monotone_constraints: Sequence[int] | None = None,
         conformal_ood_adaptive: bool = True,
+        soft_base_shrink: bool = True,
+        soft_base_shrink_severity_iqr: float = 3.0,
     ) -> None:
         self.base_estimator = base_estimator
         self.transform_name = transform_name
@@ -267,6 +269,12 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # to a conservative between-group quantile of the calibration groups' radii instead of the pooled global radius,
         # which under-covers exactly the OOD groups. Default ON (corrective mechanism); False restores the raw global fallback.
         self.conformal_ood_adaptive = conformal_ood_adaptive
+        # Soft base-shrink inverse: an out-of-fit-range base is smoothly shrunk toward the seen boundary (no hard clamp) so
+        # the additive inverse degrades gracefully instead of extrapolating on unseen-group tails; rows beyond
+        # ``soft_base_shrink_severity_iqr`` IQRs out route to the causal-lag / fallback prediction. Default ON; False keeps
+        # the raw additive inverse. In-range predict is bit-identical either way.
+        self.soft_base_shrink = soft_base_shrink
+        self.soft_base_shrink_severity_iqr = soft_base_shrink_severity_iqr
 
     # Predict family -- thin in-body delegating stubs so the public predict
     # surface is discoverable to mypy / IDE / help() while the heavy bodies

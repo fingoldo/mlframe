@@ -45,6 +45,11 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # Emit the composite-target VALUE report (per-group did-it-help / hurt / worse-than-lag breakdown + net weighted lift).
     emit_composite_value_report: bool = True
 
+    # Spec stability selection resamples whole GROUPS (leave-wells-out) rather than rows whenever a group key resolves, so
+    # a spec that is stable only because it memorised per-group levels is demoted (row resampling puts a group's rows in
+    # both the replicate and its complement, hiding the overfit). Default ON; no group key => bit-identical row resampling.
+    stability_group_aware: bool = True
+
     # Opt-in discovery steps (wired via ``discovery._opt_in_steps``). ALL default
     # OFF -> a flag-gated no-op that leaves the discovered specs byte-identical to
     # the legacy flow. Each enables one standalone helper over the already-kept
