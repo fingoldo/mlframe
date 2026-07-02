@@ -49,6 +49,18 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # marginal-correlation match), so a contemporaneous near-copy of y is still dropped. Default ON.
     causal_base_gate_exempt: bool = True
 
+    # Measured achievable-ceiling precheck: before running discovery, MEASURE raw-y / lag_predict / optimistic-composite
+    # RMSE on a bounded subsample and SKIP (deploy the failsafe) when the best achievable composite cannot beat
+    # ``min(raw, lag)`` by ``..._margin``. This is the AUTHORITATIVE skip signal -- orthogonal to the legacy
+    # ``extreme_ar_group_aware_skip`` autocorr fast-path, which must never disable the measured ceiling or the
+    # lag_predict failsafe (prod footgun: setting that flag False disabled the entire skip). Records
+    # ``composite_precheck_verdict_``. Default ON.
+    composite_achievable_ceiling_precheck: bool = True
+    composite_achievable_ceiling_margin: float = 0.02          # required fractional headroom over min(raw, lag) to proceed
+    composite_achievable_ceiling_sample_n: int = 30_000        # subsample cap for the measurement
+    composite_achievable_ceiling_holdout_frac: float = 0.3     # group-disjoint holdout fraction for the optimistic composite
+    composite_achievable_ceiling_strong_floor_frac: float = 0.5  # strong-AR fast-path floor on min(raw,lag)/std(y)
+
     # Emit the composite-target VALUE report (per-group did-it-help / hurt / worse-than-lag breakdown + net weighted lift).
     emit_composite_value_report: bool = True
 

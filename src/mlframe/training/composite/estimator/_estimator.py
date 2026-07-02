@@ -240,6 +240,11 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         conformal_ood_adaptive: bool = True,
         soft_base_shrink: bool = True,
         soft_base_shrink_severity_iqr: float = 3.0,
+        moe_gate_enabled: bool = True,
+        moe_shrink_rtol: float = 0.0,
+        moe_tie_rtol: float = 1e-9,
+        moe_min_group_rows: int = 1,
+        moe_failsafe: str = "lag",
     ) -> None:
         self.base_estimator = base_estimator
         self.transform_name = transform_name
@@ -275,6 +280,14 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # the raw additive inverse. In-range predict is bit-identical either way.
         self.soft_base_shrink = soft_base_shrink
         self.soft_base_shrink_severity_iqr = soft_base_shrink_severity_iqr
+        # MoE selection gate: at deploy time pick per-group among {composite, raw, lag} experts with a hard "never worse
+        # than the lag failsafe" guarantee on the selection split. Default ON; ``moe_failsafe`` is the expert deferred to
+        # for low-evidence / unseen groups. See ``composite._moe_gate.MoESelectionGate``.
+        self.moe_gate_enabled = moe_gate_enabled
+        self.moe_shrink_rtol = moe_shrink_rtol
+        self.moe_tie_rtol = moe_tie_rtol
+        self.moe_min_group_rows = moe_min_group_rows
+        self.moe_failsafe = moe_failsafe
 
     # Predict family -- thin in-body delegating stubs so the public predict
     # surface is discoverable to mypy / IDE / help() while the heavy bodies
