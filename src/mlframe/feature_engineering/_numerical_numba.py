@@ -268,11 +268,32 @@ def compute_numerical_aggregates_numba(
             weighted_arithmetic_mean = weighted_arithmetic_mean / sum_weights
 
     if return_exotic_means:
-        quadratic_mean = np.sqrt(quadratic_mean / size)
-        # Sign-preserving cube root: qubic_mean is the mean of cubes and is negative for net-negative columns
-        # (common for returns/residuals); a bare ``(-x)**(1/3)`` returns NaN, so route through abs()+sign.
-        _qm = qubic_mean / size
-        qubic_mean = np.sign(_qm) * np.abs(_qm) ** (1 / 3)
+        # The naive sum of x^2 / x^3 overflows to inf for extreme-scale columns (|x|~1e154 -> x^2,
+        # |x|~1e103 -> x^3) even though the true power-mean is finite. Detect that (rare) case and recompute
+        # ONLY those two means via a scaled (LAPACK dlassq-style) pass keyed on max|x|; the common finite
+        # path is the original naive one, so there is no added cost when nothing overflowed.
+        if not np.isfinite(quadratic_mean) or not np.isfinite(qubic_mean):
+            _scale = max(abs(minimum), abs(maximum))
+            if _scale > 0.0:
+                _inv = 1.0 / _scale
+                _ssq, _scube = 0.0, 0.0
+                for _v in arr:
+                    _xs = _v * _inv
+                    _xs2 = _xs * _xs
+                    _ssq += _xs2
+                    _scube += _xs2 * _xs
+                quadratic_mean = _scale * np.sqrt(_ssq / size)
+                _qm = _scube / size
+                qubic_mean = _scale * np.sign(_qm) * np.abs(_qm) ** (1 / 3)
+            else:
+                quadratic_mean, qubic_mean = 0.0, 0.0
+        else:
+            quadratic_mean = np.sqrt(quadratic_mean / size)
+            # Sign-preserving cube root: qubic_mean is the mean of cubes and is negative for net-negative
+            # columns (common for returns/residuals); a bare ``(-x)**(1/3)`` returns NaN, so route through
+            # abs()+sign.
+            _qm = qubic_mean / size
+            qubic_mean = np.sign(_qm) * np.abs(_qm) ** (1 / 3)
         if npositive:
             if not geomean_log_mode:
                 geometric_mean = geometric_mean ** (1 / size)
@@ -289,10 +310,27 @@ def compute_numerical_aggregates_numba(
             # Wave 47 (2026-05-20): same sum_weights==0 guard as above.
             if sum_weights == 0.0:
                 weighted_quadratic_mean = np.nan
+                weighted_qubic_mean = np.nan
+            elif not np.isfinite(weighted_quadratic_mean) or not np.isfinite(weighted_qubic_mean):
+                # Overflow-safe scaled recompute (rare extreme-scale case), mirroring the unweighted path.
+                _scale = max(abs(minimum), abs(maximum))
+                if _scale > 0.0:
+                    _inv = 1.0 / _scale
+                    _wssq, _wscube = 0.0, 0.0
+                    for _i in range(size):
+                        _xs = arr[_i] * _inv
+                        _xs2 = _xs * _xs
+                        _wssq += weights[_i] * _xs2
+                        _wscube += weights[_i] * _xs2 * _xs
+                    weighted_quadratic_mean = _scale * np.sqrt(_wssq / sum_weights)
+                    _wqm = _wscube / sum_weights
+                    weighted_qubic_mean = _scale * np.sign(_wqm) * np.abs(_wqm) ** (1 / 3)
+                else:
+                    weighted_quadratic_mean, weighted_qubic_mean = 0.0, 0.0
             else:
                 weighted_quadratic_mean = np.sqrt(weighted_quadratic_mean / sum_weights)
-            _wqm = weighted_qubic_mean / sum_weights
-            weighted_qubic_mean = np.sign(_wqm) * np.abs(_wqm) ** (1 / 3)
+                _wqm = weighted_qubic_mean / sum_weights
+                weighted_qubic_mean = np.sign(_wqm) * np.abs(_wqm) ** (1 / 3)
             if npositive and sum_weights != 0.0:
                 if not geomean_log_mode:
                     weighted_geometric_mean = weighted_geometric_mean ** (1 / sum_weights)
