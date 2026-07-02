@@ -451,11 +451,182 @@ def render_target_dist_overlay(
         return False
 
 
+def _column_names(*args, **kwargs):
+    from .diagnostics_dispatch import _column_names as _f
+    return _f(*args, **kwargs)
+
+
+def _ranked_top_features(names, feature_importances, k):
+    """Top-``k`` feature names ranked by importance when available, else the first ``k`` names (mirrors pdp_ice)."""
+    if feature_importances is not None and len(feature_importances) == len(names):
+        order = np.argsort(np.asarray(feature_importances, dtype=np.float64))[::-1]
+        return [names[int(i)] for i in order][:k]
+    return list(names)[:k]
+
+
+def _first_group_column(df, names, max_card: int = 50):
+    """First bounded-cardinality categorical column usable as the class-structure ``group`` axis, else None.
+
+    Prefers pandas ``category`` dtype (cardinality is the cheap ``.cat.categories`` length); falls back to an ``object``
+    column whose sampled cardinality is in [2, max_card]. The chart caps to its own ``max_groups`` anyway, so a slightly
+    higher-cardinality object column is still acceptable -- this only skips free-text / id-like columns.
+    """
+    for c in (names or []):
+        try:
+            col = df[c]
+        except Exception:
+            continue
+        dt = getattr(col, "dtype", None)
+        if str(dt) == "category":
+            try:
+                if 2 <= len(col.cat.categories) <= max_card:
+                    return c
+            except Exception:
+                continue
+        elif dt == object or str(dt).startswith("string"):
+            try:
+                head = col.head(20_000) if hasattr(col, "head") else col
+                nun = int(head.nunique(dropna=True)) if hasattr(head, "nunique") else 0
+                if 2 <= nun <= max_card:
+                    return c
+            except Exception:
+                continue
+    return None
+
+
+def render_engineered_separability_diagnostic(
+    *,
+    df,
+    y_true,
+    feature_names,
+    feature_importances,
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    sample: int = 5000,
+    seed: int = 0,
+) -> bool:
+    """2-D scatter of the top-2 importance features colored by target, annotated with the Fisher separability score.
+
+    Default-ON when a feature frame + targets are present. Cost is one bounded seeded row subsample + an O(n) Fisher
+    ratio (njit); RAM-safe (only the two feature columns are pulled as views, never a frame copy).
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if df is None or y_true is None or not plot_outputs or not base_path:
+        return False
+    names = list(feature_names) if feature_names else _column_names(df)
+    if not names or len(names) < 2:
+        return False
+    top2 = _ranked_top_features(names, feature_importances, 2)
+    if len(top2) < 2:
+        return False
+    try:
+        from mlframe.reporting.charts.engineered_separability import compose_separability_figure
+
+        spec = compose_separability_figure(df, np.asarray(y_true).ravel(), features=top2, sample=sample, seed=seed)
+        ok = _save_spec(spec, plot_outputs, base_path + "_separability")
+        _record(charts, "engineered_separability", ok)
+        if ok:
+            _record_path(charts, base_path + "_separability")
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: engineered_separability failed; continuing.")
+        _record(charts, "engineered_separability", False)
+        return False
+
+
+def render_category_discriminability_diagnostic(
+    *,
+    df,
+    y_true,
+    feature_names,
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    top_k: int = 15,
+    min_support: int = 30,
+    seed: int = 0,
+) -> bool:
+    """Per-category-level Weight-of-Evidence bar (case_sdsj discriminability) for a BINARY target.
+
+    Default-ON for binary classification with at least one categorical column; skips cheaply otherwise. RAM-safe: the
+    builder pulls one categorical column at a time as codes and bounds the count pass to a 200k row subsample.
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if df is None or y_true is None or not plot_outputs or not base_path:
+        return False
+    names = list(feature_names) if feature_names else _column_names(df)
+    try:
+        from mlframe.reporting.charts.category_discriminability import compose_category_discriminability_figure
+
+        spec = compose_category_discriminability_figure(
+            df, np.asarray(y_true).ravel(), features=names, top_k=top_k, min_support=min_support,
+        )
+        if spec is None:
+            return False
+        ok = _save_spec(spec, plot_outputs, base_path + "_category_discriminability")
+        _record(charts, "category_discriminability", ok)
+        if ok:
+            _record_path(charts, base_path + "_category_discriminability")
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: category_discriminability failed; continuing.")
+        _record(charts, "category_discriminability", False)
+        return False
+
+
+def render_class_structure_diagnostic(
+    *,
+    df,
+    y_true,
+    feature_names,
+    timestamps=None,
+    plot_outputs: str,
+    base_path: str,
+    metrics_dict: Optional[dict] = None,
+    max_groups: int = 30,
+    n_time_bins: int = 20,
+    seed: int = 0,
+) -> bool:
+    """Group x time-bin class-rate heatmap (case_visual leakage/structure diagnostic).
+
+    Default-ON when the frame carries a bounded-cardinality categorical column to use as the group axis. Time bins come
+    from ``timestamps`` when present, else row order (still exposes group-band structure). RAM-safe: the kernel is a
+    single njit O(n) 2-D accumulate over the group + time codes; only the group column is pulled as a view.
+    """
+    charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
+    if df is None or y_true is None or not plot_outputs or not base_path:
+        return False
+    names = list(feature_names) if feature_names else _column_names(df)
+    group = _first_group_column(df, names, max_card=max(2, int(max_groups)) * 4)
+    if group is None:
+        return False
+    try:
+        from mlframe.reporting.charts.class_structure_heatmap import compose_class_structure_figure
+
+        spec = compose_class_structure_figure(
+            df, np.asarray(y_true).ravel(), group=group, timestamps=timestamps,
+            max_groups=max_groups, n_time_bins=n_time_bins, seed=seed,
+        )
+        ok = _save_spec(spec, plot_outputs, base_path + "_class_structure")
+        _record(charts, "class_structure", ok)
+        if ok:
+            _record_path(charts, base_path + "_class_structure")
+        return ok
+    except Exception:
+        logger.exception("diagnostics_dispatch: class_structure failed; continuing.")
+        _record(charts, "class_structure", False)
+        return False
+
+
 __all__ = [
     # render_* diagnostics that live in the parent ``diagnostics_dispatch`` (split/target-drift/pdp/slice/
     # decision-curve/calibration-drift/target-acf/shap) are intentionally NOT re-exported here; they are not
     # defined in this carved-out module. Only the names actually defined below are listed.
     "render_target_dist_overlay",
+    "render_engineered_separability_diagnostic",
+    "render_category_discriminability_diagnostic",
+    "render_class_structure_diagnostic",
     "render_model_comparison_diagnostic",
     "render_model_comparison_from_suite",
     "render_decile_table_diagnostic",

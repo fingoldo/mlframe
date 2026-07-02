@@ -230,6 +230,17 @@ class ReportingConfig(BaseConfig):
     # costs O(k^2) 2-D PDP surfaces (k capped at ``interaction_strength_max_features``), each ``pdp_grid`` predicts.
     interaction_strength_charts: bool = False
     interaction_strength_max_features: int = 8
+    # PZAD case_visual/case_sdsj diagnostics: cheap njit-kernel charts, default-ON and skip-safe (each fires only when
+    # its inputs fit -- a categorical column for group-structure / discriminability, a binary target for WoE).
+    # engineered_separability: 2-D scatter of the top-2 features colored by target + Fisher separability score.
+    engineered_separability_charts: bool = True
+    # class_structure: group x time-bin class-rate heatmap (leakage / temporal-structure read).
+    class_structure_charts: bool = True
+    class_structure_max_groups: int = 30
+    class_structure_time_bins: int = 20
+    # category_discriminability: per category-level Weight-of-Evidence bar for a binary target.
+    category_discriminability_charts: bool = True
+    category_discriminability_top_k: int = 15
     # Multi-model leaderboard, assembled per-target from the per-model preds/metrics the suite already collected; only
     # rendered when >=2 models were trained on the same task (single-model runs skip cheaply).
     model_comparison: bool = True

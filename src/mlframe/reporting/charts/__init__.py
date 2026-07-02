@@ -86,12 +86,46 @@ from mlframe.reporting.charts.training_curve import compose_training_curve_figur
 from mlframe.reporting.charts.confusion_matrix_plot import (
     plot_confusion_matrix, confusion_matrix_counts,
 )
+# PZAD-derived diagnostics (case_visual / case_sdsj / fuzzy / SGT). Exposed on the package surface so callers reach them
+# from the gallery facade rather than the implementation modules.
+from mlframe.reporting.charts.class_structure_heatmap import (
+    class_structure_matrix, class_structure_panel, compose_class_structure_figure,
+)
+from mlframe.reporting.charts.engineered_separability import (
+    compose_separability_figure, separability_panel, separability_score,
+)
+from mlframe.reporting.charts.category_discriminability import (
+    category_discriminability_panel, category_discriminability_table,
+    compose_category_discriminability_figure, level_woe,
+)
+from mlframe.reporting.charts.fuzzy_membership import (
+    compose_fuzzy_membership_figure, fuzzy_membership_curves, fuzzy_membership_panel,
+)
+from mlframe.reporting.charts.spectral_embedding import (
+    compose_spectral_embedding_figure, spectral_embedding_panel, spectral_layout,
+)
 # Public re-export of the chart-sampling helpers so cross-package consumers (renderers, diagnostics_dispatch, training-side reporting) import them from the package surface instead of the ``_sampling`` implementation module.
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes, prebin_histogram
 
 __all__ = [
     "subsample_preserving_extremes",
     "prebin_histogram",
+    "class_structure_matrix",
+    "class_structure_panel",
+    "compose_class_structure_figure",
+    "separability_score",
+    "separability_panel",
+    "compose_separability_figure",
+    "level_woe",
+    "category_discriminability_table",
+    "category_discriminability_panel",
+    "compose_category_discriminability_figure",
+    "fuzzy_membership_curves",
+    "fuzzy_membership_panel",
+    "compose_fuzzy_membership_figure",
+    "spectral_layout",
+    "spectral_embedding_panel",
+    "compose_spectral_embedding_figure",
     "build_calibration_spec",
     "build_reliability_overlay_spec",
     "wilson_ci",

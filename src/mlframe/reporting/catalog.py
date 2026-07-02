@@ -93,6 +93,11 @@ _DESCRIPTIONS: Dict[str, Dict[str, str]] = {
 _STANDALONE_DIAGNOSTICS: List[Tuple[str, str]] = [
     ("pdp_ice", "Partial-dependence + ICE for the top feature-importance features (default-on; subsampled, model-call bounded)."),
     ("interaction_strength", "Friedman-Popescu H-statistic heatmap over the top features (opt-in; O(k^2) 2-D PDP surfaces, k<=8)."),
+    ("engineered_separability", "2-D scatter of the top-2 features colored by target + Fisher separability score (default-on; njit O(n))."),
+    ("class_structure", "Group x time-bin class-rate heatmap for leakage / temporal-structure (default-on when a categorical group column is present)."),
+    ("category_discriminability", "Per category-level Weight-of-Evidence bar for a binary target (default-on; njit one-pass level counts)."),
+    ("fuzzy_membership", "Soft-membership curves of a fitted fuzzy partition (interpretability for the fuzzy feature encoder; standalone)."),
+    ("spectral_embedding", "Laplacian Fiedler-eigenvector graph layout (spectral embedding of the SGT graph descriptor; standalone)."),
     ("model_comparison", "Multi-model leaderboard (curve overlay + metric bar + prediction-correlation) when >=2 models share a task."),
     ("slice_finder", "Multi-dim weak-slice search over the precomputed per-row error; worst feature-value regions ranked by degradation x support."),
     ("decision_curve", "Binary decision-curve net-benefit vs treat-all / treat-none (the clinical-utility operating read)."),

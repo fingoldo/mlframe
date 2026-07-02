@@ -456,7 +456,9 @@ def _render_post_fit_diagnostics(
     names, importances = _ranked_feature_names(metrics, model, columns)
 
     from mlframe.reporting.diagnostics_dispatch import (
-        build_combined_html_report, render_decile_table_diagnostic, render_decision_curve_diagnostic,
+        build_combined_html_report, render_category_discriminability_diagnostic, render_class_structure_diagnostic,
+        render_decile_table_diagnostic, render_decision_curve_diagnostic,
+        render_engineered_separability_diagnostic,
         render_interaction_strength_diagnostic, render_model_card_diagnostic, render_pdp_2d_diagnostic,
         render_pdp_ice_diagnostic, render_shap_diagnostic,
         render_shap_interactions_diagnostic, render_shap_per_instance_diagnostic,
@@ -524,6 +526,31 @@ def _render_post_fit_diagnostics(
             plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
             max_features=getattr(cfg, "interaction_strength_max_features", 8),
             sample=getattr(cfg, "pdp_sample", 2000), grid=getattr(cfg, "pdp_grid", 20),
+        )
+
+    if getattr(cfg, "engineered_separability_charts", True) and df is not None and y_arr is not None and not _collapsed:
+        render_engineered_separability_diagnostic(
+            df=df, y_true=y_arr, feature_names=names, feature_importances=importances,
+            plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+            sample=getattr(cfg, "pdp_sample", 2000) * 2,
+        )
+
+    if getattr(cfg, "class_structure_charts", True) and df is not None and y_arr is not None and y_arr.ndim == 1:
+        render_class_structure_diagnostic(
+            df=df, y_true=y_arr, feature_names=names,
+            plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+            max_groups=getattr(cfg, "class_structure_max_groups", 30),
+            n_time_bins=getattr(cfg, "class_structure_time_bins", 20),
+        )
+
+    if (
+        getattr(cfg, "category_discriminability_charts", True) and df is not None
+        and tt == "binary_classification" and y_arr is not None and y_arr.ndim == 1
+    ):
+        render_category_discriminability_diagnostic(
+            df=df, y_true=y_arr, feature_names=names,
+            plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+            top_k=getattr(cfg, "category_discriminability_top_k", 15),
         )
 
     if (
