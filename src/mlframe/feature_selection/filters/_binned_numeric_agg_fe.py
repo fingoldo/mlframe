@@ -278,7 +278,9 @@ def _auto_detect_numeric_cols(X: pd.DataFrame, max_card_group: int = 10**9) -> l
         v = X[c].to_numpy()
         if not np.isfinite(np.asarray(v, dtype=np.float64)).all():
             continue
-        if np.unique(v).size < 2:
+        # non-constant check: min != max on an all-finite column == np.unique(v).size >= 2, without the
+        # full-n unique SORT (O(n) vs O(n log n); the sort was a measurable host sink at 1M x many columns).
+        if np.min(v) == np.max(v):
             continue
         out.append(c)
     return out
@@ -288,8 +290,35 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
     """Cheap MI(qbin(col); y_codes) via a bincount joint histogram -- the relevance proxy for GROUP pre-selection.
     A group column only helps if its quantile cells separate y; this scores exactly that in O(n)."""
     cv = np.asarray(col, dtype=np.float64)
-    if not np.isfinite(cv).all() or np.unique(cv).size < 2:
+    # min != max on an all-finite column == unique().size >= 2 without the full-n unique SORT.
+    if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
         return 0.0
+    # DEVICE route (STRICT-resident): the full-n np.quantile edges + searchsorted codes + bincount joint all
+    # run on the GPU; only the MI scalar returns. Same 'linear' percentile edges / joint counts -> the group
+    # pre-selection RANKING is unchanged (near-ULP). Any cupy fault -> the exact host path below.
+    try:
+        import os as _os
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        if (_os.environ.get("MLFRAME_FE_CHEAP_MI_GPU", "1").strip().lower() in ("1", "true", "on", "yes")
+                and fe_gpu_strict_resident_enabled() and cv.size >= 200_000):
+            import cupy as cp
+            cvd = cp.asarray(cv)
+            qs = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
+            e_d = cp.unique(cp.quantile(cvd, cp.asarray(qs)))
+            if int(e_d.size) == 0:
+                return 0.0
+            xc_d = cp.searchsorted(e_d, cvd, side="right").astype(cp.int64)
+            yc_d = cp.asarray(np.ascontiguousarray(y_codes, dtype=np.int64))
+            na = int(xc_d.max()) + 1
+            nb = int(yc_d.max()) + 1
+            joint = cp.bincount(xc_d * nb + yc_d, minlength=na * nb).astype(cp.float64).reshape(na, nb)
+            pj = joint / cv.size
+            pa = pj.sum(axis=1, keepdims=True)
+            pb = pj.sum(axis=0, keepdims=True)
+            term = cp.where(pj > 0, pj * cp.log(pj / (pa * pb)), 0.0)
+            return float(cp.nansum(term))
+    except Exception:
+        pass
     edges = quantile_edges(cv, nbins)
     if edges.size == 0:
         return 0.0
