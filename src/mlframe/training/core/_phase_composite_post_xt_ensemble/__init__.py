@@ -915,13 +915,32 @@ def _build_cross_target_ensemble_for_target(
                 _ens_diff = _ens_holdout - _oof_y_holdout
                 _ens_rmse = float(np.sqrt(np.mean(_ens_diff ** 2)))
                 _best_single_rmse = float(np.nanmin(_oof_rmses))
-                # AR(1) failsafe: when lag_predict is in the pool and its OOF RMSE is within tolerance of the best trained component, prefer lag_predict outright.
+                # AR(1) failsafe: when lag_predict's OOF RMSE ties the best trained component, prefer zero-param lag. But
+                # the OOF RMSE is a group-K-fold estimate that UNDERESTIMATES the full-data model (each fold trains on
+                # fewer groups), so a tie can ship lag over a trained model that generalises far better (prod: lag test
+                # 12.29 vs trained 9.31). Cross-check on the group-disjoint VAL split (same honest regime as test): if a
+                # trained component beats lag on VAL by > tolerance the OOF tie is spurious -> veto, deploy the trained.
                 _lag_failsafe_tol = float(getattr(
                     composite_target_discovery_config,
                     "lag_predict_failsafe_tolerance", 0.10,
                 ))
                 _lag_failsafe_taken = False
-                if (_lag_failsafe_tol > 0
+                from .._ar1_failsafe_veto import compute_val_veto
+                _val_veto_idx = compute_val_veto(
+                    _oof_names, _oof_rmses, _oof_components, filtered_val_df,
+                    filtered_val_idx, _oof_y_full, _lag_failsafe_tol,
+                    composite_target_discovery_config,
+                )
+                if _val_veto_idx is not None:
+                    logger.warning(
+                        "[CompositeCrossTargetEnsemble] target='%s' AR1 failsafe VETOED by val cross-check: trained "
+                        "'%s' beats lag_predict on the group-disjoint val split by >%.0f%% (the OOF tie was group-K-fold "
+                        "pessimism); deploying the trained component, NOT lag.",
+                        _orig_tname, _oof_names[_val_veto_idx], _lag_failsafe_tol * 100.0,
+                    )
+                    _ensemble = _oof_components[_val_veto_idx]
+                    _lag_failsafe_taken = True
+                elif (_lag_failsafe_tol > 0
                         and "lag_predict" in _oof_names
                         and np.isfinite(_best_single_rmse)):
                     _lp_idx = _oof_names.index("lag_predict")
