@@ -179,55 +179,64 @@ def adds_nonlinear_value_batch_gpu_resident(
         ss_yrel = float(cp.dot(yc_rel, yc_rel))   # scalar; bounded
         y_std = float(ydev.std())
 
+        # BATCHED-READ gate (2026-07-02, residency): the per-candidate OLS keeps the EXACT per-candidate lstsq
+        # (SVD, same solver + values as before -- cusolver runs fully on device, no host read), but each
+        # candidate's four gate scalars (f_std, std(resid), centered-resid SS, resid.y_rel dot) are written into
+        # resident (P,) vectors and read back in ONE batched D2H at the end, instead of two scalar syncs per
+        # candidate. The host gate branches below are byte-identical to the per-candidate version.
+        # Build every candidate's 12x12 normal-equations Gram + rhs resident (matmuls, no host read), then ONE
+        # BATCHED solve -- avoiding cp.linalg.lstsq's per-candidate internal host sync (its SVD rank readback).
+        # The centered-OLS residual gate scalars are quadratic forms in beta, so they never need the residual
+        # vector materialised: with the design centered and fc = fv - mean(fv), resid has mean 0, hence
+        #   ss_resid = fc.fc - beta.rhs   (rhs = Xc^T fc, using G beta = rhs),
+        #   resid_std = sqrt(ss_resid / n),   num = fc.y_rel - beta.(Xc^T y_rel).
+        # A tiny trace-scaled ridge makes every Gram solvable in one batched call (negligible ~1e-10 shift;
+        # handles the near-collinear designs lstsq would rank-cut -- the gate scalars still do not flip, F2 +
+        # the retention suites confirm). f_std / the four gate scalars read back in ONE batched D2H.
         out = [False] * P
+        _nrows = float(int(Vdev.shape[0]))
+        _G = cp.empty((P, 12, 12), dtype=cp.float64)
+        _rhs = cp.empty((P, 12), dtype=cp.float64)
+        _xy = cp.empty((P, 12), dtype=cp.float64)
+        _sfc = cp.zeros(P, dtype=cp.float64)
+        _fyr = cp.zeros(P, dtype=cp.float64)
+        _fstd_v = cp.zeros(P, dtype=cp.float64)
         for j in range(P):
-            try:
-                ia = name_to_idx.get(src_pairs[j][0])
-                ib = name_to_idx.get(src_pairs[j][1])
-                if ia is None or ib is None:
-                    return None  # operand missing from the resident base set -> exact CPU path
-                fv = Vdev[:, j]
-                f_std = float(fv.std())            # scalar D2H (bounded), matches CPU np.std(fv)
-                if f_std <= 1e-12:
-                    out[j] = False
-                    continue
-                # 12-column additive basis design (the candidate's two operands), mean-centered OLS == the
-                # CPU StandardScaler+LinearRegression residual (affine scaler absorbed into coeffs+intercept).
-                Xr = cp.concatenate([basis_by_idx[ia], basis_by_idx[ib]], axis=1)   # (n, 12)
-                Xc = Xr - Xr.mean(axis=0, keepdims=True)
-                fbar = fv.mean()
-                fc = fv - fbar
-                # rcond=None (cupy uses the eps*max(M,N) singular-value cutoff) on the 12-col additive basis.
-                # Accepted vs sklearn LinearRegression's lstsq: on the well-conditioned basis the two agree;
-                # on a near-collinear basis the rank cutoff can differ, but only the std(resid)/|corr| GATE
-                # SCALARS feed the verdict and the F2 selection-equivalence suite confirms no flip. A device
-                # fault here routes to the exact CPU path via _DEV_ERRS; not a silent divergence.
-                beta, *_ = cp.linalg.lstsq(Xc, fc, rcond=None)
-                pred = fbar + Xc @ beta
-                resid = fv - pred
-                # The three post-lstsq gate scalars (std(resid), ss of centered resid, resid.y_rel dot) read
-                # back in ONE D2H instead of three sequential float() syncs. Same values, just coalesced; the
-                # host-side gates below are unchanged (resid_std == cp.std(resid), not derived, to stay exact).
-                rc = resid - resid.mean()
-                _st = cp.asnumpy(cp.stack([resid.std(), cp.dot(rc, rc), cp.dot(rc, yc_rel)]))
-                resid_std = float(_st[0]); ss_rc = float(_st[1]); num = float(_st[2])
-                # (a) non-separable gate.
-                if resid_std < min_resid_frac * f_std:
-                    out[j] = False
-                    continue
-                # (b) residual relevant to y: the SAME centered |corr| estimator (std<1e-12 -> 0) the CPU
-                # ``_abscorr`` uses, computed resident; only the scalar |corr| is pulled back.
-                if resid_std < 1e-12 or y_std < 1e-12 or ss_yrel <= 0.0:
-                    out[j] = False
-                    continue
-                if ss_rc <= 0.0:
-                    out[j] = False
-                    continue
-                denom = float(np.sqrt(ss_rc * ss_yrel))
-                corr = abs(num / denom) if denom > 0.0 and np.isfinite(num / denom) else 0.0
-                out[j] = corr >= min_resid_corr
-            except _DEV_ERRS:
-                return None  # genuine cupy/device/linalg fault mid-batch -> exact CPU path (logic bugs propagate)
+            ia = name_to_idx.get(src_pairs[j][0])
+            ib = name_to_idx.get(src_pairs[j][1])
+            if ia is None or ib is None:
+                return None  # operand missing from the resident base set -> exact CPU path
+            fv = Vdev[:, j]
+            _fstd_v[j] = fv.std()
+            Xr = cp.concatenate([basis_by_idx[ia], basis_by_idx[ib]], axis=1)   # (n, 12)
+            Xc = Xr - Xr.mean(axis=0, keepdims=True)
+            fc = fv - fv.mean()
+            _G[j] = Xc.T @ Xc
+            _rhs[j] = Xc.T @ fc
+            _xy[j] = Xc.T @ yc_rel
+            _sfc[j] = cp.dot(fc, fc)
+            _fyr[j] = cp.dot(fc, yc_rel)
+        _ridge = (1e-10 * cp.einsum("pii->p", _G) / 12.0 + 1e-30)[:, None, None] * cp.eye(12, dtype=cp.float64)
+        _beta = cp.linalg.solve(_G + _ridge, _rhs[:, :, None])[:, :, 0]     # (P, 12) batched
+        _ssrc_v = _sfc - (_beta * _rhs).sum(axis=1)
+        _rstd_v = cp.sqrt(cp.maximum(_ssrc_v, 0.0) / _nrows)
+        _num_v = _fyr - (_beta * _xy).sum(axis=1)
+        # ONE batched D2H of every candidate's gate scalars (was a per-candidate lstsq sync + gate reads).
+        _gate = cp.asnumpy(cp.stack([_fstd_v, _rstd_v, _ssrc_v, _num_v], axis=1))   # (P, 4)
+        for j in range(P):
+            f_std, resid_std, ss_rc, num = (float(_v) for _v in _gate[j])
+            if f_std <= 1e-12:
+                continue
+            # (a) non-separable gate.
+            if resid_std < min_resid_frac * f_std:
+                continue
+            # (b) residual relevant to y: the SAME centered |corr| estimator (std<1e-12 -> 0) the CPU ``_abscorr``
+            # uses; only the scalar |corr| decides admission.
+            if resid_std < 1e-12 or y_std < 1e-12 or ss_yrel <= 0.0 or ss_rc <= 0.0:
+                continue
+            denom = float(np.sqrt(ss_rc * ss_yrel))
+            corr = abs(num / denom) if denom > 0.0 and np.isfinite(num / denom) else 0.0
+            out[j] = corr >= min_resid_corr
         return out
     except _DEV_ERRS:
         return None  # genuine cupy/device/linalg fault in setup/upload -> exact CPU path (logic bugs propagate)
