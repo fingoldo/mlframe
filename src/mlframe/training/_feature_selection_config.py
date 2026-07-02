@@ -73,6 +73,11 @@ class FeatureSelectionConfig(BaseConfig):
     # Forwarded verbatim to ``ShapProxiedFS.__init__``; keys validated against the constructor signature so misspelt knobs fail at config time rather than deep inside fit. ShapProxiedFS clusters correlated features internally, so it is intentionally NOT wrapped in the GroupAwareMRMR cluster-medoid reduction (double-clustering) -- the cluster-reduce keys are therefore NOT whitelisted here. ``classification`` is auto-derived from the target type when unset (mirrors BorutaShap), so a regression target picks the regressor inner model.
     shap_proxied_fs_kwargs: Optional[Dict[str, Any]] = None
 
+    # ACE (Artificial Contrasts with Ensembles, Tuv et al. 2009) is OFF by default: it fits the estimator on [X | contrasts] once per replicate (default 20) with an optional masking-removal loop, so it is markedly more expensive than a single MRMR / RFECV pass. Enable when the contrast-percentile parametric t-test signal (continuous importance margin vs a permuted-contrast null) is worth the compute -- typically on small-to-medium frames where the per-feature significance verdict matters. Mirrors the ShapProxiedFS wiring: registered in the selector registry AND reachable from the suite via this flag + a ``_build_pre_pipelines`` branch.
+    use_ace_fs: bool = False
+    # Forwarded verbatim to ``ACESelector.__init__``; keys validated against the constructor signature so misspelt knobs fail at config time rather than deep inside fit. ACE auto-derives classification/regression from the target dtype internally (no target_type threading), so unlike BorutaShap / ShapProxiedFS there is no ``classification`` key to auto-fill here.
+    ace_kwargs: Optional[Dict[str, Any]] = None
+
     # When a feature-selection pipeline (MRMR / RFECV / custom) is identity-equivalent - keeps every input column and creates no new ones - training models on it duplicates the ordinary (no-pipeline) branch. Set False to still train both (eg for ensembling diversities from different random seeds). Default True skips the duplicate branch, logging a [Dedup] info.
     skip_identity_equivalent_pre_pipelines: bool = True
 
@@ -218,6 +223,20 @@ class FeatureSelectionConfig(BaseConfig):
             raise ValueError(f"FeatureSelectionConfig.shap_proxied_fs_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
         return v
 
+    @field_validator("ace_kwargs")
+    @classmethod
+    def _validate_ace_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not v:
+            return v
+        import inspect
+        from mlframe.feature_selection.ace import ACESelector
+
+        valid_keys = set(inspect.signature(ACESelector.__init__).parameters) - {"self"}
+        unknown = sorted(set(v) - valid_keys)
+        if unknown:
+            raise ValueError(f"FeatureSelectionConfig.ace_kwargs: unknown key(s) {unknown}. " f"Valid keys: {sorted(valid_keys)}")
+        return v
+
     @field_validator("rfecv_cluster_corr_method")
     @classmethod
     def _validate_rfecv_cluster_corr_method(cls, v: str) -> str:
@@ -318,5 +337,11 @@ class FeatureSelectionConfig(BaseConfig):
                 "FeatureSelectionConfig: shap_proxied_fs_kwargs supplied but use_shap_proxied_fs=False. "
                 "The kwargs would be silently ignored. Set use_shap_proxied_fs=True OR drop "
                 "shap_proxied_fs_kwargs to make the intent explicit."
+            )
+        if self.ace_kwargs and not self.use_ace_fs:
+            raise ValueError(
+                "FeatureSelectionConfig: ace_kwargs supplied but use_ace_fs=False. "
+                "The kwargs would be silently ignored. Set use_ace_fs=True OR drop "
+                "ace_kwargs to make the intent explicit."
             )
         return self

@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Sequence
 
 import numpy as np
+from sklearn.base import BaseEstimator, TransformerMixin
 
 logger = logging.getLogger(__name__)
 
@@ -268,6 +269,82 @@ def _ttest_greater(real_imps: np.ndarray, threshold: np.ndarray) -> np.ndarray:
         t_stat = mean[live] / se
         p[live] = _t.sf(t_stat, df=n - 1)  # P(T >= t) under H0: margin mean == 0
     return p
+
+
+class ACESelector(BaseEstimator, TransformerMixin):
+    """sklearn-compatible adapter over :func:`ace_select` for the training suite's pre-pipeline slot.
+
+    ``ace_select`` is a FUNCTION returning ``ACEResult``; the suite drives selectors via the sklearn
+    fit / get_support / transform contract (mirrors ShapProxiedFS). ``fit`` runs ACE once and materialises
+    ``support_`` / ``selected_features_`` / ``feature_names_in_`` in INPUT-column order (``ACEResult`` arrays
+    are already aligned to the input columns); ``transform`` narrows to the accepted columns positionally
+    (no full-frame copy). ``classification`` is auto-derived inside ``ace_select`` from the target dtype, so
+    no target_type threading is needed (unlike BorutaShap / ShapProxiedFS).
+    """
+
+    def __init__(
+        self,
+        estimator=None,
+        *,
+        n_replicates: int = 20,
+        contrast_percentile: float = _DEFAULT_CONTRAST_PERCENTILE,
+        alpha: float = 0.05,
+        importance: str = "native",
+        n_masking_rounds: int = 3,
+        n_perm_repeats: int = 5,
+        fdr_control: bool = True,
+        random_state: int = 0,
+    ):
+        self.estimator = estimator
+        self.n_replicates = n_replicates
+        self.contrast_percentile = contrast_percentile
+        self.alpha = alpha
+        self.importance = importance
+        self.n_masking_rounds = n_masking_rounds
+        self.n_perm_repeats = n_perm_repeats
+        self.fdr_control = fdr_control
+        self.random_state = random_state
+
+    def fit(self, X, y=None):
+        result = ace_select(
+            X, y, estimator=self.estimator,
+            n_replicates=self.n_replicates, contrast_percentile=self.contrast_percentile,
+            alpha=self.alpha, importance=self.importance, n_masking_rounds=self.n_masking_rounds,
+            n_perm_repeats=self.n_perm_repeats, fdr_control=self.fdr_control, random_state=self.random_state,
+        )
+        self.ace_result_ = result
+        self.feature_names_in_ = np.asarray([str(c) for c in result.feature_names], dtype=object)
+        self.n_features_in_ = len(result.feature_names)
+        self.support_ = np.asarray(result.accepted, dtype=bool)
+        self.selected_features_ = [str(c) for c in result.selected_features]
+        return self
+
+    def transform(self, X):
+        from sklearn.exceptions import NotFittedError
+
+        if not hasattr(self, "support_"):
+            raise NotFittedError("ACESelector.transform called before fit.")
+        idx = np.where(self.support_)[0]
+        if hasattr(X, "iloc"):
+            return X.iloc[:, idx]
+        return np.asarray(X)[:, self.support_]
+
+    def fit_transform(self, X, y=None, **fit_params):
+        return self.fit(X, y).transform(X)
+
+    def get_support(self, indices: bool = False):
+        from sklearn.exceptions import NotFittedError
+
+        if not hasattr(self, "support_"):
+            raise NotFittedError("ACESelector.get_support called before fit.")
+        return np.where(self.support_)[0] if indices else self.support_
+
+    def get_feature_names_out(self, input_features=None):
+        from sklearn.exceptions import NotFittedError
+
+        if not hasattr(self, "selected_features_"):
+            raise NotFittedError("ACESelector.get_feature_names_out called before fit.")
+        return np.asarray(self.selected_features_, dtype=object)
 
 
 def _default_estimator(y: np.ndarray, n: int, random_state: int):

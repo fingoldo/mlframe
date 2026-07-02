@@ -29,6 +29,8 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from mlframe.core.set_similarity import jaccard as _jaccard_similarity
+
 
 def _selector_name(selector: Any, idx: int) -> str:
     """Human-readable label for a selector (class name, de-duplicated by caller)."""
@@ -92,16 +94,6 @@ def _extract_selected(selector: Any, feature_names: Sequence[str]) -> list[str]:
         f"{type(selector).__name__} exposes no recognised support accessor "
         "(get_feature_names_out / selected_features_ / support_ / accepted)"
     )
-
-
-def _jaccard(a: set, b: set) -> float:
-    """Jaccard overlap of two name sets; empty/empty -> 1.0 (identical-empty)."""
-    if not a and not b:
-        return 1.0
-    union = a | b
-    if not union:
-        return 1.0
-    return len(a & b) / len(union)
 
 
 @dataclass
@@ -260,7 +252,7 @@ def compare_selectors(
 
     sets = {nm: set(selected_by[nm]) for nm in names}
     jaccard = pd.DataFrame(
-        [[_jaccard(sets[a], sets[b]) for b in names] for a in names],
+        [[_jaccard_similarity(sets[a], sets[b]) for b in names] for a in names],
         index=names,
         columns=names,
     )

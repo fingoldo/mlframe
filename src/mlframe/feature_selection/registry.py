@@ -7,7 +7,7 @@ Reachability contract (NOT yet a single registration): the registry is the insta
 dispatch table, but wiring a selector INTO the suite still also needs (a) a ``use_<sel>`` flag +
 ``<sel>_kwargs`` + validator in ``FeatureSelectionConfig``, (b) a branch in ``_build_pre_pipelines``,
 and (c) a kind string in ``_selector_kind``. Each registered selector here is reachable from the suite
-(MRMR / RFECV / BorutaShap / ShapProxiedFS all have their flag + branch). ``report_extract`` already
+(MRMR / RFECV / BorutaShap / ShapProxiedFS / ACE all have their flag + branch). ``report_extract`` already
 lives next to the spec, so the central report builder no longer hard-codes a branch per selector.
 
 FUTURE (data-driven ``_build_pre_pipelines`` over ``registry.available()``): collapse the per-selector
@@ -159,6 +159,12 @@ def _instantiate_shap_proxied_fs(**kwargs):
     return ShapProxiedFS(**kwargs)
 
 
+def _instantiate_ace(**kwargs):
+    # Lazy import: ace pulls in sklearn ensembles + scipy.stats on first fit.
+    from mlframe.feature_selection.ace import ACESelector
+    return ACESelector(**kwargs)
+
+
 def _report_extract_shap_proxied_fs(selector, kept) -> dict:
     """Per-feature ShapProxiedFS report fragment consumed by ``_build_feature_selection_report``.
 
@@ -192,3 +198,7 @@ register(_SimpleSpec(name="BorutaShap", instantiate=_instantiate_boruta_shap))
 # the matching ``_build_pre_pipelines`` branch (mirrors BorutaShap). The registration also carries
 # ``report_extract`` so the central report builder picks up ShapProxiedFS scores without a hard-coded branch.
 register(_SimpleSpec(name="ShapProxiedFS", instantiate=_instantiate_shap_proxied_fs, report_extract=_report_extract_shap_proxied_fs))
+# ACE (Artificial Contrasts with Ensembles) is reachable from the suite via ``FeatureSelectionConfig.use_ace_fs``
+# + the matching ``_build_pre_pipelines`` branch. ``ace_select`` is a function returning ``ACEResult``; the
+# ACESelector adapter exposes the sklearn fit/get_support/transform contract the suite drives selectors through.
+register(_SimpleSpec(name="ACE", instantiate=_instantiate_ace))

@@ -594,6 +594,8 @@ def _setup_per_target_mlframe_models(
         boruta_shap_kwargs=feature_selection_config.boruta_shap_kwargs,
         use_shap_proxied_fs=feature_selection_config.use_shap_proxied_fs,
         shap_proxied_fs_kwargs=feature_selection_config.shap_proxied_fs_kwargs,
+        use_ace_fs=feature_selection_config.use_ace_fs,
+        ace_kwargs=feature_selection_config.ace_kwargs,
         rfecv_cluster_reduce=feature_selection_config.rfecv_cluster_reduce,
         rfecv_cluster_corr_threshold=feature_selection_config.rfecv_cluster_corr_threshold,
         rfecv_cluster_min_reduction=feature_selection_config.rfecv_cluster_min_reduction,
