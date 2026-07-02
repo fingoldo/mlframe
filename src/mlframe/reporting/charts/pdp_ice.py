@@ -101,11 +101,35 @@ def _as_2d(X: Any) -> Tuple[np.ndarray, Any, Optional[List[str]]]:
     if hasattr(X, "columns") and not isinstance(X, np.ndarray):
         names = [str(c) for c in X.columns]
         vals = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
-        return np.asarray(vals, dtype=np.float64), X, names
-    arr = np.asarray(X, dtype=np.float64)
+        return _coerce_float_2d(vals), X, names
+    arr = _coerce_float_2d(np.asarray(X))
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
     return arr, arr, None
+
+
+def _coerce_float_2d(vals: np.ndarray) -> np.ndarray:
+    """Best-effort 2-D float64 view of a possibly mixed / string / categorical value matrix, used ONLY for the PDP grid
+    construction + ICE x-values (the model is always fed the native ``carrier`` frame, never this view). A whole-frame
+    ``astype(float64)`` blew up with "could not convert string to float" whenever ANY feature column was string /
+    categorical -- taking down the ENTIRE PDP figure (all numeric features' panels included) via the one upfront cast,
+    even though the categorical column is usually not one of the drawn top-K features. Numeric columns pass through; a
+    non-numeric column is label-encoded (``pd.factorize``) to category codes so the grid still has usable spread."""
+    vals = np.asarray(vals)
+    if vals.ndim == 1:
+        vals = vals.reshape(-1, 1)
+    if vals.dtype.kind in "fiub":
+        return vals.astype(np.float64)
+    import pandas as pd
+    out = np.empty(vals.shape, dtype=np.float64)
+    for j in range(vals.shape[1]):
+        col = vals[:, j]
+        try:
+            out[:, j] = col.astype(np.float64)
+        except (ValueError, TypeError):
+            codes, _ = pd.factorize(pd.Series(col).astype("string"), use_na_sentinel=True)
+            out[:, j] = np.where(codes < 0, np.nan, codes).astype(np.float64)
+    return out
 
 
 def _resolve_feature_index(feature: Union[int, str], names: Optional[List[str]], n_cols: int) -> int:

@@ -262,3 +262,26 @@ def test_cprofile_compute_pdp_2d_at_1e6_rows_subsampled():
     res = pdp_ice.compute_pdp_2d(model, X, (0, 1), grid=12, sample=2000)
     pr.disable()
     assert res["surface"].shape == (res["grid0"].shape[0], res["grid1"].shape[0])
+
+
+def test_pdp_as_2d_coerces_string_columns_without_crashing():
+    """_as_2d builds the float grid/ICE view; a whole-frame astype(float64) crashed with 'could not convert string to
+    float' whenever ANY feature column was string/categorical, taking down the ENTIRE PDP figure (all numeric panels
+    included) at the one upfront cast. It now coerces per-column (numeric passthrough; non-numeric -> factorize codes),
+    so the float view never crashes. (Note: PDP for a LightGBM *categorical model* still needs the deeper grid-
+    substitution category-preservation fix -- tracked separately; this pins the float-view layer.)"""
+    import numpy as np
+    import pandas as pd
+    from mlframe.reporting.charts.pdp_ice import _as_2d, _coerce_float_2d
+
+    # Pure-numeric passthrough is exact float64.
+    num = np.arange(12.0).reshape(4, 3)
+    assert np.array_equal(_coerce_float_2d(num), num)
+
+    df = pd.DataFrame({"x0": np.arange(100.0), "x1": np.arange(100.0)[::-1], "cat": ["A", "B", "C", "D"] * 25})
+    vals, carrier, names = _as_2d(df)
+    assert vals.shape == (100, 3) and vals.dtype == np.float64
+    assert names == ["x0", "x1", "cat"]
+    assert carrier is df  # carrier kept native for the model's expected input
+    assert np.array_equal(vals[:, 0], np.arange(100.0))  # numeric columns untouched
+    assert np.all(np.isfinite(vals[:, 2])) and set(np.unique(vals[:, 2])) == {0.0, 1.0, 2.0, 3.0}  # cat -> codes
