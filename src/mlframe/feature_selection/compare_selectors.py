@@ -127,22 +127,31 @@ class SelectorComparison:
         shown = cons.index if max_features is None else cons.index[:max_features]
         mat = self.agreement.loc[shown]
         cols = list(mat.columns)
+        # Pull numpy arrays once and index positionally; per-cell pandas ``.at`` /
+        # Series scalar lookups (``_get_value``) dominated the report wall time.
+        mat_vals = mat.to_numpy()
+        feat_index = list(mat.index)
+        cons_vals = cons.reindex(feat_index).to_numpy()
         head = "  feature".ljust(24) + "  " + "  ".join(c[:10].rjust(10) for c in cols) + f"  {'k/n':>5}"
         lines.append("")
         lines.append("AGREEMENT (rows sorted by consensus):")
         lines.append(head)
-        for feat in mat.index:
-            cells = "  ".join(("Y" if mat.at[feat, c] else ".").rjust(10) for c in cols)
-            lines.append("  " + str(feat).ljust(22) + "  " + cells + f"  {int(self.consensus[feat]):>3}/{n}")
+        for ridx, feat in enumerate(feat_index):
+            row = mat_vals[ridx]
+            cells = "  ".join(("Y" if row[cidx] else ".").rjust(10) for cidx in range(len(cols)))
+            lines.append("  " + str(feat).ljust(22) + "  " + cells + f"  {int(cons_vals[ridx]):>3}/{n}")
         if max_features is not None and len(self.agreement) > max_features:
             lines.append(f"  ... ({len(self.agreement) - max_features} more features, lower consensus)")
 
         lines.append("")
         lines.append("PAIRWISE JACCARD:")
         jc = self.jaccard
-        lines.append("  " + "".ljust(12) + "  " + "  ".join(c[:10].rjust(10) for c in jc.columns))
-        for r in jc.index:
-            lines.append("  " + str(r)[:12].ljust(12) + "  " + "  ".join(f"{jc.at[r, c]:>10.2f}" for c in jc.columns))
+        jc_vals = jc.to_numpy()
+        jc_cols = list(jc.columns)
+        lines.append("  " + "".ljust(12) + "  " + "  ".join(c[:10].rjust(10) for c in jc_cols))
+        for ridx, r in enumerate(jc.index):
+            row = jc_vals[ridx]
+            lines.append("  " + str(r)[:12].ljust(12) + "  " + "  ".join(f"{row[cidx]:>10.2f}" for cidx in range(len(jc_cols))))
 
         lines.append("")
         full = int((self.consensus == n).sum())
@@ -196,6 +205,7 @@ def compare_selectors(
         raise ValueError("compare_selectors requires X with >= 1 column; got an empty feature set.")
     fit_kwargs = dict(fit_kwargs or {})
 
+    feature_set = set(feature_names)
     selected_by: dict[str, list[str]] = {}
     skipped: dict[str, str] = {}
     used_names: set[str] = set()
@@ -229,7 +239,7 @@ def compare_selectors(
             skipped[name] = f"no readable support: {exc}"
             continue
 
-        kept = [c for c in sel if c in set(feature_names)]
+        kept = [c for c in sel if c in feature_set]
         selected_by[name] = kept
 
     if not selected_by:
@@ -243,14 +253,14 @@ def compare_selectors(
         )
 
     names = list(selected_by.keys())
+    sets = {nm: set(selected_by[nm]) for nm in names}
     agreement = pd.DataFrame(
-        {nm: [feat in set(selected_by[nm]) for feat in feature_names] for nm in names},
+        {nm: [feat in sets[nm] for feat in feature_names] for nm in names},
         index=feature_names,
     )
     consensus = agreement.sum(axis=1).astype(int)
     consensus.name = "consensus"
 
-    sets = {nm: set(selected_by[nm]) for nm in names}
     jaccard = pd.DataFrame(
         [[_jaccard_similarity(sets[a], sets[b]) for b in names] for a in names],
         index=names,
