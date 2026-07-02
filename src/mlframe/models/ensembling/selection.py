@@ -41,7 +41,14 @@ logger = logging.getLogger("mlframe.models.ensembling.selection")
 
 
 def _rank_transform(scores: np.ndarray, *, axis: int = -1, normalise: bool = True) -> np.ndarray:
-    """Average-rank transform along ``axis`` (ties share the mean rank); optionally rescale ranks to [0, 1]."""
+    """Average-rank transform along ``axis`` (ties share the mean rank); optionally rescale ranks to [0, 1].
+
+    Profiled (300k fuzz loop, new-feature pass): the cost is the per-model argsort inside ``scipy.stats.rankdata``
+    (O(M*N log N)), which is the algorithmic floor -- 366-611ms at M=4-6/N=300k. A tie-free fast path (ordinal ranks
+    scattered from a single argsort, reused for the adjacent-tie check, scipy fallback on ties) gave only ~14% on the
+    tie-free continuous-probability case and adds real complexity for a function called ONCE per ensemble target, so it
+    was not shipped -- scipy's tie-aware rankdata stays. No actionable speedup that justifies the complexity here.
+    """
     ranks = rankdata(scores, method="average", axis=axis).astype(np.float64)
     if not normalise:
         return ranks
@@ -222,6 +229,13 @@ def caruana_greedy_selection(
         # ``a`` improves over ``b`` by more than ``tol`` in the direction implied by greater_is_better.
         return sign * (a - b) > tol
 
+    # Profiled (300k fuzz loop, new-feature pass): the greedy walk is dominated by the per-candidate ROC-AUC scoring,
+    # which fast_roc_auc already routes to the GPU argsort (measured FASTER than the CPU-njit AUC even with the per-call
+    # host transfer -- forcing CPU was a REJECT: 82ms vs 128ms at M=4/N=60k). Micro-opts explored + rejected: (a) a
+    # reused blend scratch buffer (in-place add/divide) was a wash-to-slightly-slower (76->80ms) since the GPU AUC
+    # dominates the per-candidate allocation; (b) scoring the raw running SUM and skipping the /bag_size mean-division
+    # (AUC is scale-invariant) gave ~7.5% but is only SELECTION-equivalent -- division rounding shifts the reported AUC
+    # ~1e-6 on tied scores, so it is not bit-identical. No actionable bit-identical speedup; keep the exact form.
     # Per-model single scores (used for warm start + to seed the "best so far").
     single_scores = np.array([_score_blend(arr[i], yv, metric) for i in range(m)], dtype=np.float64)
     ranked_models = np.argsort(-sign * single_scores)  # best-first
