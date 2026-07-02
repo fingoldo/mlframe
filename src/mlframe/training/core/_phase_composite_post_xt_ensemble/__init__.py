@@ -938,7 +938,23 @@ def _build_cross_target_ensemble_for_target(
                         "pessimism); deploying the trained component, NOT lag.",
                         _orig_tname, _oof_names[_val_veto_idx], _lag_failsafe_tol * 100.0,
                     )
-                    _ensemble = _oof_components[_val_veto_idx]
+                    _deployed = _oof_components[_val_veto_idx]
+                    # Per-row OOD-lag routing on top: the trained model wins overall but still extrapolates on unseen
+                    # groups whose target level is out of the train range; route those rows (lag out of range) to lag,
+                    # but only when it improves the honest val RMSE. Transferable (train-range rule, not group-id).
+                    try:
+                        from .._ood_lag_router import build_ood_lag_router
+                        _ytr = (np.asarray(_oof_y_full)[filtered_train_idx].astype(np.float64)
+                                if (_oof_y_full is not None and filtered_train_idx is not None) else None)
+                        _yv = (np.asarray(_oof_y_full)[filtered_val_idx].astype(np.float64)
+                               if (_oof_y_full is not None and filtered_val_idx is not None) else None)
+                        _deployed = build_ood_lag_router(
+                            _deployed, _oof_components[_oof_names.index("lag_predict")],
+                            _ytr, filtered_val_df, _yv, composite_target_discovery_config,
+                        )
+                    except Exception as _rr_err:  # noqa: BLE001 -- routing is advisory; keep the trained model
+                        logger.info("[CompositeCrossTargetEnsemble] target='%s' OOD-lag routing skipped (%s).", _orig_tname, _rr_err)
+                    _ensemble = _deployed
                     _lag_failsafe_taken = True
                 elif (_lag_failsafe_tol > 0
                         and "lag_predict" in _oof_names

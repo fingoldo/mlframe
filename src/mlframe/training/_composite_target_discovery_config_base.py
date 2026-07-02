@@ -91,6 +91,14 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # lag deployment in favour of a val-confirmed-better trained model.
     ar1_failsafe_val_crosscheck: bool = True
 
+    # Per-row OOD-lag routing on the deployed model. After the val cross-check keeps the trained model (it wins overall),
+    # some unseen groups still sit OUTSIDE the train target range, where the model can only extrapolate/clamp while
+    # lag_predict is exact. Route those rows (lag outside the train target range) to lag -- but only when it strictly
+    # improves the honest group-disjoint val RMSE. The rule uses the fixed train range (not group ids), so it transfers
+    # to unseen test groups. Default ON; ``ood_lag_router_margin_frac`` optionally widens the train range before routing.
+    ood_lag_routing_enabled: bool = True
+    ood_lag_router_margin_frac: float = 0.0
+
     # Emit the composite-target VALUE report (per-group did-it-help / hurt / worse-than-lag breakdown + net weighted lift).
     emit_composite_value_report: bool = True
 
