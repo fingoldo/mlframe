@@ -164,6 +164,25 @@ def _ensure_kaleido_server_started() -> bool:
         return False
 
 
+def _oneshot_write_static(fig: Any, path: str, fmt: str) -> None:
+    """Isolated static-image write for the oneshot fallback, bypassing the persistent sync server.
+
+    Prefers plotly's ``fig.write_image`` (the fast native path when plotly>=6.1 matches kaleido>=1). On the
+    version-mismatch ValueError kaleido 1.x raises for older plotly (``fig.write_image`` disabled), fall back to
+    kaleido's ``calc_fig_sync`` + a manual byte write -- the API kaleido's own warning recommends. ``calc_fig_sync``
+    does not route through the ``write_fig_sync`` queue that may have just failed/poisoned the persistent path, so
+    it is a genuinely independent recovery route (verified: writes a real PNG even when write_fig_sync raises).
+    """
+    try:
+        fig.write_image(path, format=fmt)
+        return
+    except Exception:
+        import kaleido
+        data = kaleido.calc_fig_sync(fig, opts={"format": fmt})
+        with open(path, "wb") as fh:
+            fh.write(data)
+
+
 def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
     """Write ``fig`` to ``path`` as png/svg/pdf via kaleido.
 
@@ -258,7 +277,7 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
     _t0 = _time.time()
     try:
         try:
-            fig.write_image(path, format=fmt)
+            _oneshot_write_static(fig, path, fmt)
         except Exception as e:
             logger.warning(
                 "plotly write_image(%s) oneshot failed (%s: %s); "

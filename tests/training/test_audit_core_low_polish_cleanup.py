@@ -119,14 +119,15 @@ def test_core_main_applies_patches_at_suite_entry(monkeypatch) -> None:
     raise on invalid df is fine, the patches must have been called by then).
     """
     import mlframe.training.core.main as _main_mod
-    # 2026-05-22 split: ``train_mlframe_models_suite`` body lives in
-    # ``_main_train_suite.py``; the live call sites resolve the prelude
-    # helpers from THAT module's globals. Patch both namespaces so the
-    # monkeypatch flows through regardless of which one the body uses.
+    # ``train_mlframe_models_suite`` body lives in ``_main_train_suite.py``;
+    # the live prelude resolves ``apply_loky_cpu_count_override`` /
+    # ``apply_third_party_patches_once`` from THAT module's globals (patched in
+    # via ``apply_module_global_patches(sys.modules[__name__])``), so that is
+    # the only real import site to monkeypatch.
     from mlframe.training.core import _main_train_suite as _suite_mod
 
     call_order: list[str] = []
-    for _mod in (_main_mod, _suite_mod):
+    for _mod in (_suite_mod,):
         if hasattr(_mod, "apply_loky_cpu_count_override"):
             orig_loky = _mod.apply_loky_cpu_count_override
 

@@ -103,7 +103,10 @@ def _inv_linear_residual_multi(t_hat: np.ndarray, base: np.ndarray, p: dict[str,
             f"linear_residual_multi serving: base has {base.shape[1]} columns "
             f"but fitted alphas has {alphas.size} entries"
         )
-    return t_hat + (base.astype(np.float64) @ alphas) + float(p["beta"])
+    # Normalise to a canonical C-contiguous layout before the matvec: BLAS dgemv rounds an (n,K)@(K,)
+    # product differently for C- vs F-ordered bases (~1 ULP), and the predict path always feeds a
+    # C-contiguous base (via the soft-shrink guard's ascontiguousarray), so this keeps serving byte-identical.
+    return t_hat + (np.ascontiguousarray(base, dtype=np.float64) @ alphas) + float(p["beta"])
 
 
 def _inv_ratio(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:

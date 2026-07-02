@@ -53,7 +53,7 @@ def test_public_path_reexports_estimator() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
-    root = Path(__file__).resolve().parents[3] / "src" / "mlframe" / "training" / "composite" / "estimator"
+    root = Path(__file__).resolve().parents[4] / "src" / "mlframe" / "training" / "composite" / "estimator"
     facade = root / "__init__.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())
     assert n < 1000, f"estimator/__init__.py is {n} lines, still over the 1k threshold"

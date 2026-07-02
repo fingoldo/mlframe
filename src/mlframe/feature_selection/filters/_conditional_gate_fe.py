@@ -54,11 +54,38 @@ from dataclasses import dataclass
 from itertools import combinations
 from typing import Optional, Sequence
 
+import numba
 import numpy as np
 
 from ._pairwise_modular_fe import _mi
 
 logger = logging.getLogger(__name__)
+
+
+@numba.njit(cache=True, parallel=True, fastmath=False)
+def _gate_mask_grid_njit(cv, av, taus):
+    """Fused (n, n_tau) mask block: ``feats[i, j] = av[i] * (cv[i] > taus[j])``. The off-branch value ``a * 0.0``
+    preserves the NaN semantics of the numpy ``av * (cv > tau)`` form (0*NaN=NaN), so the kernel is bit-identical incl NaN."""
+    n = cv.shape[0]; k = taus.shape[0]
+    out = np.empty((n, k), dtype=np.float64)
+    for i in numba.prange(n):
+        c = cv[i]; a = av[i]; off = a * 0.0
+        for j in range(k):
+            out[i, j] = a if c > taus[j] else off
+    return out
+
+
+@numba.njit(cache=True, parallel=True, fastmath=False)
+def _gate_select_grid_njit(cv, av, bv, taus):
+    """Fused (n, n_tau) select block: ``feats[i, j] = av[i] if cv[i] > taus[j] else bv[i]``. Pure gather (no arithmetic),
+    so bit-identical to the numpy ``np.where(cv > tau, av, bv)`` form incl NaN operands."""
+    n = cv.shape[0]; k = taus.shape[0]
+    out = np.empty((n, k), dtype=np.float64)
+    for i in numba.prange(n):
+        c = cv[i]; a = av[i]; b = bv[i]
+        for j in range(k):
+            out[i, j] = a if c > taus[j] else b
+    return out
 
 # bench-attempt-rejected (2026-06-13, iter53): fusing the per-candidate (n, 17-tau) mask / select feature-grid build into a
 # single njit kernel (replacing the per-tau ``np.where`` / ``(cv>tau)*av`` Python loop). The ISOLATED build kernel is a real
@@ -103,6 +130,12 @@ _TAU_QUANTILES = tuple(np.round(np.linspace(0.1, 0.9, 17), 4))
 # Margin the engineered column's MI must beat its operand baseline by (mirrors _pairwise_modular_fe._MIN_MARGIN). Below it the
 # selector can already recover the signal from a raw / cheap-op column, so the engineered column adds no genuine structure.
 _MIN_MARGIN = 0.02
+
+# Row threshold above which _build_feats fuses the per-tau (n, 17) mask/select block into one njit(prange) kernel
+# instead of the numpy per-tau loop. The isolated build kernel wins at all n, but the 2026-06-13 iter53 reject found
+# it LOSES end-to-end at small n (build is a tiny fraction of the scan + its prange contends with the MI prange);
+# gated ON only for large n where the build is a real fraction of the scan (validated end-to-end). Env-overridable.
+_GATE_BUILD_NJIT_MIN_N = int(os.environ.get("MLFRAME_GATE_BUILD_NJIT_MIN_N", "20000"))
 
 # Absolute floor the engineered MI must clear ABOVE the permutation-null band (not just `> null_hi`); mirrors _pairwise_modular_fe._MIN_NULL_MARGIN.
 # Guards the cardinality-inflation false positive on a few-class y (a ~10-bin regression/quantized target), where a select/mask column's
@@ -629,7 +662,15 @@ def cheap_conditional_gate_scan(
         """Host tau-grid block for one combo -- the exact host candidate columns (used by the host fallback MI
         and by ``_perm_null_hi`` for the best column)."""
         cv = operands[0]
-        feats = np.empty((cv.shape[0], len(taus)), dtype=np.float64)
+        n = cv.shape[0]
+        if n >= _GATE_BUILD_NJIT_MIN_N:
+            _t = np.ascontiguousarray(taus, dtype=np.float64)
+            _cv = np.ascontiguousarray(cv, dtype=np.float64)
+            if mode == "mask":
+                return _gate_mask_grid_njit(_cv, np.ascontiguousarray(operands[1], dtype=np.float64), _t)
+            return _gate_select_grid_njit(_cv, np.ascontiguousarray(operands[1], dtype=np.float64),
+                                          np.ascontiguousarray(operands[2], dtype=np.float64), _t)
+        feats = np.empty((n, len(taus)), dtype=np.float64)
         if mode == "mask":
             av = operands[1]
             for j, tau in enumerate(taus):
