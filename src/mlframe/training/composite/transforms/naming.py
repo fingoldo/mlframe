@@ -37,6 +37,8 @@ TRANSFORM_NAME_SHORT: dict[str, str] = {
     "linear_residual_multi": "linresM",
     "linear_residual_grouped": "linresG",
     "causal_anchor_residual": "canchor",
+    "second_diff": "d2",
+    "rank_ecdf_residual": "rankecdf",
     "quantile_residual": "qres",
     "monotonic_residual": "monres",
     "ewma_residual": "ewma",
