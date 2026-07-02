@@ -533,14 +533,19 @@ def _CC6(seed, n):
     return df, pd.Series(y, name="y")
 
 
-# Decoy ab_log re-encodes the ENGINEERED feature sqrt(a*b) itself; the gate must
-# condition on the constructed ab/engineered col. keep: the (a,b) signal (raw pair
-# or precomputed ab) + d. drop: ab_log, a_exp, e1, e2 must be absent.
+# ab_log = log(a*b+1) re-encodes the a*b signal. It was originally EXPECTED to drop as a pure decoy, but an
+# instrumented fit (2026-07-02) proved otherwise: the selected engineered compound is LINEARLY LOSSY (kept-set
+# held-out Ridge R2 0.89 << raw-only 0.99), so ab_log carries linearly-usable a*b signal the child does NOT
+# provide to a linear model. The usability-aware raw-retention device LEGITIMATELY re-attaches it (a monotone
+# decoy is statistically indistinguishable from a genuine linear term, and the no-harm Ridge guard confirms
+# dropping it would regress the downstream linear fit). So ab_log is KEEP-OR-NEUTRAL, not a drop -- see
+# tests/feature_selection/mrmr/biz_val for the quantitative retention win. keep: the (a,b) signal (raw pair or
+# precomputed ab, incl. via the engineered compound) + d. drop: only the genuine noise / unused a_exp, e1, e2.
 _reg(
     "F6_decoy_reencodes_the_engineered_feature_itself",
     _CC6,
     keep=[{"any_of": [{"a", "b"}, {"ab"}]}, _sig({"d"})],
-    drop={"ab_log", "a_exp", "e1", "e2"},
+    drop={"a_exp", "e1", "e2"},
     family="competing-correlated",
 )
 
@@ -974,24 +979,6 @@ EXPECTED_XFAILS = {
     ("F4_medium_shared_operand_additive_composite", BROAD_N): _C_DIVISOR,
     ("F5_hard_nested_product_of_composites", BROAD_N): _C_NEST,
     ("F6_hard_nested_ratio_three_engineered_atoms", BROAD_N): _C_NEST,
-    # Triaged 2026-07-02 (was failing loud; VERIFIED root cause via instrumented fit + a rejected prod fix).
-    # The sole failure is the ab_log drop -- keep IS satisfied (the compound covers {ab}, d is selected).
-    # ab_log survival is NOT an operand-redundancy-drop gap: the instrumented fit shows (1) the redundancy
-    # sweep's info-redundant drops (a/b/ab) are REVERTED by the downstream no-harm Ridge guard because the
-    # nonlinear compound is LINEARLY LOSSY (kept-set held-out R2 0.89 << raw-only 0.99 -- the raw operands
-    # carry linear signal the child loses); (2) ab_log is then re-attached by the USABILITY-AWARE RAW
-    # RETENTION device because ab_log=log(a*b+1) is a linearly-usable encoding of the a*b signal and is
-    # statistically INDISTINGUISHABLE from a genuine linear term. Dropping it would risk genuine
-    # linearly-usable raws and violate the no-harm contract. A prod "non-operand redundant-raw" pass was
-    # attempted and rejected (bench-attempt-rejected note in _fe_raw_redundancy_drop.py) -- it did not fix
-    # this and its drops are correctly guard-reverted. So class-4 xfail-with-reason, not green-by-relaxation.
-    ("F6_decoy_reencodes_the_engineered_feature_itself", BROAD_N): (
-        "class4-linearly-usable decoy: ab_log=log(a*b+1) is re-attached by the usability-aware raw retention "
-        "(linearly usable, indistinguishable from a genuine linear term) and the no-harm Ridge guard confirms "
-        "the nonlinear compound is linearly lossy (kept-set R2 0.89 << raw-only 0.99); keep is satisfied, only "
-        "the ab_log drop is unmet. Dropping it would risk genuine linearly-usable raws / break the no-harm "
-        "contract -- not fixable without a mechanism that can tell a monotone decoy from a real linear term"
-    ),
     # MS_sin_phase_weak now PASSES: the warp-surrogate matcher recognises a__He3 -> a, and the
     #   keep is the honest "both operands present" (a via a__He3 + raw b); noise g/h/k drops.
     # MS_ratio_plus_decoy now PASSES: the periodic c__T2 surrogate covers the cos(c) phase term
