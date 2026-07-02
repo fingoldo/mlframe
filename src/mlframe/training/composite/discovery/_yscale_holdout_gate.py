@@ -36,6 +36,7 @@ import numpy as np
 
 from ..transforms import UnknownTransformError, get_transform
 from .screening import _extract_column_array
+from ._causal_lag import is_causal_base_name
 from ._screening_tiny import _build_tiny_model
 from ._rejection_ledger import RejectStage, ledger_append
 
@@ -180,9 +181,17 @@ def apply_structural_fragility_gate(
 
     survivors: list = []
     rejected: list[tuple] = []
+    _causal_exempt = bool(getattr(cfg, "causal_base_gate_exempt", True))
+    _tcol = getattr(self, "_target_col", None)
     for spec in kept_specs:
         base_col = getattr(spec, "base_column", "")
         if not base_col or getattr(spec, "extra_base_columns", ()):  # single-base only
+            survivors.append(spec)
+            continue
+        # Causal-provenance exemption: a strictly-causal base (grouped-causal engineered / named lag) re-injects a REAL
+        # per-row previous value at inverse, so it stays in-range on unseen groups -- the between-group-level fragility
+        # this gate detects does not apply. Provenance only, never a heuristic; gated by causal_base_gate_exempt.
+        if _causal_exempt and is_causal_base_name(base_col, _tcol):
             survivors.append(spec)
             continue
         try:

@@ -23,6 +23,7 @@ try:
 except ImportError:
     rankdata = None  # type: ignore[assignment]
 
+from ._causal_lag import is_causal_base_name
 from ._collinear_numba import block_shuffle_gather
 from ._structural_hints import boost_for_features
 from .screening import (
@@ -682,9 +683,22 @@ def _auto_base(
     _copy_thresh = getattr(self.config, "base_max_abs_corr_with_y", 0.9995)
     if _copy_thresh is not None and float(_copy_thresh) < 1.0 and _abs_corr_to_y:
         _ct = float(_copy_thresh)
-        _excluded = [(m, c) for m, c in ranked if _abs_corr_to_y.get(c, 0.0) > _ct]
+        # Provenance exemption: a strictly-causal base (grouped-causal engineered ``__gcausal_*`` or a named ``{y}_prev``
+        # lag) is NOT a fragile near-copy of y even at |corr|~1 -- its additive inverse ``y = T_hat + y_prev`` uses a REAL
+        # per-row previous value, so it stays in-range on unseen groups (the exact opposite of the gate's failure mode).
+        # On a strong-AR target (lag-1 autocorr ~1) the causal lag is the single best base, so excluding it kills the win.
+        # Exempt by PROVENANCE only (never a marginal corr match), so a contemporaneous near-copy of y is still dropped.
+        _tcol = getattr(self, "_target_col", None)
+        _causal_exempt = bool(getattr(self.config, "causal_base_gate_exempt", True))
+
+        def _is_near_copy(_c: str) -> bool:
+            if _abs_corr_to_y.get(_c, 0.0) <= _ct:
+                return False
+            return not (_causal_exempt and is_causal_base_name(_c, _tcol))
+
+        _excluded = [(m, c) for m, c in ranked if _is_near_copy(c)]
         if _excluded:
-            ranked = [(m, c) for m, c in ranked if _abs_corr_to_y.get(c, 0.0) <= _ct]
+            ranked = [(m, c) for m, c in ranked if not _is_near_copy(c)]
             _hint_excl = [c for _m, c in _excluded if c in set(hint_kept)]
             logger.info(
                 "[CompositeTargetDiscovery] auto-base excluded %d near-copy-of-y base candidate(s) "

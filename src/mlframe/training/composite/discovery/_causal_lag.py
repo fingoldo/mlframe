@@ -24,6 +24,30 @@ import numpy as np
 # named ``{target}{suffix}`` is treated as the strictly-causal lag(y) of the sequential target.
 CAUSAL_LAG_SUFFIXES = ("_prev", "_lag_1", "_lag1", "_lag")
 
+# Marker minted by the grouped-causal base engineer (``_grouped_causal_bases.py``) into every strictly-causal per-group
+# base name (``{target}__gcausal_lag{k}`` / ``__gcausal_tmean{w}`` / ``__gcausal_expmean``). Its presence is unambiguous
+# provenance that the column is a within-group causal construct we built, never a contemporaneous near-copy of y.
+CAUSAL_BASE_MARKER = "__gcausal_"
+
+
+def is_causal_base_name(name: str, target_col: str | None = None) -> bool:
+    """True when ``name`` is a strictly-causal base by PROVENANCE: a grouped-causal engineered base (carries
+    ``CAUSAL_BASE_MARKER``) or a named causal lag ``{target_col}{suffix}``. Provenance only -- a contemporaneous
+    near-copy of y that is not a causal construct is never matched, so the near-copy leakage guard still protects it.
+
+    The lag-suffix match requires ``target_col`` (an exact ``{target}{suffix}`` name); with ``target_col=None`` only the
+    unambiguous engineered marker matches, so a stray feature merely ending in ``_prev`` is not silently exempted.
+    """
+    if not name:
+        return False
+    if CAUSAL_BASE_MARKER in name:
+        return True
+    if target_col:
+        for suffix in CAUSAL_LAG_SUFFIXES:
+            if name == f"{target_col}{suffix}":
+                return True
+    return False
+
 
 def detect_causal_lag_column(df, target_col: str) -> str | None:
     """Return the causal-lag feature name for ``target_col`` present in ``df`` (first matching suffix), else ``None``.
