@@ -1,10 +1,13 @@
-"""SA30 regression: dummy prior / most_frequent baselines under label shift.
+"""Dummy prior / most_frequent baselines under label shift.
 
-Pre-fix the ``prior`` and ``most_frequent`` no-skill baselines used the TRAIN
-prevalence scored on the val/test split. Under label shift (train prevalence !=
-eval prevalence) that gives a biased no-skill floor. The fix computes the
-prevalence on the EVALUATION split, so the floor reflects the distribution it is
-scored against.
+The primary ``prior`` / ``most_frequent`` baselines are HONEST no-skill floors:
+what a practitioner could predict having seen ONLY the training labels, so they
+use the TRAIN prevalence applied unchanged to val/test. Building them from the
+eval split's own class marginal is an eval-peek (the baseline "knows" the label
+distribution of the very split it is scored on). The eval-distribution reference
+is still computed but exposed ONLY under the explicit ``oracle_prior`` name so it
+can never be mistaken for the honest baseline. See the rationale in
+``_dummy_baseline_classification._compute_classification_baselines``.
 """
 from __future__ import annotations
 
@@ -23,7 +26,7 @@ class _Cfg:
     per_group_min_val_coverage_pct = 0.0
 
 
-def test_prior_reflects_eval_split_under_label_shift():
+def test_prior_is_honest_train_floor_under_label_shift():
     # Train is 90% class-0; val/test are 30% class-0 (strong label shift).
     n_tr, n_ev = 1000, 500
     train_y = np.array([0] * 900 + [1] * 100)
@@ -39,17 +42,21 @@ def test_prior_reflects_eval_split_under_label_shift():
         cat_features=None, config=_Cfg(), target_type="binary_classification", n_classes=2,
     )
 
-    # prior baseline row is constant per split; it must equal the EVAL prevalence
-    # (class-1 prob ~0.70), NOT the train prevalence (class-1 prob 0.10).
+    # The honest "prior" baseline is the TRAIN prevalence (class-1 prob ~0.10) applied
+    # unchanged to val/test -- what a constant predictor fit on train alone would emit.
     val_prior_p1 = float(val_probs["prior"][0, 1])
-    assert abs(val_prior_p1 - 0.70) < 1e-9, f"val prior must reflect eval split (0.70), got {val_prior_p1}"
+    assert abs(val_prior_p1 - 0.10) < 1e-9, f"prior must be the honest train floor (0.10), got {val_prior_p1}"
     test_prior_p1 = float(test_probs["prior"][0, 1])
-    assert abs(test_prior_p1 - 0.70) < 1e-9, f"test prior must reflect eval split (0.70), got {test_prior_p1}"
+    assert abs(test_prior_p1 - 0.10) < 1e-9, f"prior must be the honest train floor (0.10), got {test_prior_p1}"
 
-    # most_frequent on the eval split is class 1 (majority on eval), not class 0
-    # (the train majority). Pre-fix it predicted class 0 (train argmax).
-    assert int(np.argmax(val_probs["most_frequent"][0])) == 1, "most_frequent must follow eval-split majority"
-    assert int(np.argmax(test_probs["most_frequent"][0])) == 1
+    # The eval-split marginal (class-1 prob ~0.70) is the label-informed reference, exposed
+    # under the distinct ``oracle_prior`` name so it is never mistaken for the honest floor.
+    assert abs(float(val_probs["oracle_prior"][0, 1]) - 0.70) < 1e-9
+    assert abs(float(test_probs["oracle_prior"][0, 1]) - 0.70) < 1e-9
+
+    # most_frequent follows the TRAIN majority (class 0), not the eval-split majority.
+    assert int(np.argmax(val_probs["most_frequent"][0])) == 0, "most_frequent must follow the honest train majority"
+    assert int(np.argmax(test_probs["most_frequent"][0])) == 0
 
 
 def test_no_label_shift_prior_unchanged():
