@@ -47,9 +47,8 @@ def _corr_sq_centered_gpu(cp, v, yc, y_ss: float) -> float:
     centered because yc sums to zero). Returns a host float (bounded scalar D2H).
     Same relative degeneracy guard as the CPU path."""
     n = v.shape[0]
-    sv = float(cp.sum(v))
-    vv = float(cp.dot(v, v))
-    vy = float(cp.dot(v, yc))
+    # Stack the three independent reductions and read them back in ONE D2H (was three separate float() syncs).
+    sv, vv, vy = (float(_x) for _x in cp.asnumpy(cp.stack([cp.sum(v), cp.dot(v, v), cp.dot(v, yc)])))
     v_ss = vv - sv * sv / n
     if v_ss <= 1e-12 * vv or v_ss < 1e-24 or y_ss < 1e-24:
         return 0.0

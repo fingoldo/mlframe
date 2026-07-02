@@ -134,10 +134,12 @@ def _als_sweep_gpu(cp, Ba, Bb, yc, iters):
     g = Bb @ cb
     ca = None
     for _ in range(max(1, int(iters))):
-        g_norm = g / (float(cp.std(g)) + 1e-12)            # scalar D2H (std), resident vector op
+        # cp.std(...) kept as a device 0-dim scalar (no float()): it is only a broadcast divisor, so the host
+        # roundtrip was pure waste -- the divide stays fully resident and the result is bit-identical.
+        g_norm = g / (cp.std(g) + 1e-12)
         ca = _als_solve_gpu(cp, Ba * g_norm[:, None], yc)
         f = Ba @ ca
-        f_norm = f / (float(cp.std(f)) + 1e-12)            # scalar D2H (std), resident vector op
+        f_norm = f / (cp.std(f) + 1e-12)
         cb = _als_solve_gpu(cp, Bb * f_norm[:, None], yc)
         g = Bb @ cb
     if ca is None:
