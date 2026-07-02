@@ -21,6 +21,7 @@ class RejectStage:
     ALPHA_DRIFT_BASE = "alpha_drift_base"
     LINRES_DIFF_COLLAPSE = "linres_diff_collapse"
     TINY_RERANK_THRESHOLD = "tiny_rerank_threshold"
+    HONEST_OOF_FLOOR = "honest_oof_floor"
     TINY_RERANK_WILCOXON = "tiny_rerank_wilcoxon"
     TINY_RERANK_PER_BIN = "tiny_rerank_per_bin"
     RAW_DOMINATES_SKIP = "raw_dominates_skip"

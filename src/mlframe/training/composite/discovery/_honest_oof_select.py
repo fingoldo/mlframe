@@ -28,6 +28,7 @@ import numpy as np
 from pyutilz.parallel import cpu_count_physical
 
 from ..transforms import UnknownTransformError, get_transform
+from ._causal_lag import causal_lag_predict_rmse, detect_causal_lag_column
 from .screening import _extract_column_array
 from ._screening_tiny import _build_tiny_model
 
@@ -73,9 +74,13 @@ def honest_oof_reconstruction_rmse(
     holdout rows (unseen wells), invert to the y-scale, RMSE vs raw y. Returns ``{spec.name -> rmse}``. A genuine
     COLLAPSE (non-finite / near-constant inverse, RMSE non-finite) maps to ``+inf``; a degenerate MEASUREMENT (no
     holdout, too few valid rows, missing transform) leaves the spec OUT of the dict so the caller falls back to the
-    group-internal CV-RMSE. Also records the raw-y honest-OOF baseline on ``self._honest_oof_raw_rmse`` for the gate.
+    group-internal CV-RMSE. Also records the raw-y honest-OOF baseline on ``self._honest_oof_raw_rmse`` and the AR
+    failsafe (lag_predict) baseline on ``self._honest_oof_lag_rmse`` so the gate can floor specs against ``min(raw, lag)``.
     """
     out: dict[str, float] = {}
+    # Reset the per-target honest-OOF floor references so a stale value from a prior target cannot leak into this gate.
+    self._honest_oof_raw_rmse = float("nan")
+    self._honest_oof_lag_rmse = float("nan")
     if holdout_idx is None or not kept_specs:
         return out
     screen_idx = np.asarray(screen_idx)
@@ -120,6 +125,19 @@ def honest_oof_reconstruction_rmse(
     except Exception as exc:  # noqa: BLE001 -- baseline failure -> no ranking key produced
         logger.warning("[CompositeTargetDiscovery.honest_oof_select] raw-y baseline fit failed (%s); selector skipped.", exc)
         return out
+
+    # AR failsafe (lag_predict) floor on the SAME group-disjoint holdout rows. On a strong-AR sequential target the
+    # deployed model is often just ``y_hat = y_prev``; a composite spec whose honest reconstruction cannot beat that
+    # failsafe is worthless even if it beats the raw-y model. Measure the lag baseline here so the gate can floor every
+    # spec against ``min(raw, lag)`` rather than raw alone (prod incident: 13.30 ensemble vs 11.58 lag floor).
+    lag_col = detect_causal_lag_column(df, target_col)
+    if lag_col is not None:
+        try:
+            lag_eval = _extract_column_array(df, lag_col, rows=eval_idx).astype(np.float64)
+            lag_rmse = causal_lag_predict_rmse(lag_eval, y_eval)
+            self._honest_oof_lag_rmse = float(lag_rmse)
+        except Exception as exc:  # noqa: BLE001 -- lag probe failure -> no lag floor (raw floor still applies)
+            logger.debug("[honest_oof_select] lag floor probe failed for %s: %s", lag_col, exc)
 
     def _score_one(spec) -> tuple[str, float | None]:
         try:

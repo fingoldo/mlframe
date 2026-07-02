@@ -445,7 +445,13 @@ def _tiny_model_rerank(
         )
         if _honest_oof:
             self._honest_oof_rmse = dict(_honest_oof)
-            _honest_oof_baseline = float(getattr(self, "_honest_oof_raw_rmse", float("nan")))
+            # Floor the gate against min(raw-y, AR-failsafe): a spec that reconstructs worse than the lag_predict
+            # failsafe we would deploy anyway is worthless even if it beats the raw-y model. On non-AR data (no lag
+            # column) the lag floor is nan and this reduces to the raw floor -- bit-identical to the prior behaviour.
+            _honest_raw = float(getattr(self, "_honest_oof_raw_rmse", float("nan")))
+            _honest_lag = float(getattr(self, "_honest_oof_lag_rmse", float("nan")))
+            _floor_candidates = [v for v in (_honest_raw, _honest_lag) if math.isfinite(v)]
+            _honest_oof_baseline = min(_floor_candidates) if _floor_candidates else float("nan")
             for i, _spec in enumerate(kept_specs):
                 _hv = _honest_oof.get(_spec.name)
                 if _hv is not None:
@@ -456,9 +462,51 @@ def _tiny_model_rerank(
             }
             logger.info(
                 "[CompositeTargetDiscovery.honest_oof_select] ranking %d spec(s) by honest group-OOF "
-                "reconstruction RMSE (raw-y honest-OOF baseline=%.4g); %d measured, rest fall back to group-internal CV.",
-                len(kept_specs), _honest_oof_baseline, len(_honest_oof),
+                "reconstruction RMSE (floor=%.4g = min(raw-y=%.4g, AR-lag=%.4g)); %d measured, rest fall back to "
+                "group-internal CV.",
+                len(kept_specs), _honest_oof_baseline, _honest_raw, _honest_lag, len(_honest_oof),
             )
+
+            # Enforce the honest-OOF floor as a REJECTION, not just a rank key. Without this, honest-OOF only reorders:
+            # the raw-baseline gate (require_beats_raw_baseline) is off by default, so a spec that reconstructs worse than
+            # min(raw-y, AR-lag) still survives and gets carried into the ensemble even though the lag_predict failsafe
+            # we deploy anyway crushes it (prod: 13.30 ensemble vs 11.58 lag floor). Only specs with a MEASURED honest
+            # reconstruction are subject; a degenerate measurement (absent from _honest_oof) falls back to the CV rank.
+            if (
+                math.isfinite(_honest_oof_baseline)
+                and bool(getattr(self.config, "honest_oof_floor_reject_enabled", True))
+            ):
+                _floor_tol = float(getattr(self.config, "honest_oof_selection_tolerance", 1.05))
+                _floor_thr = _honest_oof_baseline * _floor_tol
+                _kept_after_floor, _agg_after_floor, _floor_dropped = [], [], []
+                for _i, _spec in enumerate(kept_specs):
+                    _hv = _honest_oof.get(_spec.name)
+                    if _hv is not None and math.isfinite(_hv) and _hv >= _floor_thr:
+                        _floor_dropped.append((_spec.name, float(_hv)))
+                        ledger_append(
+                            self, spec_name=_spec.name, stage=RejectStage.HONEST_OOF_FLOOR,
+                            reason=f"honest-OOF reconstruction {_hv:.4g} >= floor {_floor_thr:.4g} "
+                                   f"(min(raw,lag)={_honest_oof_baseline:.4g} * {_floor_tol})",
+                            base_column=getattr(_spec, "base_column", ""),
+                            transform_name=getattr(_spec, "transform_name", ""),
+                            numbers={"honest_oof_rmse": float(_hv), "floor": float(_honest_oof_baseline),
+                                     "threshold": float(_floor_thr)},
+                        )
+                        continue
+                    _kept_after_floor.append(_spec)
+                    _agg_after_floor.append(agg_scores[_i])
+                if _floor_dropped:
+                    logger.info(
+                        "[CompositeTargetDiscovery.honest_oof_select] floor gate rejected %d/%d spec(s) that lose to "
+                        "min(raw,lag)=%.4g (tol=%.2f): %s",
+                        len(_floor_dropped), len(kept_specs), _honest_oof_baseline, _floor_tol,
+                        ", ".join(f"{n}(RMSE={v:.4g})" for n, v in _floor_dropped[:5]),
+                    )
+                    kept_specs = _kept_after_floor
+                    agg_scores = _agg_after_floor
+                    self._tiny_rerank_scores = {
+                        kept_specs[i].name: float(agg_scores[i]) for i in range(len(kept_specs))
+                    }
 
     # Regime-aware gate. In addition to the
     # global mean RMSE, compute per-quintile-of-base RMSE for each
