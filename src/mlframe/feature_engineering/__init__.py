@@ -174,6 +174,7 @@ from .cat_cooccurrence_svd import (
 from .graph_features import (
     graph_neighbor_aggregate,
     graph_structural_features,
+    link_prediction_features,
 )
 from .graph_construction import (
     knn_graph_edges,
@@ -257,6 +258,7 @@ __all__ = [
     "cat_cooccurrence_svd_with_recipes",
     "graph_neighbor_aggregate",
     "graph_structural_features",
+    "link_prediction_features",
     "knn_graph_edges",
     "shared_attribute_edges",
 ]
