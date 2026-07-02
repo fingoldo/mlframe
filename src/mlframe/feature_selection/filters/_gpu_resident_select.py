@@ -364,6 +364,26 @@ void transpose_f32(const float* __restrict__ in, float* __restrict__ out,
 """
 _TRANSPOSE_F32_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)
 
+# f64 twin (2026-07-02, nsys-driven): the F2 1M trace's single LONGEST GPU op was a 1.69s
+# cupy_copy__float64_float64 -- the (200k, 527) float64 conditional-gate candidate matrix hitting the
+# cp.ascontiguousarray(cand.T) fallback below at ~0.5 GB/s (uncoalesced on both sides). Same 32x33 padded
+# tile as the f32 kernel; bit-identical bytes, ~2 orders of magnitude faster on that shape.
+_TRANSPOSE_F64_SRC = r"""
+extern "C" __global__
+void transpose_f64(const double* __restrict__ in, double* __restrict__ out,
+                   const long long n, const int K) {
+    __shared__ double tile[32][33];
+    long long row = (long long)blockIdx.y * 32 + threadIdx.y;
+    int col = blockIdx.x * 32 + threadIdx.x;
+    if (row < n && col < K) tile[threadIdx.y][threadIdx.x] = in[row * (long long)K + col];
+    __syncthreads();
+    int orow = blockIdx.x * 32 + threadIdx.y;
+    long long ocol = (long long)blockIdx.y * 32 + threadIdx.x;
+    if (orow < K && ocol < n) out[(long long)orow * n + ocol] = tile[threadIdx.x][threadIdx.y];
+}
+"""
+_TRANSPOSE_F64_KERNEL = None
+
 
 def _get_transpose_f32_kernel():
     global _TRANSPOSE_F32_KERNEL
@@ -371,6 +391,14 @@ def _get_transpose_f32_kernel():
         import cupy as cp
         _TRANSPOSE_F32_KERNEL = cp.RawKernel(_TRANSPOSE_F32_SRC, "transpose_f32")
     return _TRANSPOSE_F32_KERNEL
+
+
+def _get_transpose_f64_kernel():
+    global _TRANSPOSE_F64_KERNEL
+    if _TRANSPOSE_F64_KERNEL is None:
+        import cupy as cp
+        _TRANSPOSE_F64_KERNEL = cp.RawKernel(_TRANSPOSE_F64_SRC, "transpose_f64")
+    return _TRANSPOSE_F64_KERNEL
 
 
 def _transpose_to_cm(cand_gpu):
@@ -381,13 +409,16 @@ def _transpose_to_cm(cand_gpu):
     import cupy as cp
 
     n, K = cand_gpu.shape
-    if cand_gpu.dtype != cp.float32 or not cand_gpu.flags.c_contiguous:
+    if cand_gpu.dtype == cp.float32 and cand_gpu.flags.c_contiguous:
+        _ker, _dt = _get_transpose_f32_kernel(), cp.float32
+    elif cand_gpu.dtype == cp.float64 and cand_gpu.flags.c_contiguous:
+        _ker, _dt = _get_transpose_f64_kernel(), cp.float64   # f64 twin: kills the 0.5 GB/s .T-copy fallback
+    else:
         return cp.ascontiguousarray(cand_gpu.T)
     try:
-        out = cp.empty((K, n), dtype=cp.float32)
+        out = cp.empty((K, n), dtype=_dt)
         grid = ((K + 31) // 32, int((n + 31) // 32))
-        _get_transpose_f32_kernel()((grid[0], grid[1]), (32, 32),
-                                    (cand_gpu, out, np.int64(n), np.int32(K)))
+        _ker((grid[0], grid[1]), (32, 32), (cand_gpu, out, np.int64(n), np.int32(K)))
         return out
     except Exception:
         import logging
