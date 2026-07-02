@@ -926,6 +926,43 @@ def check_prospective_fe_pairs(
         else:
             _chunk_global_batch = False
 
+    # CHUNK PIPELINE (2026-07-02, max-GPU phase): overlap chunk k+1's GPU produce with chunk k's host
+    # consume. A single-worker executor + a SECOND chunk buffer ride in ``chunk_state``; the lazy-load seam
+    # in ``_score_one_pair`` awaits the prefetched future, then submits the next chunk into the alternate
+    # buffer before replaying this chunk's pairs (depth-1 double buffer -- the reused slot's pairs were fully
+    # consumed one iteration earlier). Gated on the STRICT-resident path + >=2 chunks + the second buffer
+    # actually fitting host RAM (a MemoryError just disables the pipeline); opt-out
+    # MLFRAME_FE_PIPELINE_CHUNKS=0. The operand table's device mirror is pre-warmed so both threads only
+    # READ the weakref cache (no first-call race). Selection identical: same compute, same chunk/pair order.
+    if _chunk_global_batch and _chunk_buffer is not None and len(_fe_chunks) >= 2:
+        _pipe_env = os.environ.get("MLFRAME_FE_PIPELINE_CHUNKS", "1").strip().lower() in ("1", "true", "on", "yes")
+        _pipe_on = False
+        if _pipe_env:
+            try:
+                from .._fe_gpu_strict import fe_gpu_strict_enabled
+                _pipe_on = bool(fe_gpu_strict_enabled())
+            except Exception:
+                _pipe_on = False
+        if _pipe_on:
+            try:
+                import cupy as _pl_cp
+                from concurrent.futures import ThreadPoolExecutor
+                _chunk_buffer2 = np.empty_like(_chunk_buffer)
+                from .._gpu_resident_fe import _resident_operand_table
+                _resident_operand_table(_pl_cp, transformed_vars)   # pre-warm: both threads then only read
+                _chunk_state["pipeline_buffers"] = [_chunk_buffer, _chunk_buffer2]
+                _chunk_state["pipeline_ex"] = ThreadPoolExecutor(max_workers=1)
+                _chunk_state["pipeline_futures"] = {}
+                if verbose:
+                    logger.info("check_prospective_fe_pairs: chunk pipeline active (%d chunks, double buffer).",
+                                len(_fe_chunks))
+            except Exception:
+                logger.debug("chunk pipeline setup failed; synchronous chunk path", exc_info=True)
+                _chunk_state.pop("pipeline_buffers", None)
+                _ex0 = _chunk_state.pop("pipeline_ex", None)
+                if _ex0 is not None:
+                    _ex0.shutdown(wait=False)
+
     # Sweep-wide leader for the live "pair" bar postfix: the best engineered MI found
     # so far across ALL pairs in this FE step + the feature that produced it. Both are
     # already computed per pair (``best_mi`` / ``best_config``) -- display-only, no extra
@@ -1062,5 +1099,11 @@ def check_prospective_fe_pairs(
     # REJECTION LEDGER export via the reserved result key (survives the loky-parallel path).
     if _rejection_records:
         res[_FE_REJECTION_RESULT_KEY] = _rejection_records
+
+    # Tear down the chunk-pipeline executor (all futures resolved by the pair loop; an unconsumed prefetch
+    # -- e.g. an early exit -- is awaited by shutdown so the worker never outlives the shared buffers).
+    _pl_ex = _chunk_state.pop("pipeline_ex", None)
+    if _pl_ex is not None:
+        _pl_ex.shutdown(wait=True)
 
     return res

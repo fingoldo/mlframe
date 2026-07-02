@@ -190,40 +190,74 @@ def _score_one_pair(
         _my_chunk = _pair_to_chunk.get(raw_vars_pair)
         if _my_chunk is not None:
             if _my_chunk != chunk_state["loaded_idx"]:
-                chunk_state["mi_cache"] = _compute_one_fe_chunk(
-                    chunk_pairs=_fe_chunks[_my_chunk],
-                    pair_valid_combs=_pair_valid_combs,
-                    chunk_buffer=_chunk_buffer,
-                    vars_transformations=vars_transformations,
-                    transformed_vars=transformed_vars,
-                    binary_transformations=binary_transformations,
-                    quantization_nbins=quantization_nbins,
-                    quantization_dtype=quantization_dtype,
-                    classes_y=classes_y,
-                    classes_y_safe=classes_y_safe,
-                    freqs_y=freqs_y,
-                    fe_npermutations=fe_npermutations,
-                    fe_min_nonzero_confidence=fe_min_nonzero_confidence,
-                    batch_mi_kernel=batch_mi_with_noise_gate,
-                    use_su=use_su_normalization(),
-                    prewarp_unary=_PREWARP_UNARY,
-                    logger=logger,
-                    discretize_2d_quantile_batch=discretize_2d_quantile_batch,
-                    serial_main_thread=serial_main_thread,  # OPT-A
-                    defer_float=_fe_defer_float,
-                )
+                # CHUNK PIPELINE (2026-07-02, max-GPU phase): under the strict-resident gate the driver put a
+                # single-worker executor + a SECOND chunk buffer in ``chunk_state`` -- chunk c+1's whole
+                # produce (materialise+bin+MI, GIL-releasing GPU/njit work) runs on the worker thread into the
+                # alternate buffer WHILE the main thread replays chunk c's pairs, so the GPU no longer idles
+                # through the host consume phase. Depth-1 double buffer: producing c+1 reuses slot (c-1)%2,
+                # whose pairs were fully consumed before c+1 was submitted. Selection identical: the SAME
+                # ``_compute_one_fe_chunk`` runs with the SAME inputs, chunks resolve in plan order, and the
+                # consumer never starts a chunk before its future resolves. Any worker fault -> synchronous
+                # inline compute for that chunk (never a regression). Non-pipelined path byte-identical.
+                _bufs = chunk_state.get("pipeline_buffers")
+                _ex = chunk_state.get("pipeline_ex")
+                _target_buf = _bufs[_my_chunk % 2] if _bufs is not None else _chunk_buffer
+
+                def _produce(_ci, _buf):
+                    return _compute_one_fe_chunk(
+                        chunk_pairs=_fe_chunks[_ci],
+                        pair_valid_combs=_pair_valid_combs,
+                        chunk_buffer=_buf,
+                        vars_transformations=vars_transformations,
+                        transformed_vars=transformed_vars,
+                        binary_transformations=binary_transformations,
+                        quantization_nbins=quantization_nbins,
+                        quantization_dtype=quantization_dtype,
+                        classes_y=classes_y,
+                        classes_y_safe=classes_y_safe,
+                        freqs_y=freqs_y,
+                        fe_npermutations=fe_npermutations,
+                        fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                        batch_mi_kernel=batch_mi_with_noise_gate,
+                        use_su=use_su_normalization(),
+                        prewarp_unary=_PREWARP_UNARY,
+                        logger=logger,
+                        discretize_2d_quantile_batch=discretize_2d_quantile_batch,
+                        serial_main_thread=serial_main_thread,  # OPT-A
+                        defer_float=_fe_defer_float,
+                    )
+
+                _mi_cache = None
+                _fut = (chunk_state.get("pipeline_futures") or {}).pop(_my_chunk, None)
+                if _fut is not None:
+                    try:
+                        _mi_cache = _fut.result()
+                    except Exception:
+                        logger.debug("pipelined chunk %d producer failed; inline recompute", _my_chunk, exc_info=True)
+                        _mi_cache = None
+                if _mi_cache is None:
+                    _mi_cache = _produce(_my_chunk, _target_buf)
+                chunk_state["mi_cache"] = _mi_cache
+                chunk_state["active_buffer"] = _target_buf
                 chunk_state["loaded_idx"] = _my_chunk
                 # Reset the per-chunk re-materialise caches + capture the deferral signal/metadata.
                 chunk_state["float_deferred"] = bool(chunk_state["mi_cache"].get("__float_deferred__", False))
                 chunk_state["defer_meta"] = chunk_state["mi_cache"].get("__defer_meta__")
                 chunk_state["tv_gpu"] = None
                 chunk_state["resolved_cols"] = {}
+                # PREFETCH the next chunk into the alternate buffer while this chunk's pairs replay.
+                if _ex is not None and _bufs is not None and (_my_chunk + 1) < len(_fe_chunks):
+                    try:
+                        chunk_state.setdefault("pipeline_futures", {})[_my_chunk + 1] = _ex.submit(
+                            _produce, _my_chunk + 1, _bufs[(_my_chunk + 1) % 2])
+                    except Exception:
+                        logger.debug("chunk prefetch submit failed; falling back to lazy compute", exc_info=True)
             _chunk_entry = chunk_state["mi_cache"].get(raw_vars_pair)
     # When the chunk DEFERRED its float D2H the buffer is unfilled -- point the reads at None so they
     # take the GPU re-materialise branch in ``_resolve_col`` (bit-identical to the buffer value).
     _this_chunk_deferred = (_chunk_entry is not None) and chunk_state["float_deferred"]
     if _chunk_entry is not None:
-        final_transformed_vals = None if _this_chunk_deferred else _chunk_buffer
+        final_transformed_vals = None if _this_chunk_deferred else chunk_state.get("active_buffer", _chunk_buffer)
     else:
         final_transformed_vals = final_transformed_vals_shared
     _col_buf_1d: np.ndarray | None = (
