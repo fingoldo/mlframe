@@ -349,7 +349,7 @@ def _heldout_ridge_r2(X: np.ndarray, y: np.ndarray, frac: float = 0.7) -> Option
         from sklearn.linear_model import Ridge
         from sklearn.preprocessing import StandardScaler
         from sklearn.pipeline import make_pipeline
-        from sklearn.metrics import r2_score
+        from mlframe.metrics.core import fast_r2_score
     except Exception:
         return None
     X = np.nan_to_num(np.asarray(X, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
@@ -362,6 +362,6 @@ def _heldout_ridge_r2(X: np.ndarray, y: np.ndarray, frac: float = 0.7) -> Option
         return None
     try:
         model = make_pipeline(StandardScaler(), Ridge(alpha=1.0)).fit(X[:sp], y[:sp])
-        return float(r2_score(y[sp:], model.predict(X[sp:])))
+        return float(fast_r2_score(y[sp:], model.predict(X[sp:])))
     except Exception:
         return None

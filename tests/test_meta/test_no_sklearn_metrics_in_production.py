@@ -136,6 +136,10 @@ _ALLOWLIST: dict[tuple[str, str], str] = {
         "training/reporting/_reporting_probabilistic.py",
         "classification_report",
     ): "multilabel-indicator / non-1D targets + exception safety-net fallback; format_classification_report handles the single-label path and is used there, but is single-label-only (nclasses scalar), so multilabel keeps sklearn.",
+    (
+        "training/reporting/_reporting.py",
+        "classification_report",
+    ): "shared single-source sklearn fallback re-exported for the sibling probabilistic report's multilabel-indicator / exception path; format_classification_report is single-label-only, so multilabel keeps sklearn.",
 }
 
 
