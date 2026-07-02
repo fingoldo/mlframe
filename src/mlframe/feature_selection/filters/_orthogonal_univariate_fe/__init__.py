@@ -340,46 +340,54 @@ def generate_univariate_basis_features(
             aux_col = _aux_pool[col]
         # For auto-routing, fit the moment fingerprint on the SAME pool so
         # train and unlabeled augmentation agree on basis selection.
-        if basis == "auto":
-            # 2026-06-03: signal-adaptive routing (route by which basis best
-            # LINEARISES y) beats moment-routing on both linear and tree OOS
-            # recovery (bench: corr-routing linear R^2 0.919 vs MI 0.769, tree
-            # 0.852 vs 0.829; moment-routing mis-routed 11/30 cases, catastrophic
-            # on heavy-tailed / skewed x). Requires y; falls back to moment
-            # routing when y is unavailable (standalone callers) or degenerate.
-            if basis_routing == "signal" and y is not None:
-                chosen_basis = basis_route_by_signal(
-                    x, np.asarray(y), degrees=degrees, aux_for_fit=aux_col,
-                )
-            elif aux_col is not None and len(aux_col) > 0:
-                aux_finite = aux_col[np.isfinite(aux_col)]
-                if aux_finite.size > 0:
-                    chosen_basis = basis_route_by_moments(
-                        np.concatenate([x, aux_finite])
+        # ONE heavy-tail memo scope per column (2026-07-02, cProfile-driven): basis_route_by_signal already
+        # memoizes the robust heavy-tail detect over its 4-basis probe, but the FIT-ONCE build below re-detected
+        # the same np.median/MAD on the identical column OUTSIDE that scope -- the dominant post-subsample
+        # np.median caller (154 -> ~77 detects on F2). Wrapping route + build in one nesting-safe scope makes the
+        # build an identity-verified cache hit on the routing detect (collision-proof: the memo returns a cached
+        # verdict only when the stored array IS x). Cleared at column exit, so no cross-column ref retention.
+        from ..hermite_fe._hermite_robust import heavy_tail_memo_scope
+        with heavy_tail_memo_scope():
+            if basis == "auto":
+                # 2026-06-03: signal-adaptive routing (route by which basis best
+                # LINEARISES y) beats moment-routing on both linear and tree OOS
+                # recovery (bench: corr-routing linear R^2 0.919 vs MI 0.769, tree
+                # 0.852 vs 0.829; moment-routing mis-routed 11/30 cases, catastrophic
+                # on heavy-tailed / skewed x). Requires y; falls back to moment
+                # routing when y is unavailable (standalone callers) or degenerate.
+                if basis_routing == "signal" and y is not None:
+                    chosen_basis = basis_route_by_signal(
+                        x, np.asarray(y), degrees=degrees, aux_for_fit=aux_col,
                     )
+                elif aux_col is not None and len(aux_col) > 0:
+                    aux_finite = aux_col[np.isfinite(aux_col)]
+                    if aux_finite.size > 0:
+                        chosen_basis = basis_route_by_moments(
+                            np.concatenate([x, aux_finite])
+                        )
+                    else:
+                        chosen_basis = basis_route_by_moments(x)
                 else:
                     chosen_basis = basis_route_by_moments(x)
             else:
-                chosen_basis = basis_route_by_moments(x)
-        else:
-            chosen_basis = basis
-        if chosen_basis not in _POLY_BASES:
-            logger.warning("generate_univariate_basis_features: unknown basis %r for col %r; skipping", chosen_basis, col)
-            continue
-        # FIT-ONCE-PER-COLUMN (2026-06-21): the basis preprocess ``z`` + params depend ONLY on
-        # (x, basis), NOT on degree -- the degree only swaps the one-hot coefficient. Re-fitting it
-        # inside the degrees loop recomputed the robust heavy-tail axis (np.median/MAD) once per
-        # degree, the dominant np.median caller in the post-subsample CPU tail. Fit ``z`` ONCE here
-        # and evaluate each degree via polyeval_dispatch on the cached ``z`` -- BYTE-IDENTICAL to the
-        # per-degree _evaluate_basis_column (same fit_fn(x) -> same z -> same polyeval). The rare
-        # aux-pool path keeps the per-degree call (its fit concatenates the pool; left untouched).
-        _z_cached = None
-        if aux_col is None or len(np.asarray(aux_col)) == 0:
-            try:
-                _z_fit, _ = _POLY_BASES[chosen_basis]["fit"](x)
-                _z_cached = np.ascontiguousarray(_z_fit, dtype=np.float64)
-            except Exception:
-                _z_cached = None
+                chosen_basis = basis
+            if chosen_basis not in _POLY_BASES:
+                logger.warning("generate_univariate_basis_features: unknown basis %r for col %r; skipping", chosen_basis, col)
+                continue
+            # FIT-ONCE-PER-COLUMN (2026-06-21): the basis preprocess ``z`` + params depend ONLY on
+            # (x, basis), NOT on degree -- the degree only swaps the one-hot coefficient. Re-fitting it
+            # inside the degrees loop recomputed the robust heavy-tail axis (np.median/MAD) once per
+            # degree, the dominant np.median caller in the post-subsample CPU tail. Fit ``z`` ONCE here
+            # and evaluate each degree via polyeval_dispatch on the cached ``z`` -- BYTE-IDENTICAL to the
+            # per-degree _evaluate_basis_column (same fit_fn(x) -> same z -> same polyeval). The rare
+            # aux-pool path keeps the per-degree call (its fit concatenates the pool; left untouched).
+            _z_cached = None
+            if aux_col is None or len(np.asarray(aux_col)) == 0:
+                try:
+                    _z_fit, _ = _POLY_BASES[chosen_basis]["fit"](x)
+                    _z_cached = np.ascontiguousarray(_z_fit, dtype=np.float64)
+                except Exception:
+                    _z_cached = None
         for d in degrees:
             try:
                 if _z_cached is not None:
