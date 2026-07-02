@@ -32,6 +32,15 @@ try:
     import numba as _numba
 
     @_numba.njit(cache=True)
+    def _median_sorted_njit(a):
+        # Sort-based median (bit-identical to np.median); np.median support in numba nopython is environment-fragile.
+        s = np.sort(a)
+        m = s.size // 2
+        if s.size & 1:
+            return s[m]
+        return 0.5 * (s[m - 1] + s[m])
+
+    @_numba.njit(cache=True)
     def _robust_slope_njit(base_f, y_f, k, min_keep_frac):
         n = base_f.size
         # Pass 1 OLS.
@@ -44,8 +53,8 @@ try:
         a1 = np.dot(dx, y_f - my) / vx
         b1 = my - a1 * mx
         resid = y_f - a1 * base_f - b1
-        med = np.median(resid)
-        mad = np.median(np.abs(resid - med))
+        med = _median_sorted_njit(resid)
+        mad = _median_sorted_njit(np.abs(resid - med))
         sigma = mad * 1.4826
         if sigma <= 0.0:
             return a1

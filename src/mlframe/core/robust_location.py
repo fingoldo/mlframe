@@ -41,14 +41,27 @@ _ROBUST_MEAN_PARALLEL_MIN_N = int(os.environ.get("MLFRAME_ROBUST_MEAN_PARALLEL_M
 
 
 @njit(fastmath=False, cache=True)
+def _median_sorted(a: np.ndarray) -> float:
+    """Median via full sort + midpoint, bit-identical to ``np.median``. Used INSTEAD of ``np.median`` because numba's
+    ``np.median`` support is environment-fragile (raised "unsupported NumPy function 'numpy.median'" under numba 0.65 in
+    CI while compiling fine locally); ``np.sort`` is universally supported in nopython mode."""
+    s = np.sort(a)
+    n = s.size
+    m = n // 2
+    if n & 1:
+        return s[m]
+    return 0.5 * (s[m - 1] + s[m])
+
+
+@njit(fastmath=False, cache=True)
 def _mad_scale(x: np.ndarray) -> float:
     """Median-absolute-deviation scale (x1.4826 for consistency with the normal std), floored to a tiny positive."""
     n = x.shape[0]
-    med = np.median(x)
+    med = _median_sorted(x)
     dev = np.empty(n, dtype=np.float64)
     for i in range(n):
         dev[i] = abs(x[i] - med)
-    mad = np.median(dev) * 1.4826
+    mad = _median_sorted(dev) * 1.4826
     return mad if mad > 1e-12 else 1.0
 
 
@@ -76,7 +89,7 @@ def _robust_mean_irls(x: np.ndarray, wcode: int, param: float, scale: float, max
     if n == 1:
         return x[0]
     s = scale if scale > 0.0 else _mad_scale(x)
-    a = np.median(x)
+    a = _median_sorted(x)
     for _ in range(max_iter):
         num = 0.0
         den = 0.0
@@ -103,7 +116,7 @@ def _robust_mean_irls_parallel(x: np.ndarray, wcode: int, param: float, scale: f
     if n == 1:
         return x[0]
     s = scale if scale > 0.0 else _mad_scale(x)
-    a = np.median(x)
+    a = _median_sorted(x)
     for _ in range(max_iter):
         num = 0.0
         den = 0.0
