@@ -85,10 +85,12 @@ def _dyadic_haar_leg_gpu(cp, z_g, j: int, k: int):
     left = int(k) * width
     mid = left + width / 2.0
     right = left + width
-    leg = cp.zeros(z_g.shape, dtype=cp.float64)
-    leg[(z_g >= left) & (z_g < mid)] = 1.0
-    leg[(z_g >= mid) & (z_g < right)] = -1.0
-    return leg
+    # cp.where (not boolean-mask assignment leg[mask]=v): a masked assignment forces a D2H sync on the mask's
+    # nonzero count, whereas cp.where is elementwise (output size == input, no sync). Same {-1,0,+1} partition.
+    return cp.where(
+        (z_g >= left) & (z_g < mid), 1.0,
+        cp.where((z_g >= mid) & (z_g < right), -1.0, 0.0),
+    )
 
 
 def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, scale_sigma):
@@ -138,21 +140,40 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         # different column with the same role re-uploads while the SAME column hits.
         z_g = resident_operand(np.ascontiguousarray(x), "wavelet_x", dtype=cp.float64)
         z_g = cp.clip((z_g - float(lo)) / float(span), 0.0, 1.0)
-        tr_g = cp.asarray(tr_mask)
-        va_g = cp.asarray(va_mask)
+        # Integer index arrays (not boolean masks): a boolean-mask gather codes[mask] re-syncs on the mask
+        # nonzero count for EVERY leg; integer-index gathers have a known output size (no sync). Build the
+        # indices host-side (np.where) so the conversion itself costs no device sync. Same rows selected.
+        tr_g = cp.asarray(np.where(tr_mask)[0])
+        va_g = cp.asarray(np.where(va_mask)[0])
 
-        metas: list[tuple] = []
-        tr_cols: list = []
-        va_cols: list = []
+        # Build every candidate leg resident, and its +/- support counts as DEVICE 0-dim scalars. Batching the
+        # eligibility check (2026-07-02): the per-leg ``int(cp.count_nonzero(...))`` pair was two blocking D2H
+        # scalar drains per (j, k); instead stack the counts and read the whole eligibility mask back in ONE
+        # D2H. Same deterministic threshold -> the SAME legs are admitted (selection-identical).
+        legs_all: list = []
+        metas_all: list[tuple] = []
+        pos_all: list = []
+        neg_all: list = []
         for j in range(int(max_scale) + 1):
             for k in range(2 ** j):
                 leg = _dyadic_haar_leg_gpu(cp, z_g, j, k)
-                # Same eligibility gate as the host: enough +/- support over the FULL leg.
-                if int(cp.count_nonzero(leg > 0)) < _WAVELET_MIN_HALF_ROWS or int(cp.count_nonzero(leg < 0)) < _WAVELET_MIN_HALF_ROWS:
+                legs_all.append(leg)
+                metas_all.append((int(j), int(k)))
+                pos_all.append((leg > 0).sum())
+                neg_all.append((leg < 0).sum())
+        metas: list[tuple] = []
+        tr_cols: list = []
+        va_cols: list = []
+        if metas_all:
+            pos_v = cp.stack(pos_all)
+            neg_v = cp.stack(neg_all)
+            elig = cp.asnumpy((pos_v >= _WAVELET_MIN_HALF_ROWS) & (neg_v >= _WAVELET_MIN_HALF_ROWS))
+            for _idx, (j, k) in enumerate(metas_all):
+                if not elig[_idx]:
                     continue
                 # _dense_leg_codes: leg -> leg+1 (cardinality 3). Slice train/val from the device leg.
-                codes = (leg + 1.0).astype(cp.int64)
-                metas.append((int(j), int(k)))
+                codes = (legs_all[_idx] + 1.0).astype(cp.int64)
+                metas.append((j, k))
                 tr_cols.append(codes[tr_g])
                 va_cols.append(codes[va_g])
         if not metas:
