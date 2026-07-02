@@ -41,7 +41,7 @@ from ._kaleido import (  # noqa: F401
 )
 from ._plotly_interactivity import apply_interactivity, html_config
 from ._plotly_color import _MPL_TO_PLOTLY, _axis_ref, _rgba, _mpl_to_plotly_cmap  # noqa: F401
-from ._shared_helpers import _finite_range, _thin_tick_positions
+from ._shared_helpers import _finite_range, _thin_tick_positions, _HEATMAP_MAX_TICKS
 
 logger = logging.getLogger(__name__)
 
