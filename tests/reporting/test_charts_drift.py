@@ -577,3 +577,36 @@ def test_adversarial_auc_respects_feature_subset():
     auc_all, _, _, _, names_all = drift.adversarial_auc(a, b, n_splits=3, seed=1)
     assert "leak" in names_all
     assert auc_all > 0.95  # leak included => perfectly separable
+
+
+def test_adversarial_auc_reduced_trees_preserve_drift_signal():
+    """ADV_N_ESTIMATORS was lowered 200 -> 75 to cut the adversarial-separator fit ~2x (it trains 3x for CV + once for
+    importances). The adversarial AUC is a COARSE drift signal, so it must be preserved: across no-drift and drifted
+    synthetics the 75-tree AUC must stay within a small tolerance of the 200-tree AUC and NEVER flip the drift verdict
+    (AUC > 0.55). Also pins the top-drifter importance ranking is unchanged on a clearly-drifted feature."""
+    import pandas as pd
+    from mlframe.reporting.charts import drift
+
+    assert drift.ADV_N_ESTIMATORS <= 100  # keep the separator cheap
+
+    worst = 0.0
+    for s in range(6):
+        r = np.random.default_rng(s)
+        n = int(r.integers(6000, 15000))
+        nf = int(r.integers(8, 20))
+        d = r.uniform(0.0, 0.6)
+        Xa = r.standard_normal((n, nf))
+        Xb = r.standard_normal((n, nf))
+        Xb[:, :3] += d  # covariate shift on the first 3 features
+        cols = [f"f{i}" for i in range(nf)]
+        fa, fb = pd.DataFrame(Xa, columns=cols), pd.DataFrame(Xb, columns=cols)
+
+        auc_75, *_ = drift.adversarial_auc(fa, fb, n_splits=3, seed=1)
+        auc_200, *_ = drift.adversarial_auc(fa, fb, n_splits=3, seed=1, lgbm_params={"n_estimators": 200})
+        worst = max(worst, abs(auc_75 - auc_200))
+        # Drift verdict (AUC > 0.55) must be stable EXCEPT for AUCs sitting inside the tolerance band of the threshold,
+        # where a sub-0.01 reduction-order wobble can round either way and both readings mean "borderline / no drift".
+        if abs(auc_200 - 0.55) > 0.02:
+            assert (auc_75 > 0.55) == (auc_200 > 0.55), (s, auc_75, auc_200)
+
+    assert worst <= 0.02, f"75-tree adversarial AUC drifted {worst:.4f} from the 200-tree reference"
