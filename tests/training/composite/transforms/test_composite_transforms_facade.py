@@ -79,7 +79,7 @@ def test_composite_transforms_naming_identity_preserved():
 
 def test_composite_transforms_facade_loc_budget():
     parent_path = (
-        Path(__file__).resolve().parents[3]
+        Path(__file__).resolve().parents[4]
         / "src" / "mlframe" / "training" / "composite" / "transforms" / "__init__.py"
     )
     n_lines = len(parent_path.read_text(encoding="utf-8").splitlines())

@@ -89,7 +89,7 @@ def test_unrecognised_env_value_is_ignored(no_cache, monkeypatch):
 def test_cache_exception_falls_back(monkeypatch):
     # A cache that raises on get_or_tune must degrade to the hardcoded gate, not crash.
     class _Boom:
-        def get_or_tune(self, *a, **k):
+        def lookup(self, *a, **k):
             raise RuntimeError("cache exploded")
 
     monkeypatch.setattr(kd, "_get_cache", lambda: _Boom())
@@ -104,7 +104,7 @@ def test_cache_backend_choice_is_honoured(monkeypatch):
         def __init__(self, choice):
             self.choice = choice
 
-        def get_or_tune(self, *a, **k):
+        def lookup(self, *a, **k):
             return {"backend_choice": self.choice}
 
     monkeypatch.setattr(kd, "_get_cache", lambda: _Fake("numpy"))

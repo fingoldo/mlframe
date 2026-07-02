@@ -517,7 +517,7 @@ def _linear_residual_multi_forward(
             f"linear_residual_multi: base has {base.shape[1]} columns but "
             f"fitted alphas has {alphas.size} entries"
         )
-    return y - (base.astype(np.float64) @ alphas) - beta
+    return y - (np.ascontiguousarray(base, dtype=np.float64) @ alphas) - beta
 def _linear_residual_multi_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
@@ -530,7 +530,9 @@ def _linear_residual_multi_inverse(
             f"linear_residual_multi: base has {base.shape[1]} columns but "
             f"fitted alphas has {alphas.size} entries"
         )
-    return t_hat + (base.astype(np.float64) @ alphas) + beta
+    # Canonical C-contiguous layout so the (n,K)@(K,) matvec rounds identically regardless of the caller's
+    # array order (C vs F differ by ~1 ULP in BLAS dgemv); keeps predict and the serving spec byte-identical.
+    return t_hat + (np.ascontiguousarray(base, dtype=np.float64) @ alphas) + beta
 def _linear_residual_multi_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:

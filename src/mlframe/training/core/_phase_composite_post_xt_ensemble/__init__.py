@@ -954,6 +954,23 @@ def _build_cross_target_ensemble_for_target(
                         )
                     except Exception as _rr_err:  # noqa: BLE001 -- routing is advisory; keep the trained model
                         logger.info("[CompositeCrossTargetEnsemble] target='%s' OOD-lag routing skipped (%s).", _orig_tname, _rr_err)
+                    # Per-row VOLATILITY-lag routing: on a strong-AR target the lag-wins groups are IN-range but locally
+                    # SMOOTH, which the range rule above cannot catch. Route rows whose MD-local target volatility is low
+                    # (lag near-perfect) to lag, only when it improves the honest val RMSE. Needs group_column + a MD
+                    # order column (time_column) on the frame -- ordering is explicit, never a frame-row-order guess.
+                    try:
+                        from .._volatility_lag_router import build_volatility_lag_router
+                        _yv2 = (np.asarray(_oof_y_full)[filtered_val_idx].astype(np.float64)
+                                if (_oof_y_full is not None and filtered_val_idx is not None) else None)
+                        _deployed = build_volatility_lag_router(
+                            _deployed, _oof_components[_oof_names.index("lag_predict")],
+                            filtered_val_df, _yv2,
+                            getattr(composite_target_discovery_config, "group_column", None),
+                            getattr(composite_target_discovery_config, "time_column", None),
+                            composite_target_discovery_config,
+                        )
+                    except Exception as _vr_err:  # noqa: BLE001 -- advisory; keep whatever we have
+                        logger.info("[CompositeCrossTargetEnsemble] target='%s' volatility-lag routing skipped (%s).", _orig_tname, _vr_err)
                     _ensemble = _deployed
                     _lag_failsafe_taken = True
                 elif (_lag_failsafe_tol > 0

@@ -99,6 +99,13 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     ood_lag_routing_enabled: bool = True
     ood_lag_router_margin_frac: float = 0.0
 
+    # Per-row VOLATILITY-lag routing on the deployed model. On a strong-AR target the groups where lag beats the trained
+    # model are IN-range but locally SMOOTH (consecutive target values barely move within the well), so lag_predict is
+    # near-perfect there. Route rows whose MD-local target volatility is low to lag, only when it improves the honest
+    # group-disjoint val RMSE. Ordering is EXPLICIT by ``time_column`` (MD) -- requires group_column + time_column on the
+    # frame; no order column -> no routing (never a frame-row-order guess). Default ON; safe no-op when it does not help.
+    volatility_lag_routing_enabled: bool = True
+
     # Emit the composite-target VALUE report (per-group did-it-help / hurt / worse-than-lag breakdown + net weighted lift).
     emit_composite_value_report: bool = True
 

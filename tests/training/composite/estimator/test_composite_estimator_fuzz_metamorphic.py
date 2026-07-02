@@ -316,10 +316,15 @@ class TestMetamorphicInvariants:
         """A monotone-increasing base shift moves a linear_residual prediction
         in the direction of ``sign(alpha)`` on every row (alpha > 0 here)."""
         X, y = self._frame()
+        # This invariant probes the linear_residual INVERSE arithmetic (sign of alpha drives the delta).
+        # The +5 base shift lands several IQRs beyond the fit range, so the default-ON soft-base-shrink
+        # smart-fallback would route those deep-OOD rows to the constant median -- a deliberate,
+        # non-monotone OOD guard (covered by the _soft_shrink tests). Disable it here to isolate the inverse.
         est = CompositeTargetEstimator(
             base_estimator=_BaseOnlyInner(),
             transform_name="linear_residual",
             base_column="base",
+            soft_base_shrink=False,
         ).fit(X, y)
         alpha = float(est.fitted_params_["alpha"])
         assert alpha > 0.0, "fixture is constructed so OLS alpha > 0"

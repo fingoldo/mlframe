@@ -74,7 +74,7 @@ def test_mi_symbols_still_in_parent_module() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
-    root = Path(__file__).resolve().parents[3] / "src" / "mlframe" / "training" / "composite" / "discovery"
+    root = Path(__file__).resolve().parents[4] / "src" / "mlframe" / "training" / "composite" / "discovery"
     facade = root / "screening.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())
     assert n < 1000, f"screening.py is {n} lines, still over the 1k threshold"
