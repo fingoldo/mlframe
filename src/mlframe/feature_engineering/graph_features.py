@@ -36,9 +36,13 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "graph_neighbor_aggregate",
     "graph_structural_features",
+    "link_prediction_features",
     "GRAPH_STRUCT_FEATURES",
+    "LINK_PREDICTION_FEATURES",
     "NEIGHBOR_AGGS",
 ]
+
+LINK_PREDICTION_FEATURES = ("common_neighbors", "jaccard", "adamic_adar", "resource_allocation", "preferential_attachment")
 
 GRAPH_STRUCT_FEATURES = ("degree", "strength", "clustering", "triangles")
 NEIGHBOR_AGGS = ("mean", "sum", "max", "min", "count", "wmean")
@@ -136,10 +140,48 @@ def _clustering_impl(indptr, indices):
     return clus, tri
 
 
+def _lp_features_impl(indptr, indices, deg, xs, ys):
+    m = xs.shape[0]
+    cn = np.zeros(m, dtype=np.float64)
+    aa = np.zeros(m, dtype=np.float64)
+    ra = np.zeros(m, dtype=np.float64)
+    for p in range(m):
+        x = xs[p]
+        y = ys[p]
+        i = indptr[x]
+        ex = indptr[x + 1]
+        j = indptr[y]
+        ey = indptr[y + 1]
+        c = 0
+        a = 0.0
+        r = 0.0
+        while i < ex and j < ey:
+            u = indices[i]
+            v = indices[j]
+            if u == v:  # a common neighbour z
+                c += 1
+                d = deg[u]
+                if d > 1:  # z is a common neighbour so d>=2; log(d)>0
+                    a += 1.0 / np.log(d)
+                if d > 0:
+                    r += 1.0 / d
+                i += 1
+                j += 1
+            elif u < v:
+                i += 1
+            else:
+                j += 1
+        cn[p] = c
+        aa[p] = a
+        ra[p] = r
+    return cn, aa, ra
+
+
 if _HAS_NUMBA:
     _wmean_impl = numba.njit(cache=True)(_wmean_impl)
     _sum_impl = numba.njit(cache=True)(_sum_impl)
     _clustering_impl = numba.njit(cache=True, nogil=True)(_clustering_impl)
+    _lp_features_impl = numba.njit(cache=True, nogil=True)(_lp_features_impl)
 
 
 def graph_neighbor_aggregate(
@@ -207,3 +249,48 @@ def graph_structural_features(
         uindptr, uindices = indptr, indices
     clustering, triangles = _clustering_impl(uindptr, uindices)
     return {"degree": degree, "strength": strength, "clustering": clustering, "triangles": triangles}
+
+
+def link_prediction_features(n_nodes: int, edges: np.ndarray, pairs: np.ndarray) -> dict:
+    """Pairwise link-prediction similarity features for candidate node pairs (PZAD LPP, slides 27-33).
+
+    For each candidate ``(x, y)`` returns the classic vertex-similarity scores predicting whether an edge will
+    appear -- the tabular feature block for link prediction framed as supervised binary classification:
+
+    - ``common_neighbors`` = ``|Γ(x) ∩ Γ(y)|`` (the friend-of-a-friend principle)
+    - ``jaccard`` = ``|Γ(x) ∩ Γ(y)| / |Γ(x) ∪ Γ(y)|`` (common-friend fraction)
+    - ``adamic_adar`` = ``Σ_{z ∈ Γ(x)∩Γ(y)} 1/log|Γ(z)|`` (rare shared friends count more)
+    - ``resource_allocation`` = ``Σ_{z ∈ Γ(x)∩Γ(y)} 1/|Γ(z)|``
+    - ``preferential_attachment`` = ``|Γ(x)| · |Γ(y)|`` (sociable nodes link faster)
+
+    Computed with a numba two-pointer intersection over sorted CSR adjacency, batched over all pairs at once (unlike
+    ``networkx``'s per-pair Python generators). ``networkx`` remains the tool for the per-NODE importance features
+    (PageRank / HITS / Katz / betweenness / closeness / eigenvector centrality) -- feed those columns via the same
+    tabular pattern; only these batched pairwise scores are added here.
+
+    Parameters
+    ----------
+    edges : (E, 2) undirected edge list (each edge once; self-loops dropped).
+    pairs : (M, 2) candidate node pairs to score.
+
+    Returns a dict of length-``M`` arrays keyed by :data:`LINK_PREDICTION_FEATURES`.
+    """
+    indptr, indices, _ = _build_csr(n_nodes, edges, None, directed=False)
+    deg = (indptr[1:] - indptr[:-1]).astype(np.float64)
+    pr = np.ascontiguousarray(pairs, dtype=np.int64).reshape(-1, 2)
+    if pr.size and (pr.min() < 0 or pr.max() >= n_nodes):
+        raise ValueError("link_prediction_features: pair endpoint out of range [0, n_nodes).")
+    xs = np.ascontiguousarray(pr[:, 0])
+    ys = np.ascontiguousarray(pr[:, 1])
+    cn, aa, ra = _lp_features_impl(indptr, indices, deg, xs, ys)
+    dx = deg[xs]
+    dy = deg[ys]
+    union = dx + dy - cn
+    jaccard = np.divide(cn, union, out=np.zeros_like(cn), where=union > 0)
+    return {
+        "common_neighbors": cn,
+        "jaccard": jaccard,
+        "adamic_adar": aa,
+        "resource_allocation": ra,
+        "preferential_attachment": dx * dy,
+    }
