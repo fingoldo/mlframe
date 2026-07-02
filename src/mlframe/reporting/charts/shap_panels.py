@@ -494,17 +494,21 @@ def shap_summary_and_dependence(
         explainer = shap.TreeExplainer(model)
         try:
             shap_values = explainer(X_sample, check_additivity=False)
-        except (ValueError, TypeError) as _shap_exc:
-            # Tree-SHAP on categorical models is fragile across shap / backend versions: shap may float-convert a
-            # string-categorical feature column ("could not convert string to float"), or the carrier's category set
-            # can diverge from the model's training categories on engineered / unseen-sentinel columns ("categorical_
-            # feature do not match"). The carrier is already cast to 'category' upstream, which fixes the common cases
-            # (validated on LightGBM / XGBoost / CatBoost), but rather than let a residual dtype/category mismatch raise
-            # into the dispatcher's broad except (a noisy ERROR + a vanished panel with no reason), degrade to a clean
-            # skip carrying the cause. A crash here is never fatal -- it is a best-effort visual diagnostic.
+        except Exception as _shap_exc:
+            # Tree-SHAP on categorical / text / non-pandas frames is fragile across shap + backend versions. shap runs
+            # the model's OWN predict internally, so the carrier must be in the exact form each backend expects: shap
+            # may float-convert a string-categorical column (ValueError "could not convert string to float"); LightGBM
+            # raises on a category-set mismatch ("categorical_feature do not match"); CatBoost raises its own
+            # CatBoostError on a polars String / text feature column ("Unsupported data type String for a numerical
+            # feature column"). The carrier is cast to 'category' upstream, which fixes the common pandas-categorical
+            # cases (validated on LightGBM / XGBoost / CatBoost), but text features and polars-String carriers are
+            # genuinely out of SHAP's scope here. Rather than let ANY backend error raise into the dispatcher's broad
+            # except (a noisy ERROR + a vanished panel with no reason), degrade to a clean skip carrying the cause --
+            # this is a best-effort VISUAL diagnostic, never fatal. Broad ``except Exception`` is deliberate: the
+            # backends raise library-specific error types (CatBoostError etc.), not a common base beyond Exception.
             return ShapPanelsResult(
                 [], [], [], np.empty(0), "none",
-                skipped=f"tree SHAP failed on this feature frame ({type(_shap_exc).__name__}: {str(_shap_exc)[:80]})",
+                skipped=f"tree SHAP unavailable for this feature frame ({type(_shap_exc).__name__}: {str(_shap_exc)[:80]})",
             )
         explainer_kind = "tree"
     else:
