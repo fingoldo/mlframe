@@ -85,11 +85,12 @@ def _per_cell_raw_moments_gpu(cp, codes_g, v_g, n_cells: int):
     return cnt, s1, s2, s3, s4
 
 
-def _per_cell_stats_gpu(cp, codes_g, v_g, n_cells: int, stats: Sequence[str]) -> dict:
-    """Device twin of ``per_cell_stats_bincount``: per-cell ``{stat: cupy(n_cells)}`` from ``cp.bincount`` raw
-    moments. Empty cells -> NaN (caller substitutes the global). Same arithmetic FORM as the host (so the WHERE
-    structure / NaN placement is bit-identical); the moment VALUES differ only at ULP."""
-    cnt, s1, s2, s3, s4 = _per_cell_raw_moments_gpu(cp, codes_g, v_g, n_cells)
+def _stats_from_moments_gpu(cp, moments, stats: Sequence[str]) -> dict:
+    """Per-cell ``{stat: cupy(n_cells)}`` from PRECOMPUTED raw moments ``(cnt, s1..s4)``. Split out of
+    ``_per_cell_stats_gpu`` so a caller that shares one bincount pass across several stats of the SAME
+    (pair, fold) derives each stat from the cached moments instead of re-running the 5 bincounts per stat
+    (the launch-count monster the NVTX trace flagged: binagg was 37k GPU ops at 200k). Same arithmetic."""
+    cnt, s1, s2, s3, s4 = moments
     safe = cp.maximum(cnt, 1.0)
     mean = s1 / safe
     out: dict = {}
@@ -112,6 +113,13 @@ def _per_cell_stats_gpu(cp, codes_g, v_g, n_cells: int, stats: Sequence[str]) ->
             raise ValueError(f"binned_numeric_agg stat {stat!r} not supported")
         out[stat] = cp.where(cnt > 0, raw, cp.nan)
     return out
+
+
+def _per_cell_stats_gpu(cp, codes_g, v_g, n_cells: int, stats: Sequence[str]) -> dict:
+    """Device twin of ``per_cell_stats_bincount``: per-cell ``{stat: cupy(n_cells)}`` from ``cp.bincount`` raw
+    moments. Empty cells -> NaN (caller substitutes the global). Same arithmetic FORM as the host (so the WHERE
+    structure / NaN placement is bit-identical); the moment VALUES differ only at ULP."""
+    return _stats_from_moments_gpu(cp, _per_cell_raw_moments_gpu(cp, codes_g, v_g, n_cells), stats)
 
 
 def build_binagg_oof_matrix_gpu(
@@ -139,7 +147,8 @@ def build_binagg_oof_matrix_gpu(
     # the group column name. Per (group, agg) the finite mask + train moments per fold are shared across its
     # stats -> compute once, keyed on (group, agg). The per-stat gather/fallback is the only per-column work.
     code_cache: dict = {}   # gcol -> (codes_g, n_cells)
-    pair_cache: dict = {}   # (gcol, acol) -> (av_g, finite_g, [per-fold train stat dicts placeholder])
+    pair_cache: dict = {}   # (gcol, acol) -> (av_g, finite_g, per-fold moments/stat cache)
+    _test_cache: dict = {}  # (gcol, fold) -> (test_idx, codes_g[test_idx]) shared by every pair of the gcol
 
     out_cols = []
     for spec in col_specs:
@@ -171,22 +180,36 @@ def build_binagg_oof_matrix_gpu(
 
         # OOF: init the whole column to the global fallback, then overwrite each fold's TEST rows with the
         # train-fold per-cell stat (global where the cell was empty in train). Structurally identical to host.
+        # LAUNCH-BATCHED (2026-07-02, NVTX-driven): the fold caches are keyed so the expensive device work runs
+        # ONCE per reuse unit -- raw MOMENTS per (pair, fold) shared by ALL of the pair's stats (was per
+        # (fold, stat): the same 5 bincounts re-ran for each of the pair's 4 stat columns = 4x the launches),
+        # test indices/codes per (gcol, fold) shared by every pair of that group column, train indices per
+        # (pair, fold). Values ULP-identical (same bincounts, same gathers -- just cached).
         oof = cp.full(n, glob, dtype=cp.float64)
         for f in range(nf):
-            tr_mask = (fold_g != f) & finite_g
-            if not bool(tr_mask.any()):
+            _mkey = ("m", f)
+            if _mkey not in fold_stat_cache:
+                tr_mask = (fold_g != f) & finite_g
+                if not bool(tr_mask.any()):
+                    fold_stat_cache[_mkey] = None     # degenerate fold: recorded so siblings skip the recheck
+                else:
+                    tr_idx = cp.where(tr_mask)[0]
+                    moments = _per_cell_raw_moments_gpu(cp, codes_g[tr_idx], av_g[tr_idx], n_cells)
+                    fold_stat_cache[_mkey] = {"__moments__": moments}
+            per_s_all = fold_stat_cache[_mkey]
+            if per_s_all is None:
                 continue
-            # The TRAIN per-cell stats for THIS stat over THIS fold are shared by no other column (each column
-            # is one stat), but the train per-cell raw moments are shared across the stats of the same pair.
-            key = (f, stat)
-            per_s = fold_stat_cache.get(key)
+            per_s = per_s_all.get(stat)
             if per_s is None:
-                tr_idx = cp.where(tr_mask)[0]
-                per = _per_cell_stats_gpu(cp, codes_g[tr_idx], av_g[tr_idx], n_cells, [stat])
-                per_s = per[stat]
-                fold_stat_cache[key] = per_s
-            test_idx = cp.where(fold_g == f)[0]
-            ct = codes_g[test_idx]
+                per_s = _stats_from_moments_gpu(cp, per_s_all["__moments__"], [stat])[stat]
+                per_s_all[stat] = per_s
+            _tkey = (gcol, f)
+            _tc = _test_cache.get(_tkey)
+            if _tc is None:
+                test_idx = cp.where(fold_g == f)[0]
+                _tc = (test_idx, codes_g[test_idx])
+                _test_cache[_tkey] = _tc
+            test_idx, ct = _tc
             vals = per_s[ct]
             oof[test_idx] = cp.where(cp.isfinite(vals), vals, glob)
         out_cols.append(oof)
