@@ -962,9 +962,12 @@ def _build_cross_target_ensemble_for_target(
                         from .._volatility_lag_router import build_volatility_lag_router
                         _yv2 = (np.asarray(_oof_y_full)[filtered_val_idx].astype(np.float64)
                                 if (_oof_y_full is not None and filtered_val_idx is not None) else None)
+                        _ctx_g2 = getattr(ctx, "group_ids", None) if ctx is not None else None
+                        _gids_val2 = (np.asarray(_ctx_g2)[filtered_val_idx]
+                                      if (_ctx_g2 is not None and filtered_val_idx is not None) else None)
                         _deployed = build_volatility_lag_router(
                             _deployed, _oof_components[_oof_names.index("lag_predict")],
-                            filtered_val_df, _yv2,
+                            _gids_val2, filtered_val_df, _yv2,
                             getattr(composite_target_discovery_config, "group_column", None),
                             getattr(composite_target_discovery_config, "time_column", None),
                             composite_target_discovery_config,

@@ -107,6 +107,7 @@ class VolatilityLagRouter:
 def build_volatility_lag_router(
     trained: Any,
     lag_component: Any,
+    group_ids_val: Optional[np.ndarray],
     filtered_val_df: Any,
     y_val: Optional[np.ndarray],
     group_column: Optional[str],
@@ -114,20 +115,28 @@ def build_volatility_lag_router(
     config: Any,
 ) -> Optional[Any]:
     """Return a :class:`VolatilityLagRouter` when routing low-local-volatility rows to lag strictly improves the honest
-    group-disjoint val RMSE; otherwise return ``trained`` unchanged. Requires an EXPLICIT order column (MD): a missing
-    group / order column on the val frame -> no routing (never a row-order guess). The group + order arrays are pulled
-    FROM ``filtered_val_df`` -- the same extraction the router uses at predict -- so fit and deploy see identical keys.
+    group-disjoint val RMSE AND the group column is present on the frame (so predict can group); otherwise return
+    ``trained`` unchanged. The val IMPROVEMENT is measured with ``group_ids_val`` (from ctx, always available) so the
+    potential gain is reported even when the group column was dropped from the model frame -- if it would help but is
+    not deployable, that is logged as a lead for a group-key passthrough, rather than silently lost.
     """
     if not bool(getattr(config, "volatility_lag_routing_enabled", True)):
         return trained
     if filtered_val_df is None or y_val is None or not group_column or not order_column:
         return trained
     yv = np.asarray(y_val, dtype=np.float64)
-    gv = _extract_column(filtered_val_df, group_column)
+    # Group key for MEASUREMENT: prefer the explicit ctx group_ids (survives even when the high-cardinality group column
+    # was dropped from the model frame); fall back to the frame column. Order key (MD) comes from the frame.
+    _gv_frame = _extract_column(filtered_val_df, group_column)
+    gv = np.asarray(group_ids_val) if group_ids_val is not None else _gv_frame
     ov = _extract_column(filtered_val_df, order_column)
     if gv is None or ov is None:
-        logger.info("[VolatilityLagRouter] no routing: group column %r or order column %r not on the val frame.", group_column, order_column)
+        logger.info(
+            "[VolatilityLagRouter] no routing: group key (%r / ctx) or order column %r unavailable for measurement.",
+            group_column, order_column,
+        )
         return trained
+    _group_deployable = _gv_frame is not None  # can the router recover the group at predict time?
     ov = np.asarray(ov, dtype=np.float64)
     if yv.size < 100 or gv.shape[0] != yv.size or ov.shape[0] != yv.size:
         return trained
@@ -166,6 +175,17 @@ def build_volatility_lag_router(
             "[VolatilityLagRouter] no routing: routing low-volatility rows to lag never beats the trained model on val "
             "(raw RMSE %.4g); local smoothness does not transfer here -> keeping the trained model.",
             rmse_raw,
+        )
+        return trained
+    if not _group_deployable:
+        # The signal HELPS on val, but the group column is not on the model frame, so the router cannot recover the
+        # group at predict. Report the potential gain as a lead (a group-key passthrough would unlock it) rather than
+        # deploy a router that would silently no-op on test.
+        logger.warning(
+            "[VolatilityLagRouter] would improve val RMSE %.4g -> %.4g by routing %d low-volatility row(s) to lag, BUT "
+            "group column %r is not on the model frame (dropped) -> cannot group at predict; NOT deployed. Preserve %r "
+            "as a passthrough column to unlock this gain.",
+            rmse_raw, best_rmse, best_n, group_column, group_column,
         )
         return trained
     logger.warning(

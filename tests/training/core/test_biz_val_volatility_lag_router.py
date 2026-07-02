@@ -81,7 +81,29 @@ class TestBuilderValGate:
     def test_builder_no_op_without_order_column(self):
         X = pd.DataFrame({"well": ["A"] * 200, "lag": np.zeros(200)})  # no MD
         raw = _Const(np.zeros(200))
-        assert build_volatility_lag_router(raw, _LagCol(), X, np.zeros(200), "well", "MD", _Cfg()) is raw
+        assert build_volatility_lag_router(raw, _LagCol(), None, X, np.zeros(200), "well", "MD", _Cfg()) is raw
+
+    def test_builder_measures_via_ctx_group_ids_but_declines_when_group_column_dropped(self):
+        """The TVT case: the group column is DROPPED from the model frame (high-cardinality), but ctx group_ids are
+        available for MEASUREMENT. The builder measures the val gain and, since the router could not group at predict,
+        returns the trained model unchanged (logging the potential gain as a passthrough lead) -- never a router that
+        would silently no-op on test."""
+        rng = np.random.default_rng(1)
+        rows, raw_pred, lag_pred, y, gids = [], [], [], [], []
+        for w in range(30):
+            n = 50
+            md = np.arange(n, dtype=float)
+            smooth = (w % 2 == 0)
+            truth = (100.0 + 0.02 * md + rng.normal(0, 0.05, n)) if smooth else (100.0 + rng.normal(0, 8, n).cumsum() * 0.3)
+            lag = np.empty(n); lag[0] = truth[0]; lag[1:] = truth[:-1]
+            model = truth + (rng.normal(0, 3, n) if smooth else rng.normal(0, 1, n))
+            for i in range(n):
+                rows.append((md[i], lag[i])); raw_pred.append(model[i]); lag_pred.append(lag[i]); y.append(truth[i]); gids.append(w)
+        # NOTE: the frame has MD + lag but NO "well" column (dropped) -> not deployable, but ctx group_ids drive measurement.
+        df = pd.DataFrame(rows, columns=["MD", "lag"])
+        raw = _Const(np.array(raw_pred))
+        got = build_volatility_lag_router(raw, _LagCol(), np.array(gids), df, np.array(y), "well", "MD", _Cfg())
+        assert got is raw, "group column dropped from frame -> not deployable -> return the trained model (measure-only)"
 
     def test_biz_val_router_beats_both_all_raw_and_all_lag(self):
         """Two well types on val: SMOOTH wells (target barely moves -> lag near-perfect, model noisy) and ROUGH wells
@@ -110,7 +132,7 @@ class TestBuilderValGate:
         rmse = lambda p: float(np.sqrt(np.mean((p - y) ** 2)))
         rmse_raw, rmse_lag = rmse(raw_pred), rmse(lag_pred)
 
-        router = build_volatility_lag_router(_Const(raw_pred), _LagCol(), df, y, "well", "MD", _Cfg())
+        router = build_volatility_lag_router(_Const(raw_pred), _LagCol(), None, df, y, "well", "MD", _Cfg())
         assert isinstance(router, VolatilityLagRouter), "routing should deploy when smooth-well rows clearly help"
         routed = router.predict(df)
         rmse_router = rmse(routed)
