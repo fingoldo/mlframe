@@ -132,6 +132,12 @@ from .categorical import (
     _target_encoding_residual_forward,
     _target_encoding_residual_inverse,
 )
+from ._causal_anchor import (
+    _causal_anchor_residual_domain,
+    _causal_anchor_residual_fit,
+    _causal_anchor_residual_forward,
+    _causal_anchor_residual_inverse,
+)
 from .unary import (
     cbrt_y_domain as _cbrt_y_domain_raw,
     cbrt_y_fit as _cbrt_y_fit_raw,
@@ -782,6 +788,26 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "T_hat + alpha*prod(bases) + beta. Not in default auto-discovery "
             "list (needs multi-base orchestration like "
             "``linear_residual_multi``)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "causal_anchor_residual": Transform(
+        name="causal_anchor_residual",
+        forward=_causal_anchor_residual_forward,
+        inverse=_causal_anchor_residual_inverse,
+        fit=_causal_anchor_residual_fit,
+        domain_check=_causal_anchor_residual_domain,
+        description=(
+            "T = y - alpha*base with alpha a robustly-fitted SHRINK coefficient "
+            "clamped to [0, 1] (two-pass trimmed-LS slope, scarce-data blend toward "
+            "a 0.5 prior). Inverse y_hat = T_hat + alpha*base. For NOISY causal "
+            "anchors (rolling / EWMA central values) where diff (implicit alpha=1) "
+            "over-commits and a free linear_residual can fit a fragile large alpha "
+            "that extrapolates badly on unseen groups: the [0, 1] clamp keeps the "
+            "additive inverse bounded relative to the anchor (cannot over-commit "
+            "past it, cannot invert its sign). Pure-additive inverse (no beta), "
+            "MLP-friendly. NOT in the default transform list -- reach it via "
+            "explicit transforms=(..., 'causal_anchor_residual')."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
     ),
