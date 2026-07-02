@@ -145,6 +145,15 @@ LOC_BUDGET_EXEMPT: set[str] = {
     "src/mlframe/feature_selection/filters/_gpu_resident_fe.py",
     "src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe.py",
     "src/mlframe/feature_selection/filters/discretization/__init__.py",
+    # FIXME(carve-wave-next): training/_trainer_train_and_evaluate.py at 1001 LOC -- the single
+    # ``train_and_evaluate_model`` orchestration function (per-model fit / eval-set setup / fallback /
+    # posthoc-calibration / OOF+calib outputs / split-metrics / report assembly) after the split-metrics
+    # emitters were carved to _trainer_train_and_evaluate_helpers.py. The residual is one control-flow-
+    # entangled function (early returns, try/finally RAM reclaim, per-backend branches) whose only cleanly
+    # verbatim-extractable blocks are already in the helpers sibling; a mechanical whole-function carve would
+    # cross return/finally boundaries and change semantics (same class as _fit_impl_core / _pairs_core).
+    # Drain the next self-contained compute-and-assign block when one surfaces.
+    "src/mlframe/training/_trainer_train_and_evaluate.py",
     # FIXME(carve-wave-next): training/composite/transforms/nonlinear.py -- the residual-transform registry
     # (quantile / monotonic / EWMA / frac-diff fit+forward+inverse families) plus a module-top ``if _HAS_NUMBA:``
     # conditional kernel block the transforms reference. Tightly coupled (the transform functions close over the
