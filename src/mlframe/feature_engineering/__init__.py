@@ -9,6 +9,7 @@ Submodules:
     ensemble_features  - per-row disagreement features across N stacked predictors.
     financial          - OHLCV ratios, lags, TA-Lib indicators, market-wide features.
     fuzzy_features     - fuzzification: encode a numeric column as fuzzy-partition (POSP) soft-membership features.
+    graph_spectral_features - permutation-invariant per-graph spectral descriptor (for graph-classification tabular tasks).
     grouped            - per-group sliding-window iterator primitives.
     hurst              - Hurst exponent (R/S analysis) + rolling DFA / Higuchi FD.
     mps                - Maximum Profit System target/regions.
@@ -187,6 +188,10 @@ from .fuzzy_features import (
     fuzzy_partition_transform,
     fuzzy_partition_names,
 )
+from .graph_spectral_features import (
+    graph_spectral_features,
+    graph_spectral_feature_names,
+)
 
 __all__ = [
     "per_group_recency_weighted_mean",
@@ -272,4 +277,6 @@ __all__ = [
     "fuzzy_partition_fit",
     "fuzzy_partition_transform",
     "fuzzy_partition_names",
+    "graph_spectral_features",
+    "graph_spectral_feature_names",
 ]
