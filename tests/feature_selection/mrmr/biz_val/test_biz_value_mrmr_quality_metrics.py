@@ -280,9 +280,14 @@ class TestVsBaselineRanking:
         y = pd.Series(((sig_a + 0.7 * sig_b) > 0).astype(np.int64))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
+            # Pin the FE stage OFF so support_ carries the RAW sig_a*/sig_b column names;
+            # this contract observes DCD cluster pruning on the raw redundant copies, which the
+            # default-on FE stage would otherwise consume into composite ``add(...)`` features
+            # (making the ``startswith("sig_a")`` count vacuous and hiding sig_b inside a compound).
             sel = MRMR(
                 verbose=0, dcd_enable=True,
                 dcd_cluster_size_threshold=3,
+                interactions_max_order=1, fe_max_steps=0,
             ).fit(X, y)
         names = list(sel.get_feature_names_out())
         sig_b_present = "sig_b" in names
