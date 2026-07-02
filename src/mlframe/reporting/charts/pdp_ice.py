@@ -201,26 +201,64 @@ def _carrier_with_categoricals(carrier: Any) -> Any:
     return carrier.assign(**{c: carrier[c].astype("category") for c in obj_cols}) if obj_cols else carrier
 
 
-def _substitute_column(carrier_sample: Any, base_vals: np.ndarray, col_idx: int, value: float,
-                       col_name: Optional[str] = None) -> Any:
+def _categorical_grid(carrier: Any, col_name: Optional[str]) -> Tuple[Optional[list], Any]:
+    """If ``col_name`` is a categorical column of the (pandas / polars) ``carrier``, return ``(category_labels,
+    dtype)`` so the sweep can iterate the NATIVE categories and substitute native labels; else ``(None, None)``.
+
+    Sweeping a numeric grid value into a categorical column produces an invalid model input (CatBoost:
+    "cat_features must be integer or string ... =0.0" -- an outright error at Pool build for a string-category
+    column, and a native-predict hang for an int-coded one). The labels come straight from the carrier's own
+    category set (no float-code round-trip), so the substituted value is always a value the model saw at fit time.
+    """
+    if col_name is None or isinstance(carrier, np.ndarray):
+        return None, None
+    try:
+        import pandas as pd
+        if isinstance(carrier, pd.DataFrame):
+            if col_name in carrier.columns and isinstance(carrier[col_name].dtype, pd.CategoricalDtype):
+                return list(carrier[col_name].cat.categories), carrier[col_name].dtype
+            return None, None
+    except ImportError:
+        pass
+    if type(carrier).__module__.startswith("polars"):
+        import polars as pl
+        dt = carrier.schema.get(col_name) if hasattr(carrier, "schema") else None
+        is_cat = dt is not None and (dt == pl.Categorical or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum)))
+        if is_cat:
+            labels = carrier[col_name].cat.get_categories().to_list() if dt == pl.Categorical else list(dt.categories)
+            return labels, dt
+    return None, None
+
+
+def _substitute_column(carrier_sample: Any, base_vals: np.ndarray, col_idx: int, value: Any,
+                       col_name: Optional[str] = None, categorical_dtype: Any = None) -> Any:
     """Return a model-input block with column ``col_idx`` set to ``value`` for every row.
 
     For a pandas / polars ``carrier_sample`` (already the native-dtype subsampled rows), set the swept column to
     ``value`` while PRESERVING every other column's dtype (so categorical models predict) -- via ``assign`` /
-    ``with_columns`` on the small (sample, n_cols) subsample, never the caller's full frame. For an ndarray carrier the
-    float ``base_vals`` block path is exact and kept.
+    ``with_columns`` on the small (sample, n_cols) subsample, never the caller's full frame. When
+    ``categorical_dtype`` is supplied the swept column is itself categorical: ``value`` is a native category label
+    and is assigned back as that categorical dtype (never a bare float, which breaks categorical model predict).
+    For an ndarray carrier the float ``base_vals`` block path is exact and kept.
     """
     if isinstance(carrier_sample, np.ndarray):
         block = base_vals.copy()
         block[:, col_idx] = value
         return block
     if hasattr(carrier_sample, "assign"):  # pandas subsample
+        import pandas as pd
         name = col_name if col_name is not None else list(carrier_sample.columns)[col_idx]
+        if categorical_dtype is not None:
+            arr = ([value] * len(carrier_sample)) if np.ndim(value) == 0 else list(value)
+            return carrier_sample.assign(**{name: pd.Categorical(arr, dtype=categorical_dtype)})
         return carrier_sample.assign(**{name: value})
     mod = type(carrier_sample).__module__
     if mod.startswith("polars"):  # polars subsample
         import polars as pl
         name = col_name if col_name is not None else carrier_sample.columns[col_idx]
+        if categorical_dtype is not None:
+            expr = (pl.lit(value) if np.ndim(value) == 0 else pl.Series(name, list(value))).cast(categorical_dtype)
+            return carrier_sample.with_columns(expr.alias(name))
         return carrier_sample.with_columns(pl.lit(value).alias(name))
     block = base_vals.copy()
     block[:, col_idx] = value
@@ -262,14 +300,24 @@ def compute_pdp(
     base = vals[idx]  # (m, n_cols) float view -- grid + ICE-x only
     carrier_sample = _native_row_subset(carrier, idx)  # native-dtype block the model actually predicts on
     _col_name = names[col_idx] if names is not None else None
-    grid_vals, is_discrete = _feature_grid(vals[:, col_idx], grid)
+    _cat_labels, _cat_dtype = _categorical_grid(carrier, _col_name)
+    if _cat_labels is not None:
+        # Categorical feature: sweep its native categories (display axis = category codes 0..k-1), substituting the
+        # native label so the model receives valid categorical input rather than a dtype-breaking float grid value.
+        grid_vals = np.arange(len(_cat_labels), dtype=np.float64)
+        is_discrete = True
+    else:
+        grid_vals, is_discrete = _feature_grid(vals[:, col_idx], grid)
     g = grid_vals.shape[0]
     m = base.shape[0]
 
     # ice_full[k] = predictions of all m rows with the feature pinned to grid_vals[k]; one predict per grid value.
     ice_full = np.empty((g, m), dtype=np.float64)
     for k in range(g):
-        block = _substitute_column(carrier_sample, base, col_idx, float(grid_vals[k]), col_name=_col_name)
+        if _cat_labels is not None:
+            block = _substitute_column(carrier_sample, base, col_idx, _cat_labels[k], col_name=_col_name, categorical_dtype=_cat_dtype)
+        else:
+            block = _substitute_column(carrier_sample, base, col_idx, float(grid_vals[k]), col_name=_col_name)
         ice_full[k] = predict(block)
 
     pdp = ice_full.mean(axis=1)  # PDP mean over ALL sampled rows (not the drawn subset)
@@ -322,17 +370,22 @@ def compute_pdp_2d(
     idx = _subsample_idx(n, sample, seed)
     base = vals[idx]
     m = base.shape[0]
-    grid0, _ = _feature_grid(vals[:, i0], grid)
-    grid1, _ = _feature_grid(vals[:, i1], grid)
-    g0, g1 = grid0.shape[0], grid1.shape[0]
     name0 = names[i0] if names is not None else None
     name1 = names[i1] if names is not None else None
+    # Categorical dims sweep their native categories (display axis = codes 0..k-1) and substitute native labels, so a
+    # categorical model never receives a dtype-breaking float grid value (CatBoost errors / native-predict hangs).
+    _cat0_labels, _cat0_dtype = _categorical_grid(carrier, name0)
+    _cat1_labels, _cat1_dtype = _categorical_grid(carrier, name1)
+    grid0 = np.arange(len(_cat0_labels), dtype=np.float64) if _cat0_labels is not None else _feature_grid(vals[:, i0], grid)[0]
+    grid1 = np.arange(len(_cat1_labels), dtype=np.float64) if _cat1_labels is not None else _feature_grid(vals[:, i1], grid)[0]
+    g0, g1 = grid0.shape[0], grid1.shape[0]
 
     # Tile the m sampled rows g1 times; inner feature column is set to grid1 repeated per row-block. One predict per
     # outer-grid value over the (m*g1) tiled block, then mean per inner-grid value -> the g0 x g1 surface. The tiling
     # is done on the NATIVE carrier (preserving category dtype so categorical models predict), falling back to the
     # float block for a bare-ndarray carrier.
     inner_col = np.tile(grid1, m)  # (m*g1,)
+    inner_values = np.array([_cat1_labels[int(round(c))] for c in inner_col], dtype=object) if _cat1_labels is not None else inner_col
     surface = np.empty((g0, g1), dtype=np.float64)
     if isinstance(carrier, np.ndarray):
         tiled = np.repeat(base, g1, axis=0)
@@ -344,8 +397,9 @@ def compute_pdp_2d(
         carrier_sample = _native_row_subset(carrier, idx)
         tiled_native = _native_row_subset(carrier_sample, np.repeat(np.arange(m), g1))
         for a in range(g0):
-            block = _substitute_column(tiled_native, None, i1, inner_col, col_name=name1)
-            block = _substitute_column(block, None, i0, float(grid0[a]), col_name=name0)
+            block = _substitute_column(tiled_native, None, i1, inner_values, col_name=name1, categorical_dtype=_cat1_dtype)
+            outer_val = _cat0_labels[a] if _cat0_labels is not None else float(grid0[a])
+            block = _substitute_column(block, None, i0, outer_val, col_name=name0, categorical_dtype=_cat0_dtype)
             surface[a] = np.asarray(predict(block)).reshape(m, g1).mean(axis=0)
 
     return {"grid0": grid0, "grid1": grid1, "surface": surface, "kind": kind,

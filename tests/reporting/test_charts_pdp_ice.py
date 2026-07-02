@@ -313,3 +313,33 @@ def test_pdp_predicts_on_native_carrier_for_categorical_models():
         assert np.all(np.isfinite(r2["surface"]))
     # Caller frame not mutated to category.
     assert df.assign(cat=df["cat"].astype(object))["cat"].dtype == object
+
+
+def test_pdp_sweeps_categorical_feature_over_native_categories_catboost():
+    """Regression: sweeping a CATEGORICAL feature substituted a numeric grid value into the category column, which
+    CatBoost rejects at Pool build ("cat_features must be integer or string ... =0.0") for a string-category column and
+    HANGS its native predict for an int-coded one -- the reporting diagnostic then either crashed or spun forever
+    (observed as a suite timeout on ``show_fi=True`` runs). PDP now sweeps a categorical feature over its NATIVE
+    categories and substitutes the native label (dtype preserved), so the model always gets valid categorical input.
+    Covers 1-D (categorical feature) + 2-D (categorical x categorical and numeric x categorical)."""
+    cb = pytest.importorskip("catboost")
+    import numpy as np
+    import pandas as pd
+    from mlframe.reporting.charts.pdp_ice import compute_pdp, compute_pdp_2d
+
+    rng = np.random.default_rng(0)
+    n = 800
+    df = pd.DataFrame({
+        "num": rng.standard_normal(n),
+        "cat1": pd.Series(rng.choice(["A", "B", "C"], size=n)).astype("category"),
+        "cat2": pd.Series(rng.choice(["X", "Y"], size=n)).astype("category"),
+    })
+    y = ((df["num"] + df["cat1"].cat.codes) > 0).astype(int).to_numpy()
+    model = cb.CatBoostClassifier(iterations=20, verbose=False, cat_features=["cat1", "cat2"]).fit(df, y)
+
+    r1 = compute_pdp(model, df, feature="cat1", sample=500)
+    assert r1["grid"].shape[0] == 3 and np.all(np.isfinite(r1["pdp"]))  # one point per native category
+    for pair in (("num", "cat1"), ("cat1", "cat2")):
+        r2 = compute_pdp_2d(model, df, features=pair, sample=400)
+        assert r2["surface"].shape == (r2["grid0"].shape[0], r2["grid1"].shape[0])
+        assert np.all(np.isfinite(r2["surface"]))
