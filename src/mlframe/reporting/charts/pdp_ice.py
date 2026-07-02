@@ -168,28 +168,62 @@ def _subsample_idx(n: int, sample: int, seed: int) -> np.ndarray:
     return np.sort(np.random.default_rng(seed).choice(n, size=sample, replace=False))
 
 
-def _substitute_column(carrier: Any, base_vals: np.ndarray, col_idx: int, value: float) -> Any:
-    """Return a model-input block (carrier's flavour) with column ``col_idx`` set to ``value`` for every row.
+def _native_row_subset(carrier: Any, idx: np.ndarray) -> Any:
+    """Row-subset the carrier in its NATIVE dtypes (category columns stay category), never a whole-frame copy.
 
-    ``base_vals`` is the (sample, n_cols) ndarray of the subsampled rows. For an ndarray carrier we build the
-    substituted block directly; for a pandas / polars carrier we hand back a frame of the same type so the model's
-    feature-name / dtype expectations hold. The substitution copies only the (sample, n_cols) block, never the
-    caller's full frame.
+    The prediction block must preserve the dtypes the model was trained on -- a LightGBM / CatBoost categorical model
+    rejects a float-coerced frame ("categorical_feature do not match" / "could not convert string to float"). So the
+    grid sweep substitutes into this native subsample, NOT the float ``vals`` view (which is only for grid / ICE-x).
     """
+    if isinstance(carrier, np.ndarray):
+        return carrier[idx]
+    if hasattr(carrier, "iloc"):  # pandas
+        return carrier.iloc[idx]
+    if hasattr(carrier, "__getitem__") and type(carrier).__module__.startswith("polars"):
+        return carrier[idx]
+    return np.asarray(carrier)[idx]
+
+
+def _carrier_with_categoricals(carrier: Any) -> Any:
+    """Cast a pandas carrier's object/string columns to 'category' (new frame via assign -- untouched blocks reused,
+    caller frame not mutated) so a categorical model can predict on it. Non-pandas / already-numeric-or-category
+    carriers are returned unchanged."""
+    try:
+        import pandas as pd
+    except ImportError:
+        return carrier
+    if not isinstance(carrier, pd.DataFrame):
+        return carrier
+    obj_cols = [
+        c for c in carrier.columns
+        if not (carrier[c].dtype.kind in "iufb" or isinstance(carrier[c].dtype, pd.CategoricalDtype))
+    ]
+    return carrier.assign(**{c: carrier[c].astype("category") for c in obj_cols}) if obj_cols else carrier
+
+
+def _substitute_column(carrier_sample: Any, base_vals: np.ndarray, col_idx: int, value: float,
+                       col_name: Optional[str] = None) -> Any:
+    """Return a model-input block with column ``col_idx`` set to ``value`` for every row.
+
+    For a pandas / polars ``carrier_sample`` (already the native-dtype subsampled rows), set the swept column to
+    ``value`` while PRESERVING every other column's dtype (so categorical models predict) -- via ``assign`` /
+    ``with_columns`` on the small (sample, n_cols) subsample, never the caller's full frame. For an ndarray carrier the
+    float ``base_vals`` block path is exact and kept.
+    """
+    if isinstance(carrier_sample, np.ndarray):
+        block = base_vals.copy()
+        block[:, col_idx] = value
+        return block
+    if hasattr(carrier_sample, "assign"):  # pandas subsample
+        name = col_name if col_name is not None else list(carrier_sample.columns)[col_idx]
+        return carrier_sample.assign(**{name: value})
+    mod = type(carrier_sample).__module__
+    if mod.startswith("polars"):  # polars subsample
+        import polars as pl
+        name = col_name if col_name is not None else carrier_sample.columns[col_idx]
+        return carrier_sample.with_columns(pl.lit(value).alias(name))
     block = base_vals.copy()
     block[:, col_idx] = value
-    return _wrap_like(carrier, block)
-
-
-def _wrap_like(carrier: Any, block: np.ndarray) -> Any:
-    """Wrap a (sample, n_cols) ndarray as the carrier's frame type (pandas / polars / ndarray)."""
-    mod = type(carrier).__module__
-    if mod.startswith("pandas"):
-        import pandas as pd
-        return pd.DataFrame(block, columns=list(carrier.columns))
-    if mod.startswith("polars"):
-        import polars as pl
-        return pl.DataFrame(block, schema=list(carrier.columns))
     return block
 
 
@@ -219,12 +253,15 @@ def compute_pdp(
         ``feature_index`` : resolved column index
     """
     vals, carrier, names = _as_2d(X)
+    carrier = _carrier_with_categoricals(carrier)  # so categorical models can predict on the substituted block
     n, n_cols = vals.shape
     col_idx = _resolve_feature_index(feature, names, n_cols)
     predict, kind = _scalar_predict(model)
 
     idx = _subsample_idx(n, sample, seed)
-    base = vals[idx]  # (m, n_cols) -- the only length<=sample copy we hold
+    base = vals[idx]  # (m, n_cols) float view -- grid + ICE-x only
+    carrier_sample = _native_row_subset(carrier, idx)  # native-dtype block the model actually predicts on
+    _col_name = names[col_idx] if names is not None else None
     grid_vals, is_discrete = _feature_grid(vals[:, col_idx], grid)
     g = grid_vals.shape[0]
     m = base.shape[0]
@@ -232,7 +269,7 @@ def compute_pdp(
     # ice_full[k] = predictions of all m rows with the feature pinned to grid_vals[k]; one predict per grid value.
     ice_full = np.empty((g, m), dtype=np.float64)
     for k in range(g):
-        block = _substitute_column(carrier, base, col_idx, float(grid_vals[k]))
+        block = _substitute_column(carrier_sample, base, col_idx, float(grid_vals[k]), col_name=_col_name)
         ice_full[k] = predict(block)
 
     pdp = ice_full.mean(axis=1)  # PDP mean over ALL sampled rows (not the drawn subset)
@@ -276,6 +313,7 @@ def compute_pdp_2d(
     ``surface`` (g0 x g1 mean predictions), ``kind``.
     """
     vals, carrier, names = _as_2d(X)
+    carrier = _carrier_with_categoricals(carrier)  # categorical models must predict on native (not float) dtypes
     n, n_cols = vals.shape
     i0 = _resolve_feature_index(features[0], names, n_cols)
     i1 = _resolve_feature_index(features[1], names, n_cols)
@@ -287,17 +325,28 @@ def compute_pdp_2d(
     grid0, _ = _feature_grid(vals[:, i0], grid)
     grid1, _ = _feature_grid(vals[:, i1], grid)
     g0, g1 = grid0.shape[0], grid1.shape[0]
+    name0 = names[i0] if names is not None else None
+    name1 = names[i1] if names is not None else None
 
     # Tile the m sampled rows g1 times; inner feature column is set to grid1 repeated per row-block. One predict per
-    # outer-grid value over the (m*g1) tiled block, then mean per inner-grid value -> the g0 x g1 surface.
-    tiled = np.repeat(base, g1, axis=0)  # (m*g1, n_cols), row r,j at index r*g1 + j
-    inner_col = np.tile(grid1, m)        # (m*g1,)
-    tiled[:, i1] = inner_col
+    # outer-grid value over the (m*g1) tiled block, then mean per inner-grid value -> the g0 x g1 surface. The tiling
+    # is done on the NATIVE carrier (preserving category dtype so categorical models predict), falling back to the
+    # float block for a bare-ndarray carrier.
+    inner_col = np.tile(grid1, m)  # (m*g1,)
     surface = np.empty((g0, g1), dtype=np.float64)
-    for a in range(g0):
-        tiled[:, i0] = float(grid0[a])
-        preds = predict(_wrap_like(carrier, tiled)).reshape(m, g1)
-        surface[a] = preds.mean(axis=0)
+    if isinstance(carrier, np.ndarray):
+        tiled = np.repeat(base, g1, axis=0)
+        tiled[:, i1] = inner_col
+        for a in range(g0):
+            tiled[:, i0] = float(grid0[a])
+            surface[a] = predict(tiled).reshape(m, g1).mean(axis=0)
+    else:
+        carrier_sample = _native_row_subset(carrier, idx)
+        tiled_native = _native_row_subset(carrier_sample, np.repeat(np.arange(m), g1))
+        for a in range(g0):
+            block = _substitute_column(tiled_native, None, i1, inner_col, col_name=name1)
+            block = _substitute_column(block, None, i0, float(grid0[a]), col_name=name0)
+            surface[a] = np.asarray(predict(block)).reshape(m, g1).mean(axis=0)
 
     return {"grid0": grid0, "grid1": grid1, "surface": surface, "kind": kind,
             "feature_index": (i0, i1)}

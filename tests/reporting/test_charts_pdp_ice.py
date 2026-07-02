@@ -285,3 +285,31 @@ def test_pdp_as_2d_coerces_string_columns_without_crashing():
     assert carrier is df  # carrier kept native for the model's expected input
     assert np.array_equal(vals[:, 0], np.arange(100.0))  # numeric columns untouched
     assert np.all(np.isfinite(vals[:, 2])) and set(np.unique(vals[:, 2])) == {0.0, 1.0, 2.0, 3.0}  # cat -> codes
+
+
+def test_pdp_predicts_on_native_carrier_for_categorical_models():
+    """Regression: PDP built the prediction frame from the FLOAT value view (_wrap_like wrapped a float ndarray), so a
+    LightGBM/CatBoost *categorical model* rejected it ("categorical_feature do not match" / "could not convert string to
+    float") -- the ENTIRE PDP figure was silently dropped for any categorical-feature model. PDP now substitutes the
+    grid value on the NATIVE subsampled carrier (category dtype preserved for non-swept columns), so numeric-feature
+    PDP renders on categorical models. Covers 1-D + 2-D, category- and object-dtype cats, and the no-mutation contract."""
+    lgb = pytest.importorskip("lightgbm")
+    import numpy as np
+    import pandas as pd
+    from mlframe.reporting.charts.pdp_ice import compute_pdp, compute_pdp_2d
+
+    rng = np.random.default_rng(0)
+    n = 3000
+    df = pd.DataFrame({"x0": rng.standard_normal(n), "x1": rng.standard_normal(n)})
+    df["cat"] = pd.Categorical(rng.choice(list("ABCDE"), n))
+    y = (2.0 * df["x0"] - 1.5 * df["x1"] + rng.standard_normal(n)).to_numpy().astype(float)
+    model = lgb.LGBMRegressor(n_estimators=40, verbose=-1).fit(df, y, categorical_feature=["cat"])
+
+    for frame in (df, df.assign(cat=df["cat"].astype(object))):
+        r1 = compute_pdp(model, frame, feature="x0", sample=500)
+        assert r1["pdp"].shape[0] >= 2 and np.all(np.isfinite(r1["pdp"]))
+        r2 = compute_pdp_2d(model, frame, features=("x0", "x1"), sample=400)
+        assert r2["surface"].shape == (r2["grid0"].shape[0], r2["grid1"].shape[0])
+        assert np.all(np.isfinite(r2["surface"]))
+    # Caller frame not mutated to category.
+    assert df.assign(cat=df["cat"].astype(object))["cat"].dtype == object
