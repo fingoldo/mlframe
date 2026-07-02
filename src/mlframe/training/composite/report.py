@@ -34,6 +34,7 @@ from typing import Any, Optional
 import numpy as np
 
 from .provenance import _format_transform_formulas
+from ._value_report import build_composite_value_report, render_composite_value_report
 
 # Headline fitted params shown first, in this fixed order, when present. Mirrors
 # the notebook repr's _HEADLINE_PARAM_KEYS so the report and the repr agree.
@@ -398,3 +399,33 @@ def composite_report(
     if fmt_l == "html":
         return _render_html(facts)
     return _render_markdown(facts)
+
+
+def composite_value_report(
+    y_true: Any,
+    y_pred_raw: Any,
+    y_pred_composite: Any,
+    group_ids: Any,
+    y_pred_lag: Any = None,
+    *,
+    config: Any = None,
+    **kwargs: Any,
+) -> Optional[dict]:
+    """Build the composite-vs-raw(-vs-lag) per-group VALUE report + attach a rendered text block.
+
+    Answers "did the composite earn its keep, and where?" -- the per-group breakdown, the row-weighted
+    net lift, and the count of groups where the composite is worse than the lag failsafe. See
+    :func:`mlframe.training.composite._value_report.build_composite_value_report` for the full contract.
+
+    A normal composite run gates emission on the config toggle: when ``config`` is passed and
+    ``emit_composite_value_report`` is falsy, this returns ``None`` (the report is suppressed). The
+    returned dict carries the rendered ASCII text under ``report["markdown"]`` so a caller can log or
+    persist both the structured data and the human-readable block from one call.
+    """
+    if config is not None and not getattr(config, "emit_composite_value_report", True):
+        return None
+    report = build_composite_value_report(
+        y_true, y_pred_raw, y_pred_composite, group_ids, y_pred_lag=y_pred_lag, **kwargs
+    )
+    report["markdown"] = render_composite_value_report(report)
+    return report
