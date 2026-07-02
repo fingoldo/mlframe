@@ -87,15 +87,16 @@ def _gate_select_grid_njit(cv, av, bv, taus):
             out[i, j] = a if c > taus[j] else b
     return out
 
-# bench-attempt-rejected (2026-06-13, iter53): fusing the per-candidate (n, 17-tau) mask / select feature-grid build into a
-# single njit kernel (replacing the per-tau ``np.where`` / ``(cv>tau)*av`` Python loop). The ISOLATED build kernel is a real
-# win -- njit(parallel) 1.26-2.46x over the numpy loop across n=533..12000, bit-identical -- but it LOSES end-to-end inside
-# ``cheap_conditional_gate_scan`` (whole-call njit 0.89-0.90x vs the numpy loop): the build is only ~0.4s of the ~4s scan and
-# the parallel kernel's per-candidate spawn + core contention with the MI prange (``_gate_grid_mi``) swamps the small per-call
-# saving over 648 candidates. The single-thread njit variant is slower even in isolation at n=12000 (890us vs 765us numpy --
-# numpy's vectorised ``np.where`` over a contiguous column is already memory-bandwidth-bound at the floor, numba's scalar loop
-# has no SIMD edge), and a numpy broadcast build (``cv[:,None]>taus[None,:]``) regresses 0.65x@n12000 (the (n,17) bool temporary
-# blows the cache). All three measured + e2e-rejected; the numpy per-tau loop stays. bench: _benchmarks/bench_gate_grid_njit.py.
+# The per-candidate (n, 17-tau) mask/select build is fused into one njit(parallel) kernel ABOVE ``_GATE_BUILD_NJIT_MIN_N``
+# (default 20000), numpy per-tau loop below. History: the fusion was first e2e-rejected at SMALL n (2026-06-13, iter53):
+# isolated njit(parallel) won 1.26-2.46x over the numpy loop at n=533..12000 but LOST end-to-end (whole-scan njit 0.89-0.90x)
+# because at small n the build is a tiny fraction of the scan and the kernel's prange contends with the MI prange
+# (``_gate_grid_mi``). At LARGE n that flips: a full-suite profile put ``_build_feats`` at 22s tottime / 2058 calls (n=40k)
+# and a paired end-to-end A/B of ``cheap_conditional_gate_scan`` @n=40k measured numpy 22.3s vs njit 20.8s = 1.07x, 3/3 wins,
+# scan output BIT-IDENTICAL (705 hits both). So the fusion is gated ON only where the build is a real fraction of the scan.
+# The mask off-value is ``a*0.0`` (not 0.0) to preserve the numpy off-region NaN semantics. A numpy broadcast build
+# (``cv[:,None]>taus[None,:]``) was rejected outright (0.65x@n12000, the (n,17) bool temp blows cache).
+# bench: _benchmarks/bench_gate_grid_njit.py.
 
 __all__ = [
     "ArgmaxHit",
