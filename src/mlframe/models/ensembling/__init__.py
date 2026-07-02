@@ -63,6 +63,11 @@ from .float_aggregation import (  # noqa: E402,F401
     combine_float_predictions,
     robust_float_ensemble,
 )
+from .selection import (  # noqa: E402,F401
+    caruana_greedy_selection,
+    CaruanaSelectionResult,
+    rank_average_blend,
+)
 
 
 class EnsembleLeaderboard:
