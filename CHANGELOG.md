@@ -30,6 +30,7 @@ history.
 - Categorical co-occurrence SVD embedding (`mlframe.feature_engineering`): `cat_cooccurrence_svd_fit` / `apply_cat_cooccurrence_svd` / `cat_cooccurrence_svd_with_recipes` encode a categorical column by the leading singular vectors of its co-occurrence matrix with another categorical (Dyakonov's `code_factor`) — a target-free structural encoding.
 - ACE feature-significance filter (`mlframe.feature_selection.ace_select`): Artificial Contrasts with Ensembles (Tuv et al. 2009) — a parametric t-test of each feature's importance against permuted-contrast importances over replicates, plus a masking-removal loop; complements Boruta's binomial hit-count test with a continuous-margin test.
 - Ensemble blending primitives (`mlframe.models.ensembling`): `caruana_greedy_selection` (metric-direct greedy forward selection with replacement, optimizing the actual competition metric) and `rank_average_blend` (scale-invariant AUC-oriented rank blend) over a base-model prediction matrix.
+- Random-forest proximity metric (`mlframe.models.rf_proximity`): `rf_proximity_matrix` (Breiman leaf-co-occurrence similarity from any `.apply`-capable forest), `proximity_to_distance`, and `rf_outlier_measure` (Breiman within-class proximity outlier score) — a learned metric for RF-based clustering / MDS / anomaly detection, distinct from the FE proximity-weighted aggregate.
 
 ## [0.9.0]
 
