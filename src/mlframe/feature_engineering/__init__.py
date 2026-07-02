@@ -8,6 +8,7 @@ Submodules:
     categorical        - aggregates for categorical / repeated-value series.
     ensemble_features  - per-row disagreement features across N stacked predictors.
     financial          - OHLCV ratios, lags, TA-Lib indicators, market-wide features.
+    fuzzy_features     - fuzzification: encode a numeric column as fuzzy-partition (POSP) soft-membership features.
     grouped            - per-group sliding-window iterator primitives.
     hurst              - Hurst exponent (R/S analysis) + rolling DFA / Higuchi FD.
     mps                - Maximum Profit System target/regions.
@@ -180,6 +181,12 @@ from .graph_construction import (
     knn_graph_edges,
     shared_attribute_edges,
 )
+from .fuzzy_features import (
+    fuzzy_partition_encode,
+    fuzzy_partition_fit,
+    fuzzy_partition_transform,
+    fuzzy_partition_names,
+)
 
 __all__ = [
     "per_group_recency_weighted_mean",
@@ -261,4 +268,8 @@ __all__ = [
     "link_prediction_features",
     "knn_graph_edges",
     "shared_attribute_edges",
+    "fuzzy_partition_encode",
+    "fuzzy_partition_fit",
+    "fuzzy_partition_transform",
+    "fuzzy_partition_names",
 ]
