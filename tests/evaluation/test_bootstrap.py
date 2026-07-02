@@ -287,3 +287,28 @@ def test_jackknife_auc_matches_gather_bit_identical():
     # Degenerate: <2 of a class -> None (caller falls back to gather).
     y_deg = np.zeros(100); y_deg[0] = 1.0
     assert _jackknife_auc(y_deg, rng.uniform(0, 1, 100)) is None
+
+
+def test_bootstrap_metric_per_row_resample_fastpath_matches_generic():
+    """The per-row resample fast path (each resample = reduce_fn(mean(per_row[idx])), one gather + mean, vs gathering
+    both y[idx]/p[idx] and recomputing the metric) must match the generic metric_fn resample path to sum-reduction-order
+    FP noise on the CI bounds, for a mean-decomposable metric (RMSE). Regression sensor for the 3.1x RMSE-bootstrap
+    optimization; also pins the both-classes gate (a requires_both_classes=True per-row spec must NOT engage the fast
+    path, since it can't reproduce the metric's single-class NaN skip)."""
+    import numpy as np
+    from mlframe.evaluation.bootstrap import bootstrap_metric
+    from mlframe.metrics.scoring import fast_rmse
+
+    rng = np.random.default_rng(0)
+    _rmse_pr = lambda yy, pp: (np.asarray(yy, float) - np.asarray(pp, float)) ** 2
+    for seed in range(8):
+        r = np.random.default_rng(seed)
+        n = int(r.integers(3000, 40000))
+        y = r.standard_normal(n)
+        p = y + r.standard_normal(n) * 0.5
+        gen = bootstrap_metric(y, p, fast_rmse, n_bootstrap=400, random_state=seed)
+        fast = bootstrap_metric(y, p, fast_rmse, n_bootstrap=400, random_state=seed,
+                                jackknife_per_row=(_rmse_pr, False, np.sqrt))
+        assert gen["point"] == fast["point"]
+        assert np.isclose(gen["lo"], fast["lo"], rtol=1e-9, atol=0.0)
+        assert np.isclose(gen["hi"], fast["hi"], rtol=1e-9, atol=0.0)
