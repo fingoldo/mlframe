@@ -189,12 +189,87 @@ def conditional_perm_null_gpu(
     else:
         keys = z_rank_d + rs.random_sample(size=(n, nperm))      # exact f64 fallback (huge stratum counts)
     within = cp.argsort(keys, axis=0)                            # (n, nperm) within-stratum orders (no overlap)
+
+    # SPARSE sort/run-length CMI (2026-07-02, design-agent + nsys): at the raw-redundancy gate the conditioning
+    # support is near-continuous (Kz ~ 1e5 -> Kx*Kyz multi-million), so the dense (chunk, Kx*Kyz) joint of the
+    # chunked scorer is multi-GB -- the chunk collapses to ~1 perm and the ~nperm dense passes serialize (the
+    # gate's 14.7s). The plug-in CMI needs only OCCUPIED-cell counts, and in the z-SORTED domain (order_d /
+    # z_rank already built above) each permuted column's occupied (x,z) / (x,y,z) cells are the RUNS of a
+    # composite int64 key -- one batched cp.sort(axis=0) over ALL perms, O(n*nperm) memory, ZERO chunking.
+    # Same occupied-cell definition -> same partition counts; fp order differs ~1e-15 (selection-equivalent).
+    # Engaged only when the dense joint would exceed the sparse working set (huge-joint predicate); the dense
+    # atomic path (faster at small joints) is otherwise unchanged. Opt-out MLFRAME_FE_CMI_PERM_NULL_SPARSE=0.
+    if _perm_null_sparse_enabled():
+        try:
+            dyd = y_h.astype(cp.int64, copy=False).ravel() if isinstance(y_h, cp.ndarray) else None
+            if dyd is None:
+                from ._fe_resident_operands import resident_operand
+                dyd = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
+            Kx = int(dx.max()) + 1
+            Ky = int(dyd.max()) + 1
+            _Kz_est = _nrank                                     # occupied stratum count (dense rank max + 1)
+            dense_joint_bytes = Kx * Ky * _Kz_est * 8            # span upper bound of the dense (Kx*Kyz) joint
+            sparse_ws_bytes = 4 * n * nperm * 8                  # sort + boundary/scan temporaries
+            if dense_joint_bytes > max(sparse_ws_bytes, 64 << 20):
+                inv_n = 1.0 / float(max(1, n))
+                zr = z_rank_d[:, 0].astype(cp.int64)             # (n,) monotone stratum id (z-sorted domain)
+                ys = dyd[order_d]                                # fixed target in z-sorted order
+                xs_p = x_sorted_d[within]                        # (n, nperm) permuted candidate, z-sorted order
+                key_xz = (zr * np.int64(Kx))[:, None] + xs_p
+                h_xz, k_xz = _sparse_batched_entropy_k(cp, key_xz, inv_n)
+                del key_xz
+                key_xyz = (zr * np.int64(Kx * Ky))[:, None] + xs_p * np.int64(Ky) + ys[:, None]
+                h_xyz, k_xyz = _sparse_batched_entropy_k(cp, key_xyz, inv_n)
+                del key_xyz, xs_p
+                # fixed y/z terms, ONCE per null: zr is already sorted (monotone) and (zr*Ky + ys) sorts cheap.
+                h_z, k_z = _sparse_batched_entropy_k(cp, zr[:, None], inv_n)
+                h_yz, k_yz = _sparse_batched_entropy_k(cp, (zr * np.int64(Ky) + ys)[:, None], inv_n)
+                cmi = cp.maximum(
+                    (h_xz + float(h_yz[0]) - float(h_z[0]) - h_xyz)
+                    - (k_xyz + float(k_z[0]) - k_xz - float(k_yz[0])) * (0.5 * inv_n), 0.0)
+                nulls = cp.asnumpy(cmi).astype(np.float64)
+                return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+        except Exception:
+            logger.debug("sparse perm-null CMI failed; dense chunked path", exc_info=True)
+
     Xp_d = cp.empty((n, nperm), dtype=cp.int64)
     Xp_d[order_d, :] = x_sorted_d[within]                        # xp[order] = x_sorted[within], per perm
     del keys, within, x_sorted_d, z_rank_d, order_d            # free the (n,nperm) build + per-call order/zrank
     # (dx is resident-cached -> retained by the cache, not freed here)
     nulls = _batched_cmi_resident_chunked(Xp_d, y_h, z_for_cmi)
     return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+
+
+def _sparse_batched_entropy_k(cp, keys2d, inv_n: float):
+    """Plug-in entropy + occupied-cell count of EVERY column of the (n, nperm) int64 ``keys2d`` via
+    sort/run-length -- O(n) memory per column, NO dense (Kx*Kyz) histogram. The occupied cells of a column
+    are the RUNS of equal keys after a per-column sort; a run's length is the cell count. Returns
+    ``(h[nperm] f64, k[nperm] i64)`` device vectors. Same occupied-cell definition as the dense bincount
+    path -> identical partition counts; only the fp summation order differs (~1e-15)."""
+    n = int(keys2d.shape[0])
+    S = cp.sort(keys2d, axis=0)
+    b = cp.empty(S.shape, dtype=cp.bool_)
+    b[0, :] = True
+    b[1:, :] = S[1:, :] != S[:-1, :]                       # run starts
+    idx = cp.arange(n, dtype=cp.int64)[:, None]
+    rs = cp.maximum.accumulate(cp.where(b, idx, np.int64(0)), axis=0)          # run-start index per element
+    is_end = cp.empty(S.shape, dtype=cp.bool_)
+    is_end[-1, :] = True
+    is_end[:-1, :] = b[1:, :]                              # run-end elements
+    re = cp.minimum.accumulate(cp.where(is_end, idx, np.int64(n))[::-1, :], axis=0)[::-1, :]
+    p = (re - rs + 1).astype(cp.float64) * inv_n           # cell probability, valid at run starts
+    h = -(cp.where(b, p * cp.log(p), 0.0)).sum(axis=0)
+    k = b.sum(axis=0, dtype=cp.int64)
+    return h, k
+
+
+def _perm_null_sparse_enabled() -> bool:
+    """bench-attempt-rejected as DEFAULT (2026-07-02, GTX 1050 Ti): the sparse sort/run-length null (below)
+    measured F2 1M/30k wall 49.10s vs 45.82s for the dense chunked path WITH the precomp_yz hoist -- the
+    batched (n, nperm) int64 sorts move ~10 passes of 200 MB each, more traffic than the hoisted dense
+    joint at this card's bandwidth. Selection-equivalent and OOM-free, so it stays available (opt-in
+    MLFRAME_FE_CMI_PERM_NULL_SPARSE=1) for cards/joints where the dense path cannot fit at all."""
+    return os.environ.get("MLFRAME_FE_CMI_PERM_NULL_SPARSE", "0").strip().lower() in ("1", "true", "on", "yes")
 
 
 def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z) -> np.ndarray:
