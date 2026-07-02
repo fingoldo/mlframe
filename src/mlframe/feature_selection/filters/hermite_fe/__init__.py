@@ -749,6 +749,36 @@ def _preprocess_zscore(x):
     return (x - mean) / std, dict(mean=mean, std=std)
 
 
+@njit(cache=True)
+def _minmax_neg1_1_njit(x: np.ndarray):
+    """Fused min/max + [-1, 1] rescale for the clean (non-heavy-tail) min-max preprocessor. One reduction pass + one
+    output pass instead of numpy's np.min + np.max + elementwise (three full passes) on the 1M-row operand. Bit-identical
+    to the numpy body: np.min/np.max are order-independent (loop reproduces them exactly, INCLUDING NaN propagation via
+    the ``nan_seen`` poison so a NaN column yields the same all-NaN z numpy would), and the per-element expression keeps
+    numpy's exact operator order ``2*(x-lo)/span - 1``."""
+    n = x.size
+    lo = np.inf
+    hi = -np.inf
+    nan_seen = False
+    for i in range(n):
+        v = x[i]
+        if v != v:  # NaN
+            nan_seen = True
+        else:
+            if v < lo:
+                lo = v
+            if v > hi:
+                hi = v
+    if nan_seen:
+        lo = np.nan
+        hi = np.nan
+    span = hi - lo + 1e-12
+    out = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        out[i] = 2.0 * (x[i] - lo) / span - 1.0
+    return out, lo, hi
+
+
 def _preprocess_minmax_neg1_1(x):
     if _robust_axis_enabled() and _detect_heavy_tail(x):
         # Min-max onto [-1, 1] from the inner-quantile bounds; clamp so clipped outliers pin to +/-1 (the basis domain edge)
@@ -757,10 +787,8 @@ def _preprocess_minmax_neg1_1(x):
         span = hi - lo + 1e-12
         z = np.clip(2 * (x - lo) / span - 1, -1.0, 1.0)
         return z, dict(lo=lo, hi=hi, clip=1.0)
-    lo = float(np.min(x))
-    hi = float(np.max(x))
-    span = hi - lo + 1e-12
-    return 2 * (x - lo) / span - 1, dict(lo=lo, hi=hi)
+    z, lo, hi = _minmax_neg1_1_njit(np.ascontiguousarray(x, dtype=np.float64))
+    return z, dict(lo=float(lo), hi=float(hi))
 
 
 def _preprocess_shift_nonneg(x):
@@ -945,6 +973,48 @@ _DEFAULT_BIN_FUNCS = {
 # provided for each basis up to degree 4; returned list contains coefficient vectors of shape (degree + 1,).
 
 
+@njit(cache=True)
+def _moment_fingerprint_njit(x: np.ndarray):
+    """Fused two-pass moment fingerprint (mean, std, skew, excess-kurtosis, min, max) for ``basis_route_by_moments``.
+
+    Replaces ~10 separate numpy reductions + four 1M-element temporaries (z, z2, z2*z, z2*z2) with two cache-friendly
+    loops and NO intermediate arrays -- the routing is called once per operand column per fit and was the dominant pure-
+    host (numpy) hotspot of the STRICT F2 fit (~0.65s tottime). Numerics mirror the numpy body: ``mean = sum/n`` (same as
+    ``np.mean``), ``std = sqrt(var) + 1e-12`` (same as ``np.std(x) + 1e-12``), ``skew = mean((x-mean)^3)/std^3`` and
+    ``kurt_excess = mean((x-mean)^4)/std^4 - 3`` (identical to the ``z=(x-mean)/std``; ``mean(z^3)`` / ``mean(z^4)-3``
+    formulation). Only the summation ORDER differs from numpy's pairwise reduction, so the moments match to ~1e-12
+    relative and the routing verdict (a coarse thresholded pick over margins of order 1) is selection-identical.
+    NaN handling is verdict-equivalent: any NaN poisons ``mean``/``std``/``skew`` -> every branch predicate is False ->
+    the chebyshev default, exactly as the numpy path (NaN-poisoned comparisons) returns."""
+    n = x.size
+    s = 0.0
+    xmin = np.inf
+    xmax = -np.inf
+    for i in range(n):
+        v = x[i]
+        s += v
+        if v < xmin:
+            xmin = v
+        if v > xmax:
+            xmax = v
+    mean = s / n
+    s2 = 0.0
+    s3 = 0.0
+    s4 = 0.0
+    for i in range(n):
+        d = x[i] - mean
+        d2 = d * d
+        s2 += d2
+        s3 += d2 * d
+        s4 += d2 * d2
+    std = (s2 / n) ** 0.5 + 1e-12
+    inv = 1.0 / std
+    inv2 = inv * inv
+    skew = (s3 / n) * (inv2 * inv)
+    kurt_excess = (s4 / n) * (inv2 * inv2) - 3.0
+    return mean, std, skew, kurt_excess, xmin, xmax
+
+
 def basis_route_by_moments(x: np.ndarray) -> str:
     """Pick the polynomial basis best-matching the distribution of x based on a moment fingerprint.
 
@@ -959,19 +1029,13 @@ def basis_route_by_moments(x: np.ndarray) -> str:
     x = np.asarray(x, dtype=np.float64)
     if x.size < 30:
         return "chebyshev"
-    mean = float(np.mean(x))
-    std = float(np.std(x) + 1e-12)
-    z = (x - mean) / std
-    # z**3 / z**4 via chained multiplication: numpy ** dispatches through
-    # np.power's general path even for integer exponents (~3x slower than
-    # z*z*z / z2*z2; same antipattern fixed in iter138 for
-    # _target_distribution_analyzer + iter129 for regression_residual_audit).
-    z2 = z * z
-    skew = float(np.mean(z2 * z))
-    kurt_excess = float(np.mean(z2 * z2)) - 3.0
-    rng = float(np.max(x) - np.min(x))
+    # Single fused njit pass computes all six statistics without materialising the z / z2 / z3 / z4 temporaries the
+    # legacy numpy body allocated (the ** vs chained-mul antipattern noted below is subsumed: the njit uses d*d / d2*d).
+    x = np.ascontiguousarray(x)
+    mean, std, skew, kurt_excess, xmin, xmax = _moment_fingerprint_njit(x)
+    rng = xmax - xmin
     spread_ratio = rng / std
-    one_sided = (np.min(x) >= 0) or (np.max(x) <= 0)
+    one_sided = (xmin >= 0) or (xmax <= 0)
     # Heavy-tailed positive / one-sided -> Laguerre.
     if abs(skew) > 1.5 and (one_sided or skew > 0):
         return "laguerre"
