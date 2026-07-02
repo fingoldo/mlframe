@@ -218,7 +218,6 @@ def raw_retains_signal_given_genuine_children(
     _, _, marg_excess = _excess_and_floor(_rb_cand, yb, None, seed=seed)
     if not _gc:
         return True  # no genuine subsumer survives -> the raw cannot be proven redundant
-    z_support, _ = _renumber_joint(*_gc)
     # DEVICE-BORN conditioning support when the caller hands resident child codes: join them on device
     # (``_renumber_joint_gpu``, same partition -> selection-identical) so the support never crosses H2D (cmi_z +
     # perm-null order/z_rank). None if any child lacks a resident twin -> host z scored.
@@ -231,6 +230,13 @@ def raw_retains_signal_given_genuine_children(
                 z_support_dev, _ = _renumber_joint_gpu(*_gcd)
             except Exception:
                 z_support_dev = None
+    # HOST join only when the device join is unavailable: _excess_and_floor explicitly supports
+    # ``z_support=None`` with a resident ``z_support_dev`` (its perm-null / analytic legs D2H the device form
+    # only if a genuine host consumer is reached), and the host multi-column ``_renumber_joint`` is a full-n
+    # unique SORT per gate call -- a measurable host sink that was paid even when the device join was used.
+    z_support = None
+    if z_support_dev is None:
+        z_support, _ = _renumber_joint(*_gc)
     cmi, floor, excess = _excess_and_floor(_rb_cand, yb, z_support, seed=seed, z_support_dev=z_support_dev)
     if (cmi > floor) and (excess >= self_retain_frac * max(0.0, marg_excess)):
         return True
