@@ -13,6 +13,7 @@ import numpy as np
 from sklearn.exceptions import NotFittedError
 
 from . import _extract_groups
+from . import _soft_shrink as _soft_shrink
 from ..transforms import get_transform
 
 logger = logging.getLogger(__name__)
@@ -295,12 +296,22 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
         base_arr = np.zeros_like(t_hat)
         domain_ok = np.ones_like(t_hat, dtype=bool)
 
+    # Soft base-shrink (default ON): a base value OUTSIDE the fit-time calibration range is smoothly
+    # shrunk toward the boundary so the base-additive inverse degrades gracefully instead of exploding on
+    # unseen-group tails; in-range rows are byte-identical. Disabled/inapplicable -> base_eff IS base_arr.
+    base_eff, shrunk_mask, deep_ood = _soft_shrink.compute(self, transform, base_arr, params)
+
     # Apply inverse only on valid rows; fill the rest with the fallback, with
     # the non-finite guard. Shared with predict_quantile so both paths gate
     # NaN/out-of-domain bases identically.
     y_hat = _inverse_with_fallback(
-        self, transform, t_hat, base_arr, domain_ok, params, inverse_kwargs,
+        self, transform, t_hat, base_eff, domain_ok, params, inverse_kwargs,
     )
+    # Smart fallback for DEEPLY out-of-distribution rows: the causal lag when present, else the wrapper
+    # fallback. Runs on the RAW (un-shrunk) base so a lag-as-base failsafe uses the true observed value.
+    if deep_ood is not None:
+        _soft_shrink.apply_smart_fallback(self, y_hat, deep_ood, base_arr, domain_ok, X, params)
+    _soft_shrink.record_info(self, shrunk_mask, deep_ood, int(t_hat.size))
 
     n_violation = int((~domain_ok).sum())
     n_rows = int(t_hat.size)
