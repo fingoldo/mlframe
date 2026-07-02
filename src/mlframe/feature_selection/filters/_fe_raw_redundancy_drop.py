@@ -879,6 +879,15 @@ def drop_redundant_raw_operands(
                 [cols[e] for e in consumers],
             )
 
+    # bench-attempt-rejected (2026-07-02): a NON-OPERAND redundant-raw pass here (test each still-selected
+    # non-operand raw against the best-MI survivor subexpression via raw_retains_signal_given_genuine_children)
+    # did NOT fix the F6_decoy ab_log survival and showed no other benefit. Root cause of ab_log surviving is
+    # NOT this operand-redundancy sweep: (a) the sweep's own drops here are reverted by the downstream no-harm
+    # Ridge guard because the nonlinear compound is LINEARLY LOSSY (kept-set held-out R2 0.89 << raw-only 0.99,
+    # so the raw operands carry linear signal the child loses); (b) ab_log is re-attached AFTERWARDS by the
+    # usability-aware raw-retention device (it is linearly usable and statistically indistinguishable from a
+    # genuine linear term). Dropping it would risk genuine linearly-usable raws + violate the no-harm contract.
+    # So the redundancy sweep is the wrong lever; the F6_decoy cell stays a documented class-4 xfail.
     if not drop_idx_set:
         return sel, []
 

@@ -974,20 +974,23 @@ EXPECTED_XFAILS = {
     ("F4_medium_shared_operand_additive_composite", BROAD_N): _C_DIVISOR,
     ("F5_hard_nested_product_of_composites", BROAD_N): _C_NEST,
     ("F6_hard_nested_ratio_three_engineered_atoms", BROAD_N): _C_NEST,
-    # Triaged 2026-07-02 (was failing loud; VERIFIED root cause below). The sole failure is the ab_log drop
-    # -- keep IS satisfied (the engineered compound add(add(sin(d),log(ab)),mul(abs(b),log(a_exp))) covers the
-    # {ab} option, and d is selected). ab_log = log(a*b+1) is redundant with the compound's log(ab)
-    # SUBEXPRESSION but is NOT a syntactic OPERAND of the compound (whose operands are ab/b/a_exp/d), so
-    # drop_redundant_raw_operands -- which by design only judges raws that are OPERANDS of a survivor -- never
-    # makes ab_log a drop candidate. Catching it needs a NEW data-driven redundancy pass over ALL selected
-    # raws vs survivor subexpressions (a richer mechanism, not a default re-tune), and that risks the module's
-    # documented over-drop failure mode (dropping genuine weak raws whose private term sits beside a high-MI
-    # child). So xfail-with-reason, not green-by-relaxation -- same class as the cos/nest cases below.
+    # Triaged 2026-07-02 (was failing loud; VERIFIED root cause via instrumented fit + a rejected prod fix).
+    # The sole failure is the ab_log drop -- keep IS satisfied (the compound covers {ab}, d is selected).
+    # ab_log survival is NOT an operand-redundancy-drop gap: the instrumented fit shows (1) the redundancy
+    # sweep's info-redundant drops (a/b/ab) are REVERTED by the downstream no-harm Ridge guard because the
+    # nonlinear compound is LINEARLY LOSSY (kept-set held-out R2 0.89 << raw-only 0.99 -- the raw operands
+    # carry linear signal the child loses); (2) ab_log is then re-attached by the USABILITY-AWARE RAW
+    # RETENTION device because ab_log=log(a*b+1) is a linearly-usable encoding of the a*b signal and is
+    # statistically INDISTINGUISHABLE from a genuine linear term. Dropping it would risk genuine
+    # linearly-usable raws and violate the no-harm contract. A prod "non-operand redundant-raw" pass was
+    # attempted and rejected (bench-attempt-rejected note in _fe_raw_redundancy_drop.py) -- it did not fix
+    # this and its drops are correctly guard-reverted. So class-4 xfail-with-reason, not green-by-relaxation.
     ("F6_decoy_reencodes_the_engineered_feature_itself", BROAD_N): (
-        "class4-non-operand redundant raw: ab_log=log(a*b+1) is redundant with the compound's log(ab) "
-        "subexpression but is not a syntactic operand of the survivor, so the operand-based "
-        "drop_redundant_raw_operands never considers it; keep is satisfied (compound covers {ab}), only the "
-        "ab_log drop is unmet. Needs a richer non-operand data-driven redundancy pass, not a default re-tune"
+        "class4-linearly-usable decoy: ab_log=log(a*b+1) is re-attached by the usability-aware raw retention "
+        "(linearly usable, indistinguishable from a genuine linear term) and the no-harm Ridge guard confirms "
+        "the nonlinear compound is linearly lossy (kept-set R2 0.89 << raw-only 0.99); keep is satisfied, only "
+        "the ab_log drop is unmet. Dropping it would risk genuine linearly-usable raws / break the no-harm "
+        "contract -- not fixable without a mechanism that can tell a monotone decoy from a real linear term"
     ),
     # MS_sin_phase_weak now PASSES: the warp-surrogate matcher recognises a__He3 -> a, and the
     #   keep is the honest "both operands present" (a via a__He3 + raw b); noise g/h/k drops.
