@@ -279,17 +279,18 @@ class TestPriorLayerRoster:
             for p in root.glob("test_biz_value_mrmr_layer*.py")
             if p.stem.replace("test_biz_value_mrmr_layer", "").isdigit()
         )
-        assert present, "no test_biz_value_mrmr_layer<N>.py modules found"
         # Layers consolidated into themed subpackages keep their number in the relocated
         # submodule FILENAME (test_biz_value_mrmr_<theme>/test_layer<N>.py); harvest those from
         # the basename so the family's high-water mark still includes relocated layers, without
-        # reading source text.
+        # reading source text. After the restructure ALL flat layer files were relocated, so the
+        # roster now lives entirely in the themed subpackages.
         relocated: set[int] = set()
         for p in root.glob("test_biz_value_mrmr_*/test_*.py"):
             fm = re.match(r"test_layer(\d+)\.py$", p.name)
             if fm:
                 relocated.add(int(fm.group(1)))
         present_all = set(present) | relocated
+        assert present_all, "no test_layer<N>.py modules found in flat root or themed subpackages"
         assert max(present_all) >= 100, (
             f"highest layer module should be >= 100, got {max(present_all)}"
         )

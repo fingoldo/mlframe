@@ -413,6 +413,12 @@ class TestRosterSizeAtLeast69:
             "test_biz_value_mrmr_multiway_synergy.py",
             "test_biz_value_mrmr_quality_metrics.py",
             "test_biz_value_mrmr_ultra.py",
+            # Layers 39/68/96 were consolidated into descriptively-named modules during the test-tree
+            # restructure (layerN token stripped); count them so the roster reflects the relocated-not-deleted
+            # reality without depending on the layerN filename token.
+            "test_biz_value_mrmr_all_fe_mechanisms_regression.py",
+            "test_biz_value_mrmr_auto_scorer_selection.py",
+            "test_biz_value_mrmr_interaction_info_prefilter_speedup.py",
         )
         catchall_on_disk = [
             n for n in catchall_required
