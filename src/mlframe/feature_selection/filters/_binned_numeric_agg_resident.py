@@ -209,6 +209,8 @@ def local_mi_gate_binagg_resident(
     mad_mult: float = 3.5,
     floor: Optional[float] = None,
     reject_sink: Optional[Callable[..., None]] = None,
+    cand_cols: Optional[list] = None,
+    n_rows: Optional[int] = None,
 ) -> Optional[list]:
     """DEVICE-BORN resident twin of ``_unified_fe_gate.local_mi_gate`` for the binned-aggregate family.
 
@@ -226,10 +228,19 @@ def local_mi_gate_binagg_resident(
         import cupy as cp  # noqa: F401
     except Exception:
         return None
-    if not isinstance(feat_df, pd.DataFrame) or feat_df.shape[1] == 0:
-        return []
-    cand_cols = [c for c in feat_df.columns if pd.api.types.is_numeric_dtype(feat_df[c])]
-    if not cand_cols:
+    # ``cand_cols`` / ``n_rows`` let the DEVICE-BORN caller (binned_numeric_agg_with_recipes' recipes-only path)
+    # gate WITHOUT materialising the host OOF feat_df -- it fits recipes-only, gates from those recipes here, then
+    # builds the OOF for the FEW survivors. When a ``feat_df`` is supplied (the host callers) both are derived
+    # from it exactly as before.
+    if feat_df is not None:
+        if not isinstance(feat_df, pd.DataFrame) or feat_df.shape[1] == 0:
+            return []
+        cand_cols = [c for c in feat_df.columns if pd.api.types.is_numeric_dtype(feat_df[c])]
+        n = len(feat_df)
+    else:
+        cand_cols = list(cand_cols or [])
+        n = int(n_rows or 0)
+    if not cand_cols or n <= 0:
         return []
     # Every emitted feat column MUST have a recipe carrying its operand basis; if any is missing fall back to
     # the host gate (we cannot reconstruct it device-born).
@@ -253,7 +264,6 @@ def local_mi_gate_binagg_resident(
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
         from ._fe_resident_operands import resident_operand
 
-        n = len(feat_df)
         fold_ids = binagg_fold_ids(n, n_folds, random_state)
         mat_gpu = build_binagg_oof_matrix_gpu(cp, raw_X, col_specs, fold_ids, n_folds)
         if mat_gpu.shape[1] == 0:

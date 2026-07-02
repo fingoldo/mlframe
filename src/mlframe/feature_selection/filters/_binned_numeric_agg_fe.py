@@ -157,6 +157,7 @@ def fit_binned_numeric_agg(
     stats: Sequence[str] = SUPPORTED_STATS, nbins_base: int = 10,
     n_folds: int = 5, random_state: int = 0,
     pairs: "Optional[set]" = None,
+    recipe_only: bool = False,
 ) -> tuple:
     """OOF fit of per-(quantile-cell) statistics of ``agg_num_cols`` grouped by quantile-binned ``group_num_cols``.
 
@@ -190,21 +191,29 @@ def fit_binned_numeric_agg(
             av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
             finite = np.isfinite(av)
             globals_ = {s: _global_stat(av[finite], s) for s in kept_stats}
-            oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
-            for f in range(int(n_folds)):
-                tr = (fold_ids != f) & finite
-                if not tr.any():
-                    continue
-                per = per_cell_stats_bincount(codes[tr], av[tr], n_cells, kept_stats)
-                test = np.where(fold_ids == f)[0]
-                ct = codes[test]
-                for s in kept_stats:
-                    vals = per[s][ct]
-                    oof[s][test] = np.where(np.isfinite(vals), vals, globals_[s])
+            if not recipe_only:
+                # RECIPE_ONLY (device-born binagg, 2026-07-02) skips the 5-fold OOF feat-column build -- the
+                # per-fold gather + np.where over the full n rows, the FE scan's single largest GPU-idle host
+                # stage. The device-born path (binned_numeric_agg_with_recipes) fits recipes-only, gates on the
+                # device from those recipes, then builds the OOF for the FEW survivors -- so the OOF of the
+                # dropped candidates is never computed. The ``full`` per-cell lookup + globals (the recipe
+                # fields) are cheap 1-pass njit and are always built.
+                oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
+                for f in range(int(n_folds)):
+                    tr = (fold_ids != f) & finite
+                    if not tr.any():
+                        continue
+                    per = per_cell_stats_bincount(codes[tr], av[tr], n_cells, kept_stats)
+                    test = np.where(fold_ids == f)[0]
+                    ct = codes[test]
+                    for s in kept_stats:
+                        vals = per[s][ct]
+                        oof[s][test] = np.where(np.isfinite(vals), vals, globals_[s])
             full = per_cell_stats_bincount(codes[finite], av[finite], n_cells, kept_stats)
             for s in kept_stats:
                 name = engineered_name_binned_agg(acol, gcol, s)
-                feat_cols[name] = oof[s]
+                if not recipe_only:
+                    feat_cols[name] = oof[s]
                 lut = np.where(np.isfinite(full[s]), full[s], globals_[s]).astype(np.float64)
                 recipes[name] = {
                     "group_col": gcol, "agg_col": acol, "stat": s,
@@ -339,48 +348,90 @@ def binned_numeric_agg_with_recipes(
         key=lambda p: (g_mi.get(p[0], 0.0), a_var.get(p[1], 0.0)), reverse=True,
     )
     _precap_pairs = set(_ranked_pairs[: max(1, int(max_pairs))])
-    feat_df, raw = fit_binned_numeric_agg(
-        X, y, group_num_cols=gsel, agg_num_cols=asel,
-        stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
-        pairs=_precap_pairs,
-    )
-    if feat_df.shape[1] == 0:
-        return X.copy(), [], []
-    # max_pairs cap on the (group, agg) pairs actually emitted, by descending group MI then agg variance.
+    # max_pairs cap on the (group, agg) pairs, by descending group MI then agg variance.
     pair_rank = {(g, a): (g_mi.get(g, 0.0), a_var.get(a, 0.0)) for g in gsel for a in asel}
-    names_by_pair = {}
-    for nm in feat_df.columns:
-        names_by_pair.setdefault((raw[nm]["group_col"], raw[nm]["agg_col"]), []).append(nm)
-    top_pairs = sorted(names_by_pair, key=lambda p: pair_rank.get(p, (0.0, 0.0)), reverse=True)[: max(1, int(max_pairs))]
-    keep = [nm for p in top_pairs for nm in names_by_pair[p]]
-    feat_df = feat_df[keep]
 
-    # PROBE-GATE: keep only columns clearing the local MI floor vs the raw baseline (cheap exit when no signal).
-    if mi_gate and feat_df.shape[1] > 0:
-        from ._unified_fe_gate import local_mi_gate
-        # DEVICE-BORN route (2026-06-30): under STRICT-residency the OOF feat_df is the ~192 MB host->device
-        # upload at this site. Rebuild the OOF candidate matrix ON the device from the small resident operand
-        # columns (the recipes carry each column's group/agg/edges/global) + the host-generated fold ids, and
-        # score with the SAME resident plug-in MI -- collapsing the matrix H2D. The fold/code/gather/fallback
-        # structure is bit-identical to the host; only the per-cell moment values differ at ULP (the approved
-        # selection-equivalent trade). ``None`` (no cupy / non-strict / any GPU failure) -> exact host gate.
-        survivor_list = None
+    def _cap_names(names, recipes_map):
+        nbp: dict = {}
+        for _nm in names:
+            nbp.setdefault((recipes_map[_nm]["group_col"], recipes_map[_nm]["agg_col"]), []).append(_nm)
+        _tops = sorted(nbp, key=lambda p: pair_rank.get(p, (0.0, 0.0)), reverse=True)[: max(1, int(max_pairs))]
+        return [_nm for p in _tops for _nm in nbp[p]]
+
+    # DEVICE-BORN binagg fit (2026-07-02): when the device MI gate is available, fit RECIPES-ONLY (skip the 5-fold
+    # OOF host loop -- the FE scan's largest GPU-idle host stage, ~5s at 1M rows), gate on the device from those
+    # recipes, then build the host OOF for the FEW survivors only. The device gate scores an OOF rebuilt ON-device
+    # from the recipes (it never reads host OOF values), so the survivor set -- and thus the survivor OOF the
+    # redundancy gate + the append consume -- is BYTE-IDENTICAL to fitting every candidate on the host; only the
+    # OOF of the DROPPED candidates is never computed. Any device-gate None / failure -> the exact host path below.
+    _device_binagg = False
+    if mi_gate:
         try:
             from ._gpu_strict_fe import fe_gpu_device_born_binagg_enabled
-            if fe_gpu_device_born_binagg_enabled():
-                from ._binned_numeric_agg_resident import local_mi_gate_binagg_resident
-                survivor_list = local_mi_gate_binagg_resident(
-                    feat_df, y, raw_X=X, recipes=raw, n_folds=n_folds, random_state=random_state,
-                    reject_sink=reject_sink,
-                )
+            _device_binagg = bool(fe_gpu_device_born_binagg_enabled())
+        except Exception:
+            _device_binagg = False
+
+    feat_df = None
+    raw = None
+    if _device_binagg:
+        _rec_df, raw = fit_binned_numeric_agg(
+            X, y, group_num_cols=gsel, agg_num_cols=asel,
+            stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
+            pairs=_precap_pairs, recipe_only=True,
+        )
+        if not raw:
+            return X.copy(), [], []
+        cand_names = _cap_names(list(raw.keys()), raw)
+        if not cand_names:
+            return X.copy(), [], []
+        survivor_list = None
+        try:
+            from ._binned_numeric_agg_resident import local_mi_gate_binagg_resident
+            survivor_list = local_mi_gate_binagg_resident(
+                None, y, raw_X=X, recipes={_nm: raw[_nm] for _nm in cand_names},
+                n_folds=n_folds, random_state=random_state, reject_sink=reject_sink,
+                cand_cols=cand_names, n_rows=len(X),
+            )
         except Exception:
             survivor_list = None
         if survivor_list is None:
-            survivor_list = local_mi_gate(feat_df, y, raw_X=X, reject_sink=reject_sink)
-        survivors = set(survivor_list)
-        feat_df = feat_df[[c for c in feat_df.columns if c in survivors]]
+            _device_binagg = False   # device gate unavailable -> host all-columns path below
+        else:
+            _surv_set = set(survivor_list)
+            survivors = [c for c in cand_names if c in _surv_set]   # capped order, filtered to survivors
+            if not survivors:
+                return X.copy(), [], []
+            # HOST OOF for the SURVIVOR pairs only (bit-identical values, few columns). The pair-restricted fit
+            # may emit sibling stats of a survivor's pair -> keep exactly the survivor columns, in survivor order.
+            _surv_pairs = set((raw[_nm]["group_col"], raw[_nm]["agg_col"]) for _nm in survivors)
+            feat_df, _ = fit_binned_numeric_agg(
+                X, y, group_num_cols=gsel, agg_num_cols=asel,
+                stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
+                pairs=_surv_pairs,
+            )
+            _have = set(feat_df.columns)
+            feat_df = feat_df[[c for c in survivors if c in _have]]
+            if feat_df.shape[1] == 0:
+                return X.copy(), [], []
+
+    if not _device_binagg:
+        # HOST path (unchanged behaviour): build ALL capped OOF columns, then the host CPU MI gate.
+        feat_df, raw = fit_binned_numeric_agg(
+            X, y, group_num_cols=gsel, agg_num_cols=asel,
+            stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
+            pairs=_precap_pairs,
+        )
         if feat_df.shape[1] == 0:
             return X.copy(), [], []
+        feat_df = feat_df[_cap_names(list(feat_df.columns), raw)]
+        # PROBE-GATE: keep only columns clearing the local MI floor vs the raw baseline (cheap exit if no signal).
+        if mi_gate and feat_df.shape[1] > 0:
+            from ._unified_fe_gate import local_mi_gate
+            survivors_set = set(local_mi_gate(feat_df, y, raw_X=X, reject_sink=reject_sink))
+            feat_df = feat_df[[c for c in feat_df.columns if c in survivors_set]]
+            if feat_df.shape[1] == 0:
+                return X.copy(), [], []
 
     # REDUNDANCY GATE: a ``binagg_*`` column ``stat(a | qbin(g))`` is a deterministic function of its source
     # columns ``(g, a)``. The Tier-1 MI floor above keeps it whenever MI(col; y) clears the raw noise floor,
