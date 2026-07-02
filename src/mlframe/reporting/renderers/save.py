@@ -15,6 +15,8 @@ File-naming policy:
 from __future__ import annotations
 
 import logging
+import os
+import threading
 from typing import Any, Dict, Optional, Tuple
 
 from mlframe.reporting.output import PlotOutputSpec
@@ -22,6 +24,20 @@ from mlframe.reporting.renderers.base import get_renderer
 from mlframe.reporting.spec import FigureSpec
 
 logger = logging.getLogger(__name__)
+
+# Per-thread inline-display override. Backing the programmatic override with thread-local storage (rather than
+# a process-global os.environ write) isolates concurrent suites: one thread forcing inline display no longer
+# flips the mode of an unrelated suite running in another thread. The decision is taken on the main thread
+# (see render_and_save "Main-thread post-processing"), so the set and the read are always same-thread. The
+# MLFRAME_PLOT_INLINE_DISPLAY env var remains an external fallback when no thread-local override is set.
+_INLINE_OVERRIDE = threading.local()
+_UNSET = object()
+
+
+def _thread_inline_override():
+    """Tri-state per-thread override: True / False if set on this thread, else None (fall back to env)."""
+    val = getattr(_INLINE_OVERRIDE, "value", _UNSET)
+    return None if val is _UNSET else val
 
 # Static (non-interactive) export formats: no hover, so plotly legends must be enabled for these to be readable.
 _STATIC_FORMATS = frozenset({"png", "svg", "pdf", "jpg", "jpeg"})
@@ -77,8 +93,12 @@ def _detect_interactive_session() -> bool:
     The naive ``"IPython" in sys.modules`` heuristic is unreliable —
     matplotlib + many ML libraries drag IPython in as a transitive dep
     even from plain Python scripts (giving false positives).
+
+    A per-thread override set via ``set_inline_display_mode`` takes precedence over all of the below.
     """
-    import os
+    _override = _thread_inline_override()
+    if _override is not None:
+        return _override
     env = os.environ.get("MLFRAME_PLOT_INLINE_DISPLAY")
     if env is not None:
         env_lo = env.strip().lower()
@@ -97,44 +117,44 @@ def _detect_interactive_session() -> bool:
 
 
 def set_inline_display_mode(mode):
-    """Set the process-wide inline-display override via env var.
+    """Set the inline-display override for the CURRENT thread.
 
-    Mirrors the ``MLFRAME_PLOT_INLINE_DISPLAY`` env var without requiring
-    callers to set it directly. ``mode``:
+    Stored in thread-local state (not the process-wide env), so concurrent suites in different threads do
+    not clobber each other's mode. Takes precedence over the ``MLFRAME_PLOT_INLINE_DISPLAY`` env var, which
+    still applies (per-thread) when no override is set. ``mode``:
       - ``True``  → force inline display (overrides auto-detect).
       - ``False`` → force save-only (overrides auto-detect).
       - ``None``  → clear the override; ``_detect_interactive_session``
-        falls back to ``__IPYTHON__`` / ``sys.ps1`` auto-detect.
+        falls back to the env var then ``__IPYTHON__`` / ``sys.ps1`` auto-detect.
 
     Used by ``train_mlframe_models_suite`` to honor
     ``ReportingConfig.plot_inline_display``.
     """
-    import os
-    if mode is None:
-        os.environ.pop("MLFRAME_PLOT_INLINE_DISPLAY", None)
-    elif mode is True:
-        os.environ["MLFRAME_PLOT_INLINE_DISPLAY"] = "1"
-    elif mode is False:
-        os.environ["MLFRAME_PLOT_INLINE_DISPLAY"] = "0"
-    else:
+    if mode not in (None, True, False):
         raise ValueError(
             f"set_inline_display_mode(mode={mode!r}): expected True, "
             "False, or None"
         )
+    if mode is None:
+        _INLINE_OVERRIDE.value = _UNSET
+    else:
+        _INLINE_OVERRIDE.value = mode
 
 
 def get_inline_display_mode():
-    """Return the current process-wide inline-display override.
+    """Return the current inline-display override for this thread.
 
     Returns the same tri-state set_inline_display_mode accepts:
-      - ``True``  if MLFRAME_PLOT_INLINE_DISPLAY in {"1", "true", "yes"}.
-      - ``False`` if MLFRAME_PLOT_INLINE_DISPLAY in {"0", "false", "no"}.
-      - ``None``  if the env var is unset (auto-detect path).
+      - the per-thread override (``True`` / ``False``) if one is set on this thread;
+      - else ``True`` / ``False`` parsed from MLFRAME_PLOT_INLINE_DISPLAY if set;
+      - else ``None`` (auto-detect path).
 
     Used by the suite's snapshot+restore wrap so a per-suite override is reverted
     at suite finish rather than leaking into the next suite call.
     """
-    import os
+    _override = _thread_inline_override()
+    if _override is not None:
+        return _override
     _val = os.environ.get("MLFRAME_PLOT_INLINE_DISPLAY")
     if _val is None:
         return None

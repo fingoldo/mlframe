@@ -146,10 +146,18 @@ class TestInteractiveDisplay:
 
 
 class TestInlineDisplayOptOut:
-    """Process-wide opt-out via ``MLFRAME_PLOT_INLINE_DISPLAY`` env var
-    (set directly or via ``set_inline_display_mode``). Lets batch
-    jupyter runs (papermill / nbconvert / scheduled notebooks) skip the
-    inline render even when ``__IPYTHON__`` is set."""
+    """Inline-display opt-out via the ``MLFRAME_PLOT_INLINE_DISPLAY`` env var (external, process-wide) or a
+    per-thread override set through ``set_inline_display_mode``. Lets batch jupyter runs (papermill /
+    nbconvert / scheduled notebooks) skip the inline render even when ``__IPYTHON__`` is set."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_thread_override(self):
+        """The override is thread-local and persists across tests on the same (main) thread; clear it
+        before and after each test so one test's forced mode cannot leak into the next."""
+        from mlframe.reporting.renderers.save import set_inline_display_mode
+        set_inline_display_mode(None)
+        yield
+        set_inline_display_mode(None)
 
     def test_env_var_force_false_overrides_ipython(self, trivial_spec, tmp_path, monkeypatch):
         """Even with __IPYTHON__ set, env var=0 → save-only."""
@@ -192,11 +200,12 @@ class TestInlineDisplayOptOut:
         assert len(show_calls) == 1
         assert os.path.exists(base + ".png")
 
-    def test_setter_helper_writes_env_var(self, monkeypatch):
-        """``set_inline_display_mode`` writes/clears the env var without
-        requiring callers to manipulate ``os.environ`` directly."""
+    def test_setter_helper_controls_display_decision(self, monkeypatch):
+        """``set_inline_display_mode`` drives the display decision (via a per-thread override) without
+        callers manipulating ``os.environ``. The contract is the resulting ``_detect_interactive_session``
+        verdict, not the storage mechanism."""
         from mlframe.reporting.renderers.save import (
-            set_inline_display_mode, _detect_interactive_session,
+            set_inline_display_mode, get_inline_display_mode, _detect_interactive_session,
         )
         # Clean slate
         monkeypatch.delenv("MLFRAME_PLOT_INLINE_DISPLAY", raising=False)
@@ -208,27 +217,68 @@ class TestInlineDisplayOptOut:
         if hasattr(sys, "ps1"):
             monkeypatch.delattr(sys, "ps1")
 
-        # auto-detect → False (no kernel + no env var)
+        # auto-detect → False (no kernel + no env var + no override)
         assert _detect_interactive_session() is False
+        assert get_inline_display_mode() is None
 
         # Force True
         set_inline_display_mode(True)
         assert _detect_interactive_session() is True
-        assert os.environ.get("MLFRAME_PLOT_INLINE_DISPLAY") == "1"
+        assert get_inline_display_mode() is True
+        # The override must NOT leak into the process-wide env (isolates concurrent suites).
+        assert "MLFRAME_PLOT_INLINE_DISPLAY" not in os.environ
 
         # Force False
         set_inline_display_mode(False)
         assert _detect_interactive_session() is False
-        assert os.environ.get("MLFRAME_PLOT_INLINE_DISPLAY") == "0"
+        assert get_inline_display_mode() is False
+        assert "MLFRAME_PLOT_INLINE_DISPLAY" not in os.environ
 
         # Clear → falls back to auto-detect (False with no kernel)
         set_inline_display_mode(None)
-        assert "MLFRAME_PLOT_INLINE_DISPLAY" not in os.environ
+        assert get_inline_display_mode() is None
         assert _detect_interactive_session() is False
 
         # Reject garbage
         with pytest.raises(ValueError):
             set_inline_display_mode("yes")  # type: ignore[arg-type]
+
+    def test_override_is_thread_local_not_process_global(self, monkeypatch):
+        """A mode forced in one thread must NOT change the decision seen by another thread — the whole
+        point of backing the override with thread-local storage instead of a process-wide env write."""
+        import threading
+        from mlframe.reporting.renderers.save import set_inline_display_mode, get_inline_display_mode
+        monkeypatch.delenv("MLFRAME_PLOT_INLINE_DISPLAY", raising=False)
+
+        # Main thread forces True.
+        set_inline_display_mode(True)
+        other_seen = {}
+
+        def worker():
+            # This thread set nothing -> must see None (no cross-thread contamination), not the main
+            # thread's forced True. Then it forces False for itself.
+            other_seen["before"] = get_inline_display_mode()
+            set_inline_display_mode(False)
+            other_seen["after"] = get_inline_display_mode()
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+
+        assert other_seen["before"] is None, "worker thread wrongly saw the main thread's override"
+        assert other_seen["after"] is False, "worker thread's own override should apply to itself"
+        # Main thread's override is untouched by the worker.
+        assert get_inline_display_mode() is True
+
+    def test_env_var_fallback_when_no_override(self, monkeypatch):
+        """With no per-thread override, the external MLFRAME_PLOT_INLINE_DISPLAY env var still applies."""
+        from mlframe.reporting.renderers.save import get_inline_display_mode, _detect_interactive_session
+        monkeypatch.setenv("MLFRAME_PLOT_INLINE_DISPLAY", "1")
+        assert get_inline_display_mode() is True
+        assert _detect_interactive_session() is True
+        monkeypatch.setenv("MLFRAME_PLOT_INLINE_DISPLAY", "0")
+        assert get_inline_display_mode() is False
+        assert _detect_interactive_session() is False
 
     def test_unrecognized_env_value_falls_through_to_auto_detect(self, monkeypatch):
         """A typo in the env var (``MLFRAME_PLOT_INLINE_DISPLAY=maybe``)
