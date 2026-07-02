@@ -9,7 +9,7 @@ operands are uploaded dozens of times per fit (e.g. ``_resident_candidate_mi.py:
 candidate matrices themselves are generated ON device (no host source) and are transient -- they MUST NOT be
 cached. Only the fit-constant base operands / y / z are uploaded once and reused.
 
-The cache is keyed PURELY on a content fingerprint (shape + dtype + a cheap O(n) ``hash(tobytes())``), NOT on
+The cache is keyed PURELY on a content fingerprint (shape + dtype + a cheap copy-free O(n) content hash), NOT on
 the caller's role discriminator. An H2D audit of a 1M strict-resident fit (monkeypatch of ``resident_operand``
 counting misses by content signature) showed 615 MB / 90 ops -- 65% of the operand H2D -- were CROSS-ROLE
 re-uploads of IDENTICAL content: the label ``y`` is uploaded by ~6 roles (``cmi_y`` / ``card_y`` /
@@ -36,6 +36,28 @@ import os as _os
 from collections import OrderedDict
 from typing import Any
 
+# Copy-free content hash. The signature must O(n)-hash the WHOLE operand buffer to guard against a
+# same-shape/dtype operand with different VALUES aliasing a stale device buffer (see resident_operand). The old
+# ``hash(host.tobytes())`` walked the buffer AND allocated a full host copy first (an ~8 MB tobytes churn for a
+# 1M-row f64 operand). ``xxh3_64`` walks the array buffer directly via the buffer protocol -- no intermediate
+# bytes copy -- at ~8x the throughput, and stays in the SAME 64-bit collision domain as the old key (shape +
+# dtype-str still split the space; a 64-bit content hash collides no more than Python's siphash-based
+# ``hash(bytes)`` did), so keying on it is exactly as safe against a stale-buffer alias. If xxhash is absent, or
+# the array is not C-contiguous (buffer protocol would reject it), fall back to the original tobytes hash.
+try:
+    import xxhash as _xxhash
+
+    _xxh3_64 = _xxhash.xxh3_64_intdigest
+except Exception:  # xxhash optional: correctness identical via the tobytes fallback, only the copy churn returns
+    _xxh3_64 = None
+
+
+def _content_hash(host: Any) -> int:
+    """O(n) content hash of a host operand, copy-free when possible (see module note on the collision domain)."""
+    if _xxh3_64 is not None and host.flags["C_CONTIGUOUS"]:
+        return _xxh3_64(host)
+    return hash(host.tobytes())
+
 # content signature (shape + dtype-str + content hash)  ->  device_array. OrderedDict gives O(1) LRU: hits
 # move-to-end (hot), overflow pops the front (coldest).
 _FE_RESIDENT_OPERANDS: "OrderedDict" = OrderedDict()
@@ -59,10 +81,14 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
 
     ``key`` is a ROLE label (e.g. ``"cmi_y"``, ``("op", col_name)``) retained only for call-site readability
     and A/B tracing: it is NOT part of the cache key. The key is the content signature
-    (shape + dtype + ``hash(arr.tobytes())``), so the SAME fit-constant content uploaded under different roles
+    (shape + dtype + a copy-free content hash), so the SAME fit-constant content uploaded under different roles
     (the label ``y`` by cmi_y / card_y / fixedyz_y / y_mi_classif / ...; the support ``z`` by cmi_z / card_z /
     fixedyz_z) shares ONE resident device buffer instead of one upload per role -- the 65%-of-operand-H2D
-    cross-role re-upload leak (see module docstring). ``dtype`` (optional) is the FINAL dtype the kernel needs
+    cross-role re-upload leak (see module docstring). The content hash is copy-free (``xxh3_64`` over the array
+    buffer, tobytes fallback for non-contiguous / no-xxhash), in the same 64-bit collision domain as before.
+    NOTE(caller): the fit-constant ``y`` / ``z`` are re-hashed on every role's call; a caller-side upload-dedup
+    (upload y/z ONCE and pass the resident handle) would skip resident_operand entirely for them, but that is a
+    caller change outside this file. ``dtype`` (optional) is the FINAL dtype the kernel needs
     (e.g. ``cp.float64`` / ``np.int64``); caching in that dtype collapses repeated ``astype(copy=False)`` calls
     AND keeps two roles that want the same values in different dtypes as distinct (correct) entries.
 
@@ -85,7 +111,7 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
 
     # Content signature is the WHOLE key: shape + dtype distinguish dtype/length variants; the content hash
     # deduplicates identical operands across roles and guards against a different-values alias.
-    sig = (host.shape, host.dtype.str, hash(host.tobytes()))
+    sig = (host.shape, host.dtype.str, _content_hash(host))
     g = _FE_RESIDENT_OPERANDS.get(sig)
     if g is not None:
         _FE_RESIDENT_OPERANDS.move_to_end(sig)        # LRU: this content is hot
