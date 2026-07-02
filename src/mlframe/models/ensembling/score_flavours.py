@@ -244,10 +244,15 @@ def run_stacking_aware_gate(
     use_nnls_weights: bool,
     res: dict,
     verbose: bool,
+    use_caruana_weights: bool = False,
 ) -> Optional[np.ndarray]:
-    """Run the composite_stacking NNLS-weight gate observationally; persist survivors/weights to ``res["_stacking_gate"]``.
+    """Run the composite_stacking weight gate observationally; persist survivors/weights to ``res["_stacking_gate"]``.
 
-    Returns the aligned weight vector for the downstream blend when ``use_nnls_weights`` is True (else None). AP7: assemble length-M weight vector aligned with ``level_models_and_predictions``. Members not in the survivor set get weight 0. Members whose gate-source was missing also get 0.
+    Returns the aligned weight vector for the downstream blend when ``use_nnls_weights`` OR ``use_caruana_weights`` is
+    True (else None). Two weight-fit methods share the same alignment path: NNLS (squared-error fit, the default) and
+    Caruana greedy selection (``use_caruana_weights`` takes precedence when set) which hill-climbs the ACTUAL metric
+    (AUC) on the OOF member preds. AP7: assemble length-M weight vector aligned with ``level_models_and_predictions``;
+    members not in the survivor set (or whose gate-source was missing) get weight 0.
     """
     _nnls_weights_for_blend: Optional[np.ndarray] = None
     if not (enable_stacking_aware_gate and _gate_preds_for_check is not None and target_arr is not None):
@@ -276,17 +281,31 @@ def run_stacking_aware_gate(
             _ordered_tags.append(_tag)
             _saw_preds[_tag] = _p_arr.astype(np.float64)
         if _saw_preds:
-            _saw_survivors, _saw_weights = _saw_gate(_saw_preds, _saw_y, min_weight=stacking_gate_min_weight)
+            if use_caruana_weights:
+                # Caruana greedy: metric-direct (AUC) convex weights over the OOF member preds -- an alternative to the
+                # NNLS squared-error fit. Emits the SAME survivor/weight-dict shape so the alignment-and-apply path below
+                # is shared. Survivors = members whose greedy weight clears ``stacking_gate_min_weight``.
+                from .selection import caruana_greedy_selection
+                _car_tags = list(_saw_preds.keys())
+                _car_stacked = np.asarray([_saw_preds[t] for t in _car_tags], dtype=np.float64)
+                _car_res = caruana_greedy_selection(_car_stacked, _saw_y)
+                _saw_weights = {t: float(w) for t, w in zip(_car_tags, np.asarray(_car_res.weights, dtype=np.float64))}
+                _saw_survivors = [t for t in _car_tags if _saw_weights.get(t, 0.0) > stacking_gate_min_weight]
+                _weight_method = "caruana"
+            else:
+                _saw_survivors, _saw_weights = _saw_gate(_saw_preds, _saw_y, min_weight=stacking_gate_min_weight)
+                _weight_method = "nnls"
             res["_stacking_gate"] = {
                 "survivors": list(_saw_survivors),
                 "weights": dict(_saw_weights),
                 "min_weight": float(stacking_gate_min_weight),
+                "weight_method": _weight_method,
             }
             # AP7: assemble length-M weight vector aligned with ``level_models_and_predictions``.
             # Members not in the survivor set get weight 0. Members whose gate-source was missing
             # also get 0. When use_nnls_weights=False this is computed but unused (stamped only
             # for the observational report).
-            if use_nnls_weights and _saw_survivors:
+            if (use_nnls_weights or use_caruana_weights) and _saw_survivors:
                 _w_aligned = np.zeros(len(level_models_and_predictions), dtype=np.float64)
                 _surv_set = set(_saw_survivors)
                 for i, _tag in enumerate(_ordered_tags):
@@ -300,7 +319,8 @@ def run_stacking_aware_gate(
                     res["_stacking_gate"]["applied_to_blend"] = True
                     if verbose:
                         logger.info(
-                            "[ensemble] NNLS weights applied to blend: %s",
+                            "[ensemble] %s weights applied to blend: %s",
+                            _weight_method,
                             {_ensemble_member_tags[i]: float(_w_aligned[i]) for i in range(len(_w_aligned))},
                         )
                 else:
