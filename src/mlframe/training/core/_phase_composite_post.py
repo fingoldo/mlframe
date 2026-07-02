@@ -282,6 +282,27 @@ def run_composite_post_processing(
                     ctx=ctx,
                 )
 
+    # MoE selection gate + composite VALUE report: this is the one place where the deployed composite ensemble,
+    # the raw-y model, the lag failsafe, true y and group_ids coexist on the honest val split. Both are flag-gated
+    # and no-op cleanly (deploy byte-identical) when their inputs are missing.
+    try:
+        from ._phase_composite_post_moe import run_composite_moe_and_value_report
+        run_composite_moe_and_value_report(
+            models=models,
+            metadata=metadata,
+            target_by_type=target_by_type,
+            composite_target_discovery_config=composite_target_discovery_config,
+            filtered_train_df=filtered_train_df,
+            filtered_val_df=filtered_val_df,
+            filtered_train_idx=filtered_train_idx,
+            filtered_val_idx=filtered_val_idx,
+            ctx=ctx,
+        )
+    except Exception as _moe_err:
+        logger.warning(
+            "[CompositeMoE] value-report / MoE-gate stage failed (%s); deploy left unchanged.", _moe_err,
+        )
+
     _run_suite_end_dummy_baselines_summary(
         models=models,
         metadata=metadata,
