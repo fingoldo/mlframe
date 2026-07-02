@@ -27,6 +27,31 @@ from mlframe.metrics.classification._classification_report import (  # noqa: F40
     fast_calibration_report,
 )
 
+# Public re-export of the scalar classification / regression metrics so callers use the documented
+# ``from mlframe.metrics import quadratic_weighted_kappa`` surface instead of reaching into the concrete submodule (which
+# is exactly what the metric registry itself imports). Only ``core`` is star-imported above, so these submodule names
+# were otherwise reachable only as ``mlframe.metrics.classification.*`` / ``.regression.*``. Explicit (not star) to avoid
+# shadowing anything the ``core`` star already brought in.
+from mlframe.metrics.classification import (  # noqa: F401
+    apply_cutpoints,
+    cumulative_gains_curve,
+    exploss,
+    gains_table,
+    lift_curve,
+    optimal_ordinal_cutpoints,
+    optimal_threshold,
+    quadratic_weighted_kappa,
+    weighted_kappa,
+)
+from mlframe.metrics.regression import (  # noqa: F401
+    fast_epsilon_band_accuracy,
+    fast_logcosh_loss,
+    fast_mrae,
+    fast_percent_better,
+    fast_rel_mae,
+    fast_rmspe,
+)
+
 # Preserve the historical ``from mlframe.metrics import *`` surface (every public name the star-imports above brought in)
 # while GUARANTEEING the documented ``fast_calibration_report`` / ``CalibrationReport`` are part of it as a first-class contract.
 __all__ = sorted(
