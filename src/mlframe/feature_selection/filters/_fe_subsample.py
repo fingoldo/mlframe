@@ -40,8 +40,9 @@ _FE_STRATIFY_REG_BINS: int = 10
 
 
 # ---------------------------------------------------------------------------------------------------
-# NUMBA KERNELS (R2, 2026-06-18). Deterministic seeded numba RNG (np.random.seed inside njit + the
-# numba-supported np.random.* draws). Exact bit-match to the numpy version is NOT required (the
+# NUMBA KERNELS (R2, 2026-06-18). Deterministic per-call inline-LCG RNG (thread-safe: no process-global
+# np.random state, so concurrent joblib-threading callers cannot clobber each other's stream). Exact
+# bit-match to the numpy version is NOT required (the
 # default flips to ON anyway) -- the kernels only guarantee DETERMINISM (same seed+inputs -> same
 # indices across runs/processes) and the SAME stratification GUARANTEES: per-class proportional with
 # >=min(2,count)/class (classification), proportional across y-quantile bins preserving the tails
@@ -51,19 +52,20 @@ _FE_STRATIFY_REG_BINS: int = 10
 
 
 @njit(cache=True)
-def _partial_fisher_yates(members, k, seed_off):
-    """Draw ``k`` distinct elements from ``members`` via a seeded partial Fisher-Yates shuffle.
-
-    A local copy of ``members`` is shuffled in place for its first ``k`` slots using the
-    numba-supported ``np.random.randint`` (seeded once by the caller). Returns the first ``k``
-    shuffled entries (the drawn indices). For ``k >= len(members)`` the whole array is returned.
+def _partial_fisher_yates(members, k, lcg_seed):
+    """Draw ``k`` distinct elements from ``members`` via a partial Fisher-Yates shuffle driven by a
+    per-call inline LCG (thread-safe: no process-global ``np.random`` state, so concurrent threading
+    callers cannot clobber each other's stream). Deterministic for a fixed ``lcg_seed`` + inputs. For
+    ``k >= len(members)`` the whole array is returned.
     """
     m = members.copy()
     nm = m.shape[0]
     if k >= nm:
         return m
+    state = np.uint64(lcg_seed) | np.uint64(1)
     for i in range(k):
-        j = i + np.random.randint(0, nm - i)
+        state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+        j = i + int(state >> np.uint64(33)) % (nm - i)
         tmp = m[i]
         m[i] = m[j]
         m[j] = tmp
@@ -77,7 +79,6 @@ def _strat_clf_kernel(codes, n_classes, size, n, seed):
     ``codes`` are integer class codes in ``[0, n_classes)``. Deterministic for a fixed ``seed`` and
     inputs. Returns the (unsorted) drawn row indices.
     """
-    np.random.seed(seed)
     counts = np.zeros(n_classes, dtype=np.int64)
     for i in range(n):
         counts[codes[i]] += 1
@@ -109,7 +110,9 @@ def _strat_clf_kernel(codes, n_classes, size, n, seed):
     pos = 0
     for c in range(n_classes):
         mem = packed[offsets[c]:offsets[c + 1]]
-        drawn = _partial_fisher_yates(mem, alloc[c], c)
+        # per-stratum LCG seed mixes the caller seed with the class index (golden-ratio constant) so
+        # strata are independent yet fully determined by ``seed`` -- no process-global RNG involved.
+        drawn = _partial_fisher_yates(mem, alloc[c], np.uint64(seed) + np.uint64(c) * np.uint64(11400714819323198485))
         for j in range(drawn.shape[0]):
             out[pos] = drawn[j]
             pos += 1
@@ -124,7 +127,6 @@ def _strat_reg_kernel(bin_ids, n_bins, size, n, seed):
     NON-EMPTY bin gets a >=1 floor so the tails are never wholly dropped. Deterministic for a fixed
     ``seed``. Returns the (unsorted) drawn row indices.
     """
-    np.random.seed(seed)
     counts = np.zeros(n_bins, dtype=np.int64)
     for i in range(n):
         counts[bin_ids[i]] += 1
@@ -158,7 +160,7 @@ def _strat_reg_kernel(bin_ids, n_bins, size, n, seed):
         if counts[b] == 0:
             continue
         mem = packed[offsets[b]:offsets[b + 1]]
-        drawn = _partial_fisher_yates(mem, alloc[b], b + 1)
+        drawn = _partial_fisher_yates(mem, alloc[b], np.uint64(seed) + np.uint64(b + 1) * np.uint64(11400714819323198485))
         for j in range(drawn.shape[0]):
             out[pos] = drawn[j]
             pos += 1
