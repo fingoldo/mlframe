@@ -10,6 +10,21 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def no_base_candidates_report_entry() -> list[dict]:
+    """A single diagnostic ``report_`` entry emitted when every base candidate was filtered out, so a caller inspecting
+    ``report_`` sees WHY discovery produced nothing (not an ambiguous empty list)."""
+    return [{
+        "name": "__no_base_candidates__",
+        "kept": False,
+        "rejected": True,
+        "reason": "no usable base candidates: all excluded by forbidden-pattern / corr / ptp / numeric filters",
+        "base_column": "",
+        "transform_name": "",
+        "mi_gain": float("nan"),
+        "valid_domain_frac": float("nan"),
+    }]
+
+
 def maybe_boost_mi_strata_for_heavy_tail(self, y_train: np.ndarray) -> None:
     """Auto-boost ``mi_n_strata`` on a heavy-tail train target (skew/kurtosis), in place on ``self.config``.
 

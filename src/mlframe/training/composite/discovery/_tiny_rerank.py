@@ -16,7 +16,7 @@ import numpy as np
 from ..spec import CompositeSpec
 from ..ensemble import _is_monotone_nondecreasing
 from ._rejection_ledger import RejectStage, ledger_append
-from ._tiny_rerank_waic import _apply_waic_tiebreak
+from ._tiny_rerank_waic import _apply_waic_tiebreak, apply_honest_oof_floor
 from .screening import (
     _extract_column_array,
     _per_bin_from_fold_preds,
@@ -467,46 +467,11 @@ def _tiny_model_rerank(
                 len(kept_specs), _honest_oof_baseline, _honest_raw, _honest_lag, len(_honest_oof),
             )
 
-            # Enforce the honest-OOF floor as a REJECTION, not just a rank key. Without this, honest-OOF only reorders:
-            # the raw-baseline gate (require_beats_raw_baseline) is off by default, so a spec that reconstructs worse than
-            # min(raw-y, AR-lag) still survives and gets carried into the ensemble even though the lag_predict failsafe
-            # we deploy anyway crushes it (prod: 13.30 ensemble vs 11.58 lag floor). Only specs with a MEASURED honest
-            # reconstruction are subject; a degenerate measurement (absent from _honest_oof) falls back to the CV rank.
-            if (
-                math.isfinite(_honest_oof_baseline)
-                and bool(getattr(self.config, "honest_oof_floor_reject_enabled", True))
-            ):
-                _floor_tol = float(getattr(self.config, "honest_oof_selection_tolerance", 1.05))
-                _floor_thr = _honest_oof_baseline * _floor_tol
-                _kept_after_floor, _agg_after_floor, _floor_dropped = [], [], []
-                for _i, _spec in enumerate(kept_specs):
-                    _hv = _honest_oof.get(_spec.name)
-                    if _hv is not None and math.isfinite(_hv) and _hv >= _floor_thr:
-                        _floor_dropped.append((_spec.name, float(_hv)))
-                        ledger_append(
-                            self, spec_name=_spec.name, stage=RejectStage.HONEST_OOF_FLOOR,
-                            reason=f"honest-OOF reconstruction {_hv:.4g} >= floor {_floor_thr:.4g} "
-                                   f"(min(raw,lag)={_honest_oof_baseline:.4g} * {_floor_tol})",
-                            base_column=getattr(_spec, "base_column", ""),
-                            transform_name=getattr(_spec, "transform_name", ""),
-                            numbers={"honest_oof_rmse": float(_hv), "floor": float(_honest_oof_baseline),
-                                     "threshold": float(_floor_thr)},
-                        )
-                        continue
-                    _kept_after_floor.append(_spec)
-                    _agg_after_floor.append(agg_scores[_i])
-                if _floor_dropped:
-                    logger.info(
-                        "[CompositeTargetDiscovery.honest_oof_select] floor gate rejected %d/%d spec(s) that lose to "
-                        "min(raw,lag)=%.4g (tol=%.2f): %s",
-                        len(_floor_dropped), len(kept_specs), _honest_oof_baseline, _floor_tol,
-                        ", ".join(f"{n}(RMSE={v:.4g})" for n, v in _floor_dropped[:5]),
-                    )
-                    kept_specs = _kept_after_floor
-                    agg_scores = _agg_after_floor
-                    self._tiny_rerank_scores = {
-                        kept_specs[i].name: float(agg_scores[i]) for i in range(len(kept_specs))
-                    }
+            # Enforce the honest-OOF floor as a REJECTION (carved to _tiny_rerank_waic for the 1k-LOC limit): drop specs
+            # whose measured honest reconstruction cannot beat min(raw-y, AR-lag); otherwise honest-OOF only reorders.
+            kept_specs, agg_scores = apply_honest_oof_floor(
+                self, kept_specs, agg_scores, _honest_oof, _honest_oof_baseline,
+            )
 
     # Regime-aware gate. In addition to the
     # global mean RMSE, compute per-quintile-of-base RMSE for each
