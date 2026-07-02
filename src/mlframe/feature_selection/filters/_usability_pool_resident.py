@@ -179,8 +179,8 @@ def score_pair_combos_table_resident(
             x1, x2 = operands[p]
             d_x1 = cp.asarray(np.ascontiguousarray(x1, dtype=np.float64))
             d_x2 = cp.asarray(np.ascontiguousarray(x2, dtype=np.float64))
-            xmin_a = float(cp.asnumpy(cp.nanmin(d_x1))) if n else 0.0
-            xmin_b = float(cp.asnumpy(cp.nanmin(d_x2))) if n else 0.0
+            # Both operand nanmin shifts in one D2H (was two float() syncs per pair).
+            xmin_a, xmin_b = (float(_m) for _m in cp.asnumpy(cp.stack([cp.nanmin(d_x1), cp.nanmin(d_x2)]))) if n else (0.0, 0.0)
             # (nu, n) column-major stacks: each operand's nu unaries applied ONCE (reused across all combos).
             ua_stack = cp.ascontiguousarray(cp.stack([_gpu_apply_unary(d_x1, ua_codes_l[ia], xmin_a) for ia in range(nu)]))
             ub_stack = cp.ascontiguousarray(cp.stack([_gpu_apply_unary(d_x2, ub_codes_l[ib], xmin_b) for ib in range(nu)]))
