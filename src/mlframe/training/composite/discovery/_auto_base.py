@@ -4,6 +4,13 @@ Split out of ``composite_discovery.py`` to keep the parent below the 1k-line
 monolith threshold. ``_auto_base`` is bound back onto the
 ``CompositeTargetDiscovery`` class at the parent's module bottom, so call
 sites that invoke ``self._auto_base(...)`` continue to work unchanged.
+
+Near-copy increment-learnability precheck cost: it fires only for the (few) candidates whose
+``|corr(base, y)| > base_max_abs_corr_with_y`` and reuses the already-imported ``_mi_pair_bin`` kernel on a
+row-capped screening subsample (``near_copy_precheck_max_sample``, default 5000), one linear residual +
+per-other-feature bin-MI. cProfile on a 5k*8 screening frame: the added work is a small constant per near-copy
+candidate (bounded by the cap and feature count), dwarfed by the surrounding matrix build / MI ranking -- no
+actionable speedup, so no dispatcher/ladder is warranted for it.
 """
 from __future__ import annotations
 
@@ -690,11 +697,56 @@ def _auto_base(
         # Exempt by PROVENANCE only (never a marginal corr match), so a contemporaneous near-copy of y is still dropped.
         _tcol = getattr(self, "_target_col", None)
         _causal_exempt = bool(getattr(self.config, "causal_base_gate_exempt", True))
+        # Increment-learnability precheck. A non-provenance near-copy earns its keep as a COMPOSITE (y_hat = T_hat + base)
+        # only when the residual ``y - linfit(base)`` still carries LEARNABLE signal from the OTHER features -- otherwise the
+        # composite adds nothing over feeding ``base`` as a plain feature and the drop is correct. Measured cheaply on the
+        # (capped) screening sample via the bin-MI kernel: exempt when max_j MI(x_j, residual) exceeds a small threshold.
+        _precheck_on = bool(getattr(self.config, "near_copy_increment_learnability_precheck", True))
+        _precheck_mi_thresh = float(getattr(self.config, "near_copy_increment_learnability_mi_threshold", 0.05))
+        _precheck_cap = int(getattr(self.config, "near_copy_precheck_max_sample", 5000))
+        _nbins = int(self.config.mi_nbins)
+        _nc_idx = {name: i for i, name in enumerate(usable_features)}
+        # Aligned, all-finite screening rows (capped) shared across the precheck's base + other-feature MI estimates.
+        _pc_rows = np.flatnonzero(finite)
+        if _pc_rows.size > _precheck_cap:
+            _pc_rows = _pc_rows[np.linspace(0, _pc_rows.size - 1, _precheck_cap).astype(np.int64)]
+        _pc_X = x_matrix[_pc_rows]
+        _pc_y = y_screen[_pc_rows]
+
+        # Bin-MI has a positive finite-sample bias (~(nbins-1)^2/(2N)) that makes a pure-noise residual look
+        # faintly informative, so compare against a PERMUTATION null: max_j MI(x_j, resid) minus the same over a
+        # shuffled residual removes the bias floor. A genuine learnable residual clears the null by a wide margin.
+        _pc_perm = np.random.default_rng(int(getattr(self.config, "random_state", 0) or 0)).permutation(_pc_rows.size)
+
+        def _near_copy_residual_is_learnable(_c: str) -> bool:
+            _j = _nc_idx.get(_c)
+            if _j is None or _pc_rows.size < 5 * _nbins or _pc_X.shape[1] < 2:
+                return False
+            _base = _pc_X[:, _j]
+            _bvar = float(_base.var())
+            if not math.isfinite(_bvar) or _bvar <= 0.0:
+                return False
+            _a = float(np.cov(_base, _pc_y)[0, 1] / _bvar)
+            _resid = _pc_y - (_a * _base + float(_pc_y.mean() - _a * _base.mean()))
+            _resid_null = _resid[_pc_perm]
+            _best_real = 0.0
+            _best_null = 0.0
+            for _oj in range(_pc_X.shape[1]):
+                if _oj == _j:
+                    continue
+                _col = _pc_X[:, _oj]
+                _best_real = max(_best_real, _mi_pair_bin(_col, _resid, nbins=_nbins))
+                _best_null = max(_best_null, _mi_pair_bin(_col, _resid_null, nbins=_nbins))
+            return (_best_real - _best_null) >= _precheck_mi_thresh
 
         def _is_near_copy(_c: str) -> bool:
             if _abs_corr_to_y.get(_c, 0.0) <= _ct:
                 return False
-            return not (_causal_exempt and is_causal_base_name(_c, _tcol))
+            if _causal_exempt and is_causal_base_name(_c, _tcol):
+                return False
+            if _precheck_on and _near_copy_residual_is_learnable(_c):
+                return False
+            return True
 
         _excluded = [(m, c) for m, c in ranked if _is_near_copy(c)]
         if _excluded:
