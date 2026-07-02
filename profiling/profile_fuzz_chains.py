@@ -156,7 +156,20 @@ def _profile_one_combo(
                 hyperparams_config={"iterations": max(combo.iterations, 30)},
                 output_config=OutputConfig(data_dir=tmpdir, models_dir="models", save_charts=save_charts),
                 use_mlframe_ensembles=combo.use_ensembles,
-                behavior_config={"prefer_gpu_configs": False},
+                # Thread the combo's ensembling axes so the profiler exercises the same Caruana-weights / rank_average
+                # blend paths the pytest fuzz suite does (mirrors _fuzz_suite_helpers._configs_for_combo); canon-collapsed
+                # to OFF when ensembles are disabled, so this is a no-op for non-ensemble combos.
+                behavior_config={
+                    "prefer_gpu_configs": False,
+                    "use_caruana_weights_in_ensemble": bool(
+                        getattr(combo, "use_caruana_weights_in_ensemble_cfg", False) and combo.use_ensembles
+                    ),
+                    "extra_ensembling_methods": (
+                        ("rank_average",)
+                        if (getattr(combo, "ens_rank_average_cfg", False) and combo.use_ensembles)
+                        else ()
+                    ),
+                },
                 verbose=0,
             )
         except Exception as e:
