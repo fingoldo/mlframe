@@ -169,6 +169,7 @@ def analytic_batch_noise_gate(
     classes_y: np.ndarray,
     n_rows: int,
     min_nonzero_confidence: float,
+    bx_per_col: "np.ndarray | None" = None,
 ) -> np.ndarray:
     """Analytic large-n form of the batched FE-candidate permutation noise gate.
 
@@ -187,7 +188,12 @@ def analytic_batch_noise_gate(
     by = int(np.unique(np.asarray(classes_y)).size)     # occupied y categories
     # Per-column occupied-bin counts in one O(n*K) njit pass (was O(K * n log n): a np.unique sort per
     # column just to count distinct codes). Bit-identical for non-negative bin codes -- see _occupied_bins_per_col.
-    bx_per_col = _occupied_bins_per_col(np.ascontiguousarray(disc_2d))
+    # ``bx_per_col`` may be PRECOMPUTED by the caller (the device-resident FE pair-MI path counts occupied bins ON
+    # device from the resident codes, so the (n,K) code matrix never crosses the bus just to run this host njit).
+    if bx_per_col is None:
+        bx_per_col = _occupied_bins_per_col(np.ascontiguousarray(disc_2d))
+    else:
+        bx_per_col = np.asarray(bx_per_col, dtype=np.int64)
     for k in range(K):
         mi_k = float(fe_mi[k])
         if mi_k <= 0.0:
