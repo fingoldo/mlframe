@@ -13,6 +13,16 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 if TYPE_CHECKING:
     from ..feature_handling.config import FeatureHandlingConfig
     from ..neural._recurrent_config import RecurrentConfig
+    # Config classes appear ONLY in this facade's parameter annotations (strings under
+    # ``from __future__ import annotations``), never at runtime -- keep them type-only.
+    from ..configs import (
+        BaselineDiagnosticsConfig, CompositeTargetDiscoveryConfig, ConfidenceAnalysisConfig,
+        ConformalConfig, RegressionCalibrationConfig, DummyBaselinesConfig, FeatureSelectionConfig,
+        FeatureTypesConfig, LearningToRankConfig, LinearModelConfig, ModelHyperparamsConfig,
+        MultilabelDispatchConfig, OutlierDetectionConfig, OutputConfig, PreprocessingBackendConfig,
+        PreprocessingConfig, PreprocessingExtensionsConfig, QuantileRegressionConfig, ReportingConfig,
+        TargetTypes, TrainingBehaviorConfig, TrainingSplitConfig,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -22,30 +32,6 @@ import polars as pl
 from pyutilz.strings import slugify
 from pyutilz.system import tqdmu_lazy_start
 
-from ..configs import (
-    BaselineDiagnosticsConfig,
-    CompositeTargetDiscoveryConfig,
-    ConfidenceAnalysisConfig,
-    ConformalConfig,
-    RegressionCalibrationConfig,
-    DummyBaselinesConfig,
-    FeatureSelectionConfig,
-    FeatureTypesConfig,
-    LearningToRankConfig,
-    LinearModelConfig,
-    ModelHyperparamsConfig,
-    MultilabelDispatchConfig,
-    OutlierDetectionConfig,
-    OutputConfig,
-    PreprocessingBackendConfig,
-    PreprocessingConfig,
-    PreprocessingExtensionsConfig,
-    QuantileRegressionConfig,
-    ReportingConfig,
-    TargetTypes,
-    TrainingBehaviorConfig,
-    TrainingSplitConfig,
-)
 from pathlib import Path as _P  # PATHLIB-IMPORT-PER-CALL: hoist to module scope (was paid per suite call)
 from ..extractors import FeaturesAndTargetsExtractor
 from ..feature_handling.fingerprint import reset_session as reset_fh_session
@@ -80,6 +66,7 @@ from ._main_train_suite_encoding import (  # noqa: F401
     _encode_string_multiclass_target,
 )
 from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df  # noqa: F401
+from ._main_train_suite_defaults import _build_default_extractor, _infer_target_is_classification  # noqa: F401
 from ._main_train_suite_phases import (
     apply_module_global_patches,
     apply_polars_cat_fixes_and_back_write_ctx,
@@ -102,53 +89,6 @@ from ._main_train_suite_phases import (
 # Module-level binding lets tests monkeypatch them.
 apply_loky_cpu_count_override = None
 apply_third_party_patches_once = None
-
-
-def _infer_target_is_classification(values: Any) -> bool:
-    """Infer whether ``target_name``'s column is a classification target.
-
-    Reuses the project heuristic (``slicing._slice_helpers._is_classification_target``:
-    integer/bool dtype + small cardinality). Float continuous columns fall through to
-    regression. Object/string columns are treated as classification (label targets).
-    """
-    from ..slicing._slice_helpers import _is_classification_target
-
-    if isinstance(values, (pd.Series, pl.Series)):
-        arr = values.to_numpy()
-    else:
-        arr = np.asarray(values)
-    if arr.dtype.kind in ("O", "U", "S"):
-        return True
-    return _is_classification_target(arr)
-
-
-def _build_default_extractor(df: Union[pl.DataFrame, pd.DataFrame, str], target_name: str):
-    """Construct a ``SimpleFeaturesAndTargetsExtractor`` from ``target_name`` alone.
-
-    Infers the task type from the target column's dtype/cardinality: a continuous
-    float target becomes a regression target, a low-cardinality int/categorical/string
-    target becomes a classification target. Used only when the caller omits an explicit
-    extractor (the ergonomic ``train_mlframe_models_suite(df, target_name="y")`` path).
-    """
-    from ..extractors import SimpleFeaturesAndTargetsExtractor
-
-    # Read just the target column so the dtype can be inspected without loading the
-    # full frame when a parquet path was supplied.
-    if isinstance(df, str):
-        target_values = pl.read_parquet(df, columns=[target_name])[target_name]
-    else:
-        if target_name not in df.columns:
-            raise KeyError(
-                f"target_name '{target_name}' not found in df columns; cannot build a default "
-                f"extractor. Available (first 10): {list(df.columns)[:10]}"
-            )
-        target_values = df[target_name]
-
-    if _infer_target_is_classification(target_values):
-        return SimpleFeaturesAndTargetsExtractor(classification_targets=[target_name])
-    return SimpleFeaturesAndTargetsExtractor(regression_targets=[target_name])
-
-
 
 
 def train_mlframe_models_suite(
