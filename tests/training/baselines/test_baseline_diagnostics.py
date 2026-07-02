@@ -530,6 +530,8 @@ def test_fit_and_report_survives_string_categorical_features():
     cat_cols = [f"cat{j}" for j in range(12)]
     for c in cat_cols:
         df[c] = rng.choice(list("ABCDE"), n)  # object/string dtype -- the shape that crashed LightGBM
+    # An UNDECLARED string column (NOT in cat_features) must also be cast, else it reaches the quick model and crashes.
+    df["text_und"] = [" ".join(rng.choice(list("abcde"), 2)) for _ in range(n)]
     y = (2.0 * df["x0"] - 1.5 * df["x1"] + rng.standard_normal(n) * 0.5).to_numpy()
 
     bd = BaselineDiagnostics(BaselineDiagnosticsConfig(enabled=True))

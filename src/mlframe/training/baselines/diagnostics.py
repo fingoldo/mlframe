@@ -321,11 +321,20 @@ class BaselineDiagnostics:
             # skipped (broad-except-swallowed) for any frame carrying string categoricals -- e.g. a pandas frame with
             # string cat columns, or a multi_target_regression combo downgraded to regression. Polars Categorical /
             # Enum columns already arrive as 'category' via the Arrow bridge and are left untouched.
-            _needs_cat = [
-                c for c in cat_features
-                if c in X.columns
-                and not (X[c].dtype.kind in "iufb" or isinstance(X[c].dtype, pd.CategoricalDtype))
-            ]
+            # Cast EVERY non-numeric feature column (not just the declared cat_features) to 'category' -- an object/
+            # string column the caller did NOT declare categorical (e.g. a text feature, or an undeclared string col)
+            # would otherwise reach the LightGBM quick model and raise the same "pandas dtypes must be int/float/bool".
+            # A column whose object cells are non-scalar (embedding List / ndarray) can't be a category; skip it (best-
+            # effort -- the quick model would ignore it or the outer except still guards).
+            _needs_cat = []
+            for c in X.columns:
+                _dt = X[c].dtype
+                if _dt.kind in "iufb" or isinstance(_dt, pd.CategoricalDtype):
+                    continue
+                _first = X[c].iloc[0] if len(X) else None
+                if hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)):
+                    continue  # non-scalar cells (embeddings) -- not castable to a category
+                _needs_cat.append(c)
             if _needs_cat:
                 X = X.assign(**{c: X[c].astype("category") for c in _needs_cat})
             # Sanity: align lengths (FTE drift can produce mismatches if
