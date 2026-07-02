@@ -92,6 +92,7 @@ _DESCRIPTIONS: Dict[str, Dict[str, str]] = {
 # wired into the per-(model, split) report by the suite, gated by a ``ReportingConfig`` knob.
 _STANDALONE_DIAGNOSTICS: List[Tuple[str, str]] = [
     ("pdp_ice", "Partial-dependence + ICE for the top feature-importance features (default-on; subsampled, model-call bounded)."),
+    ("interaction_strength", "Friedman-Popescu H-statistic heatmap over the top features (opt-in; O(k^2) 2-D PDP surfaces, k<=8)."),
     ("model_comparison", "Multi-model leaderboard (curve overlay + metric bar + prediction-correlation) when >=2 models share a task."),
     ("slice_finder", "Multi-dim weak-slice search over the precomputed per-row error; worst feature-value regions ranked by degradation x support."),
     ("decision_curve", "Binary decision-curve net-benefit vs treat-all / treat-none (the clinical-utility operating read)."),
