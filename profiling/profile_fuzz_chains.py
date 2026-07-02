@@ -65,7 +65,40 @@ from tests.training._fuzz_combo import (  # noqa: E402
 )
 from mlframe.training.core import train_mlframe_models_suite  # noqa: E402
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor  # noqa: E402
-from mlframe.training.configs import TargetTypes, OutputConfig  # noqa: E402
+from mlframe.training.configs import TargetTypes, OutputConfig, FeatureSelectionConfig  # noqa: E402
+
+
+def _fs_config_from_combo(combo):
+    """Build a FeatureSelectionConfig that threads the combo's MRMR + FE-engineering axes, so the profile exercises the
+    actual feature-selection / feature-engineering kernels (MI candidate scoring, polynomial / Hermite eval, k-way
+    interactions) -- NOT just the always-on reporting/bootstrap layer. n_jobs=1 keeps the FE kernels in the MAIN process
+    so cProfile attributes them (n_jobs=-1 fans out to joblib workers invisible to the profiler); max_runtime_mins caps
+    a runaway FE search. Returns None when the combo does not use MRMR (no FS overhead added)."""
+    if not getattr(combo, "use_mrmr_fs", False):
+        return None
+    _g = lambda name, d=None: getattr(combo, name, d)
+    mrmr_kwargs = {
+        "verbose": 0, "n_jobs": 1, "max_runtime_mins": 5,
+        "quantization_nbins": 5, "use_simple_mode": True,
+        # k-way interaction discovery (1 = off; 2/3 = pair/triplet) -- the interaction-MI kernels.
+        "interactions_max_order": max(1, int(_g("mrmr_interactions_max_order_cfg", 1) or 1)),
+    }
+    # Feature-engineering search knobs -> the FE candidate/polynomial/Hermite kernels. Only meaningful when fe_ntop>0.
+    _fe_ntop = int(_g("mrmr_fe_ntop_features_cfg", 0) or 0)
+    if _fe_ntop > 0:
+        mrmr_kwargs.update({
+            "fe_ntop_features": _fe_ntop,
+            "fe_npermutations": int(_g("mrmr_fe_npermutations_cfg", 0) or 0),
+            "fe_unary_preset": _g("mrmr_fe_unary_preset_cfg", "minimal") or "minimal",
+            "fe_binary_preset": _g("mrmr_fe_binary_preset_cfg", "minimal") or "minimal",
+            "fe_smart_polynom_iters": int(_g("mrmr_fe_smart_polynom_iters_cfg", 0) or 0),
+            "fe_min_polynom_degree": int(_g("mrmr_fe_min_polynom_degree_cfg", 3) or 3),
+            "fe_max_polynom_degree": int(_g("mrmr_fe_max_polynom_degree_cfg", 3) or 3),
+        })
+        _fe_steps = _g("mrmr_fe_max_steps_cfg", None)
+        if _fe_steps:
+            mrmr_kwargs["fe_max_steps"] = int(_fe_steps)
+    return FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs=mrmr_kwargs)
 
 
 def _resize_combo(combo: FuzzCombo, n_rows: int) -> FuzzCombo:
@@ -155,6 +188,7 @@ def _profile_one_combo(
                 mlframe_models=list(combo.models),
                 hyperparams_config={"iterations": max(combo.iterations, 30)},
                 output_config=OutputConfig(data_dir=tmpdir, models_dir="models", save_charts=save_charts),
+                feature_selection_config=_fs_config_from_combo(combo),
                 use_mlframe_ensembles=combo.use_ensembles,
                 # Thread the combo's ensembling axes so the profiler exercises the same Caruana-weights / rank_average
                 # blend paths the pytest fuzz suite does (mirrors _fuzz_suite_helpers._configs_for_combo); canon-collapsed
