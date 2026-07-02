@@ -237,7 +237,8 @@ def detect_fourier_freqs_for_col_gpu(
         # Narrowed from bare Exception so a device fault propagates to the dispatch CPU fallback and a logic bug
         # surfaces instead of silently skipping the detrend (which would diverge from the CPU detector).
         pass
-    if float(cp.std(y_tr)) < 1e-9 or float(cp.std(y_va)) < 1e-9:
+    _std_tr, _std_va = cp.asnumpy(cp.stack([cp.std(y_tr), cp.std(y_va)]))   # one D2H for the pair
+    if _std_tr < 1e-9 or _std_va < 1e-9:
         return []
 
     _eff_min_val_corr = max(float(min_val_corr), 0.30)
@@ -256,7 +257,8 @@ def detect_fourier_freqs_for_col_gpu(
 
     out: list = []
     for _ in range(max(1, int(max_freqs))):
-        if float(cp.std(y_tr)) < 1e-9 or float(cp.std(y_va)) < 1e-9:
+        _s_tr, _s_va = cp.asnumpy(cp.stack([cp.std(y_tr), cp.std(y_va)]))   # one D2H for the pair
+        if _s_tr < 1e-9 or _s_va < 1e-9:
             break
         yc = y_tr - y_tr.mean()
         y_ss = float(cp.dot(yc, yc))

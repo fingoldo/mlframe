@@ -124,11 +124,12 @@ def _gpu_unary(cp, name: str, x, recipe: EngineeredRecipe, side: str):
             # mirroring ``_apply_unary_binary``'s frozen-anchor branch.
             _shift = float(recipe.extra[_skey])
             return cp.log(x + _shift) if _shift != 0.0 else cp.log(x)
-        # ``smart_log``: shift non-positive inputs by ``(1e-5 - nanmin(x))``.
+        # ``smart_log``: shift non-positive inputs by ``(1e-5 - nanmin(x))``. Branchless + resident: keep the
+        # shift as a device 0-dim scalar (cp.where picks 0 when min>0) instead of a float(x_min) sync -- x+0.0
+        # is identity, so this is bit-identical to the min>0 -> log(x) branch.
         x_min = cp.nanmin(x)
-        if float(x_min) > 0.0:
-            return cp.log(x)
-        return cp.log(x + (1e-5 - x_min))
+        shift = cp.where(x_min > 0.0, cp.float64(0.0), 1e-5 - x_min)
+        return cp.log(x + shift)
     raise ValueError(f"GPU unary missing for {name!r}")
 
 
