@@ -683,6 +683,46 @@ def _auto_base(
     # Strip features whose MI was masked out (-inf) so the ranking
     # tail doesn't include null-failed candidates.
     ranked = [(m, c) for m, c in ranked if math.isfinite(m)]
+    # MRMR base-candidate ranking (opt-in via base_ranking_criterion="mrmr").
+    # Pure relevance ordering fills the shortlist with near-duplicate strong
+    # bases (y_prev / y_prev_smoothed / y_lag2); MRMR trades a little relevance
+    # for diversity so the top-K spans distinct signal, cutting ensemble
+    # correlation. Redundancy reuses the bin-MI kernel on the shared finite
+    # screening rows; relevance is the (post-demote/boost/null) MI. Default
+    # "mi" leaves this path dormant and byte-identical to the legacy ranking.
+    if (
+        getattr(self.config, "base_ranking_criterion", "mi") == "mrmr"
+        and len(ranked) > 1
+    ):
+        from ._mrmr_base_rank import mrmr_rank_bases
+        _mrmr_names = [c for _m, c in ranked]
+        _mrmr_rel = [m for m, _c in ranked]
+        _mrmr_col = {name: i for i, name in enumerate(usable_features)}
+        _mrmr_X = x_matrix[np.ix_(finite, [_mrmr_col[c] for c in _mrmr_names])]
+        _mrmr_beta = float(getattr(self.config, "base_ranking_mrmr_beta", 1.0))
+        _mrmr_nbins = int(self.config.mi_nbins)
+        _mrmr_cache: dict[tuple[int, int], float] = {}
+
+        def _mrmr_redundancy(i: int, j: int) -> float:
+            key = (i, j) if i < j else (j, i)
+            val = _mrmr_cache.get(key)
+            if val is None:
+                val = _mi_pair_bin(_mrmr_X[:, i], _mrmr_X[:, j], nbins=_mrmr_nbins)
+                _mrmr_cache[key] = val
+            return val
+
+        _mrmr_order = mrmr_rank_bases(
+            _mrmr_names, _mrmr_rel, _mrmr_redundancy, len(_mrmr_names),
+            beta=_mrmr_beta,
+        )
+        _rel_lookup = dict(zip(_mrmr_names, _mrmr_rel))
+        ranked = [(_rel_lookup[c], c) for c in _mrmr_order]
+        logger.info(
+            "[CompositeTargetDiscovery] auto-base MRMR reranked %d candidate(s) "
+            "(beta=%.3g); top: %s",
+            len(ranked), _mrmr_beta,
+            ", ".join(c for _m, c in ranked[:5]),
+        )
     # Near-copy-of-y exclusion. A base whose |corr(base, y)| is ~1.0 is y itself up to noise; the
     # residual inverse y = T_hat + alpha*base is then carried entirely by base and blows up on any
     # group/feature shift. Drop such bases (hint or not -- a literal copy is never a safe base), but
