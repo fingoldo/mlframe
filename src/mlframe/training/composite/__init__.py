@@ -335,6 +335,8 @@ from ._winkler import (  # noqa: E402,F401
     winkler_interval_score, winkler_score_per_row, winkler_score_per_group,
     mean_coverage, interval_quality_summary,
 )
+from ._heteroscedastic import HeteroscedasticCompositeEstimator  # noqa: E402,F401
+from ._pseudo_bma import pseudo_bma_weights, blend as pseudo_bma_blend  # noqa: E402,F401
 
 # Curated public surface for ``from ...composite import *`` -- excludes the
 # submodule names + stdlib leakage (logging / annotations) that bare star-import
@@ -362,6 +364,7 @@ __all__ = [
     "regime_headroom_map", "render_regime_headroom_map",
     "winkler_interval_score", "winkler_score_per_row", "winkler_score_per_group",
     "mean_coverage", "interval_quality_summary",
+    "HeteroscedasticCompositeEstimator", "pseudo_bma_weights", "pseudo_bma_blend",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
