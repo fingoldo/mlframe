@@ -12,6 +12,7 @@ unpickle cleanly.
 """
 from __future__ import annotations
 
+import copy
 import logging
 import psutil
 import warnings
@@ -47,7 +48,7 @@ from ._mrmr_param_constants import (  # noqa: E402,F401
     _VALID_RFECV_SELECTION_RULES,
     _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS,
 )
-from ._mrmr_setstate_defaults import build_setstate_defaults  # noqa: E402,F401
+from ._mrmr_setstate_defaults import build_setstate_defaults  # noqa: E402
 
 from .._mrmr_fingerprints import (  # noqa: E402,F401
     _astropy_histogram,
@@ -2870,6 +2871,50 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         "fe_conditional_dispersion_enable",     # legacy OFF; ctor ON
         "fe_wavelet_enable",                    # legacy OFF; ctor ON
     })
+
+    def __setstate__(self, state):
+        # MUST stay on the MRMR class body (not a mixin): it OVERRIDES BaseEstimator.__setstate__, so any
+        # mixin placed after BaseEstimator in the MRO would be shadowed and this legacy-default injection
+        # would silently never run on unpickle.
+        # Legacy-injection roster carved VERBATIM into ``_mrmr_setstate_defaults.py``;
+        # ``build_setstate_defaults()`` returns a fresh deep copy each call so no two
+        # unpickled instances alias a mutable default (the literal dict was re-executed
+        # per call before; the deep copy preserves that exactly).
+        defaults = build_setstate_defaults()
+        # D5 (2026-06-22): source every shared ctor-param default from the SINGLE source of
+        # truth (the constructor signature) so a setstate literal can never silently drift from
+        # the ctor default. Documented legacy-pickle overrides (above) are exempt; setstate-only
+        # keys (fitted attrs / legacy-only params not on the ctor) keep their explicit literals.
+        _ctor = self._ctor_defaults()
+        for k in list(defaults.keys()):
+            # Only RE-SOURCE keys this dict already injects (preserve the exact legacy-injection
+            # roster); never widen it by adding ctor params that setstate never injected.
+            if k not in _ctor or k in self._SETSTATE_LEGACY_OVERRIDES:
+                continue
+            v = _ctor[k]
+            # deep-copy mutable ctor defaults so unpickled instances never share a default object.
+            defaults[k] = copy.deepcopy(v) if isinstance(v, (list, dict, set)) else v
+        for k, v in defaults.items():
+            state.setdefault(k, v)
+        # P0 pickle BC: the hand-maintained roster above enumerates only a subset of ctor params, so a pickle
+        # produced before ANY other ctor param existed re-surfaces without it -- and the fit path reads many
+        # via bare ``self.<param>`` (e.g. ``self.dtype``), raising AttributeError before any work. Inject every
+        # remaining ctor default the roster did not cover (roster keys + LEGACY_OVERRIDES already set above keep
+        # their possibly-legacy-divergent values; the keys here are never overwritten once present in state).
+        # Source the value from a FRESHLY-CONSTRUCTED instance, not the raw signature default, so params that
+        # ``__init__`` resolves (``n_jobs=-1`` -> cpu_count, ``parallel_kwargs=None`` -> dict) match a fresh MRMR
+        # exactly -- a resurrected legacy pickle then behaves identically to a new one (no ctor-vs-legacy drift).
+        try:
+            _fresh = type(self)()
+        except Exception as exc:
+            logger.debug("mrmr: fresh-instance ctor-default injection for legacy pickle failed; using roster defaults only: %r", exc, exc_info=True)
+            _fresh = None
+        for k, v in _ctor.items():
+            if k in state:
+                continue
+            fv = getattr(_fresh, k, v) if _fresh is not None else v
+            state[k] = copy.deepcopy(fv) if isinstance(fv, (list, dict, set)) else fv
+        self.__dict__.update(state)
 
     @hygienic_fit
     def fit(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, sample_weight: np.ndarray | pd.Series | None = None, **fit_params):

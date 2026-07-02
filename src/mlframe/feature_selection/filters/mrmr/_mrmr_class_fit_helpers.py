@@ -8,7 +8,6 @@ stay reachable via the MRO.
 
 from __future__ import annotations
 
-import copy
 import logging
 
 import numpy as np
@@ -16,7 +15,6 @@ import pandas as pd
 
 from sklearn.base import clone
 
-from ._mrmr_setstate_defaults import build_setstate_defaults
 from ._mrmr_class import _mrmr_y_columns
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -109,47 +107,6 @@ class _MRMRFitHelpersMixin:
         return self
 
     # Pickle BC: old MRMR pickles lacking newer attributes resurface with the legacy defaults injected.
-    def __setstate__(self, state):
-        # Legacy-injection roster carved VERBATIM into ``_mrmr_setstate_defaults.py``;
-        # ``build_setstate_defaults()`` returns a fresh deep copy each call so no two
-        # unpickled instances alias a mutable default (the literal dict was re-executed
-        # per call before; the deep copy preserves that exactly).
-        defaults = build_setstate_defaults()
-        # D5 (2026-06-22): source every shared ctor-param default from the SINGLE source of
-        # truth (the constructor signature) so a setstate literal can never silently drift from
-        # the ctor default. Documented legacy-pickle overrides (above) are exempt; setstate-only
-        # keys (fitted attrs / legacy-only params not on the ctor) keep their explicit literals.
-        _ctor = self._ctor_defaults()
-        for k in list(defaults.keys()):
-            # Only RE-SOURCE keys this dict already injects (preserve the exact legacy-injection
-            # roster); never widen it by adding ctor params that setstate never injected.
-            if k not in _ctor or k in self._SETSTATE_LEGACY_OVERRIDES:
-                continue
-            v = _ctor[k]
-            # deep-copy mutable ctor defaults so unpickled instances never share a default object.
-            defaults[k] = copy.deepcopy(v) if isinstance(v, (list, dict, set)) else v
-        for k, v in defaults.items():
-            state.setdefault(k, v)
-        # P0 pickle BC: the hand-maintained roster above enumerates only a subset of ctor params, so a pickle
-        # produced before ANY other ctor param existed re-surfaces without it -- and the fit path reads many
-        # via bare ``self.<param>`` (e.g. ``self.dtype``), raising AttributeError before any work. Inject every
-        # remaining ctor default the roster did not cover (roster keys + LEGACY_OVERRIDES already set above keep
-        # their possibly-legacy-divergent values; the keys here are never overwritten once present in state).
-        # Source the value from a FRESHLY-CONSTRUCTED instance, not the raw signature default, so params that
-        # ``__init__`` resolves (``n_jobs=-1`` -> cpu_count, ``parallel_kwargs=None`` -> dict) match a fresh MRMR
-        # exactly -- a resurrected legacy pickle then behaves identically to a new one (no ctor-vs-legacy drift).
-        try:
-            _fresh = type(self)()
-        except Exception as exc:
-            logger.debug("mrmr: fresh-instance ctor-default injection for legacy pickle failed; using roster defaults only: %r", exc, exc_info=True)
-            _fresh = None
-        for k, v in _ctor.items():
-            if k in state:
-                continue
-            fv = getattr(_fresh, k, v) if _fresh is not None else v
-            state[k] = copy.deepcopy(fv) if isinstance(fv, (list, dict, set)) else fv
-        self.__dict__.update(state)
-
     def _maybe_resample_for_sample_weight(self, X, y, sample_weight: np.ndarray | None):
         """When ``sample_weight`` is provided AND not effectively uniform, draw n=len(X) rows with replacement
         using probabilities w_i / sum(w). The resampled empirical bincount approximates the weighted bincount
