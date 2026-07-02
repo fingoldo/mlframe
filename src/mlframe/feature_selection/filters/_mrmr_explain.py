@@ -47,10 +47,13 @@ _GATE_TO_HINT_KNOB: dict[str, str] = {
 # Per-gate one-band relaxation delta, used by the WHAT-IF-FLIP preview. A "one band"
 # is the additive step by which a user would loosen the gate's threshold; the ledger
 # records ``margin = observed - threshold``, so loosening the threshold by ``delta``
-# re-admits every recorded candidate with ``margin > -delta``. Bands are sized to the
-# gate's natural scale: ratio gates (prevalence) step in ~0.10 ratio; CMI / uplift /
-# maxT step in ~0.05 of their measured unit. The mapped knob name (for the narrative)
-# is the canonical fe_* flag the user would actually turn.
+# re-admits a recorded candidate iff this gate ACTUALLY BLOCKED it (``margin < 0``, observed
+# below the floor) AND it would clear the relaxed floor (``margin > -delta``) -- i.e.
+# ``-delta < margin < 0``. Candidates recorded with ``margin >= 0`` cleared this gate and were
+# dropped downstream, so relaxing this gate does not re-admit them (they stay dropped on refit).
+# Bands are sized to the gate's natural scale: ratio gates (prevalence) step in ~0.10 ratio;
+# CMI / uplift / maxT step in ~0.05 of their measured unit. The mapped knob name (for the
+# narrative) is the canonical fe_* flag the user would actually turn.
 _GATE_TO_FLIP_BAND: dict[str, tuple[str, float]] = {
     "engineered_mi_prevalence": ("fe_min_engineered_mi_prevalence (0.90 -> 0.80)", 0.10),
     "marginal_pair_mi_prescreen": ("fe_synergy_min_prevalence (1.5 -> 1.4)", 0.10),
@@ -176,9 +179,11 @@ def _whatif_section(mrmr_self: Any, binding_gate: str | None) -> str:
 
     PURE COUNT over the recorded ledger -- NO refit. For the binding gate (and any other
     gate that maps to an fe_* knob), relaxing the threshold by the gate's one-band ``delta``
-    re-admits exactly the recorded candidates whose ``margin > -delta`` (margin == observed
-    - threshold; loosening threshold by delta shifts the bar so a candidate that missed by
-    up to ``delta`` now clears). The preview reports that count per knob.
+    re-admits exactly the recorded candidates this gate ACTUALLY BLOCKED (``margin < 0``,
+    observed below the floor) that would clear the relaxed floor (``margin > -delta``) --
+    i.e. ``-delta < margin < 0`` (margin == observed - threshold). Candidates recorded with
+    ``margin >= 0`` cleared this gate and were dropped downstream, so relaxing this gate does
+    not re-admit them. The preview reports that count per knob.
     """
     led = getattr(mrmr_self, "fe_rejection_ledger_", None)
     if led is None or not isinstance(led, pd.DataFrame) or led.empty:
@@ -198,9 +203,9 @@ def _whatif_section(mrmr_self: Any, binding_gate: str | None) -> str:
             ordered.append(g)
     for gate in ordered:
         knob, delta = _GATE_TO_FLIP_BAND[gate]
-        mask = gate_col.eq(gate) & (margin_col > -delta)
+        mask = gate_col.eq(gate) & (margin_col > -delta) & (margin_col < 0)
         n_readmit = int(mask.sum())
-        lines.append(f"  relaxing {knob} would re-admit {n_readmit} candidate(s) at margin > -{delta:g} [{gate}]")
+        lines.append(f"  relaxing {knob} would re-admit {n_readmit} candidate(s) at -{delta:g} < margin < 0 [{gate}]")
         if len(lines) >= 3:  # keep under 1.5 screens
             break
     if not lines:

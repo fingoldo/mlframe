@@ -60,8 +60,9 @@ def _fe_on(**overrides):
 # ---------------------------------------------------------------------------
 
 def test_whatif_count_matches_ledger_margin_arithmetic():
-    """The preview count for a gate == count(ledger.margin > -delta) for that gate's band.
-    This is the exact definition the preview claims; pin it directly on the ledger."""
+    """The preview count for a gate == count(-delta < ledger.margin < 0) for that gate's band:
+    only candidates this gate actually blocked (margin < 0) that would clear the relaxed floor
+    (margin > -delta) are re-admitted. This is the exact definition the preview claims; pin it directly on the ledger."""
     X, y = _canonical_frame()
     est = _fe_on()
     est.fit(X, y)
@@ -80,7 +81,7 @@ def test_whatif_count_matches_ledger_margin_arithmetic():
         n_gate = int(gate_col.eq(gate).sum())
         if n_gate == 0:
             continue
-        expected = int((gate_col.eq(gate) & (margin_col > -delta)).sum())
+        expected = int((gate_col.eq(gate) & (margin_col > -delta) & (margin_col < 0)).sum())
         # if this gate's line is in the report, its count must equal `expected`.
         if f"[{gate}]" in report:
             line = next(l for l in report.splitlines() if f"[{gate}]" in l)
@@ -113,7 +114,10 @@ def test_whatif_preview_matches_actual_flag_flip_refit():
     # candidates the gate recorded, with their observed value (= margin + threshold).
     recorded = led.loc[g].copy()
     recorded["_margin"] = margin[g]
-    preview_count = int((recorded["_margin"] > -delta).sum())
+    # Only candidates this gate actually BLOCKED (margin < 0, observed below the floor) that would clear the
+    # relaxed floor (margin > -delta) are re-admitted; margin >= 0 candidates cleared this gate and were dropped
+    # downstream, so they stay dropped on the relaxed refit (the actual_readmit measured below).
+    preview_count = int(((recorded["_margin"] > -delta) & (recorded["_margin"] < 0)).sum())
 
     # ACTUAL one-band flip refit: lower the threshold by `delta`. A candidate that the
     # 0.90 gate dropped is re-admitted by the 0.80 gate iff its observed ratio >= 0.80,
