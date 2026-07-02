@@ -394,6 +394,33 @@ def _normalize_groups(groups, n: int) -> np.ndarray:
     return g
 
 
+def _mondrian_ood_radius(certified_radii: list, global_r: float, alpha: float) -> float:
+    """Conservative interval radius for OOD (unseen or uncertifiable) groups.
+
+    An unseen test group is exchangeable with the CALIBRATION groups, so its required
+    width is estimated by a GROUP-LEVEL conformal upper quantile of the per-group radii:
+    treating each certified group's own radius as an exchangeable draw, the
+    ``ceil((G+1)(1-alpha))`` order statistic covers a NEW group's width at ``>= 1-alpha``
+    ACROSS groups. This is MEASURED from the calibration groups' own radii (no magic
+    constant) and floored at the pooled radius, so it only ever INFLATES the legacy
+    global fallback -- which under-covers exactly the OOD groups whose residual spread
+    exceeds the pooled bulk. With too few certified groups to certify at the group level
+    the widest observed group radius is used; with no certified group at all, the pooled
+    radius (nothing better is measurable).
+    """
+    radii = np.asarray([r for r in certified_radii if np.isfinite(r)], dtype=np.float64)
+    if radii.size == 0:
+        return float(global_r)
+    # radii are non-negative -> conformal_quantile's abs is a no-op; it returns the
+    # ceil((G+1)(1-alpha)) order statistic (a conservative upper quantile of group radii).
+    q = conformal_quantile(radii, alpha)
+    if not np.isfinite(q):
+        q = float(radii.max())
+    if np.isfinite(global_r):
+        q = max(q, float(global_r))
+    return float(q)
+
+
 def calibrate_conformal_mondrian(self, X_cal, y_cal, groups_cal, alpha=0.1):
     """Mondrian (group-conditional) split-conformal: a SEPARATE finite-sample
     radius per group, for conditional coverage ``>= 1-alpha`` WITHIN each group.
@@ -405,15 +432,23 @@ def calibrate_conformal_mondrian(self, X_cal, y_cal, groups_cal, alpha=0.1):
     ``ceil((n_g + 1)(1-alpha))`` quantile *within* each group -- the conditional
     analogue of the marginal guarantee, exact and distribution-free per group.
 
-    A global radius (the pooled marginal quantile) is always computed and stored
-    as the fallback for groups unseen at predict time, or groups too small to
-    certify the level at finite sample (their per-group rank exceeds ``n_g``, so
-    the per-group quantile would be ``+inf``); such groups fall back to the
-    global radius with a one-time warning rather than an uninformative band.
+    For groups UNSEEN at predict time (or seen but too small to certify the level
+    at finite sample -- their per-group rank exceeds ``n_g``, so the per-group
+    quantile would be ``+inf``) the plain pooled radius UNDER-covers exactly the
+    OOD groups that most need a wide band. Instead the fallback is OOD-adaptive: a
+    conservative upper quantile of the calibration groups' own radii, floored at
+    the pooled radius (:func:`_mondrian_ood_radius`), so unseen/uncertifiable
+    groups get an inflated width measured from the between-group dispersion rather
+    than the central pooled value. The exact per-SEEN-CERTIFIED-group radius is
+    unchanged (bit-identical). Gate the inflation off with
+    ``self.conformal_ood_adaptive = False`` (legacy raw-global fallback).
 
     Stores ``self._mondrian_q_[round(alpha, 6)]`` as ``{group_label: radius}``
-    plus a ``None`` key holding the global fallback radius, and returns ``self``.
-    ``alpha`` may be a scalar or an iterable of levels.
+    plus a ``None`` key holding the pooled global radius (both bit-identical to
+    the pre-OOD path), and alongside it ``self._mondrian_ood_[round(alpha, 6)]``
+    (the OOD-adaptive fallback radius) and ``self._mondrian_uncertified_[...]``
+    (the set of seen-but-too-small labels). Returns ``self``. ``alpha`` may be a
+    scalar or an iterable of levels.
     """
     if not hasattr(self, "estimator_"):
         from sklearn.exceptions import NotFittedError
@@ -432,6 +467,10 @@ def calibrate_conformal_mondrian(self, X_cal, y_cal, groups_cal, alpha=0.1):
     alphas = [alpha] if np.isscalar(alpha) else list(alpha)
     if not hasattr(self, "_mondrian_q_") or self._mondrian_q_ is None:
         self._mondrian_q_ = {}
+    if not hasattr(self, "_mondrian_ood_") or self._mondrian_ood_ is None:
+        self._mondrian_ood_ = {}
+    if not hasattr(self, "_mondrian_uncertified_") or self._mondrian_uncertified_ is None:
+        self._mondrian_uncertified_ = {}
     # Group the residuals into contiguous per-group blocks ONCE (factorize O(n) + a single
     # stable argsort) instead of building a fresh ``g == u`` boolean mask over all n residuals
     # for every unique group on every alpha (the old O(G*n)-per-alpha sweep). ``order`` sorts
@@ -450,29 +489,84 @@ def calibrate_conformal_mondrian(self, X_cal, y_cal, groups_cal, alpha=0.1):
         af = float(a)
         global_r = conformal_quantile(residuals, af)
         per_group: dict = {None: global_r}
+        certified_radii: list = []  # own radii of groups that certified on their own rows
+        uncertified: set = set()    # seen labels too small to certify -> OOD fallback at predict
         for j in range(uniq.shape[0]):
             r_g = res_by_group[starts[j]:stops[j]]
-            rad = conformal_quantile(r_g, af)
-            # A too-small group cannot certify the level on its own; fall back
-            # to the (finite, pooled) global radius instead of an inf band.
-            if not np.isfinite(rad) and np.isfinite(global_r):
-                rad = global_r
-            per_group[uniq[j]] = float(rad)
-        self._mondrian_q_[round(af, 6)] = per_group
+            own = conformal_quantile(r_g, af)
+            if np.isfinite(own):
+                per_group[uniq[j]] = float(own)
+                certified_radii.append(float(own))
+            else:
+                # A too-small group cannot certify the level on its own; store the
+                # (finite, pooled) global radius so ``_mondrian_q_`` stays bit-identical
+                # to the pre-OOD path, but mark the label so predict routes it to the
+                # OOD-adaptive width and flags it low-confidence.
+                per_group[uniq[j]] = float(global_r) if np.isfinite(global_r) else float(own)
+                uncertified.add(uniq[j])
+        key = round(af, 6)
+        self._mondrian_q_[key] = per_group
+        self._mondrian_ood_[key] = _mondrian_ood_radius(certified_radii, global_r, af)
+        self._mondrian_uncertified_[key] = frozenset(uncertified)
     self._conformal_n_cal_ = int(np.isfinite(residuals).sum())
     return self
 
 
-def predict_interval_mondrian(self, X, groups, alpha=0.1):
+def _record_mondrian_ood(self, key, ood_flags: np.ndarray) -> None:
+    """Surface the OOD fallback rate into ``runtime_stats_`` (the summary the report /
+    model card already read) plus a per-alpha snapshot, so the do-not-deploy verdict --
+    'fraction of predict rows on OOD groups' -- is available downstream without recompute.
+    """
+    n = int(ood_flags.shape[0])
+    n_ood = int(ood_flags.sum())
+    frac = (n_ood / n) if n else 0.0
+    rs = getattr(self, "runtime_stats_", None)
+    if isinstance(rs, dict):
+        rs["mondrian_ood_rows"] = rs.get("mondrian_ood_rows", 0) + n_ood
+        rs["mondrian_pred_rows"] = rs.get("mondrian_pred_rows", 0) + n
+        tot = rs["mondrian_pred_rows"]
+        rs["mondrian_ood_fraction"] = (rs["mondrian_ood_rows"] / tot) if tot else 0.0
+    snap = getattr(self, "_mondrian_ood_summary_", None)
+    if not isinstance(snap, dict):
+        snap = {}
+        self._mondrian_ood_summary_ = snap
+    snap[key] = {"n_rows": n, "n_ood": n_ood, "fraction_ood": frac}
+
+
+def mondrian_ood_summary(self, alpha: float = 0.1) -> dict:
+    """Do-not-deploy / low-confidence verdict aggregate for Mondrian intervals.
+
+    Returns ``{"n_rows", "n_ood", "fraction_ood"}`` for the MOST RECENT
+    :func:`predict_interval_mondrian` call at this ``alpha``: how many rows landed
+    on a group that was unseen at calibration or too small to certify (so their
+    band came from the OOD fallback and their point estimate is low-confidence --
+    the model is extrapolating). Zeros before any predict. The running rate across
+    all predicts also lives in ``runtime_stats_['mondrian_ood_fraction']``.
+    """
+    key = round(float(alpha), 6)
+    snap = getattr(self, "_mondrian_ood_summary_", {}) or {}
+    return dict(snap.get(key, {"n_rows": 0, "n_ood": 0, "fraction_ood": 0.0}))
+
+
+def predict_interval_mondrian(self, X, groups, alpha=0.1, return_ood=False):
     """Return group-conditional ``(lower, upper)`` y-scale intervals, each of
     conditional coverage ``>= 1-alpha`` within its group.
 
-    Requires a prior :func:`calibrate_conformal_mondrian` at this ``alpha``.
-    Each row's radius is the calibrated per-group radius; rows whose group was
-    unseen at calibration (or was too small to certify the level) fall back to
-    the stored global radius, with a one-time ``warnings.warn``. A single test
-    row returns a 1-element ``(lower, upper)`` pair. The band is clipped to the
-    same train envelope as the point estimate.
+    Requires a prior :func:`calibrate_conformal_mondrian` at this ``alpha``. Each
+    SEEN-and-CERTIFIED row's radius is its calibrated per-group radius (unchanged).
+    Rows whose group was unseen at calibration OR was too small to certify the
+    level fall back to the OOD-ADAPTIVE radius (a conservative upper quantile of
+    the calibration groups' own radii; :func:`_mondrian_ood_radius`) rather than
+    the raw pooled radius that under-covers OOD groups, and are FLAGGED as
+    low-confidence. Unseen labels also raise a one-time ``warnings.warn``. Set
+    ``self.conformal_ood_adaptive = False`` to restore the legacy raw-global
+    fallback (still flagged). A single test row returns a 1-element pair. The band
+    is clipped to the same train envelope as the point estimate.
+
+    ``return_ood=True`` returns ``(lower, upper, ood_flags)`` where ``ood_flags``
+    is a boolean per-row mask, True exactly on rows served by the OOD fallback;
+    the fraction is also recorded in ``runtime_stats_`` and via
+    :func:`mondrian_ood_summary`.
     """
     key = round(float(alpha), 6)
     table = getattr(self, "_mondrian_q_", {}) or {}
@@ -485,6 +579,13 @@ def predict_interval_mondrian(self, X, groups, alpha=0.1):
         )
     per_group = table[key]
     global_r = per_group.get(None, float("inf"))
+    # OOD-adaptive fallback radius (measured between-group upper quantile), gated ON by
+    # default (corrective mechanism). Absent stats (hand-set table / legacy pickle) or the
+    # gate off -> fall back to the raw pooled radius, bit-identical to the pre-OOD path.
+    ood_adaptive = bool(getattr(self, "conformal_ood_adaptive", True))
+    ood_map = getattr(self, "_mondrian_ood_", {}) or {}
+    ood_radius = ood_map.get(key, global_r) if ood_adaptive else global_r
+    uncertified = (getattr(self, "_mondrian_uncertified_", {}) or {}).get(key, frozenset())
     point = np.asarray(self.predict(X), dtype=np.float64).reshape(-1)
     g = _normalize_groups(groups, point.shape[0])
     # Vectorized per-group radius gather: hash-based factorize (O(n), C-level, no object
@@ -498,26 +599,37 @@ def predict_interval_mondrian(self, X, groups, alpha=0.1):
     # through to the global radius rather than silently gathering the last unique radius.
     codes, uniq = pd.factorize(g, sort=False, use_na_sentinel=False)
     radius_per_uniq = np.empty(uniq.shape[0], dtype=np.float64)
+    ood_per_uniq = np.zeros(uniq.shape[0], dtype=bool)
     missing = set()
     for j, lab in enumerate(uniq):
-        if lab in per_group:
+        if lab in per_group and lab not in uncertified:
+            # Seen + certified on its own calibration rows: exact per-group radius (unchanged).
             radius_per_uniq[j] = per_group[lab]
         else:
-            radius_per_uniq[j] = global_r
-            missing.add(lab)
+            # Unseen OR seen-but-uncertifiable (too small): OOD fallback, flagged low-confidence.
+            radius_per_uniq[j] = ood_radius
+            ood_per_uniq[j] = True
+            if lab not in per_group:
+                missing.add(lab)
     radii = radius_per_uniq[codes]
+    ood_flags = ood_per_uniq[codes]
     if missing:
         warnings.warn(
-            "predict_interval_mondrian: groups not seen at calibration fell "
-            f"back to the global radius: {sorted(map(str, missing))}",
+            "predict_interval_mondrian: groups not seen at calibration fell back to the "
+            f"OOD-adaptive global radius: {sorted(map(str, missing))}",
             stacklevel=2,
         )
+    _record_mondrian_ood(self, key, ood_flags)
     lower = point - radii
     upper = point + radii
     params = getattr(self, "fitted_params_", {}) or {}
     lo_b = params.get("y_clip_low", float("-inf"))
     hi_b = params.get("y_clip_high", float("inf"))
-    return np.clip(lower, lo_b, hi_b), np.clip(upper, lo_b, hi_b)
+    lower = np.clip(lower, lo_b, hi_b)
+    upper = np.clip(upper, lo_b, hi_b)
+    if return_ood:
+        return lower, upper, ood_flags
+    return lower, upper
 
 
 def weighted_conformal_quantile(
