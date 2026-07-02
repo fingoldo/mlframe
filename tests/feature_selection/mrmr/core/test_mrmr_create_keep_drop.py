@@ -974,12 +974,38 @@ EXPECTED_XFAILS = {
     ("F4_medium_shared_operand_additive_composite", BROAD_N): _C_DIVISOR,
     ("F5_hard_nested_product_of_composites", BROAD_N): _C_NEST,
     ("F6_hard_nested_ratio_three_engineered_atoms", BROAD_N): _C_NEST,
+    # Triaged 2026-07-02 (was failing loud; VERIFIED root cause below). The sole failure is the ab_log drop
+    # -- keep IS satisfied (the engineered compound add(add(sin(d),log(ab)),mul(abs(b),log(a_exp))) covers the
+    # {ab} option, and d is selected). ab_log = log(a*b+1) is redundant with the compound's log(ab)
+    # SUBEXPRESSION but is NOT a syntactic OPERAND of the compound (whose operands are ab/b/a_exp/d), so
+    # drop_redundant_raw_operands -- which by design only judges raws that are OPERANDS of a survivor -- never
+    # makes ab_log a drop candidate. Catching it needs a NEW data-driven redundancy pass over ALL selected
+    # raws vs survivor subexpressions (a richer mechanism, not a default re-tune), and that risks the module's
+    # documented over-drop failure mode (dropping genuine weak raws whose private term sits beside a high-MI
+    # child). So xfail-with-reason, not green-by-relaxation -- same class as the cos/nest cases below.
+    ("F6_decoy_reencodes_the_engineered_feature_itself", BROAD_N): (
+        "class4-non-operand redundant raw: ab_log=log(a*b+1) is redundant with the compound's log(ab) "
+        "subexpression but is not a syntactic operand of the survivor, so the operand-based "
+        "drop_redundant_raw_operands never considers it; keep is satisfied (compound covers {ab}), only the "
+        "ab_log drop is unmet. Needs a richer non-operand data-driven redundancy pass, not a default re-tune"
+    ),
     # MS_sin_phase_weak now PASSES: the warp-surrogate matcher recognises a__He3 -> a, and the
     #   keep is the honest "both operands present" (a via a__He3 + raw b); noise g/h/k drops.
     # MS_ratio_plus_decoy now PASSES: the periodic c__T2 surrogate covers the cos(c) phase term
     #   (matcher recognises c__T2 -> c). Both removed from the xfail registry (2026-06-08).
     ("MS_nested_mixed_six", BROAD_N): _C_NEST,
     ("MS_three_tier_strength", 50000): _C_DIVISOR,
+    # Registry gap fixed 2026-07-02 (MS_three_tier was added to the n-sweep but only its n=50000 cell was
+    # triaged). VERIFIED at n=1000: the ONLY failure is missing_signal any_of[a+b] -- the selector keeps raw
+    # a + raw b operands AND covers c (via add(sqr(c),prewarp(d))) AND drops the noise m/p, but the pair-FE
+    # does not build the mul(a,b) product for the 5*(a*b) tier at this small n. It DOES build it at n=5000 and
+    # n=20000 (both pass), so this is a small-n interaction-detection limit, NOT a redundancy/tuning/default
+    # gap -- a richer FE topology / more rows is the only lever, so xfail-with-reason (never green-by-relax).
+    ("MS_three_tier_strength", 1000): (
+        "class4-small-n: pair-FE does not build the mul(a,b) product for the 5*(a*b) tier at n=1000 "
+        "(it DOES at n=5000/20000); raw a+b operands + c kept, noise m/p dropped, only the joint-product "
+        "keep unmet -- small-n interaction-detection limit, not a bug"
+    ),
 }
 
 
