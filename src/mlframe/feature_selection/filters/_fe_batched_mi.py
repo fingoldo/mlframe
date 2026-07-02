@@ -138,8 +138,9 @@ void mi_from_values(const double* __restrict__ X, const double* __restrict__ edg
     int tid = threadIdx.x, nt = blockDim.x;
     for (int s = tid; s < M; s += nt) sh[s] = 0;
     __syncthreads();
-    for (long long i = tid; i < n; i += nt) {
-        double v = X[i * (long long)K + c];
+    const double* Xc = X + (long long)c * n;          // COLUMN-MAJOR (K,n): coalesced across threads (nvprof
+    for (long long i = tid; i < n; i += nt) {          // 2026-07-02: row-major X[i*K+c] was gld_efficiency 28.9%)
+        double v = Xc[i];
         int lo = 0, hi = ne;                          // upper_bound: count of interior edges <= v
         while (lo < hi) { int mid = (lo + hi) >> 1; if (edges[(long long)mid * K + c] <= v) lo = mid + 1; else hi = mid; }
         atomicAdd(&sh[lo * Ky + y[i]], 1);
@@ -181,8 +182,9 @@ void mi_hist_split(const double* __restrict__ X, const double* __restrict__ edge
     __syncthreads();
     long long seg_len = (n + S - 1) / S, lo = (long long)seg * seg_len, hi = lo + seg_len;
     if (hi > n) hi = n;
+    const double* Xc = X + (long long)c * n;          // COLUMN-MAJOR (K,n): coalesced load (see mi_from_values)
     for (long long i = lo + tid; i < hi; i += nt) {
-        double v = X[i * (long long)K + c];
+        double v = Xc[i];
         int a = 0, b = ne;
         while (a < b) { int mid = (a + b) >> 1; if (edges[(long long)mid * K + c] <= v) a = mid + 1; else b = mid; }
         atomicAdd(&sh[a * Ky + y[i]], 1);
@@ -428,7 +430,13 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
         return None
     _assert_codes_in_range(yv, Ky, "binned_mi_from_values_gpu y codes", codes_trusted)
     mi_out = cp.empty(K, dtype=cp.float64)
-    Xc = cp.ascontiguousarray(Xd)
+    # COLUMN-MAJOR X for a COALESCED load (nvprof 2026-07-02: the row-major X[i*K+c] scan was gld_efficiency
+    # 28.9% -- strided by K). One coalesced tiled transpose to (K,n) feeds both the single + split kernels,
+    # which now index X[c*n+i] (consecutive threads -> consecutive addresses). The kernels' bin codes/MI are
+    # unchanged (same values, just a different read layout). Falls back to the row-major contiguous copy if the
+    # transpose can't apply (the kernels then need row-major -- but _transpose_to_cm only returns (K,n) here).
+    from ._gpu_resident_select import _transpose_to_cm
+    Xc = _transpose_to_cm(cp.ascontiguousarray(Xd))   # (K, n) C-order == column-major over the (n,K) matrix
     _inv = np.float64(1.0 / float(max(1, n)))
     # SPLIT-N when one-block-per-column can't fill the SMs (narrow K, big n): 60/66 of these launches were
     # K<=32 blocks on a 6-SM card (nsys 2026-07-02) -> segment the n rows across S blocks/column into a merged
