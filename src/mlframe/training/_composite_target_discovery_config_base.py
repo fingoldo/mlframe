@@ -25,6 +25,26 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # Opt-in: add the 3 chronological-order transforms (ewma_residual / rolling_quantile_ratio / frac_diff) to the candidate set. They need the screen in time order, so set ``time_column`` too. Default OFF -- on a shuffled frame they model a meaningless row sequence.
     time_series_transforms_enabled: bool = False
 
+    # Per-entity group key. On a group-sequential target (well log per well_id, panel per entity) the causal-base engineer
+    # builds strictly-causal per-group lag / rolling bases of y; ``group_column`` names that key. None => no grouped causal
+    # engineering (unless ``engineer_causal_group_column`` overrides). Also consumed by ``linear_residual_grouped``.
+    group_column: Optional[str] = None
+
+    # Grouped causal base engineering (default ON): materialise strictly-causal per-group lag_k / trailing-mean /
+    # expanding-mean bases of the target, ordered WITHIN each group by ``time_column`` (a monotone within-group order such
+    # as MD; None => caller-guaranteed per-group frame row order). These bases are causal by construction (shift>=1 within
+    # group), so their additive inverse ``y = T_hat + y_prev`` stays in-range on unseen groups -- the single most valuable
+    # base class for autoregressive sequential targets. No-op unless a group key is available. Set False for legacy replay.
+    engineer_causal_bases: bool = True
+    engineer_causal_group_column: Optional[str] = None       # explicit override; falls back to ``group_column``
+    engineer_causal_lags: Tuple[int, ...] = (1,)             # per-group lag_k bases to build
+    engineer_causal_trailing_windows: Tuple[int, ...] = (3,)  # causal trailing-mean window sizes
+    engineer_causal_ops: Tuple[str, ...] = ("lag", "trailing_mean", "expanding_mean")
+    engineer_causal_first_fill: str = "group_first"          # first-in-group fill: "group_first" (finite) or "nan"
+
+    # Emit the composite-target VALUE report (per-group did-it-help / hurt / worse-than-lag breakdown + net weighted lift).
+    emit_composite_value_report: bool = True
+
     # Opt-in discovery steps (wired via ``discovery._opt_in_steps``). ALL default
     # OFF -> a flag-gated no-op that leaves the discovered specs byte-identical to
     # the legacy flow. Each enables one standalone helper over the already-kept
@@ -694,5 +714,13 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # In the rerank raw-baseline gate, when honest-OOF selection is active a spec must beat the raw-y honest-OOF
     # reconstruction by this factor. Mirrors yscale_holdout_gate_tolerance.
     honest_oof_selection_tolerance: float = 1.05
+    # Enforce the honest-OOF floor as a REJECTION, not just a ranking key: when honest-OOF selection is active and a
+    # finite floor exists, drop every spec whose honest reconstruction RMSE cannot beat ``min(raw-y, AR-lag)`` within
+    # ``honest_oof_selection_tolerance``. Without this the raw-baseline gate (``require_beats_raw_baseline``, off by
+    # default) is the ONLY thing that rejects, so honest-OOF merely reorders and a spec that loses to the lag_predict
+    # failsafe we deploy anyway is still carried into the ensemble (prod incident: 13.30 ensemble vs 11.58 lag floor).
+    # The floor is measured on the group-disjoint holdout; a spec whose holdout measurement degenerated is never
+    # floor-dropped (falls back to the group-internal CV rank). Set False for legacy rank-only behaviour.
+    honest_oof_floor_reject_enabled: bool = True
 
 

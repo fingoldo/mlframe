@@ -237,6 +237,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         online_refit_min_buffer_n: int = 200,
         recurrence_continuation: bool = False,
         monotone_constraints: Sequence[int] | None = None,
+        conformal_ood_adaptive: bool = True,
     ) -> None:
         self.base_estimator = base_estimator
         self.transform_name = transform_name
@@ -262,6 +263,10 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         self.runtime_stats_callback = runtime_stats_callback
         # Per-feature monotonicity, enforced on the T (residual) scale and validated against the post-drop feature count at fit. See the class docstring.
         self.monotone_constraints = monotone_constraints
+        # Mondrian conformal: for a group unseen (or too small to certify) at predict time, inflate the fallback interval
+        # to a conservative between-group quantile of the calibration groups' radii instead of the pooled global radius,
+        # which under-covers exactly the OOD groups. Default ON (corrective mechanism); False restores the raw global fallback.
+        self.conformal_ood_adaptive = conformal_ood_adaptive
 
     # Predict family -- thin in-body delegating stubs so the public predict
     # surface is discoverable to mypy / IDE / help() while the heavy bodies
