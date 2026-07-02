@@ -171,6 +171,14 @@ from .cat_cooccurrence_svd import (
     apply_cat_cooccurrence_svd,
     cat_cooccurrence_svd_with_recipes,
 )
+from .graph_features import (
+    graph_neighbor_aggregate,
+    graph_structural_features,
+)
+from .graph_construction import (
+    knn_graph_edges,
+    shared_attribute_edges,
+)
 
 __all__ = [
     "per_group_recency_weighted_mean",
@@ -247,4 +255,8 @@ __all__ = [
     "cat_cooccurrence_svd_fit",
     "apply_cat_cooccurrence_svd",
     "cat_cooccurrence_svd_with_recipes",
+    "graph_neighbor_aggregate",
+    "graph_structural_features",
+    "knn_graph_edges",
+    "shared_attribute_edges",
 ]
