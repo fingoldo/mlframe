@@ -15,9 +15,34 @@ import torch
 
 logger = logging.getLogger("mlframe.training.neural.flat")
 
+# Max number of CAPTURED CUDA graphs retained per model instance. Each entry pins ~2 device buffers
+# (static in + static out) + the graph object, so an inference run over many distinct batch shapes (ragged
+# tails across folds/targets/datasets) would otherwise grow VRAM without bound. Evicting the least-recently
+# replayed graph keeps the hot full-batch graph resident. Override via env for a host with more/less VRAM.
+_CUDA_GRAPH_PREDICT_CACHE_MAX = max(1, int(os.environ.get("MLFRAME_CUDA_GRAPH_PREDICT_CACHE_MAX", "16")))
+
 
 class _PredictAccelMixin:
     """torch.compile + CUDA-graph predict fast paths and the predict_step dispatch."""
+
+    def _evict_cuda_graph_cache_if_needed(self) -> None:
+        """Bound the captured-graph count, reclaiming VRAM from the least-recently-used graph.
+
+        Only real captures (tuple values) hold device memory; ``False`` sentinels (permanent eager
+        fallback for a shape that failed capture) are negligible and are NOT evicted (that would cause a
+        capture-retry storm). Entries are ordered oldest-first (dict insertion order + LRU move-to-end on
+        replay hits), so popping from the front drops the coldest graph.
+        """
+        cache = self._cuda_graph_predict_cache
+        graph_keys = [k for k, v in cache.items() if v is not False]
+        while len(graph_keys) > _CUDA_GRAPH_PREDICT_CACHE_MAX:
+            old_key = graph_keys.pop(0)
+            entry = cache.pop(old_key, None)
+            if entry and entry is not False:
+                # Drop the last references so the captured graph + its static in/out buffers free their VRAM.
+                _g, _static_in, _static_out = entry
+                del _g, _static_in, _static_out
+            logger.debug("Evicted LRU CUDA-graph predict cache entry shape=%s to bound VRAM.", old_key[0])
 
     def _apply_torch_compile(self) -> None:
         """Apply torch.compile to the network if enabled.
@@ -274,6 +299,9 @@ class _PredictAccelMixin:
                 # this sync the replay was racing the host read on
                 # subsequent _predict_raw calls, returning stale values.
                 torch.cuda.synchronize()
+                # Mark most-recently-used (move to the end of the dict) so the LRU-cap evicts cold shapes,
+                # not this hot one.
+                self._cuda_graph_predict_cache[_key] = self._cuda_graph_predict_cache.pop(_key)
                 return _static_out.clone()
             except Exception as _replay_err:
                 logger.warning(
@@ -310,6 +338,7 @@ class _PredictAccelMixin:
                 _static_out = self.network(_static_in)
 
             self._cuda_graph_predict_cache[_key] = (_g, _static_in, _static_out)
+            self._evict_cuda_graph_cache_if_needed()
             logger.info(
                 "CUDA-graph captured for predict shape=%s dtype=%s.",
                 tuple(x.shape), x.dtype,
