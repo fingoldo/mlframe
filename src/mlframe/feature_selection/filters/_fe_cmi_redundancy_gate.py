@@ -947,6 +947,15 @@ def apply_cmi_redundancy_gate(
         except Exception:
             _round_cmi = {}
             _round_floor = {}
+        # z_support is FIXED within the round, so read its occupied cardinality ONCE here (one D2H) and pass it
+        # to every per-candidate CMI fallback as kz -- otherwise _cmi_from_binned_cupy re-reads int(dz.max()) per
+        # candidate. Candidate codes are nbins-binned, so kx=nbins is a safe (empty-bin) upper bound with no read.
+        _zcard = 0
+        if _z_scored is not None:
+            try:
+                _zcard = (int(_z_scored.max()) + 1) if getattr(_z_scored, "size", 0) else 0
+            except Exception:
+                _zcard = 0
         for nm in _rem_list:
             # Prefer the RESIDENT candidate code for the per-candidate CMI + perm-null fallbacks (both dispatch
             # to the cupy resident-input branch: ``_cmi_from_binned`` -> ``_cmi_from_binned_cupy(isinstance
@@ -955,7 +964,7 @@ def apply_cmi_redundancy_gate(
             _cb = cand_bins_dev.get(nm) if cand_bins_dev else None
             if _cb is None:
                 _cb = cand_bins[nm]
-            cmi = _round_cmi[nm] if nm in _round_cmi else float(_cmi_from_binned(_cb, y_dense, _z_scored))
+            cmi = _round_cmi[nm] if nm in _round_cmi else float(_cmi_from_binned(_cb, y_dense, _z_scored, kx=int(nbins), kz=int(_zcard)))
             if nm in _round_floor:
                 floor, null_mean = _round_floor[nm]
             else:

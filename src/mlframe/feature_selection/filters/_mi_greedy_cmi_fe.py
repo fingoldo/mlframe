@@ -635,6 +635,7 @@ def _entropy_from_classes(classes: np.ndarray) -> tuple[float, int]:
 
 def _cmi_from_binned(
     x: np.ndarray, y: np.ndarray, z_joint: Optional[np.ndarray], return_cards: bool = False,
+    kx: int = 0, kz: int = 0,
 ):
     """``CMI(X; Y | Z) = H(X,Z) + H(Y,Z) - H(Z) - H(X,Y,Z)`` from binned
     integer arrays. Miller-Madow bias correction applied: each plug-in
@@ -658,7 +659,7 @@ def _cmi_from_binned(
     # same partition -> same CMI; selection-identical. Gated (STRICT / MLFRAME_CMI_GPU), default CPU.
     if _cmi_gpu_enabled():
         try:
-            return _cmi_from_binned_cupy(x, y, z_joint, return_cards=return_cards)
+            return _cmi_from_binned_cupy(x, y, z_joint, return_cards=return_cards, kx=kx, kz=kz)
         except Exception:
             pass
     x_i = np.ascontiguousarray(x, dtype=np.int64)
@@ -935,7 +936,7 @@ def _cached_card(host_arr, dev_codes) -> int:
 # ~10 ms. The real redundancy is the DOUBLE card computation, eliminated by the precomp_cards reuse below.
 
 
-def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
+def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False, kx: int = 0, kz: int = 0):
     """Device twin of :func:`_cmi_from_binned` (marginal + conditional) via cp.unique partition counts.
     Value-order densify -> same partition -> same MI/CMI (selection-identical, fp-order ~1e-15).
 
@@ -979,7 +980,9 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
     # greedy steps (identical content), so its max-code fingerprint hits and skips the int(dx.max()) D2H sync.
     # A resident cp.ndarray input has no cheap host fingerprint (that would itself need a D2H), so keep the
     # direct max there.
-    if isinstance(x, cp.ndarray):
+    if kx and kx > 0:
+        Kx = int(kx)                       # caller-known upper bound (e.g. nbins) -> skip the int(dx.max()) sync
+    elif isinstance(x, cp.ndarray):
         Kx = (int(dx.max()) + 1) if dx.size else 1
     else:
         Kx = _cached_card(x, dx)
@@ -1001,12 +1004,16 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False):
     # resident candidate codes) -> use it as-is so the round conditioning support never crosses H2D (the
     # ``cmi_z`` upload); ``resident_operand``/``np.asarray`` on a cupy array would raise. Host z rides the
     # content-keyed cache (uploaded once per round). Selection-identical: same partition -> same CMI.
-    if isinstance(z_joint, cp.ndarray):
+    if kz and kz > 0:
+        dz = z_joint.astype(cp.int64, copy=False).ravel() if isinstance(z_joint, cp.ndarray) else resident_operand(z_joint, "cmi_z", dtype=np.int64)
+        _kz_local = int(kz)                # caller-known z cardinality (the mult from _combine_codes_gpu) -> no sync
+    elif isinstance(z_joint, cp.ndarray):
         dz = z_joint.astype(cp.int64, copy=False).ravel()
-        kz = (int(dz.max()) + 1) if dz.size else 1   # device z: cardinality on device (host-byte cache N/A)
+        _kz_local = (int(dz.max()) + 1) if dz.size else 1   # device z: cardinality on device (host-byte cache N/A)
     else:
         dz = resident_operand(z_joint, "cmi_z", dtype=np.int64)  # z_support round-constant -> cached
-        kz = _cached_card(z_joint, dz)     # z_support is round-constant -> cardinality cached
+        _kz_local = _cached_card(z_joint, dz)     # z_support is round-constant -> cardinality cached
+    kz = _kz_local
     # FOUR joint entropies (z, xz, yz, xyz) in ONE launch when the (x,y,z) joint fits shared -- the #1
     # cuLaunchKernel source on the STRICT redundancy gate. Bit-identical; falls back to the per-joint path.
     from ._fe_batched_mi import cmi_joint_entropies_gpu
