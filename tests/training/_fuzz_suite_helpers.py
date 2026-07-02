@@ -246,6 +246,10 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         # field may live on different config in older trees. Drop via
         # TrainingBehaviorConfig.model_fields filter below.
         "confidence_ensemble_quantile": combo.confidence_ensemble_quantile_cfg,
+        # PZAD ensemble blend knobs: Caruana metric-direct weights (vs NNLS) + rank_average flavour appended to the
+        # default blend set. Both gate on use_ensembles via the FuzzCombo canon; the phase reads them off behavior_config.
+        "use_caruana_weights_in_ensemble": combo.use_caruana_weights_in_ensemble_cfg,
+        "extra_ensembling_methods": ("rank_average",) if combo.ens_rank_average_cfg else (),
         # 2026-05-28 extreme_ar_group_aware_skip_models axis -- which model
         # families get skipped on extreme-AR + group-aware regimes. Mapped
         # from the enum axis ("default_neural"/"include_linear"/"empty")

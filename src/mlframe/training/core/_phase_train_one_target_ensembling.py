@@ -99,6 +99,17 @@ def _finalize_per_target_ensembling(
     # opt-out by setting False on the behavior config. RRF is rank-based and ignores the knob.
     _use_ap12_cal = bool(getattr(behavior_config, "use_ap12_calibrated_probs_in_ensemble", True))
     _ens_kwargs.pop("use_ap12_calibrated_probs", None)
+    # PZAD blend knobs (behavior_config): Caruana metric-direct weights (alternative to NNLS) + extra flavours
+    # (e.g. rank_average) appended to the default SIMPLE_ENSEMBLING_METHODS set. Both OFF/empty by default.
+    if bool(getattr(behavior_config, "use_caruana_weights_in_ensemble", False)):
+        _ens_kwargs["use_caruana_weights"] = True
+    _extra_methods = tuple(getattr(behavior_config, "extra_ensembling_methods", ()) or ())
+    if _extra_methods:
+        from mlframe.models.ensembling.base import SIMPLE_ENSEMBLING_METHODS as _SIMPLE_METHODS
+        _base_methods = _ens_kwargs.get("ensembling_methods")
+        if not isinstance(_base_methods, (list, tuple)) or not _base_methods:
+            _base_methods = list(_SIMPLE_METHODS)
+        _ens_kwargs["ensembling_methods"] = list(dict.fromkeys(list(_base_methods) + list(_extra_methods)))
     _ensembles = score_ensemble(
         models_and_predictions=ens_models,
         ensemble_name=f"{pre_pipeline_name}{_members_label} ",

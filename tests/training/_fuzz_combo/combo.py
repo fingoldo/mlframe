@@ -390,6 +390,8 @@ class FuzzCombo:
     add_cyclical_date_features_cfg: bool = False
     add_extended_date_features_cfg: bool = False
     use_nnls_weights_in_blends_cfg: bool = True
+    use_caruana_weights_in_ensemble_cfg: bool = False
+    ens_rank_average_cfg: bool = False
     enable_prediction_envelope_clip_cfg: bool = True
     # 2026-05-27 iter332 audit-driven new-functionality axes.
     ensembling_force_legacy_cfg: bool = False
@@ -1372,6 +1374,10 @@ class FuzzCombo:
             (self.add_extended_date_features_cfg if self.with_datetime_col else False),
             # NNLS weights in blends only meaningful when ensembling is on.
             (self.use_nnls_weights_in_blends_cfg if self.use_ensembles else True),
+            # Caruana blend weights + rank_average flavour only meaningful when ensembling is on; canon to the OFF
+            # default otherwise so the True variants don't split dedup buckets on an ensembling-less combo.
+            (self.use_caruana_weights_in_ensemble_cfg if self.use_ensembles else False),
+            (self.ens_rank_average_cfg if self.use_ensembles else False),
             # Prediction-envelope clip is regression-only. Canon to True
             # (the post-fix default) for non-regression primaries so the
             # False variant doesn't waste pairwise budget on no-op gates.
