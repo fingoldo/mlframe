@@ -117,6 +117,34 @@ def is_tree_model(model: Any) -> bool:
     return False
 
 
+def _coerce_float_2d(vals: np.ndarray) -> np.ndarray:
+    """Best-effort 2-D float64 view of a (possibly mixed / string / categorical) value matrix.
+
+    Only used for the residual-proxy tail-selection and the per-feature dependence x-values, so it must never crash on a
+    non-numeric column: a whole-frame ``astype(float64)`` blew up with ``could not convert string to float`` whenever the
+    model was trained with a string/categorical feature, which silently disabled the ENTIRE SHAP panel (the caller's
+    broad except swallowed it). Numeric columns pass through; a non-numeric column is label-encoded (``pd.factorize``)
+    to category codes so the dependence x-axis still has usable spread instead of taking down the diagnostic.
+    """
+    vals = np.asarray(vals)
+    if vals.ndim == 1:
+        vals = vals.reshape(-1, 1)
+    if vals.dtype.kind in "fiub":
+        return vals.astype(np.float64)
+    import pandas as pd
+    out = np.empty(vals.shape, dtype=np.float64)
+    for j in range(vals.shape[1]):
+        col = vals[:, j]
+        try:
+            out[:, j] = col.astype(np.float64)
+        except (ValueError, TypeError):
+            codes, _ = pd.factorize(pd.Series(col).astype("string"), use_na_sentinel=True)
+            # factorize returns -1 for missing; map that to NaN so the dependence scatter drops it rather than plotting a
+            # spurious -1 category.
+            out[:, j] = np.where(codes < 0, np.nan, codes).astype(np.float64)
+    return out
+
+
 def _as_frame_and_names(X: Any, feature_names: Optional[Sequence[str]]) -> Tuple[Any, np.ndarray, List[str]]:
     """Return ``(carrier_for_shap, values_2d, names)``.
 
@@ -127,13 +155,13 @@ def _as_frame_and_names(X: Any, feature_names: Optional[Sequence[str]]) -> Tuple
     if hasattr(X, "columns") and not isinstance(X, np.ndarray):
         names = [str(c) for c in X.columns]
         vals = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
-        return X, np.asarray(vals, dtype=np.float64), (list(feature_names) if feature_names is not None else names)
+        return X, _coerce_float_2d(vals), (list(feature_names) if feature_names is not None else names)
     arr = np.asarray(X)
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
     n_cols = arr.shape[1]
     names = list(feature_names) if feature_names is not None else [f"f{i}" for i in range(n_cols)]
-    return arr, np.asarray(arr, dtype=np.float64), names
+    return arr, _coerce_float_2d(arr), names
 
 
 def _score_proxy(model: Any, carrier: Any, n: int) -> Optional[np.ndarray]:

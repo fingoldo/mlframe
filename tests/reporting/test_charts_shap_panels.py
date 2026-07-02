@@ -251,3 +251,41 @@ def test_shap_default_max_rows_cap_bounded_and_ranking_stable():
         return set(np.argsort(-np.abs(sv).mean(0))[:k].tolist())
 
     assert _topk(sp.DEFAULT_MAX_ROWS) == _topk(20_000), "top-K SHAP feature set changed vs a 20k-row explain"
+
+
+def test_shap_panel_survives_categorical_feature_frame():
+    """Regression: a model trained with a string/categorical feature must NOT take down the SHAP panel. Pre-fix,
+    _as_frame_and_names forced the WHOLE frame to float64 for its dependence-x / proxy view, raising
+    'could not convert string to float' on any categorical column -- silently disabling the entire diagnostic (the
+    dispatcher swallows it). The float view now coerces per-column (numeric passthrough, non-numeric -> factorized
+    codes), so the panel renders. TreeExplainer still explains the native carrier."""
+    shap = pytest.importorskip("shap")
+    lgb = pytest.importorskip("lightgbm")
+    import pandas as pd
+    from mlframe.reporting.charts.shap_panels import shap_summary_and_dependence, _coerce_float_2d
+
+    # Numeric-only coercion is an exact float64 passthrough (no behaviour change for the common path).
+    num = np.arange(12, dtype=np.float64).reshape(4, 3)
+    assert np.array_equal(_coerce_float_2d(num), num)
+
+    rng = np.random.default_rng(0)
+    n = 5000
+    df = pd.DataFrame({
+        "x0": rng.standard_normal(n),
+        "x1": rng.standard_normal(n),
+        "cat": pd.Categorical(rng.choice(list("ABCDE"), n)),  # the column that used to crash the panel
+    })
+    y = (2.0 * df["x0"] - 1.5 * df["x1"] + rng.standard_normal(n) * 0.5).to_numpy()
+    model = lgb.LGBMRegressor(n_estimators=60, verbosity=-1).fit(df, y, categorical_feature=["cat"])
+
+    # The per-column coercion must not raise on the string/categorical column.
+    coerced = _coerce_float_2d(df.to_numpy())
+    assert coerced.shape == (n, 3) and coerced.dtype == np.float64
+
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as td:
+        res = shap_summary_and_dependence(
+            model, df, feature_names=list(df.columns),
+            plot_file=os.path.join(td, "shap.png"), plot_outputs="matplotlib[png]",
+        )
+    assert res is not None, "SHAP panel returned None on a categorical-feature frame (should render, not crash)"
