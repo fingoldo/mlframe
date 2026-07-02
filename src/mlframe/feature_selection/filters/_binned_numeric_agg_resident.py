@@ -110,33 +110,89 @@ def _per_cell_raw_moments_masked_gpu(cp, codes_g, v_safe, w, n_cells: int):
     return cnt, s1, s2, s3, s4
 
 
+# cupy.fuse kernel cache (2026-07-02, cProfile-driven): _stats_from_moments_gpu was the #1 host hotspot
+# (0.588s tottime / 100 calls) -- its cost is HOST issue-time for the ~10-20 small cupy elementwise launches
+# it fired per call (mean, safe/m2/std, the per-stat m3/m4 chains + two cp.where guards each). Each stat's
+# per-cell formula is a pure elementwise chain over the (n_cells,) moment arrays, so cupy.fuse collapses the
+# WHOLE chain of a stat into ONE fused kernel launch. Each fused body is a 1:1 transcription of the exact same
+# arithmetic + the same cp.where(std>1e-9)/cp.where(m2>1e-12) guards + the same cp.where(cnt>0,...,nan) empty-cell
+# NaN as the pre-fusion code -- the fused op order can only re-associate at the last ULP (nvcc FMA), inside the
+# 1e-10 selection band. Built lazily from the passed cp (never imports cupy / never runs at import): the fuse
+# decorator only traces python; the CUDA compile happens on first call with real arrays, on the parent's GPU.
+_FUSED_STATS: Optional[dict] = None
+
+
+def _get_fused_stats(cp) -> dict:
+    """Lazily build + cache the per-stat cupy.fuse kernels from the passed ``cp``. Each kernel is a faithful
+    transcription of the corresponding branch of the old per-op ``_stats_from_moments_gpu`` (same ops, same
+    order, same guard thresholds), fused so a stat costs ONE launch instead of many."""
+    global _FUSED_STATS
+    if _FUSED_STATS is not None:
+        return _FUSED_STATS
+    nan = cp.nan
+
+    @cp.fuse()
+    def _mean_k(cnt, s1):
+        safe = cp.maximum(cnt, 1.0)
+        mean = s1 / safe
+        return cp.where(cnt > 0, mean, nan)
+
+    @cp.fuse()
+    def _std_k(cnt, s1, s2):
+        safe = cp.maximum(cnt, 1.0)
+        mean = s1 / safe
+        m2 = cp.maximum(s2 / safe - mean * mean, 0.0)
+        std = cp.sqrt(m2)
+        return cp.where(cnt > 0, std, nan)
+
+    @cp.fuse()
+    def _skew_k(cnt, s1, s2, s3):
+        safe = cp.maximum(cnt, 1.0)
+        mean = s1 / safe
+        m2 = cp.maximum(s2 / safe - mean * mean, 0.0)
+        std = cp.sqrt(m2)
+        m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean ** 3
+        raw = cp.where(std > 1e-9, m3 / (std ** 3 + 1e-12), 0.0)
+        return cp.where(cnt > 0, raw, nan)
+
+    @cp.fuse()
+    def _kurt_k(cnt, s1, s2, s3, s4):
+        safe = cp.maximum(cnt, 1.0)
+        mean = s1 / safe
+        m2 = cp.maximum(s2 / safe - mean * mean, 0.0)
+        m4 = s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean ** 2 * (s2 / safe) - 3.0 * mean ** 4
+        raw = cp.where(m2 > 1e-12, m4 / (m2 * m2 + 1e-12) - 3.0, 0.0)
+        return cp.where(cnt > 0, raw, nan)
+
+    _FUSED_STATS = {"mean": _mean_k, "std": _std_k, "skew": _skew_k, "kurt": _kurt_k}
+    return _FUSED_STATS
+
+
 def _stats_from_moments_gpu(cp, moments, stats: Sequence[str]) -> dict:
     """Per-cell ``{stat: cupy(n_cells)}`` from PRECOMPUTED raw moments ``(cnt, s1..s4)``. Split out of
     ``_per_cell_stats_gpu`` so a caller that shares one bincount pass across several stats of the SAME
     (pair, fold) derives each stat from the cached moments instead of re-running the 5 bincounts per stat
-    (the launch-count monster the NVTX trace flagged: binagg was 37k GPU ops at 200k). Same arithmetic."""
+    (the launch-count monster the NVTX trace flagged: binagg was 37k GPU ops at 200k).
+
+    FUSED (2026-07-02): each stat is now derived by a SINGLE cupy.fuse kernel (``_get_fused_stats``) that
+    computes its whole per-cell chain (safe/mean/m2/std -> raw -> the cnt>0 NaN guard) in one launch, instead of
+    ~4-8 separate elementwise launches per stat. Same arithmetic FORM / same guards / same NaN placement -- the
+    per-op mean/safe/m2/std are recomputed inside each fused body (GPU-cheap) rather than shared as host arrays,
+    trading a few extra GPU FLOPs for a large drop in HOST launch-issue time (the measured hotspot)."""
     cnt, s1, s2, s3, s4 = moments
-    safe = cp.maximum(cnt, 1.0)
-    mean = s1 / safe
+    K = _get_fused_stats(cp)
     out: dict = {}
-    need_hi = any(s in ("std", "skew", "kurt") for s in stats)
-    if need_hi:
-        m2 = cp.maximum(s2 / safe - mean * mean, 0.0)
-        std = cp.sqrt(m2)
     for stat in stats:
         if stat == "mean":
-            raw = mean
+            out[stat] = K["mean"](cnt, s1)
         elif stat == "std":
-            raw = std
+            out[stat] = K["std"](cnt, s1, s2)
         elif stat == "skew":
-            m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean ** 3
-            raw = cp.where(std > 1e-9, m3 / (std ** 3 + 1e-12), 0.0)
+            out[stat] = K["skew"](cnt, s1, s2, s3)
         elif stat == "kurt":
-            m4 = s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean ** 2 * (s2 / safe) - 3.0 * mean ** 4
-            raw = cp.where(m2 > 1e-12, m4 / (m2 * m2 + 1e-12) - 3.0, 0.0)
+            out[stat] = K["kurt"](cnt, s1, s2, s3, s4)
         else:
             raise ValueError(f"binned_numeric_agg stat {stat!r} not supported")
-        out[stat] = cp.where(cnt > 0, raw, cp.nan)
     return out
 
 
