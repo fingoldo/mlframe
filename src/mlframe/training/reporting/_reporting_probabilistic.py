@@ -58,7 +58,11 @@ from ._reporting import (  # noqa: E402
 if TYPE_CHECKING:
     from ..configs import MultilabelDispatchConfig
 
-logger = logging.getLogger(__name__)
+# Share the parent module's logger so the INFO-gate that guards the sklearn classification_report cost is controlled
+# from one place, and access classification_report through the module so callers can swap the fallback at runtime.
+from . import _reporting as _reporting_mod
+
+logger = _reporting_mod.logger
 
 
 def _resolve_class_label(class_id: int, class_name: Any, target_label_encoder: Any) -> str:
@@ -779,13 +783,13 @@ def report_probabilistic_model_perf(
                         _y_true, _y_pred, nclasses=_nclasses, digits=report_ndigits, zero_division=0,
                     )
             else:
-                _cls_report_text = classification_report(targets, preds, zero_division=0, digits=report_ndigits)
+                _cls_report_text = _reporting_mod.classification_report(targets, preds, zero_division=0, digits=report_ndigits)
         except (ValueError, TypeError, ImportError, AttributeError) as _cls_err:
             # Fall back to sklearn's classification_report when the njit-backed
             # path can't handle the input shape / dtype. Narrow catch leaves
             # programming bugs (KeyboardInterrupt, MemoryError) to propagate.
             logger.debug("fast classification_report fallback: %s", _cls_err)
-            _cls_report_text = classification_report(targets, preds, zero_division=0, digits=report_ndigits)
+            _cls_report_text = _reporting_mod.classification_report(targets, preds, zero_division=0, digits=report_ndigits)
         _report_lines = [
             report_title + " " + model_name,
             _cls_report_text,
