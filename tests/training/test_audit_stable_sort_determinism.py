@@ -6,10 +6,21 @@ and the result depends on upstream input order -- silently flipping feature
 selection / member ranking / metric values across runs when the input order
 changes (dict iteration, pandas stride, fold order).
 
-7 P0 + 5 high-impact P1 fixes applied this commit; remaining 13 P1 sites
-across FE transformers / cat_interactions / composition.py / knockoff helpers
-follow the same pattern (secondary content key on tied score) and are
-addressed in a follow-up pass:
+7 P0 + 5 high-impact P1 fixes applied in the original commit (listed below).
+
+Follow-up pass RESOLVED (audit2 repro-P2-3): the once-"remaining" FE-transformer /
+cat_interactions / composition / knockoff sites were re-enumerated and adjudicated
+against the CURRENT tree:
+  - composition.py / cat_interactions.py: no ranking-sort sites remain (eliminated by
+    later refactors).
+  - wrappers/_knockoffs.py:186 sorts ``set(abs_W>0)`` (unique values) -> no ties -> safe.
+  - Transformer sites hardened with a deterministic tiebreak: spectral_attention.py
+    (kind="stable" on degenerate eigenvalues), rf_proximity.py (kind="stable" top-k
+    order), fca_closed_concepts.py (secondary content key on the intent tuple so
+    equal-extent-size concepts do not depend on the ``concepts`` lib iteration order).
+  - Remaining transformer value-sorts (quantile/CDF/IQR/KS/kmeans-distance, Spearman
+    ranks) are tie-order-invariant aggregates or documented <=1-ULP proxies -> safe.
+The original numbered fixes:
 
   P0 (7 sites):
     1. feature_selection/wrappers/_rfecv.py:361,365 (SFFS swap_out/swap_in)
@@ -295,3 +306,46 @@ def test_lexsort_tiebreak_returns_same_top_k_across_input_permutations() -> None
         "Lexsort with content-based tiebreaker must yield identical top-K "
         "across input permutations."
     )
+
+
+# ---------------------------------------------------------------------------
+# Follow-up pass sensors (audit2 repro-P2-3): the FE-transformer sites
+# ---------------------------------------------------------------------------
+
+
+def test_spectral_attention_eig_sort_is_stable() -> None:
+    src = (MLFRAME_ROOT / "feature_engineering" / "transformer" / "spectral_attention.py").read_text(encoding="utf-8")
+    assert 'np.argsort(-eigvals_A, kind="stable")' in src, (
+        "spectral_attention eigenvalue order must use kind='stable' so degenerate eigenvalues do not "
+        "flip which eigenvector becomes feature-k"
+    )
+
+
+def test_rf_proximity_topk_sort_is_stable() -> None:
+    src = (MLFRAME_ROOT / "feature_engineering" / "transformer" / "rf_proximity.py").read_text(encoding="utf-8")
+    assert 'np.argsort(-part_sims, axis=1, kind="stable")' in src, (
+        "rf_proximity top-k neighbour order must use kind='stable' (quantised proximities tie often)"
+    )
+
+
+def test_fca_closed_concepts_topk_uses_content_tiebreak() -> None:
+    src = (MLFRAME_ROOT / "feature_engineering" / "transformer" / "fca_closed_concepts.py").read_text(encoding="utf-8")
+    assert "key=lambda x: (-len(x[0]), tuple(sorted(x[1])))" in src, (
+        "fca top_k concept selection must break equal-extent-size ties on intent content, not on the "
+        "concepts-lib lattice iteration order"
+    )
+
+
+def test_fca_concept_topk_selection_is_permutation_invariant() -> None:
+    """Behavioural: the (-extent_size, intent) key selects the SAME top_k concepts regardless of the order
+    the lattice yields equal-size concepts in. Mirrors the sorted() the transformer performs."""
+    # Three concepts of extent-size 3 (a tie) + one of size 2. Content keys are the intent tuples.
+    concepts_a = [((0, 1, 2), ("f1", "f3")), ((3, 4, 5), ("f0", "f2")), ((6, 7, 8), ("f2", "f4")), ((9, 10), ("f5",))]
+    concepts_b = [concepts_a[2], concepts_a[0], concepts_a[3], concepts_a[1]]  # different lattice order
+
+    def top2(concepts):
+        c = list(concepts)
+        c.sort(key=lambda x: (-len(x[0]), tuple(sorted(x[1]))))
+        return [x[1] for x in c[:2]]
+
+    assert top2(concepts_a) == top2(concepts_b), "content tiebreak must give order-independent top_k concepts"
