@@ -139,7 +139,7 @@ def materialise_and_finalise_fe_candidates(
                         _vb = None
                 if _vb is None:
                     _vb = _quantile_bin(_vals, nbins=int(self.quantization_nbins))
-                _marg = float(_cmi_from_binned(_vb, _y_dense, None))
+                _marg = float(_cmi_from_binned(_vb, _y_dense, None, kx=int(self.quantization_nbins)))
                 _cmi_cands[_cname] = (_vals, _marg)
 
         if len(_cmi_cands) >= 2:

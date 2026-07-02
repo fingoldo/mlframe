@@ -40,6 +40,47 @@ import numpy as np
 _TWO_PI = 2.0 * np.pi
 
 
+# HOST-preamble memoisation (2026-07-02). The seeded held-out split and the seeded row-subsample indices are a
+# pure deterministic function of ``n`` (seed 0) / ``(size, cap)`` (seed 0xF0F0_1234) -- IDENTICAL for every column
+# the detector scans in a fit (same 1M n, same train/val sizes). Recomputing ``default_rng(0).permutation(n)`` +
+# the ``rng.choice`` subsample on every column was ~30 full 1M-row shuffles per fit (F2 host hotspot: this preamble
+# is 0.285s tottime / 34 calls). Cache them so the shuffle/choice runs ONCE per distinct shape. The cached arrays
+# are used read-only (boolean-mask indexing / fancy-index gather -- never mutated), so returning the shared object
+# is byte-identical to a fresh recompute. Bounded: keyed by scalar shape, a handful of entries per process.
+_SPLIT_MASK_CACHE: dict = {}
+_SUBSAMPLE_IDX_CACHE: dict = {}
+
+
+def _seeded_split_masks(n: int):
+    """(train_mask, val_mask) for the seed-0 permutation held-out split -- memoised by ``n``. Byte-identical to
+    recomputing ``default_rng(0).permutation(n)`` each call (deterministic), read-only for the caller."""
+    cached = _SPLIT_MASK_CACHE.get(n)
+    if cached is None:
+        val_mask = np.zeros(n, dtype=bool)
+        val_mask[np.random.default_rng(0).permutation(n)[: n // 3]] = True
+        cached = (~val_mask, val_mask)
+        _SPLIT_MASK_CACHE[n] = cached
+    return cached
+
+
+def _seeded_subsample_idx(tr_size: int, cap: int, va_size: int, va_cap: int):
+    """(sub_tr, sub_va) row-subsample gather indices for the seed-0xF0F0_1234 cap -- memoised by the shape tuple.
+
+    Reproduces the ORIGINAL single-generator sequence EXACTLY: one ``default_rng(0xF0F0_1234)`` draws ``sub_tr``
+    first and then (only when ``va_size > va_cap``) ``sub_va`` from the SAME advanced state -- NOT two fresh seeds
+    (which would give a different ``sub_va``). ``sub_va`` is None when the val slice is not subsampled. Byte-identical
+    to recomputing per call, read-only gather indices for the caller."""
+    key = (tr_size, cap, va_size, va_cap)
+    cached = _SUBSAMPLE_IDX_CACHE.get(key)
+    if cached is None:
+        _rng = np.random.default_rng(0xF0F0_1234)
+        sub_tr = _rng.choice(tr_size, size=cap, replace=False)
+        sub_va = _rng.choice(va_size, size=va_cap, replace=False) if va_size > va_cap else None
+        cached = (sub_tr, sub_va)
+        _SUBSAMPLE_IDX_CACHE[key] = cached
+    return cached
+
+
 def _corr_sq_centered_gpu(cp, v, yc, y_ss: float) -> float:
     """Squared Pearson correlation of resident ``v`` with a pre-centered resident
     ``yc`` (sum-of-squares ``y_ss``), mirroring the CPU ``_corr_sq_centered``
@@ -180,9 +221,7 @@ def detect_fourier_freqs_for_col_gpu(
         return []
     # SEEDED held-out split -- IDENTICAL RNG seed/recipe to the CPU detector so the resident path operates on
     # the byte-identical train/val rows (selection-equivalence depends on this matching exactly).
-    val_mask = np.zeros(n, dtype=bool)
-    val_mask[np.random.default_rng(0).permutation(n)[: n // 3]] = True
-    train_mask = ~val_mask
+    train_mask, val_mask = _seeded_split_masks(n)
     z_tr_h, z_va_h = z01[train_mask], z01[val_mask]
     y_tr_h = y[train_mask].copy()
     y_va_h = y[val_mask].copy()
@@ -191,12 +230,10 @@ def detect_fourier_freqs_for_col_gpu(
     # Row-subsample cap -- IDENTICAL seed/recipe to the CPU detector.
     _fdet_cap = int(fourier_detect_max_n)
     if _fdet_cap > 0 and z_tr_h.size > _fdet_cap:
-        _fdet_rng = np.random.default_rng(0xF0F0_1234)
-        _sub_tr = _fdet_rng.choice(z_tr_h.size, size=_fdet_cap, replace=False)
-        z_tr_h = np.ascontiguousarray(z_tr_h[_sub_tr]); y_tr_h = np.ascontiguousarray(y_tr_h[_sub_tr])
         _va_cap = max(8, _fdet_cap // 2)
-        if z_va_h.size > _va_cap:
-            _sub_va = _fdet_rng.choice(z_va_h.size, size=_va_cap, replace=False)
+        _sub_tr, _sub_va = _seeded_subsample_idx(z_tr_h.size, _fdet_cap, z_va_h.size, _va_cap)
+        z_tr_h = np.ascontiguousarray(z_tr_h[_sub_tr]); y_tr_h = np.ascontiguousarray(y_tr_h[_sub_tr])
+        if _sub_va is not None:
             z_va_h = np.ascontiguousarray(z_va_h[_sub_va]); y_va_h = np.ascontiguousarray(y_va_h[_sub_va])
     if float(np.std(y_tr_h)) < 1e-12 or float(np.std(y_va_h)) < 1e-12:
         return []

@@ -131,17 +131,19 @@ def retention_form_is_subsumed(
         if cand_dev is None:
             cand_bin = np.asarray(_quantile_bin(cand, nbins=nbins)).astype(np.int64).ravel()
             inc_bins = [np.asarray(_quantile_bin(c, nbins=nbins)).astype(np.int64).ravel() for c in _inc_clean]
-        z_support, _ = _renumber_joint(*inc_bins)
+        z_support, _zcard = _renumber_joint(*inc_bins)   # _renumber_joint returns the occupied cardinality
         # Prefer the resident candidate codes + device-born support for the scoring (resident-input branches);
         # host otherwise.
         _cb = cand_dev if cand_dev is not None else cand_bin
         _zc = z_support_dev if z_support_dev is not None else z_support
+        # kx=nbins (candidate is nbins-binned) / kz=_zcard skip the per-call int(dx.max())/int(dz.max()) reads.
+        _cbkx = int(nbins)
         # Candidate's OWN marginal debiased excess (the reference scale for the relative bar).
         marg_floor, marg_null_mean = _conditional_perm_null(_cb, y_arr, None, seed=seed)
-        marg_cmi = float(_cmi_from_binned(_cb, y_arr, None))
+        marg_cmi = float(_cmi_from_binned(_cb, y_arr, None, kx=_cbkx))
         marg_excess = max(0.0, marg_cmi - marg_null_mean)
         # Conditional CMI given the incumbent engineered survivors.
-        cmi = float(_cmi_from_binned(_cb, y_arr, _zc))
+        cmi = float(_cmi_from_binned(_cb, y_arr, _zc, kx=_cbkx, kz=int(_zcard)))
         floor, null_mean = _conditional_perm_null(
             _cb, y_arr, z_support, seed=seed, z_support_dev=z_support_dev)
         excess = max(0.0, cmi - null_mean)

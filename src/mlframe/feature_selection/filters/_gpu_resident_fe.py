@@ -499,7 +499,7 @@ def _gpu_apply_prewarp(cp, x, spec):
     returns a device float64 column. Raises for any basis/path not ported so the caller falls back to the
     host copy."""
     basis = str(spec["basis"])
-    xf = x.astype(cp.float64)
+    xf = x.astype(cp.float64, copy=False)
     if basis == "fourier_adaptive":
         pp = dict(spec["preprocess"])
         if str(pp.get("arg", "linear")) == "quadratic":

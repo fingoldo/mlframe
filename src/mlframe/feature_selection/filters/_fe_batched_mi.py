@@ -369,8 +369,8 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     # NJIT-PARITY: dedup the per-column interior edges to njit's distinct-threshold set (drops duplicate +
     # boundary edges that over-bin low-cardinality columns), then bin on only each column's valid prefix.
     ne = int(E.shape[0])
-    cmin = cp.ascontiguousarray(Xc.min(axis=0).astype(cp.float64))
-    cmax = cp.ascontiguousarray(Xc.max(axis=0).astype(cp.float64))
+    cmin = cp.ascontiguousarray(Xc.min(axis=0).astype(cp.float64, copy=False))
+    cmax = cp.ascontiguousarray(Xc.max(axis=0).astype(cp.float64, copy=False))
     # cp.empty (not cp.zeros): the dedup kernel writes out[0:ne_k[c], c] for every column and the nek MI
     # kernel binary-searches ONLY each column's valid prefix (ne = ne_k[c]), so the uninitialised tail rows
     # of Ec are never read -> dropping the per-call (ne,K) zero-fill is bit-identical (was 17k zero-fills/fit).
