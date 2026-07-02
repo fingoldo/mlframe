@@ -423,12 +423,15 @@ def _conditional_perm_null(
         _xh = _host_x()
         if _cmi_gpu_enabled() and nperm > 1:
             try:
+                import cupy as cp
                 from ._fe_batched_mi import batched_cmi_gpu
+                from ._fe_cmi_perm_null_gpu import _floor_mean_from_nulls_dev
                 Xp = np.empty((_xh.size, nperm), dtype=np.int64)
                 for i in range(nperm):
                     Xp[:, i] = _xh[rng.permutation(_xh.size)]
-                nulls = np.asarray(batched_cmi_gpu(Xp, y, None), dtype=np.float64)
-                return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+                # null CMI vector reduced on-device -> stays resident, one D2H for (floor, mean)
+                nulls_dev = batched_cmi_gpu(Xp, y, None, return_device=True)
+                return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
             except Exception:
                 pass
         nulls = np.empty(nperm, dtype=np.float64)
@@ -542,8 +545,9 @@ def _conditional_perm_null(
             order_d = cp.asarray(order)
             Xp_d = cp.empty((n_size, _nperm), dtype=cp.int64)
             Xp_d[order_d, :] = x_sorted_d[within]                  # xp[order] = x_sorted[within], per perm
-            nulls = np.asarray(batched_cmi_gpu(Xp_d, y_i, z_i), dtype=np.float64)
-            return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+            from ._fe_cmi_perm_null_gpu import _floor_mean_from_nulls_dev
+            nulls_dev = batched_cmi_gpu(Xp_d, y_i, z_i, return_device=True)   # stays resident
+            return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
         except Exception:
             pass  # any cupy error -> exact per-perm CPU loop below
     _xh = _host_x()
