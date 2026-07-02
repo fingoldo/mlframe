@@ -83,6 +83,14 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     base_ranking_criterion: str = "mi"
     base_ranking_mrmr_beta: float = 1.0      # MRMR redundancy weight (only used when base_ranking_criterion="mrmr")
 
+    # AR(1) lag-failsafe val cross-check. The ensemble deploys zero-param lag_predict when its group-K-fold OOF RMSE ties
+    # the best trained component. That OOF underestimates the full-data model, so a tie can ship lag over a model that
+    # generalises far better (prod: lag test 12.29 vs trained 9.31 at an OOF tie of 13.64). When a trained component
+    # beats lag on the group-disjoint VAL split (same honest regime as test) by more than lag_predict_failsafe_tolerance,
+    # veto the failsafe and deploy the trained component. Default ON (corrective); conservative -- only ever prevents a
+    # lag deployment in favour of a val-confirmed-better trained model.
+    ar1_failsafe_val_crosscheck: bool = True
+
     # Emit the composite-target VALUE report (per-group did-it-help / hurt / worse-than-lag breakdown + net weighted lift).
     emit_composite_value_report: bool = True
 
