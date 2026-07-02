@@ -89,9 +89,52 @@ void rows_ent_nnz_i32(const int* __restrict__ counts, const double inv_n, const 
     }
     if (tid == 0) { out_h[row] = -sh_h[0]; out_k[row] = (long long)(sh_k[0] + 0.5); }
 }
+// SPLIT-K variant (SM-occupancy fix, 2026-07-02): one-block-per-row leaves the GPU nearly EMPTY when the
+// perm chunk is narrow (K = 2-8 rows -> 2-8 blocks on a 6-SM card with ~48 block slots). Split each row's M
+// cells across gridDim.y segment blocks; each block writes its partial (sum, nnz) to a (K, S) scratch, and
+// the tiny finish kernel folds the S partials per row. Fixed S -> deterministic summation order (partials
+// folded in segment order) -> same ~1e-15 fp class as any tree-order change: selection-equivalent.
+extern "C" __global__
+void rows_ent_nnz_i32_split(const int* __restrict__ counts, const double inv_n, const int K,
+                            const long long M, const int S,
+                            double* __restrict__ part_h, double* __restrict__ part_k) {
+    int row = blockIdx.x;
+    int seg = blockIdx.y;
+    if (row >= K || seg >= S) return;
+    long long seg_len = (M + S - 1) / S;
+    long long lo = (long long)seg * seg_len;
+    long long hi = lo + seg_len; if (hi > M) hi = M;
+    const int* cr = counts + (long long)row * M;
+    int tid = threadIdx.x;
+    double hloc = 0.0, kloc = 0.0;
+    for (long long i = lo + tid; i < hi; i += blockDim.x) {
+        int ci = cr[i];
+        if (ci > 0) { double p = (double)ci * inv_n; hloc += p * log(p); kloc += 1.0; }
+    }
+    __shared__ double sh_h[256];
+    __shared__ double sh_k[256];
+    sh_h[tid] = hloc; sh_k[tid] = kloc;
+    __syncthreads();
+    for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; }
+        __syncthreads();
+    }
+    if (tid == 0) { part_h[row * S + seg] = sh_h[0]; part_k[row * S + seg] = sh_k[0]; }
+}
+extern "C" __global__
+void rows_ent_nnz_finish(const double* __restrict__ part_h, const double* __restrict__ part_k,
+                         const int K, const int S,
+                         double* __restrict__ out_h, long long* __restrict__ out_k) {
+    int row = (int)((long long)blockIdx.x * blockDim.x + threadIdx.x);
+    if (row >= K) return;
+    double h = 0.0, k = 0.0;
+    for (int s = 0; s < S; ++s) { h += part_h[row * S + s]; k += part_k[row * S + s]; }
+    out_h[row] = -h; out_k[row] = (long long)(k + 0.5);
+}
 """
 _ROWS_ENT_NNZ_KERNEL = None
 _ROWS_ENT_NNZ_I32_KERNEL = None
+_ROWS_ENT_NNZ_SPLIT_KERNELS = None
 
 
 def _get_rows_ent_nnz_kernel(cp):
@@ -106,6 +149,15 @@ def _get_rows_ent_nnz_i32_kernel(cp):
     if _ROWS_ENT_NNZ_I32_KERNEL is None:
         _ROWS_ENT_NNZ_I32_KERNEL = cp.RawKernel(_ROWS_ENT_NNZ_SRC, "rows_ent_nnz_i32")
     return _ROWS_ENT_NNZ_I32_KERNEL
+
+
+def _get_rows_ent_nnz_split_kernels(cp):
+    global _ROWS_ENT_NNZ_SPLIT_KERNELS
+    if _ROWS_ENT_NNZ_SPLIT_KERNELS is None:
+        mod = cp.RawModule(code=_ROWS_ENT_NNZ_SRC)
+        _ROWS_ENT_NNZ_SPLIT_KERNELS = (mod.get_function("rows_ent_nnz_i32_split"),
+                                       mod.get_function("rows_ent_nnz_finish"))
+    return _ROWS_ENT_NNZ_SPLIT_KERNELS
 
 
 def _rows_entropy_and_k(counts, inv_n):
@@ -131,6 +183,19 @@ def _rows_entropy_and_k(counts, inv_n):
         out_h = cp.empty(K, dtype=cp.float64)
         out_k = cp.empty(K, dtype=cp.int64)
         threads = 256
+        # SPLIT-K when the one-block-per-row grid cannot fill the SMs (narrow perm chunk, huge M): a 6-SM card
+        # runs ~48 resident blocks, so K < ~48 with a multi-million-cell M leaves most SMs idle for the whole
+        # 15-30ms reduction. Split each row's M cells across S segment blocks (K*S ~ a few hundred blocks) +
+        # a tiny finish fold. Only for the int32 huge-M perm-null case; small-M / large-K keeps one launch.
+        if counts.dtype == cp.int32 and K < 48 and M >= (1 << 20):
+            S = max(2, min(64, (48 + K - 1) // max(1, K)))
+            _split, _finish = _get_rows_ent_nnz_split_kernels(cp)
+            part_h = cp.empty(K * S, dtype=cp.float64)
+            part_k = cp.empty(K * S, dtype=cp.float64)
+            _split((K, S), (threads,),
+                   (c, float(inv_n), np.int32(K), np.int64(M), np.int32(S), part_h, part_k))
+            _finish(((K + 255) // 256,), (256,), (part_h, part_k, np.int32(K), np.int32(S), out_h, out_k))
+            return out_h, out_k
         _ker((K,), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), out_h, out_k))
         return out_h, out_k
     except Exception:  # noqa: BLE001
