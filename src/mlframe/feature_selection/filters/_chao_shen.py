@@ -81,8 +81,11 @@ def chao_shen_entropy_from_counts(counts: np.ndarray, coverage: float = -1.0) ->
         p_adj = C_hat * p_emp
         if p_adj <= 0.0:
             continue
-        denom = 1.0 - (1.0 - p_adj) ** N
-        if denom <= 1e-12:
+        # Stable 1-(1-p_adj)^N via -expm1(N*log1p(-p_adj)): the naive form catastrophically cancels
+        # for small p_adj*N (rare category, large N — exactly this estimator's target regime), silently
+        # tripping the <=1e-12 guard and dropping the category.
+        denom = -math.expm1(N * math.log1p(-p_adj))
+        if denom <= 0.0:
             continue
         h_cs -= p_adj * math.log(p_adj) / denom
     return max(0.0, h_cs)
@@ -169,6 +172,12 @@ def chao_shen_mi(x_binned: np.ndarray, y: np.ndarray) -> float:
     else:
         y_b = y.astype(np.int64)
     x_b = x_binned.astype(np.int64)
+    # Drop entries with negative codes (e.g. NaN sentinels): they would make x_b*K_y+y_b negative and crash bincount.
+    if x_b.size:
+        _valid = (x_b >= 0) & (y_b >= 0)
+        if not _valid.all():
+            x_b = x_b[_valid]
+            y_b = y_b[_valid]
     K_x = int(x_b.max()) + 1 if x_b.size else 1
     K_y = int(y_b.max()) + 1 if y_b.size else 1
     if K_x < 1 or K_y < 1:

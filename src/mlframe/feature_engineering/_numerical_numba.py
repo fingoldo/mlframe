@@ -269,7 +269,10 @@ def compute_numerical_aggregates_numba(
 
     if return_exotic_means:
         quadratic_mean = np.sqrt(quadratic_mean / size)
-        qubic_mean = (qubic_mean / size) ** (1 / 3)
+        # Sign-preserving cube root: qubic_mean is the mean of cubes and is negative for net-negative columns
+        # (common for returns/residuals); a bare ``(-x)**(1/3)`` returns NaN, so route through abs()+sign.
+        _qm = qubic_mean / size
+        qubic_mean = np.sign(_qm) * np.abs(_qm) ** (1 / 3)
         if npositive:
             if not geomean_log_mode:
                 geometric_mean = geometric_mean ** (1 / size)
@@ -288,7 +291,8 @@ def compute_numerical_aggregates_numba(
                 weighted_quadratic_mean = np.nan
             else:
                 weighted_quadratic_mean = np.sqrt(weighted_quadratic_mean / sum_weights)
-            weighted_qubic_mean = (weighted_qubic_mean / sum_weights) ** (1 / 3)
+            _wqm = weighted_qubic_mean / sum_weights
+            weighted_qubic_mean = np.sign(_wqm) * np.abs(_wqm) ** (1 / 3)
             if npositive and sum_weights != 0.0:
                 if not geomean_log_mode:
                     weighted_geometric_mean = weighted_geometric_mean ** (1 / sum_weights)

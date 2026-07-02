@@ -37,7 +37,9 @@ def _pearson_corr_kernel(x: np.ndarray, y: np.ndarray) -> float:
         sxy += dx * dy
         sxx += dx * dx
         syy += dy * dy
-    denom = sqrt(sxx * syy)
+    # sqrt(sxx)*sqrt(syy) not sqrt(sxx*syy): the product overflows to inf on large-scale data,
+    # which would silently collapse a genuine correlation to sxy/inf == 0.0.
+    denom = sqrt(sxx) * sqrt(syy)
     if denom == 0.0:
         return np.nan
     return sxy / denom
