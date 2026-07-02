@@ -475,6 +475,35 @@ def render_pdp_2d_diagnostic(
         return False
 
 
+def _interaction_cost_within_budget(model: Any, df: Any, k: int, grid: int, sample: int, max_seconds: float) -> bool:
+    """Project the H-statistic 2-D PDP cost from one timed predict and compare to ``max_seconds``.
+
+    The dominant work is ``C(k,2)`` 2-D PDP surfaces at ``grid^2`` predict-batches of ``sample`` rows each, plus ``k``
+    1-D PDPs at ``grid`` batches. One predict on the sample gives the per-batch latency; the projection is model-agnostic
+    (a slow deep net self-skips, a fast tree runs). On any probe failure we allow the render (fail-open) -- the render
+    itself is best-effort and swallows errors.
+    """
+    import time as _time
+
+    try:
+        n = _row_count(df)
+        if n == 0 or k < 2:
+            return True
+        probe = _subset_rows(df, np.arange(min(sample, n), dtype=np.int64))
+        fn = getattr(model, "predict_proba", None) or getattr(model, "predict", None)
+        if fn is None:
+            return True
+        t0 = _time.perf_counter()
+        fn(probe)
+        t_batch = _time.perf_counter() - t0
+        n_pairs = k * (k - 1) // 2
+        projected = (n_pairs * grid * grid + k * grid) * t_batch
+        return projected <= float(max_seconds)
+    except Exception:
+        logger.debug("interaction_strength: cost probe failed; allowing render.", exc_info=True)
+        return True
+
+
 def render_interaction_strength_diagnostic(
     *,
     model: Any,
@@ -487,12 +516,14 @@ def render_interaction_strength_diagnostic(
     max_features: int = 8,
     sample: int = 2_000,
     grid: int = 20,
+    max_seconds: float = 20.0,
     seed: int = 0,
 ) -> bool:
-    """Friedman-Popescu H-statistic heatmap over the top feature-importance features (opt-in). Reuses the PDP machinery.
+    """Friedman-Popescu H-statistic heatmap over the top feature-importance features. Reuses the PDP machinery.
 
-    Cost is O(k^2) 2-D PDP surfaces, so ``k`` is capped at ``max_features`` (<=8); each surface is ``grid`` predicts
-    independent of n. Best-effort: any failure is logged and swallowed so the report never aborts.
+    Cost is C(k,2) 2-D PDP surfaces (grid^2 predicts each), so total time scales with the model's predict latency. A
+    per-predict TIME probe projects the full cost and skips (logged) when it exceeds ``max_seconds`` -- so a fast/small
+    model runs it and a slow one self-skips. Best-effort: any failure is logged and swallowed so the report never aborts.
     """
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
     if model is None or df is None or not plot_outputs or not base_path:
@@ -508,6 +539,13 @@ def render_interaction_strength_diagnostic(
     else:
         ranked = names
     top = ranked[: max(2, int(max_features))]
+    if max_seconds and max_seconds > 0 and not _interaction_cost_within_budget(model, df, len(top), grid, sample, max_seconds):
+        logger.info(
+            "[diagnostics] interaction_strength: projected 2-D PDP cost over budget (%d features, grid=%d, "
+            "%.0fs cap) -- skipping; raise ReportingConfig.interaction_strength_max_seconds to force.",
+            len(top), grid, float(max_seconds),
+        )
+        return False
     try:
         from mlframe.reporting.charts.interaction_strength import compose_interaction_strength_figure
 

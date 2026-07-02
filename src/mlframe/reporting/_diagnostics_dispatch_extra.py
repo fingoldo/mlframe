@@ -545,17 +545,21 @@ def render_category_discriminability_diagnostic(
     metrics_dict: Optional[dict] = None,
     top_k: int = 15,
     min_support: int = 30,
+    max_columns: int = 40,
     seed: int = 0,
 ) -> bool:
     """Per-category-level Weight-of-Evidence bar (case_sdsj discriminability) for a BINARY target.
 
     Default-ON for binary classification with at least one categorical column; skips cheaply otherwise. RAM-safe: the
-    builder pulls one categorical column at a time as codes and bounds the count pass to a 200k row subsample.
+    builder pulls one categorical column at a time as codes and bounds the count pass to a 200k row subsample; the
+    number of columns scanned is capped at ``max_columns`` (importance order, since ``feature_names`` arrives ranked).
     """
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None
     if df is None or y_true is None or not plot_outputs or not base_path:
         return False
     names = list(feature_names) if feature_names else _column_names(df)
+    if names and max_columns and len(names) > max_columns:
+        names = names[:max_columns]
     try:
         from mlframe.reporting.charts.category_discriminability import compose_category_discriminability_figure
 

@@ -226,10 +226,15 @@ class ReportingConfig(BaseConfig):
     # 2-D PDP response surface (filled contour) for the top interacting feature pair -- shows non-additive interaction
     # SHAPE a 1-D PDP averages away. Opt-in: costs ``pdp_grid`` extra predicts per pair on top of the 1-D PDP pass.
     pdp_2d_charts: bool = False
-    # Friedman-Popescu H-statistic heatmap: pairwise interaction strength over the top features. Opt-in like pdp_2d --
-    # costs O(k^2) 2-D PDP surfaces (k capped at ``interaction_strength_max_features``), each ``pdp_grid`` predicts.
-    interaction_strength_charts: bool = False
+    # Friedman-Popescu H-statistic heatmap: pairwise interaction strength over the top features. Cost is C(k,2) 2-D PDP
+    # surfaces (grid^2 predicts each; k capped at ``interaction_strength_max_features``), so total time scales with the
+    # model's predict latency -- unpredictable from data size alone. Default-ON but gated by a per-predict TIME probe:
+    # the render measures one predict on the sample, projects the full C(k,2)*grid^2 cost, and skips (logged) when the
+    # projection exceeds ``interaction_strength_max_seconds``. So it auto-runs for small-k / fast-predict models and
+    # self-skips for slow ones instead of forcing every user to opt in.
+    interaction_strength_charts: bool = True
     interaction_strength_max_features: int = 8
+    interaction_strength_max_seconds: float = 20.0
     # PZAD case_visual/case_sdsj diagnostics: cheap njit-kernel charts, default-ON and skip-safe (each fires only when
     # its inputs fit -- a categorical column for group-structure / discriminability, a binary target for WoE).
     # engineered_separability: 2-D scatter of the top-2 features colored by target + Fisher separability score.
@@ -241,6 +246,9 @@ class ReportingConfig(BaseConfig):
     # category_discriminability: per category-level Weight-of-Evidence bar for a binary target.
     category_discriminability_charts: bool = True
     category_discriminability_top_k: int = 15
+    # Width gate: scan at most the top-N categorical columns (importance-ranked) so a frame with hundreds of categoricals
+    # does not turn into hundreds of per-column WoE passes. Row-count is already bounded inside the builder (200k subsample).
+    category_discriminability_max_columns: int = 40
     # Multi-model leaderboard, assembled per-target from the per-model preds/metrics the suite already collected; only
     # rendered when >=2 models were trained on the same task (single-model runs skip cheaply).
     model_comparison: bool = True
