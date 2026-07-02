@@ -270,12 +270,15 @@ def report_regression_model_perf(
     _ext_Cindex = np.nan
     _ext_Huber = np.nan
     _ext_MASE = np.nan
+    _ext_RMSPE = np.nan
+    _ext_LogCosh = np.nan
     if targets_arr.ndim == 1 and preds_arr.ndim == 1:
         try:
             from mlframe.metrics.core import (
                 fast_rmsle, fast_mdape, fast_spearman_corr,
                 fast_kendall_tau, fast_huber_loss,
             )
+            from mlframe.metrics.regression import fast_rmspe, fast_logcosh_loss
             # RMSLE only on non-negative targets; otherwise NaN is the right
             # signal (the metric isn't defined and the kernel warns).
             if (targets_arr >= 0).all() and (preds_arr >= 0).all():
@@ -294,6 +297,10 @@ def report_regression_model_perf(
             # Huber loss: delta=1.0 default (callers can override via
             # ReportingConfig in a future iteration). Pure 1-pass kernel.
             _ext_Huber = fast_huber_loss(targets_arr, preds_arr, delta=1.0)
+            # RMSPE (Rossmann metric): scale-free squared-relative error over non-zero targets. LogCosh: overflow-safe
+            # smooth loss. Both are (y_true, y_pred)-only kernels, so they slot in beside the other non-fused extras.
+            _ext_RMSPE = fast_rmspe(targets_arr, preds_arr)
+            _ext_LogCosh = fast_logcosh_loss(targets_arr, preds_arr)
             # MASE: only when the caller pre-supplied the train-fold naive-MAE
             # scale (we don't have the full y_train array here, only summary
             # stats). Scale is MAE_naive(y_train, seasonality); the caller
@@ -332,6 +339,8 @@ def report_regression_model_perf(
         Huber=_ext_Huber,
         MASE=_ext_MASE,
         MASE_seasonality=int(mase_seasonality) if mase_seasonality is not None else None,
+        RMSPE=_ext_RMSPE,
+        LogCosh=_ext_LogCosh,
     )
     if metrics is not None:
         metrics.update(current_metrics)

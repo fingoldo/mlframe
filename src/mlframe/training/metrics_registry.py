@@ -191,7 +191,7 @@ _KNOWN_METRIC_DIRECTIONS_LOWER: frozenset[str] = frozenset({
     # Regression losses
     "rmse", "mae", "mse", "mape", "mape_mean", "smape", "mdape", "wmape",
     "huber_loss", "median_absolute_error", "max_error",
-    "rmsle", "mase", "cv_rmse",
+    "rmsle", "mase", "cv_rmse", "rmspe", "logcosh", "logcosh_loss",
     # Tier 2 GLM deviances (2026-05-28) - all lower-is-better losses
     "poisson_deviance", "gamma_deviance", "tweedie_deviance",
     # Tier 2 calibration / probabilistic forecasting
