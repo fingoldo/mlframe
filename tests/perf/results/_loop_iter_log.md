@@ -5,7 +5,7 @@ Random fuzz combos profiled under cProfile at n_rows=300k via
 pick the top mlframe-side hotspot, optimize (measured + bit-identical + regression
 test), commit. Termination = 100 consecutive REJECTs (see CLAUDE.md policy).
 
-Consecutive-reject streak: 3
+Consecutive-reject streak: 5
 
 | iter | seed | mlframe hotspot | verdict | notes |
 |------|------|-----------------|---------|-------|
@@ -31,3 +31,5 @@ Consecutive-reject streak: 3
 
 **Loop convergence (as of iter 15):** profiled 3 modes (charts-on / charts-off / cb-only) × 8 seeds × 3 combo classes. Every run returns the same top-cost set, each confirmed by code-read to be njit-at-floor, exhaustively-benched, or library-bound (matplotlib/plotly/shap/sklearn/catboost). 10 optimizations shipped (6 bit-identical + 3 chart-render + 1 redundant-pass) + 1 correctness bug fix (SHAP categorical crash) + 1 stale-test re-frame. Architectural convergence reached; the sole remaining big lever (matplotlib layout) needs a visual-equivalence sign-off.
 | 16 | (matplotlib-layout A/B, direct wall measurement) | tested the 'FUTURE: matplotlib layout' lever directly on a representative 3-panel figure: constrained=537ms vs tight=545ms (NO win) vs no-layout=382ms (1.4x but crops/cramps output) | REJECT (measured) | the profile's ~35s constrained_layout cumtime was cProfile deep-stack INFLATION (~10x caveat), not real wall — direct A/B shows the layout engine is not a lever; savefig is dominated by inherent Agg rasterization + PNG encode (~380ms floor). Retires the FUTURE item. bbox_inches='tight' also only 1.12x when constrained is on. Streak→3. |
+| 17 | 555001 + 424242 (--master-seed: DISJOINT fresh combo pools; regression/binary/multilabel/LTR × mrmr × ocsvm/lof) | added --master-seed to the driver (was re-profiling the same 150-pool); fresh pools surface the SAME optimized leaves — ICE njit-attribution, bootstrap njit metrics, LTR `_ranks_within_group`/`compute_ranking_summary` (both already batched-vectorized) | REJECT (measured) | genuinely disjoint combos, same converged floor. Streak→4. |
+| 18 | (bootstrap-CI lever, the biggest remaining mlframe cumtime ~18s) | `honest_diagnostics` runs n_bootstrap=1000 metric-CI resamples; `_jackknife_metric` 1.685s cProfile self-time | REJECT | (a) `_jackknife_metric` real wall is ~62ms/call (gather 13ms + njit metric 48ms) — the 1.685s is cProfile inflation over 18k tight inner iters; (b) reducing n_bootstrap is OFF-LIMITS per feedback_no_tradeoff_optimizations — the resamples ARE the CI's statistical-precision safety property; trading rigor for speed is banned. Streak→5. |
