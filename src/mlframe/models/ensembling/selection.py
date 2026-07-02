@@ -119,7 +119,7 @@ def _score_blend(
 ) -> float:
     """Score a blended prediction against y. Default metric (``None``) = ROC-AUC (higher is better)."""
     if metric is None:
-        from mlframe.metrics._core_auc_brier import fast_roc_auc
+        from mlframe.metrics.core import fast_roc_auc
 
         # fast_roc_auc wants the positive-class score. For (N, K) take class-1 column (binary convention).
         score = blend[:, 1] if blend.ndim == 2 and blend.shape[1] >= 2 else np.ravel(blend)

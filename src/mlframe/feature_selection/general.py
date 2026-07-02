@@ -33,7 +33,7 @@ from mlframe.feature_selection.mi import grok_compute_mutual_information, chatgp
 # machinery the modern filters/mrmr path uses. Reused here rather than reimplemented so the legacy
 # ``estimate_features_relevancy`` selection driver is calibrated to a nominal significance level with a
 # genuine multiple-comparison (Benjamini-Hochberg) correction instead of ad-hoc raw-MI exceedances.
-from mlframe.feature_selection.filters._analytic_mi_null import analytic_mi_null
+from mlframe.feature_selection.filters import analytic_mi_null
 
 
 def _occupied_bins(codes: np.ndarray) -> int:

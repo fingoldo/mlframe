@@ -40,7 +40,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-from mlframe.system._gpu_guard import try_import_cupy
+from mlframe.system import try_import_cupy
 
 cp, _HAS_CUPY = try_import_cupy()
 

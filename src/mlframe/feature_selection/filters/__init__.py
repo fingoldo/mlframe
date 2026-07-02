@@ -54,10 +54,14 @@ from ._legacy import (  # explicit re-exports, kept stable
     distribute_permutations,
 )
 from ._mrmr_tree_rescue import MRMRTreeRescued
+from ._internals import canonical_group_token  # noqa: F401
+from ._analytic_mi_null import analytic_mi_null  # noqa: F401
 
 __all__ = [
     "MRMR",
     "MRMRTreeRescued",
+    "canonical_group_token",
+    "analytic_mi_null",
     "entropy",
     "mi",
     "conditional_mi",

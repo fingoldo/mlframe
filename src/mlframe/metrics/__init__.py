@@ -22,7 +22,7 @@ from mlframe.metrics._core_auc_brier import fast_brier_score_loss  # noqa: F401
 # Lean full-suite per-target-type aggregator used by per-iteration metric capture (meta-learning / HPO-from-early-observation).
 from mlframe.metrics.iteration_metrics import compute_all_metrics  # noqa: F401
 # Per-target calibration / classification panel. Documented in README as ``from mlframe.metrics import fast_calibration_report``; make it a first-class export instead of relying on the transitive ``from .core import *`` side-effect. ``CalibrationReport`` is its NamedTuple return type.
-from mlframe.metrics.classification._classification_report import (  # noqa: F401
+from mlframe.metrics.classification import (  # noqa: F401
     CalibrationReport,
     fast_calibration_report,
 )

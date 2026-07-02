@@ -196,7 +196,7 @@ except Exception:  # pragma: no cover
     _rrf_aggregate_probs_njit = None
 
 
-from mlframe.system._gpu_guard import try_import_cupy  # noqa: E402
+from mlframe.system import try_import_cupy  # noqa: E402
 
 _, _HAS_CUPY = try_import_cupy()  # pragma: no cover -- env-dependent
 

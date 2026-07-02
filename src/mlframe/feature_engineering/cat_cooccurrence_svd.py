@@ -69,7 +69,7 @@ def _column_to_tokens(col) -> np.ndarray:
     ``canonical_group_token`` so an int / float dtype drift between fit and apply
     still resolves to the same category (``1`` and ``1.0`` collapse).
     """
-    from mlframe.feature_selection.filters._internals import canonical_group_token
+    from mlframe.feature_selection.filters import canonical_group_token
 
     arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
     # Resolve tokens once per DISTINCT value then gather -- runs per-unique, not per-row.

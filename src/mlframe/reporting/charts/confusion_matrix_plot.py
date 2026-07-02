@@ -30,7 +30,7 @@ def confusion_matrix_counts(
     positions 0..K-1. Matches ``sklearn.metrics.confusion_matrix`` orientation (rows = true, cols = predicted) and,
     when ``labels`` is None, its label ordering (sorted unique of the union of y_true and y_pred).
     """
-    from mlframe.metrics.classification._classification_extras import _multiclass_confusion_kernel
+    from mlframe.metrics.classification import _multiclass_confusion_kernel
 
     yt = np.asarray(y_true)
     yp = np.asarray(y_pred)

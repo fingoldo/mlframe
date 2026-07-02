@@ -11,6 +11,7 @@ The public surface below mirrors exactly the names ``mlframe.metrics.core`` re-e
 from __future__ import annotations
 
 from ._classification_report import (  # noqa: F401
+    CalibrationReport,
     format_classification_report,
     _compute_pr_recall_f1_metrics_seq,
     _compute_pr_recall_f1_metrics_par,
@@ -39,6 +40,7 @@ from ._classification_extras import (  # noqa: F401
     fast_binary_confusion_metrics_block,
     fast_binary_probability_metrics_block,
     fast_multiclass_confusion_metrics_block,
+    _multiclass_confusion_kernel,
     hosmer_lemeshow_test,
     accuracy_ratio,
 )
