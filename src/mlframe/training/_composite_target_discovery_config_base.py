@@ -42,6 +42,13 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     engineer_causal_ops: Tuple[str, ...] = ("lag", "trailing_mean", "expanding_mean")
     engineer_causal_first_fill: str = "group_first"          # first-in-group fill: "group_first" (finite) or "nan"
 
+    # Exempt strictly-causal bases (grouped-causal engineered ``__gcausal_*`` or a named ``{y}_prev`` lag) from the
+    # near-copy-of-y and structural-fragility gates. Those gates drop bases whose additive inverse extrapolates on unseen
+    # groups, but a causal base re-injects a REAL per-row previous value so it stays in-range -- the gates' failure mode
+    # does not apply, and on a strong-AR target the causal lag is the single best base. Provenance-only exemption (never a
+    # marginal-correlation match), so a contemporaneous near-copy of y is still dropped. Default ON.
+    causal_base_gate_exempt: bool = True
+
     # Emit the composite-target VALUE report (per-group did-it-help / hurt / worse-than-lag breakdown + net weighted lift).
     emit_composite_value_report: bool = True
 
