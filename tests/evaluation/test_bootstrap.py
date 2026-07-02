@@ -251,3 +251,39 @@ def test_jackknife_mean_metric_matches_gather_and_is_On():
     # Degenerate guard: non-finite per-row -> None (caller falls back to the exact gather path).
     bad = ll_per_row.copy(); bad[0] = np.nan
     assert _jackknife_mean_metric(y, bad, requires_both_classes=True) is None
+
+
+def test_jackknife_auc_matches_gather_bit_identical():
+    """The placement-value ROC-AUC jackknife (_jackknife_auc) must be BIT-IDENTICAL to re-running the AUC on the n-1
+    kept rows (the generic gather idx-jackknife), on both continuous and tied scores, and drive an identical BCa CI.
+    Regression sensor for the 159x AUC-jackknife optimization (33.7s -> 0.21s at n=300k)."""
+    import numpy as np
+    from mlframe.evaluation.bootstrap import _jackknife_auc, _jackknife_metric_idx, bootstrap_metrics
+    from mlframe.metrics.core import make_bootstrap_auc_resampler
+
+    rng = np.random.default_rng(0)
+    for scores_kind in ("continuous", "tied"):
+        n = 30000
+        y = rng.integers(0, 2, n).astype(np.float64)
+        s = rng.uniform(0, 1, n) if scores_kind == "continuous" else np.round(rng.uniform(0, 1, n), 2)
+        gen = np.sort(_jackknife_metric_idx(n, make_bootstrap_auc_resampler(y, s)))
+        fast = np.sort(_jackknife_auc(y, s))
+        assert gen.shape == fast.shape, scores_kind
+        assert np.array_equal(gen, fast), (scores_kind, float(np.max(np.abs(gen - fast))))
+
+    # End-to-end BCa CI must be bit-identical with vs without the fast AUC jackknife.
+    n = 30000
+    y = rng.integers(0, 2, n).astype(np.float64)
+    s = rng.uniform(0, 1, n)
+    gen = bootstrap_metrics(y, s, {}, metric_fns_idx={"roc_auc": make_bootstrap_auc_resampler(y, s)},
+                            n_bootstrap=300, stratify=y, random_state=7)
+    fast = bootstrap_metrics(y, s, {}, metric_fns_idx={"roc_auc": make_bootstrap_auc_resampler(y, s)},
+                             n_bootstrap=300, stratify=y, random_state=7,
+                             jackknife_fns={"roc_auc": lambda yy, ss: _jackknife_auc(yy, ss)})
+    assert gen["roc_auc"]["point"] == fast["roc_auc"]["point"]
+    assert gen["roc_auc"]["lo"] == fast["roc_auc"]["lo"]
+    assert gen["roc_auc"]["hi"] == fast["roc_auc"]["hi"]
+
+    # Degenerate: <2 of a class -> None (caller falls back to gather).
+    y_deg = np.zeros(100); y_deg[0] = 1.0
+    assert _jackknife_auc(y_deg, rng.uniform(0, 1, 100)) is None

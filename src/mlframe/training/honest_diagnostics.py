@@ -162,6 +162,11 @@ def _bootstrap_block(
                 return _d * _d
 
             _per_row_fns = {"log_loss": (_ll_per_row, True, None), "brier": (_brier_per_row, False, None)}
+
+            # ROC-AUC is not a mean of per-row values, but its BCa jackknife has an exact O(n log n) closed form via
+            # Mann-Whitney placement values (bit-identical to re-running fast_roc_auc on n-1 rows; 159x at n=300k).
+            from mlframe.evaluation.bootstrap import _jackknife_auc as _jk_auc
+            _jackknife_fns = {"roc_auc": lambda yy, ss: _jk_auc(yy, ss)}
             # roc_auc via the INDEX-aware resampler: pre-argsort the base score
             # vector ONCE, then build each of the 1000 resamples' descending order
             # in O(n) (counting-gather over base ranks) instead of a fresh
@@ -203,6 +208,7 @@ def _bootstrap_block(
                     n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
                     metric_fns_idx=_metric_fns_idx,
                     per_row_fns=locals().get("_per_row_fns"),
+                    jackknife_fns=locals().get("_jackknife_fns"),
                 )
             except Exception as exc:
                 cis = {name: {"error": f"{type(exc).__name__}: {exc}"} for name in metric_fns}
