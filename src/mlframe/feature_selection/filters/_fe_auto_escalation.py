@@ -237,17 +237,24 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
         _zmap_cache = {}  # z-map cache is per OPERAND (different column -> different z)
         if float(np.std(xraw)) < 1e-12 or float(np.std(y_tr)) < 1e-12:
             continue
-        for _sb_basis in _ESCALATION_POLY_BASES:
-            try:
-                B_tr, B_va, _params, z_tr = _basis_block(x_tr, x_va, _sb_basis)
-                blocks[_sb_basis] = (B_tr, B_va, z_tr)
-                # 1-D OLS warp = fit_operand_prewarp's solve (robust gate folded in).
-                coef, _rb, _wn = fit_basis_coef_robust(B_tr, _y_tr_c, x_tr)
-                if coef is None or not np.all(np.isfinite(coef)):
+        # ONE heavy-tail memo scope per operand (2026-07-02, cProfile-driven): _basis_block fits each escalation
+        # basis on the SAME x_tr, and every basis preprocess re-runs the robust heavy-tail np.median/MAD detect
+        # on that identical column. Wrapping the per-basis probe in one nesting-safe, identity-verified scope
+        # collapses the ~5 detects/operand to 1 (bit-identical: the memo returns a cached verdict only when the
+        # stored array IS x_tr). Cleared at operand exit, so no cross-operand ref retention.
+        from .hermite_fe._hermite_robust import heavy_tail_memo_scope
+        with heavy_tail_memo_scope():
+            for _sb_basis in _ESCALATION_POLY_BASES:
+                try:
+                    B_tr, B_va, _params, z_tr = _basis_block(x_tr, x_va, _sb_basis)
+                    blocks[_sb_basis] = (B_tr, B_va, z_tr)
+                    # 1-D OLS warp = fit_operand_prewarp's solve (robust gate folded in).
+                    coef, _rb, _wn = fit_basis_coef_robust(B_tr, _y_tr_c, x_tr)
+                    if coef is None or not np.all(np.isfinite(coef)):
+                        continue
+                    single_best = max(single_best, _heldout_corr(B_va @ np.ascontiguousarray(coef, dtype=np.float64)))
+                except Exception:
                     continue
-                single_best = max(single_best, _heldout_corr(B_va @ np.ascontiguousarray(coef, dtype=np.float64)))
-            except Exception:
-                continue
 
     best_corr = -1.0
     best_basis = None
