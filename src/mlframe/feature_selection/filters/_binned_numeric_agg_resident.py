@@ -89,6 +89,27 @@ def _per_cell_raw_moments_gpu(cp, codes_g, v_g, n_cells: int):
     return cnt.astype(cp.float64, copy=False), s1, s2, s3, s4
 
 
+def _per_cell_raw_moments_masked_gpu(cp, codes_g, v_safe, w, n_cells: int):
+    """Per-cell raw moments over ONLY the rows where ``w != 0``, computed WITHOUT materialising a row index.
+
+    The gathered form ``_per_cell_raw_moments_gpu(codes[idx], v[idx])`` needs ``idx = cp.where(mask)`` -- a
+    blocking D2H sync to size the index. Instead scatter-add the FULL arrays with a 0/1 row weight ``w``:
+    an excluded row adds exactly ``0.0`` to its cell (floating-point identity), so the moments are ULP-identical
+    to the gathered version but no index / gather / sync is needed. ``v_safe`` MUST already be finite everywhere
+    (the caller zeroes non-finite entries once via ``cp.where(finite, v, 0.0)``) so that ``v_safe * w`` never
+    forms ``inf * 0 = nan`` on the excluded rows.
+    """
+    nc = int(n_cells)
+    x = v_safe
+    x2 = x * x
+    cnt = resident_bincount(cp, codes_g, nc, weights=w)
+    s1 = resident_bincount(cp, codes_g, nc, weights=x * w)
+    s2 = resident_bincount(cp, codes_g, nc, weights=x2 * w)
+    s3 = resident_bincount(cp, codes_g, nc, weights=x2 * x * w)
+    s4 = resident_bincount(cp, codes_g, nc, weights=x2 * x2 * w)
+    return cnt, s1, s2, s3, s4
+
+
 def _stats_from_moments_gpu(cp, moments, stats: Sequence[str]) -> dict:
     """Per-cell ``{stat: cupy(n_cells)}`` from PRECOMPUTED raw moments ``(cnt, s1..s4)``. Split out of
     ``_per_cell_stats_gpu`` so a caller that shares one bincount pass across several stats of the SAME
@@ -151,8 +172,7 @@ def build_binagg_oof_matrix_gpu(
     # the group column name. Per (group, agg) the finite mask + train moments per fold are shared across its
     # stats -> compute once, keyed on (group, agg). The per-stat gather/fallback is the only per-column work.
     code_cache: dict = {}   # gcol -> (codes_g, n_cells)
-    pair_cache: dict = {}   # (gcol, acol) -> (av_g, finite_g, per-fold moments/stat cache)
-    _test_cache: dict = {}  # (gcol, fold) -> (test_idx, codes_g[test_idx]) shared by every pair of the gcol
+    pair_cache: dict = {}   # (gcol, acol) -> (av_g, finite_g, v_safe, finite_f, per-fold moments/stat cache)
 
     out_cols = []
     for spec in col_specs:
@@ -168,7 +188,10 @@ def build_binagg_oof_matrix_gpu(
             gvals_g = resident_operand(np.ascontiguousarray(gvals), ("binagg_g", gcol), dtype=cp.float64)
             edges_g = resident_operand(np.ascontiguousarray(edges), ("binagg_edges", gcol), dtype=cp.float64)
             codes_g = cp.searchsorted(edges_g, gvals_g, side="right").astype(cp.int64)
-            n_cells = int(codes_g.max()) + 1
+            # n_cells from the edge count, not int(codes_g.max()) (a D2H sync): searchsorted(side="right")
+            # yields codes in [0, len(edges)], so len(edges)+1 is the exact upper bound. Any trailing empty
+            # cell contributes zero to every moment -> stats identical.
+            n_cells = int(edges_g.size) + 1
             cc = (codes_g, n_cells)
             code_cache[gcol] = cc
         codes_g, n_cells = cc
@@ -178,9 +201,13 @@ def build_binagg_oof_matrix_gpu(
             av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
             av_g = resident_operand(np.ascontiguousarray(av), ("binagg_a", acol), dtype=cp.float64)
             finite_g = cp.isfinite(av_g)
-            pc = (av_g, finite_g, {})
+            # v_safe: non-finite entries zeroed once so the masked scatter-add never forms inf*0=nan on the
+            # rows excluded by the 0/1 weight (the weight already carries finite_g, so their contribution is 0).
+            v_safe = cp.where(finite_g, av_g, 0.0)
+            finite_f = finite_g.astype(cp.float64)
+            pc = (av_g, finite_g, v_safe, finite_f, {})
             pair_cache[(gcol, acol)] = pc
-        av_g, finite_g, fold_stat_cache = pc
+        av_g, finite_g, v_safe, finite_f, fold_stat_cache = pc
 
         # OOF: init the whole column to the global fallback, then overwrite each fold's TEST rows with the
         # train-fold per-cell stat (global where the cell was empty in train). Structurally identical to host.
@@ -189,35 +216,30 @@ def build_binagg_oof_matrix_gpu(
         # (fold, stat): the same 5 bincounts re-ran for each of the pair's 4 stat columns = 4x the launches),
         # test indices/codes per (gcol, fold) shared by every pair of that group column, train indices per
         # (pair, fold). Values ULP-identical (same bincounts, same gathers -- just cached).
+        # Fully sync-free OOF loop: train moments via masked scatter-add (no row index), test-row overwrite via
+        # a full-length gather + elementwise select (no test index). The whole fold loop stays resident -- no
+        # cp.where, no per-fold D2H. A degenerate fold (no finite train rows) needs no special case: its 0/1
+        # weight is all-zero, so every cell count is 0, _stats_from_moments emits NaN, and the isfinite select
+        # below leaves those test rows at the global fallback -- exactly the old degenerate branch.
         oof = cp.full(n, glob, dtype=cp.float64)
         for f in range(nf):
             _mkey = ("m", f)
             if _mkey not in fold_stat_cache:
-                tr_mask = (fold_g != f) & finite_g
-                # cp.where already drains once to size its output, so tr_idx.size (a host-side shape read, no
-                # extra sync) subsumes the old bool(tr_mask.any()) drain -- one D2H per fold instead of two.
-                tr_idx = cp.where(tr_mask)[0]
-                if tr_idx.size == 0:
-                    fold_stat_cache[_mkey] = None     # degenerate fold: recorded so siblings skip the recheck
-                else:
-                    moments = _per_cell_raw_moments_gpu(cp, codes_g[tr_idx], av_g[tr_idx], n_cells)
-                    fold_stat_cache[_mkey] = {"__moments__": moments}
+                # w = 1.0 on this fold's TRAIN rows (other folds AND finite), 0.0 elsewhere. finite_f is shared;
+                # (fold_g != f) is the only per-fold term. Moments shared across the pair's stats (cached).
+                w = cp.where(fold_g != f, finite_f, 0.0)
+                moments = _per_cell_raw_moments_masked_gpu(cp, codes_g, v_safe, w, n_cells)
+                fold_stat_cache[_mkey] = {"__moments__": moments}
             per_s_all = fold_stat_cache[_mkey]
-            if per_s_all is None:
-                continue
             per_s = per_s_all.get(stat)
             if per_s is None:
                 per_s = _stats_from_moments_gpu(cp, per_s_all["__moments__"], [stat])[stat]
                 per_s_all[stat] = per_s
-            _tkey = (gcol, f)
-            _tc = _test_cache.get(_tkey)
-            if _tc is None:
-                test_idx = cp.where(fold_g == f)[0]
-                _tc = (test_idx, codes_g[test_idx])
-                _test_cache[_tkey] = _tc
-            test_idx, ct = _tc
-            vals = per_s[ct]
-            oof[test_idx] = cp.where(cp.isfinite(vals), vals, glob)
+            # Per-row stat by gathering the per-cell stat at EVERY row's code (known-size gather -> no sync),
+            # then select this fold's TEST rows (fold_g == f) via elementwise where, empty cells -> global.
+            row_vals = per_s[codes_g]
+            row_stat = cp.where(cp.isfinite(row_vals), row_vals, glob)
+            oof = cp.where(fold_g == f, row_stat, oof)
         out_cols.append(oof)
 
     if not out_cols:
