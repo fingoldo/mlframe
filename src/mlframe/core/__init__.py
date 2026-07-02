@@ -10,6 +10,7 @@ Submodules:
     matrix_seriation - spectral (Fiedler/SVD) reordering of a similarity/correlation matrix.
     set_similarity - set-similarity coefficients (Jaccard/Dice/overlap/Ochiai/Kulczynski/Tversky).
     binning  - binning-smoothing (replace each value by its bin mean/median/boundary representative).
+    composite_similarity - LENKOR: coordinate-descent-tuned deformed combination of per-block similarities.
     helpers  - general-purpose helper utilities used across the package.
 """
 
@@ -25,4 +26,5 @@ from mlframe.core.proportion_stats import *  # noqa: F401,F403
 from mlframe.core.matrix_seriation import *  # noqa: F401,F403
 from mlframe.core.set_similarity import *  # noqa: F401,F403
 from mlframe.core.binning import *  # noqa: F401,F403
+from mlframe.core.composite_similarity import *  # noqa: F401,F403
 from mlframe.core.helpers import *  # noqa: F401,F403
