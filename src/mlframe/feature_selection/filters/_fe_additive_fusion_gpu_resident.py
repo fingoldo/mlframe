@@ -251,8 +251,12 @@ def propose_additive_fusions_gpu(
             # marginal-perm floor. Selection-equivalent to the CPU add/sub decision: the choice is by a floor-
             # scaled MI margin, so the cupy-vs-numpy reduction delta (~1e-12) cannot flip the alignment.
             _strong = ha if ha["mi"] >= hb["mi"] else hb
-            _fadd = cp.nan_to_num(ca + cb, nan=0.0, posinf=0.0, neginf=0.0)
-            _fsub = cp.nan_to_num(ca - cb, nan=0.0, posinf=0.0, neginf=0.0)
+            # cp.where(cp.isfinite) not cp.nan_to_num(nan=0,...): cupy's nan_to_num runs cupy.isnan() on each
+            # scalar fill arg (a blocking D2H sync per call); the where form is elementwise + identical.
+            _t_add = ca + cb
+            _fadd = cp.where(cp.isfinite(_t_add), _t_add, cp.asarray(0.0, dtype=_t_add.dtype))
+            _t_sub = ca - cb
+            _fsub = cp.where(cp.isfinite(_t_sub), _t_sub, cp.asarray(0.0, dtype=_t_sub.dtype))
             _bcodes, _kxf = _gpu_quantile_bin_codes(cp.stack([_fadd, _fsub], axis=0), qs)  # (2, n) resident codes
             _mi_add = float(_cmi_from_binned(_bcodes[0], y_dense, None))  # resident codes -> no re-upload
             _mi_sub = float(_cmi_from_binned(_bcodes[1], y_dense, None))

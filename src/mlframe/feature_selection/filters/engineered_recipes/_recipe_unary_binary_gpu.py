@@ -224,7 +224,10 @@ def _materialise_recipe_gpu(recipe: EngineeredRecipe, X: Any, cp, dt):
     tb = _gpu_unary(cp, u_b, b_gpu, recipe, "b")
     out_gpu = _gpu_binary(cp, recipe.binary_name, ta, tb)
     # Match fit-time NaN/Inf scrubbing in check_prospective_fe_pairs + the CPU replay's nan_to_num.
-    return cp.nan_to_num(out_gpu, nan=0.0, posinf=0.0, neginf=0.0)
+    # cp.where(cp.isfinite(...)) not cp.nan_to_num(nan=0,posinf=0,neginf=0): cupy's nan_to_num runs
+    # cupy.isnan() on each scalar fill arg internally, a blocking D2H sync on every call -- the where form is
+    # elementwise and identical (nan / +-inf -> 0.0, finite unchanged).
+    return cp.where(cp.isfinite(out_gpu), out_gpu, cp.asarray(0.0, dtype=out_gpu.dtype))
 
 
 def apply_unary_binary_gpu(recipe: EngineeredRecipe, X: Any) -> Optional[np.ndarray]:
