@@ -892,6 +892,14 @@ AXES: dict[str, tuple[Any, ...]] = {
     # path matters because it's the fallback when NNLS solver fails. Canon
     # collapses to True when use_ensembles is False.
     "use_nnls_weights_in_blends_cfg": (True, False),
+    # PZAD Caruana blend weights (TrainingBehaviorConfig.use_caruana_weights_in_ensemble): when True the simple-blend
+    # weights are fit by metric-direct greedy selection instead of NNLS. Only meaningful when ensembling is on -- canon
+    # collapses to False (default) when use_ensembles is False.
+    "use_caruana_weights_in_ensemble_cfg": (False, True),
+    # PZAD rank_average flavour (TrainingBehaviorConfig.extra_ensembling_methods): when True, "rank_average" is appended
+    # to the default SIMPLE_ENSEMBLING_METHODS set so the rank-fusion blend is exercised. Canon collapses to False when
+    # use_ensembles is False.
+    "ens_rank_average_cfg": (False, True),
     # Generic prediction-envelope clip phase (4e579b4d 2026-05-26): controls
     # the ``MLFRAME_DISABLE_PREDICTION_ENVELOPE_CLIP`` env var. Default ON
     # (env unset). False sets env=1 for the suite run, exercising the
