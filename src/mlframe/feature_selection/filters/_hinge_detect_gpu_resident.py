@@ -90,13 +90,16 @@ def _heldout_uplift_gpu(cp, xg, yg, tau: float, min_rows: int) -> float:
     n = int(xg.size)
     if n < min_rows:
         return 0.0
-    idx = cp.arange(n)
-    va = (idx % 3) == 0
-    tr = ~va
-    if int(tr.sum()) < 32 or int(va.sum()) < 16:
+    # The %3-stride split is DETERMINISTIC (data-independent), so build the train/val row indices on the host
+    # (np.arange) and upload them -- no int(mask.sum()) degeneracy syncs and no boolean-mask gathers (integer
+    # gathers have a known size). Counts are host-known too.
+    _ar = np.arange(n)
+    _va_idx = cp.asarray(np.where((_ar % 3) == 0)[0])
+    _tr_idx = cp.asarray(np.where((_ar % 3) != 0)[0])
+    if int(_tr_idx.size) < 32 or int(_va_idx.size) < 16:
         return 0.0
-    x_tr, y_tr = xg[tr], yg[tr]
-    x_va, y_va = xg[va], yg[va]
+    x_tr, y_tr = xg[_tr_idx], yg[_tr_idx]
+    x_va, y_va = xg[_va_idx], yg[_va_idx]
     yv_ss = float(cp.sum((y_va - y_va.mean()) ** 2))
     if yv_ss < 1e-24:
         return 0.0
