@@ -58,6 +58,24 @@ def _classify(engineered) -> tuple[list, list]:
     return genuine, spurious
 
 
+# The three genuine synergy pairs of ``_wide_synergy_frame``: sign-product (x1,x2), product (x3,x4), bilinear (x5,x6).
+GENUINE_PAIRS = ({"x1", "x2"}, {"x3", "x4"}, {"x5", "x6"})
+
+
+def _covered_genuine_pairs(engineered) -> set:
+    """Which of the three genuine synergy pairs are COVERED -- both operands present in a single noise-free
+    engineered feature. Order-2 escalation now legitimately FUSES two pairs into one compound (e.g.
+    ``sub(mul(sign(x1),cbrt(x2)),div(neg(x3),cbrt(x4)))`` covers both (x1,x2) and (x3,x4)); counting features
+    (>=3) is a stale shape proxy for the real contract, which is that no genuine pair is dropped -- fused OR separate."""
+    covered = set()
+    genuine, _ = _classify(engineered)
+    feat_operands = [_parents_of(nm) for nm in genuine]
+    for i, pair in enumerate(GENUINE_PAIRS):
+        if any(pair <= ops for ops in feat_operands):
+            covered.add(i)
+    return covered
+
+
 def _wide_synergy_frame(n=None, n_noise=74, seed=20260603):
     # Smaller n under --fast cuts per-pair MI cost across the wide pool; the synergy signal (sign products / XOR) is
     # still strong, and the noise-pool width (n_noise) -- not n -- drives the best-of-pool spurious hits. n=1600 (not
@@ -145,10 +163,13 @@ class TestOrder2MaxTFloorWideNoise:
             assert len(spur_on) == 0, (
                 f"order-2 floor introduced spurious pairs on an already-clean floor-off run: ON={spur_on}"
             )
-        # Genuine synergy pairs are NOT dropped by the floor.
-        assert len(gen_on) >= len(gen_off) and len(gen_on) >= 3, (
+        # Genuine synergy pairs are NOT dropped by the floor. Count COVERAGE of the three genuine pairs
+        # (fused compound OR separate features), not raw feature count -- escalation may fuse two pairs into one.
+        cov_on = _covered_genuine_pairs(eng_on)
+        cov_off = _covered_genuine_pairs(eng_off)
+        assert len(cov_on) >= len(cov_off) and len(cov_on) >= 3, (
             f"order-2 floor dropped genuine synergy pairs: "
-            f"OFF genuine={gen_off} ON genuine={gen_on}"
+            f"OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
         )
 
 
@@ -271,10 +292,13 @@ class TestOrder2MaxTFloorDisabled:
             assert len(spur_on) == 0, (
                 f"order-2 floor introduced spurious pairs on an already-clean floor-off run: ON={spur_on}"
             )
-        # Genuine synergy pairs are NOT dropped by the floor.
-        assert len(gen_on) >= len(gen_off) and len(gen_on) >= 3, (
+        # Genuine synergy pairs are NOT dropped by the floor. Count COVERAGE of the three genuine pairs
+        # (fused compound OR separate features), not raw feature count -- escalation may fuse two pairs into one.
+        cov_on = _covered_genuine_pairs(eng_on)
+        cov_off = _covered_genuine_pairs(eng_off)
+        assert len(cov_on) >= len(cov_off) and len(cov_on) >= 3, (
             f"order-2 floor dropped genuine synergy pairs: "
-            f"OFF genuine={gen_off} ON genuine={gen_on}"
+            f"OFF covered={sorted(cov_off)} ({gen_off}) ON covered={sorted(cov_on)} ({gen_on})"
         )
 
 

@@ -70,6 +70,19 @@ def materialise_and_finalise_fe_candidates(
         _gate_med_specs = {}
         self._gate_med_specs_accum_ = _gate_med_specs
 
+    # DEVICE-BORN resident-gate flag shared by the CMI redundancy gate AND the auto-escalation admitted-pool
+    # build below. Computed once at function scope so both paths see it regardless of which gates run -- the
+    # escalation block executes even when the conditional-MI gate is skipped (fe_acceptance != 'conditional_mi'
+    # or no prospective_additions at gate time), so a block-local definition left it unbound there.
+    _gate_resident = False
+    if os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
+        try:
+            from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
+            from .._mi_greedy_cmi_fe import _cmi_gpu_enabled
+            _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
+        except Exception:
+            _gate_resident = False
+
     # CONDITIONAL-MI REDUNDANCY GATE (strategy S5, 2026-06-08). The PRINCIPLED,
     # constant-free replacement for the hardcoded ``fe_min_engineered_mi_prevalence``
     # joint-prevalence ratio. After the per-pair acceptance machinery has selected one
@@ -108,15 +121,7 @@ def materialise_and_finalise_fe_candidates(
         # (``_cmi_from_binned`` dispatches to the cupy resident-input branch), so the candidate float + codes
         # never re-cross H2D at this ``qbin_x`` / ``cmi_cand_x`` site. Falls back per-candidate to the host
         # ``_quantile_bin`` on any cupy fault. Selection-equivalent (same device partition as the gate's binning).
-        _gate_resident = False
-        if os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
-            try:
-                from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
-                from .._mi_greedy_cmi_fe import _cmi_gpu_enabled
-                _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
-            except Exception:
-                _gate_resident = False
-
+        # ``_gate_resident`` is computed once at function scope above (shared with the escalation admitted-pool build).
         _cmi_cands: dict = {}
         for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
             if not _tpf or _tvals is None or not _ncols:
