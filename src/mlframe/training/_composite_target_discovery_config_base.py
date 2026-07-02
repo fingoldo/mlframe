@@ -76,6 +76,13 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     moe_gate_shrink_rtol: float = 0.0        # a non-lag expert must beat lag by this margin to be chosen over the failsafe
     moe_gate_min_group_rows: int = 1         # groups below this row count defer to the lag failsafe
 
+    # Base-candidate ranking criterion. "mi" (default) ranks by pairwise MI(base, y); "mrmr" reranks by
+    # min-redundancy-max-relevance so a top-K of near-duplicate strong bases is diversified (score = MI(base,y) -
+    # beta * mean redundancy vs already-picked). Default "mi" keeps discovery byte-identical; "mrmr" is opt-in pending
+    # a broad benchmark before flipping the default.
+    base_ranking_criterion: str = "mi"
+    base_ranking_mrmr_beta: float = 1.0      # MRMR redundancy weight (only used when base_ranking_criterion="mrmr")
+
     # Emit the composite-target VALUE report (per-group did-it-help / hurt / worse-than-lag breakdown + net weighted lift).
     emit_composite_value_report: bool = True
 
