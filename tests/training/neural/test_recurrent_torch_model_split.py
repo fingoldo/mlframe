@@ -41,7 +41,7 @@ def test_wrappers_still_importable() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
-    root = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training" / "neural"
+    root = Path(__file__).resolve().parent.parent.parent.parent / "src" / "mlframe" / "training" / "neural"
     facade = root / "recurrent.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())
     assert n < 1000, f"recurrent.py is {n} lines, still over the 1k threshold"
