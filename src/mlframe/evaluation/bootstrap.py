@@ -177,6 +177,49 @@ def _jackknife_metric_idx(
     return out[:w]
 
 
+def _jackknife_mean_metric(
+    y_true: np.ndarray,
+    per_row: np.ndarray,
+    *,
+    requires_both_classes: bool,
+    reduce_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+    max_n: int = 2000,
+) -> Optional[np.ndarray]:
+    """O(n) exact leave-one-out jackknife for a metric of the form ``metric == reduce_fn(mean(per_row))``.
+
+    The generic ``_jackknife_metric`` re-gathers the ``n-1`` kept rows and re-runs ``metric_fn`` for each of the
+    ``max_n`` sampled leave-out points -- O(max_n * n) row copies + O(max_n) full metric evaluations, which is ~11s
+    for a single log-loss / Brier jackknife at n=300k (each of 2000 LOO points copies a ~300k array). But when the
+    metric is ``g`` applied to the MEAN of per-row contributions (log-loss = mean of per-row cross-entropy; Brier =
+    mean of squared errors; RMSE = sqrt(mean of squared errors)), the leave-one-out value is algebraic:
+    ``LOO_i = g((S - per_row_i) / (n-1))`` with ``S = sum(per_row)`` computed ONCE. That is O(n) total (517x at
+    n=300k: 10.9s -> 21ms), and matches the gather path to floating-point sum-reduction order (~1e-15 on the LOO
+    values, <=1e-13 on the resulting BCa CI bounds -- negligible for the acceleration skewness term).
+
+    ``requires_both_classes`` mirrors the metric's degenerate-value contract: log-loss returns NaN (and the gather
+    jackknife skips) when the leave-one-out set collapses to a single class, so those indices are skipped here too;
+    Brier / RMSE are defined on any set and skip nothing. Returns ``None`` (caller falls back to the generic gather
+    jackknife) when the per-row contributions are non-finite -- e.g. probabilities out of range -- so the exact
+    contract of the slow path is preserved on the degenerate inputs it was written for.
+    """
+    per_row = np.asarray(per_row, dtype=np.float64).ravel()
+    n = per_row.shape[0]
+    if n < 3 or not np.all(np.isfinite(per_row)):
+        return None
+    sel = np.arange(n) if n <= max_n else np.linspace(0, n - 1, max_n).astype(np.int64)
+    total = float(per_row.sum())
+    loo = (total - per_row[sel]) / (n - 1)
+    if reduce_fn is not None:
+        loo = reduce_fn(loo)
+    if requires_both_classes:
+        yt = np.asarray(y_true).ravel()
+        n_pos = int(np.count_nonzero(yt == 1))
+        pos_after = n_pos - (yt[sel] == 1).astype(np.int64)
+        loo = loo[(pos_after != 0) & (pos_after != n - 1)]
+    loo = loo[np.isfinite(loo)]
+    return loo if loo.shape[0] >= 3 else None
+
+
 def bootstrap_metric(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -186,6 +229,7 @@ def bootstrap_metric(
     stratify: Optional[np.ndarray] = None,
     random_state: Optional[int] = None,
     method: str = "bca",
+    jackknife_per_row: Optional[tuple] = None,
 ) -> dict[str, Any]:
     """Bootstrap CI for an arbitrary ``metric_fn(y_true, y_pred)``.
 
@@ -344,7 +388,21 @@ def bootstrap_metric(
             failures, n_bootstrap, first_err, valid,
         )
 
-    jackknife = _jackknife_metric(y_true, y_pred, metric_fn) if method == "bca" else None
+    jackknife = None
+    if method == "bca":
+        # Fast algebraic O(n) jackknife when the caller declares the metric as reduce_fn(mean(per_row)) (log-loss /
+        # Brier / RMSE): 517x over the generic gather jackknife at n=300k, ~1e-13 CI-equivalent. Falls back to the
+        # generic gather path on any degeneracy (non-finite per-row) so the exact slow-path contract is preserved.
+        if jackknife_per_row is not None:
+            _prf, _both, _reduce = jackknife_per_row
+            try:
+                jackknife = _jackknife_mean_metric(
+                    y_true, _prf(y_true, y_pred), requires_both_classes=_both, reduce_fn=_reduce,
+                )
+            except Exception as _jk_exc:
+                logger.debug("bootstrap_metric fast jackknife failed (%r); using gather jackknife.", _jk_exc)
+        if jackknife is None:
+            jackknife = _jackknife_metric(y_true, y_pred, metric_fn)
     lo, hi = _ci_from_samples(samples, point, alpha, method, jackknife)
 
     return {"point": point, "lo": lo, "hi": hi, "samples": samples}
@@ -360,6 +418,7 @@ def bootstrap_metrics(
     random_state: Optional[int] = None,
     metric_fns_idx: Optional[Mapping[str, Callable[[np.ndarray], float]]] = None,
     method: str = "bca",
+    per_row_fns: Optional[Mapping[str, tuple]] = None,
 ) -> dict[str, dict]:
     """Bootstrap CIs for SEVERAL metrics sharing ONE resample loop.
 
@@ -518,10 +577,23 @@ def bootstrap_metrics(
             )
         jackknife = None
         if method == "bca":
-            if name in active:
-                jackknife = _jackknife_metric(y_true, y_pred, metric_fns[name])
-            else:
-                jackknife = _jackknife_metric_idx(n, metric_fns_idx[name])
+            # Fast algebraic O(n) jackknife for metrics declared as reduce_fn(mean(per_row)) -- log-loss / Brier here
+            # (517x over the generic gather jackknife at n=300k; ~1e-13 CI-equivalent). Falls back to the exact gather
+            # path on any degeneracy (non-finite per-row) or when no per-row decomposition is registered for the metric.
+            _pr = (per_row_fns or {}).get(name) if name in active else None
+            if _pr is not None:
+                _prf, _both, _reduce = _pr
+                try:
+                    jackknife = _jackknife_mean_metric(
+                        y_true, _prf(y_true, y_pred), requires_both_classes=_both, reduce_fn=_reduce,
+                    )
+                except Exception as _jk_exc:
+                    logger.debug("bootstrap_metrics[%s] fast jackknife failed (%r); using gather.", name, _jk_exc)
+            if jackknife is None:
+                if name in active:
+                    jackknife = _jackknife_metric(y_true, y_pred, metric_fns[name])
+                else:
+                    jackknife = _jackknife_metric_idx(n, metric_fns_idx[name])
         lo, hi = _ci_from_samples(s, points[name], alpha, method, jackknife)
         results[name] = {"point": points[name], "lo": lo, "hi": hi, "samples": s}
     return results

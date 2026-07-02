@@ -146,6 +146,22 @@ def _bootstrap_block(
 
             metric_fns["brier"] = _brier
             metric_fns["log_loss"] = _ll
+
+            # Per-row decompositions so the BCa acceleration jackknife runs in O(n) exact-algebraic form
+            # (LOO_i = (sum - row_i)/(n-1)) instead of re-gathering n-1 rows + recomputing the full metric per
+            # leave-out point -- ~11s -> ~20ms per metric at n=300k, ~1e-13 CI-equivalent. eps matches fast_log_loss's
+            # dtype-eps clip so the per-row cross-entropy equals the kernel's; requires_both_classes=True mirrors
+            # log-loss's single-class NaN (Brier is defined on any set).
+            def _ll_per_row(yy, pp):
+                _eps = np.finfo(np.asarray(pp).dtype).eps
+                _pc = np.clip(pp, _eps, 1.0 - _eps)
+                return np.where(np.asarray(yy) == 1, -np.log(_pc), -np.log(1.0 - _pc))
+
+            def _brier_per_row(yy, pp):
+                _d = np.asarray(pp, dtype=np.float64) - np.asarray(yy, dtype=np.float64)
+                return _d * _d
+
+            _per_row_fns = {"log_loss": (_ll_per_row, True, None), "brier": (_brier_per_row, False, None)}
             # roc_auc via the INDEX-aware resampler: pre-argsort the base score
             # vector ONCE, then build each of the 1000 resamples' descending order
             # in O(n) (counting-gather over base ranks) instead of a fresh
@@ -186,6 +202,7 @@ def _bootstrap_block(
                     y_true_f64, p_pos_f64, metric_fns,
                     n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
                     metric_fns_idx=_metric_fns_idx,
+                    per_row_fns=locals().get("_per_row_fns"),
                 )
             except Exception as exc:
                 cis = {name: {"error": f"{type(exc).__name__}: {exc}"} for name in metric_fns}
@@ -205,7 +222,12 @@ def _bootstrap_block(
             # wall on a 9.8s bootstrap_metric tottime baseline.
             from mlframe.metrics.scoring import fast_rmse as _rmse
 
-            ci = bootstrap_metric(y_true, p_pos, metric_fn=_rmse, n_bootstrap=1000, alpha=0.05, random_state=rng_seed)
+            # RMSE = sqrt(mean(squared error)) -> exact O(n) algebraic jackknife via per-row squared errors + sqrt reduce.
+            _rmse_per_row = lambda yy, pp: (np.asarray(yy, dtype=np.float64) - np.asarray(pp, dtype=np.float64)) ** 2
+            ci = bootstrap_metric(
+                y_true, p_pos, metric_fn=_rmse, n_bootstrap=1000, alpha=0.05, random_state=rng_seed,
+                jackknife_per_row=(_rmse_per_row, False, np.sqrt),
+            )
             out["rmse"] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"]}
         except Exception as exc:
             out["rmse"] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}

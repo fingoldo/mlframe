@@ -205,3 +205,49 @@ def test_delong_degenerate_returns_nan_p():
     flat = np.zeros(8)
     res = delong_test(y, flat, flat)
     assert np.isnan(res["p_value"]) or res["p_value"] == pytest.approx(1.0, abs=1e-9)
+
+
+def test_jackknife_mean_metric_matches_gather_and_is_On():
+    """The O(n) algebraic jackknife (_jackknife_mean_metric) must match the generic gather jackknife
+    (_jackknife_metric) to sum-reduction-order FP noise for mean-decomposable metrics, and drive BCa CI bounds that
+    match the generic path to ~1e-9. Regression sensor for the 517x bootstrap-jackknife optimization (log_loss/brier/
+    rmse): re-gathering n-1 rows + recomputing the metric per leave-out point is replaced by LOO_i=(sum-row_i)/(n-1)."""
+    import numpy as np
+    from mlframe.evaluation.bootstrap import (
+        _jackknife_metric, _jackknife_mean_metric, bootstrap_metric,
+    )
+    from mlframe.metrics.core import fast_log_loss, fast_brier_score_loss
+
+    rng = np.random.default_rng(0)
+    n = 40000
+    y = rng.integers(0, 2, n).astype(np.float64)
+    p = rng.uniform(0.001, 0.999, n)
+
+    eps = np.finfo(p.dtype).eps
+    pc = np.clip(p, eps, 1.0 - eps)
+    ll_per_row = np.where(y == 1, -np.log(pc), -np.log(1.0 - pc))
+    br_per_row = (p - y) ** 2
+
+    # LOO arrays: algebraic vs gather (sorted; both skip the same single-class points for log_loss, none for brier).
+    g_ll = np.sort(_jackknife_metric(y, p, lambda a, b: float(fast_log_loss(a, b))))
+    a_ll = np.sort(_jackknife_mean_metric(y, ll_per_row, requires_both_classes=True))
+    assert g_ll.shape == a_ll.shape and np.max(np.abs(g_ll - a_ll)) < 1e-11
+
+    g_br = np.sort(_jackknife_metric(y, p, lambda a, b: float(fast_brier_score_loss(a, b))))
+    a_br = np.sort(_jackknife_mean_metric(y, br_per_row, requires_both_classes=False))
+    assert g_br.shape == a_br.shape and np.max(np.abs(g_br - a_br)) < 1e-11
+
+    # End-to-end BCa CI: fast per-row path vs generic gather path agree to ~1e-9.
+    _ll = lambda a, b: float(fast_log_loss(a, b))
+    gen = bootstrap_metric(y, p, _ll, n_bootstrap=300, random_state=5)
+    fast = bootstrap_metric(
+        y, p, _ll, n_bootstrap=300, random_state=5,
+        jackknife_per_row=(lambda yy, pp: np.where(yy == 1, -np.log(np.clip(pp, eps, 1 - eps)), -np.log(1 - np.clip(pp, eps, 1 - eps))), True, None),
+    )
+    assert gen["point"] == fast["point"]
+    assert np.isclose(gen["lo"], fast["lo"], rtol=1e-9, atol=0.0)
+    assert np.isclose(gen["hi"], fast["hi"], rtol=1e-9, atol=0.0)
+
+    # Degenerate guard: non-finite per-row -> None (caller falls back to the exact gather path).
+    bad = ll_per_row.copy(); bad[0] = np.nan
+    assert _jackknife_mean_metric(y, bad, requires_both_classes=True) is None

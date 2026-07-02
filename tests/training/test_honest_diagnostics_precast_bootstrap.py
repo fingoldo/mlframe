@@ -9,6 +9,12 @@ float64 and the kernels skip the per-call cast.
 The bootstrap CI values must be UNCHANGED by this hoist (same numbers fed to the
 same numba kernels), which this test pins against a reconstruction of the legacy
 in-loop-astype path.
+
+CI-bound tolerance note: the BCa acceleration term is now computed via the exact O(n) algebraic leave-one-out
+jackknife (``_jackknife_mean_metric``: ``LOO_i = (sum - per_row_i)/(n-1)``) instead of re-gathering n-1 rows and
+re-running the metric per leave-out point. That is a floating-point sum-reduction-order difference (~1e-15 on the
+per-point LOO values), which propagates to <=~1e-13 on the CI bounds -- so the CI is asserted FP-close (rtol 1e-9),
+not bit-exact, while the POINT estimate (untouched by the jackknife) stays exactly equal.
 """
 from __future__ import annotations
 
@@ -48,9 +54,12 @@ def test_bootstrap_block_precast_ci_unchanged():
     legacy = _legacy_brier_ll_cis(y, raw, rng_seed=42, n_bootstrap=1000)
 
     for m in ("brier", "log_loss"):
+        # Point is untouched by the jackknife -> exactly equal. CI bounds match to FP precision: the O(n) algebraic
+        # BCa jackknife differs from the gather jackknife only by sum-reduction order (~1e-15 per LOO value, <=~1e-13
+        # on the bound) -- far below any decision-relevant scale (see module docstring).
         assert out[m]["point"] == legacy[m]["point"], m
-        assert out[m]["ci_lo"] == legacy[m]["lo"], m
-        assert out[m]["ci_hi"] == legacy[m]["hi"], m
+        assert np.isclose(out[m]["ci_lo"], legacy[m]["lo"], rtol=1e-9, atol=0.0), (m, out[m]["ci_lo"], legacy[m]["lo"])
+        assert np.isclose(out[m]["ci_hi"], legacy[m]["hi"], rtol=1e-9, atol=0.0), (m, out[m]["ci_hi"], legacy[m]["hi"])
 
 
 def test_bootstrap_block_handles_int_and_float_labels_identically():
