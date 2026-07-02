@@ -220,20 +220,29 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z) -> np.ndarray:
     # conditioning support: a RESIDENT cupy array (device-born support -> no cmi_z H2D; cardinalities computed on
     # device) or a host ndarray (legacy path). ``batched_cmi_gpu`` accepts either z form directly.
     Kx = (int(Xp_d.max()) + 1) if Xp_d.size else 1
-    if isinstance(z, cp.ndarray):
-        # y is the FIT-CONSTANT target -> route through the content-keyed resident cache (cmi_y) so the device
-        # Kyz reduction never re-uploads it (a fresh cp.asarray here was a per-call n*8B H2D). Cache hit reuses
-        # the copy batched_cmi_gpu already made.
-        if isinstance(y_h, cp.ndarray):
-            _yz = y_h
-        else:
-            from ._fe_resident_operands import resident_operand
-            _yz = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
-        Kz = (int(z.max()) + 1) if z.size else 1
-        Kyz = (int((_yz * Kz + z).max()) + 1) if z.size else 1
+    # Build the column-invariant y/z terms ONCE for the WHOLE null and thread them into every chunk call via
+    # batched_cmi_gpu(precomp_yz=...) -- the chunked driver used to re-derive the identical z entropies +
+    # yz key (fused 1M-row entropy launches + .max() syncs) INSIDE batched_cmi_gpu on every perm chunk (down
+    # to 1 perm/chunk at the gate's huge joints => up to ~nperm recomputes per null). Same values -> the CMI
+    # is bit-identical; only the redundant recomputation is gone.
+    from ._fe_batched_mi import joint_entropy_gpu
+    from ._fe_resident_operands import resident_operand
+    if isinstance(y_h, cp.ndarray):
+        _dy = y_h.astype(cp.int64, copy=False).ravel()
     else:
-        Kz = (int(z.max()) + 1) if z.size else 1
-        Kyz = (int((y_h * Kz + z).max()) + 1) if z.size else 1
+        _dy = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
+    if isinstance(z, cp.ndarray):
+        _dz = z.astype(cp.int64, copy=False).ravel()
+    else:
+        _dz = resident_operand(np.ascontiguousarray(np.asarray(z), dtype=np.int64).ravel(), "cmi_z", dtype=np.int64)
+    n_rows = int(Xp_d.shape[0])
+    _inv_n = 1.0 / float(max(1, n_rows))
+    Kz = (int(_dz.max()) + 1) if _dz.size else 1
+    _yzk = _dy * Kz + _dz
+    Kyz = (int(_yzk.max()) + 1) if _dz.size else 1
+    h_z, k_z = joint_entropy_gpu([_dz], [Kz], _inv_n)
+    h_yz, k_yz = joint_entropy_gpu([_yzk], [Kyz], _inv_n)
+    _precomp = (_dz, Kz, h_z, k_z, _yzk, Kyz, h_yz, k_yz)
     joint_bytes = max(1, Kx * Kyz * 8)
     try:
         free_b, _ = cp.cuda.runtime.memGetInfo()
@@ -247,7 +256,7 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z) -> np.ndarray:
         c = min(chunk, nperm - s)
         try:
             cols = cp.ascontiguousarray(Xp_d[:, s:s + c])       # contiguous (n, c) for the joint-hist kernels
-            nulls[s:s + c] = np.asarray(batched_cmi_gpu(cols, y_h, z), dtype=np.float64)
+            nulls[s:s + c] = np.asarray(batched_cmi_gpu(cols, _dy, z, precomp_yz=_precomp), dtype=np.float64)
             del cols
             s += c
         except cp.cuda.memory.OutOfMemoryError:

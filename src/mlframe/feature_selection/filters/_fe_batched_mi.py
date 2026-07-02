@@ -479,7 +479,7 @@ def cmi_device_argmax(mi_d: Any) -> tuple[int, float]:
 
 
 def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: bool = False, codes_trusted: bool = False,
-                    return_device: bool = False) -> Any:
+                    return_device: bool = False, precomp_yz: Any = None) -> Any:
     """Miller-Madow plug-in CMI(x_k; y | z) in nats for EVERY column of ``x_cols``, in ONE device workload.
 
     ``x_cols`` (n,K) int codes -- a host ndarray OR an already-resident cupy array (born-on-device codes
@@ -543,21 +543,29 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
 
     # z is ROUND-CONSTANT: when host, resident-cache it (one H2D per round, reused across candidate batches);
     # when already resident, use as-is. The shape+content fingerprint distinguishes successive rounds' z.
-    if isinstance(z, cp.ndarray):
-        dz = z.astype(cp.int64, copy=False).ravel()
+    # ``precomp_yz`` (2026-07-02, perm-null chunk hoist): the column-invariant y/z terms
+    # ``(dz, Kz, h_z, k_z, yz, Kyz, h_yz, k_yz)`` computed by a PRIOR call over the SAME (y, z). The perm-null's
+    # VRAM-chunked driver calls this per perm-chunk (down to 1 perm/chunk at the gate's huge joints), and each
+    # chunk re-derived the identical z entropies + yz key + the .max() syncs -- up to ~25 recomputes per null.
+    # The SAME values are reused verbatim -> bit-identical CMI; None (all other callers) is unchanged.
+    if precomp_yz is not None:
+        dz, Kz, h_z, k_z, yz, Kyz, h_yz, k_yz = precomp_yz
     else:
-        dz = resident_operand(np.asarray(z).ravel(), "cmi_z", dtype=np.int64)
-    Kz = int(dz.max()) + 1 if dz.size else 1
-    # Conditional path: y and z both index flat histograms (yz = dy*Kz+dz, then (x*Kyz+yz)); guard both.
-    Ky_cond = int(dy.max()) + 1 if dy.size else 1
-    _assert_codes_in_range(dy, Ky_cond, "batched_cmi_gpu y codes", codes_trusted)
-    _assert_codes_in_range(dz, Kz, "batched_cmi_gpu z codes", codes_trusted)
-    # shared y/z terms (column-invariant): fused hist+entropy in ONE launch each (same 2-launch fallback when
-    # the 1D joint won't fit shared) -- bit-identical to _ent_nnz_1d(joint_counts_gpu(...)).
-    h_z, k_z = joint_entropy_gpu([dz], [Kz], inv_n)
-    yz = dy * Kz + dz                      # dense (y,z) code (also feeds cnt_xyz below)
-    Kyz = int(yz.max()) + 1
-    h_yz, k_yz = joint_entropy_gpu([yz], [Kyz], inv_n)
+        if isinstance(z, cp.ndarray):
+            dz = z.astype(cp.int64, copy=False).ravel()
+        else:
+            dz = resident_operand(np.asarray(z).ravel(), "cmi_z", dtype=np.int64)
+        Kz = int(dz.max()) + 1 if dz.size else 1
+        # Conditional path: y and z both index flat histograms (yz = dy*Kz+dz, then (x*Kyz+yz)); guard both.
+        Ky_cond = int(dy.max()) + 1 if dy.size else 1
+        _assert_codes_in_range(dy, Ky_cond, "batched_cmi_gpu y codes", codes_trusted)
+        _assert_codes_in_range(dz, Kz, "batched_cmi_gpu z codes", codes_trusted)
+        # shared y/z terms (column-invariant): fused hist+entropy in ONE launch each (same 2-launch fallback when
+        # the 1D joint won't fit shared) -- bit-identical to _ent_nnz_1d(joint_counts_gpu(...)).
+        h_z, k_z = joint_entropy_gpu([dz], [Kz], inv_n)
+        yz = dy * Kz + dz                      # dense (y,z) code (also feeds cnt_xyz below)
+        Kyz = int(yz.max()) + 1
+        h_yz, k_yz = joint_entropy_gpu([yz], [Kyz], inv_n)
 
     # H(x_k, z) for all k. LAUNCH-FUSION: ONE block/column kernel (shared hist + tree-reduce) collapses the
     # atomicAdd-count + reduce into a single launch (drops the (K, Kx*Kz) f64 intermediate); falls back to the
