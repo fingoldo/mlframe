@@ -26,6 +26,7 @@ history.
 - Set-similarity coefficients (`mlframe.core.set_similarity`): `jaccard`, `dice`, `overlap`, `braun_blanquet`, `ochiai`, `kulczynski`, `tversky` over two boolean masks or Python sets — for set/interval/cluster-pair targets.
 - RMSPE (`mlframe.metrics.regression.fast_rmspe`): root-mean-square percentage error (the Rossmann metric), scale-free squared-relative error excluding zero targets.
 - Optimal ordinal cutpoints (`mlframe.metrics.classification.optimal_ordinal_cutpoints`, `apply_cutpoints`): tune the thresholds that digitize a continuous prediction into ordinal grades to maximize QWK/accuracy (the CrowdFlower direct-functional-tuning technique).
+- Binning-smoothing (`mlframe.core.binning`): `fit_bin_smoother` / `apply_bin_smoother` / `bin_smooth` replace each value by its bin mean/median/boundary representative on the original scale (Han & Kamber smoothing-by-binning) — a leakage-safe, rank-preserving quantizer/denoiser.
 
 ## [0.9.0]
 

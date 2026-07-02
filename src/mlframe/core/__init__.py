@@ -9,6 +9,7 @@ Submodules:
     proportion_stats - proportion confidence intervals + required sample size.
     matrix_seriation - spectral (Fiedler/SVD) reordering of a similarity/correlation matrix.
     set_similarity - set-similarity coefficients (Jaccard/Dice/overlap/Ochiai/Kulczynski/Tversky).
+    binning  - binning-smoothing (replace each value by its bin mean/median/boundary representative).
     helpers  - general-purpose helper utilities used across the package.
 """
 
@@ -23,4 +24,5 @@ from mlframe.core.robust_location import *  # noqa: F401,F403
 from mlframe.core.proportion_stats import *  # noqa: F401,F403
 from mlframe.core.matrix_seriation import *  # noqa: F401,F403
 from mlframe.core.set_similarity import *  # noqa: F401,F403
+from mlframe.core.binning import *  # noqa: F401,F403
 from mlframe.core.helpers import *  # noqa: F401,F403
