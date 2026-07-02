@@ -163,8 +163,60 @@ void mi_from_values(const double* __restrict__ X, const double* __restrict__ edg
         mi_out[c] = mi > 0.0 ? mi : 0.0;
     }
 }
+// SPLIT-N variant (SM-occupancy fix, 2026-07-02): one block per column starves the 6-SM card when K is
+// narrow (nsys: 60/66 mi_from_values launches were K<=32 blocks, the giant 1.56s instances among them).
+// Phase A (grid (K,S)): each of S segment blocks bins+histograms its n-slice into a shared (nbins*Ky) tile,
+// then merges the tile into a global per-column (nbins*Ky) int counts buffer with one atomicAdd pass -> K*S
+// blocks fill the SMs. Phase B (grid (K,)): plug-in MI per column from the merged counts. Same bin codes
+// (same f64 edges, upper_bound) + same plug-in formula -> selection-equivalent to mi_from_values.
+extern "C" __global__
+void mi_hist_split(const double* __restrict__ X, const double* __restrict__ edges,
+                   const long long* __restrict__ y, const long long n, const int K,
+                   const int nbins, const int Ky, const int S, int* __restrict__ gcounts) {
+    extern __shared__ int sh[];
+    int c = blockIdx.x, seg = blockIdx.y;
+    if (c >= K || seg >= S) return;
+    int ne = nbins - 1, M = nbins * Ky, tid = threadIdx.x, nt = blockDim.x;
+    for (int s = tid; s < M; s += nt) sh[s] = 0;
+    __syncthreads();
+    long long seg_len = (n + S - 1) / S, lo = (long long)seg * seg_len, hi = lo + seg_len;
+    if (hi > n) hi = n;
+    for (long long i = lo + tid; i < hi; i += nt) {
+        double v = X[i * (long long)K + c];
+        int a = 0, b = ne;
+        while (a < b) { int mid = (a + b) >> 1; if (edges[(long long)mid * K + c] <= v) a = mid + 1; else b = mid; }
+        atomicAdd(&sh[a * Ky + y[i]], 1);
+    }
+    __syncthreads();
+    int* gc = gcounts + (long long)c * M;
+    for (int s = tid; s < M; s += nt) if (sh[s]) atomicAdd(&gc[s], sh[s]);
+}
+extern "C" __global__
+void mi_from_counts_col(const int* __restrict__ gcounts, const int K, const int nbins, const int Ky,
+                        const double inv_n, double* __restrict__ mi_out) {
+    int c = blockIdx.x;
+    if (c >= K) return;
+    const int* gc = gcounts + (long long)c * (nbins * Ky);
+    if (threadIdx.x != 0) return;                 // M = nbins*Ky ~ 100: single-thread reduce is trivial
+    double mi = 0.0;
+    for (int xx = 0; xx < nbins; ++xx) {
+        long long rx = 0;
+        for (int yy = 0; yy < Ky; ++yy) rx += gc[xx * Ky + yy];
+        if (rx == 0) continue;
+        double px = (double)rx * inv_n;
+        for (int yy = 0; yy < Ky; ++yy) {
+            long long nxy = gc[xx * Ky + yy];
+            if (nxy == 0) continue;
+            long long ry = 0;
+            for (int xx2 = 0; xx2 < nbins; ++xx2) ry += gc[xx2 * Ky + yy];
+            mi += (double)nxy * inv_n * log(((double)nxy * inv_n) / (px * ((double)ry * inv_n)));
+        }
+    }
+    mi_out[c] = mi > 0.0 ? mi : 0.0;
+}
 """
 _MI_FROM_VALUES_KERNEL = None
+_MI_SPLIT_KERNELS = None
 
 # FUSED VALUES->BIN->HIST->MILLER-MADOW-MI (2026-06-26). Same one-block-per-column fused bin+joint-hist as
 # mi_from_values, but emits the Miller-Madow-corrected MARGINAL MI matching _usability_njit_pool's
@@ -350,6 +402,14 @@ def _get_mi_from_values_kernel():
     return _MI_FROM_VALUES_KERNEL
 
 
+def _get_mi_split_kernels(cp):
+    global _MI_SPLIT_KERNELS
+    if _MI_SPLIT_KERNELS is None:
+        mod = cp.RawModule(code=_MI_FROM_VALUES_SRC)
+        _MI_SPLIT_KERNELS = (mod.get_function("mi_hist_split"), mod.get_function("mi_from_counts_col"))
+    return _MI_SPLIT_KERNELS
+
+
 def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, codes_trusted: bool = False) -> np.ndarray | None:
     """Plug-in MI(col_k; y) for an (n,K) float matrix ``x_vals`` binned by per-column ``interior_edges``
     ((nbins-1, K) cupy) in ONE fused RawKernel (bin + joint histogram + MI), replacing _searchsorted_codes
@@ -368,8 +428,27 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
         return None
     _assert_codes_in_range(yv, Ky, "binned_mi_from_values_gpu y codes", codes_trusted)
     mi_out = cp.empty(K, dtype=cp.float64)
-    _get_mi_from_values_kernel()((K,), (256,), (cp.ascontiguousarray(Xd), E, yv, np.int64(n), np.int32(K),
-                                              np.int32(int(nbins)), np.int32(Ky), np.float64(1.0 / float(max(1, n))), mi_out),
+    Xc = cp.ascontiguousarray(Xd)
+    _inv = np.float64(1.0 / float(max(1, n)))
+    # SPLIT-N when one-block-per-column can't fill the SMs (narrow K, big n): 60/66 of these launches were
+    # K<=32 blocks on a 6-SM card (nsys 2026-07-02) -> segment the n rows across S blocks/column into a merged
+    # global histogram, then a per-column MI pass. Same codes + plug-in MI -> selection-equivalent.
+    if K < 48 and n >= 262144:
+        try:
+            S = max(2, min(64, (48 + K - 1) // max(1, K)))
+            M = int(nbins) * Ky
+            gcounts = cp.zeros(K * M, dtype=cp.int32)
+            _hist, _mi = _get_mi_split_kernels(cp)
+            _hist((K, S), (256,),
+                  (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), np.int32(S), gcounts),
+                  shared_mem=M * 4)
+            _mi((K,), (32,), (gcounts, np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out))
+            return cp.asnumpy(mi_out)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("mi split-n path failed; single-launch mi_from_values", exc_info=True)
+    _get_mi_from_values_kernel()((K,), (256,), (Xc, E, yv, np.int64(n), np.int32(K),
+                                              np.int32(int(nbins)), np.int32(Ky), _inv, mi_out),
                                  shared_mem=int(nbins) * Ky * 4)
     return cp.asnumpy(mi_out)
 
