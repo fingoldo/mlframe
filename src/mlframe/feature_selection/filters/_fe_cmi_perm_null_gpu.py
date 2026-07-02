@@ -133,7 +133,12 @@ def conditional_perm_null_gpu(
     if z_i is None:
         # MARGINAL null (seed step): free within-column shuffle -> null MARGINAL MI(x_perm; y). Draw an (n, nperm)
         # key matrix on device and argsort each column -> nperm independent free permutations, all resident.
-        keys = rs.random_sample(size=(n, nperm))                 # device draw, no H2D
+        # INT32 keys (2026-07-02, nsys-driven): cub radix-sorts int32 in HALF the passes of f64 (the argsort was
+        # the dominant per-call cost, micro-bench 305ms at n=1M nperm=25). A 32-bit random key ties within a
+        # column with probability ~C(n,2)/2^32; a tie sorts in stable index order -- a microscopically
+        # non-uniform but valid permutation (this is a NULL estimate; selection-equivalent, same bar as the
+        # device-RNG stream itself).
+        keys = rs.randint(0, np.iinfo(np.int32).max, size=(n, nperm), dtype=cp.int32)
         perm = cp.argsort(keys, axis=0)                          # (n, nperm) free permutations
         Xp_d = dx[perm]                                          # (n, nperm) shuffled candidate columns
         nulls = np.asarray(batched_cmi_gpu(Xp_d, y_h, None), dtype=np.float64)
@@ -166,8 +171,24 @@ def conditional_perm_null_gpu(
         z_rank_d = cp.asarray(np.ascontiguousarray(z_rank, dtype=np.float64).ravel())[:, None]   # (n, 1)
     x_sorted_d = dx[order_d]                                     # x reordered into contiguous stratum blocks
 
-    keys = rs.random_sample(size=(n, nperm))                     # device draw -> keys in [0,1), distinct per row
-    within = cp.argsort(z_rank_d + keys, axis=0)                 # (n, nperm) within-stratum orders (no overlap)
+    # WITHIN-STRATUM shuffle keys. INT32 RANK-PACK fast path (2026-07-02, nsys-driven): the argsort of the
+    # combined (z_rank + key) matrix was the dominant per-call cost (micro-bench 305ms of ~880ms at n=1M,
+    # nperm=25) because cub radix-sorts f64 in 8 byte-passes. Pack the stratum rank into the HIGH bits of an
+    # int32 and the random key into the remaining LOW bits -- blocks still never overlap (rank dominates), the
+    # low bits give an independent uniform draw per row -- and radix-sort int32 in HALF the passes (~2x). Ties
+    # (two rows drawing the same low bits within one stratum, ~2^-rand_bits per pair) sort in stable index
+    # order: a microscopically non-uniform but valid permutation -- the same selection-equivalence bar as the
+    # device RNG stream itself. Falls back to the exact f64 (rank + uniform) sum when the occupied stratum
+    # count leaves fewer than 12 random bits (never at the gate's shapes).
+    _nrank = int(z_rank_d[-1, 0]) + 1                            # dense ranks are monotone over the sorted rows
+    _rb = max(1, int(np.ceil(np.log2(max(2, _nrank)))))
+    _rand_bits = 31 - _rb
+    if _rand_bits >= 12:
+        _zr32 = (z_rank_d[:, 0].astype(cp.int32) << np.int32(_rand_bits))[:, None]
+        keys = _zr32 | rs.randint(0, 1 << _rand_bits, size=(n, nperm), dtype=cp.int32)
+    else:
+        keys = z_rank_d + rs.random_sample(size=(n, nperm))      # exact f64 fallback (huge stratum counts)
+    within = cp.argsort(keys, axis=0)                            # (n, nperm) within-stratum orders (no overlap)
     Xp_d = cp.empty((n, nperm), dtype=cp.int64)
     Xp_d[order_d, :] = x_sorted_d[within]                        # xp[order] = x_sorted[within], per perm
     del keys, within, x_sorted_d, z_rank_d, order_d            # free the (n,nperm) build + per-call order/zrank
