@@ -202,26 +202,23 @@ class TestFigsizeUnification:
     the 3-panel regression-diagnostic chart so FI no longer dominates the
     suite report."""
 
-    def test_fi_function_default_figsize_is_half_perf_chart(self) -> None:
-        """``plot_feature_importance(figsize=...)`` defaults to half the
-        regression-diagnostic 3-panel chart."""
+    def test_fi_function_default_figsize_is_compact_but_legible(self) -> None:
+        """``plot_feature_importance(figsize=...)`` keeps a COMPACT width (~half the regression-diagnostic 3-panel
+        chart) but a TALLER height so ~15 horizontal bars stay legible. The height was bumped from the old
+        half-perf-chart 2.5in to 6in (~0.35in/bar) -- the 2.5in default crushed 15 bars into an unreadable band
+        (see ``_FI_DEFAULT_FIGSIZE`` rationale in feature_selection/importance.py). This asserts the current
+        legibility contract, not the retired half-of-DEFAULT_FIGSIZE shape."""
         from mlframe.feature_selection.importance import _FI_DEFAULT_FIGSIZE
         from mlframe.training.evaluation import DEFAULT_FIGSIZE
-        assert _FI_DEFAULT_FIGSIZE == (
-            DEFAULT_FIGSIZE[0] / 2,
-            DEFAULT_FIGSIZE[1] / 2,
-        )
-        assert _FI_DEFAULT_FIGSIZE == (7.5, 2.5)
+        assert _FI_DEFAULT_FIGSIZE == (8.0, 6.0)
+        # Width stays compact (about half the 3-panel perf chart); height is the legibility bump, not width/2.
+        assert _FI_DEFAULT_FIGSIZE[0] <= DEFAULT_FIGSIZE[0] / 2 + 1.0
+        assert _FI_DEFAULT_FIGSIZE[1] >= 4.0  # tall enough for ~15 bars at ~0.35in each
 
-    def test_fi_config_default_figsize_is_half_perf_chart(self) -> None:
-        """``FeatureImportanceConfig.figsize`` default is compact too."""
-        from mlframe.training.evaluation import DEFAULT_FIGSIZE
+    def test_fi_config_default_figsize_is_compact_but_legible(self) -> None:
+        """``FeatureImportanceConfig.figsize`` inherits the compact-width / legible-height FI default (8.0, 6.0)."""
         cfg = FeatureImportanceConfig()
-        assert cfg.figsize == (
-            DEFAULT_FIGSIZE[0] / 2,
-            DEFAULT_FIGSIZE[1] / 2,
-        )
-        assert cfg.figsize == (7.5, 2.5)
+        assert cfg.figsize == (8.0, 6.0)
 
     def test_fi_eval_module_default_figsize_compact(self) -> None:
         """The module-level constant in evaluation.py
