@@ -117,6 +117,11 @@ class TestMRMRIdentityCache:
             verbose=0,
             mrmr_skip_when_prior_was_identity=True,
             mrmr_identity_cache_include_y=False,  # override new default to test X-only-fp short-circuit
+            # Disable the y-correlation safety gate so the X-only short-circuit fires regardless of y.
+            # y1/y2 are independent normals (~0 corr); with the default gate (0.5) an uncorrelated target
+            # is deliberately refused (that safety behaviour is covered separately). This test exercises
+            # the pure X-fingerprint short-circuit performance path, which the 0.0 threshold selects.
+            mrmr_identity_cache_ycorr_threshold=0.0,
         )
         t0 = perf_counter()
         m.fit(X, y2)
