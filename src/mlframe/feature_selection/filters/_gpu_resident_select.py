@@ -858,6 +858,19 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
     if (cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous
             and cm_hint.dtype == cand_gpu.dtype):
         data_cm = cm_hint
+    elif (cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous
+          and cm_hint.dtype == cp.float32 and cand_gpu.dtype == cp.float64):
+        # STRICT-f64 fusion recovery (2026-07-02, nsys-driven): under MLFRAME_FE_GPU_BINNING_DTYPE=float64 the
+        # discretize sibling upcasts the f32 materialise output to f64 (cand_gpu.astype(f64)) BEFORE calling in,
+        # so the f32 cm_hint's dtype no longer equals cand_gpu's and the launch-fusion above was SILENTLY
+        # defeated -> a full transpose_f64 of the (n,K) f64 cand ran EVERY block (nsys F2 1M STRICT: transpose_f64
+        # = 8.04% of GPU time, 242 calls / 1.20s). But cand_gpu here == cm_hint.astype(f64) EXACTLY: cand is the
+        # elementwise f32->f64 upcast of the SAME materialise output the (K,n) f32 hint holds, and f32->f64 is
+        # LOSSLESS and COMMUTES with transpose (upcast(transpose(x)) == transpose(upcast(x))). So upcast the
+        # already-computed hint (12 B/elem, coalesced elementwise) instead of re-transposing the f64 cand
+        # (16 B/elem tiled transpose) -> BIT-IDENTICAL data_cm (same order statistics -> same edges -> same
+        # codes), restoring the intended fusion and dropping the transpose_f64 kernel on this path.
+        data_cm = cm_hint.astype(cp.float64)
     else:
         data_cm = _transpose_to_cm(cand_gpu)   # (K, n) C-order = column-major (coalesced tiled-transpose kernel)
     threads = _resolve_radix_threads(n)    # Lever B: per-host KTC-tuned block size (bit-identical edges)
