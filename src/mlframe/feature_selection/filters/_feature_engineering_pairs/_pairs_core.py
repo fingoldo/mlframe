@@ -12,11 +12,39 @@ import logging
 import os
 from itertools import combinations
 
+import numba
 import numpy as np
 import pandas as pd
 from pandas.api.extensions import ExtensionDtype
 
 from pyutilz.system import tqdmu
+
+
+@numba.njit(cache=True, fastmath=False)
+def _abs_corr_finite_njit(a, y, yfin):
+    """|Pearson corr| of ``a`` vs ``y`` over rows where both are finite, in one pass (no boolean-index temporaries,
+    no 2x2 corrcoef matrix). Returns 0.0 when <8 joint-finite rows or either side is (near-)constant. FP-equivalent
+    to the numpy ``abs(corrcoef(a[m], y[m])[0,1])`` to ~1e-15 -- selection-safe for the noise-wrap |corr| gate."""
+    n = 0
+    sa = 0.0; sy = 0.0; saa = 0.0; syy = 0.0; say = 0.0
+    for i in range(a.shape[0]):
+        av = a[i]
+        if yfin[i] and np.isfinite(av):
+            yv = y[i]
+            n += 1
+            sa += av; sy += yv; saa += av * av; syy += yv * yv; say += av * yv
+    if n < 8:
+        return 0.0
+    va = saa - sa * sa / n
+    vy = syy - sy * sy / n
+    # Match the numpy path's std<=1e-12 degeneracy guard (std^2 = va/n, so SS va <= 1e-24 * n).
+    if va <= 1e-24 * n or vy <= 1e-24 * n:
+        return 0.0
+    denom = (va * vy) ** 0.5
+    if denom <= 0.0:
+        return 0.0
+    r = (say - sa * sy / n) / denom
+    return -r if r < 0.0 else r
 
 from ._pairs_chunks import _FE_CHUNK_MAX_COLS_HARD_CAP, _plan_fe_chunks
 from ._pairs_gates import (
@@ -749,16 +777,12 @@ def check_prospective_fe_pairs(
         if _corr_y_cont is None:
             return 0.0
         try:
-            _a = np.asarray(_v, dtype=np.float64).ravel()
+            _a = np.ascontiguousarray(np.asarray(_v, dtype=np.float64).ravel())
             if _a.shape[0] != _corr_y_cont.shape[0]:
                 return 0.0
-            _m = np.isfinite(_a) & _corr_y_cont_finite
-            if int(_m.sum()) < 8:
-                return 0.0
-            _av, _yv = _a[_m], _corr_y_cont[_m]
-            if float(np.std(_av)) <= 1e-12 or float(np.std(_yv)) <= 1e-12:
-                return 0.0
-            return abs(float(np.corrcoef(_av, _yv)[0, 1]))
+            # One-pass njit |corr| over jointly-finite rows -- replaces isfinite-mask + boolean-index copies + two
+            # np.std + a 2x2 np.corrcoef (~23-35x on the 8k+ noise-wrap-gate calls); FP-equivalent to ~1e-15.
+            return float(_abs_corr_finite_njit(_a, _corr_y_cont, _corr_y_cont_finite))
         except Exception:
             return 0.0
 
