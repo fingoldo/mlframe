@@ -1,6 +1,13 @@
 """Extreme-AR composite-discovery skip helpers, carved out of ``_phase_composite_discovery.py`` to keep it under the
 1000-LOC house limit. Pure helpers (zoo classification, the skip predicate, a per-group lag-1 recompute fallback);
 re-imported by the phase module and used unchanged.
+
+This module is the LEGACY crude skip: a per-group lag-1 autocorr ``>= threshold`` predicate gated on the single config
+flag ``extreme_ar_group_aware_skip``. It is a cheap fast-path only. The AUTHORITATIVE signal is now the MEASURED
+achievable-ceiling precheck in ``_achievable_ceiling.py`` (raw / lag_predict / optimistic-composite RMSE on a bounded
+group-disjoint holdout), which is ORTHOGONAL to ``extreme_ar_group_aware_skip`` -- so flipping that flag OFF disables ONLY
+this autocorr heuristic, never the measured ceiling nor the lag_predict failsafe. ``_recompute_lag1_ar_per_group`` is also
+reused by the measured precheck to surface the autocorr as an observability field on its verdict.
 """
 from __future__ import annotations
 
