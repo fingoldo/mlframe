@@ -5,7 +5,7 @@ Random fuzz combos profiled under cProfile at n_rows=300k via
 pick the top mlframe-side hotspot, optimize (measured + bit-identical + regression
 test), commit. Termination = 100 consecutive REJECTs (see CLAUDE.md policy).
 
-Consecutive-reject streak: 1
+Consecutive-reject streak: 2
 
 | iter | seed | mlframe hotspot | verdict | notes |
 |------|------|-----------------|---------|-------|
@@ -26,3 +26,7 @@ Consecutive-reject streak: 1
 | 14 | (chart-render cumtime rank) | remaining chart cost is DIFFUSE matplotlib (savefig/constrained_layout/get_tightbbox ~80s across many panels) + library-bound (plotly/kaleido, shap). render_pdp_ice (19.8s) render-dominated (pdp sample=2000/grid=20 already minimal); DPI already 100; plot_residual_diagnostics is render_and_save-bound | REJECT | 3 concentrated boundable chart costs already captured (trend/adversarial/SHAP). Remaining needs a design decision (panel count / layout engine), not a surgical bounded cap. Streak→1. |
 | note | pre-existing sibling failure surfaced (NOT mine, NOT touched) | tests/reporting/test_fi_plot_defaults.py: `_FI_DEFAULT_FIGSIZE=(8.0,6.0)` committed, violates its 'half of DEFAULT_FIGSIZE=(7.5,2.5)' contract. In feature_selection (sibling's active WIP domain). Flagged for the owning session. |
 | note-fix | resolved the surfaced fi_plot failure (re-frame stale test) | 2 assertions in test_fi_plot_defaults.py asserted the RETIRED 'half perf chart==(7.5,2.5)' FI figsize; source deliberately bumped to (8.0,6.0) for bar legibility (documented in importance.py, commit b1d23a88). Re-framed to the (8.0,6.0) legibility contract per 'reframe-stale-test-not-revert'. RESIDUAL (sibling's cross-module call, NOT changed): training/_feature_importances.py:DEFAULT_FI_FIGSIZE still (7.5,2.5) — a separate inline-panel FI path, plausibly intentional. commit 55772cfb |
+| 15 | 161803 (--no-charts, cb-only, 5 combos) | CatBoost-native path (CB cat/text handling, cb_logits_to_probs) — same floor: #1 ICE `@njit` kernel (attribution, 0.004s real Python), analyze/bootstrap already-optimized, `_cyclical_sincos_njit` (njit), drift helpers already-benched | REJECT | fresh combo class, same converged floor. Streak→2. |
+| FUTURE | biggest remaining chart cost = DIFFUSE matplotlib layout (~70s of ~96s report: constrained_layout iterative solve + get_tightbbox across ~24 figures) | needs visual sign-off | Only lever is a layout-engine swap (tight_layout + manual suptitle-space reservation, ~10x cheaper than the iterative constrained solve). CANNOT validate no-collision headless across diverse panels → requires rendered before/after human review. Tracked, not dropped. |
+
+**Loop convergence (as of iter 15):** profiled 3 modes (charts-on / charts-off / cb-only) × 8 seeds × 3 combo classes. Every run returns the same top-cost set, each confirmed by code-read to be njit-at-floor, exhaustively-benched, or library-bound (matplotlib/plotly/shap/sklearn/catboost). 10 optimizations shipped (6 bit-identical + 3 chart-render + 1 redundant-pass) + 1 correctness bug fix (SHAP categorical crash) + 1 stale-test re-frame. Architectural convergence reached; the sole remaining big lever (matplotlib layout) needs a visual-equivalence sign-off.
