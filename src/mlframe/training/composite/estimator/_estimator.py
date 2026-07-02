@@ -887,6 +887,12 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             "n_train_valid": int(y_train.size),
             "n_train_invalid": n_invalid,
         }
+        # Soft base-shrink: capture the base calibration range (min/max + robust IQR per base column) so
+        # predict can gently soft-clip an out-of-range base toward the seen boundary instead of the
+        # additive inverse extrapolating on unseen-group tails. No-op for non-base / non-additive
+        # transforms; an absent range leaves predict on today's raw inverse.
+        from . import _soft_shrink as _soft_shrink
+        _soft_shrink.capture_base_fit_range(self, transform, base_train)
         # Recurrence-continuation seeding: a fitted (persisted) decision read by
         # the recurrent inverse, so a fresh CompositeTargetEstimator stays
         # stateless unless the caller explicitly opted in.
