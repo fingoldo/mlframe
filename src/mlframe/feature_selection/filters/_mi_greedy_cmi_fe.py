@@ -1414,7 +1414,8 @@ def greedy_cmi_fe_construct(
                 # D2H); cmi_device_argmax pulls only the winning (idx, val) scalars. first-max == the sequential
                 # ``cmi > best_cmi`` tie-break. Falls back to host y_bin if the one-time device upload failed.
                 _yarg = y_bin_dev if y_bin_dev is not None else y_bin
-                _mi_d = batched_cmi_gpu(_Xc, _yarg, _zc, codes_trusted=True, return_device=True)
+                # kx=nbins: candidate codes are equi-frequency bins in [0, nbins-1] -> width is known, skip int(max) sync.
+                _mi_d = batched_cmi_gpu(_Xc, _yarg, _zc, codes_trusted=True, return_device=True, kx=int(nbins))
                 _bi, _bv = cmi_device_argmax(_mi_d)
                 best_cmi = float(_bv); best_name = _scan[_bi]
                 _batched_done = True

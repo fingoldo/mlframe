@@ -566,7 +566,7 @@ def cmi_device_argmax(mi_d: Any) -> tuple[int, float]:
 
 
 def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: bool = False, codes_trusted: bool = False,
-                    return_device: bool = False, precomp_yz: Any = None) -> Any:
+                    return_device: bool = False, precomp_yz: Any = None, kx: int = 0, ky: int = 0) -> Any:
     """Miller-Madow plug-in CMI(x_k; y | z) in nats for EVERY column of ``x_cols``, in ONE device workload.
 
     ``x_cols`` (n,K) int codes -- a host ndarray OR an already-resident cupy array (born-on-device codes
@@ -609,12 +609,19 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
         dy = resident_code_operand(np.asarray(y).ravel(), "cmi_y")
     nf = float(max(1, n))
     inv_n = 1.0 / nf
-    Kx = int(X.max()) + 1 if X.size else 1
+    # ``kx`` / ``ky`` (2026-07-02, scalar-sync kill): the histogram WIDTH upper bound. The codes are 0-based
+    # equi-frequency bins in [0, nbins-1] and the labels in [0, n_classes-1], so the caller knows the width
+    # (nbins / n_classes) -- pass it to SKIP the ``int(X.max())`` / ``int(dy.max())`` blocking device syncs (each
+    # drains the GPU queue ~ms; the kernel-timeline gap analysis put ~4,900 such scalar D2H as the dominant
+    # remaining GPU-idle source). A width >= the true occupied max is SELECTION-IDENTICAL: the extra trailing
+    # bins are always empty -> 0 count -> 0 entropy contribution, and the occupied-cell df (k_x) is counted
+    # separately (nnz), unchanged. kx/ky<=0 -> the original .max() sync (unknown-cardinality callers).
+    Kx = int(kx) if kx and kx > 0 else (int(X.max()) + 1 if X.size else 1)
     _assert_codes_in_range(X, Kx, "batched_cmi_gpu X codes", codes_trusted)
 
     if z is None or (hasattr(z, "size") and (z.size if isinstance(z, cp.ndarray) else np.asarray(z).size) == 0):
         # Marginal MI(x_k; y), MM-corrected:  H(x)+H(y)-H(x,y) - (k_x+k_y-k_xy-1)/2n
-        Ky = int(dy.max()) + 1 if dy.size else 1
+        Ky = int(ky) if ky and ky > 0 else (int(dy.max()) + 1 if dy.size else 1)
         _assert_codes_in_range(dy, Ky, "batched_cmi_gpu y codes", codes_trusted)
         cnt_xy = _batched_joint_counts2(X, dy, Kx, Ky)   # (K, Kx*Ky) int32; the reduce casts in-register
         h_xy, k_xy = _rows_entropy_and_k(cnt_xy, inv_n)

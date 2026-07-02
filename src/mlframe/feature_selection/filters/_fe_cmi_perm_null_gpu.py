@@ -331,7 +331,7 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z) -> np.ndarray:
         c = min(chunk, nperm - s)
         try:
             cols = cp.ascontiguousarray(Xp_d[:, s:s + c])       # contiguous (n, c) for the joint-hist kernels
-            nulls[s:s + c] = np.asarray(batched_cmi_gpu(cols, _dy, z, precomp_yz=_precomp), dtype=np.float64)
+            nulls[s:s + c] = np.asarray(batched_cmi_gpu(cols, _dy, z, precomp_yz=_precomp, kx=Kx), dtype=np.float64)
             del cols
             s += c
         except cp.cuda.memory.OutOfMemoryError:
