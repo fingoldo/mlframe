@@ -297,19 +297,32 @@ class CompositeTargetDiscovery:
         _sub_n = min(_sub_n, _n_train)
         keep_counter: Counter = Counter()
         spec_by_name: dict[str, CompositeSpec] = {}
+        # Group-aware resampling: on grouped data resample whole GROUPS (leave-wells-out), not rows -- a row draw puts a
+        # group's rows in both the replicate and its complement, so a spec that only memorised per-group levels looks
+        # stable and the stability check leaks the very overfit it exists to catch. No group key -> the row draw below,
+        # bit-identical to the prior behaviour. Reuses the same helpers as ``stability_select_specs``.
+        from ._stability import _align_group_labels, _resolve_group_ids, _subsample_groups
+        _stab_group_aware = bool(getattr(self.config, "stability_group_aware", True))
+        _group_labels_train = None
+        if _stab_group_aware and _sub_n < _n_train:
+            _grp_full = _resolve_group_ids(None, getattr(self.config, "group_column", None), df, self)
+            _aligned = _align_group_labels(_grp_full, train_idx) if _grp_full is not None else None
+            if _aligned is not None and np.unique(_aligned).size >= 2:
+                _group_labels_train = _aligned
         for i in range(int(n_bootstrap_runs)):
             _run_seed = int(_run_seeds[f"stability_run_{i}"]) & 0x7FFFFFFF
             self.config.random_state = _run_seed
-            # Per-run row subsample (defect 2 above). A dedicated RNG seeded
-            # from the same decorrelated run seed keeps the draw reproducible
-            # for a given base seed while making each run a genuinely different
-            # row population. Sorted to preserve any time/order semantics the
-            # caller's train_idx carried (fit reads rows positionally).
+            # Per-run subsample (defect 2 above): a dedicated RNG seeded from the decorrelated run seed keeps the draw
+            # reproducible per base seed while making each run a genuinely different population. Sorted to preserve any
+            # time/order semantics train_idx carried (fit reads rows positionally).
             if _sub_n < _n_train:
                 _run_rng = np.random.default_rng(_run_seed)
-                _run_train_idx = np.sort(
-                    _run_rng.choice(train_idx, size=_sub_n, replace=False)
-                )
+                if _group_labels_train is not None:
+                    _run_train_idx = _subsample_groups(train_idx, _group_labels_train, _frac, _run_rng)
+                else:
+                    _run_train_idx = np.sort(
+                        _run_rng.choice(train_idx, size=_sub_n, replace=False)
+                    )
             else:
                 _run_train_idx = train_idx
             try:
