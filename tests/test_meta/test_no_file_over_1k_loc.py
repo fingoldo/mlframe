@@ -39,6 +39,14 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # must shrink further: the FE-flag plumbing block + the giant ``__init__`` attribute plumbing;
     # the validate/transform/fit/fe-step/partial-fit/provenance method bodies already live in
     # sibling modules.
+    # Carved 2026-07-02 (mixin split): ~26 non-central methods moved verbatim into three sibling mixins the
+    # class inherits -- _mrmr_class_config.py (subsample/fast-search profiles, scorer/enabled-FE recommend,
+    # seed/prefix/dtype/cv-kwargs/ctor-defaults, clear_fit_cache), _mrmr_class_transform.py (get_support,
+    # transform, get_feature_names_out, transform_usability, discovered_structure_, usability-union,
+    # __sklearn_is_fitted__), _mrmr_class_fit_helpers.py (_stability_outer_fit, _fit_multioutput,
+    # _fit_identity_shortcut, _maybe_resample_for_sample_weight, _print_fit_summary, export_artifacts,
+    # __setstate__). 4497 -> 3544 LOC; still exempt. The irreducible residual is __init__'s ~2080-line
+    # parameter docstring + fit; further LOC drop needs relocating that docstring, not more logic carving.
     "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py",
     # FIXME(carve-wave-next): filters/_mrmr_fit_impl/_fit_impl_core.py -- the irreducible
     # single-function body of ``_fit_impl`` (bound onto ``MRMR``) after the _mrmr_fit_impl
@@ -57,6 +65,12 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # dict explicitly, mutates self/recipes in place, returns the (possibly replaced) ``X``;
     # parent shrank ~9.5k -> ~9.4k LOC (still over budget). Remaining carve candidates if it must
     # shrink further: other single ``fe_<X>_enable`` FE-stage blocks, or the FE/RFECV post-pass.
+    # 2026-07-02: assessed for a BULK automated split and rejected as unsafe. ``_fit_impl`` is one
+    # control-flow-entangled function -- return / continue / break / try-except span would-be block
+    # boundaries, so a mechanical whole-function carve changes semantics. Only self-contained FE-stage
+    # blocks (compute-and-assign, no early exit, explicit local threading) are verbatim-extractable, and
+    # those are drained ONE per wave as the entries above show. Left exempt BY DESIGN, drained incrementally
+    # -- not a pending bulk-split debt.
     "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py",
     # (de-exempted 2026-06-22: per-candidate scoring block carved to _step_score.py
     # [+ the per-pair rank loop to _step_pairs_rank.py, the batch pair-MI/maxT-floor stage
