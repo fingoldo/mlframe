@@ -165,6 +165,12 @@ from .transformer import (
     compute_row_attention,
     positions_within_group,
 )
+from .cat_cooccurrence_svd import (
+    engineered_name_cooccur_svd,
+    cat_cooccurrence_svd_fit,
+    apply_cat_cooccurrence_svd,
+    cat_cooccurrence_svd_with_recipes,
+)
 
 __all__ = [
     "per_group_recency_weighted_mean",
@@ -237,4 +243,8 @@ __all__ = [
     "run_pysr_feature_engineering",
     "safely_compute_mps",
     "show_mps_regions",
+    "engineered_name_cooccur_svd",
+    "cat_cooccurrence_svd_fit",
+    "apply_cat_cooccurrence_svd",
+    "cat_cooccurrence_svd_with_recipes",
 ]
