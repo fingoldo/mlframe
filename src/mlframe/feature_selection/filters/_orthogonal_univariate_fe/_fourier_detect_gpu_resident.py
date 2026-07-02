@@ -257,11 +257,12 @@ def detect_fourier_freqs_for_col_gpu(
 
     out: list = []
     for _ in range(max(1, int(max_freqs))):
-        _s_tr, _s_va = cp.asnumpy(cp.stack([cp.std(y_tr), cp.std(y_va)]))   # one D2H for the pair
+        # std_tr, std_va and y_ss (the three per-iteration guard scalars) in ONE D2H. yc is cheap and independent
+        # of the std guard, so computing it first to fold y_ss into the same pull costs nothing.
+        yc = y_tr - y_tr.mean()
+        _s_tr, _s_va, y_ss = (float(_v) for _v in cp.asnumpy(cp.stack([cp.std(y_tr), cp.std(y_va), cp.dot(yc, yc)])))
         if _s_tr < 1e-9 or _s_va < 1e-9:
             break
-        yc = y_tr - y_tr.mean()
-        y_ss = float(cp.dot(yc, yc))
         if y_ss < 1e-24:
             break
         # Coarse peak-pick: batched matvec over the resident plane -> power per grid freq, scalar argmax.
