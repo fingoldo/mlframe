@@ -303,16 +303,26 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
         if (_os.environ.get("MLFRAME_FE_CHEAP_MI_GPU", "1").strip().lower() in ("1", "true", "on", "yes")
                 and fe_gpu_strict_resident_enabled()):
             import cupy as cp
+            from ._resident_bincount import resident_bincount
             cvd = cp.asarray(cv)
-            qs = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
-            e_d = cp.unique(cp.quantile(cvd, cp.asarray(qs)))
-            if int(e_d.size) == 0:
-                return 0.0
+            _n = int(cvd.size)
+            # Sync-free interior percentile edges (manual sort + linear interp, no cp.quantile host read) and NO
+            # cp.unique: this only computes an MI, which is invariant to empty bins, so duplicate/relabeled bins
+            # do not change the result. searchsorted against the nbins-1 interior edges yields codes in
+            # [0, nbins-1] -> na = nbins is a known width (no int(max) sync). resident_bincount avoids the
+            # cp.bincount int(max) sync. Only the y cardinality (nb) and the final MI scalar cross the bus.
+            _qs = cp.asarray(np.linspace(0.0, 1.0, nbins + 1)[1:-1])
+            _xs = cp.sort(cvd.ravel())
+            _pos = _qs * (_n - 1)
+            _lo = cp.floor(_pos).astype(cp.int64)
+            _hi = cp.minimum(_lo + 1, _n - 1)
+            _frac = _pos - _lo
+            e_d = _xs[_lo] * (1.0 - _frac) + _xs[_hi] * _frac
             xc_d = cp.searchsorted(e_d, cvd, side="right").astype(cp.int64)
             yc_d = cp.asarray(np.ascontiguousarray(y_codes, dtype=np.int64))
-            na = int(xc_d.max()) + 1
+            na = int(nbins)
             nb = int(yc_d.max()) + 1
-            joint = cp.bincount(xc_d * nb + yc_d, minlength=na * nb).astype(cp.float64).reshape(na, nb)
+            joint = resident_bincount(cp, xc_d * nb + yc_d, na * nb, dtype=cp.float64).reshape(na, nb)
             pj = joint / cv.size
             pa = pj.sum(axis=1, keepdims=True)
             pb = pj.sum(axis=0, keepdims=True)
