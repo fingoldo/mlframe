@@ -145,17 +145,40 @@ def _coerce_float_2d(vals: np.ndarray) -> np.ndarray:
     return out
 
 
+def _carrier_with_categoricals(X: Any) -> Any:
+    """Return ``X`` with object/string columns cast to pandas 'category' dtype (a new frame via assign -- untouched
+    numeric blocks are reused, so no whole-frame copy on a possibly-huge carrier; the caller's frame is not mutated).
+
+    ``shap.TreeExplainer`` runs the model's own ``predict`` internally, and LightGBM/other tree backends reject raw
+    object/string feature columns ("could not convert string to float" / "categorical_feature do not match") -- they
+    need 'category' dtype (the form they were trained on). Without this the ENTIRE SHAP panel was silently absent
+    (dispatcher broad-except) for any model trained with string categoricals (surfaced by the 300k fuzz-profile loop
+    on MRMR-engineered / string-cat combos). Non-pandas carriers and already-numeric/category columns are untouched.
+    """
+    import pandas as pd
+    if not isinstance(X, pd.DataFrame):
+        return X
+    obj_cols = [
+        c for c in X.columns
+        if not (X[c].dtype.kind in "iufb" or isinstance(X[c].dtype, pd.CategoricalDtype))
+    ]
+    if not obj_cols:
+        return X
+    return X.assign(**{c: X[c].astype("category") for c in obj_cols})
+
+
 def _as_frame_and_names(X: Any, feature_names: Optional[Sequence[str]]) -> Tuple[Any, np.ndarray, List[str]]:
     """Return ``(carrier_for_shap, values_2d, names)``.
 
     ``carrier_for_shap`` keeps the original frame flavour where it has columns (shap indexes
     column-by-column and labels axes from it); a bare ndarray carrier is returned as-is. ``values_2d``
-    is the float view used only for the residual proxy + dependence x-values, never a frame copy.
+    is the float view used only for the residual proxy + dependence x-values, never a frame copy. Object/string
+    columns are cast to 'category' so shap's internal tree-model predict accepts them (see ``_carrier_with_categoricals``).
     """
     if hasattr(X, "columns") and not isinstance(X, np.ndarray):
         names = [str(c) for c in X.columns]
         vals = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
-        return X, _coerce_float_2d(vals), (list(feature_names) if feature_names is not None else names)
+        return _carrier_with_categoricals(X), _coerce_float_2d(vals), (list(feature_names) if feature_names is not None else names)
     arr = np.asarray(X)
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)

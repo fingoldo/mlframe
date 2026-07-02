@@ -289,3 +289,34 @@ def test_shap_panel_survives_categorical_feature_frame():
             plot_file=os.path.join(td, "shap.png"), plot_outputs="matplotlib[png]",
         )
     assert res is not None, "SHAP panel returned None on a categorical-feature frame (should render, not crash)"
+
+
+def test_shap_panel_survives_object_dtype_categorical_carrier():
+    """Regression (2nd categorical SHAP crash): the carrier passed to shap.TreeExplainer must accept OBJECT/STRING
+    categorical columns, not just pandas 'category' dtype. shap runs the model's own predict internally, and LightGBM
+    rejects object columns ("could not convert string to float" / "categorical_feature do not match"), so the whole
+    SHAP panel was silently dropped for models trained with string cats (MRMR-engineered / string-cat fuzz combos).
+    _as_frame_and_names now casts the carrier's object/string columns to 'category' (memory-safe assign; caller frame
+    unmutated). Covers both a category-dtype frame and the object-dtype frame that actually crashed."""
+    shap = pytest.importorskip("shap")
+    lgb = pytest.importorskip("lightgbm")
+    import pandas as pd
+    from mlframe.reporting.charts.shap_panels import shap_summary_and_dependence
+
+    rng = np.random.default_rng(0)
+    n = 4000
+    base = pd.DataFrame({"x0": rng.standard_normal(n), "x1": rng.standard_normal(n)})
+    base["cat"] = pd.Categorical(rng.choice(list("ABCDE"), n))
+    y = (2.0 * base["x0"] - 1.5 * base["x1"] + rng.standard_normal(n) * 0.5).to_numpy().astype(float)
+    model = lgb.LGBMRegressor(n_estimators=60, verbose=-1).fit(base, y, categorical_feature=["cat"])
+
+    import tempfile, os
+    for frame in (base, base.assign(cat=base["cat"].astype(object))):
+        with tempfile.TemporaryDirectory() as td:
+            res = shap_summary_and_dependence(
+                model, frame, feature_names=list(frame.columns),
+                plot_file=os.path.join(td, "shap.png"), plot_outputs="matplotlib[png]",
+            )
+        assert res is not None and res.skipped is None, f"SHAP skipped on {frame['cat'].dtype} cats"
+    # Caller frame not mutated to category.
+    assert base.assign(cat=base["cat"].astype(object))["cat"].dtype == object
