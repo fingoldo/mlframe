@@ -171,7 +171,7 @@ _KNOWN_METRIC_DIRECTIONS_HIGHER: frozenset[str] = frozenset({
     "recall", "recall_macro", "recall_micro", "recall_weighted",
     "sensitivity", "specificity", "tpr", "tnr", "npv",
     "balanced_accuracy", "matthews_corrcoef", "mcc", "mcc_multiclass",
-    "cohen_kappa", "kappa",
+    "cohen_kappa", "kappa", "weighted_kappa", "quadratic_weighted_kappa", "qwk",
     "subset_accuracy", "jaccard_score_multilabel", "jaccard", "jaccard_macro",
     "gini",
     # Binary higher-is-better extras from 2026-05-28 audit batch.
@@ -201,6 +201,8 @@ _KNOWN_METRIC_DIRECTIONS_LOWER: frozenset[str] = frozenset({
     "mbe", "mean_bias_error",
     # Probabilistic / calibration losses
     "log_loss", "logloss", "brier", "brier_score", "cross_entropy",
+    # Exponential proper scoring rule (per-object minimizer is the true probability).
+    "exploss",
     # Multi-class / multi-label aggregation variants of the probabilistic
     # losses. _dummy_metrics_pick_plot.py emits ``log_loss_macro`` /
     # ``log_loss_micro`` per split; without these the canonical lookup
@@ -350,6 +352,67 @@ def _register_builtin_multilabel():
 
 
 _register_builtin_multilabel()
+
+
+def _register_builtin_classification():
+    """Scalar ordinal-agreement + proper-scoring metrics for single-label targets.
+
+    QWK / weighted_kappa need INTEGER predicted labels. The reporter passes the hard predictions
+    (preds_NK, equivalent to an argmax of the probabilities for these target types) alongside the
+    probability matrix, so both y_true and preds are joint-encoded to contiguous ``0..C-1`` ordinal
+    codes here (searchsorted over the sorted label union preserves numeric label order). exploss is
+    a binary proper scoring rule reading the positive-class probability column, so it is registered
+    for BINARY only; there is no canonical single-vector multiclass form.
+    """
+    import numpy as _np
+    from mlframe.metrics.classification import (
+        exploss as _exploss_fn,
+        quadratic_weighted_kappa as _qwk_fn,
+        weighted_kappa as _wk_fn,
+    )
+
+    def _encode_ordinal(y_true, preds):
+        yt = _np.asarray(y_true).ravel()
+        yp = _np.asarray(preds).ravel()
+        uniq = _np.unique(_np.concatenate([yt, yp]))
+        yt_code = _np.searchsorted(uniq, yt).astype(_np.int64)
+        yp_code = _np.searchsorted(uniq, yp).astype(_np.int64)
+        return yt_code, yp_code, int(uniq.shape[0])
+
+    def _qwk(y_true, probs_NK, preds_NK):
+        yt, yp, nc = _encode_ordinal(y_true, preds_NK)
+        return _qwk_fn(yt, yp, n_classes=nc)
+
+    def _wk(y_true, probs_NK, preds_NK):
+        yt, yp, nc = _encode_ordinal(y_true, preds_NK)
+        return _wk_fn(yt, yp, weights="linear", n_classes=nc)
+
+    def _exp(y_true, probs_NK, preds_NK):
+        probs = _np.asarray(probs_NK, dtype=_np.float64)
+        pos = probs[:, 1] if probs.ndim == 2 and probs.shape[1] >= 2 else probs.ravel()
+        yt = _np.asarray(y_true).ravel()
+        uniq = _np.unique(yt)
+        # Positive class = sklearn column-1 convention (second sorted label); probs[:, 1] aligns with it.
+        pos_label = uniq[1] if uniq.shape[0] > 1 else uniq[-1]
+        y_bin = (yt == pos_label).astype(_np.int64)
+        return _exploss_fn(y_bin, pos)
+
+    for _tt in (TargetTypes.BINARY_CLASSIFICATION, TargetTypes.MULTICLASS_CLASSIFICATION):
+        register_metric(
+            _tt, "quadratic_weighted_kappa", _qwk, higher_is_better=True,
+            description="Quadratic-weighted Cohen kappa on ordinal integer labels (hard preds); higher is better.",
+        )
+        register_metric(
+            _tt, "weighted_kappa", _wk, higher_is_better=True,
+            description="Linear-weighted Cohen kappa on ordinal integer labels (hard preds); higher is better.",
+        )
+    register_metric(
+        TargetTypes.BINARY_CLASSIFICATION, "exploss", _exp, higher_is_better=False,
+        description="Exponential proper scoring loss on the positive-class probability; lower is better.",
+    )
+
+
+_register_builtin_classification()
 
 
 def _register_builtin_multilabel_extras():

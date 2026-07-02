@@ -696,6 +696,36 @@ def report_probabilistic_model_perf(
                     float((arr * w).sum() / w_total) if w_total > 0 else float(arr.mean())
                 )
 
+    # Registered single-label classification scalars (quadratic_weighted_kappa / weighted_kappa /
+    # exploss from metrics_registry). Mirrors the multilabel dispatch below, but lands the values in
+    # the metrics dict so the suite reports them automatically for binary/multiclass targets. Each
+    # metric is isolated by iter_extra_metrics' own narrow try/except, so a degenerate class slice
+    # omits only that row (logged) rather than poisoning the report.
+    if not is_multilabel and probs is not None and getattr(probs, "ndim", 0) == 2:
+        _want_cls_log = print_report and logger.isEnabledFor(logging.INFO)
+        if metrics is not None or _want_cls_log:
+            try:
+                from ..configs import TargetTypes
+                from ..metrics_registry import iter_extra_metrics
+                _cls_tt = (
+                    TargetTypes.BINARY_CLASSIFICATION if probs.shape[1] == 2
+                    else TargetTypes.MULTICLASS_CLASSIFICATION
+                )
+                _cls_extra = list(iter_extra_metrics(_cls_tt, targets, probs, preds))
+                if metrics is not None:
+                    for _name, _val in _cls_extra:
+                        metrics[_name] = _val
+                if _want_cls_log and _cls_extra:
+                    _cls_lines = ["CLASSIFICATION METRICS:"]
+                    for _name, _val in _cls_extra:
+                        try:
+                            _cls_lines.append(f"\t{_name}={_val:.{report_ndigits}f}")
+                        except (TypeError, ValueError):
+                            _cls_lines.append(f"\t{_name}={_val}")
+                    logger.info("\n".join(_cls_lines))
+            except (ImportError, AttributeError, ValueError, TypeError) as e:
+                logger.debug("classification metrics registry skipped: %s", e)
+
     if print_report and logger.isEnabledFor(logging.INFO):
         # Logger.isEnabledFor gate: when verbose=0 / file handler filters out
         # INFO, the multilabel branch below would still pay sklearn's
