@@ -24,13 +24,15 @@ except ImportError:  # SciPy < 1.7 fallback
 import functools as _functools
 
 
-@_functools.lru_cache(maxsize=None)
+@_functools.lru_cache(maxsize=100_000)
 def _binom_test_cached(x_int: int, n: int, p: float, alternative: str = "two-sided"):
     """Memoized ``binom_test``: BorutaShap runs it per FEATURE per iteration (tens of thousands of
     calls on a wide frame), but ``(n, p, alternative)`` are fixed within a step and the hit count
     ``x`` is a small integer, so the distinct ``(x, n, p, alternative)`` set is tiny. Caching
     collapses ~36k per-call scipy ``binomtest`` constructions (profiled ~7s = 21% of a 299-feature
-    fit) to a handful -- bit-identical p-values."""
+    fit) to a handful -- bit-identical p-values. ``maxsize`` is bounded (not ``None``) so a
+    long-lived process that runs BorutaShap across many differently-sized frames cannot pin the
+    cache unbounded; 100k dwarfs the distinct-key count of any single fit, so hit rate is unaffected."""
     return binom_test(x_int, n=n, p=p, alternative=alternative)
 
 
