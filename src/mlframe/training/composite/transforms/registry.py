@@ -138,6 +138,18 @@ from ._causal_anchor import (
     _causal_anchor_residual_forward,
     _causal_anchor_residual_inverse,
 )
+from ._second_diff import (
+    _second_diff_domain,
+    _second_diff_fit,
+    _second_diff_forward,
+    _second_diff_inverse,
+)
+from ._rank_ecdf import (
+    _rank_ecdf_residual_domain,
+    _rank_ecdf_residual_fit,
+    _rank_ecdf_residual_forward,
+    _rank_ecdf_residual_inverse,
+)
 from .unary import (
     cbrt_y_domain as _cbrt_y_domain_raw,
     cbrt_y_fit as _cbrt_y_fit_raw,
@@ -808,6 +820,42 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "past it, cannot invert its sign). Pure-additive inverse (no beta), "
             "MLP-friendly. NOT in the default transform list -- reach it via "
             "explicit transforms=(..., 'causal_anchor_residual')."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "second_diff": Transform(
+        name="second_diff",
+        forward=_second_diff_forward,
+        inverse=_second_diff_inverse,
+        fit=_second_diff_fit,
+        domain_check=_second_diff_domain,
+        description=(
+            "T = y - 2*b1 + b2 with b1 the lag-1 anchor (base_prev) and b2 the "
+            "lag-2 anchor (base_prev2), supplied as a linear_residual_multi-style "
+            "(n, K) base (base_column=lag1 + extra_base_columns=[lag2]). Cancels "
+            "level AND linear drift of a doubly-integrated (I(2)) series that a "
+            "single diff leaves trending. Inverse y_hat = T_hat + 2*b1 - b2 is "
+            "pure-additive and in-range on real per-row lags; no fitted parameters. "
+            "A 1-D base degenerates to T = y - 2*b1. NOT in the default transform "
+            "list -- reach it via explicit transforms=(..., 'second_diff')."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "rank_ecdf_residual": Transform(
+        name="rank_ecdf_residual",
+        forward=_rank_ecdf_residual_forward,
+        inverse=_rank_ecdf_residual_inverse,
+        fit=_rank_ecdf_residual_fit,
+        domain_check=_rank_ecdf_residual_domain,
+        description=(
+            "Rank-space residual: T = ecdf_y(y) - ecdf_base(base) with the TRAIN "
+            "empirical CDFs; inverse y_hat = quantile_y(T_hat + ecdf_base(base)) "
+            "via the stored inverse-ECDF (quantile function) of y. Collapses any "
+            "monotone / heavy-tailed distortion where a linear_residual line leaves "
+            "structure and extrapolates on the tails; the quantile inverse cannot "
+            "leave the train y-support (out-of-support base/rank clamps to edge "
+            "knots). Train ECDF knots stored in fitted_params. NOT in the default "
+            "transform list -- reach it via explicit transforms=(..., 'rank_ecdf_residual')."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
     ),

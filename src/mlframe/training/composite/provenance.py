@@ -214,6 +214,10 @@ _TRANSFORM_DESCRIPTIONS: dict[str, str] = {
                                "per-group linear contribution of the base (James-Stein shrunk to global)"),
     "causal_anchor_residual": ("predicts the residual after subtracting a robust "
                               "shrink coefficient (clamped to [0,1]) times the base anchor"),
+    "second_diff": ("predicts the second difference of the target (level and linear "
+                    "drift removed via the lag-1 and lag-2 anchors)"),
+    "rank_ecdf_residual": ("predicts the empirical-CDF (rank-space) residual between "
+                          "target and base, robust to monotone / heavy-tailed distortion"),
     "quantile_residual": ("predicts the heteroscedasticity-standardised residual: "
                          "per-bin median removed then divided by per-bin IQR"),
     "monotonic_residual": ("predicts the residual after subtracting a fitted "
@@ -540,6 +544,21 @@ def _f_causal_anchor_residual(t: str, b: str, p: dict) -> tuple[str, str]:
     )
 
 
+def _f_second_diff(t: str, b: str, p: dict) -> tuple[str, str]:  # noqa: ARG001 - parameter-free algebra
+    # b1 = lag-1 anchor (base_prev), b2 = lag-2 anchor (base_prev2).
+    return (
+        f"T = {t} - 2*{b}_lag1 + {b}_lag2  (second difference; no fitted params)",
+        f"y_hat = T_hat + 2*{b}_lag1 - {b}_lag2",
+    )
+
+
+def _f_rank_ecdf_residual(t: str, b: str, p: dict) -> tuple[str, str]:  # noqa: ARG001 - knots stored, not scalar
+    return (
+        f"T = ecdf_y({t}) - ecdf_base({b})  (train empirical-CDF / rank space)",
+        f"y_hat = quantile_y(T_hat + ecdf_base({b}))  (inverse-ECDF of train y)",
+    )
+
+
 def _f_chain_linres_cbrt(t: str, b: str, p: dict) -> tuple[str, str]:
     bp = p.get("bivariate_params", {}) or {}
     alpha = _fmt(bp.get("alpha"))
@@ -622,6 +641,8 @@ _TRANSFORM_FORMULA_BUILDERS: dict[str, Any] = {
     "linear_residual_multi": _f_linear_residual_multi,
     "linear_residual_grouped": _f_linear_residual_grouped,
     "causal_anchor_residual": _f_causal_anchor_residual,
+    "second_diff": _f_second_diff,
+    "rank_ecdf_residual": _f_rank_ecdf_residual,
     "quantile_residual": _f_quantile_residual,
     "monotonic_residual": _f_monotonic_residual,
     "ewma_residual": _f_ewma_residual,
