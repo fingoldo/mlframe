@@ -318,7 +318,7 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z) -> np.ndarray:
     h_z, k_z = joint_entropy_gpu([_dz], [Kz], _inv_n)
     h_yz, k_yz = joint_entropy_gpu([_yzk], [Kyz], _inv_n)
     _precomp = (_dz, Kz, h_z, k_z, _yzk, Kyz, h_yz, k_yz)
-    joint_bytes = max(1, Kx * Kyz * 8)
+    joint_bytes = max(1, Kx * Kyz * 4)   # int32 counts (2026-07-02) -> the dense joint is half its old size
     try:
         free_b, _ = cp.cuda.runtime.memGetInfo()
     except Exception:

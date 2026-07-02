@@ -529,9 +529,9 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
         # Marginal MI(x_k; y), MM-corrected:  H(x)+H(y)-H(x,y) - (k_x+k_y-k_xy-1)/2n
         Ky = int(dy.max()) + 1 if dy.size else 1
         _assert_codes_in_range(dy, Ky, "batched_cmi_gpu y codes", codes_trusted)
-        cnt_xy = _batched_joint_counts2(X, dy, Kx, Ky).astype(cp.float64)   # (K, Kx*Ky), in-kernel flat key
+        cnt_xy = _batched_joint_counts2(X, dy, Kx, Ky)   # (K, Kx*Ky) int32; the reduce casts in-register
         h_xy, k_xy = _rows_entropy_and_k(cnt_xy, inv_n)
-        cnt_x = _batched_marginal_counts(X, Kx).astype(cp.float64)          # (K, Kx)
+        cnt_x = _batched_marginal_counts(X, Kx)          # (K, Kx) int32
         h_x, k_x = _rows_entropy_and_k(cnt_x, inv_n)
         h_y, k_y = joint_entropy_gpu([dy], [Ky], inv_n)                     # H(y): fused hist+entropy in ONE launch (same 2-launch fallback if it won't fit shared)
         # FUSED assembly: max(h_x - h_xy + h_y - (k_x - k_xy + (k_y-1))/2n, 0) in one (K,) launch.
@@ -574,14 +574,14 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
     if _fused is not None:
         h_xz, k_xz = _fused
     else:
-        cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz).astype(cp.float64)   # (K, Kx*Kz)
+        cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz)   # (K, Kx*Kz) int32
         h_xz, k_xz = _rows_entropy_and_k(cnt_xz, inv_n)
     # H(x_k, y, z) for all k: in-kernel flat key k*(Kx*Kyz) + x*Kyz + yz (same fuse; large Kyz -> fallback)
     _fused = _batched_joint_entropy_and_k2(X, yz, Kx, Kyz, inv_n)
     if _fused is not None:
         h_xyz, k_xyz = _fused
     else:
-        cnt_xyz = _batched_joint_counts2(X, yz, Kx, Kyz).astype(cp.float64) # (K, Kx*Kyz)
+        cnt_xyz = _batched_joint_counts2(X, yz, Kx, Kyz) # (K, Kx*Kyz) int32
         h_xyz, k_xyz = _rows_entropy_and_k(cnt_xyz, inv_n)
 
     # FUSED assembly: max(h_xz - h_xyz + (h_yz - h_z) - (k_xyz - k_xz + (k_z - k_yz))/2n, 0) in one (K,) launch.
