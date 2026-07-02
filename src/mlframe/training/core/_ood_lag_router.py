@@ -96,12 +96,24 @@ def build_ood_lag_router(
     ood = np.isfinite(lag_val) & ((lag_val < lo) | (lag_val > hi))
     n_ood = int(ood.sum())
     if n_ood < 50:
-        return trained  # too few out-of-range rows to matter -> keep the trained model
+        # Diagnostic: on a strong-AR target the groups where lag wins are often IN the train range (local AR dominates,
+        # not out-of-range extrapolation), so this range-based rule finds nothing to route. Log it so the trail is clear.
+        logger.info(
+            "[OODLagRouter] no routing: only %d/%d val row(s) have lag outside the train target range [%.4g, %.4g] "
+            "(the lag-wins groups here are in-range / local-AR-dominated, not out-of-range extrapolation).",
+            n_ood, yv.size, lo, hi,
+        )
+        return trained
     routed_val = raw_val.copy()
     routed_val[ood] = lag_val[ood]
     rmse_raw = _rmse(yv, raw_val)
     rmse_routed = _rmse(yv, routed_val)
     if not (np.isfinite(rmse_raw) and np.isfinite(rmse_routed)) or rmse_routed >= rmse_raw:
+        logger.info(
+            "[OODLagRouter] no routing: %d/%d out-of-range val row(s) found, but routing them to lag does not improve "
+            "val RMSE (raw=%.4g, routed=%.4g); keeping the trained model.",
+            n_ood, yv.size, rmse_raw, rmse_routed,
+        )
         return trained  # routing does not help on the honest val split -> deploy the trained model alone
 
     logger.warning(
