@@ -95,8 +95,10 @@ def _eigvecs_from_graph(W: sp.csr_matrix, n_eigvecs: int) -> tuple[np.ndarray, n
         full_eigvals, full_eigvecs = np.linalg.eigh(A_dense)
         eigvals_A = full_eigvals[-k_needed:]
         eigvecs_A = full_eigvecs[:, -k_needed:]
-    # Sort descending (largest eigval of A = smallest of L = trivial first).
-    order = np.argsort(-eigvals_A)
+    # Sort descending (largest eigval of A = smallest of L = trivial first). kind="stable" gives a
+    # deterministic index tiebreak for DEGENERATE (tied) eigenvalues -- common for graph Laplacians -- so
+    # which eigenvector becomes feature-k does not drift on tied eigenvalues.
+    order = np.argsort(-eigvals_A, kind="stable")
     eigvals_A = eigvals_A[order]
     eigvecs_A = eigvecs_A[:, order]
     # Skip the trivial constant eigvec (corresponds to eigval ~ 1 of A).

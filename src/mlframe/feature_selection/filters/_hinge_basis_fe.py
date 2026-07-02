@@ -274,6 +274,24 @@ def _detect_hinge_breakpoints(
     n = x.size
     if n != y.size or n < _HINGE_MIN_ROWS:
         return []
+    # DEVICE-RESIDENT detector (kernel-residency, 2026-07-02): under the STRICT-resident path the whole
+    # detection -- pre-check, the per-round QR + batched FWL cut scan, the held-out tau-validation -- runs on
+    # the GPU (see _hinge_detect_gpu_resident); only the found taus return. Identical math + guards; device FP
+    # differs ~1e-12, far below the tau-selection scale -> selection-equivalent (F2 + hinge suite verified).
+    # ``None`` (non-strict / no cupy / any cupy fault) -> the exact host detector below, byte-identical.
+    try:
+        from ._hinge_detect_gpu_resident import detect_hinge_breakpoints_gpu, hinge_gpu_enabled
+        if hinge_gpu_enabled():
+            _dev = detect_hinge_breakpoints_gpu(
+                x, y, max_breakpoints=max_breakpoints, min_heldout_r2_uplift=min_heldout_r2_uplift,
+                precheck_qs=_HINGE_PRECHECK_QS, precheck_min_sse_drop=_HINGE_PRECHECK_MIN_SSE_DROP,
+                cand_q_lo=_HINGE_CAND_Q_LO, cand_q_hi=_HINGE_CAND_Q_HI, n_candidates=_HINGE_N_CANDIDATES,
+                min_rows=_HINGE_MIN_ROWS, min_seg_rows=_HINGE_MIN_SEG_ROWS,
+            )
+            if _dev is not None:
+                return _dev
+    except Exception:
+        pass
     finite = np.isfinite(x) & np.isfinite(y)
     if not finite.all():
         x = x[finite]

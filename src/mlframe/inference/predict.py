@@ -48,7 +48,9 @@ def _verify_sidecar(path: str) -> bool:
 
 def _load_features_file(features_file: str):
     """Prefer orjson-based sidecar (``features_file + '.json'`` or a ``.json`` twin),
-    fall back to joblib. Returns a list[str] or None on failure.
+    fall back to joblib. Returns a list[str], or None when no features file / sidecar is present
+    or the sha256 sidecar mismatches. Malformed sidecar JSON propagates the decode error -- the
+    sole caller, ``read_trained_models``, wraps this call in try/except and logs a warning.
     """
     json_candidates = []
     base, ext = splitext(features_file)
@@ -113,17 +115,20 @@ def read_trained_models(
     allowed = frozenset(e.lower() for e in allowed_extensions) if allowed_extensions is not None else _ALLOWED_MODEL_EXTENSIONS
 
     fpath = join(inference_folder, featureset)
-    if trusted_root is not None:
-        abs_root = os.path.abspath(trusted_root)
-        abs_fpath = os.path.abspath(fpath)
-        try:
-            common = os.path.commonpath([abs_root, abs_fpath])
-        except ValueError as e:
-            # Wave 41 (2026-05-20): preserve the original ValueError ("Paths don't have the same drive"
-            # on Windows) via `from e` so cross-drive root mismatches don't masquerade as path-traversal.
-            raise ValueError(f"Path {abs_fpath} is not inside trusted_root {abs_root}") from e
-        if common != abs_root:
-            raise ValueError(f"Path {abs_fpath} is not inside trusted_root {abs_root}")
+    # Containment check runs ALWAYS: when the caller passes no trusted_root, default it to
+    # inference_folder so a malicious featureset ("../.." or an absolute path) cannot escape and make
+    # read_trained_models joblib.load an arbitrary pickle. The intended model dir is always inside
+    # inference_folder, so this never rejects a legitimate call.
+    abs_root = os.path.abspath(trusted_root if trusted_root is not None else inference_folder)
+    abs_fpath = os.path.abspath(fpath)
+    try:
+        common = os.path.commonpath([abs_root, abs_fpath])
+    except ValueError as e:
+        # preserve the original ValueError ("Paths don't have the same drive" on Windows) via `from e`
+        # so cross-drive root mismatches don't masquerade as path-traversal.
+        raise ValueError(f"Path {abs_fpath} is not inside trusted_root {abs_root}") from e
+    if common != abs_root:
+        raise ValueError(f"Path {abs_fpath} is not inside trusted_root {abs_root}")
     if not isdir(fpath):
         return models, X
 

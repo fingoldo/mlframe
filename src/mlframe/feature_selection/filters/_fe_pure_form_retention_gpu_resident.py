@@ -205,7 +205,12 @@ def adds_nonlinear_value_batch_gpu_resident(
                 beta, *_ = cp.linalg.lstsq(Xc, fc, rcond=None)
                 pred = fbar + Xc @ beta
                 resid = fv - pred
-                resid_std = float(resid.std())     # scalar D2H (bounded), matches CPU np.std(resid)
+                # The three post-lstsq gate scalars (std(resid), ss of centered resid, resid.y_rel dot) read
+                # back in ONE D2H instead of three sequential float() syncs. Same values, just coalesced; the
+                # host-side gates below are unchanged (resid_std == cp.std(resid), not derived, to stay exact).
+                rc = resid - resid.mean()
+                _st = cp.asnumpy(cp.stack([resid.std(), cp.dot(rc, rc), cp.dot(rc, yc_rel)]))
+                resid_std = float(_st[0]); ss_rc = float(_st[1]); num = float(_st[2])
                 # (a) non-separable gate.
                 if resid_std < min_resid_frac * f_std:
                     out[j] = False
@@ -215,12 +220,9 @@ def adds_nonlinear_value_batch_gpu_resident(
                 if resid_std < 1e-12 or y_std < 1e-12 or ss_yrel <= 0.0:
                     out[j] = False
                     continue
-                rc = resid - resid.mean()
-                ss_rc = float(cp.dot(rc, rc))      # scalar; bounded
                 if ss_rc <= 0.0:
                     out[j] = False
                     continue
-                num = float(cp.dot(rc, yc_rel))    # scalar; bounded
                 denom = float(np.sqrt(ss_rc * ss_yrel))
                 corr = abs(num / denom) if denom > 0.0 and np.isfinite(num / denom) else 0.0
                 out[j] = corr >= min_resid_corr

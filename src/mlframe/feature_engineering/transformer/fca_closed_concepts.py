@@ -54,7 +54,10 @@ def compute_fca_closed_concepts_features(
             lattice = ctx.lattice
             # Concepts: take top K by extent size (most common)
             all_concepts = [(c.extent, c.intent) for c in lattice if 0 < len(c.extent) < n_sample]
-            all_concepts.sort(key=lambda x: -len(x[0]))
+            # Secondary content key (the intent tuple) so equal-extent-size concepts break ties by content,
+            # not by the `concepts` lib's lattice iteration order -- otherwise the top_k selection could
+            # depend on a library-internal ordering rather than the data.
+            all_concepts.sort(key=lambda x: (-len(x[0]), tuple(sorted(x[1]))))
             top_concepts = all_concepts[:top_k]
         except Exception:
             top_concepts = []

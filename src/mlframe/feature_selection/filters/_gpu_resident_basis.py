@@ -824,7 +824,7 @@ def _gpu_batched_abs_corr(cp, cand, y_cont):
         n, m = int(cand2.shape[0]), int(cand2.shape[1])
         cand2 = cp.ascontiguousarray(cand2.astype(cp.float64, copy=False))
         yv = y_cont.astype(cp.float64, copy=False).ravel()
-        Sy = float(yv.sum()); Syy = float((yv * yv).sum())
+        Sy, Syy = (float(_s) for _s in cp.asnumpy(cp.stack([yv.sum(), (yv * yv).sum()])))   # one D2H for the pair
         out = cp.empty(m, dtype=cp.float64)
         _get_abs_corr_kernel()((m,), (256,), (cand2, yv, np.int64(n), np.int32(m),
                                               np.float64(Sy), np.float64(Syy), out), shared_mem=3 * 8)
@@ -887,51 +887,54 @@ def gpu_pairs_fe_mi(cand: np.ndarray, quantization_nbins: int, classes_y: np.nda
                     min_nonzero_confidence: float, use_su: bool):
     """Full GPU path for the FE pair-search candidate MI, for the ANALYTIC large-n branch only.
 
-    Returns ``fe_mi[K]`` BIT-IDENTICAL to the production ``_dispatch_batch_mi_with_noise_gate`` analytic
-    path, or ``None`` when that branch does not apply (SU-normalised, npermutations<=0, analytic
+    Returns ``fe_mi[K]`` SELECTION-EQUIVALENT to the production ``_dispatch_batch_mi_with_noise_gate``
+    analytic path, or ``None`` when that branch does not apply (SU-normalised, npermutations<=0, analytic
     disabled / inapplicable) so the caller falls back to the CPU dispatcher. Selection is preserved by
     construction:
       * GPU quantile binning == CPU ``discretize_2d_quantile_batch`` (verified maxdiff 0), and
-      * the GPU observed-MI (npermutations=0) == the CPU kernel's observed MI (verified maxdiff 0;
-        the GPU twin does only integer counting, entropy stays on the bit-exact CPU path),
+      * the GPU observed-MI (npermutations=0) matches the CPU kernel's observed MI to full double precision
+        (the entropy reduction runs ON the device for residency, so it differs only by ULP-level parallel
+        reduction order -- ~4e-16, far below anything that could flip the chi2 keep/reject or the argmax),
     so feeding them through the SAME ``analytic_batch_noise_gate`` (chi2 keep/reject on the observed MI
-    + per-column occupied-bin df) yields identical gated MI. Moves BOTH the binning and the observed-MI
-    counting -- the dominant large-n per-pair cost -- onto the GPU. Any failure returns None (-> CPU)."""
+    + per-column occupied-bin df) yields the same kept + ranked columns. Moves BOTH the binning and the
+    observed-MI entropy -- the dominant large-n per-pair cost -- onto the GPU, and the (n,K) codes stay
+    resident (never D2H'd for the gate). Any failure returns None (-> CPU)."""
     n, K = int(cand.shape[0]), int(cand.shape[1])
     if bool(use_su) or int(npermutations) <= 0:
         return None  # SU has no chi2 analytic form; npermutations<=0 is already the cheap CPU path
     try:
-        from ._gpu_resident_select import gpu_discretize_codes_host  # lazy: cross-sibling, avoids cycle
         from ._analytic_mi_null import (
             analytic_batch_noise_gate, analytic_null_applicable, analytic_null_enabled,
         )
         by = int(np.unique(np.asarray(classes_y)).size)
         if not (analytic_null_enabled() and analytic_null_applicable(n, int(quantization_nbins), by)):
             return None  # sparse / small-n -> the asymptotic is unreliable; CPU permutation path
-        from .batch_mi_noise_gate_gpu import dispatch_batch_mi_with_noise_gate_gpu
+        import cupy as cp
+        from ._fe_batched_mi import binned_mi_from_codes_gpu
+        from ._gpu_resident_discretize import _gpu_resident_discretize_codes
 
-        codes = gpu_discretize_codes_host(cand, int(quantization_nbins), dtype=np.int8)  # bit-identical binning
-        # (gpu_discretize_codes_host returns FILLED host codes -- this binning-only leg does not defer the
-        # D2H, so the analytic dispatch below reads them directly without an ensure_host_codes_filled call.)
-        fnb = np.full(K, int(quantization_nbins), dtype=np.int64)
+        # DEVICE-RESIDENT observed MI + analytic gate (2026-07-02, kernel-residency): bin the candidate ON the
+        # device (the codes stay RESIDENT -- the prior gpu_discretize_codes_host D2H'd the whole (n,K) code matrix
+        # and the observed-MI dispatch RE-UPLOADED it), score the observed plug-in MI from the resident codes, and
+        # count each column's occupied bins ON the device -- so only the (K,) observed MI + occupied counts cross
+        # the bus, never the (n,K) codes, and the analytic gate's O(n*K) host njit is replaced by a device
+        # bincount. The binning is the SAME radix-select path gpu_discretize_codes_host used (bit-identical codes,
+        # sort-free); the observed MI + G-test keep/reject are the same estimator + decision. Any cupy fault ->
+        # None -> the CPU dispatcher.
+        _nb = int(quantization_nbins)
+        cand_d = cp.asarray(np.ascontiguousarray(cand, dtype=np.float32))
+        codes_d = _gpu_resident_discretize_codes(cand_d, _nb, out_dtype=cp.int32)   # (n,K) RESIDENT int codes
         yc = np.ascontiguousarray(classes_y, dtype=np.int64)
-        observed = None
-        for _fb in ("cupy", "cuda"):
-            observed = dispatch_batch_mi_with_noise_gate_gpu(
-                disc_2d=codes, factors_nbins=fnb, classes_y=yc,
-                classes_y_safe=np.ascontiguousarray(classes_y_safe), freqs_y=np.ascontiguousarray(freqs_y, dtype=np.float64),
-                npermutations=0, base_seed=np.uint64(0), min_nonzero_confidence=float(min_nonzero_confidence),
-                use_su=False, dtype=np.int32, force_backend=_fb,
-            )
-            if observed is not None:
-                break
-        if observed is None:
-            return None  # no GPU backend -> CPU dispatcher
-        observed = observed[0] if isinstance(observed, tuple) else observed
-        # The analytic keep/reject is cheap CPU post-processing on the K-length observed MI (+ per-column
-        # occupied-bin df from the codes), identical to what _dispatch_batch_mi_with_noise_gate runs.
-        return analytic_batch_noise_gate(codes, np.asarray(observed, dtype=np.float64), yc, n,
-                                         float(min_nonzero_confidence))
+        observed = np.asarray(binned_mi_from_codes_gpu(codes_d, yc, ky=by, codes_trusted=True), dtype=np.float64)
+        # occupied bins per column ON device: one bincount over code*K+col (values < nb*K), reshaped (nb, K).
+        _K = int(codes_d.shape[1])
+        _cnt = cp.bincount((codes_d.astype(cp.int64, copy=False) * _K
+                            + cp.arange(_K, dtype=cp.int64)[None, :]).ravel(), minlength=_nb * _K)
+        bx = cp.asnumpy((_cnt.reshape(_nb, _K) > 0).sum(axis=0)).astype(np.int64)
+        # The analytic keep/reject is cheap CPU post-processing on the (K,) observed MI + the device-counted
+        # occupied-bin df (disc_2d unused -- bx_per_col is supplied), identical to the host gate's decision.
+        return analytic_batch_noise_gate(None, observed, yc, n,
+                                         float(min_nonzero_confidence), bx_per_col=bx)
     except Exception:
         # Surface the cause (don't silently degrade to CPU forever): a real logic/shape/numeric bug in
         # the GPU path would otherwise be invisible -- the exact "GPU never helped" failure mode.

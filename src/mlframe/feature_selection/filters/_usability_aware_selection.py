@@ -199,7 +199,27 @@ def build_usability_candidate_pool(
         def _pair_joint_mi(p):
             return float(marginal_mi_binned_fixed_y(_pj_codes[p[0]] * _nb + _pj_codes[p[1]], *y_terms))
 
-        _pj = {p: _pair_joint_mi(p) for p in pairs}
+        # DEVICE-BATCHED pair ranking (kernel-residency, 2026-07-02): under the resident strict path score ALL
+        # pair joint MIs in ONE fused device call (binned_mi_from_codes_gpu computes the SAME plain plug-in MI,
+        # no MM bias) instead of the per-pair host loop. The per-base codes are already the device binner's
+        # partition (host copies of the strict _quantile_bin route), so the joint codes are identical; the MI
+        # is snapped to the shared tie grid (the ~1e-15 device-vs-njit drift must not flip the hard
+        # top-max_pairs cut). Any cupy fault -> the exact host loop.
+        _pj = None
+        if _seleq and pairs:
+            try:
+                import cupy as _cp
+                from ._fe_batched_mi import binned_mi_from_codes_gpu
+                _base_dev = {nm: _cp.asarray(_pj_codes[nm]) for nm in base_names}
+                _joint = _cp.stack([_base_dev[a] * _nb + _base_dev[b] for a, b in pairs], axis=1)
+                _ky = int(np.asarray(y_codes).max()) + 1
+                _mis = np.asarray(binned_mi_from_codes_gpu(_joint, y_codes, ky=_ky, codes_trusted=True),
+                                  dtype=np.float64)
+                _pj = {p: quantize_mi_tiebreak(float(_mis[i])) for i, p in enumerate(pairs)}
+            except Exception:
+                _pj = None
+        if _pj is None:
+            _pj = {p: _mi_key(_pair_joint_mi(p)) for p in pairs}
         pairs.sort(key=lambda p: _pj[p], reverse=True)
         pairs = pairs[:max_pairs]
     else:

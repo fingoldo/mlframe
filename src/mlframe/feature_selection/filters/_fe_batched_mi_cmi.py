@@ -62,8 +62,79 @@ void rows_ent_nnz(const double* __restrict__ counts, const double inv_n, const i
     }
     if (tid == 0) { out_h[row] = -sh_h[0]; out_k[row] = (long long)(sh_k[0] + 0.5); }
 }
+// INT32-counts variant (bandwidth fix, 2026-07-02): nsys at the 1M fit put rows_ent_nnz at 9.35s (34% of
+// GPU time) reading float64 cells of a huge mostly-zero counts matrix, PLUS 2.2s of cupy_copy for the
+// int64->float64 .astype the callers did first. Counts are exact small ints (<= n < 2^31): read them as
+// int32 (4B/cell, no astype copy at all) and cast in-register -- identical entropy/nnz values, ~6x less
+// memory traffic (astype read8+write8 + reduce read8 -> reduce read4).
+extern "C" __global__
+void rows_ent_nnz_i32(const int* __restrict__ counts, const double inv_n, const int K, const long long M,
+                      double* __restrict__ out_h, long long* __restrict__ out_k) {
+    int row = blockIdx.x;
+    if (row >= K) return;
+    const int* cr = counts + (long long)row * M;
+    int tid = threadIdx.x;
+    double hloc = 0.0, kloc = 0.0;
+    for (long long i = tid; i < M; i += blockDim.x) {
+        int ci = cr[i];
+        if (ci > 0) { double p = (double)ci * inv_n; hloc += p * log(p); kloc += 1.0; }
+    }
+    __shared__ double sh_h[256];
+    __shared__ double sh_k[256];
+    sh_h[tid] = hloc; sh_k[tid] = kloc;
+    __syncthreads();
+    for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; }
+        __syncthreads();
+    }
+    if (tid == 0) { out_h[row] = -sh_h[0]; out_k[row] = (long long)(sh_k[0] + 0.5); }
+}
+// SPLIT-K variant (SM-occupancy fix, 2026-07-02): one-block-per-row leaves the GPU nearly EMPTY when the
+// perm chunk is narrow (K = 2-8 rows -> 2-8 blocks on a 6-SM card with ~48 block slots). Split each row's M
+// cells across gridDim.y segment blocks; each block writes its partial (sum, nnz) to a (K, S) scratch, and
+// the tiny finish kernel folds the S partials per row. Fixed S -> deterministic summation order (partials
+// folded in segment order) -> same ~1e-15 fp class as any tree-order change: selection-equivalent.
+extern "C" __global__
+void rows_ent_nnz_i32_split(const int* __restrict__ counts, const double inv_n, const int K,
+                            const long long M, const int S,
+                            double* __restrict__ part_h, double* __restrict__ part_k) {
+    int row = blockIdx.x;
+    int seg = blockIdx.y;
+    if (row >= K || seg >= S) return;
+    long long seg_len = (M + S - 1) / S;
+    long long lo = (long long)seg * seg_len;
+    long long hi = lo + seg_len; if (hi > M) hi = M;
+    const int* cr = counts + (long long)row * M;
+    int tid = threadIdx.x;
+    double hloc = 0.0, kloc = 0.0;
+    for (long long i = lo + tid; i < hi; i += blockDim.x) {
+        int ci = cr[i];
+        if (ci > 0) { double p = (double)ci * inv_n; hloc += p * log(p); kloc += 1.0; }
+    }
+    __shared__ double sh_h[256];
+    __shared__ double sh_k[256];
+    sh_h[tid] = hloc; sh_k[tid] = kloc;
+    __syncthreads();
+    for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (tid < s) { sh_h[tid] += sh_h[tid + s]; sh_k[tid] += sh_k[tid + s]; }
+        __syncthreads();
+    }
+    if (tid == 0) { part_h[row * S + seg] = sh_h[0]; part_k[row * S + seg] = sh_k[0]; }
+}
+extern "C" __global__
+void rows_ent_nnz_finish(const double* __restrict__ part_h, const double* __restrict__ part_k,
+                         const int K, const int S,
+                         double* __restrict__ out_h, long long* __restrict__ out_k) {
+    int row = (int)((long long)blockIdx.x * blockDim.x + threadIdx.x);
+    if (row >= K) return;
+    double h = 0.0, k = 0.0;
+    for (int s = 0; s < S; ++s) { h += part_h[row * S + s]; k += part_k[row * S + s]; }
+    out_h[row] = -h; out_k[row] = (long long)(k + 0.5);
+}
 """
 _ROWS_ENT_NNZ_KERNEL = None
+_ROWS_ENT_NNZ_I32_KERNEL = None
+_ROWS_ENT_NNZ_SPLIT_KERNELS = None
 
 
 def _get_rows_ent_nnz_kernel(cp):
@@ -71,6 +142,22 @@ def _get_rows_ent_nnz_kernel(cp):
     if _ROWS_ENT_NNZ_KERNEL is None:
         _ROWS_ENT_NNZ_KERNEL = cp.RawKernel(_ROWS_ENT_NNZ_SRC, "rows_ent_nnz")
     return _ROWS_ENT_NNZ_KERNEL
+
+
+def _get_rows_ent_nnz_i32_kernel(cp):
+    global _ROWS_ENT_NNZ_I32_KERNEL
+    if _ROWS_ENT_NNZ_I32_KERNEL is None:
+        _ROWS_ENT_NNZ_I32_KERNEL = cp.RawKernel(_ROWS_ENT_NNZ_SRC, "rows_ent_nnz_i32")
+    return _ROWS_ENT_NNZ_I32_KERNEL
+
+
+def _get_rows_ent_nnz_split_kernels(cp):
+    global _ROWS_ENT_NNZ_SPLIT_KERNELS
+    if _ROWS_ENT_NNZ_SPLIT_KERNELS is None:
+        mod = cp.RawModule(code=_ROWS_ENT_NNZ_SRC)
+        _ROWS_ENT_NNZ_SPLIT_KERNELS = (mod.get_function("rows_ent_nnz_i32_split"),
+                                       mod.get_function("rows_ent_nnz_finish"))
+    return _ROWS_ENT_NNZ_SPLIT_KERNELS
 
 
 def _rows_entropy_and_k(counts, inv_n):
@@ -84,15 +171,32 @@ def _rows_entropy_and_k(counts, inv_n):
 
     global _XLOGX_ROWS_EK
     try:
-        c = counts if counts.dtype == cp.float64 else counts.astype(cp.float64)
-        c = cp.ascontiguousarray(c)
+        # int32 counts: fused in-register cast (rows_ent_nnz_i32) -- no float64 astype copy, 4B/cell reads.
+        if counts.dtype == cp.int32:
+            c = cp.ascontiguousarray(counts)
+            _ker = _get_rows_ent_nnz_i32_kernel(cp)
+        else:
+            c = cp.ascontiguousarray(counts if counts.dtype == cp.float64 else counts.astype(cp.float64))
+            _ker = _get_rows_ent_nnz_kernel(cp)
         K = int(c.shape[0])
         M = int(c.shape[1]) if c.ndim > 1 else int(c.size)
         out_h = cp.empty(K, dtype=cp.float64)
         out_k = cp.empty(K, dtype=cp.int64)
         threads = 256
-        _get_rows_ent_nnz_kernel(cp)((K,), (threads,),
-                                     (c, float(inv_n), np.int32(K), np.int64(M), out_h, out_k))
+        # SPLIT-K when the one-block-per-row grid cannot fill the SMs (narrow perm chunk, huge M): a 6-SM card
+        # runs ~48 resident blocks, so K < ~48 with a multi-million-cell M leaves most SMs idle for the whole
+        # 15-30ms reduction. Split each row's M cells across S segment blocks (K*S ~ a few hundred blocks) +
+        # a tiny finish fold. Only for the int32 huge-M perm-null case; small-M / large-K keeps one launch.
+        if counts.dtype == cp.int32 and K < 48 and M >= (1 << 20):
+            S = max(2, min(64, (48 + K - 1) // max(1, K)))
+            _split, _finish = _get_rows_ent_nnz_split_kernels(cp)
+            part_h = cp.empty(K * S, dtype=cp.float64)
+            part_k = cp.empty(K * S, dtype=cp.float64)
+            _split((K, S), (threads,),
+                   (c, float(inv_n), np.int32(K), np.int64(M), np.int32(S), part_h, part_k))
+            _finish(((K + 255) // 256,), (256,), (part_h, part_k, np.int32(K), np.int32(S), out_h, out_k))
+            return out_h, out_k
+        _ker((K,), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), out_h, out_k))
         return out_h, out_k
     except Exception:  # noqa: BLE001
         if _XLOGX_ROWS_EK is None:
@@ -155,6 +259,32 @@ void batched_joint_hist1(const long long* __restrict__ X, const int Kx, const lo
     long long xv = X[row * (long long)K + col];
     atomicAdd((unsigned long long*)&counts[col * (long long)Kx + xv], 1ULL);
 }
+// INT32-counts twins (bandwidth fix, 2026-07-02): the counts are exact cell frequencies <= n < 2^31, so
+// int32 atomics halve both the memset (cp.zeros) and the entropy-reduce traffic of the huge mostly-zero
+// (K, Kx*Kb) buffer, and HALVE its VRAM -> the perm-null fits 2x the perms per chunk. Identical counts.
+extern "C" __global__
+void batched_joint_hist2_i32(const long long* __restrict__ X, const long long* __restrict__ b,
+                             const int Kx, const int Kb, const long long n, const int K,
+                             int* __restrict__ counts) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (t >= total) return;
+    int col = (int)(t % (long long)K);
+    long long row = t / (long long)K;
+    long long xv = X[row * (long long)K + col];
+    atomicAdd(&counts[(col * (long long)Kx + xv) * Kb + b[row]], 1);
+}
+extern "C" __global__
+void batched_joint_hist1_i32(const long long* __restrict__ X, const int Kx, const long long n, const int K,
+                             int* __restrict__ counts) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (t >= total) return;
+    int col = (int)(t % (long long)K);
+    long long row = t / (long long)K;
+    long long xv = X[row * (long long)K + col];
+    atomicAdd(&counts[col * (long long)Kx + xv], 1);
+}
 // OCCUPIED-CELL count in the SAME pass as the histogram: atomicAdd returns the OLD value, so a cell's
 // 0 -> 1 transition (first sample landing there) is detected race-free and bumps a single global nnz
 // counter. ONE launch yields the cardinality joint_cardinalities_cupy needs -- no separate _nnz reduction.
@@ -202,7 +332,9 @@ def _get_batched_joint_hist_kernels():
         import cupy as cp
         mod = cp.RawModule(code=_JOINT_HIST_SRC)
         _BATCHED_JOINT_HIST_KERNELS = (mod.get_function("batched_joint_hist1"),
-                                       mod.get_function("batched_joint_hist2"))
+                                       mod.get_function("batched_joint_hist2"),
+                                       mod.get_function("batched_joint_hist1_i32"),
+                                       mod.get_function("batched_joint_hist2_i32"))
     return _BATCHED_JOINT_HIST_KERNELS
 
 
@@ -217,8 +349,10 @@ def _batched_joint_counts2(X, b, Kx, Kb):
     # 1M rows) and stays pinned all fit -> on a 4GB GTX 1050 Ti it starves the resident mempool and REGRESSES
     # wall (~122s -> ~132s). The .fill(0) of 2.5GB also costs ~the same as cp.zeros' memset, so the only saving
     # was the (warm-pool-cheap) malloc. Keep cp.zeros so this large buffer is returned to the pool after use.
-    counts = cp.zeros(int(K) * int(Kx) * int(Kb), dtype=cp.int64)
-    _, h2 = _get_batched_joint_hist_kernels()
+    # int32 counts (2026-07-02 bandwidth fix): exact frequencies <= n < 2^31; halves the memset + the
+    # entropy-reduce traffic + the buffer VRAM (2x perms per perm-null chunk). Identical counts.
+    counts = cp.zeros(int(K) * int(Kx) * int(Kb), dtype=cp.int32)
+    h2 = _get_batched_joint_hist_kernels()[3]
     threads = 256
     blocks = (n * K + threads - 1) // threads
     h2((blocks,), (threads,), (X, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), counts))
@@ -231,8 +365,9 @@ def _batched_marginal_counts(X, Kx):
     import cupy as cp
 
     n, K = int(X.shape[0]), int(X.shape[1])
-    counts = cp.zeros(int(K) * int(Kx), dtype=cp.int64)
-    h1, _ = _get_batched_joint_hist_kernels()
+    # int32 counts: same bandwidth fix as _batched_joint_counts2 (identical counts, half the traffic).
+    counts = cp.zeros(int(K) * int(Kx), dtype=cp.int32)
+    h1 = _get_batched_joint_hist_kernels()[2]
     threads = 256
     blocks = (n * K + threads - 1) // threads
     h1((blocks,), (threads,), (X, np.int32(int(Kx)), np.int64(n), np.int32(K), counts))

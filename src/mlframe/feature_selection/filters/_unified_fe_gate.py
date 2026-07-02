@@ -64,11 +64,35 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
+_COERCE_Y_MEMO: dict = {}
+
+
 def _coerce_y_classes(y) -> np.ndarray:
     """Promote y to a dense int64 class array (binary / multiclass). Continuous
     y is quantile-binned into 10 bins so the plug-in classification MI estimator
-    still applies (mirrors the Layer 60 ``score_candidates_by_cmi`` contract)."""
+    still applies (mirrors the Layer 60 ``score_candidates_by_cmi`` contract).
+
+    Content-memoised wrapper: y is a fit-constant coerced by several independent gates per fit, each paying a
+    full-n ``np.unique`` sort / quantile bin. The content-signature hash is ~20x cheaper than the sort; a COPY
+    of the cached result is returned so a mutating caller cannot poison the cache. Bounded FIFO."""
     y_arr = np.asarray(y)
+    _key = None
+    try:
+        _key = (y_arr.shape, str(y_arr.dtype), hash(y_arr.tobytes()))
+        _hit = _COERCE_Y_MEMO.get(_key)
+        if _hit is not None:
+            return _hit.copy()
+    except Exception:
+        _key = None
+    _res = _coerce_y_classes_impl(y_arr)
+    if _key is not None:
+        if len(_COERCE_Y_MEMO) > 8:
+            _COERCE_Y_MEMO.pop(next(iter(_COERCE_Y_MEMO)))
+        _COERCE_Y_MEMO[_key] = _res.copy()
+    return _res
+
+
+def _coerce_y_classes_impl(y_arr: np.ndarray) -> np.ndarray:
     if np.issubdtype(y_arr.dtype, np.integer) or y_arr.dtype == bool:
         _, y_bin = np.unique(y_arr.astype(np.int64), return_inverse=True)
         return y_bin.astype(np.int64)

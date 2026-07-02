@@ -272,7 +272,7 @@ class HybridSelector:
         _, _counts = np.unique(_yv, return_counts=True)
         _strat = y if _counts.min() >= 2 else None
         Xtr, Xva, ytr, yva = train_test_split(X, y, test_size=0.3, random_state=self.random_state, stratify=_strat)
-        m = lgb.LGBMClassifier(n_estimators=200, num_leaves=31, learning_rate=0.06, n_jobs=-1, verbose=-1)
+        m = lgb.LGBMClassifier(n_estimators=200, num_leaves=31, learning_rate=0.06, n_jobs=-1, verbose=-1, random_state=self.random_state)
         m.fit(Xtr, ytr)
         pi = permutation_importance(m, Xva, yva, n_repeats=4, random_state=self.random_state, n_jobs=-1)
         # store the summed-per-repeat importance too (drives cluster_rep="sum_fi"); falls back to mean*n_repeats if the

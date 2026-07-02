@@ -157,6 +157,7 @@ def fit_binned_numeric_agg(
     stats: Sequence[str] = SUPPORTED_STATS, nbins_base: int = 10,
     n_folds: int = 5, random_state: int = 0,
     pairs: "Optional[set]" = None,
+    recipe_only: bool = False,
 ) -> tuple:
     """OOF fit of per-(quantile-cell) statistics of ``agg_num_cols`` grouped by quantile-binned ``group_num_cols``.
 
@@ -172,6 +173,12 @@ def fit_binned_numeric_agg(
 
     feat_cols: dict[str, np.ndarray] = {}
     recipes: dict[str, dict] = {}
+    # Per-agg-column caches, shared ACROSS group columns: the agg values / finite mask / GLOBAL stats depend
+    # only on ``acol`` yet were recomputed for every (gcol, acol) pair -- and ``_global_stat``'s scipy
+    # skew/kurtosis do several full-n passes each, so at 16 group columns the same column's globals ran up to
+    # 16x (the dominant host cost of the recipe fit at 1M rows). Bit-identical values, just computed once.
+    _av_cache: dict[str, tuple] = {}
+    _globals_cache: dict[tuple, dict] = {}
     for gcol in group_num_cols:
         gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)
         if not np.isfinite(gvals).all():
@@ -187,24 +194,41 @@ def fit_binned_numeric_agg(
                 continue
             if pairs is not None and (gcol, acol) not in pairs:
                 continue  # PRE-CAP: only compute OOF for the kept top-max_pairs (bit-identical output)
-            av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
-            finite = np.isfinite(av)
-            globals_ = {s: _global_stat(av[finite], s) for s in kept_stats}
-            oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
-            for f in range(int(n_folds)):
-                tr = (fold_ids != f) & finite
-                if not tr.any():
-                    continue
-                per = per_cell_stats_bincount(codes[tr], av[tr], n_cells, kept_stats)
-                test = np.where(fold_ids == f)[0]
-                ct = codes[test]
-                for s in kept_stats:
-                    vals = per[s][ct]
-                    oof[s][test] = np.where(np.isfinite(vals), vals, globals_[s])
+            _avc = _av_cache.get(acol)
+            if _avc is None:
+                av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
+                finite = np.isfinite(av)
+                _av_cache[acol] = (av, finite)
+            else:
+                av, finite = _avc
+            _gk = (acol, tuple(kept_stats))
+            globals_ = _globals_cache.get(_gk)
+            if globals_ is None:
+                globals_ = {s: _global_stat(av[finite], s) for s in kept_stats}
+                _globals_cache[_gk] = globals_
+            if not recipe_only:
+                # RECIPE_ONLY (device-born binagg, 2026-07-02) skips the 5-fold OOF feat-column build -- the
+                # per-fold gather + np.where over the full n rows, the FE scan's single largest GPU-idle host
+                # stage. The device-born path (binned_numeric_agg_with_recipes) fits recipes-only, gates on the
+                # device from those recipes, then builds the OOF for the FEW survivors -- so the OOF of the
+                # dropped candidates is never computed. The ``full`` per-cell lookup + globals (the recipe
+                # fields) are cheap 1-pass njit and are always built.
+                oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
+                for f in range(int(n_folds)):
+                    tr = (fold_ids != f) & finite
+                    if not tr.any():
+                        continue
+                    per = per_cell_stats_bincount(codes[tr], av[tr], n_cells, kept_stats)
+                    test = np.where(fold_ids == f)[0]
+                    ct = codes[test]
+                    for s in kept_stats:
+                        vals = per[s][ct]
+                        oof[s][test] = np.where(np.isfinite(vals), vals, globals_[s])
             full = per_cell_stats_bincount(codes[finite], av[finite], n_cells, kept_stats)
             for s in kept_stats:
                 name = engineered_name_binned_agg(acol, gcol, s)
-                feat_cols[name] = oof[s]
+                if not recipe_only:
+                    feat_cols[name] = oof[s]
                 lut = np.where(np.isfinite(full[s]), full[s], globals_[s]).astype(np.float64)
                 recipes[name] = {
                     "group_col": gcol, "agg_col": acol, "stat": s,
@@ -254,7 +278,9 @@ def _auto_detect_numeric_cols(X: pd.DataFrame, max_card_group: int = 10**9) -> l
         v = X[c].to_numpy()
         if not np.isfinite(np.asarray(v, dtype=np.float64)).all():
             continue
-        if np.unique(v).size < 2:
+        # non-constant check: min != max on an all-finite column == np.unique(v).size >= 2, without the
+        # full-n unique SORT (O(n) vs O(n log n); the sort was a measurable host sink at 1M x many columns).
+        if np.min(v) == np.max(v):
             continue
         out.append(c)
     return out
@@ -264,8 +290,36 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
     """Cheap MI(qbin(col); y_codes) via a bincount joint histogram -- the relevance proxy for GROUP pre-selection.
     A group column only helps if its quantile cells separate y; this scores exactly that in O(n)."""
     cv = np.asarray(col, dtype=np.float64)
-    if not np.isfinite(cv).all() or np.unique(cv).size < 2:
+    # min != max on an all-finite column == unique().size >= 2 without the full-n unique SORT.
+    if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
         return 0.0
+    # DEVICE route (STRICT-resident): the full-n np.quantile edges + searchsorted codes + bincount joint all
+    # run on the GPU; only the MI scalar returns. Same 'linear' percentile edges / joint counts -> the group
+    # pre-selection RANKING is unchanged (near-ULP). Any cupy fault -> the exact host path below.
+    try:
+        import os as _os
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        # No size gate under STRICT (user contract: 100% residency, no KTC-style size dispatch).
+        if (_os.environ.get("MLFRAME_FE_CHEAP_MI_GPU", "1").strip().lower() in ("1", "true", "on", "yes")
+                and fe_gpu_strict_resident_enabled()):
+            import cupy as cp
+            cvd = cp.asarray(cv)
+            qs = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
+            e_d = cp.unique(cp.quantile(cvd, cp.asarray(qs)))
+            if int(e_d.size) == 0:
+                return 0.0
+            xc_d = cp.searchsorted(e_d, cvd, side="right").astype(cp.int64)
+            yc_d = cp.asarray(np.ascontiguousarray(y_codes, dtype=np.int64))
+            na = int(xc_d.max()) + 1
+            nb = int(yc_d.max()) + 1
+            joint = cp.bincount(xc_d * nb + yc_d, minlength=na * nb).astype(cp.float64).reshape(na, nb)
+            pj = joint / cv.size
+            pa = pj.sum(axis=1, keepdims=True)
+            pb = pj.sum(axis=0, keepdims=True)
+            term = cp.where(pj > 0, pj * cp.log(pj / (pa * pb)), 0.0)
+            return float(cp.nansum(term))
+    except Exception:
+        pass
     edges = quantile_edges(cv, nbins)
     if edges.size == 0:
         return 0.0
@@ -339,48 +393,90 @@ def binned_numeric_agg_with_recipes(
         key=lambda p: (g_mi.get(p[0], 0.0), a_var.get(p[1], 0.0)), reverse=True,
     )
     _precap_pairs = set(_ranked_pairs[: max(1, int(max_pairs))])
-    feat_df, raw = fit_binned_numeric_agg(
-        X, y, group_num_cols=gsel, agg_num_cols=asel,
-        stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
-        pairs=_precap_pairs,
-    )
-    if feat_df.shape[1] == 0:
-        return X.copy(), [], []
-    # max_pairs cap on the (group, agg) pairs actually emitted, by descending group MI then agg variance.
+    # max_pairs cap on the (group, agg) pairs, by descending group MI then agg variance.
     pair_rank = {(g, a): (g_mi.get(g, 0.0), a_var.get(a, 0.0)) for g in gsel for a in asel}
-    names_by_pair = {}
-    for nm in feat_df.columns:
-        names_by_pair.setdefault((raw[nm]["group_col"], raw[nm]["agg_col"]), []).append(nm)
-    top_pairs = sorted(names_by_pair, key=lambda p: pair_rank.get(p, (0.0, 0.0)), reverse=True)[: max(1, int(max_pairs))]
-    keep = [nm for p in top_pairs for nm in names_by_pair[p]]
-    feat_df = feat_df[keep]
 
-    # PROBE-GATE: keep only columns clearing the local MI floor vs the raw baseline (cheap exit when no signal).
-    if mi_gate and feat_df.shape[1] > 0:
-        from ._unified_fe_gate import local_mi_gate
-        # DEVICE-BORN route (2026-06-30): under STRICT-residency the OOF feat_df is the ~192 MB host->device
-        # upload at this site. Rebuild the OOF candidate matrix ON the device from the small resident operand
-        # columns (the recipes carry each column's group/agg/edges/global) + the host-generated fold ids, and
-        # score with the SAME resident plug-in MI -- collapsing the matrix H2D. The fold/code/gather/fallback
-        # structure is bit-identical to the host; only the per-cell moment values differ at ULP (the approved
-        # selection-equivalent trade). ``None`` (no cupy / non-strict / any GPU failure) -> exact host gate.
-        survivor_list = None
+    def _cap_names(names, recipes_map):
+        nbp: dict = {}
+        for _nm in names:
+            nbp.setdefault((recipes_map[_nm]["group_col"], recipes_map[_nm]["agg_col"]), []).append(_nm)
+        _tops = sorted(nbp, key=lambda p: pair_rank.get(p, (0.0, 0.0)), reverse=True)[: max(1, int(max_pairs))]
+        return [_nm for p in _tops for _nm in nbp[p]]
+
+    # DEVICE-BORN binagg fit (2026-07-02): when the device MI gate is available, fit RECIPES-ONLY (skip the 5-fold
+    # OOF host loop -- the FE scan's largest GPU-idle host stage, ~5s at 1M rows), gate on the device from those
+    # recipes, then build the host OOF for the FEW survivors only. The device gate scores an OOF rebuilt ON-device
+    # from the recipes (it never reads host OOF values), so the survivor set -- and thus the survivor OOF the
+    # redundancy gate + the append consume -- is BYTE-IDENTICAL to fitting every candidate on the host; only the
+    # OOF of the DROPPED candidates is never computed. Any device-gate None / failure -> the exact host path below.
+    _device_binagg = False
+    if mi_gate:
         try:
             from ._gpu_strict_fe import fe_gpu_device_born_binagg_enabled
-            if fe_gpu_device_born_binagg_enabled():
-                from ._binned_numeric_agg_resident import local_mi_gate_binagg_resident
-                survivor_list = local_mi_gate_binagg_resident(
-                    feat_df, y, raw_X=X, recipes=raw, n_folds=n_folds, random_state=random_state,
-                    reject_sink=reject_sink,
-                )
+            _device_binagg = bool(fe_gpu_device_born_binagg_enabled())
+        except Exception:
+            _device_binagg = False
+
+    feat_df = None
+    raw = None
+    if _device_binagg:
+        _rec_df, raw = fit_binned_numeric_agg(
+            X, y, group_num_cols=gsel, agg_num_cols=asel,
+            stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
+            pairs=_precap_pairs, recipe_only=True,
+        )
+        if not raw:
+            return X.copy(), [], []
+        cand_names = _cap_names(list(raw.keys()), raw)
+        if not cand_names:
+            return X.copy(), [], []
+        survivor_list = None
+        try:
+            from ._binned_numeric_agg_resident import local_mi_gate_binagg_resident
+            survivor_list = local_mi_gate_binagg_resident(
+                None, y, raw_X=X, recipes={_nm: raw[_nm] for _nm in cand_names},
+                n_folds=n_folds, random_state=random_state, reject_sink=reject_sink,
+                cand_cols=cand_names, n_rows=len(X),
+            )
         except Exception:
             survivor_list = None
         if survivor_list is None:
-            survivor_list = local_mi_gate(feat_df, y, raw_X=X, reject_sink=reject_sink)
-        survivors = set(survivor_list)
-        feat_df = feat_df[[c for c in feat_df.columns if c in survivors]]
+            _device_binagg = False   # device gate unavailable -> host all-columns path below
+        else:
+            _surv_set = set(survivor_list)
+            survivors = [c for c in cand_names if c in _surv_set]   # capped order, filtered to survivors
+            if not survivors:
+                return X.copy(), [], []
+            # HOST OOF for the SURVIVOR pairs only (bit-identical values, few columns). The pair-restricted fit
+            # may emit sibling stats of a survivor's pair -> keep exactly the survivor columns, in survivor order.
+            _surv_pairs = set((raw[_nm]["group_col"], raw[_nm]["agg_col"]) for _nm in survivors)
+            feat_df, _ = fit_binned_numeric_agg(
+                X, y, group_num_cols=gsel, agg_num_cols=asel,
+                stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
+                pairs=_surv_pairs,
+            )
+            _have = set(feat_df.columns)
+            feat_df = feat_df[[c for c in survivors if c in _have]]
+            if feat_df.shape[1] == 0:
+                return X.copy(), [], []
+
+    if not _device_binagg:
+        # HOST path (unchanged behaviour): build ALL capped OOF columns, then the host CPU MI gate.
+        feat_df, raw = fit_binned_numeric_agg(
+            X, y, group_num_cols=gsel, agg_num_cols=asel,
+            stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
+            pairs=_precap_pairs,
+        )
         if feat_df.shape[1] == 0:
             return X.copy(), [], []
+        feat_df = feat_df[_cap_names(list(feat_df.columns), raw)]
+        # PROBE-GATE: keep only columns clearing the local MI floor vs the raw baseline (cheap exit if no signal).
+        if mi_gate and feat_df.shape[1] > 0:
+            from ._unified_fe_gate import local_mi_gate
+            survivors_set = set(local_mi_gate(feat_df, y, raw_X=X, reject_sink=reject_sink))
+            feat_df = feat_df[[c for c in feat_df.columns if c in survivors_set]]
+            if feat_df.shape[1] == 0:
+                return X.copy(), [], []
 
     # REDUNDANCY GATE: a ``binagg_*`` column ``stat(a | qbin(g))`` is a deterministic function of its source
     # columns ``(g, a)``. The Tier-1 MI floor above keeps it whenever MI(col; y) clears the raw noise floor,
@@ -427,6 +523,11 @@ def binned_numeric_agg_with_recipes(
         for nm in feat_df.columns:
             srcs = [c for c in (raw[nm].get("group_col"), raw[nm].get("agg_col")) if c in X.columns]
             z_joint = _renumber_joint(*[_src_bins(c) for c in srcs])[0] if srcs else None
+            # bench-attempt-rejected (2026-07-02): routing this binning through batched_quantile_bin_gpu (with a
+            # _renumber_joint_gpu joint) FAILED the redundancy suite -- its partition differs from _quantile_bin
+            # (a genuinely redundant binagg column survived). Unnecessary anyway: _quantile_bin itself already
+            # routes large columns to its device twin under the STRICT-resident path (size-gated
+            # _quantile_bin_gpu), so this gate's binning is device-backed without a partition change.
             cand_bin = _quantile_bin(feat_df[nm].to_numpy(dtype=np.float64), nbins=nbins_base)
             cmi = _cmi_from_binned(cand_bin, y_cls, z_joint)
             null_ceiling = 0.0

@@ -871,7 +871,24 @@ def _gpu_k_chunk(n: int, *, free_bytes: int | None = None,
     import cupy as cp
 
     if free_bytes is None:
-        free_bytes, _ = cp.cuda.runtime.memGetInfo()
+        # DEVICE-free ALONE is wrong when cupy's mempool holds the card (2026-07-02, gap-analysis root cause):
+        # cudaMemGetInfo reports ~0 device-free once the resident FE caches + operand tables have grown the
+        # pool to fill VRAM, yet the pool holds hundreds of MB of REUSABLE free blocks that this batch's
+        # (n, k_chunk) working set can allocate WITHOUT an OS request. Sizing on device-free alone collapsed
+        # k_chunk to 1 -> the materialise+bin loop ran ONE candidate per launch (measured 11,664 per-candidate
+        # launches + their host syncs = the dominant GPU-idle source). Add the pool's free capacity
+        # (total - used) so the budget reflects what can actually be allocated -> the loop batches again.
+        _dev_free, _dev_total = cp.cuda.runtime.memGetInfo()
+        try:
+            _mp = cp.get_default_memory_pool()
+            _pool_free = int(_mp.total_bytes()) - int(_mp.used_bytes())
+        except Exception:
+            _pool_free = 0
+        # Cap the pool-free contribution at a fraction of TOTAL VRAM so one batch's working set stays bounded
+        # (the full pool_free would size a multi-GB (n, k_chunk) allocation that churns the pool on this 4 GB
+        # card without shortening the host-bound wall). Enough to collapse the per-candidate loop to a handful
+        # of block launches, not enough to thrash. Adaptive (no hardcoded byte threshold).
+        free_bytes = int(_dev_free) + min(max(0, _pool_free), int(_dev_total * 0.25))
     frac = _gpu_k_chunk_vram_fraction(n) if vram_fraction is None else float(vram_fraction)
     frac = min(0.9, max(1e-3, frac))
     budget = max(1, int(free_bytes * frac))

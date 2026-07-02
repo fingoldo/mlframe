@@ -119,11 +119,13 @@ def _default_base_estimator():
     try:
         from lightgbm import LGBMRegressor
 
-        return LGBMRegressor(n_estimators=200, num_leaves=31, verbose=-1)
+        return LGBMRegressor(n_estimators=200, num_leaves=31, verbose=-1, random_state=0)
     except ImportError:
         from sklearn.ensemble import HistGradientBoostingRegressor
 
-        return HistGradientBoostingRegressor(max_iter=200)
+        # random_state pinned: HistGB early_stopping="auto" draws a random train/val split at n>10000,
+        # which would otherwise make the default composite base nondeterministic run-to-run.
+        return HistGradientBoostingRegressor(max_iter=200, random_state=0)
 
 
 def maybe_inject_distribution_driven_estimator(

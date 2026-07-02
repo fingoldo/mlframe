@@ -292,23 +292,31 @@ def clear_pinned_d2h() -> bool:
     The staging buffer is thread-local; this clears only the current thread's allocation (the only one it can safely
     reach). Returns True if a buffer was present and dropped, False otherwise.
     """
-    had = getattr(_PINNED_D2H_TLS, "buf", None) is not None
-    _PINNED_D2H_TLS.buf = None
+    had = bool(getattr(_PINNED_D2H_TLS, "bufs", None))
+    _PINNED_D2H_TLS.bufs = None
     return had
 
 
-def _pinned_view(n_bytes: int, shape, dtype):
+def _pinned_view(n_bytes: int, shape, dtype, slot: int = 0):
     """A pinned-host numpy view of at least ``n_bytes``, reshaped to ``shape`` (``dtype``). Reuses a
     THREAD-LOCAL pinned allocation, growing it on demand. Lets ``cupy.ndarray.get(out=...)`` DMA at full
     pinned PCIe bandwidth instead of cp.asnumpy's pageable bounce-buffer path. Thread-local (not a shared
     singleton) so concurrent GPU callers don't clobber each other's staging; module-level (not on an
-    estimator instance) -> never reachable from pickled state."""
+    estimator instance) -> never reachable from pickled state.
+
+    ``slot`` selects an independent buffer (default 0 = the historical single buffer). The async
+    DOUBLE-BUFFERED D2H pipeline alternates slots 0/1 so block k+1's copy can stream into one buffer while
+    block k's is still being drained into the caller's pageable array."""
     import cupy as cp
 
-    buf = getattr(_PINNED_D2H_TLS, "buf", None)
+    bufs = getattr(_PINNED_D2H_TLS, "bufs", None)
+    if bufs is None:
+        bufs = {}
+        _PINNED_D2H_TLS.bufs = bufs
+    buf = bufs.get(slot)
     if buf is None or buf.mem.size < n_bytes:
         buf = cp.cuda.alloc_pinned_memory(int(n_bytes))
-        _PINNED_D2H_TLS.buf = buf
+        bufs[slot] = buf
     count = int(np.prod(shape))
     return np.frombuffer(buf, dtype=dtype, count=count).reshape(shape)
 
@@ -691,6 +699,31 @@ def gpu_materialise_discretize_codes_host(
     # safe margin over the honest ~4 on the 4GB card; still 0.25*free VRAM-governed; per-column-independent
     # so codes are bit-identical regardless of chunk boundary.
     k_chunk = _gpu_k_chunk(n, bytes_per_elem=4, working_multiple=6, max_cols=K)
+    # ASYNC DOUBLE-BUFFERED float D2H (2026-07-02, max-GPU phase): the float-candidate readback used a
+    # SYNCHRONOUS cand.get(out=pinned) -- the host blocked until materialise AND the copy finished, THEN ran
+    # the 8-25 MB host memcpy, THEN launched the block's binning kernels; every block serialised
+    # [materialise -> D2H -> memcpy -> bin]. Now the copy is enqueued on a dedicated non-blocking COPY STREAM
+    # (after an event marking materialise completion) into one of two alternating pinned buffers, the binning
+    # kernels launch IMMEDIATELY (compute overlaps the PCIe transfer), and the PREVIOUS block's finished copy
+    # is drained into ``out_cand`` while THIS block's kernels run. Bit-identical bytes (same DMA, same
+    # memcpy); only the schedule changes. Falls back to the synchronous path on any stream/event fault.
+    _db_slot = 0
+    _db_pending = None      # (copy_done_event, pinned_view, col_slice, cand_ref)
+    _copy_stream = None
+    if out_cand is not None:
+        try:
+            _copy_stream = cp.cuda.Stream(non_blocking=True)
+        except Exception:
+            _copy_stream = None
+
+    def _drain_pending():
+        nonlocal _db_pending
+        if _db_pending is not None:
+            _pev, _phv, _psl, _pc = _db_pending
+            _pev.synchronize()
+            out_cand[:, _psl] = _phv
+            _db_pending = None
+
     for start in range(0, K, k_chunk):
         stop = min(start + k_chunk, K)
         # return_cm: capture the materialise kernel's pre-transpose (K, n) cm buffer so the binning step's
@@ -703,16 +736,37 @@ def gpu_materialise_discretize_codes_host(
             # Float candidate D2H for the downstream survivor/usability reads. Stage through a PERSISTENT
             # PINNED host buffer (full PCIe bandwidth) then host->host memcpy into the caller's pageable
             # slice -- 1.6x faster than cp.asnumpy's pageable bounce-buffer path even WITH the added memcpy
-            # (see _pinned_view note). Bit-identical bytes. Falls back to cp.asnumpy on any pinned-alloc
-            # failure (e.g. host pinned-memory exhaustion) so it can never regress correctness.
-            try:
-                hv = _pinned_view(cand.nbytes, cand.shape, cand.dtype)
-                cand.get(out=hv)
-                out_cand[:, start:stop] = hv
-            except Exception:
-                import logging
-                logging.getLogger(__name__).debug("pinned D2H staging failed; cp.asnumpy fallback", exc_info=True)
-                out_cand[:, start:stop] = cp.asnumpy(cand)
+            # (see _pinned_view note). Bit-identical bytes. ASYNC double-buffered when the copy stream is up
+            # (see the loop-head note): enqueue this block's copy, drain the previous one, keep going -- the
+            # binning below overlaps the transfer. Falls back to the synchronous path on any fault.
+            _done_async = False
+            if _copy_stream is not None:
+                try:
+                    hv = _pinned_view(cand.nbytes, cand.shape, cand.dtype, slot=_db_slot)
+                    _mat_done = cp.cuda.Event(disable_timing=True)
+                    _mat_done.record()                       # materialise finished on the default stream
+                    _copy_stream.wait_event(_mat_done)       # copy starts only after cand is fully written
+                    cand.get(out=hv, stream=_copy_stream, blocking=False)
+                    _cp_done = cp.cuda.Event(disable_timing=True)
+                    _cp_done.record(_copy_stream)
+                    _drain_pending()                         # previous block's copy -> out_cand (overlaps GPU)
+                    _db_pending = (_cp_done, hv, slice(start, stop), cand)   # cand kept alive until drained
+                    _db_slot ^= 1
+                    _done_async = True
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).debug("async D2H pipeline failed; sync fallback", exc_info=True)
+                    _copy_stream = None
+                    _drain_pending()
+            if not _done_async:
+                try:
+                    hv = _pinned_view(cand.nbytes, cand.shape, cand.dtype)
+                    cand.get(out=hv)
+                    out_cand[:, start:stop] = hv
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).debug("pinned D2H staging failed; cp.asnumpy fallback", exc_info=True)
+                    out_cand[:, start:stop] = cp.asnumpy(cand)
         # Bin the candidate RESIDENT at its native float32 (the FE buffer dtype) -- no f64 up-cast: the
         # cand already IS float32 (bit-equal to _materialise_chunk_njit), so binning in f32 removes a needless
         # cast AND halves the bandwidth-bound percentile sort, while preserving the FE selection. The exact
@@ -742,6 +796,7 @@ def gpu_materialise_discretize_codes_host(
             # Eager host fill (deferral off, or no resident copy): D2H this block's codes into ``out`` now.
             out[:, start:stop] = cp.asnumpy(codes_out)
         del cand, cand_cm, codes_gpu, codes_out
+    _drain_pending()    # last block's async float copy -> out_cand
     if dev_codes is not None:
         # Stash by the returned host array's identity so the dispatch can pick the device codes up without
         # the chunk path threading a new argument (see _RESIDENT_CODES_HANDOFF). Any consumer that is NOT

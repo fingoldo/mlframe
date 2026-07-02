@@ -138,8 +138,9 @@ void mi_from_values(const double* __restrict__ X, const double* __restrict__ edg
     int tid = threadIdx.x, nt = blockDim.x;
     for (int s = tid; s < M; s += nt) sh[s] = 0;
     __syncthreads();
-    for (long long i = tid; i < n; i += nt) {
-        double v = X[i * (long long)K + c];
+    const double* Xc = X + (long long)c * n;          // COLUMN-MAJOR (K,n): coalesced across threads (nvprof
+    for (long long i = tid; i < n; i += nt) {          // 2026-07-02: row-major X[i*K+c] was gld_efficiency 28.9%)
+        double v = Xc[i];
         int lo = 0, hi = ne;                          // upper_bound: count of interior edges <= v
         while (lo < hi) { int mid = (lo + hi) >> 1; if (edges[(long long)mid * K + c] <= v) lo = mid + 1; else hi = mid; }
         atomicAdd(&sh[lo * Ky + y[i]], 1);
@@ -163,8 +164,61 @@ void mi_from_values(const double* __restrict__ X, const double* __restrict__ edg
         mi_out[c] = mi > 0.0 ? mi : 0.0;
     }
 }
+// SPLIT-N variant (SM-occupancy fix, 2026-07-02): one block per column starves the 6-SM card when K is
+// narrow (nsys: 60/66 mi_from_values launches were K<=32 blocks, the giant 1.56s instances among them).
+// Phase A (grid (K,S)): each of S segment blocks bins+histograms its n-slice into a shared (nbins*Ky) tile,
+// then merges the tile into a global per-column (nbins*Ky) int counts buffer with one atomicAdd pass -> K*S
+// blocks fill the SMs. Phase B (grid (K,)): plug-in MI per column from the merged counts. Same bin codes
+// (same f64 edges, upper_bound) + same plug-in formula -> selection-equivalent to mi_from_values.
+extern "C" __global__
+void mi_hist_split(const double* __restrict__ X, const double* __restrict__ edges,
+                   const long long* __restrict__ y, const long long n, const int K,
+                   const int nbins, const int Ky, const int S, int* __restrict__ gcounts) {
+    extern __shared__ int sh[];
+    int c = blockIdx.x, seg = blockIdx.y;
+    if (c >= K || seg >= S) return;
+    int ne = nbins - 1, M = nbins * Ky, tid = threadIdx.x, nt = blockDim.x;
+    for (int s = tid; s < M; s += nt) sh[s] = 0;
+    __syncthreads();
+    long long seg_len = (n + S - 1) / S, lo = (long long)seg * seg_len, hi = lo + seg_len;
+    if (hi > n) hi = n;
+    const double* Xc = X + (long long)c * n;          // COLUMN-MAJOR (K,n): coalesced load (see mi_from_values)
+    for (long long i = lo + tid; i < hi; i += nt) {
+        double v = Xc[i];
+        int a = 0, b = ne;
+        while (a < b) { int mid = (a + b) >> 1; if (edges[(long long)mid * K + c] <= v) a = mid + 1; else b = mid; }
+        atomicAdd(&sh[a * Ky + y[i]], 1);
+    }
+    __syncthreads();
+    int* gc = gcounts + (long long)c * M;
+    for (int s = tid; s < M; s += nt) if (sh[s]) atomicAdd(&gc[s], sh[s]);
+}
+extern "C" __global__
+void mi_from_counts_col(const int* __restrict__ gcounts, const int K, const int nbins, const int Ky,
+                        const double inv_n, double* __restrict__ mi_out) {
+    int c = blockIdx.x;
+    if (c >= K) return;
+    const int* gc = gcounts + (long long)c * (nbins * Ky);
+    if (threadIdx.x != 0) return;                 // M = nbins*Ky ~ 100: single-thread reduce is trivial
+    double mi = 0.0;
+    for (int xx = 0; xx < nbins; ++xx) {
+        long long rx = 0;
+        for (int yy = 0; yy < Ky; ++yy) rx += gc[xx * Ky + yy];
+        if (rx == 0) continue;
+        double px = (double)rx * inv_n;
+        for (int yy = 0; yy < Ky; ++yy) {
+            long long nxy = gc[xx * Ky + yy];
+            if (nxy == 0) continue;
+            long long ry = 0;
+            for (int xx2 = 0; xx2 < nbins; ++xx2) ry += gc[xx2 * Ky + yy];
+            mi += (double)nxy * inv_n * log(((double)nxy * inv_n) / (px * ((double)ry * inv_n)));
+        }
+    }
+    mi_out[c] = mi > 0.0 ? mi : 0.0;
+}
 """
 _MI_FROM_VALUES_KERNEL = None
+_MI_SPLIT_KERNELS = None
 
 # FUSED VALUES->BIN->HIST->MILLER-MADOW-MI (2026-06-26). Same one-block-per-column fused bin+joint-hist as
 # mi_from_values, but emits the Miller-Madow-corrected MARGINAL MI matching _usability_njit_pool's
@@ -350,6 +404,14 @@ def _get_mi_from_values_kernel():
     return _MI_FROM_VALUES_KERNEL
 
 
+def _get_mi_split_kernels(cp):
+    global _MI_SPLIT_KERNELS
+    if _MI_SPLIT_KERNELS is None:
+        mod = cp.RawModule(code=_MI_FROM_VALUES_SRC)
+        _MI_SPLIT_KERNELS = (mod.get_function("mi_hist_split"), mod.get_function("mi_from_counts_col"))
+    return _MI_SPLIT_KERNELS
+
+
 def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, codes_trusted: bool = False) -> np.ndarray | None:
     """Plug-in MI(col_k; y) for an (n,K) float matrix ``x_vals`` binned by per-column ``interior_edges``
     ((nbins-1, K) cupy) in ONE fused RawKernel (bin + joint histogram + MI), replacing _searchsorted_codes
@@ -368,8 +430,33 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
         return None
     _assert_codes_in_range(yv, Ky, "binned_mi_from_values_gpu y codes", codes_trusted)
     mi_out = cp.empty(K, dtype=cp.float64)
-    _get_mi_from_values_kernel()((K,), (256,), (cp.ascontiguousarray(Xd), E, yv, np.int64(n), np.int32(K),
-                                              np.int32(int(nbins)), np.int32(Ky), np.float64(1.0 / float(max(1, n))), mi_out),
+    # COLUMN-MAJOR X for a COALESCED load (nvprof 2026-07-02: the row-major X[i*K+c] scan was gld_efficiency
+    # 28.9% -- strided by K). One coalesced tiled transpose to (K,n) feeds both the single + split kernels,
+    # which now index X[c*n+i] (consecutive threads -> consecutive addresses). The kernels' bin codes/MI are
+    # unchanged (same values, just a different read layout). Falls back to the row-major contiguous copy if the
+    # transpose can't apply (the kernels then need row-major -- but _transpose_to_cm only returns (K,n) here).
+    from ._gpu_resident_select import _transpose_to_cm
+    Xc = _transpose_to_cm(cp.ascontiguousarray(Xd))   # (K, n) C-order == column-major over the (n,K) matrix
+    _inv = np.float64(1.0 / float(max(1, n)))
+    # SPLIT-N when one-block-per-column can't fill the SMs (narrow K, big n): 60/66 of these launches were
+    # K<=32 blocks on a 6-SM card (nsys 2026-07-02) -> segment the n rows across S blocks/column into a merged
+    # global histogram, then a per-column MI pass. Same codes + plug-in MI -> selection-equivalent.
+    if K < 48 and n >= 262144:
+        try:
+            S = max(2, min(64, (48 + K - 1) // max(1, K)))
+            M = int(nbins) * Ky
+            gcounts = cp.zeros(K * M, dtype=cp.int32)
+            _hist, _mi = _get_mi_split_kernels(cp)
+            _hist((K, S), (256,),
+                  (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), np.int32(S), gcounts),
+                  shared_mem=M * 4)
+            _mi((K,), (32,), (gcounts, np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out))
+            return cp.asnumpy(mi_out)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).debug("mi split-n path failed; single-launch mi_from_values", exc_info=True)
+    _get_mi_from_values_kernel()((K,), (256,), (Xc, E, yv, np.int64(n), np.int32(K),
+                                              np.int32(int(nbins)), np.int32(Ky), _inv, mi_out),
                                  shared_mem=int(nbins) * Ky * 4)
     return cp.asnumpy(mi_out)
 
@@ -479,7 +566,7 @@ def cmi_device_argmax(mi_d: Any) -> tuple[int, float]:
 
 
 def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: bool = False, codes_trusted: bool = False,
-                    return_device: bool = False) -> Any:
+                    return_device: bool = False, precomp_yz: Any = None, kx: int = 0, ky: int = 0) -> Any:
     """Miller-Madow plug-in CMI(x_k; y | z) in nats for EVERY column of ``x_cols``, in ONE device workload.
 
     ``x_cols`` (n,K) int codes -- a host ndarray OR an already-resident cupy array (born-on-device codes
@@ -522,16 +609,23 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
         dy = resident_code_operand(np.asarray(y).ravel(), "cmi_y")
     nf = float(max(1, n))
     inv_n = 1.0 / nf
-    Kx = int(X.max()) + 1 if X.size else 1
+    # ``kx`` / ``ky`` (2026-07-02, scalar-sync kill): the histogram WIDTH upper bound. The codes are 0-based
+    # equi-frequency bins in [0, nbins-1] and the labels in [0, n_classes-1], so the caller knows the width
+    # (nbins / n_classes) -- pass it to SKIP the ``int(X.max())`` / ``int(dy.max())`` blocking device syncs (each
+    # drains the GPU queue ~ms; the kernel-timeline gap analysis put ~4,900 such scalar D2H as the dominant
+    # remaining GPU-idle source). A width >= the true occupied max is SELECTION-IDENTICAL: the extra trailing
+    # bins are always empty -> 0 count -> 0 entropy contribution, and the occupied-cell df (k_x) is counted
+    # separately (nnz), unchanged. kx/ky<=0 -> the original .max() sync (unknown-cardinality callers).
+    Kx = int(kx) if kx and kx > 0 else (int(X.max()) + 1 if X.size else 1)
     _assert_codes_in_range(X, Kx, "batched_cmi_gpu X codes", codes_trusted)
 
     if z is None or (hasattr(z, "size") and (z.size if isinstance(z, cp.ndarray) else np.asarray(z).size) == 0):
         # Marginal MI(x_k; y), MM-corrected:  H(x)+H(y)-H(x,y) - (k_x+k_y-k_xy-1)/2n
-        Ky = int(dy.max()) + 1 if dy.size else 1
+        Ky = int(ky) if ky and ky > 0 else (int(dy.max()) + 1 if dy.size else 1)
         _assert_codes_in_range(dy, Ky, "batched_cmi_gpu y codes", codes_trusted)
-        cnt_xy = _batched_joint_counts2(X, dy, Kx, Ky).astype(cp.float64)   # (K, Kx*Ky), in-kernel flat key
+        cnt_xy = _batched_joint_counts2(X, dy, Kx, Ky)   # (K, Kx*Ky) int32; the reduce casts in-register
         h_xy, k_xy = _rows_entropy_and_k(cnt_xy, inv_n)
-        cnt_x = _batched_marginal_counts(X, Kx).astype(cp.float64)          # (K, Kx)
+        cnt_x = _batched_marginal_counts(X, Kx)          # (K, Kx) int32
         h_x, k_x = _rows_entropy_and_k(cnt_x, inv_n)
         h_y, k_y = joint_entropy_gpu([dy], [Ky], inv_n)                     # H(y): fused hist+entropy in ONE launch (same 2-launch fallback if it won't fit shared)
         # FUSED assembly: max(h_x - h_xy + h_y - (k_x - k_xy + (k_y-1))/2n, 0) in one (K,) launch.
@@ -543,21 +637,29 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
 
     # z is ROUND-CONSTANT: when host, resident-cache it (one H2D per round, reused across candidate batches);
     # when already resident, use as-is. The shape+content fingerprint distinguishes successive rounds' z.
-    if isinstance(z, cp.ndarray):
-        dz = z.astype(cp.int64, copy=False).ravel()
+    # ``precomp_yz`` (2026-07-02, perm-null chunk hoist): the column-invariant y/z terms
+    # ``(dz, Kz, h_z, k_z, yz, Kyz, h_yz, k_yz)`` computed by a PRIOR call over the SAME (y, z). The perm-null's
+    # VRAM-chunked driver calls this per perm-chunk (down to 1 perm/chunk at the gate's huge joints), and each
+    # chunk re-derived the identical z entropies + yz key + the .max() syncs -- up to ~25 recomputes per null.
+    # The SAME values are reused verbatim -> bit-identical CMI; None (all other callers) is unchanged.
+    if precomp_yz is not None:
+        dz, Kz, h_z, k_z, yz, Kyz, h_yz, k_yz = precomp_yz
     else:
-        dz = resident_operand(np.asarray(z).ravel(), "cmi_z", dtype=np.int64)
-    Kz = int(dz.max()) + 1 if dz.size else 1
-    # Conditional path: y and z both index flat histograms (yz = dy*Kz+dz, then (x*Kyz+yz)); guard both.
-    Ky_cond = int(dy.max()) + 1 if dy.size else 1
-    _assert_codes_in_range(dy, Ky_cond, "batched_cmi_gpu y codes", codes_trusted)
-    _assert_codes_in_range(dz, Kz, "batched_cmi_gpu z codes", codes_trusted)
-    # shared y/z terms (column-invariant): fused hist+entropy in ONE launch each (same 2-launch fallback when
-    # the 1D joint won't fit shared) -- bit-identical to _ent_nnz_1d(joint_counts_gpu(...)).
-    h_z, k_z = joint_entropy_gpu([dz], [Kz], inv_n)
-    yz = dy * Kz + dz                      # dense (y,z) code (also feeds cnt_xyz below)
-    Kyz = int(yz.max()) + 1
-    h_yz, k_yz = joint_entropy_gpu([yz], [Kyz], inv_n)
+        if isinstance(z, cp.ndarray):
+            dz = z.astype(cp.int64, copy=False).ravel()
+        else:
+            dz = resident_operand(np.asarray(z).ravel(), "cmi_z", dtype=np.int64)
+        Kz = int(dz.max()) + 1 if dz.size else 1
+        # Conditional path: y and z both index flat histograms (yz = dy*Kz+dz, then (x*Kyz+yz)); guard both.
+        Ky_cond = int(dy.max()) + 1 if dy.size else 1
+        _assert_codes_in_range(dy, Ky_cond, "batched_cmi_gpu y codes", codes_trusted)
+        _assert_codes_in_range(dz, Kz, "batched_cmi_gpu z codes", codes_trusted)
+        # shared y/z terms (column-invariant): fused hist+entropy in ONE launch each (same 2-launch fallback when
+        # the 1D joint won't fit shared) -- bit-identical to _ent_nnz_1d(joint_counts_gpu(...)).
+        h_z, k_z = joint_entropy_gpu([dz], [Kz], inv_n)
+        yz = dy * Kz + dz                      # dense (y,z) code (also feeds cnt_xyz below)
+        Kyz = int(yz.max()) + 1
+        h_yz, k_yz = joint_entropy_gpu([yz], [Kyz], inv_n)
 
     # H(x_k, z) for all k. LAUNCH-FUSION: ONE block/column kernel (shared hist + tree-reduce) collapses the
     # atomicAdd-count + reduce into a single launch (drops the (K, Kx*Kz) f64 intermediate); falls back to the
@@ -566,14 +668,14 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
     if _fused is not None:
         h_xz, k_xz = _fused
     else:
-        cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz).astype(cp.float64)   # (K, Kx*Kz)
+        cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz)   # (K, Kx*Kz) int32
         h_xz, k_xz = _rows_entropy_and_k(cnt_xz, inv_n)
     # H(x_k, y, z) for all k: in-kernel flat key k*(Kx*Kyz) + x*Kyz + yz (same fuse; large Kyz -> fallback)
     _fused = _batched_joint_entropy_and_k2(X, yz, Kx, Kyz, inv_n)
     if _fused is not None:
         h_xyz, k_xyz = _fused
     else:
-        cnt_xyz = _batched_joint_counts2(X, yz, Kx, Kyz).astype(cp.float64) # (K, Kx*Kyz)
+        cnt_xyz = _batched_joint_counts2(X, yz, Kx, Kyz) # (K, Kx*Kyz) int32
         h_xyz, k_xyz = _rows_entropy_and_k(cnt_xyz, inv_n)
 
     # FUSED assembly: max(h_xz - h_xyz + (h_yz - h_z) - (k_xyz - k_xz + (k_z - k_yz))/2n, 0) in one (K,) launch.

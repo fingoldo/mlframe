@@ -72,7 +72,9 @@ def gpu_fe_batch_mi(
             # that already guarantee finite columns (e.g. the orth path's dense finite-filtered subset) pass
             # scrub=False to skip it entirely. Default True keeps the generic path safe on non-finite input.
             if scrub:
-                cp.nan_to_num(Xg, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                # In-place where(isfinite) not cp.nan_to_num(nan=0,...): nan_to_num runs cupy.isnan() on each
+                # scalar fill arg (a blocking D2H sync); Xg[...]= assigns elementwise in place, identical result.
+                Xg[...] = cp.where(cp.isfinite(Xg), Xg, cp.asarray(0.0, dtype=Xg.dtype))
             out[sl] = np.asarray(
                 _plugin_mi_classif_batch_cuda_resident(Xg, y_gpu, nbins, y_min=y_min, n_classes=n_classes,
                                                        keep_dtype=_f32)

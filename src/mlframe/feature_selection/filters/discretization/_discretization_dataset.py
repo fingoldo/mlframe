@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import threading
 from typing import Sequence
 
 import numpy as np
@@ -53,14 +54,19 @@ _NUMERIC_CODE_CACHE: "_OrderedDict[bytes, np.ndarray]" = _OrderedDict()
 # fit cannot pin unbounded RAM). Override via env. Default 512 MB.
 _NUMERIC_CODE_CACHE_MAX_BYTES = int(os.environ.get("MLFRAME_DISCRETIZE_COL_CACHE_MAX_BYTES", str(512 * 1024 * 1024)))
 _NUMERIC_CODE_CACHE_BYTES = 0
+# categorize_dataset runs under joblib backend="threading"; guard every mutation of the OrderedDict AND the
+# byte counter so concurrent workers cannot corrupt the dict (RuntimeError on concurrent mutation) or drift
+# the accounting. The expensive discretize kernel + blake2b hashing stay OUTSIDE the lock -> still parallel.
+_NUMERIC_CODE_CACHE_LOCK = threading.Lock()
 
 
 def clear_numeric_code_cache() -> int:
     """Drop the process-wide per-column unsupervised-discretization code cache; returns the entry count cleared."""
     global _NUMERIC_CODE_CACHE_BYTES
-    n = len(_NUMERIC_CODE_CACHE)
-    _NUMERIC_CODE_CACHE.clear()
-    _NUMERIC_CODE_CACHE_BYTES = 0
+    with _NUMERIC_CODE_CACHE_LOCK:
+        n = len(_NUMERIC_CODE_CACHE)
+        _NUMERIC_CODE_CACHE.clear()
+        _NUMERIC_CODE_CACHE_BYTES = 0
     return n
 
 
@@ -80,35 +86,44 @@ def _discretize_2d_array_col_cached(arr, *, n_bins, method, min_ncats, dtype, di
         return discretize_2d_array(arr=arr, n_bins=n_bins, method=method, min_ncats=min_ncats, min_values=None, max_values=None, dtype=dtype)
 
     _param_tag = repr((int(n_bins), str(method), int(min_ncats), np.dtype(dtype).str)).encode()
+    # Hash every column FIRST, outside the lock (blake2b over n_rows bytes is the costly part and needs no
+    # shared state), so concurrent threads hash in parallel.
     keys: list = []
-    out = np.empty((n_rows, n_cols), dtype=dtype)
-    uncached_cols: list = []
     for j in range(n_cols):
         col = np.ascontiguousarray(arr[:, j])
         h = hashlib.blake2b(col.tobytes(), digest_size=16)
         h.update(_param_tag)
-        k = h.digest()
-        keys.append(k)
-        hit = _NUMERIC_CODE_CACHE.get(k)
-        if hit is not None and hit.shape[0] == n_rows:
-            out[:, j] = hit
-            _NUMERIC_CODE_CACHE.move_to_end(k)
-        else:
-            uncached_cols.append(j)
+        keys.append(h.digest())
+
+    out = np.empty((n_rows, n_cols), dtype=dtype)
+    uncached_cols: list = []
+    with _NUMERIC_CODE_CACHE_LOCK:
+        for j in range(n_cols):
+            hit = _NUMERIC_CODE_CACHE.get(keys[j])
+            if hit is not None and hit.shape[0] == n_rows:
+                out[:, j] = hit
+                _NUMERIC_CODE_CACHE.move_to_end(keys[j])
+            else:
+                uncached_cols.append(j)
 
     if uncached_cols:
+        # Compute the uncached columns OUTSIDE the lock (the whole point of the threading backend).
         sub = np.ascontiguousarray(arr[:, uncached_cols])
         sub_codes = discretize_2d_array(arr=sub, n_bins=n_bins, method=method, min_ncats=min_ncats, min_values=None, max_values=None, dtype=dtype)
         _per_col_bytes = n_rows * np.dtype(dtype).itemsize
-        for _i, j in enumerate(uncached_cols):
-            col_codes = np.ascontiguousarray(sub_codes[:, _i])
-            out[:, j] = col_codes
-            if _per_col_bytes <= _NUMERIC_CODE_CACHE_MAX_BYTES:
-                _NUMERIC_CODE_CACHE[keys[j]] = col_codes
-                _NUMERIC_CODE_CACHE_BYTES += _per_col_bytes
-                while _NUMERIC_CODE_CACHE_BYTES > _NUMERIC_CODE_CACHE_MAX_BYTES and len(_NUMERIC_CODE_CACHE) > 1:
-                    _ek, _ev = _NUMERIC_CODE_CACHE.popitem(last=False)
-                    _NUMERIC_CODE_CACHE_BYTES -= _ev.shape[0] * _ev.dtype.itemsize
+        with _NUMERIC_CODE_CACHE_LOCK:
+            for _i, j in enumerate(uncached_cols):
+                col_codes = np.ascontiguousarray(sub_codes[:, _i])
+                out[:, j] = col_codes
+                # ``keys[j] not in cache`` guards the byte counter against a concurrent thread that
+                # recomputed the SAME column meanwhile (the stored array is bit-identical either way, but
+                # double-adding its bytes would drift the accounting and over-evict).
+                if _per_col_bytes <= _NUMERIC_CODE_CACHE_MAX_BYTES and keys[j] not in _NUMERIC_CODE_CACHE:
+                    _NUMERIC_CODE_CACHE[keys[j]] = col_codes
+                    _NUMERIC_CODE_CACHE_BYTES += _per_col_bytes
+                    while _NUMERIC_CODE_CACHE_BYTES > _NUMERIC_CODE_CACHE_MAX_BYTES and len(_NUMERIC_CODE_CACHE) > 1:
+                        _ek, _ev = _NUMERIC_CODE_CACHE.popitem(last=False)
+                        _NUMERIC_CODE_CACHE_BYTES -= _ev.shape[0] * _ev.dtype.itemsize
     return out
 
 

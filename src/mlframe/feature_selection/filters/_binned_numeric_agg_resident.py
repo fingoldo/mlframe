@@ -48,6 +48,8 @@ from typing import Any, Callable, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._resident_bincount import resident_bincount
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -77,19 +79,43 @@ def _per_cell_raw_moments_gpu(cp, codes_g, v_g, n_cells: int):
     nc = int(n_cells)
     x = v_g
     x2 = x * x
-    cnt = cp.bincount(codes_g, minlength=nc).astype(cp.float64)[:nc]
-    s1 = cp.bincount(codes_g, weights=x, minlength=nc).astype(cp.float64)[:nc]
-    s2 = cp.bincount(codes_g, weights=x2, minlength=nc).astype(cp.float64)[:nc]
-    s3 = cp.bincount(codes_g, weights=x2 * x, minlength=nc).astype(cp.float64)[:nc]
-    s4 = cp.bincount(codes_g, weights=x2 * x2, minlength=nc).astype(cp.float64)[:nc]
+    # resident_bincount: codes_g are joint cell ids in [0, nc) so the bin count is known -- skip cupy.bincount's
+    # per-call int(cupy.max) D2H sync (these 5 reductions were the largest single scalar-sync cluster in the trace).
+    cnt = resident_bincount(cp, codes_g, nc)
+    s1 = resident_bincount(cp, codes_g, nc, weights=x)
+    s2 = resident_bincount(cp, codes_g, nc, weights=x2)
+    s3 = resident_bincount(cp, codes_g, nc, weights=x2 * x)
+    s4 = resident_bincount(cp, codes_g, nc, weights=x2 * x2)
+    return cnt.astype(cp.float64, copy=False), s1, s2, s3, s4
+
+
+def _per_cell_raw_moments_masked_gpu(cp, codes_g, v_safe, w, n_cells: int):
+    """Per-cell raw moments over ONLY the rows where ``w != 0``, computed WITHOUT materialising a row index.
+
+    The gathered form ``_per_cell_raw_moments_gpu(codes[idx], v[idx])`` needs ``idx = cp.where(mask)`` -- a
+    blocking D2H sync to size the index. Instead scatter-add the FULL arrays with a 0/1 row weight ``w``:
+    an excluded row adds exactly ``0.0`` to its cell (floating-point identity), so the moments are ULP-identical
+    to the gathered version but no index / gather / sync is needed. ``v_safe`` MUST already be finite everywhere
+    (the caller zeroes non-finite entries once via ``cp.where(finite, v, 0.0)``) so that ``v_safe * w`` never
+    forms ``inf * 0 = nan`` on the excluded rows.
+    """
+    nc = int(n_cells)
+    x = v_safe
+    x2 = x * x
+    cnt = resident_bincount(cp, codes_g, nc, weights=w)
+    s1 = resident_bincount(cp, codes_g, nc, weights=x * w)
+    s2 = resident_bincount(cp, codes_g, nc, weights=x2 * w)
+    s3 = resident_bincount(cp, codes_g, nc, weights=x2 * x * w)
+    s4 = resident_bincount(cp, codes_g, nc, weights=x2 * x2 * w)
     return cnt, s1, s2, s3, s4
 
 
-def _per_cell_stats_gpu(cp, codes_g, v_g, n_cells: int, stats: Sequence[str]) -> dict:
-    """Device twin of ``per_cell_stats_bincount``: per-cell ``{stat: cupy(n_cells)}`` from ``cp.bincount`` raw
-    moments. Empty cells -> NaN (caller substitutes the global). Same arithmetic FORM as the host (so the WHERE
-    structure / NaN placement is bit-identical); the moment VALUES differ only at ULP."""
-    cnt, s1, s2, s3, s4 = _per_cell_raw_moments_gpu(cp, codes_g, v_g, n_cells)
+def _stats_from_moments_gpu(cp, moments, stats: Sequence[str]) -> dict:
+    """Per-cell ``{stat: cupy(n_cells)}`` from PRECOMPUTED raw moments ``(cnt, s1..s4)``. Split out of
+    ``_per_cell_stats_gpu`` so a caller that shares one bincount pass across several stats of the SAME
+    (pair, fold) derives each stat from the cached moments instead of re-running the 5 bincounts per stat
+    (the launch-count monster the NVTX trace flagged: binagg was 37k GPU ops at 200k). Same arithmetic."""
+    cnt, s1, s2, s3, s4 = moments
     safe = cp.maximum(cnt, 1.0)
     mean = s1 / safe
     out: dict = {}
@@ -112,6 +138,13 @@ def _per_cell_stats_gpu(cp, codes_g, v_g, n_cells: int, stats: Sequence[str]) ->
             raise ValueError(f"binned_numeric_agg stat {stat!r} not supported")
         out[stat] = cp.where(cnt > 0, raw, cp.nan)
     return out
+
+
+def _per_cell_stats_gpu(cp, codes_g, v_g, n_cells: int, stats: Sequence[str]) -> dict:
+    """Device twin of ``per_cell_stats_bincount``: per-cell ``{stat: cupy(n_cells)}`` from ``cp.bincount`` raw
+    moments. Empty cells -> NaN (caller substitutes the global). Same arithmetic FORM as the host (so the WHERE
+    structure / NaN placement is bit-identical); the moment VALUES differ only at ULP."""
+    return _stats_from_moments_gpu(cp, _per_cell_raw_moments_gpu(cp, codes_g, v_g, n_cells), stats)
 
 
 def build_binagg_oof_matrix_gpu(
@@ -139,7 +172,7 @@ def build_binagg_oof_matrix_gpu(
     # the group column name. Per (group, agg) the finite mask + train moments per fold are shared across its
     # stats -> compute once, keyed on (group, agg). The per-stat gather/fallback is the only per-column work.
     code_cache: dict = {}   # gcol -> (codes_g, n_cells)
-    pair_cache: dict = {}   # (gcol, acol) -> (av_g, finite_g, [per-fold train stat dicts placeholder])
+    pair_cache: dict = {}   # (gcol, acol) -> (av_g, finite_g, v_safe, finite_f, per-fold moments/stat cache)
 
     out_cols = []
     for spec in col_specs:
@@ -155,7 +188,10 @@ def build_binagg_oof_matrix_gpu(
             gvals_g = resident_operand(np.ascontiguousarray(gvals), ("binagg_g", gcol), dtype=cp.float64)
             edges_g = resident_operand(np.ascontiguousarray(edges), ("binagg_edges", gcol), dtype=cp.float64)
             codes_g = cp.searchsorted(edges_g, gvals_g, side="right").astype(cp.int64)
-            n_cells = int(codes_g.max()) + 1
+            # n_cells from the edge count, not int(codes_g.max()) (a D2H sync): searchsorted(side="right")
+            # yields codes in [0, len(edges)], so len(edges)+1 is the exact upper bound. Any trailing empty
+            # cell contributes zero to every moment -> stats identical.
+            n_cells = int(edges_g.size) + 1
             cc = (codes_g, n_cells)
             code_cache[gcol] = cc
         codes_g, n_cells = cc
@@ -165,30 +201,45 @@ def build_binagg_oof_matrix_gpu(
             av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
             av_g = resident_operand(np.ascontiguousarray(av), ("binagg_a", acol), dtype=cp.float64)
             finite_g = cp.isfinite(av_g)
-            pc = (av_g, finite_g, {})
+            # v_safe: non-finite entries zeroed once so the masked scatter-add never forms inf*0=nan on the
+            # rows excluded by the 0/1 weight (the weight already carries finite_g, so their contribution is 0).
+            v_safe = cp.where(finite_g, av_g, 0.0)
+            finite_f = finite_g.astype(cp.float64)
+            pc = (av_g, finite_g, v_safe, finite_f, {})
             pair_cache[(gcol, acol)] = pc
-        av_g, finite_g, fold_stat_cache = pc
+        av_g, finite_g, v_safe, finite_f, fold_stat_cache = pc
 
         # OOF: init the whole column to the global fallback, then overwrite each fold's TEST rows with the
         # train-fold per-cell stat (global where the cell was empty in train). Structurally identical to host.
+        # LAUNCH-BATCHED (2026-07-02, NVTX-driven): the fold caches are keyed so the expensive device work runs
+        # ONCE per reuse unit -- raw MOMENTS per (pair, fold) shared by ALL of the pair's stats (was per
+        # (fold, stat): the same 5 bincounts re-ran for each of the pair's 4 stat columns = 4x the launches),
+        # test indices/codes per (gcol, fold) shared by every pair of that group column, train indices per
+        # (pair, fold). Values ULP-identical (same bincounts, same gathers -- just cached).
+        # Fully sync-free OOF loop: train moments via masked scatter-add (no row index), test-row overwrite via
+        # a full-length gather + elementwise select (no test index). The whole fold loop stays resident -- no
+        # cp.where, no per-fold D2H. A degenerate fold (no finite train rows) needs no special case: its 0/1
+        # weight is all-zero, so every cell count is 0, _stats_from_moments emits NaN, and the isfinite select
+        # below leaves those test rows at the global fallback -- exactly the old degenerate branch.
         oof = cp.full(n, glob, dtype=cp.float64)
         for f in range(nf):
-            tr_mask = (fold_g != f) & finite_g
-            if not bool(tr_mask.any()):
-                continue
-            # The TRAIN per-cell stats for THIS stat over THIS fold are shared by no other column (each column
-            # is one stat), but the train per-cell raw moments are shared across the stats of the same pair.
-            key = (f, stat)
-            per_s = fold_stat_cache.get(key)
+            _mkey = ("m", f)
+            if _mkey not in fold_stat_cache:
+                # w = 1.0 on this fold's TRAIN rows (other folds AND finite), 0.0 elsewhere. finite_f is shared;
+                # (fold_g != f) is the only per-fold term. Moments shared across the pair's stats (cached).
+                w = cp.where(fold_g != f, finite_f, 0.0)
+                moments = _per_cell_raw_moments_masked_gpu(cp, codes_g, v_safe, w, n_cells)
+                fold_stat_cache[_mkey] = {"__moments__": moments}
+            per_s_all = fold_stat_cache[_mkey]
+            per_s = per_s_all.get(stat)
             if per_s is None:
-                tr_idx = cp.where(tr_mask)[0]
-                per = _per_cell_stats_gpu(cp, codes_g[tr_idx], av_g[tr_idx], n_cells, [stat])
-                per_s = per[stat]
-                fold_stat_cache[key] = per_s
-            test_idx = cp.where(fold_g == f)[0]
-            ct = codes_g[test_idx]
-            vals = per_s[ct]
-            oof[test_idx] = cp.where(cp.isfinite(vals), vals, glob)
+                per_s = _stats_from_moments_gpu(cp, per_s_all["__moments__"], [stat])[stat]
+                per_s_all[stat] = per_s
+            # Per-row stat by gathering the per-cell stat at EVERY row's code (known-size gather -> no sync),
+            # then select this fold's TEST rows (fold_g == f) via elementwise where, empty cells -> global.
+            row_vals = per_s[codes_g]
+            row_stat = cp.where(cp.isfinite(row_vals), row_vals, glob)
+            oof = cp.where(fold_g == f, row_stat, oof)
         out_cols.append(oof)
 
     if not out_cols:
@@ -209,6 +260,8 @@ def local_mi_gate_binagg_resident(
     mad_mult: float = 3.5,
     floor: Optional[float] = None,
     reject_sink: Optional[Callable[..., None]] = None,
+    cand_cols: Optional[list] = None,
+    n_rows: Optional[int] = None,
 ) -> Optional[list]:
     """DEVICE-BORN resident twin of ``_unified_fe_gate.local_mi_gate`` for the binned-aggregate family.
 
@@ -226,10 +279,19 @@ def local_mi_gate_binagg_resident(
         import cupy as cp  # noqa: F401
     except Exception:
         return None
-    if not isinstance(feat_df, pd.DataFrame) or feat_df.shape[1] == 0:
-        return []
-    cand_cols = [c for c in feat_df.columns if pd.api.types.is_numeric_dtype(feat_df[c])]
-    if not cand_cols:
+    # ``cand_cols`` / ``n_rows`` let the DEVICE-BORN caller (binned_numeric_agg_with_recipes' recipes-only path)
+    # gate WITHOUT materialising the host OOF feat_df -- it fits recipes-only, gates from those recipes here, then
+    # builds the OOF for the FEW survivors. When a ``feat_df`` is supplied (the host callers) both are derived
+    # from it exactly as before.
+    if feat_df is not None:
+        if not isinstance(feat_df, pd.DataFrame) or feat_df.shape[1] == 0:
+            return []
+        cand_cols = [c for c in feat_df.columns if pd.api.types.is_numeric_dtype(feat_df[c])]
+        n = len(feat_df)
+    else:
+        cand_cols = list(cand_cols or [])
+        n = int(n_rows or 0)
+    if not cand_cols or n <= 0:
         return []
     # Every emitted feat column MUST have a recipe carrying its operand basis; if any is missing fall back to
     # the host gate (we cannot reconstruct it device-born).
@@ -253,7 +315,6 @@ def local_mi_gate_binagg_resident(
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
         from ._fe_resident_operands import resident_operand
 
-        n = len(feat_df)
         fold_ids = binagg_fold_ids(n, n_folds, random_state)
         mat_gpu = build_binagg_oof_matrix_gpu(cp, raw_X, col_specs, fold_ids, n_folds)
         if mat_gpu.shape[1] == 0:

@@ -13,9 +13,7 @@ unpickle cleanly.
 from __future__ import annotations
 
 import copy
-import inspect
 import logging
-import os
 import psutil
 import warnings
 from collections import OrderedDict
@@ -24,7 +22,7 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from sklearn.base import BaseEstimator, TransformerMixin, clone
+from sklearn.base import BaseEstimator, TransformerMixin
 
 # Top-level helpers (histogram + fingerprint/hash + replay + chunker) live in
 # ``_mrmr_fingerprints.py``; re-imported below so the parent module and
@@ -50,7 +48,7 @@ from ._mrmr_param_constants import (  # noqa: E402,F401
     _VALID_RFECV_SELECTION_RULES,
     _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS,
 )
-from ._mrmr_setstate_defaults import build_setstate_defaults  # noqa: E402,F401
+from ._mrmr_setstate_defaults import build_setstate_defaults  # noqa: E402
 
 from .._mrmr_fingerprints import (  # noqa: E402,F401
     _astropy_histogram,
@@ -185,9 +183,13 @@ def _mrmr_y_columns(y):
         yield f"y{k}", arr[:, k]
 
 
+from ._mrmr_class_config import _MRMRConfigMixin  # noqa: E402
+from ._mrmr_class_transform import _MRMRTransformMixin  # noqa: E402
+from ._mrmr_class_fit_helpers import _MRMRFitHelpersMixin  # noqa: E402
+
 # TransformerMixin (not SelectorMixin): MRMR's transform can add engineered features (_engineered_features_, FE pair-composites),
 # so it is not a pure mask-based selector and SelectorMixin's mask-only contract would be wrong here.
-class MRMR(BaseEstimator, TransformerMixin):
+class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixin, _MRMRFitHelpersMixin):
     """Finds subset of features having highest impact on target and least redundancy.
 
     Parameters
@@ -248,16 +250,6 @@ class MRMR(BaseEstimator, TransformerMixin):
     # already includes the params signature, so a hit guarantees matching state).
     _FIT_CACHE: "OrderedDict[tuple, MRMR]" = OrderedDict()
 
-    @classmethod
-    def clear_fit_cache(cls) -> int:
-        """Drain the process-wide MRMR fit cache. Returns the entry count that was dropped. Call between
-        suites (model retraining boundary, JupyterHub kernel reuse, web-service request boundary) when
-        long-lived workers must release fitted-MRMR memory. Without this, the cache holds up to
-        ``fit_cache_max`` (default 4) full MRMR instances per process for as long as the process lives."""
-        n = len(cls._FIT_CACHE)
-        cls._FIT_CACHE.clear()
-        return n
-
     # Fast-search sub-knob overrides applied for the duration of a fit when ``fe_fast_search=True``.
     # Each entry is (attr, fast_value). The override is applied ONLY when the current attr value still
     # equals its package default (so an explicit user value always wins). ``fe_check_pairs_subsample_n``
@@ -268,30 +260,6 @@ class MRMR(BaseEstimator, TransformerMixin):
         ("fe_stability_vote_enable", False),
         ("fe_escalation_underdelivery_enable", False),
     )
-
-    @classmethod
-    def _fast_search_default_subsample_n(cls) -> int:
-        """Screen subsample size for the fast FE pair search, resolved via the kernel_tuning_cache when a
-        tuned entry exists for this host, else a safe HW-agnostic fallback. The MI/CMI pair screen is
-        rank-stable under subsampling and the FINAL survivor columns are replayed at full n, so this only
-        bounds the screen cost. Never hardcode per-HW thresholds (mlframe is shared infra); the cache lets
-        a quiet/large-RAM box record a better value. Fallback 90_000: the smallest screen-n that kept the
-        warped (c,d) interaction's selection bit-stable on the n=100k synthetics (75k/85k flipped the
-        (a,b) composite at the MI tie; 90k did not)."""
-        _fallback = 90_000
-        try:
-            from .._kernel_tuning import get_kernel_tuning_cache
-
-            _cache = get_kernel_tuning_cache()
-            if _cache is not None:
-                tuned = _cache.lookup("mrmr_fast_search_screen_n")
-                if tuned:
-                    _v = int(tuned.get("subsample_n", 0) or 0)
-                    if _v > 0:
-                        return _v
-        except Exception as exc:
-            logger.debug("mrmr: fast_search screen_n KTC lookup failed; using fallback %d: %r", _fallback, exc, exc_info=True)
-        return _fallback
 
     # DEFAULT screen-subsample for the MI/FE candidate search, resolved (HW/size-aware) via the
     # kernel_tuning_cache. This is the FEATURE-RECOVERY default (distinct from the bit-stability
@@ -309,115 +277,6 @@ class MRMR(BaseEstimator, TransformerMixin):
     # ``mrmr_default_screen_n`` cache key (``_default_screen_subsample_n``). >25k validated floor (jaccard 1.0
     # vs full-n screen), headroom for the gate-detection MI band.
     _DEFAULT_SCREEN_SUBSAMPLE_N = UNIFIED_FE_SUBSAMPLE_N
-
-    @classmethod
-    def _default_screen_subsample_n(cls) -> int:
-        """Feature-recovery default screen-subsample size, kernel_tuning_cache-resolved when a tuned entry
-        exists for this host, else the HW-agnostic ``_DEFAULT_SCREEN_SUBSAMPLE_N`` floor. See the class
-        attribute docstring for the rank-stability rationale + measured wins."""
-        _fallback = int(cls._DEFAULT_SCREEN_SUBSAMPLE_N)
-        try:
-            from .._kernel_tuning import get_kernel_tuning_cache
-
-            _cache = get_kernel_tuning_cache()
-            if _cache is not None:
-                tuned = _cache.lookup("mrmr_default_screen_n")
-                if tuned:
-                    _v = int(tuned.get("subsample_n", 0) or 0)
-                    if _v > 0:
-                        return _v
-        except Exception as exc:
-            logger.debug("mrmr: default screen_n KTC lookup failed; using fallback %d: %r", _fallback, exc, exc_info=True)
-        return _fallback
-
-    def _apply_default_screen_subsample(self, n_rows: int) -> dict:
-        """Shrink the FE/MI screen subsamplers to the feature-recovery default for large n, returning
-        {attr: pre_fit_value} to restore in ``finally``. Applies UNCONDITIONALLY (not gated on
-        ``fe_fast_search``) so the default ``MRMR()`` fit subsamples the SCREEN at large n. Honours user
-        intent: a knob is only touched when it is still at its package default, and only SHRUNK (never
-        raised). No-op when ``n_rows`` is below the resolved screen size (small-n behaviour is unchanged --
-        the subsamplers treat subsample_n>=n as full-n). The selected columns are replayed at full n."""
-        import inspect
-
-        saved: dict = {}
-        try:
-            _defaults = {
-                p.name: p.default
-                for p in inspect.signature(type(self).__init__).parameters.values()
-                if p.default is not inspect._empty
-            }
-        except Exception as exc:
-            logger.debug("mrmr: ctor-default introspection failed in _apply_default_screen_subsample; leaving knobs unchanged: %r", exc, exc_info=True)
-            return saved
-        _screen_n = self._default_screen_subsample_n()
-        # Below the screen size there is nothing to subsample -- leave the knobs at their (full-n) default
-        # so small-n fits are byte-identical to legacy.
-        if not (isinstance(n_rows, int) and n_rows > _screen_n):
-            return saved
-        for _attr in ("fe_check_pairs_subsample_n", "fe_smart_polynom_subsample_n"):
-            if _attr not in _defaults:
-                continue
-            _cur = getattr(self, _attr, None)
-            # Only when the user left it at the package default (explicit user value always wins).
-            if _cur != _defaults[_attr]:
-                continue
-            # Only SHRINK: a default of 0/None means "full-n"; treat that as +inf so we still shrink it.
-            _cur_eff = int(_cur) if (isinstance(_cur, int) and _cur > 0) else n_rows
-            if _screen_n < _cur_eff:
-                saved[_attr] = _cur
-                setattr(self, _attr, _screen_n)
-        return saved
-
-    def _apply_fast_search_profile(self) -> dict:
-        """Override the fast-search sub-knobs for this fit, returning {attr: pre_fit_value} to restore in
-        ``finally``. Only knobs still at their package default are touched (explicit user value wins). See
-        the ``fe_fast_search`` __init__ docstring for the rationale and measured wins."""
-        import inspect
-
-        saved: dict = {}
-        try:
-            _defaults = {
-                p.name: p.default
-                for p in inspect.signature(type(self).__init__).parameters.values()
-                if p.default is not inspect._empty
-            }
-        except Exception as exc:
-            logger.debug("mrmr: ctor-default introspection failed in _apply_fast_search_profile; treating all knobs as user-set: %r", exc, exc_info=True)
-            _defaults = {}
-
-        def _override(attr, fast_value):
-            cur = getattr(self, attr, None)
-            # Only override when the user left it at the package default (or the attr is absent).
-            if attr in _defaults and cur != _defaults[attr]:
-                return
-            saved[attr] = cur
-            setattr(self, attr, fast_value)
-
-        for _attr, _val in self._FAST_SEARCH_OVERRIDES:
-            _override(_attr, _val)
-        # Subsample is HW/size-dependent -> resolve via kernel_tuning_cache. Only shrink it (never raise a
-        # user who already set a smaller screen-n); apply when still at the package default.
-        _ss_default = _defaults.get("fe_check_pairs_subsample_n", None)
-        _ss_cur = getattr(self, "fe_check_pairs_subsample_n", None)
-        if _ss_default is None or _ss_cur == _ss_default:
-            _fast_ss = self._fast_search_default_subsample_n()
-            if _ss_cur is None or _fast_ss < int(_ss_cur):
-                saved["fe_check_pairs_subsample_n"] = _ss_cur
-                self.fe_check_pairs_subsample_n = _fast_ss
-        # UNIFIED detection subsample (2026-06-17): tie the per-family DETECTION caps that read env
-        # (currently the Fourier frequency detection) to the same fast-search subsample, so EVERY
-        # family's detection runs on the small sample while values/recipes still replay full-n. Saved
-        # under an ``__env__`` sentinel key; the fit's restore loop resets os.environ. Only SHRINK
-        # (never raise a user-set smaller cap). At large n this caps the Fourier z_tr (else ~200k) to
-        # the fast-search subsample -- bit-safe (detection-only; the recipe replays sin(2*pi*f*x) full-n).
-        _fast_ss2 = getattr(self, "fe_check_pairs_subsample_n", None)
-        if _fast_ss2:
-            from .._fourier_detect_cap import get_fourier_detect_max_n, peek_fourier_detect_cap, set_fourier_detect_cap
-            if int(_fast_ss2) < get_fourier_detect_max_n():
-                # Thread-local (not os.environ) so concurrent fits do not race the cap; save the prior thread-local value (None if unset) for nested-fit-safe restore.
-                saved["__fdcap__"] = peek_fourier_detect_cap()
-                set_fourier_detect_cap(int(_fast_ss2))
-        return saved
 
     def __init__(
         self,
@@ -2991,203 +2850,9 @@ class MRMR(BaseEstimator, TransformerMixin):
     _VALID_RFECV_SELECTION_RULES = _VALID_RFECV_SELECTION_RULES
     _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS = _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS
 
-    @classmethod
-    def recommend_default_scorer(cls) -> str:
-        """Return the empirically-best ``fe_hybrid_orth_default_scorer`` value.
-
-        's 7-dataset x 10-mechanism showdown placed CMIM (Layer 74)
-        first on real sklearn data: 5/7 dataset wins on top-AUC of the
-        downstream LogReg over the marginal-MI baseline, including all
-        three high-redundancy fixtures where the conditional-MI
-        redundancy filter dominates. JMIM (Layer 72) is the next-best on
-        2/7 (the heavily-interacting pools), and the plug-in default is
-        last on every redundant fixture. Callers that do not know which
-        scorer to pick should default to the return value of this method.
-
-        accelerated JMIM (~2.3x) and TC (~5.0x)
-        via batched quantile binning + invariant support-side joint
-        precompute; the perf improvement does NOT change the L83 AUC
-        leaderboard (CMIM still wins 5/7) because the scorer math is
-        bit-equivalent to the pre-opt path (rtol=1e-9). The recommended
-        default therefore stays ``"cmim"`` -- L86 just makes the runner-
-        up scorers cheap enough to evaluate inside an outer
-        cross-validation without budget pain.
-
-        Returns
-        -------
-        str
-            ``"cmim"`` -- the Layer 83 leaderboard winner.
-        """
-        return "cmim"
-
     # ``_validate_string_params`` + ``_validate_inputs`` are implemented
     # in ``_mrmr_validate_transform.py`` and bound onto this class at the
     # bottom of this module.
-
-    # opt-in stability-selection outer-loop wrapper.
-    # Routes to Faletto-Bien 2022 Cluster Stability Selection or
-    # Shah-Samworth 2013 Complementary Pairs Stability when
-    # ``stability_selection_method != 'classic'``. The classic path falls
-    # through to the legacy ``self.fit`` body.
-    def _stability_outer_fit(self, X, y, **fit_kwargs):
-        method = getattr(self, "stability_selection_method", "classic")
-        if method == "classic":
-            return None  # fall through to legacy fit
-        from .._stability_cluster import (
-            cluster_stability_selection,
-            complementary_pairs_stability,
-        )
-        import pandas as pd
-        # Pass the FRAME (not to_numpy()) so per-column dtypes survive: a mixed numeric+categorical frame -> to_numpy() is an object array that
-        # (a) crashed the cluster correlation's float64 coercion and (b) would feed the bootstrap sub-MRMR all-object columns. The stability helpers
-        # cluster only the numeric columns (categoricals -> singletons) and hand the sub-selector dtype-preserved rows.
-        X_df = X if hasattr(X, "iloc") else pd.DataFrame(np.asarray(X))
-        y_arr = (
-            y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
-        ).ravel()
-        feature_names = list(X_df.columns)
-
-        def _inner_selector(X_sub, y_sub):
-            # X_sub is a dtype-preserved frame row-subset (from .iloc) -> reset its index so it aligns with the default-indexed y_sub below; the
-            # no-frame fallback (ndarray subset) wraps as before. (Wrapping a frame via pd.DataFrame(frame) would keep its non-default index and
-            # mis-align against y_sub.)
-            X_sub_df = X_sub.reset_index(drop=True) if hasattr(X_sub, "iloc") else pd.DataFrame(X_sub, columns=feature_names)
-            y_sub_s = pd.Series(np.asarray(y_sub), name="y")
-            # Use a fresh sibling instance with classic method to avoid
-            # recursion AND drop bootstrap-incompatible settings.
-            sub = type(self)(
-                **{
-                    **{k: v for k, v in self.get_params().items()
-                       if k not in (
-                           "stability_selection_method",
-                           "stability_selection_corr_threshold",
-                           "uaed_auto_size",
-                           "cmi_perm_stop",
-                       )},
-                    "stability_selection_method": "classic",
-                    "verbose": 0,
-                }
-            )
-            sub.fit(X_sub_df, y_sub_s)
-            if not hasattr(sub, "support_") or sub.support_ is None:
-                return np.asarray([], dtype=np.int64)
-            return np.asarray(sub.support_, dtype=np.int64)
-
-        if method == "cluster":
-            corr_thr = float(
-                getattr(self, "stability_selection_corr_threshold", 0.8)
-            )
-            sel, freq, info = cluster_stability_selection(
-                X_df, y_arr, _inner_selector,
-                n_bootstrap=int(getattr(self, "stability_n_bootstrap", 50)),
-                pi_threshold=float(
-                    getattr(self, "stability_pi_threshold", 0.6)
-                ),
-                corr_threshold=corr_thr,
-                rng_seed=int(self.random_seed or 0),
-            )
-        elif method == "complementary_pairs":
-            sel, freq, info = complementary_pairs_stability(
-                X_df, y_arr, _inner_selector,
-                n_pairs=int(getattr(self, "stability_n_bootstrap", 50)),
-                pi_threshold=float(
-                    getattr(self, "stability_pi_threshold", 0.6)
-                ),
-                rng_seed=int(self.random_seed or 0),
-            )
-        else:
-            raise ValueError(f"unknown stability_selection_method={method!r}")
-
-        # Persist the standard MRMR public-API attributes from the chosen set.
-        self.support_ = np.asarray(sel, dtype=np.int64)
-        self.feature_names_in_ = np.asarray(feature_names, dtype=object)
-        self.n_features_in_ = len(feature_names)
-        self.n_features_ = int(self.support_.size)
-        self.stability_freq_ = freq
-        self.stability_info_ = info
-        return self
-
-    def _effective_random_seed(self):
-        """Resolve the seed actually used by fit from the two stored constructor aliases.
-
-        ``random_seed`` is the canonical name; ``random_state`` is the sklearn-style fallback. The
-        constructor stores BOTH unmodified (sklearn ``get_params`` contract), so the promotion that used to
-        happen in ``__init__`` is done here instead: ``random_seed`` wins when set, otherwise ``random_state``
-        fills in. Returns ``None`` when neither is set (entropy-seeded behaviour preserved)."""
-        seed = getattr(self, "random_seed", None)
-        if seed is None:
-            seed = getattr(self, "random_state", None)
-        return seed
-
-    def _resolve_target_prefix(self) -> str:
-        """Stable, seedable prefix for the temporary target columns injected during fit.
-
-        Pre-fix code used ``str(np.random.random())[3:9]`` which (a) reseeded
-        nothing but consumed from the process-global numpy RNG, breaking
-        reproducibility across test orderings, and (b) produced a different
-        prefix every call. With ``random_seed`` set, derive a deterministic 6-hex
-        suffix from a local ``np.random.default_rng``; otherwise fall back to a
-        process-stable but seedable PID+id(self)-based source so concurrent
-        instances stay collision-resistant without touching global state.
-        """
-        if self.random_seed is not None:
-            local_rng = np.random.default_rng(int(self.random_seed))
-            tok = int(local_rng.integers(0, 2**24))
-        else:
-            tok = (os.getpid() ^ id(self)) & 0xFFFFFF
-        return f"targ_{tok:06x}"
-
-    def _coerce_target_dtype(self, vals: np.ndarray) -> np.ndarray:
-        """Memory-saving int64 -> int16 downcast, guarded against silent truncation.
-
-        Pre-fix path was unconditional: ``vals.dtype == np.int64`` triggered an
-        ``astype(np.int16)`` regardless of value range, silently truncating any
-        target outside [-32768, 32767]. New behaviour: downcast only when the
-        observed range fits; otherwise keep int64 and warn at logger level so
-        regression / multiclass-with-large-codes targets are preserved bit-exact.
-        """
-        if vals.dtype != np.int64:
-            return vals
-        vmin, vmax = vals.min(), vals.max()
-        info = np.iinfo(np.int16)
-        if vmin >= info.min and vmax <= info.max:
-            if self.verbose:
-                logger.info("Converted targets from int64 to int16.")
-            return vals.astype(np.int16)
-        if self.verbose:
-            logger.warning(
-                "MRMR: keeping int64 targets (range [%d, %d] exceeds int16 [%d, %d]); skipping memory-saving downcast.",
-                int(vmin), int(vmax), info.min, info.max,
-            )
-        return vals
-
-    def _rfecv_cv_kwargs(self) -> dict:
-        """Forward ``self.cv`` / ``self.cv_shuffle`` into the inner RFECV call.
-
-        These two MRMR constructor params used to be dead (zero callers read
-        ``self.cv``); they're now threaded into the RFECV instance built for the
-        post-screening ``run_additional_rfecv_minutes`` pass so users who pass
-        ``cv=5`` actually get 5-fold there.
-        """
-        return {"cv": self.cv, "cv_shuffle": self.cv_shuffle}
-
-    @classmethod
-    def _ctor_defaults(cls) -> dict:
-        """Single source of truth for every constructor-parameter default.
-
-        Read straight off ``__init__``'s signature so a ctor default can never
-        silently diverge from a hand-written copy elsewhere (the D5 drift hazard:
-        ``__setstate__`` injected a literal default that drifted from the ctor --
-        e.g. ``cluster_aggregate_mode``). ``__setstate__`` overlays these onto its
-        legacy-injection dict for every ctor-param key EXCEPT the documented
-        legacy-pickle overrides below.
-        """
-        sig = inspect.signature(cls.__init__)
-        return {
-            name: param.default
-            for name, param in sig.parameters.items()
-            if param.default is not inspect.Parameter.empty
-        }
 
     # Keys whose ``__setstate__`` legacy-injection value INTENTIONALLY differs from the
     # live constructor default, to keep OLD pickles byte-identical on reload (master FE
@@ -3207,8 +2872,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         "fe_wavelet_enable",                    # legacy OFF; ctor ON
     })
 
-    # Pickle BC: old MRMR pickles lacking newer attributes resurface with the legacy defaults injected.
     def __setstate__(self, state):
+        # MUST stay on the MRMR class body (not a mixin): it OVERRIDES BaseEstimator.__setstate__, so any
+        # mixin placed after BaseEstimator in the MRO would be shadowed and this legacy-default injection
+        # would silently never run on unpickle.
         # Legacy-injection roster carved VERBATIM into ``_mrmr_setstate_defaults.py``;
         # ``build_setstate_defaults()`` returns a fresh deep copy each call so no two
         # unpickled instances alias a mutable default (the literal dict was re-executed
@@ -3248,110 +2915,6 @@ class MRMR(BaseEstimator, TransformerMixin):
             fv = getattr(_fresh, k, v) if _fresh is not None else v
             state[k] = copy.deepcopy(fv) if isinstance(fv, (list, dict, set)) else fv
         self.__dict__.update(state)
-
-    def _maybe_resample_for_sample_weight(self, X, y, sample_weight: np.ndarray | None):
-        """When ``sample_weight`` is provided AND not effectively uniform, draw n=len(X) rows with replacement
-        using probabilities w_i / sum(w). The resampled empirical bincount approximates the weighted bincount
-        (np.bincount(x, weights=w) up to MC noise), so MI relevance / redundancy estimated downstream from
-        binned joint histograms becomes weight-aware without touching info_theory / screen internals.
-        Returns (X, y) unchanged when sample_weight is None / all-equal (preserves byte-for-byte legacy path
-        and lets the FS cache reuse a single fit across uniform-weight callers)."""
-        if sample_weight is None:
-            return X, y
-        sw = np.asarray(sample_weight, dtype=np.float64)
-        if sw.ndim != 1:
-            raise ValueError(f"MRMR.fit sample_weight must be 1-D, got shape {sw.shape}")
-        n_rows = X.shape[0]
-        if sw.shape[0] != n_rows:
-            raise ValueError(f"MRMR.fit sample_weight length {sw.shape[0]} != n_rows {n_rows}")
-        if not np.all(np.isfinite(sw)) or (sw < 0).any():
-            raise ValueError("MRMR.fit sample_weight must be finite and non-negative")
-        total = float(sw.sum())
-        if total <= 0:
-            raise ValueError("MRMR.fit sample_weight sums to zero")
-        # Uniform -> nothing to do (preserves bit-exact legacy + cache reuse).
-        if float(sw.max() - sw.min()) <= 1e-12 * max(1.0, abs(float(sw.mean()))):
-            return X, y
-        # Reproducible by default: follow the module-wide convention (``int(seed or 0)`` -> None maps to a
-        # DETERMINISTIC 0, not OS entropy) so that two fits with the same (default) seed and the same
-        # sample_weight draw the SAME resample. ``_effective_random_seed`` honours the ``random_state``
-        # fallback alias. A caller wanting an independent draw passes a distinct ``random_seed``.
-        rng = np.random.default_rng(int(self._effective_random_seed() or 0))
-        probs = sw / total
-        idx = rng.choice(n_rows, size=n_rows, replace=True, p=probs)
-        # iloc preserves dtypes / category metadata; works on pandas + polars (via take) + numpy.
-        try:
-            import polars as _pl
-            if isinstance(X, _pl.DataFrame):
-                X_rs = X[idx.tolist()] if hasattr(X, "__getitem__") else X.take(idx)
-            elif isinstance(X, pd.DataFrame):
-                X_rs = X.iloc[idx]
-            else:
-                X_rs = np.asarray(X)[idx]
-        except ImportError:
-            if isinstance(X, pd.DataFrame):
-                X_rs = X.iloc[idx]
-            else:
-                X_rs = np.asarray(X)[idx]
-        if isinstance(y, (pd.Series, pd.DataFrame)):
-            y_rs = y.iloc[idx]
-        else:
-            y_rs = np.asarray(y)[idx]
-        return X_rs, y_rs
-
-    def _print_fit_summary(self) -> None:
-        """Human-readable end-of-fit summary, printed to STDOUT when ``verbose>=1``.
-
-        Why ``print`` and not ``logger``: MRMR's informative ``logger.info`` calls
-        are swallowed in any script that never configures the ``logging`` module
-        (the common case), while the tqdm progress bars write straight to stderr.
-        The net effect was that a user running ``MRMR(verbose=1).fit(...)`` saw a
-        wall of progress bars and NO statement of what was selected / engineered --
-        the run looked like it did nothing even when directed FE recovered the
-        signal. This summary is the one guaranteed-visible line of truth.
-
-        Pure reporting: never mutates state, never raises (a summary bug must not
-        fail a fit). Built from the already-populated ``fe_provenance_`` /
-        ``support_`` / ``get_feature_names_out`` fitted attributes.
-        """
-        try:
-            if not getattr(self, "verbose", 0):
-                return
-            names = [str(n) for n in self.get_feature_names_out()]
-            eng = [n for n in names if "(" in n]
-            n_raw = len(names) - len(eng)
-            n_in = getattr(self, "n_features_in_", "?")
-            print(
-                f"\n[MRMR] selected {len(names)} feature(s) "
-                f"({n_raw} raw + {len(eng)} engineered) from {n_in} input(s)"
-            )
-            prov = getattr(self, "fe_provenance_", None)
-            if prov is not None and hasattr(prov, "empty") and not prov.empty:
-                disp_cols = [
-                    c for c in ("support_rank", "feature_name", "origin", "mrmr_gain")
-                    if c in prov.columns
-                ]
-                disp = prov[disp_cols].copy()
-                if "support_rank" in disp.columns:
-                    # Show in greedy selection order (rank 0 first), not the raw
-                    # provenance-frame row order.
-                    disp = disp.sort_values("support_rank", kind="stable")
-                if "mrmr_gain" in disp.columns:
-                    disp["mrmr_gain"] = disp["mrmr_gain"].map(
-                        lambda v: f"{float(v):.4f}" if pd.notna(v) else ""
-                    )
-                print(disp.to_string(index=False))
-            else:
-                print("  " + ", ".join(names))
-            if eng:
-                print(f"[MRMR] {len(eng)} engineered feature(s) discovered: " + ", ".join(eng))
-            else:
-                print(
-                    "[MRMR] no engineered features survived the MI-prevalence gate "
-                    "(fe_min_engineered_mi_prevalence); selection is raw-only"
-                )
-        except Exception as exc:
-            logger.debug("mrmr: selection-summary print failed (diagnostic only): %r", exc, exc_info=True)
 
     @hygienic_fit
     def fit(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, sample_weight: np.ndarray | pd.Series | None = None, **fit_params):
@@ -3990,259 +3553,6 @@ class MRMR(BaseEstimator, TransformerMixin):
             self._pandas_frame_for_target_cleanup = None
             self._target_names_for_cleanup = None
 
-    @classmethod
-    def recommend_enabled_fe(cls, X=None, y=None) -> dict:
-        """Classify every ``fe_*`` / ``dcd_*`` ctor flag by flip-safety AND
-        recommend which FE generators to enable for a given ``(X, y)``.
-
-        The Layer-99 rule recommender (``_meta_fe_recommender``) inspects ``X``
-        dtypes / cardinalities / NaN rates / time+entity structure and turns on
-        the master FE flags whose data-shape preconditions are met (e.g.
-        ``fe_grouped_agg_enable`` only when an int-as-cat group column exists).
-        When ``X`` is None it returns the static flip-safety classification only
-        (``recommended_enable`` empty), so callers / tests can introspect the
-        policy without supplying data. This is the cold-start path; the
-        Param-Oracle-backed learned layer (``MetaFERecommender``) is optional and
-        improves on these rules over time.
-
-        Flip-safety taxonomy
-        --------------------
-        FLIP_SAFE
-            Pure corrective / strict-improvement mechanisms: enabling cannot reduce
-            accuracy and cannot materially slow a user who does not need them (no-op
-            unless a paired master switch is on). Already flipped to default-True.
-            * ``fe_local_mi_gate`` (Layer 91 Tier 1) — drops only sub-noise engineered
-              columns, keeps top-k; no-op unless an L33/L34/L37/L38 FE mechanism is on.
-
-        ALREADY_DEFAULT
-            Corrective mechanisms shipped default-True in earlier layers; listed for
-            completeness so the recommender never double-recommends them.
-            * ``dcd_enable`` (dynamic cluster discovery, 0.003x overhead)
-            * ``cardinality_bias_correction`` (Miller-Madow gate bias correction)
-            * ``min_relevance_gain_relative_to_first`` (diminishing-returns gate)
-            * ``cluster_aggregate_enable`` / ``cluster_aggregate_mode='replace'``
-            * ``mrmr_skip_when_prior_was_identity`` / ``fe_adaptive_threshold_relax``
-            * ``build_friend_graph`` (diagnostic only)
-
-        FLIP_RISKY
-            FE GENERATORS (add compute, help only on specific data shapes) and SCORER
-            choices (domain-specific). Stay opt-in OR behind a cheap auto-detect; the
-            L98 recommender is what will turn the data-shape-matched subset on.
-            * generators: ``fe_count_encoding_enable``, ``fe_frequency_encoding_enable``,
-              ``fe_cat_num_interaction_enable``, ``fe_missingness_enable``,
-              ``fe_ratio_enable``, ``fe_grouped_delta_enable``, ``fe_lagged_diff_enable``,
-              ``fe_grouped_agg_enable``, ``fe_composite_group_agg_enable``,
-              ``fe_grouped_quantile_enable``, ``fe_cat_pair_enable``,
-              ``fe_cat_triple_enable``, ``fe_hybrid_orth_enable`` (+ triplet / quadruplet
-              / adaptive-arity / adaptive-degree / routing / lasso / elasticnet /
-              semi-supervised variants), ``fe_smart_polynom_iters``, ``fe_max_polynoms``.
-            * unified second-pass: ``fe_unified_second_pass_gate`` — a real CMI pass with
-              ``min_gain`` cost that CAN drop columns; opt-in, not a pure corrective.
-            * scorer / estimator: ``mrmr_relevance_algo`` / ``mrmr_redundancy_algo``,
-              ``mi_correction`` (chao_shen), ``redundancy_aggregator`` (jmim),
-              ``relaxmrmr_alpha``, ``pid_synergy_bonus``, ``bur_lambda``,
-              ``cmi_perm_stop``, ``cpt_test``, ``uaed_auto_size``, ``mi_normalization``.
-
-        Returns
-        -------
-        dict
-            ``{"flip_safe": [...], "already_default": [...], "flip_risky": [...],
-            "recommended_enable": [...]}``. ``recommended_enable`` is the
-            data-driven subset of master FE flags the Layer-99 rule recommender
-            turns ON for the supplied ``(X, y)`` data shape (empty when ``X`` is
-            None or no precondition fires).
-        """
-        flip_safe = ["fe_local_mi_gate"]
-        already_default = [
-            "dcd_enable",
-            "cardinality_bias_correction",
-            "min_relevance_gain_relative_to_first",
-            "cluster_aggregate_enable",
-            "cluster_aggregate_mode",
-            "mrmr_skip_when_prior_was_identity",
-            "fe_adaptive_threshold_relax",
-            "build_friend_graph",
-        ]
-        flip_risky = [
-            "fe_count_encoding_enable", "fe_frequency_encoding_enable",
-            "fe_cat_num_interaction_enable", "fe_missingness_enable",
-            "fe_ratio_enable", "fe_grouped_delta_enable", "fe_lagged_diff_enable",
-            "fe_grouped_agg_enable", "fe_composite_group_agg_enable",
-            "fe_grouped_quantile_enable", "fe_cat_pair_enable", "fe_cat_triple_enable",
-            "fe_hybrid_orth_enable", "fe_hybrid_orth_triplet_enable",
-            "fe_hybrid_orth_quadruplet_enable", "fe_hybrid_orth_adaptive_arity_enable",
-            "fe_hybrid_orth_adaptive_degree_enable", "fe_smart_polynom_iters",
-            "fe_max_polynoms", "fe_unified_second_pass_gate",
-            "mi_correction", "redundancy_aggregator", "relaxmrmr_alpha",
-            "pid_synergy_bonus", "bur_lambda", "cmi_perm_stop", "cpt_test",
-            "uaed_auto_size", "mi_normalization",
-        ]
-        # Layer-99: data-driven recommendation. When (X, y) is supplied, the
-        # rule recommender picks the master FE flags whose data-shape
-        # preconditions are met; cold-start (no Param-Oracle history needed).
-        recommended_enable: list = []
-        if X is not None:
-            try:
-                from .._meta_fe_recommender import recommend_fe_flags_by_rules
-                rec = recommend_fe_flags_by_rules(X, y)
-                recommended_enable = sorted(f for f, on in rec.items() if on)
-            except Exception as _exc:  # never let recommendation break introspection
-                logger.warning("recommend_enabled_fe: rule recommender failed: %s", _exc)
-                recommended_enable = []
-        return {
-            "flip_safe": flip_safe,
-            "already_default": already_default,
-            "flip_risky": flip_risky,
-            "recommended_enable": recommended_enable,
-        }
-
-    def export_artifacts(self) -> dict:
-        """Return the in-fit reusable intermediates as a dict for downstream selectors.
-
-        Requires the estimator to have been constructed with
-        ``retain_artifacts=True`` (off by default to preserve the legacy memory
-        footprint) and to have been fitted. The returned dict carries
-        Symmetric Uncertainty + direct MI vectors against y, plus -- when
-        ``retain_bins=True`` -- the per-column binned arrays. Schema is defined
-        in ``_mrmr_artifacts._ARTIFACT_SCHEMA``; consumers MUST tolerate missing
-        optional keys for forward compat.
-
-        The canonical consumer is ``ShapProxiedFS(precomputed=...)``: passing
-        ``mrmr.export_artifacts()`` lets that selector skip its own univariate
-        F-statistic pre-screen and rank by MRMR's SU(X_j, y) instead. The
-        selected subset is unchanged for SU-vs-F-ranking-equivalent regimes;
-        the win is wall-clock + a more cardinality-honest ranking on mixed-
-        cardinality data.
-
-        Raises
-        ------
-        ValueError
-            If ``self.retain_artifacts`` is False (artifacts were not captured).
-        sklearn.exceptions.NotFittedError
-            If the estimator has not been fitted yet.
-        """
-        if not getattr(self, "retain_artifacts", False):
-            raise ValueError(
-                "MRMR.export_artifacts() requires retain_artifacts=True at construction time. "
-                "Re-construct as MRMR(retain_artifacts=True, ...) and fit before exporting."
-            )
-        from sklearn.utils.validation import check_is_fitted
-        check_is_fitted(self, ["support_"])
-        artifacts = getattr(self, "_artifacts_", None)
-        if not artifacts:
-            # retain_artifacts=True was set but the in-fit capture did not
-            # populate the dict -- likely a fit() path that bypassed
-            # _fit_impl (identity shortcut, FIT_CACHE hit on a legacy
-            # cached instance, stability-selection outer loop). Surface a
-            # clear error so the caller can adjust the pipeline rather than
-            # silently consuming an empty dict.
-            raise ValueError(
-                "MRMR.export_artifacts(): retain_artifacts=True but the in-fit capture did "
-                "not populate self._artifacts_. The fit may have hit the identity-shortcut "
-                "cache or a pre-retain_artifacts cached instance; refit with "
-                "MRMR._FIT_CACHE.clear() and mrmr_skip_when_prior_was_identity=False."
-            )
-        return artifacts
-
-    def _fit_identity_shortcut(self, X) -> None:
-        """Populate the fit-result attributes as if MRMR returned the input X unchanged.
-
-        Used by the cross-target identity cache: when a previous fit on the SAME X returned identity (all input columns selected, zero engineered features), subsequent calls with a different y can skip the entire FE pipeline since the only y-dependent thing -- the selected feature subset -- is forced to "all input columns".
-        """
-        n_cols = X.shape[1] if X.ndim > 1 else 1
-        self.support_ = np.arange(n_cols, dtype=np.int64)
-        # 1 fix (loop iter 35): the prior expression
-        # ``X.columns.tolist() if hasattr(X.columns, "tolist") else
-        # list(X.columns) if hasattr(X, "columns") else [...]`` was a
-        # mis-parenthesised ternary. Python parses it as
-        # ``A if B1 else (C if B2 else E)``, evaluating ``B1 =
-        # hasattr(X.columns, "tolist")`` BEFORE the outer ``B2 =
-        # hasattr(X, "columns")`` guard. The inner ``X.columns`` access
-        # raised AttributeError on ndarray X, so the identity-shortcut
-        # cache-hit path (opt-in via ``mrmr_skip_when_prior_was_identity``)
-        # crashed on every ndarray fit instead of short-circuiting.
-        if hasattr(X, "columns"):
-            _cols = X.columns
-            self.feature_names_in_ = (
-                _cols.tolist() if hasattr(_cols, "tolist") else list(_cols)
-            )
-        else:
-            self.feature_names_in_ = [f"f{i}" for i in range(n_cols)]
-        self._engineered_features_ = []
-        self._engineered_recipes_ = []  # list invariant (matches the full-fit paths); consumers iterate it as a list
-        self.n_features_in_ = int(n_cols)
-        self.n_features_ = int(n_cols)
-        self.fallback_used_ = False
-        # 1: set DCD/diagnostic fitted attrs to safe
-        # defaults so the identity shortcut produces a
-        # fitted-state-complete estimator (matches full-fit attribute
-        # surface). Without these the cache-replay tests and
-        # downstream consumers that introspect ``sel.dcd_`` /
-        # ``sel.mrmr_gains_`` /``sel.friend_graph_`` /
-        # ``sel.cluster_aggregate_`` blow up on the shortcut path.
-        self.dcd_ = None
-        # identity-shortcut path must also expose the
-        # ``cluster_members_`` attribute (None when DCD was disabled or did
-        # not run) so introspection code paths don't AttributeError.
-        self.cluster_members_ = None
-        # hierarchical post-hoc cluster map. Empty
-        # dict default (matches "DCD ran but found no super-structure" --
-        # meaningfully different from None, which would mean DCD disabled).
-        # Identity shortcut bypasses DCD entirely, so the empty default is
-        # the correct attribute-complete marker.
-        self.cluster_hierarchy_ = {}
-        self.mrmr_gains_ = np.array([], dtype=np.float64)
-        self.friend_graph_ = None
-        self.cluster_aggregate_ = None
-        self.ran_out_of_time_ = False
-        self.provenance_ = None
-        self._feature_names_in_synthesized_ = not hasattr(X, "columns")
-        # Mark for transform() to know we're in shortcut state. Some downstream code looks at .signature; safe-default to a stable string.
-        self.signature = f"_mrmr_identity_shortcut_n{n_cols}"
-
-    def _fit_multioutput(self, X, y, groups, sample_weight, strategy: str, fit_params):
-        """Fit one single-target MRMR per output column of a 2D ``y`` and aggregate the selected RAW columns via ``strategy`` ('union'/'intersect').
-
-        Sets the standard fitted attributes (``support_`` as integer column indices, ``feature_names_in_``, ``n_features_in_``, ``n_features_``)
-        plus ``multioutput_supports_`` (per-column selected raw-feature-name lists) and ``multioutput_strategy_``. Engineered features are not
-        unioned -- their per-column recipes differ; this path recovers the RAW genuine features that the merged-target greedy under-selected.
-        Memory: each sub-fit receives the SAME X (no copy) with a single 1D target column, mirroring RFECV's multioutput union.
-        """
-        feature_names = list(X.columns) if hasattr(X, "columns") else [f"feature_{i}" for i in range(X.shape[1])]
-        name_to_idx = {str(n): i for i, n in enumerate(feature_names)}
-        n_features = len(feature_names)
-
-        per_column_selected: dict[str, list] = {}
-        for label, y_col in _mrmr_y_columns(y):
-            sub = clone(self)
-            sub.multioutput_strategy = None  # the per-column sub-fit is single-target; force the legacy path so it does not recurse.
-            sub.fit(X, y_col, groups=groups, sample_weight=sample_weight, **(fit_params or {}))
-            sub_names = [str(feature_names[i]) for i in np.asarray(sub.support_, dtype=np.intp)]
-            per_column_selected[label] = sub_names
-
-        if not per_column_selected:
-            raise ValueError("MRMR multioutput: y has no output columns to fit.")
-
-        sets = [set(v) for v in per_column_selected.values()]
-        aggregated = set().union(*sets) if strategy == "union" else set.intersection(*sets)
-        selected_in_order = [str(n) for n in feature_names if str(n) in aggregated]
-
-        self.support_ = np.asarray([name_to_idx[n] for n in selected_in_order], dtype=np.int64)
-        self.feature_names_in_ = np.asarray([str(n) for n in feature_names], dtype=object)
-        self.n_features_in_ = n_features
-        self.n_features_ = int(self.support_.size)
-        self._engineered_features_ = []
-        self._engineered_recipes_ = []
-        self.multioutput_supports_ = per_column_selected
-        self.multioutput_strategy_ = strategy
-        # No in-object skip signature for the multioutput path: this method always re-runs the per-column sub-fits (it never consults a content
-        # signature), and the single-target skip check compares a 6-tuple ``(shape, shape, y_hash, x_hash, cols, params)`` against ``self.signature``.
-        # ``None`` makes that comparison False BY CONSTRUCTION (a later single-target fit on this instance always refits), rather than relying on
-        # the str-vs-tuple type mismatch of a content-free ``f"_mrmr_multioutput_..."`` string to never collide.
-        self.signature = None
-        self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
-        return self
-
     # ``_fit_impl`` is implemented in ``_mrmr_fit_impl.py`` and bound onto
     # this class at the bottom of this module.
 
@@ -4250,169 +3560,6 @@ class MRMR(BaseEstimator, TransformerMixin):
 
     # ``_run_fe_step`` is implemented in ``_mrmr_fe_step.py`` and bound
     # onto this class at the bottom of this module.
-
-    def get_feature_names_out(self, input_features=None):
-        """sklearn-1.x transformer protocol. Returns the names of selected features as an ndarray of str,
-        matching transform() output cols. When ``self._engineered_recipes_`` is non-empty, their names are
-        appended AFTER the base-feature names; order matches transform() output column order.
-
-        Per the sklearn protocol (BaseEstimator._check_feature_names):
-        - When ``input_features`` is None: use ``feature_names_in_``.
-        - When ``input_features`` is provided AND fit-time saw real names
-          (DataFrame input): the two MUST match or a ``ValueError`` is raised.
-          This is the Pipeline column-drift detection contract.
-        - When ``input_features`` is provided AND fit-time was an ndarray:
-          synthesized ``feature_N`` placeholders are opaque; honour the
-          caller's names. This lets Pipelines that name columns downstream
-          (e.g. ColumnTransformer + array math + name re-injection) propagate.
-
-        Pre-fix the ``input_features``
-        argument was accepted but silently ignored on every code path, so:
-        (a) Pipeline column-drift detection was bypassed - mismatched
-        ``input_features`` produced fit-time names with no warning;
-        (b) After ndarray fit, user-supplied ``input_features`` were dropped
-        and synthesized ``feature_N`` placeholders propagated to downstream
-        consumers.
-        """
-        if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
-            from sklearn.exceptions import NotFittedError
-            raise NotFittedError(
-                "This MRMR instance is not fitted yet. Call 'fit' before "
-                "using 'get_feature_names_out'."
-            )
-        # Resolve effective fit-time feature names. If ``input_features`` was
-        # provided, validate against the saved ``feature_names_in_`` (sklearn
-        # column-drift protocol) - but only when fit saw real names. The
-        # ndarray-fit path synthesises ``feature_N`` placeholders which the
-        # caller can override.
-        if input_features is not None:
-            in_names = np.asarray(input_features, dtype=object)
-            saved = np.asarray(self.feature_names_in_, dtype=object)
-            # 1 fix (loop iter 27): use the
-            # ``_feature_names_in_synthesized_`` sentinel set at fit
-            # time instead of the brittle ``startswith("feature_")``
-            # heuristic. The heuristic misclassified legitimate
-            # DataFrame columns the user happened to name
-            # ``feature_<n>`` (very common pattern after
-            # ``pd.DataFrame(arr)`` + rename) and silently bypassed
-            # the sklearn column-drift contract -
-            # ``get_feature_names_out(['totally_wrong_A','B','C'])``
-            # returned ``['totally_wrong_A']`` instead of raising.
-            # Back-compat fallback for unpickled pre-iter-27 estimators
-            # without the sentinel: require an EXACT regex match
-            # (anchored, ``feature_\d+$``) AND count parity, not just
-            # ``startswith``.
-            synthesized = getattr(self, "_feature_names_in_synthesized_", None)
-            if synthesized is None:
-                import re as _re
-                _placeholder = _re.compile(r"^feature_\d+$")
-                synthesized = all(
-                    _placeholder.match(str(n)) is not None for n in saved
-                )
-            if not synthesized:
-                if (len(in_names) != len(saved)
-                        or not np.array_equal(in_names, saved)):
-                    raise ValueError(
-                        f"input_features is not equal to feature_names_in_. "
-                        f"Got {list(in_names)[:8]}, expected "
-                        f"{list(saved)[:8]}."
-                    )
-                fni = saved
-            else:
-                # ndarray-fit case: caller's names take precedence.
-                if len(in_names) != len(saved):
-                    raise ValueError(
-                        f"input_features length ({len(in_names)}) does not "
-                        f"match the number of features seen at fit "
-                        f"({len(saved)})."
-                    )
-                fni = in_names
-        else:
-            fni = np.asarray(self.feature_names_in_, dtype=object)
-        support = self.support_
-        # Mirror _append_engineered's legacy-recipe filter (transform drops pre-D3 pickled k-way recipes
-        # lacking the chained-lookup payload). Without the SAME filter here, get_feature_names_out would
-        # advertise MORE columns than transform() emits on a legacy pickle -> a width mismatch that breaks
-        # sklearn Pipeline / ColumnTransformer / set_output. For freshly-fit estimators every recipe has
-        # the payload, so this is a strict no-op (the list comprehension keeps all recipes).
-        from ..engineered_recipes._recipe_name_simplify import simplified_recipe_names
-        _adv_recipes = [
-            r for r in getattr(self, "_engineered_recipes_", [])
-            if r.extra.get("chain_lookups") is not None or not r.extra.get("requires_refit_for_replay")
-        ]
-        # Value-preserving DISPLAY canonicalisation (e.g. abs(div(sqr(a),neg(b))) -> abs(div(sqr(a),b)));
-        # transform() names its engineered columns through the SAME helper so widths/names stay in sync.
-        engineered_names = simplified_recipe_names(_adv_recipes)
-        if len(support) == 0 and not engineered_names:
-            return np.array([], dtype=object)
-        if len(support) > 0 and isinstance(support[0], (bool, np.bool_)):
-            base_names = [n for n, s in zip(fni, support) if s]
-        else:
-            base_names = [fni[i] for i in support]
-        names = list(base_names) + engineered_names
-        # USABILITY UNION (2026-06-13): when the usability-aware pass ran, transform() ALSO materialises
-        # the linear + universal lists' features (deduped against the pure-MI output), so the advertised
-        # names must include them or the sklearn-Pipeline width check would reject the wider transform.
-        if getattr(self, "usability_aware_lists", False):
-            names += [cand.name for cand in self._usability_union_extra(names)]
-        return np.asarray(names, dtype=object)
-
-    @property
-    def discovered_structure_(self):
-        """Read-only EDA view of the discrete STRUCTURAL relationships the four FE detectors found during ``fit`` (modular / lattice /
-        argmax / conditional-gate). Assembled near-free from the frozen ``_engineered_recipes_`` metadata (op / modulus / tau / src_names)
-        the operators already emitted -- no re-scan, no y. Returns a :class:`~mlframe.feature_selection.structure_discovery.StructureReport`;
-        MI / lift are ``nan`` here (the fit did not freeze the scan's MI), the kind + columns + parameter are exact. For MI / lift, call the
-        standalone ``discover_structure(X, y)`` instead."""
-        from ...structure_discovery import structure_report_from_recipes
-
-        recipes = getattr(self, "_engineered_recipes_", []) or []
-        if isinstance(recipes, dict):
-            recipes = list(recipes.values())
-        n_cols = int(getattr(self, "n_features_in_", 0) or 0)
-        return structure_report_from_recipes(recipes, n_columns=n_cols)
-
-    def _usability_union_extra(self, base_names):
-        """Ordered ``UsableCandidate`` list from ``support_linear_`` + ``support_universal_`` whose name
-        is NOT already present in ``base_names`` (the pure-MI transform output), deduped across the two
-        usability lists. The SINGLE SOURCE OF TRUTH for the union appended by both ``get_feature_names_out``
-        and ``transform`` so their widths always agree."""
-        seen = set(map(str, base_names))
-        extra = []
-        for attr in ("support_linear_", "support_universal_"):
-            for cand in (getattr(self, attr, None) or []):
-                if cand.name not in seen:
-                    seen.add(cand.name)
-                    extra.append(cand)
-        return extra
-
-    # 1 fix (loop iter 43): explicit
-    # ``__sklearn_is_fitted__`` and ``get_support`` so sklearn's
-    # ``check_is_fitted`` / ``SelectorMixin`` consumers behave
-    # correctly.
-    # Pre-fix the class declared only ``BaseEstimator, TransformerMixin``
-    # with no ``__sklearn_is_fitted__``, so ``check_is_fitted`` fell
-    # back to a heuristic scanning for ANY trailing-underscore attr.
-    # ``_mrmr_fit_impl`` sets ``feature_names_in_`` / ``n_features_in_``
-    # ~700 lines BEFORE ``support_`` (line 942), so a fit() that
-    # crashed mid-screen left a half-fit instance that
-    # ``check_is_fitted`` accepted but ``transform`` then refused with
-    # ``NotFittedError`` - confusing for any downstream gate that used
-    # the canonical check.
-    # Also added ``get_support`` to honour the SelectorMixin contract
-    # downstream consumers (sklearn Pipeline, RFECV, monitoring hooks)
-    # expect.
-    def __sklearn_is_fitted__(self) -> bool:
-        return hasattr(self, "support_") and hasattr(self, "feature_names_in_")
-
-    def get_support(self, indices: bool = False):
-        from sklearn.utils.validation import check_is_fitted
-        check_is_fitted(self)
-        mask = np.zeros(int(self.n_features_in_), dtype=bool)
-        _supp = np.asarray(self.support_, dtype=np.intp)
-        if _supp.size:
-            mask[_supp] = True
-        return np.where(mask)[0] if indices else mask
 
     # ``transform`` + ``_append_engineered`` are implemented in
     # ``_mrmr_validate_transform.py`` and bound onto this class at the
@@ -4439,59 +3586,4 @@ class MRMR(BaseEstimator, TransformerMixin):
             out = self._append_usability_union(out, X)
         return out
 
-    def _append_usability_union(self, base_out, X):
-        """Append the usability lists' features (``support_linear_`` + ``support_universal_``, deduped
-        against the pure-MI output and each other) to the standard transform output, and record
-        ``usability_feature_groups_`` -- a ``{'nonlinear'|'linear'|'universal': [names]}`` map so a
-        downstream can subset to a model family's list. The pure-MI columns keep precedence on a name
-        clash; the union is what lets a LINEAR model trained on the suite's shared matrix pick up the
-        engineered interaction (c*d) it needs without any per-model re-transform."""
-        import pandas as pd
-        from .._usability_lists import materialize_usability_features
 
-        if not isinstance(base_out, pd.DataFrame):
-            cols = list(self.get_feature_names_out())
-            arr = np.asarray(base_out)
-            # get_feature_names_out already includes the union names; the base ndarray is narrower
-            # (pure-MI only), so name only its own width here and let the concat below add the rest.
-            base_out = pd.DataFrame(arr, columns=cols[: arr.shape[1]], index=getattr(X, "index", None))
-
-        nonlinear_names = list(base_out.columns)
-        groups = {
-            "nonlinear": list(nonlinear_names),
-            "linear": [c.name for c in (getattr(self, "support_linear_", None) or [])],
-            "universal": [c.name for c in (getattr(self, "support_universal_", None) or [])],
-        }
-        extra = self._usability_union_extra(nonlinear_names)
-        self.usability_feature_groups_ = groups
-        if not extra:
-            return base_out
-        mat = materialize_usability_features(extra, X)
-        mat.index = base_out.index
-        return pd.concat([base_out, mat], axis=1)
-
-    def transform_usability(self, X, which: str = "linear"):
-        """Materialise a USABILITY-AWARE feature space on ``X`` -- the linear-downstream selection
-        produced when the estimator was fit with ``usability_aware_lists=True``.
-
-        ``which='linear'`` -> ``support_linear_`` (the ``w->1`` usability list, for linear / additive
-        models); ``which='universal'`` -> ``support_universal_`` (the blended list); ``which=
-        'nonlinear'`` returns the standard pure-MI ``transform`` output (the tree list). Each entry
-        is replayed from its stored ``EngineeredRecipe`` (or passed through as a raw column), so the
-        returned DataFrame is the exact feature space the usability greedy scored at fit time.
-
-        Raises if the requested list was not computed (estimator fit with the pass OFF, or a
-        non-numeric target / degenerate pool left it ``None``)."""
-        if which == "nonlinear":
-            return self.transform(X)
-        attr = {"linear": "support_linear_", "universal": "support_universal_"}.get(which)
-        if attr is None:
-            raise ValueError(f"transform_usability: which must be 'linear'|'universal'|'nonlinear', got {which!r}")
-        candidates = getattr(self, attr, None)
-        if candidates is None:
-            raise AttributeError(
-                f"{attr} is not available: fit MRMR with usability_aware_lists=True and a continuous "
-                f"target to populate it (the '{which}' usability list)."
-            )
-        from .._usability_lists import materialize_usability_features
-        return materialize_usability_features(candidates, X)
