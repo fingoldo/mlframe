@@ -176,7 +176,9 @@ def generate_similar_probs(predicted_probs, true_outcomes, noise_scale=0.05, n_i
         n_iterations (int): Number of iterations for fine-tuning the noise scale.
 
     Returns:
-        np.ndarray: A similar_probs array with approximately the same Brier Score and ROC AUC.
+        np.ndarray: A similar_probs array with approximately the same Brier Score and ROC AUC, or
+            ``None`` for degenerate single-class ``true_outcomes`` (ROC AUC is undefined, so the joint
+            metric distance is NaN and no candidate is ever accepted).
     """
     rng = check_random_state(random_state)
     original_brier_score = fast_brier_score_loss(true_outcomes, predicted_probs)

@@ -48,7 +48,9 @@ def _verify_sidecar(path: str) -> bool:
 
 def _load_features_file(features_file: str):
     """Prefer orjson-based sidecar (``features_file + '.json'`` or a ``.json`` twin),
-    fall back to joblib. Returns a list[str] or None on failure.
+    fall back to joblib. Returns a list[str], or None when no features file / sidecar is present
+    or the sha256 sidecar mismatches. Malformed sidecar JSON propagates the decode error -- the
+    sole caller, ``read_trained_models``, wraps this call in try/except and logs a warning.
     """
     json_candidates = []
     base, ext = splitext(features_file)

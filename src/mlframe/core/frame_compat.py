@@ -18,9 +18,9 @@ Public API
       1. pandas DataFrame / Series -- returned as-is.
       2. polars DataFrame -- ``.to_pandas()`` (zero-copy where possible).
       3. polars LazyFrame -- ``.collect().to_pandas()``.
-      4. polars Series -- wrapped into a 1-column pandas DataFrame
-         (``to_pandas()`` on a Series returns ``pd.Series``; the analyzer's
-         downstream ``df.columns`` would AttributeError without the wrap).
+      4. polars Series -- ``.to_pandas()`` returns a ``pd.Series`` (NOT wrapped into a
+         DataFrame; some callers -- quantile / metric helpers -- prefer the Series form and
+         can wrap it themselves when they need column semantics).
       5. numpy array -- returned as-is (the caller decides whether to wrap
          into a DataFrame -- ndim/shape semantics are ambiguous without
          feature names).
