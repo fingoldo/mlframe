@@ -362,9 +362,15 @@ def train_and_evaluate_model(
 
     if use_cache and exists(model_file_name):
         logger.info("Loading model from file %s", model_file_name)
-        # Security: only load pickles from an explicitly trusted directory root.
-        # Default `trusted_root` to the model file's parent dir when not provided,
-        # preserving backward compat for in-process trained-then-loaded flows.
+        # Security: verify the model path is inside a trusted root before the joblib.load (pickle).
+        # Default `trusted_root` to the model file's parent dir when not provided, preserving backward
+        # compat for the in-process trained-then-loaded flow (the trainer wrote this file itself).
+        # RESIDUAL RISK (audit2 F2): path-containment cannot catch a pickle an attacker plants AT the
+        # expected model_file_name (it's exactly where we look) -- only integrity can. The complete fix
+        # is to write + verify a sha256 sidecar around this save/load pair via
+        # utils.safe_pickle.safe_load (fail-closed on a missing/mismatched sidecar); tracked as an owned
+        # follow-up since it needs the paired SAVE site to emit the sidecar. Until then this default only
+        # blocks gross path escapes, not a planted-at-path pickle.
         _root = trusted_root if trusted_root is not None else os.path.dirname(os.path.abspath(model_file_name))
         _validate_trusted_path(model_file_name, _root)
         try:
