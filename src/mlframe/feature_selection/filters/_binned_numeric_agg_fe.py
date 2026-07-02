@@ -299,8 +299,9 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
     try:
         import os as _os
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        # No size gate under STRICT (user contract: 100% residency, no KTC-style size dispatch).
         if (_os.environ.get("MLFRAME_FE_CHEAP_MI_GPU", "1").strip().lower() in ("1", "true", "on", "yes")
-                and fe_gpu_strict_resident_enabled() and cv.size >= 200_000):
+                and fe_gpu_strict_resident_enabled()):
             import cupy as cp
             cvd = cp.asarray(cv)
             qs = np.linspace(0.0, 1.0, nbins + 1)[1:-1]

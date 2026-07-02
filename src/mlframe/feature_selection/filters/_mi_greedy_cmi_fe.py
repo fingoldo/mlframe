@@ -206,20 +206,22 @@ def _quantile_bin(col: np.ndarray, nbins: int) -> np.ndarray:
     # ``a`` in place. Bit-identical (when every value is finite, finite == a and
     # finite_mask selects every row). ~1.3x at the CMI-greedy call volume.
     if np.isfinite(a).all():
-        # GPU fast path (STRICT-resident, large-operand only): the n-sized equi-frequency binning of the
-        # gate-redundancy / subsumption / additive-fusion continuous columns is 6x on-device at n=300k
-        # (synchronized bench). Size-gated (_GPU_QBIN_MIN_ROWS) so only above-crossover columns route to the
-        # GPU; the small columns and the no-CUDA / non-strict default keep the byte-identical numpy path.
-        if a.size >= _GPU_QBIN_MIN_ROWS:
-            try:
-                from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
-                _gpu_on = fe_gpu_strict_resident_enabled()
-            except Exception:
-                _gpu_on = False
-            if _gpu_on:
-                _g = _quantile_bin_gpu(a, nbins)
-                if _g is not None:
-                    return _g
+        # GPU path (STRICT-resident): the n-sized equi-frequency binning of the gate-redundancy /
+        # subsumption / additive-fusion continuous columns is 6x on-device at n=300k (synchronized bench).
+        # NO size gate under STRICT (2026-07-02, user contract): strict mode is 100% GPU residency of data
+        # and kernels -- a size crossover is exactly the KTC-style host dispatch strict forbids, so EVERY
+        # finite column bins on the device (the small-column device round-trip overhead is the accepted
+        # residency price; the _GPU_QBIN_MIN_ROWS crossover note below documents its wall cost). The no-CUDA
+        # / non-strict default keeps the byte-identical numpy path.
+        try:
+            from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+            _gpu_on = fe_gpu_strict_resident_enabled()
+        except Exception:
+            _gpu_on = False
+        if _gpu_on:
+            _g = _quantile_bin_gpu(a, nbins)
+            if _g is not None:
+                return _g
         edges = np.unique(np.quantile(a, qs))
         out = np.zeros(a.size, dtype=np.int64)
         if edges.size <= 2:
