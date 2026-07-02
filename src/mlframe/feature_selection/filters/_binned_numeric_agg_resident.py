@@ -48,6 +48,8 @@ from typing import Any, Callable, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._resident_bincount import resident_bincount
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -77,12 +79,14 @@ def _per_cell_raw_moments_gpu(cp, codes_g, v_g, n_cells: int):
     nc = int(n_cells)
     x = v_g
     x2 = x * x
-    cnt = cp.bincount(codes_g, minlength=nc).astype(cp.float64)[:nc]
-    s1 = cp.bincount(codes_g, weights=x, minlength=nc).astype(cp.float64)[:nc]
-    s2 = cp.bincount(codes_g, weights=x2, minlength=nc).astype(cp.float64)[:nc]
-    s3 = cp.bincount(codes_g, weights=x2 * x, minlength=nc).astype(cp.float64)[:nc]
-    s4 = cp.bincount(codes_g, weights=x2 * x2, minlength=nc).astype(cp.float64)[:nc]
-    return cnt, s1, s2, s3, s4
+    # resident_bincount: codes_g are joint cell ids in [0, nc) so the bin count is known -- skip cupy.bincount's
+    # per-call int(cupy.max) D2H sync (these 5 reductions were the largest single scalar-sync cluster in the trace).
+    cnt = resident_bincount(cp, codes_g, nc)
+    s1 = resident_bincount(cp, codes_g, nc, weights=x)
+    s2 = resident_bincount(cp, codes_g, nc, weights=x2)
+    s3 = resident_bincount(cp, codes_g, nc, weights=x2 * x)
+    s4 = resident_bincount(cp, codes_g, nc, weights=x2 * x2)
+    return cnt.astype(cp.float64, copy=False), s1, s2, s3, s4
 
 
 def _stats_from_moments_gpu(cp, moments, stats: Sequence[str]) -> dict:
