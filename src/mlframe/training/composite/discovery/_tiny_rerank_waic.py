@@ -4,11 +4,56 @@
 """
 from __future__ import annotations
 
+import logging
 import math
 
 import numpy as np
 
 from ..transforms import get_transform
+from ._rejection_ledger import RejectStage, ledger_append
+
+logger = logging.getLogger(__name__)
+
+
+def apply_honest_oof_floor(self, kept_specs, agg_scores, honest_oof, honest_oof_baseline):
+    """Enforce the honest-OOF floor as a REJECTION, not just a rank key: drop specs whose MEASURED honest reconstruction
+    cannot beat ``min(raw-y, AR-lag)`` within tolerance. Without this honest-OOF only reorders (the raw-baseline gate is
+    off by default) so a spec worse than the lag_predict failsafe we deploy anyway is still carried into the ensemble
+    (prod: 13.30 ensemble vs 11.58 lag floor). Specs absent from ``honest_oof`` (degenerate measurement) keep their CV
+    rank. Returns the (possibly filtered) ``(kept_specs, agg_scores)``; also refreshes ``self._tiny_rerank_scores``.
+    """
+    if not (math.isfinite(honest_oof_baseline)
+            and bool(getattr(self.config, "honest_oof_floor_reject_enabled", True))):
+        return kept_specs, agg_scores
+    floor_tol = float(getattr(self.config, "honest_oof_selection_tolerance", 1.05))
+    floor_thr = honest_oof_baseline * floor_tol
+    kept_after, agg_after, dropped = [], [], []
+    for i, spec in enumerate(kept_specs):
+        hv = honest_oof.get(spec.name)
+        if hv is not None and math.isfinite(hv) and hv >= floor_thr:
+            dropped.append((spec.name, float(hv)))
+            ledger_append(
+                self, spec_name=spec.name, stage=RejectStage.HONEST_OOF_FLOOR,
+                reason=f"honest-OOF reconstruction {hv:.4g} >= floor {floor_thr:.4g} "
+                       f"(min(raw,lag)={honest_oof_baseline:.4g} * {floor_tol})",
+                base_column=getattr(spec, "base_column", ""),
+                transform_name=getattr(spec, "transform_name", ""),
+                numbers={"honest_oof_rmse": float(hv), "floor": float(honest_oof_baseline),
+                         "threshold": float(floor_thr)},
+            )
+            continue
+        kept_after.append(spec)
+        agg_after.append(agg_scores[i])
+    if dropped:
+        logger.info(
+            "[CompositeTargetDiscovery.honest_oof_select] floor gate rejected %d/%d spec(s) that lose to "
+            "min(raw,lag)=%.4g (tol=%.2f): %s",
+            len(dropped), len(kept_specs), honest_oof_baseline, floor_tol,
+            ", ".join(f"{n}(RMSE={v:.4g})" for n, v in dropped[:5]),
+        )
+        self._tiny_rerank_scores = {kept_after[i].name: float(agg_after[i]) for i in range(len(kept_after))}
+        return kept_after, agg_after
+    return kept_specs, agg_scores
 
 
 def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen, per_base_cache, rel_tol: float = 0.02):
