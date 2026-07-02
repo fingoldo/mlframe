@@ -173,6 +173,12 @@ def fit_binned_numeric_agg(
 
     feat_cols: dict[str, np.ndarray] = {}
     recipes: dict[str, dict] = {}
+    # Per-agg-column caches, shared ACROSS group columns: the agg values / finite mask / GLOBAL stats depend
+    # only on ``acol`` yet were recomputed for every (gcol, acol) pair -- and ``_global_stat``'s scipy
+    # skew/kurtosis do several full-n passes each, so at 16 group columns the same column's globals ran up to
+    # 16x (the dominant host cost of the recipe fit at 1M rows). Bit-identical values, just computed once.
+    _av_cache: dict[str, tuple] = {}
+    _globals_cache: dict[tuple, dict] = {}
     for gcol in group_num_cols:
         gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)
         if not np.isfinite(gvals).all():
@@ -188,9 +194,18 @@ def fit_binned_numeric_agg(
                 continue
             if pairs is not None and (gcol, acol) not in pairs:
                 continue  # PRE-CAP: only compute OOF for the kept top-max_pairs (bit-identical output)
-            av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
-            finite = np.isfinite(av)
-            globals_ = {s: _global_stat(av[finite], s) for s in kept_stats}
+            _avc = _av_cache.get(acol)
+            if _avc is None:
+                av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
+                finite = np.isfinite(av)
+                _av_cache[acol] = (av, finite)
+            else:
+                av, finite = _avc
+            _gk = (acol, tuple(kept_stats))
+            globals_ = _globals_cache.get(_gk)
+            if globals_ is None:
+                globals_ = {s: _global_stat(av[finite], s) for s in kept_stats}
+                _globals_cache[_gk] = globals_
             if not recipe_only:
                 # RECIPE_ONLY (device-born binagg, 2026-07-02) skips the 5-fold OOF feat-column build -- the
                 # per-fold gather + np.where over the full n rows, the FE scan's single largest GPU-idle host
