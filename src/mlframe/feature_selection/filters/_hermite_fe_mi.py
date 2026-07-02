@@ -276,7 +276,7 @@ _SHIFTED_Y_CACHE: dict = {}
 
 
 def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None,
-                                           keep_dtype: bool = False):
+                                           keep_dtype: bool = False, relax_binning: bool = False):
     """MATRIX-NATIVE plug-in MI on ALREADY-RESIDENT cupy arrays -- the H2D-FREE core of
     :func:`_plugin_mi_classif_batch_cuda`. ``X_gpu`` is an (n, k) cupy float64 candidate
     matrix, ``y_gpu`` an (n,) cupy integer label vector, BOTH already on the device. This
@@ -299,6 +299,20 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
         return np.zeros(k, dtype=np.float64)
     if not (keep_dtype and X_gpu.dtype == cp.float32) and X_gpu.dtype != cp.float64:
         X_gpu = X_gpu.astype(cp.float64)
+    # relax_binning (2026-07-02, nvprof-driven): the radix-select quantile discretiser is the #1 GPU kernel on
+    # the F2 STRICT profile (radix_select_interp_f64_v2, ~21%); a clean CUDA-event A/B shows the f32 radix reads
+    # half the bytes and runs 1.3-1.8x on the real F2 candidate shapes (max|val| ~7.5e5, no f32 overflow) with
+    # 0.29% boundary-row code drift -- SELECTION-EQUIVALENT, the same contract keep_dtype's f32 FE-batch path
+    # relies on. OPT-IN only: the SELECTION callers (op-candidate / binagg / dispersion gates) pass True; the
+    # generic entry stays f64 so the CUDA==njit bit-close contract (test_batch_cuda_matches_njit) is unchanged.
+    # Gated on MLFRAME_CRIT_DTYPE_RELAXED (default ON) so =0 restores strict f64 everywhere.
+    if relax_binning and X_gpu.dtype == cp.float64:
+        try:
+            from ._fe_gpu_batch._devices import crit_float_dtype
+            if crit_float_dtype() == cp.float32:
+                X_gpu = X_gpu.astype(cp.float32)
+        except Exception:
+            pass
     if y_gpu.dtype != cp.int64:
         y_gpu = y_gpu.astype(cp.int64)
     # Class axis spans [y_min, y_max]; labels may be negative / non-dense. Offset by y_min so the bincount

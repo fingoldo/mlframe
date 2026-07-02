@@ -77,7 +77,7 @@ def gpu_resident_pair_candidate_mi_vram_fraction(
         block = _COMBOS[start:start + k_chunk]
         cand = _fused_generate_block(ua_cm, ub_cm, block)
         mi_parts.append(np.asarray(
-            _plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins, y_min=_ymin, n_classes=_ncls),
+            _plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins, y_min=_ymin, n_classes=_ncls, relax_binning=True),
             dtype=np.float64))
         del cand
     return _candidate_names(), np.concatenate(mi_parts) if mi_parts else np.empty(0)

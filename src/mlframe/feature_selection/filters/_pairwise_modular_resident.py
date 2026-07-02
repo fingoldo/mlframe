@@ -136,7 +136,7 @@ def residue_grid_mis_resident(
         for eff_nbins, idxs in groups.items():
             cols = [(cg % int(mods[idx])).astype(cp.float64) for idx in idxs]
             mat = cp.ascontiguousarray(cp.stack(cols, axis=1))
-            mis = _plugin_mi_classif_batch_cuda_resident(mat, yd, int(eff_nbins), y_min=_ymin, n_classes=_ncls)
+            mis = _plugin_mi_classif_batch_cuda_resident(mat, yd, int(eff_nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True)
             mis = np.asarray(mis, dtype=np.float64)
             for j, idx in enumerate(idxs):
                 out[idx] = float(mis[j])

@@ -170,7 +170,7 @@ def best_existing_op_mi_resident(
                 return None
         else:
             mis = _plugin_mi_classif_batch_cuda_resident(
-                mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes,
+                mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes, relax_binning=True,
             )
         return float(np.max(mis))
     except Exception as _exc:  # noqa: BLE001
@@ -252,7 +252,7 @@ def gate_grid_mi_resident(
                 return None
         else:
             mis = _plugin_mi_classif_batch_cuda_resident(
-                mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes,
+                mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes, relax_binning=True,
             )
         return np.asarray(mis, dtype=np.float64)
     except Exception as _exc:  # noqa: BLE001
