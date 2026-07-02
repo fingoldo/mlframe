@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import root_mean_squared_error
+from sklearn.tree import DecisionTreeRegressor
 
 from mlframe.training.composite.estimator import CompositeTargetEstimator
 from mlframe.training.composite.meta import CompositeOrRawStacker
@@ -20,16 +21,22 @@ def _split(X, y, n_tr):
 
 
 def test_biz_val_meta_recovers_composite_when_transform_wins():
-    """DGP: y = base + 2*f + noise. The 'diff' transform (T = y - base) removes the dominant base term,
-    so the composite path should clearly win and the blender should weight it high (>= 0.7)."""
+    """DGP: y = base + 2*f + noise with a large-variance base. The 'diff' transform (T = y - base) hands the model the
+    clean low-variance residual 2*f, whereas the RAW model must spend its capacity approximating the dominant base term.
+    A shallow tree (which cannot represent the linear base natively -- unlike OLS, which would tie) is clearly better on
+    the composite path, so the NNLS blender weights composite high (>= 0.7). (LinearRegression would make both paths
+    near-perfect -> a meaningless near-tie; the tree is what makes the transform's value measurable.)"""
     rng = np.random.default_rng(1)
     n = 600
-    base = rng.normal(50.0, 10.0, n)  # large-variance base dominates y
+    base = rng.normal(50.0, 10.0, n)  # large-variance base dominates y; a depth-limited tree fits it only coarsely
     f = rng.normal(0.0, 1.0, n)
     y = base + 2.0 * f + rng.normal(0.0, 0.5, n)
     X = pd.DataFrame({"base": base, "f": f})
 
-    est = CompositeOrRawStacker(base_estimator=LinearRegression(), transform_name="diff", base_column="base", n_splits=5)
+    est = CompositeOrRawStacker(
+        base_estimator=DecisionTreeRegressor(max_depth=3, random_state=0),
+        transform_name="diff", base_column="base", n_splits=5,
+    )
     est.fit(X, y)
     w_c, w_r = est.weights_
     assert w_c >= 0.7, f"composite should dominate the blend on a transform-friendly target; got w_composite={w_c:.3f}"
