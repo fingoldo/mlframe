@@ -265,6 +265,7 @@ def usability_greedy_gpu_resident(
                 ytr = ydev[tr]
                 ybar = ytr.mean()
                 yc = ytr - ybar
+                yva = ydev[va]                                   # fold-invariant across candidates; gather ONCE per fold
                 if sel_idx:
                     Str = Vdev[tr][:, sel_idx]
                     Sva = Vdev[va][:, sel_idx]
@@ -275,7 +276,7 @@ def usability_greedy_gpu_resident(
                     bs = Sc_tr.T @ yc
                 else:
                     Sc_tr = Sc_va = mu = Gs = bs = None
-                per_fold.append((tr, va, ybar, yc, Sc_tr, Sc_va, Gs, bs))
+                per_fold.append((tr, va, ybar, yc, yva, Sc_tr, Sc_va, Gs, bs))
 
             # Accumulate EVERY candidate's per-fold MAE row resident, then do ONE D2H for the whole
             # shortlist (a (n_cand, nf) stacked pull) instead of one .get() per candidate -- the values
@@ -296,7 +297,7 @@ def usability_greedy_gpu_resident(
                 singular = False
                 cand_mind = None     # resident running-min cc_tr.cc_tr over folds (round-1 border)
                 for fo in range(nf):
-                    tr, va, ybar, yc, Sc_tr, Sc_va, Gs, bs = per_fold[fo]
+                    tr, va, ybar, yc, yva, Sc_tr, Sc_va, Gs, bs = per_fold[fo]
                     ctr = ci[tr]
                     cva = ci[va]
                     cmu = ctr.mean()
@@ -328,7 +329,7 @@ def usability_greedy_gpu_resident(
                             singular = True
                             break
                         pred = ybar + Sc_va @ beta[:k] + cc_va * beta[k]
-                    errs_dev[fo] = cp.mean(cp.abs(ydev[va] - pred))
+                    errs_dev[fo] = cp.mean(cp.abs(yva - pred))
                 if singular:
                     raise _ResidentFallback()
                 errs_rows.append(errs_dev)
