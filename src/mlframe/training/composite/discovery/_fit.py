@@ -209,12 +209,34 @@ def fit(
 
         base_candidates = apply_base_leakage_guard(self, df, base_candidates, train_idx, y_train, time_ordering)
 
+    # Grouped causal base engineering: on a group-sequential target (well log by MD, per-entity panel) add strictly-causal
+    # per-group lag / trailing-mean / expanding-mean bases of y. Runs AFTER the leakage guard by design -- these bases are
+    # causal by construction (shift>=1 within group) and must not be stripped as leakage. Adds them to both usable_features
+    # (so the MI baseline sees them) and base_candidates. No-op unless a group key is configured. (default-ON via config.)
+    from ._grouped_causal_bases import maybe_add_grouped_causal_bases
+
+    df, usable_features, base_candidates = maybe_add_grouped_causal_bases(
+        self, df, target_col, usable_features, base_candidates, train_idx,
+    )
+    self._df_ref = df  # engineered columns must be visible to iter_transform / downstream gates that read self._df_ref.
+
     if not base_candidates:
         logger.warning(
             "[CompositeTargetDiscovery] no usable base candidates after " "forbidden-pattern / corr / ptp / numeric filters. " "Discovery yields no specs."
         )
         self.specs_ = []
-        self.report_ = []
+        # Never return a silent, unexplained empty report: emit one diagnostic entry so a caller inspecting report_ sees
+        # WHY discovery produced nothing (every candidate base was filtered out) instead of an ambiguous empty list.
+        self.report_ = [{
+            "name": "__no_base_candidates__",
+            "kept": False,
+            "rejected": True,
+            "reason": "no usable base candidates: all excluded by forbidden-pattern / corr / ptp / numeric filters",
+            "base_column": "",
+            "transform_name": "",
+            "mi_gain": float("nan"),
+            "valid_domain_frac": float("nan"),
+        }]
         return self
 
     # Down-sample for MI screening. Stratified-quantile when

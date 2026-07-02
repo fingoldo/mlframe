@@ -189,20 +189,30 @@ def add_engineered_bases_to_pool(
     pool: Mapping[str, np.ndarray] | None,
     df: Any,
     target_col: str,
-    time_column: str,
+    time_column: str | None = None,
+    *,
+    group_field: str | None = None,
     **kwargs: Any,
 ) -> dict[str, np.ndarray]:
-    """Merge auto-engineered temporal bases into a candidate-base pool (no frame copy).
+    """Merge auto-engineered bases into a candidate-base pool (no frame copy).
 
-    Thin convenience wrapper: builds the engineered bases via
-    :func:`engineer_temporal_bases` and returns a NEW dict combining ``pool`` (if any) with
-    them. User-supplied entries in ``pool`` win on a name clash (never silently overwritten).
-    The result is ready to pass to ``screen_base_pool`` / discovery as candidate bases.
+    Thin convenience wrapper: builds the engineered bases and returns a NEW dict combining ``pool`` (if any) with them.
+    User-supplied entries in ``pool`` win on a name clash (never silently overwritten). The result is ready to pass to
+    ``screen_base_pool`` / discovery as candidate bases.
 
-    ``**kwargs`` are forwarded to :func:`engineer_temporal_bases` (``lags``,
-    ``rolling_windows``, ``ops``).
+    When ``group_field`` is given the bases are the STRICTLY-CAUSAL PER-GROUP family from
+    :func:`_grouped_causal_bases.engineer_grouped_causal_bases` (``lags``, ``trailing_windows``, ``ops``, ``first_fill``
+    kwargs); otherwise they are the global time-ordered family from :func:`engineer_temporal_bases` (``lags``,
+    ``rolling_windows``, ``ops`` kwargs), which requires a non-``None`` ``time_column``.
     """
-    engineered = engineer_temporal_bases(df, target_col, time_column, **kwargs)
+    if group_field is not None:
+        from ._grouped_causal_bases import engineer_grouped_causal_bases
+
+        engineered = engineer_grouped_causal_bases(df, target_col, group_field, time_column, **kwargs)
+    else:
+        if time_column is None:
+            raise ValueError("add_engineered_bases_to_pool: the global temporal path needs a time_column; pass group_field for the per-group causal path.")
+        engineered = engineer_temporal_bases(df, target_col, time_column, **kwargs)
     merged: dict[str, np.ndarray] = dict(engineered)
     if pool:
         merged.update(pool)  # caller-supplied bases take precedence on name clash
