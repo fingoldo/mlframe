@@ -706,6 +706,7 @@ def bocpd_features(
     alpha0: float = 1.0,
     beta0: float = 1.0,
     max_run_length: int = 1000,
+    _force_backend: Optional[str] = None,
 ) -> dict:
     """Adams & MacKay (2007) online Bayesian change-point detection.
 
@@ -825,7 +826,9 @@ def bocpd_features(
         p_s = np.empty(n, dtype=np.float64)
         ex_s = np.empty(n, dtype=np.float64)
         max_s = np.empty(n, dtype=np.float64)
-        backend = dispatch_recursion_backend("fe_bocpd", n, int(starts.size))
+        # _force_backend (autotune-only) selects the backend explicitly instead of via the process-global
+        # MLFRAME_FE_RECURSION_BACKEND env, so the sweep cannot flip a concurrently-running caller's backend.
+        backend = _force_backend if _force_backend in ("serial", "parallel") else dispatch_recursion_backend("fe_bocpd", n, int(starts.size))
         if backend == "parallel":
             _bocpd_groups_parallel(obs_sorted, starts, ends, hazard,
                                    mu0, kappa0, alpha0, beta0, p_s, ex_s, max_s, max_run_length)
@@ -855,6 +858,7 @@ def online_bayesian_linear_regression(
     group_ids: Optional[np.ndarray] = None,
     prior_precision: float = 1.0,
     noise_sigma: float = 1.0,
+    _force_backend: Optional[str] = None,
 ) -> dict:
     """Recursive Bayesian linear regression (NIG conjugate).
 
@@ -929,7 +933,7 @@ def online_bayesian_linear_regression(
         pm = np.empty(n, dtype=np.float64)
         pv = np.empty(n, dtype=np.float64)
         lm = np.full(n, np.nan, dtype=np.float64)
-        backend = dispatch_recursion_backend("fe_oblr", n, int(starts.size))
+        backend = _force_backend if _force_backend in ("serial", "parallel") else dispatch_recursion_backend("fe_oblr", n, int(starts.size))
         if backend == "parallel":
             _oblr_groups_parallel(y_sorted, X_sorted, starts, ends,
                                   prior_precision, noise_sigma, pm, pv, lm)
