@@ -195,13 +195,21 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint
         if interior is not None:
             return _searchsorted_codes(cand_gpu, interior, out_dtype=out_dtype)
 
-    qs = _quantile_levels_dev(cp, nbins, work)
+    # Compute the quantile EDGES in float64 regardless of the binning working dtype. The radix-select edge path
+    # (the default) interpolates its order statistics in float64 and so matches the CPU reference exactly
+    # (np.percentile upcasts float32->float64); a native-float32 cp.percentile here interpolates in float32 and
+    # diverges by ~1e-6, which flips a code by 1 at a bin boundary (breaking the radix<->percentile bit-identity
+    # lock AND CPU parity). Interpolating the edges in float64 costs a transient f64 view only on this rare
+    # fallback (radix is the sort-free default); the float32 candidate VALUES are still binned natively via
+    # searchsorted (edges are widened to f64 there anyway).
+    edge_src = cand_gpu if cand_gpu.dtype == cp.float64 else cand_gpu.astype(cp.float64)
+    qs = _quantile_levels_dev(cp, nbins, cp.float64)
     if K == 1:
         # CUPY BUG GUARD: cp.percentile(X, axis=0) returns WRONG edges for a single-column (n, 1) array
         # (verified maxdiff ~23 vs numpy; multi-column is exact). A K==1 chunk occurs whenever the last
         # candidate block holds one column, which would silently corrupt that column's codes (breaking the
         # discretize bit-identity). Ravel to 1D where cp.percentile is correct, then restore the shape.
-        bin_edges = cp.percentile(cand_gpu.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
+        bin_edges = cp.percentile(edge_src.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
     else:
-        bin_edges = cp.percentile(cand_gpu, qs, axis=0)  # (nbins+1, K)
+        bin_edges = cp.percentile(edge_src, qs, axis=0)  # (nbins+1, K)
     return _searchsorted_codes(cand_gpu, bin_edges[1:-1], out_dtype=out_dtype)
