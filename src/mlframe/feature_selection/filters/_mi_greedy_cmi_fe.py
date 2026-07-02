@@ -95,6 +95,45 @@ def _qbin_float_dtype():
         return cp.float64
 
 
+def _sync_free_qbin_codes(cp, xd, nbins: int):
+    """Equi-frequency bin codes for a resident 1-D column WITHOUT any device->host sync.
+
+    Replaces the ``cp.unique(cp.percentile(...))`` edge-dedup (which syncs to size its output) + the
+    ``int(edges.size) <= 2`` degenerate check (a second sync) with a branchless device-only construction that is
+    partition- AND cardinality-equivalent to the host ``np.unique(np.quantile(a,qs))[1:-1]`` binning for EVERY
+    column shape (verified across continuous / low-card / mass-point / binary / two-value / constant columns).
+
+    numpy takes ``unique(edges)[1:-1]`` -- i.e. it drops duplicate edges, the global-min edge, and the
+    global-max edge, EXCEPT the degenerate 2-distinct-value case keeps one interior split (2 bins). The
+    device twin marks for exclusion (-> +inf, pushed past the data by the sort so ``searchsorted`` ignores it):
+    every entry equal to the min value, every adjacent duplicate, and every entry equal to the max value ONLY
+    when an interior distinct value exists (``has_interior``) -- so a 2-distinct column keeps its single split
+    while a 3+-distinct column merges its top two bins exactly as ``unique[1:-1]`` does. All ops are elementwise
+    / reductions returning device scalars, so nothing crosses the bus; the caller returns the codes resident or
+    does the one bulk (n,) result copy.
+    """
+    # Percentile edges via an explicit sort + linear interpolation (numpy's default 'linear' method) rather
+    # than cp.percentile, which does an internal host read (int index) that syncs. Sort is O(n log n) -- the
+    # same order cp.percentile pays internally -- but stays fully device-side. n is a host shape read (no sync).
+    n = int(xd.size)
+    qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
+    xs = cp.sort(xd.ravel())
+    pos = qs / 100.0 * (n - 1)
+    lo = cp.floor(pos).astype(cp.int64)
+    hi = cp.minimum(lo + 1, n - 1)
+    frac = pos - lo
+    e = xs[lo] * (1.0 - frac) + xs[hi] * frac                 # sorted ascending, nbins+1 edges
+    dup = cp.empty(e.shape, dtype=bool)
+    dup[0] = False
+    dup[1:] = (e[1:] == e[:-1])
+    emin = e[0]
+    emax = e[-1]
+    has_interior = cp.any((e > emin) & (e < emax))            # 0-dim device bool -- no sync
+    excl = (e == emin) | dup | (has_interior & (e == emax))
+    e2 = cp.sort(cp.where(excl, cp.inf, e))                   # excluded edges -> +inf, sorted to the tail
+    return cp.searchsorted(e2, xd, side="right").astype(cp.int64)
+
+
 def _quantile_bin_gpu(a: np.ndarray, nbins: int):
     """Device equi-frequency bin of an all-finite 1-D float column -> host int64 codes, selection-equivalent
     to the numpy ``_quantile_bin`` fast path.
@@ -119,15 +158,8 @@ def _quantile_bin_gpu(a: np.ndarray, nbins: int):
         # re-upload); selection-identical (same values -> same percentile edges -> same codes). Distinct columns
         # still upload once (genuine data).
         xd = resident_operand(a, "qbin_x", dtype=_qbin_float_dtype())
-        qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
-        edges = cp.unique(cp.percentile(xd, qs))   # raveled 1-D -> cp.percentile is correct (no axis=0 bug)
-        if int(edges.size) <= 2:
-            out = cp.zeros(xd.size, dtype=cp.int64)
-            if int(edges.size) == 2:
-                out[:] = (xd >= edges[1]).astype(cp.int64)
-            return cp.asnumpy(out)
-        codes = cp.searchsorted(edges[1:-1], xd, side="right").astype(cp.int64)
-        return cp.asnumpy(codes)
+        # sync-free device dedup (was cp.unique + size check, two D2H syncs); only the bulk (n,) result copies.
+        return cp.asnumpy(_sync_free_qbin_codes(cp, xd, nbins))
     except Exception:
         logger.debug("GPU _quantile_bin failed; numpy fallback", exc_info=True)
         return None
@@ -150,14 +182,8 @@ def _quantile_bin_gpu_resident(a: np.ndarray, nbins: int):
 
         from ._fe_resident_operands import resident_operand
         xd = resident_operand(a, "qbin_x", dtype=_qbin_float_dtype())
-        qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
-        edges = cp.unique(cp.percentile(xd, qs))   # raveled 1-D -> cp.percentile is correct (no axis=0 bug)
-        if int(edges.size) <= 2:
-            out = cp.zeros(xd.size, dtype=cp.int64)
-            if int(edges.size) == 2:
-                out[:] = (xd >= edges[1]).astype(cp.int64)
-            return out
-        return cp.searchsorted(edges[1:-1], xd, side="right").astype(cp.int64)
+        # Fully sync-free: codes stay RESIDENT, no cp.unique / size D2H (the whole point of the resident path).
+        return _sync_free_qbin_codes(cp, xd, nbins)
     except Exception:
         logger.debug("GPU-resident _quantile_bin failed; host fallback", exc_info=True)
         return None
