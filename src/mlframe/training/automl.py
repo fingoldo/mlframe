@@ -95,7 +95,7 @@ def train_autogluon_model(
     fit_params = fit_params or {}
 
     if verbose:
-        logger.info(f"Training AutoGluon model on {len(train_df)} rows...")
+        logger.info("Training AutoGluon model on %s rows...", len(train_df))
 
     # Create predictor
     predictor = TabularPredictor(label=target_name, verbosity=verbose, **init_params)
@@ -222,7 +222,7 @@ def train_lama_model(
     fit_params = fit_params or {}
 
     if verbose:
-        logger.info(f"Training LightAutoML model on {len(train_df)} rows...")
+        logger.info("Training LightAutoML model on %s rows...", len(train_df))
 
     # Create automl
     automl = TabularAutoML(**init_params)
@@ -407,7 +407,7 @@ def train_automl_models_suite(
             models["lama"] = lama_result
 
     if verbose:
-        logger.info(f"AutoML training suite completed. Trained {len(models)} model(s).")
+        logger.info("AutoML training suite completed. Trained %s model(s).", len(models))
 
     return models
 

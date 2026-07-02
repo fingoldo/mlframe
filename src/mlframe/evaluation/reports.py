@@ -76,7 +76,12 @@ def train_test_split_from_generator(gen: object, X=None, y=None, groups=None):
             grouped_train = set(groups[train_indices])
             grouped_test = set(groups[test_indices])
             logger.info(
-                f"Train: {len(grouped_train)} Groups {len(train_indices)} Rows, Test :{len(grouped_test)} Groups {len(test_indices)} Rows, overlap={len(grouped_train.intersection(grouped_test))} Groups"
+                "Train: %s Groups %s Rows, Test :%s Groups %s Rows, overlap=%s Groups",
+                len(grouped_train),
+                len(train_indices),
+                len(grouped_test),
+                len(test_indices),
+                len(grouped_train.intersection(grouped_test)),
             )
 
         return train_indices, test_indices
