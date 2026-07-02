@@ -5,7 +5,7 @@ Random fuzz combos profiled under cProfile at n_rows=300k via
 pick the top mlframe-side hotspot, optimize (measured + bit-identical + regression
 test), commit. Termination = 100 consecutive REJECTs (see CLAUDE.md policy).
 
-Consecutive-reject streak: 0
+Consecutive-reject streak: 1
 
 | iter | seed | mlframe hotspot | verdict | notes |
 |------|------|-----------------|---------|-------|
@@ -23,3 +23,5 @@ Consecutive-reject streak: 0
 | 12 | (chart-render) | `charts/drift.adversarial_auc` — LightGBM train-vs-holdout separator, 200 trees x (3 CV fits + 1 importance fit) = ~17s across drift panels | RESOLVED+2x | ADV_N_ESTIMATORS 200→75; OOF AUC shift ≤0.007, 0/12 verdict flips across drift regimes; verdict-stability regression test. commit 1706f32c |
 | 13 | (chart-render) | `charts/shap_panels.shap_summary_and_dependence` — TreeExplainer over DEFAULT_MAX_ROWS=20k (cost ~linear in rows) | RESOLVED+2.4x | DEFAULT_MAX_ROWS 20000→8000; 3.78s→1.57s; top-6 dependence feature set IDENTICAL 8k vs 20k; stratified subsample keeps tail; top-K-stability regression test. commit 616b5710 |
 | 13b | (bug found during loop) | `charts/shap_panels._as_frame_and_names` forced whole frame to float64 → crashed on any categorical/string col → SHAP diagnostic silently absent (swallowed by dispatcher except) for every categorical-feature model | FIXED (correctness) | per-column coercion (numeric passthrough; non-numeric→factorize codes); SHAP panel now renders on categorical frames; regression test. Also validated the 3 chart-render perf changes compound: seed-20260702 combo 72s→61s (~15%). commit 6b28e22f |
+| 14 | (chart-render cumtime rank) | remaining chart cost is DIFFUSE matplotlib (savefig/constrained_layout/get_tightbbox ~80s across many panels) + library-bound (plotly/kaleido, shap). render_pdp_ice (19.8s) render-dominated (pdp sample=2000/grid=20 already minimal); DPI already 100; plot_residual_diagnostics is render_and_save-bound | REJECT | 3 concentrated boundable chart costs already captured (trend/adversarial/SHAP). Remaining needs a design decision (panel count / layout engine), not a surgical bounded cap. Streak→1. |
+| note | pre-existing sibling failure surfaced (NOT mine, NOT touched) | tests/reporting/test_fi_plot_defaults.py: `_FI_DEFAULT_FIGSIZE=(8.0,6.0)` committed, violates its 'half of DEFAULT_FIGSIZE=(7.5,2.5)' contract. In feature_selection (sibling's active WIP domain). Flagged for the owning session. |
