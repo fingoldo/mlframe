@@ -228,7 +228,7 @@ def _stacked_corrcoef(M: np.ndarray) -> np.ndarray:
 # not in SIMPLE_ENSEMBLING_METHODS by default. Classification flavours in
 # score_ensemble opt-in by extending the iteration list at call-site;
 # regression must skip RRF entirely (no rank notion on continuous y).
-RANK_FUSION_METHODS: list = ["rrf"]
+RANK_FUSION_METHODS: list = ["rrf", "rank_average"]
 
 _MEANS_COLS: list = "arimean,quadmean,qubmean,geomean,harmmean".split(",")
 
@@ -736,6 +736,11 @@ def combine_probs(
                 combined = np.exp(np.mean(log_stack, axis=0))
     elif flav == "rrf":
         combined = _rrf_aggregate_probs(stacked, k=int(rrf_k))
+    elif flav == "rank_average":
+        # Rank-average fusion (mean of per-member row-ranks). Lazy import breaks the base<->selection cycle. Like RRF it
+        # is a scale-invariant RANK score (not a calibrated probability); ``weights_arr`` is honoured when supplied.
+        from .selection import rank_average_blend
+        combined = rank_average_blend(stacked, normalise=True, weights=weights_arr)
     else:
         # Unrecognised flavour -> arithmetic mean fallback (matches the legacy predict-side default).
         if weights_arr is not None:

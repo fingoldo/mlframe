@@ -154,6 +154,10 @@ def score_ensemble(
     # observationally so wiring its output into the blend is the natural finalisation. Set
     # False to restore the legacy uniform-mean behaviour while keeping the NNLS diagnostic.
     use_nnls_weights: bool = True,
+    # Alternative to NNLS: when True, the blend weights are fit by Caruana greedy selection (metric-direct, hill-climbs
+    # AUC on the OOF member preds) instead of the squared-error NNLS fit, fed into ``combine_probs`` via the same
+    # ``precomputed_weights`` path. OFF by default (NNLS stays the default weight fit); takes precedence when enabled.
+    use_caruana_weights: bool = False,
     # P1-7: optional auto-drop of one member from each high-correlation pair.
     # ``None`` preserves the observational-only default (just WARNs + stamps to _diversity);
     # passing a float in (0, 1] activates auto-drop when any pair's |corr| exceeds the floor.
@@ -368,6 +372,7 @@ def score_ensemble(
         _ensemble_member_tags=_ensemble_member_tags,
         stacking_gate_min_weight=stacking_gate_min_weight,
         use_nnls_weights=use_nnls_weights,
+        use_caruana_weights=use_caruana_weights,
         res=res,
         verbose=verbose,
     )
