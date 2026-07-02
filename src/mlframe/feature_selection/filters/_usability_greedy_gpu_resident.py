@@ -158,9 +158,12 @@ def usability_greedy_gpu_resident(
         mi_max = max((c.mi for c in pool), default=1.0) or 1.0
         mi_dev = cp.asarray(np.asarray([float(c.mi) for c in pool], dtype=np.float64))
 
-        # Resident per-fold train/val boolean masks (n,) -- reused every round.
-        tr_masks = [folds_dev != fo for fo in range(nf)]
-        va_masks = [folds_dev == fo for fo in range(nf)]
+        # Resident per-fold train/val ROW INDICES (n,) -- reused every round. Integer indices, not boolean
+        # masks: a boolean-mask gather Vdev[mask] / ci[mask] re-syncs on the mask nonzero count for EVERY
+        # candidate and fold (the dominant residency stall in this path), whereas an integer-index gather has a
+        # known output size (no sync). The cp.where cost is paid once here (2*nf syncs) instead of per gather.
+        tr_masks = [cp.where(folds_dev != fo)[0] for fo in range(nf)]
+        va_masks = [cp.where(folds_dev == fo)[0] for fo in range(nf)]
 
         def _abscorr_batch_resident(resid_dev, rows_mask) -> np.ndarray:
             """|corr(candidate_j, resid)| for EVERY candidate over ``rows_mask`` rows, on device. Mirrors
