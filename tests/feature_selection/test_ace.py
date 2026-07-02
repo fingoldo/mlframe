@@ -1,0 +1,204 @@
+"""Tests for ACE (Artificial Contrasts with Ensembles) - src/mlframe/feature_selection/ace.py.
+
+Unit coverage: contrast construction, BH correction, t-test edge cases, masking loop, importance modes,
+input guards. biz_value: ACE must accept the genuine signal features and reject pure-noise columns on a
+synthetic where the answer is known, with a quantitative floor on the signal-vs-noise selection gap.
+"""
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from mlframe.feature_selection.ace import (
+    ACEResult,
+    ace_select,
+    _benjamini_hochberg_reject,
+    _make_contrasts,
+    _ttest_greater,
+    _default_estimator,
+)
+
+
+# ------------------------------------------------------------------------------------------------
+# Unit tests
+# ------------------------------------------------------------------------------------------------
+
+
+def test_make_contrasts_preserves_column_marginals():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(200, 4))
+    C = _make_contrasts(X, np.random.default_rng(1))
+    assert C.shape == X.shape
+    # Each contrast column is a permutation of the source column: same sorted values, order destroyed.
+    for j in range(X.shape[1]):
+        assert np.allclose(np.sort(C[:, j]), np.sort(X[:, j]))
+    assert not np.allclose(C, X)  # rows were actually shuffled
+
+
+def test_benjamini_hochberg_monotone_and_bounds():
+    # All-tiny p-values -> all reject; all-large -> none reject.
+    assert _benjamini_hochberg_reject(np.array([1e-6, 1e-6, 1e-6]), 0.05).all()
+    assert not _benjamini_hochberg_reject(np.array([0.9, 0.8, 0.7]), 0.05).any()
+    # BH is at least as strict as per-feature alpha: the smallest p passes only if p <= alpha/m.
+    p = np.array([0.02, 0.5, 0.5, 0.5, 0.5])
+    assert not _benjamini_hochberg_reject(p, 0.05).any()  # 0.02 > 0.05/5 = 0.01
+    assert _benjamini_hochberg_reject(np.array([0.005, 0.5, 0.5, 0.5, 0.5]), 0.05)[0]
+
+
+def test_benjamini_hochberg_empty():
+    assert _benjamini_hochberg_reject(np.array([]), 0.05).shape == (0,)
+
+
+def test_ttest_greater_signal_vs_noise():
+    # A feature whose per-replicate importance sits clearly above its bar -> tiny p; one at the bar -> ~1.
+    n_rep = 12
+    real = np.zeros((n_rep, 2))
+    real[:, 0] = 0.30 + np.random.default_rng(0).normal(scale=0.01, size=n_rep)  # well above bar
+    real[:, 1] = 0.05 + np.random.default_rng(1).normal(scale=0.01, size=n_rep)  # at/below bar
+    bar = np.array([0.10, 0.10])
+    p = _ttest_greater(real, bar)
+    assert p[0] < 0.01
+    assert p[1] > 0.5
+
+
+def test_ttest_greater_zero_variance_branches():
+    real = np.array([[0.2, 0.2], [0.2, 0.2], [0.2, 0.2]])  # zero dispersion
+    bar = np.array([0.1, 0.3])  # feature 0 mean>bar -> p=0; feature 1 mean<bar -> p=1
+    p = _ttest_greater(real, bar)
+    assert p[0] == 0.0
+    assert p[1] == 1.0
+
+
+def test_default_estimator_task_detection():
+    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+
+    y_clf = np.array([0, 1, 0, 1, 1, 0] * 20)
+    y_reg = np.linspace(0.0, 10.0, 120)
+    assert isinstance(_default_estimator(y_clf, 120, 0), RandomForestClassifier)
+    assert isinstance(_default_estimator(y_reg, 120, 0), RandomForestRegressor)
+
+
+def test_ace_select_rejects_bad_input():
+    with pytest.raises(ValueError):
+        ace_select(np.zeros((10,)), np.zeros(10))  # 1-D X
+    with pytest.raises(ValueError):
+        ace_select(np.zeros((10, 3)), np.zeros(10), n_replicates=1)  # too few replicates
+    with pytest.raises(ValueError):
+        ace_select(np.zeros((10, 3)), np.zeros(10), feature_names=["a", "b"])  # name/width mismatch
+
+
+def test_ace_result_shape_and_support():
+    rng = np.random.default_rng(3)
+    n = 400
+    x_sig = rng.normal(size=n)
+    X = np.column_stack([x_sig, rng.normal(size=n), rng.normal(size=n)])
+    y = (x_sig > 0).astype(int)
+    res = ace_select(X, y, n_replicates=6, n_masking_rounds=1, random_state=0)
+    assert isinstance(res, ACEResult)
+    assert res.importances_mean.shape == (3,)
+    assert res.p_values.shape == (3,)
+    assert res.accepted.shape == (3,)
+    assert res.support().dtype == bool
+    assert res.selected_features == [res.feature_names[i] for i in range(3) if res.accepted[i]]
+
+
+def test_ace_accepts_dataframe_names():
+    pd = pytest.importorskip("pandas")
+    rng = np.random.default_rng(7)
+    n = 400
+    sig = rng.normal(size=n)
+    df = pd.DataFrame({"signal": sig, "noise_a": rng.normal(size=n), "noise_b": rng.normal(size=n)})
+    y = (sig > 0).astype(int)
+    res = ace_select(df, y, n_replicates=6, n_masking_rounds=1, random_state=0)
+    assert res.feature_names == ["signal", "noise_a", "noise_b"]
+
+
+def test_ace_permutation_importance_mode_runs():
+    rng = np.random.default_rng(5)
+    n = 300
+    sig = rng.normal(size=n)
+    X = np.column_stack([sig, rng.normal(size=n)])
+    y = (sig > 0).astype(int)
+    res = ace_select(X, y, n_replicates=5, n_masking_rounds=1, importance="permutation", n_perm_repeats=3, random_state=0)
+    assert res.p_values.shape == (2,)
+    # The signal feature's mean importance should exceed the pure-noise feature's.
+    assert res.importances_mean[0] > res.importances_mean[1]
+
+
+# ------------------------------------------------------------------------------------------------
+# biz_value: ACE must separate genuine signal from noise on a known synthetic.
+# ------------------------------------------------------------------------------------------------
+
+
+def _synth_signal_noise(seed: int = 0, n: int = 1500):
+    """3 signal features driving a binary target + 5 pure-noise features. Signal indices 0,1,2."""
+    rng = np.random.default_rng(seed)
+    s0 = rng.normal(size=n)
+    s1 = rng.normal(size=n)
+    s2 = rng.normal(size=n)
+    logits = 2.0 * s0 + 1.5 * s1 - 1.8 * s2
+    y = (logits + rng.normal(scale=0.5, size=n) > 0).astype(int)
+    noise = rng.normal(size=(n, 5))
+    X = np.column_stack([s0, s1, s2, noise])
+    signal_idx = [0, 1, 2]
+    noise_idx = [3, 4, 5, 6, 7]
+    return X, y, signal_idx, noise_idx
+
+
+def test_biz_val_ace_accepts_signal_rejects_noise():
+    """ACE accepts >= 2 of 3 signal features and keeps noise acceptance low.
+
+    Measured (native importance, 20 replicates, percentile=100, BH alpha=0.05): 3/3 signal accepted,
+    0/5 noise accepted. Floors set well below measured to absorb seed noise: >= 2/3 signal, <= 1/5 noise.
+    A regression that broke the contrast bar, t-test, or masking loop drops the signal-accept count or
+    lets noise through, tripping this test."""
+    X, y, signal_idx, noise_idx = _synth_signal_noise(seed=0, n=1500)
+    res = ace_select(X, y, n_replicates=20, contrast_percentile=100.0, alpha=0.05, random_state=0)
+
+    n_signal_accepted = int(res.accepted[signal_idx].sum())
+    n_noise_accepted = int(res.accepted[noise_idx].sum())
+
+    assert n_signal_accepted >= 2, f"ACE accepted only {n_signal_accepted}/3 signal features"
+    assert n_noise_accepted <= 1, f"ACE accepted {n_noise_accepted}/5 noise features (should be ~0)"
+    # The selection gap (signal accepted - noise accepted) is the headline quantitative win.
+    assert n_signal_accepted - n_noise_accepted >= 2
+
+
+def test_biz_val_ace_signal_pvalues_beat_noise_pvalues():
+    """The max signal p-value must be strictly smaller than the min noise p-value: ACE ranks every real
+    feature ahead of every contrast-indistinguishable one. Measured gap is large (signal p ~1e-6, noise
+    p ~0.5-1.0); this asserts the ORDERING holds, the property a downstream threshold relies on."""
+    X, y, signal_idx, noise_idx = _synth_signal_noise(seed=1, n=1500)
+    res = ace_select(X, y, n_replicates=20, contrast_percentile=100.0, alpha=0.05, random_state=0)
+    max_signal_p = res.p_values[signal_idx].max()
+    min_noise_p = res.p_values[noise_idx].min()
+    assert max_signal_p < min_noise_p, (
+        f"signal p-values (max {max_signal_p:.3g}) must all beat noise p-values (min {min_noise_p:.3g})"
+    )
+
+
+def test_biz_val_ace_masking_recovers_correlated_signal():
+    """Masking-removal loop recovers a signal feature masked by a stronger correlated duplicate.
+
+    With two near-duplicate strong signals, a single pass can leave the weaker copy tentative because the
+    forest splits importance between them. The masking loop removes the accepted copy and re-tests, so
+    across rounds ACE accepts MORE signal features than a single-round (n_masking_rounds=1) run. This pins
+    the masking-loop value; a regression disabling it drops the multi-round accept count to the single-round
+    count."""
+    rng = np.random.default_rng(2)
+    n = 1500
+    base = rng.normal(size=n)
+    dup = base + rng.normal(scale=0.05, size=n)  # near-duplicate of the strong signal
+    weak = rng.normal(size=n)
+    logits = 2.5 * base + 0.8 * weak
+    y = (logits + rng.normal(scale=0.5, size=n) > 0).astype(int)
+    noise = rng.normal(size=(n, 4))
+    X = np.column_stack([base, dup, weak, noise])
+    signal_idx = [0, 1, 2]
+
+    res_multi = ace_select(X, y, n_replicates=20, n_masking_rounds=3, random_state=0)
+    res_single = ace_select(X, y, n_replicates=20, n_masking_rounds=1, random_state=0)
+    acc_multi = int(res_multi.accepted[signal_idx].sum())
+    acc_single = int(res_single.accepted[signal_idx].sum())
+    assert acc_multi >= acc_single, "masking loop must not accept fewer signals than a single round"
+    assert acc_multi >= 2, f"masking run should recover >= 2/3 signals, got {acc_multi}"

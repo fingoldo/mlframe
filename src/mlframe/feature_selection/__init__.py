@@ -33,6 +33,7 @@ from mlframe.feature_selection.structure_discovery import (
     StructureReport,
     DiscoveredRelation,
 )
+from mlframe.feature_selection.ace import ace_select, ACEResult
 
 __all__ = [
     # general
@@ -56,4 +57,7 @@ __all__ = [
     "discover_structure",
     "StructureReport",
     "DiscoveredRelation",
+    # artificial-contrast feature significance (parametric t-test vs permuted-contrast importances + masking loop)
+    "ace_select",
+    "ACEResult",
 ]
