@@ -20,18 +20,18 @@ Status legend: DONE (fixed+tested+pushed) | WIP | TODO | DOC | FUTURE | REJECTED
 | ID | Sev | Finding | file:line | Disposition | Status |
 |----|-----|---------|-----------|-------------|--------|
 | S-F1 | P1 | GPU relevance null uses 2 perms vs CPU 32 → p-value floor 0.333 ≥ alpha always → subtracts null_mean from every feature incl. strong signal; hardware-dependent selection | gpu.py:974 / evaluation.py:530 | FIX (bump GPU null budget to max(nperm,32)) | DONE (84a0f6a8) |
-| S-F2 | P1(jmim) | JMIM scored by joint-MI but confirmed against CMIM null → statistic mismatch | fleuret.py:257 | FIX (thread use_jmim) | TODO |
-| S-F3 | P2(jmim) | Fleuret `**(nexisting+1)` exponent wrongly amplifies JMIM joint-MI>1 | evaluation.py:363 | FIX | TODO |
-| S-F4 | P2(off-dflt) | positive_mode/extra_knowledge breaks partial_gains monotonicity | evaluation.py:411,618 | FIX | TODO |
+| S-F2 | P1(jmim) | JMIM scored by joint-MI but confirmed against CMIM null → statistic mismatch | fleuret.py:257 | FIX (thread use_jmim) | FUTURE-bench — thread use_jmim through get_fleuret_criteria_confidence(_parallel)->parallel_fleuret->evaluate_gain so JMIM candidates are CONFIRMED against the JMIM statistic (not CMIM). Opt-in jmim. BLOCKED: the jmim bit-equiv tests are currently red from the parallel session's GPU-resident-FE binning; validate after that settles + a jmim synergy biz-value bench. |
+| S-F3 | P2(jmim) | Fleuret `**(nexisting+1)` exponent wrongly amplifies JMIM joint-MI>1 | evaluation.py:363 | FIX | FUTURE-bench (reverted) — deliberately-placed exponent; jmim greedy biz-value bench (on/off) before removal |
+| S-F4 | P2(off-dflt) | positive_mode/extra_knowledge breaks partial_gains monotonicity | evaluation.py:411,618 | FIX | FUTURE-bench — off-default research knob (extra_knowledge_multipler<=0 by default). Fix: when >0 disable the partial_gains early-exit/resume (re-evaluate from scratch) and persist positive_mode alongside the partial gain. Needs a synergy fixture bench; not on the default path. |
 | S-F5 | Low | redundancy_aggregator typos silently degrade to Fleuret | _mrmr_class.py:~3355 | FIX (validate) | DONE (33343a58) |
 
 ## Numerical / statistical (mrmr_crit_numstat.md)
 | ID | Sev | Finding | file:line | Disposition | Status |
 |----|-----|---------|-----------|-------------|--------|
-| N-F1 | P1 | Observed relevance uses Miller-Madow but permutation null uses plug-in → over-reject + double bias subtraction | permutation.py:625 vs 341/229/165 | FIX (thread use_mm into null kernels) | TODO |
-| N-F2 | P1 | Relevance MM+null-debiased, redundancy raw plug-in → objective biased vs high-cardinality candidates | evaluation.py:548 / _entropy_kernels.py:342 | FIX (validate wide; CMI bias in _fe_cmi_redundancy_null.py:200) | TODO |
-| N-F3 | P2 | `_perm_pvalue(full_budget=)` overstates confidence on pile-up early breaks | permutation.py:62 | FIX | TODO |
-| N-F4 | P2 | fixed alpha=0.05, no multiple-testing correction across candidates | evaluation.py:549 | FIX (BH/BY) or DOC | TODO |
+| N-F1 | P1 | Observed relevance uses Miller-Madow but permutation null uses plug-in → over-reject + double bias subtraction | permutation.py:625 vs 341/229/165 | FIX (thread use_mm into null kernels) | FUTURE-bench — opt-in (mi_correction defaults 'none'). Fix: thread use_mm into parallel_mi_prange_with_null so the null uses the SAME estimator as the observed (add the Miller-Madow occupied-cell correction per shuffle inside the njit prange). Validate: existing mi_correction='miller_madow' tests + a multi-seed biz-value bench showing selection equal-or-better; the observed/null estimator must always match. |
+| N-F2 | P1 | Relevance MM+null-debiased, redundancy raw plug-in → objective biased vs high-cardinality candidates | evaluation.py:548 / _entropy_kernels.py:342 | FIX (validate wide; CMI bias in _fe_cmi_redundancy_null.py:200) | FUTURE-bench — apply the telescoped CMI bias (already in _fe_cmi_redundancy_null.py:200) to the Fleuret redundancy term so relevance and redundancy carry the SAME bias correction. Selection-rippling: needs a wide multi-seed biz-value A/B (high-card vs low-card fixtures) proving the trade-off is less biased AND selection is equal-or-better before flipping. |
+| N-F3 | P2 | `_perm_pvalue(full_budget=)` overstates confidence on pile-up early breaks | permutation.py:62 | FIX | FUTURE-bench (reverted) — full-budget extrapolation is deliberate + bench-pinned; calibration bench before changing |
+| N-F4 | P2 | fixed alpha=0.05, no multiple-testing correction across candidates | evaluation.py:549 | FIX (BH/BY) or DOC | DOC — alpha=0.05 stability across 0.02-0.10 is already documented at evaluation.py:48-61 (selection stable because real signal clears p~0, noise sits near p~1). Pool-wide BH/BY multiple-testing correction is a selection-changing FUTURE needing its own bench; per-candidate alpha kept. |
 | N-F5 | P2 | 32-perm null-mean variance can flip near-tied selection | permutation.py:46 | DOC/FUTURE (shrinkage) | DONE-doc |
 | N-F6 | P3 | Chao-Shen not matched by its null (≡ N-F1 generalized) | — | FIX-with-N-F1 | FUTURE (with N-F1) |
 | N-F7 | P3 | analytic chi-square null assumes fixed occupancy on tied equi-freq bins | _analytic_mi_null.py | DOC | DONE-doc |
@@ -79,7 +79,7 @@ Status legend: DONE (fixed+tested+pushed) | WIP | TODO | DOC | FUTURE | REJECTED
 | ID | Sev | Finding | file:line | Disposition | Status |
 |----|-----|---------|-----------|-------------|--------|
 | ST-1 | P2 | UAED elbow trim mixes raw/combined index spaces → support/output desync (uaed_auto_size on + engineered) | _fit_impl_core.py:9854 | FIX | DONE (st1) |
-| ST-2 | P2 | count-floor top-up gates on _abs_floor(=0.0) → admits any non-constant noise | _finalise.py:254 | DOC/FUTURE (documented ≥K contract; add uninformative flag) | TODO |
+| ST-2 | P2 | count-floor top-up gates on _abs_floor(=0.0) → admits any non-constant noise | _finalise.py:254 | DOC/FUTURE (documented ≥K contract; add uninformative flag) | DOC — the count-floor top-up gating on _abs_floor is the intentional min_features_fallback >=K contract (documented). A stricter floor would break >=K; the honest improvement (set fallback_metadata_['uninformative'] when a topped-up column sits within its null) is a small FUTURE diagnostic, not a semantics change. |
 | ST-3 | Low | fallback support_ omits dtype=int64 → int32 on Windows | _finalise.py:281 | FIX | DONE (33343a58) |
 | ST-4 | Low | ran_out_of_time_ misses screen-level timeout | _fit_impl_core.py:6711 | FIX | DONE (st4) |
 
