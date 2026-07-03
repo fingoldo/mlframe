@@ -81,7 +81,7 @@ Status legend: DONE (fixed+tested+pushed) | WIP | TODO | DOC | FUTURE | REJECTED
 | ST-1 | P2 | UAED elbow trim mixes raw/combined index spaces → support/output desync (uaed_auto_size on + engineered) | _fit_impl_core.py:9854 | FIX | DONE (st1) |
 | ST-2 | P2 | count-floor top-up gates on _abs_floor(=0.0) → admits any non-constant noise | _finalise.py:254 | DOC/FUTURE (documented ≥K contract; add uninformative flag) | TODO |
 | ST-3 | Low | fallback support_ omits dtype=int64 → int32 on Windows | _finalise.py:281 | FIX | DONE (33343a58) |
-| ST-4 | Low | ran_out_of_time_ misses screen-level timeout | _fit_impl_core.py:6711 | FIX | TODO |
+| ST-4 | Low | ran_out_of_time_ misses screen-level timeout | _fit_impl_core.py:6711 | FIX | DONE (st4) |
 
 ## Rollup
 6 P1, 13 P2, ~13 Low/P3 across 7 agents. FE-F1 DONE. Remainder tracked above; being worked in batches with tests
