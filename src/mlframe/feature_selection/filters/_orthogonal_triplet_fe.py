@@ -530,6 +530,10 @@ def hybrid_orth_mi_triplet_fe(
     return X_aug, uni_scores, triplet_scores
 
 
+from ._fe_family_timing import fe_timed
+
+
+@fe_timed("triplet")
 def hybrid_orth_mi_triplet_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,

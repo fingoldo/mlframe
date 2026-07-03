@@ -583,6 +583,10 @@ def hybrid_orth_mi_adaptive_arity_fe(
     return X_aug, uni_scores, reranked
 
 
+from ._fe_family_timing import fe_timed
+
+
+@fe_timed("adaptive_arity")
 def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
     X: pd.DataFrame,
     y,

@@ -3552,6 +3552,8 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             # mutates the selection result.
             from .._fe_rejection_ledger import populate_fe_rejection_ledger as _pop_rej
             _pop_rej(self)
+            from .._fe_family_timing import log_fe_family_summary as _log_fe_wall
+            _log_fe_wall()
             self._print_fit_summary()
             return result
         finally:

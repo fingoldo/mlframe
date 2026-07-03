@@ -47,6 +47,10 @@ logger = logging.getLogger(__name__)
 _POLY_CHEAP_SKIP = "__poly_cheap_skip__"
 
 
+from ._fe_family_timing import fe_timed
+
+
+@fe_timed("smart_polynom")
 def run_polynom_pair_fe(
     *,
     X: Any,
