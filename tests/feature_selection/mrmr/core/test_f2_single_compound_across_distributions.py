@@ -96,6 +96,26 @@ _DOMAINS = {"a": "any", "b": "divisor", "c": "positive", "d": "any", "e": "any"}
 #     is still killed upstream by the prospective-ranking + prevalence gates, so with_outliers stays unrecovered;
 #     reverted (the winner-selection-only change adds canonical risk without achieving the goal). Stays xfail pending
 #     a unified tail-concentrated-signal credit across the upstream rank-MI gates.
+#     UPDATE 2026-07-03 (second cross-cutting attempt, reverted): plumbed a continuous-|corr| tail-concentration
+#     detector (best raw bivariate-form |corr(y)| clears a bar AND beats the best single-operand form by a
+#     pairness margin -- for (a,b): corr_pair 0.986 vs corr_single 0.36; noise pairs 0.02-0.2, cleanly separated)
+#     and a rank-vs-|corr| DISAGREEMENT gate (promote the |corr|-best FORM only when the rank-MI leader differs
+#     from the |corr| leader beyond the Miller-Madow tie band) into BOTH the per-pair winner-selection
+#     (_select_single_best) AND the engineered-MI prevalence gate (_pairs_score). RESULT: the a/b half is now
+#     correctly recovered as div(sqr(a),abs(b)) (the |corr| leader beats the spurious rank leader 0.986 vs 0.37) --
+#     the winner-selection half of the goal WORKS. BUT the full compound still does not form, for a deeper reason
+#     that makes this a CORE-METRIC problem, not a gate tweak: (1) promoting the strong a/b half COLLAPSES the c/d
+#     half (mul(log(c),sin(d)) with flag OFF -> bare d with flag ON); (2) the synergy bootstrap that surfaces the
+#     zero-marginal c operand is HARD-GATED to FE step 1 only (num_fs_steps==0, _mrmr_fe_step_helpers.py:58), so
+#     c/d must be engineered at step 1 or never (confirmed: fe_max_steps 2/3/4 all give the same 2-feature result);
+#     (3) the post-FE final selection (screen_predictors) AND the CMI-redundancy gate are ENTIRELY binned/rank-MI --
+#     div(sqr(a),abs(b)) has binned-MI 0.063 (LOW) despite |corr| 0.986, so its continuous signal is never seen by
+#     the final greedy, and the redundancy gate seeds on the highest BINNED marginal-MI (mul(log(c),sin(d)) at 1.34).
+#     The true a/b half is fundamentally low-rank-MI / high-|corr| while the ENTIRE MRMR relevance+redundancy
+#     machinery is rank-MI end-to-end. A complete fix must thread continuous-|corr| relevance through the pair-gate
+#     AND the step-1 synergy bootstrap AND the post-FE screen_predictors greedy AND the C2 additive-fusion inputs --
+#     a change to the pipeline's core relevance metric with regression risk to every rank-MI-honest canonical
+#     fixture. Reverted (partial fix changes default selection without achieving the goal). Stays xfail.
 _XFAIL_CAPTURE = (
     "GOAL: a/b half is TAIL-CONCENTRATED under outliers (rank-MI ~0 in bulk, signal only in the 5% tail) -- "
     "the true div(sqr(a),b) ratio loses the rank-MI race to a spurious form by a REAL 0.010 (not noise) and "
