@@ -189,6 +189,7 @@ def test_biz_val_max_int_cols_budget_guard_skips_above_cap():
     assert set(gcd[0].columns) == {"price", "quantity"}
 
 
+@pytest.mark.strict_cpu_only
 def test_biz_val_nbins_resolution_recovers_multivalued_structure():
     """``nbins`` sets the resolution of the internal y-binning that drives the MI estimate. On a CONTINUOUS gcd
     target (binned via qcut(nbins) inside discover_structure) too-coarse binning crushes the multi-valued discrete
