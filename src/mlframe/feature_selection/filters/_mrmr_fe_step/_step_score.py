@@ -870,7 +870,9 @@ def materialise_and_finalise_fe_candidates(
                             dtype=self.quantization_dtype,
                         )
                     _n_cols_before_esc = len(cols)
-                    data = np.append(data, _esc_new_codes, axis=1)
+                    # Preserve the compact codes dtype (COMPACT CODES STORAGE in _fit_impl_core): nbins-bounded codes,
+                    # cast down to data.dtype rather than upcasting the whole matrix back to int32.
+                    data = np.append(data, _esc_new_codes.astype(data.dtype, copy=False), axis=1)
                     nbins = np.concatenate([
                         np.asarray(nbins),
                         np.asarray([self.quantization_nbins] * len(_esc_admitted), dtype=np.asarray(nbins).dtype),
@@ -975,7 +977,7 @@ def materialise_and_finalise_fe_candidates(
                         dtype=self.quantization_dtype,
                     )
                 _n_cols_before_fz = len(cols)
-                data = np.append(data, _fz_codes, axis=1)
+                data = np.append(data, _fz_codes.astype(data.dtype, copy=False), axis=1)
                 nbins = np.concatenate([
                     np.asarray(nbins),
                     np.asarray([self.quantization_nbins] * len(_fused), dtype=np.asarray(nbins).dtype),

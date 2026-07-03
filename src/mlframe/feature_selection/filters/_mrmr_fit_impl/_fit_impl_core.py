@@ -6151,6 +6151,27 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 data[:, int(_ti)] = _t_codes
                 nbins[int(_ti)] = _t_nb
 
+    # COMPACT CODES STORAGE. ``data`` holds per-column BIN INDICES (0..nbins-1 + a NaN bin / -1 sentinel), never JOINT
+    # ids, so it fits the smallest int that spans its actual code range -- int8 for the common nbins<=~127 case, int16
+    # for a high-cardinality categorical. The base (n, p) matrix at scale (e.g. 795k x 496) drops 4x / 2x vs the legacy
+    # int32. Selection-EQUIVALENT: the code VALUES are unchanged, and every consumer (merge_vars, the GPU path) reads
+    # this storage and casts UP to int32 for JOINT math, so deep joints (nbins^order) never overflow. Engineered-code
+    # appends downstream re-narrow to this dtype (``_append_codes``). Range-checked directly (one min/max pass) rather
+    # than trusting nbins semantics. Opt out: MLFRAME_MRMR_COMPACT_CODES=0.
+    if data.size and os.environ.get("MLFRAME_MRMR_COMPACT_CODES", "1").strip().lower() not in ("0", "false", "off", "no"):
+        try:
+            _dmin = int(data.min()); _dmax = int(data.max())
+            if -128 <= _dmin and _dmax <= 127:
+                _store_dt = np.int8
+            elif -32768 <= _dmin and _dmax <= 32767:
+                _store_dt = np.int16
+            else:
+                _store_dt = None
+            if _store_dt is not None and data.dtype.itemsize > np.dtype(_store_dt).itemsize:
+                data = data.astype(_store_dt, copy=False)
+        except Exception:
+            pass
+
     # ---------------------------------------------------------------------------------------------------------------
     # Core
     # ---------------------------------------------------------------------------------------------------------------
