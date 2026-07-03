@@ -11,6 +11,10 @@ history.
 
 ## [Unreleased]
 
+### Changed
+
+- MRMR GPU-resident FE (`MLFRAME_FE_GPU_STRICT`) now has an AUTO size-gated default: on fits at/above `MLFRAME_FE_GPU_STRICT_AUTO_MIN_N` rows (default 100 000, the production regime) with a usable CUDA device, STRICT engages automatically (~2.5x faster FE and measured selection-equivalent to the CPU path at that scale). Below the threshold, or with no GPU, the exact CPU path runs unchanged (byte-identical legacy). Set `MLFRAME_FE_GPU_STRICT=0` to pin the CPU path at any n, or `=1` to force STRICT. The small-n divergence that keeps STRICT gated below the threshold is finite-sample MI-estimation variance (features with near-tied relevance), which fades as n grows — verified converged across scenarios by ~50k; the 100k default sits comfortably above that.
+
 ### Added
 
 - Recency-weighting primitives (`mlframe.core.recency_weights`): parametric poly/exp/power weight vectors over ordered histories, generalizing the exponential `ewma`. Identity parameters reproduce uniform weights.

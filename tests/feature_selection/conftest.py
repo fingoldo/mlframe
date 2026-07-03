@@ -14,6 +14,29 @@ from sklearn.datasets import make_classification, make_regression
 _MRMR_MOD_NAME = "mlframe.feature_selection.filters.mrmr"
 
 
+def _cuda_available_for_tests() -> bool:
+    try:
+        from mlframe.feature_selection.filters._fe_gpu_strict import _cuda_usable
+        return bool(_cuda_usable())
+    except Exception:
+        return False
+
+
+# CPU path always; add the GPU-resident STRICT path only when a CUDA device is usable (CPU-only hosts run one param).
+_STRICT_MODES = ["0"] + (["1"] if _cuda_available_for_tests() else [])
+
+
+@pytest.fixture(params=_STRICT_MODES, ids=lambda m: f"strict={m}")
+def strict_mode(request, monkeypatch):
+    """Parametrize an MRMR selection / biz_value test over BOTH FE backends: the exact CPU path
+    (``MLFRAME_FE_GPU_STRICT=0``) and -- when a GPU is present -- the STRICT GPU-resident path (``=1``). Request this
+    fixture from any test whose assertion is a selection / feature-recovery contract that must hold on both paths, so
+    a GPU regression can never pass by only exercising the CPU side. On a CPU-only host it collapses to the single
+    CPU param. Returns the mode string (rarely needed; the env is already set)."""
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", request.param)
+    return request.param
+
+
 @pytest.fixture(autouse=True)
 def _clear_mrmr_fit_cache_between_tests():
     """Reset the process-wide ``MRMR._FIT_CACHE`` before each test so the

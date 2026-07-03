@@ -3459,8 +3459,16 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             # (the fit becomes reproducible) AND restores the caller's state on exit; ``None`` (no seed
             # requested) restores only. A seeded fit is now deterministic + leak-free; an unseeded fit
             # is leak-free with unchanged (entropy) behaviour.
-            with _preserve_global_numpy_rng_state(getattr(self, "random_seed", None)):
-                result = self._fit_impl(X, y, groups, **fit_params)
+            # Record the fit's row count so the AUTO (unset MLFRAME_FE_GPU_STRICT) size-gated STRICT default can
+            # engage GPU-resident FE on large-n fits (selection-equivalent to CPU by ~50k, ~2.5x faster) and stay
+            # on the exact CPU path below the threshold. Cleared in finally so it never leaks to a later fit.
+            from .._fe_gpu_strict import set_auto_fit_n as _set_auto_fit_n, clear_auto_fit_n as _clear_auto_fit_n
+            _set_auto_fit_n(int(X.shape[0]) if hasattr(X, "shape") else None)
+            try:
+                with _preserve_global_numpy_rng_state(getattr(self, "random_seed", None)):
+                    result = self._fit_impl(X, y, groups, **fit_params)
+            finally:
+                _clear_auto_fit_n()
             try:
                 from mlframe.training.provenance import record_provenance as _record_provenance
                 _n_rows = int(X.shape[0]) if hasattr(X, "shape") else None
