@@ -428,8 +428,11 @@ def _plug_in_mi(x_binned: np.ndarray, y: np.ndarray, miller_madow: bool = False)
             return 0.0
         y_b = np.searchsorted(q[1:-1], y.astype(np.float64), side="right").astype(np.int64)
     else:
-        y_b = y.astype(np.int64)
-    x_b = x_binned.astype(np.int64)
+        # ascontiguousarray (not astype) so an already-contiguous int64 code array is NOT re-copied every call --
+        # callers pass int64 np.unique/factorize codes + a fixed int y_bin (e.g. _cat_triple scores 8 codes vs the
+        # SAME y_bin per triple), so the per-call astype copy was pure waste. njit still gets a contiguous int64 array.
+        y_b = np.ascontiguousarray(y, np.int64)
+    x_b = np.ascontiguousarray(x_binned, np.int64)
     if x_b.size == 0 or y_b.size == 0:
         return 0.0
     K_y = int(y_b.max()) + 1 if y_b.size else 1
