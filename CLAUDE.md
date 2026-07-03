@@ -1238,6 +1238,23 @@ Sibling rule for processes: never kill processes without explicit user authorisa
 
 **Sibling rule for `ruff` (and any auto-fixer):** a broad / repo-wide / dir-wide pass is `ruff check` ONLY — no `--fix`, zero auto-edits. Read the findings and fix anything worthwhile by hand with an editor, point by point. `--fix` is reserved for a narrow set of files you *just* edited AND only after an explicit commit/backup (`ruff check --fix <those files>`); never `ruff check --fix tests/` or a whole dir/the repo. `ruff format` broadly follows the same rule (report, don't rewrite). Rationale: `--fix` rewrites every file under its path, so "undo it" turns into a broad `git restore`/`checkout` — banned above — which on 2026-07-01 wiped uncommitted in-flight work co-located in the same tree. To undo an over-reaching auto-fix, re-edit the specific offending files; never `git restore/checkout/stash/reset`. Mutation subagents must be told the same.
 
+## NEVER `git reset --hard` (or force-move) a shared branch — it destroys other sessions' COMMITTED work (CRITICAL — 2026-07-03 incident)
+
+Parallel agent sessions commit to the SAME local repository and branch. A `git reset --hard`, `git checkout -B`, `git branch -f`, `git push --force`, or any force-move of `master` (or the working branch) silently discards every commit reachable only from the current local branch tip — including ANOTHER session's committed, not-yet-pushed work. This is strictly worse than the uncommitted-WIP clobber above: it throws away finished, tested, committed features.
+
+**What happened (2026-07-03):** one session ran `git reset --hard origin/master` to "sync", which moved local `master` back to `origin/master` and orphaned a different session's 3 committed feature commits (a shipped STRICT-default feature, a test-parametrization commit, an njit perf commit). The work survived only because it was still in the reflog and got branched out for recovery.
+
+**Banned outright:**
+- `git reset --hard <ref>` on a shared branch — NEVER, for any reason (syncing, "getting clean", discarding). There is no legitimate use in this multi-session repo.
+- `git checkout -B <branch>`, `git branch -f <branch> <ref>`, `git push --force` / `--force-with-lease` on `master` or any shared branch.
+- `git pull` variants that rebase/reset local commits away (`git pull --rebase` when it would drop local commits; a bare `git fetch` + `reset --hard`).
+
+**To SYNC with origin, use a MERGE, never a reset:** `git fetch origin` then `git merge origin/master` (or `git pull --no-rebase`). A merge PRESERVES both sides' commits (creates a merge commit); a reset DELETES one side. If the merge conflicts, resolve the conflict — never `reset --hard` to sidestep it.
+
+**Before ANY history-moving command, check for others' commits:** `git log --oneline @{u}..HEAD` (local commits not yet on the upstream) and `git log --oneline HEAD..@{u}`. If `@{u}..HEAD` is non-empty, those are commits a reset would destroy — STOP.
+
+**Recovery when it has already happened:** the discarded commits are in `git reflog` for ~90 days. `git reflog` → find the pre-reset tip → `git branch recovery-<name> <sha>` to preserve it (non-destructive; touches no working files), then cherry-pick / re-integrate onto the current branch, reconciling any overlap with the sibling's parallel work rather than clobbering it. Surface the incident to the user; do not silently paper over lost work.
+
 ## Test pollution: never rebind module objects without snapshot/restore (CRITICAL)
 
 `del sys.modules['mlframe.X']` + re-import, or `importlib.reload(mlframe.X)`, replaces the module object that `sys.modules['mlframe.X']` points at. Every other test file that did `from mlframe.X import Y` at file-load time keeps a reference to the OLD `Y`; every lazy `from .X import Y` inside a function body (used in `_mrmr_fit_impl.py`, `_predict_main.py`, etc.) resolves to the NEW `Y` on the next call. The two ends of the codebase now disagree on what `Y` is.
