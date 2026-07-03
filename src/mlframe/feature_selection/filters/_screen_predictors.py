@@ -26,8 +26,16 @@ from ._confirm_predictor import ScreenContext, confirm_one_predictor
 from ._screen_predictors_prescreen import cardinality_prescreen, compute_fdr_gain_floor
 from .evaluation import get_candidate_name
 from .info_theory import merge_vars
+from ._numba_warmup import warmup_typed_dict
 
 logger = logging.getLogger(__name__)
+
+# Pre-compile the typed.Dict(unicode->float64) machinery that screen_predictors'
+# memoization caches rely on, synchronously at import. This ~5s of otherwise-
+# per-first-fit LLVM codegen is not numba-disk-cacheable; paying it here (once
+# per process) keeps it off every fit's critical path. Opt out with
+# MLFRAME_SKIP_NUMBA_WARMUP=1. See _numba_warmup for the full rationale.
+warmup_typed_dict()
 
 
 def _short_name(name, maxlen: int = 28) -> str:
@@ -419,15 +427,18 @@ def screen_predictors(
         cached_confident_MIs = dict()
         # PERF NOTE (profiled 2026-07): constructing the first numba typed.Dict
         # (unicode->float64) in a process JIT-compiles the whole typed-dict method
-        # suite -- ~4.5s of LLVM codegen, and the njit functions that consume these
-        # dicts add several more; together ~11s (27% of the F2 fit wall), recurring
-        # every fresh process and NOT numba-disk-cacheable. A background daemon-thread
-        # warm-up (start at import so the GIL-free LLVM overlaps data prep / fit-start)
-        # was tested and rejected: numba's global compile lock serialises the warm-up
-        # against the fit's own njit compilation, and this host-serial pipeline offers
-        # almost no concurrent GPU work to hide the compile behind. Real reduction would
-        # require replacing the string-keyed typed.Dict caches below with a non-JIT
-        # structure -- a core-path rewrite gated on the selection-equivalence contract.
+        # suite -- ~5s of LLVM codegen (27% of a cold F2 fit wall), recurring per
+        # process and NOT numba-disk-cacheable. That machinery is now warmed
+        # synchronously at import (warmup_typed_dict, above), moving the ~5s off
+        # every fit's critical path (fit 42.9s -> 37.9s; import +5.2s). A background
+        # daemon-thread warm-up was tried and rejected first: numba's global compile
+        # lock serialises it against the fit's own njit compilation and this
+        # host-serial pipeline has no concurrent GPU work to overlap it with.
+        # The warm-up only SHIFTS the cost (per-process, amortises to zero across
+        # fits in a long-running process); ELIMINATING it would need replacing the
+        # unicode-keyed caches below with a 128-bit-hash (UniTuple int64) key -- a
+        # ~7-file core rewrite gated on the selection-equivalence contract, deferred
+        # as poor ROI (saves ~5s, already zero for multi-fit processes).
         entropy_cache = numba.typed.Dict.empty(
             key_type=types.unicode_type,
             value_type=types.float64,
