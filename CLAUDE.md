@@ -1,9 +1,5 @@
 # mlframe — project conventions
 
-## Never use background tasks/agents — run everything in the FOREGROUND (CRITICAL, 2026-06-28)
-
-Do NOT launch background work: no `run_in_background` Bash/PowerShell, no `run_in_background` Agent calls, no detached jobs. Their completion notifications interleave asynchronously and make my chat responses DISAPPEAR from the conversation (user, 2026-06-28). Run every command and every subagent SYNCHRONOUSLY in the foreground and wait for the result inline, even long ones (1M-row fits, full pytest, profiling). If parallelism is genuinely needed, dispatch multiple foreground Agent calls in a single message (they run concurrently and all return inline) — never `run_in_background`. The only thing this forbids is the background/detached mode, not concurrency.
-
 ## Never stop to ask obvious / low-stakes questions — keep working (CRITICAL)
 
 Do NOT pause to ask the user obvious or unimportant questions — execution
