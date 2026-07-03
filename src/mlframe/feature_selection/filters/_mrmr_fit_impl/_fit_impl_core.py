@@ -6064,6 +6064,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # categorize_dataset uses the legacy fixed ``quantization_nbins``.
     _nbins_strategy = getattr(self, "nbins_strategy", None)
     _nbins_strategy_kwargs = getattr(self, "nbins_strategy_kwargs", None)
+    # When capping cardinality for the compact-codes int8 goal, also bound the NUMERIC side: the supervised MDLP
+    # (fayyad_irani) recursion can emit up to 2**max_depth intervals (default max_depth=8 -> ~256), which would exceed
+    # int8 just like a high-card categorical. Cap max_depth to floor(log2(cap)) so numeric bins <= cap too (unless the
+    # user pinned max_depth explicitly). This makes max_categorical_cardinality a single knob for a universally-narrow
+    # codes matrix -- categorical tail folded AND numeric intervals bounded.
+    _cap = getattr(self, "max_categorical_cardinality", None)
+    if _cap and str(_nbins_strategy).lower() in ("mdlp", "fayyad_irani"):
+        _md = max(2, int(np.floor(np.log2(int(_cap)))))
+        _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
+        _nbins_strategy_kwargs.setdefault("max_depth", _md)
     # The supervised strategies (mdlp / optimal_joint) need y. Pull the raw
     # target column from the input frame -- categorize_dataset is called with
     # _x_for_cat which is a DataFrame; the target column is one of its members

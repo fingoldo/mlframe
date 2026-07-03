@@ -48,6 +48,24 @@ def _sel(X, y, cap):
     return list(m.get_feature_names_out())
 
 
+def test_numeric_mdlp_bins_bounded_by_max_depth():
+    """The NUMERIC side of the cap: supervised MDLP can emit up to 2**max_depth intervals (which would exceed int8), so
+    when max_categorical_cardinality is set the fit lowers max_depth to floor(log2(cap)). Verify the mechanism: a highly
+    informative numeric column gets many bins at the default depth but is bounded when max_depth is lowered."""
+    from mlframe.feature_selection.filters.discretization import categorize_dataset
+
+    rng = np.random.default_rng(0)
+    n = 20000
+    X = pd.DataFrame({"smooth": np.linspace(0, 10, n) + rng.normal(0, 0.05, n)})
+    y = (X["smooth"] * 2 + 0.3 * rng.normal(size=n)).values
+    _, _, nb_deep = categorize_dataset(df=X, method="quantile", n_bins=10, nbins_strategy="mdlp",
+                                       nbins_strategy_kwargs={"max_depth": 8}, y_for_strategy=y, dtype=np.int32)
+    _, _, nb_shallow = categorize_dataset(df=X, method="quantile", n_bins=10, nbins_strategy="mdlp",
+                                          nbins_strategy_kwargs={"max_depth": 3}, y_for_strategy=y, dtype=np.int32)
+    assert int(nb_deep[0]) > 16, "informative numeric should get many MDLP bins at depth 8"
+    assert int(nb_shallow[0]) <= 8, "max_depth=3 must bound numeric bins to <= 2**3"
+
+
 def test_biz_val_cap_recovers_high_cardinality_signal():
     """biz_value: a high-cardinality categorical carrying a genuine signal (cat % 3) has cells too sparse to detect
     uncapped -> NOT selected; capping densifies the cells so its MI becomes reliable -> IS selected. Capping a high-card
