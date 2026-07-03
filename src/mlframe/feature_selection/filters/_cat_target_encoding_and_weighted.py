@@ -46,6 +46,7 @@ def _compute_target_encoding(
     smoothing: float,
     dtype,
     seed: int = 0,
+    allow_naive_leak: bool = False,
 ) -> tuple:
     """Compute target-encoded values per cell of (X[idx_tuple]). Returns (te_values, cell_means_oof_combined) -- a 1-D array of ``n_samples`` floats where each row is
     ``E[Y | merged_class]`` computed out-of-fold (to prevent leakage).
@@ -77,6 +78,18 @@ def _compute_target_encoding(
     # Y as numeric: take classes_y (already merged) and treat as float
     y_numeric = classes_y.astype(np.float64)
     te_global = float(y_numeric.mean())
+
+    if n_oof_folds <= 0 and not allow_naive_leak:
+        # The naive single-pass per-cell mean includes each row's OWN y, so the emitted te_values (a TRAINING
+        # feature) leaks the target -- inflated in-sample MI, collapses on holdout. The default-safe behaviour is to
+        # fall back to a real OOF split; callers who genuinely want the naive path in a SEPARATE train/val scenario
+        # must opt in with allow_naive_leak=True.
+        logger.warning(
+            "_compute_target_encoding: n_oof_folds=%d would emit a target-LEAKING training feature (per-cell mean "
+            "includes each row's own y); falling back to 2-fold OOF. Pass allow_naive_leak=True to keep the naive "
+            "path (only safe when the emitted column is used in a SEPARATE train/val split).", n_oof_folds,
+        )
+        n_oof_folds = 2
 
     if n_oof_folds <= 0:
         # Naive: per-cell mean across all rows
