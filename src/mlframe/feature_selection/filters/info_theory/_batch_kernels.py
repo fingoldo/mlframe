@@ -73,13 +73,16 @@ def batch_pair_mi_prange(
         b = pair_b[p]
         nb_a = int(nbins[a])
         nb_b = int(nbins[b])
-        joint_card = nb_a * nb_b
 
         # Skip-and-sentinel a pathologically high-cardinality pair: allocating a (joint_card, n_classes_y) histogram for a huge
         # nb_a*nb_b would OOM the worker. MI=0.0 is the no-information value the FE noise-gate treats as uninformative.
-        if joint_card > MAX_JOINT_CARDINALITY:
+        # Test the cap via division BEFORE multiplying: nb_a*nb_b is int64 and would wrap silently on billion-scale
+        # cardinalities, producing a small/negative joint_card that passes the cap and then either mis-sizes the
+        # histogram (silent corruption) or asks np.zeros for a negative dimension (hard error).
+        if nb_a <= 0 or nb_b <= 0 or nb_a > MAX_JOINT_CARDINALITY // nb_b:
             out[p] = 0.0
             continue
+        joint_card = nb_a * nb_b
 
         # Thread-local buffers. numba allocates these per-prange-iteration on the
         # worker thread's stack so there's no cross-thread aliasing.
@@ -170,15 +173,18 @@ def batch_triple_mi_prange(
         a = triple_a[p]
         b = triple_b[p]
         c = triple_c[p]
+        nb_a = int(nbins[a])
         nb_b = int(nbins[b])
         nb_c = int(nbins[c])
-        raw_card = int(nbins[a]) * nb_b * nb_c
 
         # Skip-and-sentinel a pathologically high-cardinality triple: the dense-renumber bounds the WORKING histogram to n_dense<=n, but the
         # direct-address ``remap`` table below is sized by the raw product and is the OOM hazard. MI=0.0 is the gate's uninformative sentinel.
-        if raw_card > MAX_JOINT_CARDINALITY:
+        # Test the cap via staged division BEFORE multiplying: nb_a*nb_b*nb_c is int64 and wraps silently on
+        # billion-scale cardinalities, defeating the cap and asking np.full for a negative/overflowed dimension.
+        if nb_a <= 0 or nb_b <= 0 or nb_c <= 0 or nb_b > MAX_JOINT_CARDINALITY // nb_c or nb_a > MAX_JOINT_CARDINALITY // (nb_b * nb_c):
             out[p] = 0.0
             continue
+        raw_card = nb_a * nb_b * nb_c
 
         # Thread-local per-row raw 3-way codes + a direct-address remap table.
         raw_codes = np.empty(n_samples, dtype=np.int64)

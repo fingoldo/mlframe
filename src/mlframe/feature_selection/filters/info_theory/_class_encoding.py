@@ -39,8 +39,13 @@ def merge_vars(
     n_threads, which blows up for deep joints (large expected_nclasses).
     Net loss across the typical n=30k..200k combo sizes.
     """
+    n_rows = len(factors_data)
     if final_classes is None:
-        final_classes = np.zeros(len(factors_data), dtype=dtype)
+        final_classes = np.zeros(n_rows, dtype=dtype)
+    if n_rows == 0:
+        # No samples: the per-row histogram is empty; freqs / n_rows would be a divide-by-zero producing NaN
+        # frequencies that then silently poison downstream entropy / MI. Return an empty frequency vector instead.
+        return final_classes, np.zeros(0, dtype=np.float64), current_nclasses
     for var_number, var_index in enumerate(vars_indices):
 
         expected_nclasses = current_nclasses * factors_nbins[var_index]
@@ -84,7 +89,7 @@ def merge_vars(
             if var_number == len(vars_indices) - 1:
                 freqs = freqs[freqs > 0]
         current_nclasses = expected_nclasses - nzeros
-    return final_classes, freqs / len(factors_data), current_nclasses
+    return final_classes, freqs / n_rows, current_nclasses
 
 
 @njit(cache=True)

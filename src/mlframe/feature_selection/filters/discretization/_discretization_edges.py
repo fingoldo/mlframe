@@ -239,7 +239,10 @@ def _bayesian_blocks_bin_edges(a: np.ndarray, p0: float = 0.05,
     else:
         a_sorted_dp = a_sorted
     N = float(a_sorted_dp.size)
-    # Scargle eq. 21: ncp_prior = 4 - log(73.53 * p0 * N^-0.478).
+    # Scargle eq. 21: ncp_prior = 4 - log(73.53 * p0 * N^-0.478). p0 is a false-alarm PROBABILITY in (0, 1); p0<=0
+    # (a natural "no false alarms" choice) would make math.log raise a domain error, so validate the public knob.
+    if not (0.0 < p0 < 1.0):
+        raise ValueError(f"_bayesian_blocks_bin_edges: p0 (false-alarm probability) must be in (0, 1); got {p0}.")
     ncp_prior = 4.0 - math.log(73.53 * p0 * (N ** -0.478))
     cp_idx = _bayesian_blocks_inner(a_sorted_dp, ncp_prior)
     # Build edges from change-point indices.
