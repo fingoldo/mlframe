@@ -54,6 +54,11 @@ def arrayMinMax(x, l=0, r=0):
     return (minimum, maximum)
 
 
+# WARNING (audit3): these two helpers use full ``fastmath=True`` (nnan/ninf), so they assume finite input and
+# will NOT propagate NaN the way the serial ``arrayMinMax`` above deliberately does. They are currently UNUSED
+# in src/mlframe; do NOT wire them into a NaN-sensitive hot path (e.g. the discretiser min/max scan) without a
+# finite-gate at the wrapper level, or all-NaN / NaN-bearing columns will get a garbage range instead of the
+# NaN sentinel the callers' ``_rng<=0 / NaN`` guards rely on.
 @njit(fastmath=True, parallel=True, cache=True)
 def arrayMinMaxParallel(array, l=0, r=0, maxThreads=8):
     arrLen = len(array)
