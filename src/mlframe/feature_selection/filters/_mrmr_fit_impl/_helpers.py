@@ -53,19 +53,9 @@ def _orth_fe_numeric_cols(X, cols):
     """Keep only numeric (incl. bool) scalar columns from ``cols`` for the orthogonal / polynomial hybrid-FE family,
     which converts operands to float. Raw categorical / string columns (e.g. a string-coded cat 'B') would otherwise
     raise ``ValueError: could not convert string to float`` and the whole FE pass would be silently dropped. Duplicated
-    column names (``X[c]`` -> DataFrame, ndim 2) are skipped as ambiguous."""
-    out = []
-    for c in cols:
-        if c not in X.columns:
-            continue
-        s = X[c]
-        if getattr(s, "ndim", 1) != 1:
-            continue
-        # pd.api.types.is_numeric_dtype handles category / object / string gracefully (False) and keeps bool as numeric;
-        # np.issubdtype would RAISE "Cannot interpret CategoricalDtype as a data type" on the very cat cols we exclude.
-        if pd.api.types.is_numeric_dtype(s):
-            out.append(c)
-    return out
+    column names (``X[c]`` -> DataFrame, ndim 2) are skipped as ambiguous. Format-agnostic (pandas / polars)."""
+    from .._fe_frame_ops import fe_is_numeric_col
+    return [c for c in cols if fe_is_numeric_col(X, c)]
 
 
 def _dispatch_default_scorer(
@@ -347,6 +337,7 @@ def fe_decide_on_subsample(
     Any per-recipe replay error also triggers the full-data fallback.
     """
     n = len(X)
+    from .._fe_frame_ops import fe_to_pandas
     # Prefer the fit's ONE shared row-index draw when supplied (so this closed-form family scores the
     # SAME rows as the pair-search / polynom / sufficiency floor); else fall back to the legacy draw.
     _shared = None
@@ -358,7 +349,7 @@ def fe_decide_on_subsample(
         except Exception:
             _shared = None
     if _shared is None and not (isinstance(subsample_n, int) and 0 < subsample_n < n):
-        return fit_with_recipes_fn(X, y, **kwargs)
+        return fit_with_recipes_fn(fe_to_pandas(X), y, **kwargs)
     if _shared is not None:
         _idx = _shared
     else:
@@ -367,7 +358,11 @@ def fe_decide_on_subsample(
                 n, size=int(subsample_n), replace=False,
             )
         )
-    _X_sub = X.iloc[_idx].reset_index(drop=True)
+    from .._fe_frame_ops import fe_subsample_to_pandas
+    # Format-agnostic subsample: pandas -> .iloc, polars -> native gather + to_pandas on the SMALL subsample only (the
+    # family decision bodies are pandas-native). Materialises ~len(_idx) rows, never the full frame -- so a 100+ GB polars
+    # frame is not duplicated, and every FE family now runs on polars input (previously skipped by isinstance guards).
+    _X_sub = fe_subsample_to_pandas(X, _idx)
     _y_sub = np.asarray(y)[_idx]
     # Arity-agnostic: every ``*_with_recipes`` family returns the augmented frame FIRST
     # and the recipe list LAST (3-tuple (X, scores, recipes) for univariate / extra /
@@ -380,7 +375,7 @@ def fe_decide_on_subsample(
             "on the FULL %d rows (this is the costly full-n path the subsample was meant to avoid).",
             getattr(fit_with_recipes_fn, "__name__", "FE family"), len(_idx), n,
         )
-        return fit_with_recipes_fn(X, y, **kwargs)  # unexpected shape -> full call
+        return fit_with_recipes_fn(fe_to_pandas(X), y, **kwargs)  # unexpected shape -> full call
     X_aug_sub, recipes, _middle = _ret[0], _ret[-1], _ret[1:-1]
     _appended_sub = [c for c in X_aug_sub.columns if c not in _X_sub.columns]
     # EMPTY RESULT is a VALID decision, not a coverage failure: when the subsample DECISION engineered no columns, the
@@ -400,10 +395,13 @@ def fe_decide_on_subsample(
             getattr(fit_with_recipes_fn, "__name__", "FE family"),
             len(_appended_sub), len(_idx), len({r.name for r in (recipes or [])}), n,
         )
-        return fit_with_recipes_fn(X, y, **kwargs)
+        return fit_with_recipes_fn(fe_to_pandas(X), y, **kwargs)
     from ..engineered_recipes import apply_recipe
+    from .._fe_frame_ops import fe_append_columns
     _full_cols: dict = {}
     try:
+        # apply_recipe is format-agnostic (per-column _extract_column), so full-n replay reads polars/pandas/ndarray
+        # operands as views -- no whole-matrix copy.
         for r in recipes:
             _full_cols[r.name] = np.asarray(apply_recipe(r, X))
     except Exception:
@@ -412,6 +410,8 @@ def fe_decide_on_subsample(
             "falling back to full-data decision.",
             getattr(r, "name", "?"),
         )
-        return fit_with_recipes_fn(X, y, **kwargs)
-    X_aug = pd.concat([X, pd.DataFrame(_full_cols, index=X.index)], axis=1)
+        return fit_with_recipes_fn(fe_to_pandas(X), y, **kwargs)
+    # Append the engineered columns in X's OWN framework (polars with_columns / pandas concat) -- only the new columns
+    # are materialised, never a copy of X.
+    X_aug = fe_append_columns(X, _full_cols)
     return (X_aug, *_middle, recipes)

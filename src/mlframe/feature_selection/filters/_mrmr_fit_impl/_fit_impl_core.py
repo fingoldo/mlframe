@@ -879,20 +879,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # univariate-seeded triplet path (``fe_hybrid_orth_triplet_enable``) is OFF.
     _gbm_seeded_triplet_names = list(getattr(self, "_seeded_triplets_names_", []) or [])
     if bool(getattr(self, "fe_hybrid_orth_triplet_enable", False)) or _gbm_seeded_triplet_names:
-        _is_pandas_for_triplet = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_triplet:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_triplet_enable=True but X is not a pandas "
-                "DataFrame; triplet cross-basis FE is skipped. Convert to "
-                "pandas via X.to_pandas() before fit() if you want triplet "
-                "FE applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam: the isinstance(X, pd.DataFrame) skip-guard is gone -- the family
+        # runs on polars/pandas alike (subsample decision + native replay via fe_decide_on_subsample / _fe_frame_ops).
+        if True:
             try:
                 from .._orthogonal_triplet_fe import (
                     hybrid_orth_mi_triplet_fe_with_recipes,
                 )
+                from .._fe_frame_ops import fe_is_numeric_col, fe_append_columns, fe_extract_columns
                 _y_for_triplet = (
                     _y_np
                 )
@@ -930,7 +924,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # The triplet stage applies polynomial (Hermite/Legendre) basis transforms that require numeric input; a string / categorical column ('a_1', ...) raises
                 # "could not convert string to float" and the broad guard below would then silently drop the ENTIRE triplet stage. Restrict the seed pool to numeric columns
                 # (categoricals are handled by the dedicated categorical-encoding FE stages instead).
-                _t_cols = [c for c in _t_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
+                _t_cols = [c for c in _t_cols if fe_is_numeric_col(X, c)]
                 _t_max_degree = int(
                     getattr(self, "fe_hybrid_orth_triplet_max_degree", 1)
                 )
@@ -955,7 +949,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _xcols = set(X.columns)
                     _explicit_triplets = [
                         tr for tr in _gbm_seeded_triplet_names
-                        if all((c in _xcols and pd.api.types.is_numeric_dtype(X[c])) for c in tr)
+                        if all((c in _xcols and fe_is_numeric_col(X, c)) for c in tr)
                     ] or None
                 # When the triplet stage runs SOLELY because the GBM seeder forwarded explicit
                 # triples (the legacy univariate-seeded triplet path is OFF), SUPPRESS the
@@ -997,7 +991,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # Append only triplet columns onto the (possibly already
                     # hybrid-augmented) X. ``hybrid_orth_features_`` was
                     # unconditionally seeded to [] at the top of this fn.
-                    X = pd.concat([X, X_t[_t_triplet_only]], axis=1)
+                    X = fe_append_columns(X, fe_extract_columns(X_t, _t_triplet_only))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or []) + list(_t_triplet_only)
                     )
