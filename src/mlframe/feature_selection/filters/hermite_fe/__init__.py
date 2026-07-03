@@ -237,25 +237,55 @@ except ImportError:
 
 
 
-def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
-    """CUDA RawKernel polynomial eval. Includes H2D + launch + D2H. Worth it only at n >= 500k (per bench_poly_eval_backends)."""
+def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None = None) -> np.ndarray:
+    """CUDA RawKernel polynomial eval on ``device`` (current device if None). Includes H2D + launch + D2H.
+    Worth it only at n >= 500k (per bench_poly_eval_backends)."""
+    import contextlib
+
     import cupy as cp
     # _ensure_cuda_kernels writes into the _hermite_fe_mi module's dict;
     # read from the same source to avoid a stale local-module dict that
     # would surface as KeyError(basis) after the lazy compile succeeded.
     from .. import _hermite_fe_mi as _hfmi
-    _ensure_cuda_kernels()
-    x_gpu = cp.asarray(x, dtype=cp.float64)
-    c_gpu = cp.asarray(c, dtype=cp.float64)
-    n = x.shape[0]
-    out_gpu = cp.empty(n, dtype=cp.float64)
-    block = 256
-    grid = (n + block - 1) // block
-    _hfmi._CUDA_KERNELS[basis](
-        (grid,), (block,),
-        (x_gpu, c_gpu, c_gpu.shape[0], n, out_gpu),
-    )
-    return cp.asnumpy(out_gpu)
+    _ctx = cp.cuda.Device(device) if device is not None else contextlib.nullcontext()
+    with _ctx:
+        _ensure_cuda_kernels()
+        x_gpu = cp.asarray(x, dtype=cp.float64)
+        c_gpu = cp.asarray(c, dtype=cp.float64)
+        n = x.shape[0]
+        out_gpu = cp.empty(n, dtype=cp.float64)
+        block = 256
+        grid = (n + block - 1) // block
+        _hfmi._CUDA_KERNELS[basis](
+            (grid,), (block,),
+            (x_gpu, c_gpu, c_gpu.shape[0], n, out_gpu),
+        )
+        return cp.asnumpy(out_gpu)
+
+
+def _polyeval_cuda_pick_devices(n: int) -> list:
+    """Return CUDA device indices (most-free VRAM first) that can hold a polyeval of length ``n`` (~4x the column +
+    cushion). Enables a per-column device CASCADE: try the roomiest GPU, then the next, then (empty list) the CPU. One
+    memGetInfo per device; query failure -> empty (CPU). Mirrors the multi-device spirit of the _fe_gpu_batch executor
+    at the cheap per-column granularity, where no residency-matrix concatenation is needed."""
+    try:
+        import cupy as cp
+
+        ndev = int(cp.cuda.runtime.getDeviceCount())
+    except Exception:
+        return []
+    needed = int(n) * 8 * 4 + (64 << 20)
+    fits = []
+    for d in range(ndev):
+        try:
+            with cp.cuda.Device(d):
+                free, _total = cp.cuda.runtime.memGetInfo()
+            if free >= needed:
+                fits.append((free, d))
+        except Exception:
+            continue
+    fits.sort(reverse=True)  # most-free first
+    return [d for _free, d in fits]
 
 
 # Size + hardware-aware dispatcher. Crossover points measured on this repo's reference hardware
@@ -293,21 +323,6 @@ from ._hermite_oracle import (  # noqa: E402,F401
 _POLYEVAL_CUDA_FALLBACK_WARNED = False
 
 
-def _polyeval_cuda_vram_ok(n: int) -> bool:
-    """Proactive free-VRAM check: the CUDA polyeval stages x, c, out (+cupy's transfer buffers). Require the free VRAM
-    on the current device to comfortably hold them (~4x the column with a cushion) before attempting the GPU path, so
-    on a contended / nearly-full device we route to the CPU backend WITHOUT first triggering (and having to recover
-    from) an OOM. Cheap: one memGetInfo. Any query failure -> assume OK and let the try/except fallback handle it."""
-    try:
-        import cupy as cp
-
-        free, _total = cp.cuda.runtime.memGetInfo()
-        needed = int(n) * 8 * 4 + (64 << 20)  # x+c+out+staging (float64) + 64MB cushion
-        return free >= needed
-    except Exception:
-        return True
-
-
 def _warn_polyeval_cuda_fallback_once(exc: Exception) -> None:
     """Warn ONCE that the polyeval CUDA path failed and we fell back to CPU (the error recurs per column)."""
     global _POLYEVAL_CUDA_FALLBACK_WARNED
@@ -343,17 +358,25 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     # itself out of RAM (paging) cupy cannot allocate the pinned H2D staging buffer and raises cudaErrorMemoryAllocation;
     # without this guard the caller drops the ENTIRE engineered column ("...skipping") rather than computing it slower on
     # the CPU. Degrade, don't lose the feature. Warned once (the failure recurs per column and would flood the log).
-    if (forced == "cuda" or
-            (forced == "" and n >= _cuda_threshold and _CUDA_AVAILABLE)):
-        # Skip the GPU attempt up front when free VRAM is insufficient (contended / nearly-full device) UNLESS the user
-        # explicitly forced cuda; otherwise try GPU and, on an OOM/driver error (incl. host pinned-mem exhaustion),
-        # degrade to the CPU path rather than dropping the column.
-        if _CUDA_AVAILABLE and (forced == "cuda" or _polyeval_cuda_vram_ok(n)):
+    # HOST-IN / HOST-OUT: this dispatcher takes a host (numpy) column and returns a host column -- the winner-replay
+    # (apply_recipe) and the host basis builder both APPEND the result to a pandas frame. Computing that on the GPU means
+    # H2D + D2H over PCIe around a memory-bound Horner pass: two transfers of the column for a trivial arithmetic sweep,
+    # so the CPU (njit, in place, no transfer) is competitive-or-faster -- and, per the resident-vs-host lesson that made
+    # the plug-in MI dispatcher default to CPU, a solo GPU microbench (the source of the old n>=500k threshold) overstates
+    # the win once the FE pipeline fires these from many joblib workers contending on one GPU. So the DEFAULT never uploads
+    # the feature column to the GPU; the GPU polyeval is used ONLY when explicitly forced (MLFRAME_POLYEVAL_BACKEND=cuda),
+    # e.g. for A/B or a genuinely device-resident caller. The STRICT resident builder keeps its device operands and does
+    # NOT route through here (it uses _gpu_evaluate_basis_matrix), so that legitimately-resident path is unaffected.
+    if forced == "cuda" and _CUDA_AVAILABLE:
+        # Per-column device CASCADE: try the roomiest GPU, then the next, then CPU -- so on a multi-GPU box a busy/full
+        # device 0 does not block the eval, and an OOM (incl. host pinned-mem exhaustion) degrades instead of dropping
+        # the column. Empty candidate list (no device has room) -> straight to CPU.
+        for _dev in (_polyeval_cuda_pick_devices(n) or [None]):
             try:
-                return _polyeval_cuda(basis, x, c)
-            except Exception as _cuda_exc:  # cupy OOM (host pinned-mem or device) / driver error -> CPU fallback below
+                return _polyeval_cuda(basis, x, c, device=_dev)
+            except Exception as _cuda_exc:  # OOM / driver error on this device -> try the next, then CPU
                 _warn_polyeval_cuda_fallback_once(_cuda_exc)
-        # cuda unavailable, VRAM too tight, or the attempt failed -- fall through to the CPU njit / njit_par path.
+        # every device failed -- fall through to the CPU njit / njit_par path.
     if forced == "njit_par":
         return _NJIT_PAR_FUNCS[basis](x, c)
     # CPU njit/njit_par crossover: oracle-driven when enabled, else the legacy

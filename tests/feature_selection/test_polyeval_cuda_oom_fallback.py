@@ -25,7 +25,7 @@ def test_polyeval_dispatch_falls_back_to_cpu_on_cuda_error(monkeypatch):
     monkeypatch.setattr(hf, "_CUDA_AVAILABLE", True)
     monkeypatch.setattr(hf, "_warn_polyeval_cuda_fallback_once", lambda exc: None)
 
-    def _boom(basis, xx, cc):
+    def _boom(basis, xx, cc, device=None):
         raise RuntimeError("cudaErrorMemoryAllocation: out of memory")
 
     monkeypatch.setattr(hf, "_polyeval_cuda", _boom)
@@ -35,19 +35,18 @@ def test_polyeval_dispatch_falls_back_to_cpu_on_cuda_error(monkeypatch):
     assert np.allclose(got, cpu_expected), "polyeval must return the CPU result after the CUDA path fails"
 
 
-def test_polyeval_vram_guard_routes_to_cpu_when_tight(monkeypatch):
-    """When free VRAM is insufficient (and cuda not force-requested), the dispatcher skips the GPU attempt entirely and
-    uses the CPU backend -- no OOM triggered."""
-    x = np.random.default_rng(1).normal(size=600_000)
+def test_polyeval_default_never_uploads_to_gpu(monkeypatch):
+    """Host-in/host-out contract: the DEFAULT (unforced) path computes on the CPU and never attempts a GPU upload, even
+    at large n and with CUDA available -- the result lands on the host, so the H2D/D2H transfer is pure waste."""
+    x = np.random.default_rng(1).normal(size=600_000)  # > the legacy n>=500k CUDA threshold
     c = np.zeros(3)
     c[2] = 1.0
     cpu_expected = hf._NJIT_PAR_FUNCS["hermite"](x, c)
 
     monkeypatch.setattr(hf, "_CUDA_AVAILABLE", True)
-    monkeypatch.setattr(hf, "_polyeval_cuda_vram_ok", lambda n: False)  # simulate a nearly-full device
 
-    def _should_not_run(basis, xx, cc):
-        raise AssertionError("GPU polyeval must not be attempted when VRAM is insufficient")
+    def _should_not_run(basis, xx, cc, device=None):
+        raise AssertionError("GPU polyeval must NOT be attempted on the default host-in/host-out path")
 
     monkeypatch.setattr(hf, "_polyeval_cuda", _should_not_run)
     monkeypatch.delenv("MLFRAME_POLYEVAL_BACKEND", raising=False)

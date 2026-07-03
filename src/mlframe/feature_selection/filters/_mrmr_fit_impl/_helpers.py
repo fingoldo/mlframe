@@ -375,11 +375,25 @@ def fe_decide_on_subsample(
     # Preserve the middle elements verbatim.
     _ret = fit_with_recipes_fn(_X_sub, _y_sub, **kwargs)
     if not (isinstance(_ret, tuple) and len(_ret) >= 2):
+        logger.warning(
+            "fe_decide_on_subsample: %s returned an unexpected shape on the %d-row subsample; re-running the DECISION "
+            "on the FULL %d rows (this is the costly full-n path the subsample was meant to avoid).",
+            getattr(fit_with_recipes_fn, "__name__", "FE family"), len(_idx), n,
+        )
         return fit_with_recipes_fn(X, y, **kwargs)  # unexpected shape -> full call
     X_aug_sub, recipes, _middle = _ret[0], _ret[-1], _ret[1:-1]
     _appended_sub = [c for c in X_aug_sub.columns if c not in _X_sub.columns]
-    # Partial / no recipe coverage -> full-data decision (correctness over speed).
+    # Partial / no recipe coverage -> full-data decision (correctness over speed). Surfaced (not silent): this is the
+    # ONLY way a closed-form family's DECISION runs at full n, and at 5M+ rows the full-n rebuild is what balloons the
+    # GPU/host memory (the resident builder's whole-matrix upload). If it fires every fit, the family's recipe emission
+    # is incomplete -- worth fixing at the family, not paying the full-n cost each time.
     if not recipes or len({r.name for r in recipes}) < len(_appended_sub):
+        logger.warning(
+            "fe_decide_on_subsample: %s produced %d engineered column(s) on the %d-row subsample but only %d replayable "
+            "recipe(s); re-running the DECISION on the FULL %d rows (costly full-n path -- the subsample bypass is lost).",
+            getattr(fit_with_recipes_fn, "__name__", "FE family"),
+            len(_appended_sub), len(_idx), len({r.name for r in (recipes or [])}), n,
+        )
         return fit_with_recipes_fn(X, y, **kwargs)
     from ..engineered_recipes import apply_recipe
     _full_cols: dict = {}
