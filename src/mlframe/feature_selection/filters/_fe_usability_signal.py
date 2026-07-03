@@ -59,6 +59,25 @@ except (ValueError, TypeError):
     _ABS_PEARSON_MAX_ROWS = 250000
 
 
+def _corr_stride(n_rows: int) -> int:
+    """Row stride for the usability-|corr| subsample (1 = no subsample). See ``_ABS_PEARSON_MAX_ROWS``."""
+    if _ABS_PEARSON_MAX_ROWS > 0 and n_rows > _ABS_PEARSON_MAX_ROWS:
+        return max(1, int(n_rows // _ABS_PEARSON_MAX_ROWS))
+    return 1
+
+
+def _subsample_for_corr(*arrs):
+    """Strided-subsample 1-D arrays TOGETHER (same rows) to the |corr| row cap. Applied once at the top of
+    the usability helpers so the ratio-form materialisation AND the ranks AND the corr all run on the
+    subsample -- not just the final corr. Idempotent: arrays already at/below the cap are returned as-is
+    (so a caller that already subsampled -> ``usability_form_corrs`` does NOT subsample twice)."""
+    a0 = arrs[0]
+    st = _corr_stride(a0.shape[0])
+    if st <= 1:
+        return arrs
+    return tuple(a[::st] for a in arrs)
+
+
 def abs_pearson(y, v):
     """``|Pearson corr|`` of ``y`` vs ``v`` over jointly-FINITE rows; 0.0 when <2 valid rows or either is
     constant / non-finite. Outlier-inflated by construction -- which is exactly the tail-concentrated signal
@@ -98,6 +117,7 @@ def usability_form_corrs(y, x0, x1):
     _y = np.asarray(y, dtype=np.float64).ravel()
     _x0 = np.asarray(x0, dtype=np.float64).ravel()
     _x1 = np.asarray(x1, dtype=np.float64).ravel()
+    _y, _x0, _x1 = _subsample_for_corr(_y, _x0, _x1)  # forms + corr run on the subsample (not just abs_pearson)
 
     def _safe_div(n, d):
         dd = np.where(np.abs(d) < _eps, np.nan, d)
@@ -155,7 +175,8 @@ def pair_is_tail_concentrated_rankaware(y, x0, x1, *, min_corr, pairness_margin,
         _y = np.asarray(y, dtype=np.float64).ravel()
         _x0 = np.asarray(x0, dtype=np.float64).ravel()
         _x1 = np.asarray(x1, dtype=np.float64).ravel()
-        _cp, _cs = usability_form_corrs(_y, _x0, _x1)
+        _y, _x0, _x1 = _subsample_for_corr(_y, _x0, _x1)  # subsample once; the ranks + forms below reuse it
+        _cp, _cs = usability_form_corrs(_y, _x0, _x1)      # already at cap -> not re-subsampled
         if not (_cp >= float(min_corr) and _cp >= float(pairness_margin) * float(_cs)):
             return False
         _eps = 1e-12
