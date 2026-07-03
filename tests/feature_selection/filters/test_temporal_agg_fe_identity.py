@@ -78,22 +78,34 @@ def test_group_row_slices_matches_mask_history():
 
 
 def _reference_expanding_replay(X_test, recipe_extra):
-    """OLD concatenate+reduce replay, reproduced inline as the identity oracle."""
+    """Naive concatenate+reduce oracle with the leak-safe STRICT-TIME merge: for each test row at time t, the
+    expanding stat is over train values with train_time < t (plus earlier-processed within-test values). Mirrors the
+    incremental accumulator in apply_temporal_expanding, which was changed to merge train history by time rather
+    than seed the entity's ENTIRE train history up front (the pre-fix seed-all replay let a test row inside the
+    train time range see FUTURE train values)."""
     ent_cols = list(recipe_extra["entity_cols"])
     value_col = recipe_extra["value_col"]
     stat = recipe_extra["stat"]
     prior = float(recipe_extra["global_prior"])
     history = recipe_extra["history"]
     key, times = M._replay_keys_times(X_test, ent_cols, recipe_extra["time_col"])
+    is_dt = M._is_datetime_like(times)
+    times_num = times.astype("datetime64[ns]").astype(np.int64) if is_dt else np.asarray(times, dtype=np.float64)
     vals = np.asarray(X_test[value_col].to_numpy(), dtype=np.float64)
     n = len(X_test)
     out = np.full(n, prior, dtype=np.float64)
-    order = M._stable_time_order(times)
+    order = M._stable_time_order(times_num)
     test_hist = {}
     for idx in order:
         ent = str(key[idx])
-        train_v = np.asarray(history.get(ent, {}).get("v", []), dtype=np.float64)
-        train_v = train_v[np.isfinite(train_v)]
+        t = times_num[idx]
+        h = history.get(ent, {})
+        ht = np.asarray(h.get("t", []))
+        hv = np.asarray(h.get("v", []), dtype=np.float64)
+        if ht.size == hv.size and ht.size:
+            train_v = hv[(ht < t) & np.isfinite(hv)]
+        else:
+            train_v = hv[np.isfinite(hv)]  # legacy recipe without stored times: positional seed-all
         seen = test_hist.get(ent, [])
         combined = np.concatenate([train_v, np.asarray(seen, dtype=np.float64)]) if seen else train_v
         if combined.size > 0:

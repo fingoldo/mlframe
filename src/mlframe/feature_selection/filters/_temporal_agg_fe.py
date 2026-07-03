@@ -614,48 +614,79 @@ def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.nda
     out = np.full(n, prior, dtype=np.float64)
     # Process test rows in time order so within-test history accumulates.
     order = _stable_time_order(times)
-    # Running per-entity accumulators (count / sum / Welford-M2 / min / max),
-    # seeded once from the TRAIN history. The prior implementation re-built and
-    # re-reduced a length-(train+seen) array on EVERY test row, i.e. O(N^2) per
-    # entity. Incremental accumulators make each row O(1): O(N) total. The seed
-    # folds the finite train values in one pass (Welford), then each test row is
-    # scored against the running state before being folded in -- preserving the
-    # "strict past only" contract. mean uses sum/count, std uses Welford-M2 to
-    # keep the reduction-order delta vs np.mean/np.std(ddof=1) at ~1e-9 (FP
-    # summation-order only; never selection-altering).
+    # Numeric time axis for the strict-past comparison. Datetime is compared in int64-ns (NOT float64: epoch-ns
+    # ~1.6e18 exceeds float64's 2^53 exact-integer range, so a float cast loses ~hundreds of ns at the boundary).
+    _is_dt = _is_datetime_like(times)
+    times_num = times.astype("datetime64[ns]").astype(np.int64) if _is_dt else np.asarray(times, dtype=np.float64)
+    # Running per-entity accumulators (count / sum / Welford-M2 / min / max). Train history is MERGED into the
+    # time-ordered stream via a per-entity pointer: before scoring a test row at time t, only train rows STRICTLY
+    # EARLIER than t are folded in. The previous implementation seeded the accumulator with the entity's ENTIRE train
+    # history up front, so a test row whose timestamp fell inside the train time range saw FUTURE train values -- a
+    # look-ahead leak / train-serve skew (fit never lets an expanding row see same-entity rows at a later time). This
+    # matches apply_temporal_rolling's strict ``all_t < t`` contract. Each row stays O(1): O(N) total. mean uses
+    # sum/count, std uses Welford-M2 (reduction-order delta ~1e-9, never selection-altering).
     acc_n: dict[str, int] = {}
     acc_sum: dict[str, float] = {}
     acc_mean: dict[str, float] = {}
     acc_m2: dict[str, float] = {}
     acc_min: dict[str, float] = {}
     acc_max: dict[str, float] = {}
+    h_times: dict[str, np.ndarray] = {}
+    h_vals: dict[str, np.ndarray] = {}
+    h_pos: dict[str, int] = {}
     seeded: set[str] = set()
 
-    def _seed(ent: str) -> None:
-        train_v = np.asarray(history.get(ent, {}).get("v", []), dtype=np.float64)
-        train_v = train_v[np.isfinite(train_v)]
-        cnt = int(train_v.size)
+    def _fold(ent: str, v: float) -> None:
+        cnt = acc_n[ent] + 1
         acc_n[ent] = cnt
-        if cnt:
-            s = float(train_v.sum())
-            acc_sum[ent] = s
-            m = s / cnt
-            acc_mean[ent] = m
-            acc_m2[ent] = float(((train_v - m) ** 2).sum())
-            acc_min[ent] = float(train_v.min())
-            acc_max[ent] = float(train_v.max())
-        else:
-            acc_sum[ent] = 0.0
-            acc_mean[ent] = 0.0
-            acc_m2[ent] = 0.0
-            acc_min[ent] = np.inf
-            acc_max[ent] = -np.inf
+        acc_sum[ent] += v
+        delta = v - acc_mean[ent]
+        acc_mean[ent] += delta / cnt
+        acc_m2[ent] += delta * (v - acc_mean[ent])
+        if v < acc_min[ent]:
+            acc_min[ent] = v
+        if v > acc_max[ent]:
+            acc_max[ent] = v
+
+    def _init(ent: str) -> None:
+        h = history.get(ent, {})
+        _hv = np.asarray(h.get("v", []), dtype=np.float64)
+        _ht = np.asarray(h.get("t", []))
+        if _ht.size != _hv.size:
+            # Legacy / hand-built recipe without stored train timestamps: fall back to the historical positional
+            # seed-all (times = -inf so every train row folds before the first test row). Leak-safe only under the
+            # old non-overlapping assumption; recipes produced by generate_expanding_agg_features carry "t".
+            _ht = np.full(_hv.size, -np.inf, dtype=np.float64)
+        elif _ht.size and not np.all(_ht[1:] >= _ht[:-1]):
+            _o = np.argsort(_ht, kind="mergesort")
+            _ht = _ht[_o]
+            _hv = _hv[_o]
+        h_times[ent] = _ht
+        h_vals[ent] = _hv
+        h_pos[ent] = 0
+        acc_n[ent] = 0
+        acc_sum[ent] = 0.0
+        acc_mean[ent] = 0.0
+        acc_m2[ent] = 0.0
+        acc_min[ent] = np.inf
+        acc_max[ent] = -np.inf
         seeded.add(ent)
 
     for idx in order:
         ent = str(key[idx])
         if ent not in seeded:
-            _seed(ent)
+            _init(ent)
+        # Fold train history strictly earlier than this row's timestamp (leak-safe merge, not one-shot seeding).
+        t = times_num[idx]
+        _ht = h_times[ent]
+        _hv = h_vals[ent]
+        _p = h_pos[ent]
+        while _p < _ht.size and _ht[_p] < t:
+            _vv = _hv[_p]
+            if np.isfinite(_vv):
+                _fold(ent, _vv)
+            _p += 1
+        h_pos[ent] = _p
         cnt = acc_n[ent]
         if cnt > 0:
             if stat == "count":
@@ -672,17 +703,7 @@ def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.nda
                 out[idx] = _reduce_expanding(np.array([acc_mean[ent]]), stat)
         v = vals[idx]
         if np.isfinite(v):
-            # Welford incremental update.
-            cnt += 1
-            acc_n[ent] = cnt
-            acc_sum[ent] += v
-            delta = v - acc_mean[ent]
-            acc_mean[ent] += delta / cnt
-            acc_m2[ent] += delta * (v - acc_mean[ent])
-            if v < acc_min[ent]:
-                acc_min[ent] = v
-            if v > acc_max[ent]:
-                acc_max[ent] = v
+            _fold(ent, v)
     return out
 
 
@@ -764,13 +785,44 @@ def apply_temporal_lag(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
     n = len(X_test)
     out = np.full(n, prior, dtype=np.float64)
     order = _stable_time_order(times_num)
-    # Seed per-entity buffers with the train history (already time-sorted).
+    # Per-entity time-sorted train history + a merge pointer, so a test row's positional lag counts ONLY train rows
+    # STRICTLY EARLIER in time (plus earlier within-test rows). The previous implementation pre-seeded the buffer with
+    # the entity's ENTIRE train history regardless of the test row's timestamp, so a test row inside the train time
+    # range saw FUTURE train values in its positional history -- a look-ahead leak / train-serve skew. Train values
+    # (finite or not) are appended in time order to preserve the positional-lag semantics of the fit side.
+    h_sorted: dict[str, tuple] = {}
+    h_pos: dict[str, int] = {}
     buffers: dict[str, list] = {}
-    for ent, h in history.items():
-        buffers[ent] = list(np.asarray(h.get("v", []), dtype=np.float64))
+
+    def _hist(ent: str) -> tuple:
+        h = history.get(ent, {})
+        _v = np.asarray(h.get("v", []), dtype=np.float64)
+        _t = np.asarray(h.get("t", []))
+        if _t.size != _v.size:
+            # Legacy / hand-built recipe without stored train timestamps: positional seed-all (times = -inf so the
+            # whole train buffer folds before the first test row), the historical behaviour. Recipes produced by
+            # generate_lag_features carry "t".
+            _t = np.full(_v.size, -np.inf, dtype=np.float64)
+        elif _t.size and not np.all(_t[1:] >= _t[:-1]):
+            _o = np.argsort(_t, kind="mergesort")
+            _t = _t[_o]
+            _v = _v[_o]
+        return _t, _v
+
     for idx in order:
         ent = str(key[idx])
-        buf = buffers.setdefault(ent, [])
+        if ent not in h_pos:
+            h_sorted[ent] = _hist(ent)
+            h_pos[ent] = 0
+            buffers[ent] = []
+        _ht, _hv = h_sorted[ent]
+        _p = h_pos[ent]
+        t = times_num[idx]
+        buf = buffers[ent]
+        while _p < _ht.size and _ht[_p] < t:
+            buf.append(float(_hv[_p]))
+            _p += 1
+        h_pos[ent] = _p
         if len(buf) >= lag:
             cand = buf[-lag]
             if np.isfinite(cand):
