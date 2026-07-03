@@ -78,7 +78,7 @@ Status legend: DONE (fixed+tested+pushed) | WIP | TODO | DOC | FUTURE | REJECTED
 ## Stopping / fallback (mrmr_crit_stopping.md)
 | ID | Sev | Finding | file:line | Disposition | Status |
 |----|-----|---------|-----------|-------------|--------|
-| ST-1 | P2 | UAED elbow trim mixes raw/combined index spaces → support/output desync (uaed_auto_size on + engineered) | _fit_impl_core.py:9854 | FIX | TODO |
+| ST-1 | P2 | UAED elbow trim mixes raw/combined index spaces → support/output desync (uaed_auto_size on + engineered) | _fit_impl_core.py:9854 | FIX | DONE (st1) |
 | ST-2 | P2 | count-floor top-up gates on _abs_floor(=0.0) → admits any non-constant noise | _finalise.py:254 | DOC/FUTURE (documented ≥K contract; add uninformative flag) | TODO |
 | ST-3 | Low | fallback support_ omits dtype=int64 → int32 on Windows | _finalise.py:281 | FIX | DONE (33343a58) |
 | ST-4 | Low | ran_out_of_time_ misses screen-level timeout | _fit_impl_core.py:6711 | FIX | TODO |
@@ -86,3 +86,8 @@ Status legend: DONE (fixed+tested+pushed) | WIP | TODO | DOC | FUTURE | REJECTED
 ## Rollup
 6 P1, 13 P2, ~13 Low/P3 across 7 agents. FE-F1 DONE. Remainder tracked above; being worked in batches with tests
 + benchmarks and pushed frequently. A verifier agent runs at the end to confirm every ID reached a terminal status.
+
+## NEW DISCOVERIES (found while implementing the critique fixes)
+| ID | Sev | Finding | file:line | Status |
+|----|-----|---------|-----------|--------|
+| ND-1 | P2? | Polynomial-FE transform replay raises KeyError: a poly recipe's unary name is a raw coeff-array repr (`poly_[0.079... ]`) NOT registered in the unary preset, so `apply_unary` fails at transform. Repro: `MRMR(uaed_auto_size=True, interactions_max_order=2, fe_max_polynoms=4).fit(X,y)` then transform. | engineered_recipes/_recipe_unary_binary.py:72 | TODO (investigate: poly recipe should register/route its coeff-array unary, not look it up in the string preset) |

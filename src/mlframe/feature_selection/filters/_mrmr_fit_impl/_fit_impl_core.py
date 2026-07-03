@@ -9853,8 +9853,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if gains.size >= 3:
                 elbow = int(uaed_elbow(gains))
                 if 0 < elbow < gains.size and hasattr(self, "support_"):
-                    self.support_ = np.asarray(self.support_)[:elbow + 1]
-                    self.n_features_ = int(self.support_.size)
+                    # ``gains`` is the COMBINED trace (raw greedy gains + zero-padded engineered tail), matching the
+                    # transform-time feature order [support_ ..., engineered recipes ...]. The elbow index therefore
+                    # lives in COMBINED space, but ``support_`` holds RAW indices only. Slicing raw support by a
+                    # combined elbow (and setting n_features_ = support_.size) dropped the engineered count while the
+                    # recipes still fired in transform -- transform emitted MORE columns than n_features_/mrmr_gains_
+                    # claimed (a hard support/output desync). Trim raw support AND engineered recipes in LOCKSTEP so
+                    # the retained feature count is exactly elbow+1 in both the state and the transform output.
+                    _sup = np.asarray(self.support_)
+                    _recipes = list(getattr(self, "_engineered_recipes_", []) or [])
+                    _keep = elbow + 1  # combined features to retain
+                    _raw_keep = min(_keep, _sup.size)
+                    _eng_keep = max(0, _keep - _sup.size)  # <= len(_recipes): gains was zero-extended to n_features_
+                    self.support_ = _sup[:_raw_keep]
+                    if _recipes and _eng_keep < len(_recipes):
+                        self._engineered_recipes_ = _recipes[:_eng_keep]
+                    self.n_features_ = int(self.support_.size) + min(_eng_keep, len(_recipes))
                     self.uaed_elbow_ = int(elbow)
         except Exception:
             # UAED is best-effort post-fit; don't break fit() on internal hiccup.
