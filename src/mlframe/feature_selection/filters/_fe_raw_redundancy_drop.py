@@ -82,7 +82,10 @@ from ._fe_raw_redundancy_helpers import (
     RAW_SELF_RETAIN_FRAC,
     _MIN_ROWS,
 )
-from ._fe_usability_signal import abs_pearson as _abs_pearson  # shared leaf |corr| (numpy-only, no cycle)
+from ._fe_usability_signal import (  # shared leaf |corr| (numpy-only, no cycle)
+    abs_pearson as _abs_pearson,
+    _crit_np_dtype,  # MLFRAME_CRIT_DTYPE_RELAXED-aware dtype for the usability-corr casts
+)
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -881,12 +884,13 @@ def drop_redundant_raw_operands(
         # profiles already drop ``a`` via CMI anyway). Best-effort: any error keeps the binned-CMI verdict.
         if keep and tail_subsume_enable and y_continuous is not None:
             try:
-                _yc = np.asarray(y_continuous, dtype=np.float64).ravel()
+                _uc_dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default) -- |corr| is wide-margin
+                _yc = np.asarray(y_continuous, dtype=_uc_dt).ravel()
                 _rc = None
                 if raw_X is not None and hasattr(raw_X, "columns") and rname in getattr(raw_X, "columns", []):
-                    _rc = np.asarray(raw_X[rname], dtype=np.float64).ravel()
+                    _rc = np.asarray(raw_X[rname], dtype=_uc_dt).ravel()
                 if _rc is None:
-                    _rc = np.asarray(data[:, ri], dtype=np.float64).ravel()
+                    _rc = np.asarray(data[:, ri], dtype=_uc_dt).ravel()
                 if _rc.shape[0] == _yc.shape[0] and _yc.shape[0] >= 3:
                     # raw's best single-operand LINEAR usability (raw and its square) ...
                     _r_lin = max(_abs_pearson(_yc, _rc), _abs_pearson(_yc, _rc * _rc))
@@ -901,7 +905,7 @@ def drop_redundant_raw_operands(
                     _s_lin = 0.0
                     for _ei in consumers:
                         _enm = cols[_ei]
-                        _sv = (np.asarray(engineered_continuous[_enm], dtype=np.float64).ravel()
+                        _sv = (np.asarray(engineered_continuous[_enm], dtype=_uc_dt).ravel()
                                if (engineered_continuous and _enm in engineered_continuous) else None)
                         if _sv is not None and _sv.shape[0] == _yc.shape[0]:
                             _s_lin = max(_s_lin, _abs_pearson(_yc, _sv))
