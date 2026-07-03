@@ -44,6 +44,28 @@ def test_group_aware_relevance_bit_identical_to_mask_reference():
         assert got[c] == ref[c], f"{c}: {got[c]!r} != {ref[c]!r} (not bit-identical)"
 
 
+def test_group_aware_relevance_bit_identical_with_non_finite_fallback():
+    # Non-finite values in some (feature, group) cells force the exact per-pair fallback
+    # (the all-finite batched-quantile fast path cannot handle the JOINT per-(x, y) finite
+    # mask). The whole-function result must still be bit-identical to the mask reference.
+    rng = np.random.default_rng(11)
+    n, nf, avg_g = 6000, 10, 25
+    ngroups = n // avg_g
+    groups = np.repeat(np.arange(ngroups), avg_g)[:n]
+    rng.shuffle(groups)
+    arr = rng.standard_normal((n, nf))
+    arr[7, 2] = np.nan
+    arr[avg_g + 3, 5] = np.inf
+    arr[3 * avg_g : 3 * avg_g + 2, 0] = np.nan
+    y = rng.standard_normal(n)
+    y[50] = np.nan
+    cols = [f"f{j}" for j in range(nf)]
+    got = group_aware_relevance(cols, arr, y, groups)
+    ref = _old_reference(cols, arr, y, groups)
+    for c in cols:
+        assert got[c] == ref[c], f"{c}: {got[c]!r} != {ref[c]!r} (fallback not bit-identical)"
+
+
 def test_constant_within_group_feature_scores_low():
     rng = np.random.default_rng(3)
     n, avg_g = 4000, 20

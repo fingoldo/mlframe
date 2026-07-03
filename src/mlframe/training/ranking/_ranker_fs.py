@@ -35,6 +35,22 @@ def _to_pandas_features(X) -> pd.DataFrame:
     return pd.DataFrame(np.asarray(X))
 
 
+def _mi_from_edges(x: np.ndarray, y: np.ndarray, xe: np.ndarray, ye: np.ndarray) -> float:
+    """Plug-in MI (nats) given precomputed unique quantile edges ``xe``/``ye`` (both size >= 2).
+    ``x``/``y`` are the finite-filtered samples. Carved from ``_binned_mi`` so the group-aware
+    fast path can share the joint-histogram tail while amortising the quantile-edge dispatch."""
+    xb = np.clip(np.searchsorted(xe[1:-1], x, side="right"), 0, xe.size - 2)
+    yb = np.clip(np.searchsorted(ye[1:-1], y, side="right"), 0, ye.size - 2)
+    joint = np.zeros((xe.size - 1, ye.size - 1), dtype=np.float64)
+    np.add.at(joint, (xb, yb), 1.0)
+    joint /= x.shape[0]
+    px = joint.sum(axis=1, keepdims=True)
+    py = joint.sum(axis=0, keepdims=True)
+    denom = px @ py
+    mask = joint > 0
+    return float(np.sum(joint[mask] * np.log(joint[mask] / denom[mask])))
+
+
 def _binned_mi(x: np.ndarray, y: np.ndarray, bins: int = 8) -> float:
     """Plug-in MI between two 1-D arrays via quantile binning + a joint histogram (nats). Self-contained."""
     n = x.shape[0]
@@ -48,27 +64,18 @@ def _binned_mi(x: np.ndarray, y: np.ndarray, bins: int = 8) -> float:
         return 0.0
     # Hot path: called n_features * n_groups times (cProfile: np.quantile dominates the
     # full group_aware_relevance wall via per-call dispatch on tiny ~25-row query groups).
+    # The all-finite group fast path in group_aware_relevance batches the per-column x-edges
+    # into ONE np.quantile(axis=0) + hoists ye once/group; this per-pair form is the exact
+    # fallback for groups with any non-finite value (the finite mask is JOINT per (x, y)).
     # bench-attempt-rejected (2026-06-23): np.add.at -> np.bincount joint histogram was
-    # 0.98x (SLOWER) on the real small-group mix (bincount alloc+reshape overhead exceeds
-    # add.at below ~n=1000; only wins 2.66x at n=1000 which never occurs here). A full @njit
-    # _binned_mi (to kill the np.quantile dispatch) needs a manual linear-interp quantile
-    # whose edges diverge ~1e-16 from np.quantile -> can flip searchsorted bins on ties ->
-    # selection-altering in an FS selector; fails the identity gate. See
-    # _benchmarks/bench_binned_mi_group_relevance.py. Left as-is.
+    # 0.98x (SLOWER) on the real small-group mix; a full @njit _binned_mi diverges ~1e-16
+    # from np.quantile on tie edges -> selection-altering. See
+    # _benchmarks/bench_binned_mi_group_relevance.py.
     xe = np.unique(np.quantile(x, np.linspace(0, 1, bins + 1)))
     ye = np.unique(np.quantile(y, np.linspace(0, 1, bins + 1)))
     if xe.size < 2 or ye.size < 2:
         return 0.0
-    xb = np.clip(np.searchsorted(xe[1:-1], x, side="right"), 0, xe.size - 2)
-    yb = np.clip(np.searchsorted(ye[1:-1], y, side="right"), 0, ye.size - 2)
-    joint = np.zeros((xe.size - 1, ye.size - 1), dtype=np.float64)
-    np.add.at(joint, (xb, yb), 1.0)
-    joint /= x.shape[0]
-    px = joint.sum(axis=1, keepdims=True)
-    py = joint.sum(axis=0, keepdims=True)
-    denom = px @ py
-    mask = joint > 0
-    return float(np.sum(joint[mask] * np.log(joint[mask] / denom[mask])))
+    return _mi_from_edges(x, y, xe, ye)
 
 
 def group_aware_relevance(cols: list, arr: np.ndarray, y: np.ndarray, groups: np.ndarray, bins: int = 8) -> dict:
@@ -95,15 +102,36 @@ def group_aware_relevance(cols: list, arr: np.ndarray, y: np.ndarray, groups: np
     contributing_total = float(sizes[sizes >= 4].sum()) or 1.0
     ncols = len(cols)
     acc = np.zeros(ncols, dtype=np.float64)
+    probs = np.linspace(0, 1, bins + 1)
     for b in range(starts.size):
         s = int(starts[b])
         e = int(stops[b])
         if e - s < 4:
             continue
         y_g = y_s[s:e]
+        block = arr_s[s:e]
         w = float(e - s)
+        # ALL-FINITE FAST PATH: when the whole group block + y are finite the per-(feature) joint
+        # finite mask is a no-op, so ``_binned_mi``'s per-column np.quantile collapses to ONE
+        # batched np.quantile(block, axis=0) (bit-identical to per-column, verified) and ye is
+        # computed once/group instead of per feature. Any non-finite value routes the group to the
+        # exact per-pair fallback below (the finite mask is JOINT per (x, y), so it cannot batch).
+        if np.isfinite(block).all() and np.isfinite(y_g).all() and np.ptp(y_g) > 0.0:
+            ye = np.unique(np.quantile(y_g, probs))
+            if ye.size < 2:
+                continue  # ye identical across features -> every feature scores 0 for this group
+            qa = np.quantile(block, probs, axis=0)  # (bins+1, ncols): per-column x-edges, one dispatch
+            for j in range(ncols):
+                xcol = block[:, j]
+                if np.ptp(xcol) == 0.0:
+                    continue
+                xe = np.unique(qa[:, j])
+                if xe.size < 2:
+                    continue
+                acc[j] += w * _mi_from_edges(xcol, y_g, xe, ye)
+            continue
         for j in range(ncols):
-            acc[j] += w * _binned_mi(arr_s[s:e, j], y_g, bins=bins)
+            acc[j] += w * _binned_mi(block[:, j], y_g, bins=bins)
     for j, name in enumerate(cols):
         out[name] = acc[j] / contributing_total
     return out
