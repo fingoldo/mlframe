@@ -406,6 +406,35 @@ def generate_univariate_basis_features(
     return pd.DataFrame(out_cols, index=X.index)
 
 
+def _raise_if_vram_insufficient(n_rows: int, k_cols: int) -> None:
+    """Raise ``RuntimeError`` when the resident (raw + engineered + scratch) matrices would not comfortably fit the
+    current device's FREE VRAM, so the caller falls back to the host/CPU path BEFORE a monolithic multi-GB upload can
+    exhaust cupy's pinned host buffer and poison the context. Reuses the FE VRAM governor's per-host fraction so the
+    threshold matches the rest of the GPU FE path. A query failure is non-fatal (assume OK; the try/except OOM fallback
+    remains the backstop). Multi-GPU: the ``_fe_gpu_batch`` executor already spreads candidate blocks across all visible
+    devices with the same governor; this gate only guards the single-device resident builder's whole-matrix upload."""
+    try:
+        import cupy as cp
+
+        free, _total = cp.cuda.runtime.memGetInfo()
+    except Exception:
+        return
+    try:
+        from .._gpu_resident_fe import _gpu_k_chunk_vram_fraction
+
+        frac = _gpu_k_chunk_vram_fraction(int(n_rows))
+    except Exception:
+        frac = 0.5
+    # raw (n x k) + engineered (n x k*degrees, ~2 degrees) + MI scratch; ~4x the raw matrix is a safe floor estimate.
+    needed = int(n_rows) * max(1, int(k_cols)) * 8 * 4
+    budget = int(free * float(frac))
+    if needed > budget:
+        raise RuntimeError(
+            f"resident univariate FE needs ~{needed / 2**30:.1f}GB VRAM but only ~{budget / 2**30:.1f}GB "
+            f"(free {free / 2**30:.1f}GB x {frac:.2f}) is available; routing to the host/CPU FE path."
+        )
+
+
 def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     """MATRIX-NATIVE (Piece 3, gated): build the univariate orth-basis candidate matrix ON the device
     (_gpu_evaluate_basis_column) and score its plug-in MI RESIDENT (_plugin_mi_classif_batch_cuda_resident,
@@ -421,6 +450,14 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     if cols is None:
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
     cols = _dedup_collinear_source_cols(X, list(cols), corr_threshold=0.999)
+    # Proactive free-VRAM gate. This builder assembles the resident raw + engineered (n_rows x k) matrices on the device;
+    # on a large frame that is several GB staged through cupy's pinned HOST buffer. If the host itself is out of RAM
+    # (paging) the pinned alloc fails, poisons the CUDA context, and every subsequent per-column op OOMs. Estimate the
+    # device footprint and BAIL EARLY (RuntimeError -> the caller's documented host fallback, which now degrades each
+    # basis eval to CPU) when it will not comfortably fit free VRAM, so we never trigger the poisoning allocation.
+    _n_rows = len(X)
+    _k_num = sum(1 for c in cols if pd.api.types.is_numeric_dtype(X[c]))
+    _raise_if_vram_insufficient(_n_rows, _k_num)
     _empty = pd.DataFrame(columns=["engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift"])
     ra = _robust_axis_enabled()
     _ya = np.asarray(y)

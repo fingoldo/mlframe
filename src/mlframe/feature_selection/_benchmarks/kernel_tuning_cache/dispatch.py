@@ -305,17 +305,15 @@ def lookup_pairwise_corr_backend(p: int, n: int) -> str:
     if cache is False or cache is None:
         return "numpy"
     try:
-        result = cache.get_or_tune(
-            "fe_pairwise_complete_corr",
-            dims={"p": p, "n": n},
-            tuner=lambda: [], axes=["p", "n"],
-            fallback={"backend_choice": "numpy"},
-        )
-        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
+        # PURE read (no get_or_tune) so a cache miss does NOT log a spurious "sweep starting" or run a tuner -- a
+        # contention-aware sweep is not registered yet, so this is a per-host OVERRIDE hook: if an operator/offline sweep
+        # has written a region, honor it; otherwise fall through to the measured numpy default.
+        result = cache.lookup("fe_pairwise_complete_corr", dims={"p": p, "n": n})
+        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", "")) if result else ""
         if bc in ("numpy", "cupy", "njit"):
             return bc
     except Exception as e:
-        logger.debug("lookup_pairwise_corr_backend get_or_tune failed: %s", e)
+        logger.debug("lookup_pairwise_corr_backend lookup failed: %s", e)
     return "numpy"
 
 

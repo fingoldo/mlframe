@@ -290,6 +290,37 @@ from ._hermite_oracle import (  # noqa: E402,F401
 )
 
 
+_POLYEVAL_CUDA_FALLBACK_WARNED = False
+
+
+def _polyeval_cuda_vram_ok(n: int) -> bool:
+    """Proactive free-VRAM check: the CUDA polyeval stages x, c, out (+cupy's transfer buffers). Require the free VRAM
+    on the current device to comfortably hold them (~4x the column with a cushion) before attempting the GPU path, so
+    on a contended / nearly-full device we route to the CPU backend WITHOUT first triggering (and having to recover
+    from) an OOM. Cheap: one memGetInfo. Any query failure -> assume OK and let the try/except fallback handle it."""
+    try:
+        import cupy as cp
+
+        free, _total = cp.cuda.runtime.memGetInfo()
+        needed = int(n) * 8 * 4 + (64 << 20)  # x+c+out+staging (float64) + 64MB cushion
+        return free >= needed
+    except Exception:
+        return True
+
+
+def _warn_polyeval_cuda_fallback_once(exc: Exception) -> None:
+    """Warn ONCE that the polyeval CUDA path failed and we fell back to CPU (the error recurs per column)."""
+    global _POLYEVAL_CUDA_FALLBACK_WARNED
+    if not _POLYEVAL_CUDA_FALLBACK_WARNED:
+        _POLYEVAL_CUDA_FALLBACK_WARNED = True
+        logger.warning(
+            "polyeval_dispatch: CUDA backend failed (%s); falling back to the CPU polyeval path for this and "
+            "subsequent columns. Usually the HOST is out of RAM so cupy cannot allocate the pinned H2D buffer -- "
+            "set MLFRAME_POLYEVAL_BACKEND=njit_par to skip the GPU attempt entirely, or free host RAM.",
+            type(exc).__name__,
+        )
+
+
 def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Size + hardware-aware polynomial evaluator. Routes to njit / njit_par / cuda backend based on len(x)
     and CUDA availability. Override the chosen backend via MLFRAME_POLYEVAL_BACKEND env var (njit | njit_par | cuda).
@@ -308,12 +339,21 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     _par_threshold, _cuda_threshold = _lookup_polyeval_thresholds(basis, n)
     if forced == "njit":
         return _NJIT_FUNCS[basis](x, c)
-    # CUDA path: untouched, still kernel_tuning_cache-driven (deferred migration).
+    # CUDA path: kernel_tuning_cache-driven, with an OOM/driver-error auto-fallback to the CPU path. On a host that is
+    # itself out of RAM (paging) cupy cannot allocate the pinned H2D staging buffer and raises cudaErrorMemoryAllocation;
+    # without this guard the caller drops the ENTIRE engineered column ("...skipping") rather than computing it slower on
+    # the CPU. Degrade, don't lose the feature. Warned once (the failure recurs per column and would flood the log).
     if (forced == "cuda" or
             (forced == "" and n >= _cuda_threshold and _CUDA_AVAILABLE)):
-        if _CUDA_AVAILABLE:
-            return _polyeval_cuda(basis, x, c)
-        # User asked for cuda but it isn't available -- silent fallback.
+        # Skip the GPU attempt up front when free VRAM is insufficient (contended / nearly-full device) UNLESS the user
+        # explicitly forced cuda; otherwise try GPU and, on an OOM/driver error (incl. host pinned-mem exhaustion),
+        # degrade to the CPU path rather than dropping the column.
+        if _CUDA_AVAILABLE and (forced == "cuda" or _polyeval_cuda_vram_ok(n)):
+            try:
+                return _polyeval_cuda(basis, x, c)
+            except Exception as _cuda_exc:  # cupy OOM (host pinned-mem or device) / driver error -> CPU fallback below
+                _warn_polyeval_cuda_fallback_once(_cuda_exc)
+        # cuda unavailable, VRAM too tight, or the attempt failed -- fall through to the CPU njit / njit_par path.
     if forced == "njit_par":
         return _NJIT_PAR_FUNCS[basis](x, c)
     # CPU njit/njit_par crossover: oracle-driven when enabled, else the legacy
