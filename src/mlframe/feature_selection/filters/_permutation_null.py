@@ -499,10 +499,11 @@ def pooled_pair_permutation_null_joint_mi_floor(
     if k_y < 2:
         return 0.0
 
-    # Reuse the exact batched plug-in joint-MI kernel the FE pair screen uses
-    # (CPU njit prange -- deterministic, GPU-independent for the floor compute),
-    # so the per-shuffle max is on the same scale as the gated ``pair_mi``.
-    from .info_theory import batch_pair_mi_prange
+    # Reuse the exact batched plug-in joint-MI estimator the FE pair screen scores ``pair_mi`` with (CPU njit
+    # prange -- deterministic, GPU-independent), so the per-shuffle max is on the same scale as the gated value.
+    # The permutation-BATCHED variant computes each pair's joint encoding + x-marginal ONCE and reuses them across
+    # all K shuffles (only the (joint, y_perm) contingency re-runs per shuffle) -- ~1.71x, bit-identical.
+    from .info_theory import batch_pair_mi_perm_batched
 
     pa = np.ascontiguousarray(pair_a, dtype=np.int64)
     pb = np.ascontiguousarray(pair_b, dtype=np.int64)
@@ -517,11 +518,16 @@ def pooled_pair_permutation_null_joint_mi_floor(
         mm_bias[k_joint <= 1] = 0.0
 
     rng = np.random.default_rng(random_seed)
-    y_perm = np.ascontiguousarray(classes_y).copy()
-    maxes = np.empty(int(n_permutations), dtype=np.float64)
-    for k in range(int(n_permutations)):
-        rng.shuffle(y_perm)  # in-place uniform permutation of the target codes
-        mis = batch_pair_mi_prange(factors_data, pa, pb, nb, y_perm, fy)
+    K = int(n_permutations)
+    y_perm = np.ascontiguousarray(classes_y).astype(np.int64).copy()
+    y_perms = np.empty((K, y_perm.shape[0]), dtype=np.int64)
+    for k in range(K):
+        rng.shuffle(y_perm)  # SAME sequential in-place shuffles as the per-shuffle loop -> identical permutations
+        y_perms[k] = y_perm
+    all_mis = batch_pair_mi_perm_batched(factors_data, pa, pb, nb, y_perms, fy)  # (K, n_pairs)
+    maxes = np.empty(K, dtype=np.float64)
+    for k in range(K):
+        mis = all_mis[k]
         if mm_bias is not None and mis.size:
             mis = mis - mm_bias
         maxes[k] = float(np.max(mis)) if mis.size else 0.0
