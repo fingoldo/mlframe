@@ -145,6 +145,15 @@ def relax_mrmr_score(x_cand: np.ndarray, selected_cols: list[np.ndarray],
     the pool.
     """
     from ._bur_term import _mi_pair_njit  # reuse the 2-var plug-in MI kernel
+    # Guard against out-of-range / -1-sentinel codes: the njit kernels index joint[x[i], y[i], z[i]] directly, so a
+    # negative sentinel wraps to the last bin and an over-range code writes out of bounds (silent corruption). PID
+    # hardens the same class explicitly; mirror it here.
+    from ._fe_batched_mi import _assert_codes_in_range
+
+    _assert_codes_in_range(x_cand, int(nbins_x), "relax_mrmr_score x_cand")
+    _assert_codes_in_range(y, int(nbins_y), "relax_mrmr_score y")
+    for _j, _c in enumerate(selected_cols):
+        _assert_codes_in_range(_c, int(nbins_selected[_j]), "relax_mrmr_score selected_col")
     x_int = x_cand.astype(np.int64)
     y_int = y.astype(np.int64)
     K_x = int(nbins_x)

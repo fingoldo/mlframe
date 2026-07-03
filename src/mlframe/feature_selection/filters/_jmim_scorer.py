@@ -88,6 +88,15 @@ def jmim_score(x_cand: np.ndarray, selected_cols: list[np.ndarray],
         ``min_{j in S} I(X_cand, X_j ; Y)`` in nats. When ``S`` is empty,
         returns the simple ``I(X_cand; Y)`` (no redundancy to enforce yet).
     """
+    # Guard against out-of-range / -1-sentinel codes: the njit kernel uses each code DIRECTLY as a flat histogram
+    # offset (composite = x*K_z + z), so a negative sentinel wraps to the last bin and an over-range code writes out
+    # of bounds -- silent histogram corruption. PID hardens the same class explicitly; mirror it here.
+    from ._fe_batched_mi import _assert_codes_in_range
+
+    _assert_codes_in_range(x_cand, int(nbins_x), "jmim_score x_cand")
+    _assert_codes_in_range(y, int(nbins_y), "jmim_score y")
+    for _j, _c in enumerate(selected_cols):
+        _assert_codes_in_range(_c, int(nbins_selected[_j]), "jmim_score selected_col")
     if not selected_cols:
         # Fall back to plug-in I(X; Y) for the first feature.
         return _joint_mi_3d_njit(

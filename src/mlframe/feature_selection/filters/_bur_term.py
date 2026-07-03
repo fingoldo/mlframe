@@ -75,6 +75,15 @@ def bur_term(x_cand: np.ndarray, selected_cols: list[np.ndarray],
     Floored at 0 -- a feature whose marginal-y MI is less than its
     correlation with a selected feature gets zero bonus, not a penalty.
     """
+    # Guard against out-of-range / -1-sentinel codes: the njit kernel indexes joint[x[i], y[i]] directly, so a
+    # negative sentinel wraps to the last bin and an over-range code writes out of bounds (silent corruption). PID
+    # hardens the same class explicitly; mirror it here.
+    from ._fe_batched_mi import _assert_codes_in_range
+
+    _assert_codes_in_range(x_cand, int(nbins_x), "bur_term x_cand")
+    _assert_codes_in_range(y, int(nbins_y), "bur_term y")
+    for _j, _c in enumerate(selected_cols):
+        _assert_codes_in_range(_c, int(nbins_selected[_j]), "bur_term selected_col")
     x_int = x_cand.astype(np.int64)
     y_int = y.astype(np.int64)
     K_x = int(nbins_x)
