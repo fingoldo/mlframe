@@ -148,10 +148,38 @@ def _cuda_present() -> bool:
             return False
 
 
+def _gpu_min_free_vram_mb() -> int:
+    """Minimum FREE device VRAM (MB) for the FE GPU paths to default ON. Below this the (n, K) FE matrices cannot
+    fit and the GPU work stalls/OOM-falls-back while the (parallelized) CPU cores idle -- so default to CPU instead.
+    Env-tunable ``MLFRAME_FE_GPU_MIN_FREE_VRAM_MB`` (default 1024). 0 disables the check (legacy: present-only gate)."""
+    try:
+        return int(os.environ.get("MLFRAME_FE_GPU_MIN_FREE_VRAM_MB", "1024"))
+    except (ValueError, TypeError):
+        return 1024
+
+
+def _gpu_has_free_vram() -> bool:
+    """True iff the current CUDA device has at least ``_gpu_min_free_vram_mb()`` MB FREE. On a small/shared card whose
+    VRAM is mostly consumed (e.g. a 4GB desktop GPU eaten by the compositor/browsers) this is False, so the FE GPU
+    default-on gates route to CPU rather than starving on ~hundreds of MB. A query failure -> True (defer to the
+    existing per-path OOM fallbacks). Skipped when the threshold is 0."""
+    _min_mb = _gpu_min_free_vram_mb()
+    if _min_mb <= 0:
+        return True
+    try:
+        import cupy as cp
+
+        free_b, _total = cp.cuda.runtime.memGetInfo()
+        return free_b >= _min_mb * 1024 * 1024
+    except Exception:
+        return True
+
+
 def _env_gpu_default_on(name: str) -> bool:
-    """Shared GPU opt-out gate: explicit env ``<name>`` = 0/1 (off/on) wins; otherwise default ON when a
-    CUDA device is usable -- False if CUDA_VISIBLE_DEVICES='' or MLFRAME_DISABLE_GPU=1, or no CUDA present.
-    Single source for the fe_gpu_*_enabled default-on gates (was copy-pasted per gate)."""
+    """Shared GPU opt-out gate: explicit env ``<name>`` = 0/1 (off/on) wins; otherwise default ON when a CUDA device
+    is usable AND has enough FREE VRAM -- False if CUDA_VISIBLE_DEVICES='' or MLFRAME_DISABLE_GPU=1, no CUDA present,
+    or the device is nearly full (a tiny / desktop-shared card). Single source for the fe_gpu_*_enabled default-on
+    gates. Explicit ``=1`` still forces GPU past the free-VRAM check (user override / big-GPU host)."""
     _v = os.environ.get(name, "").strip().lower()
     if _v in ("0", "false", "off", "no"):
         return False
@@ -160,7 +188,7 @@ def _env_gpu_default_on(name: str) -> bool:
     _cvd = os.environ.get("CUDA_VISIBLE_DEVICES", None)
     if (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1":
         return False
-    return _cuda_present()
+    return _cuda_present() and _gpu_has_free_vram()
 
 
 def fe_gpu_resident_codes_enabled() -> bool:
