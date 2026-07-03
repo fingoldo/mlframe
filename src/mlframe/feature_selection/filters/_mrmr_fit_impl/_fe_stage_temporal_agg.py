@@ -102,6 +102,11 @@ def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes):
                         c for c in _ta_appended if c not in _X_before_ta_cols
                     ]
                     if _ta_appended:
+                        # A temporal winner whose name collides with an existing X column is filtered out of
+                        # _ta_appended above, but hybrid_temporal_agg_fe's concat still left the duplicate label in
+                        # X_ta; drop any duplicate-labelled column (keep the original) so X stays uniquely labelled.
+                        if hasattr(X_ta, "columns") and X_ta.columns.duplicated().any():
+                            X_ta = X_ta.loc[:, ~X_ta.columns.duplicated()]
                         X = X_ta
                         self.temporal_agg_features_ = list(_ta_appended)
                         self.hybrid_orth_features_ = (

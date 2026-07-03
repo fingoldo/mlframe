@@ -70,7 +70,7 @@ def _apply_kfold_target_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     # column-name interface works on any X (pandas / polars / structured).
     if pd is not None and isinstance(X, pd.DataFrame):
         X_view = X
-    elif pl is not None and isinstance(X, pl.DataFrame):
+    elif pl is not None and pd is not None and isinstance(X, pl.DataFrame):  # pd required: X_view below is a pandas frame
         X_view = pd.DataFrame({name: X[name].to_numpy()})
     elif isinstance(X, np.ndarray) and X.dtype.names is not None:
         X_view = pd.DataFrame({name: X[name]})
@@ -154,7 +154,7 @@ def _apply_count_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     name = recipe.src_names[0]
     if pd is not None and isinstance(X, pd.DataFrame):
         X_view = X
-    elif pl is not None and isinstance(X, pl.DataFrame):
+    elif pl is not None and pd is not None and isinstance(X, pl.DataFrame):  # pd required: X_view below is a pandas frame
         X_view = pd.DataFrame({name: X[name].to_numpy()})
     elif isinstance(X, np.ndarray) and X.dtype.names is not None:
         X_view = pd.DataFrame({name: X[name]})
@@ -187,7 +187,7 @@ def _apply_frequency_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     name = recipe.src_names[0]
     if pd is not None and isinstance(X, pd.DataFrame):
         X_view = X
-    elif pl is not None and isinstance(X, pl.DataFrame):
+    elif pl is not None and pd is not None and isinstance(X, pl.DataFrame):  # pd required: X_view below is a pandas frame
         X_view = pd.DataFrame({name: X[name].to_numpy()})
     elif isinstance(X, np.ndarray) and X.dtype.names is not None:
         X_view = pd.DataFrame({name: X[name]})
@@ -221,7 +221,7 @@ def _apply_cat_num_residual(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     cat_name, num_name = recipe.src_names
     if pd is not None and isinstance(X, pd.DataFrame):
         X_view = X
-    elif pl is not None and isinstance(X, pl.DataFrame):
+    elif pl is not None and pd is not None and isinstance(X, pl.DataFrame):  # pd required: X_view below is a pandas frame
         X_view = pd.DataFrame({
             cat_name: X[cat_name].to_numpy(),
             num_name: X[num_name].to_numpy(),
