@@ -16,6 +16,18 @@ The 5 (each cites a measured win in its module docstring / biz_value test):
 
 Opt-in: nothing is enabled implicitly. Call ``curated_fe_pipelines(...)`` and pass the result as
 ``custom_pre_pipelines`` to turn specific ones on.
+
+DEFAULT-WIRING VERDICT (2026-07-03, bench_curated_fe_holdout_value, honest holdout, 4-5 seeds, bare LGBM):
+opt-in stays the deliberate default -- a blanket default is contraindicated. Measured delta vs raw-only:
+  * REGRESSION, FE-favorable (categorical target-mean signal): ALL +0.078 R2; multi_aux +0.075, nn_oof
+    +0.064, baseline_disagreement +0.062 (5/5 seeds); trust_score -0.009.
+  * REGRESSION, FE-unfavorable (pure continuous, no cat structure): only multi_aux +0.013 (4/4) and
+    baseline_disagreement +0.003 hold up; nn_oof/trust_score/y_quintile HURT (need the categorical structure).
+  * BINARY: EVERYTHING mildly hurts (-0.004..-0.015); trust_score with Mode-A -0.006 (pre-Mode-A: -0.42).
+Only ``multi_aux_ensemble`` helps robustly, REGRESSION-ONLY, and at a real cost (3 aux-model fits/fold).
+Caveat: this is bare-LGBM; the suite already runs stacking that likely subsumes the disagreement signal --
+the very reason these are opt-in. So no global default flip; use ``recommended_curated_fe_names(task)`` to
+turn on the evidence-backed subset when your data has the structure it needs.
 """
 
 from __future__ import annotations
@@ -48,6 +60,22 @@ CURATED_FE_NAMES = (
     "trust_score_oof",
     "y_quintile_baseline_knn",
 )
+
+# Evidence-backed subset that lifted honest holdout across FE-favorable AND FE-unfavorable data (see the
+# module docstring's DEFAULT-WIRING VERDICT). Regression only -- on binary every curated transformer mildly
+# hurt a gradient-booster, and nn_oof/trust_score/y_quintile need categorical-target-mean structure to help.
+_RECOMMENDED_BY_TASK = {
+    "regression": ("multi_aux_ensemble", "baseline_disagreement"),
+    "binary": (),
+}
+
+
+def recommended_curated_fe_names(task: str = "regression") -> tuple:
+    """The evidence-backed curated-FE subset for ``task`` (empty for binary; see the module DEFAULT-WIRING
+    VERDICT). Feed to ``curated_fe_pipelines(task=..., names=recommended_curated_fe_names(task))`` to opt into
+    only the transformers that measurably helped honest holdout. Empty means "raw features already win --
+    don't add curated FE for this task"."""
+    return _RECOMMENDED_BY_TASK.get(task, ())
 
 
 def curated_fe_pipelines(
