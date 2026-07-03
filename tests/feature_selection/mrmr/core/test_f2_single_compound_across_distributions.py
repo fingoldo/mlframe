@@ -116,6 +116,19 @@ _DOMAINS = {"a": "any", "b": "divisor", "c": "positive", "d": "any", "e": "any"}
 #     AND the step-1 synergy bootstrap AND the post-FE screen_predictors greedy AND the C2 additive-fusion inputs --
 #     a change to the pipeline's core relevance metric with regression risk to every rank-MI-honest canonical
 #     fixture. Reverted (partial fix changes default selection without achieving the goal). Stays xfail.
+#     DEFINITIVE build-suppression mechanism (traced 2026-07-03, the actionable crux for a future fix): with the
+#     usability winner-promotion active, the c/d half mul(log(c),sin(d)) is NEVER BUILT (not built-then-dropped --
+#     confirmed by a per-step BUILT/SURVIVED trace). Reason: the (c,d) pair FAILS the STRICT pair-MI prevalence
+#     gate (its joint MI 1.24 is not far enough above its high marginal sum -- ratio < 1.05), so it only builds in
+#     the ADAPTIVE-THRESHOLD RETRY (_fit_impl_core.py:6776, relaxed prevalence), which fires ONLY when the first
+#     FE pass yields 0 engineered features. The tail-concentrated (a,b) half, by contrast, passes the strict pair
+#     gate (barely) and is the ONLY pair in the strict first sweep; the usability promotion makes it EMIT
+#     div(sqr(a),abs(b)) -> the first pass now yields 1 feature -> the retry is SKIPPED -> the broad relaxed sweep
+#     that builds c/d never runs. And the retry REPLACES rather than merges, so simply forcing it would discard the
+#     a/b half. A complete fix must let a tail-concentrated usability half AND the normal relaxed-threshold pairs
+#     build in the SAME step (e.g. relax the first-sweep prevalence when a usability admission fires, or make the
+#     retry MERGE with the usability survivor) so both reach C2 additive-fusion -- an FE-step sweep/retry/merge
+#     flow change, gated on the tail-concentration detector to stay byte-identical on canonical + the 4 profiles.
 _XFAIL_CAPTURE = (
     "GOAL: a/b half is TAIL-CONCENTRATED under outliers (rank-MI ~0 in bulk, signal only in the 5% tail) -- "
     "the true div(sqr(a),b) ratio loses the rank-MI race to a spurious form by a REAL 0.010 (not noise) and "
