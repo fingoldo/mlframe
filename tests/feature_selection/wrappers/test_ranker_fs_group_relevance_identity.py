@@ -9,7 +9,42 @@ from __future__ import annotations
 
 import numpy as np
 
-from mlframe.training.ranking._ranker_fs import _binned_mi, group_aware_relevance
+from mlframe.training.ranking._ranker_fs import (
+    _binned_mi,
+    _mi_from_edges,
+    group_aware_relevance,
+)
+
+
+def _mi_from_edges_numpy(x, y, xe, ye):
+    """Numpy reference for the njit ``_mi_from_edges`` (the pre-njit body)."""
+    xb = np.clip(np.searchsorted(xe[1:-1], x, side="right"), 0, xe.size - 2)
+    yb = np.clip(np.searchsorted(ye[1:-1], y, side="right"), 0, ye.size - 2)
+    joint = np.zeros((xe.size - 1, ye.size - 1), dtype=np.float64)
+    np.add.at(joint, (xb, yb), 1.0)
+    joint /= x.shape[0]
+    px = joint.sum(axis=1, keepdims=True)
+    py = joint.sum(axis=0, keepdims=True)
+    denom = px @ py
+    mask = joint > 0
+    return float(np.sum(joint[mask] * np.log(joint[mask] / denom[mask])))
+
+
+def test_mi_from_edges_njit_matches_numpy_reference():
+    # The njit kernel must reproduce the numpy searchsorted+add.at+entropy formula to entropy-sum
+    # FP round-off (~1e-15); the binning (count of inner edges <= v) is exact.
+    rng = np.random.default_rng(5)
+    worst = 0.0
+    for _ in range(3000):
+        m = int(rng.integers(20, 40))
+        x = rng.standard_normal(m)
+        y = rng.standard_normal(m)
+        xe = np.unique(np.quantile(x, np.linspace(0, 1, 9)))
+        ye = np.unique(np.quantile(y, np.linspace(0, 1, 9)))
+        if xe.size < 2 or ye.size < 2:
+            continue
+        worst = max(worst, abs(_mi_from_edges(x, y, xe, ye) - _mi_from_edges_numpy(x, y, xe, ye)))
+    assert worst < 1e-12, f"njit _mi_from_edges diverges {worst:.2e} from numpy reference"
 
 
 def _old_reference(cols, arr, y, groups, bins=8):
