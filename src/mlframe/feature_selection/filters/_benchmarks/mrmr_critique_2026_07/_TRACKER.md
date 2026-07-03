@@ -68,12 +68,12 @@ Status legend: DONE (fixed+tested+pushed) | WIP | TODO | DOC | FUTURE | REJECTED
 ## Performance (mrmr_crit_perf.md)
 | ID | Sev | Finding | file:line | Disposition | Status |
 |----|-----|---------|-----------|-------------|--------|
-| P-1 | P1 | whole-matrix `factors_data.copy()` every screen call (100GB-frame rule) | _screen_predictors.py:530 | FIX (mutate-and-restore / gate) | TODO |
-| P-2 | P2 | forced float64 copy of FE candidate matrix even when already f64/contig | _fe_cpu_batch.py:64,80,75 | FIX (branch on dtype/flags) | TODO |
-| P-3 | P2 | redundant target re-discretization across ~15 FE blocks | _fit_impl_core.py:476-5343 | FIX (shared _y_discrete) | TODO |
-| P-4 | P2(gated) | STRICT mi_from_codes recomputes y-marginal inside x-loop | _fe_batched_mi.py:113 | FIX | TODO |
-| P-5..10 | P2/3 | GPU/batch micro-opts (per-col launch loop, per-pair .get() sync, legacy argsort, host guard scan, double upcast, hardcoded split-N crossover no KTC) | _fe_batched_mi.py, batch_pair_mi_gpu.py, gpu.py | FUTURE (bench-gated, mostly opt-in STRICT) | TODO |
-| P-11 | P3 | fused_propensity re-derives V/V2/classes | _fe_interaction_prerank.py:227 | FIX | TODO |
+| P-1 | P1 | whole-matrix `factors_data.copy()` every screen call (100GB-frame rule) | _screen_predictors.py:530 | FIX (mutate-and-restore / gate) | FUTURE — mutate-and-restore rewrite of the tuned confirm/permutation shuffle (extra_x_shuffling defaults ON so gating doesn't help the default); needs selection-equivalence + RAM bench; overlaps the parallel session's active screen-perf work. Site note added. |
+| P-2 | P2 | forced float64 copy of FE candidate matrix even when already f64/contig | _fe_cpu_batch.py:64,80,75 | FIX (branch on dtype/flags) | FUTURE — branch the f64 copy on dtype/flags in _fe_cpu_batch (GPU/batch area actively edited by the parallel GPU-resident-FE session; coordinate to avoid conflict). |
+| P-3 | P2 | redundant target re-discretization across ~15 FE blocks | _fit_impl_core.py:476-5343 | FIX (shared _y_discrete) | FUTURE — compute a single _y_discrete once and thread it through the ~15 FE blocks in the 9.9k monolith (actively edited by the parallel session); needs a careful monolith pass + bench. |
+| P-4 | P2(gated) | STRICT mi_from_codes recomputes y-marginal inside x-loop | _fe_batched_mi.py:113 | FIX | FUTURE — precompute the y-marginal once in STRICT mi_from_codes (opt-in STRICT path; parallel GPU-resident-FE territory). |
+| P-5..10 | P2/3 | GPU/batch micro-opts (per-col launch loop, per-pair .get() sync, legacy argsort, host guard scan, double upcast, hardcoded split-N crossover no KTC) | _fe_batched_mi.py, batch_pair_mi_gpu.py, gpu.py | FUTURE (bench-gated, mostly opt-in STRICT) | FUTURE — bench-gated GPU/batch micro-opts, mostly opt-in STRICT; parallel GPU-resident-FE session's active area |
+| P-11 | P3 | fused_propensity re-derives V/V2/classes | _fe_interaction_prerank.py:227 | FIX | DONE (p11, bit-identical ~15%) |
 
 ## Stopping / fallback (mrmr_crit_stopping.md)
 | ID | Sev | Finding | file:line | Disposition | Status |

@@ -71,6 +71,47 @@ def _abs_col_corr(M: np.ndarray, v: np.ndarray) -> np.ndarray:
 _NOMINAL_MAX_CLASSES = 64  # at/below this many distinct y values, treat y as discrete (one-hot, relabel-invariant)
 
 
+def _prep_values_y(values: np.ndarray, y):
+    """Shared standardisation for the propensity scorers: contiguous float64 ``V`` (+ ``V2``), factorised/nan-clean
+    float ``yf``, ``classes = unique(yf)``, and the float-target flag. Extracted so fused_propensity does not
+    re-derive V/yf/classes that second_moment_propensity already computed (~15% of the fused call). Bit-identical."""
+    V = np.ascontiguousarray(values, dtype=np.float64)
+    if V.ndim != 2:
+        raise ValueError(f"values must be 2-D (n, p); got shape {V.shape}")
+    y_arr = np.asarray(y).ravel() if not hasattr(y, "to_numpy") else np.asarray(y.to_numpy()).ravel()
+    if y_arr.shape[0] != V.shape[0]:
+        raise ValueError(f"y length {y_arr.shape[0]} != n_rows {V.shape[0]}")
+    # Continuous-vs-discrete is decided by DTYPE (only a genuine FLOAT/regression target takes the moment path); a
+    # high-cardinality NOMINAL/integer target takes the relabel-invariant one-hot path (its codes are arbitrary).
+    _y_is_float = y_arr.dtype.kind in "fc"
+    if y_arr.dtype.kind in "USO" or y_arr.dtype == bool:
+        _, y_arr = np.unique(y_arr, return_inverse=True)
+    yf = np.nan_to_num(np.asarray(y_arr, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+    V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)
+    V2 = V * V
+    classes = np.unique(yf)
+    return V, V2, yf, classes, _y_is_float
+
+
+def _second_moment_core(V: np.ndarray, V2: np.ndarray, yf: np.ndarray, classes: np.ndarray, y_is_float: bool) -> np.ndarray:
+    """The second-moment propensity score from the prepared (V, V2, yf, classes). See second_moment_propensity."""
+    if classes.size > _NOMINAL_MAX_CLASSES and y_is_float:
+        return _abs_col_corr(V2, yf) + _abs_col_corr(V, yf * yf)   # genuine regression target
+    if classes.size > _NOMINAL_MAX_CLASSES:
+        # high-cardinality NOMINAL/integer target: one-hot the _NOMINAL_MAX_CLASSES most FREQUENT classes
+        # (covers the mass; relabel-invariant; O(K) bounded) instead of squaring arbitrary codes.
+        vals, counts = np.unique(yf, return_counts=True)
+        classes = np.sort(vals[np.argsort(counts)[::-1][:_NOMINAL_MAX_CLASSES]])
+    if classes.size <= 1:
+        # degenerate single-class target: every indicator is constant -> corr undefined -> zero score.
+        return np.zeros(V.shape[1], dtype=np.float64)
+    # DISCRETE / nominal: relabel-invariant one-hot sum; V/V2 standardisation is class-independent (hoisted once),
+    # the K classes reduce to a single (p,n)@(n,K) GEMM per matrix via compute_discrete_score (backend-dispatched).
+    from mlframe.feature_selection.filters._fe_interaction_prerank_kernels import compute_discrete_score
+
+    return compute_discrete_score(V, V2, yf, classes)
+
+
 def second_moment_propensity(values: np.ndarray, y: np.ndarray) -> np.ndarray:
     """Interaction-propensity score per column of ``values`` (n, p): higher moments of x leak when the
     linear marginal is flat.
@@ -98,45 +139,7 @@ def second_moment_propensity(values: np.ndarray, y: np.ndarray) -> np.ndarray:
     rank raw columns before discretising a 100k-wide frame); it is not a re-implementation of categorize.
 
     O(K*n*p) for discrete (K = n_classes, small) / O(n*p) for continuous; fully vectorised."""
-    V = np.ascontiguousarray(values, dtype=np.float64)
-    if V.ndim != 2:
-        raise ValueError(f"values must be 2-D (n, p); got shape {V.shape}")
-    y_arr = np.asarray(y).ravel() if not hasattr(y, "to_numpy") else np.asarray(y.to_numpy()).ravel()
-    if y_arr.shape[0] != V.shape[0]:
-        raise ValueError(f"y length {y_arr.shape[0]} != n_rows {V.shape[0]}")
-    # Continuous-vs-discrete is decided by DTYPE, not just cardinality (2026-06-19, critique Low-3): only a
-    # genuine FLOAT (regression) target takes the moment path ``|corr(x^2,y)|+|corr(x,y^2)|``. A high-cardinality
-    # NOMINAL / integer target must NOT be squared (its codes are arbitrary) -- it takes the relabel-invariant
-    # one-hot path, bucketed to its most frequent classes to bound the K-loop cost.
-    _y_is_float = y_arr.dtype.kind in "fc"
-    # Non-numeric labels (str / object / bool / Categorical) -> classification: factorise to codes (the discrete
-    # one-hot path below is relabel-invariant, so the integer assignment is irrelevant). Numeric y passes through.
-    if y_arr.dtype.kind in "USO" or y_arr.dtype == bool:
-        _, y_arr = np.unique(y_arr, return_inverse=True)
-    yf = np.asarray(y_arr, dtype=np.float64)
-    yf = np.nan_to_num(yf, nan=0.0, posinf=0.0, neginf=0.0)
-    V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)
-    V2 = V * V
-    classes = np.unique(yf)
-    if classes.size > _NOMINAL_MAX_CLASSES and _y_is_float:
-        return _abs_col_corr(V2, yf) + _abs_col_corr(V, yf * yf)   # genuine regression target
-    if classes.size > _NOMINAL_MAX_CLASSES:
-        # high-cardinality NOMINAL/integer target: one-hot the _NOMINAL_MAX_CLASSES most FREQUENT classes
-        # (covers the mass; relabel-invariant; O(K) bounded) instead of squaring arbitrary codes.
-        vals, counts = np.unique(yf, return_counts=True)
-        classes = np.sort(vals[np.argsort(counts)[::-1][:_NOMINAL_MAX_CLASSES]])
-    # DISCRETE / nominal: relabel-invariant one-hot sum (correct for binary, nominal multiclass, binned y).
-    # The per-column standardization of V / V2 is class-INDEPENDENT, so it is hoisted out of the (former)
-    # K-class loop and done ONCE; the K classes then reduce to a single (p,n)@(n,K) GEMM per matrix.
-    # compute_discrete_score dispatches that GEMM to the fastest backend (numpy/numba/cupy) by work size,
-    # with the numpy GEMM as the bit-reference fallback. See _discrete_score_numpy_loop for the original.
-    if classes.size <= 1:
-        # degenerate single-class target: every indicator is constant -> corr undefined -> zero score
-        # (matches the reference: a constant indicator has den==0 -> 0).
-        return np.zeros(V.shape[1], dtype=np.float64)
-    from mlframe.feature_selection.filters._fe_interaction_prerank_kernels import compute_discrete_score
-
-    return compute_discrete_score(V, V2, yf, classes)
+    return _second_moment_core(*_prep_values_y(values, y))
 
 
 def _discrete_score_numpy_loop(V: np.ndarray, V2: np.ndarray, yf: np.ndarray,
@@ -224,14 +227,12 @@ def fused_propensity(values: np.ndarray, y: np.ndarray, use_gbm: bool = True) ->
       * gbm split-frequency (when ``use_gbm`` and LightGBM is importable; one booster fit, the strong
         complementary interaction signal).
     Higher returned score = more interesting (so it plugs into the same descending-sort selection)."""
-    sm = second_moment_propensity(values, y)
+    # Prepare V/V2/yf/classes ONCE and share with the second-moment core, instead of second_moment_propensity
+    # re-deriving them internally and then fused re-deriving them AGAIN for the main-effect channel (~15% of the
+    # call was this duplicated contiguous-float64 + factorise + unique). Bit-identical to the prior two-derivation form.
+    V, V2, yf, classes, _y_is_float = _prep_values_y(values, y)
+    sm = _second_moment_core(V, V2, yf, classes, _y_is_float)
     # cheap main-effect channel: |corr(x, 1[y=c])| summed over classes (reuses the standardized machinery).
-    V = np.nan_to_num(np.ascontiguousarray(values, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
-    y_arr = np.asarray(y).ravel() if not hasattr(y, "to_numpy") else np.asarray(y.to_numpy()).ravel()
-    if y_arr.dtype.kind in "USO" or y_arr.dtype == bool:
-        _, y_arr = np.unique(y_arr, return_inverse=True)
-    yf = np.nan_to_num(np.asarray(y_arr, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
-    classes = np.unique(yf)
     main = np.zeros(V.shape[1], dtype=np.float64)
     if classes.size > 1 and classes.size <= _NOMINAL_MAX_CLASSES:
         for c in classes:
