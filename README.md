@@ -53,7 +53,7 @@ pip install -e "./mlframe[transformer]"          # transformer-style FE, numba-o
 pip install -e "./mlframe[transformer_ann]"      # adds hnswlib for approximate-NN at N >= 500k
 pip install -e "./mlframe[transformer_gpu]"      # adds cupy-cuda12x for the GPU stages
 pip install -e "./mlframe[transformer_full]"     # transformer + ann + gpu
-pip install -e "./mlframe[all]"                  # all runtime extras above
+pip install -e "./mlframe[all]"                  # runtime extras EXCEPT the CUDA-build-specific gpu / transformer_gpu / transformer_full (install those explicitly on a CUDA host)
 pip install -e "./mlframe[dev]"                  # pytest + coverage + ruff + black + mypy + bandit + pre-commit
 ```
 
@@ -390,11 +390,11 @@ is configured through `ReportingConfig`. Full reference:
 | Task type | Default panels (`ReportingConfig` knob) |
 | --- | --- |
 | Binary | `ROC PR SCORE_DIST KS THRESHOLD GAIN PIT` (`binary_panels`) |
-| Multiclass | `CONFUSION CONFUSED_PAIRS PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC` (`multiclass_panels`) |
-| Multilabel | `PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST` (`multilabel_panels`) |
+| Multiclass | `CONFUSION CONFUSION_MARGINS CONFUSED_PAIRS PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC` (`multiclass_panels`) |
+| Multilabel | `PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST THRESHOLD_SWEEP` (`multilabel_panels`) |
 | LTR | `NDCG_K NDCG_DIST NDCG_BY_QSIZE LIFT MRR_DIST SCORE_BY_REL` (`ltr_panels`) |
-| Quantile | `RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING` (`quantile_panels`) |
-| Regression | `SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE` (`regression_panels`) |
+| Quantile | `RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING FAN_CHART` (`quantile_panels`) |
+| Regression | `SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE WORM RESID_ACF` (`regression_panels`) |
 
 **New diagnostics this brings.** Binary classification gained the full curve set
 it previously lacked (ROC / PR / score-distribution / KS / threshold-sweep /
