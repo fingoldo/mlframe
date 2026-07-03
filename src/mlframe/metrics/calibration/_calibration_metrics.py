@@ -56,7 +56,7 @@ def calibration_metrics_from_freqs(
     for _b in range(len(hits)):
         if hits[_b] > 0:
             populated += 1
-    calibration_coverage = populated / nbins
+    calibration_coverage = (populated / nbins) if nbins > 0 else 0.0
     if len(hits) > 0:
         diffs = np.abs((freqs_predicted - freqs_true))
         if use_weights:

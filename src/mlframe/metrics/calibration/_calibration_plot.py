@@ -197,6 +197,20 @@ def render_title_metric_token(
 _CALIB_BINNING_PRANGE_THRESHOLD = int(os.environ.get("MLFRAME_CALIB_BINNING_PRANGE_THRESHOLD", "2000000"))
 
 
+def _drop_nonfinite_pairs(y_true: np.ndarray, y_pred: np.ndarray):
+    """Drop rows whose ``y_pred`` is not finite (NaN/inf) so the njit binning kernels never see them.
+
+    The kernels index the histogram with ``floor((p - min) * mult)``; a NaN ``p`` makes ``floor(NaN)`` a garbage
+    int64 (numba bounds-checking is off) -> out-of-bounds write. Excluding non-finite predictions up front is the
+    cheap, correct realisation of the "NaN-safe" contract these functions advertise (~2us per 100k via a vectorised
+    ``np.isfinite``). Returns the pair unchanged when everything is finite (the common path, no copy)."""
+    yp = np.asarray(y_pred, dtype=np.float64)
+    finite = np.isfinite(yp)
+    if finite.all():
+        return np.asarray(y_true), yp
+    return np.asarray(y_true)[finite], yp[finite]
+
+
 def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
     """Computes bins of predicted vs actual events frequencies. Corresponds to sklearn's UNIFORM strategy.
 
@@ -205,12 +219,20 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     (and the downstream calibration_mae) toward the grid rather than where the predictions
     actually sit. The centre is used only as an empty-bin fallback (no present bin can hit it).
 
+    NaN/inf predictions are dropped first (``_drop_nonfinite_pairs``) so the njit kernels never index the
+    histogram with ``floor(NaN)``. The min/max span is seeded from the data (not a fixed [0,1]) so predictions
+    outside [0,1] still bin correctly rather than collapsing against a stale seed.
+
     Size-aware dispatcher: the serial njit kernel for n below
     ``_CALIB_BINNING_PRANGE_THRESHOLD``, the parallel prange kernel above it (full-n metrics
     reports at 1M+ rows). Outputs are identical except ``freqs_predicted`` may differ by a
     FP reduction-order ULP (~1e-14) from the per-thread partial-histogram summation — far
     below any reliability-diagram / calibration-MAE decision boundary.
     """
+    y_true, y_pred = _drop_nonfinite_pairs(y_true, y_pred)
+    if len(y_pred) == 0:
+        empty = np.array((), dtype=np.float64)
+        return empty, empty, np.array((), dtype=np.int64)
     if len(y_pred) >= _CALIB_BINNING_PRANGE_THRESHOLD:
         return _fast_calibration_binning_prange(y_true, y_pred, nbins)
     return _fast_calibration_binning_serial(y_true, y_pred, nbins)
@@ -222,9 +244,10 @@ def _fast_calibration_binning_serial(y_true: np.ndarray, y_pred: np.ndarray, nbi
     pockets_true = np.zeros(nbins, dtype=np.int64)
     pockets_pred_sum = np.zeros(nbins, dtype=np.float64)
 
-    # compute span
-
-    min_val, max_val = 1.0, 0.0
+    # compute span. Seed from the first sample (not a fixed [0,1]) so predictions outside [0,1] bin against the
+    # actual data range instead of a stale seed that would silently mis-bin all-out-of-range inputs.
+    min_val = y_pred[0]
+    max_val = y_pred[0]
     for predicted_prob in y_pred:
         if predicted_prob > max_val:
             max_val = predicted_prob
@@ -235,7 +258,11 @@ def _fast_calibration_binning_serial(y_true: np.ndarray, y_pred: np.ndarray, nbi
     if span > 0:
         multiplier = (nbins - 1) / span
         for true_class, predicted_prob in zip(y_true, y_pred):
-            ind = floor((predicted_prob - min_val) * multiplier)
+            ind = int(floor((predicted_prob - min_val) * multiplier))
+            if ind < 0:
+                ind = 0
+            elif ind >= nbins:
+                ind = nbins - 1
             pockets_predicted[ind] += 1
             pockets_true[ind] += true_class
             pockets_pred_sum[ind] += predicted_prob
@@ -282,16 +309,22 @@ def _fast_calibration_binning_prange(y_true: np.ndarray, y_pred: np.ndarray, nbi
     for t in numba.prange(nth):
         lo = t * chunk
         hi = min(lo + chunk, n)
-        mn, mx = 1.0, 0.0
-        for i in range(lo, hi):
-            v = y_pred[i]
-            if v > mx:
-                mx = v
-            if v < mn:
-                mn = v
-        pmin[t] = mn
-        pmax[t] = mx
-    min_val, max_val = 1.0, 0.0
+        if lo < hi:
+            mn = y_pred[lo]
+            mx = y_pred[lo]
+            for i in range(lo, hi):
+                v = y_pred[i]
+                if v > mx:
+                    mx = v
+                if v < mn:
+                    mn = v
+            pmin[t] = mn
+            pmax[t] = mx
+        else:
+            # Empty slice (nth > n): neutral sentinels that lose the cross-thread min/max reduction.
+            pmin[t] = np.inf
+            pmax[t] = -np.inf
+    min_val, max_val = np.inf, -np.inf
     for t in range(nth):
         if pmin[t] < min_val:
             min_val = pmin[t]
@@ -309,6 +342,10 @@ def _fast_calibration_binning_prange(y_true: np.ndarray, y_pred: np.ndarray, nbi
             hi = min(lo + chunk, n)
             for i in range(lo, hi):
                 ind = int(floor((y_pred[i] - min_val) * multiplier))
+                if ind < 0:
+                    ind = 0
+                elif ind >= nbins:
+                    ind = nbins - 1
                 part_pred[t, ind] += 1
                 part_true[t, ind] += y_true[i]
                 part_sum[t, ind] += y_pred[i]
@@ -391,6 +428,9 @@ def calibration_binning(
     """
     if strategy not in ("uniform", "quantile", "auto"):
         raise ValueError(f"strategy must be 'uniform', 'quantile', or 'auto'; got {strategy!r}.")
+    # Drop NaN/inf predictions once here so both the base-rate branch and the quantile-edge computation (np.quantile
+    # would otherwise propagate NaN into every edge) and the kernel scan operate on finite data only.
+    y_true, y_pred = _drop_nonfinite_pairs(y_true, y_pred)
     n = len(y_pred)
     if n == 0:
         empty = np.array((), dtype=np.float64)
