@@ -238,6 +238,21 @@ def _eval_fold_body(
             scores.append(np.nan)
             feature_importances[f"{len(current_features)}_{nfold}"] = {}
         return None
+    # Empty-TEST guard (symmetric to the empty-train guard above): the same upstream filtering can collapse the
+    # TEST slice to 0 rows on a fold, and scoring(...) on a 0-row slice then raises and ABORTS the whole
+    # sequential fit instead of skipping. Skip the fold with a NaN score, matching the train-side behaviour.
+    _xt_n = X_test.shape[0] if hasattr(X_test, "shape") else None
+    _yt_n = len(y_test) if y_test is not None and hasattr(y_test, "__len__") else None
+    if (_xt_n is not None and _xt_n == 0) or (_yt_n is not None and _yt_n == 0):
+        logger.error(
+            "wrappers.fit: skipping fold %s - empty test slice (rows=%s, target_len=%s); scoring cannot run. "
+            "Upstream filters reduced the test batch to zero.",
+            nfold, _xt_n, _yt_n,
+        )
+        with _FOLD_STATE_LOCK:
+            scores.append(np.nan)
+            feature_importances[f"{len(current_features)}_{nfold}"] = {}
+        return None
     # Multi-estimator: fit ALL estimators (singular case is a len-1 list). Score per fold = mean across estimators; FI runs stored under separate keys ("{N}_{fold}" for singular, "{N}_{fold}_e{idx}" for multi) so the voting layer treats each estimator's importances as an independent run.
     _est_scores = []
     _est_fi_runs = []  # list of (key, fi_dict)
