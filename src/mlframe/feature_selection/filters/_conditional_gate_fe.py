@@ -152,7 +152,14 @@ def apply_row_argmax(X, cols: Sequence[str]) -> np.ndarray:
     if len(cols) < 2:
         raise ValueError(f"row-argmax needs >= 2 source columns; got {tuple(cols)!r}")
     stk = np.stack([np.asarray(X[c], dtype=np.float64) for c in cols], axis=1)
-    return np.argmax(stk, axis=1).astype(np.float64)
+    out = np.argmax(stk, axis=1).astype(np.float64)
+    # Serve-time NaN policy: eligible source columns are all-finite at FIT (see _is_argmax_eligible), but a row can
+    # carry a NaN at SERVE. np.argmax would return the first-NaN index -- a spurious in-distribution code the model
+    # never learned. Propagate NaN instead so the downstream model treats the row as missing (LGBM/CatBoost native).
+    nan_rows = ~np.isfinite(stk).all(axis=1)
+    if nan_rows.any():
+        out[nan_rows] = np.nan
+    return out
 
 
 def apply_conditional_gate(X, mode: str, cols: Sequence[str], tau: float) -> np.ndarray:
@@ -162,16 +169,21 @@ def apply_conditional_gate(X, mode: str, cols: Sequence[str], tau: float) -> np.
     ``mask`` (cols = (a, c)): ``1[c > tau] * a`` -- a active only where c > tau.
 
     Pure function of (source columns, tau) -- no y, no fitted state beyond the recipe-frozen tau -> leak-free + train/test exact."""
+    # Serve-time NaN policy on the GATING column c: ``c > tau`` is False for NaN, which would silently route a
+    # missing-gate row to b (select) or 0 (mask) -- a defined-but-arbitrary code the model did not learn. Propagate
+    # NaN where c is non-finite so a missing gate reads as missing downstream (a / b NaN already propagate naturally).
     if mode == "select":
         if len(cols) != 3:
             raise ValueError(f"conditional-gate 'select' needs exactly 3 source columns (a, b, c); got {tuple(cols)!r}")
         a, b, c = (np.asarray(X[cn], dtype=np.float64) for cn in cols)
-        return np.where(c > float(tau), a, b)
+        res = np.where(c > float(tau), a, b)
+        return np.where(np.isfinite(c), res, np.nan)
     if mode == "mask":
         if len(cols) != 2:
             raise ValueError(f"conditional-gate 'mask' needs exactly 2 source columns (a, c); got {tuple(cols)!r}")
         a, c = (np.asarray(X[cn], dtype=np.float64) for cn in cols)
-        return (c > float(tau)).astype(np.float64) * a
+        res = (c > float(tau)).astype(np.float64) * a
+        return np.where(np.isfinite(c), res, np.nan)
     raise ValueError(f"conditional-gate mode must be one of {GATE_MODES}; got {mode!r}")
 
 
@@ -721,6 +733,12 @@ def cheap_conditional_gate_scan(
         for mode, ctup, operands, taus, bkey in _pending:
             k = len(taus)
             grid = all_mi[off:off + k]; off += k
+            # SELECTION OPTIMISM (mrmr_critique EX-3, DOC): tau is chosen to MAXIMISE in-sample MI over the grid, and
+            # the permutation null downstream is then computed on this already-argmax-selected best-tau column, so the
+            # null understates the selection-inflated MI -- a borderline candidate on data with no genuine regime
+            # structure can clear the margin/null band by chance. This is in-sample OPTIMISM (inflates apparent value),
+            # NOT a serving skew: tau is frozen and replays deterministically. Consistent with the framework's other
+            # in-sample-MI FE gates; a nested/held-out tau selection would be strictly more honest (FUTURE).
             best_j = int(np.argmax(grid))
             best_mi, best_tau = float(grid[best_j]), float(taus[best_j])
             baseline = _baseline(bkey)

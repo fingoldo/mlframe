@@ -61,8 +61,8 @@ Status legend: DONE (fixed+tested+pushed) | WIP | TODO | DOC | FUTURE | REJECTED
 | ID | Sev | Finding | file:line | Disposition | Status |
 |----|-----|---------|-----------|-------------|--------|
 | EX-1 | P2 | `_is_argmax_eligible` finiteness guard is a tautology → NaN columns not excluded | _conditional_gate_fe.py:357 | FIX (isfinite(a).all()) | DONE (33343a58) |
-| EX-2 | Low | argmax/gate meaning shifts on serve-only NaN (no replay NaN policy) | _conditional_gate_fe.py:147 | FIX/DOC | TODO |
-| EX-3 | Low/P2 | conditional-gate tau optimized on same in-sample y (selection optimism) | _conditional_gate_fe.py:718 | DOC | TODO |
+| EX-2 | Low | argmax/gate meaning shifts on serve-only NaN (no replay NaN policy) | _conditional_gate_fe.py:147 | FIX/DOC | DONE (batch-lows2) |
+| EX-3 | Low/P2 | conditional-gate tau optimized on same in-sample y (selection optimism) | _conditional_gate_fe.py:718 | DOC | DONE-doc (batch-lows2) |
 | EX-4 | Low/P2 | RankGauss stores full sorted non-unique array (memory) + docstring wrong ("unique") | _extra_fe_families.py:795 | FIX (unique+counts / doc) | DONE-doc (batch-lows) |
 
 ## Performance (mrmr_crit_perf.md)

@@ -34,3 +34,23 @@ def test_mi_greedy_non_numeric_source_clear_error():
     X = pd.DataFrame({"s": ["not", "a", "number"]})
     with pytest.raises(ValueError, match="non-numeric dtype"):
         _apply_mi_greedy_transform(recipe, X)
+
+
+def test_argmax_gate_serve_nan_propagates_not_spurious_code():
+    import pandas as pd
+    from mlframe.feature_selection.filters._conditional_gate_fe import apply_row_argmax, apply_conditional_gate
+
+    # row 1 has a NaN -> argmax must be NaN, not the spurious first-NaN index (0)
+    X = pd.DataFrame({"a": [1.0, np.nan, 3.0], "b": [2.0, 5.0, 1.0]})
+    am = apply_row_argmax(X, ["a", "b"])
+    assert am[0] == 1.0 and np.isnan(am[1]) and am[2] == 0.0, f"argmax serve-NaN not propagated: {am}"
+
+    # gate select: NaN gating column c -> NaN (not silently routed to b)
+    Xg = pd.DataFrame({"a": [10.0, 10.0], "b": [20.0, 20.0], "c": [1.0, np.nan]})
+    sel = apply_conditional_gate(Xg, "select", ["a", "b", "c"], tau=0.5)
+    assert sel[0] == 10.0 and np.isnan(sel[1]), f"gate select serve-NaN not propagated: {sel}"
+
+    # gate mask: NaN c -> NaN
+    Xm = pd.DataFrame({"a": [7.0, 7.0], "c": [1.0, np.nan]})
+    mk = apply_conditional_gate(Xm, "mask", ["a", "c"], tau=0.5)
+    assert mk[0] == 7.0 and np.isnan(mk[1]), f"gate mask serve-NaN not propagated: {mk}"
