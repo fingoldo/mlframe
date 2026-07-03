@@ -35,9 +35,17 @@ from numba import njit
 
 try:  # scipy is a hard mlframe dep, but keep the import defensive so an env without it degrades.
     from scipy.special import gammaincc as _gammaincc  # chi2.sf(x, df) == gammaincc(df/2, x/2), ~20x cheaper per call
+    # ``_chi2`` is consumed ONLY for the inverse-CDF FLOOR (``_chi2.ppf(quantile, df)``) in the
+    # conditional/marginal permutation-null fallback and the CMI redundancy gate -- a rare per-fallback scalar,
+    # NOT the hot vectorised ``sf`` path (that uses the gammaincc ufunc above). It MUST be exported here: both
+    # consumers do ``from ._analytic_mi_null import _HAVE_CHI2, _chi2, ...`` under a bare ``except: _HAVE_CHI2 =
+    # False``, so a missing ``_chi2`` silently disabled the ENTIRE analytic null (every call fell to the slow
+    # permutation path). Regression-pinned in test_analytic_mi_null_chi2_export.
+    from scipy.stats import chi2 as _chi2
     _HAVE_CHI2 = True
 except Exception:  # pragma: no cover
     _HAVE_CHI2 = False
+    _chi2 = None
 
 
 def _chi2_sf(x, df):
