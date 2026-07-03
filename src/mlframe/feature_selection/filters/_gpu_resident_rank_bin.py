@@ -183,7 +183,9 @@ def plugin_mi_classif_batch_rank_cuda_resident(
             return None
         codes = codes.astype(cp.int64, copy=False)
         from ._fe_batched_mi import binned_mi_from_codes_gpu
-        return binned_mi_from_codes_gpu(codes, yg, kx_per_col=[int(n_bins)] * k, ky=int(n_classes))
+        # codes_trusted: rank_bin_codes_batch_gpu_resident emits dense 0..n_bins-1 codes and yg was shifted to
+        # dense 0-based above, so the in-range guard cannot fire -- skip its blocking min/max sync (FIX1).
+        return binned_mi_from_codes_gpu(codes, yg, kx_per_col=[int(n_bins)] * k, ky=int(n_classes), codes_trusted=True)
     except Exception as _exc:  # noqa: BLE001
         logger.debug("plugin_mi_classif_batch_rank_cuda_resident: GPU path failed (%s); host fallback", _exc)
         return None

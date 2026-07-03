@@ -385,7 +385,10 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
         return _mi_v
     from ._gpu_resident_fe import _searchsorted_codes
     X_binned = _searchsorted_codes(X_gpu, interior).astype(cp.int64, copy=False)
-    return binned_mi_from_codes_gpu(X_binned, y_gpu, kx_per_col=[int(n_bins)] * k, ky=int(n_classes))
+    # codes_trusted: X_binned is searchsorted-produced (dense 0..n_bins-1) and y_gpu was shifted to dense
+    # 0-based above, so the in-range guard cannot fire -- skip its blocking min/max sync (FIX1), matching the
+    # binned_mi_from_values_gpu call above that already trusts these same codes.
+    return binned_mi_from_codes_gpu(X_binned, y_gpu, kx_per_col=[int(n_bins)] * k, ky=int(n_classes), codes_trusted=True)
 
 def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,
                                 n_bins: int = 20) -> float:

@@ -210,7 +210,10 @@ def perm_null_residue_mis_resident(
         if _ymin:
             yd = yd - _ymin
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
-        mis = binned_mi_from_codes_gpu(code_mat, yd, kx_per_col=[nb] * n_perm, ky=int(_ncls))
+        # codes_trusted: code_mat is a permutation-gather of rank_bin_codes_batch_gpu_resident output (dense
+        # 0..nb-1, range-preserving) and yd was shifted to dense 0-based above, so the in-range guard cannot
+        # fire -- skip its blocking min/max sync (FIX1).
+        mis = binned_mi_from_codes_gpu(code_mat, yd, kx_per_col=[nb] * n_perm, ky=int(_ncls), codes_trusted=True)
         return np.asarray(mis, dtype=np.float64)
     except Exception as _exc:  # noqa: BLE001
         logger.debug("perm_null_residue_mis_resident: GPU path failed (%s); host fallback", _exc)
