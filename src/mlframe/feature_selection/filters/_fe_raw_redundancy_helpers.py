@@ -19,11 +19,14 @@ import numpy as np
 # full n (1M) -- the single largest per-call redundancy hotspot. Estimating both on a strided subsample
 # (all of cand / y / z together, so the returned cmi/floor/excess stay MUTUALLY consistent and every
 # drop comparison is self-consistent) keeps the decision selection-equivalent while the null cost drops
-# ~n/cap. Env-tunable; 0 -> full-n (strict). 250k is already well below every redundancy-gate margin.
+# ~n/cap. Env-tunable; 0 -> full-n (strict). 100k default (2026-07-03): the perm-null floor's precision
+# scales ~1/sqrt(n * nperm), so at 100k x ~25 perms it is already far past the CLT plateau -- 250k -> 100k
+# is accuracy-NEUTRAL (not a speed/accuracy trade), and validated selection-equivalent on the adversarial
+# user-case-a multi-seed retention pin + the F2 5-profile goal. Measured drop_redundant ~4.1s -> ~3.0s.
 try:
-    _CMI_NULL_MAX_ROWS = int(os.environ.get("MLFRAME_CMI_NULL_MAX_ROWS", "250000"))
+    _CMI_NULL_MAX_ROWS = int(os.environ.get("MLFRAME_CMI_NULL_MAX_ROWS", "100000"))
 except (ValueError, TypeError):
-    _CMI_NULL_MAX_ROWS = 250000
+    _CMI_NULL_MAX_ROWS = 100000
 
 
 # GATE / BINAGG / ARGMAX pseudo-child name prefixes (2026-06-13). The default-ON
