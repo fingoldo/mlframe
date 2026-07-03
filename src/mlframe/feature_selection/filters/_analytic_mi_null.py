@@ -40,11 +40,17 @@ except Exception:  # pragma: no cover
     _HAVE_CHI2 = False
 
 
-# Minimum n at which the analytic null replaces the permutation null. Validated tight from ~20k;
-# defaulted higher (50k) so the analytic path engages only where the permutation cost is material
-# AND the asymptotic is very accurate, leaving the well-trodden small/mid-n permutation path
-# byte-for-byte unchanged. Env-tunable; a future kernel_tuning_cache sweep can refine per host.
-_ANALYTIC_NULL_MIN_N_DEFAULT = 50_000
+# Minimum n at which the analytic null replaces the permutation null. Validated tight from ~20k. Lowered
+# 50k -> 25k (2026-07-03): the prospective-pair prevalence gate scores its candidates on a ~30k active
+# subsample, so the old 50k floor gated the analytic OFF for that whole phase and every candidate ran the
+# CPU permutation shuffle (permutation.py:parallel_mi_prange -- the #1 host caller on the F2 STRICT
+# cProfile, ~11.7k shuffle invocations). At 30k the cells are dense (N/(Bx*By) ~ 75, far above the
+# expected-cell-5 sparsity floor that STILL guards high-cardinality tables) so the chi-square/G-test
+# asymptotic is accurate: a direct A/B at the pair shape (n=30k, Bx=By=20) matched the 200-shuffle
+# permutation null_mean to ~4 digits with 0/12 significance-decision flips. 25k keeps a margin above the
+# ~20k validated floor. The sparsity safe-condition is unchanged, so sparse/high-card tables still fall to
+# the permutation path. Env-tunable (MLFRAME_MI_ANALYTIC_NULL_MIN_N); a KTC sweep can refine per host.
+_ANALYTIC_NULL_MIN_N_DEFAULT = 25_000
 
 
 def analytic_null_enabled() -> bool:
