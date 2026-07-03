@@ -36,6 +36,19 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
+@njit(cache=True)
+def _cell_sum_cnt_njit(classes, y, n_uniq):
+    """Per-cell running (sum of y, count) over rows, in row order -- bit-identical to the Python
+    ``for row: cell_sum[c]+=y[row]; cell_cnt[c]+=1`` accumulator it replaces (~490x @100k). ``classes`` is int."""
+    cell_sum = np.zeros(n_uniq, dtype=np.float64)
+    cell_cnt = np.zeros(n_uniq, dtype=np.float64)
+    for row in range(classes.shape[0]):
+        c = classes[row]
+        cell_sum[c] += y[row]
+        cell_cnt[c] += 1.0
+    return cell_sum, cell_cnt
+
+
 def _compute_target_encoding(
     factors_data: np.ndarray,
     idx_tuple: tuple,
@@ -93,12 +106,10 @@ def _compute_target_encoding(
 
     if n_oof_folds <= 0:
         # Naive: per-cell mean across all rows
-        cell_sum = np.zeros(int(n_uniq), dtype=np.float64)
-        cell_cnt = np.zeros(int(n_uniq), dtype=np.float64)
-        for row in range(n_samples):
-            c = int(classes_merged[row])
-            cell_sum[c] += y_numeric[row]
-            cell_cnt[c] += 1.0
+        cell_sum, cell_cnt = _cell_sum_cnt_njit(
+            np.ascontiguousarray(classes_merged, dtype=np.int64),
+            np.ascontiguousarray(y_numeric, dtype=np.float64), int(n_uniq),
+        )
         cell_means = np.zeros(int(n_uniq), dtype=np.float64)
         for c in range(int(n_uniq)):
             if cell_cnt[c] > 0:
@@ -126,12 +137,10 @@ def _compute_target_encoding(
         train_mask = fold_ids != f
         test_mask = ~train_mask
         # Compute cell means on training rows
-        cell_sum = np.zeros(int(n_uniq), dtype=np.float64)
-        cell_cnt = np.zeros(int(n_uniq), dtype=np.float64)
-        for row in np.where(train_mask)[0]:
-            c = int(classes_merged[row])
-            cell_sum[c] += y_numeric[row]
-            cell_cnt[c] += 1.0
+        cell_sum, cell_cnt = _cell_sum_cnt_njit(
+            np.ascontiguousarray(classes_merged[train_mask], dtype=np.int64),
+            np.ascontiguousarray(y_numeric[train_mask], dtype=np.float64), int(n_uniq),
+        )
         cell_means_fold = np.full(int(n_uniq), te_global, dtype=np.float64)
         for c in range(int(n_uniq)):
             if cell_cnt[c] > 0:
@@ -139,18 +148,14 @@ def _compute_target_encoding(
                 cell_means_fold[c] = (
                     cell_cnt[c] * raw + smoothing * te_global
                 ) / (cell_cnt[c] + smoothing)
-        # Apply to test fold rows
-        for row in np.where(test_mask)[0]:
-            c = int(classes_merged[row])
-            te_values[row] = cell_means_fold[c]
+        # Apply to test fold rows (vectorised gather; bit-identical to the per-row assignment)
+        te_values[test_mask] = cell_means_fold[np.asarray(classes_merged, dtype=np.int64)[test_mask]]
 
     # Also compute global (all-rows) cell means for transform()-time replay. At transform OOF doesn't make sense (test data has no Y); we use the global mean per cell.
-    cell_sum = np.zeros(int(n_uniq), dtype=np.float64)
-    cell_cnt = np.zeros(int(n_uniq), dtype=np.float64)
-    for row in range(n_samples):
-        c = int(classes_merged[row])
-        cell_sum[c] += y_numeric[row]
-        cell_cnt[c] += 1.0
+    cell_sum, cell_cnt = _cell_sum_cnt_njit(
+        np.ascontiguousarray(classes_merged, dtype=np.int64),
+        np.ascontiguousarray(y_numeric, dtype=np.float64), int(n_uniq),
+    )
     cell_means_global = np.full(int(n_uniq), te_global, dtype=np.float64)
     for c in range(int(n_uniq)):
         if cell_cnt[c] > 0:
