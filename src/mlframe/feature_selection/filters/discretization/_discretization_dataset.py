@@ -347,6 +347,11 @@ def categorize_dataset(
             _coded = df.select(cast_exprs)
             categorical_cols = categorical_cols_detected
             new_vals = _coded.to_numpy()
+            if max_categorical_cardinality:
+                # Fold the rare-category tail so the polars path honors the cap exactly like the pandas branch below;
+                # cap_categorical_cardinality needs float64 to write the remapped codes (physical codes are unsigned).
+                from . import cap_categorical_cardinality
+                new_vals = cap_categorical_cardinality(new_vals.astype(np.float64, copy=False), int(max_categorical_cardinality))
         else:
             categorical_cols = []
             new_vals = None
