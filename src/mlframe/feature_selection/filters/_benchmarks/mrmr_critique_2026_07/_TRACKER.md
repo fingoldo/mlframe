@@ -51,7 +51,7 @@ Status legend: DONE (fixed+tested+pushed) | WIP | TODO | DOC | FUTURE | REJECTED
 ## FE families — encoding/grouped recipes (mrmr_crit_fe_encoding.md)
 | ID | Sev | Finding | file:line | Disposition | Status |
 |----|-----|---------|-----------|-------------|--------|
-| EN-1 | P2 | asymmetric key coercion in cross/TE builders (safe today via pre-canonicalization; fragile) | _encoding_recipes.py:110,331,375 | FIX (canonicalize keys in builders) | TODO |
+| EN-1 | P2 | asymmetric key coercion in cross/TE builders (safe today via pre-canonicalization; fragile) | _encoding_recipes.py:110,331,375 | FIX (canonicalize keys in builders) | DONE (en1) |
 | EN-2 | Low | polars branch crashes when pandas absent | _encoding_recipes.py:73 etc | FIX (guard pd) | DONE (33343a58) |
 | EN-3 | Low | _apply_mi_greedy_transform forces float64 on source cols | _missingness_ratio_recipes.py:37 | FIX (validate numeric at build) | DONE (batch-lows) |
 | EN-4 | Low | integer-factorize numeric source truncates floats at replay | _recipe_extract.py:193,198 | FIX (round-to-nearest) | DONE (batch-lows) |
