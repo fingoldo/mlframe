@@ -258,6 +258,15 @@ def analytic_batch_noise_gate(
     _bx = bx_per_col.astype(np.int64, copy=False)
     _df = (_bx - 1) * (_by - 1)                                    # (K,) G-test degrees of freedom
     _cells = np.maximum(1, _bx * _by)
+    # OCCUPANCY CAVEAT (mrmr_critique N-F7, DOC): the G-test df uses the DECLARED bin counts (Bx, By), but
+    # equi-frequency binning makes the actually-OCCUPIED Bx data-dependent on a tied/low-cardinality column (many rows
+    # share a value -> fewer distinct bins than requested), so df is slightly overstated and the chi-square tail p is
+    # mildly conservative there. The min-expected-cell floor below is the partial safeguard, not an exact occupancy
+    # correction; not selection-altering in practice (the gate is conservative), documented for rigor.
+    # PASS-THROUGH CAVEAT (mrmr_critique N-F8, DOC): a column where the analytic null is NOT applicable (n below min_n,
+    # or a sparse joint below the expected-cell floor) is NOT permutation-tested here -- it keeps its raw MI ungated by
+    # THIS gate and relies on the caller's conservative applicability gate (_pairs_dispatch) to have excluded it. A
+    # per-column permutation fallback for the inapplicable case is a FUTURE hardening.
     _applicable = (int(n_rows) >= analytic_null_min_n()) & (
         (float(n_rows) / _cells) >= _min_expected_cell()
     )                                                             # (K,) == analytic_null_applicable per col

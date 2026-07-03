@@ -43,6 +43,12 @@ logger = logging.getLogger(__name__)
 # would have to demand ZERO exceedances, which is too strict for a genuinely-weak leg whose null occasionally ties it. 32 of these per candidate is still microseconds on the
 # screening hot path (each is one ``compute_relevance_score`` call). Tunable via the ``MLFRAME_MRMR_NULL_PERMS`` env var for users who want a tighter/looser null estimate.
 import os as _os
+# VARIANCE CAVEAT (mrmr_critique N-F5, DOC): the null MEAN estimated from ``_NULL_MEAN_MIN_PERMS`` (default 32)
+# shuffles has a sampling SE of ~sigma_null/sqrt(32) (~18% of the per-shuffle spread). That SE is subtracted directly
+# from the observed relevance in the significance-gated debiasing, so two candidates whose debiased relevance is
+# within the null-mean SE of each other can swap order seed-to-seed in the irreversible greedy path. Raise
+# ``MLFRAME_MRMR_NULL_PERMS`` (finer null, proportional cost) when near-tie stability matters; a shrunk/analytic
+# null mean at small budgets is a FUTURE option.
 _NULL_MEAN_MIN_PERMS = max(2, int(_os.environ.get("MLFRAME_MRMR_NULL_PERMS", "32")))
 
 

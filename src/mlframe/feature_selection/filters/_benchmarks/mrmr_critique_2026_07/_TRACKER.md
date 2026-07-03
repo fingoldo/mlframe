@@ -32,10 +32,10 @@ Status legend: DONE (fixed+tested+pushed) | WIP | TODO | DOC | FUTURE | REJECTED
 | N-F2 | P1 | Relevance MM+null-debiased, redundancy raw plug-in → objective biased vs high-cardinality candidates | evaluation.py:548 / _entropy_kernels.py:342 | FIX (validate wide; CMI bias in _fe_cmi_redundancy_null.py:200) | TODO |
 | N-F3 | P2 | `_perm_pvalue(full_budget=)` overstates confidence on pile-up early breaks | permutation.py:62 | FIX | TODO |
 | N-F4 | P2 | fixed alpha=0.05, no multiple-testing correction across candidates | evaluation.py:549 | FIX (BH/BY) or DOC | TODO |
-| N-F5 | P2 | 32-perm null-mean variance can flip near-tied selection | permutation.py:46 | DOC/FUTURE (shrinkage) | TODO |
-| N-F6 | P3 | Chao-Shen not matched by its null (≡ N-F1 generalized) | — | FIX-with-N-F1 | TODO |
-| N-F7 | P3 | analytic chi-square null assumes fixed occupancy on tied equi-freq bins | _analytic_mi_null.py | DOC | TODO |
-| N-F8 | P3 | analytic_batch_noise_gate no per-column perm fallback | _analytic_mi_null.py:253 | DOC/FIX | TODO |
+| N-F5 | P2 | 32-perm null-mean variance can flip near-tied selection | permutation.py:46 | DOC/FUTURE (shrinkage) | DONE-doc |
+| N-F6 | P3 | Chao-Shen not matched by its null (≡ N-F1 generalized) | — | FIX-with-N-F1 | FUTURE (with N-F1) |
+| N-F7 | P3 | analytic chi-square null assumes fixed occupancy on tied equi-freq bins | _analytic_mi_null.py | DOC | DONE-doc |
+| N-F8 | P3 | analytic_batch_noise_gate no per-column perm fallback | _analytic_mi_null.py:253 | DOC/FIX | DONE-doc |
 
 ## FE families + leak-safety — temporal (mrmr_crit_fe_temporal.md)
 | ID | Sev | Finding | file:line | Disposition | Status |
