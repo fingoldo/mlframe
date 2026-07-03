@@ -34,10 +34,17 @@ import numpy as np
 from numba import njit
 
 try:  # scipy is a hard mlframe dep, but keep the import defensive so an env without it degrades.
-    from scipy.stats import chi2 as _chi2
+    from scipy.special import gammaincc as _gammaincc  # chi2.sf(x, df) == gammaincc(df/2, x/2), ~20x cheaper per call
     _HAVE_CHI2 = True
 except Exception:  # pragma: no cover
     _HAVE_CHI2 = False
+
+
+def _chi2_sf(x, df):
+    """``chi2.sf(x, df)`` via the regularized upper incomplete gamma ``gammaincc(df/2, x/2)`` -- BIT-IDENTICAL to
+    ``scipy.stats.chi2.sf`` (verified maxdiff 0.0) but a direct C ufunc, skipping the ``_distn_infrastructure`` dispatch
+    that made ``chi2.sf`` the #1 MRMR-screen hotspot (~20x scalar, ~170x vectorized). Accepts scalars or arrays."""
+    return _gammaincc(df / 2.0, x / 2.0)
 
 
 # Minimum n at which the analytic null replaces the permutation null. Validated tight from ~20k. Lowered
@@ -127,13 +134,36 @@ def analytic_mi_null(original_mi: float, n_rows: int, n_bins_x: int, n_bins_y: i
         # no observed signal -> sits at/below its null -> non-significant.
         return null_mean, 1.0
     g_stat = 2.0 * float(n_rows) * float(original_mi)
-    p_value = float(_chi2.sf(g_stat, df))
+    p_value = float(_chi2_sf(g_stat, df))
     # clamp into [0, 1] against any FP underflow/overflow at the extreme tail.
     if p_value < 0.0:
         p_value = 0.0
     elif p_value > 1.0:
         p_value = 1.0
     return null_mean, p_value
+
+
+def analytic_mi_null_batch(
+    raw_mi_row: np.ndarray, n_rows: int, bx_per_col: np.ndarray, by: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Vectorized ``analytic_mi_null`` over a whole candidate row -> ``(null_mean_row, p_values)``, each ``(p,)``.
+
+    Bit-identical to looping the scalar ``analytic_mi_null`` per column (verified maxdiff 0.0) but issues ONE
+    ``gammaincc`` over the significant candidates instead of ``p`` scalar ``chi2.sf`` calls -- ~170x on the row (this was
+    the #1 MRMR-screen hotspot: 138k scalar ``chi2.sf`` calls). ``bx_per_col`` is per-column occupied bins; ``by`` the
+    target's occupied bins; non-finite ``raw_mi`` is treated as 0 (non-significant), matching the scalar path.
+    """
+    bx = np.asarray(bx_per_col, dtype=np.float64)
+    mi = np.where(np.isfinite(raw_mi_row), raw_mi_row, 0.0).astype(np.float64)
+    df = (bx - 1.0) * (float(by) - 1.0)
+    ok_df = (df > 0.0) & (n_rows > 0)
+    null_mean_row = np.where(ok_df, df / (2.0 * float(n_rows)), 0.0)
+    p_values = np.ones(bx.shape[0], dtype=np.float64)  # default 1.0 == non-significant
+    sig = ok_df & (mi > 0.0) & _HAVE_CHI2
+    if np.any(sig):
+        g = 2.0 * float(n_rows) * mi[sig]
+        p_values[sig] = np.clip(_chi2_sf(g, df[sig]), 0.0, 1.0)
+    return null_mean_row, p_values
 
 
 @njit(nogil=True, cache=True)
@@ -227,7 +257,7 @@ def analytic_batch_noise_gate(
     _use_chi2 = (_df > 0) & (fe_mi > 0.0)
     if _HAVE_CHI2 and bool(np.any(_use_chi2)):
         _g = 2.0 * float(n_rows) * fe_mi[_use_chi2]
-        _p[_use_chi2] = np.clip(_chi2.sf(_g, _df[_use_chi2]), 0.0, 1.0)
+        _p[_use_chi2] = np.clip(_chi2_sf(_g, _df[_use_chi2]), 0.0, 1.0)
     _reject = (fe_mi > 0.0) & _applicable & (_p >= alpha_reject)
     fe_mi[fe_mi <= 0.0] = 0.0
     fe_mi[_reject] = 0.0

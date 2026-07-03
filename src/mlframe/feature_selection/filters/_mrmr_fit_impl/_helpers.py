@@ -383,10 +383,16 @@ def fe_decide_on_subsample(
         return fit_with_recipes_fn(X, y, **kwargs)  # unexpected shape -> full call
     X_aug_sub, recipes, _middle = _ret[0], _ret[-1], _ret[1:-1]
     _appended_sub = [c for c in X_aug_sub.columns if c not in _X_sub.columns]
-    # Partial / no recipe coverage -> full-data decision (correctness over speed). Surfaced (not silent): this is the
-    # ONLY way a closed-form family's DECISION runs at full n, and at 5M+ rows the full-n rebuild is what balloons the
-    # GPU/host memory (the resident builder's whole-matrix upload). If it fires every fit, the family's recipe emission
-    # is incomplete -- worth fixing at the family, not paying the full-n cost each time.
+    # EMPTY RESULT is a VALID decision, not a coverage failure: when the subsample DECISION engineered no columns, the
+    # family simply found nothing worth adding for this target -- re-running the whole (expensive) decision on the full n
+    # would just re-discover "nothing" at full cost (this was the 3x full-n FE re-run wasting minutes on TVT, where the
+    # orth pair/triplet/quadruplet families legitimately find no uplift). Return X unchanged (no columns to replay) with
+    # the subsample's middle payload + empty recipes; DO NOT pay the full-n path for an empty set.
+    if not _appended_sub:
+        return (X, *_middle, recipes)
+    # Partial recipe coverage (SOME columns appended but not all have a replayable recipe) -> full-data decision
+    # (correctness over speed). Surfaced (not silent): worth fixing at the family (incomplete recipe emission), not
+    # paying the full-n cost each fit.
     if not recipes or len({r.name for r in recipes}) < len(_appended_sub):
         logger.warning(
             "fe_decide_on_subsample: %s produced %d engineered column(s) on the %d-row subsample but only %d replayable "

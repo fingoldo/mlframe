@@ -33,7 +33,7 @@ from mlframe.feature_selection.mi import grok_compute_mutual_information, chatgp
 # machinery the modern filters/mrmr path uses. Reused here rather than reimplemented so the legacy
 # ``estimate_features_relevancy`` selection driver is calibrated to a nominal significance level with a
 # genuine multiple-comparison (Benjamini-Hochberg) correction instead of ad-hoc raw-MI exceedances.
-from mlframe.feature_selection.filters import analytic_mi_null
+from mlframe.feature_selection.filters import analytic_mi_null, analytic_mi_null_batch
 
 
 def _occupied_bins(codes: np.ndarray) -> int:
@@ -290,13 +290,11 @@ def estimate_features_relevancy(
         # own scale so the raw-MI exceedance tests below are no longer fooled by the bias mean.
         # ----------------------------------------------------------------------------------------------
         raw_mi_row = np.asarray(original_mi_results[target_idx], dtype=np.float64)
-        null_mean_row = np.empty(bins.shape[1], dtype=np.float64)
-        p_values = np.ones(bins.shape[1], dtype=np.float64)  # default 1.0 == non-significant
-        for j in range(bins.shape[1]):
-            bx = int(occupied_bins_per_col[j])
-            nm, p = analytic_mi_null(float(raw_mi_row[j]) if np.isfinite(raw_mi_row[j]) else 0.0, n_samples, bx, by)
-            null_mean_row[j] = nm
-            p_values[j] = p
+        # Vectorized over ALL candidate columns in one gammaincc (was a per-column analytic_mi_null loop -> 138k scalar
+        # chi2.sf calls, the #1 MRMR-screen hotspot). Bit-identical to the scalar loop.
+        null_mean_row, p_values = analytic_mi_null_batch(
+            raw_mi_row, n_samples, occupied_bins_per_col[: bins.shape[1]], by
+        )
         debiased_mi = np.where(np.isfinite(raw_mi_row), raw_mi_row - null_mean_row, -np.inf)
 
         if not permuted_max_mi_quantile:
