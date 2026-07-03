@@ -126,6 +126,19 @@ def test_fs_config_lever_folds_group_aware_mi_into_mrmr_kwargs():
     assert not (FeatureSelectionConfig().mrmr_kwargs or {}).get("group_aware_mi")
 
 
+def test_fit_cache_key_folds_groups_signature():
+    """Regression: under group_aware_mi the process-wide _FIT_CACHE keys on the groups content too, so two fits on the
+    SAME X/y with DIFFERENT groups cannot replay one another's I(X;Y|G)-dependent selection. This pins the mechanism:
+    the folded groups content-signature distinguishes distinct group assignments (a naive key would collide)."""
+    from mlframe.feature_selection.filters._mrmr_fingerprints import _content_array_signature
+
+    rng = np.random.default_rng(21)
+    n = 4000
+    groups_a = np.repeat(np.arange(100), 40)
+    groups_b = groups_a[rng.permutation(n)]
+    assert _content_array_signature(groups_a) != _content_array_signature(groups_b), "groups signature must differ"
+
+
 def test_group_aware_non_uniform_sample_weight_disables_with_warning(caplog):
     """Row resampling under non-uniform sample_weight reshuffles X but not groups -> group-aware is disabled (with a
     log warning) rather than mis-aligning rows to groups."""

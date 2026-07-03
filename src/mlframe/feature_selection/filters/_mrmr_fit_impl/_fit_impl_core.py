@@ -209,10 +209,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # Reuse _y_hash_for_sig computed above; recomputing on 1M-row y costs ~0.5ms per fit and was paid twice pre-fix (A1#15).
         _y_full_hash = _y_hash_for_sig
         _x_full_hash = _full_x_content_hash(X)
+        # Under group_aware_mi the relevance MI depends on the GROUP assignment, so two fits on the SAME X/y with
+        # DIFFERENT groups must NOT replay one another. Fold a groups content signature into the key (only when
+        # group-aware, so the group-naive path stays byte-identical). group_aware_mi itself is already in _params_sig.
+        _groups_sig = None
+        if getattr(self, "group_aware_mi", False) and groups is not None:
+            _groups_sig = _content_array_signature(np.asarray(groups))
         if not _y_full_hash or not _x_full_hash:
             _cache_key = None
         else:
-            _cache_key = (_x_sig, _y_sig, _y_name, _y_full_hash, _x_full_hash, _params_sig)
+            _cache_key = (_x_sig, _y_sig, _y_name, _y_full_hash, _x_full_hash, _params_sig, _groups_sig)
     except Exception:
         _cache_key = None
     _cached = None
