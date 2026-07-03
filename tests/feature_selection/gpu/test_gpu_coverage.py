@@ -143,6 +143,26 @@ def test_mi_direct_gpu_matches_cpu_with_permutations_small_signal():
     assert 0.0 <= gpu_conf <= 1.0
 
 
+@pytest.mark.gpu
+def test_mi_direct_gpu_return_null_mean_contract_and_backcompat():
+    """audit5-P1: the GPU relevance path must expose the empirical null mean + p-value so the caller can apply
+    the SAME significance-gated debiasing as the CPU branch (it previously returned raw plug-in MI). Pin the
+    4-tuple contract (finite null_mean >= 0, p_value in [0,1]) AND that the legacy 2-tuple is unchanged when
+    the flag is off."""
+    factors, factors_nbins = _make_factors(n=600, nbins_x=6, nbins_y=2, seed=11)
+
+    # back-compat: default returns the legacy 2-tuple.
+    legacy = mi_direct_gpu(factors, (0,), (1,), factors_nbins, npermutations=8)
+    assert len(legacy) == 2
+
+    res = mi_direct_gpu(factors, (0,), (1,), factors_nbins, npermutations=8, return_null_mean=True)
+    assert len(res) == 4
+    mi, conf, null_mean, p_value = res
+    assert mi == legacy[0]  # observed MI is identical; only extra outputs are added
+    assert np.isfinite(null_mean) and null_mean >= 0.0
+    assert 0.0 <= p_value <= 1.0
+
+
 # ---------------------------------------------------------------------------
 # mi_direct_gpu: permutation, cache, dtype-mismatch, large nbins paths
 # ---------------------------------------------------------------------------

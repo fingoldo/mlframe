@@ -836,8 +836,15 @@ def mi_direct_gpu(
     freqs_y: np.ndarray = None,
     freqs_y_safe: np.ndarray = None,
     use_gpu: bool = True,
+    return_null_mean: bool = False,
 ) -> tuple:
     """GPU mutual-information + permutation test (CuPy).
+
+    ``return_null_mean=True`` additionally returns the empirical permutation-null MEAN (the average MI of X
+    against the y-shuffles this call already computes) and the add-one permutation p-value, so the caller can
+    apply the SAME significance-gated relevance debiasing as the CPU ``mi_direct`` path -- without it, the GPU
+    relevance was RAW plug-in MI (high-cardinality-biased, and selection differed from the CPU branch). Returns
+    a 4-tuple ``(mi, confidence, null_mean, p_value)`` instead of the 2-tuple.
 
     When ``npermutations >= 32`` and the caller did not pre-warm the
     device-side target buffers (``classes_y_safe is None and
@@ -874,6 +881,7 @@ def mi_direct_gpu(
         npermutations >= 32
         and classes_y_safe is None
         and freqs_y_safe is None
+        and not return_null_mean  # the batched path does not accumulate the null mean; keep the per-iter loop
     ):
         return mi_direct_gpu_batched(
             factors_data=factors_data,
@@ -904,6 +912,9 @@ def mi_direct_gpu(
     )
 
     confidence = 0.0
+    nfailed = 0            # defined outside the block so the return_null_mean path is valid when the block is skipped
+    _null_sum = 0.0        # sum of per-permutation MIs -> empirical null mean = _null_sum / _nchecked
+    _nchecked = 0
     if original_mi > 0 and npermutations > 0:
         if not max_failed:
             max_failed = int(npermutations * (1 - min_nonzero_confidence))
@@ -975,6 +986,7 @@ def mi_direct_gpu(
             )
 
             mi = totals.get()[0]
+            _null_sum += float(mi)  # accumulate for the empirical null mean (return_null_mean path)
 
             if mi >= original_mi:
                 nfailed += 1
@@ -982,7 +994,16 @@ def mi_direct_gpu(
                     original_mi = 0.0
                     break
         confidence = 1 - nfailed / (_i + 1)
+        _nchecked = _i + 1
 
+    if return_null_mean:
+        # Mirror the CPU mi_direct(return_null_mean=True) contract: empirical null mean over the permutations
+        # actually run, and the add-one Monte-Carlo p-value (budget-consistent under early-stop) so evaluation
+        # applies the SAME significance-gated relevance debiasing on the GPU path as on the CPU path.
+        from .permutation import _perm_pvalue
+        _null_mean = (_null_sum / _nchecked) if _nchecked > 0 else 0.0
+        _p_value = _perm_pvalue(nfailed, _nchecked, full_budget=npermutations) if _nchecked > 0 else 1.0
+        return original_mi, confidence, _null_mean, _p_value
     return original_mi, confidence
 
 
