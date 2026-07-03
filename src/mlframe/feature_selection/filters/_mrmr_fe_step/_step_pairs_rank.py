@@ -266,6 +266,20 @@ def score_prospective_pairs(
                             _bcodes = np.ascontiguousarray(data[:, int(_boot_idx)], dtype=np.int64)
                             _pcodes = np.ascontiguousarray(data[:, int(_partner_idx)], dtype=np.int64)
                             _yc = np.ascontiguousarray(classes_y, dtype=np.int64)
+                            # SCORING SUBSAMPLE (2026-07-03). This bootstrap-prevalence relaxation runs an observed
+                            # CMI + a within-stratum permutation null on the FULL 1M pair codes -- one of the top
+                            # _conditional_perm_null callers (~2.4s at 1M). The prevalence-relax verdict is a wide-
+                            # margin CMI/floor DECISION, selection-equivalent under a large strided subsample: cap the
+                            # candidate, partner, and y TOGETHER (aligned rows) above MLFRAME_PAIR_NULL_MAX_ROWS
+                            # (default 250k, 0=full-n) so the observed CMI + null decide on one consistent slice.
+                            _pn_max = int(os.environ.get("MLFRAME_PAIR_NULL_MAX_ROWS", "250000"))
+                            _pn_n = int(_bcodes.shape[0])
+                            if _pn_max > 0 and _pn_n > _pn_max:
+                                _pn_st = int(_pn_n // _pn_max)
+                                if _pn_st > 1:
+                                    _bcodes = np.ascontiguousarray(_bcodes[::_pn_st])
+                                    _pcodes = np.ascontiguousarray(_pcodes[::_pn_st])
+                                    _yc = np.ascontiguousarray(_yc[::_pn_st])
                             # RESIDENT bootstrap-operand candidate (scored x) -> no re-upload; partner stays host z.
                             _bcand = _resident_cand(_bcodes) if _pair_resident else _bcodes
                             # kx/kz from the HOST code columns (numpy .max, no device sync): _bcand's resident
@@ -324,6 +338,16 @@ def score_prospective_pairs(
                         _cand_codes = np.ascontiguousarray(data[:, _cand_i], dtype=np.int64)
                         _anchor_codes = np.ascontiguousarray(data[:, _anchor_i], dtype=np.int64)
                         _y_codes = np.ascontiguousarray(classes_y, dtype=np.int64)
+                        # Same scoring-subsample cap as the bootstrap block above: this data-driven prevalence
+                        # admission's observed CMI + permutation null are a wide-margin decision, subsample-safe.
+                        _pn_max2 = int(os.environ.get("MLFRAME_PAIR_NULL_MAX_ROWS", "250000"))
+                        _pn_n2 = int(_cand_codes.shape[0])
+                        if _pn_max2 > 0 and _pn_n2 > _pn_max2:
+                            _pn_st2 = int(_pn_n2 // _pn_max2)
+                            if _pn_st2 > 1:
+                                _cand_codes = np.ascontiguousarray(_cand_codes[::_pn_st2])
+                                _anchor_codes = np.ascontiguousarray(_anchor_codes[::_pn_st2])
+                                _y_codes = np.ascontiguousarray(_y_codes[::_pn_st2])
                         # RESIDENT candidate (scored x) -> no re-upload; anchor stays host z.
                         _cand_dev = _resident_cand(_cand_codes) if _pair_resident else _cand_codes
                         _cmi_obs = float(_cmi_from_binned(_cand_dev, _y_codes, _anchor_codes))

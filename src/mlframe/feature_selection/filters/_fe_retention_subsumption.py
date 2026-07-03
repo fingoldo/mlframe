@@ -93,6 +93,23 @@ def retention_form_is_subsumed(
     if y_arr.shape[0] != n:
         return False
 
+    # SCORING SUBSAMPLE (2026-07-03). The subsumption verdict is a wide-margin two-CMI-leg DECISION (floor +
+    # relative-bar) that is selection-equivalent under a large strided subsample, while binning the candidate +
+    # every incumbent, both observed CMIs, AND the two within-stratum permutation nulls on full 1M rows made
+    # this one of the top ``_conditional_perm_null`` callers (~2s at 1M). Strided-subsample the candidate, y,
+    # and every incumbent TOGETHER (same stride -> aligned rows) above MLFRAME_RETENTION_NULL_MAX_ROWS (default
+    # 250k, 0=full-n) so the binning + observed CMI + null all decide on one consistent slice. The verdict is a
+    # bool -> no output values to keep full-n.
+    import os as _os_ss
+    _ret_max = int(_os_ss.environ.get("MLFRAME_RETENTION_NULL_MAX_ROWS", "250000"))
+    if _ret_max > 0 and n > _ret_max:
+        _st = int(n // _ret_max)
+        if _st > 1:
+            cand = cand[::_st]
+            y_arr = np.ascontiguousarray(y_arr[::_st])
+            inc = [c[::_st] for c in inc]
+            n = int(cand.shape[0])
+
     try:
         cand = np.nan_to_num(cand, nan=0.0, posinf=0.0, neginf=0.0)
         _inc_clean = [np.nan_to_num(c, nan=0.0, posinf=0.0, neginf=0.0) for c in inc]
