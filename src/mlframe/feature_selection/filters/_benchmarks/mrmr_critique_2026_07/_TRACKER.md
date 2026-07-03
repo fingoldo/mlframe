@@ -1,5 +1,15 @@
 # MRMR multi-agent critique — master disposition tracker (2026-07)
 
+## PROGRESS LOG (live)
+- DONE (fixed + tested + pushed): FE-F1 (d804cdf4), EX-1/S-F5/ST-3/FE-F7/EN-2 (33343a58), FE-F2/FE-F3/FE-F4 (bf7023e3), S-F1 (84a0f6a8).
+- REVERTED -> FUTURE (override a deliberate, bench/test-pinned design; need a dedicated multi-seed biz-value bench to settle, NOT a code change on a critique argument):
+  - N-F3 (perm_pvalue full-budget extrapolation): pinned by bench_perm_pvalue_addone.py + test_fleuret_perm_pvalue_addone::test_stopped_p_uses_full_budget_denominator (break-position independence is deliberate). Concrete path: add a bench measuring surfaced-confidence calibration on failure-pileup vs significance stops across seeds; only change if it improves calibration without worsening selection.
+  - S-F3 (greedy-jmim `**(nexisting+1)` exponent): deliberately placed (evaluation.py:384-398). Concrete path: jmim greedy-path biz-value bench (exponent on/off, multi-seed) on a synergy fixture; remove only if selection equal-or-better.
+- NOT OURS (parallel session): the JMIM bit-equivalence + secondary-signal failures in test_layer86.py trace to _orthogonal_jmim_fe -> _jmim_scorer/_mi_greedy_cmi_fe, whose recent commits are the parallel session's GPU-resident-FE binning rewrites (51f7ad5c/7d783ac1/...). Not in our edited path; left for that session to reconcile.
+- REMAINING (being worked): N-F1, N-F2, S-F2, S-F4, ST-1, ST-4, P-1..P-4/P-11, and the Low/doc items. Statistical P1s (N-F1/N-F2/S-F2) touch the tuned selection core and are handled with the same discipline: validate with a bench or mark FUTURE with a concrete path, never a blind selection change.
+
+
+
 Seven read-only critique agents reviewed the MRMR modules (core selection, numerical/statistical machinery, FE
 families + leak-safety, performance, stopping/fallback, encoding recipes, extra FE families). Every finding is
 listed here with its disposition and live status. Per-agent full reports are the sibling `mrmr_crit_*.md` files.

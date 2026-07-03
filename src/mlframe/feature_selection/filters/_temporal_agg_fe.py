@@ -819,10 +819,13 @@ def apply_temporal_rolling(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarr
         ent = str(key[idx])
         t = times_num[idx]
         h = history.get(ent, {})
-        h_t = np.asarray(h.get("t", []), dtype=np.float64)
+        # Keep the time axis in its NATIVE dtype (int64-ns for datetime): a float64 cast of an epoch-ns value
+        # (~1.6e18 > 2^53) loses ~hundreds of ns, so rows within a few hundred ns of the window bound ``lo``/``t``
+        # could be mis-included/excluded. times_num above is already int64-ns for datetime; match it here.
+        h_t = np.asarray(h.get("t", []))
         h_v = np.asarray(h.get("v", []), dtype=np.float64)
         seen = test_hist.get(ent, {"t": [], "v": []})
-        all_t = np.concatenate([h_t, np.asarray(seen["t"], dtype=np.float64)]) if seen["t"] else h_t
+        all_t = np.concatenate([h_t, np.asarray(seen["t"])]) if seen["t"] else h_t
         all_v = np.concatenate([h_v, np.asarray(seen["v"], dtype=np.float64)]) if seen["v"] else h_v
         if all_t.size:
             lo = t - td
@@ -831,7 +834,7 @@ def apply_temporal_rolling(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarr
                 out[idx] = _reduce(all_v[mask], stat)
         if np.isfinite(vals[idx]):
             d = test_hist.setdefault(ent, {"t": [], "v": []})
-            d["t"].append(float(t))
+            d["t"].append(t)  # native scalar (int64-ns for datetime): no float round-trip precision loss
             d["v"].append(float(vals[idx]))
     return out
 
