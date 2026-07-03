@@ -292,6 +292,33 @@ def _fallback_mi_backend(n_samples: int, k: int) -> str:
     return "njit"
 
 
+def lookup_pairwise_corr_backend(p: int, n: int) -> str:
+    """Return ``"numpy"`` | ``"cupy"`` | ``"njit"`` for ``_pairwise_complete_abs_corr`` (the FE source-dedup corr kernel).
+
+    Hits the pyutilz ``KernelTuningCache`` for ``fe_pairwise_complete_corr`` so a per-host verdict (if one has been
+    measured) overrides the fallback. Fallback is ``"numpy"``: njit measured slower everywhere, and cupy's solo 2-2.7x
+    win is eroded by joblib-worker GPU contention in the real FE pipeline (same reasoning as
+    :func:`lookup_mi_classif_backend`). No auto-sweep is registered yet -- a contention-aware sweep can be added later;
+    until then the cache is a per-host override hook, not a live tuner. Force any backend with
+    ``MLFRAME_FE_DEDUP_CORR_BACKEND``."""
+    cache = _get_cache()
+    if cache is False or cache is None:
+        return "numpy"
+    try:
+        result = cache.get_or_tune(
+            "fe_pairwise_complete_corr",
+            dims={"p": p, "n": n},
+            tuner=lambda: [], axes=["p", "n"],
+            fallback={"backend_choice": "numpy"},
+        )
+        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
+        if bc in ("numpy", "cupy", "njit"):
+            return bc
+    except Exception as e:
+        logger.debug("lookup_pairwise_corr_backend get_or_tune failed: %s", e)
+    return "numpy"
+
+
 def reset_cache() -> None:
     """Drop the in-memory cache singleton; next lookup re-loads from disk. The
     singleton lives in ``filters._kernel_tuning`` (``_get_cache`` delegates there),
