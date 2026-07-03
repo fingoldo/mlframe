@@ -1024,20 +1024,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # count is bounded by seed_k=4 default. Recipes
     # (``orth_quadruplet_cross``) replay from X only, no y.
     if bool(getattr(self, "fe_hybrid_orth_quadruplet_enable", False)):
-        _is_pandas_for_quad = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_quad:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_quadruplet_enable=True but X is not a "
-                "pandas DataFrame; quadruplet cross-basis FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want quadruplet FE applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_quadruplet_fe import (
                     hybrid_orth_mi_quadruplet_fe_with_recipes,
                 )
+                from .._fe_frame_ops import fe_is_numeric_col, fe_append_columns, fe_extract_columns
                 _y_for_quad = (
                     _y_np
                 )
@@ -1072,7 +1065,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     ]
                 # Numeric-only seed pool: the quadruplet stage applies the same polynomial basis transforms as the triplet stage, so a string / categorical column would raise
                 # "could not convert string to float" and the broad guard below would silently drop the whole quadruplet stage. Categoricals are handled by the dedicated cat FE stages.
-                _q_cols = [c for c in _q_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
+                _q_cols = [c for c in _q_cols if fe_is_numeric_col(X, c)]
                 _q_max_degree = int(
                     getattr(self, "fe_hybrid_orth_quadruplet_max_degree", 1)
                 )
@@ -1114,7 +1107,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     c for c in _q_appended if c.split("__", 1)[0].count("*") == 3
                 ]
                 if _q_quad_only:
-                    X = pd.concat([X, X_q[_q_quad_only]], axis=1)
+                    X = fe_append_columns(X, fe_extract_columns(X_q, _q_quad_only))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or []) + list(_q_quad_only)
                     )
