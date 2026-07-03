@@ -76,18 +76,36 @@ def group_aware_relevance(cols: list, arr: np.ndarray, y: np.ndarray, groups: np
     group-size weights. The ranking-correct relevance signal -- a feature constant within a query scores ~0 here
     (no within-query ranking power) even if its pooled MI is high. Self-contained; does not call the core MI."""
     out: dict = {}
-    uniq = np.unique(groups)
-    sizes = np.array([int(np.sum(groups == g)) for g in uniq], dtype=np.float64)
-    masks = [groups == g for g in uniq]
+    groups = np.asarray(groups)
+    # Sort rows by group ONCE so each query is a contiguous block: the per-(feature, group)
+    # boolean-index copies ``xj[m]``/``y[m]`` (each an O(n) scan of a length-n mask, done
+    # n_features * n_groups times) collapse to O(group_size) slices, and ``y`` per group is
+    # sliced once instead of re-extracted per feature. ``_binned_mi`` is order-invariant
+    # (quantile edges + joint histogram), and groups are visited in the same sorted order the
+    # old ``np.unique`` path used, so the size-weighted accumulation is bit-identical.
+    order = np.argsort(groups, kind="mergesort")
+    gs = groups[order]
+    arr_s = arr[order]
+    y_s = y[order]
+    boundaries = np.flatnonzero(gs[1:] != gs[:-1]) + 1
+    starts = np.concatenate(([0], boundaries))
+    stops = np.concatenate((boundaries, [gs.size]))
+    sizes = (stops - starts).astype(np.float64)
     # Normalise by the sum of CONTRIBUTING (size>=4) group sizes, not all rows: tiny queries are skipped in the accumulation, so dividing by total rows shrinks the size-weighted average toward 0 by the fraction of rows living in those skipped tiny queries -- a systematic downward relevance bias.
     contributing_total = float(sizes[sizes >= 4].sum()) or 1.0
+    ncols = len(cols)
+    acc = np.zeros(ncols, dtype=np.float64)
+    for b in range(starts.size):
+        s = int(starts[b])
+        e = int(stops[b])
+        if e - s < 4:
+            continue
+        y_g = y_s[s:e]
+        w = float(e - s)
+        for j in range(ncols):
+            acc[j] += w * _binned_mi(arr_s[s:e, j], y_g, bins=bins)
     for j, name in enumerate(cols):
-        xj = arr[:, j]
-        acc = 0.0
-        for gi, m in enumerate(masks):
-            if sizes[gi] >= 4:
-                acc += sizes[gi] * _binned_mi(xj[m], y[m], bins=bins)
-        out[name] = acc / contributing_total
+        out[name] = acc[j] / contributing_total
     return out
 
 
