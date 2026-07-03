@@ -37,11 +37,11 @@ def usability_operand_continuous(self, X, cols, var_idx):
         _nm = cols[_i]
         if hasattr(X, "columns"):
             if _nm in getattr(X, "columns", []):
-                return np.asarray(X[_nm], dtype=np.float64).ravel()
+                return np.asarray(X[_nm], dtype=_crit_np_dtype()).ravel()
             return None
         _names = list(getattr(self, "feature_names_in_", []) or [])
         if _nm in _names:
-            return np.asarray(X[:, _names.index(_nm)], dtype=np.float64).ravel()
+            return np.asarray(X[:, _names.index(_nm)], dtype=_crit_np_dtype()).ravel()
         return None
     except Exception:
         return None
@@ -57,6 +57,18 @@ try:
     _ABS_PEARSON_MAX_ROWS = int(os.environ.get("MLFRAME_USABILITY_CORR_MAX_ROWS", "250000"))
 except (ValueError, TypeError):
     _ABS_PEARSON_MAX_ROWS = 250000
+
+
+def _crit_np_dtype():
+    """np.float32 when the precision-critical relaxation is on (``MLFRAME_CRIT_DTYPE_RELAXED``, DEFAULT ON),
+    else np.float64 -- the HOST/numpy mirror of ``_fe_gpu_batch._devices.crit_float_dtype`` (read directly here
+    to keep this a numpy-only leaf module with no cupy import). The usability |corr| feeds WIDE-margin
+    threshold decisions (min_corr 0.6; the tail-concentration gap is ~0.99 vs ~0.06), so operand casts follow
+    the SAME f32 relaxation the discretiser-input / fourier-detrend / prewarp hotspots already use; set the env
+    to 0 to force strict f64 everywhere (matching the rest of MRMR)."""
+    if os.environ.get("MLFRAME_CRIT_DTYPE_RELAXED", "1").strip().lower() in ("0", "false", "off", "no"):
+        return np.float64
+    return np.float32
 
 
 def _corr_stride(n_rows: int) -> int:
@@ -114,9 +126,9 @@ def usability_form_corrs(y, x0, x1):
     (dividing by an unrelated operand only ADDS noise) does not -- so cross pairs and a pure-noise operand are
     rejected without ever measuring them against a canonical baseline."""
     _eps = 1e-12
-    _y = np.asarray(y, dtype=np.float64).ravel()
-    _x0 = np.asarray(x0, dtype=np.float64).ravel()
-    _x1 = np.asarray(x1, dtype=np.float64).ravel()
+    _y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
+    _x0 = np.asarray(x0, dtype=_crit_np_dtype()).ravel()
+    _x1 = np.asarray(x1, dtype=_crit_np_dtype()).ravel()
     _y, _x0, _x1 = _subsample_for_corr(_y, _x0, _x1)  # forms + corr run on the subsample (not just abs_pearson)
 
     def _safe_div(n, d):
@@ -172,9 +184,9 @@ def pair_is_tail_concentrated_rankaware(y, x0, x1, *, min_corr, pairness_margin,
     returns False -> the pre-scan does NOT relax the prevalence bar there (byte-identical). Best-effort:
     any error -> False."""
     try:
-        _y = np.asarray(y, dtype=np.float64).ravel()
-        _x0 = np.asarray(x0, dtype=np.float64).ravel()
-        _x1 = np.asarray(x1, dtype=np.float64).ravel()
+        _y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
+        _x0 = np.asarray(x0, dtype=_crit_np_dtype()).ravel()
+        _x1 = np.asarray(x1, dtype=_crit_np_dtype()).ravel()
         _y, _x0, _x1 = _subsample_for_corr(_y, _x0, _x1)  # subsample once; the ranks + forms below reuse it
         _cp, _cs = usability_form_corrs(_y, _x0, _x1)      # already at cap -> not re-subsampled
         if not (_cp >= float(min_corr) and _cp >= float(pairness_margin) * float(_cs)):
