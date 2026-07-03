@@ -392,6 +392,12 @@ class RFECV(BaseEstimator, TransformerMixin):
         prescreen_top_k: Union[int, None] = None,
         # L7: relevance p-value FDR-level (Benjamini-Yekutieli). 0.05 is the standard default.
         prescreen_fdr_level: float = 0.05,
+        # audit4-C (2026-07-03): honest nested prescreen. The full-data prescreen still defines the SEARCH universe
+        # (legitimate for the final model), but when True the per-fold cv_mean_perf is computed against a prescreen
+        # re-derived on that fold's TRAIN rows only, so a feature that survived the global prescreen purely via
+        # test-fold leakage is dropped in folds where it fails the train-only prescreen -- eliminating the
+        # selection-metric optimism. Default True (honest); set False for the cheaper legacy in-universe estimate.
+        prescreen_nested: bool = True,
         # multioutput_strategy: how to handle a 2D y (multilabel / multi-target regression). sklearn RFE/RFECV is single-target, so we fit one
         # single-target RFECV per output column and aggregate the per-column support_. Default 'union' (OR) just works out of the box -- keeps a
         # feature selected for ANY output (recall-oriented, never drops a feature useful to one target). 'intersect' (AND) keeps only features

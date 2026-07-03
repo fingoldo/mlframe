@@ -101,6 +101,19 @@ def _eval_fold_body(
     """
     if self.min_train_size and len(train_index) < self.min_train_size:
         return None
+
+    # Nested prescreen (audit4-C honest fix): restrict the searched subset to features that survive THIS fold's
+    # train-only prescreen (precomputed in fit, keyed by the pre-frac fold train-index bytes). A feature that
+    # survived the global prescreen only via this fold's test rows is dropped here, so the fold score is honest.
+    # If the mask would empty the subset, keep it unmasked for this (degenerate) fold rather than fit 0 features.
+    _pfu = getattr(self, "_prescreen_fold_universes", None)
+    if _pfu is not None:
+        _fold_set = _pfu.get(hash(np.ascontiguousarray(np.asarray(train_index), dtype=np.int64).tobytes()))
+        if _fold_set is not None:
+            _masked = [f for f in current_features if f in _fold_set]
+            if _masked:
+                current_features = _masked
+
     if frac:
         size = int(len(train_index) * frac)
         if size > 10:

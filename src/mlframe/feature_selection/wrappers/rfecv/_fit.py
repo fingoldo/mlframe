@@ -137,6 +137,38 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
     return candidate_features
 
 
+def _fold_universe_key(train_index) -> int:
+    """Stable key for a fold's train rows: hash of the contiguous int64 index bytes. Deterministic splitters yield
+    the same train_index on every ``cv.split`` call, so this matches between the upfront precompute and the fold
+    loop regardless of fold ORDER."""
+    return hash(np.ascontiguousarray(np.asarray(train_index), dtype=np.int64).tobytes())
+
+
+def _precompute_prescreen_fold_universes(self, *, X, y, groups, cv, full_features, verbose):
+    """Run the configured prescreen on EACH fold's train rows only (over the full pre-prescreen universe), returning
+    ``{train_index_key: frozenset(kept_features)}``. Computed once (n_folds prescreen passes) and reused across every
+    outer iteration since the splits are fixed. Returns None on any failure so scoring falls back to the global
+    (in-universe) estimate rather than crashing."""
+    universes: dict = {}
+    y_arr = np.asarray(y)
+    try:
+        for _tr_idx, _te_idx in cv.split(X=X, y=y, groups=groups):
+            key = _fold_universe_key(_tr_idx)
+            if key in universes:
+                continue
+            X_tr = X.iloc[_tr_idx]
+            y_tr = y_arr[_tr_idx]
+            kept = _apply_prescreen(self, X=X_tr, y=y_tr, candidate_features=full_features, verbose=False)
+            universes[key] = frozenset(kept)
+    except Exception as exc:
+        if verbose:
+            logger.warning("Nested prescreen precompute failed (%s); using the global in-universe estimate.", exc)
+        return None
+    if verbose:
+        logger.info("RFECV nested prescreen: precomputed train-only universes for %d fold(s).", len(universes))
+    return universes
+
+
 def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, sample_weight: Union[np.ndarray, pd.Series, None] = None, **fit_params):
     # scipy.sparse X is not first-class across the dense-frame-centric FS pipeline; densify at the boundary so the
     # existing ndarray path handles it. Gated on dense size per the project RAM rule -- a sparse matrix whose dense
@@ -355,7 +387,14 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # Treat ``cv_mean_perf`` with a prescreen as a ranking signal, not an unbiased generalisation estimate; take
     # the honest number from a truly held-out evaluation. Default is prescreen=None (no optimism).
     _prescreen = getattr(self, "prescreen", None)
+    self._prescreen_fold_universes = None
+    self._prescreen_full_features = None
     if _prescreen is not None and len(original_features) > 0:
+        # Stash the PRE-prescreen universe so the nested per-fold prescreen (below) can re-derive, on each fold's
+        # train rows, which of these features would survive -- a feature kept globally only via test-fold leakage
+        # then drops out of the folds where it fails the train-only prescreen.
+        if getattr(self, "prescreen_nested", True):
+            self._prescreen_full_features = list(original_features)
         _kept = _apply_prescreen(
             self, X=X, y=y, candidate_features=original_features, verbose=verbose,
         )
@@ -378,6 +417,15 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     )
     # Expose the resolved splitter for introspection (auto-detect tests / callers checking which CV strategy was picked).
     self.cv_ = cv
+
+    # Nested prescreen (audit4-C honest fix): precompute, once, each fold's prescreen universe from its TRAIN rows
+    # only, keyed by the fold's train-index bytes. _eval_fold_body masks the searched subset to the fold universe so
+    # cv_mean_perf never benefits from a feature that survived the global prescreen only via that fold's test rows.
+    # DataFrame-only (the reliable prescreen path); ndarray X keeps the global (in-universe) estimate.
+    if self._prescreen_full_features is not None and isinstance(X, pd.DataFrame):
+        self._prescreen_fold_universes = _precompute_prescreen_fold_universes(
+            self, X=X, y=y, groups=groups, cv=cv, full_features=self._prescreen_full_features, verbose=verbose,
+        )
 
     progressbar_prefix = "RFECV:"
     iters_pbar = tqdmu(
