@@ -226,9 +226,17 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
     # unique that compares == 0 or == 1. So when no unique is bool AND none equals
     # 0/1, no collision is possible and the per-unique fast path is bit-identical;
     # otherwise fall back to the exact per-row loop (rare: bool-in-object column).
-    _bool_risk = any(isinstance(v, (bool, np.bool_)) for v in uniq) or any(
-        (not (isinstance(v, float) and v != v)) and (v == 0 or v == 1) for v in uniq
-    )
+    # The factorize/per-row token divergence (True/1/1.0 collapse to one code, but the per-row map emits distinct
+    # "True" vs "1") requires a bool AND an ==-equal numeric (0/1) to COEXIST -- a 0/1 WITHOUT a bool factorizes to
+    # its own canonical token, bit-identical to the per-row map. So gate on AND, not OR, and vectorise the 0/1 test
+    # (object elementwise; NaN/str -> False), so a high-card numeric-object column that merely CONTAINS a 0/1 value
+    # takes the fast path (~8x @100k) instead of the per-row fallback; the bool scan is short-circuited away entirely
+    # when no 0/1 is present (the overwhelming common case).
+    try:
+        _has_01 = bool(np.asarray((uniq == 0) | (uniq == 1)).any())
+    except Exception:
+        _has_01 = any((not (isinstance(v, float) and v != v)) and (v == 0 or v == 1) for v in uniq)
+    _bool_risk = _has_01 and any(isinstance(v, (bool, np.bool_)) for v in uniq)
     if not _bool_risk:
         toks = np.empty(len(uniq), dtype=object)
         for j, v in enumerate(uniq):
