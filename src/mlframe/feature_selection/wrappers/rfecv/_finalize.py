@@ -166,20 +166,25 @@ def _finalize_fit_results(
 
     # Glue must_include into the final support_. The optimiser produced support_ over the search-universe complement only;
     # must_include features are always in the final selection regardless of what the optimiser picked.
-    if must_include_resolved and hasattr(self, "support_") and len(self.support_) > 0:
-        if isinstance(self.support_[0], (bool, np.bool_)):
-            # support_ is bool-mask aligned with feature_names_in_; set the must_include positions to True.
+    if must_include_resolved and hasattr(self, "support_"):
+        idx_must = [self.feature_names_in_.index(c) for c in must_include_resolved if c in self.feature_names_in_]
+        if len(self.support_) > 0 and isinstance(self.support_[0], (bool, np.bool_)):
+            # support_ is a bool-mask aligned with feature_names_in_; set the must_include positions to True.
             support_mask = np.asarray(self.support_, dtype=bool)
-            for col in must_include_resolved:
-                if col in self.feature_names_in_:
-                    support_mask[self.feature_names_in_.index(col)] = True
+            for _i in idx_must:
+                support_mask[_i] = True
             self.support_ = support_mask
+            self.n_features_ = int(np.sum(self.support_))
         else:
-            # support_ is integer indices; prepend must_include positions.
-            idx_must = [self.feature_names_in_.index(c) for c in must_include_resolved if c in self.feature_names_in_]
-            merged = list(idx_must) + [i for i in self.support_ if i not in idx_must]
-            self.support_ = np.asarray(merged)
-        self.n_features_ = int(np.sum(self.support_)) if isinstance(self.support_[0], (bool, np.bool_)) else len(self.support_)
+            # Integer indices OR an EMPTY support_ (the optimiser selected nothing -- e.g. must_include covers
+            # the whole search universe, or only nfeatures==0 was evaluable). The pinned features are ALWAYS
+            # in the final selection, so seed support_ with their indices. Previously an empty support_ was
+            # skipped by a ``len(support_)>0`` gate, silently DROPPING the pins and leaving n_features_=0 with
+            # a shape-inconsistent (length-0) support_ despite must_include being requested.
+            existing = [int(i) for i in self.support_] if len(self.support_) > 0 else []
+            merged = list(idx_must) + [i for i in existing if i not in idx_must]
+            self.support_ = np.asarray(merged, dtype=int)
+            self.n_features_ = len(self.support_)
 
     # feature_groups: all-or-nothing decision per group. If ANY member of group G is in support_, ALL members are added; if NONE, all
     # stay out. Resolves the "5 collinear copies" caveat at config level when the operator knows the group structure.
