@@ -271,6 +271,8 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
             get_pid_synergy_bonus as _get_pid, get_cmi_perm_stop as _get_cmi,
             use_mi_miller_madow as _use_mm,
         )
+        from .info_theory._state_and_dispatch import get_group_mi as _get_gmi
+        _gmi_snapshot = _get_gmi()
         _su_snapshot = bool(_use_su())
         _jmim_snapshot = bool(_use_jmim())
         _bur_snapshot = float(_get_bur())
@@ -319,6 +321,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
                 pid_synergy_bonus=_pid_snapshot,
                 cmi_perm=_cmi_snapshot,
                 mi_miller_madow=_mm_snapshot,
+                group_mi=_gmi_snapshot,
             )
             for workload in split_list_into_chunks(feasible_candidates, max(1, len(feasible_candidates) // n_workers))
         )

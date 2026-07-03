@@ -33,6 +33,8 @@ from .info_theory import (
     get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop,
 )
 from .permutation import mi_direct
+from .info_theory._state_and_dispatch import get_group_mi
+from .info_theory._group_mi import group_relevance_mi
 
 logger = logging.getLogger(__name__)
 
@@ -485,7 +487,21 @@ def evaluate_candidate(
         direct_gain, _ = cached_confident_MIs[X]
         direct_gain = _su_normalize_relevance(direct_gain, X, y, factors_data, factors_nbins, dtype)
     else:
-        if X in cached_MIs:
+        _gmi = get_group_mi()
+        _grp_gain = float("nan")
+        if _gmi is not None and X not in cached_MIs:
+            # Group-aware relevance: per-group I(X;Y|G) (MM-debiased) instead of the global MI. Bypasses the GPU +
+            # permutation-null path (the per-group MM debias handles the small-sample bias). Returns nan when the
+            # segments do not row-align (subsample), in which case we fall through to the global path. Default OFF.
+            _si, _off, _mr, _sw = _gmi
+            _grp_gain = group_relevance_mi(
+                factors_data, X, classes_y, factors_nbins, len(freqs_y),
+                _si, _off, min_rows=_mr, size_weighted=_sw, dtype=dtype,
+            )
+        if _grp_gain == _grp_gain:  # not nan -> group-aware relevance succeeded
+            direct_gain = _grp_gain
+            cached_MIs[X] = direct_gain
+        elif X in cached_MIs:
             direct_gain = cached_MIs[X]
         else:
             # 2026-05-30 Wave 9.1 fix (XOR-synergy regression):

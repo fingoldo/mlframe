@@ -30,6 +30,7 @@ from .info_theory import (
     get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop,
     set_relaxmrmr_alpha, set_pid_synergy_bonus, set_cmi_perm_stop,
     use_mi_miller_madow, set_mi_miller_madow,
+    get_group_mi, set_group_mi,
 )
 
 # Helpers + the module-level JMIM cache stats deque live in the parent ``evaluation.py``. These are
@@ -199,6 +200,7 @@ def evaluate_candidates(
     pid_synergy_bonus: float = 0.0,
     cmi_perm: tuple = (False, 0.05, 100),
     mi_miller_madow: bool = False,
+    group_mi=None,
 ) -> None:
 
     # Worker-thread re-publish of Wave 8 toggles (iter 5 fix). The
@@ -215,6 +217,8 @@ def evaluate_candidates(
     _prev_pid = get_pid_synergy_bonus()
     _prev_cmi = get_cmi_perm_stop()
     _prev_mm = use_mi_miller_madow()
+    _prev_gmi = get_group_mi()
+    set_group_mi(group_mi)
     set_su_normalization(bool(use_su))
     set_jmim_aggregator(bool(use_jmim))
     set_bur_lambda(float(bur_lambda))
@@ -250,6 +254,7 @@ def evaluate_candidates(
         set_pid_synergy_bonus(_prev_pid)
         set_cmi_perm_stop(_prev_cmi[0], _prev_cmi[1], _prev_cmi[2])
         set_mi_miller_madow(_prev_mm)
+        set_group_mi(_prev_gmi)
 
 
 def _evaluate_candidates_inner(
