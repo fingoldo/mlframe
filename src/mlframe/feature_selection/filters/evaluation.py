@@ -610,7 +610,15 @@ def evaluate_candidate(
             # var's redundancy against the candidate, so a feature fully redundant with the
             # most-recently-selected var could survive. For order >= 2 evaluate from scratch (re-min over
             # ALL combinations incl. the new ones); order == 1 keeps the byte-identical resume optimisation.
-            if cand_idx in partial_gains:
+            # S-F4: the early-exit + resume below assume the stored partial gain is a running MIN (a monotone lower
+            # bound). That holds for the standard MRMR min-redundancy objective, but NOT when
+            # ``extra_knowledge_multipler > 0``: evaluate_gain then flips to positive_mode = MAX over Z of the
+            # extra-knowledge term, so a later Z (or a newly-selected var) can yield a HIGHER score. The
+            # ``_stored_gain <= best_gain -> return`` would wrongly prune a candidate whose best synergy is with a
+            # newly-added var, and positive_mode is reset each entry (not persisted across resume calls). Re-evaluate
+            # from scratch on the extra-knowledge path (perf cost only; the knob is off by default, -1.0). No-op on
+            # the default path, which keeps the byte-identical resume optimisation.
+            if cand_idx in partial_gains and not (extra_knowledge_multipler > 0):
                 _stored_gain, _stored_k = partial_gains[cand_idx]
                 # EARLY-EXIT is safe at ANY interactions_order: the stored partial gain is a running MIN
                 # over the combinations checked so far, so the FINAL gain (min over MORE combinations) can
