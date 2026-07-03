@@ -143,23 +143,27 @@ def test_expanding_replay_identity(stat, tol):
         pd.Series(pd.Categorical(["x", "y", "x", "z", "y"])),
     ],
 )
-def test_entity_key_series_matches_per_row_str(col):
-    """The vectorized ``.astype(str)`` entity-key cast must produce strings
-    bit-identical to the prior per-row ``str(v)`` map, so factorize codes (and
-    thus the engineered features) are unchanged."""
+def test_entity_key_series_matches_canonical_token(col):
+    """The entity key uses the CANONICAL group token (int<->float drift safe), not a bare per-row ``str``: an
+    integral float ``3.0`` collapses to ``'3'`` so a fit-int / serve-float entity id still hits the same history
+    entry instead of falling to the global prior. Matches ``canonical_group_token`` per value."""
+    from mlframe.feature_selection.filters._internals import canonical_group_token
+
     X = pd.DataFrame({"ent": col})
     got = M._entity_key_series(X, ["ent"])
-    ref = X["ent"].astype(object).map(lambda v: str(v))
-    pd.testing.assert_series_equal(got, ref, check_names=False)
+    ref = X["ent"].astype(object).map(canonical_group_token)
+    pd.testing.assert_series_equal(got, ref, check_names=False, check_dtype=False)
 
 
-def test_entity_key_series_multicol_matches_per_row_str():
+def test_entity_key_series_multicol_matches_canonical_token():
+    from mlframe.feature_selection.filters._internals import canonical_group_token
+
     X = pd.DataFrame(
         {"a": pd.Series([1, 2, 3], dtype="int64"), "b": ["p", "q", "r"]}
     )
     got = M._entity_key_series(X, ["a", "b"])
-    parts = [X[c].astype(object).map(lambda v: str(v)) for c in ("a", "b")]
+    parts = [X[c].astype(object).map(canonical_group_token) for c in ("a", "b")]
     ref = parts[0]
     for p in parts[1:]:
         ref = ref.str.cat(p, sep="\x00")
-    pd.testing.assert_series_equal(got, ref, check_names=False)
+    pd.testing.assert_series_equal(got, ref, check_names=False, check_dtype=False)

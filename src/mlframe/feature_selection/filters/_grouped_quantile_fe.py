@@ -431,6 +431,13 @@ def generate_target_aware_group_bins(
                 test_mask = ~train_mask
                 if not train_mask.any() or not test_mask.any():
                     continue
+                # Small-group fallback edges must be fit on this fold's TRAIN rows only. Using the all-rows
+                # ``global_edges`` (fit on every row INCLUDING the scored fold) let the fold's own y shape the cut
+                # points that then bin it -- a y-leak into the OOF MI score that can float a pure-noise tiny-group bin
+                # above the gate. The persisted recipe below still uses all-rows edges (serving is out-of-sample).
+                _tr_finite = train_mask & np.isfinite(x)
+                fold_global_edges = _fit_group_edges(x[_tr_finite], y_arr[_tr_finite], n_bins) \
+                    if _tr_finite.any() else global_edges
                 for key, rows in group_rows.items():
                     tr = rows[train_mask[rows]]
                     te = rows[test_mask[rows]]
@@ -439,7 +446,7 @@ def generate_target_aware_group_bins(
                     if tr.size >= _MIN_GROUP_SIZE:
                         edges = _fit_group_edges(x[tr], y_arr[tr], n_bins)
                     else:
-                        edges = global_edges
+                        edges = fold_global_edges
                     oof_bin[te] = np.searchsorted(edges, x[te], side="right")
 
             # ---- All-rows refit edges for the persisted recipe ----

@@ -93,12 +93,16 @@ def _entity_key_series(X: pd.DataFrame, entity_cols: Sequence[str]) -> pd.Series
     """Collapse one or more entity columns into a single str key per row,
     index-aligned with X. Multi-column keys join with a NUL separator that
     cannot appear in normal string casts."""
-    # Vectorized ``.astype(str)`` is bit-identical to a per-row ``str(v)``
-    # cast for int/float/object columns but skips the Python-level map (up to
-    # ~12x on string/categorical entity ids, the common case).
+    # Route each entity column through the canonical group token (int<->float drift safe): a bare ``.astype(str)``
+    # makes fit-int ``1`` -> "1" and predict-float ``1.0`` -> "1.0" DIFFERENT keys, so an entity id that arrives as
+    # int64 at fit and float64 at inference (a NaN elsewhere promoting the column, a Parquet round-trip) misses every
+    # ``history`` entry and silently routes every test row to the global prior -- the temporal feature becomes a dead
+    # constant at serving. group_key_strings collapses integral int/float to the same token (per-unique, still fast).
+    from ._internals import group_key_strings
+
     if len(entity_cols) == 1:
-        return X[entity_cols[0]].astype(str)
-    parts = [X[c].astype(str) for c in entity_cols]
+        return pd.Series(group_key_strings(X[entity_cols[0]]), index=X.index)
+    parts = [pd.Series(group_key_strings(X[c]), index=X.index) for c in entity_cols]
     key = parts[0]
     for p in parts[1:]:
         key = key.str.cat(p, sep="\x00")
