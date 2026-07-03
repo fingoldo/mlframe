@@ -2873,6 +2873,18 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         store_params_in_object(obj=self, params=get_parent_func_args())
         self.signature = None
 
+    def __repr__(self, N_CHAR_MAX: int = 700) -> str:
+        # ``n_workers`` (candidate-MI evaluation parallelism; default 1 = SERIAL, the fast path) is hidden by sklearn's
+        # repr because it equals its default, while ``n_jobs`` shows RESOLVED (-1 -> cpu_count) and is easily misread as
+        # "MI runs on n_jobs threads". n_jobs only drives CPU sub-helpers (permutation-null MI, wide-frame nbins edges),
+        # each self-gated (pair-search forces serial under GPU-strict). Surface n_workers so the parallelism is unambiguous.
+        r = super().__repr__(N_CHAR_MAX=N_CHAR_MAX)
+        if "n_workers=" not in r and r.endswith(")"):
+            _inner = r[:-1]
+            _sep = "" if _inner.endswith("(") else ", "
+            r = f"{_inner}{_sep}n_workers={getattr(self, 'n_workers', 1)})"
+        return r
+
     # Constructor-param validation allow-lists. Carved VERBATIM into the leaf module
     # ``_mrmr_param_constants.py`` (no class refs -> no cycle) and re-bound here as class
     # attributes so ``self._VALID_*`` resolution stays byte-identical (the validator in
