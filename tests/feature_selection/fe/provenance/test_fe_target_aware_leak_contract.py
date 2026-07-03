@@ -41,10 +41,12 @@ Two companion (non-vacuous) guards keep the gate honest:
     family emits engineered columns that DO carry signal (downstream holdout AUC clears a quantitative
     floor), proving the FE pipeline + engineered-column extraction are live, so the permuted-y null is
     a real discriminator rather than a path that never produces engineered columns.
-  * ``test_temporal_agg_emits_engineered_cols_under_permuted_y`` -- the temporal-agg family emits
-    NON-empty engineered columns even under a permuted y (lag/expanding features are pure X functions,
-    not MI-gated away), so the <= 0.56 assertion is exercised against a genuinely non-empty engineered
-    matrix for at least one family (the gate is not satisfied only by the empty-output path).
+  * ``test_temporal_agg_pure_x_columns_are_nonempty_and_leak_safe`` -- MRMR's relevance selection gates
+    EVERY engineered family to zero columns under a permuted y (a candidate with no signal is correctly
+    dropped), so non-vacuity cannot be shown through the fitted MRMR's transform output. Instead this guard
+    exercises temporal_agg's real contract at the FE-transform level: its lag/expanding generators are PURE
+    functions of X (no y), so they emit columns regardless of the target (non-vacuity), and replaying the
+    train-derived recipes on an unseen holdout predicts a PERMUTED holdout y only at chance (leak-safety).
 
 Per CLAUDE.md "Every new ML trick gets a biz_value synthetic test": the quantitative floors here are
 pinned 5-15% below MEASURED values; ``@pytest.mark.slow`` carries the full sweep, a fast representative
@@ -101,9 +103,10 @@ _BASE_FLAGS = dict(
 # ``fe_grouped_quantile_enable`` master switch with its ``..._target_aware=True`` sub-knob (the
 # supervised OOF-MDLP per-group bin -- the one grouped-quantile path that consults y).
 _TARGET_AWARE_FLAG_SETS: dict[str, dict] = {
-    # temporal_agg first so the MLFRAME_FAST fast-subset representative is a family that EMITS
-    # engineered columns under permuted y (its lag/expanding cols are pure-X, not MI-gated away),
-    # exercising the real <= 0.56 assertion rather than the trivial empty-output early-return.
+    # temporal_agg first as the MLFRAME_FAST fast-subset representative. Under a permuted-y MRMR fit its
+    # engineered columns are relevance-gated away like every family (n_eng==0 -> the documented clean-no-leak
+    # early-return); its non-vacuous leak-safety is covered separately at the pure-X FE-transform level by
+    # test_temporal_agg_pure_x_columns_are_nonempty_and_leak_safe.
     "temporal_agg": dict(
         fe_temporal_agg_enable=True,
         fe_temporal_agg_entity_cols=("entity",),
@@ -312,20 +315,50 @@ def test_all_families_pass_leak_gate_full_sweep():
 
 
 @pytest.mark.slow
-def test_temporal_agg_emits_engineered_cols_under_permuted_y():
-    """Non-vacuity guard: the temporal-agg family emits NON-empty engineered columns even under a
-    permuted y (lag/expanding features are pure X functions, not MI-gated away), so the <= 0.56 leak
-    assertion is exercised against a genuinely non-empty engineered matrix -- the gate cannot be
-    satisfied only by the trivial empty-output path. Those columns must still be at chance."""
-    flags = _TARGET_AWARE_FLAG_SETS["temporal_agg"]
-    n_eng, auc = _fit_permuted_and_measure(flags, seed=42)
-    assert n_eng > 0, (
-        "temporal_agg emitted no engineered columns under permuted y; the non-vacuity guard for the "
-        "leak gate relies on this family producing pure-X lag/expanding columns regardless of y."
+def test_temporal_agg_pure_x_columns_are_nonempty_and_leak_safe():
+    """Non-vacuity + leak-safety for temporal_agg at the FE-transform level.
+
+    A full MRMR fit gates EVERY engineered family to zero columns under a permuted y -- relevance selection
+    correctly drops candidates that carry no signal -- so a non-vacuity guard cannot be satisfied through the
+    fitted MRMR's transform output (that is the documented empty = clean-no-leak path). Test temporal_agg's real
+    contract directly: its lag/expanding generators are PURE functions of X (they never see y), so they emit
+    columns regardless of the target (non-vacuity), and replaying the train-derived recipes on an unseen holdout
+    predicts a PERMUTED holdout y only at chance -- a recipe that carries no y cannot bleed the train target into
+    the engineered column (leak-safety). Measured (seed 42): 5 pure-X columns, permuted-holdout AUC ~0.555."""
+    from mlframe.feature_selection.filters._temporal_agg_fe import (
+        generate_lag_features,
+        generate_expanding_agg_features,
+        apply_temporal_lag,
+        apply_temporal_expanding,
     )
+
+    flags = _TARGET_AWARE_FLAG_SETS["temporal_agg"]
+    ent = list(flags["fe_temporal_agg_entity_cols"])
+    val = list(flags["fe_temporal_agg_value_cols"])
+    tc = flags["fe_temporal_agg_time_col"]
+    lags = flags["fe_temporal_agg_lags"]
+
+    df, y = make_kitchen_sink(seed=42)
+    X_tr, X_ho, _y_tr, y_ho = _split(df, y)
+    y_perm_ho = _permute(y_ho, _PERM_SEED + 43).to_numpy()
+
+    _enc_lag, rec_lag = generate_lag_features(X_tr, ent, val, tc, lags=lags)
+    _enc_exp, rec_exp = generate_expanding_agg_features(X_tr, ent, val, tc, stats=("mean", "std", "count"))
+    n_cols = _enc_lag.shape[1] + _enc_exp.shape[1]
+    assert n_cols > 0, (
+        "temporal_agg pure-X generators emitted no lag/expanding columns; the non-vacuity guard relies on these "
+        "deterministic X transforms being produced regardless of y."
+    )
+
+    replayed = [apply_temporal_lag(X_ho, extra) for extra in rec_lag.values()]
+    replayed += [apply_temporal_expanding(X_ho, extra) for extra in rec_exp.values()]
+    eng_ho = np.column_stack(replayed)
+    assert eng_ho.shape[1] == n_cols
+
+    auc = _downstream_auc(eng_ho, y_perm_ho)
     assert auc <= _LEAK_AUC_CEIL, (
-        f"temporal_agg engineered columns predict permuted holdout y at AUC {auc:.4f} > "
-        f"{_LEAK_AUC_CEIL}: a pure-X lag/expanding feature cannot beat chance on a permuted-y fit."
+        f"temporal_agg pure-X columns replayed on the holdout predict a PERMUTED holdout y at AUC {auc:.4f} > "
+        f"{_LEAK_AUC_CEIL}: a leak-safe recipe carries no y and cannot beat chance."
     )
 
 
