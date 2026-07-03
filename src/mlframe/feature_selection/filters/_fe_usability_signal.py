@@ -15,6 +15,8 @@ decision untouched (canonical fixtures never loosened on error).
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 
@@ -45,10 +47,30 @@ def usability_operand_continuous(self, X, cols, var_idx):
         return None
 
 
+# Row cap for the usability |corr| estimate. Pearson |corr| is a population statistic a large deterministic
+# subsample estimates to ~1e-3, while every consumer compares it against WIDE-margin thresholds (min_corr
+# 0.6; the tail-concentration gap is ~0.99 vs ~0.06). A STRIDED subsample preserves the outlier proportion
+# (hence the outlier-inflated |corr| the tail-concentration signal depends on), so the keep/reject decisions
+# stay selection-equivalent while the per-call cost drops ~n/cap (abs_pearson runs ~8 full-n passes and is
+# called a few hundred times per fit). Env-tunable; 0 -> full-n. 250k is already sub-1e-3 for the corr.
+try:
+    _ABS_PEARSON_MAX_ROWS = int(os.environ.get("MLFRAME_USABILITY_CORR_MAX_ROWS", "250000"))
+except (ValueError, TypeError):
+    _ABS_PEARSON_MAX_ROWS = 250000
+
+
 def abs_pearson(y, v):
     """``|Pearson corr|`` of ``y`` vs ``v`` over jointly-FINITE rows; 0.0 when <2 valid rows or either is
     constant / non-finite. Outlier-inflated by construction -- which is exactly the tail-concentrated signal
-    the coarse rank-MI under-credits."""
+    the coarse rank-MI under-credits. Above ``_ABS_PEARSON_MAX_ROWS`` a deterministic strided subsample is
+    used (outlier-proportion preserving, selection-equivalent -- see the constant note)."""
+    y = np.asarray(y)
+    v = np.asarray(v)
+    if _ABS_PEARSON_MAX_ROWS > 0 and y.shape[0] > _ABS_PEARSON_MAX_ROWS:
+        _stride = int(y.shape[0] // _ABS_PEARSON_MAX_ROWS)
+        if _stride > 1:
+            y = y[::_stride]
+            v = v[::_stride]
     m = np.isfinite(y) & np.isfinite(v)
     if int(m.sum()) < 2:
         return 0.0
