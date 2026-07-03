@@ -139,6 +139,14 @@ def _heldout_uplift_gpu(cp, xg, yg, tau: float, min_rows: int) -> float:
     return float(r2_hinge - r2_lin)
 
 
+def _hinge_max_rows() -> int:
+    """Row cap for the hinge breakpoint search (0 = full-n). See the subsample note in the function body."""
+    try:
+        return int(os.environ.get("MLFRAME_HINGE_MAX_ROWS", "250000"))
+    except (ValueError, TypeError):
+        return 250000
+
+
 def detect_hinge_breakpoints_gpu(
     x: np.ndarray,
     y: np.ndarray,
@@ -173,6 +181,19 @@ def detect_hinge_breakpoints_gpu(
                 return []
         if float(np.std(x)) < 1e-12 or float(np.std(y)) < 1e-12:
             return []
+
+        # SUBSAMPLE CAP: the breakpoint SELECTION (which tau clears ``min_heldout_r2_uplift``) is a threshold
+        # decision on a held-out R^2 -- a large strided subsample estimates that uplift well within the decision
+        # margin, while the full-n FWL/projection SSEs are the per-call cost. Selection-equivalent (the detector
+        # only proposes tau candidates; the FE gate re-scores the built feature). Env MLFRAME_HINGE_MAX_ROWS
+        # (default 250k, 0=full-n). The finite/std guards above already ran on the full column.
+        _hmax = _hinge_max_rows()
+        if _hmax > 0 and n > _hmax:
+            _st = int(n // _hmax)
+            if _st > 1:
+                x = x[::_st]
+                y = y[::_st]
+                n = int(x.size)
 
         xg = cp.asarray(x)
         yg = cp.asarray(y)
