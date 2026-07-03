@@ -567,11 +567,17 @@ def validate_load_meta_sidecar(
 # in-memory unpickled form is typically larger still and a 4 GB CatBoost model would exhaust
 # the inference host's RAM if cached.
 _LOAD_MODEL_CACHE: "OrderedDict[tuple, object]" = OrderedDict()
+import threading as _threading  # noqa: E402
+# Guards every mutation of _LOAD_MODEL_CACHE (get+move_to_end / store / popitem). A long-lived inference
+# service calls load_mlframe_model concurrently from request threads; without this, concurrent move_to_end /
+# popitem can raise "OrderedDict mutated during iteration" or corrupt the LRU order.
+_LOAD_MODEL_CACHE_LOCK = _threading.Lock()
 
 
 def _load_model_cache_clear() -> None:
     """Reset the inference-side ``load_mlframe_model`` cache. Useful in tests + when an operator wants to force a fresh load (e.g. after a model dir mass-update)."""
-    _LOAD_MODEL_CACHE.clear()
+    with _LOAD_MODEL_CACHE_LOCK:
+        _LOAD_MODEL_CACHE.clear()
 
 
 def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = False) -> Optional[object]:
@@ -606,9 +612,14 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
             _max_mb = 2048.0
         if _st.st_size <= _max_mb * (1024 ** 2):
             _cache_key = (_abs, _st.st_mtime_ns, bool(safe))
-            _hit = _LOAD_MODEL_CACHE.get(_cache_key)
+            with _LOAD_MODEL_CACHE_LOCK:
+                _hit = _LOAD_MODEL_CACHE.get(_cache_key)
+                if _hit is not None:
+                    _LOAD_MODEL_CACHE.move_to_end(_cache_key)
             if _hit is not None:
-                _LOAD_MODEL_CACHE.move_to_end(_cache_key)
+                # NOTE: this is the SHARED cached object (not a copy). Callers MUST NOT mutate it in place --
+                # e.g. clean_mlframe_model() strips fields in place and would poison every later cache hit for
+                # this (path, mtime). Copy first, or call _load_model_cache_clear(), if you need to mutate.
                 return _hit
     except OSError:
         # Path doesn't exist or stat refused; fall through to the real loader which will surface the real error.
@@ -646,14 +657,15 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
                     )
                     model = dill.load(zf)
         if _cache_key is not None:
-            _LOAD_MODEL_CACHE[_cache_key] = model
             _max_count_env = os.environ.get("MLFRAME_LOAD_MODEL_CACHE_MAX", "32")
             try:
                 _max_count = max(1, int(_max_count_env))
             except ValueError:
                 _max_count = 32
-            while len(_LOAD_MODEL_CACHE) > _max_count:
-                _LOAD_MODEL_CACHE.popitem(last=False)
+            with _LOAD_MODEL_CACHE_LOCK:
+                _LOAD_MODEL_CACHE[_cache_key] = model
+                while len(_LOAD_MODEL_CACHE) > _max_count:
+                    _LOAD_MODEL_CACHE.popitem(last=False)
         return model
     except Exception as e:
         # logger.exception captures the traceback automatically so the
@@ -670,6 +682,11 @@ def clean_mlframe_model(model: SimpleNamespace) -> SimpleNamespace:
 
     Removes prediction arrays, target arrays, and outlier detection indices
     that are typically not needed after training.
+
+    WARNING (audit5): mutates ``model`` IN PLACE. Do NOT call it on an object returned by
+    ``load_mlframe_model`` that may be served again from the warm cache -- the stripped fields would then be
+    missing for every later cache hit of the same (path, mtime). Clean a fresh copy, or call
+    ``_load_model_cache_clear()`` first.
 
     Args:
         model: The model namespace to clean.

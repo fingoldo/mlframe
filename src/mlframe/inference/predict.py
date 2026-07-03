@@ -145,6 +145,14 @@ def read_trained_models(
     if features is None:
         features = X.columns.to_list()
     else:
+        # audit5: a features file listing a column absent from X otherwise raised a cryptic KeyError. Surface a
+        # clear, actionable error naming the missing columns.
+        _missing = [c for c in features if c not in X.columns]
+        if _missing:
+            raise ValueError(
+                f"read_trained_models: the features file for '{featureset}' lists columns absent from X: "
+                f"{_missing[:10]}{' ...' if len(_missing) > 10 else ''}"
+            )
         X = X[features]
 
     sidecar_suffixes = (".sha256",)
