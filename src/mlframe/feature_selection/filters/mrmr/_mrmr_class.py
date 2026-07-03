@@ -3329,6 +3329,12 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # Both default OFF (redundancy_aggregator=None, bur_lambda=0.0) so the
         # legacy Fleuret path stays bit-stable.
         _redundancy_agg = getattr(self, "redundancy_aggregator", None)
+        if _redundancy_agg not in (None, "jmim", "auto"):
+            # A typo (e.g. 'JMIM', 'jimm') would otherwise silently fall through to plain Fleuret with no signal
+            # that the requested aggregator was ignored -- fail loudly instead.
+            raise ValueError(
+                f"redundancy_aggregator must be one of None, 'jmim', 'auto'; got {_redundancy_agg!r}."
+            )
         if _redundancy_agg == "auto":
             # Data-dependent gate: run a cheap pre-fit synergy probe on (X, y). Route to JMIM only when the
             # data is synergistic (XOR / sign-product pairs whose joint >> marginals); else stay plain

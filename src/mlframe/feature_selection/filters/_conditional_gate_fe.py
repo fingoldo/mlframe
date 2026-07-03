@@ -359,7 +359,10 @@ def _is_argmax_eligible(x: np.ndarray) -> bool:
     a = np.asarray(x)
     if not np.issubdtype(a.dtype, np.number):
         return False
-    return bool(np.all(np.isfinite(a[np.isfinite(a)] if a.size else a)))
+    # Test the WHOLE column: a column with any NaN/inf has no total order for argmax / gating and must be excluded.
+    # (The prior form ``isfinite(a[isfinite(a)])`` pre-filtered to the finite subset, so the check was always True
+    # and NaN columns slipped through, producing NaN taus / first-NaN argmax codes / constant gate features.)
+    return bool(a.size == 0 or np.isfinite(a).all())
 
 
 @dataclass(frozen=True)

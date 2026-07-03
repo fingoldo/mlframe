@@ -278,7 +278,9 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
                     _raw_mi_all.sort(key=lambda kv: (-kv[1], kv[0]))
                     _topk = [_raw_mi_all[0][0]]
             if _topk:
-                self.support_ = np.array(_topk)
+                # int64 to match every other support_ assignment in the fit body; a bare np.array(list[int]) is
+                # int32 on Windows, an inconsistency that can bite dtype-sensitive downstream concatenation.
+                self.support_ = np.array(_topk, dtype=np.int64)
                 self.n_features_ = len(_topk) + n_engineered_out
                 self.fallback_used_ = True
                 _top_mi = float(_raw_mi[0][1]) if _raw_mi else 0.0
