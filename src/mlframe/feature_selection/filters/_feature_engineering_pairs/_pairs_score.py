@@ -46,6 +46,11 @@ from ._pairs_materialise import (
     _njit_binary_op_codes,
 )
 from ._pairs_emit import _emit_pair_features
+from ._pairs_gates import mi_tie_band
+from .._fe_usability_signal import (  # shared leaf detectors (numpy-only, no cycle)
+    pair_is_tail_concentrated,
+    tail_concentration_form_override,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +116,9 @@ def _score_one_pair(
     fe_multi_emit_max_per_pair,
     fe_multi_emit_mi_floor,
     fe_multi_emit_diversity_corr,
+    fe_pair_usability_admission_enable=True,
+    fe_pair_usability_admission_min_corr=0.6,
+    fe_pair_usability_admission_pairness_margin=1.05,
     # --- cols / subsample / fitted state ---
     cols,
     original_cols,
@@ -1002,6 +1010,98 @@ def _score_one_pair(
                     f"admitting the genuine synergy pair."
                 )
 
+    # TAIL-CONCENTRATION USABILITY ADMISSION + WINNER PROMOTION (2026-07-03). Under heavy operand outliers a
+    # genuine ratio (a**2/b) is TAIL-CONCENTRATED: in the clean bulk its rank association with y collapses
+    # (Spearman ~0), so its rank-MI sits in a tight noise band where a SPURIOUS form out-ranks the true ratio
+    # by a REAL margin the tie band cannot bridge (F2 with_outliers: min(reciproc(a),sign(b)) rank-MI 0.073
+    # beats the true div(sqr(a),b) 0.063), AND the whole pair's best rank-MI fails the engineered-MI joint /
+    # marginal-uplift gates (0.073/0.094 = 0.78 < the 0.90+ bar). Both failures are the SAME rank-MI blind
+    # spot: the distinguishing signal is LINEAR (|corr(continuous y)| 0.986 true vs 0.371 spurious, corr
+    # outlier-inflated -- exactly right for a tail signal). Detect tail concentration on the RAW operands vs
+    # the continuous y (``pair_is_tail_concentrated`` -- best bivariate-form |corr| clears the bar AND beats
+    # the best single-operand form by the pairness margin, so cross-mix / lone-dominant-operand / noise pairs
+    # are rejected). When detected, PROMOTE the |corr|-best engineered FORM as the winner: this (a) admits the
+    # pair when every rank-MI gate declined (``_usability_accept``) and (b) both widens the emit leader set to
+    # include the true form -- its rank-MI is BELOW ``fe_good_to_best_feature_mi_threshold`` x the spurious
+    # leader, so it would otherwise be excluded -- and flips the winner-selection primary key to |corr|
+    # (``_usability_primary``) so the true ratio wins. The rank-vs-|corr| DISAGREEMENT gate
+    # (``tail_concentration_form_override``) makes it a strict no-op on the 4 passing F2 profiles + canonical
+    # fixtures (there the ratio is BOTH the rank-MI and |corr| leader, so nothing is promoted). Best-effort:
+    # any error leaves the rank-MI decision untouched.
+    _usability_accept = False
+    _usability_primary = False
+    if (
+        bool(fe_pair_usability_admission_enable)
+        and _corr_y_cont is not None
+        and pair_mi > 0.0
+        and best_config is not None
+        and var_pairs_perf
+        and (final_transformed_vals is not None or _this_chunk_deferred)
+    ):
+        try:
+            _tc_x0 = _extval_raw_col(raw_vars_pair[0])
+            _tc_x1 = _extval_raw_col(raw_vars_pair[1])
+            # PART A (cheap raw-operand pre-filter): the pair must be genuinely tail-concentrated -- its best
+            # RAW bivariate form clears ``min_corr`` AND beats the best single-operand form by the pairness
+            # margin. FALSE for noise pairs (best-form |corr| ~0.02-0.2) and lone-dominant-operand pairs, so
+            # the per-form materialise in PART B is skipped for the common case.
+            if (
+                _tc_x0 is not None and _tc_x1 is not None
+                and np.asarray(_tc_x0).shape[0] == _corr_y_cont.shape[0]
+                and np.asarray(_tc_x1).shape[0] == _corr_y_cont.shape[0]
+                and pair_is_tail_concentrated(
+                    _corr_y_cont, _tc_x0, _tc_x1,
+                    min_corr=fe_pair_usability_admission_min_corr,
+                    pairness_margin=fe_pair_usability_admission_pairness_margin,
+                )
+            ):
+                # PART B (rank-vs-|corr| DISAGREEMENT): materialise each candidate form's |corr(continuous y)|
+                # and ask ``tail_concentration_form_override`` for the form to promote. It returns a form ONLY
+                # when the rank-MI leader is NOT the |corr| leader AND their rank-MI gap EXCEEDS the
+                # Miller-Madow tie band (a REAL rank lead the usability tie-break cannot already resolve). On
+                # the 4 passing F2 profiles + canonical fixtures the ratio is BOTH the rank-MI and |corr|
+                # leader (they AGREE), so this returns None -> NO promotion, NO admission change -> byte-
+                # identical. Only the true tail-concentration case (spurious rank leader, true |corr| leader)
+                # flips it.
+                _use_map = {}
+                for _cfg in var_pairs_perf.keys():
+                    try:
+                        _cv = _resolve_col(_cfg[2])
+                        if _cv is not None:
+                            _use_map[_cfg] = _safe_abs_corr(_cv)
+                    except Exception:
+                        continue
+                _best_single_corr = max(
+                    _safe_abs_corr(_tc_x0), _safe_abs_corr(_tc_x1),
+                )
+                _mi_band = mi_tie_band(
+                    int(quantization_nbins), int(len(classes_y)), int(np.asarray(freqs_y).shape[0]),
+                )
+                _override_cfg = tail_concentration_form_override(
+                    var_pairs_perf, _use_map,
+                    min_corr=fe_pair_usability_admission_min_corr,
+                    pairness_margin=fe_pair_usability_admission_pairness_margin,
+                    mi_band=_mi_band,
+                    best_single_corr=_best_single_corr,
+                )
+                if _override_cfg is not None:
+                    best_config = _override_cfg
+                    best_mi = float(var_pairs_perf.get(_override_cfg, best_mi))
+                    _usability_primary = True
+                    if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept):
+                        _usability_accept = True
+                    if verbose:
+                        messages.append(
+                            f"tail-concentration usability admission: pair {raw_vars_pair} is tail-concentrated "
+                            f"(rank-MI collapsed in the bulk, rank leader disagrees with the |corr(y)| leader "
+                            f"beyond the tie band); promoted the |corr|-best engineered form "
+                            f"(|corr|={_use_map.get(_override_cfg, 0.0):.3f}) as the winner over the spurious "
+                            f"rank-MI leader."
+                        )
+        except Exception:
+            _usability_accept = False
+            _usability_primary = False
+
     # NOISE-WRAP CORR-COLLAPSE VETO (2026-06-15). Whatever path admitted the winner, VETO it when the
     # winning composite WRAPS a strong, clean operand with a (near-)noise operand: its |corr| with the
     # target collapses to a small fraction of the best single operand's |corr| while that operand is
@@ -1012,7 +1112,7 @@ def _score_one_pair(
     # Genuine synergy (a*b, log(c)*sin(d)) keeps the engineered column tracking y (no collapse), so the
     # wide 2x fraction margin never condemns it. Pure-noise pairs never reach here (upstream screens).
     if (
-        (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept)
+        (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept)
         and _corr_y_cont is not None
         and best_config is not None
     ):
@@ -1036,6 +1136,7 @@ def _score_one_pair(
                 and _win_corr < _op_corr * _NOISE_WRAP_CORR_COLLAPSE_FRAC
             ):
                 _passes_joint_gate = _prewarp_accept = _marginal_uplift_accept = False
+                _usability_accept = _usability_primary = False
                 if verbose:
                     messages.append(
                         f"noise-wrap corr-collapse veto: winning composite |corr| with target "
@@ -1056,7 +1157,7 @@ def _score_one_pair(
             # pair adds nothing a single warped operand does not -- veto so the clean single-source form wins.
             # A genuine 2-var pair (a/b, a*b) sits FAR below 0.999 with EITHER operand and is untouched.
             if (
-                (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept)
+                (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept)
                 and _win_vals is not None
             ):
                 _tp2 = best_config[0]
@@ -1073,6 +1174,7 @@ def _score_one_pair(
                             _max_single_op_corr = max(_max_single_op_corr, abs(float(_r)))
                 if _max_single_op_corr >= _DEGENERATE_PAIR_SINGLE_OPERAND_CORR:
                     _passes_joint_gate = _prewarp_accept = _marginal_uplift_accept = False
+                    _usability_accept = _usability_primary = False
                     if verbose:
                         messages.append(
                             f"degenerate-pair veto: winning composite is numerically ~= a SINGLE warped "
@@ -1092,7 +1194,7 @@ def _score_one_pair(
     # session hand-diagnoses) is the primary gate; if the ratio DID clear that bar (so the
     # prewarp/uplift path declined for another reason) tag the marginal-uplift floor.
     # All values were already computed above (no recompute).
-    if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept):
+    if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept):
         try:
             _rej_thr = float(fe_min_engineered_mi_prevalence) * (1.0 if num_fs_steps < 1 else 1.025)
             _rej_op = None
@@ -1127,7 +1229,7 @@ def _score_one_pair(
         except Exception:
             pass
 
-    if _passes_joint_gate or _prewarp_accept or _marginal_uplift_accept:  # Best transformation is good enough
+    if _passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept:  # Best transformation is good enough
         _pair_res_entry = _emit_pair_features(
             raw_vars_pair=raw_vars_pair,
             pair_mi=pair_mi,
@@ -1138,6 +1240,7 @@ def _score_one_pair(
             _passes_joint_gate=_passes_joint_gate,
             _prewarp_accept=_prewarp_accept,
             _marginal_uplift_accept=_marginal_uplift_accept,
+            _usability_primary=_usability_primary,
             final_transformed_vals=final_transformed_vals,
             _this_chunk_deferred=_this_chunk_deferred,
             _config_by_i=_config_by_i,

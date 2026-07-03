@@ -82,6 +82,7 @@ from ._fe_raw_redundancy_helpers import (
     RAW_SELF_RETAIN_FRAC,
     _MIN_ROWS,
 )
+from ._fe_usability_signal import abs_pearson as _abs_pearson  # shared leaf |corr| (numpy-only, no cycle)
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -162,6 +163,9 @@ def drop_redundant_raw_operands(
     retain_frac: float = DEFAULT_RAW_RETAIN_FRAC,
     floor_margin_mult: float = 1.0,
     linear_usability_keep: bool = False,
+    tail_subsume_enable: bool = True,
+    tail_subsume_min_corr: float = 0.6,
+    tail_subsume_rank_frac: float = 0.7,
     seed: int = 0,
     verbose: int = 0,
 ) -> tuple[list, list]:
@@ -859,6 +863,61 @@ def drop_redundant_raw_operands(
                             "given %s -- nonlinear child is not a linear equivalent)",
                             rname, excess, [cols[e] for e in consumers],
                         )
+            except Exception:
+                pass
+        # TAIL-CONCENTRATION CONTINUOUS-SUBSUMPTION DROP (2026-07-03). The binned-CMI keep legs above KEEP a
+        # raw whose conditional excess given its engineered children does NOT collapse -- but under heavy
+        # outliers a ratio operand (``a`` inside ``div(sqr(a),abs(b))`` of the selected compound) is
+        # TAIL-CONCENTRATED: its rank association with y collapses in the bulk, so binned CMI(a; y | compound)
+        # sees PHANTOM private signal and keeps it, even though the compound CONTINUOUSLY subsumes it (the
+        # compound ~= y, |corr(continuous y)| ~0.99). Same rank-vs-linear blindness as the upstream gates, now
+        # at the raw-drop stage. DROP such a raw when: it is a source token of a REPLAYABLE selected survivor
+        # (guaranteed -- ``consumers`` are already filtered to ``replayable_eng_names``) whose |corr(continuous
+        # y)| is HIGH (>= ``tail_subsume_min_corr``), the raw is linearly WEAKER than that survivor (adds no
+        # linear signal it lacks), AND the raw's OWN rank association with y has COLLAPSED relative to its linear
+        # |corr| (rank <= ``tail_subsume_rank_frac`` x linear -- the tail-concentration signature). Gated on the
+        # rank-collapse leg -> FALSE for BALANCED canonical / the 4 passing F2 profiles (there the raw's rank and
+        # linear AGREE, so this never fires and the existing binned-CMI verdict stands byte-identically; those
+        # profiles already drop ``a`` via CMI anyway). Best-effort: any error keeps the binned-CMI verdict.
+        if keep and tail_subsume_enable and y_continuous is not None:
+            try:
+                _yc = np.asarray(y_continuous, dtype=np.float64).ravel()
+                _rc = None
+                if raw_X is not None and hasattr(raw_X, "columns") and rname in getattr(raw_X, "columns", []):
+                    _rc = np.asarray(raw_X[rname], dtype=np.float64).ravel()
+                if _rc is None:
+                    _rc = np.asarray(data[:, ri], dtype=np.float64).ravel()
+                if _rc.shape[0] == _yc.shape[0] and _yc.shape[0] >= 3:
+                    # raw's best single-operand LINEAR usability (raw and its square) ...
+                    _r_lin = max(_abs_pearson(_yc, _rc), _abs_pearson(_yc, _rc * _rc))
+                    # ... and its RANK association (max over the same two forms -- conservative: a strong rank
+                    # association on EITHER form blocks the drop, so only a genuine tail collapse fires it).
+                    _ry = _rank_transform(_yc)
+                    _r_rank = max(
+                        _abs_pearson(_ry, _rank_transform(_rc)),
+                        _abs_pearson(_ry, _rank_transform(_rc * _rc)),
+                    )
+                    # strongest subsuming (replayable, selected) survivor's continuous |corr(y)|.
+                    _s_lin = 0.0
+                    for _ei in consumers:
+                        _enm = cols[_ei]
+                        _sv = (np.asarray(engineered_continuous[_enm], dtype=np.float64).ravel()
+                               if (engineered_continuous and _enm in engineered_continuous) else None)
+                        if _sv is not None and _sv.shape[0] == _yc.shape[0]:
+                            _s_lin = max(_s_lin, _abs_pearson(_yc, _sv))
+                    if (
+                        _s_lin >= float(tail_subsume_min_corr)
+                        and _r_lin < _s_lin
+                        and _r_rank <= float(tail_subsume_rank_frac) * _r_lin
+                    ):
+                        keep = False
+                        if verbose:
+                            logger.info(
+                                "raw-redundancy: DROP %s via TAIL-CONCENTRATION continuous-subsumption "
+                                "(raw rank|corr(y)|=%.3f collapsed vs raw linear|corr|=%.3f while the subsuming "
+                                "survivor's |corr(y)|=%.3f -- binned CMI kept it on phantom tail signal): %s",
+                                rname, _r_rank, _r_lin, _s_lin, [cols[e] for e in consumers],
+                            )
             except Exception:
                 pass
         if keep:
