@@ -160,12 +160,26 @@ def safe_load(path: str, *, allow_unverified: Optional[bool] = None) -> Any:
 
 
 def safe_dump(obj: Any, path: str, *, protocol: int = pickle.HIGHEST_PROTOCOL) -> None:
-    """``pickle.dump`` to ``path`` and auto-write the matching ``.sha256`` sidecar.
+    """``pickle.dump`` to ``path`` ATOMICALLY and auto-write the matching ``.sha256`` sidecar.
 
-    The sidecar is written AFTER the pickle file is flushed and closed so the
-    hash matches the on-disk bytes (writing the sidecar mid-stream would yield
-    a partial-file digest that fails subsequent verification).
+    Writes to a per-process temp file, fsyncs, then ``os.replace`` onto ``path`` (atomic rename on POSIX and
+    Windows for a same-dir target), so a crash mid-dump leaves the previous file intact instead of a truncated
+    one, and two concurrent same-key writers never interleave into a corrupt file (last full writer wins). The
+    sidecar is written AFTER the pickle is on disk so the hash matches the final bytes.
     """
-    with open(path, "wb") as f:
-        pickle.dump(obj, f, protocol=protocol)
+    import os
+
+    tmp = f"{path}.tmp.{os.getpid()}"
+    try:
+        with open(tmp, "wb") as f:
+            pickle.dump(obj, f, protocol=protocol)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
     write_sidecar(path)
