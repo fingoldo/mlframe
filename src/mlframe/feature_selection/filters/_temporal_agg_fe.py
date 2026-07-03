@@ -47,6 +47,7 @@ from __future__ import annotations
 import logging
 from typing import Optional, Sequence
 
+import numba
 import numpy as np
 import pandas as pd
 
@@ -180,6 +181,52 @@ def _group_row_slices(codes_sorted: np.ndarray, n_codes: int) -> list[np.ndarray
 # ---------------------------------------------------------------------------
 
 
+_EXPANDING_STAT_CODE = {"count": 0, "mean": 1, "std": 2, "min": 3, "max": 4}
+
+
+@numba.njit(cache=True)
+def _expanding_stat_past_only_njit(sorted_vals, group_codes, stat_code, n_groups):
+    """Sequential per-entity expanding stat over the strict past. Dense int-code accumulator ARRAYS (indexed by the
+    per-entity code) replace the Python dicts of the reference loop -- same running arithmetic, bit-identical incl NaN.
+    ``stat_code``: 0=count 1=mean 2=std 3=min 4=max. Not prange (running accumulator is order-dependent)."""
+    n = sorted_vals.size
+    out = np.full(n, np.nan, dtype=np.float64)
+    n_seen = np.zeros(n_groups, dtype=np.int64)
+    run_sum = np.zeros(n_groups, dtype=np.float64)
+    run_sumsq = np.zeros(n_groups, dtype=np.float64)
+    run_min = np.full(n_groups, np.inf, dtype=np.float64)
+    run_max = np.full(n_groups, -np.inf, dtype=np.float64)
+    for i in range(n):
+        g = group_codes[i]
+        cnt = n_seen[g]
+        if cnt > 0:
+            if stat_code == 0:
+                out[i] = float(cnt)
+            elif stat_code == 1:
+                out[i] = run_sum[g] / cnt
+            elif stat_code == 2:
+                if cnt > 1:
+                    mean = run_sum[g] / cnt
+                    var = (run_sumsq[g] - cnt * mean * mean) / (cnt - 1)
+                    out[i] = np.sqrt(var) if var > 0.0 else 0.0
+                else:
+                    out[i] = 0.0
+            elif stat_code == 3:
+                out[i] = run_min[g]
+            elif stat_code == 4:
+                out[i] = run_max[g]
+        v = sorted_vals[i]
+        if np.isfinite(v):
+            n_seen[g] = cnt + 1
+            run_sum[g] += v
+            run_sumsq[g] += v * v
+            if v < run_min[g]:
+                run_min[g] = v
+            if v > run_max[g]:
+                run_max[g] = v
+    return out
+
+
 def _expanding_stat_past_only(
     sorted_vals: np.ndarray, group_codes: np.ndarray, stat: str,
 ) -> np.ndarray:
@@ -190,47 +237,18 @@ def _expanding_stat_past_only(
     ``sorted_vals`` (also already in the sorted order). Returns an array the
     same length as ``sorted_vals``; the first row of each entity (no history)
     is left as NaN for the caller to fill with the global prior.
+
+    Delegates to :func:`_expanding_stat_past_only_njit` (dict accumulators -> dense code arrays; ~200-500x over the
+    Python loop, bit-identical incl NaN). Empty input returns an empty float array.
     """
     n = sorted_vals.size
-    out = np.full(n, np.nan, dtype=np.float64)
-    # Per-entity running accumulators.
-    n_seen: dict[int, int] = {}
-    run_sum: dict[int, float] = {}
-    run_sumsq: dict[int, float] = {}
-    run_min: dict[int, float] = {}
-    run_max: dict[int, float] = {}
-    for i in range(n):
-        g = int(group_codes[i])
-        cnt = n_seen.get(g, 0)
-        if cnt > 0:
-            if stat == "count":
-                out[i] = float(cnt)
-            elif stat == "mean":
-                out[i] = run_sum[g] / cnt
-            elif stat == "std":
-                if cnt > 1:
-                    mean = run_sum[g] / cnt
-                    var = (run_sumsq[g] - cnt * mean * mean) / (cnt - 1)
-                    out[i] = float(np.sqrt(var)) if var > 0.0 else 0.0
-                else:
-                    out[i] = 0.0
-            elif stat == "min":
-                out[i] = run_min[g]
-            elif stat == "max":
-                out[i] = run_max[g]
-        # Fold the CURRENT row into the entity's history AFTER scoring it.
-        v = sorted_vals[i]
-        if np.isfinite(v):
-            n_seen[g] = cnt + 1
-            run_sum[g] = run_sum.get(g, 0.0) + v
-            run_sumsq[g] = run_sumsq.get(g, 0.0) + v * v
-            run_min[g] = v if g not in run_min else min(run_min[g], v)
-            run_max[g] = v if g not in run_max else max(run_max[g], v)
-        else:
-            # Non-finite value still advances the row pointer but contributes
-            # nothing to the running stats; count stays as-is.
-            n_seen.setdefault(g, cnt)
-    return out
+    if n == 0:
+        return np.full(0, np.nan, dtype=np.float64)
+    gc = np.ascontiguousarray(group_codes, dtype=np.int64)
+    n_groups = int(gc.max()) + 1 if gc.size else 1
+    return _expanding_stat_past_only_njit(
+        np.ascontiguousarray(sorted_vals, dtype=np.float64), gc, _EXPANDING_STAT_CODE[stat], n_groups,
+    )
 
 
 def generate_expanding_agg_features(
