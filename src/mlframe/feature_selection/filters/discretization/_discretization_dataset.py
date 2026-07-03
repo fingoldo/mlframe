@@ -220,8 +220,14 @@ def categorize_dataset(
 
     _dt = _discretize_input_dtype()
     if _is_polars:
-        _num_frame = df.select(numerical_cols)
-        arr = _num_frame.to_numpy().astype(_dt, copy=False)
+        # An all-categorical polars frame (no numeric columns) makes df.select([]).to_numpy() collapse to shape (0, 0)
+        # -- ZERO rows -- so the later per-column np.append(numeric, categorical) raises a row-count mismatch. Build an
+        # explicit (n_rows, 0) array instead so the categorical branch initialises/extends a full-height matrix (pandas
+        # already yields (n, 0) here).
+        if numerical_cols:
+            arr = df.select(numerical_cols).to_numpy().astype(_dt, copy=False)
+        else:
+            arr = np.empty((df.height, 0), dtype=_dt)
     else:
         arr = df[numerical_cols].to_numpy(dtype=_dt, na_value=np.nan)
 
