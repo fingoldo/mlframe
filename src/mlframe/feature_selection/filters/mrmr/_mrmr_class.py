@@ -1620,41 +1620,6 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # proposer (terminal, no fusion), not this admission relaxation.
         fe_pair_perm_null_admission_enable: bool = False,
         fe_pair_perm_null_excess_frac: float = 0.05,
-        # TAIL-CONCENTRATED USABILITY ADMISSION (2026-07-02). Under heavy operand outliers a genuine ratio
-        # (a**2/b) becomes TAIL-CONCENTRATED: its rank-MI collapses (bulk Spearman ~0, signal only in the 5%
-        # outlier tail) so the (a,b) pair fails BOTH the joint-MI prevalence and the order-2 maxT gates in
-        # ``score_prospective_pairs`` -- even though the ratio carries strong LINEAR usability (|corr(continuous
-        # y)| 0.986 for the true form vs 0.371 for the spurious rank-MI winner; corr is outlier-inflated, which
-        # is exactly right here). Binning cannot recover it (it clips the outlier tail carrying the a**2
-        # magnitude), so this credits a rank-MI-REJECTED pair when the max |Pearson corr(continuous y)| over a
-        # small scale/sign-robust bivariate form dictionary of the RAW operands clears
-        # ``fe_pair_usability_admission_min_corr`` AND beats the best single-operand form by
-        # ``fe_pair_usability_admission_pairness_margin`` (the pairness discriminator: dividing by the TRUE
-        # denominator improves corr, dividing by an unrelated operand only adds noise -- so cross-mix / noise
-        # pairs and the 'e' operand are rejected). The SAME detector + knobs also credit tail concentration at
-        # the two DOWNSTREAM rank-MI gates the tail-concentrated form fails (winner-selection
-        # ``_select_single_best`` and the engineered-MI joint-prevalence gate in ``_pairs_score``): when the
-        # rank-MI form leader DISAGREES with the |corr(y)| leader beyond the Miller-Madow tie band, the
-        # |corr|-best engineered form is promoted as the winner and admitted. Finally, when a RANK-AWARE
-        # tail-concentrated pair is present in the FIRST FE sweep's pool (``fe_pair_usability_admission_rank_frac``
-        # gates the rank-collapse leg), the first sweep's pair-MI prevalence bar is relaxed to the SAME value the
-        # adaptive-threshold retry uses (``max(1.001, bar * fe_adaptive_relax_factor)``) so a co-signal half
-        # whose joint MI barely exceeds its marginal sum (F2 (c,d)) builds in the SAME sweep and C2 additive
-        # fusion can fuse the two halves. The disagreement + rank-collapse requirements make all of this a
-        # strict no-op on the 4 passing F2 profiles + canonical fixtures (there the ratio is BOTH the rank-MI
-        # and |corr| leader, rank and linear AGREE -> nothing fires, selection is byte-identical). Default ON.
-        # Set False for the legacy rank-MI-only paths (byte-identical everywhere).
-        fe_pair_usability_admission_enable: bool = True,
-        fe_pair_usability_admission_min_corr: float = 0.6,
-        fe_pair_usability_admission_pairness_margin: float = 1.05,
-        # RANK-COLLAPSE leg of the FIRST-SWEEP prevalence-relaxation pre-scan: a pair relaxes the bar only when
-        # its linear-best raw form's RANK (Spearman-style) association with y is <= this fraction of its linear
-        # |corr| -- the tail-concentration signature (linear survives, rank collapses). Balanced data (rank and
-        # linear agree) never clears it, so canonical / the 4 passing profiles keep the strict bar.
-        fe_pair_usability_admission_rank_frac: float = 0.7,
-        # Cost guard: max candidate pairs the first-sweep tail-concentration pre-scan inspects (early-exits on
-        # the first tail-concentrated pair). Bounds the O(pairs) x O(n) |corr| scan on wide pools. 0 = no cap.
-        fe_pair_usability_prescan_max_pairs: int = 256,
         # PAIRNESS-ROUTED PREVALENCE RESCUE (2026-06-12): route a SELECTED-SELECTED prevalence-
         # failing maxT-clearing pair to the auto-escalation second-chance (held-out ALS pairness
         # test, which CAN separate a multiplicative interaction from an additive cross-mix).
