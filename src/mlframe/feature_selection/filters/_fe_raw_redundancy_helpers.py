@@ -8,9 +8,22 @@ reference. The main module re-exports every name defined here, so external
 """
 from __future__ import annotations
 
+import os
 from typing import Optional, Sequence
 
 import numpy as np
+
+# Row cap for the raw-operand redundancy CMI + conditional-permutation null. The perm-null is an
+# EXPLICITLY RANDOM null estimate (selection-equivalence, not byte-identical), and the CMI gate already
+# subsamples (30k). On the FINAL raw-drop the observed CMI + the ~25-perm within-stratum null run on the
+# full n (1M) -- the single largest per-call redundancy hotspot. Estimating both on a strided subsample
+# (all of cand / y / z together, so the returned cmi/floor/excess stay MUTUALLY consistent and every
+# drop comparison is self-consistent) keeps the decision selection-equivalent while the null cost drops
+# ~n/cap. Env-tunable; 0 -> full-n (strict). 250k is already well below every redundancy-gate margin.
+try:
+    _CMI_NULL_MAX_ROWS = int(os.environ.get("MLFRAME_CMI_NULL_MAX_ROWS", "250000"))
+except (ValueError, TypeError):
+    _CMI_NULL_MAX_ROWS = 250000
 
 
 # GATE / BINAGG / ARGMAX pseudo-child name prefixes (2026-06-13). The default-ON
@@ -205,6 +218,18 @@ def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0, z_support_dev=None,
     caller only has the device form)."""
     from ._mi_greedy_cmi_fe import _cmi_from_binned
     from ._fe_cmi_redundancy_gate import _conditional_perm_null
+
+    # Strided-subsample cand / y / z TOGETHER (same rows) so the observed CMI and the perm-null are estimated
+    # on the same reduced sample -> the returned (cmi, floor, excess) stay mutually consistent and every drop
+    # comparison (cmi>floor, excess>0, cross-candidate relative bar) is self-consistent. See _CMI_NULL_MAX_ROWS.
+    _n_full = int(cand_bin.shape[0])
+    if _CMI_NULL_MAX_ROWS > 0 and _n_full > _CMI_NULL_MAX_ROWS:
+        _st = int(_n_full // _CMI_NULL_MAX_ROWS)
+        if _st > 1:
+            cand_bin = cand_bin[::_st]
+            y_bin = y_bin[::_st]
+            z_support = z_support[::_st] if z_support is not None else None
+            z_support_dev = z_support_dev[::_st] if z_support_dev is not None else None
 
     # z handed to the resident CMI scorer: the device-born support when available, else the host support.
     _z_scored = z_support_dev if z_support_dev is not None else z_support
