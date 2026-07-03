@@ -99,7 +99,10 @@ def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbin
         if _denom_su > 1e-12:
             return 2.0 * direct_gain / _denom_su
     except Exception:
-        pass  # SU denominator unavailable (degenerate joint) -> keep the raw debiased relevance
+        # SU denominator unavailable (degenerate joint) -> keep the raw debiased relevance. Log at DEBUG so a
+        # GENUINE merge_vars/entropy bug (not just a degenerate joint) is diagnosable instead of silently
+        # masked -- a swallowed bug here can quietly change which features/interactions get selected.
+        logger.debug("evaluation: SU normalization skipped; using raw debiased gain", exc_info=True)
     return direct_gain
 
 

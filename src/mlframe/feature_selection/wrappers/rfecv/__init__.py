@@ -12,7 +12,6 @@ from os.path import exists
 from timeit import default_timer as timer
 from typing import Callable, Sequence, Union
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -54,7 +53,6 @@ from mlframe.models.optimization import (
     OptimizationProgressPlotting,
 )
 from mlframe.preprocessing.transforms import pack_val_set_into_fit_params
-from mlframe.training.helpers import compute_cb_text_processing
 from mlframe.utils.misc import set_random_seed
 
 from .._enums import OptimumSearch, VotesAggregation

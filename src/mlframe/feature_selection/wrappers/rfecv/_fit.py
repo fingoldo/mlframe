@@ -346,6 +346,14 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # L7 (Wave 5, 2026-05-28): optional prescreen pass. Restricts the MBH search universe to a smaller pre-filtered candidate set so the
     # outer loop converges faster on high-p data. The prescreen sees the (X[original_features], y) AFTER must_include filtering, so
     # pinned features always remain in the final support_ regardless of prescreen output.
+    # SELECTION-OPTIMISM CAVEAT (audit4-C, 2026-07-03): the prescreen pre-filters the feature UNIVERSE using the
+    # WHOLE (X, y) -- including the rows that later serve as CV test folds -- so the ``cv_mean_perf`` that drives
+    # the nfeatures pick is an IN-UNIVERSE estimate, mildly OPTIMISTIC vs a fully-nested one (the surviving
+    # candidates were chosen with full-y knowledge). This is a leakage into the SELECTION METRIC, not the final
+    # fitted model. A fully-honest estimate would nest the prescreen inside each CV fold, but the outer optimiser
+    # searches nfeatures over a FIXED universe, so per-fold prescreening is architecturally incompatible here.
+    # Treat ``cv_mean_perf`` with a prescreen as a ranking signal, not an unbiased generalisation estimate; take
+    # the honest number from a truly held-out evaluation. Default is prescreen=None (no optimism).
     _prescreen = getattr(self, "prescreen", None)
     if _prescreen is not None and len(original_features) > 0:
         _kept = _apply_prescreen(

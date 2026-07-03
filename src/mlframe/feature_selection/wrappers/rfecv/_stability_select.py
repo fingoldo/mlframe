@@ -10,7 +10,6 @@ from __future__ import annotations
 import copy
 import logging
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -497,6 +496,8 @@ def select_optimal_nfeatures_(
     best_top_n = int(nfeatures_arr[best_idx])
 
     if show_plot or plot_file:
+        import matplotlib.pyplot as plt  # deferred: matplotlib import costs ~0.15s and is only needed when plotting
+
         plt.rcParams.update({"font.size": font_size})
         fig, ax1 = plt.subplots(figsize=figsize)
         ax2 = ax1.twinx()

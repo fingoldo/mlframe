@@ -249,7 +249,7 @@ def dual_uplift_sibling_mi_resident(
         _ymin = int(_yi.min()) if _yi.size else 0
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
         return np.asarray(
-            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls),
+            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True),
             dtype=np.float64,
         )
     except Exception as _exc:  # noqa: BLE001
@@ -325,7 +325,7 @@ def local_mi_gate_dispersion_resident(
         _ymin = int(_yi.min()) if _yi.size else 0
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
         cand_mi = np.asarray(
-            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls),
+            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True),
             dtype=np.float64,
         )
     except Exception as _exc:  # noqa: BLE001

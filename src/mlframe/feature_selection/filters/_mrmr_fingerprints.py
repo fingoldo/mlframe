@@ -33,10 +33,24 @@ from typing import TYPE_CHECKING, Any, Sequence
 import numpy as np
 import pandas as pd
 
-try:
-    from astropy.stats import histogram as _astropy_histogram
-except (ImportError, AttributeError):
-    _astropy_histogram = None
+# astropy is imported lazily on first histogram() call: the top-level
+# ``import astropy`` costs ~0.6s and this fingerprints module is on the
+# eager MRMR import path, yet most fits never call histogram().
+_astropy_histogram = None
+_astropy_resolved = False
+
+
+def _resolve_astropy_histogram():
+    global _astropy_histogram, _astropy_resolved
+    if not _astropy_resolved:
+        try:
+            from astropy.stats import histogram as _h
+            _astropy_histogram = _h
+        except (ImportError, AttributeError):
+            _astropy_histogram = None
+        _astropy_resolved = True
+    return _astropy_histogram
+
 
 if TYPE_CHECKING:
     from .mrmr import MRMR  # noqa: F401 -- forward ref for the type annotation
@@ -46,8 +60,9 @@ def histogram(a, bins="auto", **kwargs):
     """Astropy histogram with np.histogram fallback. See
     ``mlframe.feature_engineering.numerical.histogram`` for the rationale.
     """
-    if _astropy_histogram is not None:
-        return _astropy_histogram(a, bins=bins, **kwargs)
+    _h = _resolve_astropy_histogram()
+    if _h is not None:
+        return _h(a, bins=bins, **kwargs)
     return np.histogram(a, bins=bins, **kwargs)
 
 

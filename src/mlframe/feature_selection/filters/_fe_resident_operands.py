@@ -188,9 +188,69 @@ def resident_code_operand(codes, role):
     return dev.astype(cp.int64) if dev.dtype != cp.int64 else dev
 
 
+# content signature (shape + dtype-str + content hash + nbins + bin-dtype)  ->  RESIDENT int16 bin codes. The
+# same candidate column is re-binned across greedy steps with IDENTICAL content (H2D audit of a 1M strict fit:
+# 42 qbin calls / 20 distinct contents), yet each call re-ran the full O(n log n) ``cp.sort`` in
+# ``_sync_free_qbin_codes`` (the cub DeviceMergeSort at 5.6% of GPU time). The float operand was already
+# content-deduped (``qbin_x`` via ``resident_operand``), but nothing cached the CODES, so a repeat bin of
+# identical content re-sorted from scratch. Caching the codes on the SAME content signature skips the sort
+# ENTIRELY on the ~half of calls that re-bin an already-seen column: same float bytes + same nbins + same bin
+# dtype -> same sorted order -> same edges -> BIT-IDENTICAL codes (not merely selection-equivalent), with NO
+# device->host sync (the key is a pure host content hash, the same one the operand cache computes). Stored as
+# int16 (codes are ``0..nbins-1``, a few dozen bins; the widening cast on retrieval restores the exact int64 the
+# kernels index -- the same narrow-store/widen discipline as ``resident_code_operand``), so the whole 20-content
+# working set is a few MB of VRAM, not the 160 MB an int64 store would cost. Same LRU + teardown as the operand
+# cache below.
+_FE_RESIDENT_QBIN_CODES: "OrderedDict" = OrderedDict()
+_MAX_QBIN_CODE_ENTRIES = 64
+
+
+def resident_qbin_codes(a: Any, nbins: int, dtype: Any, compute_fn: Any) -> Any:
+    """Return RESIDENT int64 equi-frequency bin codes for host column ``a``, content-cached to skip a repeat sort.
+
+    ``compute_fn(cp, xd, nbins)`` is the sync-free device binner (``_sync_free_qbin_codes``): called only on a
+    cache MISS, on the content-deduped resident float column ``xd`` (uploaded via ``resident_operand`` in the
+    ``dtype`` the binner needs). On a HIT the previously computed codes are returned WITHOUT re-uploading the
+    float or re-running the sort. The cache key is the host content signature (shape + dtype + copy-free content
+    hash) plus ``nbins`` and the bin dtype, so only genuinely identical bin requests share a result -- a
+    different column, a different nbins, or a different bin dtype gets a fresh compute. Codes are stored int16 and
+    widened to int64 on return (values are ``0..nbins-1`` -> bit-identical), mirroring ``resident_code_operand``.
+    Fully sync-free: the key is a host hash, ``compute_fn`` is the sync-free binner, and the widen is a device
+    op -- nothing scalar crosses the bus."""
+    import cupy as cp
+    import numpy as np
+
+    host = np.ascontiguousarray(np.asarray(a))
+    if _disabled():
+        xd = resident_operand(host, "qbin_x", dtype=dtype)
+        return compute_fn(cp, xd, int(nbins))
+
+    sig = (host.shape, host.dtype.str, _content_hash(host), int(nbins), str(dtype))
+    dev = _FE_RESIDENT_QBIN_CODES.get(sig)
+    if dev is not None:
+        _FE_RESIDENT_QBIN_CODES.move_to_end(sig)      # LRU: this content is hot
+        return dev.astype(cp.int64)                   # widen the narrow store to the int64 the kernels index
+    xd = resident_operand(host, "qbin_x", dtype=dtype)
+    codes = compute_fn(cp, xd, int(nbins))            # sync-free binner, resident int64 codes
+    # Store narrow: codes are 0..nbins-1 (a few dozen bins), int16 holds them exactly (int64 escape only if some
+    # binner ever emits a value outside int16, keeping the store bit-identical either way).
+    narrow = codes.astype(cp.int16) if (int(nbins) <= 32767) else codes
+    _FE_RESIDENT_QBIN_CODES[sig] = narrow
+    if len(_FE_RESIDENT_QBIN_CODES) > _MAX_QBIN_CODE_ENTRIES:
+        _FE_RESIDENT_QBIN_CODES.popitem(last=False)   # evict ONLY the coldest entry, never the whole table
+    return codes
+
+
 def clear_fe_resident_operands() -> None:
-    """Drop the fit-constant FE operand device cache (call at FE-step teardown; mirrors the mempool free)."""
+    """Drop the fit-constant FE operand + qbin-code device caches (call at FE-step teardown; mirrors mempool free)."""
     _FE_RESIDENT_OPERANDS.clear()
+    _FE_RESIDENT_QBIN_CODES.clear()
 
 
-__all__ = ["resident_operand", "resident_code_operand", "assemble_resident_matrix", "clear_fe_resident_operands"]
+__all__ = [
+    "resident_operand",
+    "resident_code_operand",
+    "resident_qbin_codes",
+    "assemble_resident_matrix",
+    "clear_fe_resident_operands",
+]

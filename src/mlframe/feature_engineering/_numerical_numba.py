@@ -43,16 +43,7 @@ import numba
 import numpy as np
 import pandas as pd
 import psutil
-from antropy import detrended_fluctuation, katz_fd, perm_entropy, petrosian_fd, sample_entropy, svd_entropy
 from joblib import delayed
-
-try:
-    from astropy.stats import histogram as _astropy_histogram
-except (ImportError, AttributeError):
-    # astropy may be broken (e.g. numpy 2.x removed np.in1d while older astropy
-    # still imports it at module level). Fall back to np.histogram вЂ” equivalent
-    # for the bins="scott"/"auto" string-rule cases this module actually uses.
-    _astropy_histogram = None
 
 
 

@@ -60,21 +60,32 @@ def _gram_projector(cp, B):
     return _proj
 
 
-def _batched_fwl_sse(cp, xg, r_y, proj, sse_B: float, cuts, found, n: int, min_seg_rows: int):
+def _fwl_relu_legs(cp, xg, cuts, n: int, min_seg_rows: int):
+    """Cut-set-invariant pieces of the batched FWL SSE: the ``(n, C)`` relu-leg block ``R`` and the
+    per-side segment-row validity mask ``ok``. Both depend ONLY on ``xg``, the cut set and the row
+    guards -- NOT on the round's design block -- so for a fixed candidate cut set they are computed
+    ONCE and reused across the growing-design breakpoint rounds (only ``proj(R)`` / ``r_y`` change per
+    round). Materialising the (n, C) relu block is the stage's largest device allocation; hoisting it
+    out of the round loop removes one full (n, C) build + the segment-row count per breakpoint round."""
+    cuts_d = cp.asarray(np.ascontiguousarray(cuts, dtype=np.float64))
+    R = cp.maximum(xg[:, None] - cuts_d[None, :], 0.0)          # (n, C) all relu legs at once
+    n_right = (xg[:, None] > cuts_d[None, :]).sum(axis=0)
+    ok = (n_right >= min_seg_rows) & ((n - n_right) >= min_seg_rows)
+    return R, ok
+
+
+def _batched_fwl_sse(cp, R, ok, r_y, proj, sse_B: float, cuts, found):
     """SSE of ``y ~ [B | relu(x - c)]`` for EVERY cut ``c`` in one batched FWL evaluation.
 
+    ``R`` / ``ok`` are the cut-invariant relu-leg block and row-guard mask from ``_fwl_relu_legs``;
     ``r_y`` is y residualised against the round's fixed block B (``proj`` projects onto span(B));
     ``sse_B = r_y @ r_y``. Returns a host float64 (C,) SSE vector with ``inf`` at cuts failing the
     per-side segment-row guard / the found-tau dedup, and ``sse_B`` where relu lies in span(B)
     (``denom < 1e-24`` -- the host detector's rank-deficiency skip)."""
-    cuts_d = cp.asarray(np.ascontiguousarray(cuts, dtype=np.float64))
-    R = cp.maximum(xg[:, None] - cuts_d[None, :], 0.0)          # (n, C) all relu legs at once
-    Rres = R - proj(R)                                           # FWL residuals vs B, one GEMM pair
+    Rres = R - proj(R)                                          # FWL residuals vs B, one GEMM pair
     denom = cp.einsum("ij,ij->j", Rres, Rres)
     num = Rres.T @ r_y
     sse = cp.where(denom < 1e-24, sse_B, sse_B - num * num / cp.maximum(denom, 1e-300))
-    n_right = (xg[:, None] > cuts_d[None, :]).sum(axis=0)
-    ok = (n_right >= min_seg_rows) & ((n - n_right) >= min_seg_rows)
     sse = cp.where(ok, sse, cp.inf)
     sse_h = cp.asnumpy(sse).astype(np.float64)
     if found:
@@ -179,7 +190,8 @@ def detect_hinge_breakpoints_gpu(
         pre_cuts = np.unique(cp.asnumpy(cp.quantile(xg, cp.asarray(np.asarray(precheck_qs, dtype=np.float64)))))
         if pre_cuts.size == 0:
             return []
-        sse_pre = _batched_fwl_sse(cp, xg, r_y, proj, sse_lin, pre_cuts, [], n, min_seg_rows)
+        R_pre, ok_pre = _fwl_relu_legs(cp, xg, pre_cuts, n, min_seg_rows)
+        sse_pre = _batched_fwl_sse(cp, R_pre, ok_pre, r_y, proj, sse_lin, pre_cuts, [])
         with np.errstate(invalid="ignore"):
             drops = 1.0 - sse_pre / sse_lin
         best_drop = float(np.nanmax(np.where(np.isfinite(sse_pre), drops, 0.0))) if sse_pre.size else 0.0
@@ -194,12 +206,15 @@ def detect_hinge_breakpoints_gpu(
             return []
         found: list = []
         extra_legs = []
+        # The candidate relu-leg block and row-guard mask depend only on (xg, cand); hoist them ONCE
+        # out of the round loop (they are re-scored against each round's growing design via proj/r_yk).
+        R_cand, ok_cand = _fwl_relu_legs(cp, xg, cand, n, min_seg_rows)
         for _ in range(max(1, int(max_breakpoints))):
             Bk = cp.stack([ones, xg] + extra_legs, axis=1)
             projk = _gram_projector(cp, Bk)
             r_yk = yg - projk(yg)
             sse_B = float(r_yk @ r_yk)
-            sse_all = _batched_fwl_sse(cp, xg, r_yk, projk, sse_B, cand, found, n, min_seg_rows)
+            sse_all = _batched_fwl_sse(cp, R_cand, ok_cand, r_yk, projk, sse_B, cand, found)
             _bi = int(np.argmin(sse_all))
             if not np.isfinite(sse_all[_bi]):
                 break

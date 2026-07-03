@@ -7660,20 +7660,37 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 if _cv.shape[0] == _rp_n and np.all(np.isfinite(_cv)):
                     _rp_base.append(_cv)
 
-            def _rp_r2(_design):
-                _A = np.column_stack(_design)
-                _yv = _rp_y[_rp_va]
-                _ss = float(np.sum((_yv - _yv.mean()) ** 2))
-                if _ss < 1e-24:
+            # Hoist the fold- and candidate-INVARIANT pieces out of the per-candidate R^2 (each call below
+            # re-used the SAME held-out target, its centered SS, and the SAME base design rows): the val
+            # target ``_yv`` / its SS, the train target, and the base design already sliced into train/val
+            # blocks. Every call scores ``[base | one candidate column]``, so only the single candidate
+            # column is stacked/sliced per call instead of rebuilding + row-slicing the full base at n rows.
+            _yv = _rp_y[_rp_va]
+            _rp_ss = float(np.sum((_yv - _yv.mean()) ** 2))
+            _rp_y_tr = _rp_y[_rp_tr]
+            _rp_base_mat = np.column_stack(_rp_base)
+            _rp_base_tr = _rp_base_mat[_rp_tr]
+            _rp_base_va = _rp_base_mat[_rp_va]
+
+            def _rp_r2(_extra=None):
+                """Held-out R^2 of ``[base | extra]``; ``_extra`` is a single full-length column or None.
+                Numerically identical to the prior ``_rp_r2(_design)`` (same columns in the same order,
+                same train/val rows, same lstsq)."""
+                if _rp_ss < 1e-24:
                     return 0.0
+                if _extra is None:
+                    _A_tr, _A_va = _rp_base_tr, _rp_base_va
+                else:
+                    _A_tr = np.column_stack((_rp_base_tr, _extra[_rp_tr]))
+                    _A_va = np.column_stack((_rp_base_va, _extra[_rp_va]))
                 try:
-                    _coef, *_ = np.linalg.lstsq(_A[_rp_tr], _rp_y[_rp_tr], rcond=None)
+                    _coef, *_ = np.linalg.lstsq(_A_tr, _rp_y_tr, rcond=None)
                 except Exception:
                     return -np.inf
-                return 1.0 - float(np.sum((_yv - _A[_rp_va] @ _coef) ** 2)) / _ss
+                return 1.0 - float(np.sum((_yv - _A_va @ _coef) ** 2)) / _rp_ss
 
             if int(_rp_tr.sum()) >= 32 and int(_rp_va.sum()) >= 16:
-                _rp_r2_base = _rp_r2(_rp_base)
+                _rp_r2_base = _rp_r2()
                 _cols_index_r = {c: i for i, c in enumerate(cols)}
                 _sv_set_r = set(selected_vars)
                 _readd_raw = []
@@ -7700,7 +7717,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         continue  # non-numeric raw (categorical/string) -> not a linear-usability candidate
                     if _rv.shape[0] != _rp_n or not np.all(np.isfinite(_rv)):
                         continue
-                    if _rp_r2(_rp_base + [_rv]) - _rp_r2_base < _RAW_PROTECT_MIN_INCR_R2:
+                    if _rp_r2(_rv) - _rp_r2_base < _RAW_PROTECT_MIN_INCR_R2:
                         continue
                     _readd_raw.append(_ridx)
                     _sv_set_r.add(_ridx)

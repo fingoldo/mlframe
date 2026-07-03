@@ -327,6 +327,8 @@ def fast_mean_absolute_error(
     _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
+    if yt.shape[0] == 0:  # sklearn parity: raise on empty rather than the njit kernel's silent 0/0 -> NaN.
+        raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if sample_weight is not None:
         w = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
     else:
@@ -366,6 +368,8 @@ def fast_mean_squared_error(
     _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
+    if yt.shape[0] == 0:  # sklearn parity: raise on empty rather than the njit kernel's silent 0/0 -> NaN.
+        raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if sample_weight is not None:
         w = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
     else:
@@ -436,6 +440,8 @@ def fast_max_error(
     _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
+    if yt.shape[0] == 0:  # sklearn parity: raise on empty rather than the njit kernel's silent reduction -> NaN.
+        raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if yt.ndim == 1:
         n = yt.shape[0]
         return _fast_max_error_par(yt, yp) if n >= _MAX_ERROR_PAR_THRESHOLD else _fast_max_error_seq(yt, yp)
@@ -465,6 +471,8 @@ def fast_r2_score(
     _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
+    if yt.shape[0] == 0:  # sklearn parity: raise on empty rather than the njit kernel's silent 0/0 -> NaN.
+        raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if sample_weight is not None:
         w = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
     else:

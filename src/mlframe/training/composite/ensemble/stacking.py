@@ -157,10 +157,15 @@ def stacking_aware_gate(
 ) -> tuple[list[str], dict[str, float]]:
     """NNLS-weight-based gate: keep only transforms whose stacking weight clears ``min_weight``.
 
+    LEAKAGE CONTRACT (audit3): ``transform_predictions`` MUST be OUT-OF-FOLD predictions (the stacking-weight
+    NNLS is fit against ``y_train``, so in-fold predictions would let an over-fit transform earn a spurious
+    weight and pass the gate). Callers are responsible for passing OOF preds; this gate does no OOF split
+    itself. Audited callers comply -- keep it that way.
+
     Parameters
     ----------
     transform_predictions
-        Ordered mapping ``transform_name -> 1-D y-scale prediction ndarray``. All arrays must have the same length as ``y_train``.
+        Ordered mapping ``transform_name -> 1-D y-scale OUT-OF-FOLD prediction ndarray``. All arrays must have the same length as ``y_train``.
     y_train
         True training targets on y-scale (1-D ndarray of the same length).
     min_weight

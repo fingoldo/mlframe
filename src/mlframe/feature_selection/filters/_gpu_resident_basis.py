@@ -1395,15 +1395,20 @@ def grand_fused_pair_mi_fused(
     for start in range(0, len(_COMBOS), k_chunk):
         block = _COMBOS[start:start + k_chunk]
         blk = len(block)
-        # PASS 1: transient generate -> exact percentile edges -> discard the float matrix.
-        cand = _fused_generate_block(ua_cm, ub_cm, block)            # (n, blk) f64, transient
+        # PASS 1: transient generate -> exact percentile edges -> discard the float matrix. Generate directly
+        # COLUMN-MAJOR (blk, n): the ONLY consumer here is the per-candidate percentile, and cp.percentile over
+        # a (blk, n) C-contiguous buffer along the CONTIGUOUS axis=1 sorts each candidate's n values coalesced
+        # -- vs axis=0 over the (n, blk) row-major matrix, which sorts the STRIDED axis (cupy copies/transposes
+        # it internally). Same value set per candidate -> BIT-IDENTICAL edges (and the (blk, nbins-1) edges_int
+        # below is unchanged). cand is discarded straight after, so no (n, K) consumer sees the flipped layout.
+        cand = _fused_generate_block(ua_cm, ub_cm, block, column_major=True)   # (blk, n) f64, transient
         if cand.dtype != work:
             cand = cand.astype(work, copy=False)
         if blk == 1:
             # cupy single-column percentile bug guard (mirror _gpu_resident_discretize_codes).
             bin_edges = cp.percentile(cand.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
         else:
-            bin_edges = cp.percentile(cand, qs, axis=0)             # (nbins+1, blk)
+            bin_edges = cp.percentile(cand, qs, axis=1)             # (nbins+1, blk) over the (blk, n) plane
         del cand                                                    # (n,blk) float GONE before the hist pass
         # interior edges, transposed to (blk, nbins-1) row-major f64 for the kernel's per-candidate scan.
         edges_int = cp.ascontiguousarray(bin_edges[1:-1, :].T.astype(cp.float64))

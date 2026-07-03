@@ -662,6 +662,44 @@ void fused_gen(const double* __restrict__ ua, const double* __restrict__ ub,
 """
 _FUSED_GEN_KERNEL = None  # module-level singleton (lazy-compiled; never on an instance -> pickle-safe)
 
+# COLUMN-MAJOR twin of fused_gen (ARCHITECTURAL FUSE, 2026-07-03, nsys-driven): writes the SAME per-cell
+# value ``v`` for candidate ``c`` at row ``i`` into a (K, n) C-order buffer (``out[c*n + i]``) instead of the
+# (n, K) row-major slot (``out[i*K + c]``). The caller allocates ``out`` as (K, n), so a downstream that
+# previously produced a column-major view of the (n,K) matrix (``_transpose_to_cm`` for the coalesced radix
+# edges, or ``cp.percentile(cand, axis=0)`` sorting the strided axis) reads the (K, n) buffer DIRECTLY -- the
+# transpose kernel / strided percentile-sort is GONE. Bit-identical values: out_cm[c, i] == out_rm[i, c] == v
+# (same operand gathers, same safe-div, same non-finite scrub); only the STORE address changes. The thread
+# mapping is flipped too (i = tid % n, c = tid / n) so consecutive threads own consecutive rows of one
+# column -> the operand reads ``ua[ua_idx[c]*n + i]`` AND the ``out[c*n + i]`` write are BOTH coalesced.
+_FUSED_GEN_CM_SRC = r"""
+extern "C" __global__
+void fused_gen_cm(const double* __restrict__ ua, const double* __restrict__ ub,
+                  const int* __restrict__ ua_idx, const int* __restrict__ ub_idx,
+                  const int* __restrict__ bop, const long long n, const int K,
+                  double* __restrict__ out) {
+    long long tid = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n * (long long)K;
+    if (tid >= total) return;
+    long long i = tid % n;
+    int c = (int)(tid / n);
+    double x = ua[(long long)ua_idx[c] * n + i];
+    double y = ub[(long long)ub_idx[c] * n + i];
+    double v;
+    switch (bop[c]) {
+        case 0: v = x * y; break;
+        case 1: v = x + y; break;
+        case 2: v = x - y; break;
+        case 3: v = x / ((y == 0.0) ? 1e-9 : y); break;
+        case 4: v = (x > y) ? x : y; break;
+        case 5: v = (x < y) ? x : y; break;
+        default: v = 0.0;
+    }
+    if (isnan(v) || isinf(v)) v = 0.0;
+    out[(long long)c * n + i] = v;   // COLUMN-MAJOR (K, n): out_cm[c, i] == out_rm[i, c], c*n+i < K*n < 2^63
+}
+"""
+_FUSED_GEN_CM_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe twin of _FUSED_GEN_KERNEL)
+
 
 def _get_fused_gen_kernel():
     global _FUSED_GEN_KERNEL
@@ -669,6 +707,14 @@ def _get_fused_gen_kernel():
         import cupy as cp
         _FUSED_GEN_KERNEL = cp.RawKernel(_FUSED_GEN_SRC, "fused_gen")
     return _FUSED_GEN_KERNEL
+
+
+def _get_fused_gen_cm_kernel():
+    global _FUSED_GEN_CM_KERNEL
+    if _FUSED_GEN_CM_KERNEL is None:
+        import cupy as cp
+        _FUSED_GEN_CM_KERNEL = cp.RawKernel(_FUSED_GEN_CM_SRC, "fused_gen_cm")
+    return _FUSED_GEN_CM_KERNEL
 
 
 # GRAND-FUSION kernel (roadmap #5 + #3, 2026-06-20). One launch computes the joint histograms for ALL
@@ -787,14 +833,20 @@ def _quantile_levels_dev(cp, nbins: int, work):
     return hit
 
 
-def _fused_generate_block(ua_cm, ub_cm, combos_block):
+def _fused_generate_block(ua_cm, ub_cm, combos_block, *, column_major: bool = False):
     """Generate the (n, len(combos_block)) candidate matrix for ``combos_block`` in ONE kernel launch.
 
     ``ua_cm`` / ``ub_cm`` are the (U, n) C-CONTIGUOUS post-unary caches for operands a / b, where
     U = len(_MINIMAL_UNARY) (row u = _UNARY_IDX[name]). This layout lets the kernel address column u
     via ``ua[u*n + i]``; the caller builds them ONCE and reuses across chunks. Returns a row-major
     (n, K) cupy float64 matrix, bit-equal to the cupy elementwise path (same ops, same safe-div, same
-    nan_to_num -- validated maxdiff 0)."""
+    nan_to_num -- validated maxdiff 0).
+
+    ``column_major=True`` runs the COLUMN-MAJOR twin kernel instead: same per-cell value, written into a
+    (K, n) C-order buffer (``out_cm[c, i] == out_rm[i, c]``). Callers that only need a column-major view of
+    the candidate values (e.g. the exact per-candidate percentile edges) take this to SKIP a downstream
+    transpose / strided-axis sort -- BIT-IDENTICAL values, only the layout differs. Consumers that read the
+    matrix as (n, K) (the resident MI / discretize kernels) MUST keep the default row-major output."""
     import cupy as cp
 
     # Pin the operand-plane row count to the unary set: the kernel does NO bounds check on ua_idx, so a
@@ -814,17 +866,33 @@ def _fused_generate_block(ua_cm, ub_cm, combos_block):
         _COMBO_IDX_CACHE[_ck] = (ua_idx, ub_idx, bop)
     else:
         ua_idx, ub_idx, bop = _cc
-    out = cp.empty((n, K), dtype=cp.float64)
     total = n * K
     threads = 256
     blocks = (total + threads - 1) // threads
+    if column_major:
+        out = cp.empty((K, n), dtype=cp.float64)   # (K, n) C-order == column-major over the (n, K) matrix
+        _get_fused_gen_cm_kernel()((blocks,), (threads,), (ua_cm, ub_cm, ua_idx, ub_idx, bop, np.int64(n), np.int32(K), out))
+        return out
+    out = cp.empty((n, K), dtype=cp.float64)
     _get_fused_gen_kernel()((blocks,), (threads,), (ua_cm, ub_cm, ua_idx, ub_idx, bop, np.int64(n), np.int32(K), out))
     return out
 
 
 def _unary_stack_cm(xp, x):
-    """(U, n) C-contiguous stack of the minimal unary transforms of ``x`` (U=len(_MINIMAL_UNARY), row u = _UNARY_IDX[name])."""
-    return xp.ascontiguousarray(xp.stack([_unary_apply(xp, u, x) for u in _MINIMAL_UNARY], axis=0))
+    """(U, n) C-contiguous stack of the minimal unary transforms of ``x`` (U=len(_MINIMAL_UNARY), row u = _UNARY_IDX[name]).
+
+    Writes each unary DIRECTLY into a preallocated (U, n) buffer instead of ``xp.stack([...])`` (nsys-driven,
+    2026-07-03): stack materialises ALL U unary temporaries in the list SIMULTANEOUSLY, then copies each into
+    its output -> peak = U operand-plane temporaries + the output. The per-row assignment holds only ONE unary
+    temporary at a time (peak = 1 + the output), dropping the stack copy AND the U-fold transient VRAM. The
+    plane is C-contiguous by construction (``xp.empty`` default order), so the prior ``ascontiguousarray`` is a
+    no-op removed. Row values are byte-identical to the stack path (same ``_unary_apply`` output, copied into
+    row u). ``x`` is a float64 device operand here (both callers pass ``cp.asarray(.., float64)``); every
+    minimal unary preserves that dtype, so ``plane`` dtype = ``x.dtype`` matches what stack would infer."""
+    plane = xp.empty((len(_MINIMAL_UNARY), x.shape[0]), dtype=x.dtype)
+    for u in _MINIMAL_UNARY:
+        plane[_UNARY_IDX[u]] = _unary_apply(xp, u, x)   # copies the fresh unary result into its row slice
+    return plane
 
 # Per-element GPU working-set multiple for the cupy plug-in MI: the (n, k) cand f64 + argsort int64 +
 # X_binned int64 + flat int64 coexist, so budget ~5x the bare cand bytes. Conservative -> avoids the
@@ -972,7 +1040,7 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
         # H2D-free resident MI scores the chunk with no per-chunk transfer (bit-identical to the host-input
         # variant -- test_resident_batch_cuda_matches_host_input pins maxdiff 0). y_min/n_classes hoisted.
         mi_parts.append(np.asarray(
-            _plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins, y_min=_ymin, n_classes=_ncls),
+            _plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins, y_min=_ymin, n_classes=_ncls, relax_binning=True),
             dtype=np.float64))
         del cand
     return _candidate_names(), np.concatenate(mi_parts) if mi_parts else np.empty(0)

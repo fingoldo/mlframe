@@ -106,6 +106,10 @@ def validate_suite_inputs(
         raise TypeError(f"df must be pandas DataFrame, polars DataFrame, or path string / PathLike, " f"got {type(df).__name__}")
     if isinstance(df, str) and not df.lower().endswith(".parquet"):
         raise ValueError(f"File path must be a .parquet file, got: {df}")
+    # Row-count sanity at the boundary: an in-memory empty frame otherwise crashes deep in splitting.py with a
+    # confusing error. (A path-string df is validated after the parquet read, downstream.)
+    if isinstance(df, (pd.DataFrame, pl.DataFrame)) and len(df) == 0:
+        raise ValueError("df has 0 rows -- train_mlframe_models_suite needs a non-empty dataset.")
 
     if target_name is None or not isinstance(target_name, str):
         raise TypeError(f"target_name must be a non-empty string, got {type(target_name).__name__}")

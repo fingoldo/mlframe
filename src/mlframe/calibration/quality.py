@@ -66,6 +66,10 @@ def mutual_information_score(y: np.ndarray, y_preds: np.ndarray) -> float:
     the score function of the density) despite the historical misnomer -- see the deprecated
     ``hyvarinen_score`` alias below.
     """
+    if np.asarray(y).shape[0] <= 2:
+        # sklearn's KNN MI estimator requires n_samples > n_neighbors (=2); return NaN on a degenerate tiny
+        # input instead of raising a cryptic ValueError from deep inside sklearn.
+        return float("nan")
     return mutual_info_regression(y.reshape(-1, 1), y_preds.reshape(-1, 1), n_neighbors=2)[0]
 
 
@@ -88,6 +92,8 @@ def hyvarinen_score(y: np.ndarray, y_preds: np.ndarray) -> float:
 
 def crps(y: np.ndarray, y_preds: np.ndarray) -> float:
     """Computes mean Continuous Ranked Probability Score of true binary outcomes versus predicted probabilities."""
+    if np.asarray(y).shape[0] == 0:
+        return float("nan")  # mean of an empty CRPS array is a silent NaN; surface it explicitly.
     return crps_ensemble(observations=y, forecasts=y_preds).mean()
 
 
@@ -192,7 +198,8 @@ def make_custom_calibration_plot(
                 prob_pos = X[var_name]
             else:
                 named_vars = [var for var in competing_vars if len(var) > 0]
-
+                if not named_vars:
+                    continue  # an all-empty competing-probs group has nothing to plot -> skip (was IndexError)
                 prob_pos = 1.0 - X[named_vars].sum(axis=1)
                 var_name = named_vars[0]  # any of them
 

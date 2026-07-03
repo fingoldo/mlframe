@@ -115,6 +115,16 @@ def _sync_free_qbin_codes(cp, xd, nbins: int):
     # Percentile edges via an explicit sort + linear interpolation (numpy's default 'linear' method) rather
     # than cp.percentile, which does an internal host read (int index) that syncs. Sort is O(n log n) -- the
     # same order cp.percentile pays internally -- but stays fully device-side. n is a host shape read (no sync).
+    #
+    # bench-attempt-rejected (2026-07-03): replacing this full cp.sort with cp.partition(xd, kth) at only the
+    # nbins+1 quantile ranks -- kth = floor/ceil of qs*(n-1), buildable ENTIRELY host-side from n + the fixed qs
+    # linspace, so partition needs NO device read and STAYS sync-free (unlike a prior attempt that read
+    # cp.asnumpy(ranks)). Rejected because it is not a meaningful win: cupy's partition is a bitonic partial sort
+    # whose cost is governed by the LARGEST kth, and the top interior quantile edge sits at rank ~0.9*(n-1), so
+    # partition does near-full-sort work anyway (a prior micro-bench measured cp.partition only MARGINALLY faster
+    # than cp.sort). The content-keyed code cache below (resident_qbin_codes) removes the sort ENTIRELY on the
+    # ~half of calls that re-bin an already-seen column -- a strictly larger, sync-free, bit-identical win than
+    # shaving a partial-sort constant off every call. Keep the simple full sort here.
     n = int(xd.size)
     qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
     xs = cp.sort(xd.ravel())
@@ -151,15 +161,14 @@ def _quantile_bin_gpu(a: np.ndarray, nbins: int):
     try:
         import cupy as cp
 
-        from ._fe_resident_operands import resident_operand
+        from ._fe_resident_operands import resident_qbin_codes
         # The same candidate column is re-binned across greedy steps with identical content (H2D audit of a 1M
-        # strict-resident fit: 42 calls / 20 distinct -> 176 MB of re-uploads). Route the float column through the
-        # content-keyed resident cache so a repeat bin of identical content reuses the resident copy (no
-        # re-upload); selection-identical (same values -> same percentile edges -> same codes). Distinct columns
-        # still upload once (genuine data).
-        xd = resident_operand(a, "qbin_x", dtype=_qbin_float_dtype())
+        # strict-resident fit: 42 calls / 20 distinct). resident_qbin_codes content-caches BOTH the float upload
+        # (via resident_operand) AND the codes, so a repeat bin of identical content skips the re-upload AND the
+        # O(n log n) sort (the cub DeviceMergeSort hotspot); bit-identical (same values -> same edges -> same
+        # codes). Distinct columns compute once (genuine data).
         # sync-free device dedup (was cp.unique + size check, two D2H syncs); only the bulk (n,) result copies.
-        return cp.asnumpy(_sync_free_qbin_codes(cp, xd, nbins))
+        return cp.asnumpy(resident_qbin_codes(a, nbins, _qbin_float_dtype(), _sync_free_qbin_codes))
     except Exception:
         logger.debug("GPU _quantile_bin failed; numpy fallback", exc_info=True)
         return None
@@ -180,10 +189,10 @@ def _quantile_bin_gpu_resident(a: np.ndarray, nbins: int):
     try:
         import cupy as cp
 
-        from ._fe_resident_operands import resident_operand
-        xd = resident_operand(a, "qbin_x", dtype=_qbin_float_dtype())
+        from ._fe_resident_operands import resident_qbin_codes
         # Fully sync-free: codes stay RESIDENT, no cp.unique / size D2H (the whole point of the resident path).
-        return _sync_free_qbin_codes(cp, xd, nbins)
+        # resident_qbin_codes content-caches the codes so a repeat bin skips the sort entirely (bit-identical).
+        return resident_qbin_codes(a, nbins, _qbin_float_dtype(), _sync_free_qbin_codes)
     except Exception:
         logger.debug("GPU-resident _quantile_bin failed; host fallback", exc_info=True)
         return None

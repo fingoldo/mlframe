@@ -220,6 +220,29 @@ void mi_from_counts_col(const int* __restrict__ gcounts, const int K, const int 
 _MI_FROM_VALUES_KERNEL = None
 _MI_SPLIT_KERNELS = None
 
+# f32-X twin of the values->bin->hist->MI module (dtype-churn kill, 2026-07-03, nsys-driven). The opt-in
+# f32 binning path (keep_dtype / relax_binning) holds the (n,K) candidate matrix in float32 to feed the
+# f32 radix-select edges, but ``binned_mi_from_values_gpu`` re-UPCAST that whole matrix to f64
+# (X.astype(f64)) before this kernel AND transposed it in f64 (transpose_f64) -- pure churn: the f32->f64
+# downcast+upcast round-trip (nsys F2 1M STRICT: 562 cupy_copy__float32_float64 + 199 transpose_f64). The
+# ONLY use of X inside the kernel is ``double v = Xc[i]`` (a widening float->double promotion) fed to the
+# edge comparison; the f64 path stored exactly ``(double)f32`` there, so reading the value as f32 and
+# promoting per-element yields the IDENTICAL f64 -> the bin codes and plug-in MI are BIT-IDENTICAL. The
+# EDGES stay ``const double*`` (the interp emits f64; kept f64 so the comparison is byte-for-byte the f64
+# path's). Only X's storage/transpose dtype changes: the (n,K) upcast is gone and the transpose runs in
+# f32 (transpose_f32, half the bytes). Everything else (histogram int32, MI f64 math) is unchanged.
+_MI_FROM_VALUES_F32_SRC = (
+    _MI_FROM_VALUES_SRC
+    .replace("const double* __restrict__ X, const double* __restrict__ edges,",
+             "const float* __restrict__ X, const double* __restrict__ edges,")
+    .replace("const double* Xc = X", "const float* Xc = X")
+    .replace("void mi_from_values(", "void mi_from_values_f32(")
+    .replace("void mi_hist_split(", "void mi_hist_split_f32(")
+    .replace("void mi_from_counts_col(", "void mi_from_counts_col_f32(")
+)
+_MI_FROM_VALUES_F32_KERNEL = None
+_MI_SPLIT_F32_KERNELS = None
+
 # FUSED VALUES->BIN->HIST->MILLER-MADOW-MI (2026-06-26). Same one-block-per-column fused bin+joint-hist as
 # mi_from_values, but emits the Miller-Madow-corrected MARGINAL MI matching _usability_njit_pool's
 # _marginal_mi_njit / _gpu_marginal_mi: mi = H(x)+H(y)-H(x,y) - (kx_occ + k_y - kxy - 1)/(2n), clamped >=0.
@@ -322,6 +345,17 @@ _MI_MM_FROM_VALUES_NEK_SRC = (
 )
 _MI_MM_FROM_VALUES_NEK_KERNEL = None
 
+# f32-X twin of the length-aware MM kernel (dtype-churn kill, 2026-07-03). Same rationale as the f32
+# mi_from_values twin: the only use of X is ``double v = X[i*K+c]`` (widening float->double promotion), so
+# reading X as f32 and promoting per-element yields the exact f64 the f64 path stored via X.astype(f64) ->
+# BIT-IDENTICAL codes/MM-MI. Edges stay f64. Kills the (n,K) f32->f64 upcast on the pair-combo MM path.
+_MI_MM_FROM_VALUES_NEK_F32_SRC = (
+    _MI_MM_FROM_VALUES_NEK_SRC
+    .replace("void mi_mm_from_values_nek(const double* __restrict__ X, const double* __restrict__ edges,",
+             "void mi_mm_from_values_nek_f32(const float* __restrict__ X, const double* __restrict__ edges,")
+)
+_MI_MM_FROM_VALUES_NEK_F32_KERNEL = None
+
 
 def _get_mi_mm_from_values_nek_kernel():
     global _MI_MM_FROM_VALUES_NEK_KERNEL
@@ -329,6 +363,14 @@ def _get_mi_mm_from_values_nek_kernel():
         import cupy as cp
         _MI_MM_FROM_VALUES_NEK_KERNEL = cp.RawKernel(_MI_MM_FROM_VALUES_NEK_SRC, "mi_mm_from_values_nek")
     return _MI_MM_FROM_VALUES_NEK_KERNEL
+
+
+def _get_mi_mm_from_values_nek_f32_kernel():
+    global _MI_MM_FROM_VALUES_NEK_F32_KERNEL
+    if _MI_MM_FROM_VALUES_NEK_F32_KERNEL is None:
+        import cupy as cp
+        _MI_MM_FROM_VALUES_NEK_F32_KERNEL = cp.RawKernel(_MI_MM_FROM_VALUES_NEK_F32_SRC, "mi_mm_from_values_nek_f32")
+    return _MI_MM_FROM_VALUES_NEK_F32_KERNEL
 
 
 def _get_mi_mm_from_values_kernel():
@@ -348,7 +390,12 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     _gpu_marginal_mi / _marginal_mi_njit. Returns None if the (nbins*ky) shared tile won't fit."""
     import cupy as cp
 
-    Xd = x_vals.astype(cp.float64, copy=False)
+    # DTYPE-CHURN KILL (2026-07-03): keep an f32 candidate matrix at f32 (feed the f32-X MM kernel twin,
+    # edges f64) instead of upcasting the whole (n,K) matrix to f64. BIT-IDENTICAL: the kernel reads X only
+    # via ``double v = X[i*K+c]`` (widening float->double promotion == the exact f64 the f64 path stored),
+    # and cmin/cmax are order statistics of the same f32 values (max/min then exact f64 upcast, unchanged).
+    _is_f32 = (getattr(x_vals, "dtype", None) == cp.float32)
+    Xd = x_vals if _is_f32 else x_vals.astype(cp.float64, copy=False)
     if Xd.ndim == 1:
         Xd = Xd[:, None]
     n, K = int(Xd.shape[0]), int(Xd.shape[1])
@@ -384,7 +431,8 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     threads = 256
     _get_dedup_edges_kernel()(((K + threads - 1) // threads,), (threads,),
         (E, cmin, cmax, np.int32(ne), np.int32(K), Ec, ne_k))
-    _get_mi_mm_from_values_nek_kernel()((K,), (256,),
+    _mm_nek = _get_mi_mm_from_values_nek_f32_kernel() if _is_f32 else _get_mi_mm_from_values_nek_kernel()
+    _mm_nek((K,), (256,),
         (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(int(nbins)),
          np.int32(Ky), np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)),
          ne_k, mi_out),
@@ -412,6 +460,24 @@ def _get_mi_split_kernels(cp):
     return _MI_SPLIT_KERNELS
 
 
+def _get_mi_from_values_f32_kernel():
+    """f32-X twin of ``mi_from_values`` (f64 edges). Bit-identical codes/MI: X is read via a widening
+    float->double promotion, the exact f64 the f64 path stored after its bulk X.astype(f64) upcast."""
+    global _MI_FROM_VALUES_F32_KERNEL
+    if _MI_FROM_VALUES_F32_KERNEL is None:
+        import cupy as cp
+        _MI_FROM_VALUES_F32_KERNEL = cp.RawKernel(_MI_FROM_VALUES_F32_SRC, "mi_from_values_f32")
+    return _MI_FROM_VALUES_F32_KERNEL
+
+
+def _get_mi_split_f32_kernels(cp):
+    global _MI_SPLIT_F32_KERNELS
+    if _MI_SPLIT_F32_KERNELS is None:
+        mod = cp.RawModule(code=_MI_FROM_VALUES_F32_SRC)
+        _MI_SPLIT_F32_KERNELS = (mod.get_function("mi_hist_split_f32"), mod.get_function("mi_from_counts_col_f32"))
+    return _MI_SPLIT_F32_KERNELS
+
+
 def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, codes_trusted: bool = False) -> np.ndarray | None:
     """Plug-in MI(col_k; y) for an (n,K) float matrix ``x_vals`` binned by per-column ``interior_edges``
     ((nbins-1, K) cupy) in ONE fused RawKernel (bin + joint histogram + MI), replacing _searchsorted_codes
@@ -419,7 +485,15 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
     cp.searchsorted side='right' bit-for-bit). Falls back to None if the (nbins*ky) shared tile won't fit."""
     import cupy as cp
 
-    Xd = x_vals.astype(cp.float64, copy=False)
+    # DTYPE-CHURN KILL (2026-07-03): keep an f32 candidate matrix at f32 through the transpose + kernel
+    # (feed the f32-X kernel twin, edges stay f64) instead of upcasting the whole (n,K) matrix back to f64.
+    # The f32 X is fed to the SELECTION callers' f32 radix-edge path; re-upcasting it here undid that (nsys
+    # F2 1M STRICT: 562 cupy_copy__float32_float64 + 199 transpose_f64). BIT-IDENTICAL: the kernel's only use
+    # of X is ``double v = Xc[i]`` (widening float->double promotion == the exact f64 the f64 path stored via
+    # X.astype(f64)); edges kept f64 so the comparison is byte-for-byte the f64 path's. Non-f32 input upcasts
+    # to f64 as before (the generic contract). The transpose runs in f32 (transpose_f32, half the bytes).
+    _is_f32 = (getattr(x_vals, "dtype", None) == cp.float32)
+    Xd = x_vals if _is_f32 else x_vals.astype(cp.float64, copy=False)
     if Xd.ndim == 1:
         Xd = Xd[:, None]
     n, K = int(Xd.shape[0]), int(Xd.shape[1])
@@ -446,7 +520,7 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
             S = max(2, min(64, (48 + K - 1) // max(1, K)))
             M = int(nbins) * Ky
             gcounts = cp.zeros(K * M, dtype=cp.int32)
-            _hist, _mi = _get_mi_split_kernels(cp)
+            _hist, _mi = _get_mi_split_f32_kernels(cp) if _is_f32 else _get_mi_split_kernels(cp)
             _hist((K, S), (256,),
                   (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), np.int32(S), gcounts),
                   shared_mem=M * 4)
@@ -455,9 +529,10 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
         except Exception:
             import logging
             logging.getLogger(__name__).debug("mi split-n path failed; single-launch mi_from_values", exc_info=True)
-    _get_mi_from_values_kernel()((K,), (256,), (Xc, E, yv, np.int64(n), np.int32(K),
-                                              np.int32(int(nbins)), np.int32(Ky), _inv, mi_out),
-                                 shared_mem=int(nbins) * Ky * 4)
+    _single = _get_mi_from_values_f32_kernel() if _is_f32 else _get_mi_from_values_kernel()
+    _single((K,), (256,), (Xc, E, yv, np.int64(n), np.int32(K),
+                           np.int32(int(nbins)), np.int32(Ky), _inv, mi_out),
+            shared_mem=int(nbins) * Ky * 4)
     return cp.asnumpy(mi_out)
 
 

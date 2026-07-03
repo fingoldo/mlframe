@@ -1,9 +1,15 @@
-"""Trust score via OOF correctness density (Jiang et al. style).
+"""Trust score via correctness-density (Jiang et al. style).
 
-Iter 90 mechanism. Agent B #2 ranked.
+Iter 90 mechanism.
 
-Per row: compute log-ratio d_kNN(x, OOF-correct-rows-class-c) / d_kNN(x, OOF-correct-rows-other-classes).
+Per row: compute log-ratio d_kNN(x, correct-rows-class-c) / d_kNN(x, correct-rows-other-classes).
 For regression: "correct" = baseline residual within ±MAD; for binary: "correct" = baseline-pred-class matches y.
+
+CORRECTNESS-MASK CAVEAT (audit4): the baseline model predicts on its OWN training rows to define the
+"correct" set (``m.predict(Xt)`` on the fit fold), so the per-fold correctness mask is IN-SAMPLE, not
+out-of-fold, despite the module name. This is TRAIN/SERVING SKEW (train rows get an optimistic-correctness
+signal), NOT leakage into held-out metrics -- held-out / query rows are scored against the fitted state via
+the standard Mode-B path, so honest holdout numbers DEGRADE (never inflate) from the skew. Opt-in only.
 
 Per query emit 5 features:
 - nearest_correct_distance (min distance to any OOF-correct row of dominant class)

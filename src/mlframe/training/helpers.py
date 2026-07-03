@@ -27,8 +27,9 @@ import polars.selectors as cs
 
 # NOTE: torch + mlframe.lightninglib are imported lazily inside `get_training_configs`
 # (only needed for MLP configs). Top-level import cost ~2-3s — avoided for CB/LGB/XGB-only runs.
-import lightgbm as lgb
-
+# lightgbm is likewise not imported here: it was an unused module-level import whose
+# transitive ``lightgbm -> dask.distributed`` pull cost ~1s; the LGBM config paths import
+# it where actually needed.
 import xgboost as xgb
 from xgboost.callback import TrainingCallback
 
