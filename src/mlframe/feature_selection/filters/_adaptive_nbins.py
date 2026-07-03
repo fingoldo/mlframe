@@ -130,8 +130,12 @@ def _edges_from_quantiles(x: np.ndarray, n_bins: int) -> np.ndarray:
     """
     if n_bins < 2:
         return np.array([], dtype=np.float64)
+    x = np.asarray(x, dtype=np.float64).ravel()
+    x = x[np.isfinite(x)]  # drop nan/+-inf: nanpercentile ignores nan but not inf, so an all/mostly-inf tail leaks an inf inner edge into searchsorted (phantom bin -> inflated K_x / MM bias)
+    if x.size == 0:
+        return np.array([], dtype=np.float64)
     quantiles = np.linspace(0.0, 100.0, n_bins + 1)
-    full_edges = np.nanpercentile(np.asarray(x, dtype=np.float64).ravel(), quantiles)
+    full_edges = np.percentile(x, quantiles)
     full_edges = np.unique(full_edges)
     if full_edges.size <= 2:
         return np.array([], dtype=np.float64)
@@ -143,7 +147,10 @@ def _edges_from_uniform(x: np.ndarray, n_bins: int) -> np.ndarray:
     if n_bins < 2:
         return np.array([], dtype=np.float64)
     x = np.asarray(x, dtype=np.float64).ravel()
-    xmin, xmax = float(np.nanmin(x)), float(np.nanmax(x))
+    x = x[np.isfinite(x)]  # nanmin/nanmax ignore nan but not inf: a single inf -> xmin/xmax +-inf -> linspace of all-NaN edges -> NaN in searchsorted = garbage codes
+    if x.size == 0:
+        return np.array([], dtype=np.float64)
+    xmin, xmax = float(np.min(x)), float(np.max(x))
     if xmax <= xmin:
         return np.array([], dtype=np.float64)
     full_edges = np.linspace(xmin, xmax, n_bins + 1)
