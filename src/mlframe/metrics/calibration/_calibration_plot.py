@@ -25,8 +25,29 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import numba
-import matplotlib
-from matplotlib import pyplot as plt
+
+
+class _LazyModule:
+    """Transparent lazy proxy: imports the wrapped module on first attribute
+    access. Lets this plotting module stay on the eager import path (it is
+    pulled by ``metrics.calibration.__init__``) without paying matplotlib's
+    ~0.15s import cost for fits that never draw a calibration plot.
+    """
+
+    def __init__(self, name: str):
+        self._lm_name = name
+        self._lm_mod = None
+
+    def __getattr__(self, attr):
+        if self._lm_mod is None:
+            import importlib
+
+            self._lm_mod = importlib.import_module(self._lm_name)
+        return getattr(self._lm_mod, attr)
+
+
+matplotlib = _LazyModule("matplotlib")
+plt = _LazyModule("matplotlib.pyplot")
 
 # Single source of truth for numba kwargs across mlframe.metrics modules.
 from .._numba_params import NUMBA_NJIT_PARAMS

@@ -23,7 +23,26 @@ import numpy as np
 from pyutilz.system import tqdmu
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
-import matplotlib.pyplot as plt
+class _LazyModule:
+    """Transparent lazy proxy: imports the wrapped module on first attribute
+    access. Keeps matplotlib (~0.15s) off the eager import path -- this module
+    is reachable from feature-selection imports, yet plt is only used by the
+    optimizer's plotting callbacks.
+    """
+
+    def __init__(self, name: str):
+        self._lm_name = name
+        self._lm_mod = None
+
+    def __getattr__(self, attr):
+        if self._lm_mod is None:
+            import importlib
+
+            self._lm_mod = importlib.import_module(self._lm_name)
+        return getattr(self._lm_mod, attr)
+
+
+plt = _LazyModule("matplotlib.pyplot")
 
 import random as _stdlib_random
 from enum import Enum, auto

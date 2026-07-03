@@ -45,9 +45,28 @@ def _verify_sidecar(path: str) -> bool:
     """Back-compat shim delegating to :func:`mlframe.utils.safe_pickle.verify_sidecar`."""
     return _safe_pickle_verify_sidecar(path)
 
-import matplotlib as mpl
-import matplotlib.cm as cm
-from matplotlib import pyplot as plt
+class _LazyModule:
+    """Transparent lazy proxy: imports the wrapped module on first attribute
+    access. Keeps matplotlib (~0.15s import) off the eager import path -- this
+    module is pulled in via ``estimators.__init__`` on any feature-selection
+    import, yet matplotlib is only needed by its plotting helpers.
+    """
+
+    def __init__(self, name: str):
+        self._lm_name = name
+        self._lm_mod = None
+
+    def __getattr__(self, attr):
+        if self._lm_mod is None:
+            import importlib
+
+            self._lm_mod = importlib.import_module(self._lm_name)
+        return getattr(self._lm_mod, attr)
+
+
+mpl = _LazyModule("matplotlib")
+cm = _LazyModule("matplotlib.cm")
+plt = _LazyModule("matplotlib.pyplot")
 
 from mlframe.metrics.core import _close_unless_interactive
 from mlframe.metrics.calibration import _show_plots_unless_agg
@@ -153,13 +172,15 @@ def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: object, cv_result
                     )
 
 
-def compare_cv_metrics(cv_results: dict, metric: str = "root_mean_squared_error", extended: bool = False, cmap=cm.viridis, figsize=(20, 8), agg_fcn=np.median):
+def compare_cv_metrics(cv_results: dict, metric: str = "root_mean_squared_error", extended: bool = False, cmap=None, figsize=(20, 8), agg_fcn=np.median):
     """Plot per-fold values of ``metric`` for every estimator in a cross-validation results dict.
 
     Reads ``cv_results["results"]["cv_results"][estimator][metrics|extended_metrics][metric]``, aggregates
     each estimator's folds with ``agg_fcn`` for the legend, sorts estimators by that aggregate, and draws one
     line per estimator (dummy baselines dotted). Returns the matplotlib figure.
     """
+    if cmap is None:  # resolved here rather than as a default arg so the lazy matplotlib proxy is not triggered at import
+        cmap = cm.viridis
     fig = plt.figure(figsize=figsize)
 
     mean_scores = {}

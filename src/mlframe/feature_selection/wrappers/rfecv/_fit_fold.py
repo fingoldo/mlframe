@@ -22,7 +22,10 @@ from sklearn.base import clone
 
 from mlframe.config import CATBOOST_MODEL_TYPES
 from mlframe.core.helpers import has_early_stopping_support
-from mlframe.training.helpers import compute_cb_text_processing
+# compute_cb_text_processing is imported lazily at its (CatBoost-text-only) call
+# sites below: importing it eagerly pulls the whole mlframe.training.helpers
+# module, which drags xgboost + lightgbm -> dask.distributed (~2s) onto every
+# feature-selection import even though it is only needed for CatBoost text folds.
 from mlframe.preprocessing.transforms import pack_val_set_into_fit_params
 from mlframe.estimators.baselines import get_best_dummy_score
 
@@ -210,6 +213,8 @@ def _eval_fold_body(
     if val_cv and has_early_stopping_support(estimator_type):
         _temp_text_feats = _filtered_fit_params.get("text_features") or []
         if _temp_text_feats and "CatBoost" in type(fitted_estimator).__name__:
+            from mlframe.training.helpers import compute_cb_text_processing
+
             _fold_rows = X_train.shape[0] if hasattr(X_train, "shape") else None
             _tp = compute_cb_text_processing(_fold_rows) if _fold_rows is not None else None
             if _tp is not None and hasattr(fitted_estimator, "set_params"):
@@ -266,6 +271,8 @@ def _eval_fold_body(
             if val_cv and has_early_stopping_support(estimator_type):
                 _temp_text_feats = _filtered_fit_params.get("text_features") or []
                 if _temp_text_feats and "CatBoost" in type(_fitted).__name__:
+                    from mlframe.training.helpers import compute_cb_text_processing
+
                     _fold_rows = X_train.shape[0] if hasattr(X_train, "shape") else None
                     _tp = compute_cb_text_processing(_fold_rows) if _fold_rows is not None else None
                     if _tp is not None and hasattr(_fitted, "set_params"):

@@ -36,8 +36,29 @@ import numpy as np
 import polars as pl
 from os.path import exists
 
-import matplotlib.pyplot as plt
-import plotly.graph_objects as go
+class _LazyModule:
+    """Transparent lazy proxy: imports the wrapped module on first attribute
+    access. Keeps matplotlib + plotly (~0.5s combined) off the eager import
+    path -- this module is pulled in via ``feature_engineering.__init__`` on
+    any feature-selection import, yet both are only needed by its plotting
+    helpers. (Type annotations here are strings via ``from __future__ import
+    annotations``, so ``plt.Figure`` / ``go.Figure`` never trigger the proxy.)
+    """
+
+    def __init__(self, name: str):
+        self._lm_name = name
+        self._lm_mod = None
+
+    def __getattr__(self, attr):
+        if self._lm_mod is None:
+            import importlib
+
+            self._lm_mod = importlib.import_module(self._lm_name)
+        return getattr(self._lm_mod, attr)
+
+
+plt = _LazyModule("matplotlib.pyplot")
+go = _LazyModule("plotly.graph_objects")
 
 from datetime import datetime, timedelta
 

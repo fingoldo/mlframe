@@ -30,16 +30,32 @@ import numba
 import numpy as np
 import pandas as pd
 import psutil
-from antropy import detrended_fluctuation, katz_fd, perm_entropy, petrosian_fd, sample_entropy, svd_entropy
 from joblib import delayed
+# antropy is imported lazily (see _get_entropy_funcs below): the top-level
+# ``import antropy`` eagerly JIT-compiles its numba kernels, costing ~5s at
+# import time. These six fractal/entropy features are only touched when
+# return_entropy=True, so we defer that cost to first actual use.
 
-try:
-    from astropy.stats import histogram as _astropy_histogram
-except (ImportError, AttributeError):
-    # astropy may be broken (e.g. numpy 2.x removed np.in1d while older astropy
-    # still imports it at module level). Fall back to np.histogram вЂ” equivalent
-    # for the bins="scott"/"auto" string-rule cases this module actually uses.
-    _astropy_histogram = None
+# astropy is imported lazily on first histogram() call (see _resolve below):
+# the top-level import costs ~0.6s and this module is on the eager MRMR
+# import path, yet most fits never call histogram(). The try/except still
+# guards the case where astropy is wedged by a transitive numpy-API
+# deprecation (e.g. numpy 2.x removing np.in1d) -- we fall back to
+# np.histogram, equivalent for the bins="scott"/"auto" string-rule cases.
+_astropy_histogram = None
+_astropy_resolved = False
+
+
+def _resolve_astropy_histogram():
+    global _astropy_histogram, _astropy_resolved
+    if not _astropy_resolved:
+        try:
+            from astropy.stats import histogram as _h
+            _astropy_histogram = _h
+        except (ImportError, AttributeError):
+            _astropy_histogram = None
+        _astropy_resolved = True
+    return _astropy_histogram
 
 
 def histogram(a, bins="auto", **kwargs):
@@ -49,8 +65,9 @@ def histogram(a, bins="auto", **kwargs):
     numpy-API deprecation; downstream callers see the same (hist, edges)
     contract for the string-rule bins values cont_entropy / extras rely on.
     """
-    if _astropy_histogram is not None:
-        return _astropy_histogram(a, bins=bins, **kwargs)
+    _h = _resolve_astropy_histogram()
+    if _h is not None:
+        return _h(a, bins=bins, **kwargs)
     return np.histogram(a, bins=bins, **kwargs)
 from scipy import stats
 from scipy.stats import kstest
@@ -126,8 +143,38 @@ def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
     return ent
 
 
-entropy_funcs = (cont_entropy, svd_entropy, sample_entropy, petrosian_fd, perm_entropy, katz_fd, detrended_fluctuation)  # continuous.get_h, app_entropy
-entropy_funcs_names = [f.__name__ for f in entropy_funcs]
+_entropy_funcs_cache = None
+
+# Static names of the entropy callables, in the exact order _get_entropy_funcs
+# builds them. Kept as literals so feature-name construction never needs to
+# import antropy (whose import JIT-compiles for ~5s); only actual entropy
+# *computation* materialises the callables.
+_ENTROPY_FUNC_NAMES = ("cont_entropy", "svd_entropy", "sample_entropy", "petrosian_fd", "perm_entropy", "katz_fd", "detrended_fluctuation")
+
+
+def _get_entropy_funcs() -> tuple:
+    """Lazily import antropy and build the entropy-feature callable tuple.
+
+    Deferring the ``antropy`` import to here (rather than module top-level)
+    avoids the ~5s of numba JIT that antropy runs on import for callers that
+    never request entropy features. Result is cached after the first call.
+    """
+    global _entropy_funcs_cache
+    if _entropy_funcs_cache is None:
+        from antropy import detrended_fluctuation, katz_fd, perm_entropy, petrosian_fd, sample_entropy, svd_entropy
+        _entropy_funcs_cache = (cont_entropy, svd_entropy, sample_entropy, petrosian_fd, perm_entropy, katz_fd, detrended_fluctuation)  # continuous.get_h, app_entropy
+    return _entropy_funcs_cache
+
+
+def __getattr__(name):
+    # PEP 562: preserve the historical module-level ``entropy_funcs`` /
+    # ``entropy_funcs_names`` attributes for any external importer, while
+    # keeping the antropy import lazy (they are only materialised on access).
+    if name == "entropy_funcs":
+        return _get_entropy_funcs()
+    if name == "entropy_funcs_names":
+        return list(_ENTROPY_FUNC_NAMES)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 default_dist_responses = dict(levy_l=(np.nan, np.nan), logistic=(np.nan, np.nan), pareto=(np.nan, np.nan, np.nan))
 
@@ -365,12 +412,13 @@ def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spe
     # spectral_entropy(arr, sf=sampling_frequency, method=spectral_method),)
     # num_zerocross(arr),
 
+    _entropy_funcs = _get_entropy_funcs()
     nonzero = (~np.isnan(arr)).sum()
     if nonzero < 10:
-        return (0.0,) * len(entropy_funcs)
+        return (0.0,) * len(_entropy_funcs)
     else:
         safe_arr = np.nan_to_num(arr[~np.isnan(arr)], posinf=0, neginf=0)
-        return tuple(np.nan_to_num([f(safe_arr) for f in entropy_funcs], posinf=0, neginf=0))
+        return tuple(np.nan_to_num([f(safe_arr) for f in _entropy_funcs], posinf=0, neginf=0))
 
 
 def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
@@ -577,7 +625,7 @@ def get_numaggs_names(
         + ([] if (directional_only or not return_unsorted_stats) else ["ncrs" + str(q) for q in q])
         + get_moments_slope_mi_feature_names(weights=weights, directional_only=directional_only, return_lintrend_approx_stats=return_lintrend_approx_stats)
         + (["hursth", "hurstc"] if return_hurst else [])
-        + ([] if (directional_only or not return_entropy) else entropy_funcs_names)
+        + ([] if (directional_only or not return_entropy) else list(_ENTROPY_FUNC_NAMES))
         + (distributions_features_names if return_distributional else [])
     )
 

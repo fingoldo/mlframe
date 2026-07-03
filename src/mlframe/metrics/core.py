@@ -10,8 +10,6 @@ logger = logging.getLogger(__name__)
 import numba
 from math import floor
 from scipy.special import expit
-import matplotlib
-from matplotlib import pyplot as plt
 import numpy as np, pandas as pd, polars as pl
 from sklearn.metrics import log_loss  # multiclass log-loss re-export; average_precision_score is OUR own (see _core_auc_brier import below)
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
