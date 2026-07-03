@@ -203,6 +203,10 @@ def generate_grouped_quantile_features(
                 group_sorted[str(gv)] = sv.tolist()
                 iqr_lookup[str(gv)] = group_iqr
                 p90p10_lookup[str(gv)] = group_p90p10
+                # Fit ranks each train value within a sorted set that INCLUDES itself, whereas replay ranks a test
+                # value against the stored train-only sorted array: a small systematic ~1/m per-group distributional
+                # offset (not a y-leak). Acceptable and unchanged by design; documented so a future reader does not
+                # mistake it for a fit/serve skew (mrmr_critique FE-F6).
                 pct_out[rows] = _pct_rank_in_sorted(sv, vals)
 
             pct_out = np.nan_to_num(pct_out, nan=0.5, posinf=1.0, neginf=0.0)

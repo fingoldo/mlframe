@@ -45,7 +45,7 @@ Status legend: DONE (fixed+tested+pushed) | WIP | TODO | DOC | FUTURE | REJECTED
 | FE-F3 | P2 | target_aware_group_bin small-group OOF fallback uses all-rows edges → y-leak into MI gate | _grouped_quantile_fe.py:413,442 | FIX (per-fold train-only edges) | DONE (bf7023e3) |
 | FE-F4 | P2 | `_compute_target_encoding` naive path (n_oof_folds<=0) emits row's own y | _cat_target_encoding_and_weighted.py:81 | FIX (guard K>=2) | DONE (bf7023e3) |
 | FE-F5 | Low | rolling replay casts ns timestamps to float64 (precision loss at window boundary) | _temporal_agg_fe.py:731 | FIX (keep int64) — expanding/lag in d804cdf4, rolling in 34e831f5 | DONE (34e831f5) |
-| FE-F6 | Low | grouped_quantile pct_rank self-inclusion fit vs replay (≈1/m offset) | _grouped_quantile_fe.py:206,309 | DOC | TODO |
+| FE-F6 | Low | grouped_quantile pct_rank self-inclusion fit vs replay (≈1/m offset) | _grouped_quantile_fe.py:206,309 | DOC | DONE-doc (batch-lows) |
 | FE-F7 | Low | temporal winner name collision → duplicate columns | _fe_stage_temporal_agg.py:101 | FIX (dedup on concat) | DONE (33343a58) |
 
 ## FE families — encoding/grouped recipes (mrmr_crit_fe_encoding.md)
@@ -53,8 +53,8 @@ Status legend: DONE (fixed+tested+pushed) | WIP | TODO | DOC | FUTURE | REJECTED
 |----|-----|---------|-----------|-------------|--------|
 | EN-1 | P2 | asymmetric key coercion in cross/TE builders (safe today via pre-canonicalization; fragile) | _encoding_recipes.py:110,331,375 | FIX (canonicalize keys in builders) | TODO |
 | EN-2 | Low | polars branch crashes when pandas absent | _encoding_recipes.py:73 etc | FIX (guard pd) | DONE (33343a58) |
-| EN-3 | Low | _apply_mi_greedy_transform forces float64 on source cols | _missingness_ratio_recipes.py:37 | FIX (validate numeric at build) | TODO |
-| EN-4 | Low | integer-factorize numeric source truncates floats at replay | _recipe_extract.py:193,198 | FIX (round-to-nearest) | TODO |
+| EN-3 | Low | _apply_mi_greedy_transform forces float64 on source cols | _missingness_ratio_recipes.py:37 | FIX (validate numeric at build) | DONE (batch-lows) |
+| EN-4 | Low | integer-factorize numeric source truncates floats at replay | _recipe_extract.py:193,198 | FIX (round-to-nearest) | DONE (batch-lows) |
 | EN-5 | Low | target_aware_group_bin global-fallback OOF optimism (== FE-F3) | _grouped_quantile_fe.py:413 | dedup of FE-F3 | see FE-F3 |
 
 ## FE families — extra families (mrmr_crit_fe_extra.md)
@@ -63,7 +63,7 @@ Status legend: DONE (fixed+tested+pushed) | WIP | TODO | DOC | FUTURE | REJECTED
 | EX-1 | P2 | `_is_argmax_eligible` finiteness guard is a tautology → NaN columns not excluded | _conditional_gate_fe.py:357 | FIX (isfinite(a).all()) | DONE (33343a58) |
 | EX-2 | Low | argmax/gate meaning shifts on serve-only NaN (no replay NaN policy) | _conditional_gate_fe.py:147 | FIX/DOC | TODO |
 | EX-3 | Low/P2 | conditional-gate tau optimized on same in-sample y (selection optimism) | _conditional_gate_fe.py:718 | DOC | TODO |
-| EX-4 | Low/P2 | RankGauss stores full sorted non-unique array (memory) + docstring wrong ("unique") | _extra_fe_families.py:795 | FIX (unique+counts / doc) | TODO |
+| EX-4 | Low/P2 | RankGauss stores full sorted non-unique array (memory) + docstring wrong ("unique") | _extra_fe_families.py:795 | FIX (unique+counts / doc) | DONE-doc (batch-lows) |
 
 ## Performance (mrmr_crit_perf.md)
 | ID | Sev | Finding | file:line | Disposition | Status |
