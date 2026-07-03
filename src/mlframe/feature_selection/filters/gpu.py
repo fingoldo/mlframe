@@ -911,6 +911,17 @@ def mi_direct_gpu(
         classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
     )
 
+    # return_null_mean needs a STABLE null mean AND a usable permutation p-value, so mirror the CPU mi_direct path
+    # (permutation.py:642): run a larger fixed null budget (_NULL_MEAN_MIN_PERMS, default 32) rather than the screen's
+    # tiny exceedance budget. Without this the GPU ran only ``npermutations`` (as low as 2) shuffles, so the add-one
+    # p-value floored at (1+0)/(2+1)=0.33 >= alpha for EVERY feature -- the null-mean debiasing was then applied even
+    # to strong genuine signal, and GPU-present hosts selected differently from CPU-only hosts. max_failed is lifted
+    # to the full budget so the early-stop cannot truncate the null (unbiased mean + full-resolution p-value).
+    if return_null_mean:
+        from .permutation import _NULL_MEAN_MIN_PERMS
+        npermutations = max(int(npermutations), _NULL_MEAN_MIN_PERMS)
+        max_failed = npermutations
+
     confidence = 0.0
     nfailed = 0            # defined outside the block so the return_null_mean path is valid when the block is skipped
     _null_sum = 0.0        # sum of per-permutation MIs -> empirical null mean = _null_sum / _nchecked
