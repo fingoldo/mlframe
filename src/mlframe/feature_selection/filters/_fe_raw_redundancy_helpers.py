@@ -23,6 +23,9 @@ import numpy as np
 # scales ~1/sqrt(n * nperm), so at 100k x ~25 perms it is already far past the CLT plateau -- 250k -> 100k
 # is accuracy-NEUTRAL (not a speed/accuracy trade), and validated selection-equivalent on the adversarial
 # user-case-a multi-seed retention pin + the F2 5-profile goal. Measured drop_redundant ~4.1s -> ~3.0s.
+# tune-attempt-rejected (2026-07-03): 60k passed the SAME suite but buys only ~0.2s while adding ~29% per-draw
+# floor noise (SE ~1/sqrt(n)) on the tightest-margin adversarial retention decision -- not worth eroding that
+# safety margin for 0.7%. 100k is the accurate-default floor here.
 try:
     _CMI_NULL_MAX_ROWS = int(os.environ.get("MLFRAME_CMI_NULL_MAX_ROWS", "100000"))
 except (ValueError, TypeError):
