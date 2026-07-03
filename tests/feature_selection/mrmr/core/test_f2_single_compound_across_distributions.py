@@ -149,7 +149,20 @@ _PROFILES = [
     "scaled_1_5",  # FIXED 2026-06-24 by the 4-part asymmetric-synergy / OLS-separability / pre-vote-fusion / subsumed-recipe-preservation fix.
     "heavy_tailed",  # FIXED 2026-06-24 by C2 additive-fusion (both engineered halves built but unfused).
     "mixed",  # FIXED 2026-06-24 by the binned-MI tie-band form-selection fix (see ROOT CAUSE note below).
-    pytest.param("with_outliers", marks=pytest.mark.xfail(strict=True, reason=_XFAIL_CAPTURE)),
+    # FIXED 2026-07-03 by the tail-concentration usability path (a continuous-|corr| detector gated on
+    # rank-vs-linear DISAGREEMENT -- ``pair_is_tail_concentrated_rankaware`` in _fe_usability_signal.py --
+    # threaded through three sites, see the with_outliers ROOT CAUSE note above): (1) per-pair winner-selection
+    # promotes the |corr|-best FORM over the spurious rank-MI leader; (2) the first FE sweep relaxes its pair-MI
+    # prevalence to the adaptive-retry bar when the pool's DOMINANT (highest-|corr|) pair is rank-collapsed, so
+    # the co-signal (c,d) half builds in the SAME step and C2 additive-fusion emits the single compound;
+    # (3) drop_redundant_raw_operands drops the tail-concentrated raw operand the compound subsumes. Every leg
+    # fires ONLY under the rank-collapse signature (rank association <= rank_frac * linear |corr|), and the
+    # sweep relaxation additionally requires the DOMINANT pair to be the collapsed one -- so a spurious tail-
+    # concentrated form on a lower-|corr| divisor pair (e.g. d/b ~ 1/b) cannot trigger it. Canonical + the 4
+    # profiles (where the dominant ratio tracks y in BOTH rank and linear) are byte-identical; the same signature
+    # additionally REPAIRS the previously-failing user-case multi-seed raw-a-drop pins (b in [0,1) makes a**2/b
+    # genuinely tail-concentrated there too).
+    "with_outliers",
 ]
 
 

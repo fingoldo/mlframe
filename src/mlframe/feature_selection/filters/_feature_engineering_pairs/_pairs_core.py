@@ -323,6 +323,16 @@ def check_prospective_fe_pairs(
     fe_multi_emit_max_per_pair: int = 1,
     fe_multi_emit_mi_floor: float = 0.5,
     fe_multi_emit_diversity_corr: float = 0.90,
+    # TAIL-CONCENTRATION USABILITY ADMISSION (2026-07-03). When a raw pair's true signal is tail-concentrated
+    # (rank-MI collapses in the clean bulk under heavy outliers) the rank-MI winner-selection + engineered-MI
+    # prevalence gate both mis-rank / drop the genuine linearly-usable form. When enabled, a pair the detector
+    # flags (best raw bivariate-form |corr(continuous y)| clears ``min_corr`` AND beats the best single-operand
+    # form by ``pairness_margin``) promotes its |corr|-best engineered form as the winner and is admitted past
+    # the engineered-MI gate. Default ON; the detector is FALSE for canonical fixtures + non-tail data, so
+    # those are byte-identical. Threaded from the MRMR ``fe_pair_usability_admission_*`` knobs.
+    fe_pair_usability_admission_enable: bool = True,
+    fe_pair_usability_admission_min_corr: float = 0.6,
+    fe_pair_usability_admission_pairness_margin: float = 1.05,
     # LARGE-N PEAK-MEMORY FIX (2026-06-08). Number of ``check_prospective_fe_pairs`` calls
     # that may run CONCURRENTLY in this process. On the serial-main-thread path this is 1; on
     # the joblib ``backend="threading"`` path it is ``n_jobs`` (each thread allocates its OWN
@@ -1048,6 +1058,9 @@ def check_prospective_fe_pairs(
             fe_multi_emit_max_per_pair=fe_multi_emit_max_per_pair,
             fe_multi_emit_mi_floor=fe_multi_emit_mi_floor,
             fe_multi_emit_diversity_corr=fe_multi_emit_diversity_corr,
+            fe_pair_usability_admission_enable=fe_pair_usability_admission_enable,
+            fe_pair_usability_admission_min_corr=fe_pair_usability_admission_min_corr,
+            fe_pair_usability_admission_pairness_margin=fe_pair_usability_admission_pairness_margin,
             cols=cols,
             original_cols=original_cols,
             _use_subsample=_use_subsample,

@@ -183,7 +183,8 @@ def mi_tie_band(nbins: int, n_rows: int, k_y: int) -> float:
 
 
 def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None = None,
-                        usability: dict | None = None, mi_band: float = 0.0):
+                        usability: dict | None = None, mi_band: float = 0.0,
+                        usability_primary: bool = False):
     """Pick ONE winning ``config`` from a ``{config: mi}`` mapping.
 
     Selection key, in priority order:
@@ -264,6 +265,26 @@ def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None
     # fusion depends on (observed breaking the F2 heavy_tailed compound). With the exact-MI leg the band
     # only intervenes on a GENUINE usability difference (the F2 mixed ratio-vs-additive case: |corr(y)|
     # 0.46 vs 0.25) and is otherwise byte-identical to the strict-MI selection.
+    #
+    # TAIL-CONCENTRATION OVERRIDE (2026-07-03): when ``usability_primary`` the caller has DETECTED that this
+    # pair is tail-concentrated (its true signal's rank-MI collapsed in the bulk so the rank-MI leader is a
+    # SPURIOUS high-rank/low-|corr| form -- e.g. the F2 with_outliers a/b half, where min(reciproc(a),sign(b))
+    # rank-MI 0.073 out-ranks the true div(sqr(a),b) 0.063 by a REAL 0.010 the tie band cannot bridge, yet
+    # |corr(y)| is 0.371 vs 0.986). Rank-MI is provably the wrong arbiter here, so promote LINEAR usability to
+    # the PRIMARY key (banded MI becomes the secondary tie-break, then exact MI / external-validation / name).
+    # Only the caller's tail-concentration detector flips this; on every ordinary pair ``usability_primary`` is
+    # False and the key is byte-identical to the rank-MI-primary selection above.
+    if usability_primary:
+        return max(
+            perf.items(),
+            key=lambda kv: (
+                float(_use.get(kv[0], 0.0)),
+                _primary(kv[1]),
+                quantize_mi_tiebreak(kv[1]),
+                float(_sec.get(kv[0], 0.0)),
+                _neg_name_key(get_new_feature_name(fe_tuple=kv[0], cols_names=cols_names)),
+            ),
+        )[0]
     return max(
         perf.items(),
         key=lambda kv: (

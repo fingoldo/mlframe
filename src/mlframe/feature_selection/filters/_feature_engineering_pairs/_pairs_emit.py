@@ -33,6 +33,7 @@ def _emit_pair_features(
     _passes_joint_gate,
     _prewarp_accept,
     _marginal_uplift_accept,
+    _usability_primary=False,
     final_transformed_vals,
     _this_chunk_deferred,
     _config_by_i,
@@ -405,7 +406,8 @@ def _emit_pair_features(
             # MI=0.25 over the true mul(log(c),sin(d)) MI=0.32.)
             _primary_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
             _winner = _select_single_best(_primary_perf, cols, secondary=valid_pairs_perf,
-                                          usability=_leader_usability, mi_band=_mi_band)
+                                          usability=_leader_usability, mi_band=_mi_band,
+                                          usability_primary=_usability_primary)
             if _winner is not None:
                 new_feature_name = get_new_feature_name(fe_tuple=_winner, cols_names=cols)
                 if verbose:
@@ -418,7 +420,8 @@ def _emit_pair_features(
             # still emit ONE best representative (highest engineered MI,
             # deterministic name tie-break) rather than the whole class.
             _lead_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
-            _winner = _select_single_best(_lead_perf, cols, usability=_leader_usability, mi_band=_mi_band)
+            _winner = _select_single_best(_lead_perf, cols, usability=_leader_usability, mi_band=_mi_band,
+                                          usability_primary=_usability_primary)
             if _winner is not None:
                 if verbose:
                     messages.append(

@@ -326,6 +326,15 @@ _SETSTATE_LEGACY_DEFAULTS = {
     # behind the full admission gates -- it never changes an already-admitted
     # column's values, so replay of a pre-fix recipe is unaffected).
     "fe_synergy_prevalence_rescue_enable": True,
+    # TAIL-CONCENTRATED USABILITY ADMISSION (2026-07-02). Live default ON; pre-fix pickles default ON too
+    # (it only credits a raw-operand |corr(continuous y)| signal for rank-MI-under-ranked/rejected pairs behind
+    # the full downstream FE gates -- it never changes an already-admitted column's values, so replay of a
+    # pre-fix recipe is unaffected).
+    "fe_pair_usability_admission_enable": True,
+    "fe_pair_usability_admission_min_corr": 0.6,
+    "fe_pair_usability_admission_pairness_margin": 1.05,
+    "fe_pair_usability_admission_rank_frac": 0.7,
+    "fe_pair_usability_prescan_max_pairs": 256,
     # ESCALATION FEATURES TERMINAL in feed-forward (2026-06-12). Pre-fix pickles
     # default OFF too (matches the live default; escalation features were rare and
     # this only restricts NEW composite seeding, never replay of an existing recipe).

@@ -311,6 +311,8 @@ def _run_fe_step(
         _prevalence_debias_auto=_prevalence_debias_auto,
         data=data,
         classes_y=classes_y,
+        X=X,
+        cols=cols,
         num_fs_steps=num_fs_steps,
         verbose=verbose,
         sort_dict_by_value=sort_dict_by_value,
@@ -704,6 +706,9 @@ def _run_fe_step(
                 fe_multi_emit_max_per_pair=_multi_emit_max,
                 fe_multi_emit_mi_floor=_multi_emit_floor,
                 fe_multi_emit_diversity_corr=_multi_emit_div_corr,
+                fe_pair_usability_admission_enable=bool(getattr(self, "fe_pair_usability_admission_enable", True)),
+                fe_pair_usability_admission_min_corr=float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6)),
+                fe_pair_usability_admission_pairness_margin=float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05)),
                 gate_med_specs_out=_gate_med_specs,
                 # OPT-A (2026-06-07): THIS is the serial-main-thread branch -- the whole FE
                 # search runs here with NO joblib threads (the ``else`` below is the
@@ -795,6 +800,9 @@ def _run_fe_step(
                         fe_multi_emit_max_per_pair=_multi_emit_max,
                         fe_multi_emit_mi_floor=_multi_emit_floor,
                         fe_multi_emit_diversity_corr=_multi_emit_div_corr,
+                        fe_pair_usability_admission_enable=bool(getattr(self, "fe_pair_usability_admission_enable", True)),
+                        fe_pair_usability_admission_min_corr=float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6)),
+                        fe_pair_usability_admission_pairness_margin=float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05)),
                         gate_med_specs_out=None,  # loky: recovered from result dict below
                         # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): see the serial branch above.
                         allow_engineered_operands=(_eng_cap != 0),

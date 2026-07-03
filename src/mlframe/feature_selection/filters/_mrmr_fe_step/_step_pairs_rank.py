@@ -47,6 +47,13 @@ def _resident_cand(codes):
         return codes
 
 
+from .._fe_usability_signal import (  # shared leaf helpers (numpy-only, no cycle)
+    pair_is_tail_concentrated_rankaware as _pair_is_tail_concentrated_rankaware,
+    usability_form_corrs as _usability_form_corrs,
+    usability_operand_continuous as _usability_operand_continuous,
+)
+
+
 def score_prospective_pairs(
     self,
     *,
@@ -61,6 +68,8 @@ def score_prospective_pairs(
     _prevalence_debias_auto,
     data,
     classes_y,
+    X,
+    cols,
     num_fs_steps,
     verbose,
     sort_dict_by_value,
@@ -93,6 +102,77 @@ def score_prospective_pairs(
     # ``permnull_cand_x`` sites. The partner / anchor stays host (it is the conditioning ``z``, uploaded by the
     # primitives). Computed once (fit-constant predicate). Byte-identical: same int codes, same partition.
     _pair_resident = _pair_gate_resident_enabled()
+    # TAIL-CONCENTRATION FIRST-SWEEP PREVALENCE RELAXATION (2026-07-03). A co-signal half whose pair joint MI
+    # is only marginally above its (high) marginal sum -- the F2 (c,d) ``mul(log(c),sin(d))`` half, ratio
+    # ~1.24/1.20 < the strict 1.05 bar -- FAILS the strict pair-MI prevalence gate and never enters the FIRST
+    # FE sweep's prospective pool; today it builds ONLY in the adaptive-threshold RETRY, which fires solely
+    # when the first sweep yields ZERO features and then REPLACES (not merges) the pass. When a TAIL-
+    # CONCENTRATED pair is present (e.g. the outlier a/b half), the usability winner-promotion below makes the
+    # first sweep emit that half, so the retry is skipped and the co-signal half never builds in the SAME
+    # sweep -- leaving C2 additive-fusion (which fuses two disjoint-token engineered halves) nothing to fuse.
+    # FIX: when usability admission is on AND a RANK-AWARE tail-concentrated pair exists in this pool (linear
+    # |corr(continuous y)| high AND genuinely pairwise AND its RANK association COLLAPSED -- the outlier
+    # signature, FALSE for balanced canonical / the 4 passing profiles where rank and linear AGREE), rebind
+    # ``fe_min_pair_mi_prevalence`` to the SAME relaxed value the adaptive retry uses
+    # (``max(1.001, bar * fe_adaptive_relax_factor)``). The rest of this function is then byte-identical to a
+    # retry call with that value, so BOTH the promoted tail half AND the co-signal half enter one sweep's pool
+    # and both build for fusion. No tail-concentrated pair -> the bar is untouched (byte-identical). The maxT
+    # floor + every downstream FE gate still apply. Best-effort: any failure keeps the strict bar.
+    try:
+        if bool(getattr(self, "fe_pair_usability_admission_enable", True)) and int(num_fs_steps) == 0:
+            _yc_pre = getattr(self, "_fe_prewarp_y_continuous_", None)
+            if _yc_pre is not None and len(_yc_pre) == data.shape[0]:
+                _ya_pre = np.asarray(_yc_pre, dtype=np.float64).reshape(-1)
+                _min_corr_pre = float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6))
+                _margin_pre = float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05))
+                _rank_frac_pre = float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7))
+                _max_prescan = int(getattr(self, "fe_pair_usability_prescan_max_pairs", 256))
+                # DOMINANT-PAIR GATE (specificity): fire ONLY if the pool's dominant pair -- the one with
+                # the highest linear |corr(continuous y)| -- is rank-collapsed. A small divisor operand makes
+                # SPURIOUS forms (e.g. d/b ~ 1/b, which tracks an a**2/b target while d is noise) look tail-
+                # concentrated on lower-|corr| pairs; those must NOT trigger the relaxation and disrupt cases
+                # the existing path already fuses. The GENUINE tail-concentrated half is the dominant-|corr|
+                # pair (a**2/b tracks y at |corr| ~0.99), so gating on the max-|corr| pair keeps the relaxation
+                # specific: it fires for with_outliers (dominant (a,b) rank-collapsed) but NOT for a balanced /
+                # naturally-heavy-tailed user case where the dominant ratio tracks y in rank too (rank ~ linear).
+                _pool_tail_concentrated = False
+                _dom_p0, _dom_p1, _dom_cp, _dom_pk = None, None, -1.0, None
+                _scanned = 0
+                for _pk in cached_MIs.keys():
+                    if len(_pk) != 2:
+                        continue
+                    if _pk[0] not in numeric_vars_to_consider or _pk[1] not in numeric_vars_to_consider:
+                        continue
+                    if _max_prescan > 0 and _scanned >= _max_prescan:
+                        break
+                    _scanned += 1
+                    _p0 = _usability_operand_continuous(self, X, cols, _pk[0])
+                    _p1 = _usability_operand_continuous(self, X, cols, _pk[1])
+                    if _p0 is None or _p1 is None:
+                        continue
+                    if _p0.shape[0] != _ya_pre.shape[0] or _p1.shape[0] != _ya_pre.shape[0]:
+                        continue
+                    _cp_pre, _cs_pre = _usability_form_corrs(_ya_pre, _p0, _p1)
+                    if _cp_pre > _dom_cp:
+                        _dom_cp, _dom_p0, _dom_p1, _dom_pk = _cp_pre, _p0, _p1, _pk
+                if _dom_p0 is not None and _pair_is_tail_concentrated_rankaware(
+                    _ya_pre, _dom_p0, _dom_p1,
+                    min_corr=_min_corr_pre, pairness_margin=_margin_pre, max_rank_frac=_rank_frac_pre,
+                ):
+                    _pool_tail_concentrated = True
+                if _pool_tail_concentrated:
+                    _relax = float(getattr(self, "fe_adaptive_relax_factor", 0.9))
+                    _relaxed_bar = max(1.001, float(fe_min_pair_mi_prevalence) * _relax)
+                    if _relaxed_bar < float(fe_min_pair_mi_prevalence):
+                        if verbose >= 2:
+                            logger.info(
+                                "Tail-concentrated pair detected in the pool; relaxing first-sweep pair-MI "
+                                "prevalence %.3f -> %.3f so the co-signal half builds in the SAME sweep for C2 fusion.",
+                                float(fe_min_pair_mi_prevalence), _relaxed_bar,
+                            )
+                        fe_min_pair_mi_prevalence = _relaxed_bar
+    except Exception:
+        pass  # any failure keeps the strict prevalence bar (byte-identical)
     for raw_vars_pair, pair_mi in sort_dict_by_value(cached_MIs).items():
         if len(raw_vars_pair) == 2:
             if raw_vars_pair in checked_pairs:
@@ -271,45 +351,60 @@ def score_prospective_pairs(
                 # this admission gate; a residual-target fit (y minus the already-captured c/d half) or actual
                 # form materialisation is required, not an operand proxy. Kept default-OFF + wired (reject =
                 # not-default, never deleted) so the next attempt builds on it instead of re-trying the proxy.
-                # USABILITY ADMISSION (2026-06-25, tail-concentrated signal credit, default OFF). Under heavy
-                # outliers a genuine ratio (a**2/b) is TAIL-CONCENTRATED: its rank-MI is suppressed (bulk
-                # Spearman ~0, signal only in the tail) so it fails BOTH prevalence and maxT, and the rank-CMI
-                # perm path is gated behind maxT too -- yet it carries strong LINEAR usability the gate never
-                # sees (discrete codes only). Re-decide a rank-MI-rejected pair on the 2-operand joint OLS R^2
-                # against the CONTINUOUS y: a tail-concentrated true pair has linear-usable joint structure
-                # (high R^2) while a noise pair does not. Fires ONLY when BOTH rank-MI gates failed (so it can
-                # only ADD pairs the rank path drops, never remove), and the FULL downstream FE admission gates
-                # + escalation |corr| re-test still decide -- a false admit only PROPOSES. Default OFF
-                # (canonical byte-identical); ``fe_pair_usability_admission_enable`` turns it on.
+                # USABILITY ADMISSION (2026-07-02, tail-concentrated ratio credit, default ON). Under heavy
+                # operand outliers a genuine ratio (a**2/b) is TAIL-CONCENTRATED: its rank-MI collapses (bulk
+                # Spearman ~0, signal only in the 5% tail) so it fails BOTH prevalence and maxT, and the
+                # rank-CMI perm path is gated behind maxT too -- yet it carries strong LINEAR usability the
+                # rank gates never see. Unlike the prior binned-code OLS proxy (bench note above, which failed
+                # because binning CLIPS the outlier tail that carries the a**2 magnitude), this scores the pair
+                # on the RAW CONTINUOUS operands (outliers intact) via the max |Pearson corr(continuous y)|
+                # over a small scale/sign-robust bivariate form dictionary -- the header-validated
+                # distinguisher (div(sqr(a),b) reads 0.986 vs y while the spurious rank-MI winner reads 0.371).
+                # Fires ONLY when the rank-MI gates did not BOTH pass (can only ADD pairs the rank path dropped,
+                # never remove) AND the best PAIR form beats the best SINGLE-operand form by a pairness margin,
+                # so a cross-mix / noise pair where ONE operand dominates (no genuine pairness) is rejected --
+                # this protects the 'e' noise operand and the canonical fixtures WITHOUT touching the rank-MI
+                # decision on any pair the rank path admitted (the 4 passing profiles never enter this branch:
+                # their (a,b) pair clears the rank gates). A false admit only PROPOSES; the full downstream FE
+                # winner-selection + escalation |corr| re-test + redundancy gates still decide the final form.
+                # Best-effort: any error leaves the strict rank-MI rejection in place (canonical never loosened
+                # on failure). Toggle ``fe_pair_usability_admission_enable`` (default True; set False for the
+                # legacy rank-MI-only, byte-identical admission).
                 _admit_via_usability = False
                 if (
-                    (not _passes_prevalence) and (not _passes_maxt)
-                    and bool(getattr(self, "fe_pair_usability_admission_enable", False))
+                    (not (_passes_prevalence and _passes_maxt)) and pair_mi > 0
+                    and bool(getattr(self, "fe_pair_usability_admission_enable", True))
                 ):
                     try:
                         _yc = getattr(self, "_fe_prewarp_y_continuous_", None)
-                        if _yc is not None and len(_yc) == data.shape[0]:
+                        _o0 = _usability_operand_continuous(self, X, cols, raw_vars_pair[0])
+                        _o1 = _usability_operand_continuous(self, X, cols, raw_vars_pair[1])
+                        if (
+                            _yc is not None and _o0 is not None and _o1 is not None
+                            and len(_yc) == data.shape[0] == _o0.shape[0] == _o1.shape[0]
+                        ):
                             _ya = np.asarray(_yc, dtype=np.float64).reshape(-1)
-                            _A = np.column_stack([
-                                data[:, int(raw_vars_pair[0])].astype(np.float64),
-                                data[:, int(raw_vars_pair[1])].astype(np.float64),
-                                np.ones(data.shape[0], dtype=np.float64),
-                            ])
-                            _coef, _, _, _ = np.linalg.lstsq(_A, _ya, rcond=None)
-                            _ss_res = float(((_A @ _coef - _ya) ** 2).sum())
-                            _ss_tot = float(((_ya - _ya.mean()) ** 2).sum())
-                            _r2 = (1.0 - _ss_res / _ss_tot) if _ss_tot > 0 else 0.0
-                            if _r2 >= float(getattr(self, "fe_pair_usability_admission_min_r2", 0.15)):
+                            _min_corr = float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6))
+                            _margin = float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05))
+                            _rank_frac = float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7))
+                            # RANK-AWARE (not the loose |corr| check): admit via usability ONLY when the pair is
+                            # linearly usable AND its RANK association has COLLAPSED (the tail-concentration
+                            # signature). A genuinely usable ratio that also tracks y in rank (naturally-heavy-
+                            # tailed / balanced data) is NOT admitted here -- the rank-MI gates already judge it,
+                            # so canonical + the 4 passing profiles stay byte-identical.
+                            if _pair_is_tail_concentrated_rankaware(
+                                _ya, _o0, _o1, min_corr=_min_corr, pairness_margin=_margin, max_rank_frac=_rank_frac,
+                            ):
                                 _admit_via_usability = True
                                 if verbose >= 2:
                                     logger.info(
-                                        "Factors pair %s ADMITTED via usability (joint OLS R^2=%.4f vs y) despite "
-                                        "rank-MI rejection -- tail-concentrated linear signal.",
-                                        raw_vars_pair, _r2,
+                                        "Factors pair %s ADMITTED via usability (rank-collapsed tail-concentrated "
+                                        "linear signal) despite rank-MI rejection.",
+                                        raw_vars_pair,
                                     )
                     except Exception:
                         _admit_via_usability = False
-                if (_passes_prevalence and _passes_maxt) or _admit_via_perm or _admit_via_usability:
+                if (_passes_prevalence and _passes_maxt) or _admit_via_perm:
                     uplift = pair_mi / ind_elems_mi_sum if ind_elems_mi_sum > 0 else float("inf")
                     if verbose >= 2 and not _admit_via_perm:
                         logger.info(
