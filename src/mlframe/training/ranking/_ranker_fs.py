@@ -111,24 +111,31 @@ def group_aware_relevance(cols: list, arr: np.ndarray, y: np.ndarray, groups: np
         y_g = y_s[s:e]
         block = arr_s[s:e]
         w = float(e - s)
-        # ALL-FINITE FAST PATH: when the whole group block + y are finite the per-(feature) joint
-        # finite mask is a no-op, so ``_binned_mi``'s per-column np.quantile collapses to ONE
-        # batched np.quantile(block, axis=0) (bit-identical to per-column, verified) and ye is
-        # computed once/group instead of per feature. Any non-finite value routes the group to the
-        # exact per-pair fallback below (the finite mask is JOINT per (x, y), so it cannot batch).
-        if np.isfinite(block).all() and np.isfinite(y_g).all() and np.ptp(y_g) > 0.0:
+        # BATCHED-QUANTILE FAST PATH (per COLUMN, not per group). When ``y_g`` is finite the joint
+        # (x, y) finite mask reduces to x's own finite mask, so every all-finite column's per-column
+        # np.quantile collapses into ONE batched np.quantile(block, axis=0) (bit-identical to
+        # per-column, verified) and ye is computed once/group. Columns that carry a non-finite value
+        # (their qa edge is NaN and unusable) fall back to the exact per-column ``_binned_mi`` -- so a
+        # single injected NaN column no longer poisons batching for the whole group's other columns.
+        # ``y_g`` non-finite routes the whole group to the per-column fallback (the mask is then
+        # genuinely joint per feature).
+        if np.isfinite(y_g).all() and np.ptp(y_g) > 0.0:
             ye = np.unique(np.quantile(y_g, probs))
             if ye.size < 2:
                 continue  # ye identical across features -> every feature scores 0 for this group
-            qa = np.quantile(block, probs, axis=0)  # (bins+1, ncols): per-column x-edges, one dispatch
+            col_fin = np.isfinite(block).all(axis=0)  # (ncols,) one vectorised pass
+            qa = np.quantile(block, probs, axis=0) if col_fin.any() else None  # finite cols valid; NaN cols unused
             for j in range(ncols):
-                xcol = block[:, j]
-                if np.ptp(xcol) == 0.0:
-                    continue
-                xe = np.unique(qa[:, j])
-                if xe.size < 2:
-                    continue
-                acc[j] += w * _mi_from_edges(xcol, y_g, xe, ye)
+                if col_fin[j]:
+                    xcol = block[:, j]
+                    if np.ptp(xcol) == 0.0:
+                        continue
+                    xe = np.unique(qa[:, j])
+                    if xe.size < 2:
+                        continue
+                    acc[j] += w * _mi_from_edges(xcol, y_g, xe, ye)
+                else:
+                    acc[j] += w * _binned_mi(block[:, j], y_g, bins=bins)
             continue
         for j in range(ncols):
             acc[j] += w * _binned_mi(block[:, j], y_g, bins=bins)
