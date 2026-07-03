@@ -119,6 +119,9 @@ def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
             return 0.0
         ent = -float(np.sum(p[nonzero] * np.log(p[nonzero])))
     except Exception:
+        # NaN sentinel is the documented degenerate result; log at DEBUG so a genuine histogram/log-coding
+        # bug is diagnosable rather than silently returned as a NaN feature value.
+        logger.debug("cont_entropy: returning NaN after an unexpected error", exc_info=True)
         return float("nan")
     return ent
 
@@ -379,6 +382,9 @@ def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
     try:
         params = dist.fit(data, method=method)
     except Exception:
+        # Documented fallback for a failed scipy fit; log at DEBUG so a genuine bug (vs an unfittable sample)
+        # is diagnosable rather than silently returned as the NaN fallback.
+        logger.debug("fit_distribution: %s fit failed; returning fallback", getattr(dist, "name", "?"), exc_info=True)
         return default_dist_responses[dist.name] + (np.nan, np.nan)
     else:
         dist_fitted = dist(*params)
