@@ -17,17 +17,21 @@ The 5 (each cites a measured win in its module docstring / biz_value test):
 Opt-in: nothing is enabled implicitly. Call ``curated_fe_pipelines(...)`` and pass the result as
 ``custom_pre_pipelines`` to turn specific ones on.
 
-DEFAULT-WIRING VERDICT (2026-07-03, bench_curated_fe_holdout_value, honest holdout, 4-5 seeds, bare LGBM):
-opt-in stays the deliberate default -- a blanket default is contraindicated. Measured delta vs raw-only:
-  * REGRESSION, FE-favorable (categorical target-mean signal): ALL +0.078 R2; multi_aux +0.075, nn_oof
-    +0.064, baseline_disagreement +0.062 (5/5 seeds); trust_score -0.009.
-  * REGRESSION, FE-unfavorable (pure continuous, no cat structure): only multi_aux +0.013 (4/4) and
-    baseline_disagreement +0.003 hold up; nn_oof/trust_score/y_quintile HURT (need the categorical structure).
-  * BINARY: EVERYTHING mildly hurts (-0.004..-0.015); trust_score with Mode-A -0.006 (pre-Mode-A: -0.42).
-Only ``multi_aux_ensemble`` helps robustly, REGRESSION-ONLY, and at a real cost (3 aux-model fits/fold).
-Caveat: this is bare-LGBM; the suite already runs stacking that likely subsumes the disagreement signal --
-the very reason these are opt-in. So no global default flip; use ``recommended_curated_fe_names(task)`` to
-turn on the evidence-backed subset when your data has the structure it needs.
+DEFAULT-WIRING VERDICT (2026-07-03, bench_curated_fe_holdout_value, honest holdout, 4-5 seeds, bare LGBM,
+FULL metric block via mlframe fused kernels -- a single AUC misled the first pass). Opt-in stays the
+deliberate default -- a blanket default is contraindicated -- but the per-task/metric picture is nuanced:
+  * REGRESSION (all error metrics agree, 4/5-5/5 seeds): multi_aux +0.075 R2 / -0.23 RMSE, nn_oof +0.064 /
+    -0.19, baseline_disagreement +0.062 / -0.18; ALL +0.078 R2. trust_score HURTS; y_quintile mixed.
+    On FE-UNFAVORABLE regression (no categorical structure) only multi_aux + baseline_disagreement hold up;
+    nn_oof needs the categorical-target-mean signal (hurts without it).
+  * BINARY: rank-AUC / hard-accuracy barely move (LGBM already ranks well), but the PROBABILITY metrics
+    disagree per transformer -- baseline_disagreement IMPROVES Brier -0.0035 and LogLoss -0.0109 (5/5 seeds)
+    and PR-AUC (4/5): genuinely better-calibrated probabilities. multi_aux HURTS every binary metric (adds
+    variance to a good classifier). trust_score/y_quintile hurt; nn_oof mild-help on Brier/LogLoss (3/5).
+So: no global default flip (the suite's stacking likely subsumes the disagreement signal -- why these are
+opt-in, and it costs aux-model fits/fold). Use ``recommended_curated_fe_names(task)`` for the evidence-backed
+subset: regression -> multi_aux + baseline_disagreement (robust across favorable/unfavorable); binary ->
+baseline_disagreement (when you optimise Brier / LogLoss / calibration, not just ROC-AUC).
 """
 
 from __future__ import annotations
@@ -61,20 +65,25 @@ CURATED_FE_NAMES = (
     "y_quintile_baseline_knn",
 )
 
-# Evidence-backed subset that lifted honest holdout across FE-favorable AND FE-unfavorable data (see the
-# module docstring's DEFAULT-WIRING VERDICT). Regression only -- on binary every curated transformer mildly
-# hurt a gradient-booster, and nn_oof/trust_score/y_quintile need categorical-target-mean structure to help.
+# Evidence-backed subset per task (full-metric honest-holdout benchmark; see the module DEFAULT-WIRING
+# VERDICT). Regression: multi_aux + baseline_disagreement lift every error metric on FE-favorable AND
+# FE-unfavorable data. Binary: baseline_disagreement improves the PROBABILITY metrics (Brier / LogLoss /
+# PR-AUC, 5/5 seeds) though not rank-AUC -- so it is recommended for binary only when the objective is
+# calibration / proper-scoring, not ROC-AUC. nn_oof needs categorical-target-mean structure; trust_score and
+# y_quintile did not earn a recommendation.
 _RECOMMENDED_BY_TASK = {
     "regression": ("multi_aux_ensemble", "baseline_disagreement"),
-    "binary": (),
+    "binary": ("baseline_disagreement",),
 }
 
 
 def recommended_curated_fe_names(task: str = "regression") -> tuple:
-    """The evidence-backed curated-FE subset for ``task`` (empty for binary; see the module DEFAULT-WIRING
-    VERDICT). Feed to ``curated_fe_pipelines(task=..., names=recommended_curated_fe_names(task))`` to opt into
-    only the transformers that measurably helped honest holdout. Empty means "raw features already win --
-    don't add curated FE for this task"."""
+    """The evidence-backed curated-FE subset for ``task`` (see the module DEFAULT-WIRING VERDICT). Feed to
+    ``curated_fe_pipelines(task=..., names=recommended_curated_fe_names(task))`` to opt into only the
+    transformers that measurably helped honest holdout on the FULL metric block. For binary the recommendation
+    (baseline_disagreement) helps the PROBABILITY metrics (Brier / LogLoss / PR-AUC), not necessarily ROC-AUC
+    or hard accuracy -- match it to your objective. An empty result means raw features already win for that
+    task; add nothing."""
     return _RECOMMENDED_BY_TASK.get(task, ())
 
 
