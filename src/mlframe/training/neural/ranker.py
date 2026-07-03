@@ -179,6 +179,18 @@ class _RankerDataset(Dataset):
     def __init__(self, X: np.ndarray, y: np.ndarray):
         # Wave 56 (2026-05-20): forward to torch Dataset base for forward-compat.
         super().__init__()
+        # audit5 memory: eager float32 conversion copies the buffer when the source is not already float32 (a
+        # 100GB frame would then double peak RAM). The row-level indexing paths here assume a resident tensor,
+        # so this stays eager -- but WARN when the resident tensor would exceed 2GB so the operator sees the
+        # cost (mirrors the byte gate in neural/data.py's TorchDataset). torch.as_tensor shares the buffer when
+        # the source is already float32, so a pre-cast X avoids the copy.
+        _bytes = getattr(np.asarray(X), "nbytes", 0)
+        if _bytes > 2 * 1024**3:
+            logger.warning(
+                "_RankerDataset: eager float32 tensor of a %.1f GB feature matrix; pre-cast X to float32 to "
+                "share the buffer, else expect ~%.1f GB additional resident memory.",
+                _bytes / 1024**3, _bytes / 1024**3,
+            )
         self.X = torch.as_tensor(np.asarray(X), dtype=torch.float32)
         self.y = torch.as_tensor(np.asarray(y), dtype=torch.float32)
         # Per-query precomputed (i_idx, j_idx) pair-index tensors, keyed by the

@@ -527,7 +527,7 @@ def evaluate_candidate(
             # all-noise and >90% pass rate on signal/synergy.
             _bnp = max(2, int(baseline_npermutations))
             if use_gpu:
-                direct_gain, _ = mi_direct_gpu(
+                direct_gain, _, null_mean, p_value = mi_direct_gpu(
                     factors_data,
                     x=X,
                     y=y,
@@ -540,7 +540,14 @@ def evaluate_candidate(
                     max_failed=_bnp,
                     npermutations=_bnp,
                     dtype=dtype,
+                    return_null_mean=True,
                 )
+                # SAME significance-gated relevance debiasing as the CPU branch below (audit5-P1). Without it the
+                # GPU path returned RAW plug-in MI, inflating high-cardinality / heavy-tailed / monotone-datetime
+                # / engineered columns above genuine lower-cardinality signal, AND making selection
+                # hardware-dependent (GPU-present hosts selected differently from CPU-only ones).
+                if p_value >= _MRMR_NULL_SIGNIF_ALPHA:
+                    direct_gain = max(0.0, direct_gain - null_mean)
             else:
                 # Significance-gated empirical-null debiasing of the relevance MI. On a wide composite-FE candidate pool the in-sample plug-in MI is upward-biased for
                 # high-cardinality (50-level categoricals), heavy-tailed (Student-t), monotone-datetime and engineered columns, so they out-rank genuine lower-cardinality signal

@@ -29,6 +29,61 @@ from mlframe.utils.misc import rng_hygienic_fit
 
 logger = logging.getLogger(__name__)
 
+try:
+    import numba
+
+    _HAVE_NUMBA = True
+except ImportError:  # numba is an optional dep; SU falls back to the pure-Python pair loop.
+    _HAVE_NUMBA = False
+
+
+def _su_pairs_python(codes: np.ndarray, ncats: np.ndarray, h: np.ndarray) -> np.ndarray:
+    """Pure-Python reference for the SU pair matrix (used when numba is absent). O(p^2 * n)."""
+    p = codes.shape[1]
+    su = np.zeros((p, p), dtype=np.float64)
+    for a in range(p):
+        for b in range(a + 1, p):
+            joint = np.bincount(codes[:, a] * int(ncats[b]) + codes[:, b], minlength=int(ncats[a] * ncats[b]))
+            tot = joint.sum()
+            pr = joint[joint > 0] / tot if tot > 0 else np.empty(0)
+            h_ab = float(-(pr * np.log(pr)).sum()) if pr.size else 0.0
+            denom = h[a] + h[b]
+            val = 0.0 if denom <= 1e-12 else max(0.0, 2.0 * (h[a] + h[b] - h_ab) / denom)
+            su[a, b] = su[b, a] = val
+    return su
+
+
+if _HAVE_NUMBA:
+
+    @numba.njit(cache=True, parallel=True)
+    def _su_pairs_njit(codes, ncats, h):
+        """Fused joint-histogram + entropy SU matrix. prange over row ``a`` writes ONLY the strict upper
+        triangle (row a, cols > a) so no two threads touch the same cell; the caller symmetrises. Removes
+        the per-pair ``np.bincount`` allocation of the Python path and scales across cores."""
+        n, p = codes.shape
+        su = np.zeros((p, p), dtype=np.float64)
+        for a in numba.prange(p):
+            for b in range(a + 1, p):
+                nb = ncats[b]
+                joint = np.zeros(ncats[a] * nb, dtype=np.int64)
+                for i in range(n):
+                    joint[codes[i, a] * nb + codes[i, b]] += 1
+                tot = 0.0
+                for k in range(joint.shape[0]):
+                    tot += joint[k]
+                h_ab = 0.0
+                if tot > 0.0:
+                    for k in range(joint.shape[0]):
+                        c = joint[k]
+                        if c > 0:
+                            pr = c / tot
+                            h_ab -= pr * np.log(pr)
+                denom = h[a] + h[b]
+                if denom > 1e-12:
+                    val = 2.0 * (h[a] + h[b] - h_ab) / denom
+                    su[a, b] = val if val > 0.0 else 0.0
+        return su
+
 
 def _numeric_codes_frame(X: "pd.DataFrame") -> "pd.DataFrame":
     """Return a float DataFrame where non-numeric columns are replaced by their
@@ -96,15 +151,13 @@ def _su_redundancy_matrix(X, nbins: int = 10) -> np.ndarray:
         return float(-(pr * np.log(pr)).sum())
 
     h = np.array([_entropy(np.bincount(codes[:, j], minlength=int(ncats[j]))) for j in range(p)])
-    su = np.zeros((p, p), dtype=np.float64)
-    for a in range(p):
-        for b in range(a + 1, p):
-            joint = np.bincount(codes[:, a] * int(ncats[b]) + codes[:, b], minlength=int(ncats[a] * ncats[b]))
-            h_ab = _entropy(joint)
-            mi_ab = h[a] + h[b] - h_ab
-            denom = h[a] + h[b]
-            val = 0.0 if denom <= 1e-12 else max(0.0, 2.0 * mi_ab / denom)
-            su[a, b] = su[b, a] = val
+    # The O(p^2 * n) pair loop is the SU bottleneck: numba fuses the joint-histogram + entropy and parallelises across
+    # cores (upper triangle only, then symmetrised), falling back to the pure-Python reference when numba is absent.
+    if _HAVE_NUMBA and p > 1:
+        su = np.ascontiguousarray(_su_pairs_njit(np.ascontiguousarray(codes), ncats, h))
+        su = su + su.T
+    else:
+        su = _su_pairs_python(codes, ncats, h)
     return su
 
 

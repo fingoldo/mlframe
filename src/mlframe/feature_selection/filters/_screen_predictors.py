@@ -417,6 +417,17 @@ def screen_predictors(
         cached_MIs = dict()
         # cached_cond_MIs = dict()
         cached_confident_MIs = dict()
+        # PERF NOTE (profiled 2026-07): constructing the first numba typed.Dict
+        # (unicode->float64) in a process JIT-compiles the whole typed-dict method
+        # suite -- ~4.5s of LLVM codegen, and the njit functions that consume these
+        # dicts add several more; together ~11s (27% of the F2 fit wall), recurring
+        # every fresh process and NOT numba-disk-cacheable. A background daemon-thread
+        # warm-up (start at import so the GIL-free LLVM overlaps data prep / fit-start)
+        # was tested and rejected: numba's global compile lock serialises the warm-up
+        # against the fit's own njit compilation, and this host-serial pipeline offers
+        # almost no concurrent GPU work to hide the compile behind. Real reduction would
+        # require replacing the string-keyed typed.Dict caches below with a non-JIT
+        # structure -- a core-path rewrite gated on the selection-equivalence contract.
         entropy_cache = numba.typed.Dict.empty(
             key_type=types.unicode_type,
             value_type=types.float64,

@@ -203,9 +203,11 @@ class CompositeFeatureGenerator(BaseEstimator, TransformerMixin):
         import pandas as pd
 
         if isinstance(X, pd.DataFrame):
-            out = X.copy()
-            out[self.column_name_] = vals
-            return out
+            # Append one column WITHOUT deep-copying every existing column (X can be 100GB+). ``assign`` makes a
+            # shallow BlockManager copy -- the existing column arrays are shared, only the new column is added --
+            # and returns a NEW frame (the caller's X is not mutated), unlike ``X.copy()`` which duplicated all
+            # columns just to add one.
+            return X.assign(**{self.column_name_: vals})
         raise TypeError(
             f"CompositeFeatureGenerator: unsupported X type {type(X).__name__}; "
             "pass a pandas / polars DataFrame."

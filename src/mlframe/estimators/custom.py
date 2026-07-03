@@ -363,6 +363,10 @@ class PureRandomClassifier(BaseEstimator, ClassifierMixin):
         X = np.asarray(X)
         y = np.asarray(y)
         self.random_state_ = check_random_state(self.random_state)
+        # Concrete predict-time seed so predict_proba is DETERMINISTIC given X (sklearn contract: repeated
+        # predict on the same X must return the same output). Consuming self.random_state_ per predict would
+        # advance the RNG and make two identical predict() calls differ.
+        self._predict_seed_ = int(self.random_state_.randint(0, 2**31 - 1))
         self.classes_ = np.unique(y)
         self.n_features_in_ = X.shape[1] if X.ndim > 1 else 1
         return self
@@ -372,14 +376,15 @@ class PureRandomClassifier(BaseEstimator, ClassifierMixin):
         return self.classes_[np.argmax(proba, axis=1)]
 
     def predict_proba(self, X):
-        check_is_fitted(self, "random_state_")
+        check_is_fitted(self, "_predict_seed_")
+        rng = np.random.RandomState(self._predict_seed_)  # fresh each call -> deterministic given X
         n = len(X)
         n_cls = len(self.classes_)
         if n_cls == 2:
-            posProbs = self.random_state_.random_sample(n).reshape(-1, 1) if hasattr(self.random_state_, "random_sample") else self.random_state_.random(n).reshape(-1, 1)
+            posProbs = rng.random_sample(n).reshape(-1, 1)
             return np.concatenate([1 - posProbs, posProbs], axis=1)
         # Multiclass: sample Dirichlet-like rows (uniform then normalize).
-        raw = self.random_state_.random_sample((n, n_cls)) if hasattr(self.random_state_, "random_sample") else self.random_state_.random((n, n_cls))
+        raw = rng.random_sample((n, n_cls))
         return raw / raw.sum(axis=1, keepdims=True)
 
 
