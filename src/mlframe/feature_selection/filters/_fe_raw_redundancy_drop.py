@@ -746,6 +746,15 @@ def drop_redundant_raw_operands(
         # full composite already captures. Byte-identical when no clean sub-expr was substituted (the
         # full-composite bin IS ``_cond_bins`` then).
         for ei in consumers:
+            # SELECTION-EXACT short-circuit (2026-07-03). The debiased ``excess`` is the MIN across conditionings
+            # and ``_excess_and_floor`` clamps it >= 0. The blocks below refine it ONLY on a strict ``_excess_f <
+            # excess``, so once a CHEAPER conditioning (the base clean-subexpr / low-card support) has already
+            # driven ``excess`` to 0 no further conditioning can lower it and no update can fire -- the remaining
+            # full-composite / sibling perm-nulls (which land on a near-unique HIGH-cardinality support, kz~n,
+            # the degenerate df<=0 case) are pure wasted compute. Skipping them is bit-for-bit identical to the
+            # verdict (MIN(0, x>=0) == 0, same accompanying cmi/floor), not just selection-equivalent.
+            if excess <= 0.0:
+                break
             _clean = _clean_subexpr_bin.get((rname, ei))
             if _clean is not None:
                 _z_full, _ = _renumber_joint(eng_bin[ei])
@@ -759,7 +768,7 @@ def drop_redundant_raw_operands(
             for _sp in (_eng_signal_parents.get(ei, set()) - {rname}):
                 if _sp not in _sibling_names:
                     _sibling_names.append(_sp)
-        if _sibling_names:
+        if _sibling_names and excess > 0.0:   # same selection-exact short-circuit: excess already 0 -> no update possible
             _sibling_names.sort(key=lambda nm: -_raw_marginal(nm)[2])
             _budget = max(1, n_rows // _SUPPORT_FRAG_DIVISOR)
             _sib_cond = list(_cond_bins)
