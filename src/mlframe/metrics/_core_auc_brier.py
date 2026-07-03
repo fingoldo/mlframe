@@ -823,7 +823,10 @@ def brier_and_precision_score(
     y_proba = np.asarray(y_proba, dtype=float)
 
     brier = fast_brier_score_loss(y_true=y_true, y_prob=y_proba)
-    if brier > brier_threshold:
+    # fast_brier_score_loss returns NaN on out-of-[0,1] / NaN probabilities. NaN > threshold is False, so without
+    # this guard an invalid-probability model would slip through the gate and make this model-selection scorer
+    # return NaN (or precision - NaN), silently changing which model wins. Treat a non-finite Brier as a hard fail.
+    if not np.isfinite(brier) or brier > brier_threshold:
         return 0.0
     y_pred = (y_proba > 0.5).astype(int)
     # This is a strictly binary scorer. A multiclass y_true (labels outside {0, 1}) is a real input-contract

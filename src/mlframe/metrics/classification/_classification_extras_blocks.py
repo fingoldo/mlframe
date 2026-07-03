@@ -245,7 +245,13 @@ def fast_binary_probability_metrics_block(
     yt = np.ascontiguousarray(y_true).astype(np.int64, copy=False)
     ys = np.ascontiguousarray(y_score, dtype=np.float64)
     n = yt.shape[0]
-    if n == 0:
+    # The standalone fast_brier_score_loss / fast_log_loss_binary return NaN on out-of-[0,1] or NaN probabilities;
+    # this fused block previously CLAMPED such scores to [1e-15, 1-1e-15], reporting a plausible-looking Brier /
+    # log_loss for what is actually an invalid-probability model -- two code paths disagreeing on the same input.
+    # Match the standalone contract: an out-of-range / non-finite score set yields an all-NaN block, surfacing the
+    # defect instead of hiding it. (Values legitimately AT 0.0/1.0 are in-range and still clamped for the log.)
+    invalid_scores = n > 0 and not (np.isfinite(ys).all() and ys.min() >= 0.0 and ys.max() <= 1.0)
+    if n == 0 or invalid_scores:
         return {
             "Brier": np.nan, "log_loss": np.nan, "base_rate": np.nan,
             "BSS": np.nan, "Spiegelhalter_Z": np.nan, "Spiegelhalter_p": np.nan,
