@@ -39,6 +39,25 @@ class TestFixCrossing:
         twice = fix_quantile_crossing(once, [0.1, 0.5, 0.9], mode="isotonic")
         assert np.allclose(once, twice)
 
+    def test_isotonic_matches_sklearn_isotonic_regression(self):
+        # The njit PAVA must reproduce sklearn's equal-weight L2 isotonic
+        # projection to FP pooling round-off across many crossing patterns,
+        # varied K, and rows that are already monotone (mono-shortcut path).
+        isotonic_regression = pytest.importorskip("sklearn.isotonic").isotonic_regression
+        rng = np.random.default_rng(12345)
+        for K in (2, 3, 7, 9):
+            P = rng.standard_normal((500, K)).cumsum(1) + rng.standard_normal((500, K))
+            alphas = list(np.linspace(0.05, 0.95, K))
+            got = fix_quantile_crossing(P, alphas, mode="isotonic")
+            ref = np.empty_like(P, dtype=np.float64)
+            for i in range(P.shape[0]):
+                ref[i] = isotonic_regression(P[i].astype(np.float64), increasing=True)
+            assert np.max(np.abs(got - ref)) < 1e-12, f"K={K} PAVA != sklearn"
+            # Output must never leak past column K into the next row (the
+            # block-expand bound bug): row sums of the projection equal the
+            # row sums of the input (PAVA preserves total mass).
+            assert np.allclose(got.sum(1), P.sum(1))
+
     def test_none_no_op(self):
         P = np.array([[0.5, 0.3, 0.7]])
         out = fix_quantile_crossing(P, [0.1, 0.5, 0.9], mode="none")
