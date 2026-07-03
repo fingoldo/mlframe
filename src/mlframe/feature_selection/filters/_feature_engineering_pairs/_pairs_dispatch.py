@@ -111,7 +111,11 @@ def _dispatch_batch_mi_with_noise_gate(
             # smallest n/cells -> hardest to pass, i.e. safe direction), while ``analytic_batch_noise_gate``
             # later uses each column's OCCUPIED bx for the actual chi2 df. The two intentionally differ:
             # the gate-on check is the conservative bound, the per-column df is the exact one.
-            _by_occ = int(np.unique(np.asarray(classes_y)).size)
+            # freqs_y is the y-class frequency vector (bincount(classes_y)/total; zero for
+            # absent labels), so its nonzero count IS the occupied-class count == np.unique(
+            # classes_y).size -- O(nbins) instead of an O(n log n) np.unique over all n rows,
+            # recomputed on every per-pair-batch analytic-gate dispatch (~1000x cheaper/call).
+            _by_occ = int(np.count_nonzero(freqs_y))
             _an_ok = analytic_null_enabled() and analytic_null_applicable(
                 int(n), int(quantization_nbins), _by_occ,
             )
