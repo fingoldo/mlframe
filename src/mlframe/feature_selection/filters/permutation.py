@@ -318,8 +318,15 @@ def parallel_mi_prange_with_null(
     base_seed: np.uint64,
     dtype: type = np.int32,
     use_su: bool = False,
+    use_mm: bool = False,
 ) -> tuple:
     """Null-mean-accumulating twin of :func:`parallel_mi_prange`.
+
+    ``use_mm`` (critique N-F1): the permutation null MUST use the SAME estimator as the observed relevance it is
+    tested against. The observed MI is computed with Miller-Madow when ``mi_correction='miller_madow'`` is active,
+    so each shuffle's MI is computed with MM too -- otherwise the exceedance test compares plug-in shuffles against
+    an MM-lowered observed (over-rejection) AND ``observed_mm - null_mean_plugin`` subtracts a mismatched bias
+    (double correction). No-op when ``use_mm`` is False (the default), so the plug-in path is unchanged.
 
     Bit-identical ``(nfailed, npermutations)`` to the legacy prange kernel (same per-iter LCG seeding, same exceedance count) but ALSO returns the sum of the
     per-permutation MIs as a third element ``(nfailed, npermutations, sum_perm_mi)``. The mean permutation-null MI is ``sum_perm_mi / npermutations``; subtracting it
@@ -345,7 +352,7 @@ def parallel_mi_prange_with_null(
             local[k] = tmp
 
         mi_perm = compute_relevance_score(
-            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype,
+            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype, use_mm=use_mm,
         )
         mi_perm_arr[i] = mi_perm
         if mi_perm >= original_mi:
@@ -657,6 +664,7 @@ def mi_direct(
                 base_seed=np.uint64(base_seed),
                 dtype=dtype,
                 use_su=_use_su,
+                use_mm=(use_mi_miller_madow() and not _use_su),  # N-F1: null uses the SAME estimator as original_mi
             )
             if n_checked > 0:
                 null_mean = sum_perm_mi / float(n_checked)
