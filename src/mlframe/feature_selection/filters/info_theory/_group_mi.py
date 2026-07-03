@@ -126,10 +126,43 @@ def group_blocked_mi(
 
     ``size_weighted=True`` → ``Σ n_g·MI_g / Σ n_g`` (the plug-in ``I(X;Y|G)``); ``False`` → equal-weight mean over
     groups that clear ``min_rows`` (so one huge group does not dominate). ``use_mm`` applies the per-group Miller-Madow
-    debias. Returns 0.0 when no group clears ``min_rows``.
+    debias. Returns 0.0 when no group clears ``min_rows``, and ``nan`` when the segments do not row-align to the codes
+    (``group_offsets[-1] != len(codes_x)`` -- e.g. the greedy screen subsampled rows but groups did not) so the caller
+    can safely fall back to the global-MI path instead of misreading a misaligned index.
     """
+    cx = np.ascontiguousarray(codes_x)
+    cy = np.ascontiguousarray(codes_y)
+    if int(group_offsets[-1]) != cx.shape[0] or cy.shape[0] != cx.shape[0]:
+        return float("nan")
     return _group_blocked_mi(
-        np.ascontiguousarray(codes_x), np.ascontiguousarray(codes_y),
-        np.ascontiguousarray(sort_idx), np.ascontiguousarray(group_offsets),
+        cx, cy, np.ascontiguousarray(sort_idx), np.ascontiguousarray(group_offsets),
         int(n_bins_x), int(n_bins_y), int(min_rows), bool(size_weighted), bool(use_mm),
+    )
+
+
+def group_relevance_mi(
+    factors_data: np.ndarray,
+    X,
+    classes_y: np.ndarray,
+    factors_nbins: np.ndarray,
+    n_bins_y: int,
+    sort_idx: np.ndarray,
+    group_offsets: np.ndarray,
+    *,
+    min_rows: int = 20,
+    size_weighted: bool = True,
+    dtype=np.int32,
+) -> float:
+    """Group-aware relevance ``I(X;Y|G)`` for a candidate index/tuple ``X``: merge X's columns to dense codes (the same
+    ``merge_vars`` MRMR's own MI path uses) then group-block against the target codes ``classes_y``. Miller-Madow debias
+    is ON (per-group ``n_g`` is small). Mirrors the merge in ``evaluation._densely_encode`` so codes are consistent.
+    """
+    from ._class_encoding import merge_vars
+    classes_x, _freqs_x, nclasses_x = merge_vars(
+        factors_data=factors_data, vars_indices=X, var_is_nominal=None,
+        factors_nbins=factors_nbins, dtype=dtype,
+    )
+    return group_blocked_mi(
+        np.asarray(classes_x), np.asarray(classes_y), sort_idx, group_offsets,
+        int(nclasses_x), int(n_bins_y), min_rows=min_rows, size_weighted=size_weighted, use_mm=True,
     )

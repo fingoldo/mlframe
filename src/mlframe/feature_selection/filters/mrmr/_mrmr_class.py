@@ -1177,6 +1177,18 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # ignoring groups would mask a real correctness gap (cross-group leakage in MI estimation on panel / user-session / sliding-window data). Default False keeps the legacy warn behaviour for
         # ad-hoc callers who already know the limitation and want MI computed per-row anyway.
         strict_groups: bool = False,
+        # Group-aware relevance MI. When True and ``fit(groups=...)`` is supplied, MRMR ranks features by the per-group estimator
+        # ``I(X;Y|G) = Σ_g w_g·MM(I_g(X;Y))`` instead of the global ``MI(X;Y)``, so a feature predictive only through
+        # between-group LEVEL differences (high global MI, ~0 within-group -- leakage that will not generalise to unseen groups)
+        # is demoted, while a genuine within-group signal (even one whose sign flips across groups) is retained. Binning stays
+        # global (edges comparable across groups); per-group Miller-Madow debias corrects the small-``n_g`` plug-in bias.
+        # OFF by default (opt-in) until a real run confirms the selected-feature set improves out-of-group generalisation.
+        group_aware_mi: bool = False,
+        # Aggregation of the per-group MI: "size" -> ``w_g = n_g/N`` (the plug-in ``I(X;Y|G)``); "equal" -> equal-weight mean over
+        # groups clearing ``group_mi_min_rows`` (so one huge group does not dominate). Only consulted when group_aware_mi=True.
+        group_mi_aggregate: str = "size",
+        # Groups with fewer than this many finite rows are skipped in the per-group MI aggregate (too few rows for a stable MM estimate).
+        group_mi_min_rows: int = 20,
         # Friend-graph post-analysis: after screening, render the selected set as a
         # node-link diagram (node=feature sized by entropy, edge=pairwise MI, arrow=ADC
         # direction) and classify each feature green (unique) / red (suspected redundant
@@ -2941,13 +2953,12 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
 
         Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
         self.groups_ignored_ = False
-        if groups is not None:
+        if groups is not None and not getattr(self, "group_aware_mi", False):
             if getattr(self, "strict_groups", False):
                 raise NotImplementedError(
-                    "MRMR.fit received groups but the current implementation does NOT consume them and "
-                    "strict_groups=True was set. Either implement grouped MI estimation by wrapping MRMR "
-                    "with a per-group selector and aggregating manually, set strict_groups=False to "
-                    "accept the warn-only fallback, or pass groups=None."
+                    "MRMR.fit received groups but group_aware_mi=False and strict_groups=True. Set "
+                    "group_aware_mi=True to consume groups via per-group I(X;Y|G) MI, set "
+                    "strict_groups=False to accept the warn-only group-naive fallback, or pass groups=None."
                 )
             # Surfaced into fit metadata (groups_ignored_) so a downstream report can flag that MI was
             # estimated group-naively despite a group-aware split.
@@ -3297,6 +3308,25 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # noise no longer out-ranks low-cardinality true signal at small n. Default 'none' keeps the legacy plug-in estimator bit-exact. Reset in the finally.
         _mm_on = getattr(self, "mi_correction", "none") == "miller_madow"
         set_mi_miller_madow(_mm_on)
+        # Group-aware relevance MI: per-group I(X;Y|G) so a between-group-level feature (high global MI, ~0 within-group)
+        # is demoted. Row resampling under non-uniform sample_weight reshuffles X but not groups, so restrict to the
+        # no-resample case (sample_weight is None); otherwise disable with a warning rather than mis-assign rows.
+        from ..info_theory._state_and_dispatch import set_group_mi as _set_group_mi
+        from ..info_theory._group_mi import prepare_group_segments as _prepare_group_segments
+        _gmi_payload = None
+        if getattr(self, "group_aware_mi", False) and groups is not None:
+            _g_arr = np.asarray(groups)
+            _n_rows = X.shape[0] if hasattr(X, "shape") else len(X)
+            if sample_weight is not None:
+                logger.warning("[MRMR] group_aware_mi disabled this fit: non-uniform sample_weight resamples rows and would misalign groups; pass sample_weight=None or group_aware_mi=False.")
+            elif _g_arr.shape[0] != _n_rows:
+                logger.warning("[MRMR] group_aware_mi disabled: groups length %d != X rows %d.", _g_arr.shape[0], _n_rows)
+            else:
+                _si, _off = _prepare_group_segments(_g_arr)
+                _size_weighted = getattr(self, "group_mi_aggregate", "size") == "size"
+                _gmi_payload = (_si, _off, int(getattr(self, "group_mi_min_rows", 20)), _size_weighted)
+                self.groups_ignored_ = False
+        _set_group_mi(_gmi_payload)
         # Research-knob thread-locals (RelaxMRMR 3-D redundancy / PID synergy bonus / CMI permutation early-stop). All default OFF (alpha=0 / bonus=0 / stop=False) so the
         # legacy Fleuret per-candidate score is byte-identical; reset in the finally. Read in evaluation.py and forwarded to joblib workers like the SU/JMIM/BUR toggles.
         set_relaxmrmr_alpha(float(getattr(self, "relaxmrmr_alpha", 0.0) or 0.0))
@@ -3476,6 +3506,11 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 pass
             try:
                 set_mi_miller_madow(_mm0)
+            except Exception:
+                pass
+            try:
+                from ..info_theory._state_and_dispatch import set_group_mi as _sg_restore
+                _sg_restore(None)
             except Exception:
                 pass
             try:

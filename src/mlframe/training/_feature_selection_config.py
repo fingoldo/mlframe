@@ -153,6 +153,9 @@ class FeatureSelectionConfig(BaseConfig):
     mrmr_uaed_auto_size: bool = False
     mrmr_pid_synergy_bonus: Optional[float] = None
     mrmr_mi_correction: Optional[str] = None
+    mrmr_group_aware_mi: bool = False
+    mrmr_group_mi_aggregate: Optional[str] = None
+    mrmr_group_mi_min_rows: Optional[int] = None
 
     @field_validator("mrmr_identity_cache_scope")
     @classmethod
@@ -284,6 +287,12 @@ class FeatureSelectionConfig(BaseConfig):
             mrmr_levers["pid_synergy_bonus"] = self.mrmr_pid_synergy_bonus
         if self.mrmr_mi_correction is not None:
             mrmr_levers["mi_correction"] = self.mrmr_mi_correction
+        if self.mrmr_group_aware_mi:
+            mrmr_levers["group_aware_mi"] = True
+        if self.mrmr_group_mi_aggregate is not None:
+            mrmr_levers["group_mi_aggregate"] = self.mrmr_group_mi_aggregate
+        if self.mrmr_group_mi_min_rows is not None:
+            mrmr_levers["group_mi_min_rows"] = self.mrmr_group_mi_min_rows
 
         for name, levers, current in (("rfecv_kwargs", rfecv_levers, self.rfecv_kwargs), ("mrmr_kwargs", mrmr_levers, self.mrmr_kwargs)):
             if not levers:

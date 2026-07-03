@@ -71,6 +71,26 @@ def set_mi_miller_madow(active: bool) -> None:
     _MM_STATE.active = bool(active)
 
 
+# Group-aware MI (per-group I(X;Y|G)) state. Set by MRMR.fit when ``group_aware_mi=True`` and groups are supplied,
+# republished into joblib workers by ``evaluate_candidates`` (thread-local does not cross workers), and read at the
+# relevance scoring site. ``None`` payload = OFF -> the legacy global-MI relevance is byte-identical. Holds the once-
+# computed segment sort + offsets so every candidate reuses them.
+_GROUP_MI_STATE = _threading.local()
+
+
+def use_group_mi() -> bool:
+    return getattr(_GROUP_MI_STATE, "payload", None) is not None
+
+
+def get_group_mi():
+    """Return the group-MI payload ``(sort_idx, group_offsets, min_rows, size_weighted)`` or ``None`` when off."""
+    return getattr(_GROUP_MI_STATE, "payload", None)
+
+
+def set_group_mi(payload) -> None:
+    _GROUP_MI_STATE.payload = payload
+
+
 # Research-knob thread-locals (RelaxMRMR 3-D redundancy, PID synergy bonus, CMI permutation early-stop). All default OFF so the legacy Fleuret score is byte-identical;
 # set by MRMR.fit from the matching constructor knobs, read in evaluation.py at the per-candidate scoring site, forwarded to joblib workers like the SU/JMIM/BUR toggles.
 _RELAXMRMR_STATE = _threading.local()
