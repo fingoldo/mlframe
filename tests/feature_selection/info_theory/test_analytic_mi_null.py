@@ -182,3 +182,43 @@ def test_batch_noise_gate_keeps_signal_rejects_noise():
     assert len(false_pos) <= max(3, int(0.10 * n_noise)), (
         f"too many noise candidates admitted: {sorted(false_pos)} (n_noise={n_noise})"
     )
+
+
+def test_analytic_batch_noise_gate_vectorised_matches_scalar_loop():
+    """The 2026-07-03 vectorisation of ``analytic_batch_noise_gate`` (one array ``chi2.sf`` instead of
+    ~K scalar calls) must be BIT-IDENTICAL to the prior per-column scalar loop over the exact
+    ``analytic_null_applicable`` + ``analytic_mi_null`` decision -- across n below/above the min-n gate,
+    sparse/dense cells, zero and positive observed MI, and single-occupied-bin (df=0) candidates."""
+    from mlframe.feature_selection.filters._analytic_mi_null import (
+        analytic_null_applicable,
+        analytic_mi_null as _scalar_null,
+    )
+
+    def _scalar_gate(observed, by, n_rows, min_conf, bx_per_col):
+        fe = np.asarray(observed, dtype=np.float64).copy()
+        alpha = 1.0 - float(min_conf)
+        for k in range(fe.shape[0]):
+            mi = float(fe[k])
+            if mi <= 0.0:
+                fe[k] = 0.0
+                continue
+            bx = int(bx_per_col[k])
+            if not analytic_null_applicable(int(n_rows), bx, by):
+                continue
+            _nm, p = _scalar_null(mi, int(n_rows), bx, by)
+            if p >= alpha:
+                fe[k] = 0.0
+        return fe
+
+    rng = np.random.default_rng(20260703)
+    min_conf = 0.95
+    for _ in range(400):
+        K = int(rng.integers(1, 80))
+        observed = rng.uniform(-0.02, 0.6, K)
+        observed[rng.random(K) < 0.25] = 0.0                       # some non-positive MI
+        by = int(rng.integers(2, 10))
+        n = int(rng.choice([50, 100, 5_000, 30_000, 50_000, 300_000]))
+        bx = rng.integers(1, 15, K)                                 # 1 -> df=0 edge
+        got = analytic_batch_noise_gate(None, observed.copy(), np.arange(by), n, min_conf, bx_per_col=bx.copy())
+        exp = _scalar_gate(observed, by, n, min_conf, bx)
+        assert np.array_equal(got, exp), f"vectorised gate diverged (K={K}, n={n}, by={by})"

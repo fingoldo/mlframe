@@ -208,21 +208,29 @@ def analytic_batch_noise_gate(
         bx_per_col = _occupied_bins_per_col(np.ascontiguousarray(disc_2d))
     else:
         bx_per_col = np.asarray(bx_per_col, dtype=np.int64)
-    for k in range(K):
-        mi_k = float(fe_mi[k])
-        if mi_k <= 0.0:
-            fe_mi[k] = 0.0
-            continue
-        bx = int(bx_per_col[k])                          # occupied x bins for this candidate
-        # Only trust the G-test tail to REJECT where its chi-square asymptotic is valid (large n AND
-        # non-sparse cells). On a sparse / high-cardinality contingency table analytic_null_applicable is
-        # False and the analytic p is unreliable, so keep the observed MI rather than reject what may be
-        # genuine signal on an invalid test -- mirroring the documented "use the permutation test" fallback.
-        if not analytic_null_applicable(int(n_rows), bx, by):
-            continue
-        _nm, p = analytic_mi_null(mi_k, int(n_rows), bx, by)
-        if p >= alpha_reject:
-            fe_mi[k] = 0.0
+    # VECTORISED (2026-07-03): the per-column loop below previously called scipy ``chi2.sf`` ONCE per
+    # candidate -- K up to thousands, ~12k scalar calls per fit -- purely for Python-call overhead.
+    # ``scipy.stats.chi2.sf`` is elementwise, so one array call reproduces every per-column p-value
+    # bit-for-bit while dropping the loop. The keep/reject decision is IDENTICAL to the scalar
+    # analytic_null_applicable + analytic_mi_null path: reject candidate k iff observed MI_k > 0 AND the
+    # analytic null is applicable (n >= min_n AND avg expected cell N/(Bx*By) >= floor) AND the G-test tail
+    # p_k >= alpha_reject; df<=0 or missing scipy -> analytic_mi_null returns p=1.0 (always rejected when
+    # applicable), which the p=1.0 default below reproduces.
+    _by = int(by)
+    _bx = bx_per_col.astype(np.int64, copy=False)
+    _df = (_bx - 1) * (_by - 1)                                    # (K,) G-test degrees of freedom
+    _cells = np.maximum(1, _bx * _by)
+    _applicable = (int(n_rows) >= analytic_null_min_n()) & (
+        (float(n_rows) / _cells) >= _min_expected_cell()
+    )                                                             # (K,) == analytic_null_applicable per col
+    _p = np.ones(K, dtype=np.float64)                             # df<=0 / mi<=0 / no-chi2 -> p=1.0
+    _use_chi2 = (_df > 0) & (fe_mi > 0.0)
+    if _HAVE_CHI2 and bool(np.any(_use_chi2)):
+        _g = 2.0 * float(n_rows) * fe_mi[_use_chi2]
+        _p[_use_chi2] = np.clip(_chi2.sf(_g, _df[_use_chi2]), 0.0, 1.0)
+    _reject = (fe_mi > 0.0) & _applicable & (_p >= alpha_reject)
+    fe_mi[fe_mi <= 0.0] = 0.0
+    fe_mi[_reject] = 0.0
     return fe_mi
 
 
