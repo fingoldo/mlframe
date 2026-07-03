@@ -345,6 +345,27 @@ class TestFeaturesAndTargetsExtractorBase:
         assert group_ids is not None
         assert len(np.unique(group_ids)) == 2  # Two groups: A and B
 
+    def test_group_field_excluded_from_features(self):
+        """Regression: the group column must be excluded from FEATURES (added to columns_to_drop). It carries the CV
+        grouping (captured in group_ids), NOT a predictive signal -- a high-cardinality / string identifier (well_id,
+        user_id) would leak into selection, crash numeric FE (e.g. DCD PCA on a hex string), and bloat the codes matrix.
+        """
+        extractor = FeaturesAndTargetsExtractor(group_field='well_id')
+        df = pd.DataFrame({
+            'x': [1.0, 2.0, 3.0, 4.0],
+            'well_id': ['000d7d20', '000d7d20', 'abc123', 'abc123'],  # hex-string group ids
+        })
+        result = extractor.transform(df)
+        columns_to_drop = result[6]
+        assert 'well_id' in columns_to_drop, "group_field must be excluded from features"
+
+    def test_group_field_none_drops_nothing_extra(self):
+        """No group_field -> nothing added to columns_to_drop on its account (no spurious drop)."""
+        extractor = FeaturesAndTargetsExtractor(group_field=None)
+        df = pd.DataFrame({'x': [1.0, 2.0], 'y': [3.0, 4.0]})
+        result = extractor.transform(df)
+        assert result[6] == set()
+
 
 class TestFeaturesAndTargetsExtractorSubclass:
     """Test subclassing FeaturesAndTargetsExtractor."""

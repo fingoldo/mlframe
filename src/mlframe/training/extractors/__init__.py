@@ -286,6 +286,11 @@ class FeaturesAndTargetsExtractor:
             # pd.factorize handles None/NaN and mixed types; -1 codes map to a "__null__" sentinel
             codes, _ = pd.factorize(group_ids_raw_np)
             group_ids = codes
+            # The group column carries the CV/grouping id (now captured in group_ids), NOT a predictive feature: a
+            # high-cardinality identifier (well_id, user_id, ...) cannot generalise to UNSEEN groups, and if it is a
+            # string it crashes the numeric FE (e.g. the DCD PCA "could not convert string to float"). Exclude it from
+            # features -- same pattern as targets above -- so it neither leaks into selection nor bloats the codes matrix.
+            self.columns_to_drop.add(self.group_field)
 
         artifacts = self.prepare_artifacts(df)
 
