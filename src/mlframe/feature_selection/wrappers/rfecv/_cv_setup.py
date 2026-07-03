@@ -7,6 +7,8 @@ argument into a concrete splitter:
   (suite-level ``timestamps`` hint -> polars schema hint ->
   pandas DatetimeIndex monotonicity -> single polars datetime column
   monotonicity). If detected, swap to ``TimeSeriesSplit``.
+* int cv + groups + a temporal signal -> ``GroupTimeSeriesSplit`` (entity isolation AND forward-chained time
+  order; falls back to the group KFold below when there are too few groups, or when ``cv_shuffle=True`` opts out).
 * int cv + classifier + groups -> ``StratifiedGroupKFold``.
 * int cv + classifier + no groups -> ``StratifiedKFold``.
 * int cv + regressor + groups -> ``GroupKFold``.
@@ -39,6 +41,31 @@ from sklearn.model_selection import (
 )
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
+
+
+def _make_group_time_series(n_splits, groups, fallback, verbose):
+    """Build a GroupTimeSeriesSplit (entity isolation + temporal fold order), or fall back to ``fallback`` when
+    there are too few distinct groups for the requested n_splits (need >= n_splits + 1)."""
+    from ._group_time_series_split import GroupTimeSeriesSplit
+
+    try:
+        import pandas as _pd
+        n_groups = _pd.unique(np.asarray(groups)).shape[0]
+    except Exception:
+        n_groups = np.unique(np.asarray(groups)).shape[0]
+    if n_groups < n_splits + 1:
+        logger.warning(
+            "RFECV: groups+temporal detected but only %d distinct groups for n_splits=%d (need >= %d); falling "
+            "back to %s. Fold time-ordering is NOT guaranteed on this fallback.",
+            n_groups, n_splits, n_splits + 1, type(fallback).__name__,
+        )
+        return fallback
+    if verbose:
+        logger.info(
+            "RFECV: groups + temporal signal detected; using GroupTimeSeriesSplit (forward-chaining over %d "
+            "time-ordered groups) so folds isolate entities AND respect time order.", n_groups,
+        )
+    return GroupTimeSeriesSplit(n_splits=n_splits)
 
 
 def _resolve_cv_and_val_cv(
@@ -122,22 +149,27 @@ def _resolve_cv_and_val_cv(
             except ImportError:
                 pass
         # groups + a temporal signal: every branch above is gated on ``groups is None``, so a caller with BOTH a group
-        # key and time-ordered rows silently gets GroupKFold / StratifiedGroupKFold. Those isolate entities across
-        # folds but do NOT order folds in time (a future-dated group can land in train while a past-dated group is in
-        # test), so any non-stationary signal inflates the CV score. There is no GroupTimeSeriesSplit path here; warn
-        # so the caller knows the temporal guarantee is their responsibility.
-        if groups is not None:
-            _has_temporal_signal = (
+        # key and time-ordered rows would otherwise get GroupKFold / StratifiedGroupKFold, which isolate entities but
+        # do NOT order folds in time (a future-dated group can land in train while a past-dated group is in test),
+        # inflating the CV score on any non-stationary signal. Detect the temporal signal here and route to
+        # GroupTimeSeriesSplit, which forward-chains at the group level (entity isolation AND temporal order). Honour
+        # an explicit cv_shuffle=True opt-out, mirroring the non-group temporal path.
+        _use_group_time_series = False
+        if groups is not None and not cv_shuffle:
+            _use_group_time_series = (
                 _ts_hint is not None
                 or _polars_time_series_hint
                 or (isinstance(X, pd.DataFrame) and isinstance(X.index, pd.DatetimeIndex) and not X.index.hasnans and X.index.is_monotonic_increasing)
             )
-            if _has_temporal_signal:
-                logger.warning(
-                    "RFECV: groups provided alongside a temporal signal; GroupKFold/StratifiedGroupKFold isolate "
-                    "entities but do NOT order folds in time (future groups can land in train, past in test). Pass a "
-                    "group-time-aware splitter via cv= if temporal ordering matters for your data.",
-                )
+        elif groups is not None and cv_shuffle and (
+            _ts_hint is not None or _polars_time_series_hint
+            or (isinstance(X, pd.DataFrame) and isinstance(X.index, pd.DatetimeIndex) and not X.index.hasnans and X.index.is_monotonic_increasing)
+        ):
+            logger.warning(
+                "RFECV: explicit cv_shuffle=True overrides the groups+temporal auto-detect; GroupTimeSeriesSplit "
+                "will NOT be substituted and fold time-ordering is not guaranteed. Drop cv_shuffle or pass a "
+                "group-time-aware splitter via cv= if temporal ordering matters.",
+            )
         # Respect explicit cv_shuffle=True: the auto-swap to TimeSeriesSplit voids the user's explicit shuffle request silently. Treat ``cv_shuffle=True`` as an opt-out from temporal auto-detect and
         # WARN so the caller knows their explicit choice took precedence (and that the temporal-leakage guarantee is consequently their responsibility, not the auto-detector's).
         if _is_time_series and cv_shuffle:
@@ -164,7 +196,9 @@ def _resolve_cv_and_val_cv(
                 ),
             )
         elif is_classifier(estimator):
-            if groups is not None:
+            if groups is not None and _use_group_time_series:
+                cv = _make_group_time_series(cv, groups, StratifiedGroupKFold(n_splits=cv, shuffle=False), verbose)
+            elif groups is not None:
                 cv = StratifiedGroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state if cv_shuffle else None)
             else:
                 if cv_shuffle:
@@ -172,7 +206,9 @@ def _resolve_cv_and_val_cv(
                 else:
                     cv = StratifiedKFold(n_splits=cv, shuffle=False)
         else:
-            if groups is not None:
+            if groups is not None and _use_group_time_series:
+                cv = _make_group_time_series(cv, groups, GroupKFold(n_splits=cv), verbose)
+            elif groups is not None:
                 cv = GroupKFold(n_splits=cv)  # GroupKFold doesn't support shuffle/random_state
             else:
                 if cv_shuffle:

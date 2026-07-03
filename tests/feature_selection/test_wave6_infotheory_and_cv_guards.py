@@ -75,19 +75,21 @@ def test_merge_vars_empty_frame_no_divide_by_zero():
     assert freqs.size == 0 and np.isfinite(freqs).all()
 
 
-def test_rfecv_warns_on_groups_plus_temporal_signal(caplog):
+def test_rfecv_routes_groups_plus_temporal_to_group_time_series():
+    # groups + a temporal signal now ROUTES to GroupTimeSeriesSplit (entity isolation AND time-ordered folds)
+    # instead of the old silent GroupKFold. Full guarantees are exercised in test_group_time_series_split.py.
     from sklearn.ensemble import RandomForestRegressor
     from mlframe.feature_selection.wrappers.rfecv._cv_setup import _resolve_cv_and_val_cv
+    from mlframe.feature_selection.wrappers.rfecv._group_time_series_split import GroupTimeSeriesSplit
 
     n = 30
     X = pd.DataFrame({"f0": np.arange(n, dtype=float), "f1": np.arange(n, dtype=float)})
-    groups = np.repeat(np.arange(6), 5)
+    groups = np.repeat(np.arange(6), 5)  # 6 groups >= n_splits+1
     ts = np.arange(n)  # monotonic timestamps hint
-    with caplog.at_level(logging.WARNING):
-        _resolve_cv_and_val_cv(
-            cv=3, estimator=RandomForestRegressor(n_estimators=3), X=X, y=np.arange(n, dtype=float),
-            groups=groups, cv_shuffle=False, random_state=0, verbose=True,
-            fit_params={"timestamps": ts}, early_stopping_val_nsplits=0, early_stopping_rounds=None,
-            _polars_time_series_hint=False,
-        )
-    assert any("do NOT order folds in time" in r.message for r in caplog.records), "expected temporal+groups warning"
+    cv, _val, _es = _resolve_cv_and_val_cv(
+        cv=3, estimator=RandomForestRegressor(n_estimators=3), X=X, y=np.arange(n, dtype=float),
+        groups=groups, cv_shuffle=False, random_state=0, verbose=False,
+        fit_params={"timestamps": ts}, early_stopping_val_nsplits=0, early_stopping_rounds=None,
+        _polars_time_series_hint=False,
+    )
+    assert isinstance(cv, GroupTimeSeriesSplit), f"expected GroupTimeSeriesSplit, got {type(cv).__name__}"
