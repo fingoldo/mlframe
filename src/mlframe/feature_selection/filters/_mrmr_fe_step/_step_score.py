@@ -115,6 +115,19 @@ def materialise_and_finalise_fe_candidates(
         _, _y_dense = np.unique(_y_codes, return_inverse=True)
         _y_dense = _y_dense.astype(np.int64)
 
+        # GATE SCORING SUBSAMPLE (2026-07-03). The conditional-MI redundancy gate only DECIDES which engineered
+        # candidates are redundant (drop) vs carry private y-information (keep) -- an admit/drop decision with
+        # wide margins (a redundant column collapses to ~0 CMI; a genuine private interaction keeps a large CMI).
+        # That decision is selection-equivalent under a large strided subsample, while binning every candidate +
+        # its marginal MI + the O(M^2) greedy CMI on full 1M rows dominates. Strided-subsample the candidate
+        # continuous values AND y together (same stride -> aligned rows) above MLFRAME_FE_GATE_MAX_ROWS (default
+        # 250k, 0=full-n). The stored ``_cmi_cands`` arrays and ``_y_dense_g`` feed ONLY the gate; the admitted
+        # candidates' full-n values are materialised downstream unchanged, so this caps scoring cost only.
+        _gate_max_rows = int(os.environ.get("MLFRAME_FE_GATE_MAX_ROWS", "250000"))
+        _gate_n = int(_y_dense.shape[0])
+        _gate_stride = int(_gate_n // _gate_max_rows) if _gate_max_rows > 0 and _gate_n > _gate_max_rows else 1
+        _y_dense_g = _y_dense[::_gate_stride] if _gate_stride > 1 else _y_dense
+
         # DEVICE-BORN marginal MI (default ON under fe_gpu_strict_resident_enabled; opt-out
         # MLFRAME_FE_GATE_RESIDENT_CANDS=0). The seed/relative-bar anchor marginal MI is computed by binning
         # each candidate's continuous ``_vals`` ONCE on device and scoring MI from the RESIDENT int64 codes
@@ -130,6 +143,8 @@ def materialise_and_finalise_fe_candidates(
                 if _tvals.shape[1] <= _jc:
                     continue
                 _vals = np.asarray(_tvals[:, _jc], dtype=np.float64)
+                if _gate_stride > 1:
+                    _vals = _vals[::_gate_stride]
                 _vb = None
                 if _gate_resident and np.isfinite(_vals).all():
                     try:
@@ -139,7 +154,7 @@ def materialise_and_finalise_fe_candidates(
                         _vb = None
                 if _vb is None:
                     _vb = _quantile_bin(_vals, nbins=int(self.quantization_nbins))
-                _marg = float(_cmi_from_binned(_vb, _y_dense, None, kx=int(self.quantization_nbins)))
+                _marg = float(_cmi_from_binned(_vb, _y_dense_g, None, kx=int(self.quantization_nbins)))
                 _cmi_cands[_cname] = (_vals, _marg)
 
         if len(_cmi_cands) >= 2:
@@ -147,7 +162,7 @@ def materialise_and_finalise_fe_candidates(
             _escape = float(getattr(self, "fe_engineered_cmi_significance_escape_margin", 3.0))
             _cmi_max_cands = int(getattr(self, "fe_engineered_cmi_max_candidates", 64))
             _accepted, _diag = apply_cmi_redundancy_gate(
-                _cmi_cands, _y_dense,
+                _cmi_cands, _y_dense_g,
                 nbins=int(self.quantization_nbins),
                 retain_frac=_retain,
                 significance_escape_margin=_escape,
