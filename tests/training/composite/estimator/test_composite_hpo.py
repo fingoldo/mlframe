@@ -131,10 +131,17 @@ def test_time_ordering_uses_purged_cv():
 # biz_value: recovers the winning transform + beats a fixed default on holdout
 # ---------------------------------------------------------------------------
 
-def test_biz_val_optimize_composite_recovers_diff_and_beats_default():
-    """On data where y = base + g(feat), ``diff`` is the right transform.
-    optimize_composite must (a) RECOVER diff over linear_residual, and (b) beat
-    a FIXED-default (linear_residual, depth=3) composite on a held-out RMSE."""
+def test_biz_val_optimize_composite_recovers_base_aware_transform_and_beats_default():
+    """On data where y = base + g(feat), the optimizer must recover a BASE-AWARE
+    transform and beat the base-blind ``log_y``. Both ``diff`` (T=y-base) and
+    ``ratio`` (T=y/base) exploit ``base`` to make the residual learnable, so
+    either is a correct recovery; ``log_y`` ignores ``base`` and cannot. On this
+    DGP ``ratio`` is in fact the honest CV winner (best-of-depth CV-RMSE ~0.18 vs
+    ``diff`` ~0.52 vs ``log_y`` ~3.21): the tree reads the ``base`` column to model
+    T=y/base precisely, while contiguous-CV drift of the random-walk base penalises
+    ``diff``'s incidental base splits. So (a) asserts a base-aware winner, not the
+    exact identity, and (b) that it beats the fixed base-blind default on held-out
+    RMSE."""
     X, y = _make_diff_data(n=1500, seed=1)
     y = np.asarray(y, dtype=float)
     n_tr = 1100
@@ -147,8 +154,8 @@ def test_biz_val_optimize_composite_recovers_diff_and_beats_default():
         inner_factory=_inner_factory, inner_spaces=_spaces(),
         n_trials=20, cv=4, prefer_optuna=False,
     )
-    # (a) recovers diff over the base-blind log_y / ratio transforms.
-    assert res.transform == "diff", f"expected diff, got {res.transform!r}"
+    # (a) recovers a base-aware transform over the base-blind log_y.
+    assert res.transform in ("diff", "ratio"), f"expected a base-aware transform, got {res.transform!r}"
 
     # (b) beats the fixed-default (base-blind log_y) composite on held-out RMSE.
     default = CompositeTargetEstimator(

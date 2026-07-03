@@ -37,6 +37,7 @@ taken by frame-native ``.iloc`` / ``.filter`` on integer indices.
 
 from __future__ import annotations
 
+import itertools
 import logging
 import math
 import random
@@ -102,6 +103,19 @@ class HPOSpace:
         if self.kind == "float":
             return trial.suggest_float(name, self.low, self.high, log=self.log)
         raise ValueError(f"HPOSpace: unknown kind {self.kind!r}")
+
+    def enumerate_values(self) -> Optional[List[Any]]:
+        """Finite value list for grid enumeration, or None when continuous.
+
+        A ``categorical`` yields its choices; a non-log ``int`` yields the full
+        inclusive integer range. ``float`` and log-scaled ``int`` are continuous
+        (no exhaustive grid) and return None, forcing the random fallback.
+        """
+        if self.kind == "categorical":
+            return list(self.choices)
+        if self.kind == "int" and not self.log:
+            return list(range(int(self.low), int(self.high) + 1))
+        return None
 
 
 @dataclass
@@ -474,20 +488,52 @@ def _search_random(
     random_state: int,
     evaluate: Callable[[str, Dict[str, Any]], float],
 ) -> Tuple[str, str, Dict[str, Any], float]:
-    """Self-contained random search -- the no-Optuna fallback.
+    """Self-contained search -- the no-Optuna fallback.
 
-    Draws ``n_trials`` joint (transform, inner-params) samples with a seeded
-    ``random.Random`` and keeps the best. Same objective + exact ``n_trials``
-    as the Optuna path, so it is a faithful drop-in.
+    When the full joint (transform x inner-params) grid is finite and fits the
+    ``n_trials`` budget, every grid point is evaluated exactly once (any leftover
+    budget is spent on random draws), so the search cannot return worse than any
+    config in its own space. When the grid is continuous or larger than the
+    budget, it falls back to ``n_trials`` seeded random draws. Either way it runs
+    exactly ``n_trials`` evaluations, a faithful drop-in for the Optuna path.
     """
     rng = random.Random(random_state)
     best_score = float("inf")
     best_transform = transform_candidates[0]
     best_params: Dict[str, Any] = {}
-    for _ in range(n_trials):
+
+    grid = _enumerate_grid(transform_candidates, inner_spaces)
+    evaluated = 0
+    if grid is not None and len(grid) <= n_trials:
+        for transform_name, params in grid:
+            score = evaluate(transform_name, params)
+            evaluated += 1
+            if score < best_score:
+                best_score, best_transform, best_params = score, transform_name, dict(params)
+
+    for _ in range(n_trials - evaluated):
         transform_name = rng.choice(list(transform_candidates))
         params = {name: sp.sample(rng) for name, sp in inner_spaces.items()}
         score = evaluate(transform_name, params)
         if score < best_score:
             best_score, best_transform, best_params = score, transform_name, dict(params)
     return "random", best_transform, best_params, best_score
+
+
+def _enumerate_grid(
+    transform_candidates: Sequence[str],
+    inner_spaces: Dict[str, HPOSpace],
+) -> Optional[List[Tuple[str, Dict[str, Any]]]]:
+    """Full (transform, inner-params) grid, or None if any space is continuous."""
+    per_space: List[List[Any]] = []
+    names = list(inner_spaces)
+    for name in names:
+        values = inner_spaces[name].enumerate_values()
+        if values is None:
+            return None
+        per_space.append(values)
+    grid: List[Tuple[str, Dict[str, Any]]] = []
+    for transform_name in transform_candidates:
+        for combo in itertools.product(*per_space) if per_space else [()]:
+            grid.append((transform_name, dict(zip(names, combo))))
+    return grid
