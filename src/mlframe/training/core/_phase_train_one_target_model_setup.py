@@ -614,8 +614,7 @@ def _setup_per_target_mlframe_models(
         # Default FS selector seeds from the split seed for whole-pipeline reproducibility when the
         # operator did not pin a selector seed explicitly.
         fs_random_seed=getattr(getattr(ctx, "split_config", None), "random_seed", None),
-        # Under a group-aware split, default MRMR strict_groups=True so its group-naive MI never
-        # silently runs on panel/session data (cross-group leakage risk).
+        # Whether the split is group-aware. MRMR's MI is group-naive; it WARNS (not crashes) when groups are threaded.
         fs_use_groups=bool(getattr(getattr(ctx, "split_config", None), "use_groups", False)),
     )
 

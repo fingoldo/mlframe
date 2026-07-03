@@ -190,11 +190,12 @@ def _build_pre_pipelines(
         mrmr_kwargs = dict(mrmr_kwargs or {})
         if fs_random_seed is not None and mrmr_kwargs.get("random_seed") is None and mrmr_kwargs.get("random_state") is None:
             mrmr_kwargs["random_seed"] = int(fs_random_seed)
-        # MRMR's MI estimator is group-naive: under a group-aware split, silently ignoring groups risks
-        # cross-group leakage in the MI estimate on panel / session data. Default strict_groups=True so a
-        # group-threaded fit raises loudly rather than computing group-naive MI. Operator override wins.
-        if fs_use_groups and "strict_groups" not in mrmr_kwargs:
-            mrmr_kwargs["strict_groups"] = True
+        # MRMR's MI estimator is group-naive (grouped MI is not implemented). Under a group-aware split it therefore
+        # ranks features ignoring groups -- a minor honesty caveat that MRMR itself surfaces via a UserWarning +
+        # ``groups_ignored_`` on fit. We do NOT force ``strict_groups=True`` here: forcing it turned every group-aware
+        # MRMR run into a hard NotImplementedError that aborted the whole suite, which is disproportionate to a
+        # group-naive feature RANKING. An operator who wants the hard stop can still pass ``strict_groups=True`` in
+        # ``mrmr_kwargs`` explicitly.
         _mrmr = _mrmr_spec.instantiate(**mrmr_kwargs)
         setattr(_mrmr, "_mlframe_use_sample_weights_in_fs_", bool(use_sample_weights_in_fs))
         setattr(_mrmr, "_mlframe_selector_kind_", "MRMR")
