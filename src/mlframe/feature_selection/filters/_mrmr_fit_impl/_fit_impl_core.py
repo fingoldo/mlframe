@@ -6087,6 +6087,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         method=self.quantization_method,
         n_bins=self.quantization_nbins,
         dtype=self.quantization_dtype,
+        max_categorical_cardinality=getattr(self, 'max_categorical_cardinality', None),
         missing_strategy=_strategy_for_categorize,
         nbins_strategy=_nbins_strategy,
         nbins_strategy_kwargs=_nbins_strategy_kwargs,

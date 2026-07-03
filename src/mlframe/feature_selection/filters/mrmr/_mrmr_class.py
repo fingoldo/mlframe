@@ -284,6 +284,12 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         quantization_method: str = "quantile",
         quantization_nbins: int = 10,  # [ACCURACY-CAVEAT] <5 is too coarse for the plug-in MI; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
         quantization_dtype: object = np.int32,
+        # Cap categorical column cardinality: any categorical with more than this many distinct codes folds its rare tail
+        # into one "other" bucket (top-(cap-1) by frequency kept). None (default) = uncapped. A high-cardinality categorical
+        # has sparse contingency cells so its plug-in MI/CMI is unreliable regardless (the analytic null guards on >=5
+        # expected/cell); capping DENSIFIES the cells (better MI) AND lets the whole codes matrix stay a narrow int -- set
+        # to <=127 to keep the compact-codes storage int8 (4x smaller) even when legitimate high-card categoricals exist.
+        max_categorical_cardinality: int = None,
         # per-feature adaptive bin chooser. Default
         # ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the
         # honest combined-ranking winner of the F1 leaderboard

@@ -180,6 +180,7 @@ def categorize_dataset(
     nbins_strategy_kwargs: dict = None,
     y_for_strategy=None,
     cache_dir: str = None,
+    max_categorical_cardinality: int = None,
 ):
     """Convert a DataFrame into an ordinal-encoded ``(n_samples, n_features)`` array. Accepts pandas or polars (DataFrame or LazyFrame -- materialised at the
     boundary). ``missing_strategy`` controls NaN handling: see :func:`_handle_missing`."""
@@ -355,6 +356,9 @@ def categorize_dataset(
         if categorical_factors.shape[1] > 0:
             categorical_cols = categorical_factors.columns.values.tolist()
             new_vals = _multi_col_factorize_native(categorical_factors)
+            if max_categorical_cardinality:
+                from . import cap_categorical_cardinality
+                new_vals = cap_categorical_cardinality(new_vals, int(max_categorical_cardinality))
         else:
             new_vals = None
     if categorical_cols and new_vals is not None:

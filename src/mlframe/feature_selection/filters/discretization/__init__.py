@@ -58,6 +58,44 @@ def _native_ordinal_encode_2d(vals: np.ndarray) -> np.ndarray:
     return codes.astype(np.float64).reshape(vals.shape)
 
 
+def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> np.ndarray:
+    """Collapse the rare-category tail of each column so no column exceeds ``max_cardinality`` distinct codes.
+
+    Per column: the ``max_cardinality - 1`` MOST FREQUENT codes keep distinct ids ``0..max_cardinality-2`` (ordered by
+    frequency desc), all rarer codes fold into one "other" bucket ``max_cardinality-1``; the ``-1`` NaN sentinel is
+    preserved. Columns already at/below the cap are returned UNCHANGED (bit-identical). This is the standard high-card
+    reduction: a categorical whose cardinality approaches N has sparse contingency cells, so its plug-in MI/CMI is
+    unreliable anyway (the analytic null already guards on >=5 expected/cell) -- folding the rare tail DENSIFIES the cells
+    (better MI) while capping the code range so the whole codes matrix fits a narrow int (int8 for cap<=127). Operates on
+    a float64 code matrix (the ``_multi_col_factorize_native`` output) and returns float64.
+    """
+    if max_cardinality is None or max_cardinality < 2 or codes_2d.size == 0:
+        return codes_2d
+    out = codes_2d
+    _copied = False
+    n, p = codes_2d.shape
+    for j in range(p):
+        col = codes_2d[:, j]
+        finite = col[col >= 0]
+        if finite.size == 0:
+            continue
+        # cardinality = number of distinct non-negative codes; cheap via max (codes are dense 0..k-1 from factorize).
+        k = int(finite.max()) + 1
+        if k <= max_cardinality:
+            continue
+        counts = np.bincount(finite.astype(np.int64), minlength=k)
+        # keep the (cap-1) most frequent as 0..cap-2 (freq desc); everything else -> the "other" bucket cap-1.
+        keep = np.argsort(counts)[::-1][: max_cardinality - 1]
+        remap = np.full(k, max_cardinality - 1, dtype=np.float64)
+        remap[keep] = np.arange(max_cardinality - 1, dtype=np.float64)
+        if not _copied:
+            out = codes_2d.copy()
+            _copied = True
+        mask = col >= 0
+        out[mask, j] = remap[col[mask].astype(np.int64)]
+    return out
+
+
 def _multi_col_factorize_native(categorical_df: "pd.DataFrame") -> np.ndarray:
     """Multi-column ordinal encoding without sklearn OrdinalEncoder.
 
