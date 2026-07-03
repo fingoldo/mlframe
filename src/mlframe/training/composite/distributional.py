@@ -42,10 +42,46 @@ from __future__ import annotations
 import logging
 from typing import Any, Sequence
 
+import numba
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 
 from .quantile import CompositeQuantileEstimator
+
+
+@numba.njit(cache=True)
+def _interp_rows_shared_x(u: np.ndarray, levels: np.ndarray, qmat: np.ndarray, out: np.ndarray) -> np.ndarray:
+    """Per-row linear interpolation with a SHARED, ascending x-grid ``levels``.
+
+    Reproduces ``np.interp(u[i], levels, qmat[i])`` for every row (flat-held
+    below/above the endpoints), FP-equivalent to ~1e-15. Because ``levels`` is
+    shared across rows the whole (n_rows, n) transform runs in one njit dispatch
+    instead of an n_rows-long Python loop over ``np.interp`` (2-3x).
+    """
+    n_rows, n = u.shape
+    K = levels.shape[0]
+    for i in range(n_rows):
+        for t in range(n):
+            x = u[i, t]
+            if x <= levels[0]:
+                out[i, t] = qmat[i, 0]
+            elif x >= levels[K - 1]:
+                out[i, t] = qmat[i, K - 1]
+            else:
+                lo = 0
+                hi = K - 1
+                while hi - lo > 1:
+                    mid = (lo + hi) // 2
+                    if levels[mid] <= x:
+                        lo = mid
+                    else:
+                        hi = mid
+                x0 = levels[lo]
+                x1 = levels[hi]
+                y0 = qmat[i, lo]
+                y1 = qmat[i, hi]
+                out[i, t] = y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+    return out
 
 logger = logging.getLogger(__name__)
 
@@ -238,11 +274,11 @@ class CompositeDistributionEstimator(BaseEstimator, RegressorMixin):
         n_rows = qmat.shape[0]
         u = rng.random((n_rows, n))  # (n_rows, n) in [0, 1)
         out = np.empty((n_rows, n), dtype=np.float64)
-        # np.interp is 1-D; loop per row over the (small) quantile knots. n_rows is
-        # the sample count, K is tiny -- this is a light pass, not a hot kernel.
-        for i in range(n_rows):
-            out[i, :] = np.interp(u[i, :], levels, qmat[i, :])
-        return out
+        # levels (the x-grid) is shared across rows, so one njit dispatch does the
+        # whole (n_rows, n) PIT inversion instead of an n_rows-long np.interp loop.
+        levels_f = np.ascontiguousarray(levels, dtype=np.float64)
+        qmat_f = np.ascontiguousarray(qmat, dtype=np.float64)
+        return _interp_rows_shared_x(u, levels_f, qmat_f, out)
 
     # ------------------------------------------------------------------
     # CRPS (proper score, quantile decomposition)

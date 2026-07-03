@@ -134,6 +134,30 @@ def test_sample_within_quantile_envelope():
     assert np.all(draws <= hi[:, None] + 1e-9)
 
 
+def test_sample_matches_per_row_np_interp_reference():
+    # The njit shared-x interpolation kernel must reproduce the per-row
+    # np.interp PIT inversion it replaced, to FP round-off (~1e-15). Rebuild
+    # the exact reference from the same seeded uniforms.
+    est, X, _ = _fit()
+    qmat = est.predict_quantile(X)
+    levels = est.quantiles_
+    n = 40
+    rng = np.random.default_rng(7)
+    u = rng.random((qmat.shape[0], n))
+    ref = np.empty_like(u)
+    for i in range(qmat.shape[0]):
+        ref[i, :] = np.interp(u[i, :], levels, qmat[i, :])
+    from mlframe.training.composite.distributional import _interp_rows_shared_x
+
+    got = _interp_rows_shared_x(
+        u,
+        np.ascontiguousarray(levels, dtype=np.float64),
+        np.ascontiguousarray(qmat, dtype=np.float64),
+        np.empty_like(u),
+    )
+    assert np.max(np.abs(got - ref)) < 1e-12
+
+
 def test_sample_rejects_non_positive_n():
     est, X, _ = _fit()
     with pytest.raises(ValueError, match="n must be > 0"):
