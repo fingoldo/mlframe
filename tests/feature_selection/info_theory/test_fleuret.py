@@ -210,6 +210,62 @@ def test_max_failed_short_circuits_loop(xor_factors):
 
 
 # ================================================================================================
+# Mutate-and-restore regression: the njit core aliases the caller's real ``factors_data`` (screen no
+# longer takes a whole-matrix copy), so it MUST restore every column it permutes before returning.
+# ================================================================================================
+
+
+@pytest.mark.parametrize("extra_x_shuffling", [True, False])
+def test_core_restores_permuted_columns_byte_identical(xor_factors, extra_x_shuffling):
+    """The core permutes the y columns (always) and the x columns (when ``extra_x_shuffling``) IN PLACE. Because ``data_copy`` may alias the caller's
+    real matrix, the buffer must be byte-identical to entry on return. Pre-fix code left the columns shuffled (it relied on the caller's throwaway copy);
+    that would corrupt an aliased ``factors_data``. This sensor fails on the pre-fix core and passes post-fix.
+    """
+    factors_data, factors_nbins = xor_factors
+    buf = factors_data.copy()
+    before = buf.copy()
+    nfailed, nchecked = get_fleuret_criteria_confidence(
+        data_copy=buf,
+        factors_nbins=factors_nbins,
+        x=(1,),
+        y=np.asarray([3], dtype=np.int64),
+        selected_vars=[0],
+        npermutations=40,
+        bootstrapped_gain=0.1,
+        max_failed=40,
+        nexisting=0,
+        mrmr_relevance_algo="fleuret",
+        mrmr_redundancy_algo="fleuret",
+        max_veteranes_interactions_order=1,
+        cached_cond_MIs=_new_cond_mi_cache(),
+        entropy_cache=_new_entropy_cache(),
+        extra_x_shuffling=extra_x_shuffling,
+    )
+    assert nchecked > 0
+    np.testing.assert_array_equal(buf, before), "core must restore every permuted column so an aliased factors_data is left untouched"
+
+
+def test_core_aliased_buffer_matches_fresh_copy_each_call(xor_factors):
+    """Behavioural proof the restore makes aliasing safe: running the core TWICE on ONE shared (aliased) buffer must give the same verdicts as running it
+    twice, each on a fresh copy. If the buffer were left shuffled (pre-fix), the second aliased call would start from corrupted data and diverge.
+    """
+    factors_data, factors_nbins = xor_factors
+    kw = dict(
+        factors_nbins=factors_nbins, x=(1,), y=np.asarray([3], dtype=np.int64), selected_vars=[0],
+        npermutations=40, bootstrapped_gain=0.1, max_failed=40, nexisting=0,
+        mrmr_relevance_algo="fleuret", mrmr_redundancy_algo="fleuret", max_veteranes_interactions_order=1,
+        extra_x_shuffling=True,
+    )
+    shared = factors_data.copy()
+    a1 = get_fleuret_criteria_confidence(data_copy=shared, cached_cond_MIs=_new_cond_mi_cache(), entropy_cache=_new_entropy_cache(), **kw)
+    a2 = get_fleuret_criteria_confidence(data_copy=shared, cached_cond_MIs=_new_cond_mi_cache(), entropy_cache=_new_entropy_cache(), **kw)
+
+    f1 = get_fleuret_criteria_confidence(data_copy=factors_data.copy(), cached_cond_MIs=_new_cond_mi_cache(), entropy_cache=_new_entropy_cache(), **kw)
+    f2 = get_fleuret_criteria_confidence(data_copy=factors_data.copy(), cached_cond_MIs=_new_cond_mi_cache(), entropy_cache=_new_entropy_cache(), **kw)
+    assert a1 == f1 and a2 == f2, f"aliased-buffer calls {a1},{a2} must match fresh-copy calls {f1},{f2}"
+
+
+# ================================================================================================
 # parallel_fleuret -- joblib worker contract.
 # ================================================================================================
 

@@ -256,6 +256,19 @@ def get_fleuret_criteria_confidence(
     if npermutations == 0:
         return 0, 0
 
+    # Mutate-and-restore: ``data_copy`` may ALIAS the caller's real ``factors_data`` (screen no longer takes a whole-matrix copy), so save the
+    # original values of the ONLY columns we permute in place (y always, x when ``extra_x_shuffling``) and restore them before returning. Extra RAM
+    # is O((len(y)+len(x))*n), never O(p*n). Shuffles stay cumulative WITHIN this call (matching the prior per-iteration behaviour); the restore only
+    # affects cross-call state, which the parallel worker path already reset by copying, so the serial path now matches it.
+    n_rows = data_copy.shape[0]
+    _saved_y = np.empty((len(y), n_rows), dtype=data_copy.dtype)
+    for _sj in range(len(y)):
+        _saved_y[_sj, :] = data_copy[:, y[_sj]]
+    _saved_x = np.empty((len(x), n_rows), dtype=data_copy.dtype)
+    if extra_x_shuffling:
+        for _sj in range(len(x)):
+            _saved_x[_sj, :] = data_copy[:, x[_sj]]
+
     nfailed = 0
     _i = 0
     _lcg_state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
@@ -298,5 +311,12 @@ def get_fleuret_criteria_confidence(
             nfailed += 1
             if nfailed >= max_failed:
                 break
+
+    # Restore the permuted columns so an aliased ``factors_data`` is left byte-identical to entry (reached on both normal and early-break exit).
+    for _sj in range(len(y)):
+        data_copy[:, y[_sj]] = _saved_y[_sj, :]
+    if extra_x_shuffling:
+        for _sj in range(len(x)):
+            data_copy[:, x[_sj]] = _saved_x[_sj, :]
 
     return nfailed, _i + 1
