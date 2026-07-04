@@ -260,6 +260,56 @@ def _fused_resample_auc(idx: np.ndarray, base_rank: np.ndarray, y_by_rank: np.nd
     return np.nan
 
 
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fused_resample_auc_grouped(idx: np.ndarray, group_of_base: np.ndarray, y_base: np.ndarray, ngroups: int) -> float:
+    """Tie-aware single-pass resample ROC AUC over DISTINCT-score groups.
+
+    Generalises ``_fused_resample_auc`` to tied base scores: instead of binning by
+    unique ascending rank (which folds one element per bin and would emit a spurious
+    AUC boundary at every tied element), it bins by ``group_of_base[i]`` = the index
+    of ``i``'s DISTINCT score value in ascending order (0..ngroups-1). The descending
+    walk then advances one boundary per distinct score -- exactly the ``y_score[i+1]
+    != y_score[i]`` boundary folding that ``fast_numba_auc_nonw`` performs.
+
+    Bit-identical to ``fast_roc_auc_unstable(y_true[idx], y_score[idx])`` on ANY base
+    scores (tied or tie-free): the AUC value is invariant to the within-tie argsort
+    order (cumulative tps/fps are order-independent inside a tied run, and the run
+    contributes a single trapezoid at its last element), so we need only the per-group
+    resampled positive/negative counts, not the positional tie-break. Integer
+    accumulation matches the reference exactly for labels in {0,1} and n < 2**53.
+
+    ``y_base[i]`` is the {0,1} label of base index ``i`` (gathered once by the caller).
+    O(m + ngroups) per resample -- no per-resample argsort."""
+    counts = np.zeros(ngroups, dtype=np.int64)
+    ones = np.zeros(ngroups, dtype=np.int64)
+    m = idx.shape[0]
+    for k in range(m):
+        bi = idx[k]
+        g = group_of_base[bi]
+        counts[g] += 1
+        ones[g] += y_base[bi]
+    last_fps = 0
+    last_tps = 0
+    tps = 0
+    fps = 0
+    auc = 0
+    for g in range(ngroups - 1, -1, -1):
+        c = counts[g]
+        if c == 0:
+            continue
+        pos = ones[g]
+        neg = c - pos
+        tps += pos
+        fps += neg
+        auc += (fps - last_fps) * (last_tps + tps)
+        last_fps = fps
+        last_tps = tps
+    tmp = tps * fps * 2
+    if tmp > 0:
+        return auc / tmp
+    return np.nan
+
+
 def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray):
     """Factory: pre-argsort the BASE score vector ONCE, return a callable
     ``resampler(idx) -> float`` that scores each bootstrap resample without
@@ -296,6 +346,33 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray):
     tie_free = n < 2 or bool(np.all(sorted_score[1:] != sorted_score[:-1]))
 
     if not tie_free:
+        # Tied base scores. The exact per-resample argsort fallback re-sorts the whole
+        # n-length resampled vector every call (O(n log n) x ~3000 resamples). Because the
+        # AUC value is invariant to the within-tie argsort order, we can score each resample
+        # in O(n + K) over the K distinct-score GROUPS instead (``_fused_resample_auc_grouped``),
+        # matching numpy's positional tie-break WITHOUT reproducing it -- the folded trapezoid
+        # only needs per-group resampled +/- counts. Bit-identical to the exact path (verified
+        # in tests/metrics/test_bootstrap_auc_resampler_tied.py). Requires binary {0,1} labels;
+        # anything else keeps the exact fallback (below).
+        y_int = np.ascontiguousarray(y_true).ravel()
+        uniq_labels = np.unique(y_int)
+        binary_ok = uniq_labels.size <= 2 and bool(np.all((uniq_labels == 0) | (uniq_labels == 1)))
+        if binary_ok:
+            # group_of_base[i] = index of base i's distinct score (ascending order), 0..K-1
+            boundaries = sorted_score[1:] != sorted_score[:-1]
+            group_by_rank = np.empty(n, dtype=np.int64)
+            group_by_rank[0] = 0
+            if n > 1:
+                group_by_rank[1:] = np.cumsum(boundaries)
+            ngroups = int(group_by_rank[-1]) + 1 if n > 0 else 0
+            group_of_base = np.empty(n, dtype=np.int64)
+            group_of_base[asc_order] = group_by_rank
+            y_base = np.ascontiguousarray(y_int.astype(np.int64))
+
+            def _resampler_grouped(idx: np.ndarray) -> float:
+                return float(_fused_resample_auc_grouped(idx, group_of_base, y_base, ngroups))
+            return _resampler_grouped
+
         def _resampler_exact(idx: np.ndarray) -> float:
             return fast_roc_auc_unstable(y_true[idx], y_score[idx])
         return _resampler_exact
@@ -771,6 +848,46 @@ def _fast_brier_score_loss_par(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     return s / n
 
 
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fast_brier_checked_seq(y_true: np.ndarray, y_prob: np.ndarray) -> float:
+    """Fused validation + Brier in ONE pass. Returns nan if any ``y_prob`` is
+    non-finite or outside [0, 1] (``not (0.0 <= p <= 1.0)`` catches nan/inf AND
+    out-of-range in a single comparison), else the mean squared error. Replaces the
+    3 separate numpy reduction passes (isfinite, min, max) the Python wrapper did
+    before the kernel -- those dominated the cost (~80% at n=1M). Brier value is
+    bit-identical to ``_fast_brier_score_loss_seq`` on valid input."""
+    n = len(y_true)
+    s = 0.0
+    bad = 0
+    for i in range(n):
+        pi = y_prob[i]
+        if not (0.0 <= pi <= 1.0):
+            bad += 1
+        d = y_true[i] - pi
+        s += d * d
+    if bad > 0:
+        return np.nan
+    return s / n
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+def _fast_brier_checked_par(y_true: np.ndarray, y_prob: np.ndarray) -> float:
+    """Parallel fused validation + Brier. ``bad`` and ``s`` are both prange
+    reductions. See ``_fast_brier_checked_seq``."""
+    n = len(y_true)
+    s = 0.0
+    bad = 0
+    for i in numba.prange(n):
+        pi = y_prob[i]
+        if not (0.0 <= pi <= 1.0):
+            bad += 1
+        d = y_true[i] - pi
+        s += d * d
+    if bad > 0:
+        return np.nan
+    return s / n
+
+
 # Crossover threshold for parallel kernels. See ``_numba_params.py`` (SSOT).
 # Sum-reduction kernels (brier, log loss, prf1 counts) parallel-win from
 # N~50-100k upwards. Multilabel row-loop kernels (subset accuracy, jaccard)
@@ -791,12 +908,14 @@ def fast_brier_score_loss(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     garbage was passed and report a plausible-looking but meaningless score.
     """
     _check_equal_length(y_true, y_prob)
-    _prob = np.asarray(y_prob, dtype=np.float64)
-    if _prob.size and (not np.all(np.isfinite(_prob)) or _prob.min() < 0.0 or _prob.max() > 1.0):
-        return np.nan
+    # Fused validation + Brier: the finite/[0,1] guard now happens INSIDE the njit
+    # sweep (single pass) instead of 3 separate numpy reductions (isfinite/min/max)
+    # that dominated wall time (~80% at n=1M). nan on invalid probs, unchanged.
+    if len(y_true) == 0:
+        return float(np.nan)
     if len(y_true) >= _PARALLEL_REDUCTION_THRESHOLD:
-        return _fast_brier_score_loss_par(y_true, y_prob)
-    return _fast_brier_score_loss_seq(y_true, y_prob)
+        return _fast_brier_checked_par(y_true, y_prob)
+    return _fast_brier_checked_seq(y_true, y_prob)
 
 
 # Backward-compat alias - older code and tests import `brier_score_loss` from this module.
