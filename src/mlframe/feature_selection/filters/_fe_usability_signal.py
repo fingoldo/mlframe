@@ -159,17 +159,19 @@ def usability_form_corrs(y, x0, x1, *, return_best_pair_form=False):
     _x1 = np.asarray(x1, dtype=_crit_np_dtype()).ravel()
     _y, _x0, _x1 = _subsample_for_corr(_y, _x0, _x1)  # forms + corr run on the subsample (not just abs_pearson)
 
-    def _safe_div(n, d):
-        dd = np.where(np.abs(d) < _eps, np.nan, d)
-        return n / dd
-
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        # Reuse the squares (single AND pair numerators) and the floored denominators (each used by two ratio
+        # forms) instead of recomputing them per form -- bit-identical, just fewer elementwise passes per call.
+        _x0sq = _x0 * _x0
+        _x1sq = _x1 * _x1
+        _x0f = np.where(np.abs(_x0) < _eps, np.nan, _x0)
+        _x1f = np.where(np.abs(_x1) < _eps, np.nan, _x1)
         _pair_forms = [
-            _safe_div(_x0, _x1), _safe_div(_x1, _x0),
-            _safe_div(_x0 * _x0, _x1), _safe_div(_x1 * _x1, _x0),
+            _x0 / _x1f, _x1 / _x0f,
+            _x0sq / _x1f, _x1sq / _x0f,
             _x0 * _x1,
         ]
-        _single_forms = [_x0, _x1, _x0 * _x0, _x1 * _x1]
+        _single_forms = [_x0, _x1, _x0sq, _x1sq]
         _cs = max((abs_pearson(_y, f) for f in _single_forms), default=0.0)
         if return_best_pair_form:
             # Track WHICH pair form is the |corr| leader so the tail-concentration caller reuses it instead of
