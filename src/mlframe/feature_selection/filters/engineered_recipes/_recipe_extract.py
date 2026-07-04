@@ -154,6 +154,10 @@ def _coerce_to_int_with_nan_handling(
         # NaN cells route to the dedicated NaN code (``categorize_dataset`` shifts NaN -> 0 when the
         # training column had any NaN); absent that key (training column was NaN-free) a transform-time
         # NaN is genuinely unseen and resolves via ``unknown_strategy``.
+        # bench-attempt-rejected (2026-07-05): a pandas ``.map``-vectorised replacement of this loop measured only
+        # 1.11x @300k (bit-identical, 1200-case A/B) -- str(_v) + dict.get on OBJECT arrays stays Python-per-element
+        # even through pandas, so vectorising it buys almost nothing while complicating this correctness-critical
+        # (serving-time recipe replay) path. Kept as the clear loop.
         _nan_code = cat_code_map.get(_NAN_CODE_KEY)
         out = np.empty(len(vals), dtype=np.int64)
         for _i, _v in enumerate(vals):
