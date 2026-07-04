@@ -173,7 +173,9 @@ def _normalize_binary_labels(y: np.ndarray) -> np.ndarray:
     # present (min hits 0, max hits 1), so it is EXACTLY the two-distinct-0/1 case -- no np.unique sort needed. This skips
     # the O(n log n) sort that ran on all ~12k resamples of a bootstrap ECE CI (7x on the normalisation at n=30k).
     if arr.dtype.kind in "iub" and arr.size and arr.min() == 0 and arr.max() == 1:
-        return arr.astype(np.int64)
+        # ``copy=False`` returns the already-int64 array itself (no full-n copy) -- the ECE kernel reads it
+        # read-only, and the overwhelmingly common bootstrap resample is an int64 {0,1} gather (2.97x here).
+        return arr.astype(np.int64, copy=False)
     finite = arr[np.isfinite(arr.astype(np.float64))] if arr.dtype.kind == "f" else arr
     uniq = np.unique(finite)
     if uniq.size != 2:
@@ -182,7 +184,7 @@ def _normalize_binary_labels(y: np.ndarray) -> np.ndarray:
             f"ECE; got {uniq.size} distinct value(s): {uniq.tolist()[:10]}"
         )
     if uniq[0] == 0 and uniq[1] == 1:
-        return arr.astype(np.int64)
+        return arr.astype(np.int64, copy=False)
     hi = uniq.max()
     return (arr == hi).astype(np.int64)
 
