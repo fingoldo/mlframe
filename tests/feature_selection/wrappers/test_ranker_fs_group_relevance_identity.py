@@ -141,3 +141,65 @@ def test_group_features_mi_njit_matches_per_column():
             xe = np.unique(qa[:, j])
             expected = 0.0 if (np.ptp(block[:, j]) == 0.0 or xe.size < 2) else _mi_from_edges(block[:, j], y_g, xe, ye)
             assert out[j] == expected, f"col {j}: {out[j]!r} != {expected!r}"
+
+
+def test_group_aware_mrmr_incremental_redundancy_matches_mean_reference():
+    # The greedy loop maintains red_sum incrementally instead of np.mean([red[i,s] for s in selected]) per
+    # candidate. Assert the selected feature list is identical to a mean-based reference greedy on the same
+    # relevance/redundancy (same summation order -> bit-identical redundancy -> identical argmax selection).
+    import numpy as np
+
+    def _ref_greedy(rel, red, eff_floor, cap, w=1.0):
+        eligible = np.where(rel > eff_floor)[0]
+        if eligible.size == 0:
+            return []
+        selected = [int(eligible[np.argmax(rel[eligible])])]
+        remaining = [i for i in range(len(rel)) if i != selected[0]]
+        while remaining and len(selected) < cap:
+            best_i, best_score = None, -np.inf
+            for i in remaining:
+                if rel[i] <= eff_floor:
+                    continue
+                redundancy = float(np.mean([red[i, s] for s in selected]))
+                score = rel[i] - w * redundancy
+                if score > best_score:
+                    best_score, best_i = score, i
+            if best_i is None or best_score <= 0.0:
+                break
+            selected.append(best_i)
+            remaining.remove(best_i)
+        return selected
+
+    def _inc_greedy(rel, red, eff_floor, cap, w=1.0):
+        eligible = np.where(rel > eff_floor)[0]
+        if eligible.size == 0:
+            return []
+        selected = [int(eligible[np.argmax(rel[eligible])])]
+        remaining = [i for i in range(len(rel)) if i != selected[0]]
+        red_sum = red[:, selected[0]].astype(np.float64, copy=True)
+        while remaining and len(selected) < cap:
+            ns = len(selected)
+            best_i, best_score = None, -np.inf
+            for i in remaining:
+                if rel[i] <= eff_floor:
+                    continue
+                score = rel[i] - w * (red_sum[i] / ns)
+                if score > best_score:
+                    best_score, best_i = score, i
+            if best_i is None or best_score <= 0.0:
+                break
+            selected.append(best_i)
+            remaining.remove(best_i)
+            red_sum += red[:, best_i]
+        return selected
+
+    rng = np.random.default_rng(3)
+    for _ in range(200):
+        nf = int(rng.integers(4, 40))
+        rel = np.abs(rng.standard_normal(nf))
+        red = np.abs(rng.standard_normal((nf, nf)))
+        red = (red + red.T) / 2.0
+        np.fill_diagonal(red, 0.0)
+        eff_floor = 0.2 * float(rel.max())
+        cap = int(rng.integers(2, nf))
+        assert _ref_greedy(rel, red, eff_floor, cap) == _inc_greedy(rel, red, eff_floor, cap)

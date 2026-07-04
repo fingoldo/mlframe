@@ -281,12 +281,18 @@ def group_aware_mrmr_select(
 
     selected: list = [int(eligible[np.argmax(rel[eligible])])]
     remaining = [i for i in range(n) if i != selected[0]]
+    # Incremental redundancy: ``red_sum[i] = sum(red[i, s] for s in selected)`` maintained vectorised (one
+    # ``red_sum += red[:, best_i]`` per selection) instead of recomputing ``np.mean([red[i, s] for s in
+    # selected])`` -- a Python list-comp -- for every candidate every iteration. Same summation order (selection
+    # order) so ``red_sum[i] / len(selected)`` is bit-identical to the per-iteration mean. O(n*cap) vs O(n^2*cap).
+    red_sum = red[:, selected[0]].astype(np.float64, copy=True)
     while remaining and len(selected) < cap:
+        _ns = len(selected)
         best_i, best_score = None, -np.inf
         for i in remaining:
             if rel[i] <= eff_floor:
                 continue
-            redundancy = float(np.mean([red[i, s] for s in selected]))
+            redundancy = red_sum[i] / _ns
             score = rel[i] - redundancy_weight * redundancy
             if score > best_score:
                 best_score, best_i = score, i
@@ -294,6 +300,7 @@ def group_aware_mrmr_select(
             break
         selected.append(best_i)
         remaining.remove(best_i)
+        red_sum += red[:, best_i]
     chosen = [cols[i] for i in selected]
     if verbose:
         logger.info("group-aware mRMR (LTR): selected %d/%d features by per-query relevance.", len(chosen), n)
