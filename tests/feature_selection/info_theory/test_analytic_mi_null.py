@@ -222,3 +222,18 @@ def test_analytic_batch_noise_gate_vectorised_matches_scalar_loop():
         got = analytic_batch_noise_gate(None, observed.copy(), np.arange(by), n, min_conf, bx_per_col=bx.copy())
         exp = _scalar_gate(observed, by, n, min_conf, bx)
         assert np.array_equal(got, exp), f"vectorised gate diverged (K={K}, n={n}, by={by})"
+
+
+def test_occupied_bins_per_col_rowchunk_parallel_matches_np_unique():
+    # The row-chunk parallel _occupied_bins_per_col must equal the per-column np.unique count
+    # (non-negative codes only) bit-for-bit across shapes, including masked (negative) sentinels.
+    import numpy as np
+    from mlframe.feature_selection.filters._analytic_mi_null import _occupied_bins_per_col
+
+    rng = np.random.default_rng(17)
+    for n, K, nb in [(3000, 5, 10), (20000, 40, 12), (50000, 130, 8)]:
+        disc = np.ascontiguousarray(rng.integers(0, nb, size=(n, K)).astype(np.int16))
+        disc[rng.random((n, K)) < 0.03] = -1  # masked -> ignored by both
+        got = _occupied_bins_per_col(disc)
+        ref = np.array([np.unique(disc[disc[:, k] >= 0, k]).size for k in range(K)], dtype=np.int64)
+        assert np.array_equal(got, ref), f"K={K}"
