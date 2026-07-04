@@ -50,6 +50,13 @@ __all__ = [
 # regimes): measured +0.04..+0.09 OOS R^2 on varying-slope regression with the encoded stats fed alongside the
 # raw feature (bench_multistat_cell_encoding). For a pure mean-shift / homoscedastic / binary target the extra
 # moments are redundant (Bernoulli moments are functions of the mean), so ``("mean",)`` stays the default.
+# TODO: investigate robust / order-statistic target encodings as additional first-class stats -- per-category median,
+# trimmed mean, target quantiles (p10/p90/IQR), min/max of y -- which resist outliers and capture asymmetry the raw
+# moments miss on heavy-tailed targets. Reuse the aggregate kernels in mlframe.feature_engineering.numerical
+# (compute_numaggs / compute_simple_stats_numba / numaggs_over_matrix_rows) rather than re-deriving them, add the
+# per-moment sample-stability floors (cf. _binned_numeric_agg_fe._N_MIN) so rare cells drop unstable order-stats, and
+# gate the win with a biz_value test (a heavy-tailed / outlier-contaminated per-category target where median/quantile
+# encoding beats the mean encoder on OOS R^2 -- floor the assertion 5-15% below the measured delta).
 TE_SUPPORTED_STATS = ("mean", "std", "skew", "kurt")
 
 
