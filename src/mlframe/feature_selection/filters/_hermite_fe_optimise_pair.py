@@ -678,9 +678,20 @@ def optimise_hermite_pair(
                 rng_null = np.random.default_rng(seed if seed and seed > 0 else 0)
                 nlen = comb.shape[0]
                 null_mis = np.empty(int(noise_floor_n_perms), dtype=np.float64)
-                for _p in range(int(noise_floor_n_perms)):
-                    yp = np.ascontiguousarray(y_perm_src[rng_null.permutation(nlen)])
-                    null_mis[_p] = float(mi_fn(comb, yp, plugin_n_bins))
+                if discrete_target:
+                    # ``comb`` is FIXED across the shuffles, so its quantile binning (the argsort -- ~3/4 of a plugin-MI
+                    # call per the from-binned kernel's own bench) is identical every permutation: bin ONCE and reuse.
+                    # Bit-identical to ``mi_fn(comb, yp)`` because ``_plugin_mi_from_binned_njit(_quantile_bin_njit(comb), y)``
+                    # is byte-for-byte ``_plugin_mi_classif_njit(comb, y)`` (same histogram + plug-in MI, only the binning is hoisted).
+                    from .hermite_fe import _plugin_mi_from_binned_njit, _quantile_bin_njit as _qbin
+                    _comb_binned = _qbin(comb, plugin_n_bins)
+                    for _p in range(int(noise_floor_n_perms)):
+                        yp = np.ascontiguousarray(y_perm_src[rng_null.permutation(nlen)])
+                        null_mis[_p] = float(_plugin_mi_from_binned_njit(_comb_binned, yp, plugin_n_bins))
+                else:
+                    for _p in range(int(noise_floor_n_perms)):
+                        yp = np.ascontiguousarray(y_perm_src[rng_null.permutation(nlen)])
+                        null_mis[_p] = float(mi_fn(comb, yp, plugin_n_bins))
                 null_p95 = float(np.quantile(null_mis, 0.95))
                 if mi_real < null_p95 * noise_floor_perm_ratio:
                     logger.debug(
