@@ -39,7 +39,7 @@ from pyutilz.numbalib import python_dict_2_numba_dict
 from .permutation import distribute_permutations, _perm_pvalue, _DEFAULT_BASE_SEED
 from ._internals import LARGE_CONST
 from .evaluation import evaluate_gain
-from .info_theory import use_su_normalization, use_mi_miller_madow
+from .info_theory import use_su_normalization, use_mi_miller_madow, use_jmim_aggregator
 
 
 def get_fleuret_criteria_confidence_parallel(
@@ -78,6 +78,9 @@ def get_fleuret_criteria_confidence_parallel(
     # N-F2: same for the Miller-Madow toggle -- when MM relevance is active the redundancy CMI carries the SAME bias
     # correction (SU path excluded: it uses conditional_symmetric_uncertainty, not conditional_mi).
     _use_mm = use_mi_miller_madow() and not _use_su
+    # S-F2: JMIM candidates are SCORED by joint-MI; the confirmation must use the SAME statistic, not the default CMIM
+    # null. Thread the JMIM toggle so evaluate_gain confirms JMIM picks against the JMIM criterion.
+    _use_jmim = use_jmim_aggregator()
 
     gc.collect()
     # Per-worker seed derivation: outer base_seed * Knuth multiplicative hash + worker index keeps streams independent yet aggregate is reproducible from outer base_seed.
@@ -105,6 +108,7 @@ def get_fleuret_criteria_confidence_parallel(
             base_seed=int((int(base_seed) * 2654435761 + (_widx + 1)) & 0xFFFFFFFFFFFFFFFF),
             use_su=_use_su,
             use_mm=_use_mm,
+            use_jmim=_use_jmim,
         )
         for _widx, worker_npermutations in enumerate(_worker_loads)
     )
@@ -158,6 +162,7 @@ def parallel_fleuret(
     base_seed: int = 0,
     use_su: bool = False,  # 2026-05-28: threaded from get_fleuret_criteria_confidence_parallel.
     use_mm: bool = False,  # N-F2: threaded from get_fleuret_criteria_confidence_parallel (MM redundancy consistency).
+    use_jmim: bool = False,  # S-F2: threaded from get_fleuret_criteria_confidence_parallel (JMIM confirmation statistic).
 ):
     """Joblib worker: rebuild numba.typed.Dict from pickled Python dicts, run the njit core, return a Python dict for the parent's union."""
     data_copy = data.copy()
@@ -194,6 +199,7 @@ def parallel_fleuret(
         base_seed=np.uint64(base_seed),
         use_su=use_su,
         use_mm=use_mm,
+        use_jmim=use_jmim,
     )
 
     return nfailed, i, dict(entropy_cache_dict)
@@ -239,6 +245,7 @@ def get_fleuret_criteria_confidence(
     base_seed: np.uint64 = _DEFAULT_BASE_SEED,
     use_su: bool = False,  # 2026-05-28: threaded from Python-level parallel_fleuret.
     use_mm: bool = False,  # N-F2: threaded from parallel_fleuret (MM redundancy consistency).
+    use_jmim: bool = False,  # S-F2: threaded from parallel_fleuret (JMIM confirmation statistic).
 ) -> tuple:
     """Sub to njit work with random shuffling as well.
 
@@ -284,6 +291,7 @@ def get_fleuret_criteria_confidence(
             confidence_mode=True,
             use_su=use_su,
             use_mm=use_mm,
+            use_jmim=use_jmim,
         )
 
         if current_gain >= bootstrapped_gain:
