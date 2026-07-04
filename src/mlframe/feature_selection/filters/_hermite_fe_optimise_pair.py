@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from typing import TYPE_CHECKING, Callable, Optional
 
 import numpy as np
@@ -665,14 +666,27 @@ def optimise_hermite_pair(
     if noise_floor_perm_ratio > 0.0 and noise_floor_n_perms > 0 and mi_estimator == "plugin":
         try:
             from .hermite_fe import _plugin_mi_classif_njit, _plugin_mi_regression_njit
-            comb = np.ascontiguousarray(best.transform(x_a, x_b), dtype=np.float64).reshape(-1)
+            # Run the noise-floor null on a STRIDED subsample of the operands (cap 30k). The permutation p95 is a COARSE
+            # floor (compared against a 1.5x ratio), well-estimated on ~30k, while mi_real + the 50 shuffles on the FULL
+            # n were the dominant per-pair cost at large n (measured: per-pair 12.5s@100k -> 68s@1M, ~all of it here) --
+            # and the SEARCH itself already runs on a 1500-row multi-fidelity draw, so the full-n null was inconsistent
+            # with the fit anyway. mi_real + the null share the SAME subsample so the reject comparison stays consistent;
+            # strided preserves the outlier proportion the plug-in null floor depends on. Env-tunable.
+            _NF_MAX = int(os.environ.get("MLFRAME_FE_NOISE_FLOOR_MAX_ROWS", "30000") or 0)
+            if _NF_MAX > 0 and x_a.shape[0] > _NF_MAX:
+                _nf_st = x_a.shape[0] // _NF_MAX
+                _xa_nf = np.ascontiguousarray(x_a[::_nf_st]); _xb_nf = np.ascontiguousarray(x_b[::_nf_st])
+                _y_nf = y[::_nf_st]
+            else:
+                _xa_nf, _xb_nf, _y_nf = x_a, x_b, y
+            comb = np.ascontiguousarray(best.transform(_xa_nf, _xb_nf), dtype=np.float64).reshape(-1)
             if np.all(np.isfinite(comb)) and float(np.std(comb)) > 1e-12:
                 if discrete_target:
-                    y_perm_src = np.asarray(y, dtype=np.int64)
+                    y_perm_src = np.asarray(_y_nf, dtype=np.int64)
                     mi_real = float(_plugin_mi_classif_njit(comb, y_perm_src, plugin_n_bins))
                     mi_fn = _plugin_mi_classif_njit
                 else:
-                    y_perm_src = np.asarray(y, dtype=np.float64)
+                    y_perm_src = np.asarray(_y_nf, dtype=np.float64)
                     mi_real = float(_plugin_mi_regression_njit(comb, y_perm_src, plugin_n_bins))
                     mi_fn = _plugin_mi_regression_njit
                 rng_null = np.random.default_rng(seed if seed and seed > 0 else 0)
