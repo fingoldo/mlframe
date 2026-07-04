@@ -115,3 +115,29 @@ def test_constant_within_group_feature_scores_low():
     out = group_aware_relevance(["f_query", "f_signal"], arr, y, groups)
     assert out["f_query"] < out["f_signal"]
     assert out["f_query"] < 1e-6
+
+
+def test_group_features_mi_njit_matches_per_column():
+    # The fused per-group kernel must reproduce the per-column _mi_from_edges path bit-for-bit
+    # (same batched-quantile edges deduped inline == np.unique, same joint-hist + entropy order).
+    import numpy as np
+    from mlframe.training.ranking._ranker_fs import _group_features_mi_njit, _mi_from_edges
+
+    rng = np.random.default_rng(9)
+    for _ in range(200):
+        sz = int(rng.integers(20, 40))
+        ncols = int(rng.integers(1, 8))
+        block = np.ascontiguousarray(rng.standard_normal((sz, ncols)))
+        y_g = rng.standard_normal(sz)
+        probs = np.linspace(0, 1, 9)
+        ye = np.unique(np.quantile(y_g, probs))
+        if ye.size < 2:
+            continue
+        col_fin = np.isfinite(block).all(axis=0)
+        qa = np.quantile(block, probs, axis=0)
+        out = np.zeros(ncols)
+        _group_features_mi_njit(block, y_g, qa, ye, col_fin, out)
+        for j in range(ncols):
+            xe = np.unique(qa[:, j])
+            expected = 0.0 if (np.ptp(block[:, j]) == 0.0 or xe.size < 2) else _mi_from_edges(block[:, j], y_g, xe, ye)
+            assert out[j] == expected, f"col {j}: {out[j]!r} != {expected!r}"

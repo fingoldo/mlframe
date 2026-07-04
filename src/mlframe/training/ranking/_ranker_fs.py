@@ -75,6 +75,76 @@ def _mi_from_edges(x: np.ndarray, y: np.ndarray, xe: np.ndarray, ye: np.ndarray)
     return mi
 
 
+@numba.njit(cache=True, parallel=True)
+def _group_features_mi_njit(block, y_g, qa, ye, col_fin, out_mi):
+    """Fused per-group MI over ALL finite feature columns in ONE njit(parallel) dispatch.
+
+    Replaces the Python ``for j in range(ncols)`` loop that called ``_mi_from_edges`` (plus a per-column
+    ``np.unique(qa[:, j])`` + ``np.ptp``) once per (group, feature) -- at 300k that Python/numpy glue was
+    the top self-time cost. Each finite column's x-edges are deduped INLINE from the (already monotone)
+    ``qa[:, j]`` -- bit-identical to ``np.unique`` on sorted input (strictly-greater keep). Non-finite
+    columns (``col_fin[j]`` False) are left 0.0 for the Python ``_binned_mi`` fallback. ``ye`` is the
+    shared, precomputed unique y-edges. Output ``out_mi[j]`` matches ``_mi_from_edges`` bit-for-bit
+    (same searchsorted binning + joint histogram + entropy)."""
+    ncols = block.shape[1]
+    n = block.shape[0]
+    nqe = qa.shape[0]
+    ny = ye.shape[0] - 1
+    for j in numba.prange(ncols):
+        out_mi[j] = 0.0
+        if not col_fin[j]:
+            continue
+        # ptp guard (constant column contributes 0)
+        cmin = block[0, j]
+        cmax = block[0, j]
+        for i in range(1, n):
+            v = block[i, j]
+            if v < cmin:
+                cmin = v
+            elif v > cmax:
+                cmax = v
+        if cmax <= cmin:
+            continue
+        # Dedup the monotone qa[:, j] into xe (== np.unique on already-sorted edges)
+        xe = np.empty(nqe, dtype=np.float64)
+        xe[0] = qa[0, j]
+        m = 1
+        for e in range(1, nqe):
+            if qa[e, j] > xe[m - 1]:
+                xe[m] = qa[e, j]
+                m += 1
+        if m < 2:
+            continue
+        nx = m - 1
+        joint = np.zeros((nx, ny), dtype=np.float64)
+        for i in range(n):
+            xv = block[i, j]
+            b = 0
+            while b < nx - 1 and xv >= xe[b + 1]:
+                b += 1
+            yv = y_g[i]
+            c = 0
+            while c < ny - 1 and yv >= ye[c + 1]:
+                c += 1
+            joint[b, c] += 1.0
+        for a in range(nx):
+            for b2 in range(ny):
+                joint[a, b2] /= n
+        px = np.zeros(nx)
+        py = np.zeros(ny)
+        for a in range(nx):
+            for b2 in range(ny):
+                px[a] += joint[a, b2]
+                py[b2] += joint[a, b2]
+        mi = 0.0
+        for a in range(nx):
+            for b2 in range(ny):
+                jj = joint[a, b2]
+                if jj > 0.0:
+                    mi += jj * np.log(jj / (px[a] * py[b2]))
+        out_mi[j] = mi
+
+
 def _binned_mi(x: np.ndarray, y: np.ndarray, bins: int = 8) -> float:
     """Plug-in MI between two 1-D arrays via quantile binning + a joint histogram (nats). Self-contained."""
     n = x.shape[0]
@@ -148,17 +218,18 @@ def group_aware_relevance(cols: list, arr: np.ndarray, y: np.ndarray, groups: np
             if ye.size < 2:
                 continue  # ye identical across features -> every feature scores 0 for this group
             col_fin = np.isfinite(block).all(axis=0)  # (ncols,) one vectorised pass
-            qa = np.quantile(block, probs, axis=0) if col_fin.any() else None  # finite cols valid; NaN cols unused
+            if col_fin.any():
+                qa = np.quantile(block, probs, axis=0)
+                block_c = np.ascontiguousarray(block)
+                out_mi = np.zeros(ncols, dtype=np.float64)
+                # One njit(parallel) dispatch scores EVERY finite column (dedup + bin + entropy inline,
+                # bit-identical to the per-column _mi_from_edges path); non-finite columns stay 0.0 and
+                # take the Python _binned_mi fallback below. Replaces the per-(group, feature) Python loop
+                # + per-column np.unique/np.ptp that dominated self-time at large n.
+                _group_features_mi_njit(block_c, y_g, qa, ye, col_fin, out_mi)
+                acc += w * out_mi
             for j in range(ncols):
-                if col_fin[j]:
-                    xcol = block[:, j]
-                    if np.ptp(xcol) == 0.0:
-                        continue
-                    xe = np.unique(qa[:, j])
-                    if xe.size < 2:
-                        continue
-                    acc[j] += w * _mi_from_edges(xcol, y_g, xe, ye)
-                else:
+                if not col_fin[j]:
                     acc[j] += w * _binned_mi(block[:, j], y_g, bins=bins)
             continue
         for j in range(ncols):
