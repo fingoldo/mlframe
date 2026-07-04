@@ -518,8 +518,16 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
     _inv = np.float64(1.0 / float(max(1, n)))
     # SPLIT-N when one-block-per-column can't fill the SMs (narrow K, big n): 60/66 of these launches were
     # K<=32 blocks on a 6-SM card (nsys 2026-07-02) -> segment the n rows across S blocks/column into a merged
-    # global histogram, then a per-column MI pass. Same codes + plug-in MI -> selection-equivalent.
-    if K < 48 and n >= 262144:
+    # global histogram, then a per-column MI pass. Same codes + plug-in MI -> selection-equivalent. The
+    # single-vs-split crossover is HW-specific (SM count); consult the per-host kernel_tuning_cache instead of
+    # the HW-overfit K<48/n>=262144 magic constants, which stay as the measurement-backed fallback + the
+    # MLFRAME_FE_MI_SPLIT env override. Either leg is selection-equivalent, so a cache miss is safe.
+    try:
+        from .._benchmarks.kernel_tuning_cache.dispatch import lookup_fe_mi_split_backend
+        _use_split = lookup_fe_mi_split_backend(n, K) == "split"
+    except Exception:
+        _use_split = K < 48 and n >= 262144
+    if _use_split:
         try:
             S = max(2, min(64, (48 + K - 1) // max(1, K)))
             M = int(nbins) * Ky

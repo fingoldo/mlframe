@@ -292,5 +292,5 @@ from ._auto_tune_sweeps_a import (  # noqa: E402,F401
     _run_sweep_batch_pair_mi, _run_sweep_joint_hist, _run_sweep_joint_hist_multi_pair, _run_sweep_joint_hist_single_perm, _run_sweep_mi_classif_dispatch, _run_sweep_polyeval, ensure_batch_pair_mi_tuning, ensure_joint_hist_multi_pair_tuning, ensure_joint_hist_single_perm_tuning, ensure_joint_hist_tuning, ensure_mi_classif_dispatch_tuning, ensure_polyeval_tuning,
 )
 from ._auto_tune_sweeps_b import (  # noqa: E402,F401
-    _run_sweep_cat_fe_perm_kernel, _run_sweep_discretize_2d_array, _run_sweep_knn_hnsw_crossover, _run_sweep_rff_matmul, _run_sweep_rmse_partial_sum, _run_sweep_unary_elementwise, ensure_cat_fe_perm_kernel_tuning, ensure_discretize_2d_array_tuning, ensure_knn_hnsw_crossover_tuning, ensure_rff_matmul_tuning, ensure_rmse_partial_sum_tuning, ensure_unary_elementwise_tuning,
+    _run_sweep_cat_fe_perm_kernel, _run_sweep_discretize_2d_array, _run_sweep_fe_mi_split, _run_sweep_knn_hnsw_crossover, _run_sweep_rff_matmul, _run_sweep_rmse_partial_sum, _run_sweep_unary_elementwise, ensure_cat_fe_perm_kernel_tuning, ensure_discretize_2d_array_tuning, ensure_fe_mi_split_tuning, ensure_knn_hnsw_crossover_tuning, ensure_rff_matmul_tuning, ensure_rmse_partial_sum_tuning, ensure_unary_elementwise_tuning,
 )

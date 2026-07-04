@@ -774,6 +774,101 @@ def ensure_discretize_2d_array_tuning(force: bool = False) -> Optional[list[dict
     return regions
 
 
+def _run_sweep_fe_mi_split(n_iters: int = 3) -> list[dict]:
+    """Sweep ``(n_samples, k)`` for the fused FE MI kernel's single-vs-split-N launch choice.
+
+    ``binned_mi_from_values_gpu`` fuses bin+hist+MI into one block-per-column launch, which starves a
+    low-SM card when K is narrow and n large; the ``mi_hist_split`` variant segments the n rows across
+    S blocks/column. The single-vs-split crossover is HW-specific (SM count + atomic throughput); the
+    hardcoded ``k < 48 and n >= 262144`` was a 6-SM GTX 1050 Ti point. This measures both paths per cell
+    (forced via ``MLFRAME_FE_MI_SPLIT``) and returns ``backend_choice`` in ``{"single","split"}``.
+    """
+    import os
+    import time as _time
+
+    try:
+        import cupy as cp
+    except Exception as exc:
+        logger.warning("fe_mi_split sweep: cupy unavailable (%s); skipping", exc)
+        return []
+    from mlframe.feature_selection.filters._fe_batched_mi import binned_mi_from_values_gpu
+
+    rng = np.random.default_rng(13)
+    n_axis = (50_000, 200_000, 500_000, 1_000_000)
+    k_axis = (8, 32, 64, 200)
+    nbins, ky = 10, 3
+    best: dict[tuple[int, int], dict] = {}
+    _prev = os.environ.get("MLFRAME_FE_MI_SPLIT")
+
+    def _time_path(force: str, X, E, y):
+        os.environ["MLFRAME_FE_MI_SPLIT"] = force  # force the leg via the lookup env override
+        for _ in range(2):
+            binned_mi_from_values_gpu(X, E, y, nbins, ky, codes_trusted=True)
+        cp.cuda.Stream.null.synchronize()
+        ts = []
+        for _ in range(max(3, n_iters * 2)):
+            t = _time.perf_counter()
+            binned_mi_from_values_gpu(X, E, y, nbins, ky, codes_trusted=True)
+            cp.cuda.Stream.null.synchronize()
+            ts.append(_time.perf_counter() - t)
+        return float(np.median(ts)) * 1e3
+
+    try:
+        for n, k in itertools.product(n_axis, k_axis):
+            try:
+                X = cp.asarray(rng.standard_normal((n, k)), dtype=cp.float32)
+                qs = cp.linspace(0.0, 100.0, nbins + 1)
+                E = cp.ascontiguousarray(cp.percentile(X.astype(cp.float64), qs, axis=0)[1:-1])
+                y = cp.asarray(rng.integers(0, ky, size=n, dtype=np.int64))
+                m_single = _time_path("single", X, E, y)
+                m_split = _time_path("split", X, E, y)
+                choice = "split" if m_split < m_single else "single"
+                best[(n, k)] = {"backend_choice": choice, "single_ms": round(m_single, 4), "split_ms": round(m_split, 4)}
+                logger.info("auto_tune fe_mi_split n=%d k=%d -> %s (single=%.2fms split=%.2fms)", n, k, choice, m_single, m_split)
+            except Exception as exc:
+                logger.debug("fe_mi_split sweep skipped n=%d k=%d: %s", n, k, exc)
+                continue
+    finally:
+        if _prev is None:
+            os.environ.pop("MLFRAME_FE_MI_SPLIT", None)
+        else:
+            os.environ["MLFRAME_FE_MI_SPLIT"] = _prev
+
+    if not best:
+        return []
+    regions = [{"n_samples_max": int(n), "k_max": int(k), "backend_choice": c["backend_choice"],
+                "single_ms": c["single_ms"], "split_ms": c["split_ms"]} for (n, k), c in sorted(best.items())]
+    largest = best[max(best.keys(), key=lambda kv: (kv[0], kv[1]))]
+    regions.append({"n_samples_max": None, "k_max": None, "backend_choice": largest["backend_choice"], "single_ms": None, "split_ms": None})
+    return regions
+
+
+def ensure_fe_mi_split_tuning(force: bool = False) -> Optional[list[dict]]:
+    """Return cached regions for ``fe_mi_split_launch``; run the sweep + persist if missing. None on no-cache."""
+    from .auto_tune import _shared_cache
+    cache = _shared_cache()
+    if cache is None:
+        return None
+    if not force:
+        regions = cache.get_regions("fe_mi_split_launch")
+        if regions:
+            return regions
+    logger.info("kernel_tuning_cache: fe_mi_split_launch sweep starting (one-time per host)")
+    t0 = time.perf_counter()
+    try:
+        regions = _run_sweep_fe_mi_split(n_iters=2)
+    except Exception as e:
+        logger.warning("kernel_tuning_cache: fe_mi_split_launch sweep failed: %s", e)
+        return None
+    logger.info("kernel_tuning_cache: fe_mi_split_launch sweep done in %.2fs", time.perf_counter() - t0)
+    if regions:
+        try:
+            cache.update("fe_mi_split_launch", axes=["n_samples", "k"], regions=regions)
+        except OSError as e:
+            logger.warning("kernel_tuning_cache: fe_mi_split save failed: %s", e)
+    return regions
+
+
 # Register rmse_partial_sum (CUDA block-size tuning) with the unified registry --
 # discovery only; the dispatch reads its regions via the cache. tuner = the
 # compute-only _run_sweep_rmse_partial_sum (no self-update).
@@ -788,4 +883,15 @@ _ktuner(
     gpu_capable=True,
     salt=1,
     cli_label="rmse_partial_sum",
+)
+
+_ktuner(
+    kernel_name="fe_mi_split_launch",
+    variant_fns=(_run_sweep_fe_mi_split,),
+    tuner=_run_sweep_fe_mi_split,
+    axes={"n_samples": [], "k": []},
+    fallback={},
+    gpu_capable=True,
+    salt=1,
+    cli_label="fe_mi_split_launch",
 )
