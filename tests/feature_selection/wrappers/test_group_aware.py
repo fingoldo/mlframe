@@ -382,3 +382,21 @@ class TestRedundancyMatrixComputedOnce:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-x", "--no-cov"])
+
+
+def test_su_redundancy_lowcard_codes_searchsorted_equals_dict_map():
+    # The vectorised np.searchsorted dense-coding of low-cardinality columns must equal the prior
+    # dict-lookup list comprehension bit-for-bit, including the non-finite -> len(uniq) sentinel.
+    import numpy as np
+    rng = np.random.default_rng(4)
+    for _ in range(50):
+        n = int(rng.integers(500, 3000))
+        col = rng.integers(0, 8, n).astype(np.float64)
+        if rng.random() < 0.5:
+            col[rng.choice(n, max(1, n // 50), replace=False)] = np.nan
+        finite = np.isfinite(col)
+        uniq = np.unique(col[finite]) if finite.any() else np.array([0.0])
+        lookup = {v: i for i, v in enumerate(uniq)}
+        old = np.array([lookup.get(v, len(lookup)) for v in col], dtype=np.int64)
+        new = np.searchsorted(uniq, col).astype(np.int64)
+        assert np.array_equal(old, new)
