@@ -292,6 +292,56 @@ def _fallback_mi_backend(n_samples: int, k: int) -> str:
     return "njit"
 
 
+def _fallback_fe_mi_split(n_samples: int, k: int) -> str:
+    """Measurement-backed fallback for the fused FE MI kernel's single-vs-split-N launch choice.
+
+    Returns ``"split"`` (segment the n rows across S blocks/column into a merged global histogram, then a
+    per-column MI pass) when one-block-per-column would starve the SMs, else ``"single"`` (one launch,
+    one block/column). The predicate ``k < 48 and n >= 262144`` is the crossover measured on a 6-SM GTX
+    1050 Ti (nsys 2026-07-02: 60/66 of the giant single-launch instances were K<=32 blocks on n>=256k),
+    kept verbatim as the pre-cache default. The per-host sweep refines it (a 132-SM H100 keeps a single
+    launch busy at far larger K; a 6-SM card splits sooner)."""
+    return "split" if (k < 48 and n_samples >= 262144) else "single"
+
+
+def lookup_fe_mi_split_backend(n_samples: int, k: int, *, run_auto_tune: bool = False) -> str:
+    """Return ``"single"`` or ``"split"`` for the fused FE MI kernel (``binned_mi_from_values_gpu``).
+
+    Consults the pyutilz ``KernelTuningCache`` for ``fe_mi_split_launch`` so a per-host verdict overrides
+    the hardcoded ``k < 48 and n >= 262144`` crossover (HW-overfit to a 6-SM GTX 1050 Ti). ``MLFRAME_FE_MI_SPLIT``
+    (=``single``|``split``) force-overrides for A/B + the sweep. Falls back to :func:`_fallback_fe_mi_split`
+    when pyutilz is unavailable or the kernel has not been tuned on this host yet."""
+    import os
+
+    forced = os.environ.get("MLFRAME_FE_MI_SPLIT", "").strip().lower()
+    if forced in ("single", "split"):
+        return forced
+
+    cache = _get_cache()
+    fb = _fallback_fe_mi_split(n_samples, k)
+    if cache is False or cache is None:
+        return fb
+    try:
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
+
+        from ._auto_tune_sweeps_b import _run_sweep_fe_mi_split
+
+        tuner = (lambda: _run_sweep_fe_mi_split(n_iters=2)) if run_auto_tune else (lambda: [])
+        result = cache.get_or_tune(
+            "fe_mi_split_launch",
+            dims={"n_samples": n_samples, "k": k},
+            tuner=tuner, axes=["n_samples", "k"],
+            fallback={"backend_choice": fb},
+            code_version=compute_code_version(_run_sweep_fe_mi_split, salt=1),
+        )
+        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
+        if bc in ("single", "split"):
+            return bc
+    except Exception as e:
+        logger.debug("lookup_fe_mi_split_backend get_or_tune failed: %s", e)
+    return fb
+
+
 def lookup_pairwise_corr_backend(p: int, n: int) -> str:
     """Return ``"numpy"`` | ``"cupy"`` | ``"njit"`` for ``_pairwise_complete_abs_corr`` (the FE source-dedup corr kernel).
 

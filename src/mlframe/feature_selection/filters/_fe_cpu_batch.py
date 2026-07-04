@@ -61,6 +61,10 @@ def cpu_fe_batch_mi(
     are used by the prange inside the kernel; ``max_cols_per_chunk`` (default: RAM-budget-resolved) caps the
     transient scratch for very wide matrices. Returns a host (K,) float64 MI array.
     """
+    # bench-attempt-rejected (2026-07-04): a "branch the f64 copy on dtype/flags" idea is redundant --
+    # np.ascontiguousarray(X, float64) already returns the input UNCHANGED (same object, no copy) when it is
+    # already f64 + C-contiguous; it only copies for a cast or a non-contiguous layout. See
+    # _benchmarks/bench_fe_cpu_batch_copy_avoid.py.
     X = np.ascontiguousarray(X_cands, dtype=np.float64)
     if X.ndim == 1:
         X = X.reshape(-1, 1)
