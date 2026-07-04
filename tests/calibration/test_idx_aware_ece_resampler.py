@@ -113,3 +113,44 @@ def test_normalize_binary_labels_fast_path_equals_general_path():
     import pytest
     with pytest.raises(ValueError):
         _normalize_binary_labels(np.array([1, 1, 1]))
+
+
+def test_normalize_binary_labels_f64_fast_path():
+    """float64 labels (the bootstrap-ECE hot path: honest_diagnostics casts to float64 ONCE, so every resample
+    reaches _normalize_binary_labels as float64) short-circuit via the njit _scan_binary01_f64 scan instead of the
+    np.unique O(n log n) sort. Sensor: the fast path must (a) return an all-{0,1} float64 vector unchanged, yielding
+    ECE bit-identical to the int-cast general path; (b) NOT falsely fast-path non-0/1 floats (0.5 present, single
+    class); (c) still remap {1.0,2.0}/{-1.,1.} and raise on <2 distinct finite values."""
+    import numpy as np
+    from mlframe.calibration.policy import _normalize_binary_labels, _scan_binary01_f64, _ece_score
+
+    rng = np.random.default_rng(1)
+    for _ in range(20):
+        n = int(rng.integers(50, 5000))
+        y = rng.integers(0, 2, n).astype(np.float64)
+        y[0], y[-1] = 0.0, 1.0  # guarantee both classes
+        p = rng.random(n)
+        assert _scan_binary01_f64(y) == 1
+        out = _normalize_binary_labels(y)
+        # value-equal to the int general path, and ECE bit-identical either way
+        assert np.array_equal(out.astype(np.int64), y.astype(np.int64))
+        e_int = _ece_score(y.astype(np.int64).astype(np.float64), p, n_bins=10)
+        e_fast = _ece_score(y, p, n_bins=10)
+        assert e_int == e_fast
+
+    # must NOT fast-path a float64 with a non-0/1 value present
+    assert _scan_binary01_f64(np.array([0.0, 0.5, 1.0])) == 0
+    # single class present -> not fast-pathed (0), general path raises
+    assert _scan_binary01_f64(np.array([0.0, 0.0, 0.0])) == 0
+    # NaN ignored, both classes still present -> fast-pathed
+    assert _scan_binary01_f64(np.array([0.0, np.nan, 1.0])) == 1
+    # +inf is not finite-0/1 -> not fast-pathed; general isfinite path handles it
+    assert _scan_binary01_f64(np.array([0.0, 1.0, np.inf])) == 0
+
+    # non-0/1 float encodings still remap (larger -> 1) via the general path
+    assert np.array_equal(_normalize_binary_labels(np.array([1.0, 2.0, 2.0, 1.0])), np.array([0, 1, 1, 0]))
+    assert np.array_equal(_normalize_binary_labels(np.array([-1.0, 1.0, 1.0, -1.0])), np.array([0, 1, 1, 0]))
+
+    import pytest
+    with pytest.raises(ValueError):
+        _normalize_binary_labels(np.array([1.0, 1.0, 1.0]))

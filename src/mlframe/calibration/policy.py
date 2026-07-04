@@ -155,6 +155,33 @@ def _ece_score_idx_numba_serial(y: np.ndarray, p: np.ndarray, idx: np.ndarray, n
     return total / n_finite
 
 
+@_njit(cache=True, nogil=True)
+def _scan_binary01_f64(a: np.ndarray) -> int:
+    """Single O(n) pass: 1 iff every finite value is exactly 0.0 or 1.0 AND both classes are present, else 0.
+
+    Fast-path detector for the float64 bootstrap-ECE hot path. honest_diagnostics casts labels to float64 ONCE
+    upstream, so every resample's ``y_true_f64[idx]`` reaches ``_normalize_binary_labels`` as float64 and MISSES
+    the integer ``min==0/max==1`` short-circuit -- it fell through to ``np.unique`` (an O(n log n) sort + isfinite
+    alloc) on ALL ~6000 resamples. This scan replaces that with one branch-only pass, no allocation. NaN is ignored
+    (the ECE kernel skips non-finite rows); a non-0/1 finite value (incl. +-inf) returns 0 so the caller falls back
+    to the exact np.unique path (which filters inf via isfinite and handles the remap contract)."""
+    saw0 = False
+    saw1 = False
+    for i in range(a.size):
+        v = a[i]
+        if v != v:  # NaN
+            continue
+        if v == 0.0:
+            saw0 = True
+        elif v == 1.0:
+            saw1 = True
+        else:
+            return 0
+    if saw0 and saw1:
+        return 1
+    return 0
+
+
 def _normalize_binary_labels(y: np.ndarray) -> np.ndarray:
     """Validate + map ``y`` to {0, 1} for the ECE kernel (which is correct only there).
 
@@ -176,6 +203,14 @@ def _normalize_binary_labels(y: np.ndarray) -> np.ndarray:
         # ``copy=False`` returns the already-int64 array itself (no full-n copy) -- the ECE kernel reads it
         # read-only, and the overwhelmingly common bootstrap resample is an int64 {0,1} gather (2.97x here).
         return arr.astype(np.int64, copy=False)
+    # Fast path for the float64 bootstrap-ECE hot path: labels are cast to float64 ONCE upstream
+    # (honest_diagnostics), so each resample gathers a float64 0.0/1.0 vector that misses the integer
+    # short-circuit above and used to pay np.unique's O(n log n) sort every resample. A single branch-only
+    # njit scan confirms all-{0.0,1.0}-both-present and returns the array unchanged (0.0/1.0 sum bit-identically
+    # in the float64 ECE accumulator, so the ECE is identical to the int-cast general-path result); anything
+    # else (0.5, inf, one class) returns 0 and falls through to the exact np.unique remap/raise path below.
+    if arr.dtype == np.float64 and arr.size and _scan_binary01_f64(arr) == 1:
+        return arr
     finite = arr[np.isfinite(arr.astype(np.float64))] if arr.dtype.kind == "f" else arr
     uniq = np.unique(finite)
     if uniq.size != 2:
