@@ -8190,7 +8190,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     retain_frac=float(getattr(self, "fe_raw_redundancy_retain_frac", 0.15) or 0.15),
                     linear_usability_keep=bool(getattr(self, "use_simple_mode", False)),
                     tail_subsume_enable=bool(getattr(self, "fe_pair_usability_admission_enable", True)),
-                    tail_subsume_min_corr=float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6)),
+                    tail_subsume_min_corr=float(getattr(self, "fe_raw_tail_subsume_min_corr", 0.85)),
                     tail_subsume_rank_frac=float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7)),
                     seed=int(getattr(self, "random_seed", 0) or 0),
                     verbose=verbose,
