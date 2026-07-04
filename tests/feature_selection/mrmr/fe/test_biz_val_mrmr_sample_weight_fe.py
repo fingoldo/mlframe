@@ -326,7 +326,16 @@ def test_biz_val_mrmr_groups_warns_and_stamps_ignored_per_mechanism(ctor_kw, nee
         "default-path groups must stamp groups_ignored_=True; "
         f"got {getattr(sel, 'groups_ignored_', 'MISSING')!r}"
     )
-    assert len(_raw_names(sel)) >= 1, "fit with groups produced no selected raw features"
+    # Liveness: the fit must produce a non-empty selection that recovers the signal. We assert on the SIGNAL
+    # (raw or engineered), NOT ">=1 raw column": with FE enabled the path can legitimately return an
+    # all-engineered single compound that absorbs the raw operands (measured identically pre- and
+    # post-campaign here: add(x0,sin(x1)) fuses both signals, zero standalone raws), so a raw-only proxy is
+    # over-specified and would falsely fail on a correct all-engineered selection.
+    assert len(sel.get_feature_names_out()) >= 1, "fit with groups produced no selected features"
+    assert _covered_signal(sel, needs_categorical) == _signal_cols(needs_categorical), (
+        "fit with groups failed to recover the signal (raw or engineered): "
+        f"covered {sorted(_covered_signal(sel, needs_categorical))} of {sorted(_signal_cols(needs_categorical))}"
+    )
     group_warns = [w for w in caught if "groups" in str(w.message).lower()]
     assert group_warns, "default-path groups must emit a UserWarning mentioning groups"
 
