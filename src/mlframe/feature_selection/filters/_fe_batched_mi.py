@@ -110,6 +110,10 @@ void mi_from_codes(const long long* __restrict__ codes,   // (n, K) row-major in
                 long long nxy = sh[xx * Ky + yy];
                 if (nxy == 0) continue;
                 long long ry = 0;
+                // bench-attempt-rejected (2026-07-04): ry (the y-marginal) is xx-invariant so this is an
+                // O(Kx^2*Ky) redundant single-thread recompute, but it runs in the tid==0 tail after the
+                // n-row atomicAdd histogram and is immeasurable vs it (doubling Kx/Ky moves the wall <4%,
+                // that being histogram size not the reduce). See _benchmarks/bench_mi_from_codes_ymarginal_hoist.py.
                 for (int xx2 = 0; xx2 < Kx; ++xx2) ry += sh[xx2 * Ky + yy];
                 double pxy = (double)nxy * inv_n;
                 double py = (double)ry * inv_n;
