@@ -179,6 +179,11 @@ def fit_binned_numeric_agg(
     # 16x (the dominant host cost of the recipe fit at 1M rows). Bit-identical values, just computed once.
     _av_cache: dict[str, tuple] = {}
     _globals_cache: dict[tuple, dict] = {}
+    # Fold membership depends ONLY on ``f`` (not on gcol/acol), yet the per-(gcol, acol) OOF loop below
+    # recomputed ``fold_ids != f`` (an O(n) bool) and ``np.where(fold_ids == f)`` every pair*fold. Precompute
+    # them ONCE per call (bit-identical -- same masks/indices, just hoisted out of the pair loops).
+    _fold_ne = None if recipe_only else [fold_ids != f for f in range(int(n_folds))]
+    _fold_test = None if recipe_only else [np.where(fold_ids == f)[0] for f in range(int(n_folds))]
     for gcol in group_num_cols:
         gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)
         if not np.isfinite(gvals).all():
@@ -189,6 +194,8 @@ def fit_binned_numeric_agg(
             continue
         codes = np.searchsorted(edges, gvals, side="right")
         n_cells = int(codes.max()) + 1
+        # ``codes[test]`` depends on (gcol, f) but NOT acol -- hoist it out of the acol loop.
+        _ct_by_fold = None if recipe_only else [codes[_ft] for _ft in _fold_test]
         for acol in agg_num_cols:
             if acol == gcol:
                 continue
@@ -215,12 +222,12 @@ def fit_binned_numeric_agg(
                 # fields) are cheap 1-pass njit and are always built.
                 oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
                 for f in range(int(n_folds)):
-                    tr = (fold_ids != f) & finite
+                    tr = _fold_ne[f] & finite
                     if not tr.any():
                         continue
                     per = per_cell_stats_bincount(codes[tr], av[tr], n_cells, kept_stats)
-                    test = np.where(fold_ids == f)[0]
-                    ct = codes[test]
+                    test = _fold_test[f]
+                    ct = _ct_by_fold[f]
                     for s in kept_stats:
                         vals = per[s][ct]
                         oof[s][test] = np.where(np.isfinite(vals), vals, globals_[s])
