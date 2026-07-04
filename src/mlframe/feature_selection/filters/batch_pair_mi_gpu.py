@@ -371,7 +371,10 @@ def batch_pair_mi_cupy(
     if n_samples == 0:
         return np.zeros(n_pairs, dtype=np.float64)
     inv_n = 1.0 / n_samples
-    out_host = np.empty(n_pairs, dtype=np.float64)
+    # Stage each pair's scalar MI into a RESIDENT (n_pairs,) device buffer and D2H it ONCE at the end, instead
+    # of a blocking ``float(mi.get())`` per pair (n_pairs serialising syncs that drain the queue between pairs).
+    # Bit-identical: same per-pair scalar written to out_dev[p]; only the transfer is batched into one .get().
+    out_dev = cp.empty(n_pairs, dtype=cp.float64)
 
     for p in range(n_pairs):
         a = int(pa_arr[p])
@@ -398,10 +401,9 @@ def batch_pair_mi_cupy(
         mask = (joint_freqs > 0) & (denom > 0)
         ratio = cp.where(mask, joint_freqs / cp.where(denom > 0, denom, 1.0), 1.0)
         log_term = cp.where(mask, cp.log(ratio), 0.0)
-        mi = (joint_freqs * log_term).sum()
-        out_host[p] = float(mi.get())
+        out_dev[p] = (joint_freqs * log_term).sum()
 
-    return out_host
+    return cp.asnumpy(out_dev)
 
 
 # ---------------------------------------------------------------------------
