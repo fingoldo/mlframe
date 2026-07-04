@@ -96,3 +96,35 @@ def test_disable_switch_forces_fresh_upload(monkeypatch):
     g1 = R.resident_operand(y, "y_test", dtype=np.int64)
     g2 = R.resident_operand(y, "y_test", dtype=np.int64)
     assert g1 is not g2, "disable switch must force a fresh upload (no caching)"
+
+
+def test_content_hash_njit_fallback_deterministic_and_sensitive():
+    # When xxhash is absent, _content_hash uses the copy-free njit word hash. It must be deterministic,
+    # sensitive to any 1-element change (the stale-alias guard), and collision-free in practice across dtypes.
+    import numpy as np
+    import mlframe.feature_selection.filters._fe_resident_operands as R
+
+    if R._njit_content_hash is None:
+        import pytest
+        pytest.skip("numba unavailable")
+    orig = R._xxh3_64
+    R._xxh3_64 = None  # force the njit fallback path
+    try:
+        for dt in (np.float64, np.float32, np.int64, np.int8, np.int16):
+            x = np.ascontiguousarray(np.arange(1237).astype(dt))
+            assert R._content_hash(x) == R._content_hash(x.copy())
+            y = x.copy(); y[7] += 1
+            assert R._content_hash(x) != R._content_hash(y)
+        # non-8-aligned tail
+        t = np.ascontiguousarray(np.random.default_rng(2).integers(0, 9, 1003).astype(np.int8))
+        t2 = t.copy(); t2[-1] += 1
+        assert R._content_hash(t) != R._content_hash(t2)
+        # 2D operand
+        m = np.ascontiguousarray(np.random.default_rng(1).standard_normal((500, 7)))
+        assert R._content_hash(m) == R._content_hash(m.copy())
+        # no collisions across 5000 distinct small arrays
+        rng = np.random.default_rng(9)
+        hs = {R._content_hash(np.ascontiguousarray(rng.standard_normal(64))) for _ in range(5000)}
+        assert len(hs) == 5000
+    finally:
+        R._xxh3_64 = orig
