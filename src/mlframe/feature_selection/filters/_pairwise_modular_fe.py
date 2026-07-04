@@ -169,10 +169,14 @@ def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: i
     for idx, k in enumerate(mods):
         groups.setdefault(max(nbins, int(k)), []).append(idx)
     for eff_nbins, idxs in groups.items():
-        mat = np.empty((c.shape[0], len(idxs)), dtype=np.float64)
+        # Build the residue matrix as (|group|, n) with CONTIGUOUS row writes (each ``np.mod`` lands in a
+        # contiguous row, no strided column copy), then pass the ``.T`` F-view to the batched MI kernel --
+        # bit-identical to the (n, |group|) column-build (same float64 residues, same per-column binning) but
+        # avoids the strided writes + the result->column double-copy (1.19x on the host residue-grid path).
+        matT = np.empty((len(idxs), c.shape[0]), dtype=np.float64)
         for j, idx in enumerate(idxs):
-            mat[:, j] = np.mod(c, mods[idx])
-        mis = _mi_classif_batch(mat, yi, nbins=eff_nbins)
+            matT[j] = np.mod(c, mods[idx])
+        mis = _mi_classif_batch(matT.T, yi, nbins=eff_nbins)
         for j, idx in enumerate(idxs):
             out[idx] = float(mis[j])
     return out

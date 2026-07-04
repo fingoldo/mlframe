@@ -413,3 +413,29 @@ class TestPairwiseModularTargetTypeRobustness:
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v", "-s", "--no-cov"]))
+
+
+def test_residue_grid_mi_ftranspose_build_matches_column_build():
+    # The (|group|, n).T F-view residue-matrix build must feed _mi_classif_batch the identical values as the
+    # (n, |group|) column build -- same float64 residues, same per-column binning -> bit-identical MI.
+    import numpy as np
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import _mi_classif_batch
+
+    rng = np.random.default_rng(5)
+    worst = 0.0
+    for _ in range(30):
+        n = int(rng.integers(1000, 20000))
+        c = rng.integers(0, n, n).astype(np.int64)
+        yi = rng.integers(0, int(rng.integers(2, 8)), n).astype(np.int64)
+        mods = sorted({int(m) for m in rng.integers(2, 40, int(rng.integers(3, 9)))})
+        eff = max(10, max(mods))
+        mat = np.empty((n, len(mods)), dtype=np.float64)
+        for j, k in enumerate(mods):
+            mat[:, j] = np.mod(c, k)
+        matT = np.empty((len(mods), n), dtype=np.float64)
+        for j, k in enumerate(mods):
+            matT[j] = np.mod(c, k)
+        a = np.asarray(_mi_classif_batch(mat, yi, nbins=eff))
+        b = np.asarray(_mi_classif_batch(matT.T, yi, nbins=eff))
+        worst = max(worst, float(np.max(np.abs(a - b))))
+    assert worst == 0.0, f"F-view residue build diverges {worst:.2e}"
