@@ -3381,8 +3381,14 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         set_bur_lambda(_bur_lambda)
         # Miller-Madow relevance-MI bias correction. Subtracts the closed-form ``(k_x-1)(k_y-1)/(2n)`` plug-in bias from the OBSERVED relevance so high-cardinality
         # noise no longer out-ranks low-cardinality true signal at small n. Default 'none' keeps the legacy plug-in estimator bit-exact. Reset in the finally.
-        _mm_on = getattr(self, "mi_correction", "none") == "miller_madow"
+        _mi_corr = getattr(self, "mi_correction", "none")
+        _mm_on = _mi_corr == "miller_madow"
         set_mi_miller_madow(_mm_on)
+        # mi_correction='chao_shen' is an accepted option but the Chao-Shen estimator is not yet wired into the relevance/null njit path (it needs a joint-count kernel,
+        # not the classes-based compute_relevance_score); it currently degrades to the plug-in 'none' behaviour for BOTH observed and null. Surface that instead of silently
+        # ignoring it -- since observed and null degrade together there is no estimator mismatch (critique N-F6), but the user should know the correction is a no-op today.
+        if _mi_corr == "chao_shen":
+            logger.warning("[MRMR] mi_correction='chao_shen' is not yet wired into the relevance/null path and falls back to plug-in MI ('none'); no bias correction is applied this fit.")
         # Group-aware relevance MI: per-group I(X;Y|G) so a between-group-level feature (high global MI, ~0 within-group)
         # is demoted. Row resampling under non-uniform sample_weight reshuffles X but not groups, so restrict to the
         # no-resample case (sample_weight is None); otherwise disable with a warning rather than mis-assign rows.
