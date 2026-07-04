@@ -926,6 +926,8 @@ def _run_fe_step(
             verbose=verbose,
             discretize_array=discretize_array,
             get_new_feature_name=get_new_feature_name,
+            # ND-1: the poly_<coef> hermite-coefficient subset so a poly-FE recipe can persist its coef for replay.
+            _poly_coefs={_k: _v for _k, _v in unary_transformations.items() if isinstance(_k, str) and _k.startswith("poly_")},
         )
 
         log_fe_summary(

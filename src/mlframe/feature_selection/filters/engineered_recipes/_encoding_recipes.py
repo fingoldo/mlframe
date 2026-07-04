@@ -105,9 +105,12 @@ def build_kfold_target_encoded_recipe(
     (smoothing already baked into ``lookup`` values).
     """
     from . import EngineeredRecipe
-    # Coerce keys to plain str so MappingProxy round-trip + pickle work
-    # cleanly even when the caller passed numpy/pandas string types.
-    lookup_clean = {str(k): float(v) for k, v in lookup.items()}
+    # Canonicalise keys (int<->float drift safe): the generators pre-canonicalise via _column_to_str so this is a
+    # no-op today (canonical of an already-canonical string is idempotent), but a future caller that builds this
+    # recipe from RAW category values would otherwise store str(1.0)="1.0" while the apply side queries "1" -- every
+    # lookup then falls to the global fallback silently. Canonicalising IN the builder removes that footgun (EN-1).
+    from .._internals import canonical_group_token
+    lookup_clean = {canonical_group_token(k): float(v) for k, v in lookup.items()}
     return EngineeredRecipe(
         name=name,
         kind="kfold_target_encoded",
@@ -328,8 +331,12 @@ def build_cat_pair_cross_recipe(
     ``te_lookup`` (unseen pairs / codes -> ``global_mean``). No y reference is
     consumed at replay -- ``transform()`` is a pure function of X."""
     from . import EngineeredRecipe
+    from .._internals import canonical_group_token
+    # Canonicalise each key element (int<->float drift safe, idempotent on the already-canonical strings the
+    # generator passes) so a future raw-value caller cannot desync the build keys from the canonical apply-side
+    # lookup and silently route every row to the global fallback (EN-1).
     mapping_pairs = [
-        [list(k), int(v)] for k, v in mapping.items()
+        [[canonical_group_token(a) for a in k], int(v)] for k, v in mapping.items()
     ]
     extra: dict = {
         "mapping": mapping_pairs,
@@ -372,8 +379,12 @@ def build_cat_triple_cross_recipe(
     from ``te_lookup`` (unseen triples / codes -> ``global_mean``). No y
     reference is consumed at replay -- ``transform()`` is a pure function of X."""
     from . import EngineeredRecipe
+    from .._internals import canonical_group_token
+    # Canonicalise each key element (int<->float drift safe, idempotent on the already-canonical strings the
+    # generator passes) so a future raw-value caller cannot desync the build keys from the canonical apply-side
+    # lookup and silently route every row to the global fallback (EN-1).
     mapping_pairs = [
-        [list(k), int(v)] for k, v in mapping.items()
+        [[canonical_group_token(a) for a in k], int(v)] for k, v in mapping.items()
     ]
     extra: dict = {
         "mapping": mapping_pairs,

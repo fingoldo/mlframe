@@ -33,10 +33,20 @@ def _apply_mi_greedy_transform(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     # Lazy import to avoid the circular dependency
     # (_mi_greedy_fe -> engineered_recipes via recipe builder).
     from .._mi_greedy_fe import apply_mi_greedy_transform
-    src_values = [
-        np.asarray(_extract_column(X, n), dtype=np.float64)
-        for n in recipe.src_names
-    ]
+
+    def _numeric_source(n: str) -> np.ndarray:
+        col = _extract_column(X, n)
+        try:
+            return np.asarray(col, dtype=np.float64)
+        except (ValueError, TypeError) as e:
+            # The mi_greedy registry is numeric-only; a non-numeric source otherwise raises deep in np.asarray at
+            # TRANSFORM time only (fit/serve asymmetry). Surface a clear, recipe-scoped error naming the column.
+            raise ValueError(
+                f"mi_greedy_transform recipe '{recipe.name}': source column {n!r} has non-numeric dtype "
+                f"{getattr(col, 'dtype', type(col).__name__)} that cannot be coerced to float."
+            ) from e
+
+    src_values = [_numeric_source(n) for n in recipe.src_names]
     return apply_mi_greedy_transform(str(recipe.extra["transform"]), src_values)
 
 

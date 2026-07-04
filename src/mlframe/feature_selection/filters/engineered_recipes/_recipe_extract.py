@@ -115,7 +115,7 @@ def _coerce_to_int_with_nan_handling(
     bin_edges: np.ndarray | None = None,
 ) -> np.ndarray:
     """Coerce test-time values to int64 for factorize lookup, handling NaN/non-integer per ``unknown_strategy`` (clip -> max bin, sentinel -> new bin,
-    raise -> error). Float non-NaN casts to int (rounds toward zero); object/categorical via the stored fit-time ``cat_code_map`` (``raw_value -> code``)
+    raise -> error). Float non-NaN rounds to NEAREST int (recovers a fit-time integer code that round-tripped through float, e.g. 2.9999 -> 3, not 2); object/categorical via the stored fit-time ``cat_code_map`` (``raw_value -> code``)
     when supplied, else ``astype(int64)``.
 
     ``bin_edges``: when supplied (``include_numeric`` quantile-binned numeric source), raw values are binned via
@@ -190,7 +190,10 @@ def _coerce_to_int_with_nan_handling(
             # fit time) resolves it. The clip path in ``_apply_factorize`` handles the rest.
             vals = vals.copy()
             vals[nan_mask] = n_bins - 1
-        return vals.astype(np.int64, copy=False)
+        # Round to nearest before the int cast: a raw-integer ordinal source can arrive as float at replay (int->float
+        # round-trip -- a NaN elsewhere promoted the column, a Parquet reload), and a bare astype(int64) truncates
+        # toward zero (a fit-time code 3 that round-trips to 2.9999 would become 2), mismatching the fit assignment.
+        return np.rint(vals).astype(np.int64, copy=False)
     if np.issubdtype(vals.dtype, np.integer):
         return vals.astype(np.int64, copy=False)
     # Object / categorical / string -- try int conversion

@@ -1658,6 +1658,15 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # |corr| -- the tail-concentration signature (linear survives, rank collapses). Balanced data (rank and
         # linear agree) never clears it, so canonical / the 4 passing profiles keep the strict bar.
         fe_pair_usability_admission_rank_frac: float = 0.7,
+        # Survivor-strength gate for the raw-operand TAIL-CONCENTRATION subsumption DROP (in drop_redundant_raw_operands):
+        # only drop a rank-collapsed raw when the subsuming selected survivor is a NEAR-COMPLETE continuous proxy for y,
+        # |corr(continuous y)| >= this. Distinct from the upstream admission gate (fe_pair_usability_admission_min_corr):
+        # admission decides whether a tail-concentrated engineered pair is BUILT at all, this decides whether a raw operand
+        # is DROPPED as subsumed by a survivor. A weak proxy (survivor |corr(y)| ~0.67) still leaves TREE-recoverable signal
+        # the linear-only no-harm reasoning of the drop leg misses, so the drop is only safe when the survivor ~= y. Default
+        # 0.85 separates a near-complete proxy (with_outliers F2 survivor ~0.99, drop safe) from a weak one (heavytail ~0.67,
+        # drop harmful); the earlier binned-CMI legs still drop genuinely-subsumed operands below this via a different path.
+        fe_raw_tail_subsume_min_corr: float = 0.85,
         # Cost guard: max candidate pairs the first-sweep tail-concentration pre-scan inspects (early-exits on
         # the first tail-concentrated pair). Bounds the O(pairs) x O(n) |corr| scan on wide pools. 0 = no cap.
         fe_pair_usability_prescan_max_pairs: int = 256,

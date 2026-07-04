@@ -768,10 +768,12 @@ def generate_rankgauss_features(
 ):
     """Map each numeric column to its rank-based Gaussian quantile (RankGauss).
 
-    Returns ``(enc_df, raw_recipes)``. Each payload stores the SORTED unique fit
-    values + the count ``n``; replay interpolates each test value's rank against
-    the stored sorted values (``np.searchsorted``) and maps it to a Gaussian
-    quantile -- leak-safe, reads only X.
+    Returns ``(enc_df, raw_recipes)``. Each payload stores the FULL SORTED finite fit values (WITH duplicates -- the
+    average-tie mid-rank needs the tie multiplicities, so duplicates are NOT collapsed); replay interpolates each test
+    value's rank against the stored sorted values (``np.searchsorted``) and maps it to a Gaussian quantile -- leak-safe,
+    reads only X. Memory note: the stored array is length n_finite per column (~80 MB per rankgauss column at 10M rows)
+    -- see FUTURE (mrmr_critique EX-4): store unique values + tie counts to bound recipe size while preserving the
+    average-tie ranks.
     """
     if not isinstance(X, pd.DataFrame):
         raise TypeError(

@@ -334,6 +334,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_pair_usability_admission_min_corr": 0.6,
     "fe_pair_usability_admission_pairness_margin": 1.05,
     "fe_pair_usability_admission_rank_frac": 0.7,
+    "fe_raw_tail_subsume_min_corr": 0.85,
     "fe_pair_usability_prescan_max_pairs": 256,
     # ESCALATION FEATURES TERMINAL in feed-forward (2026-06-12). Pre-fix pickles
     # default OFF too (matches the live default; escalation features were rare and

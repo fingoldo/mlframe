@@ -167,7 +167,7 @@ def drop_redundant_raw_operands(
     floor_margin_mult: float = 1.0,
     linear_usability_keep: bool = False,
     tail_subsume_enable: bool = True,
-    tail_subsume_min_corr: float = 0.6,
+    tail_subsume_min_corr: float = 0.85,
     tail_subsume_rank_frac: float = 0.7,
     seed: int = 0,
     verbose: int = 0,

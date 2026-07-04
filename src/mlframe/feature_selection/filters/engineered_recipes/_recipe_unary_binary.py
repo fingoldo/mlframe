@@ -63,12 +63,18 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     _PREWARP = "prewarp"
     _GATE_MED = "gate_med"
     _PSEUDO = (_PREWARP, _GATE_MED)
-    if u_a not in _PSEUDO and u_a not in unary_funcs:
+
+    def _is_pseudo(_u: str) -> bool:
+        # prewarp / gate_med / poly_<coef> are STATE-CARRYING pseudo-unaries -- not members of any preset registry;
+        # they replay closed-form from state stored in recipe.extra (poly: hermite coeffs). Skip the preset lookup.
+        return _u in _PSEUDO or _u.startswith("poly_")
+
+    if not _is_pseudo(u_a) and u_a not in unary_funcs:
         raise KeyError(
             f"Unary function '{u_a}' not in '{recipe.unary_preset}' preset. "
             f"Replay requires the same preset that was active at fit time."
         )
-    if u_b not in _PSEUDO and u_b not in unary_funcs:
+    if not _is_pseudo(u_b) and u_b not in unary_funcs:
         raise KeyError(
             f"Unary function '{u_b}' not in '{recipe.unary_preset}' preset."
         )
@@ -112,6 +118,19 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             from .._feature_engineering_pairs import _gate_med_apply
             return _gate_med_apply(vals, float(recipe.extra[_mkey]))
         if uname != _PREWARP:
+            if uname.startswith("poly_"):
+                # ``poly_<coef>`` pseudo-unary: at fit the key mapped to a hermite coefficient ARRAY (not a callable),
+                # applied via ``hermval(vals, coef)`` (feature_engineering). The recipe stores that coef in extra so
+                # replay reconstructs it -- previously the coef lived only in the per-fit unary_transformations dict,
+                # so recipe replay raised KeyError looking ``poly_<coef>`` up in the static preset (critique ND-1).
+                from numpy.polynomial.hermite import hermval
+                _ckey = f"poly_{side}_coef"
+                if _ckey not in recipe.extra:
+                    raise KeyError(
+                        f"unary_binary recipe '{recipe.name}' uses a 'poly_' pseudo-unary on side {side!r} but "
+                        f"'{_ckey}' is missing from extra. Re-fit MRMR to regenerate the recipe."
+                    )
+                return hermval(np.asarray(vals, dtype=np.float64), np.asarray(recipe.extra[_ckey], dtype=np.float64))
             # BUG2 FIX (2026-06-12): ``smart_log`` (the registry ``log``) additively
             # shifts non-positive inputs by ``(1e-5 - nanmin(vals))`` -- a
             # DATA-DEPENDENT anchor recomputed from ``vals`` each call. On a row-slice
@@ -185,6 +204,8 @@ def build_unary_binary_recipe(
     quantization_method: str | None,
     quantization_dtype: Any,
     fit_values_for_edges: np.ndarray | None = None,
+    poly_a_coef: np.ndarray | None = None,
+    poly_b_coef: np.ndarray | None = None,
     prewarp_a: dict | None = None,
     prewarp_b: dict | None = None,
     gate_med_a: float | None = None,
@@ -252,6 +273,12 @@ def build_unary_binary_recipe(
     # must stay flat ndarray/scalar/str for ``_extra_equal`` -- the nested
     # ``preprocess`` dict is JSON-stringified (sorted keys, deterministic).
     extra: dict = {}
+    # ND-1: persist the hermite coefficient array of a ``poly_<coef>`` unary so recipe replay can reconstruct it
+    # (hermval) instead of failing to find the per-fit ``poly_<coef>`` key in the static preset. Stored as a plain
+    # list for JSON/pickle friendliness (mirrors prewarp_<side>_coef below).
+    for _side, _coef in (("a", poly_a_coef), ("b", poly_b_coef)):
+        if _coef is not None:
+            extra[f"poly_{_side}_coef"] = np.asarray(_coef, dtype=np.float64).tolist()
     for _side, _spec in (("a", prewarp_a), ("b", prewarp_b)):
         if _spec is None:
             continue
