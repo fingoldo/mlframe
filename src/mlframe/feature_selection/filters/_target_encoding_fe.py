@@ -363,6 +363,10 @@ def kfold_target_encode_fit(
     encoded_cols: dict[str, np.ndarray] = {}
     recipes: dict[str, dict] = {}
 
+    # Fold membership depends ONLY on ``f`` (not the column), so precompute the train masks + test indices
+    # ONCE instead of recomputing ``fold_ids != f`` (O(n) bool) and ``np.where`` per (col, fold). Bit-identical.
+    _fold_ne = [fold_ids != f for f in range(int(n_folds))]
+    _fold_test_idx = [np.where(fold_ids == f)[0] for f in range(int(n_folds))]
     for col in cat_cols:
         cats = _column_to_str(X[col])
         # Unique categories with stable integer codes.
@@ -373,13 +377,13 @@ def kfold_target_encode_fit(
         # np.bincount moments -- O(n) per fold, no per-row Python loop) and apply to rows in fold f.
         oof = {s: np.full(n, global_stats[s], dtype=np.float64) for s in stats}
         for f in range(int(n_folds)):
-            train_mask = fold_ids != f
+            train_mask = _fold_ne[f]
             if not train_mask.any():
                 continue
             per_cat = _per_category_target_stats(
                 inverse[train_mask], y_arr[train_mask], n_cats, stats, global_stats, smoothing,
             )
-            test_idx = np.where(~train_mask)[0]
+            test_idx = _fold_test_idx[f]
             inv_test = inverse[test_idx]
             for s in stats:
                 oof[s][test_idx] = per_cat[s][inv_test]
