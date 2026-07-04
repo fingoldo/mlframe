@@ -143,7 +143,7 @@ def abs_pearson(y, v):
     return float(_abs_pearson_njit(np.ascontiguousarray(y, _dt), np.ascontiguousarray(v, _dt)))
 
 
-def usability_form_corrs(y, x0, x1):
+def usability_form_corrs(y, x0, x1, *, return_best_pair_form=False):
     """Return (best PAIR-form ``|corr(y)|``, best SINGLE-operand ``|corr(y)|``) over a small scale/sign-robust
     bivariate dictionary of the RAW operands. Pair forms: the two ratio orderings, the two squared-numerator
     ratios, and the product -- the tail-concentrated ratio ``a**2/b`` lands here (``|corr|`` ~0.986 vs y).
@@ -170,8 +170,19 @@ def usability_form_corrs(y, x0, x1):
             _x0 * _x1,
         ]
         _single_forms = [_x0, _x1, _x0 * _x0, _x1 * _x1]
-        _cp = max((abs_pearson(_y, f) for f in _pair_forms), default=0.0)
         _cs = max((abs_pearson(_y, f) for f in _single_forms), default=0.0)
+        if return_best_pair_form:
+            # Track WHICH pair form is the |corr| leader so the tail-concentration caller reuses it instead of
+            # rebuilding + re-abs_pearson-ing the identical 5 forms. First-on-tie via strict '>' matches the caller's
+            # own prior loop, so _cp and the chosen form are bit-identical to the recompute path.
+            _best_form, _best_cp = None, -1.0
+            for _f in _pair_forms:
+                _a = abs_pearson(_y, _f)
+                if _a > _best_cp:
+                    _best_cp, _best_form = _a, _f
+            _cp = _best_cp if _best_form is not None else 0.0
+            return _cp, _cs, _best_form
+        _cp = max((abs_pearson(_y, f) for f in _pair_forms), default=0.0)
     return _cp, _cs
 
 
@@ -216,26 +227,12 @@ def pair_is_tail_concentrated_rankaware(y, x0, x1, *, min_corr, pairness_margin,
         _x0 = np.asarray(x0, dtype=_crit_np_dtype()).ravel()
         _x1 = np.asarray(x1, dtype=_crit_np_dtype()).ravel()
         _y, _x0, _x1 = _subsample_for_corr(_y, _x0, _x1)  # subsample once; the ranks + forms below reuse it
-        _cp, _cs = usability_form_corrs(_y, _x0, _x1)      # already at cap -> not re-subsampled
+        # Reuse the |corr|-leader pair form from usability_form_corrs instead of rebuilding + re-abs_pearson-ing the
+        # identical 5 forms (this predicate is ~15% of a wide FE fit at ~85k calls; the recompute was pure waste).
+        _cp, _cs, _best_form = usability_form_corrs(_y, _x0, _x1, return_best_pair_form=True)
         if not (_cp >= float(min_corr) and _cp >= float(pairness_margin) * float(_cs)):
             return False
-        _eps = 1e-12
-
-        def _safe_div(n, d):
-            dd = np.where(np.abs(d) < _eps, np.nan, d)
-            return n / dd
-
-        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-            _forms = [
-                _safe_div(_x0, _x1), _safe_div(_x1, _x0),
-                _safe_div(_x0 * _x0, _x1), _safe_div(_x1 * _x1, _x0),
-                _x0 * _x1,
-            ]
-        _best_form, _best_lin = None, -1.0
-        for _f in _forms:
-            _a = abs_pearson(_y, _f)
-            if _a > _best_lin:
-                _best_lin, _best_form = _a, _f
+        _best_lin = _cp
         if _best_form is None:
             return False
         _m = np.isfinite(_best_form) & np.isfinite(_y)
