@@ -80,16 +80,19 @@ def usability_operand_continuous(self, X, cols, var_idx):
         return None
 
 
-# Row cap for the usability |corr| estimate. Pearson |corr| is a population statistic a large deterministic
-# subsample estimates to ~1e-3, while every consumer compares it against WIDE-margin thresholds (min_corr
+# Row cap for the usability |corr| estimate. Pearson |corr| is a population statistic a deterministic subsample
+# estimates to ~1e-3 (30k -> ~3e-3), while every consumer compares it against WIDE-margin thresholds (min_corr
 # 0.6; the tail-concentration gap is ~0.99 vs ~0.06). A STRIDED subsample preserves the outlier proportion
 # (hence the outlier-inflated |corr| the tail-concentration signal depends on), so the keep/reject decisions
-# stay selection-equivalent while the per-call cost drops ~n/cap (abs_pearson runs ~8 full-n passes and is
-# called a few hundred times per fit). Env-tunable; 0 -> full-n. 250k is already sub-1e-3 for the corr.
+# stay selection-equivalent while the per-call cost drops ~n/cap. This is HOT: profiling a 100k FE fit showed
+# pair_is_tail_concentrated_rankaware -> usability_form_corrs at ~85k calls x ~9 corr passes = ~15% of the run,
+# and at 100k the old 250k cap did NOT fire (full-n passes). 30k matches the FE-decision subsample
+# (UNIFIED_FE_SUBSAMPLE_N) -- the usability corr needs no more rows than the decision it feeds; measured 3.46x
+# on the corr pass at 100k (8x at 1M) with the canonical FE selection pins unchanged. Env-tunable; 0 -> full-n.
 try:
-    _ABS_PEARSON_MAX_ROWS = int(os.environ.get("MLFRAME_USABILITY_CORR_MAX_ROWS", "250000"))
+    _ABS_PEARSON_MAX_ROWS = int(os.environ.get("MLFRAME_USABILITY_CORR_MAX_ROWS", "30000"))
 except (ValueError, TypeError):
-    _ABS_PEARSON_MAX_ROWS = 250000
+    _ABS_PEARSON_MAX_ROWS = 30000
 
 
 def _crit_np_dtype():
