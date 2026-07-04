@@ -49,6 +49,7 @@ def materialise_and_finalise_fe_candidates(
     verbose,
     discretize_array,
     get_new_feature_name,
+    _poly_coefs=None,
 ):
     """Run the redundancy gates, materialise admitted FE candidates, escalate, and stability-vote.
 
@@ -712,6 +713,9 @@ def materialise_and_finalise_fe_candidates(
                             unary_a_name=unary_a_name,
                             unary_b_name=unary_b_name,
                             binary_name=bin_func_name,
+                            # ND-1: persist the hermite coef of a poly_<coef> unary so recipe replay can hermval it.
+                            poly_a_coef=(_poly_coefs.get(unary_a_name) if _poly_coefs is not None and unary_a_name.startswith("poly_") else None),
+                            poly_b_coef=(_poly_coefs.get(unary_b_name) if _poly_coefs is not None and unary_b_name.startswith("poly_") else None),
                             unary_preset=fe_unary_preset,
                             binary_preset=fe_binary_preset,
                             quantization_nbins=self.quantization_nbins,
