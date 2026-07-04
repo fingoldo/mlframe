@@ -39,7 +39,7 @@ from pyutilz.numbalib import python_dict_2_numba_dict
 from .permutation import distribute_permutations, _perm_pvalue, _DEFAULT_BASE_SEED
 from ._internals import LARGE_CONST
 from .evaluation import evaluate_gain
-from .info_theory import use_su_normalization
+from .info_theory import use_su_normalization, use_mi_miller_madow
 
 
 def get_fleuret_criteria_confidence_parallel(
@@ -75,6 +75,9 @@ def get_fleuret_criteria_confidence_parallel(
 
     # 2026-05-28: read SU toggle once here (Python-level) and thread into every joblib worker.
     _use_su = use_su_normalization()
+    # N-F2: same for the Miller-Madow toggle -- when MM relevance is active the redundancy CMI carries the SAME bias
+    # correction (SU path excluded: it uses conditional_symmetric_uncertainty, not conditional_mi).
+    _use_mm = use_mi_miller_madow() and not _use_su
 
     gc.collect()
     # Per-worker seed derivation: outer base_seed * Knuth multiplicative hash + worker index keeps streams independent yet aggregate is reproducible from outer base_seed.
@@ -101,6 +104,7 @@ def get_fleuret_criteria_confidence_parallel(
             dtype=dtype,
             base_seed=int((int(base_seed) * 2654435761 + (_widx + 1)) & 0xFFFFFFFFFFFFFFFF),
             use_su=_use_su,
+            use_mm=_use_mm,
         )
         for _widx, worker_npermutations in enumerate(_worker_loads)
     )
@@ -153,6 +157,7 @@ def parallel_fleuret(
     dtype=np.int32,
     base_seed: int = 0,
     use_su: bool = False,  # 2026-05-28: threaded from get_fleuret_criteria_confidence_parallel.
+    use_mm: bool = False,  # N-F2: threaded from get_fleuret_criteria_confidence_parallel (MM redundancy consistency).
 ):
     """Joblib worker: rebuild numba.typed.Dict from pickled Python dicts, run the njit core, return a Python dict for the parent's union."""
     data_copy = data.copy()
@@ -188,6 +193,7 @@ def parallel_fleuret(
         dtype=dtype,
         base_seed=np.uint64(base_seed),
         use_su=use_su,
+        use_mm=use_mm,
     )
 
     return nfailed, i, dict(entropy_cache_dict)
@@ -232,6 +238,7 @@ def get_fleuret_criteria_confidence(
     dtype=np.int32,
     base_seed: np.uint64 = _DEFAULT_BASE_SEED,
     use_su: bool = False,  # 2026-05-28: threaded from Python-level parallel_fleuret.
+    use_mm: bool = False,  # N-F2: threaded from parallel_fleuret (MM redundancy consistency).
 ) -> tuple:
     """Sub to njit work with random shuffling as well.
 
@@ -276,6 +283,7 @@ def get_fleuret_criteria_confidence(
             can_use_y_cache=False,
             confidence_mode=True,
             use_su=use_su,
+            use_mm=use_mm,
         )
 
         if current_gain >= bootstrapped_gain:

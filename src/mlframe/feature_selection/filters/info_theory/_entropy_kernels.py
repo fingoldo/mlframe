@@ -305,6 +305,27 @@ def conditional_symmetric_uncertainty(
 
 
 @njit(cache=True)
+def _cmi_miller_madow_bias(factors_data, x, y, z, factors_nbins, dtype) -> float:
+    """Analytic Miller-Madow bias of the plug-in CMI: ``(k_xyz + k_z - k_xz - k_yz) / (2n)`` where ``k_*`` are the
+    OCCUPIED-cell counts of the four joint distributions. This is exactly the bias term ``_cmi_from_binned`` /
+    ``_fe_cmi_redundancy_null`` use; subtracting it makes the Fleuret redundancy carry the SAME bias correction as the
+    Miller-Madow relevance (critique N-F2 part 1). Fully isolated: only called when ``use_mm`` is set, so the default
+    plug-in redundancy path is untouched."""
+    n = factors_data.shape[0]
+    if n <= 0:
+        return 0.0
+    _, fz, _ = merge_vars(factors_data, z, None, factors_nbins, dtype=dtype)
+    _, fxz, _ = merge_vars(factors_data, unpack_and_sort(x, z), None, factors_nbins, dtype=dtype)
+    _, fyz, _ = merge_vars(factors_data, unpack_and_sort(y, z), None, factors_nbins, dtype=dtype)
+    _, fxyz, _ = merge_vars(factors_data, unpack_and_sort(unpack_and_sort(x, y), z), None, factors_nbins, dtype=dtype)
+    k_z = np.count_nonzero(fz)
+    k_xz = np.count_nonzero(fxz)
+    k_yz = np.count_nonzero(fyz)
+    k_xyz = np.count_nonzero(fxyz)
+    return (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
+
+
+@njit(cache=True)
 def conditional_mi(
     factors_data: np.ndarray,
     x: np.ndarray,
@@ -320,8 +341,13 @@ def conditional_mi(
     can_use_x_cache: bool = False,
     can_use_y_cache: bool = False,
     dtype=np.int32,
+    use_mm: bool = False,
 ) -> float:
     """Conditional mutual information ``I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)``.
+
+    ``use_mm`` (critique N-F2 part 1): subtract the analytic Miller-Madow CMI bias so the Fleuret redundancy carries
+    the SAME bias correction as the Miller-Madow relevance. No-op (bit-identical) when False, the default -- the MM
+    path recomputes the four occupied-cell counts (the entropy_cache stores only the entropy scalar, not the counts).
 
     Each cache branch owns its own key local (``key_z`` / ``key_xz`` / ``key_yz`` / ``key_xyz``) to avoid cross-branch aliasing.
     """
@@ -409,6 +435,10 @@ def conditional_mi(
     res = entropy_xz + entropy_yz - entropy_z - entropy_xyz
     if res < 0.0:
         res = 0.0
+    if use_mm:
+        res = res - _cmi_miller_madow_bias(factors_data, x, y, z, factors_nbins, dtype)
+        if res < 0.0:
+            res = 0.0
     return res
 
 

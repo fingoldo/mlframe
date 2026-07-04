@@ -24,7 +24,7 @@ from .info_theory import (
     # 2026-05-28: SU normalization dispatcher. ``cmi_or_csu`` reads a thread-local
     # toggle set by ``MRMR.fit`` when ``mi_normalization='su'``; legacy path
     # (toggle off) is one extra Python call ahead of njit kernels.
-    use_su_normalization, conditional_symmetric_uncertainty,
+    use_su_normalization, conditional_symmetric_uncertainty, use_mi_miller_madow,
     # 2026-05-30 Wave 8: JMIM aggregator + BUR weight thread-local toggles
     # used in evaluate_gain / evaluate_candidate.
     use_jmim_aggregator, get_bur_lambda,
@@ -249,6 +249,7 @@ def evaluate_gain(
     max_confirmation_cand_nbins: int = MAX_CONFIRMATION_CAND_NBINS,
     use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from process_candidates / mrmr_fit_impl.
     use_jmim: bool = False,  # 2026-05-30 Wave 8: JMIM aggregator toggle, threaded from the Python-level caller for the same reason as ``use_su`` -- ``@njit`` cannot do ``from X import Y`` or call a non-njit thread-local reader at runtime (IMPORT_NAME opcode is unsupported).
+    use_mm: bool = False,  # N-F2: Miller-Madow toggle for the redundancy CMI, threaded like use_su so the redundancy carries the SAME bias correction as the MM relevance. Default False -> plug-in redundancy, unchanged.
 ) -> tuple:
     """``max_confirmation_cand_nbins`` is a parameter (not a baked-in constant). Default mirrors the legacy value; ``MRMR.fit`` overrides with ``quantization_nbins ** interactions_max_order * 2`` unless the user pins it explicitly."""
 
@@ -379,6 +380,7 @@ def evaluate_gain(
                                     can_use_x_cache=can_use_x_cache,
                                     can_use_y_cache=can_use_y_cache,
                                     dtype=dtype,
+                                    use_mm=use_mm,  # N-F2: redundancy carries the SAME MM bias correction as the relevance
                                 )
 
                             # 2026-05-30 Wave 9.1 fix (loop iter 37):
@@ -678,6 +680,7 @@ def evaluate_candidate(
                 can_use_y_cache=True,
                 use_su=use_su_normalization(),
                 use_jmim=use_jmim_aggregator(),
+                use_mm=(use_mi_miller_madow() and not use_su_normalization()),  # N-F2: MM redundancy when MM relevance is active
             )
 
             partial_gains[cand_idx] = current_gain, k
