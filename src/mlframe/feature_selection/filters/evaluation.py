@@ -5,6 +5,7 @@ See ``screen.py`` for the screening orchestrator that calls these functions.
 from __future__ import annotations
 
 import logging
+import os
 from timeit import default_timer as timer
 from typing import Sequence
 
@@ -37,6 +38,15 @@ from .info_theory._state_and_dispatch import get_group_mi
 from .info_theory._group_mi import group_relevance_mi
 
 logger = logging.getLogger(__name__)
+
+# S-F3: the JMIM joint-MI aggregation applies the same ``nexisting`` discount exponent the Fleuret CMI branch uses. For a conditional MI (usually in [0,1] nats) ``x**k``
+# shrinks the value (a discount for deeper interactions), but a JMIM JOINT MI ``I({X,Z};Y)`` is routinely >1 nat, and ``x**k`` AMPLIFIES values >1 -- the opposite of a
+# discount. When set, ``MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY=1`` clamps the exponent so it can only ever shrink (never amplify) the joint MI, removing that spurious
+# amplification. Read once at import so the njit ``evaluate_gain`` captures it as a compile-time constant (a bench toggles it per subprocess). Default off = bit-identical.
+# bench-attempt-rejected: bench_sf3_jmim_exponent_selection.py (8 seeds, synergy fixture) -- the discount-only correction NEVER improved selection (0 seed wins), was
+# selection-identical on 7/8 and regressed 1 seed (recall 0.8->0.6), mean recall 0.800 (exponent) vs 0.775 (corrected). The exponent is load-bearing, so it stays the default;
+# the correction is kept as an off-by-default option for re-testing on other data/hardware.
+_JMIM_EXPONENT_DISCOUNT_ONLY = os.environ.get("MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY", "0") == "1"
 
 # 2026-06-19: observability sink for the JMIM joint-MI cache (see _evaluate_candidates_inner).
 # Each completed JMIM-mode candidate-evaluation appends {"size", "hits"}. Bounded so a long
@@ -362,7 +372,12 @@ def evaluate_gain(
                                     if (not confidence_mode) and (cached_jmim_MIs is not None):
                                         cached_jmim_MIs[_jmim_key] = additional_knowledge
                                 if nexisting > 0:
-                                    additional_knowledge = additional_knowledge ** (nexisting + 1)
+                                    _disc = additional_knowledge ** (nexisting + 1)
+                                    if _JMIM_EXPONENT_DISCOUNT_ONLY and _disc > additional_knowledge:
+                                        # joint MI > 1 -> the exponent would amplify; clamp to discount-only (never increase the joint MI).
+                                        pass
+                                    else:
+                                        additional_knowledge = _disc
                             elif use_su:
                                 additional_knowledge = conditional_symmetric_uncertainty(
                                     factors_data=factors_data, x=X, y=y, z=Z,
