@@ -236,9 +236,13 @@ def compute_probabilistic_multiclass_error(
                 _y_true_NK = _y_true_cols[0].reshape(-1, 1)
             else:
                 _y_true_NK = np.column_stack(_y_true_cols)
+            # Descending per-class score order via numpy's C argsort (vectorised over K); hoisted out of the njit
+            # kernel because numba's own argsort is ~3.6x slower. The AUC/PR walk is tie-order invariant, so this is
+            # bit-identical.
+            _desc_idx_NK = np.ascontiguousarray(np.argsort(-_y_pred_NK, axis=0).astype(np.int64))
             # Single-dispatch batched kernel
             ice_per_class = _batch_per_class_ice_kernel(
-                _y_true_NK, _y_pred_NK, nbins,
+                _y_true_NK, _y_pred_NK, _desc_idx_NK, nbins,
                 bool(use_weighted_calibration),
                 float(mae_weight), float(std_weight), float(brier_loss_weight),
                 float(roc_auc_weight), float(pr_auc_weight),

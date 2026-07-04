@@ -131,8 +131,11 @@ def test_report_per_class_integral_error_unchanged():
 def test_perf_sentinel_index_faster_than_recompute():
     """Indexing the precomputed vector beats K per-class recomputes.
 
-    Floor 2x (measured ~5.8x at N=200k/K=8). Guards against a future change
-    that silently reverts the report to the per-class recompute path.
+    Floor 1.5x (measured ~1.88x at N=200k/K=8). Guards against a future change that silently reverts the report to the
+    per-class recompute path (which would collapse the ratio to ~1x). The floor was 2x when the ICE kernel sorted
+    internally with numba's slow argsort -- hoisting the sort to numpy's C argsort (bit-identical, the AUC walk is
+    tie-invariant) made BOTH the batched and the recompute path faster, so the recompute penalty -- and thus this
+    ratio -- shrank while the batched route stayed strictly faster.
     """
     import timeit
 
@@ -160,7 +163,7 @@ def test_perf_sentinel_index_faster_than_recompute():
     new()  # warm numba
     to = min(timeit.repeat(old, number=2, repeat=4)) / 2
     tn = min(timeit.repeat(new, number=2, repeat=4)) / 2
-    assert to / tn >= 2.0, f"fast route should be >=2x; got {to / tn:.2f}x (old={to * 1e3:.1f}ms new={tn * 1e3:.1f}ms)"
+    assert to / tn >= 1.5, f"fast route should be >=1.5x; got {to / tn:.2f}x (old={to * 1e3:.1f}ms new={tn * 1e3:.1f}ms)"
 
 
 def test_report_non_arange_labels_fall_back_safely():

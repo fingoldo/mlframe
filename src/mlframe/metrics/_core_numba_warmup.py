@@ -44,13 +44,14 @@ def numba_warmup() -> None:
     _logits2 = _np.array([[0.0, 0.1, 0.2], [0.3, 0.4, 0.5]], dtype=_np.float32)
     _y_pred_NK = _np.array([[0.1, 0.9], [0.4, 0.6]], dtype=_np.float64)
     _y_true_NK = _np.array([[0, 1], [1, 0]], dtype=_np.int8)
+    _desc_idx_NK = _np.ascontiguousarray(_np.argsort(-_y_pred_NK, axis=0).astype(_np.int64))
     try:
         _cb_logits_to_probs_binary_seq(_logits1)
         _cb_logits_to_probs_binary_par(_logits1)
         _cb_logits_to_probs_multiclass_seq(_logits2)
         _cb_logits_to_probs_multiclass_par(_logits2)
         _batch_per_class_ice_kernel(
-            _y_true_NK, _y_pred_NK, 10, True,
+            _y_true_NK, _y_pred_NK, _desc_idx_NK, 10, True,
             3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0,
         )
     except Exception as _exc:
@@ -363,8 +364,9 @@ def _prewarm_numba_cache_body():
         _yt_nk4_pw = np.zeros((10, 3), dtype=np.int8)
         _yt_nk4_pw[0, 0] = 1; _yt_nk4_pw[1, 1] = 1; _yt_nk4_pw[2, 2] = 1
         _yp_nk4_pw = np.random.RandomState(0).rand(10, 3).astype(np.float64)
+        _di_nk4_pw = np.ascontiguousarray(np.argsort(-_yp_nk4_pw, axis=0).astype(np.int64))
         _ = _batch_per_class_ice_kernel(
-            _yt_nk4_pw, _yp_nk4_pw, 10, True,
+            _yt_nk4_pw, _yp_nk4_pw, _di_nk4_pw, 10, True,
             3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0,
         )
     except Exception:

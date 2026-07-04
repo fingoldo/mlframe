@@ -519,6 +519,7 @@ def fast_calibration_report(
 def _batch_per_class_ice_kernel(
     y_true_NK: np.ndarray,
     y_pred_NK: np.ndarray,
+    desc_idx_NK: np.ndarray,
     nbins: int,
     use_weights: bool,
     mae_weight: float,
@@ -547,6 +548,12 @@ def _batch_per_class_ice_kernel(
     Bit-exact equivalent of looping ``fast_ice_only`` per class
     (verified against the legacy form in
     ``bench_compute_multiclass_error.py``).
+
+    ``desc_idx_NK`` is the per-class descending-score order (shape (N, K)), computed ONCE by the caller via numpy's
+    C ``np.argsort(-y_pred_NK, axis=0)``. numba's own ``np.argsort`` is markedly slower than numpy's (measured 3.6x on
+    the AUC portion at N=1M binary; bench_ice_argsort_variants.py), and the AUC/PR walk below only accumulates at
+    tie-run boundaries, so it is INVARIANT to the within-tie order -- any valid descending order gives a bit-identical
+    ROC/PR AUC. So the sort is hoisted out to numpy and passed in, leaving the kernel a pure single-dispatch reduction.
 
     bench-attempt-rejected (2026-05-21, c0146 / iter133): fusing the
     Brier + min/max passes (3 N-passes -> 2) saved only 1.04x at
@@ -668,13 +675,11 @@ def _batch_per_class_ice_kernel(
             cal_cov = 0.0
 
         # ---- ROC AUC + PR AUC (fast_numba_aucs body inline) ----
-        # Descending-sort argsort on y_p, then walk through (y_t, y_p)
-        # in score-desc order, accumulating TP / FP / current_precision /
-        # current_recall as in sklearn.average_precision_score.
-        # numba 0.65 @njit np.argsort accepts kind="mergesort" (same stable
-        # algorithm) but rejects the "stable" alias -- UnboundLocalError in
-        # _sort_dispatch. Tie determinism preserved.
-        desc_idx = np.argsort(-y_p, kind="mergesort")
+        # Walk through (y_t, y_p) in score-desc order, accumulating TP / FP / current_precision / current_recall as in
+        # sklearn.average_precision_score. The descending order is precomputed by the caller (numpy C argsort, hoisted
+        # out because numba's argsort is ~3.6x slower); the walk emits only at tie-run boundaries so it is invariant to
+        # the within-tie order the sort chose -- bit-identical ROC/PR AUC for any valid descending permutation.
+        desc_idx = desc_idx_NK[:, k]
         y_t_sorted = y_t[desc_idx]
         y_p_sorted = y_p[desc_idx]
         total_pos = 0

@@ -105,9 +105,10 @@ def test_batch_per_class_ice_kernel_compiles_under_njit():
     N, K = 200, 3
     y_t = rng.integers(0, 2, (N, K), dtype=np.int8)
     y_p = rng.random((N, K), dtype=np.float64)
+    desc_idx = np.ascontiguousarray(np.argsort(-y_p, axis=0).astype(np.int64))
 
     ice_per_class = _batch_per_class_ice_kernel(
-        y_t, y_p, 10, True,
+        y_t, y_p, desc_idx, 10, True,
         3.0, 2.0, 0.8,    # mae_weight, std_weight, brier_loss_weight
         1.5, 0.1,         # roc_auc_weight, pr_auc_weight
         0.54, 0.0,        # min_roc_auc, roc_auc_penalty
