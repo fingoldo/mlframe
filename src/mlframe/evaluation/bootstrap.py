@@ -486,6 +486,62 @@ def bootstrap_metric(
     return {"point": point, "lo": lo, "hi": hi, "samples": samples}
 
 
+def _bootstrap_resample_chunk(
+    seeds, lo, hi, n, y_true, y_pred, need_slice, active, active_idx, metric_fns, metric_fns_idx, strat_book,
+):
+    """Evaluate bootstrap resamples ``[lo, hi)`` for every active metric, thread-safe for the ``backend="threading"``
+    parallel path: each call owns its RNG (one per resample, seeded from ``seeds[i]``) and its own class-index buffer, so
+    concurrent chunks share only READ-ONLY inputs (y_true/y_pred/group arrays) and the nogil njit metric kernels. Per-
+    resample seeding makes the result independent of the chunk split (hence the worker count / host core count), and
+    percentile CIs are order-independent, so the caller concatenates chunks in any order. Returns per-metric (valid-value
+    list, failure count, first-error) -- the same accounting the serial loop keeps, minus the pre-sized output array."""
+    names = active + active_idx
+    local_samples: dict = {name: [] for name in names}
+    failures: dict = {name: 0 for name in names}
+    first_err: dict = {name: None for name in names}
+    if strat_book is not None:
+        groups_list, class_sizes, class_offsets, total_n = strat_book
+        idx_buf = np.empty(total_n, dtype=np.int64)
+    for i in range(lo, hi):
+        rng_i = np.random.default_rng(seeds[i])
+        if strat_book is None:
+            idx = rng_i.integers(0, n, size=n, dtype=np.int64)
+        else:
+            for _c in range(class_sizes.shape[0]):
+                _sz = int(class_sizes[_c])
+                _rand = rng_i.integers(0, _sz, size=_sz, dtype=np.int64)
+                idx_buf[class_offsets[_c]:class_offsets[_c + 1]] = groups_list[_c][_rand]
+            idx = idx_buf
+        if need_slice:
+            yt = y_true[idx]
+            yp = y_pred[idx]
+        for name in active:
+            try:
+                v = float(metric_fns[name](yt, yp))
+            except Exception as exc:
+                failures[name] += 1
+                if first_err[name] is None:
+                    first_err[name] = f"{type(exc).__name__}: {exc}"
+                continue
+            if _isfinite(v):
+                local_samples[name].append(v)
+            else:
+                failures[name] += 1
+        for name in active_idx:
+            try:
+                v = float(metric_fns_idx[name](idx))
+            except Exception as exc:
+                failures[name] += 1
+                if first_err[name] is None:
+                    first_err[name] = f"{type(exc).__name__}: {exc}"
+                continue
+            if _isfinite(v):
+                local_samples[name].append(v)
+            else:
+                failures[name] += 1
+    return local_samples, failures, first_err
+
+
 def bootstrap_metrics(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -498,6 +554,7 @@ def bootstrap_metrics(
     method: str = "bca",
     per_row_fns: Optional[Mapping[str, tuple]] = None,
     jackknife_fns: Optional[Mapping[str, Callable[[np.ndarray, np.ndarray], Optional[np.ndarray]]]] = None,
+    n_jobs: int = 1,
 ) -> dict[str, dict]:
     """Bootstrap CIs for SEVERAL metrics sharing ONE resample loop.
 
@@ -528,6 +585,29 @@ def bootstrap_metrics(
     ``random_state``: the index sequence is generated identically, and a metric
     raising never advances the RNG (which is consumed only to build indices),
     so metric order does not perturb any other metric's resamples.
+
+    ``n_jobs`` optionally parallelises the resample loop across cores (``-1`` =
+    all; default ``1`` = the exact serial loop above, bit-identical to
+    ``bootstrap_metric`` for the same seed). ``n_jobs != 1`` uses per-resample
+    seeding (``SeedSequence(random_state).spawn``) so each resample's draw
+    depends only on its own seed: the CIs are then reproducible AND independent
+    of the worker/host-core count, but they are a STATISTICALLY-EQUIVALENT
+    Monte-Carlo estimate, not bit-identical to the single-stream serial path (the
+    resample multiset differs; percentile/BCa CIs converge within MC noise). Pin
+    ``n_jobs=1`` for the byte-for-byte CI.
+
+    MEASURED (2026-07, n=200k / R=1000, the honest-diagnostics shape): threading
+    ~1.0x@4 / 1.3x@8 / 1.5x@16; loky ~1.4x and non-scaling. Backend via
+    ``MLFRAME_BOOTSTRAP_BACKEND`` (default threading). The speedup is modest and
+    does NOT scale because, once the metric kernels are the fast tied-AUC /
+    fused-Brier / f64-normalise njit paths, the per-resample cost is dominated by
+    the GIL-held index generation + fancy-index gather (threading) or by the
+    pickle + per-worker numba re-JIT + array-ship overhead (loky) -- not the
+    nogil kernels. It stays OPT-IN (default off): the win is small and the block
+    is a few percent of the full-suite wall (the FE pair-search dominates). The
+    real future lever is a fully-njit resample loop (rng + gather + kernel in one
+    nogil pass) for the known-kernel case, which would remove the GIL glue.
+    Bench: _benchmarks/bench_bootstrap_metrics_parallel.py.
     """
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
@@ -589,57 +669,96 @@ def bootstrap_metrics(
     # then (the dominant per-resample cost; 2.2s/1000 at n=200k). Non-idx-aware
     # metrics still get their slices when any are active.
     _need_slice = bool(active)
-    samples = {name: np.empty(n_bootstrap, dtype=np.float64) for name in _all_active}
-    valid = {name: 0 for name in _all_active}
-    failures = {name: 0 for name in _all_active}
-    first_err: dict = {name: None for name in _all_active}
 
-    for _ in range(n_bootstrap):
-        # Index generation MUST match bootstrap_metric exactly (same rng calls,
-        # same order) so each metric's samples equal its single-call result.
-        if stratify is None:
-            idx = rng.integers(0, n, size=n, dtype=np.int64)
-        else:
-            for _c in range(_class_sizes.shape[0]):
-                _sz = int(_class_sizes[_c])
-                _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
-                _idx_buf[_class_offsets[_c]:_class_offsets[_c + 1]] = _groups_list[_c][_rand]
-            idx = _idx_buf
-        # Slice ONCE; every non-idx-aware metric reads the same resampled views.
-        # Skipped entirely when all active metrics are idx-aware (re-gather internally).
-        if _need_slice:
-            yt = y_true[idx]
-            yp = y_pred[idx]
-        for name in active:
-            try:
-                v = float(metric_fns[name](yt, yp))
-            except Exception as exc:
-                failures[name] += 1
+    # Parallelise the resample loop when asked AND the work is large enough to amortise thread spawn (~sub-ms; the
+    # nogil-njit threading path has no pickling, so the bar is low). Small bootstraps stay serial. n_jobs=1 always
+    # takes the exact bit-identical serial loop below.
+    _use_parallel = n_jobs != 1 and n_bootstrap >= 256 and n >= 5000
+    if _use_parallel:
+        import os
+        from joblib import Parallel, delayed
+
+        _cores = os.cpu_count() or 1
+        _nw = _cores if n_jobs < 0 else int(n_jobs)
+        _nw = max(1, min(_nw, _cores, n_bootstrap))
+        if _nw == 1:
+            _use_parallel = False
+    if _use_parallel:
+        _seeds = np.random.SeedSequence(random_state).spawn(n_bootstrap)
+        _strat_book = (
+            (_groups_list, _class_sizes, _class_offsets, _total_n) if stratify is not None else None
+        )
+        _bounds = [(int(c[0]), int(c[-1]) + 1) for c in np.array_split(np.arange(n_bootstrap), _nw) if len(c)]
+        _backend = os.environ.get("MLFRAME_BOOTSTRAP_BACKEND", "threading")
+        _parts = Parallel(n_jobs=_nw, backend=_backend)(
+            delayed(_bootstrap_resample_chunk)(
+                _seeds, _lo, _hi, n, y_true, y_pred, _need_slice,
+                active, active_idx, metric_fns, metric_fns_idx, _strat_book,
+            )
+            for _lo, _hi in _bounds
+        )
+        samples = {name: [] for name in _all_active}
+        failures = {name: 0 for name in _all_active}
+        first_err = {name: None for name in _all_active}
+        for _ls, _fl, _fe in _parts:
+            for name in _all_active:
+                samples[name].extend(_ls[name])
+                failures[name] += _fl[name]
                 if first_err[name] is None:
-                    first_err[name] = f"{type(exc).__name__}: {exc}"
-                logger.debug("bootstrap_metrics[%s] resample failed: %r", name, exc, exc_info=True)
-                continue
-            if not _isfinite(v):
-                failures[name] += 1
-                continue
-            samples[name][valid[name]] = v
-            valid[name] += 1
-        # Index-aware metrics: pass raw idx so they can reuse a precomputed
-        # base structure (e.g. pre-sorted AUC) instead of re-deriving it.
-        for name in active_idx:
-            try:
-                v = float(metric_fns_idx[name](idx))
-            except Exception as exc:
-                failures[name] += 1
-                if first_err[name] is None:
-                    first_err[name] = f"{type(exc).__name__}: {exc}"
-                logger.debug("bootstrap_metrics[%s] idx-resample failed: %r", name, exc, exc_info=True)
-                continue
-            if not _isfinite(v):
-                failures[name] += 1
-                continue
-            samples[name][valid[name]] = v
-            valid[name] += 1
+                    first_err[name] = _fe[name]
+        samples = {name: np.asarray(samples[name], dtype=np.float64) for name in _all_active}
+        valid = {name: samples[name].shape[0] for name in _all_active}
+    else:
+        samples = {name: np.empty(n_bootstrap, dtype=np.float64) for name in _all_active}
+        valid = {name: 0 for name in _all_active}
+        failures = {name: 0 for name in _all_active}
+        first_err = {name: None for name in _all_active}
+        for _ in range(n_bootstrap):
+            # Index generation MUST match bootstrap_metric exactly (same rng calls,
+            # same order) so each metric's samples equal its single-call result.
+            if stratify is None:
+                idx = rng.integers(0, n, size=n, dtype=np.int64)
+            else:
+                for _c in range(_class_sizes.shape[0]):
+                    _sz = int(_class_sizes[_c])
+                    _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
+                    _idx_buf[_class_offsets[_c]:_class_offsets[_c + 1]] = _groups_list[_c][_rand]
+                idx = _idx_buf
+            # Slice ONCE; every non-idx-aware metric reads the same resampled views.
+            # Skipped entirely when all active metrics are idx-aware (re-gather internally).
+            if _need_slice:
+                yt = y_true[idx]
+                yp = y_pred[idx]
+            for name in active:
+                try:
+                    v = float(metric_fns[name](yt, yp))
+                except Exception as exc:
+                    failures[name] += 1
+                    if first_err[name] is None:
+                        first_err[name] = f"{type(exc).__name__}: {exc}"
+                    logger.debug("bootstrap_metrics[%s] resample failed: %r", name, exc, exc_info=True)
+                    continue
+                if not _isfinite(v):
+                    failures[name] += 1
+                    continue
+                samples[name][valid[name]] = v
+                valid[name] += 1
+            # Index-aware metrics: pass raw idx so they can reuse a precomputed
+            # base structure (e.g. pre-sorted AUC) instead of re-deriving it.
+            for name in active_idx:
+                try:
+                    v = float(metric_fns_idx[name](idx))
+                except Exception as exc:
+                    failures[name] += 1
+                    if first_err[name] is None:
+                        first_err[name] = f"{type(exc).__name__}: {exc}"
+                    logger.debug("bootstrap_metrics[%s] idx-resample failed: %r", name, exc, exc_info=True)
+                    continue
+                if not _isfinite(v):
+                    failures[name] += 1
+                    continue
+                samples[name][valid[name]] = v
+                valid[name] += 1
 
     for name in _all_active:
         v_n = valid[name]
