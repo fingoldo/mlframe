@@ -96,3 +96,25 @@ Status legend: DONE (fixed+tested+pushed) | WIP | TODO | DOC | FUTURE | REJECTED
 
 | ND-3 | P2? | test_mrmr_endtoend_invariants::test_I4b_subsumed_raw_not_kept[...heavytail-regression-s312-fe1] fails deterministically on master. NOT OURS — the parallel session's GPU-resident-FE binning rewrites shifted the subsumed-raw-drop selection invariant (same class as ND-2). Our poly-only ND-1 change is dormant here (no fe_max_polynoms). | tests/.../test_mrmr_endtoend_invariants.py | PARALLEL-BINNING FALLOUT (investigate with ND-2: weight-stable binning vs re-frame) |
 | ND-4 | P2? | test_biz_val_monotone_warp_and_ts_leak::test_support_never_empty_when_engineered_selected[default-5] fails on master. NOT OURS — same parallel-binning selection shift; a never-empty-raw-support invariant tripped by the new binning. | tests/.../test_biz_val_monotone_warp_and_ts_leak.py | PARALLEL-BINNING FALLOUT |
+## PARALLEL-BINNING FALLOUT CLUSTER (ND-2/3/4) — unified root cause + plan
+The parallel session's GPU-resident-FE commits (7d783ac1 "fully sync-free quantile binning", 51f7ad5c, 53ce3c56)
+rewrote the quantile binning (branchless dedup + manual percentile). It DOCUMENTS itself as "selection-equivalent
+(the acceptance bar)" with "codes can 1-off the numpy codes at <~1e-5 of rows where cp.percentile and np.quantile
+round a boundary differently -- below the bin resolution" (_mi_greedy_cmi_fe.py:85/148/152). ND-2 (weight-vs-dup),
+ND-3 (subsumed-raw-drop s312), ND-4 (never-empty default-5) are three tests asserting EXACT/borderline selection
+invariants that this accepted ~1e-5 boundary shift trips (ND-2 also compounded by MRMR's stochastic
+sample_weight resample). All three fail deterministically on master; none involve our MRMR-critique changes (verified:
+poly-only ND-1 is dormant, N-F1/N-F2/S-F2/S-F4 are default/opt-in no-ops).
+PLAN (dedicated session): (1) re-run the parallel binning's own selection-equivalence bench on these 3 cases to
+confirm the diff is a borderline-noise 1e-5 boundary shift (signal recovered) and NOT a signal-level regression;
+(2) if equivalent-for-signal -> re-frame the 3 over-specified assertions to signal-recovery/high-overlap (matching
+the parallel session's stated acceptance bar), citing the binning's documented equivalence; (3) if a real
+signal-level regression -> fix the binning tie-handling. Do NOT revert the validated perf binning or re-frame
+without step (1). This is the parallel session's binning domain, not an MRMR-critique finding.
+
+## MRMR CRITIQUE STATUS: COMPLETE
+All 38 original findings have a terminal disposition (DONE / FUTURE-with-precise-bench-path / DOC / reverted).
+This session's loop additionally converted the full P1 tail to DONE: N-F1 (null estimator consistency), N-F2 part-1
+(MM-consistent redundancy), S-F2 (JMIM confirmation statistic), S-F4 (non-monotone resume), plus ND-1 (poly-replay
+crash). Remaining FUTURE-with-bench: N-F2 part-2 (default-flip null-mean redundancy debias), N-F3/S-F3 (reverted,
+bench-pinned), perf P-1..P-10 (deep tuned-core / parallel area). ND-2/3/4 = parallel-binning fallout (above).
