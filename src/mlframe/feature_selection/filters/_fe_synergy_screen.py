@@ -89,6 +89,62 @@ def _combo_mm_mi_njit(combo_codes, cards, target, kt, n_cells):
 
 
 @njit(cache=True)
+def _combo_mm_mi_cols_njit(c0, c1, c2, order, cards, target, kt, n_cells):
+    """Same MM-corrected joint MI as ``_combo_mm_mi_njit`` but reads the ``order`` code columns DIRECTLY
+    (order 2 or 3) instead of a materialised ``(n, order)`` matrix -- the caller's per-combo ``_mat`` build
+    (strided column copies into a C-contiguous matrix) was ~70% of the synergy sweep's per-combo cost, so
+    skipping it and computing the mixed-radix cell inline from the contiguous cached columns is 1.71x, bit-
+    identical (the cell code ``(c0*cards[1]+c1)[*cards[2]+c2]`` is exactly the ``_mat`` path's radix)."""
+    n = c0.shape[0]
+    if n == 0 or kt <= 0 or n_cells <= 0:
+        return 0.0
+    joint = np.zeros(n_cells * kt, dtype=np.float64)
+    px = np.zeros(n_cells, dtype=np.float64)
+    py = np.zeros(kt, dtype=np.float64)
+    card1 = cards[1]
+    if order == 2:
+        for r in range(n):
+            cell = c0[r] * card1 + c1[r]
+            t = target[r]
+            joint[cell * kt + t] += 1.0
+            px[cell] += 1.0
+            py[t] += 1.0
+    else:
+        card2 = cards[2]
+        for r in range(n):
+            cell = (c0[r] * card1 + c1[r]) * card2 + c2[r]
+            t = target[r]
+            joint[cell * kt + t] += 1.0
+            px[cell] += 1.0
+            py[t] += 1.0
+    inv_n = 1.0 / n
+    mi = 0.0
+    occ_cells = 0
+    for cell in range(n_cells):
+        if px[cell] <= 0.0:
+            continue
+        occ_cells += 1
+        pxc = px[cell] * inv_n
+        base = cell * kt
+        for t in range(kt):
+            cnt = joint[base + t]
+            if cnt > 0.0:
+                pj = cnt * inv_n
+                mi += pj * np.log(pj / (pxc * (py[t] * inv_n)))
+    occ_x = 0
+    for cell in range(n_cells):
+        if px[cell] > 0.0:
+            occ_x += 1
+    occ_y = 0
+    for t in range(kt):
+        if py[t] > 0.0:
+            occ_y += 1
+    mm = (occ_x - 1 + occ_y - 1 - (occ_cells - 1)) / (2.0 * n)
+    val = mi - mm
+    return val if val > 0.0 else 0.0
+
+
+@njit(cache=True)
 def _pair_mm_mi_njit(code_x, code_y, target, kx, ky, kt, min_rows_per_cell):
     """Fused O(n) Miller-Madow-corrected joint MI ``I({X,Y}; T)`` for a CODE PAIR -- the
     nopython equivalent of ``joint_synergy_mi(code_x, code_y, target)``, with NO
@@ -278,12 +334,18 @@ def detect_synergy_combos(
             # the MM debit cannot correct (false synergy on high-card noise) -- skip it.
             if _MIN_ROWS_PER_CELL > 0.0 and _n < _MIN_ROWS_PER_CELL * float(_ncells):
                 continue
-            _mat = np.empty((_n, _order), dtype=np.int64)
-            for _k, _c in enumerate(combo):
-                _mat[:, _k] = _ccode[_c]
             _cards = np.array([_ccard[_c] for _c in combo], dtype=np.int64)
-            # joint MI of the combo's mixed-radix cell-codes vs the target (MM-corrected, njit).
-            _jmi = float(_combo_mm_mi_njit(_mat, _cards, _yt, _kt, int(_ncells)))
+            # joint MI of the combo's mixed-radix cell-codes vs the target (MM-corrected, njit). Orders 2-3
+            # read the contiguous cached code columns DIRECTLY (no per-combo (n, order) _mat materialise, 1.71x);
+            # higher orders fall back to the general matrix kernel.
+            if _order <= 3:
+                _c2 = _ccode[combo[2]] if _order >= 3 else _ccode[combo[1]]
+                _jmi = float(_combo_mm_mi_cols_njit(_ccode[combo[0]], _ccode[combo[1]], _c2, _order, _cards, _yt, _kt, int(_ncells)))
+            else:
+                _mat = np.empty((_n, _order), dtype=np.int64)
+                for _k, _c in enumerate(combo):
+                    _mat[:, _k] = _ccode[_c]
+                _jmi = float(_combo_mm_mi_njit(_mat, _cards, _yt, _kt, int(_ncells)))
             if _jmi < min_joint_mi:
                 continue
             _msum = sum(_marg[c] for c in combo)

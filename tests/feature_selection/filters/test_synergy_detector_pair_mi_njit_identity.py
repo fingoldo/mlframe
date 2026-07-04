@@ -69,3 +69,33 @@ def test_detect_synergy_verdict_on_xor_and_noise():
     yx = ((Xx[:, 0] > 0).astype(int) ^ (Xx[:, 1] > 0).astype(int))
     is_syn_xor, info = detect_synergy(Xx, yx, random_seed=0)
     assert is_syn_xor is True, f"detector missed XOR synergy: {info}"
+
+
+def test_combo_mm_mi_cols_njit_matches_matrix_kernel():
+    # The direct-columns synergy kernel (orders 2-3, no _mat materialise) must equal the (n, order)-matrix
+    # kernel bit-for-bit -- same mixed-radix cell code + histogram + Miller-Madow debit.
+    import numpy as np
+    from mlframe.feature_selection.filters._fe_synergy_screen import (
+        _combo_mm_mi_njit,
+        _combo_mm_mi_cols_njit,
+    )
+
+    rng = np.random.default_rng(7)
+    worst = 0.0
+    for _ in range(60):
+        n = int(rng.integers(500, 8000))
+        nb = int(rng.integers(2, 9))
+        kt = int(rng.integers(2, 6))
+        order = int(rng.integers(2, 4))
+        cols = [np.ascontiguousarray(rng.integers(0, nb, n).astype(np.int64)) for _ in range(order)]
+        cards = np.array([nb] * order, dtype=np.int64)
+        n_cells = nb ** order
+        yt = rng.integers(0, kt, n).astype(np.int64)
+        mat = np.empty((n, order), dtype=np.int64)
+        for k in range(order):
+            mat[:, k] = cols[k]
+        a = _combo_mm_mi_njit(mat, cards, yt, kt, n_cells)
+        c2 = cols[2] if order >= 3 else cols[1]
+        b = _combo_mm_mi_cols_njit(cols[0], cols[1], c2, order, cards, yt, kt, n_cells)
+        worst = max(worst, abs(a - b))
+    assert worst == 0.0, f"cols kernel diverges {worst:.2e} from matrix kernel"
