@@ -1152,13 +1152,41 @@ and pairs with the existing `feedback_show_all_agent_findings`,
 rules. CI failure on a missing disposition table for a multi-agent-
 reviewed PR is a real regression, not a process nit.
 
+## polars FE path is ALREADY optimal (the Arrow bridge) — do NOT "optimise" it again (CRITICAL)
+
+Recurring trap: someone reads the `isinstance(X, pd.DataFrame)` guards in the FE families and concludes "polars silently
+disables FE / needs a native format-agnostic rewrite / is doing a 100 GB copy." **All three are FALSE.** `MRMR.fit`
+already bridges a polars input to an **Arrow-backed ZERO-COPY pandas view** via `get_pandas_view_of_polars_df`
+(`_mrmr_class.py`, the "polars FE bridge") whenever any FE stage will run — numeric/bool/string columns share the Arrow
+buffers, only categoricals get a tiny codes rebuild. So FE runs on polars with **no whole-frame copy at any size**, and the
+guards see the pandas view and pass. Landed 2026-06-16 (`f121f04c`).
+
+Measured verdict (`feature_selection/_benchmarks/bench_fe_seam_view_vs_plane.py`): one contiguous plane feeding the batched
+MI kernel beats per-column zero-copy views **8.65x at equal memory** (bit-identical selection). The Arrow view IS that single
+materialisation — there is nothing to gain by removing it. A fully "native, zero-copy, per-column-view" FE rewrite is
+**strictly worse** (8.65x slower at equal memory) and can't retire the bridge anyway (OOF / cross-row families still need
+pandas). The `_fe_frame_ops` + `fe_decide_on_subsample` format-agnostic seam exists as a fallback / eventual-native path and
+is kept, but the **bridge is the fast default and stays** — do not delete it, do not replace it with a per-family plane, do
+not add a `to_pandas()` full-copy at family call sites (an earlier fan-out did exactly that at 37 sites; it was corrected).
+
 ## Open work items
 
-(Nothing tracked here currently. Polars support for MRMR — both the
-selector core and feature engineering — landed 2026-04-22. See tests:
+- **FE-decision f64 upcast relaxation (tracked optimisation, measured, NOT yet rolled out).** The ~15 orth-FE family
+  bodies materialise their decision matrix with a hardcoded `X[cols].to_numpy(np.float64)` (82 sites across 26 files). f64
+  is over-conservative for the MI / basis / discretisation decision: a bench showed f32 MI-ranking is **1.13x** faster and
+  **selection-identical** (top-8 seeds match) at 30k×496, and it removes the f64 upcast COPY on f32-source data (e.g. the
+  wellbore frame is float32). The correct change is to route these materialisations through the EXISTING
+  `_crit_np_dtype()` (`_fe_usability_signal.py`, governed by `MLFRAME_CRIT_DTYPE_RELAXED`, f32-relaxed default) — the same
+  knob the discretiser-input / prewarp / usability-corr hotspots already use. Do NOT add a new env var. CAVEAT: the MI /
+  basis / discretisation sites are safe to relax (bench-proven); the distance / kernel families (dcor, hsic, ksg, copula)
+  may need f64 for numerical stability — verify each before relaxing, keep f64 where it matters. Gate the whole change on
+  `MLFRAME_CRIT_DTYPE_RELAXED` (strict mode stays f64). Validate with the FE selection pins (`single_compound`,
+  `clean_library_form_preferred`, `prewarp_retained`) + a full F2 1M A/B for the realised wall number before shipping.
+
+(Polars support for MRMR — both the selector core and feature engineering — landed 2026-04-22. See tests:
 `tests/training/test_mrmr_polars_fe.py`,
 `tests/training/test_bizvalue_feature_selection.py::test_mrmr_drops_uninformative_features_on_polars_input`,
-regression sensors in `tests/training/test_fuzz_regression_sensors.py`.)
+regression sensors in `tests/training/test_fuzz_regression_sensors.py`. polars FE bridge — see the section above.)
 
 ## Comment line length: up to 160 chars (CRITICAL — repeated user complaint)
 

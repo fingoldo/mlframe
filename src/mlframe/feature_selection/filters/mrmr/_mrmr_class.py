@@ -3054,15 +3054,22 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                         f"has no scalar value for MI estimation. Unnest/flatten them before fitting."
                     )
 
-        # ---- polars FE bridge (TEMPORARY, 2026-06-16) --------------------------------------------
-        # The feature-engineering families require pandas (several raise TypeError on a polars frame),
-        # so a polars input silently gets NO FE today. As an interim measure -- until the native
-        # matrix path lands -- bridge a polars DataFrame to an Arrow-backed (near-zero-copy) pandas
-        # VIEW via ``get_pandas_view_of_polars_df`` so FE runs. ONLY when FE is enabled
-        # (fe_max_steps >= 1): with FE off, the native-polars screening path is preserved (it exists
-        # deliberately to avoid materialising 100GB+ frames). polars stays the user's primary format;
-        # this is a bridge, not the destination (native polars FE is the eventual goal).
-        if int(getattr(self, "fe_max_steps", 0) or 0) >= 1 and str(type(X).__module__).startswith("polars"):
+        # ---- polars FE bridge (the OPTIMAL path for polars FE -- do NOT "optimise away") -------------
+        # The FE families' decision bodies are pandas-native. This bridges a polars input to an Arrow-backed
+        # ZERO-COPY pandas VIEW (get_pandas_view_of_polars_df -- numeric/bool/string columns share the Arrow
+        # buffers; only categoricals get a small codes rebuild), so FE runs with NO whole-frame copy at any size.
+        # This is already optimal: a measured bench (feature_selection/_benchmarks/bench_fe_seam_view_vs_plane.py)
+        # showed one contiguous plane feeding the batched MI kernel beats per-column views 8.65x at equal memory,
+        # and the Arrow view IS that single materialisation, not an extra copy on top. Per-family native handling
+        # (the format-agnostic seam in _fit_impl_core / _fe_frame_ops) exists as a fallback / eventual native path,
+        # but the bridge is the fast path and stays the default -- there is nothing to gain by removing it.
+        # Fires whenever ANY FE stage will run (fe_max_steps>=1 OR any fe_*_enable flag), so the edge where an
+        # orth-FE family is enabled with fe_max_steps=0 is covered too; with ALL FE off the native-polars
+        # screening path is preserved (no view built). polars stays the user's primary format.
+        _fe_will_run = int(getattr(self, "fe_max_steps", 0) or 0) >= 1 or any(
+            k.startswith("fe_") and k.endswith("_enable") and v for k, v in vars(self).items()
+        )
+        if _fe_will_run and str(type(X).__module__).startswith("polars"):
             if type(X).__name__ in ("DataFrame", "LazyFrame"):
                 try:
                     from mlframe.training.utils import get_pandas_view_of_polars_df

@@ -416,12 +416,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _hinge_deferred_values: dict = {}
     _hinge_deferred_recipes: dict = {}
     _hybrid_orth_pre_recipes: dict = {}
+    # Format-agnostic FE seam primitives. CLOSED-FORM families route their DECISION through fe_decide_on_subsample with the
+    # NATIVE frame (subsample gather is a small native copy, winners replay on native columns), so a 100+ GB polars frame is
+    # never whole-copied. The few OOF / cross-row families that need the full frame gate their pandas materialisation on
+    # fe_polars_exceeds (~2 GB, CLAUDE.md eager-conversion rule) and skip above it. Engineered columns append via fe_append_columns.
+    from .._fe_frame_ops import fe_to_pandas, fe_append_columns, fe_extract_columns, fe_is_numeric_col, fe_polars_exceeds
     # Snapshot the raw input columns BEFORE any FE stage appends engineered
     # intermediates. The cat_pair / cat_triple auto-detect paths restrict their
     # candidate members to this set so a cross is never built on an engineered
     # column (which cannot be replayed at transform time -> KeyError).
     _raw_input_cols_pre_fe = (
-        list(X.columns) if isinstance(X, pd.DataFrame) else []
+        list(X.columns) if hasattr(X, "columns") else []
     )
     # 2026-06-02 UNIVARIATE-BASIS FE — DEFAULT ON (closes the univariate-
     # nonlinearity gap). The pair-FE path (always on) recovers pair interactions
@@ -442,20 +447,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # Polars frames: skip with a warning -- hybrid FE pipeline operates on
         # pandas. Native polars support would require a separate code path;
         # not in Layer 23 MVP scope.
-        _is_pandas_for_hybrid = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_hybrid:
-            # The block now opens whenever fe_univariate_basis_enable (default
-            # True) OR fe_hybrid_orth_enable is on, so the message must not
-            # blame fe_hybrid_orth_enable -- on the default polars path the user
-            # never set it. Name the actual triggering flag(s).
-            warnings.warn(
-                "MRMR: univariate/hybrid orthogonal-polynomial FE is enabled "
-                "(fe_univariate_basis_enable / fe_hybrid_orth_enable) but X is "
-                "not a pandas DataFrame; the FE stage is skipped. Convert via "
-                "X.to_pandas() before fit() if you want it applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_univariate_fe import (
                     hybrid_orth_mi_fe_with_recipes,
@@ -532,22 +525,27 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             pair_max_degree=_h_pair_max_degree,
                         )
                     else:
-                        X_h, _uni_sc, _recipes = hybrid_orth_mi_fe_with_recipes(
+                        # Decide on the shared FE subsample (native gather, no whole-frame copy); winners replay at full n.
+                        X_h, _uni_sc, _recipes = fe_decide_on_subsample(
+                            hybrid_orth_mi_fe_with_recipes,
                             X, _y_for_hybrid,
+                            subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                            subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                            shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                             cols=_h_cols,
                             degrees=_h_degrees,
                             basis=_h_basis,
                             top_k=_h_top_k,
-                            # Decide on the SAME row-subsample the pair-search FE uses
-                            # (consistency + ~n/sub speedup); winners rebuilt at full n.
-                            subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                            subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                         )
                 else:
-                    X_h, _uni_sc, _recipes = _dispatch_default_scorer(
-                        _default_scorer,
-                        X=X,
-                        y=_y_for_hybrid,
+                    def _default_scorer_run(_Xs, _ys, **_kw):
+                        return _dispatch_default_scorer(_default_scorer, X=_Xs, y=_ys, **_kw)
+                    X_h, _uni_sc, _recipes = fe_decide_on_subsample(
+                        _default_scorer_run,
+                        X, _y_for_hybrid,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_h_cols,
                         degrees=_h_degrees,
                         basis=_h_basis,
@@ -558,7 +556,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     c for c in X_h.columns if c not in _X_before_hybrid_cols
                 ]
                 if _appended:
-                    X = X_h
+                    X = fe_append_columns(X, fe_extract_columns(X_h, _appended))
                     self.hybrid_orth_features_ = list(_appended)
                     for _r in _recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
@@ -623,7 +621,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _extra_basis_scorer_ok = True
             if _univ_fourier_on and _univ_basis_on and _extra_basis_scorer_ok and "fourier" not in _eff_extra_bases:
                 _eff_extra_bases = _eff_extra_bases + ("fourier",)
-            if _is_pandas_for_hybrid and _eff_extra_bases:
+            if _eff_extra_bases:
                 try:
                     from .._orthogonal_univariate_fe import (
                         hybrid_orth_extra_basis_fe_with_recipes,
@@ -694,8 +692,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             0.15,
                         )
                     )
-                    X_e, _e_scores, _e_recipes = hybrid_orth_extra_basis_fe_with_recipes(
+                    # Detect frequencies + rank MI on the shared subsample (native gather, no whole-frame copy -- the
+                    # periodogram detector is the dominant orth-FE CPU cost); winners replay at full n via apply_recipe.
+                    X_e, _e_scores, _e_recipes = fe_decide_on_subsample(
+                        hybrid_orth_extra_basis_fe_with_recipes,
                         X, _y_for_extra,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_e_cols,
                         extra_bases=_eff_extra_bases,
                         fourier_freqs=_fourier_freqs,
@@ -706,17 +710,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         fourier_adaptive_min_val_corr=_fourier_adaptive_mvc,
                         fourier_chirp=_fourier_chirp,
                         fourier_chirp_min_val_corr=_fourier_chirp_mvc,
-                        # Detect frequencies + rank MI on the SAME subsample the pair-search
-                        # uses (the periodogram detector is the dominant orth-FE CPU cost);
-                        # winners replayed at full n. Decision aligned across FE families.
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
                     )
                     _e_appended = [
                         c for c in X_e.columns if c not in _X_before_extra_cols
                     ]
                     if _e_appended:
-                        X = X_e
+                        X = fe_append_columns(X, fe_extract_columns(X_e, _e_appended))
                         # Extend hybrid_orth_features_ with the extra-basis winners
                         # so the downstream remap / transform pipeline handles them
                         # exactly like the polynomial winners.
@@ -771,15 +770,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # hinge can be near-collinear with raw x -> the downstream cross-stage
     # Spearman dedup drops it (no duplicate columns survive).
     if bool(getattr(self, "fe_hinge_enable", False)) and _fe_budget_ok():
-        _is_pandas_for_hinge = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_hinge:
-            warnings.warn(
-                "MRMR: fe_hinge_enable=True but X is not a pandas DataFrame; "
-                "hinge change-point FE is skipped. Convert to pandas via "
-                "X.to_pandas() before fit() if you want hinge FE applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._hinge_basis_fe import hybrid_hinge_fe_with_recipes
                 # The hinge detector + admission are REGRESSION-style (2-segment
@@ -808,13 +800,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _hinge_cols = [
                         c for c in self.factors_names_to_use
                         if c in X.columns and c not in _hinge_already_appended
-                        and pd.api.types.is_numeric_dtype(X[c])
+                        and fe_is_numeric_col(X, c)
                     ]
                 else:
                     _hinge_cols = [
                         c for c in X.columns
                         if c not in _hinge_already_appended
-                        and pd.api.types.is_numeric_dtype(X[c])
+                        and fe_is_numeric_col(X, c)
                     ]
                 _hinge_top_k = int(getattr(self, "fe_hinge_top_k", 5))
                 _hinge_max_bp = int(getattr(self, "fe_hinge_max_breakpoints", 2))
@@ -1134,16 +1126,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # is emitted iff its MI strictly beats every lower-arity prefix).
     # Recipes route to the per-arity Layer 22 / 56 / 77 builders.
     if bool(getattr(self, "fe_hybrid_orth_adaptive_arity_enable", False)):
-        _is_pandas_for_aa = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_aa:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_adaptive_arity_enable=True but X is "
-                "not a pandas DataFrame; adaptive-arity FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want adaptive-arity FE applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_adaptive_arity_fe import (
                     hybrid_orth_mi_adaptive_arity_fe_with_recipes,
@@ -1198,8 +1182,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _aa_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _X_before_aa_cols = list(X.columns)
                 X_aa, _aa_uni_sc, _aa_adapt_sc, _aa_recipes = (
-                    hybrid_orth_mi_adaptive_arity_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_adaptive_arity_fe_with_recipes,
                         X, _y_for_aa,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_aa_cols,
                         degrees=_aa_degrees,
                         basis=_aa_basis,
@@ -1219,7 +1207,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if c.split("__", 1)[0].count("*") >= 1
                 ]
                 if _aa_cross_only:
-                    X = pd.concat([X, X_aa[_aa_cross_only]], axis=1)
+                    X = fe_append_columns(X, fe_extract_columns(X_aa, _aa_cross_only))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or []) + list(_aa_cross_only)
                     )
@@ -1246,16 +1234,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # degree (if it clears the per-col uplift gate). Recipe kind reuses
     # ``orth_univariate`` -- replay reads X only, no y.
     if bool(getattr(self, "fe_hybrid_orth_adaptive_degree_enable", False)):
-        _is_pandas_for_adaptive = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_adaptive:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_adaptive_degree_enable=True but X is "
-                "not a pandas DataFrame; adaptive-degree FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want adaptive-degree FE applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_adaptive_degree_fe import (
                     hybrid_orth_mi_adaptive_degree_fe_with_recipes,
@@ -1301,8 +1281,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _ad_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
                 _X_before_adaptive_cols = list(X.columns)
                 X_ad, _ad_scores, _ad_recipes = (
-                    hybrid_orth_mi_adaptive_degree_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_adaptive_degree_fe_with_recipes,
                         X, _y_for_adapt,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_ad_cols,
                         degree_range=_ad_range,
                         basis=_ad_basis,
@@ -1313,7 +1297,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     c for c in X_ad.columns if c not in _X_before_adaptive_cols
                 ]
                 if _ad_appended:
-                    X = X_ad
+                    X = fe_append_columns(X, fe_extract_columns(X_ad, _ad_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or []) + list(_ad_appended)
                     )
@@ -1341,16 +1325,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # kind reuses ``orth_univariate`` (extra carries ``pre_transform``);
     # replay reads X only, no y.
     if bool(getattr(self, "fe_hybrid_orth_conditional_routing_enable", False)):
-        _is_pandas_for_routing = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_routing:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_conditional_routing_enable=True but X is "
-                "not a pandas DataFrame; conditional routing FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want conditional routing FE applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_routing_fe import (
                     hybrid_orth_mi_conditional_routing_fe_with_recipes,
@@ -1398,8 +1374,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 ))
                 _X_before_routing_cols = list(X.columns)
                 X_rt, _rt_scores, _rt_recipes = (
-                    hybrid_orth_mi_conditional_routing_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_conditional_routing_fe_with_recipes,
                         X, _y_for_route,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_rt_cols,
                         degrees=_rt_degrees,
                         top_k=_rt_top_k,
@@ -1410,7 +1390,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     c for c in X_rt.columns if c not in _X_before_routing_cols
                 ]
                 if _rt_appended:
-                    X = X_rt
+                    X = fe_append_columns(X, fe_extract_columns(X_rt, _rt_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or []) + list(_rt_appended)
                     )
@@ -1435,16 +1415,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # per requested degree; top-K winners appended. Recipe kind
     # ``orth_diff_basis``; replay reads X only, no y.
     if bool(getattr(self, "fe_hybrid_orth_diff_basis_enable", False)):
-        _is_pandas_for_diff = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_diff:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_diff_basis_enable=True but X is not a "
-                "pandas DataFrame; diff-basis FE is skipped. Convert to "
-                "pandas via X.to_pandas() before fit() if you want diff-basis "
-                "FE applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_diff_basis_fe import (
                     hybrid_orth_mi_diff_basis_fe_with_recipes,
@@ -1490,8 +1462,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 ))
                 _X_before_diff_cols = list(X.columns)
                 X_df, _df_scores, _df_recipes = (
-                    hybrid_orth_mi_diff_basis_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_diff_basis_fe_with_recipes,
                         X, _y_for_diff,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_df_cols,
                         degrees=_df_degrees,
                         pair_corr_threshold=_df_corr,
@@ -1502,7 +1478,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     c for c in X_df.columns if c not in _X_before_diff_cols
                 ]
                 if _df_appended:
-                    X = X_df
+                    X = fe_append_columns(X, fe_extract_columns(X_df, _df_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or []) + list(_df_appended)
                     )
@@ -1531,16 +1507,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # new raw feature WITHOUT a basis expansion). Recipe kind
     # ``orth_cluster_basis``; replay reads X only, no y.
     if bool(getattr(self, "fe_hybrid_orth_cluster_basis_enable", False)):
-        _is_pandas_for_cb = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_cb:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_cluster_basis_enable=True but X is not "
-                "a pandas DataFrame; cluster-basis FE is skipped. Convert to "
-                "pandas via X.to_pandas() before fit() if you want cluster-"
-                "basis FE applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_cluster_basis_fe import (
                     hybrid_orth_mi_cluster_basis_fe_with_recipes,
@@ -1602,8 +1570,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 ))
                 _X_before_cb_cols = list(X.columns)
                 X_cb, _cb_scores, _cb_recipes = (
-                    hybrid_orth_mi_cluster_basis_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_cluster_basis_fe_with_recipes,
                         X, _y_for_cb,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_cb_cols,
                         aggregator=_cb_aggregator,
                         degrees=_cb_degrees,
@@ -1616,7 +1588,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     c for c in X_cb.columns if c not in _X_before_cb_cols
                 ]
                 if _cb_appended:
-                    X = X_cb
+                    X = fe_append_columns(X, fe_extract_columns(X_cb, _cb_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or []) + list(_cb_appended)
                     )
@@ -1644,16 +1616,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # is shared. Restrict to RAW columns to avoid recipes referencing
     # already-engineered columns absent at transform.
     if bool(getattr(self, "fe_hybrid_orth_bootstrap_enable", False)):
-        _is_pandas_for_boot = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_boot:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_bootstrap_enable=True but X is not a "
-                "pandas DataFrame; bootstrap-stable hybrid FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want the bootstrap-stable selection applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_bootstrap_mi_fe import (
                     hybrid_orth_mi_bootstrap_fe_with_recipes,
@@ -1703,8 +1667,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _boot_seed = int(getattr(self, "random_seed", 0) or 0)
                 _X_before_boot_cols = list(X.columns)
                 X_boot, _boot_scores, _boot_recipes = (
-                    hybrid_orth_mi_bootstrap_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_bootstrap_fe_with_recipes,
                         X, _y_for_boot,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_boot_cols,
                         degrees=_boot_degrees,
                         basis=_boot_basis,
@@ -1718,7 +1686,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     c for c in X_boot.columns if c not in _X_before_boot_cols
                 ]
                 if _boot_appended:
-                    X = X_boot
+                    X = fe_append_columns(X, fe_extract_columns(X_boot, _boot_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or []) + list(_boot_appended)
                     )
@@ -1750,16 +1718,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # are bit-equal to Layer 21 so recipes reuse the ``orth_univariate``
     # kind and replay is shared infrastructure.
     if bool(getattr(self, "fe_hybrid_orth_three_gate_enable", False)):
-        _is_pandas_for_tg = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_tg:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_three_gate_enable=True but X is not a "
-                "pandas DataFrame; three-gate hybrid FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want the three-gate selection applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_three_gate_mi_fe import (
                     hybrid_orth_mi_three_gate_fe_with_recipes,
@@ -1815,32 +1775,32 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _tg_support_cols = [
                     c for c in _hybrid_already_appended if c in X.columns
                 ]
-                # Column selection (not ``.copy()``): the three-gate callee only READS this sub-frame
-                # (``.empty`` / ``.shape`` / per-column ``.to_numpy()`` for the CMI bins), never mutates it,
-                # so the extra full materialise was redundant.
-                _tg_current_support = (
-                    X[_tg_support_cols]
-                    if _tg_support_cols
-                    else None
-                )
                 _X_before_tg_cols = list(X.columns)
-                X_tg, _tg_scores, _tg_recipes = (
-                    hybrid_orth_mi_three_gate_fe_with_recipes(
-                        X, _y_for_tg, _tg_current_support,
-                        cols=_tg_cols,
-                        degrees=_tg_degrees,
-                        basis=_tg_basis,
-                        top_k=_tg_top_k,
-                        cmi_min=_tg_cmi_min,
-                        n_folds=_tg_n_folds,
-                        seed=_tg_seed,
-                    )
+                # The current_support sub-frame is READ-only (``.empty`` / ``.shape`` / per-column ``.to_numpy()`` for the
+                # CMI bins). Build it from whatever pandas frame the subsample funnel hands the callee (the subsample block
+                # or, on the small-frame fallback, the full frame) so support rows always align with the decision rows.
+                def _tg_run(_Xs, _ys, **_kw):
+                    _cs = _Xs[_tg_support_cols] if _tg_support_cols else None
+                    return hybrid_orth_mi_three_gate_fe_with_recipes(_Xs, _ys, _cs, **_kw)
+                X_tg, _tg_scores, _tg_recipes = fe_decide_on_subsample(
+                    _tg_run,
+                    X, _y_for_tg,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_tg_cols,
+                    degrees=_tg_degrees,
+                    basis=_tg_basis,
+                    top_k=_tg_top_k,
+                    cmi_min=_tg_cmi_min,
+                    n_folds=_tg_n_folds,
+                    seed=_tg_seed,
                 )
                 _tg_appended = [
                     c for c in X_tg.columns if c not in _X_before_tg_cols
                 ]
                 if _tg_appended:
-                    X = X_tg
+                    X = fe_append_columns(X, fe_extract_columns(X_tg, _tg_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or []) + list(_tg_appended)
                     )
@@ -1867,16 +1827,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # (and therefore the selection) changes -- so recipes reuse the
     # ``orth_univariate`` kind and replay is shared infrastructure.
     if bool(getattr(self, "fe_hybrid_orth_ksg_enable", False)):
-        _is_pandas_for_ksg = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_ksg:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_ksg_enable=True but X is not a "
-                "pandas DataFrame; KSG hybrid FE is skipped. Convert to "
-                "pandas via X.to_pandas() before fit() if you want the "
-                "KSG-MI selection applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_ksg_mi_fe import (
                     hybrid_orth_mi_ksg_fe_with_recipes,
@@ -1925,8 +1877,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _ksg_seed = int(getattr(self, "random_seed", 0) or 0)
                 _X_before_ksg_cols = list(X.columns)
                 X_ksg, _ksg_scores, _ksg_recipes = (
-                    hybrid_orth_mi_ksg_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_ksg_fe_with_recipes,
                         X, _y_for_ksg,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_ksg_cols,
                         degrees=_ksg_degrees,
                         basis=_ksg_basis,
@@ -1941,7 +1897,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     c for c in X_ksg.columns if c not in _X_before_ksg_cols
                 ]
                 if _ksg_appended:
-                    X = X_ksg
+                    X = fe_append_columns(X, fe_extract_columns(X_ksg, _ksg_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or []) + list(_ksg_appended)
                     )
@@ -1968,16 +1924,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # one bin and hides genuine dependence. Engineered VALUES bit-equal to
     # Layer 21 -> recipes reuse the ``orth_univariate`` kind.
     if bool(getattr(self, "fe_hybrid_orth_copula_enable", False)):
-        _is_pandas_for_copula = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_copula:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_copula_enable=True but X is not a "
-                "pandas DataFrame; copula-MI hybrid FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want the copula-MI selection applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_copula_mi_fe import (
                     hybrid_orth_mi_copula_fe_with_recipes,
@@ -2021,8 +1969,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _copula_min_abs_mi_frac = 0.05
                 _X_before_copula_cols = list(X.columns)
                 X_copula, _copula_scores, _copula_recipes = (
-                    hybrid_orth_mi_copula_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_copula_fe_with_recipes,
                         X, _y_for_copula,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_copula_cols,
                         degrees=_copula_degrees,
                         basis=_copula_basis,
@@ -2037,7 +1989,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if c not in _X_before_copula_cols
                 ]
                 if _copula_appended:
-                    X = X_copula
+                    X = fe_append_columns(X, fe_extract_columns(X_copula, _copula_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or [])
                         + list(_copula_appended)
@@ -2065,16 +2017,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # n=500 via deterministic random subsample. Engineered VALUES bit-equal
     # to Layer 21 -> recipes reuse the ``orth_univariate`` kind.
     if bool(getattr(self, "fe_hybrid_orth_dcor_enable", False)):
-        _is_pandas_for_dcor = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_dcor:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_dcor_enable=True but X is not a "
-                "pandas DataFrame; dCor hybrid FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want the dCor selection applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_dcor_fe import (
                     hybrid_orth_mi_dcor_fe_with_recipes,
@@ -2115,8 +2059,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _dcor_min_abs_mi_frac = 0.05
                 _X_before_dcor_cols = list(X.columns)
                 X_dcor, _dcor_scores, _dcor_recipes = (
-                    hybrid_orth_mi_dcor_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_dcor_fe_with_recipes,
                         X, _y_for_dcor,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_dcor_cols,
                         degrees=_dcor_degrees,
                         basis=_dcor_basis,
@@ -2132,7 +2080,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if c not in _X_before_dcor_cols
                 ]
                 if _dcor_appended:
-                    X = X_dcor
+                    X = fe_append_columns(X, fe_extract_columns(X_dcor, _dcor_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or [])
                         + list(_dcor_appended)
@@ -2162,16 +2110,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # random subsample. Engineered VALUES bit-equal to Layer 21 ->
     # recipes reuse the ``orth_univariate`` kind.
     if bool(getattr(self, "fe_hybrid_orth_hsic_enable", False)):
-        _is_pandas_for_hsic = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_hsic:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_hsic_enable=True but X is not a "
-                "pandas DataFrame; HSIC hybrid FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want the HSIC selection applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_hsic_fe import (
                     hybrid_orth_mi_hsic_fe_with_recipes,
@@ -2215,8 +2155,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _hsic_min_abs_mi_frac = 0.05
                 _X_before_hsic_cols = list(X.columns)
                 X_hsic, _hsic_scores, _hsic_recipes = (
-                    hybrid_orth_mi_hsic_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_hsic_fe_with_recipes,
                         X, _y_for_hsic,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_hsic_cols,
                         degrees=_hsic_degrees,
                         basis=_hsic_basis,
@@ -2233,7 +2177,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if c not in _X_before_hsic_cols
                 ]
                 if _hsic_appended:
-                    X = X_hsic
+                    X = fe_append_columns(X, fe_extract_columns(X_hsic, _hsic_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or [])
                         + list(_hsic_appended)
@@ -2260,16 +2204,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # 66 / 67 / 71. Engineered VALUES bit-equal to Layer 21 -> recipes
     # reuse the ``orth_univariate`` kind.
     if bool(getattr(self, "fe_hybrid_orth_jmim_enable", False)):
-        _is_pandas_for_jmim = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_jmim:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_jmim_enable=True but X is not a "
-                "pandas DataFrame; JMIM hybrid FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want the JMIM selection applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_jmim_fe import (
                     hybrid_orth_mi_jmim_fe_with_recipes,
@@ -2306,8 +2242,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _jmim_min_abs_mi_frac = 0.05
                 _X_before_jmim_cols = list(X.columns)
                 X_jmim, _jmim_scores, _jmim_recipes = (
-                    hybrid_orth_mi_jmim_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_jmim_fe_with_recipes,
                         X, _y_for_jmim,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_jmim_cols,
                         degrees=_jmim_degrees,
                         basis=_jmim_basis,
@@ -2322,7 +2262,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if c not in _X_before_jmim_cols
                 ]
                 if _jmim_appended:
-                    X = X_jmim
+                    X = fe_append_columns(X, fe_extract_columns(X_jmim, _jmim_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or [])
                         + list(_jmim_appended)
@@ -2349,16 +2289,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Layers 65 / 66 / 67 / 71 / 72. Engineered VALUES bit-equal to Layer
     # 21 -> recipes reuse the ``orth_univariate`` kind.
     if bool(getattr(self, "fe_hybrid_orth_tc_enable", False)):
-        _is_pandas_for_tc = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_tc:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_tc_enable=True but X is not a "
-                "pandas DataFrame; Total-Correlation hybrid FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want the TC selection applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_total_correlation_fe import (
                     hybrid_orth_mi_tc_fe_with_recipes,
@@ -2395,8 +2327,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _tc_min_abs_mi_frac = 0.05
                 _X_before_tc_cols = list(X.columns)
                 X_tc, _tc_scores, _tc_recipes = (
-                    hybrid_orth_mi_tc_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_tc_fe_with_recipes,
                         X, _y_for_tc,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_tc_cols,
                         degrees=_tc_degrees,
                         basis=_tc_basis,
@@ -2411,7 +2347,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if c not in _X_before_tc_cols
                 ]
                 if _tc_appended:
-                    X = X_tc
+                    X = fe_append_columns(X, fe_extract_columns(X_tc, _tc_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or [])
                         + list(_tc_appended)
@@ -2442,16 +2378,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # 73. Engineered VALUES bit-equal to Layer 21 -> recipes reuse the
     # ``orth_univariate`` kind.
     if bool(getattr(self, "fe_hybrid_orth_cmim_enable", False)):
-        _is_pandas_for_cmim = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_cmim:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_cmim_enable=True but X is not a "
-                "pandas DataFrame; CMIM hybrid FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want the CMIM selection applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_cmim_fe import (
                     hybrid_orth_mi_cmim_fe_with_recipes,
@@ -2488,8 +2416,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _cmim_min_abs_mi_frac = 0.05
                 _X_before_cmim_cols = list(X.columns)
                 X_cmim, _cmim_scores, _cmim_recipes = (
-                    hybrid_orth_mi_cmim_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_cmim_fe_with_recipes,
                         X, _y_for_cmim,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_cmim_cols,
                         degrees=_cmim_degrees,
                         basis=_cmim_basis,
@@ -2504,7 +2436,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if c not in _X_before_cmim_cols
                 ]
                 if _cmim_appended:
-                    X = X_cmim
+                    X = fe_append_columns(X, fe_extract_columns(X_cmim, _cmim_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or [])
                         + list(_cmim_appended)
@@ -2531,16 +2463,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ranking + selection. Engineered VALUES bit-equal to Layer 21 ->
     # recipes reuse the ``orth_univariate`` kind.
     if bool(getattr(self, "fe_hybrid_orth_auto_scorer_enable", False)):
-        _is_pandas_for_auto = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_auto:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_auto_scorer_enable=True but X is "
-                "not a pandas DataFrame; auto-scorer hybrid FE is "
-                "skipped. Convert to pandas via X.to_pandas() before "
-                "fit() if you want the auto-scorer selection applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_scorer_auto_fe import (
                     hybrid_orth_mi_auto_scorer_fe_with_recipes,
@@ -2580,8 +2504,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _auto_min_abs_mi_frac = 0.05
                 _X_before_auto_cols = list(X.columns)
                 X_auto, _auto_scores, _auto_recipes = (
-                    hybrid_orth_mi_auto_scorer_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_auto_scorer_fe_with_recipes,
                         X, _y_for_auto,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_auto_cols,
                         degrees=_auto_degrees,
                         basis=_auto_basis,
@@ -2597,7 +2525,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if c not in _X_before_auto_cols
                 ]
                 if _auto_appended:
-                    X = X_auto
+                    X = fe_append_columns(X, fe_extract_columns(X_auto, _auto_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or [])
                         + list(_auto_appended)
@@ -2626,16 +2554,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # LCB per-column winner is unstable across seeds. Engineered VALUES
     # bit-equal to Layer 21 -> recipes reuse the ``orth_univariate`` kind.
     if bool(getattr(self, "fe_hybrid_orth_ensemble_enable", False)):
-        _is_pandas_for_ens = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_ens:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_ensemble_enable=True but X is not a "
-                "pandas DataFrame; ensemble hybrid FE is skipped. Convert "
-                "to pandas via X.to_pandas() before fit() if you want the "
-                "ensemble selection applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_scorer_auto_fe import (
                     hybrid_orth_mi_ensemble_fe_with_recipes,
@@ -2681,8 +2601,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _ens_min_abs_mi_frac = 0.05
                 _X_before_ens_cols = list(X.columns)
                 X_ens, _ens_scores, _ens_recipes = (
-                    hybrid_orth_mi_ensemble_fe_with_recipes(
+                    fe_decide_on_subsample(
+                        hybrid_orth_mi_ensemble_fe_with_recipes,
                         X, _y_for_ens,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                         cols=_ens_cols,
                         degrees=_ens_degrees,
                         basis=_ens_basis,
@@ -2701,7 +2625,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if c not in _X_before_ens_cols
                 ]
                 if _ens_appended:
-                    X = X_ens
+                    X = fe_append_columns(X, fe_extract_columns(X_ens, _ens_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or [])
                         + list(_ens_appended)
@@ -2734,16 +2658,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # L68/L69. Engineered VALUES bit-equal to Layer 21 -> recipes reuse
     # the ``orth_univariate`` kind.
     if bool(getattr(self, "fe_hybrid_orth_meta_enable", False)):
-        _is_pandas_for_meta = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_meta:
-            warnings.warn(
-                "MRMR: fe_hybrid_orth_meta_enable=True but X is not a "
-                "pandas DataFrame; meta-scorer hybrid FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want the meta-scorer selection applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._orthogonal_meta_scorer_fe import (
                     hybrid_orth_mi_meta_fe_with_recipes,
@@ -2788,8 +2704,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 (
                     X_meta, _meta_scores, _meta_recipes,
                     _meta_chosen, _meta_fp,
-                ) = hybrid_orth_mi_meta_fe_with_recipes(
+                ) = fe_decide_on_subsample(
+                    hybrid_orth_mi_meta_fe_with_recipes,
                     X, _y_for_meta,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                     cols=_meta_cols,
                     degrees=_meta_degrees,
                     basis=_meta_basis,
@@ -2804,7 +2724,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if c not in _X_before_meta_cols
                 ]
                 if _meta_appended:
-                    X = X_meta
+                    X = fe_append_columns(X, fe_extract_columns(X_meta, _meta_appended))
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or [])
                         + list(_meta_appended)
@@ -2850,15 +2770,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.mi_greedy_features_ = []
     _mi_greedy_pre_recipes: dict = {}
     if bool(getattr(self, "fe_mi_greedy_enable", False)):
-        _is_pandas_for_mi_greedy = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_mi_greedy:
-            warnings.warn(
-                "MRMR: fe_mi_greedy_enable=True but X is not a pandas "
-                "DataFrame; MI-greedy FE is skipped. Convert to pandas via "
-                "X.to_pandas() before fit() if you want MI-greedy FE applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._mi_greedy_fe import greedy_mi_fe_construct_with_recipes
                 from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
@@ -2904,8 +2817,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         if c not in _hybrid_already_appended
                     ]
                 _X_before_mig_cols = list(X.columns)
-                X_mg, _mig_scores, _mig_recipes = greedy_mi_fe_construct_with_recipes(
+                X_mg, _mig_scores, _mig_recipes = fe_decide_on_subsample(
+                    greedy_mi_fe_construct_with_recipes,
                     X, _y_for_mig,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                     cols=_mig_cols,
                     seed_cols_count=int(self.fe_mi_greedy_seed_cols_count),
                     top_k=int(self.fe_mi_greedy_top_k),
@@ -2917,7 +2834,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     c for c in X_mg.columns if c not in _X_before_mig_cols
                 ]
                 if _mig_appended:
-                    X = X_mg
+                    X = fe_append_columns(X, fe_extract_columns(X_mg, _mig_appended))
                     self.mi_greedy_features_ = list(_mig_appended)
                     for _r in _mig_recipes:
                         _mi_greedy_pre_recipes[_r.name] = _r
@@ -2945,15 +2862,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # both prior hybrid-orth and prior marginal-MI-greedy engineered cols
     # (same rationale: replay must not reference engineered sources).
     if bool(getattr(self, "fe_mi_greedy_cmi_enable", False)):
-        _is_pandas_for_cmi = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_cmi:
-            warnings.warn(
-                "MRMR: fe_mi_greedy_cmi_enable=True but X is not a pandas "
-                "DataFrame; CMI-greedy FE is skipped. Convert to pandas via "
-                "X.to_pandas() before fit() if you want CMI-greedy FE applied.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        if True:
             try:
                 from .._mi_greedy_cmi_fe import greedy_cmi_fe_construct_with_recipes
                 _y_for_cmi = (
@@ -2985,8 +2895,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         if c not in _eng_already_appended
                     ]
                 _X_before_cmi_cols = list(X.columns)
-                X_cmi, _cmi_scores, _cmi_recipes = greedy_cmi_fe_construct_with_recipes(
+                X_cmi, _cmi_scores, _cmi_recipes = fe_decide_on_subsample(
+                    greedy_cmi_fe_construct_with_recipes,
                     X, _y_for_cmi,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
                     cols=_cmi_cols,
                     seed_cols_count=int(self.fe_mi_greedy_cmi_seed_cols_count),
                     top_k=int(self.fe_mi_greedy_cmi_top_k),
@@ -2999,7 +2913,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if c not in _X_before_cmi_cols
                 ]
                 if _cmi_appended:
-                    X = X_cmi
+                    X = fe_append_columns(X, fe_extract_columns(X_cmi, _cmi_appended))
                     # Merge into the existing mi_greedy_features_ list so
                     # end-of-fit dedup / remap / pickle treat both stages
                     # uniformly. Skip names already present (the two stages
@@ -3039,13 +2953,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _kfold_te_pre_recipes: dict = {}
     _binned_agg_pre_recipes: dict = {}
     if bool(getattr(self, "fe_kfold_te_enable", False)):
-        _is_pandas_for_te = isinstance(X, pd.DataFrame)
-        if not _is_pandas_for_te:
+        # K-fold target encoding is an OOF stat (no closed-form subsample-replay), so it needs the full frame: gate the
+        # polars->pandas materialisation on size and skip a > ~2 GiB frame rather than whole-copy it (CLAUDE.md eager rule).
+        if fe_polars_exceeds(X):
             warnings.warn(
-                "MRMR: fe_kfold_te_enable=True but X is not a pandas "
-                "DataFrame; K-fold target encoding is skipped. Convert "
-                "to pandas via X.to_pandas() before fit() if you want "
-                "K-fold TE applied.",
+                "MRMR: fe_kfold_te_enable=True but X is a large polars frame (> ~2 GiB); K-fold target encoding needs a "
+                "full-frame OOF decision and is skipped to avoid a whole-frame to_pandas copy. Materialise a subset or "
+                "pass pandas if you need it.",
                 UserWarning, stacklevel=3,
             )
         else:
@@ -3087,7 +3001,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _record_fe_rejection(self, step=_te_step, **_kw)
 
                 X_te, _te_appended, _te_recipes = kfold_target_encode_with_recipes(
-                    X, _y_for_te,
+                    fe_to_pandas(X), _y_for_te,
                     cat_cols=_te_cols,
                     n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
                     smoothing=float(
@@ -3114,7 +3028,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     c for c in _te_appended if c not in _X_before_te_cols
                 ]
                 if _te_appended:
-                    X = X_te
+                    X = fe_append_columns(X, fe_extract_columns(X_te, _te_appended))
                     self.kfold_te_features_ = list(_te_appended)
                     # Route through hybrid_orth_features_ so the end-of-fit
                     # remap routes by-name selected items into
@@ -3143,13 +3057,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # mean/std/skew/kurt of numeric columns grouped by quantile-binned cells of other numerics. Runs in the
     # pre-FE region (before categorize_dataset) so the appended columns enter screening like any numeric, and
     # routes recipes through hybrid_orth_features_ so a selected binagg column lands in _engineered_recipes_.
-    if bool(getattr(self, "fe_binned_numeric_agg_enable", False)) and isinstance(X, pd.DataFrame):
+    if bool(getattr(self, "fe_binned_numeric_agg_enable", False)) and fe_polars_exceeds(X):
+        warnings.warn(
+            "MRMR: fe_binned_numeric_agg_enable=True but X is a large polars frame (> ~2 GiB); binned-agg is an OOF stat "
+            "needing a full-frame decision and is skipped to avoid a whole-frame to_pandas copy.",
+            UserWarning, stacklevel=3,
+        )
+    elif bool(getattr(self, "fe_binned_numeric_agg_enable", False)):
         try:
             from .._binned_numeric_agg_fe import binned_numeric_agg_with_recipes
             _ba_y = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).ravel()
             _X_before_ba = list(X.columns)
             X_ba, _ba_appended, _ba_recipes = binned_numeric_agg_with_recipes(
-                X, _ba_y,
+                fe_to_pandas(X), _ba_y,
                 stats=tuple(getattr(self, "fe_binned_numeric_agg_stats", ("mean", "std", "skew", "kurt")) or ("mean",)),
                 nbins_base=int(getattr(self, "fe_binned_numeric_agg_nbins", 10)),
                 n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
@@ -3160,7 +3080,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             )
             _ba_appended = [c for c in _ba_appended if c not in _X_before_ba]
             if _ba_appended:
-                X = X_ba
+                X = fe_append_columns(X, fe_extract_columns(X_ba, _ba_appended))
                 self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ba_appended)
                 for _r in _ba_recipes:
                     if _r.name in _ba_appended:
@@ -3192,12 +3112,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         or bool(getattr(self, "fe_frequency_encoding_enable", False))
         or bool(getattr(self, "fe_cat_num_interaction_enable", False))
     ):
-        _is_pandas_l34 = isinstance(X, pd.DataFrame)
-        if not _is_pandas_l34:
+        # Count / frequency / cat-num-residual encodings are OOF / full-cardinality stats (no closed-form subsample-replay),
+        # so they need the full frame: gate the materialisation on size and skip a > ~2 GiB polars frame (CLAUDE.md eager rule).
+        if fe_polars_exceeds(X):
             warnings.warn(
-                "MRMR: Layer 34 FE (count/frequency/cat_num) enabled but X "
-                "is not a pandas DataFrame; the encodings are skipped. "
-                "Convert to pandas via X.to_pandas() before fit() to apply them.",
+                "MRMR: Layer 34 FE (count/frequency/cat_num) enabled but X is a large polars frame (> ~2 GiB); these OOF/"
+                "cardinality encodings need a full-frame decision and are skipped to avoid a whole-frame to_pandas copy.",
                 UserWarning, stacklevel=3,
             )
         else:
@@ -3244,7 +3164,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_np
                     )
                     X_c, _cnt_appended, _cnt_recipes = count_encode_with_recipes(
-                        X, cat_cols=_cnt_cols,
+                        fe_to_pandas(X), cat_cols=_cnt_cols,
                         mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                         mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                         y=_y_for_cnt,
@@ -3254,7 +3174,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in _cnt_appended if c not in _X_before_cnt_cols
                     ]
                     if _cnt_appended:
-                        X = X_c
+                        X = fe_append_columns(X, fe_extract_columns(X_c, _cnt_appended))
                         self.count_encoding_features_ = list(_cnt_appended)
                         self.hybrid_orth_features_ = (
                             list(self.hybrid_orth_features_ or []) + list(_cnt_appended)
@@ -3295,7 +3215,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _y_np
                     )
                     X_f, _freq_appended, _freq_recipes = frequency_encode_with_recipes(
-                        X, cat_cols=_freq_cols,
+                        fe_to_pandas(X), cat_cols=_freq_cols,
                         mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                         mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                         y=_y_for_freq,
@@ -3305,7 +3225,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in _freq_appended if c not in _X_before_freq_cols
                     ]
                     if _freq_appended:
-                        X = X_f
+                        X = fe_append_columns(X, fe_extract_columns(X_f, _freq_appended))
                         self.frequency_encoding_features_ = list(_freq_appended)
                         self.hybrid_orth_features_ = (
                             list(self.hybrid_orth_features_ or []) + list(_freq_appended)
@@ -3349,7 +3269,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _X_before_cn_cols = list(X.columns)
                         X_cn, _cn_appended, _cn_recipes = (
                             cat_num_interaction_with_recipes(
-                                X, _y_for_cn,
+                                fe_to_pandas(X), _y_for_cn,
                                 cat_cols=_cn_cats,
                                 num_cols=_cn_nums,
                                 n_folds=int(
@@ -3372,7 +3292,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             c for c in _cn_appended if c not in _X_before_cn_cols
                         ]
                         if _cn_appended:
-                            X = X_cn
+                            X = fe_append_columns(X, fe_extract_columns(X_cn, _cn_appended))
                             self.cat_num_interaction_features_ = list(_cn_appended)
                             self.hybrid_orth_features_ = (
                                 list(self.hybrid_orth_features_ or []) + list(_cn_appended)
@@ -3409,13 +3329,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         or bool(getattr(self, "fe_missingness_count_enable", False))
         or bool(getattr(self, "fe_missingness_pattern_enable", False))
     ):
-        _is_pandas_l37 = isinstance(X, pd.DataFrame)
-        if not _is_pandas_l37:
+        # Missingness indicator/count/pattern read whole-column NaN structure (no closed-form subsample-replay), so they
+        # need the full frame: gate the materialisation on size and skip a > ~2 GiB polars frame (CLAUDE.md eager rule).
+        if fe_polars_exceeds(X):
             warnings.warn(
-                "MRMR: Layer 37 FE (missingness indicator/count/pattern) enabled "
-                "but X is not a pandas DataFrame; the missingness encodings are "
-                "skipped. Convert to pandas via X.to_pandas() before fit() to "
-                "apply them.",
+                "MRMR: Layer 37 FE (missingness indicator/count/pattern) enabled but X is a large polars frame (> ~2 GiB); "
+                "the missingness encodings need a full-frame decision and are skipped to avoid a whole-frame to_pandas copy.",
                 UserWarning, stacklevel=3,
             )
         else:
@@ -3431,7 +3350,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # binned_numeric_agg cat-FE stage GPU-categorizes and imputes X in place (when CUDA_PATH is set), which erases the very NaNs the
             # missingness-FE family encodes -- is_missing__ would be all-zeros and missingness_pattern would collapse to a single pattern. The raw
             # NaNs are the user's input; MRMR's nan_strategy='separate_bin' scorer handles them downstream, so reinstating them here is correct, not a hack.
-            if _fit_entry_nan_mask:
+            if _fit_entry_nan_mask and isinstance(X, pd.DataFrame):
                 for _mc, _mask in _fit_entry_nan_mask.items():
                     if _mc in X.columns and len(_mask) == len(X):
                         _col_now = X[_mc]
@@ -3465,7 +3384,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     ]
                 # Auto-detect candidate cols with NaN rate in [1%, 99%].
                 return [
-                    c for c in auto_detect_missing_cols(X)
+                    c for c in auto_detect_missing_cols(fe_to_pandas(X))
                     if c not in _engineered_seen_l37
                 ]
 
@@ -3481,11 +3400,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
                     # Anchor the indicator's MI noise floor on the RAW input columns, not the engineered-polluted X: an earlier adaptive-Fourier stage appended high-(plug-in)-MI hijacker columns that would otherwise inflate the floor above a genuine MNAR indicator's MI and drop it (a >2%-missing source's signal lives in the NaN pattern the Fourier MI inflates).
                     _raw_floor_X = (
-                        X[[c for c in _raw_input_cols_pre_fe if c in X.columns]]
+                        fe_to_pandas(X)[[c for c in _raw_input_cols_pre_fe if c in X.columns]]
                         if _raw_input_cols_pre_fe else None
                     )
                     X_i, _ind_appended, _ind_recipes = missing_indicator_with_recipes(
-                        X, cols=_ind_cols,
+                        fe_to_pandas(X), cols=_ind_cols,
                         mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                         mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                         y=_y_for_ind,
@@ -3496,7 +3415,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in _ind_appended if c not in _X_before_ind_cols
                     ]
                     if _ind_appended:
-                        X = X_i
+                        X = fe_append_columns(X, fe_extract_columns(X_i, _ind_appended))
                         self.missingness_indicator_features_ = list(_ind_appended)
                         self.hybrid_orth_features_ = (
                             list(self.hybrid_orth_features_ or []) + list(_ind_appended)
@@ -3525,13 +3444,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
                     _X_before_mc_cols = list(X.columns)
                     X_c, _mc_appended, _mc_recipes = missingness_count_with_recipes(
-                        X, cols=_cnt_cols,
+                        fe_to_pandas(X), cols=_cnt_cols,
                     )
                     _mc_appended = [
                         c for c in _mc_appended if c not in _X_before_mc_cols
                     ]
                     if _mc_appended:
-                        X = X_c
+                        X = fe_append_columns(X, fe_extract_columns(X_c, _mc_appended))
                         self.missingness_count_features_ = list(_mc_appended)
                         self.hybrid_orth_features_ = (
                             list(self.hybrid_orth_features_ or []) + list(_mc_appended)
@@ -3561,13 +3480,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _top_k = int(getattr(self, "fe_missingness_pattern_top_k", 5))
                     _X_before_pat_cols = list(X.columns)
                     X_p, _pat_appended, _pat_recipes = missingness_pattern_with_recipes(
-                        X, cols=_pat_cols, top_k=_top_k,
+                        fe_to_pandas(X), cols=_pat_cols, top_k=_top_k,
                     )
                     _pat_appended = [
                         c for c in _pat_appended if c not in _X_before_pat_cols
                     ]
                     if _pat_appended:
-                        X = X_p
+                        X = fe_append_columns(X, fe_extract_columns(X_p, _pat_appended))
                         self.missingness_pattern_features_ = list(_pat_appended)
                         self.hybrid_orth_features_ = (
                             list(self.hybrid_orth_features_ or []) + list(_pat_appended)
@@ -3650,13 +3569,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         or bool(getattr(self, "fe_grouped_delta_enable", False))
         or bool(getattr(self, "fe_lagged_diff_enable", False))
     ):
-        _is_pandas_l38 = isinstance(X, pd.DataFrame)
-        if not _is_pandas_l38:
+        # grouped_delta / lagged_diff are cross-row (group / time ordered) and ratio / log-ratio rank their mi_gate on the
+        # full frame, none wired for closed-form subsample-replay -- so this block needs the full frame: gate the materialisation
+        # on size and skip a > ~2 GiB polars frame (CLAUDE.md eager rule).
+        if fe_polars_exceeds(X):
             warnings.warn(
-                "MRMR: Layer 38 FE (ratio/log_ratio/grouped_delta/lagged_diff) "
-                "enabled but X is not a pandas DataFrame; the encodings are "
-                "skipped. Convert to pandas via X.to_pandas() before fit() to "
-                "apply them.",
+                "MRMR: Layer 38 FE (ratio/log-ratio/grouped-delta/lagged-diff) enabled but X is a large polars frame "
+                "(> ~2 GiB); these families need a full-frame decision and are skipped to avoid a whole-frame to_pandas copy.",
                 UserWarning, stacklevel=3,
             )
         else:
@@ -3692,7 +3611,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _eps = float(getattr(self, "fe_pairwise_ratio_eps", 1e-9))
                     _X_before_r_cols = list(X.columns)
                     X_r, _r_appended, _r_recipes = pairwise_ratio_with_recipes(
-                        X, cols=_ratio_cols, eps=_eps,
+                        fe_to_pandas(X), cols=_ratio_cols, eps=_eps,
                         mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
                         y=_y_for_l38, reject_sink=_l38_reject_sink,
                     )
@@ -3700,7 +3619,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in _r_appended if c not in _X_before_r_cols
                     ]
                     if _r_appended:
-                        X = X_r
+                        X = fe_append_columns(X, fe_extract_columns(X_r, _r_appended))
                         self.pairwise_ratio_features_ = list(_r_appended)
                         self.hybrid_orth_features_ = (
                             list(self.hybrid_orth_features_ or []) + list(_r_appended)
@@ -3731,7 +3650,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _eps_lr = float(getattr(self, "fe_pairwise_ratio_eps", 1e-9))
                     _X_before_lr_cols = list(X.columns)
                     X_lr, _lr_appended, _lr_recipes = pairwise_log_ratio_with_recipes(
-                        X, cols=_lr_cols, eps=_eps_lr,
+                        fe_to_pandas(X), cols=_lr_cols, eps=_eps_lr,
                         mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
                         y=_y_for_l38, reject_sink=_l38_reject_sink,
                     )
@@ -3739,7 +3658,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in _lr_appended if c not in _X_before_lr_cols
                     ]
                     if _lr_appended:
-                        X = X_lr
+                        X = fe_append_columns(X, fe_extract_columns(X_lr, _lr_appended))
                         self.pairwise_log_ratio_features_ = list(_lr_appended)
                         self.hybrid_orth_features_ = (
                             list(self.hybrid_orth_features_ or []) + list(_lr_appended)
@@ -3770,7 +3689,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _gd_nums = [c for c in _gd_nums if c in X.columns]
                     _X_before_gd_cols = list(X.columns)
                     X_gd, _gd_appended, _gd_recipes = grouped_delta_with_recipes(
-                        X, group_col=_gd_group, num_cols=_gd_nums,
+                        fe_to_pandas(X), group_col=_gd_group, num_cols=_gd_nums,
                         mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
                         y=_y_for_l38, reject_sink=_l38_reject_sink,
                     )
@@ -3778,7 +3697,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in _gd_appended if c not in _X_before_gd_cols
                     ]
                     if _gd_appended:
-                        X = X_gd
+                        X = fe_append_columns(X, fe_extract_columns(X_gd, _gd_appended))
                         self.grouped_delta_features_ = list(_gd_appended)
                         self.hybrid_orth_features_ = (
                             list(self.hybrid_orth_features_ or []) + list(_gd_appended)
@@ -3812,7 +3731,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
                     _X_before_ld_cols = list(X.columns)
                     X_ld, _ld_appended, _ld_recipes = lagged_diff_with_recipes(
-                        X, time_col=_ld_time, value_cols=_ld_vals,
+                        fe_to_pandas(X), time_col=_ld_time, value_cols=_ld_vals,
                         periods=_ld_periods,
                         mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
                         y=_y_for_l38, reject_sink=_l38_reject_sink,
@@ -3821,7 +3740,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in _ld_appended if c not in _X_before_ld_cols
                     ]
                     if _ld_appended:
-                        X = X_ld
+                        X = fe_append_columns(X, fe_extract_columns(X_ld, _ld_appended))
                         self.lagged_diff_features_ = list(_ld_appended)
                         self.hybrid_orth_features_ = (
                             list(self.hybrid_orth_features_ or []) + list(_ld_appended)

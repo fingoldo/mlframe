@@ -229,11 +229,11 @@ class TestExtraBasisGatedOnHybridEnable:
 # --------------------------------------------------------------------- [16]
 
 
-class TestPolarsFeSkipWarningMessage:
-    def test_warning_does_not_falsely_claim_hybrid_enable(self):
-        """On the default-on univariate path with a polars frame, the FE-skip
-        warning must NOT assert 'fe_hybrid_orth_enable=True' (the user never set
-        it); it must name the actual trigger (fe_univariate_basis_enable)."""
+class TestPolarsFeRunsViaBridge:
+    def test_polars_fe_enabled_does_not_emit_skip_warning(self):
+        """A polars frame with FE enabled must NOT emit a 'not a pandas DataFrame; FE skipped' warning: MRMR.fit bridges
+        polars to an Arrow-backed zero-copy pandas view whenever any FE stage will run, so FE runs -- it is not skipped.
+        Supersedes the old contract (which checked the SKIP warning named the right flag): there is no skip to warn about."""
         pl = pytest.importorskip("polars")
 
         rng = np.random.default_rng(0)
@@ -244,21 +244,16 @@ class TestPolarsFeSkipWarningMessage:
 
         m = _make_cheap_mrmr(
             fe_hybrid_orth_enable=False,   # user did NOT enable the hybrid switch
-            fe_univariate_basis_enable=True,  # default-on trigger
+            fe_univariate_basis_enable=True,  # default-on trigger -> the bridge fires, FE runs
         )
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             m.fit(X, y)
 
-        fe_msgs = [
+        fe_skip_msgs = [
             str(w.message) for w in caught
             if "not a pandas" in str(w.message) and "FE" in str(w.message)
         ]
-        assert fe_msgs, "expected a polars FE-skip UserWarning to be emitted"
-        msg = fe_msgs[0]
-        # Must not blame a flag the user never set.
-        assert "fe_hybrid_orth_enable=True" not in msg, (
-            f"warning falsely claims fe_hybrid_orth_enable=True: {msg!r}"
+        assert not fe_skip_msgs, (
+            f"polars input with FE enabled must NOT skip FE (the bridge runs it), but a skip warning fired: {fe_skip_msgs!r}"
         )
-        # Must name the actual triggering flag.
-        assert "fe_univariate_basis_enable" in msg

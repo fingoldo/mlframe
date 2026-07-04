@@ -12,6 +12,7 @@ stays in the source framework (polars ``hstack`` / pandas ``concat``), so a 100+
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import numpy as np
@@ -64,8 +65,12 @@ def fe_is_numeric_col(X: Any, c: str) -> bool:
 def fe_subsample_to_pandas(X: Any, idx: np.ndarray):
     """Row-subsample ``X`` at integer positions ``idx`` and return a PANDAS frame (index reset).
 
-    Only the subsample is materialised, so on a 100+ GB frame this copies ~len(idx) rows, never the whole frame. polars is
-    gathered natively then bridged to pandas (the family decision bodies are pandas-native); pandas uses ``.iloc``.
+    Only the subsample is materialised, so on a 100+ GB frame this copies ~len(idx) rows, never the whole frame -- and it
+    runs on CPU (host), where the frame lives. polars is gathered natively then bridged to pandas (the family decision
+    bodies are pandas-native); pandas uses ``.iloc``. Numeric precision is NOT re-cast here: FE precision is governed by
+    the existing ``MLFRAME_CRIT_DTYPE_RELAXED`` knob (``_crit_np_dtype()`` -- f32-relaxed default), which the family bodies
+    already consult at their ``.to_numpy`` boundary; a subsample-level cast would only lose precision without saving work
+    while those bodies upcast to f64 (see the bench + Open-work-items note on the matrix-native plane).
     """
     if is_pandas(X):
         return X.iloc[idx].reset_index(drop=True)
@@ -88,6 +93,23 @@ def fe_extract_columns(X: Any, names) -> dict[str, np.ndarray]:
         else:
             raise TypeError(f"fe_extract_columns: unsupported frame type {type(X)!r}")
     return out
+
+
+# Eager polars->pandas materialisation is bounded to frames under this size (CLAUDE.md eager-conversion rule); a larger
+# polars frame must not be whole-frame-copied to pandas, so the few OOF / cross-row FE families that genuinely need the
+# full frame (no closed-form subsample-replay) skip above it rather than double peak RAM on a 100+ GB frame.
+FE_EAGER_MATERIALIZE_MAX_BYTES = 2 * 1024 ** 3
+
+
+def fe_polars_exceeds(X: Any, max_bytes: int = FE_EAGER_MATERIALIZE_MAX_BYTES) -> bool:
+    """True iff ``X`` is a polars frame whose in-memory size exceeds ``max_bytes`` (so an eager ``to_pandas`` would be a
+    large whole-frame copy). pandas / ndarray return False (already pandas, or their family avoids the copy)."""
+    if is_polars(X):
+        try:
+            return int(X.estimated_size()) > int(max_bytes)
+        except Exception:
+            return False
+    return False
 
 
 def fe_to_pandas(X: Any):
