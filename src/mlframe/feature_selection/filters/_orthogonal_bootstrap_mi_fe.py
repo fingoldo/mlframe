@@ -224,7 +224,7 @@ def score_features_by_bootstrap_mi(
     engineered_replicates: list[np.ndarray] = []
     uplift_replicates: list[np.ndarray] = []
 
-    for b in range(n_boot_eff):
+    for _ in range(n_boot_eff):
         idx = rng.integers(0, n, size=sample_n)
         # Guard against degenerate single-class bootstraps (rare-imbalance
         # frames). Resample up to 5 times to find a multi-class slice;

@@ -383,7 +383,7 @@ def score_features_by_kfold_oof_mi(
     raw_fold_mis: list[np.ndarray] = []
     eng_fold_mis: list[np.ndarray] = []
 
-    for k, test_idx in enumerate(fold_test_idx):
+    for test_idx in fold_test_idx:
         if test_idx.size == 0:
             continue
         train_mask = np.ones(n, dtype=bool)

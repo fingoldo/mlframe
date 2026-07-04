@@ -306,7 +306,7 @@ def generate_adaptive_arity_cross_basis(
     # We process winners by MI descending so each high-MI cell eclipses
     # both directions before we evaluate lower-MI candidates.
     eclipsed: set[frozenset] = set()
-    for key, (k, mi_val, degs, name, prod) in sorted(
+    for key, (k, mi_val, _degs, _name, _prod) in sorted(
         winners.items(), key=lambda kv: -kv[1][0],
     ):
         if key in eclipsed:
@@ -328,7 +328,7 @@ def generate_adaptive_arity_cross_basis(
                 eclipsed.add(sup_key)
 
     # Emit kept winners.
-    for key, (k, mi_val, degs, name, prod) in winners.items():
+    for key, (k, mi_val, _degs, name, prod) in winners.items():
         if key in eclipsed:
             continue
         # Recover the original tuple ORDER (sorted by valid_src order so

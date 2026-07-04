@@ -449,11 +449,11 @@ def hybrid_orth_mi_quadruplet_fe(
         return X_aug_uni, uni_scores, pd.DataFrame(columns=_QUADRUPLET_SCORE_EMPTY_COLS)
 
     quadruplets = [
-        (seed_sources[i], seed_sources[j], seed_sources[k], seed_sources[l])
+        (seed_sources[i], seed_sources[j], seed_sources[k], seed_sources[m])
         for i in range(len(seed_sources))
         for j in range(i + 1, len(seed_sources))
         for k in range(j + 1, len(seed_sources))
-        for l in range(k + 1, len(seed_sources))
+        for m in range(k + 1, len(seed_sources))
     ]
     quad_eng = generate_quadruplet_cross_basis_features(
         X, quadruplets, max_degree=quadruplet_max_degree, basis=basis,

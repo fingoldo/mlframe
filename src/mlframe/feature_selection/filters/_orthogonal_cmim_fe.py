@@ -112,7 +112,6 @@ from ._mi_greedy_cmi_fe import (
     _cmi_from_binned,
     _entropy_from_classes,
     _quantile_bin,
-    _renumber_joint,
 )
 from ._orthogonal_univariate_fe import (
     _mi_classif_batch,
