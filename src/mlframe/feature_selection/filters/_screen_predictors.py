@@ -527,7 +527,11 @@ def screen_predictors(
             except Exception:
                 _screen_full_factors = None
 
-        data_copy = factors_data.copy()
+        # Mutate-and-restore instead of a whole-matrix copy: ``data_copy`` aliases ``factors_data`` and the Fleuret permutation njit
+        # (``get_fleuret_criteria_confidence``) saves+restores ONLY the few columns it shuffles (x u y, ~O(n) each), so peak extra RAM is
+        # O((|x|+|y|)*n) not O(p*n). Frames here can be 100+ GB; the per-screen-call full copy doubled peak RAM. The parallel confirm path
+        # already copies per-worker, so it never mutated this buffer -- the serial path now matches that pristine-start semantics.
+        data_copy = factors_data
 
         classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
         classes_y_safe = classes_y.copy()

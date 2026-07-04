@@ -106,9 +106,9 @@ def screen_dcd_discover_and_swap(
                 factors_data = _data_ref.get("data", factors_data)
                 factors_nbins = _data_ref.get("nbins", factors_nbins)
                 factors_names = _data_ref.get("cols", factors_names)
-                # Re-snapshot data_copy for the next
-                # confirm cycle (used by Fleuret).
-                data_copy = factors_data.copy()
+                # Re-alias data_copy to the (post-swap, extended) factors_data for the next confirm cycle; the Fleuret permutation njit
+                # saves+restores the columns it shuffles, so no whole-matrix copy is needed here either.
+                data_copy = factors_data
                 # 2026-05-30 Wave 9.1 fix (loop iter 2):
                 # confirm_one_predictor reads ctx.factors_data
                 # and ctx.data_copy at the top of every call;
