@@ -117,6 +117,8 @@ def generate_triplet_cross_basis_features(
     -------
     DataFrame of triplet-cross-basis columns.
     """
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     if not triplets:
         return pd.DataFrame(index=X.index)
     cache: dict[tuple[str, int, str], np.ndarray] = {}
@@ -142,9 +144,11 @@ def generate_triplet_cross_basis_features(
             and pd.api.types.is_numeric_dtype(X[col_k])
         ):
             continue
-        x_i = np.asarray(X[col_i].to_numpy(), dtype=np.float64)
-        x_j = np.asarray(X[col_j].to_numpy(), dtype=np.float64)
-        x_k = np.asarray(X[col_k].to_numpy(), dtype=np.float64)
+        from ._fe_usability_signal import _crit_np_dtype
+        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+        x_i = np.asarray(X[col_i].to_numpy(), dtype=_dt)
+        x_j = np.asarray(X[col_j].to_numpy(), dtype=_dt)
+        x_k = np.asarray(X[col_k].to_numpy(), dtype=_dt)
         for x in (x_i, x_j, x_k):
             finite_mask = np.isfinite(x)
             if not finite_mask.all():
@@ -258,6 +262,8 @@ def score_triplet_cross_basis_by_mi_uplift(
     DEVICE-BORN STRICT-resident scorer re-routes each leg to the SAME basis the host generator used. Unused on
     the host default path.
     """
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     y_arr = (
         np.asarray(y).astype(np.int64)
         if not np.issubdtype(np.asarray(y).dtype, np.integer)
@@ -279,7 +285,9 @@ def score_triplet_cross_basis_by_mi_uplift(
             if _res is not None:
                 raw_mi_map, eng_mi = _res
     if eng_mi is None:
-        raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
+        from ._fe_usability_signal import _crit_np_dtype
+        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+        raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins)
         raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
         eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
     rows = []
@@ -386,6 +394,8 @@ def hybrid_orth_mi_triplet_fe(
         triplet_scores : ranking DataFrame from stage 2.
     """
     # Stage 1: univariate hybrid (Layer 21).
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     X_aug_uni, uni_scores = hybrid_orth_mi_fe(
         X, y,
         cols=cols, degrees=degrees, basis=basis,
@@ -433,8 +443,10 @@ def hybrid_orth_mi_triplet_fe(
                 else np.asarray(y, dtype=np.int64)
             )
             raw_X_all = X[raw_cols_all]
+            from ._fe_usability_signal import _crit_np_dtype
+            _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
             raw_mi_arr = _mi_classif_batch(
-                raw_X_all.to_numpy(dtype=np.float64), y_arr, nbins=nbins,
+                raw_X_all.to_numpy(dtype=_dt), y_arr, nbins=nbins,
             )
             order = np.argsort(-raw_mi_arr)
             seed_sources = [raw_cols_all[i] for i in order[: int(top_triplet_seed_k)]]
@@ -560,6 +572,8 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
     order-3-floored proposer survivors) instead of the C(seed_k, 3) over the
     univariate-MI seed pool.
     """
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     from .engineered_recipes import (
         build_orth_univariate_recipe,
         build_orth_triplet_cross_recipe,
@@ -619,9 +633,11 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
                 continue
             # Same auto-routing fixup as Layer 22 pair recipe builder.
             col_i, col_j, col_k = legs
-            x_i = X[col_i].to_numpy(dtype=np.float64)
-            x_j = X[col_j].to_numpy(dtype=np.float64)
-            x_k = X[col_k].to_numpy(dtype=np.float64)
+            from ._fe_usability_signal import _crit_np_dtype
+            _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+            x_i = X[col_i].to_numpy(dtype=_dt)
+            x_j = X[col_j].to_numpy(dtype=_dt)
+            x_k = X[col_k].to_numpy(dtype=_dt)
             if basis == "auto":
                 try:
                     basis_a = basis_route_by_moments(x_i)
@@ -662,7 +678,8 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
             # the orth_univariate BUG2 fix); without them replay refits the axis from apply-time rows.
             _pp_u = None
             try:
-                _x_u = X[src].to_numpy(dtype=np.float64)
+                from ._fe_usability_signal import _crit_np_dtype
+                _x_u = X[src].to_numpy(dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
                 _, _pp_u = _evaluate_basis_column(_x_u, chosen_basis, chosen_degree, return_params=True)
             except Exception:
                 pass

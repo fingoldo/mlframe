@@ -132,6 +132,8 @@ def generate_pair_cross_basis_features(
     control (manufactured spurious weaker pairs 0.60-0.96, leak-free over-search).
     Don't re-add joint product routing here. (D:/Temp/item5_product_routing_findings.md)
     """
+    from .._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     from . import _evaluate_basis_column
 
     if not pairs:
@@ -156,8 +158,10 @@ def generate_pair_cross_basis_features(
         # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block for a
         # contiguous float64 column, and the np.copyto NaN-fill below would then mutate the CALLER's X
         # (corrupting downstream missingness-FE). A fresh copy keeps the fill local to this function.
-        x_i = np.array(X[col_i].to_numpy(), dtype=np.float64)
-        x_j = np.array(X[col_j].to_numpy(), dtype=np.float64)
+        from .._fe_usability_signal import _crit_np_dtype
+        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+        x_i = np.array(X[col_i].to_numpy(), dtype=_dt)
+        x_j = np.array(X[col_j].to_numpy(), dtype=_dt)
         for x in (x_i, x_j):
             finite_mask = np.isfinite(x)
             if not finite_mask.all():
@@ -294,7 +298,8 @@ def score_pair_cross_basis_by_mi_uplift(
         if _res is not None:
             raw_mi_map, eng_mi = _res
     if eng_mi is None:
-        raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
+        from .._fe_usability_signal import _crit_np_dtype
+        raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=_crit_np_dtype()), y_arr, nbins=nbins)
         raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
         # Column-chunked MI scoring -> bit-identical, bounds peak RAM on the wide pair-cross-basis matrix.
         eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
@@ -416,7 +421,8 @@ def hybrid_orth_mi_pair_fe(
         # univariate MIs are near-zero for y = sign(x_i * x_j)).
         y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
         raw_X_all = X[raw_cols_all]
-        raw_mi_arr = _mi_classif_batch(raw_X_all.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
+        from .._fe_usability_signal import _crit_np_dtype
+        raw_mi_arr = _mi_classif_batch(raw_X_all.to_numpy(dtype=_crit_np_dtype()), y_arr, nbins=nbins)
         order = np.argsort(-raw_mi_arr)
         fallback = [raw_cols_all[i] for i in order[: int(top_pair_seed_k)]]
         for src in fallback:
@@ -546,6 +552,8 @@ def hybrid_orth_mi_pair_fe_with_recipes(
     # D1 (2026-06-22): authoritative raw-source set for un-stemming engineered names.
     _raw_src_cols = [c for c in X.columns]
     recipes = []
+    from .._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); recipe-replay axis matches the fit-time f32 operands
     for name in appended:
         _pair_ci, _pair_cj = _pair_sources_from_engineered_name(name, _raw_src_cols)
         if _pair_ci is not None and _pair_cj is not None:
@@ -588,8 +596,8 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             # auto mode so replay matches fit-time evaluation.
             if basis == "auto":
                 try:
-                    x_i = X[col_i].to_numpy(dtype=np.float64)
-                    x_j = X[col_j].to_numpy(dtype=np.float64)
+                    x_i = X[col_i].to_numpy(dtype=_dt)
+                    x_j = X[col_j].to_numpy(dtype=_dt)
                     basis_a = basis_route_by_moments(x_i)
                     basis_b = basis_route_by_moments(x_j)
                 except Exception:
@@ -599,12 +607,12 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             from . import _evaluate_basis_column as _ebc
             _ppi = _ppj = None
             try:
-                _xi = X[col_i].to_numpy(dtype=np.float64)
+                _xi = X[col_i].to_numpy(dtype=_dt)
                 _, _ppi = _ebc(_xi, basis_a, int(deg_a), return_params=True)
             except Exception:
                 _ppi = None
             try:
-                _xj = X[col_j].to_numpy(dtype=np.float64)
+                _xj = X[col_j].to_numpy(dtype=_dt)
                 _, _ppj = _ebc(_xj, basis_b, int(deg_b), return_params=True)
             except Exception:
                 _ppj = None
@@ -638,7 +646,7 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             from . import _evaluate_basis_column as _ebc
             _pp = None
             try:
-                _xc = X[src].to_numpy(dtype=np.float64)
+                _xc = X[src].to_numpy(dtype=_dt)
                 _, _pp = _ebc(_xc, chosen_basis, int(chosen_degree), return_params=True)
             except Exception:
                 _pp = None

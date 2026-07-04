@@ -394,8 +394,10 @@ def score_features_by_cmim(
     # column so the CMIM ranking is comparable across columns with very
     # different source-marginal magnitudes.
     y_int = _coerce_y_int64(y)
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     raw_mi = _mi_classif_batch(
-        raw_X.to_numpy(dtype=np.float64), y_int, nbins=int(n_bins),
+        raw_X.to_numpy(dtype=_dt), y_int, nbins=int(n_bins),
     )
     raw_mi_map = dict(zip(list(raw_X.columns), raw_mi.tolist()))
 

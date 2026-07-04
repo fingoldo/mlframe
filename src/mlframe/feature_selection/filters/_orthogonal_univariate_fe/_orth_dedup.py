@@ -216,7 +216,8 @@ def _dedup_collinear_source_cols(
         if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
             classes.append("pass_through")
             continue
-        arr = np.asarray(X[c].to_numpy(), dtype=np.float64)
+        from .._fe_usability_signal import _crit_np_dtype
+        arr = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); coarse corr-threshold dedup is scale-robust
         if _sample_idx is not None:
             arr = arr[_sample_idx]
         finite = np.isfinite(arr)

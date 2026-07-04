@@ -289,6 +289,7 @@ def score_features_by_copula_mi_uplift(
             "engineered_col", "source_col", "baseline_mi",
             "engineered_mi", "uplift",
         ])
+    # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) -- NOT routed through _crit_np_dtype.
     raw_mi = _copula_mi_batch(
         raw_X.to_numpy(dtype=np.float64), y_arr, n_bins=int(n_bins),
     )

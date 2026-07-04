@@ -183,8 +183,10 @@ def detect_clusters_by_correlation(
         return {}
     dense_arrays: list[np.ndarray] = []
     dense_names: list[str] = []
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     for c in cols:
-        arr = np.asarray(X[c].to_numpy(), dtype=np.float64)
+        arr = np.asarray(X[c].to_numpy(), dtype=_dt)
         finite = np.isfinite(arr)
         if not finite.any():
             continue
@@ -309,9 +311,11 @@ def compute_cluster_aggregate(
         member_mean = np.asarray(stats["member_mean"], dtype=np.float64)
         member_std = np.asarray(stats["member_std"], dtype=np.float64)
         signs = np.asarray(stats["signs"], dtype=np.float64)
+        from ._fe_usability_signal import _crit_np_dtype
+        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
         cols = []
         for i, m in enumerate(members):
-            a = np.asarray(X[m].to_numpy(), dtype=np.float64)
+            a = np.asarray(X[m].to_numpy(), dtype=_dt)
             fill = float(member_mean[i]) if i < member_mean.size else 0.0
             cols.append(np.where(np.isfinite(a), a, fill))
         M = np.column_stack(cols)
@@ -330,9 +334,11 @@ def compute_cluster_aggregate(
     # NaN-safe per-column fill before sign-aligned standardisation; note the
     # resulting per-member mean equals the fill value, so replay can fill test
     # NaNs with the stored mean and stay consistent.
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     cols = []
     for m in members:
-        a = np.asarray(X[m].to_numpy(), dtype=np.float64)
+        a = np.asarray(X[m].to_numpy(), dtype=_dt)
         finite = np.isfinite(a)
         if not finite.all():
             fill = float(np.nanmean(a[finite])) if finite.any() else 0.0

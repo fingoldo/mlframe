@@ -243,9 +243,11 @@ def generate_conditional_basis_routing_features(
     )
 
     # ---- Step 1: raw baselines (one batch MI call across the chosen cols)
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     raw_X = X[list(cols)]
     raw_mi = _mi_classif_batch(
-        raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins,
+        raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins,
     )
     raw_mi_map = dict(zip(cols, raw_mi.tolist()))
 
@@ -257,7 +259,7 @@ def generate_conditional_basis_routing_features(
     cand_meta: list[tuple[str, str, str, int]] = []  # (src, pre, basis, degree)
 
     for col in cols:
-        x_raw = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        x_raw = np.asarray(X[col].to_numpy(), dtype=_dt)
         finite_mask = np.isfinite(x_raw)
         if not finite_mask.all():
             fill = float(np.nanmean(x_raw[finite_mask])) if finite_mask.any() else 0.0

@@ -41,7 +41,7 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from .hermite_fe import basis_route_by_moments, _POLY_BASES
+from .hermite_fe import _POLY_BASES
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch,
@@ -155,8 +155,10 @@ def generate_adaptive_degree_basis_features(
 
     # ---- Step 1: raw baselines for the chosen sources (one batch MI call)
     raw_X = X[cols]
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     raw_mi = _mi_classif_batch(
-        raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins,
+        raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins,
     )
     raw_mi_map = dict(zip(cols, raw_mi.tolist()))
 
@@ -170,7 +172,7 @@ def generate_adaptive_degree_basis_features(
     cand_values: list[np.ndarray] = []
     cand_to_source: list[tuple[str, int, str]] = []  # (src, degree, basis)
     for col in cols:
-        x = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        x = np.asarray(X[col].to_numpy(), dtype=_dt)  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
         finite_mask = np.isfinite(x)
         if not finite_mask.all():
             fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0

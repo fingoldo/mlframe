@@ -245,6 +245,7 @@ def score_features_by_lasso_coef(
     # across raw and engineered columns. (Two separate Lasso fits would
     # double-count the shared linear signal and bias the uplift ratio.)
     stack_cols = raw_cols + eng_cols
+    # f64 kept: covariance/coordinate-descent stability (f32 sums lose precision here) -- NOT routed through _crit_np_dtype.
     stack_arr = np.column_stack([
         raw_X.to_numpy(dtype=np.float64),
         engineered_X.to_numpy(dtype=np.float64),

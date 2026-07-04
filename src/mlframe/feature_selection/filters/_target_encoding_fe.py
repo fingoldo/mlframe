@@ -28,7 +28,7 @@ replay time. ``MRMR.transform`` recomputes each column deterministically.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Iterable, Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -50,14 +50,14 @@ __all__ = [
 # regimes): measured +0.04..+0.09 OOS R^2 on varying-slope regression with the encoded stats fed alongside the
 # raw feature (bench_multistat_cell_encoding). For a pure mean-shift / homoscedastic / binary target the extra
 # moments are redundant (Bernoulli moments are functions of the mean), so ``("mean",)`` stays the default.
-# TODO: investigate robust / order-statistic target encodings as additional first-class stats -- per-category median,
-# trimmed mean, target quantiles (p10/p90/IQR), min/max of y -- which resist outliers and capture asymmetry the raw
-# moments miss on heavy-tailed targets. Reuse the aggregate kernels in mlframe.feature_engineering.numerical
-# (compute_numaggs / compute_simple_stats_numba / numaggs_over_matrix_rows) rather than re-deriving them, add the
-# per-moment sample-stability floors (cf. _binned_numeric_agg_fe._N_MIN) so rare cells drop unstable order-stats, and
-# gate the win with a biz_value test (a heavy-tailed / outlier-contaminated per-category target where median/quantile
-# encoding beats the mean encoder on OOS R^2 -- floor the assertion 5-15% below the measured delta).
-TE_SUPPORTED_STATS = ("mean", "std", "skew", "kurt")
+# Robust / order-statistic stats (median, trimmed_mean, q10, q90, iqr, min, max) live in _target_encoding_order_stats:
+# they need y sorted within each category (not expressible from raw moments), and carry their own per-stat stability
+# floors so rare cells fall back to the global value. Promoting the order-stat winners to the ctor default is a tracked
+# follow-up -- it needs a multi-seed sweep confirming the biz_value win generalises before the default flips.
+from ._target_encoding_order_stats import ORDER_STATS as _TE_ORDER_STATS, global_order_stats, per_category_order_stats
+
+_TE_MOMENT_STATS = ("mean", "std", "skew", "kurt")
+TE_SUPPORTED_STATS = _TE_MOMENT_STATS + _TE_ORDER_STATS
 
 
 # ---------------------------------------------------------------------------
@@ -88,17 +88,18 @@ def _per_category_stats_smoothed(
     """Vectorised per-category target statistics (mean/std/skew/kurt) from raw moments via ``np.bincount``,
     each shrunk toward its global value (Micci-Barreca) so rare categories stay robust. Returns ``{stat: arr}``
     of length ``n_cats``. O(n) per fold -- replaces the prior per-row Python loop (a real speedup on wide cat sets)."""
+    moment_stats = [s for s in stats if s in _TE_MOMENT_STATS]
     cnt = np.bincount(inverse, minlength=n_cats).astype(np.float64)
     safe = np.maximum(cnt, 1.0)
     s1 = np.bincount(inverse, weights=y_arr, minlength=n_cats)
     mean = s1 / safe
-    need_hi = any(s in ("std", "skew", "kurt") for s in stats)
+    need_hi = any(s in ("std", "skew", "kurt") for s in moment_stats)
     out: dict = {}
     if need_hi:
         s2 = np.bincount(inverse, weights=y_arr * y_arr, minlength=n_cats)
         m2 = np.maximum(s2 / safe - mean * mean, 0.0)  # variance (clip tiny negatives from fp error)
         std = np.sqrt(m2)
-    for stat in stats:
+    for stat in moment_stats:
         if stat == "mean":
             raw = mean
         elif stat == "std":
@@ -121,8 +122,20 @@ def _per_category_stats_smoothed(
     return out
 
 
+def _per_category_target_stats(
+    inverse: np.ndarray, y_arr: np.ndarray, n_cats: int, stats: Sequence[str],
+    global_stats: dict, smoothing: float,
+) -> dict:
+    """Per-category values for every requested stat: moment stats (mean/std/skew/kurt) via the smoothed raw-moment path,
+    order stats (median/trimmed_mean/q10/q90/iqr/min/max) via the within-category-sorted segment kernel. Merged in one
+    dict of length-``n_cats`` arrays -- the single per-category entry point the OOF folds + full-data replay both call."""
+    out = _per_category_stats_smoothed(inverse, y_arr, n_cats, stats, global_stats, smoothing)
+    out.update(per_category_order_stats(inverse, y_arr, n_cats, stats, global_stats))
+    return out
+
+
 def _global_target_stats(y_arr: np.ndarray, stats: Sequence[str]) -> dict:
-    """Global (all-rows) value of each requested statistic -- the shrink target / unseen-category fallback."""
+    """Global (all-rows) value of each requested statistic -- the shrink target / unseen-category / rare-cell fallback."""
     from scipy.stats import kurtosis as _kurt, skew as _skew
     g = {}
     sd = float(np.std(y_arr))
@@ -135,6 +148,7 @@ def _global_target_stats(y_arr: np.ndarray, stats: Sequence[str]) -> dict:
             g[stat] = float(_skew(y_arr)) if (y_arr.size > 2 and sd > 1e-12) else 0.0
         elif stat == "kurt":
             g[stat] = float(_kurt(y_arr)) if (y_arr.size > 3 and sd > 1e-12) else 0.0
+    g.update(global_order_stats(y_arr, stats))
     return {k: (v if np.isfinite(v) else 0.0) for k, v in g.items()}
 
 
@@ -362,7 +376,7 @@ def kfold_target_encode_fit(
             train_mask = fold_ids != f
             if not train_mask.any():
                 continue
-            per_cat = _per_category_stats_smoothed(
+            per_cat = _per_category_target_stats(
                 inverse[train_mask], y_arr[train_mask], n_cats, stats, global_stats, smoothing,
             )
             test_idx = np.where(~train_mask)[0]
@@ -371,7 +385,7 @@ def kfold_target_encode_fit(
                 oof[s][test_idx] = per_cat[s][inv_test]
 
         # Full-data lookups for transform-time replay (one table per statistic).
-        full_per_cat = _per_category_stats_smoothed(inverse, y_arr, n_cats, stats, global_stats, smoothing)
+        full_per_cat = _per_category_target_stats(inverse, y_arr, n_cats, stats, global_stats, smoothing)
         cat_strs = [str(unique_cats[c]) for c in range(n_cats)]
         stat_lookups: dict[str, dict] = {}
         for s in stats:

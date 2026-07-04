@@ -192,8 +192,10 @@ def generate_adaptive_arity_cross_basis(
     # Precompute per-column basis routing + the deg-by-deg basis values.
     basis_per_col: dict[str, str] = {}
     leg_cache: dict[tuple[str, int], np.ndarray] = {}
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     for col in src:
-        x = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        x = np.asarray(X[col].to_numpy(), dtype=_dt)
         finite_mask = np.isfinite(x)
         if not finite_mask.all():
             fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
@@ -429,6 +431,8 @@ def score_adaptive_arity_cross_basis(
     ``basis`` mirrors the generation call so the DEVICE-BORN STRICT-resident scorer re-routes each leg to the
     SAME basis the host generator used. Unused on the host default path.
     """
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     y_arr = _coerce_y_classif(y)
     if engineered_X.empty:
         return pd.DataFrame(columns=_ADAPTIVE_SCORE_EMPTY_COLS)
@@ -445,7 +449,9 @@ def score_adaptive_arity_cross_basis(
             if _res is not None:
                 raw_mi_map, eng_mi = _res
     if eng_mi is None:
-        raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
+        from ._fe_usability_signal import _crit_np_dtype
+        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+        raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins)
         raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
         eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
     rows = []
@@ -515,6 +521,8 @@ def hybrid_orth_mi_adaptive_arity_fe(
     (X_augmented, univariate_scores, adaptive_scores)
     """
     # Stage 1: univariate hybrid (Layer 21).
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     X_aug_uni, uni_scores = hybrid_orth_mi_fe(
         X, y,
         cols=cols, degrees=degrees, basis=basis,
@@ -538,8 +546,10 @@ def hybrid_orth_mi_adaptive_arity_fe(
         else:
             y_arr = _coerce_y_classif(y)
             raw_X_all = X[raw_cols_all]
+            from ._fe_usability_signal import _crit_np_dtype
+            _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
             raw_mi_arr = _mi_classif_batch(
-                raw_X_all.to_numpy(dtype=np.float64), y_arr, nbins=nbins,
+                raw_X_all.to_numpy(dtype=_dt), y_arr, nbins=nbins,
             )
             order = np.argsort(-raw_mi_arr)
             seed_sources = [raw_cols_all[i] for i in order[: int(seed_k)]]
@@ -638,7 +648,8 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
         if basis != "auto":
             return basis
         try:
-            x = X[col].to_numpy(dtype=np.float64)
+            from ._fe_usability_signal import _crit_np_dtype
+            x = X[col].to_numpy(dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
             return basis_route_by_moments(x)
         except Exception:
             return "hermite"

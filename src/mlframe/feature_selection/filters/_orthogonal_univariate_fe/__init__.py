@@ -319,7 +319,8 @@ def generate_univariate_basis_features(
         # whatever was engineered so far (the core selection still produces a usable partial). No-op when no budget is set.
         if fe_deadline_passed():
             break
-        x = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        from .._fe_usability_signal import _crit_np_dtype
+        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust (replay axis at :952 matches)
         # Skip orthogonal-polynomial expansion on integer-valued low-cardinality categorical group keys: T_n / He_n of an
         # arbitrary label code (region 0..9) is spurious -- it fits the label->target mapping, floods the candidate pool, and
         # displaces the genuinely useful grouped aggregates of that key. Continuous / high-card columns keep the expansion. The
@@ -484,8 +485,10 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
         # already uploaded once by the basis builders, so stacking the resident columns content-hits the cache
         # and the whole (n, k) matrix never crosses H2D (vs the prior single whole-matrix upload, a distinct
         # blob that never deduped). Column j is X[raw_cols[j]] verbatim -> same bytes -> selection-equivalent.
+        from .._fe_usability_signal import _crit_np_dtype
+        _rm_dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
         raw_mat = assemble_resident_matrix(
-            X[raw_cols].to_numpy(dtype=np.float64), raw_cols, ("orth_raw_mat", tuple(raw_cols)), dtype=np.float64,
+            X[raw_cols].to_numpy(dtype=_rm_dt), raw_cols, ("orth_raw_mat", tuple(raw_cols)), dtype=_rm_dt,
         )
     code = _BASIS_CODE
     # Routing + skips run on the HOST (cheap njit / moment fingerprint), mirroring the host builder;
@@ -496,7 +499,8 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     for col in cols:
         if fe_deadline_passed():
             break
-        x = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        from .._fe_usability_signal import _crit_np_dtype
+        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
         if _cols_auto and _is_int_as_cat_axis(x):
             continue
         if not np.isfinite(x).all():
@@ -629,7 +633,8 @@ def score_features_by_mi_uplift(
     """
     y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
     raw_cols = list(raw_X.columns)
-    raw_np = raw_X.to_numpy(dtype=np.float64)
+    from .._fe_usability_signal import _crit_np_dtype
+    raw_np = raw_X.to_numpy(dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); scale-robust MI
     # SF1a class-B :311 collapse (2026-06-30): the RAW baseline matrix is the fit-constant raw columns verbatim;
     # under STRICT it already routes through the resident plug-in but re-uploads fresh at _orth_mi_backends:311.
     # Ride the resident-operand cache so it uploads ONCE. Same percentile-edge resident estimator the host STRICT
@@ -946,7 +951,8 @@ def hybrid_orth_mi_fe_with_recipes(
         # ``a__He2`` sub-operand (the BUG2 replay-determinism regression).
         _pp = None
         try:
-            _col_full = np.asarray(X[src].values, dtype=np.float64)
+            from .._fe_usability_signal import _crit_np_dtype
+            _col_full = np.asarray(X[src].values, dtype=_crit_np_dtype())  # match the fit-time f32 operand (:322) so the byte-exact replay axis is consistent
             _vals_full, _pp = _evaluate_basis_column(
                 _col_full, chosen_basis, int(chosen_degree), return_params=True,
             )

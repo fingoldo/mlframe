@@ -80,7 +80,8 @@ def _operand_filled(X: pd.DataFrame, col: str) -> np.ndarray:
     """The host generators copy the column, then mean-fill non-finite rows BEFORE the basis preprocess. Reproduce
     that EXACT host pre-fill so the device leg sees the same operand values (otherwise NaN handling could diverge
     a row). ``np.array(copy=True)`` to never alias / mutate the caller's frame (the host path's no-mutation note)."""
-    x = np.array(X[col].to_numpy(), dtype=np.float64)
+    from .._fe_usability_signal import _crit_np_dtype
+    x = np.array(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     finite_mask = np.isfinite(x)
     if not finite_mask.all():
         fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
@@ -212,6 +213,8 @@ def raw_and_product_mi_resident(
     host scorer (byte-identical default path untouched).
 
     ``col_specs`` aligns 1:1 with ``engineered_X.columns``: each entry is ``{"legs": [(col, degree), ...]}``."""
+    from .._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     try:
         import cupy as cp  # noqa: F401
     except Exception:
@@ -229,13 +232,15 @@ def raw_and_product_mi_resident(
         # the uplift ratio + the abs-MI floor -- selection-equivalent.
         from .._fe_resident_operands import assemble_resident_matrix
         raw_cols = list(raw_X.columns)
-        raw_np = np.ascontiguousarray(raw_X.to_numpy(dtype=np.float64))
+        from .._fe_usability_signal import _crit_np_dtype
+        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust; baseline matrix + resident cache share one dtype
+        raw_np = np.ascontiguousarray(raw_X.to_numpy(dtype=_dt))
         # DEVICE-ASSEMBLE the raw baseline from its per-column resident operands: each raw column is already
         # uploaded once by the basis builders, so stacking the resident columns content-hits the cache and the
         # whole (n, k) matrix never crosses H2D (vs the prior single whole-matrix upload, a distinct blob that
         # never deduped). Column j is raw_X[raw_cols[j]] verbatim -> same bytes -> selection-identical.
         raw_gpu = assemble_resident_matrix(raw_np, raw_cols, ("xbasis_raw_baseline", tuple(raw_cols)),
-                                           dtype=cp.float64)
+                                           dtype=_dt)
         raw_mi = _resident_mi(cp, raw_gpu, y, nbins)
         raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
         return raw_mi_map, eng_mi

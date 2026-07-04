@@ -374,8 +374,10 @@ def score_features_by_kfold_oof_mi(
         eng_name: (eng_name.split("__", 1)[0] if "__" in eng_name else eng_name)
         for eng_name in eng_cols
     }
-    raw_arr = raw_X.to_numpy(dtype=np.float64)
-    eng_arr = engineered_X.to_numpy(dtype=np.float64)
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+    raw_arr = raw_X.to_numpy(dtype=_dt)
+    eng_arr = engineered_X.to_numpy(dtype=_dt)
 
     fold_test_idx = _stratified_fold_indices(y_arr, n_folds_eff, seed)
     raw_fold_mis: list[np.ndarray] = []

@@ -190,6 +190,7 @@ def score_features_by_elasticnet_coef(
     # Single Elastic-Net fit on the JOINT stack so |coef| values are
     # comparable across raw and engineered columns (mirrors Layer 81's
     # rationale: two separate fits would double-count shared signal).
+    # f64 kept: covariance/coordinate-descent stability (f32 sums lose precision here) -- NOT routed through _crit_np_dtype.
     stack_arr = np.column_stack([
         raw_X.to_numpy(dtype=np.float64),
         engineered_X.to_numpy(dtype=np.float64),

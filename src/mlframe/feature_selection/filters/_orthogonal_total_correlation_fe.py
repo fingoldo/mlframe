@@ -222,9 +222,11 @@ def _bin_dataframe_batched(
         return [
             np.ascontiguousarray(bins_arr[:, j]) for j in range(bins_arr.shape[1])
         ]
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     return [
         _quantile_bin(
-            np.ascontiguousarray(df[c].to_numpy(), dtype=np.float64),
+            np.ascontiguousarray(df[c].to_numpy(), dtype=_dt),
             nbins=int(nbins),
         )
         for c in cols
@@ -416,8 +418,10 @@ def score_features_by_tc_uplift(
         return pd.DataFrame(columns=empty_cols)
 
     y_int = _coerce_y_int64(y)
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     raw_mi = _mi_classif_batch(
-        raw_X.to_numpy(dtype=np.float64), y_int, nbins=int(n_bins),
+        raw_X.to_numpy(dtype=_dt), y_int, nbins=int(n_bins),
     )
     raw_mi_map = dict(zip(list(raw_X.columns), raw_mi.tolist()))
 

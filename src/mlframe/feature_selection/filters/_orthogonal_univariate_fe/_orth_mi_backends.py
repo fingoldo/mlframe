@@ -96,6 +96,8 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) ->
     matching ``_mi_classif_batch_sklearn`` semantics. An all-NaN column or a
     column where every value collapses to a single bin returns 0.0.
     """
+    from .._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     from ..hermite_fe import plugin_mi_classif_batch_dispatch
 
     n, p = X.shape
@@ -419,15 +421,17 @@ def mi_classif_batch_chunked(X, y, *, nbins: int = 10, chunk_cols: int = None) -
     p = int(X.shape[1])
     if chunk_cols is None:
         chunk_cols = _mi_chunk_cols_for(n)
+    from .._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default) -- MI binning is scale-robust; f64 in strict mode
     if p <= chunk_cols:
-        arr = X.to_numpy(dtype=np.float64) if is_df else np.asarray(X, dtype=np.float64)
+        arr = X.to_numpy(dtype=_dt) if is_df else np.asarray(X, dtype=_dt)
         return _mi_classif_batch(arr, y, nbins=nbins)
     parts = []
     for j0 in range(0, p, chunk_cols):
         if is_df:
-            blk = X.iloc[:, j0:j0 + chunk_cols].to_numpy(dtype=np.float64)
+            blk = X.iloc[:, j0:j0 + chunk_cols].to_numpy(dtype=_dt)
         else:
-            blk = np.asarray(X[:, j0:j0 + chunk_cols], dtype=np.float64)
+            blk = np.asarray(X[:, j0:j0 + chunk_cols], dtype=_dt)
         parts.append(_mi_classif_batch(blk, y, nbins=nbins))
         del blk
     return np.concatenate(parts)

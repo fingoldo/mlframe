@@ -106,6 +106,8 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict):
     Raises ``ValueError`` on any unrecognised basis so the caller falls back to the whole-matrix host scorer.
     The raw source column rides the resident-operand cache under the SAME ``("xbasis_op", src)`` role the poly /
     cross-basis device builders use, so each distinct source column uploads ONCE per fit and is shared."""
+    from .._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     from .._fe_resident_operands import resident_operand
     from .._wavelet_basis_fe_batched import _dyadic_haar_leg_gpu
 
@@ -113,10 +115,14 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict):
     op_cache: dict = {}
 
     def _raw(src):
+        from .._fe_usability_signal import _crit_np_dtype
+        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
         g = op_cache.get(src)
         if g is None:
-            xf = np.ascontiguousarray(np.asarray(raw_X[src].to_numpy(), dtype=np.float64))
-            g = resident_operand(xf, ("xbasis_op", src), dtype=cp.float64)
+            from .._fe_usability_signal import _crit_np_dtype
+            _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust; operand + resident cache share one dtype
+            xf = np.ascontiguousarray(np.asarray(raw_X[src].to_numpy(), dtype=_dt))
+            g = resident_operand(xf, ("xbasis_op", src), dtype=_dt)
             op_cache[src] = g
         return g
 

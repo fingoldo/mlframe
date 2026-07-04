@@ -180,7 +180,8 @@ def generate_extra_basis_features(
             break
         if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
             continue
-        x = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        from .._fe_usability_signal import _crit_np_dtype
+        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
         finite_mask = np.isfinite(x)
         if not finite_mask.any():
             continue

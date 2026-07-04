@@ -162,8 +162,10 @@ def detect_correlated_pairs(
     # all-NaN sources entirely (no meaningful correlation against anything).
     dense_arrays: list[np.ndarray] = []
     dense_names: list[str] = []
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     for c in cols:
-        arr = np.asarray(X[c].to_numpy(), dtype=np.float64)
+        arr = np.asarray(X[c].to_numpy(), dtype=_dt)
         finite = np.isfinite(arr)
         if not finite.any():
             continue
@@ -269,6 +271,8 @@ def generate_diff_basis_features(
             "uplift", "engineered_mi", "baseline_mi"}`` for recipe
             replay and diagnostics.
     """
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     if basis not in _POLY_BASES:
         raise ValueError(
             f"generate_diff_basis_features: unknown basis {basis!r}; "
@@ -309,8 +313,10 @@ def generate_diff_basis_features(
                 continue
             pairs_norm.append((a, b))
             # Compute correlation for diagnostics; not gating an explicit pair.
-            arr_a = np.asarray(X[a].to_numpy(), dtype=np.float64)
-            arr_b = np.asarray(X[b].to_numpy(), dtype=np.float64)
+            from ._fe_usability_signal import _crit_np_dtype
+            _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+            arr_a = np.asarray(X[a].to_numpy(), dtype=_dt)
+            arr_b = np.asarray(X[b].to_numpy(), dtype=_dt)
             mask = np.isfinite(arr_a) & np.isfinite(arr_b)
             if mask.sum() >= 8 and float(arr_a[mask].std()) > 1e-12 and float(arr_b[mask].std()) > 1e-12:
                 pair_corr_map[(a, b)] = float(abs(np.corrcoef(arr_a[mask], arr_b[mask])[0, 1]))
@@ -345,8 +351,8 @@ def generate_diff_basis_features(
     cand_meta: list[tuple[str, str, int]] = []  # (col_a, col_b, degree)
 
     for col_a, col_b in pairs_norm:
-        x_a = np.asarray(X[col_a].to_numpy(), dtype=np.float64)
-        x_b = np.asarray(X[col_b].to_numpy(), dtype=np.float64)
+        x_a = np.asarray(X[col_a].to_numpy(), dtype=_dt)
+        x_b = np.asarray(X[col_b].to_numpy(), dtype=_dt)
         finite_ab = np.isfinite(x_a) & np.isfinite(x_b)
         if not finite_ab.all():
             # Per-column mean-fill keeps the diff well-defined elementwise.
@@ -550,6 +556,8 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
     -------
     (X_augmented, scores, recipes)
     """
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     from .engineered_recipes import build_orth_diff_basis_recipe
     X_aug, scores = hybrid_orth_mi_diff_basis_fe(
         X, y,
@@ -586,8 +594,10 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
         # NaN-fill so the frozen params match. Guarded -> params stay None (legacy refit) on any failure.
         _pp_d = None
         try:
-            _va = np.asarray(X[_ca], dtype=np.float64)
-            _vb = np.asarray(X[_cb], dtype=np.float64)
+            from ._fe_usability_signal import _crit_np_dtype
+            _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+            _va = np.asarray(X[_ca], dtype=_dt)
+            _vb = np.asarray(X[_cb], dtype=_dt)
             _fa = np.isfinite(_va)
             if not _fa.all():
                 _va = np.where(_fa, _va, float(np.nanmean(_va[_fa])) if _fa.any() else 0.0)

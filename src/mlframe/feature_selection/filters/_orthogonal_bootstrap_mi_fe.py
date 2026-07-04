@@ -184,8 +184,10 @@ def score_features_by_bootstrap_mi(
     }
     # Per-engineered baseline lookup is via the raw_X MI vector; we cache the
     # per-replicate raw MI as a name -> mi dict to avoid re-indexing per col.
-    raw_arr = raw_X.to_numpy(dtype=np.float64)
-    eng_arr = engineered_X.to_numpy(dtype=np.float64)
+    from ._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+    raw_arr = raw_X.to_numpy(dtype=_dt)
+    eng_arr = engineered_X.to_numpy(dtype=_dt)
 
     # The wide (sample_n, n_eng) gathers in the bootstrap loop dominate this
     # function's self-time, and a random with-replacement ``idx`` scatters the
