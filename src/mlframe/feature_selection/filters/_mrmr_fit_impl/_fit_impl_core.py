@@ -4326,6 +4326,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _discrete_fe_master = False
         except Exception:
             pass  # gate is an optimisation; on any failure keep the operators (correct path)
+
+    # Shared class-MI target binning for the four discrete-structural FE operators (pairwise-modular / integer-lattice / row-argmax / conditional-gate).
+    # All four gate candidates on the SAME 1D y binned with the SAME quantization_nbins via bin_y_for_class_mi; compute the applicability flag + binned
+    # labels ONCE here and reuse, rather than re-quantile-binning the identical target inside each block. _y_np is fixed for the whole fit (never rebound).
+    _y_class_mi_applicable = False
+    _y_class_mi_binned = None
+    if (
+        _discrete_fe_master
+        and isinstance(X, pd.DataFrame)
+        and (
+            bool(getattr(self, "fe_pairwise_modular_enable", False))
+            or bool(getattr(self, "fe_integer_lattice_enable", False))
+            or bool(getattr(self, "fe_row_argmax_enable", False))
+            or bool(getattr(self, "fe_conditional_gate_enable", False))
+        )
+    ):
+        from .._fe_accuracy_gate import bin_y_for_class_mi as _bin_y_class_mi, class_mi_fe_applicable as _class_mi_applicable
+
+        _y_class_mi_applicable = _class_mi_applicable(_y_np)
+        if _y_class_mi_applicable:
+            _y_class_mi_binned = _bin_y_class_mi(_y_np, nbins=int(getattr(self, "quantization_nbins", 10)))
+
     if _discrete_fe_master and bool(getattr(self, "fe_pairwise_modular_enable", False)):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -4340,17 +4362,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_pairwise_modular_fe_with_recipes,
                 )
 
-                from .._fe_accuracy_gate import bin_y_for_class_mi, class_mi_fe_applicable
-
-                _y_for_pm = (
-                    _y_np
-                )
                 # The detector's relevance floor is class-MI. 1D classification y feeds directly; a CONTINUOUS 1D y is quantile-binned once
                 # (bin_y_for_class_mi, nbins=quantization_nbins) so the kernel sees a discrete target -- the prior int64 cast collapsed continuous y
-                # to ~n bogus classes. Only a 2D (multilabel/multi-target) y stays skipped (binning a label matrix is out of scope).
+                # to ~n bogus classes. Only a 2D (multilabel/multi-target) y stays skipped (binning a label matrix is out of scope). Reuses the
+                # shared _y_class_mi_* computed once above (identical y + nbins across all four discrete-structural operators).
                 _pm_appended, _pm_recipes = ([], [])
-                if class_mi_fe_applicable(_y_for_pm):
-                    _y_pm_binned = bin_y_for_class_mi(_y_for_pm, nbins=int(getattr(self, "quantization_nbins", 10)))
+                if _y_class_mi_applicable:
+                    _y_pm_binned = _y_class_mi_binned
                     # Restrict operands to raw input columns: combining on already-engineered columns yields nested recipes
                     # whose engineered source is not resolvable at replay time (transform() emits NaN and drops the feature).
                     _pm_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
@@ -4410,15 +4428,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_integer_lattice_fe_with_recipes,
                 )
 
-                from .._fe_accuracy_gate import bin_y_for_class_mi, class_mi_fe_applicable
-
-                _y_for_il = (
-                    _y_np
-                )
                 # Class-MI floor: 1D classification feeds directly, continuous 1D is quantile-binned once, 2D stays skipped (see modular note).
+                # Reuses the shared _y_class_mi_* binned above.
                 _il_appended, _il_recipes = ([], [])
-                if class_mi_fe_applicable(_y_for_il):
-                    _y_il_binned = bin_y_for_class_mi(_y_for_il, nbins=int(getattr(self, "quantization_nbins", 10)))
+                if _y_class_mi_applicable:
+                    _y_il_binned = _y_class_mi_binned
                     # Raw-column operands only (excludes pmod_/orth engineered columns added upstream); see the modular note.
                     _il_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
                     _il_appended, _il_recipes = hybrid_integer_lattice_fe_with_recipes(
@@ -4476,15 +4490,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_row_argmax_fe_with_recipes,
                 )
 
-                from .._fe_accuracy_gate import bin_y_for_class_mi, class_mi_fe_applicable
-
-                _y_for_am = (
-                    _y_np
-                )
                 # Class-MI floor: 1D classification feeds directly, continuous 1D is quantile-binned once, 2D stays skipped (see modular note).
+                # Reuses the shared _y_class_mi_* binned above.
                 _am_appended, _am_recipes = ([], [])
-                if class_mi_fe_applicable(_y_for_am):
-                    _y_am_binned = bin_y_for_class_mi(_y_for_am, nbins=int(getattr(self, "quantization_nbins", 10)))
+                if _y_class_mi_applicable:
+                    _y_am_binned = _y_class_mi_binned
                     # Raw-column operands only (excludes pmod_/il_/orth engineered columns added upstream); combining on already-
                     # engineered columns yields nested recipes whose engineered source is not resolvable at replay -> NaN drop.
                     _am_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
@@ -4545,17 +4555,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_conditional_gate_fe_with_recipes,
                 )
 
-                from .._fe_accuracy_gate import bin_y_for_class_mi, class_mi_fe_applicable
-
-                _y_for_cg = (
-                    _y_np
-                )
                 # The gate detector's MI floor is class-MI (_mi_classif_batch). A CONTINUOUS regression target is quantile-binned once
                 # (bin_y_for_class_mi) before the tau-grid + conditional-divergence sweep -- the prior int64 cast turned continuous y into ~n
                 # distinct classes (the tau-sweep MI exploded / never completed). A 2D y stays skipped (the kernel reads a dead signal).
+                # Reuses the shared _y_class_mi_* binned above.
                 _cg_appended, _cg_recipes = ([], [])
-                if class_mi_fe_applicable(_y_for_cg):
-                    _y_cg_binned = bin_y_for_class_mi(_y_for_cg, nbins=int(getattr(self, "quantization_nbins", 10)))
+                if _y_class_mi_applicable:
+                    _y_cg_binned = _y_class_mi_binned
                     # Raw-column operands only (see the row-argmax / modular note); engineered operands would orphan at replay.
                     _cg_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
                     _cg_appended, _cg_recipes = hybrid_conditional_gate_fe_with_recipes(
