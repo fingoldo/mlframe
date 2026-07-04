@@ -431,12 +431,16 @@ def evaluate_swap_candidate(
     def _run_member_null(member_idx: int, member_rel: float, B_: int) -> float:
         if B_ <= 0:
             return 0.0
+        # MUTATE-AND-RESTORE (CLAUDE.md memory rule): only ``member_idx`` is shuffled per draw, so shuffle it IN
+        # ``state.factors_data`` and restore the original column in ``finally`` -- instead of copying the WHOLE
+        # (n, K) factors_data every call just to permute one column (a peak-RAM doubling on wide/large frames).
+        # mi / conditional_mi read ``member_idx`` (=shuffled) + ``z`` (=unchanged) + target, so the null draws --
+        # and the p-value -- are byte-identical to the prior copy path. ``member_col_orig`` is captured BEFORE the
+        # try so the ``finally`` restore is always safe.
+        member_col_orig = state.factors_data[:, member_idx].copy()
         try:
             rng_m = np.random.default_rng(int(getattr(state, "_perm_seed", 0)) + int(anchor) * 7919 + int(member_idx))
             state._perm_seed = int(getattr(state, "_perm_seed", 0)) + B_ + 1
-            n_rows = state.factors_data.shape[0]
-            data_perm = state.factors_data.copy()
-            member_col_orig = data_perm[:, member_idx].copy()
             target_arr_m = np.asarray(target, dtype=np.int64)
             # Hoist the permutation-invariant H(Z) + H(Y,Z) out of the B-loop:
             # only the member column is shuffled, so y and z stay byte-identical
@@ -461,10 +465,10 @@ def evaluate_swap_candidate(
             for _ in range(B_):
                 shuffled = member_col_orig.copy()
                 rng_m.shuffle(shuffled)
-                data_perm[:, member_idx] = shuffled
+                state.factors_data[:, member_idx] = shuffled
                 if S_minus_anchor:
                     null_rel_m = float(conditional_mi(
-                        factors_data=data_perm,
+                        factors_data=state.factors_data,
                         x=np.array([member_idx], dtype=np.int64),
                         y=target_arr_m,
                         z=np.array(S_minus_anchor, dtype=np.int64),
@@ -476,7 +480,7 @@ def evaluate_swap_candidate(
                     ))
                 else:
                     null_rel_m = float(mi(
-                        data_perm, np.array([member_idx], dtype=np.int64),
+                        state.factors_data, np.array([member_idx], dtype=np.int64),
                         target_arr_m, state.factors_nbins,
                     ))
                 if null_rel_m >= member_rel:
@@ -485,6 +489,8 @@ def evaluate_swap_candidate(
         except Exception as exc:
             logger.warning(f"DCD swap: member permutation null failed (B={B_}): {exc!r}")
             return 1.0  # conservative: fail closed
+        finally:
+            state.factors_data[:, member_idx] = member_col_orig  # ALWAYS restore the permuted column
     if not prefer_aggregate:
         # Branch B: member swap. Apply permutation null when requested
         # (B>0) -- otherwise this branch silently bypasses the check the
