@@ -1,6 +1,7 @@
 # mlframe
 
 [![CI](https://github.com/fingoldo/mlframe/workflows/CI/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/ci.yml)
+[![Black (filtered)](https://github.com/fingoldo/mlframe/workflows/Black%20(filtered)/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/black-filtered.yml)
 [![sklearn-matrix](https://github.com/fingoldo/mlframe/workflows/sklearn-matrix/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/sklearn-matrix-ci.yml)
 [![codecov](https://codecov.io/gh/fingoldo/mlframe/branch/master/graph/badge.svg)](https://codecov.io/gh/fingoldo/mlframe)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)

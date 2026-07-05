@@ -204,9 +204,6 @@ jobs:
       - name: Run ruff (full - advisory)
         run: uvx ruff check src/mlframe
         continue-on-error: true
-
-      - name: Run black --check
-        run: uvx black --check src/mlframe
         continue-on-error: true
 
       - name: Run bandit security scan

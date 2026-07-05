@@ -1,0 +1,32 @@
+name: Black (filtered)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  black-filtered:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # uvx runs black from uv's cache with no explicit install step.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Flags any Black finding EXCEPT blank-line insertion and arg/import-list
+      # explosion, which the project deliberately keeps -- see
+      # scripts/black_filtered_apply.py docstring for the excluded-class rationale.
+      - name: Black format check, filtered
+        run: python scripts/black_filtered_apply.py --config pyproject.toml --check src/mlframe
+        env:
+          BLACK_CMD: "uvx black"
