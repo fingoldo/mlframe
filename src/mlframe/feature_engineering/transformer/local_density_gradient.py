@@ -120,7 +120,7 @@ def compute_local_density_gradient_features(
         # Density gradient: finite-difference ∇log p̂ from each neighbor back to query.
         # ∇log p̂ ≈ mean over neighbors of (log_dens_neighbor - log_dens_query) * direction(neighbor - query) / ||neighbor - query||
         diffs = neighbor_X - Xq_s[:, None, :]  # (n_q, k_eff, d)
-        dists = np.sqrt((diffs ** 2).sum(axis=-1)) + 1e-9  # (n_q, k_eff)
+        dists = np.sqrt((diffs**2).sum(axis=-1)) + 1e-9  # (n_q, k_eff)
         # Unit directions:
         unit_dirs = diffs / dists[:, :, None]  # (n_q, k_eff, d)
         # Log-density differences:
@@ -133,7 +133,7 @@ def compute_local_density_gradient_features(
         # _benchmarks/bench_local_density_gradient_einsum.py, ~1.6x, exact==).
         weight = (log_dens_diff / dists).astype(np.float32)  # (n_q, k_eff)
         gradient = (np.einsum("qk,qkd->qd", weight, unit_dirs, optimize=False) / unit_dirs.shape[1]).astype(np.float32)  # (n_q, d)
-        gradient_norm = np.sqrt((gradient ** 2).sum(axis=-1)).astype(np.float32) + 1e-9
+        gradient_norm = np.sqrt((gradient**2).sum(axis=-1)).astype(np.float32) + 1e-9
 
         # Alignment with y-gradient: compute ŷ-gradient direction via same finite difference
         # i.e. direction of increasing y averaged over neighbors.
@@ -141,7 +141,7 @@ def compute_local_density_gradient_features(
         y_diff = (neighbor_y - y_query_pseudo[:, None]).astype(np.float32)  # (n_q, k_eff)
         y_gradient_weight = (y_diff / dists).astype(np.float32)  # (n_q, k_eff)
         y_gradient = (np.einsum("qk,qkd->qd", y_gradient_weight, unit_dirs, optimize=False) / unit_dirs.shape[1]).astype(np.float32)  # (n_q, d)
-        y_gradient_norm = np.sqrt((y_gradient ** 2).sum(axis=-1)) + 1e-9
+        y_gradient_norm = np.sqrt((y_gradient**2).sum(axis=-1)) + 1e-9
 
         # Cosine similarity
         dot = (gradient * y_gradient).sum(axis=-1)

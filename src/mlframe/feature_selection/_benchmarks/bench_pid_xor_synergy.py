@@ -54,9 +54,7 @@ def main():
     print("PID XOR synergy bench -- Williams-Beer + Ince I_ccs")
     print("=" * 72)
     print()
-    print(f"{'noise':>6} {'I(X1;Y)':>10} {'I(X2;Y)':>10} {'I(X1X2;Y)':>10}"
-          f" {'PID_red':>10} {'PID_unq1':>10} {'PID_unq2':>10}"
-          f" {'PID_syn':>10}")
+    print(f"{'noise':>6} {'I(X1;Y)':>10} {'I(X2;Y)':>10} {'I(X1X2;Y)':>10}" f" {'PID_red':>10} {'PID_unq1':>10} {'PID_unq2':>10}" f" {'PID_syn':>10}")
     print("-" * 92)
     n = 8000
     for noise in [0.0, 0.05, 0.1, 0.2, 0.3, 0.5]:

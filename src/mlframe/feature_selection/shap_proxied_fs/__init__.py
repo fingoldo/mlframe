@@ -326,10 +326,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # constant (~1MB). ``None`` consults ``pyutilz.performance.kernel_tuning.cache`` (key
         # ``mlframe.shap_proxied_fs.brute_force_max_features``) for per-HW override, falling back
         # to the module default. Explicit int pins always win.
-        self.brute_force_max_features = (
-            int(brute_force_max_features) if brute_force_max_features is not None
-            else _resolve_brute_force_max_features()
-        )
+        self.brute_force_max_features = int(brute_force_max_features) if brute_force_max_features is not None else _resolve_brute_force_max_features()
         # ``adaptive_prescreen_by_stability`` (iter59, OFF by default): when True, measure cross-fold
         # SHAP rank stability (median pairwise Spearman of per-fold mean |phi| feature rankings) and
         # NARROW (never widen) the post-OOF prescreen cap when stability drops. Surfaces the measured
@@ -475,13 +472,10 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # Validate WITHOUT mutating, store the caller's value verbatim, and do
         # the lowercase normalisation at every use-site instead.
         if str(cluster_backend).lower() not in ("auto", "su", "pearson"):
-            raise ValueError(
-                f"cluster_backend must be one of 'auto', 'su', 'pearson'; got {cluster_backend!r}"
-            )
+            raise ValueError(f"cluster_backend must be one of 'auto', 'su', 'pearson'; got {cluster_backend!r}")
         self.cluster_backend = cluster_backend
         self.cluster_su_auto_max_features = (
-            int(cluster_su_auto_max_features) if cluster_su_auto_max_features is not None
-            else _resolve_cluster_su_auto_max_features()
+            int(cluster_su_auto_max_features) if cluster_su_auto_max_features is not None else _resolve_cluster_su_auto_max_features()
         )
         self.cluster_su_n_bins = int(cluster_su_n_bins)
         self.prescreen_top = prescreen_top
@@ -558,9 +552,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         self.revalidation_ucb_enabled = bool(revalidation_ucb_enabled)
         self.revalidation_ucb_min_eval_size = revalidation_ucb_min_eval_size
         self.revalidation_ucb_slack = revalidation_ucb_slack
-        self.revalidation_ucb_stdev_multiplier = (
-            float(revalidation_ucb_stdev_multiplier)
-            if revalidation_ucb_stdev_multiplier is not None else None)
+        self.revalidation_ucb_stdev_multiplier = float(revalidation_ucb_stdev_multiplier) if revalidation_ucb_stdev_multiplier is not None else None
         # ``revalidation_adaptive_n_models`` (iter77, default True): split the n_revalidation_models
         # stability seeds into separate rounds and early-stop once the parsimony-rule winner has been
         # identical across two consecutive rounds. Floor is 2 rounds (need >=1 stability check);
@@ -582,9 +574,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # width-dependent auto: 0.3 at ``n_features >= 20000`` (high redundancy regime), disabled
         # below (smaller-width top_n is less redundant; no measurable win to make and risk of
         # dropping a winner in distinct-tail candidates). Explicit float overrides for any width.
-        self.revalidation_mmr_jaccard_threshold = (
-            float(revalidation_mmr_jaccard_threshold)
-            if revalidation_mmr_jaccard_threshold is not None else None)
+        self.revalidation_mmr_jaccard_threshold = float(revalidation_mmr_jaccard_threshold) if revalidation_mmr_jaccard_threshold is not None else None
         # ``trust_guard_n_estimators`` caps the per-anchor booster size inside ``proxy_trust_guard``.
         # The trust report only consumes RANKS of anchor losses (Spearman / Kendall / recall@k); a
         # capped booster gives a faithful fidelity signal at a small fraction of the full-template cost.
@@ -802,4 +792,3 @@ __all__ = [
     "_EXACT_OPTIMIZERS",
     "_HEURISTIC_OPTIMIZERS",
 ]
-

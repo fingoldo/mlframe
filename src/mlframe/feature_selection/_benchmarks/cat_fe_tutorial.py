@@ -81,10 +81,7 @@ def main() -> None:
     if state and state.recipes:
         for r in state.recipes:
             d = state.diagnostics.get(r.name, {})
-            print(
-                f"    {r.name}: II={d.get('II', float('nan')):.4f}, "
-                f"src={r.src_names}"
-            )
+            print(f"    {r.name}: II={d.get('II', float('nan')):.4f}, " f"src={r.src_names}")
 
     section("3. Apply to disjoint test data")
     out_test = mrmr_default.transform(df_test)
@@ -125,10 +122,7 @@ def main() -> None:
             d = state_c.diagnostics.get(r.name, {})
             ci = d.get("bootstrap_ii_ci")
             conf = d.get("joint_dependence_confidence")
-            print(
-                f"    {r.name}: II={d.get('II', float('nan')):.4f} "
-                f"CI={ci} conf={conf}"
-            )
+            print(f"    {r.name}: II={d.get('II', float('nan')):.4f} " f"CI={ci} conf={conf}")
 
     section("5. Restore legacy MRMR (cat-FE disabled)")
     mrmr_legacy = MRMR(
@@ -139,8 +133,7 @@ def main() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         mrmr_legacy.fit(df_train, y_train)
-    print(f"  legacy support_: {list(mrmr_legacy.support_)} "
-          f"(no engineered recipes)")
+    print(f"  legacy support_: {list(mrmr_legacy.support_)} " f"(no engineered recipes)")
     print(f"  legacy _engineered_recipes_: {mrmr_legacy._engineered_recipes_}")
 
     section("Done.")

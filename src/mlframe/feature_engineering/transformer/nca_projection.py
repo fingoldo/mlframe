@@ -116,7 +116,7 @@ def compute_nca_projection_features(
         # Pad if NCA returned fewer components than requested.
         if proj.shape[1] < n_components:
             padded = np.zeros((Xq.shape[0], n_components), dtype=np.float32)
-            padded[:, :proj.shape[1]] = proj
+            padded[:, : proj.shape[1]] = proj
             proj = padded
         return proj
 

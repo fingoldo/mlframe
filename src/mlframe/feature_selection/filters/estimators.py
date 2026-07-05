@@ -138,7 +138,7 @@ def ksg_mi_with_significance(
     )
 
     # Permutation test: shuffle y per iteration; recompute MI for all features.
-    shuffle_seeds = rng.integers(0, 2 ** 31 - 1, size=n_permutations)
+    shuffle_seeds = rng.integers(0, 2**31 - 1, size=n_permutations)
 
     def _one_perm(seed: int) -> np.ndarray:
         local_rng = np.random.default_rng(seed)
@@ -159,9 +159,7 @@ def ksg_mi_with_significance(
         # process would deep-copy the entire frame, repeating the
         # iter-371 OOM cascade. Threading shares the arrays zero-copy
         # and the inner mi kernel releases the GIL.
-        perm_mis = Parallel(n_jobs=n_jobs, max_nbytes=int(1e7), backend="threading")(
-            delayed(_one_perm)(s) for s in shuffle_seeds
-        )
+        perm_mis = Parallel(n_jobs=n_jobs, max_nbytes=int(1e7), backend="threading")(delayed(_one_perm)(s) for s in shuffle_seeds)
     perm_mi_arr = np.stack(perm_mis, axis=0)  # (n_permutations, n_features)
 
     # Conservative p-value: (1 + #failures) / (1 + n_perms).
@@ -197,10 +195,7 @@ def nsb_mi(
     try:
         import ndd
     except ImportError as e:
-        raise ImportError(
-            "nsb_mi requires the optional `ndd` package. "
-            "Install via `pip install ndd`."
-        ) from e
+        raise ImportError("nsb_mi requires the optional `ndd` package. " "Install via `pip install ndd`.") from e
 
     if nbins_x is None:
         nbins_x = int(classes_x.max()) + 1

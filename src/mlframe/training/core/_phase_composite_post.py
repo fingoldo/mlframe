@@ -158,13 +158,9 @@ def run_composite_post_processing(
     )
     # Unconditional banner when discovery is enabled so "no log lines" remains a debuggable signal.
     if composite_target_discovery_config.enabled:
-        _n_specs_total = sum(
-            sum(len(v) for v in _tt_specs.values())
-            for _tt_specs in (composite_specs_by_target_type or {}).values()
-        )
+        _n_specs_total = sum(sum(len(v) for v in _tt_specs.values()) for _tt_specs in (composite_specs_by_target_type or {}).values())
         logger.info(
-            "[CompositeCrossTargetEnsemble] entry: strategy='%s', "
-            "target_types=%d, composite_specs=%d",
+            "[CompositeCrossTargetEnsemble] entry: strategy='%s', " "target_types=%d, composite_specs=%d",
             _ce_strategy,
             len(composite_specs_by_target_type or {}),
             _n_specs_total,
@@ -206,9 +202,7 @@ def run_composite_post_processing(
         # cache -- see _phase_composite_discovery.py:439-442 -- and is read by
         # report()/predict()). Shallow-copy each per-target-type sub-dict so the
         # synthesised ``[]`` entries don't leak back into metadata either.
-        _merged_specs: dict = {
-            _tt_k: dict(_tt_v) for _tt_k, _tt_v in (composite_specs_by_target_type or {}).items()
-        }
+        _merged_specs: dict = {_tt_k: dict(_tt_v) for _tt_k, _tt_v in (composite_specs_by_target_type or {}).items()}
         # ``TargetTypes`` is a ``StrEnum`` so ``_TT.REGRESSION`` and the
         # ``str(...)``-flavoured key the discovery phase writes are
         # hash-equivalent; ``setdefault`` resolves to the existing regression
@@ -217,9 +211,7 @@ def run_composite_post_processing(
         _reg_models = (models or {}).get(_TT.REGRESSION, {}) if models else {}
         _n_synth = 0
         for _raw_tname, _entries in _reg_models.items():
-            if (_entries
-                    and not is_composite_target_name(str(_raw_tname))
-                    and _raw_tname not in _reg_specs_bucket):
+            if _entries and not is_composite_target_name(str(_raw_tname)) and _raw_tname not in _reg_specs_bucket:
                 _reg_specs_bucket[_raw_tname] = []
                 _n_synth += 1
         # Drop an empty regression bucket we created but never populated so the
@@ -239,9 +231,7 @@ def run_composite_post_processing(
                 "+ AR(1)-failsafe gates for each.",
                 _n_synth,
             )
-    if (composite_target_discovery_config.enabled
-            and _ce_strategy != "off"
-            and composite_specs_by_target_type):
+    if composite_target_discovery_config.enabled and _ce_strategy != "off" and composite_specs_by_target_type:
         from ._phase_composite_post_xt_ensemble import _build_cross_target_ensemble_for_target
 
         for _tt_e, _tt_specs in composite_specs_by_target_type.items():
@@ -250,8 +240,8 @@ def run_composite_post_processing(
             # StrEnum: models.get(str_key) is hash-equivalent to models.get(enum_key).
             if _tt_e not in (models or {}):
                 logger.info(
-                    "[CompositeCrossTargetEnsemble] target_type='%s': no models "
-                    "registered; ensemble skipped.", _tt_e,
+                    "[CompositeCrossTargetEnsemble] target_type='%s': no models " "registered; ensemble skipped.",
+                    _tt_e,
                 )
                 continue
             for _orig_tname, _spec_list in _tt_specs.items():

@@ -74,21 +74,13 @@ def showcase_features_and_targets(
                 _hist_rng = np.random.default_rng(random_seed)
                 if len(target) > max_hist_samples:
                     if isinstance(target, (pl.Series, pd.Series)):
-                        sample_idx = _hist_rng.choice(
-                            len(target), max_hist_samples, replace=False
-                        )
+                        sample_idx = _hist_rng.choice(len(target), max_hist_samples, replace=False)
                         # polars Series ``target[sample_idx]`` with a numpy integer array works
                         # (polars treats it as ``.gather(sample_idx)``); pandas Series uses ``.iloc`` for
                         # positional indexing to avoid the FutureWarning on label-vs-position dispatch.
-                        sample = (
-                            target.iloc[sample_idx].values
-                            if isinstance(target, pd.Series)
-                            else target[sample_idx].to_numpy()
-                        )
+                        sample = target.iloc[sample_idx].values if isinstance(target, pd.Series) else target[sample_idx].to_numpy()
                     else:
-                        sample_idx = _hist_rng.choice(
-                            len(target), max_hist_samples, replace=False
-                        )
+                        sample_idx = _hist_rng.choice(len(target), max_hist_samples, replace=False)
                         sample = target[sample_idx]
                     # Add min and max to preserve full range (if not already in sample)
                     if isinstance(target, pl.Series):
@@ -142,7 +134,7 @@ def showcase_features_and_targets(
 
             elif target_type == TargetTypes.BINARY_CLASSIFICATION:
                 desc_data = None
-                if isinstance(target,  pd.Series):
+                if isinstance(target, pd.Series):
                     desc_data = target.value_counts(normalize=True)
                 elif isinstance(target, pl.Series):
                     desc_data = target.value_counts(normalize=True, sort=True)

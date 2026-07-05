@@ -97,14 +97,8 @@ def _paired_bootstrap_vs_runner_up(
     rp_test = test_preds.get(runner_up)
 
     # Pick split where both have predictions + target is present.
-    use_val = (
-        val_y is not None and sp_val is not None and rp_val is not None
-        and len(sp_val) == len(val_y) and len(rp_val) == len(val_y)
-    )
-    use_test = (
-        test_y is not None and sp_test is not None and rp_test is not None
-        and len(sp_test) == len(test_y) and len(rp_test) == len(test_y)
-    )
+    use_val = val_y is not None and sp_val is not None and rp_val is not None and len(sp_val) == len(val_y) and len(rp_val) == len(val_y)
+    use_test = test_y is not None and sp_test is not None and rp_test is not None and len(sp_test) == len(test_y) and len(rp_test) == len(test_y)
     if use_val:
         y_ref, p1, p2 = val_y, sp_val, rp_val
     elif use_test:
@@ -155,11 +149,7 @@ def _paired_bootstrap_vs_runner_up(
                 p1_arr = np.asarray(p1)
                 p2_arr = np.asarray(p2)
                 # Detect binary 1D case: targets in {0, 1} and probs are 1D
-                if (
-                    p1_arr.ndim == 1 and p2_arr.ndim == 1
-                    and y_arr_1d.dtype.kind in "iu"
-                    and len(np.unique(y_arr_1d)) <= 2
-                ):
+                if p1_arr.ndim == 1 and p2_arr.ndim == 1 and y_arr_1d.dtype.kind in "iu" and len(np.unique(y_arr_1d)) <= 2:
                     y_int = np.ascontiguousarray(y_arr_1d, dtype=np.int64)
                     p1_f = np.ascontiguousarray(p1_arr, dtype=np.float64)
                     p2_f = np.ascontiguousarray(p2_arr, dtype=np.float64)
@@ -341,12 +331,7 @@ def _vectorized_bootstrap_logloss_samples(
     # (C) Multiclass: y (n,) integer class labels, p (n, K) class probs.
     # Per-row CE = -log(p[i, y[i]]). Vectorise the true-class lookup via
     # fancy indexing, then bootstrap-mean as before.
-    if (
-        y.ndim == 1
-        and p.ndim == 2
-        and y.shape[0] == p.shape[0]
-        and y.dtype.kind in ("i", "u")
-    ):
+    if y.ndim == 1 and p.ndim == 2 and y.shape[0] == p.shape[0] and y.dtype.kind in ("i", "u"):
         y_int = y.astype(np.intp, copy=False)
         # Out-of-range labels would index past K-1 silently; bail to the
         # sklearn fallback so it produces the correct error path.
@@ -414,12 +399,7 @@ def _bootstrap_ci_for_strongest(
                     lo = float(np.percentile(samples, 2.5))
                     hi = float(np.percentile(samples, 97.5))
                     return (lo, point, hi)
-                if (
-                    "log_loss" in primary_metric
-                    and "macro" not in primary_metric
-                    and y.dtype.kind in "iu"
-                    and len(np.unique(y)) <= 2
-                ):
+                if "log_loss" in primary_metric and "macro" not in primary_metric and y.dtype.kind in "iu" and len(np.unique(y)) <= 2:
                     # Binary 1D-prob case: matches the binary log-loss
                     # numba kernel signature.
                     y_int = np.ascontiguousarray(y, dtype=np.int64)
@@ -430,9 +410,7 @@ def _bootstrap_ci_for_strongest(
                     # the kernel uses (matches sklearn's eps=1e-15).
                     eps = 1e-15
                     p_clip = np.clip(p_arr, eps, 1.0 - eps)
-                    point = float(np.mean(
-                        -np.where(y_int == 1, np.log(p_clip), np.log1p(-p_clip))
-                    ))
+                    point = float(np.mean(-np.where(y_int == 1, np.log(p_clip), np.log1p(-p_clip))))
                     if not np.isfinite(point):
                         return None
                     lo = float(np.percentile(samples, 2.5))
@@ -524,9 +502,8 @@ def _bootstrap_ci_for_strongest(
                 return None
         except Exception as exc:
             import logging as _logging
-            _logging.getLogger(__name__).debug(
-                "dummy_baselines: bootstrap metric-fn build failed: %r", exc, exc_info=True
-            )
+
+            _logging.getLogger(__name__).debug("dummy_baselines: bootstrap metric-fn build failed: %r", exc, exc_info=True)
             return None
 
         # Point estimate
@@ -534,9 +511,8 @@ def _bootstrap_ci_for_strongest(
             point = fn(y, p)
         except Exception as exc:
             import logging as _logging
-            _logging.getLogger(__name__).debug(
-                "dummy_baselines: bootstrap point-estimate failed: %r", exc, exc_info=True
-            )
+
+            _logging.getLogger(__name__).debug("dummy_baselines: bootstrap point-estimate failed: %r", exc, exc_info=True)
             return None
         if not np.isfinite(point):
             return None
@@ -586,4 +562,3 @@ def _bootstrap_ci_for_strongest(
         if v is not None:
             out["test"] = v
     return out if out else None
-

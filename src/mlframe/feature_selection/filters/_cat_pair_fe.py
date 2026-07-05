@@ -163,20 +163,14 @@ def generate_cat_pair_crosses(
                   "n_cells": int}}``. Replay-only payload (no y reference).
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"generate_cat_pair_crosses: X must be a pandas DataFrame; got "
-            f"{type(X).__name__}"
-        )
+        raise TypeError(f"generate_cat_pair_crosses: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if len(X) == 0:
         raise ValueError("generate_cat_pair_crosses: X is empty")
     cat_cols = [c for c in cat_cols if c in X.columns]
     if pairs is None:
         pairs = list(combinations(cat_cols, 2))
     else:
-        pairs = [
-            (a, b) for (a, b) in pairs
-            if a in X.columns and b in X.columns and a != b
-        ]
+        pairs = [(a, b) for (a, b) in pairs if a in X.columns and b in X.columns and a != b]
     encoded: dict[str, np.ndarray] = {}
     raw_recipes: dict[str, dict] = {}
     str_cache: dict[str, np.ndarray] = {}
@@ -247,14 +241,9 @@ def score_cat_pairs_by_interaction_information(
     if pairs is None:
         pairs = list(combinations(cat_cols, 2))
     else:
-        pairs = [
-            (a, b) for (a, b) in pairs
-            if a in X.columns and b in X.columns and a != b
-        ]
+        pairs = [(a, b) for (a, b) in pairs if a in X.columns and b in X.columns and a != b]
     if not pairs:
-        return pd.DataFrame(
-            columns=["cat_i", "cat_j", "engineered_col", "mi_joint", "mi_i", "mi_j", "ii"]
-        )
+        return pd.DataFrame(columns=["cat_i", "cat_j", "engineered_col", "mi_joint", "mi_i", "mi_j", "ii"])
 
     y_bin = _bin_target(y, n_bins=n_bins)
 
@@ -339,11 +328,7 @@ def auto_detect_cat_pair_cols(
         s = X[col]
         if pd.api.types.is_float_dtype(s):
             continue
-        is_cat_dtype = (
-            s.dtype == object
-            or isinstance(s.dtype, pd.CategoricalDtype)
-            or pd.api.types.is_string_dtype(s)
-        )
+        is_cat_dtype = s.dtype == object or isinstance(s.dtype, pd.CategoricalDtype) or pd.api.types.is_string_dtype(s)
         is_int = pd.api.types.is_integer_dtype(s)
         if not (is_cat_dtype or is_int):
             continue
@@ -446,9 +431,7 @@ def hybrid_cat_pair_fe(
     from .engineered_recipes import build_cat_pair_cross_recipe
 
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"hybrid_cat_pair_fe: X must be a pandas DataFrame; got {type(X).__name__}"
-        )
+        raise TypeError(f"hybrid_cat_pair_fe: X must be a pandas DataFrame; got {type(X).__name__}")
     if cat_cols is None or len(cat_cols) == 0:
         cat_cols = auto_detect_cat_pair_cols(X)
     else:
@@ -534,10 +517,7 @@ def apply_cat_pair_cross(
     No y reference at replay -- pure function of X.
     """
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_cat_pair_cross: X_test must be a DataFrame; got "
-            f"{type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_cat_pair_cross: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     cats_i = np.asarray(_column_to_str(X_test[cat_i]))
     cats_j = np.asarray(_column_to_str(X_test[cat_j]))
     n = len(cats_i)

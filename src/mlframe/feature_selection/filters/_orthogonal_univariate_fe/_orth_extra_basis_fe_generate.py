@@ -33,11 +33,17 @@ __all__ = [
 _EXTRA_BASIS_KINDS = ("spline", "fourier", "wavelet")
 
 
-
 from ._orth_extra_basis_fe import (  # noqa: E402 (cycle-safe: defined before parent's bottom re-export)
-    _ADAPTIVE_FE_RAW_USABILITY_CAP, _chirp_axis, _detect_fourier_freqs_for_col, _fit_chirp_warp_for_col,
-    _fit_fourier_for_col, _fit_spline_for_col, _heldout_smooth_r2, _is_int_as_cat_axis,
+    _ADAPTIVE_FE_RAW_USABILITY_CAP,
+    _chirp_axis,
+    _detect_fourier_freqs_for_col,
+    _fit_chirp_warp_for_col,
+    _fit_fourier_for_col,
+    _fit_spline_for_col,
+    _heldout_smooth_r2,
+    _is_int_as_cat_axis,
 )
+
 
 def generate_extra_basis_features(
     X: pd.DataFrame,
@@ -221,9 +227,9 @@ def generate_extra_basis_features(
                     }
             except Exception as exc:
                 logger.warning(
-                    "generate_extra_basis_features: spline on col=%r raised "
-                    "%r; skipping spline for that column.",
-                    col, exc,
+                    "generate_extra_basis_features: spline on col=%r raised " "%r; skipping spline for that column.",
+                    col,
+                    exc,
                 )
         # Skip Fourier on integer-valued low-cardinality categorical group keys: sin/cos of an arbitrary label code (region 0..9)
         # is spurious periodicity that floods the support and displaces the genuinely useful grouped aggregates of that key.
@@ -354,9 +360,9 @@ def generate_extra_basis_features(
                                     }
             except Exception as exc:
                 logger.warning(
-                    "generate_extra_basis_features: fourier on col=%r raised "
-                    "%r; skipping fourier for that column.",
-                    col, exc,
+                    "generate_extra_basis_features: fourier on col=%r raised " "%r; skipping fourier for that column.",
+                    col,
+                    exc,
                 )
         # Backlog #13 (2026-06-09): Haar wavelet / localized multiresolution
         # legs. The per-column held-out scale-selection lives in the standalone
@@ -378,7 +384,7 @@ def generate_extra_basis_features(
                     _w_legs = _select_wavelet_legs(x, _yv, _w_lo, _w_span)
                     if _w_legs:
                         _w_z = np.clip((x - _w_lo) / _w_span, 0.0, 1.0)
-                        for (_wj, _wk) in _w_legs:
+                        for _wj, _wk in _w_legs:
                             _w_leg = _dyadic_haar_leg(_w_z, _wj, _wk)
                             if float(np.std(_w_leg)) <= 1e-12:
                                 continue
@@ -391,9 +397,9 @@ def generate_extra_basis_features(
                             }
             except Exception as exc:
                 logger.warning(
-                    "generate_extra_basis_features: wavelet on col=%r raised "
-                    "%r; skipping wavelet for that column.",
-                    col, exc,
+                    "generate_extra_basis_features: wavelet on col=%r raised " "%r; skipping wavelet for that column.",
+                    col,
+                    exc,
                 )
     return pd.DataFrame(out_cols, index=X.index), meta
 
@@ -540,10 +546,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     else:
         eng_noise_floor = 0.0
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
-    qualified = scores[
-        (scores["uplift"] >= float(min_uplift))
-        & (scores["engineered_mi"] >= abs_floor)
-    ]
+    qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
     # FORCE-ADMIT adaptive Fourier columns: a single adaptive sin OR cos has a
@@ -553,10 +556,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     # already validated the frequency on a held-out slice, so both legs are
     # admitted unconditionally here; the downstream MRMR adaptive-protection
     # block then keeps them past screening. Append in deterministic name order.
-    _adaptive_names = [
-        nm for nm, m in meta.items()
-        if m.get("basis") == "fourier" and m.get("adaptive", False)
-    ]
+    _adaptive_names = [nm for nm, m in meta.items() if m.get("basis") == "fourier" and m.get("adaptive", False)]
     _keep_set = set(keep)
     for nm in _adaptive_names:
         if nm not in _keep_set and nm in engineered.columns:
@@ -582,10 +582,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
                 _full_cols[r.name] = np.asarray(apply_recipe(r, X))
             except Exception:
                 logger.warning("extra-basis subsample replay failed for %r; dropping.", r.name)
-        X_aug = (
-            pd.concat([X, pd.DataFrame(_full_cols, index=X.index)], axis=1)
-            if _full_cols else X.copy()
-        )
+        X_aug = pd.concat([X, pd.DataFrame(_full_cols, index=X.index)], axis=1) if _full_cols else X.copy()
     else:
         X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
     return X_aug, scores, recipes

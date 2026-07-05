@@ -99,13 +99,11 @@ def main():
         f.write(f"# wall (with profiler): {wall_with_prof:.2f}s\n")
         f.write(f"# profiler overhead: +{overhead_pct:.0f}%\n\n")
         full_s = io.StringIO()
-        pstats.Stats(prof, stream=full_s).strip_dirs().sort_stats(
-            "cumulative").print_stats(80)
+        pstats.Stats(prof, stream=full_s).strip_dirs().sort_stats("cumulative").print_stats(80)
         f.write("--- Top 80 by cumulative time ---\n")
         f.write(full_s.getvalue())
         full_s = io.StringIO()
-        pstats.Stats(prof, stream=full_s).strip_dirs().sort_stats(
-            "tottime").print_stats(50)
+        pstats.Stats(prof, stream=full_s).strip_dirs().sort_stats("tottime").print_stats(50)
         f.write("\n--- Top 50 by own time ---\n")
         f.write(full_s.getvalue())
     print(f"\nFull profile -> {out_file}")

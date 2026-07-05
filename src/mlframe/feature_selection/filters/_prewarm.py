@@ -462,8 +462,7 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
         ensure_joint_hist_tuning(force=False)
     except Exception as _exc:
         _log.debug(
-            "prewarm_fs_cupy_kernels: kernel_tuning auto-tune failed (%s); "
-            "production will use hand-tuned fallbacks",
+            "prewarm_fs_cupy_kernels: kernel_tuning auto-tune failed (%s); " "production will use hand-tuned fallbacks",
             _exc,
         )
 

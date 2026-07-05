@@ -50,8 +50,7 @@ def main():
         assert np.array_equal(old, new), f"identity mismatch at n={n}"
         t_old = _best(_old_count_within_eps, x, eps)
         t_new = _best(_count_within_eps, x, eps)
-        print(f"n={n}: OLD {t_old*1e3:.2f}ms -> NEW {t_new*1e3:.2f}ms "
-              f"({t_old/t_new:.1f}x) identity OK")
+        print(f"n={n}: OLD {t_old*1e3:.2f}ms -> NEW {t_new*1e3:.2f}ms " f"({t_old/t_new:.1f}x) identity OK")
 
 
 if __name__ == "__main__":

@@ -274,9 +274,7 @@ def build_composite_value_report(
 
     aggregate = _aggregate(rmse_raw, rmse_comp, rmse_lag, W, sse_raw, sse_comp, sse_lag, valid, uniq, has_lag, tie_rtol)
 
-    expected_vs_realized = _expected_vs_realized(
-        aggregate, expected_lift=expected_lift, expected_rmse=expected_rmse, expected_tol=expected_tol
-    )
+    expected_vs_realized = _expected_vs_realized(aggregate, expected_lift=expected_lift, expected_rmse=expected_rmse, expected_tol=expected_tol)
 
     return {
         "n_groups": int(valid.sum()),
@@ -438,17 +436,16 @@ def render_composite_value_report(report: dict, *, max_groups: int = 20) -> str:
     agg = report["aggregate"]
     L.append("## Verdict")
     L.append("")
-    L.append(f"- Net row-weighted lift over raw: {_pct(agg['net_weighted_lift_over_raw'])} "
-             f"-> {_ascii(agg['net_verdict'])}")
-    L.append(f"- Pooled RMSE: raw {_num(agg['pooled_rmse_raw'])} -> composite {_num(agg['pooled_rmse_composite'])} "
-             f"(lift {_pct(agg['pooled_lift_over_raw'])})")
+    L.append(f"- Net row-weighted lift over raw: {_pct(agg['net_weighted_lift_over_raw'])} " f"-> {_ascii(agg['net_verdict'])}")
+    L.append(
+        f"- Pooled RMSE: raw {_num(agg['pooled_rmse_raw'])} -> composite {_num(agg['pooled_rmse_composite'])} " f"(lift {_pct(agg['pooled_lift_over_raw'])})"
+    )
     vr = agg["vs_raw"]
     L.append(f"- vs raw: {vr['helped']} helped / {vr['hurt']} hurt / {vr['tied']} tied "
              f"({_pct(vr['helped_frac'])} / {_pct(vr['hurt_frac'])} / {_pct(vr['tied_frac'])})")
     if report["has_lag"]:
         vl = agg["vs_lag"]
-        L.append(f"- Net row-weighted lift over lag: {_pct(agg['net_weighted_lift_over_lag'])} "
-                 f"(pooled lag RMSE {_num(agg['pooled_rmse_lag'])})")
+        L.append(f"- Net row-weighted lift over lag: {_pct(agg['net_weighted_lift_over_lag'])} " f"(pooled lag RMSE {_num(agg['pooled_rmse_lag'])})")
         if vl is not None:
             L.append(f"- vs lag: {vl['helped']} helped / {vl['hurt']} hurt / {vl['tied']} tied "
                      f"({_pct(vl['helped_frac'])} / {_pct(vl['hurt_frac'])} / {_pct(vl['tied_frac'])})")

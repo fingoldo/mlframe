@@ -49,7 +49,7 @@ from mlframe.training.composite.discovery._screening_tiny import (
 
 _N = 8_000
 _F = 12
-_B = 6          # distinct base columns (bin_vars) sharing one raw-y fit
+_B = 6  # distinct base columns (bin_vars) sharing one raw-y fit
 _CV_FOLDS = 3
 _NBINS = 8
 _REPS = 5
@@ -61,10 +61,7 @@ def _make(n: int, f: int, n_bases: int, seed: int = 0):
     x = rng.standard_normal((n, f)).astype(np.float32)
     y = (0.7 * x[:, 0] - 1.1 * x[:, 1] + 0.4 * x[:, 2]).astype(np.float64)
     y += rng.standard_normal(n) * 0.5
-    bin_vars = [
-        x[:, i % f] + 0.3 * rng.standard_normal(n).astype(np.float32)
-        for i in range(n_bases)
-    ]
+    bin_vars = [x[:, i % f] + 0.3 * rng.standard_normal(n).astype(np.float32) for i in range(n_bases)]
     return y, x, bin_vars
 
 
@@ -94,10 +91,7 @@ def _new_fit_once(y, x, bin_vars, family) -> list[np.ndarray]:
     _, fold_preds = _tiny_cv_rmse_raw_y(
         y_train=y, x_train_matrix=x, return_fold_preds=True, **kw,
     )
-    return [
-        _per_bin_from_fold_preds(fold_preds, bv, n_bins=_NBINS)
-        for bv in bin_vars
-    ]
+    return [_per_bin_from_fold_preds(fold_preds, bv, n_bins=_NBINS) for bv in bin_vars]
 
 
 def _time(fn, *args) -> tuple[float, list[np.ndarray]]:
@@ -119,9 +113,7 @@ def main() -> None:
     # Warm + bit-identity gate.
     old0 = _old_per_base(y, x, bin_vars, family)
     new0 = _new_fit_once(y, x, bin_vars, family)
-    identical = all(
-        np.array_equal(o, n, equal_nan=True) for o, n in zip(old0, new0)
-    )
+    identical = all(np.array_equal(o, n, equal_nan=True) for o, n in zip(old0, new0))
 
     old_t = float("inf")
     new_t = float("inf")
@@ -132,10 +124,7 @@ def main() -> None:
         new_t = min(new_t, t_new)
 
     speedup = old_t / new_t if new_t > 0 else float("inf")
-    print(
-        f"raw per-bin memo bench  n={_N} F={_F} B={_B} cv_folds={_CV_FOLDS} "
-        f"n_bins={_NBINS} family={family} reps={_REPS} py={sys.version.split()[0]}"
-    )
+    print(f"raw per-bin memo bench  n={_N} F={_F} B={_B} cv_folds={_CV_FOLDS} " f"n_bins={_NBINS} family={family} reps={_REPS} py={sys.version.split()[0]}")
     print(f"  bit-identical per-bin: {identical}")
     print(f"  old (refit per base):  {old_t * 1e3:8.2f} ms")
     print(f"  new (fit once+re-bin): {new_t * 1e3:8.2f} ms  (speedup {speedup:.2f}x)")

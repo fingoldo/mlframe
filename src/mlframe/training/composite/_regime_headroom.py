@@ -351,8 +351,7 @@ def render_regime_headroom_map(report: dict, *, max_bins: int = 20) -> str:
     s = report["summary"]
     L.append("## Summary")
     L.append("")
-    L.append(f"- Bins where composite helps: {_pct(s['frac_bins_helped'])} "
-             f"(hurt {_pct(s['frac_bins_hurt'])}, scored {s['n_bins_scored']})")
+    L.append(f"- Bins where composite helps: {_pct(s['frac_bins_helped'])} " f"(hurt {_pct(s['frac_bins_hurt'])}, scored {s['n_bins_scored']})")
     L.append(f"- Median headroom: {_pct(s['median_headroom'])}")
     wh = s["worst_hurt_bin"]
     if wh is not None:
@@ -367,8 +366,7 @@ def render_regime_headroom_map(report: dict, *, max_bins: int = 20) -> str:
         L.append("| bin | axis range | n | winner | headroom |")
         L.append("|-----|------------|---|--------|----------|")
         for b in bins[:max_bins]:
-            L.append(f"| {b['bin']} | [{_num(b['axis_lo'])}, {_num(b['axis_hi'])}] | {b['n']} | "
-                     f"{_ascii(b['winner'])} | {_pct(b['headroom'])} |")
+            L.append(f"| {b['bin']} | [{_num(b['axis_lo'])}, {_num(b['axis_hi'])}] | {b['n']} | " f"{_ascii(b['winner'])} | {_pct(b['headroom'])} |")
         if len(bins) > max_bins:
             L.append("")
             L.append(f"_({len(bins) - max_bins} more bins omitted.)_")

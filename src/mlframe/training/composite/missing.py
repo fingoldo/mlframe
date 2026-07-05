@@ -108,17 +108,12 @@ class MissingAwareComposite(BaseEstimator, RegressorMixin):
             cols = tuple(cols)
             if len(cols) != 1:
                 raise ValueError(
-                    "MissingAwareComposite: multi-base composites are not "
-                    f"supported (got base_columns={cols!r}); wrap a single-base "
-                    "composite."
+                    "MissingAwareComposite: multi-base composites are not " f"supported (got base_columns={cols!r}); wrap a single-base " "composite."
                 )
             return cols[0]
         bc = getattr(comp, "base_column", "")
         if not bc:
-            raise ValueError(
-                "MissingAwareComposite: the inner composite has no base_column / "
-                "base_columns configured; nothing to impute."
-            )
+            raise ValueError("MissingAwareComposite: the inner composite has no base_column / " "base_columns configured; nothing to impute.")
         return bc
 
     def _impute_inplace_safe(self, X: Any, col: str, value: float, mask: np.ndarray) -> Any:
@@ -158,13 +153,8 @@ class MissingAwareComposite(BaseEstimator, RegressorMixin):
         if isinstance(X, np.ndarray):
             # ndarray base_column is not name-addressable; the wrapper needs a
             # named base column, so direct the caller to a frame carrier.
-            raise TypeError(
-                "MissingAwareComposite: ndarray X is unsupported (base column is "
-                "name-addressed); pass a pandas or polars DataFrame."
-            )
-        raise TypeError(
-            f"MissingAwareComposite: unsupported X type {type(X).__name__}."
-        )
+            raise TypeError("MissingAwareComposite: ndarray X is unsupported (base column is " "name-addressed); pass a pandas or polars DataFrame.")
+        raise TypeError(f"MissingAwareComposite: unsupported X type {type(X).__name__}.")
 
     # ------------------------------------------------------------------
     def fit(self, X: Any, y: Any, sample_weight: np.ndarray | None = None, **fit_kwargs: Any) -> "MissingAwareComposite":
@@ -177,14 +167,9 @@ class MissingAwareComposite(BaseEstimator, RegressorMixin):
         if self.composite is None:
             raise ValueError("MissingAwareComposite: composite must not be None.")
         if not 0.0 < self.max_missing_frac <= 1.0:
-            raise ValueError(
-                f"MissingAwareComposite: max_missing_frac must be in (0, 1]; got {self.max_missing_frac}."
-            )
+            raise ValueError(f"MissingAwareComposite: max_missing_frac must be in (0, 1]; got {self.max_missing_frac}.")
         if self.impute_strategy not in ("median", "mean"):
-            raise ValueError(
-                f"MissingAwareComposite: unknown impute_strategy {self.impute_strategy!r}; "
-                "choose 'median' or 'mean'."
-            )
+            raise ValueError(f"MissingAwareComposite: unknown impute_strategy {self.impute_strategy!r}; " "choose 'median' or 'mean'.")
 
         col = self._base_column_name()
         y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
@@ -218,11 +203,7 @@ class MissingAwareComposite(BaseEstimator, RegressorMixin):
         self.composite_ = comp
 
         # Decide the routing for missing rows ONCE, at fit.
-        self.use_offset_ = bool(
-            missing_mask.any()
-            and finite_base.size > 0
-            and self.missing_fraction_ <= self.max_missing_frac
-        )
+        self.use_offset_ = bool(missing_mask.any() and finite_base.size > 0 and self.missing_fraction_ <= self.max_missing_frac)
 
         # Learn the per-missing offset: the mean gap between the true y on the
         # missing-base TRAIN rows and the inner composite's prediction there (with

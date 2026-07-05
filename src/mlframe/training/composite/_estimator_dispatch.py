@@ -178,9 +178,7 @@ def maybe_inject_distribution_driven_estimator(
     if not base_column:
         return mlframe_models
 
-    estimator = instantiate_recommended_estimator(
-        rec, base_estimator=_default_base_estimator(), base_column=base_column
-    )
+    estimator = instantiate_recommended_estimator(rec, base_estimator=_default_base_estimator(), base_column=base_column)
     if estimator is None:
         return mlframe_models
 

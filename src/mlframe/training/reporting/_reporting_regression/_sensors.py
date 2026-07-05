@@ -35,8 +35,7 @@ def apply_prediction_envelope_clip(
     _K_FALLBACK_SIGMA = 10.0
     _env_stats = None
     _envelope_source = "none"
-    if (y_train_min is not None and y_train_max is not None
-            and y_train_std is not None and y_train_std > 0):
+    if y_train_min is not None and y_train_max is not None and y_train_std is not None and y_train_std > 0:
         from ..._prediction_envelope_clip import TrainEnvelopeStats
         _env_stats = TrainEnvelopeStats(
             y_min=float(y_train_min),
@@ -62,10 +61,7 @@ def apply_prediction_envelope_clip(
             preds_arr, _env_stats,
             k_sigma=(3.0 if _envelope_source == "train" else _K_FALLBACK_SIGMA),
             model_label=str(model_name) if model_name else "<unknown>",
-            split_label=(
-                f"{report_title} [{_envelope_source}]" if report_title
-                else f"<unknown> [{_envelope_source}]"
-            ),
+            split_label=(f"{report_title} [{_envelope_source}]" if report_title else f"<unknown> [{_envelope_source}]"),
         )
     return preds_arr
 
@@ -95,24 +91,17 @@ def run_collapse_sensor(
         _pred_mean = float(np.mean(preds_arr)) if preds_arr.size else 0.0
         _y_mean = float(np.mean(targets_arr)) if targets_arr.size else 0.0
         _r2 = float(R2)
-        _collapse_std = (
-            _y_std > 0 and _pred_std < 0.2 * _y_std and _r2 < 0
-        )
+        _collapse_std = _y_std > 0 and _pred_std < 0.2 * _y_std and _r2 < 0
         try:
             _max_err = float(np.max(np.abs(preds_arr - targets_arr)))
         except Exception:
             _max_err = 0.0
-        _collapse_extrapolation = (
-            _y_std > 0 and _r2 < -1.0 and _max_err > 5.0 * _y_std
-        )
-        _collapse_mean_shift = (
-            _y_std > 0 and abs(_pred_mean - _y_mean) > 3.0 * _y_std
-        )
+        _collapse_extrapolation = _y_std > 0 and _r2 < -1.0 and _max_err > 5.0 * _y_std
+        _collapse_mean_shift = _y_std > 0 and abs(_pred_mean - _y_mean) > 3.0 * _y_std
         # When train-y stats are plumbed, additionally trip when pred falls >3 sigma outside [y_train_min, y_train_max]:
         # catches the case where the in-batch target_std happens tighter than train-y_std and the extrapolation branch misses.
         _collapse_train_envelope = False
-        if (y_train_min is not None and y_train_max is not None
-                and y_train_std is not None and y_train_std > 0):
+        if y_train_min is not None and y_train_max is not None and y_train_std is not None and y_train_std > 0:
             try:
                 _pred_min = float(np.min(preds_arr))
                 _pred_max = float(np.max(preds_arr))
@@ -122,8 +111,7 @@ def run_collapse_sensor(
                     _collapse_train_envelope = True
             except Exception:
                 pass
-        if not (_collapse_std or _collapse_extrapolation
-                or _collapse_mean_shift or _collapse_train_envelope):
+        if not (_collapse_std or _collapse_extrapolation or _collapse_mean_shift or _collapse_train_envelope):
             return
         # Disambiguate the branch by model name: Ridge / LinearRegression on a group-aware split with feature-distribution
         # shift produces the SAME signature as Identity-MLP collapse, so operators shouldn't be told to blame a neural stack.
@@ -136,7 +124,7 @@ def run_collapse_sensor(
         if _collapse_std:
             _branch = "std-collapse"
         elif _collapse_extrapolation:
-            _branch = ("linear-extrapolation" if _is_neural_stack else "group-ood-shift")
+            _branch = "linear-extrapolation" if _is_neural_stack else "group-ood-shift"
         elif _collapse_train_envelope:
             _branch = "outside-train-y-envelope"
         else:
@@ -150,16 +138,16 @@ def run_collapse_sensor(
             "For tree boosters: check fit_params learning_rate / n_estimators."
             if _is_neural_stack
             else (
-            "Likely cause: group-aware split + feature distribution "
-            "shift between train and test wells/groups. The linear "
-            "model's coefficients fit on train-feature scale, but "
-            "test rows have features from a different distribution -- "
-            "predictions drift off systematically. Mitigations: "
-            "(a) let composite-target discovery propose a residualised "
-            "target with bounded variance, (b) use a tree booster "
-            "(less sensitive to feature scale shift), (c) verify the "
-            "group-aware split assumptions match downstream model "
-            "robustness expectations."
+                "Likely cause: group-aware split + feature distribution "
+                "shift between train and test wells/groups. The linear "
+                "model's coefficients fit on train-feature scale, but "
+                "test rows have features from a different distribution -- "
+                "predictions drift off systematically. Mitigations: "
+                "(a) let composite-target discovery propose a residualised "
+                "target with bounded variance, (b) use a tree booster "
+                "(less sensitive to feature scale shift), (c) verify the "
+                "group-aware split assumptions match downstream model "
+                "robustness expectations."
             )
         )
         logger.warning(

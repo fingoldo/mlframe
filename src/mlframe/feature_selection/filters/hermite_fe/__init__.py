@@ -87,13 +87,8 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     return out
 
 
-
-
-
-
 @njit(cache=True, fastmath=True, parallel=True)
-def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray,
-                                    n_bins: int = 20) -> np.ndarray:
+def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Plug-in MI of each column of X_cols (continuous) with discrete y. Parallel over columns; for k~3 (one per binary func)
     parallelism is shallow but still saves ~2x over sequential."""
     # The per-column ``.copy()`` materialises a CONTIGUOUS column before numba's argsort (inside
@@ -122,8 +117,6 @@ def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray,
     return out
 
 
-
-
 def _quantile_bin_numpy(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Pure-numpy quantile binning. ~1.6x faster than the numba version
     at n=1500 because numpy's ``np.argsort`` dispatches to a SIMD-optimised
@@ -141,15 +134,12 @@ def _quantile_bin_numpy(x: np.ndarray, n_bins: int) -> np.ndarray:
     pos = 0
     for b in range(n_bins):
         size = base + (1 if b < rem else 0)
-        out[sort_idx[pos:pos + size]] = b
+        out[sort_idx[pos : pos + size]] = b
         pos += size
     return out
 
 
-
-
-def plugin_mi_classif_batch_fast(X_cols: np.ndarray, y: np.ndarray,
-                                   n_bins: int = 20) -> np.ndarray:
+def plugin_mi_classif_batch_fast(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Batch variant of :func:`plugin_mi_classif_fast`. Does argsort + bin
     assignment per column in pure numpy then dispatches the histogram
     math to the njit kernel. Wins over ``_plugin_mi_classif_batch_njit``
@@ -174,8 +164,7 @@ def plugin_mi_classif_batch_fast(X_cols: np.ndarray, y: np.ndarray,
 # routes accordingly.
 
 
-def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray,
-                            n_bins: int = 20) -> float:
+def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
     """Single-column cupy wrapper around :func:`_plugin_mi_classif_batch_cuda`.
     Provided for API symmetry; the dispatcher routes here only when n is
     big enough to amortise H2D + GPU launch (default >= 1M)."""
@@ -200,11 +189,8 @@ def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray,
 # overrides regardless of cache.
 
 
-
-
 @njit(cache=True, fastmath=True, parallel=True)
-def _plugin_mi_regression_batch_njit(X_cols: np.ndarray, y: np.ndarray,
-                                       n_bins: int = 20) -> np.ndarray:
+def _plugin_mi_regression_batch_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Plug-in MI of each column of X_cols (continuous) with continuous y."""
     k = X_cols.shape[1]
     out = np.zeros(k, dtype=np.float64)
@@ -221,7 +207,6 @@ from ._hermite_basis_eval import (  # noqa: F401
     _BASIS_BUILDERS, build_basis_matrix,
 )
 
-
 # Optional CUDA RawKernel backend. One thread per output element with the recurrence kept in registers.
 # Wins at n >= 500k once host->device transfer is amortised.
 
@@ -233,8 +218,6 @@ try:
     _CUDA_AVAILABLE = True
 except ImportError:
     pass
-
-
 
 
 def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None = None) -> np.ndarray:
@@ -328,7 +311,6 @@ from ._hermite_oracle import (  # noqa: E402,F401
     get_polyeval_oracle,
 )
 
-
 _POLYEVAL_CUDA_FALLBACK_WARNED = False
 
 
@@ -380,7 +362,7 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
         # Per-column device CASCADE: try the roomiest GPU, then the next, then CPU -- so on a multi-GPU box a busy/full
         # device 0 does not block the eval, and an OOM (incl. host pinned-mem exhaustion) degrades instead of dropping
         # the column. Empty candidate list (no device has room) -> straight to CPU.
-        for _dev in (_polyeval_cuda_pick_devices(n) or [None]):
+        for _dev in _polyeval_cuda_pick_devices(n) or [None]:
             try:
                 return _polyeval_cuda(basis, x, c, device=_dev)
             except Exception as _cuda_exc:  # OOM / driver error on this device -> try the next, then CPU

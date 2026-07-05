@@ -253,7 +253,7 @@ def decide_exhaustive_sweep(
     except Exception:
         _CUDA_AVAIL = False
 
-    budget = _resolve_exhaustive_budget_seconds(self)   # MRMR's own max_runtime_mins; None => unlimited
+    budget = _resolve_exhaustive_budget_seconds(self)  # MRMR's own max_runtime_mins; None => unlimited
     n_pairs = (n_raw * (n_raw - 1)) // 2
     if _CUDA_AVAIL:
         # Opportunistically warm the per-host throughput cache so the prediction is measured, not the cold

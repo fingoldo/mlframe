@@ -115,11 +115,7 @@ def _fit_stability_selection(self, X, y, signature):
     # below the threshold cap n_repeats. Stability selection ranks by importance regardless of estimator, so the native
     # importance is a valid substitute here too.
     _eff_n_repeats = int(getattr(self, "n_repeats", 5))
-    if (
-        getattr(self, "wide_data_fi_fallback", True)
-        and isinstance(importance_getter, str)
-        and importance_getter in ("permutation", "conditional_permutation")
-    ):
+    if getattr(self, "wide_data_fi_fallback", True) and isinstance(importance_getter, str) and importance_getter in ("permutation", "conditional_permutation"):
         _threshold = int(getattr(self, "wide_data_fi_threshold", 200))
         if n_features > _threshold:
             if self.verbose:
@@ -199,9 +195,7 @@ def _fit_stability_selection(self, X, y, signature):
         if per_feature_score_sum.sum() <= 0:
             continue
         # np.lexsort with feature-index tiebreaker so tied scores don't make the top-K pick depend on feature_names insertion order.
-        top_idx = np.lexsort(
-            (np.arange(len(per_feature_score_sum)), -per_feature_score_sum)
-        )[:top_k]
+        top_idx = np.lexsort((np.arange(len(per_feature_score_sum)), -per_feature_score_sum))[:top_k]
         # Only count features that actually carry positive importance this bootstrap. When fewer than top_k features have nonzero FI,
         # padding the top-K with zero-importance (pure-noise) columns lets them accrue selection counts every bootstrap and cross the
         # stability threshold -- admitting noise into support_. A zero-FI feature is, by definition, not "selected" by this bootstrap.
@@ -220,7 +214,7 @@ def _fit_stability_selection(self, X, y, signature):
     _q_avg = float(top_k)
     _pi = float(self.stability_threshold)
     if _pi > 0.5 and n_features > 0:
-        self.stability_pfer_bound_ = (_q_avg ** 2) / ((2.0 * _pi - 1.0) * n_features)
+        self.stability_pfer_bound_ = (_q_avg**2) / ((2.0 * _pi - 1.0) * n_features)
     else:
         self.stability_pfer_bound_ = float("nan")
     self.stability_avg_selected_per_bootstrap_ = _q_avg
@@ -362,10 +356,7 @@ def select_optimal_nfeatures_(
     if max_nf is not None:
         nonzero_mask = nonzero_mask & (nfeatures_arr <= max_nf)
     if not nonzero_mask.any():
-        logger.warning(
-            "select_optimal_nfeatures_: only nfeatures==0 was evaluated; "
-            "no features can be selected. Returning empty support_."
-        )
+        logger.warning("select_optimal_nfeatures_: only nfeatures==0 was evaluated; " "no features can be selected. Returning empty support_.")
         self.n_features_ = 0
         self.support_ = np.array([])
         return
@@ -385,13 +376,7 @@ def select_optimal_nfeatures_(
     n_samples_fit = getattr(self, "_n_samples_fit_", None)
     p_in = int(getattr(self, "n_features_in_", 0))
     nz_candidates = nfeatures_arr[nonzero_mask]
-    if (
-        n_samples_fit is not None
-        and p_in >= int(n_samples_fit)
-        and nz_candidates.size == 1
-        and int(nz_candidates[0]) == p_in
-        and (nfeatures_arr == 0).any()
-    ):
+    if n_samples_fit is not None and p_in >= int(n_samples_fit) and nz_candidates.size == 1 and int(nz_candidates[0]) == p_in and (nfeatures_arr == 0).any():
         _full_pos = int(np.flatnonzero(nonzero_mask)[0])
         _zero_pos = int(np.flatnonzero(nfeatures_arr == 0)[0])
         _mean = np.array(cv_mean_perf)
@@ -486,10 +471,7 @@ def select_optimal_nfeatures_(
                     best_idx = _i
                     break
         else:
-            raise ValueError(
-                f"n_features_selection_rule={rule!r} not supported. "
-                f"Use 'auto', 'argmax', 'one_se_max', 'one_se_min', or 'plateau'."
-            )
+            raise ValueError(f"n_features_selection_rule={rule!r} not supported. " f"Use 'auto', 'argmax', 'one_se_max', 'one_se_min', or 'plateau'.")
     best_top_n = int(nfeatures_arr[best_idx])
 
     if show_plot or plot_file:

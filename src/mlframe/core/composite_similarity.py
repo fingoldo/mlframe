@@ -185,6 +185,4 @@ def fit_composite_similarity(
         history.append(best)
         if not improved:
             break
-    return CompositeSimilarityResult(
-        weights=w, score=sign * best, deformation=deformation, k=k, classification=classification, history=history
-    )
+    return CompositeSimilarityResult(weights=w, score=sign * best, deformation=deformation, k=k, classification=classification, history=history)

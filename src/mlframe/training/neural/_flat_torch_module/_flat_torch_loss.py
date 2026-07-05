@@ -153,7 +153,7 @@ class _LossMixin:
         # argmax along the class dim only makes sense for multi-class K>1 logits (shape (N, K)).
         # Regression (dim==1) or multilabel BCE (each label independent) would silently emit
         # garbage from raw_predictions.argmax(dim=1); guard explicitly.
-        _is_multiclass = (raw_predictions.dim() == 2 and raw_predictions.shape[1] > 1 and self.task_type != "multilabel")
+        _is_multiclass = raw_predictions.dim() == 2 and raw_predictions.shape[1] > 1 and self.task_type != "multilabel"
 
         preds_dict = {}
         if need_argmax:

@@ -40,7 +40,7 @@ def _group_local_volatility(group_ids: np.ndarray, values: np.ndarray, order_key
     n = v.size
     if n == 0 or g.shape[0] != n or ok.shape[0] != n:
         return np.full(n, np.nan, dtype=np.float64)
-    order = np.lexsort((ok, g))          # sort by group, then by order_key within group
+    order = np.lexsort((ok, g))  # sort by group, then by order_key within group
     gs = g[order]
     vs = v[order]
     # Forward step within group: diff to the NEXT row when it is the same group; last-in-group -> nan.
@@ -100,8 +100,7 @@ class VolatilityLagRouter:
         return out
 
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
-        return (f"VolatilityLagRouter(group={self.group_column!r}, order={self.order_column!r}, "
-                f"threshold={self.threshold:.4g})")
+        return f"VolatilityLagRouter(group={self.group_column!r}, order={self.order_column!r}, " f"threshold={self.threshold:.4g})"
 
 
 def build_volatility_lag_router(

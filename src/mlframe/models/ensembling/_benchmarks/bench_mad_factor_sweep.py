@@ -46,15 +46,15 @@ def _outlier_members(rng, y, k, n_bad):
     members = [y + rng.normal(0.0, 0.3 * sd, size=n) for _ in range(k - n_bad)]
     for j in range(n_bad):
         if j % 2 == 0:
-            members.append(y + 4.0 * sd)            # biased outlier fold
+            members.append(y + 4.0 * sd)  # biased outlier fold
         else:
             members.append(2.5 * y + rng.normal(0.0, 0.3 * sd, size=n))  # scale outlier fold
     return np.stack(members)
 
 
 def run(n: int = 3000):
-    clean = {f: [] for f in FACTORS}            # ratio robust/mean per clean cell
-    outlier = {f: [] for f in FACTORS}          # ratio mean/robust (protection) per outlier cell
+    clean = {f: [] for f in FACTORS}  # ratio robust/mean per clean cell
+    outlier = {f: [] for f in FACTORS}  # ratio mean/robust (protection) per outlier cell
 
     for k in CLEAN_K:
         for seed in SEEDS:

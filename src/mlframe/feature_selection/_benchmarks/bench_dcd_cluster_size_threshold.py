@@ -84,8 +84,7 @@ def main():
               f"thr2 auc={a2:.4f} nfeat={f2} swaps={s2} pruned={p2} anch={an2}")
     arr = np.array([(r[1], r[4], r[3], r[6], r[2], r[5]) for r in rows])
     print("---")
-    print(f"mean OOS AUC: thr4={arr[:,0].mean():.4f}  thr2={arr[:,1].mean():.4f}  "
-          f"delta(thr2-thr4)={arr[:,1].mean()-arr[:,0].mean():+.4f}")
+    print(f"mean OOS AUC: thr4={arr[:,0].mean():.4f}  thr2={arr[:,1].mean():.4f}  " f"delta(thr2-thr4)={arr[:,1].mean()-arr[:,0].mean():+.4f}")
     print(f"mean n_swaps: thr4={arr[:,2].mean():.1f}  thr2={arr[:,3].mean():.1f}")
     print(f"mean support: thr4={arr[:,4].mean():.1f}  thr2={arr[:,5].mean():.1f}")
 

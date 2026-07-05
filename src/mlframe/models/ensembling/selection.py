@@ -157,9 +157,7 @@ class CaruanaSelectionResult:
         """Blend a NEW stacked ``(M, N[, K])`` matrix with the fitted weights (weighted arithmetic mean)."""
         arr = np.asarray(stacked, dtype=np.float64)
         if arr.shape[0] != self.weights.shape[0]:
-            raise ValueError(
-                f"CaruanaSelectionResult.predict: stacked model axis {arr.shape[0]} != fitted M {self.weights.shape[0]}."
-            )
+            raise ValueError(f"CaruanaSelectionResult.predict: stacked model axis {arr.shape[0]} != fitted M {self.weights.shape[0]}.")
         w = self.weights.reshape((self.weights.shape[0],) + (1,) * (arr.ndim - 1))
         return np.sum(arr * w, axis=0)
 

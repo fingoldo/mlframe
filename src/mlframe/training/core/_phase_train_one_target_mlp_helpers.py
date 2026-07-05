@@ -131,8 +131,8 @@ def _apply_mlp_extreme_ar_weight_decay_bump(
         return True
     except Exception as _bump_err:
         logger.warning(
-            "MLP extreme-AR weight_decay bump failed (%s); leaving "
-            "optimizer kwargs unchanged.", _bump_err,
+            "MLP extreme-AR weight_decay bump failed (%s); leaving " "optimizer kwargs unchanged.",
+            _bump_err,
         )
         return False
 
@@ -177,8 +177,7 @@ def _apply_mlp_extreme_ar_output_activation(model) -> bool:
         np_dict["output_activation"] = "tanh_train_range"
         found_inner.network_params = np_dict
         logger.info(
-            "MLP extreme-AR + group-aware: output_activation='tanh_train_range' "
-            "enabled; scale/center auto-derived from y_train at fit time.",
+            "MLP extreme-AR + group-aware: output_activation='tanh_train_range' " "enabled; scale/center auto-derived from y_train at fit time.",
         )
         return True
     except Exception as _act_err:
@@ -220,10 +219,6 @@ def extreme_ar_skip_decision(
 
     if is_composite_target_name(target_name):
         return False, False
-    fired = bool(
-        group_aware
-        and lag1_autocorr_per_group is not None
-        and float(lag1_autocorr_per_group) >= float(threshold)
-    )
+    fired = bool(group_aware and lag1_autocorr_per_group is not None and float(lag1_autocorr_per_group) >= float(threshold))
     skip = bool(fired and skip_enabled and model_name in tuple(skip_models))
     return skip, fired

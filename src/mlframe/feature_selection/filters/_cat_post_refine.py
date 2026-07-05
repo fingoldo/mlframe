@@ -137,8 +137,8 @@ def _anti_redundancy_rerank(
     selected_idx: np.ndarray,
     ii_arr: np.ndarray,
     nbins: np.ndarray,
-    selected_so_far: list,    # column indices (in ``data``) of already-selected features
-    classes_y: np.ndarray,    # unused -- the redundancy MI is against Z, not Y
+    selected_so_far: list,  # column indices (in ``data``) of already-selected features
+    classes_y: np.ndarray,  # unused -- the redundancy MI is against Z, not Y
     cfg: CatFEConfig,
     dtype,
     verbose: int,
@@ -370,5 +370,3 @@ def _refine_kway_coordinate_ascent(
                 break
         refined.append((tuple(sorted(current)), current_classes, current_nuniq, current_mi))
     return refined
-
-

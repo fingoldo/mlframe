@@ -56,8 +56,8 @@ def test_gate_raw_median_is_looser_than_synergy_on_noise_heavy_frame():
     fi.update({f"n{i}": 0.0 for i in range(20)})
     raw = ["a", "b"] + [f"n{i}" for i in range(20)]
     rel = raw + ["tprod_0"]
-    assert _gate("raw_median", fi, [("a", "b")], rel, raw) == {"tprod_0"}   # loose: admitted
-    assert _gate("synergy", fi, [("a", "b")], rel, raw) == set()            # synergy: rejected (0.02 < 0.5)
+    assert _gate("raw_median", fi, [("a", "b")], rel, raw) == {"tprod_0"}  # loose: admitted
+    assert _gate("synergy", fi, [("a", "b")], rel, raw) == set()  # synergy: rejected (0.02 < 0.5)
 
 
 def test_gate_relevant_median_uses_survivor_bar_not_raw():
@@ -121,10 +121,10 @@ def test_pickle_keeps_tree_attrs_drops_transient():
     X, y = _interaction_frame()
     h = HybridSelector(use_tree_member=True).fit(X, y)
     h2 = pickle.loads(pickle.dumps(h))
-    assert h2._tree_prod_pairs_ == h._tree_prod_pairs_     # needed to replay tree op cols at transform
+    assert h2._tree_prod_pairs_ == h._tree_prod_pairs_  # needed to replay tree op cols at transform
     assert h2._tree_prod_names_ == h._tree_prod_names_
-    assert h2._tree_op_ == h._tree_op_                     # the (a,b,op) spec per column
-    assert not hasattr(h2, "_Xaug_") and not hasattr(h2, "_y_")   # transient training data dropped
+    assert h2._tree_op_ == h._tree_op_  # the (a,b,op) spec per column
+    assert not hasattr(h2, "_Xaug_") and not hasattr(h2, "_y_")  # transient training data dropped
     # transform still works after roundtrip
     assert list(h2.transform(X.iloc[:10]).columns) == list(h.transform(X.iloc[:10]).columns)
 

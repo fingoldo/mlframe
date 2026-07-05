@@ -53,7 +53,7 @@ def _run_suite_end_dummy_baselines_summary(
                 _pm = _rep_dict.get("primary_metric")
                 if not _pm or not _pm.startswith("val_"):
                     continue
-                _metric_name = _pm[len("val_"):]
+                _metric_name = _pm[len("val_") :]
                 _model_list = models.get(_tt, {}).get(_tname, [])
                 if not _model_list:
                     continue
@@ -67,10 +67,7 @@ def _run_suite_end_dummy_baselines_summary(
                 # For composite targets prefer y-scale metrics (post-inverse, comparable to raw / y-scale dummy).
                 _yscale_by_tt = metadata.get("composite_target_y_scale_metrics", {}).get(str(_tt), {})
                 # A composite target HAS a key here (possibly an empty list); a raw target does not.
-                _is_composite = (
-                    _tname in _yscale_by_tt
-                    or _tname in _composite_names_by_tt.get(str(_tt), set())
-                )
+                _is_composite = _tname in _yscale_by_tt or _tname in _composite_names_by_tt.get(str(_tt), set())
                 _yscale_entries = _yscale_by_tt.get(_tname, [])
                 _best_val: float | None = None
                 _best_name = "-"
@@ -81,11 +78,7 @@ def _run_suite_end_dummy_baselines_summary(
                         _v = _split_metric.get(_metric_name)
                         if _v is None or not np.isfinite(_v):
                             continue
-                        if (
-                            _best_val is None
-                            or (_is_minimize and _v < _best_val)
-                            or (not _is_minimize and _v > _best_val)
-                        ):
+                        if _best_val is None or (_is_minimize and _v < _best_val) or (not _is_minimize and _v > _best_val):
                             _best_val = float(_v)
                             _best_name = _ye.get("model_name") or "Composite"
                             _best_split = "val"
@@ -96,11 +89,7 @@ def _run_suite_end_dummy_baselines_summary(
                             _v = _split_metric.get(_metric_name)
                             if _v is None or not np.isfinite(_v):
                                 continue
-                            if (
-                                _best_val is None
-                                or (_is_minimize and _v < _best_val)
-                                or (not _is_minimize and _v > _best_val)
-                            ):
+                            if _best_val is None or (_is_minimize and _v < _best_val) or (not _is_minimize and _v > _best_val):
                                 _best_val = float(_v)
                                 _best_name = _ye.get("model_name") or "Composite"
                                 _best_split = "test"
@@ -117,15 +106,9 @@ def _run_suite_end_dummy_baselines_summary(
                         _v = _entry_metric(_m, "val", _metric_name)
                         if not np.isfinite(_v):
                             continue
-                        if (
-                            _best_val is None
-                            or (_is_minimize and _v < _best_val)
-                            or (not _is_minimize and _v > _best_val)
-                        ):
+                        if _best_val is None or (_is_minimize and _v < _best_val) or (not _is_minimize and _v > _best_val):
                             _best_val = _v
-                            _best_name = getattr(_m, "model_name", None) or type(
-                                getattr(_m, "model", _m)
-                            ).__name__
+                            _best_name = getattr(_m, "model_name", None) or type(getattr(_m, "model", _m)).__name__
                             _best_split = "val"
                     # Second pass: fall back to TEST metrics if VAL was
                     # never populated for any model in this slot. The
@@ -142,23 +125,14 @@ def _run_suite_end_dummy_baselines_summary(
                             _v = _entry_metric(_m, "test", _metric_name)
                             if not np.isfinite(_v):
                                 continue
-                            if (
-                                _best_val is None
-                                or (_is_minimize and _v < _best_val)
-                                or (not _is_minimize and _v > _best_val)
-                            ):
+                            if _best_val is None or (_is_minimize and _v < _best_val) or (not _is_minimize and _v > _best_val):
                                 _best_val = _v
-                                _best_name = getattr(_m, "model_name", None) or type(
-                                    getattr(_m, "model", _m)
-                                ).__name__
+                                _best_name = getattr(_m, "model_name", None) or type(getattr(_m, "model", _m)).__name__
                                 _best_split = "test"
                 if _best_val is not None:
                     # Tag the model name with "(test fallback)" so the
                     # operator can spot val-vs-test cross-comparisons.
-                    _display_name = (
-                        f"{_best_name} (test fallback)"
-                        if _best_split == "test" else _best_name
-                    )
+                    _display_name = f"{_best_name} (test fallback)" if _best_split == "test" else _best_name
                     _best_metrics[(str(_tt), str(_tname))] = {
                         _pm: _best_val,
                         "model_name": _display_name,
@@ -166,9 +140,7 @@ def _run_suite_end_dummy_baselines_summary(
         # composite -> raw target map so the verdict block uses the raw median(y_raw) constant as the trivial baseline
         # (not the inverted-T fake baseline that uses fitted alpha).
         _composite_to_raw: dict[tuple[str, str], str] = {}
-        for _tt_str, _by_tname in metadata.get(
-            "composite_target_specs", {}
-        ).items():
+        for _tt_str, _by_tname in metadata.get("composite_target_specs", {}).items():
             for _raw_tname, _spec_list in _by_tname.items():
                 for _s in _spec_list or []:
                     _comp_name = _s.get("name")

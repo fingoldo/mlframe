@@ -242,8 +242,7 @@ def bench2():
         # v2 won't be bit-identical (different RNG scheme) -> check distribution stats instead
         a = old_null_dist(x, y, z, K_x, K_y, K_z, 500, 7)
         b = new2_null_dist(x, y, z, K_x, K_y, K_z, 500, 7)
-        print(f"V2 n={n:>7}: OLD={to*1e3:8.2f}ms NEW2={tn*1e3:8.2f}ms speedup={to/tn:5.2f}x  "
-              f"mean OLD={a.mean():.5f} NEW2={b.mean():.5f}")
+        print(f"V2 n={n:>7}: OLD={to*1e3:8.2f}ms NEW2={tn*1e3:8.2f}ms speedup={to/tn:5.2f}x  " f"mean OLD={a.mean():.5f} NEW2={b.mean():.5f}")
 
 
 if __name__ == "__main__":

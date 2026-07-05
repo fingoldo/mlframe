@@ -66,9 +66,7 @@ def resolve_shap_aware_stage1_keep(
     """
     if effective_prefilter_top is None:
         return int(default_stage1_keep)
-    tightened = max(int(stage1_floor),
-                    int(effective_prefilter_top) * int(stage1_cushion),
-                    int(effective_prefilter_top))
+    tightened = max(int(stage1_floor), int(effective_prefilter_top) * int(stage1_cushion), int(effective_prefilter_top))
     return min(int(default_stage1_keep), tightened)
 
 

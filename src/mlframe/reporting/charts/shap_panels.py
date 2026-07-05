@@ -158,10 +158,7 @@ def _carrier_with_categoricals(X: Any) -> Any:
     import pandas as pd
     if not isinstance(X, pd.DataFrame):
         return X
-    obj_cols = [
-        c for c in X.columns
-        if not (X[c].dtype.kind in "iufb" or isinstance(X[c].dtype, pd.CategoricalDtype))
-    ]
+    obj_cols = [c for c in X.columns if not (X[c].dtype.kind in "iufb" or isinstance(X[c].dtype, pd.CategoricalDtype))]
     if not obj_cols:
         return X
     return X.assign(**{c: X[c].astype("category") for c in obj_cols})
@@ -262,11 +259,11 @@ def _spearman(x: np.ndarray, y: np.ndarray) -> float:
 class _DepInterp:
     """Auto-interpretation of one feature's SHAP-vs-value dependence curve."""
 
-    direction: float          # Spearman corr of feature value vs its SHAP (sign = effect direction)
-    shap_range: float         # max - min SHAP for this feature (impact magnitude)
-    shape: str                # "smooth (monotone)" / "non-monotone" / "step/discontinuous"
+    direction: float  # Spearman corr of feature value vs its SHAP (sign = effect direction)
+    shap_range: float  # max - min SHAP for this feature (impact magnitude)
+    shape: str  # "smooth (monotone)" / "non-monotone" / "step/discontinuous"
     step_value: Optional[float]  # approximate feature value where the sharpest jump sits (step shape only)
-    enough: bool              # False -> too few finite points for a reliable verdict
+    enough: bool  # False -> too few finite points for a reliable verdict
 
 
 def _interpret_dependence(feat_vals: np.ndarray, shap_vals: np.ndarray) -> _DepInterp:
@@ -305,8 +302,7 @@ def _interpret_dependence(feat_vals: np.ndarray, shap_vals: np.ndarray) -> _DepI
     if jump_frac >= _STEP_JUMP_FRAC:
         # Map the smoothed-curve jump index back to an approximate feature value (smoothing trims win-1 points).
         pos = min(jmax + win // 2, fv_s.shape[0] - 1)
-        return _DepInterp(direction=direction, shap_range=rng, shape="step/discontinuous",
-                          step_value=float(fv_s[pos]), enough=True)
+        return _DepInterp(direction=direction, shap_range=rng, shape="step/discontinuous", step_value=float(fv_s[pos]), enough=True)
     if abs(direction) >= 0.6:
         return _DepInterp(direction=direction, shap_range=rng, shape="smooth (monotone)", step_value=None, enough=True)
     return _DepInterp(direction=direction, shap_range=rng, shape="non-monotone", step_value=None, enough=True)
@@ -553,9 +549,7 @@ def shap_summary_and_dependence(
         # Dependence panels GROUPED into grid figure(s) (>= DEPENDENCE_GRID_COLS per row) instead of one stacked
         # figure per feature, each panel auto-annotated with its monotone direction / impact / smooth-vs-step verdict.
         cols = order[: max(int(top_k), 1)]
-        for fig_rank, dep_fig in enumerate(
-            _dependence_grid_figs(shap_mat, vals_sample, cols, names, top_names)
-        ):
+        for fig_rank, dep_fig in enumerate(_dependence_grid_figs(shap_mat, vals_sample, cols, names, top_names)):
             figures.append(dep_fig)
             if plot_file:
                 paths.extend(_save_figure(dep_fig, _base_for(plot_file, f"shap_dependence_grid{fig_rank}"), plot_outputs))

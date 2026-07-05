@@ -57,8 +57,7 @@ def _bench():
         x = np.linspace(-3.0, 3.0, n).astype(np.float64)
         t_njit = timeit(njit, x) * 1e3
         t_par = timeit(njit_par, x) * 1e3
-        t_cuda = (timeit(lambda xx, cc: _polyeval_cuda(BASIS, xx, cc), x) * 1e3
-                  if _CUDA_AVAILABLE else float("inf"))
+        t_cuda = timeit(lambda xx, cc: _polyeval_cuda(BASIS, xx, cc), x) * 1e3 if _CUDA_AVAILABLE else float("inf")
         cands = {"njit": t_njit, "njit_par": t_par, "cuda": t_cuda}
         winner = min(cands, key=cands.get)
         rows.append((n, t_njit, t_par, t_cuda, winner))

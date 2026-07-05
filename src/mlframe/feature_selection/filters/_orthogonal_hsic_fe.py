@@ -241,17 +241,11 @@ def hsic(
             f"lose the HSIC == 0 iff independent guarantee."
         )
     if estimator not in ("biased", "unbiased"):
-        raise ValueError(
-            f"hsic: estimator must be 'biased' or 'unbiased', got "
-            f"{estimator!r}"
-        )
+        raise ValueError(f"hsic: estimator must be 'biased' or 'unbiased', got " f"{estimator!r}")
     x_arr = np.asarray(x, dtype=np.float64).ravel()
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     if x_arr.shape[0] != y_arr.shape[0]:
-        raise ValueError(
-            f"hsic: x has {x_arr.shape[0]} rows, y has {y_arr.shape[0]}; "
-            f"row alignment required."
-        )
+        raise ValueError(f"hsic: x has {x_arr.shape[0]} rows, y has {y_arr.shape[0]}; " f"row alignment required.")
     n_total = x_arr.shape[0]
     if n_total < 4:
         # The unbiased estimator's denominator ``n * (n - 3)`` is
@@ -265,10 +259,7 @@ def hsic(
     if n < 4:
         return 0.0
     sx = float(sigma) if sigma is not None else median_heuristic_sigma(xs)
-    sy = (
-        float(sigma_y) if sigma_y is not None
-        else median_heuristic_sigma(ys)
-    )
+    sy = float(sigma_y) if sigma_y is not None else median_heuristic_sigma(ys)
     K = _rbf_gram(xs, sx)
     L = _rbf_gram(ys, sy)
     if estimator == "biased":
@@ -310,11 +301,7 @@ def hsic(
     cross = float(np.dot(row_sum_K, row_sum_L))
     nn = float(n)
     denom = nn * (nn - 3.0)
-    val = (
-        tr
-        + sum_K * sum_L / ((nn - 1.0) * (nn - 2.0))
-        - (2.0 / (nn - 2.0)) * cross
-    ) / denom
+    val = (tr + sum_K * sum_L / ((nn - 1.0) * (nn - 2.0)) - (2.0 / (nn - 2.0)) * cross) / denom
     return float(val)
 
 
@@ -384,11 +371,7 @@ def _hsic_batch(
         sum_K = float(K_t.sum())
         row_sum_K = K_t.sum(axis=1)
         cross = float(np.dot(row_sum_K, row_sum_L))
-        val = (
-            tr
-            + sum_K * sum_L / ((nn - 1.0) * (nn - 2.0))
-            - (2.0 / (nn - 2.0)) * cross
-        ) / denom
+        val = (tr + sum_K * sum_L / ((nn - 1.0) * (nn - 2.0)) - (2.0 / (nn - 2.0)) * cross) / denom
         out[j] = float(val)
     return out
 
@@ -438,21 +421,14 @@ def score_features_by_hsic_uplift(
     MI) but the ranking semantics are identical (higher = better).
     """
     if kernel != "rbf":
-        raise ValueError(
-            f"score_features_by_hsic_uplift: only kernel='rbf' supported, "
-            f"got {kernel!r}."
-        )
+        raise ValueError(f"score_features_by_hsic_uplift: only kernel='rbf' supported, " f"got {kernel!r}.")
     if len(raw_X) != len(engineered_X):
         raise ValueError(
-            f"score_features_by_hsic_uplift: raw_X has {len(raw_X)} rows "
-            f"but engineered_X has {len(engineered_X)}; positional row "
-            f"alignment required."
+            f"score_features_by_hsic_uplift: raw_X has {len(raw_X)} rows " f"but engineered_X has {len(engineered_X)}; positional row " f"alignment required."
         )
     if len(raw_X) != len(np.asarray(y)):
         raise ValueError(
-            f"score_features_by_hsic_uplift: raw_X has {len(raw_X)} rows "
-            f"but y has {len(np.asarray(y))}; positional row alignment "
-            f"required."
+            f"score_features_by_hsic_uplift: raw_X has {len(raw_X)} rows " f"but y has {len(np.asarray(y))}; positional row alignment " f"required."
         )
     y_arr = np.asarray(y).ravel()
     raw_cols = list(raw_X.columns)
@@ -570,10 +546,7 @@ def hybrid_orth_mi_hsic_fe(
     else:
         eng_noise_floor = 0.0
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
-    qualified = scores[
-        (scores["uplift"] >= float(min_uplift))
-        & (scores["engineered_mi"] >= abs_floor)
-    ]
+    qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
@@ -627,15 +600,14 @@ def hybrid_orth_mi_hsic_fe_with_recipes(
         chosen_degree = None
         for code in ("LL", "He", "T", "L"):
             if suffix.startswith(code):
-                rest = suffix[len(code):]
+                rest = suffix[len(code) :]
                 if rest.isdigit():
                     chosen_basis = code_to_basis[code]
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
             logger.warning(
-                "hybrid_orth_mi_hsic_fe_with_recipes: cannot parse "
-                "basis/degree from column name %r; skipping recipe build.",
+                "hybrid_orth_mi_hsic_fe_with_recipes: cannot parse " "basis/degree from column name %r; skipping recipe build.",
                 name,
             )
             continue

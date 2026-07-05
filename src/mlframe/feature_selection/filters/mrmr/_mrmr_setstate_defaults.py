@@ -16,7 +16,7 @@ import copy
 # but lists must not be aliased across instances).
 _SETSTATE_LEGACY_DEFAULTS = {
     "max_confirmation_cand_nbins": 50,  # legacy default
-    "fe_fallback_to_all": True,         # legacy default
+    "fe_fallback_to_all": True,  # legacy default
     "_engineered_features_": [],
     # Recipes-based replay so transform() can recompute engineered features on test data. Old pickles
     # have no recipes (their engineered cols were never replayable); empty list reproduces the legacy

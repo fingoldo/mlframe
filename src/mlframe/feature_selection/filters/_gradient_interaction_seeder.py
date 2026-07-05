@@ -69,20 +69,20 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Measured-fallback dispatch thresholds (overridden per-host by kernel_tuning_cache / env).
 # Rationale lives in ``_route_gradient_seeder``.
-_GRAD_DEFAULT_ROW_CAP = 2000        # surrogate + null fit on at most this many rows (idea #21 is the heaviest -- keep lean)
-_GRAD_DEFAULT_MIN_P = 8             # below this p, all-pairs is trivial; the seeder adds no value
-_GRAD_DEFAULT_MAX_P = 200           # above this p, the O(p^2) energy tally + null is the cost wall
-_GRAD_DEFAULT_N_COMPONENTS = 400    # RFF feature count for the surrogate
-_GRAD_DEFAULT_K_PERM = 12           # permutation-null shuffles
-_GRAD_DEFAULT_Q = 0.99             # null quantile
+_GRAD_DEFAULT_ROW_CAP = 2000  # surrogate + null fit on at most this many rows (idea #21 is the heaviest -- keep lean)
+_GRAD_DEFAULT_MIN_P = 8  # below this p, all-pairs is trivial; the seeder adds no value
+_GRAD_DEFAULT_MAX_P = 200  # above this p, the O(p^2) energy tally + null is the cost wall
+_GRAD_DEFAULT_N_COMPONENTS = 400  # RFF feature count for the surrogate
+_GRAD_DEFAULT_K_PERM = 12  # permutation-null shuffles
+_GRAD_DEFAULT_Q = 0.99  # null quantile
 # Multiplicative margin on the q99 permutation-null floor. Calibrated 2026-06-10 so the saddle
 # WIN survives AND additive / pure-noise both emit 0 on BOTH the raw-continuous target (the
 # standalone/unit case) and the DISCRETISED ordinal target the live FE gates score on (the
 # integration case -- a weaker, noisier signal). 1.5 (the value first tuned on the continuous
 # target alone) was too strict and killed the win on the discretised target; 1.2 holds both.
 _GRAD_DEFAULT_NULL_MULT = 1.2
-_GRAD_DEFAULT_OOF_MARGIN = 0.02     # OOF R2 must beat permuted-y baseline by this
-_GRAD_DEFAULT_TOPK = 8              # at most this many operand-pairs feed the pool
+_GRAD_DEFAULT_OOF_MARGIN = 0.02  # OOF R2 must beat permuted-y baseline by this
+_GRAD_DEFAULT_TOPK = 8  # at most this many operand-pairs feed the pool
 
 
 def _resolve_grad_threshold(name: str, default):
@@ -196,15 +196,15 @@ def _rff_analytic_mixed_partial_energy_loop(rbf, ridge, Xs: np.ndarray, pairs):
     d2f/dxa dxb = -sum_r c_r * sqrt(2/D) * w[r,a] * w[r,b] * cos(w_r . x + b_r)
     Simple + obviously correct; the batched kernel below is byte-comparable and the routed default.
     """
-    W = rbf.random_weights_          # (p, D)
-    b = rbf.random_offset_           # (D,)
+    W = rbf.random_weights_  # (p, D)
+    b = rbf.random_offset_  # (D,)
     D = W.shape[1]
     scale = np.sqrt(2.0 / D)
-    cc = ridge.coef_ * scale         # (D,)
-    cosv = np.cos(Xs @ W + b)        # (n, D)
+    cc = ridge.coef_ * scale  # (D,)
+    cosv = np.cos(Xs @ W + b)  # (n, D)
     out = {}
-    for (a, bb) in pairs:
-        d2 = -(cosv @ (cc * W[a] * W[bb]))   # (n,)
+    for a, bb in pairs:
+        d2 = -(cosv @ (cc * W[a] * W[bb]))  # (n,)
         out[(a, bb)] = float(np.mean(d2 * d2))
     return out
 
@@ -218,23 +218,23 @@ def _rff_analytic_mixed_partial_energy(rbf, ridge, Xs: np.ndarray, pairs, chunk:
     The sign is irrelevant (energy squares it). Pairs are processed in chunks of ``chunk`` to keep
     the (n, chunk) intermediate bounded.
     """
-    W = rbf.random_weights_          # (p, D)
-    b = rbf.random_offset_           # (D,)
+    W = rbf.random_weights_  # (p, D)
+    b = rbf.random_offset_  # (D,)
     D = W.shape[1]
     scale = np.sqrt(2.0 / D)
-    cc = ridge.coef_ * scale         # (D,)
-    Mcos = np.cos(Xs @ W + b)        # (n, D)
+    cc = ridge.coef_ * scale  # (D,)
+    Mcos = np.cos(Xs @ W + b)  # (n, D)
     n = Mcos.shape[0]
     out = {}
     pairs = list(pairs)
     for start in range(0, len(pairs), chunk):
-        block = pairs[start:start + chunk]
+        block = pairs[start : start + chunk]
         a_idx = np.fromiter((p[0] for p in block), dtype=np.int64, count=len(block))
         b_idx = np.fromiter((p[1] for p in block), dtype=np.int64, count=len(block))
         # coef matrix (D, k): cc[r] * W[a,r] * W[b,r] for each pair
-        coef = (cc[:, None] * W[a_idx].T * W[b_idx].T)   # (D, k)
-        d2 = Mcos @ coef                                  # (n, k)
-        energies = np.einsum("nk,nk->k", d2, d2) / n      # mean of squares per pair
+        coef = cc[:, None] * W[a_idx].T * W[b_idx].T  # (D, k)
+        d2 = Mcos @ coef  # (n, k)
+        energies = np.einsum("nk,nk->k", d2, d2) / n  # mean of squares per pair
         for j, p in enumerate(block):
             out[p] = float(energies[j])
     return out
@@ -396,10 +396,7 @@ def propose_gradient_interaction_pairs(
     _raw_names = set(getattr(self, "feature_names_in_", []) or [])
     _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
     _cat_set = set(categorical_vars)
-    _raw_numeric_idx = {
-        i for i, nm in enumerate(cols)
-        if nm in _raw_names and i not in _target_idx_set and i not in _cat_set
-    }
+    _raw_numeric_idx = {i for i, nm in enumerate(cols) if nm in _raw_names and i not in _target_idx_set and i not in _cat_set}
     _raw_numeric_idx -= set(non_numeric_idx)
     if getattr(self, "factors_to_use", None) is not None:
         _raw_numeric_idx &= set(self.factors_to_use)
@@ -421,9 +418,9 @@ def propose_gradient_interaction_pairs(
     # target column: first target index (read the discretised ordinal target from ``data``)
     t0 = int(_target_idx_set and min(_target_idx_set) or 0)
     try:
-        Xfull = np.asarray(X_continuous, dtype=np.float64)   # RAW continuous features
+        Xfull = np.asarray(X_continuous, dtype=np.float64)  # RAW continuous features
         X = Xfull[:, pool]
-        y = np.asarray(data)[:, t0]                           # discretised ordinal target
+        y = np.asarray(data)[:, t0]  # discretised ordinal target
     except Exception as exc:  # not array-coercible -> skip silently (proposer is best-effort)
         if verbose:
             logger.info("MRMR FE gradient-interaction seeder: X not array-coercible (%s); skipping.", exc)
@@ -443,16 +440,16 @@ def propose_gradient_interaction_pairs(
     if not diag.get("learned", False):
         if verbose:
             logger.info(
-                "MRMR FE gradient-interaction seeder: surrogate did not learn (OOF R2 %.3f <= "
-                "permuted %.3f + margin); proposing nothing.",
-                diag.get("oof_r2", float("nan")), diag.get("oof_r2_perm", float("nan")),
+                "MRMR FE gradient-interaction seeder: surrogate did not learn (OOF R2 %.3f <= " "permuted %.3f + margin); proposing nothing.",
+                diag.get("oof_r2", float("nan")),
+                diag.get("oof_r2_perm", float("nan")),
             )
         return numeric_vars_to_consider, gradient_added_idx
 
     # map back from local pool indices to original column indices, keep top-K pairs
     proposed = proposed[:topk]
     added = set()
-    for (a_loc, b_loc) in proposed:
+    for a_loc, b_loc in proposed:
         for loc in (a_loc, b_loc):
             orig = pool[loc]
             if orig not in numeric_vars_to_consider:

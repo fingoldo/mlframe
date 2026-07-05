@@ -78,8 +78,7 @@ def _bench_seed(seed: int, *, strategy: str, n_dup: int, jitter: float, corr_thr
     else:
         rmse_full = _mean_test_rmse(M_test, y_test)
         rmse_dedup = _mean_test_rmse(M_test[:, keep], y_test)
-    return {"seed": seed, "rmse_full": rmse_full, "rmse_dedup": rmse_dedup,
-            "n_dropped": len(drop), "dedup_wins": rmse_dedup < rmse_full}
+    return {"seed": seed, "rmse_full": rmse_full, "rmse_dedup": rmse_dedup, "n_dropped": len(drop), "dedup_wins": rmse_dedup < rmse_full}
 
 
 def main() -> None:
@@ -100,8 +99,7 @@ def main() -> None:
         for r in rows:
             print(f"| {r['seed']} | {r['rmse_full']:.5f} | {r['rmse_dedup']:.5f} | {r['n_dropped']} | {r['dedup_wins']} |")
         print(f"mean rmse_full={mean_full:.5f}  mean rmse_dedup={mean_dedup:.5f}  dedup wins {wins}/{len(seeds)} -> {verdict}\n")
-        out_scenarios[name] = {"cfg": cfg, "rows": rows, "mean_rmse_full": mean_full,
-                               "mean_rmse_dedup": mean_dedup, "dedup_wins": wins, "verdict": verdict}
+        out_scenarios[name] = {"cfg": cfg, "rows": rows, "mean_rmse_full": mean_full, "mean_rmse_dedup": mean_dedup, "dedup_wins": wins, "verdict": verdict}
     n_on = sum(v == "ON" for v in scen_verdicts)
     overall = "ON" if n_on > len(scen_verdicts) / 2 else "OFF"
     print(f"OVERALL DECISION: default ct_ensemble_dedup_enabled = {overall} "

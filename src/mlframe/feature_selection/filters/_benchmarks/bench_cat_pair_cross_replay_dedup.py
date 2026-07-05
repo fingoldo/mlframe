@@ -70,10 +70,7 @@ def bench(n: int, ki: int, kj: int, reps: int = 9):
 
     t_old = timed(old_replay)
     t_new = timed(new_replay)
-    print(
-        f"n={n:>8} ki={ki} kj={kj}  OLD={t_old*1e3:8.2f}ms  NEW={t_new*1e3:8.2f}ms  "
-        f"speedup={t_old/t_new:5.2f}x  identical={identical}"
-    )
+    print(f"n={n:>8} ki={ki} kj={kj}  OLD={t_old*1e3:8.2f}ms  NEW={t_new*1e3:8.2f}ms  " f"speedup={t_old/t_new:5.2f}x  identical={identical}")
 
 
 if __name__ == "__main__":

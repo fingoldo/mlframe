@@ -55,9 +55,7 @@ def _resolve_device(device: str = "auto"):
     try:
         import torch
     except ImportError as exc:
-        raise ImportError(
-            "Neural MI estimators require PyTorch. Install via `pip install torch`."
-        ) from exc
+        raise ImportError("Neural MI estimators require PyTorch. Install via `pip install torch`.") from exc
     if device == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device == "cuda" and not torch.cuda.is_available():
@@ -194,9 +192,7 @@ def mine_mi(
         # AND we've trained at least 200 epochs (give MINE time to escape
         # local minima). 2026-05-29 fix: shaves ~50% of MINE bench wall-time
         # without losing accuracy.
-        if (epoch > 200 and early_stop_patience > 0
-                and 'best_mi_epoch' in locals()
-                and (epoch - best_mi_epoch) > early_stop_patience):
+        if epoch > 200 and early_stop_patience > 0 and "best_mi_epoch" in locals() and (epoch - best_mi_epoch) > early_stop_patience:
             break
     # Median of the last 50 trace points (Belghazi 2018 recommendation -
     # robust against MI fluctuations at convergence).
@@ -237,7 +233,7 @@ def _get_infonet_model(device: str = "auto"):
         if not ckpt_path.exists():
             raise RuntimeError(
                 f"InfoNet checkpoint not found at {ckpt_path}. "
-                f"Download via: python -c \"import gdown; gdown.download_folder("
+                f'Download via: python -c "import gdown; gdown.download_folder('
                 f"'https://drive.google.com/drive/folders/1R7ah_ymD3M9Fp9EegyJrWNo5hI6Z5gZ7', "
                 f"output='{ckpt_path.parent}')\""
             )
@@ -245,10 +241,7 @@ def _get_infonet_model(device: str = "auto"):
         pkg_root = Path(__file__).resolve().parent
         config_path = pkg_root / "_vendored" / "infonet" / "configs" / "config.yaml"
         if not config_path.exists():
-            raise RuntimeError(
-                f"InfoNet vendored config missing at {config_path}. "
-                f"Run the vendor copy step from the InfoNet setup script."
-            )
+            raise RuntimeError(f"InfoNet vendored config missing at {config_path}. " f"Run the vendor copy step from the InfoNet setup script.")
         # Use the vendored infer module via sys.path injection (it has relative-style imports
         # inside the model directory).
         import sys
@@ -261,10 +254,7 @@ def _get_infonet_model(device: str = "auto"):
         return model
 
 
-def infonet_mi(x: np.ndarray, y: np.ndarray, *,
-               point_cloud_size: int = 4781,
-               device: str = "auto",
-               seed: int = 0) -> float:
+def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, device: str = "auto", seed: int = 0) -> float:
     """InfoNet feed-forward MI estimator (Hu et al., ICML 2024).
 
     Rank-normalises (x, y) then feeds the joint point-cloud through a
@@ -354,9 +344,7 @@ def _get_mist_hf_model(loss: str = "mse", device: str = "auto"):
         try:
             from mist_statinf import MISTForHF
         except ImportError as exc:
-            raise ImportError(
-                "MIST not installed. `pip install mist-statinf`."
-            ) from exc
+            raise ImportError("MIST not installed. `pip install mist-statinf`.") from exc
         repo = "grgera/MIST-QR" if loss == "qr" else "grgera/MIST"
         model = MISTForHF.from_pretrained(repo).eval()
         dev = _resolve_device(device)
@@ -368,9 +356,7 @@ def _get_mist_hf_model(loss: str = "mse", device: str = "auto"):
 _MIST_CALIBRATION_CACHE = {}
 
 
-def _calibrate_mist(device: str = "auto", N: int = 2000, seed: int = 42,
-                     n_calibration_per_rho: int = 3,
-                     y_kind: str = "continuous") -> tuple:
+def _calibrate_mist(device: str = "auto", N: int = 2000, seed: int = 42, n_calibration_per_rho: int = 3, y_kind: str = "continuous") -> tuple:
     """Fit empirical lookup-table calibration from MIST raw output to nats.
 
     The raw MIST output saturates differently per y-type. We maintain SEPARATE
@@ -438,8 +424,7 @@ def _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho,
                 truth_noise = rng.standard_normal(20000) * sigma
                 truth_y = (truth_x + truth_noise > 0).astype(np.float64)
                 per_sigma_truth.append(float(mixed_ksg_mi(truth_x, truth_y, k=5)))
-            raw_truth_pairs.append((float(np.mean(per_sigma_raw)),
-                                     float(np.mean(per_sigma_truth))))
+            raw_truth_pairs.append((float(np.mean(per_sigma_raw)), float(np.mean(per_sigma_truth))))
     elif y_kind == "multiclass":
         from ._ksg import mixed_ksg_mi
         Ks = [3, 4, 5, 7, 10]
@@ -458,8 +443,7 @@ def _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho,
                     Yc = y_cal.reshape(-1, 1).tolist()
                     per_run.append(float(model.estimate_point(Xc, Yc)))
                     truths.append(float(mixed_ksg_mi(x_cal, y_cal, k=5)))
-                raw_truth_pairs.append((float(np.mean(per_run)),
-                                         float(np.mean(truths))))
+                raw_truth_pairs.append((float(np.mean(per_run)), float(np.mean(truths))))
     else:
         raise ValueError(f"_calibrate_mist: unknown y_kind={y_kind!r}")
     raw_truth_pairs.sort(key=lambda kv: kv[0])
@@ -484,11 +468,7 @@ def _classify_y_kind(y: np.ndarray) -> str:
     return "continuous"
 
 
-def mist_mi(x: np.ndarray, y: np.ndarray, *,
-            loss: str = "mse",
-            calibrated: bool = True,
-            max_input_n: int = 2000,
-            device: str = "auto", seed: int = 0) -> float:
+def mist_mi(x: np.ndarray, y: np.ndarray, *, loss: str = "mse", calibrated: bool = True, max_input_n: int = 2000, device: str = "auto", seed: int = 0) -> float:
     """MIST estimator (Gerasimov et al., arxiv 2511.18945, 2025).
 
     Feed-forward MI prediction from a transformer pre-trained on 625k synthetic
@@ -551,13 +531,9 @@ def mist_mi(x: np.ndarray, y: np.ndarray, *,
 # =============================================================================
 
 
-def minde_mi(x: np.ndarray, y: np.ndarray, *,
-             n_epochs: int = 2000,
-             hidden_dim: int = 128,
-             lr: float = 1e-3,
-             device: str = "auto",
-             seed: int = 0,
-             verbose: bool = False) -> float:
+def minde_mi(
+    x: np.ndarray, y: np.ndarray, *, n_epochs: int = 2000, hidden_dim: int = 128, lr: float = 1e-3, device: str = "auto", seed: int = 0, verbose: bool = False
+) -> float:
     """MINDE (Mutual Information Neural Diffusion Estimation).
 
     EXPERIMENTAL / SKELETON: validation on Gaussian copula synthetic shows
@@ -627,22 +603,15 @@ def minde_mi(x: np.ndarray, y: np.ndarray, *,
         if step % 50 == 0:
             with torch.no_grad():
                 # Heuristic single-time-step KL proxy via Hyvärinen score-matching identity.
-                score_joint = score_net(torch.cat([
-                    torch.cat([x_t, y_t], dim=1),
-                    torch.zeros(n, 1, device=dev) + 0.5
-                ], dim=1))
-                score_marg = score_net(torch.cat([
-                    torch.cat([x_t, y_t[torch.randperm(n, device=dev)]], dim=1),
-                    torch.zeros(n, 1, device=dev) + 0.5
-                ], dim=1))
+                score_joint = score_net(torch.cat([torch.cat([x_t, y_t], dim=1), torch.zeros(n, 1, device=dev) + 0.5], dim=1))
+                score_marg = score_net(torch.cat([torch.cat([x_t, y_t[torch.randperm(n, device=dev)]], dim=1), torch.zeros(n, 1, device=dev) + 0.5], dim=1))
                 # KL ~= 0.5 * E[||score_joint - score_marg||^2]
                 mi_est = 0.5 * ((score_joint - score_marg) ** 2).sum(dim=1).mean().item()
                 mi_trace.append(mi_est)
                 if verbose:
                     logger.info("MINDE step %s: mi=%s, loss=%s", step, f"{mi_est:.4f}", f"{loss.item():.4f}")
     if mi_trace:
-        converged = float(np.median(mi_trace[-10:])) if len(mi_trace) >= 10 \
-            else float(np.median(mi_trace))
+        converged = float(np.median(mi_trace[-10:])) if len(mi_trace) >= 10 else float(np.median(mi_trace))
         return max(0.0, converged)
     return 0.0
 
@@ -652,12 +621,9 @@ def minde_mi(x: np.ndarray, y: np.ndarray, *,
 # =============================================================================
 
 
-def dpmine_mi(x: np.ndarray, y: np.ndarray, *,
-              n_iter: int = 200,
-              concentration: float = 1.0,
-              device: str = "auto",
-              seed: int = 0,
-              verbose: bool = False) -> float:
+def dpmine_mi(
+    x: np.ndarray, y: np.ndarray, *, n_iter: int = 200, concentration: float = 1.0, device: str = "auto", seed: int = 0, verbose: bool = False
+) -> float:
     """DPMINE: Deep Bayesian Nonparametric MI estimation.
 
     EXPERIMENTAL / SKELETON: variational mean-field truncation tracks signal

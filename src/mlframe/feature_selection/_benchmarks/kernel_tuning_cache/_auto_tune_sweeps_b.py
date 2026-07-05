@@ -20,9 +20,6 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-
-
-
 def _run_sweep_cat_fe_perm_kernel(n_iters: int = 3) -> list[dict]:
     """Find ``crossover_n``: smallest n_samples where the GPU permutation
     kernel beats the CPU njit equivalent for a given n_perms. Source
@@ -125,8 +122,7 @@ def _run_sweep_cat_fe_perm_kernel(n_iters: int = 3) -> list[dict]:
     # Per (n_perms) bucket: smallest n where gpu_wins.
     perm_crossover: dict[int, int] = {}
     for n_perms in n_perms_axis:
-        candidates = sorted(n for (nn, nf) in best_per_combo if nf == n_perms
-                             for n in [nn] if best_per_combo[(nn, nf)]["gpu_wins"])
+        candidates = sorted(n for (nn, nf) in best_per_combo if nf == n_perms for n in [nn] if best_per_combo[(nn, nf)]["gpu_wins"])
         if candidates:
             perm_crossover[n_perms] = candidates[0]
 
@@ -171,8 +167,7 @@ def ensure_cat_fe_perm_kernel_tuning(force: bool = False) -> Optional[list[dict]
     )
     if regions:
         try:
-            cache.update("cat_fe_perm_kernel",
-                          axes=["n_samples", "n_perms"], regions=regions)
+            cache.update("cat_fe_perm_kernel", axes=["n_samples", "n_perms"], regions=regions)
         except OSError as e:
             logger.warning(
                 "kernel_tuning_cache: cat_fe_perm_kernel save failed: %s", e,
@@ -244,8 +239,7 @@ def _run_sweep_rmse_partial_sum(n_iters: int = 5) -> list[dict]:
                 best_wall = wall
                 best_bn = BLOCK_N
         if best_bn is not None:
-            best_per_combo[(N, M)] = {"block_n": int(best_bn),
-                                       "wall_ms": round(best_wall, 4)}
+            best_per_combo[(N, M)] = {"block_n": int(best_bn), "wall_ms": round(best_wall, 4)}
             logger.info(
                 "auto_tune rmse_partial_sum N=%d M=%d -> BLOCK_N=%d (%.3fms)",
                 N, M, best_bn, best_wall,
@@ -295,8 +289,7 @@ def ensure_rmse_partial_sum_tuning(force: bool = False) -> Optional[list[dict]]:
     )
     if regions:
         try:
-            cache.update("rmse_partial_sum",
-                          axes=["n_samples", "n_cols"], regions=regions)
+            cache.update("rmse_partial_sum", axes=["n_samples", "n_cols"], regions=regions)
         except OSError as e:
             logger.warning(
                 "kernel_tuning_cache: rmse_partial_sum save failed: %s", e,
@@ -313,9 +306,8 @@ def _run_sweep_unary_elementwise(n_iters: int = 5) -> list[dict]:
     if not _cuda_available_or_skip("unary_elementwise"):
         return []
     import cupy as cp
-    ops = (("sqrt", np.sqrt, cp.sqrt),
-           ("log1p", np.log1p, cp.log1p),
-           ("abs", np.abs, cp.abs))
+
+    ops = (("sqrt", np.sqrt, cp.sqrt), ("log1p", np.log1p, cp.log1p), ("abs", np.abs, cp.abs))
     n_axis = (10_000, 50_000, 200_000, 500_000, 1_000_000, 5_000_000)
     rng = np.random.default_rng(11)
 
@@ -459,8 +451,7 @@ def _run_sweep_rff_matmul(n_iters: int = 3) -> list[dict]:
             logger.debug("rff_matmul skipped n=%d d=%d: %s", n, d, exc)
             continue
         work = n * d * n_features
-        rows.append({"n": n, "d": d, "work": work,
-                     "cpu_ms": cpu_ms, "gpu_ms": gpu_ms})
+        rows.append({"n": n, "d": d, "work": work, "cpu_ms": cpu_ms, "gpu_ms": gpu_ms})
         logger.info(
             "auto_tune rff_matmul n=%d d=%d work=%d numpy=%.2fms cupy=%.2fms",
             n, d, work, cpu_ms, gpu_ms,
@@ -518,8 +509,7 @@ def _run_sweep_knn_hnsw_crossover(n_iters: int = 3) -> list[dict]:
     from .auto_tune import _hnswlib_importable
     if not _hnswlib_importable():
         logger.info(
-            "auto_tune knn_hnsw_crossover skipped: hnswlib not installed "
-            "or import crashes (Windows wheel issue)",
+            "auto_tune knn_hnsw_crossover skipped: hnswlib not installed " "or import crashes (Windows wheel issue)",
         )
         return []
     try:
@@ -551,8 +541,7 @@ def _run_sweep_knn_hnsw_crossover(n_iters: int = 3) -> list[dict]:
                 sk_walls = []
                 for _ in range(n_iters):
                     t0 = time.perf_counter()
-                    nn = NearestNeighbors(n_neighbors=k, algorithm="auto",
-                                            n_jobs=-1).fit(X_subset)
+                    nn = NearestNeighbors(n_neighbors=k, algorithm="auto", n_jobs=-1).fit(X_subset)
                     nn.kneighbors(X_query)
                     sk_walls.append(time.perf_counter() - t0)
                 # hnswlib
@@ -641,8 +630,7 @@ def ensure_knn_hnsw_crossover_tuning(force: bool = False) -> Optional[list[dict]
     )
     if regions:
         try:
-            cache.update("knn_hnsw_crossover",
-                          axes=["n_subset", "d"], regions=regions)
+            cache.update("knn_hnsw_crossover", axes=["n_subset", "d"], regions=regions)
         except OSError as e:
             logger.warning(
                 "kernel_tuning_cache: knn_hnsw_crossover save failed: %s", e,
@@ -685,8 +673,7 @@ def _run_sweep_discretize_2d_array(n_iters: int = 3) -> list[dict]:
             arr=_w, n_bins=10, method="quantile", min_ncats=50,
             min_values=None, max_values=None, dtype=np.int8,
         )
-        discretize_2d_array_cuda(arr=_w, n_bins=10, method="quantile",
-                                   dtype=np.int8)
+        discretize_2d_array_cuda(arr=_w, n_bins=10, method="quantile", dtype=np.int8)
     except Exception as exc:
         logger.warning("discretize_2d_array warmup failed: %s", exc)
         return []
@@ -707,8 +694,7 @@ def _run_sweep_discretize_2d_array(n_iters: int = 3) -> list[dict]:
             gpu_walls = []
             for _ in range(n_iters):
                 t0 = time.perf_counter()
-                discretize_2d_array_cuda(arr=arr, n_bins=10,
-                                          method="quantile", dtype=np.int8)
+                discretize_2d_array_cuda(arr=arr, n_bins=10, method="quantile", dtype=np.int8)
                 gpu_walls.append(time.perf_counter() - t0)
             cpu_ms = float(np.median(cpu_walls) * 1000)
             gpu_ms = float(np.median(gpu_walls) * 1000)
@@ -765,8 +751,7 @@ def ensure_discretize_2d_array_tuning(force: bool = False) -> Optional[list[dict
     )
     if regions:
         try:
-            cache.update("discretize_2d_array",
-                          axes=["arr_size"], regions=regions)
+            cache.update("discretize_2d_array", axes=["arr_size"], regions=regions)
         except OSError as e:
             logger.warning(
                 "kernel_tuning_cache: discretize_2d_array save failed: %s", e,

@@ -94,9 +94,7 @@ def _agg_func_for_stat(stat: str):
     """
     if stat in ("mean", "std", "min", "max", "median", "skew", "nunique"):
         return stat
-    raise ValueError(
-        f"grouped_agg: unknown stat {stat!r}; valid: {STAT_NAMES}"
-    )
+    raise ValueError(f"grouped_agg: unknown stat {stat!r}; valid: {STAT_NAMES}")
 
 
 def _global_value_for_stat(x: np.ndarray, stat: str) -> float:
@@ -173,10 +171,7 @@ def generate_grouped_agg_features(
     groups fall back to the fit-time global statistic.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"generate_grouped_agg_features: X must be a pandas DataFrame; "
-            f"got {type(X).__name__}"
-        )
+        raise TypeError(f"generate_grouped_agg_features: X must be a pandas DataFrame; " f"got {type(X).__name__}")
     group_cols = [c for c in group_cols if c in X.columns]
     stats = [s for s in stats if s in STAT_NAMES]
     encoded: dict[str, np.ndarray] = {}
@@ -187,11 +182,7 @@ def generate_grouped_agg_features(
     for group_col in group_cols:
         g = X[group_col]
         g_keys = group_key_strings(g)
-        cur_num_cols = [
-            c for c in num_cols
-            if c in X.columns and c != group_col
-            and pd.api.types.is_numeric_dtype(X[c])
-        ]
+        cur_num_cols = [c for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c])]
         for num_col in cur_num_cols:
             x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
             grouped = X.groupby(group_col, observed=True, sort=False)[num_col]
@@ -202,23 +193,15 @@ def generate_grouped_agg_features(
             # Keys built from the RAW group column (native dtype) -- canonicalise
             # so they match the canonical per-row keys (group_key_strings) at
             # both fit and a dtype-drifted predict (int<->float).
-            lookup_mean = {
-                canonical_group_token(k): float(v) for k, v in mean_series.items()
-            }
-            lookup_std = {
-                canonical_group_token(k): (float(v) if np.isfinite(v) else 0.0)
-                for k, v in std_series.items()
-            }
+            lookup_mean = {canonical_group_token(k): float(v) for k, v in mean_series.items()}
+            lookup_std = {canonical_group_token(k): (float(v) if np.isfinite(v) else 0.0) for k, v in std_series.items()}
             global_mean = _global_value_for_stat(x, "mean")
             global_std = _global_value_for_stat(x, "std")
 
             # ---- Broadcast each requested stat ----
             for stat in stats:
                 agg_series = grouped.agg(_agg_func_for_stat(stat))
-                lookup = {
-                    canonical_group_token(k): (float(v) if np.isfinite(v) else 0.0)
-                    for k, v in agg_series.items()
-                }
+                lookup = {canonical_group_token(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
                 global_value = _global_value_for_stat(x, stat)
                 broadcast = _broadcast_lookup(g_keys, lookup, global_value)
                 name = engineered_name_grouped_agg(num_col, group_col, stat)
@@ -286,18 +269,12 @@ def apply_grouped_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     stat), ``z_within`` (per-group z-score), ``ratio`` (x / per-group mean).
     """
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_grouped_agg: X_test must be a DataFrame; got "
-            f"{type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_grouped_agg: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     group_col = recipe["group_col"]
     num_col = recipe["num_col"]
     op = recipe.get("op", "broadcast")
     if group_col not in X_test.columns or num_col not in X_test.columns:
-        raise KeyError(
-            f"apply_grouped_agg: missing column(s) {group_col!r}/{num_col!r} "
-            f"from X_test"
-        )
+        raise KeyError(f"apply_grouped_agg: missing column(s) {group_col!r}/{num_col!r} " f"from X_test")
     g_keys = group_key_strings(X_test[group_col])
     x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
 
@@ -338,10 +315,7 @@ def _coerce_X_for_grouped_agg(X, group_col: str, num_col: str, recipe_name: str)
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
         return pd.DataFrame({group_col: X[group_col], num_col: X[num_col]})
-    raise TypeError(
-        f"recipe '{recipe_name}': cannot extract {group_col!r}/{num_col!r} "
-        f"from X of type {type(X).__name__}"
-    )
+    raise TypeError(f"recipe '{recipe_name}': cannot extract {group_col!r}/{num_col!r} " f"from X of type {type(X).__name__}")
 
 
 def _apply_grouped_agg_recipe(recipe, X) -> np.ndarray:
@@ -391,10 +365,7 @@ def grouped_agg_with_recipes(
         return X.copy(), [], []
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
-    recipes = [
-        build_grouped_agg_recipe(name=name, **raw_recipes[name])
-        for name in appended
-    ]
+    recipes = [build_grouped_agg_recipe(name=name, **raw_recipes[name]) for name in appended]
     return X_aug, appended, recipes
 
 
@@ -446,9 +417,7 @@ def score_grouped_agg_by_cmi_uplift(
     )
 
     if eng_X.shape[1] == 0:
-        return pd.DataFrame(
-            columns=["engineered_col", "source_col", "cmi", "source_mi", "uplift"]
-        )
+        return pd.DataFrame(columns=["engineered_col", "source_col", "cmi", "source_mi", "uplift"])
     y_arr = np.asarray(y)
     if not np.issubdtype(y_arr.dtype, np.integer):
         # Continuous y must be quantile-binned, never int-truncated: astype(int64) collapses 0.7->0 and destroys the CMI gate for regression targets.
@@ -513,8 +482,8 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
         return [name for name, _info in cands[:max_cols]]
     except Exception as _e:
         logger.debug(
-            "grouped_agg auto-detect: detector import failed (%s); using "
-            "fallback cardinality scan.", _e,
+            "grouped_agg auto-detect: detector import failed (%s); using " "fallback cardinality scan.",
+            _e,
         )
         out: list[str] = []
         n = len(X)
@@ -616,10 +585,7 @@ def hybrid_grouped_agg_fe(
     reference, so transform-time replay is leakage-free.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"hybrid_grouped_agg_fe: X must be a pandas DataFrame; got "
-            f"{type(X).__name__}"
-        )
+        raise TypeError(f"hybrid_grouped_agg_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if group_cols is None or len(group_cols) == 0:
         group_cols = _auto_detect_group_cols(X)
     else:
@@ -653,9 +619,7 @@ def hybrid_grouped_agg_fe(
         X, enc_df, y, base_cols, n_bins=n_bins, eng_to_source=eng_to_source,
     )
     # Gate: positive CMI above floor AND uplift over source marginal MI.
-    keep = scores[
-        (scores["cmi"] >= float(min_cmi)) & (scores["uplift"] >= float(min_uplift))
-    ]
+    keep = scores[(scores["cmi"] >= float(min_cmi)) & (scores["uplift"] >= float(min_uplift))]
     winners = list(keep["engineered_col"].head(int(top_k)))
     if not winners:
         return X.copy(), [], [], scores
@@ -663,8 +627,5 @@ def hybrid_grouped_agg_fe(
     from .engineered_recipes import build_grouped_agg_recipe
 
     X_aug = pd.concat([X, enc_df[winners]], axis=1)
-    recipes = [
-        build_grouped_agg_recipe(name=name, **raw_recipes[name])
-        for name in winners
-    ]
+    recipes = [build_grouped_agg_recipe(name=name, **raw_recipes[name]) for name in winners]
     return X_aug, winners, recipes, scores

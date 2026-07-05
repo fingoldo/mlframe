@@ -57,8 +57,7 @@ def main() -> None:
         dec = _walltime(_pinball_decomp_panel, y, p, a)
         crs = _walltime(_quantile_crossing_panel, y, p, a)
         print(
-            f"n={n:>9}  reliability(iso,cap=100k)={rel*1e3:8.2f} ms  "
-            f"pinball_corp={dec*1e3:8.2f} ms  crossing={crs*1e3:8.2f} ms",
+            f"n={n:>9}  reliability(iso,cap=100k)={rel*1e3:8.2f} ms  " f"pinball_corp={dec*1e3:8.2f} ms  crossing={crs*1e3:8.2f} ms",
         )
 
     y, p, a = _make_data(1_000_000)

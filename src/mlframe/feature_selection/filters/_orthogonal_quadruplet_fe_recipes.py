@@ -34,19 +34,13 @@ def _apply_orth_quadruplet_cross(recipe: "EngineeredRecipe", X: Any) -> np.ndarr
     from .engineered_recipes import _eval_orth_basis_column, _extract_column
 
     if len(recipe.src_names) != 4:
-        raise ValueError(
-            f"orth_quadruplet_cross recipe '{recipe.name}' must have exactly 4 "
-            f"src_names; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"orth_quadruplet_cross recipe '{recipe.name}' must have exactly 4 " f"src_names; got {len(recipe.src_names)}")
     for key in (
         "basis_i", "basis_j", "basis_k", "basis_l",
         "deg_a", "deg_b", "deg_c", "deg_d",
     ):
         if key not in recipe.extra:
-            raise KeyError(
-                f"orth_quadruplet_cross recipe '{recipe.name}' missing '{key}' "
-                f"in extra. Re-fit MRMR to regenerate."
-            )
+            raise KeyError(f"orth_quadruplet_cross recipe '{recipe.name}' missing '{key}' " f"in extra. Re-fit MRMR to regenerate.")
     name_i, name_j, name_k, name_l = recipe.src_names
     basis_i = str(recipe.extra["basis_i"])
     basis_j = str(recipe.extra["basis_j"])

@@ -9,4 +9,3 @@ Aggregate before/after:
 """
 
 from __future__ import annotations
-

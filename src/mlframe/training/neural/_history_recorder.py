@@ -41,9 +41,9 @@ class TrainingHistoryRecorder(Callback):
         for key, value in metrics.items():
             k = str(key)
             if k.startswith("val_"):
-                split, metric = "val", k[len("val_"):]
+                split, metric = "val", k[len("val_") :]
             elif k.startswith("train_"):
-                split, metric = "train", k[len("train_"):]
+                split, metric = "train", k[len("train_") :]
             else:
                 continue
             try:
@@ -137,8 +137,6 @@ class IterationMetricsRecorder(Callback):
             y_true = torch.concat(labels).detach().cpu().numpy()
             y_score = self._logits_to_score(logits)
             epoch = int(getattr(trainer, "current_epoch", 0))
-            self.iteration_metrics_[epoch] = compute_all_metrics(
-                y_true, y_score, target_type=self.target_type, n_classes=self.n_classes
-            )
+            self.iteration_metrics_[epoch] = compute_all_metrics(y_true, y_score, target_type=self.target_type, n_classes=self.n_classes)
         except Exception as exc:  # never abort training on a metric-capture failure
             logger.warning("neural iteration-metrics capture failed: %s", exc, exc_info=False)

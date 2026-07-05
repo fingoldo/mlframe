@@ -73,7 +73,7 @@ def compute_fisher_weighted_residual_features(
             stack = np.broadcast_to(X, (d, n, d)).reshape(d * n, d).copy()
             block_starts = np.arange(d) * n
             for j in range(d):
-                stack[block_starts[j]:block_starts[j] + n, j] += eps
+                stack[block_starts[j] : block_starts[j] + n, j] += eps
             if is_binary:
                 p_plus_all = model.predict_proba(stack)[:, 1].astype(np.float32).reshape(d, n)
             else:
@@ -116,8 +116,7 @@ def compute_fisher_weighted_residual_features(
             p_query_c = np.clip(p_query, 1e-6, 1 - 1e-6)
             resid_query = (-p_query_c * np.log(p_query_c) - (1 - p_query_c) * np.log(1 - p_query_c)).astype(np.float32)
         else:
-            model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1,
-                                      random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
+            model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
             p_train = model.predict(Xt_s).astype(np.float32)
             p_query = model.predict(Xq_s).astype(np.float32)
             is_binary = False

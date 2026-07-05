@@ -132,15 +132,15 @@ def _sync_free_qbin_codes(cp, xd, nbins: int):
     lo = cp.floor(pos).astype(cp.int64)
     hi = cp.minimum(lo + 1, n - 1)
     frac = pos - lo
-    e = xs[lo] * (1.0 - frac) + xs[hi] * frac                 # sorted ascending, nbins+1 edges
+    e = xs[lo] * (1.0 - frac) + xs[hi] * frac  # sorted ascending, nbins+1 edges
     dup = cp.empty(e.shape, dtype=bool)
     dup[0] = False
-    dup[1:] = (e[1:] == e[:-1])
+    dup[1:] = e[1:] == e[:-1]
     emin = e[0]
     emax = e[-1]
-    has_interior = cp.any((e > emin) & (e < emax))            # 0-dim device bool -- no sync
+    has_interior = cp.any((e > emin) & (e < emax))  # 0-dim device bool -- no sync
     excl = (e == emin) | dup | (has_interior & (e == emax))
-    e2 = cp.sort(cp.where(excl, cp.inf, e))                   # excluded edges -> +inf, sorted to the tail
+    e2 = cp.sort(cp.where(excl, cp.inf, e))  # excluded edges -> +inf, sorted to the tail
     return cp.searchsorted(e2, xd, side="right").astype(cp.int64)
 
 
@@ -575,10 +575,10 @@ def _dense_renumber_device(cp, keys):
     is_new = cp.empty(ks.shape, dtype=cp.bool_)
     is_new[0] = True
     is_new[1:] = ks[1:] != ks[:-1]
-    dense_sorted = cp.cumsum(is_new.astype(cp.int64)) - 1     # dense ids in sorted-value order
+    dense_sorted = cp.cumsum(is_new.astype(cp.int64)) - 1  # dense ids in sorted-value order
     inv = cp.empty(keys.shape, dtype=cp.int64)
     inv[order] = dense_sorted
-    return inv, dense_sorted[-1] + 1                          # k stays a device 0-dim scalar
+    return inv, dense_sorted[-1] + 1  # k stays a device 0-dim scalar
 
 
 def _renumber_joint_gpu(*cols):
@@ -676,7 +676,7 @@ def _joint_entropy_two_dense_njit(a: np.ndarray, b: np.ndarray) -> tuple:
     if span < 0 or span >= _FAC_ARRAY_CAP:
         return 0.0, -1
     seen = np.full(span, -1, dtype=np.int64)
-    counts = np.empty(n, dtype=np.int64)   # count per dense id (<= n distinct); no length-n label array
+    counts = np.empty(n, dtype=np.int64)  # count per dense id (<= n distinct); no length-n label array
     nc = 0
     for i in range(n):
         k = a[i] * stride + b[i]
@@ -766,7 +766,7 @@ def _cmi_from_binned(
     if z_joint is None or z_joint.size == 0:
         h_x, k_x = _entropy_from_classes(x_i)
         h_y, k_y = _entropy_from_classes(y_i)
-        h_xy, k_xy = _joint_entropy_two(x_i, y_i)   # fused densify+entropy; xy labels discarded
+        h_xy, k_xy = _joint_entropy_two(x_i, y_i)  # fused densify+entropy; xy labels discarded
         mi_plugin = h_x + h_y - h_xy
         # Plug-in MLE entropy underestimates the true entropy by
         # ``(K-1)/(2n)`` (Miller 1955). MI = H(X) + H(Y) - H(XY)
@@ -829,7 +829,7 @@ def marginal_mi_binned_fixed_y(
     x_i = np.ascontiguousarray(x_binned, dtype=np.int64)
     n = float(max(1, x_i.size))
     h_x, k_x = _entropy_from_classes(x_i)
-    h_xy, k_xy = _joint_entropy_two(x_i, y_i)   # fused densify+entropy; xy labels discarded
+    h_xy, k_xy = _joint_entropy_two(x_i, y_i)  # fused densify+entropy; xy labels discarded
     mi_plugin = h_x + h_y - h_xy
     mi_bias = (k_x + k_y - k_xy - 1) / (2.0 * n)
     return max(0.0, mi_plugin - mi_bias)
@@ -982,13 +982,13 @@ def _ent_from_counts(c, inv_n: float):
     global _ENT_RK, _NNZ_RK
     try:
         M = int(c.size)
-        out = cp.zeros(2, dtype=cp.float64)             # cudaMemsetAsync, not a cuLaunchKernel
+        out = cp.zeros(2, dtype=cp.float64)  # cudaMemsetAsync, not a cuLaunchKernel
         threads = 256
         blocks = min(1024, max(1, (M + threads - 1) // threads))
         _get_ent_nnz_kernel(cp)((blocks,), (threads,), (c, float(inv_n), np.int64(M), out))
         h_k = cp.asnumpy(out)
         return float(-h_k[0]), int(round(h_k[1]))
-    except Exception:                                   # noqa: BLE001
+    except Exception:  # noqa: BLE001
         if _ENT_RK is None:
             _ENT_RK = cp.ReductionKernel("int64 c, float64 inv_n", "float64 h",
                                          "c > 0 ? (c * inv_n) * log(c * inv_n) : 0.0", "a + b", "h = -a", "0.0", "mrmr_ent_rk")
@@ -1030,7 +1030,7 @@ def _cached_card(host_arr, dev_codes) -> int:
     if dev_codes.size == 0:
         return 1
     ha = np.ascontiguousarray(np.asarray(host_arr).ravel())
-    key = (int(ha.size), ha.dtype.str, hash(ha.tobytes()))   # content fingerprint (no id-reuse collision)
+    key = (int(ha.size), ha.dtype.str, hash(ha.tobytes()))  # content fingerprint (no id-reuse collision)
     v = _CARD_MAX_CACHE.get(key)
     if v is None:
         v = int(dev_codes.max()) + 1
@@ -1092,12 +1092,12 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False, kx: int = 0
     # A resident cp.ndarray input has no cheap host fingerprint (that would itself need a D2H), so keep the
     # direct max there.
     if kx and kx > 0:
-        Kx = int(kx)                       # caller-known upper bound (e.g. nbins) -> skip the int(dx.max()) sync
+        Kx = int(kx)  # caller-known upper bound (e.g. nbins) -> skip the int(dx.max()) sync
     elif isinstance(x, cp.ndarray):
         Kx = (int(dx.max()) + 1) if dx.size else 1
     else:
         Kx = _cached_card(x, dx)
-    ky = _cached_card(y, dy)               # y is a fit-constant -> its cardinality is cached
+    ky = _cached_card(y, dy)  # y is a fit-constant -> its cardinality is cached
     if z_joint is None or (hasattr(z_joint, "size") and z_joint.size == 0):
         # H(x), H(y), H(x,y) in ONE launch when the (x,y) joint fits shared (always tiny). All three from this
         # kernel -> self-consistent (the safe fusion pattern); bit-identical, falls back to the per-joint path.
@@ -1117,13 +1117,13 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False, kx: int = 0
     # content-keyed cache (uploaded once per round). Selection-identical: same partition -> same CMI.
     if kz and kz > 0:
         dz = z_joint.astype(cp.int64, copy=False).ravel() if isinstance(z_joint, cp.ndarray) else resident_operand(z_joint, "cmi_z", dtype=np.int64)
-        _kz_local = int(kz)                # caller-known z cardinality (the mult from _combine_codes_gpu) -> no sync
+        _kz_local = int(kz)  # caller-known z cardinality (the mult from _combine_codes_gpu) -> no sync
     elif isinstance(z_joint, cp.ndarray):
         dz = z_joint.astype(cp.int64, copy=False).ravel()
-        _kz_local = (int(dz.max()) + 1) if dz.size else 1   # device z: cardinality on device (host-byte cache N/A)
+        _kz_local = (int(dz.max()) + 1) if dz.size else 1  # device z: cardinality on device (host-byte cache N/A)
     else:
         dz = resident_operand(z_joint, "cmi_z", dtype=np.int64)  # z_support round-constant -> cached
-        _kz_local = _cached_card(z_joint, dz)     # z_support is round-constant -> cardinality cached
+        _kz_local = _cached_card(z_joint, dz)  # z_support is round-constant -> cardinality cached
     kz = _kz_local
     # FOUR joint entropies (z, xz, yz, xyz) in ONE launch when the (x,y,z) joint fits shared -- the #1
     # cuLaunchKernel source on the STRICT redundancy gate. Bit-identical; falls back to the per-joint path.
@@ -1144,7 +1144,7 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False, kx: int = 0
     return (cmi, (int(k_z), int(k_xz), int(k_yz), int(k_xyz))) if return_cards else cmi
 
 
-_YZ_CARD_CACHE: dict = {}   # (y,z)-identity -> (k_z, k_yz, ky, kz); invariant across a round's candidates
+_YZ_CARD_CACHE: dict = {}  # (y,z)-identity -> (k_z, k_yz, ky, kz); invariant across a round's candidates
 
 
 def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tuple[int, int, int, int]:
@@ -1153,7 +1153,6 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     device replaces the host renumber+entropy. Value-order densify -> SAME occupied-cell count (the df is
     label-invariant). Raises on any cupy error so the caller falls back to the host path."""
     import cupy as cp
-
 
     # RESIDENT-INPUT fast path (device-born candidate-code foundation): a caller may hand ALREADY-RESIDENT int64
     # candidate codes (device-binned once, e.g. the CMI-redundancy gate) -> use them as-is so they never re-cross
@@ -1189,9 +1188,9 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     # collision-safe (a GC'd y/z whose id is reused with matching size+endpoints but a LARGER max returns the
     # stale card); key on full O(n) content hashes instead (cheap CPU vs the H2D .max()+nnz it guards). Same
     # cardinalities on the happy path -> df / selection unchanged.
-    ya = np.ascontiguousarray(np.asarray(y).ravel()); za = np.ascontiguousarray(np.asarray(z).ravel())
-    yzkey = (int(ya.size), ya.dtype.str, hash(ya.tobytes()),
-             int(za.size), za.dtype.str, hash(za.tobytes()))
+    ya = np.ascontiguousarray(np.asarray(y).ravel())
+    za = np.ascontiguousarray(np.asarray(z).ravel())
+    yzkey = (int(ya.size), ya.dtype.str, hash(ya.tobytes()), int(za.size), za.dtype.str, hash(za.tobytes()))
     _cached = _YZ_CARD_CACHE.get(yzkey)
     if _cached is not None:
         k_z, k_yz, ky, kz = _cached
@@ -1230,7 +1229,7 @@ def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> floa
         return joint_entropy_gpu(codes, cards, inv_n)
 
     Kx = (int(dx.max()) + 1) if dx.size else 1
-    ky = _cached_card(y_i, dy)             # y is a fit-constant -> cardinality cached
+    ky = _cached_card(y_i, dy)  # y is a fit-constant -> cardinality cached
     kz = int(k_z) if int(k_z) > 0 else (int(dz.max()) + 1 if dz.size else 1)
     h_xz, k_xz = _entc([dx, dz], [Kx, kz])
     h_xyz, k_xyz = _entc([dx, dy, dz], [Kx, ky, kz])
@@ -1283,10 +1282,7 @@ def score_candidates_by_cmi(
     if X_support is None or X_support.shape[1] == 0:
         z_joint: Optional[np.ndarray] = None
     else:
-        sup_bins = [
-            _quantile_bin(X_support[c].to_numpy(), nbins=nbins)
-            for c in X_support.columns
-        ]
+        sup_bins = [_quantile_bin(X_support[c].to_numpy(), nbins=nbins) for c in X_support.columns]
         z_joint, _ = _renumber_joint(*sup_bins)
 
     cand_cols = list(X_cand.columns)
@@ -1312,7 +1308,7 @@ def score_candidates_by_cmi(
                 X_codes = np.empty((y_bin.shape[0], len(cand_cols)), dtype=np.int64)
                 for j in range(len(cand_cols)):
                     X_codes[:, j] = _quantile_bin(X_float[:, j], nbins=nbins)
-                cmis = batched_cmi_gpu(X_codes, y_bin, z_joint, codes_trusted=True)   # host equi-freq binner -> 0-based
+                cmis = batched_cmi_gpu(X_codes, y_bin, z_joint, codes_trusted=True)  # host equi-freq binner -> 0-based
             return pd.Series({c: float(cmis[j]) for j, c in enumerate(cand_cols)}, dtype=np.float64)
         except Exception:
             pass  # any cupy error -> exact CPU loop below
@@ -1386,10 +1382,7 @@ def greedy_cmi_fe_construct(
         "cmi_at_selection", "step",
     ])
 
-    candidates_pool = [
-        c for c in (cols or X.columns)
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    candidates_pool = [c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if not candidates_pool:
         return X.copy(), empty_scores
 
@@ -1403,9 +1396,7 @@ def greedy_cmi_fe_construct(
     raw_arr = X[candidates_pool].to_numpy(dtype=np.float64)
     raw_mi = _mi_classif_batch(raw_arr, y_arr, nbins=nbins)
     order = np.argsort(-raw_mi)
-    binary_seed_cols = [
-        candidates_pool[i] for i in order[: int(seed_cols_count)]
-    ] if int(seed_cols_count) > 0 else list(candidates_pool)
+    binary_seed_cols = [candidates_pool[i] for i in order[: int(seed_cols_count)]] if int(seed_cols_count) > 0 else list(candidates_pool)
 
     # 2. Enumerate candidates. UNARY over the full pool (so transforms on
     #    symmetric / interaction-only cols are never silently dropped),
@@ -1460,10 +1451,7 @@ def greedy_cmi_fe_construct(
     #    plug-in CMI and all get picked.
     cand_names = list(engineered.columns)
     name_to_parsed = dict(zip(cand_names, parsed))
-    cand_bins: dict[str, np.ndarray] = {
-        name: _quantile_bin(engineered[name].to_numpy(), nbins=nbins)
-        for name in cand_names
-    }
+    cand_bins: dict[str, np.ndarray] = {name: _quantile_bin(engineered[name].to_numpy(), nbins=nbins) for name in cand_names}
 
     def _bin_fingerprint(b: np.ndarray) -> bytes:
         # Bytes of the int64 array -> hashable + cheap. Identical
@@ -1471,9 +1459,7 @@ def greedy_cmi_fe_construct(
         # quantization) collapse to one fingerprint.
         return b.tobytes()
 
-    cand_fp: dict[str, bytes] = {
-        name: _bin_fingerprint(cand_bins[name]) for name in cand_names
-    }
+    cand_fp: dict[str, bytes] = {name: _bin_fingerprint(cand_bins[name]) for name in cand_names}
 
     # Permutation-based noise-floor for the current Z: shuffle y once,
     # rebin, sample 24 candidates' CMI; take the 95th percentile as
@@ -1544,8 +1530,7 @@ def greedy_cmi_fe_construct(
         _have_z = z_joint is not None and z_joint.size > 0
         _yz_dense = None
         if _have_z:
-            _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n = precompute_cmi_yz_terms(
-                y_bin, z_joint)
+            _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n = precompute_cmi_yz_terms(y_bin, z_joint)
             # Round-fixed dense (y,z) joint codes: reused per-candidate so H(X,Y,Z) is a 2-array
             # densify against this partition instead of a fresh 3-column renumber(x,y,z). One extra
             # renumber per STEP (not per candidate); the winner-fold below rebuilds z each step anyway.
@@ -1584,8 +1569,7 @@ def greedy_cmi_fe_construct(
         else:
             for name in _scan:
                 if _have_z:
-                    cmi = cmi_from_binned_fixed_yz(
-                        cand_bins[name], _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n, yz_i=_yz_dense)
+                    cmi = cmi_from_binned_fixed_yz(cand_bins[name], _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n, yz_i=_yz_dense)
                 else:
                     cmi = _cmi_from_binned(cand_bins[name], y_bin, z_joint)
                 if cmi > best_cmi:
@@ -1685,9 +1669,7 @@ def greedy_cmi_fe_construct_with_recipes(
             ))
         else:
             logger.warning(
-                "greedy_cmi_fe_construct_with_recipes: cannot parse "
-                "engineered column %r back to (transform, source); skipping "
-                "recipe.",
+                "greedy_cmi_fe_construct_with_recipes: cannot parse " "engineered column %r back to (transform, source); skipping " "recipe.",
                 name,
             )
     return X_aug, scores, recipes

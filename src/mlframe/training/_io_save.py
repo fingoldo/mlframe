@@ -129,12 +129,7 @@ def save_mlframe_model(
     # pickle.dumps + zstd. No optimization warranted. NOTE asizeof grossly under-estimates Cython/numpy-buffer-backed
     # models (RF: est 0.4 MB vs 155 MB serialized), so it is correctly used ONLY for the SimpleNamespace eager/lean
     # flip and must NOT be swapped for a "cheaper" estimate that would change the gate decision.
-    if (
-        not lean
-        and auto_lean_retry
-        and auto_lean_pre_check_mb > 0.0
-        and isinstance(model, SimpleNamespace)
-    ):
+    if not lean and auto_lean_retry and auto_lean_pre_check_mb > 0.0 and isinstance(model, SimpleNamespace):
         try:
             from pympler import asizeof as _pa
             _est_bytes = _pa.asizeof(model)
@@ -157,14 +152,11 @@ def save_mlframe_model(
             # ``asizeof`` can stack-overflow on deeply-recursive objects with
             # ill-defined __dict__ traversal; never let it block a save.
             logger.debug(
-                "[save-size-precheck] pympler.asizeof raised %s; falling through "
-                "to post-save sensor retry.", _pa_err,
+                "[save-size-precheck] pympler.asizeof raised %s; falling through " "to post-save sensor retry.",
+                _pa_err,
             )
     if lean and isinstance(model, SimpleNamespace):
-        _lean = SimpleNamespace(**{
-            k: v for k, v in vars(model).items()
-            if k not in _LEAN_STRIP_FIELDS
-        })
+        _lean = SimpleNamespace(**{k: v for k, v in vars(model).items() if k not in _LEAN_STRIP_FIELDS})
         _payload: object = _lean
     else:
         _payload = model
@@ -249,9 +241,7 @@ def save_mlframe_model(
             # (by canonical name OR by type) so the 4M-row dataset they hold
             # never reaches the pickle. Don't recurse INTO them -- the whole
             # subtree is about to be discarded for the pickle pass.
-            if _v is not None and (
-                _k in _BLOAT_ATTR_NAMES or _looks_like_training_bloat(_v)
-            ):
+            if _v is not None and (_k in _BLOAT_ATTR_NAMES or _looks_like_training_bloat(_v)):
                 _bloat_strips.append((obj, _k, _v))
                 _d[_k] = None
                 continue
@@ -285,9 +275,9 @@ def save_mlframe_model(
             # Non-picklable object in the graph -- dill handles closures /
             # lambdas / generators that vanilla pickle rejects.
             logger.info(
-                "save_mlframe_model: pickle rejected the payload "
-                "(%s); falling back to dill.dumps for %s",
-                type(_pickle_err).__name__, file,
+                "save_mlframe_model: pickle rejected the payload " "(%s); falling back to dill.dumps for %s",
+                type(_pickle_err).__name__,
+                file,
             )
             _payload_bytes = dill.dumps(_payload)
 
@@ -359,11 +349,7 @@ def save_mlframe_model(
             # SimpleNamespace (lean is a no-op otherwise) AND lean wasn't already on,
             # rewrite the dump in lean form. Caller can disable per-call to keep the
             # original behaviour (e.g. forensic snapshot intentionally kept fat).
-            if (
-                auto_lean_retry
-                and not lean
-                and isinstance(model, SimpleNamespace)
-            ):
+            if auto_lean_retry and not lean and isinstance(model, SimpleNamespace):
                 if verbose > 0:
                     logger.warning(
                         "[save-size-sensor] %s: auto-retrying with lean=True to "

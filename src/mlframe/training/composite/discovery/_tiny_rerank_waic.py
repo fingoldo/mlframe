@@ -22,8 +22,7 @@ def apply_honest_oof_floor(self, kept_specs, agg_scores, honest_oof, honest_oof_
     (prod: 13.30 ensemble vs 11.58 lag floor). Specs absent from ``honest_oof`` (degenerate measurement) keep their CV
     rank. Returns the (possibly filtered) ``(kept_specs, agg_scores)``; also refreshes ``self._tiny_rerank_scores``.
     """
-    if not (math.isfinite(honest_oof_baseline)
-            and bool(getattr(self.config, "honest_oof_floor_reject_enabled", True))):
+    if not (math.isfinite(honest_oof_baseline) and bool(getattr(self.config, "honest_oof_floor_reject_enabled", True))):
         return kept_specs, agg_scores
     floor_tol = float(getattr(self.config, "honest_oof_selection_tolerance", 1.05))
     floor_thr = honest_oof_baseline * floor_tol
@@ -38,8 +37,7 @@ def apply_honest_oof_floor(self, kept_specs, agg_scores, honest_oof, honest_oof_
                        f"(min(raw,lag)={honest_oof_baseline:.4g} * {floor_tol})",
                 base_column=getattr(spec, "base_column", ""),
                 transform_name=getattr(spec, "transform_name", ""),
-                numbers={"honest_oof_rmse": float(hv), "floor": float(honest_oof_baseline),
-                         "threshold": float(floor_thr)},
+                numbers={"honest_oof_rmse": float(hv), "floor": float(honest_oof_baseline), "threshold": float(floor_thr)},
             )
             continue
         kept_after.append(spec)
@@ -101,12 +99,7 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
     while j < len(idx):
         s0 = agg_scores[idx[j]]
         k = j + 1
-        while (
-            k < len(idx)
-            and math.isfinite(s0)
-            and math.isfinite(agg_scores[idx[k]])
-            and (agg_scores[idx[k]] - s0) <= abs(s0) * rel_tol
-        ):
+        while k < len(idx) and math.isfinite(s0) and math.isfinite(agg_scores[idx[k]]) and (agg_scores[idx[k]] - s0) <= abs(s0) * rel_tol:
             k += 1
         band = idx[j:k]
         if len(band) > 1 and all(b in waic for b in band):

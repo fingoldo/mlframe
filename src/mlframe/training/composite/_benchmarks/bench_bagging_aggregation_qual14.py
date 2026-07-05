@@ -31,12 +31,7 @@ def _mae(a, b):
 def _make_data(scenario: str, seed: int, n: int = 1200, p: int = 8):
     rng = np.random.RandomState(seed)
     X = rng.randn(n, p)
-    truth = (
-        2.0 * X[:, 0]
-        + 1.5 * X[:, 1] * X[:, 2]
-        - 1.0 * X[:, 3]
-        + 0.7 * np.sin(2.0 * X[:, 4])
-    )
+    truth = 2.0 * X[:, 0] + 1.5 * X[:, 1] * X[:, 2] - 1.0 * X[:, 3] + 0.7 * np.sin(2.0 * X[:, 4])
     if scenario == "heavy_tail":
         # Student-t(df=2) noise: heavy tails -> occasional huge residual, the regime where a robust aggregator should pay off.
         noise = rng.standard_t(df=2, size=n) * 0.8
@@ -59,7 +54,7 @@ def _trimmed_mean(members: np.ndarray, trim: float = 0.1) -> np.ndarray:
     if k == 0:
         return members.mean(axis=0)
     s = np.sort(members, axis=0)
-    return s[k:m - k].mean(axis=0)
+    return s[k : m - k].mean(axis=0)
 
 
 def run():

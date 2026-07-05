@@ -103,9 +103,7 @@ def _emit_pair_features(
     leading_features = []
     for next_config, next_mi in sort_dict_by_value(var_pairs_perf).items():
         if next_mi > best_mi * fe_good_to_best_feature_mi_threshold:
-            if _restrict_to_nonprewarp and (
-                next_config[0][0][1] == _PREWARP_UNARY or next_config[0][1][1] == _PREWARP_UNARY
-            ):
+            if _restrict_to_nonprewarp and (next_config[0][0][1] == _PREWARP_UNARY or next_config[0][1][1] == _PREWARP_UNARY):
                 continue
             leading_features.append(next_config)
 
@@ -405,9 +403,9 @@ def _emit_pair_features(
             # the true max-target-MI form -- e.g. picking add(log(c),1/d)
             # MI=0.25 over the true mul(log(c),sin(d)) MI=0.32.)
             _primary_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
-            _winner = _select_single_best(_primary_perf, cols, secondary=valid_pairs_perf,
-                                          usability=_leader_usability, mi_band=_mi_band,
-                                          usability_primary=_usability_primary)
+            _winner = _select_single_best(
+                _primary_perf, cols, secondary=valid_pairs_perf, usability=_leader_usability, mi_band=_mi_band, usability_primary=_usability_primary
+            )
             if _winner is not None:
                 new_feature_name = get_new_feature_name(fe_tuple=_winner, cols_names=cols)
                 if verbose:
@@ -420,8 +418,7 @@ def _emit_pair_features(
             # still emit ONE best representative (highest engineered MI,
             # deterministic name tie-break) rather than the whole class.
             _lead_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
-            _winner = _select_single_best(_lead_perf, cols, usability=_leader_usability, mi_band=_mi_band,
-                                          usability_primary=_usability_primary)
+            _winner = _select_single_best(_lead_perf, cols, usability=_leader_usability, mi_band=_mi_band, usability_primary=_usability_primary)
             if _winner is not None:
                 if verbose:
                     messages.append(
@@ -448,12 +445,7 @@ def _emit_pair_features(
     # ``fe_multi_emit_mi_floor`` x best_mi) so both survive; the downstream MRMR
     # redundancy gate prunes residual overlap. Purely additive: never emits FEWER
     # than the single-best path, byte-identical when max_per_pair == 1.
-    if (
-        int(fe_multi_emit_max_per_pair) > 1
-        and (final_transformed_vals is not None or _this_chunk_deferred)
-        and this_pair_features
-        and best_mi > 0
-    ):
+    if int(fe_multi_emit_max_per_pair) > 1 and (final_transformed_vals is not None or _this_chunk_deferred) and this_pair_features and best_mi > 0:
         _emit_floor = float(best_mi) * float(fe_multi_emit_mi_floor)
         _div_corr = float(fe_multi_emit_diversity_corr)
         _already = {c for c, _ in this_pair_features}
@@ -495,8 +487,7 @@ def _emit_pair_features(
             _emitted_cols.append(_col)
             if verbose:
                 messages.append(
-                    f"{get_new_feature_name(fe_tuple=_cfg, cols_names=cols)} also emitted "
-                    f"(diverse multi-candidate, MI={_cfg_mi:.4f} vs best {best_mi:.4f})"
+                    f"{get_new_feature_name(fe_tuple=_cfg, cols_names=cols)} also emitted " f"(diverse multi-candidate, MI={_cfg_mi:.4f} vs best {best_mi:.4f})"
                 )
 
     transformed_vals, new_cols, new_nbins = None, None, None
@@ -538,7 +529,7 @@ def _emit_pair_features(
         # non-constant MI winner; this guard is defence-in-depth and also
         # compacts ``this_pair_features`` / buffers so the recipe builder
         # downstream never constructs a recipe for a dropped column.
-        _kept_configs = []   # list[(config, j)] that survived the guard
+        _kept_configs = []  # list[(config, j)] that survived the guard
         _kept_cols_vals = []  # list[np.ndarray] aligned with _kept_configs
         _kept_names = []
 
@@ -616,8 +607,7 @@ def _emit_pair_features(
                 if float(np.std(_col_arr)) <= 1e-9:
                     if verbose:
                         messages.append(
-                            f"{new_feature_name} dropped at materialisation: dead column "
-                            f"(std={float(np.std(_col_arr)):.2e}, non-constant guard)."
+                            f"{new_feature_name} dropped at materialisation: dead column " f"(std={float(np.std(_col_arr)):.2e}, non-constant guard)."
                         )
                     continue
                 _kept_cols_vals.append(_col_arr)

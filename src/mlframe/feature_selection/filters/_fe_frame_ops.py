@@ -97,7 +97,7 @@ def fe_extract_columns(X: Any, names) -> dict[str, np.ndarray]:
 # Eager polars->pandas materialisation is bounded to frames under this size (CLAUDE.md eager-conversion rule); a larger
 # polars frame must not be whole-frame-copied to pandas, so the few OOF / cross-row FE families that genuinely need the
 # full frame (no closed-form subsample-replay) skip above it rather than double peak RAM on a 100+ GB frame.
-FE_EAGER_MATERIALIZE_MAX_BYTES = 2 * 1024 ** 3
+FE_EAGER_MATERIALIZE_MAX_BYTES = 2 * 1024**3
 
 
 def fe_polars_exceeds(X: Any, max_bytes: int = FE_EAGER_MATERIALIZE_MAX_BYTES) -> bool:

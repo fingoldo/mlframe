@@ -27,21 +27,21 @@ def _extval_op_gpu(cp, op: int, a, b):
     0=mul 1=add 2=sub 3=div 4=max 5=min 6=abs_diff 7=signed 8=ratio_abs). No NaN scrub: NaN/inf propagate exactly
     as the numpy bin_funcs produce them (the resident binner routes them to the rightmost bin, as searchsorted
     does on the CPU)."""
-    if op == 0:            # mul
+    if op == 0:  # mul
         return a * b
-    if op == 1:            # add
+    if op == 1:  # add
         return a + b
-    if op == 2:            # sub
+    if op == 2:  # sub
         return a - b
-    if op == 3:            # div = _safe_div: exact x/y for y != 0, eps floor only on an exact-zero denominator
+    if op == 3:  # div = _safe_div: exact x/y for y != 0, eps floor only on an exact-zero denominator
         return a / cp.where(b == 0.0, cp.asarray(1e-9, dtype=cp.float64), b)
-    if op == 4:            # max = np.maximum (nan-propagating)
+    if op == 4:  # max = np.maximum (nan-propagating)
         return cp.maximum(a, b)
-    if op == 5:            # min = np.minimum (nan-propagating)
+    if op == 5:  # min = np.minimum (nan-propagating)
         return cp.minimum(a, b)
-    if op == 6:            # abs_diff = |a - b|
+    if op == 6:  # abs_diff = |a - b|
         return cp.abs(a - b)
-    if op == 7:            # signed = sign(a) * |b| (nan-propagating; sign(0)=0)
+    if op == 7:  # signed = sign(a) * |b| (nan-propagating; sign(0)=0)
         return cp.sign(a) * cp.abs(b)
     # op == 8: ratio_abs = a / (|b| + 1)
     return a / (cp.abs(b) + 1.0)

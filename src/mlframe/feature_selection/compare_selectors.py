@@ -91,8 +91,7 @@ def _extract_selected(selector: Any, feature_names: Sequence[str]) -> list[str]:
         return [str(c) for c in list(accepted)]
 
     raise AttributeError(
-        f"{type(selector).__name__} exposes no recognised support accessor "
-        "(get_feature_names_out / selected_features_ / support_ / accepted)"
+        f"{type(selector).__name__} exposes no recognised support accessor " "(get_feature_names_out / selected_features_ / support_ / accepted)"
     )
 
 

@@ -43,8 +43,7 @@ def render_mtr_report(
     if print_report:
         try:
             _msg_lines = [
-                f"MULTI_TARGET_REGRESSION [{model_name}] "
-                f"shape=(N={targets_arr.shape[0]}, K={targets_arr.shape[1]}):",
+                f"MULTI_TARGET_REGRESSION [{model_name}] " f"shape=(N={targets_arr.shape[0]}, K={targets_arr.shape[1]}):",
             ]
             for _k, _v in _mtr_extra.items():
                 _msg_lines.append(f"  {_k} = {_v:+.4f}")
@@ -79,8 +78,7 @@ def render_mtr_report(
                 _mask_k = np.isfinite(_yt_k) & np.isfinite(_yp_k)
                 if int(_mask_k.sum()) < 5:
                     logger.warning(
-                        "MTR per-target chart: target %d has <5 finite "
-                        "(true, pred) pairs; skipping chart for this column.",
+                        "MTR per-target chart: target %d has <5 finite " "(true, pred) pairs; skipping chart for this column.",
                         _k_idx,
                     )
                     continue
@@ -88,10 +86,7 @@ def render_mtr_report(
                 _mae_k = float(_mae_for_chart(_yt_k[_mask_k], _yp_k[_mask_k]))
                 _rmse_k = float(_rmse_for_chart(_yt_k[_mask_k], _yp_k[_mask_k]))
                 _r2_k = float(_r2_for_chart(_yt_k[_mask_k], _yp_k[_mask_k]))
-                _metrics_str = (
-                    f"target {_k_idx}: R^2={_r2_k:+.4f} "
-                    f"RMSE={_rmse_k:.4f} MAE={_mae_k:.4f}"
-                )
+                _metrics_str = f"target {_k_idx}: R^2={_r2_k:+.4f} " f"RMSE={_rmse_k:.4f} MAE={_mae_k:.4f}"
                 _spec = build_regression_panel_spec(
                     _yt_k, _yp_k, audit=_audit_k,
                     header_str=f"{report_title or model_name} target {_k_idx}",
@@ -110,8 +105,7 @@ def render_mtr_report(
             )
         except Exception as _chart_err:
             logger.warning(
-                "MTR per-target chart generation failed (%s); "
-                "aggregated metrics still stamped into metrics dict.",
+                "MTR per-target chart generation failed (%s); " "aggregated metrics still stamped into metrics dict.",
                 _chart_err,
             )
     if verbose:

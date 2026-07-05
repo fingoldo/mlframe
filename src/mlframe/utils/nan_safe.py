@@ -34,7 +34,6 @@ from typing import Any, Optional
 
 import numpy as np
 
-
 _DEFAULT_LOGGER = logging.getLogger(__name__)
 
 
@@ -85,9 +84,7 @@ def argmax_classes_safe(
         return np.asarray(np.nanargmax(probs), dtype=np.int64)
 
     if probs.ndim != 2:
-        raise ValueError(
-            f"{context}: expected 1-D or 2-D probs; got shape={probs.shape}"
-        )
+        raise ValueError(f"{context}: expected 1-D or 2-D probs; got shape={probs.shape}")
 
     n_rows, n_cols = probs.shape
     if n_rows == 0:

@@ -50,7 +50,6 @@ from mlframe.feature_selection.filters._adaptive_nbins import (
     _plug_in_mi,
 )
 
-
 METHODS = [
     "sturges",
     "freedman_diaconis",
@@ -252,8 +251,7 @@ def run_benchmark(
                                     print(f"  [FAIL] {method} on ({dist},{sig},n={n},fold={fold_idx}): {exc!r}")
                             task_counter += 1
                 if verbose:
-                    print(f"  done: dist={dist:15s} signal={sig:12s} "
-                          f"({task_counter}/{total_tasks} folds)")
+                    print(f"  done: dist={dist:15s} signal={sig:12s} " f"({task_counter}/{total_tasks} folds)")
 
     summary = _summarise(all_results, methods)
     return {"results": [asdict(r) for r in all_results], "summary": summary}
@@ -341,8 +339,7 @@ def _summarise(results: List[FoldResult], methods: List[str]) -> Dict:
         winner = max(mvals, key=mvals.get)
         win_count[winner] = win_count.get(winner, 0) + 1
         total_tasks_with_winner += 1
-    win_rate = {m: (win_count[m] / total_tasks_with_winner if total_tasks_with_winner else 0.0)
-                for m in methods}
+    win_rate = {m: (win_count[m] / total_tasks_with_winner if total_tasks_with_winner else 0.0) for m in methods}
 
     return {
         "per_method": per_method,
@@ -365,8 +362,7 @@ def print_summary(summary: Dict) -> None:
 
     print("\n[1] Per-method overall (mean over all (dist, signal, n, rep, fold) tasks)")
     print("-" * 78)
-    print(f"{'method':<20} {'MI_mean':>9} {'MI_med':>8} {'MI_std':>8} "
-          f"{'nbins_mean':>10} {'rt_ms':>8} {'win_rate':>9}")
+    print(f"{'method':<20} {'MI_mean':>9} {'MI_med':>8} {'MI_std':>8} " f"{'nbins_mean':>10} {'rt_ms':>8} {'win_rate':>9}")
     pm = summary["per_method"]
     win = summary["win_rate_per_method"]
     for m, d in sorted(pm.items(), key=lambda kv: -kv[1]["mi_val_mean"]):

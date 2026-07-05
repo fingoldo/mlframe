@@ -264,8 +264,7 @@ def _resolve_lag_values(self, X, base_raw: np.ndarray, n: int) -> np.ndarray | N
     lag_col = _resolve_lag_column(self, X)
     if lag_col is None:
         return None
-    if (lag_col == getattr(self, "base_column", "") and base_raw.ndim == 1
-            and base_raw.size == n):
+    if lag_col == getattr(self, "base_column", "") and base_raw.ndim == 1 and base_raw.size == n:
         return np.asarray(base_raw, dtype=np.float64)  # base column IS the lag; reuse the raw values.
     try:
         from . import _extract_base

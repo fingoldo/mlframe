@@ -143,9 +143,9 @@ def main() -> None:
             for nbins in NBINS_GRID:
                 c = results[regime][f"{scen}|nbins={nbins}"]["concordance"]
                 if nbins != 16 and c > base + margin:
-                    strict[regime][nbins] += 1   # challenger strictly beats 16
+                    strict[regime][nbins] += 1  # challenger strictly beats 16
                 elif nbins != 16 and base > c + margin:
-                    strict[regime][16] += 1       # 16 strictly beats this challenger
+                    strict[regime][16] += 1  # 16 strictly beats this challenger
     results["strict_wins"] = strict
     results["default_nbins"] = 16
 
@@ -158,8 +158,7 @@ def main() -> None:
         print(f"\n-- {regime} --")
         for scen in SCENARIOS:
             row = "  ".join(
-                f"{nb}:{results[regime][f'{scen}|nbins={nb}']['concordance']:.3f}/{results[regime][f'{scen}|nbins={nb}']['spearman']:.3f}"
-                for nb in NBINS_GRID
+                f"{nb}:{results[regime][f'{scen}|nbins={nb}']['concordance']:.3f}/{results[regime][f'{scen}|nbins={nb}']['spearman']:.3f}" for nb in NBINS_GRID
             )
             print(f"{scen:28s} {row}")
     print(f"\nstrict wins (>+{margin} concordance vs 16): N_PROD={strict['N_PROD']}  N_SMALL={strict['N_SMALL']}")

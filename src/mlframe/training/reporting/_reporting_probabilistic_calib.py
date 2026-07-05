@@ -25,7 +25,6 @@ except ImportError:
     plt = None  # type: ignore[assignment]
 
 
-
 # Wave 97 (2026-05-21): _canonical_multilabel_y / _maybe_display + the
 # DEFAULT_* constants all live in ``_reporting``; that module imports us
 # from its bottom (after the helpers + constants are bound at module top),
@@ -39,8 +38,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-
 from ._reporting_probabilistic import _slugify_class  # noqa: E402 (defined before parent's bottom re-export -> cycle-safe)
+
 
 def _render_fairness_calibration(
     *,
@@ -211,5 +210,3 @@ def _render_calibration_heatmap_2d(
         render_and_save(spec, parse_plot_output_dsl(_dsl), base_path)
     except Exception as e:
         logger.debug("calibration_heatmap_2d chart skipped: %s", e)
-
-

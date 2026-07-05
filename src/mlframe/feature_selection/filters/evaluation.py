@@ -609,10 +609,7 @@ def evaluate_candidate(
     # algorithm is supposed to find. The simple-mode path (no conditional MI)
     # still short-circuits on zero direct gain since there's nothing else to
     # compute.
-    _force_cond = (
-        selected_vars and not use_simple_mode
-        and str(mrmr_relevance_algo) == "fleuret"
-    )
+    _force_cond = selected_vars and not use_simple_mode and str(mrmr_relevance_algo) == "fleuret"
     if direct_gain > 0 or _force_cond:
         if selected_vars and not use_simple_mode:
             # Some factors already selected. Best gain from including X is min I(X; Y | Z) over Z in selected_vars. But a variable correlated to every real
@@ -723,8 +720,7 @@ def evaluate_candidate(
         try:
             max_xz = 0.0
             for _z in selected_vars:
-                _z_arr = np.asarray(_z if hasattr(_z, "__len__") else [_z],
-                                     dtype=np.int64)
+                _z_arr = np.asarray(_z if hasattr(_z, "__len__") else [_z], dtype=np.int64)
                 xz = mi(
                     factors_data=factors_data, x=X, y=_z_arr,
                     factors_nbins=factors_nbins, dtype=dtype,
@@ -759,9 +755,7 @@ def evaluate_candidate(
             # ``expected_gains`` is preallocated by ``screen_predictors``
             # before any candidate evaluation, so a missing slot here
             # would indicate a true invariant break - re-raise.
-            raise RuntimeError(
-                f"BUR publish failed for cand_idx={cand_idx}: {_bur_publish_exc!r}"
-            ) from _bur_publish_exc
+            raise RuntimeError(f"BUR publish failed for cand_idx={cand_idx}: {_bur_publish_exc!r}") from _bur_publish_exc
         except Exception as _bur_exc:
             # Real numerical / mi-kernel failures (degenerate joints,
             # all-NaN slices) stay best-effort: warn and continue rather
@@ -905,4 +899,3 @@ from ._evaluation_driver import (  # noqa: E402,F401
     evaluate_candidates,
     _evaluate_candidates_inner,
 )
-

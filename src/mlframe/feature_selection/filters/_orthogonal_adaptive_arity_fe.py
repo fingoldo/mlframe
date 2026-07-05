@@ -85,7 +85,7 @@ _ADAPTIVE_SCORE_EMPTY_COLS = [
     "engineered_col",
     "source_cols",
     "arity",
-    "baseline_mi",          # max MI over lower-arity prefixes for THIS tuple
+    "baseline_mi",  # max MI over lower-arity prefixes for THIS tuple
     "engineered_mi",
     "uplift",
 ]
@@ -178,10 +178,7 @@ def generate_adaptive_arity_cross_basis(
     if max_arity < 2:
         raise ValueError(f"max_arity must be >= 2, got {max_arity}")
     if max_arity > 4:
-        raise ValueError(
-            f"max_arity must be <= 4 (no per-arity module beyond Layer 77); "
-            f"got {max_arity}"
-        )
+        raise ValueError(f"max_arity must be <= 4 (no per-arity module beyond Layer 77); " f"got {max_arity}")
     src = [c for c in source_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if len(src) < 2:
         return pd.DataFrame(index=X.index), pd.DataFrame(columns=_ADAPTIVE_SCORE_EMPTY_COLS)
@@ -217,9 +214,7 @@ def generate_adaptive_arity_cross_basis(
 
     # tuple_best[arity][tuple-key] = (best_mi, best_deg_combo, best_col_name, product_array)
     # tuple-key is the frozenset of column names (commutative product).
-    tuple_best: dict[int, dict[frozenset, tuple[float, tuple[int, ...], str, np.ndarray]]] = {
-        k: {} for k in range(2, max_arity + 1)
-    }
+    tuple_best: dict[int, dict[frozenset, tuple[float, tuple[int, ...], str, np.ndarray]]] = {k: {} for k in range(2, max_arity + 1)}
 
     def _all_deg_combos(k: int) -> list[tuple[int, ...]]:
         combos = [()]
@@ -230,9 +225,7 @@ def generate_adaptive_arity_cross_basis(
     # Pass 1: enumerate every (tuple, degree-combo) cell at every arity,
     # evaluate the product, compute MI in batch, find the best degree
     # combo per tuple.
-    eval_results: dict[int, list[tuple[tuple[str, ...], tuple[int, ...], str, np.ndarray]]] = {
-        k: [] for k in range(2, max_arity + 1)
-    }
+    eval_results: dict[int, list[tuple[tuple[str, ...], tuple[int, ...], str, np.ndarray]]] = {k: [] for k in range(2, max_arity + 1)}
     for k in range(2, max_arity + 1):
         if len(valid_src) < k:
             continue
@@ -404,10 +397,7 @@ def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, n
             build_leg_product_matrix_gpu, _resident_mi,
         )
 
-        specs = [
-            {"legs": [(tup[i], int(degs[i])) for i in range(len(tup))]}
-            for (tup, degs, _name, _prod) in eval_results_k
-        ]
+        specs = [{"legs": [(tup[i], int(degs[i])) for i in range(len(tup))]} for (tup, degs, _name, _prod) in eval_results_k]
         mat_gpu = build_leg_product_matrix_gpu(cp, X, specs, basis=basis)
         if mat_gpu.shape[1] != len(eval_results_k):
             return None
@@ -535,10 +525,7 @@ def hybrid_orth_mi_adaptive_arity_fe(
     # signal legs. When the caller passes ``cols``, respect that order;
     # only fall back to raw-MI ranking when ``cols=None`` AND input
     # width > seed_k.
-    raw_cols_all = [
-        c for c in (cols or X.columns)
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    raw_cols_all = [c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     seed_sources: list[str] = []
     if len(raw_cols_all) >= 2:
         if cols is not None:
@@ -580,10 +567,7 @@ def hybrid_orth_mi_adaptive_arity_fe(
         max_raw_baseline = max(max_raw_baseline, float(uni_scores["baseline_mi"].max()))
     max_eng = float(reranked["engineered_mi"].max()) if not reranked.empty else 0.0
     abs_floor = float(adaptive_min_abs_mi_frac) * max(max_raw_baseline, max_eng)
-    qualified = reranked[
-        (reranked["uplift"] >= float(adaptive_min_uplift))
-        & (reranked["engineered_mi"] >= abs_floor)
-    ]
+    qualified = reranked[(reranked["uplift"] >= float(adaptive_min_uplift)) & (reranked["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_count))
     keep = list(winners["engineered_col"])
     if keep:
@@ -639,7 +623,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
     def _parse_code_deg(s: str):
         for code in ("LL", "He", "T", "L"):
             if s.startswith(code):
-                rest = s[len(code):]
+                rest = s[len(code) :]
                 if rest.isdigit():
                     return code_to_basis[code], int(rest)
         return None, None
@@ -665,8 +649,8 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             chosen_basis, chosen_degree = _parse_code_deg(parts[0]) if parts else (None, None)
             if chosen_basis is None or chosen_degree is None:
                 logger.warning(
-                    "hybrid_orth_mi_adaptive_arity_fe_with_recipes: cannot parse "
-                    "univariate suffix in %r; skipping recipe.", name,
+                    "hybrid_orth_mi_adaptive_arity_fe_with_recipes: cannot parse " "univariate suffix in %r; skipping recipe.",
+                    name,
                 )
                 continue
             recipes.append(build_orth_univariate_recipe(
@@ -676,8 +660,8 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
         elif arity == 2:
             if len(parts) != 2:
                 logger.warning(
-                    "hybrid_orth_mi_adaptive_arity_fe_with_recipes: expected 2 "
-                    "deg parts in %r; skipping recipe.", name,
+                    "hybrid_orth_mi_adaptive_arity_fe_with_recipes: expected 2 " "deg parts in %r; skipping recipe.",
+                    name,
                 )
                 continue
             basis_a, deg_a = _parse_code_deg(parts[0])
@@ -724,8 +708,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             basis_b, deg_b = _parse_code_deg(parts[1])
             basis_c, deg_c = _parse_code_deg(parts[2])
             basis_d, deg_d = _parse_code_deg(parts[3])
-            if (basis_a is None or basis_b is None
-                or basis_c is None or basis_d is None):
+            if basis_a is None or basis_b is None or basis_c is None or basis_d is None:
                 continue
             basis_a = _route_basis(legs[0])
             basis_b = _route_basis(legs[1])

@@ -25,9 +25,7 @@ def build_grouped_delta_recipe(
     train global mean / std when a group is unseen at replay."""
     from . import EngineeredRecipe
     if op not in ("minus_mean", "div_std"):
-        raise ValueError(
-            f"grouped_delta op must be 'minus_mean' or 'div_std'; got {op!r}"
-        )
+        raise ValueError(f"grouped_delta op must be 'minus_mean' or 'div_std'; got {op!r}")
     lookup_mean_clean = {str(k): float(v) for k, v in lookup_mean.items()}
     lookup_std_clean = {str(k): float(v) for k, v in lookup_std.items()}
     return EngineeredRecipe(
@@ -60,10 +58,7 @@ def build_grouped_agg_recipe(
     transform() is leakage-free."""
     from . import EngineeredRecipe
     if op not in ("broadcast", "z_within", "ratio"):
-        raise ValueError(
-            f"grouped_agg op must be 'broadcast', 'z_within', or 'ratio'; "
-            f"got {op!r}"
-        )
+        raise ValueError(f"grouped_agg op must be 'broadcast', 'z_within', or 'ratio'; " f"got {op!r}")
     lookup_clean = {str(k): float(v) for k, v in group_lookup_dict.items()}
     lookup_mean_clean = {str(k): float(v) for k, v in lookup_mean.items()}
     lookup_std_clean = {str(k): float(v) for k, v in lookup_std.items()}
@@ -102,16 +97,10 @@ def build_composite_group_agg_recipe(
     only X (no y), so transform() is leakage-free."""
     from . import EngineeredRecipe
     if op not in ("broadcast", "z_within", "ratio"):
-        raise ValueError(
-            f"composite_group_agg op must be 'broadcast', 'z_within', or "
-            f"'ratio'; got {op!r}"
-        )
+        raise ValueError(f"composite_group_agg op must be 'broadcast', 'z_within', or " f"'ratio'; got {op!r}")
     group_cols = tuple(str(c) for c in group_cols)
     if len(group_cols) < 2:
-        raise ValueError(
-            f"composite_group_agg recipe '{name}' requires >= 2 group_cols; "
-            f"got {group_cols!r}"
-        )
+        raise ValueError(f"composite_group_agg recipe '{name}' requires >= 2 group_cols; " f"got {group_cols!r}")
     lookup_clean = {str(k): float(v) for k, v in group_lookup_dict.items()}
     lookup_mean_clean = {str(k): float(v) for k, v in lookup_mean.items()}
     lookup_std_clean = {str(k): float(v) for k, v in lookup_std.items()}
@@ -149,13 +138,8 @@ def build_grouped_quantile_recipe(
     leakage-free."""
     from . import EngineeredRecipe
     if op not in ("pct_rank", "iqr", "p90p10"):
-        raise ValueError(
-            f"grouped_quantile op must be 'pct_rank', 'iqr', or 'p90p10'; "
-            f"got {op!r}"
-        )
-    group_sorted_clean = {
-        str(k): [float(v) for v in vals] for k, vals in group_sorted.items()
-    }
+        raise ValueError(f"grouped_quantile op must be 'pct_rank', 'iqr', or 'p90p10'; " f"got {op!r}")
+    group_sorted_clean = {str(k): [float(v) for v in vals] for k, vals in group_sorted.items()}
     return EngineeredRecipe(
         name=name,
         kind="grouped_quantile",
@@ -188,9 +172,8 @@ def build_target_aware_group_bin_recipe(
     of X. The leak-safe OOF assignment used at fit for MI scoring is NOT
     persisted, so transform() carries no y reference."""
     from . import EngineeredRecipe
-    group_edges_clean = {
-        str(k): [float(v) for v in edges] for k, edges in group_edges.items()
-    }
+
+    group_edges_clean = {str(k): [float(v) for v in edges] for k, edges in group_edges.items()}
     return EngineeredRecipe(
         name=name,
         kind="target_aware_group_bin",
@@ -224,5 +207,3 @@ def build_lagged_diff_recipe(
             "period": int(period),
         },
     )
-
-

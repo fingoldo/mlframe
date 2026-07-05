@@ -45,15 +45,15 @@ def true_curve(kind, ngrid):
     """Return (nfeatures grid, TRUE noise-free score) for a curve shape with a known optimum region."""
     nf = np.array(ngrid, dtype=float)
     x = nf / nf.max()
-    if kind == "peak":            # sharp interior optimum at ~40% of features
-        t = 0.5 + 0.30 * np.exp(-((x - 0.4) ** 2) / (2 * 0.12 ** 2))
-    elif kind == "plateau":       # rises then flat tail (one_se_max should grab the band)
+    if kind == "peak":  # sharp interior optimum at ~40% of features
+        t = 0.5 + 0.30 * np.exp(-((x - 0.4) ** 2) / (2 * 0.12**2))
+    elif kind == "plateau":  # rises then flat tail (one_se_max should grab the band)
         t = 0.5 + 0.30 * (1 - np.exp(-x / 0.25))
-    elif kind == "broad":         # broad gentle hump
-        t = 0.5 + 0.20 * np.exp(-((x - 0.5) ** 2) / (2 * 0.30 ** 2))
-    elif kind == "early":         # optimum at small N, then decays (overfitting tail)
-        t = 0.5 + 0.25 * np.exp(-((x - 0.18) ** 2) / (2 * 0.10 ** 2))
-    elif kind == "noisy_flat":    # almost flat -> picks driven entirely by noise
+    elif kind == "broad":  # broad gentle hump
+        t = 0.5 + 0.20 * np.exp(-((x - 0.5) ** 2) / (2 * 0.30**2))
+    elif kind == "early":  # optimum at small N, then decays (overfitting tail)
+        t = 0.5 + 0.25 * np.exp(-((x - 0.18) ** 2) / (2 * 0.10**2))
+    elif kind == "noisy_flat":  # almost flat -> picks driven entirely by noise
         t = 0.55 + 0.04 * x
     else:
         raise ValueError(kind)

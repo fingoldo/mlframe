@@ -38,8 +38,7 @@ from numba import njit
 
 
 @njit(nogil=True, cache=True)
-def _pointwise_log_ratio(p_joint: float, p_marg_a: float,
-                          p_marg_b: float) -> float:
+def _pointwise_log_ratio(p_joint: float, p_marg_a: float, p_marg_b: float) -> float:
     """Pointwise log ratio: log(p_joint / (p_a * p_b)) for the I_ccs
     redundancy decomposition.
     """
@@ -196,8 +195,7 @@ def _mi_xy_njit(p_xy: np.ndarray) -> float:
     return max(0.0, mi)
 
 
-def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray,
-                       K_x1: int, K_x2: int, K_y: int) -> dict:
+def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray, K_x1: int, K_x2: int, K_y: int) -> dict:
     """Williams-Beer / Ince I_ccs Partial Information Decomposition.
 
     Args:
@@ -212,8 +210,7 @@ def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray,
     y = np.asarray(y, dtype=np.int64).ravel()
     n = x1.size
     if n == 0:
-        return {"redundant": 0.0, "unique_x1": 0.0, "unique_x2": 0.0,
-                "synergistic": 0.0, "total": 0.0}
+        return {"redundant": 0.0, "unique_x1": 0.0, "unique_x2": 0.0, "synergistic": 0.0, "total": 0.0}
     # 2026-05-30 Wave 9.1 fix (loop iter 24): validate index ranges
     # explicitly. Pre-fix the joint-tabulation loop accepted negative
     # values silently because numpy negative-indexing wraps to the last
@@ -240,9 +237,7 @@ def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray,
     K_x2_i = int(K_x2)
     K_y_i = int(K_y)
     flat_idx = (x1 * K_x2_i + x2) * K_y_i + y
-    joint = np.bincount(
-        flat_idx, minlength=int(K_x1) * K_x2_i * K_y_i
-    ).reshape(int(K_x1), K_x2_i, K_y_i).astype(np.float64)
+    joint = np.bincount(flat_idx, minlength=int(K_x1) * K_x2_i * K_y_i).reshape(int(K_x1), K_x2_i, K_y_i).astype(np.float64)
     # I_ccs redundancy.
     r = float(_i_ccs_redundancy_njit(joint))
     # I(X_1; Y) and I(X_2; Y) via marginal joint.

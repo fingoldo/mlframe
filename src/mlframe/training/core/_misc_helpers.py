@@ -172,8 +172,7 @@ def _build_full_column_from_splits(
         if col_name not in _split_df.columns:
             continue
         try:
-            col_vals = _split_df[col_name].to_numpy() if hasattr(_split_df[col_name], "to_numpy") \
-                else _np.asarray(_split_df[col_name])
+            col_vals = _split_df[col_name].to_numpy() if hasattr(_split_df[col_name], "to_numpy") else _np.asarray(_split_df[col_name])
         except Exception:
             logger.debug("failed materialising column %r from split frame; skipping", col_name, exc_info=True)
             continue
@@ -204,8 +203,7 @@ def _validate_trusted_path(path: str, trusted_root):
     import os as _os
     if trusted_root is None:
         raise ValueError(
-            "trusted_root is required for joblib.load() of metadata files. Pass an "
-            "absolute directory under which the metadata artifact is stored."
+            "trusted_root is required for joblib.load() of metadata files. Pass an " "absolute directory under which the metadata artifact is stored."
         )
     abs_root = _os.path.abspath(trusted_root)
     abs_path = _os.path.abspath(path)
@@ -243,9 +241,7 @@ def _detect_dataset_reuse_capabilities() -> dict[str, bool]:
         _pool_cls = getattr(_cb, "Pool", None)
         caps["cb_pool_set_label"] = callable(getattr(_pool_cls, "set_label", None))
         caps["cb_pool_set_weight"] = callable(getattr(_pool_cls, "set_weight", None))
-        caps["cb_pool_label_swap"] = (
-            caps["cb_pool_set_label"] and caps["cb_pool_set_weight"]
-        )
+        caps["cb_pool_label_swap"] = caps["cb_pool_set_label"] and caps["cb_pool_set_weight"]
     except ImportError:
         caps["cb_pool_set_label"] = False
         caps["cb_pool_set_weight"] = False
@@ -295,11 +291,7 @@ def _validate_input_columns_against_metadata(
     anchor for predict-time validation: pipelines may rename/add columns (one-hot expansion, dim_reducer
     output, TF-IDF), so validating against post-pipeline names drops every raw user column as "extra".
     """
-    columns = (
-        metadata.get("raw_input_columns")
-        or metadata.get("input_columns")
-        or metadata.get("columns", [])
-    )
+    columns = metadata.get("raw_input_columns") or metadata.get("input_columns") or metadata.get("columns", [])
     if not columns:
         return df
 
@@ -326,7 +318,7 @@ def _validate_input_columns_against_metadata(
     from mlframe.feature_engineering.basic import _DEFAULT_CYCLICAL_PERIODS
     _cyclical_period_names = [_p for _p, _ in _DEFAULT_CYCLICAL_PERIODS]
     for _src, _methods in _dt_methods_map.items():
-        for _method in (_methods or {}):
+        for _method in _methods or {}:
             _allowed.append(f"{_src}_{_method}")
         for _period in _cyclical_period_names:
             _allowed.append(f"{_src}_{_period}_sin")
@@ -366,9 +358,7 @@ def _validate_input_columns_against_metadata(
                 f"current feature set."
             )
         logger.warning(
-            "Missing columns in input: %s. The pipeline will attempt "
-            "to proceed -- downstream errors about shape mismatches "
-            "usually trace back here.",
+            "Missing columns in input: %s. The pipeline will attempt " "to proceed -- downstream errors about shape mismatches " "usually trace back here.",
             sorted(missing_cols),
         )
 
@@ -427,24 +417,16 @@ def _validate_input_columns_against_metadata(
                     lf = _dtype_family(live["dtype"])
                     if ef != lf:
                         if role_critical:
-                            family_changes.append(
-                                f"    {col}: trained={e['dtype']!r} ({ef}) serving={live['dtype']!r} ({lf})"
-                            )
+                            family_changes.append(f"    {col}: trained={e['dtype']!r} ({ef}) serving={live['dtype']!r} ({lf})")
                         else:
-                            soft_family_changes.append(
-                                f"    {col}: trained={e['dtype']!r} ({ef}) serving={live['dtype']!r} ({lf}) (numeric role)"
-                            )
+                            soft_family_changes.append(f"    {col}: trained={e['dtype']!r} ({ef}) serving={live['dtype']!r} ({lf}) (numeric role)")
                     else:
-                        soft_width_changes.append(
-                            f"    {col}: trained={e['dtype']!r} serving={live['dtype']!r} (same family={lf})"
-                        )
+                        soft_width_changes.append(f"    {col}: trained={e['dtype']!r} serving={live['dtype']!r} (same family={lf})")
             hard_fail = bool(critical_removed or family_changes or role_changes)
             if hard_fail:
                 diff_lines = []
                 if critical_removed:
-                    diff_lines.append(
-                        f"  - critical missing (cat/text/embedding): {sorted(critical_removed)}"
-                    )
+                    diff_lines.append(f"  - critical missing (cat/text/embedding): {sorted(critical_removed)}")
                 if family_changes:
                     diff_lines.append("  dtype FAMILY changes (trained -> serving):")
                     diff_lines.extend(family_changes)
@@ -457,8 +439,7 @@ def _validate_input_columns_against_metadata(
                 raise ValueError(
                     "Model input-schema mismatch at load time for "
                     f"{model_file_name!r} "
-                    f"(trained hash={expected_hash}, serving hash={live_hash}):\n"
-                    + "\n".join(diff_lines) + "\n"
+                    f"(trained hash={expected_hash}, serving hash={live_hash}):\n" + "\n".join(diff_lines) + "\n"
                     "Either restore the upstream feature pipeline that produced "
                     "the trained-time layout, or retrain the model against the "
                     "current serving frame."
@@ -496,9 +477,7 @@ def _filter_polars_cat_features_by_dtype(
         if c not in df.columns:
             continue
         dt = df.schema[c]
-        is_cat = (dt == pl.Categorical) or (
-            hasattr(pl, "Enum") and isinstance(dt, pl.Enum)
-        )
+        is_cat = (dt == pl.Categorical) or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
         if is_cat:
             valid.append(c)
         else:
@@ -558,9 +537,7 @@ def _auto_detect_feature_types(
     abs_threshold = feature_types_config.cat_text_cardinality_threshold
     # Minimum non-null FRACTION to promote; below it CB's TF-IDF estimator yields an empty dictionary and raises
     # "Dictionary size is 0" (text_feature_estimators.cpp). Fraction (not count) scales with dataset size.
-    min_non_null_frac = getattr(
-        feature_types_config, "min_non_null_fraction_for_text_promotion", 0.01
-    )
+    min_non_null_frac = getattr(feature_types_config, "min_non_null_fraction_for_text_promotion", 0.01)
     if use_meta:
         total_rows = int(pandas_meta["shape"][0])
     else:
@@ -594,8 +571,7 @@ def _auto_detect_feature_types(
         #                                Sentence-Transformers int8 export); the row
         #                                is still a vector, just stored compact.
         _pl_array_cls = getattr(pl, "Array", None)
-        _int_inner_dtypes = (pl.Int8, pl.Int16, pl.Int32, pl.Int64,
-                             pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
+        _int_inner_dtypes = (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
 
         def _is_embedding_dtype(dt) -> bool:
             # Variable-length float embedding (legacy path).
@@ -623,13 +599,8 @@ def _auto_detect_feature_types(
                     embedding_features.append(name)
                 continue
             # pl.Enum is an instance-level dtype (not a class), so isinstance() is required alongside the class-level check.
-            is_text_like = (
-                dtype in (pl.String, pl.Utf8, pl.Categorical)
-                or isinstance(dtype, pl.Enum)
-            )
-            is_user_categorical_dtype = (
-                dtype == pl.Categorical or isinstance(dtype, pl.Enum)
-            )
+            is_text_like = dtype in (pl.String, pl.Utf8, pl.Categorical) or isinstance(dtype, pl.Enum)
+            is_user_categorical_dtype = dtype == pl.Categorical or isinstance(dtype, pl.Enum)
             if honor_user_dtype and is_user_categorical_dtype:
                 honored_user_dtype_cols.append(name)
                 continue
@@ -640,10 +611,9 @@ def _auto_detect_feature_types(
             # Index-based aliases (__autodetect_nu_{i}__ / __autodetect_cnt_{i}__) are collision-proof: even a user
             # column literally named "__autodetect_nu_0__" cannot collide because we only read the aggregation
             # output, not the input frame's columns.
-            _aggs = (
-                [pl.col(c).n_unique().alias(f"__autodetect_nu_{i}__") for i, c in enumerate(text_like_cols)]
-                + [pl.col(c).count().alias(f"__autodetect_cnt_{i}__") for i, c in enumerate(text_like_cols)]
-            )
+            _aggs = [pl.col(c).n_unique().alias(f"__autodetect_nu_{i}__") for i, c in enumerate(text_like_cols)] + [
+                pl.col(c).count().alias(f"__autodetect_cnt_{i}__") for i, c in enumerate(text_like_cols)
+            ]
             _agg_row = df.lazy().select(_aggs).collect()
             for i, name in enumerate(text_like_cols):
                 n_unique = int(_agg_row[f"__autodetect_nu_{i}__"][0])
@@ -677,10 +647,7 @@ def _auto_detect_feature_types(
             if len(set(_columns)) != len(_columns):
                 from collections import Counter as _Counter
                 _dupes = [_c for _c, _n in _Counter(_columns).items() if _n > 1]
-                raise ValueError(
-                    f"df has {len(_dupes)} duplicate column name(s) "
-                    f"({_dupes[:5]}); deduplicate before predict() to keep schema-hash honest."
-                )
+                raise ValueError(f"df has {len(_dupes)} duplicate column name(s) " f"({_dupes[:5]}); deduplicate before predict() to keep schema-hash honest.")
             _dtypes = {c: str(df[c].dtype) for c in _columns}
             _meta_n_unique = None
             _meta_non_null = None
@@ -709,10 +676,7 @@ def _auto_detect_feature_types(
                 honored_user_dtype_cols.append(col)
                 continue
             _dtype_lc = dtype_name.lower().lstrip("<")
-            _is_string_like = (
-                any(_dtype_lc.startswith(tok) for tok in _string_like_dtype_tokens)
-                or "stringdtype" in _dtype_lc
-            )
+            _is_string_like = any(_dtype_lc.startswith(tok) for tok in _string_like_dtype_tokens) or "stringdtype" in _dtype_lc
             if _is_string_like:
                 # Skip object columns whose cells are ndarray / list (embedding vectors). nunique() hashes
                 # the cells via PyObjectHashTable which raises ``TypeError: unhashable type: 'numpy.ndarray'``.
@@ -730,8 +694,7 @@ def _auto_detect_feature_types(
                             logger.debug("failed probing object column %r for embedding detection; treating as non-embedding", col, exc_info=True)
                             _first = None
                         _is_embedding = _first is not None and (
-                            hasattr(_first, "shape")
-                            or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
+                            hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
                         )
                     if _is_embedding:
                         embedding_features.append(col)
@@ -745,10 +708,7 @@ def _auto_detect_feature_types(
                 # n_unique / non_null are precomputed in the metadata snapshot for every text-candidate
                 # column (string / object / category / bool). No frame is touched here -- the dict is the
                 # sole source of truth, immune to any in-place mutation on the source train_df.
-                _stats = [
-                    (col, int(_meta_n_unique[col]), int(_meta_non_null[col]))
-                    for col in nunique_cols
-                ]
+                _stats = [(col, int(_meta_n_unique[col]), int(_meta_non_null[col])) for col in nunique_cols]
             else:
                 # Legacy fallback: ``df[cols].agg(["nunique","count"])`` returns a 2 x len(cols) frame
                 # where row 0 is nunique and row 1 is count. pandas dispatches both reductions via its
@@ -759,10 +719,7 @@ def _auto_detect_feature_types(
                 _agg = df[nunique_cols].agg(["nunique", "count"])
                 _nunique_map = _agg.loc["nunique"].to_dict()
                 _count_map = _agg.loc["count"].to_dict()
-                _stats = [
-                    (col, int(_nunique_map[col]), int(_count_map[col]))
-                    for col in nunique_cols
-                ]
+                _stats = [(col, int(_nunique_map[col]), int(_count_map[col])) for col in nunique_cols]
             for col, n_unique, non_null in _stats:
                 if n_unique > threshold:
                     if non_null < min_non_null_abs:
@@ -812,10 +769,7 @@ def _auto_detect_feature_types(
 
     # Load-bearing diagnostic: columns silently kept as cat_features instead of being promoted (avoids "Dictionary size is 0").
     if skipped_low_non_null:
-        formatted = ", ".join(
-            f"{name}:{n_unique:_} (non_null={nn:_}/{total_rows:_})"
-            for name, n_unique, nn in skipped_low_non_null
-        )
+        formatted = ", ".join(f"{name}:{n_unique:_} (non_null={nn:_}/{total_rows:_})" for name, n_unique, nn in skipped_low_non_null)
         logger.warning(
             "  Auto-detection: %d column(s) had n_unique>%d (would be "
             "promoted to text_features) but non_null<%d (%.1f%% of %d rows, "

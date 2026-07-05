@@ -124,8 +124,7 @@ def scan_conditional_gate(
             null_hi = _perm_null_hi(feat, yi, nbins, n_perm, rng)
             if best[0] <= null_hi:
                 continue
-            hits.append(dict(mode="mask", a=a, b=None, gate_col=cgate, tau=best[1],
-                             mi=float(best[0]), operand_floor=float(floor), null_hi=float(null_hi)))
+            hits.append(dict(mode="mask", a=a, b=None, gate_col=cgate, tau=best[1], mi=float(best[0]), operand_floor=float(floor), null_hi=float(null_hi)))
         # select: ordered (a, b) -- a where c>tau else b
         for a in others:
             for b in others:
@@ -145,8 +144,7 @@ def scan_conditional_gate(
                 null_hi = _perm_null_hi(feat, yi, nbins, n_perm, rng)
                 if best[0] <= null_hi:
                     continue
-                hits.append(dict(mode="select", a=a, b=b, gate_col=cgate, tau=best[1],
-                                 mi=float(best[0]), operand_floor=float(floor), null_hi=float(null_hi)))
+                hits.append(dict(mode="select", a=a, b=b, gate_col=cgate, tau=best[1], mi=float(best[0]), operand_floor=float(floor), null_hi=float(null_hi)))
     hits.sort(key=lambda h: h["mi"], reverse=True)
     return hits
 

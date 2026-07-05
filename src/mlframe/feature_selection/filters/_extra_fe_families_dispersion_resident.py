@@ -116,8 +116,8 @@ def build_dispersion_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[di
     # Per x_i the raw column is SHARED across all its (x_i, x_j) pairs -> uploaded once via the operand cache.
     # The (bin_mean, bin_std) are per-(x_i, x_j) recipe constants (uploaded once per pair). The per-kind fold is
     # the only per-column tail work after the shared z-score.
-    code_cache: dict = {}   # x_j -> codes_g
-    z_cache: dict = {}      # (x_i, x_j) -> z_g (signed z-score, shared across kinds of the same pair)
+    code_cache: dict = {}  # x_j -> codes_g
+    z_cache: dict = {}  # (x_i, x_j) -> z_g (signed z-score, shared across kinds of the same pair)
 
     out_cols = []
     for spec in col_specs:
@@ -180,8 +180,8 @@ def build_residual_abs_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[
 
     n = len(X)
 
-    code_cache: dict = {}    # x_j -> codes_g (shared across all (x_i, x_j) pairs on the same x_j)
-    resid_cache: dict = {}   # (x_i, x_j) -> |resid|_g (a pair appears once per winner, but guard dupes anyway)
+    code_cache: dict = {}  # x_j -> codes_g (shared across all (x_i, x_j) pairs on the same x_j)
+    resid_cache: dict = {}  # (x_i, x_j) -> |resid|_g (a pair appears once per winner, but guard dupes anyway)
 
     out_cols = []
     for spec in col_specs:
@@ -296,11 +296,7 @@ def local_mi_gate_dispersion_resident(
     col_specs = []
     for c in cand_cols:
         r = recipes.get(c) if isinstance(recipes, dict) else None
-        if (
-            not r
-            or "x_i" not in r or "x_j" not in r or "edges" not in r
-            or "bin_mean" not in r or "bin_std" not in r or "kind" not in r
-        ):
+        if not r or "x_i" not in r or "x_j" not in r or "edges" not in r or "bin_mean" not in r or "bin_std" not in r or "kind" not in r:
             return None
         col_specs.append({
             "name": c, "x_i": r["x_i"], "x_j": r["x_j"], "edges": r["edges"],
@@ -333,11 +329,7 @@ def local_mi_gate_dispersion_resident(
         return None
 
     # Keep/rank IDENTICAL to local_mi_gate: floor -> survivors -> sort by MI desc -> top_k.
-    scored = [
-        (col, float(cand_mi[j]))
-        for j, col in enumerate(cand_cols)
-        if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor
-    ]
+    scored = [(col, float(cand_mi[j])) for j, col in enumerate(cand_cols) if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor]
     if reject_sink is not None:
         for j, col in enumerate(cand_cols):
             _mi = cand_mi[j]

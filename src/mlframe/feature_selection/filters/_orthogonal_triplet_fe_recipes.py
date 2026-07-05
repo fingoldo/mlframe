@@ -33,16 +33,10 @@ def _apply_orth_triplet_cross(recipe: "EngineeredRecipe", X: Any) -> np.ndarray:
     from .engineered_recipes import _eval_orth_basis_column, _extract_column
 
     if len(recipe.src_names) != 3:
-        raise ValueError(
-            f"orth_triplet_cross recipe '{recipe.name}' must have exactly 3 "
-            f"src_names; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"orth_triplet_cross recipe '{recipe.name}' must have exactly 3 " f"src_names; got {len(recipe.src_names)}")
     for key in ("basis_i", "basis_j", "basis_k", "deg_a", "deg_b", "deg_c"):
         if key not in recipe.extra:
-            raise KeyError(
-                f"orth_triplet_cross recipe '{recipe.name}' missing '{key}' "
-                f"in extra. Re-fit MRMR to regenerate."
-            )
+            raise KeyError(f"orth_triplet_cross recipe '{recipe.name}' missing '{key}' " f"in extra. Re-fit MRMR to regenerate.")
     name_i, name_j, name_k = recipe.src_names
     basis_i = str(recipe.extra["basis_i"])
     basis_j = str(recipe.extra["basis_j"])
@@ -93,9 +87,7 @@ def build_orth_triplet_cross_recipe(
     # REPLAY-FIDELITY FIX (2026-06-13): freeze each leg's fit-time basis-preprocess params so replay
     # reproduces the axis byte-exactly (no slice-vs-full mean/std refit drift). Omitted when None so
     # legacy recipes stay byte-equal.
-    for _key, _pp in (("preprocess_params_i", preprocess_params_i),
-                      ("preprocess_params_j", preprocess_params_j),
-                      ("preprocess_params_k", preprocess_params_k)):
+    for _key, _pp in (("preprocess_params_i", preprocess_params_i), ("preprocess_params_j", preprocess_params_j), ("preprocess_params_k", preprocess_params_k)):
         _frozen = _freeze_preprocess_params(_pp)
         if _frozen is not None:
             extra[_key] = _frozen

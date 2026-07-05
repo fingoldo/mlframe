@@ -76,9 +76,7 @@ def _baseline_new(prebinned: np.ndarray, y: np.ndarray, base_idxs, nbins: int) -
     """New: per base, exclude_col view on the full matrix -- no per-base matrix copy."""
     out: list[float] = []
     for k in base_idxs:
-        out.append(
-            _mi_to_target_prebinned(prebinned, y, nbins=nbins, aggregation="mean", exclude_col=k)
-        )
+        out.append(_mi_to_target_prebinned(prebinned, y, nbins=nbins, aggregation="mean", exclude_col=k))
     return out
 
 
@@ -89,7 +87,7 @@ def _peak_mb(fn, *args) -> tuple[float, list[float]]:
     res = fn(*args)
     _, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
-    return peak / 1024.0 ** 2, res
+    return peak / 1024.0**2, res
 
 
 def main() -> None:
@@ -109,10 +107,7 @@ def main() -> None:
         old_peak = min(old_peak, p_old)
         new_peak = min(new_peak, p_new)
 
-    print(
-        f"mi_y baseline exclude_col bench  n={_N} F={_F} B={_B} nbins={_NBINS} "
-        f"reps={_REPS} py={sys.version.split()[0]}"
-    )
+    print(f"mi_y baseline exclude_col bench  n={_N} F={_F} B={_B} nbins={_NBINS} " f"reps={_REPS} py={sys.version.split()[0]}")
     print(f"  bit-identical baselines: {identical}")
     print(f"  old (np.delete per base): peak {old_peak:8.3f} MB")
     print(f"  new (exclude_col view):   peak {new_peak:8.3f} MB  (delta {new_peak - old_peak:+.3f} MB)")

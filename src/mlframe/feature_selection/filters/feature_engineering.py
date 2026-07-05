@@ -18,8 +18,6 @@ import pandas as pd
 from numpy.polynomial.hermite import hermval
 from scipy import special as sp
 
-
-
 # Wave 27 P1 (2026-05-20): ``check_prospective_fe_pairs`` is dispatched via
 # ``parallel_run`` from mrmr.py with backend='threading'. The function
 # accumulates per-binary-transform timings into a shared ``times_spent``
@@ -250,8 +248,8 @@ def _rebuild_full_survivor_col(
     ``KeyError`` on engineered operands when ``fe_check_pairs_subsample_n`` was active.
     """
     transformations_pair, bin_func_name, _i = config
-    (var_a_idx, unary_a_name) = transformations_pair[0]
-    (var_b_idx, unary_b_name) = transformations_pair[1]
+    var_a_idx, unary_a_name = transformations_pair[0]
+    var_b_idx, unary_b_name = transformations_pair[1]
     _eng_vals = engineered_operand_values or {}
 
     def _operand_full_vals(var_idx):
@@ -435,8 +433,6 @@ from .discretization import discretize_array, discretize_2d_quantile_batch  # no
 from .permutation import mi_direct
 
 logger = logging.getLogger(__name__)
-
-
 
 
 def compute_pairs_mis(
@@ -701,10 +697,7 @@ def _resolve_preset(preset: str | None) -> str:
         return "maximal"
     if p in ("basic", "default"):
         return "minimal"
-    raise ValueError(
-        f"unknown FE preset {preset!r}; expected one of "
-        f"{_KNOWN_UNARY_PRESETS} (or aliases 'rich'/'full' -> 'maximal')"
-    )
+    raise ValueError(f"unknown FE preset {preset!r}; expected one of " f"{_KNOWN_UNARY_PRESETS} (or aliases 'rich'/'full' -> 'maximal')")
 
 
 def create_unary_transformations(preset: str = "minimal"):
@@ -872,7 +865,7 @@ def create_binary_transformations(preset: str = "minimal"):
                 # 0.49 on y=-|a-b| with the product vs 0.88 with abs_diff; 0.79 vs 0.88 on y=sign(a)*|b|; a capacity
                 # control confirms the gain is the OPERATOR CLASS, not column count). Both are leak-free pure functions
                 # (no fit) and NON-SYMMETRICAL, so the pair search must try both operand orders.
-                "signed": lambda x, y: np.sign(x) * np.abs(y),   # signed magnitude: sign(a)*|b|  (non-symmetrical!)
+                "signed": lambda x, y: np.sign(x) * np.abs(y),  # signed magnitude: sign(a)*|b|  (non-symmetrical!)
                 "ratio_abs": lambda x, y: x / (np.abs(y) + 1.0),  # standardized ratio a/(|b|+1), inf-safe (non-symmetrical!)
             }
         )

@@ -12,19 +12,14 @@ import numpy as np
 import pandas as pd
 
 
-def _make_quick_model(self, target_type: str,
-                      init_score: np.ndarray | None = None,
-                      n_jobs: int = -1):
+def _make_quick_model(self, target_type: str, init_score: np.ndarray | None = None, n_jobs: int = -1):
     """Build a fresh quick LightGBM model. Lazy import keeps the
     diagnostic optional - if LightGBM is unavailable the whole
     component will skip with a clear error."""
     try:
         import lightgbm as lgb
     except ImportError as exc:  # pragma: no cover - environment-specific
-        raise RuntimeError(
-            "BaselineDiagnostics requires lightgbm; install it or set "
-            "BaselineDiagnosticsConfig.enabled=False."
-        ) from exc
+        raise RuntimeError("BaselineDiagnostics requires lightgbm; install it or set " "BaselineDiagnosticsConfig.enabled=False.") from exc
 
     kwargs = dict(
         n_estimators=self.config.quick_model_n_estimators,
@@ -75,10 +70,7 @@ def _fit_quick_and_score(
         init_score_tr = init_score
         init_score_va_local = init_score
     else:
-        stratify_arg = (
-            y if target_type == "binary_classification"
-            and len(np.unique(y)) > 1 else None
-        )
+        stratify_arg = y if target_type == "binary_classification" and len(np.unique(y)) > 1 else None
         if init_score is not None:
             (X_tr, X_va, y_tr, y_va,
              init_score_tr, init_score_va_local) = train_test_split(

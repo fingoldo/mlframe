@@ -72,8 +72,8 @@ def _scatter_factorize_lookup(
 
 def _greedy_expand_one_seed(
     factors_data: np.ndarray,
-    seed_indices: tuple,           # (idx_a, idx_b) -- the seed pair
-    candidate_pool: np.ndarray,    # indices eligible for extension
+    seed_indices: tuple,  # (idx_a, idx_b) -- the seed pair
+    candidate_pool: np.ndarray,  # indices eligible for extension
     nbins: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
@@ -157,9 +157,9 @@ def _greedy_expand_one_seed(
 
 def _build_kway_chained_lookup(
     factors_data: np.ndarray,
-    idx_tuple: tuple,    # k indices in sorted order
+    idx_tuple: tuple,  # k indices in sorted order
     nbins: np.ndarray,
-    classes_final: np.ndarray,    # final post-prune classes from merge_vars(...idx_tuple)
+    classes_final: np.ndarray,  # final post-prune classes from merge_vars(...idx_tuple)
     unknown_strategy: str,
     dtype,
 ) -> tuple:
@@ -244,7 +244,7 @@ def _build_kway_chained_lookup(
 
 def _materialize_kway(
     factors_data: np.ndarray,
-    kway_results: list,    # list of (indices_tuple, classes, n_uniq, joint_mi)
+    kway_results: list,  # list of (indices_tuple, classes, n_uniq, joint_mi)
     nbins: np.ndarray,
     cols: list,
     dtype,
@@ -485,5 +485,3 @@ def _materialize_pairs(
             )
         )
     return new_data_block, new_names, new_nbins, new_recipes
-
-

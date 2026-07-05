@@ -145,8 +145,7 @@ def _multi_col_factorize_native(categorical_df: "pd.DataFrame") -> np.ndarray:
             # of process workers on a categorical DF view.
             from joblib import Parallel, delayed as _delayed
             _results = Parallel(n_jobs=min(8, len(needs_factorize)), prefer="threads")(
-                _delayed(lambda c: pd.factorize(categorical_df[c], use_na_sentinel=True)[0].astype(np.float64))(_c)
-                for _j, _c in needs_factorize
+                _delayed(lambda c: pd.factorize(categorical_df[c], use_na_sentinel=True)[0].astype(np.float64))(_c) for _j, _c in needs_factorize
             )
             for (_j, _), _codes in zip(needs_factorize, _results):
                 out[:, _j] = _codes
@@ -269,9 +268,7 @@ def _maybe_collect_lazy(df):
     except ImportError:
         return df
     if isinstance(df, pl.LazyFrame):
-        logger.warning(
-            "MRMR autocollecting LazyFrame at boundary. Pass a materialised DataFrame to skip this copy."
-        )
+        logger.warning("MRMR autocollecting LazyFrame at boundary. Pass a materialised DataFrame to skip this copy.")
         return df.collect()
     return df
 
@@ -309,10 +306,7 @@ def categorize_1d_array(
     if pd.isna(vals).any():
         # Wave 50: surface the legacy bias when it actually fires.
         if nan_filler is None:
-            raise ValueError(
-                "categorize_1d_array: input contains NaN and nan_filler=None; "
-                "drop NaN upstream or pick a non-colliding sentinel."
-            )
+            raise ValueError("categorize_1d_array: input contains NaN and nan_filler=None; " "drop NaN upstream or pick a non-colliding sentinel.")
         import warnings as _w
         _w.warn(
             f"categorize_1d_array: filling NaN with {nan_filler!r} biases MI by mixing "
@@ -371,10 +365,7 @@ def categorize_1d_array(
                 # Wave 55 (2026-05-20): pre-fix, an unknown method (typo / "quantile" / "kmeans")
                 # left bin_edges undefined and the next line raised UnboundLocalError. Raise
                 # honestly with the offender so callers see a typed contract failure.
-                raise ValueError(
-                    f"categorize_1d_array: unknown method={method!r}; expected one of "
-                    "'discretizer', 'numpy', 'astropy'."
-                )
+                raise ValueError(f"categorize_1d_array: unknown method={method!r}; expected one of " "'discretizer', 'numpy', 'astropy'.")
 
             if bin_edges[0] <= vals.min():
                 bin_edges = bin_edges[1:]
@@ -397,9 +388,7 @@ def categorize_1d_array(
                 dtype = _candidate
                 break
         else:
-            raise ValueError(
-                f"categorize_1d_array: cardinality {out_max} exceeds int64 max; cannot encode."
-            )
+            raise ValueError(f"categorize_1d_array: cardinality {out_max} exceeds int64 max; cannot encode.")
     return out.astype(dtype)
 
 
@@ -429,7 +418,6 @@ def digitize(arr: np.ndarray, bins: np.ndarray, dtype=np.int32) -> np.ndarray:
         if not assigned:
             res[i] = last
     return res
-
 
 
 @njit(cache=True)
@@ -871,9 +859,9 @@ def discretize_2d_array(
                     )
                 except Exception as exc:
                     logger.debug(
-                        "discretize_2d_array: CUDA fastpath failed (%s: %s); "
-                        "falling back to CPU prange",
-                        type(exc).__name__, exc,
+                        "discretize_2d_array: CUDA fastpath failed (%s: %s); " "falling back to CPU prange",
+                        type(exc).__name__,
+                        exc,
                     )
         except ImportError:
             pass
@@ -1012,7 +1000,7 @@ def _discretize_quantile_rawkernel(d_arr, bin_edges, n_bins, out_cp_dtype):
     # column's edges are adjacent in memory after .T.copy().
     cuts = cp.ascontiguousarray(bin_edges[1:-1, :].T)  # (n_cols, n_bins-1)
     out_int32 = cp.empty((n_rows, n_cols), dtype=cp.int32)
-    src = r'''
+    src = r"""
     extern "C" __global__ void searchsorted_right_2d(
         const double* __restrict__ arr,    // (n_rows, n_cols) C-order
         const double* __restrict__ cuts,    // (n_cols, n_cuts) C-order
@@ -1035,7 +1023,7 @@ def _discretize_quantile_rawkernel(d_arr, bin_edges, n_bins, out_cp_dtype):
         }
         out[row * n_cols + col] = lo;
     }
-    '''
+    """
     kernel = cp.RawKernel(src, "searchsorted_right_2d")
     threads = 256
     blocks = (n_rows * n_cols + threads - 1) // threads
@@ -1044,7 +1032,6 @@ def _discretize_quantile_rawkernel(d_arr, bin_edges, n_bins, out_cp_dtype):
         out_int32, np.int32(n_rows), np.int32(n_cols), np.int32(n_bins - 1),
     ))
     return out_int32.astype(out_cp_dtype, copy=False)
-
 
 
 # Register with the kernel-tuner registry so retune_all / mlframe-tune-kernels

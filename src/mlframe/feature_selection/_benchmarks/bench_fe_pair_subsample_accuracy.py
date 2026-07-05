@@ -68,21 +68,21 @@ def _build_synthetic(n: int, seed: int = 0, noise_scale: float = 1.0) -> tuple[p
     subsamples to recover the full-n ranking.
     """
     rng = np.random.default_rng(seed)
-    df = pd.DataFrame({
-        "a": rng.uniform(-3.0, 3.0, n).astype(np.float32),
-        "b": rng.uniform(-3.0, 3.0, n).astype(np.float32),
-        "c": rng.uniform(0.5, 5.0, n).astype(np.float32),  # positive -> divide is well defined
-        "d": rng.uniform(-2.0, 2.0, n).astype(np.float32),
-        "n0": rng.standard_normal(n).astype(np.float32),
-        "n1": rng.standard_normal(n).astype(np.float32),
-    })
-    a = df["a"].to_numpy(); b = df["b"].to_numpy()
-    c = df["c"].to_numpy(); d = df["d"].to_numpy()
-    signal = (
-        1.2 * (a * b)            # strongest
-        + 0.7 * (c + d)          # medium
-        + 0.3 * (a / (c + 1e-3)) # weak (a/c)
+    df = pd.DataFrame(
+        {
+            "a": rng.uniform(-3.0, 3.0, n).astype(np.float32),
+            "b": rng.uniform(-3.0, 3.0, n).astype(np.float32),
+            "c": rng.uniform(0.5, 5.0, n).astype(np.float32),  # positive -> divide is well defined
+            "d": rng.uniform(-2.0, 2.0, n).astype(np.float32),
+            "n0": rng.standard_normal(n).astype(np.float32),
+            "n1": rng.standard_normal(n).astype(np.float32),
+        }
     )
+    a = df["a"].to_numpy()
+    b = df["b"].to_numpy()
+    c = df["c"].to_numpy()
+    d = df["d"].to_numpy()
+    signal = 1.2 * (a * b) + 0.7 * (c + d) + 0.3 * (a / (c + 1e-3))  # strongest  # medium  # weak (a/c)
     noise = noise_scale * rng.standard_normal(n)
     target = (signal + noise > np.median(signal + noise)).astype(np.int32)
     return df, target
@@ -90,10 +90,7 @@ def _build_synthetic(n: int, seed: int = 0, noise_scale: float = 1.0) -> tuple[p
 
 def _prepare_inputs(df: pd.DataFrame, target: np.ndarray, nbins: int = 4):
     """Build classes_y / freqs_y / classes_y_safe + original_cols for check_prospective_fe_pairs."""
-    data_disc = np.column_stack([
-        discretize_array(df[c].to_numpy(), n_bins=nbins, method="quantile", dtype=np.int32)
-        for c in df.columns
-    ])
+    data_disc = np.column_stack([discretize_array(df[c].to_numpy(), n_bins=nbins, method="quantile", dtype=np.int32) for c in df.columns])
     data_disc = np.column_stack([data_disc, target.astype(np.int32)])
     nb = np.array([nbins] * df.shape[1] + [2], dtype=np.int64)
     target_indices = np.array([df.shape[1]], dtype=np.int64)
@@ -121,16 +118,14 @@ def _extract_survivor_configs(res: dict) -> list[tuple]:
     out = []
     for raw_pair, (this_pair_features, _vals, _cols, _nbins, _msgs) in res.items():
         for config, _j in this_pair_features:
-            (transformations_pair, bin_func_name, _i) = config
+            transformations_pair, bin_func_name, _i = config
             # Sort the unary pair to canonicalise (a-op, b-op) vs (b-op, a-op) for symmetric ops.
             key = (tuple(sorted(transformations_pair)), bin_func_name)
             out.append((raw_pair, key))
     return sorted(out)
 
 
-def _run_one(n_eff: int, full_df: pd.DataFrame, full_target: np.ndarray, *,
-             unary_preset: str, binary_preset: str, prospective_pairs: dict,
-             seed: int = 42):
+def _run_one(n_eff: int, full_df: pd.DataFrame, full_target: np.ndarray, *, unary_preset: str, binary_preset: str, prospective_pairs: dict, seed: int = 42):
     """Run check_prospective_fe_pairs on a sampled subset of size n_eff and return
     (survivor_set, wall_time_s)."""
     if n_eff < len(full_df):

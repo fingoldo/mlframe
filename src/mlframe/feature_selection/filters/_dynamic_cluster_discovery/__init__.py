@@ -109,8 +109,8 @@ class DCDState:
     ``dcd_summary``, downstream FE step) consult it read-only.
     """
     # -- core cluster bookkeeping --
-    cluster_anchors: dict = field(default_factory=dict)              # anchor_idx -> set[member_col]
-    member_to_anchor: dict = field(default_factory=dict)             # member_col -> anchor_idx
+    cluster_anchors: dict = field(default_factory=dict)  # anchor_idx -> set[member_col]
+    member_to_anchor: dict = field(default_factory=dict)  # member_col -> anchor_idx
     pairwise_su_cache: "OrderedDict" = field(default_factory=OrderedDict)  # (min,max) -> SU
     # iter587: per-column marginal-entropy cache for the SU / VI branches of
     # pair_su. Pre-fix, every pair_su(a, b) call recomputed H(X_a) and
@@ -122,7 +122,7 @@ class DCDState:
     # ``symmetric_uncertainty``; ~2/3 of that is the redundant marginal
     # merge_vars + entropy. Caching by column index drops the dominant
     # share to a single lookup per (a, b).
-    column_entropy_cache: dict = field(default_factory=dict)         # int -> float
+    column_entropy_cache: dict = field(default_factory=dict)  # int -> float
     # iter589: cached fn_arr (int64 view of factors_nbins) + 2-element
     # pair-index scratch buffer. Pre-fix, every pair_su(a, b) call
     # allocated ``np.array([a, b], dtype=np.int64)`` for the joint
@@ -135,7 +135,7 @@ class DCDState:
     # cleanups landing alongside a measurable hotspot stay.
     _fn_arr_cached: Optional[np.ndarray] = None
     _pair_idx_buf: Optional[np.ndarray] = None
-    pool_pruned_mask: Optional[np.ndarray] = None                    # bool[p_initial]; True == pruned
+    pool_pruned_mask: Optional[np.ndarray] = None  # bool[p_initial]; True == pruned
     swap_log: list = field(default_factory=list)
     n_su_calls: int = 0
     n_cache_hits: int = 0
@@ -159,7 +159,7 @@ class DCDState:
     pairwise_cache_max: int = 50_000
     min_cluster_size: int = 2
     max_cluster_size: int = 12
-    swap_alpha: float = 0.05                                          # permutation-null p-value threshold for swap accept
+    swap_alpha: float = 0.05  # permutation-null p-value threshold for swap accept
     # 2026-06-03 (audit dcd-core-1 / dcd-swap-null-1/2): the swap permutation
     # null needs its OWN draw count, decoupled from the screening-confidence
     # ``full_npermutations`` (MRMR default 3). At B=3 the smallest attainable
@@ -180,7 +180,7 @@ class DCDState:
     warp_tiebreak_su_band: float = 0.02                              # SU tie band: |SU(c, anchor) - SU(anchor, c)| is ~0, so the band gates how close anchor's own redundancy must be (kept for symmetry / future asymmetric metrics)
     warp_linear_margin: float = 0.05                                 # minimum linear-usability advantage (|corr(c, rank c)| - |corr(anchor, rank anchor)|) for the candidate to displace the anchor
     # -- references to host MRMR matrix (mutated on swap) --
-    X_raw_ref: Any = None                                             # pd.DataFrame or np.ndarray
+    X_raw_ref: Any = None  # pd.DataFrame or np.ndarray
     quantization_method: str = "quantile"
     quantization_nbins: int = 10
     quantization_dtype: type = np.int32
@@ -209,8 +209,7 @@ class DCDState:
 # =============================================================================
 
 
-def _kernel_tuning_cache_lookup_tau(factors_data, factors_nbins,
-                                     fallback: float = 0.7) -> float:
+def _kernel_tuning_cache_lookup_tau(factors_data, factors_nbins, fallback: float = 0.7) -> float:
     """Wave 9.1: route ``dcd_tau_cluster`` through pyutilz kernel_tuning_cache.
 
     Looks up a calibrated tau by ``(n_samples, n_features, mean_pairwise_su_proxy)``
@@ -266,9 +265,7 @@ from .._dcd_tau_auto import (
 from .._dcd_pair_su_batch import pair_su_batch
 
 
-def _carry_forward_dcd_bookkeeping(state: "DCDState",
-                                   existing_state: "DCDState",
-                                   p_new: int) -> None:
+def _carry_forward_dcd_bookkeeping(state: "DCDState", existing_state: "DCDState", p_new: int) -> None:
     """Copy the cluster bookkeeping from a prior screen pass into a freshly
     built ``state`` whose matrix has ``p_new`` columns (>= the prior width).
 
@@ -292,13 +289,8 @@ def _carry_forward_dcd_bookkeeping(state: "DCDState",
             prev_mask = np.asarray(prev_mask, dtype=bool)
             keep = min(int(prev_mask.shape[0]), int(p_new))
             state.pool_pruned_mask[:keep] = prev_mask[:keep]
-        state.cluster_anchors = {
-            int(k): set(int(v) for v in vs)
-            for k, vs in (existing_state.cluster_anchors or {}).items()
-        }
-        state.member_to_anchor = {
-            int(k): int(v) for k, v in (existing_state.member_to_anchor or {}).items()
-        }
+        state.cluster_anchors = {int(k): set(int(v) for v in vs) for k, vs in (existing_state.cluster_anchors or {}).items()}
+        state.member_to_anchor = {int(k): int(v) for k, v in (existing_state.member_to_anchor or {}).items()}
         state.swap_log = list(existing_state.swap_log or [])
         state.n_su_calls = int(getattr(existing_state, "n_su_calls", 0) or 0)
         state.n_cache_hits = int(getattr(existing_state, "n_cache_hits", 0) or 0)
@@ -366,8 +358,7 @@ def make_dcd_state(
         factors_nbins=np.asarray(factors_nbins),
         cols=list(cols) if cols is not None else [],
         nbins=np.asarray(nbins) if nbins is not None else np.array([], dtype=np.int64),
-        target_indices=np.asarray(target_indices) if target_indices is not None
-                                                  else np.array([], dtype=np.int64),
+        target_indices=np.asarray(target_indices) if target_indices is not None else np.array([], dtype=np.int64),
         quantization_method=str(quantization_method),
         quantization_nbins=int(quantization_nbins),
         quantization_dtype=quantization_dtype,
@@ -394,8 +385,7 @@ def make_dcd_state(
     # distribution is unimodal -- no clear clusters to pick a valley from.
     # The diagnostics are recorded on ``state.tau_calibration`` and surfaced
     # via ``dcd_summary``.
-    n_pairs = int(dcd_config.get("tau_calibration_n_pairs",
-                                  _DCD_AUTO_TAU_DEFAULT_N_PAIRS))
+    n_pairs = int(dcd_config.get("tau_calibration_n_pairs", _DCD_AUTO_TAU_DEFAULT_N_PAIRS))
     seed = int(dcd_config.get("tau_calibration_seed", 0))
     tau_val = state.tau_cluster
     if isinstance(tau_val, str) and tau_val.lower() == "auto":
@@ -447,7 +437,6 @@ from ._dcd_metrics import pair_su, pair_vi, should_be_pruned, _binarize_aggregat
 from ._dcd_swap import (
     _AUTO_METHOD_CANDIDATES, _select_swap_method_auto, evaluate_swap_candidate, commit_swap,
 )
-
 
 # =============================================================================
 # Cluster discovery (no mutation of candidates list)
@@ -580,17 +569,13 @@ def discover_cluster_members(
             continue
         if len(anchors) >= int(state.max_cluster_size):
             break
-        su = pair_su(state, c_int, anchor,
-                     entropy_cache=entropy_cache,
-                     factors_data=factors_data, factors_nbins=factors_nbins)
+        su = pair_su(state, c_int, anchor, entropy_cache=entropy_cache, factors_data=factors_data, factors_nbins=factors_nbins)
         if su > float(state.tau_cluster):
             # Monotone-warp linear-usability tie-break. The candidate ``c`` is about to be pruned as SU-redundant with the already-selected ``anchor``; the SU/MI gate is monotone-invariant, so for a
             # strictly-monotone twin (e.g. anchor=g=exp(4f), c=raw f) the survivor is decided purely by which leg the greedy loop selected first (column order). When ON, if ``c`` is a strictly-monotone
             # twin of the anchor AND strictly more linearly-usable, DISPLACE the anchor: prune the anchor and keep ``c`` selected instead. Exactly one leg is kept either way, so support_ can never empty
             # and no unvalidated column is introduced. Guarded so a degenerate / non-twin / non-tie pair falls through to the order-decided default (byte-identical selection on those).
-            if (getattr(state, "warp_tiebreak_prefer_linear", False)
-                    and selected_vars is not None
-                    and int(anchor) in [int(s) for s in selected_vars]):
+            if getattr(state, "warp_tiebreak_prefer_linear", False) and selected_vars is not None and int(anchor) in [int(s) for s in selected_vars]:
                 _a_raw = _raw_column(state, anchor)
                 _c_raw = _raw_column(state, c_int)
                 if _a_raw is not None and _c_raw is not None and _a_raw.shape == _c_raw.shape:
@@ -598,8 +583,7 @@ def discover_cluster_members(
                     if _rc is not None and _rc >= float(state.warp_twin_rank_corr):
                         _lin_a = _linear_usability(_a_raw)
                         _lin_c = _linear_usability(_c_raw)
-                        if (_lin_a is not None and _lin_c is not None
-                                and _lin_c - _lin_a > float(state.warp_linear_margin)):
+                        if _lin_a is not None and _lin_c is not None and _lin_c - _lin_a > float(state.warp_linear_margin):
                             # ``c`` is the linear-usable leg of a monotone twin -> swap roles with the anchor.
                             try:
                                 _pos = [int(s) for s in selected_vars].index(int(anchor))
@@ -662,8 +646,7 @@ def reattach_raw_representative_after_aggregate_swap(
         return -1
     # Pick the member with the highest marginal relevance to the target as the
     # cluster's raw stand-in; fall back to the smallest index for determinism.
-    target = (state.target_indices if state.target_indices is not None and
-              state.target_indices.size > 0 else None)
+    target = state.target_indices if state.target_indices is not None and state.target_indices.size > 0 else None
     best_idx = -1
     best_rel = float("-inf")
     if target is not None and state.factors_data is not None:
@@ -738,8 +721,8 @@ def dcd_summary(state: Optional[DCDState]) -> Optional[dict]:
     # bookkeeping is carried forward) would otherwise inflate ``n_anchors``.
     # ``cluster_diagnostics`` already restricts itself to >= 2-member clusters,
     # so dropping empties here makes the three views mutually consistent.
-    int_anchors = {int(k): sorted(int(v) for v in vs)
-                    for k, vs in state.cluster_anchors.items() if vs}
+    int_anchors = {int(k): sorted(int(v) for v in vs) for k, vs in state.cluster_anchors.items() if vs}
+
     # Layer 41: name-indexed map. Resolve each integer col index against
     # ``state.cols`` (which is kept up-to-date through commit_swap, so
     # post-swap aggregate names like ``_dcd_pc1_*`` resolve naturally).

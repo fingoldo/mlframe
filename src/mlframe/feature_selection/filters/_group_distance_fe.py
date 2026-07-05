@@ -105,19 +105,14 @@ def _broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarr
     try:
         uniq, inverse = np.unique(g_keys, return_inverse=True)
         inverse = np.asarray(inverse).reshape(-1)
-        uniq_vals = np.array(
-            [lookup.get(str(_k), glob) for _k in uniq], dtype=np.float64
-        )
+        uniq_vals = np.array([lookup.get(str(_k), glob) for _k in uniq], dtype=np.float64)
         out = uniq_vals[inverse]
     except (TypeError, ValueError):
-        out = np.array(
-            [lookup.get(str(_k), glob) for _k in g_keys], dtype=np.float64
-        )
+        out = np.array([lookup.get(str(_k), glob) for _k in g_keys], dtype=np.float64)
     return np.nan_to_num(out, nan=glob, posinf=glob, neginf=glob)
 
 
-def _kl_divergence(group_vals: np.ndarray, global_edges: np.ndarray,
-                   global_hist: np.ndarray) -> float:
+def _kl_divergence(group_vals: np.ndarray, global_edges: np.ndarray, global_hist: np.ndarray) -> float:
     """``KL(P_group || P_global)`` over the fixed global bin edges. Both
     histograms Laplace-smoothed + renormalised so an empty bin never produces
     a division-by-zero / +inf term."""
@@ -213,10 +208,7 @@ def generate_group_distance_features(
     replay reads only X (no ``y`` reference), so transform() is leakage-free.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"generate_group_distance_features: X must be a pandas DataFrame; "
-            f"got {type(X).__name__}"
-        )
+        raise TypeError(f"generate_group_distance_features: X must be a pandas DataFrame; " f"got {type(X).__name__}")
     group_cols = [c for c in group_cols if c in X.columns]
     encoded: dict[str, np.ndarray] = {}
     raw_recipes: dict[str, dict] = {}
@@ -225,11 +217,7 @@ def generate_group_distance_features(
 
     for group_col in group_cols:
         g_keys = group_key_strings(X[group_col])
-        cur_num_cols = [
-            c for c in num_cols
-            if c in X.columns and c != group_col
-            and pd.api.types.is_numeric_dtype(X[c])
-        ]
+        cur_num_cols = [c for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c])]
         for num_col in cur_num_cols:
             x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
             finite_all = x[np.isfinite(x)]
@@ -260,9 +248,7 @@ def generate_group_distance_features(
                 fin = vals[np.isfinite(vals)]
                 key = str(gv)
                 if fin.size >= _MIN_GROUP_SIZE:
-                    z_lookup[key] = float(
-                        (np.mean(fin) - global_mean) / global_std
-                    )
+                    z_lookup[key] = float((np.mean(fin) - global_mean) / global_std)
                     kl_lookup[key] = _kl_divergence(fin, global_edges, global_hist)
                     w_lookup[key] = _wasserstein1(fin, global_sorted)
                 else:
@@ -302,17 +288,11 @@ def apply_group_distance(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     (``zdist`` / ``kl`` / ``wasserstein``); each row maps its group key through
     the lookup. Unseen groups fall back to 0 (no measurable distance)."""
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_group_distance: X_test must be a DataFrame; got "
-            f"{type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_group_distance: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     group_col = recipe["group_col"]
     distance_type = recipe.get("distance_type", "zdist")
     if group_col not in X_test.columns:
-        raise KeyError(
-            f"apply_group_distance: missing group column {group_col!r} from "
-            f"X_test"
-        )
+        raise KeyError(f"apply_group_distance: missing group column {group_col!r} from " f"X_test")
     g_keys = group_key_strings(X_test[group_col])
     if distance_type == "zdist":
         lookup = dict(recipe["z_lookup"])
@@ -321,9 +301,7 @@ def apply_group_distance(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     elif distance_type == "wasserstein":
         lookup = dict(recipe["w_lookup"])
     else:
-        raise ValueError(
-            f"apply_group_distance: unknown distance_type {distance_type!r}"
-        )
+        raise ValueError(f"apply_group_distance: unknown distance_type {distance_type!r}")
     return _broadcast_lookup(g_keys, lookup, 0.0)
 
 
@@ -343,10 +321,7 @@ def _coerce_X(X, group_col: str, recipe_name: str) -> pd.DataFrame:
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
         return pd.DataFrame({group_col: X[group_col]})
-    raise TypeError(
-        f"recipe '{recipe_name}': cannot extract {group_col!r} from X of type "
-        f"{type(X).__name__}"
-    )
+    raise TypeError(f"recipe '{recipe_name}': cannot extract {group_col!r} from X of type " f"{type(X).__name__}")
 
 
 def _apply_group_distance_recipe(recipe, X) -> np.ndarray:
@@ -379,10 +354,7 @@ def build_group_distance_recipe(
     from .engineered_recipes import EngineeredRecipe
 
     if distance_type not in _VALID_DISTANCE_TYPES:
-        raise ValueError(
-            f"group_distance distance_type must be one of "
-            f"{_VALID_DISTANCE_TYPES}; got {distance_type!r}"
-        )
+        raise ValueError(f"group_distance distance_type must be one of " f"{_VALID_DISTANCE_TYPES}; got {distance_type!r}")
     return EngineeredRecipe(
         name=name,
         kind="group_distance",
@@ -412,8 +384,8 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
         return [name for name, _info in cands[:max_cols]]
     except Exception as _e:
         logger.debug(
-            "group_distance auto-detect: detector import failed (%s); using "
-            "fallback cardinality scan.", _e,
+            "group_distance auto-detect: detector import failed (%s); using " "fallback cardinality scan.",
+            _e,
         )
         out: list[str] = []
         n = len(X)
@@ -471,10 +443,7 @@ def hybrid_group_distance_fe(
     reference, so transform() replay is leakage-free.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"hybrid_group_distance_fe: X must be a pandas DataFrame; got "
-            f"{type(X).__name__}"
-        )
+        raise TypeError(f"hybrid_group_distance_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if group_cols is None or len(group_cols) == 0:
         group_cols = _auto_detect_group_cols(X)
     else:
@@ -500,9 +469,7 @@ def hybrid_group_distance_fe(
     scores = score_grouped_quantile_by_mi_uplift(
         X, enc_df, y, n_bins=n_bins_mi, eng_to_source=eng_to_source,
     )
-    keep = scores[
-        (scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift))
-    ]
+    keep = scores[(scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift))]
     winners = list(keep["engineered_col"].head(int(top_k)))
     if not winners:
         return X.copy(), [], [], scores

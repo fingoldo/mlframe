@@ -151,7 +151,7 @@ def run_bed(name, X, y, n_trials_cap=120, seed=0):
     n_cols = int(b.ncols)
     hh = np.asarray(b.history_hits)  # (n_run+1, n_cols)
     traj = replay_decisions(hh, n_cols)
-    prod_stop = prod_alldecided_stop(traj, n_cols)   # 0-based traj idx
+    prod_stop = prod_alldecided_stop(traj, n_cols)  # 0-based traj idx
     a45_stop = a45_stop_trial(traj, W=10)
     a45_safe = a45_stop_safe(traj, hh, n_cols, W=20, margin=0.15)
     full_accepted = traj[-1][0]

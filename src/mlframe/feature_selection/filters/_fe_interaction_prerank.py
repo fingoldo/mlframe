@@ -61,7 +61,7 @@ def _abs_col_corr(M: np.ndarray, v: np.ndarray) -> np.ndarray:
     Returns a length-p array; a constant column (zero variance) scores 0 (its corr is undefined)."""
     Mc = M - M.mean(axis=0)
     vc = v - v.mean()
-    num = Mc.T @ vc                                   # (p,)
+    num = Mc.T @ vc  # (p,)
     den = np.sqrt((Mc * Mc).sum(axis=0) * float(vc @ vc))
     with np.errstate(divide="ignore", invalid="ignore"):
         r = np.where(den > 0.0, num / den, 0.0)
@@ -96,7 +96,7 @@ def _prep_values_y(values: np.ndarray, y):
 def _second_moment_core(V: np.ndarray, V2: np.ndarray, yf: np.ndarray, classes: np.ndarray, y_is_float: bool) -> np.ndarray:
     """The second-moment propensity score from the prepared (V, V2, yf, classes). See second_moment_propensity."""
     if classes.size > _NOMINAL_MAX_CLASSES and y_is_float:
-        return _abs_col_corr(V2, yf) + _abs_col_corr(V, yf * yf)   # genuine regression target
+        return _abs_col_corr(V2, yf) + _abs_col_corr(V, yf * yf)  # genuine regression target
     if classes.size > _NOMINAL_MAX_CLASSES:
         # high-cardinality NOMINAL/integer target: one-hot the _NOMINAL_MAX_CLASSES most FREQUENT classes
         # (covers the mass; relabel-invariant; O(K) bounded) instead of squaring arbitrary codes.
@@ -142,8 +142,7 @@ def second_moment_propensity(values: np.ndarray, y: np.ndarray) -> np.ndarray:
     return _second_moment_core(*_prep_values_y(values, y))
 
 
-def _discrete_score_numpy_loop(V: np.ndarray, V2: np.ndarray, yf: np.ndarray,
-                               classes: np.ndarray) -> np.ndarray:
+def _discrete_score_numpy_loop(V: np.ndarray, V2: np.ndarray, yf: np.ndarray, classes: np.ndarray) -> np.ndarray:
     """Original per-class-loop reference for the discrete path (kept for parity tests / fallback).
 
     Recomputes V/V2 column stats once per class; semantically identical to the hoisted GEMM dispatcher
@@ -189,15 +188,12 @@ def gbm_split_propensity(values: np.ndarray, y: np.ndarray, num_boost_round: int
     if n_classes <= _NOMINAL_MAX_CLASSES:
         codes = np.unique(yf, return_inverse=True)[1]
         if n_classes == 2:
-            params = dict(objective="binary", num_leaves=31, learning_rate=0.1,
-                          verbose=-1, min_child_samples=20, feature_fraction=1.0)
+            params = dict(objective="binary", num_leaves=31, learning_rate=0.1, verbose=-1, min_child_samples=20, feature_fraction=1.0)
         else:
-            params = dict(objective="multiclass", num_class=n_classes, num_leaves=31,
-                          learning_rate=0.1, verbose=-1, min_child_samples=20, feature_fraction=1.0)
+            params = dict(objective="multiclass", num_class=n_classes, num_leaves=31, learning_rate=0.1, verbose=-1, min_child_samples=20, feature_fraction=1.0)
         label = codes.astype(np.float64)
     else:  # continuous regression target
-        params = dict(objective="regression", num_leaves=31, learning_rate=0.1,
-                      verbose=-1, min_child_samples=20, feature_fraction=1.0)
+        params = dict(objective="regression", num_leaves=31, learning_rate=0.1, verbose=-1, min_child_samples=20, feature_fraction=1.0)
         label = yf
     try:
         ds = lgb.Dataset(X, label=label)
@@ -338,5 +334,4 @@ def top_k_by_interaction_propensity(
     return sorted(cand[i] for i in order)
 
 
-__all__ = ["second_moment_propensity", "top_k_by_interaction_propensity",
-           "fused_propensity", "gbm_split_propensity"]
+__all__ = ["second_moment_propensity", "top_k_by_interaction_propensity", "fused_propensity", "gbm_split_propensity"]

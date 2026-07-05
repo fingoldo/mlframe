@@ -86,10 +86,7 @@ def _fit_inner_with_init_score(model: Any, X: Any, y: np.ndarray, init_score: np
     elif "CatBoost" in cls:
         model.fit(X, y, baseline=init_score, **kw)
     else:
-        raise NotImplementedError(
-            f"CompositeClassificationEstimator: inner {cls!r} does not accept a "
-            "base margin (init_score / base_margin / baseline)."
-        )
+        raise NotImplementedError(f"CompositeClassificationEstimator: inner {cls!r} does not accept a " "base margin (init_score / base_margin / baseline).")
 
 
 class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
@@ -163,10 +160,7 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
         self.classes_ = np.unique(y_arr)
         self.n_classes_ = int(self.classes_.size)
         if self.n_classes_ < 2:
-            raise ValueError(
-                "CompositeClassificationEstimator needs >= 2 classes; got "
-                f"{self.n_classes_}."
-            )
+            raise ValueError("CompositeClassificationEstimator needs >= 2 classes; got " f"{self.n_classes_}.")
         # Label-encode to 0..K-1 in classes_ order (the order the inner booster
         # + the LogisticRegression base both emit margins in).
         y_enc = np.searchsorted(self.classes_, y_arr).astype(np.int64 if self.n_classes_ > 2 else np.float64)
@@ -174,19 +168,15 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
         if self.base_margin_column is not None:
             if self.n_classes_ > 2:
                 raise ValueError(
-                    "base_margin_column is a single column and cannot carry the "
-                    "K-class base margin; use a base_margin_estimator for multiclass."
+                    "base_margin_column is a single column and cannot carry the " "K-class base margin; use a base_margin_estimator for multiclass."
                 )
             base_margin = self._extract_margin_column(X)
             X_inner = self._drop_margin_column(X)
             self.base_margin_estimator_ = None
         else:
             from sklearn.linear_model import LogisticRegression
-            self.base_margin_estimator_ = clone(
-                self.base_margin_estimator
-                if self.base_margin_estimator is not None
-                else LogisticRegression(max_iter=1000)
-            )
+
+            self.base_margin_estimator_ = clone(self.base_margin_estimator if self.base_margin_estimator is not None else LogisticRegression(max_iter=1000))
             if sample_weight is not None:
                 self.base_margin_estimator_.fit(X, y_enc, sample_weight=sample_weight)
             else:

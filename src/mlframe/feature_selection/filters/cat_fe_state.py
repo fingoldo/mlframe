@@ -236,11 +236,7 @@ class CatFEConfig:
         if self.min_class_count < 1:
             raise ValueError(f"min_class_count must be >= 1; got {self.min_class_count}")
         # Cross-field sanity: shortlist_npermutations should not exceed full_npermutations -- the shortlist is supposed to be cheaper.
-        if (
-            self.shortlist_npermutations > 0
-            and self.full_npermutations > 0
-            and self.shortlist_npermutations > self.full_npermutations
-        ):
+        if self.shortlist_npermutations > 0 and self.full_npermutations > 0 and self.shortlist_npermutations > self.full_npermutations:
             raise ValueError(
                 f"shortlist_npermutations ({self.shortlist_npermutations}) must be <= full_npermutations ({self.full_npermutations}). "
                 "Search-phase should be CHEAPER than confirmation."

@@ -148,7 +148,7 @@ def _normalise_X(
                 # caller didn't supply feature_names. ``get_pandas_view_of_
                 # polars_df`` raises on Series; fall through to the legacy
                 # ``.to_pandas()`` path which returns a pd.Series directly.
-                _name = (feature_names[0] if feature_names else (getattr(X, "name", None) or "f0"))
+                _name = feature_names[0] if feature_names else (getattr(X, "name", None) or "f0")
                 try:
                     df = pd.DataFrame({_name: X.to_pandas()})
                 except Exception:
@@ -195,20 +195,14 @@ def _normalise_X(
     if _n_cols_total > 0 and not numeric_cols and not categorical_cols:
         # Pure-empty classification under non-empty frame: definitely a bug.
         raise ValueError(
-            f"_normalise_X: produced 0 numeric AND 0 categorical from {_n_cols_total} columns. "
-            f"Input type was {type(X).__name__}; check the dispatch above."
+            f"_normalise_X: produced 0 numeric AND 0 categorical from {_n_cols_total} columns. " f"Input type was {type(X).__name__}; check the dispatch above."
         )
     # If EVERY column ended up categorical AND the input was numpy-shaped, that's the
     # original misclassification path. Fire the WARN only when the SOURCE input actually
     # carried numeric polars / numpy dtypes that we lost during dispatch -- if the polars
     # frame was genuinely all-String/all-Categorical (e.g. hypothesis-generated text
     # columns), all-cat classification is the CORRECT outcome and a WARN is pure noise.
-    if (
-        _n_cols_total >= 2
-        and not numeric_cols
-        and len(categorical_cols) == _n_cols_total
-        and not isinstance(X, pd.DataFrame)
-    ):
+    if _n_cols_total >= 2 and not numeric_cols and len(categorical_cols) == _n_cols_total and not isinstance(X, pd.DataFrame):
         # Probe the source for at least one numeric polars dtype; if none, the
         # all-cat classification is correct and we should stay silent. For
         # numpy ndarray inputs we can't probe per-column dtype reliably (the
@@ -386,9 +380,7 @@ def analyze_feature_distribution(
         pairs = _pairwise_redundant_features(sub, candidate_numeric, threshold=redundant_corr_threshold)
         if pairs:
             pathologies.append(f"redundant_feature_pairs(n={len(pairs)})")
-            diagnostics["redundant_feature_pairs"] = [
-                {"a": a, "b": b, "corr": c} for a, b, c in pairs[:50]  # cap log to top 50
-            ]
+            diagnostics["redundant_feature_pairs"] = [{"a": a, "b": b, "corr": c} for a, b, c in pairs[:50]]  # cap log to top 50
             # Explicit top-10 listing so the operator can spot
             # surprising correlations directly in the run log without
             # digging into metadata. Pairs are already sorted by
@@ -398,9 +390,7 @@ def analyze_feature_distribution(
             # pairs makes it actionable (e.g. flag a same-signal-
             # twice mistake in feature engineering).
             _top10 = pairs[:10]
-            _top10_str = ", ".join(
-                f"{a}~={b}(|r|={c:.3f})" for a, b, c in _top10
-            )
+            _top10_str = ", ".join(f"{a}~={b}(|r|={c:.3f})" for a, b, c in _top10)
             logger.info(
                 "[feature_distribution_analyzer] top-%d redundant pairs "
                 "(|corr|>=%.2f): %s",

@@ -37,7 +37,7 @@ def main():
 
         base, nb = score(None)
         resc, nr = score([c for c in ranked[:20] if c in Xtr.columns] if under else None)
-        rows.append(dict(seed=sd, raw=len(raw), under=under, mrmr_fe=base, n_base=nb, rescue=resc, n_resc=nr, d=round(resc-base, 4)))
+        rows.append(dict(seed=sd, raw=len(raw), under=under, mrmr_fe=base, n_base=nb, rescue=resc, n_resc=nr, d=round(resc - base, 4)))
         print(f"  sd{sd} raw={len(raw)} under={under} mrmr_fe={base}(n{nb}) +rescue20={resc}(n{nr}) d={resc-base:+.4f}", flush=True)
 
     df = pd.DataFrame(rows)

@@ -139,10 +139,7 @@ def generate_adaptive_degree_basis_features(
     """
     if cols is None:
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
-    cols = [
-        c for c in cols
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    cols = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if dedup_collinear_sources:
         cols = _dedup_collinear_source_cols(
             X, list(cols), corr_threshold=dedup_corr_threshold,
@@ -181,10 +178,7 @@ def generate_adaptive_degree_basis_features(
         # y, max best-degree |corr|) -- mirrors the default Layer-21/58 routers;
         # beats moment routing on heavy-tailed/skewed x (bench: OOS-linear 0.92 vs
         # 0.77). Falls back to moment routing without a usable y.
-        chosen_basis = (
-            basis_route_by_signal(x, y_arr, degrees=degree_range)
-            if basis == "auto" else basis
-        )
+        chosen_basis = basis_route_by_signal(x, y_arr, degrees=degree_range) if basis == "auto" else basis
         if chosen_basis not in _POLY_BASES:
             logger.warning(
                 "generate_adaptive_degree_basis_features: unknown basis %r "
@@ -356,16 +350,14 @@ def hybrid_orth_mi_adaptive_degree_fe_with_recipes(
         return X_aug, scores, []
     # The scores DataFrame already carries (basis, degree) per column;
     # build one recipe per appended column from the scores rows.
-    name_to_row = {
-        str(row["engineered_col"]): row for _, row in scores.iterrows()
-    }
+    name_to_row = {str(row["engineered_col"]): row for _, row in scores.iterrows()}
     recipes = []
     for name in appended:
         row = name_to_row.get(name)
         if row is None:
             logger.warning(
-                "hybrid_orth_mi_adaptive_degree_fe_with_recipes: appended "
-                "column %r missing from scores; skipping recipe.", name,
+                "hybrid_orth_mi_adaptive_degree_fe_with_recipes: appended " "column %r missing from scores; skipping recipe.",
+                name,
             )
             continue
         recipes.append(build_orth_univariate_recipe(

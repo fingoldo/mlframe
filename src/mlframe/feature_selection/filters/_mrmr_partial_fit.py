@@ -54,7 +54,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-
 # Tiny floor on per-row weight to avoid zero-sum / all-zero degenerate
 # sample_weight vectors when ``partial_fit_decay == 1.0`` after multiple
 # batches; ``_maybe_resample_for_sample_weight`` rejects all-zero weights
@@ -87,9 +86,7 @@ def _to_series(y: Any) -> pd.Series:
         return y.reset_index(drop=True)
     if isinstance(y, pd.DataFrame):
         if y.shape[1] != 1:
-            raise ValueError(
-                f"MRMR.partial_fit: y as DataFrame must be single-column; got {y.shape[1]} cols"
-            )
+            raise ValueError(f"MRMR.partial_fit: y as DataFrame must be single-column; got {y.shape[1]} cols")
         return y.iloc[:, 0].reset_index(drop=True)
     arr = np.asarray(y).ravel()
     return pd.Series(arr, name="y")
@@ -194,32 +191,22 @@ def partial_fit(
     X_df = _to_dataframe(X_new)
     y_ser = _to_series(y_new)
     if len(X_df) != len(y_ser):
-        raise ValueError(
-            f"MRMR.partial_fit: X_new has {len(X_df)} rows but y_new has "
-            f"{len(y_ser)} rows; they must match."
-        )
+        raise ValueError(f"MRMR.partial_fit: X_new has {len(X_df)} rows but y_new has " f"{len(y_ser)} rows; they must match.")
     if len(X_df) == 0:
         raise ValueError("MRMR.partial_fit: X_new / y_new must be non-empty.")
 
     decay = float(getattr(self, "partial_fit_decay", 0.0) or 0.0)
     if not (0.0 <= decay <= 1.0):
-        raise ValueError(
-            f"MRMR.partial_fit_decay must be in [0, 1]; got {decay!r}."
-        )
+        raise ValueError(f"MRMR.partial_fit_decay must be in [0, 1]; got {decay!r}.")
     min_recompute = int(getattr(self, "partial_fit_min_recompute", 100) or 0)
     window = getattr(self, "partial_fit_window", None)
     if window is not None:
         window = int(window)
         if window <= 0:
-            raise ValueError(
-                f"MRMR.partial_fit_window must be positive when set; got {window!r}."
-            )
+            raise ValueError(f"MRMR.partial_fit_window must be positive when set; got {window!r}.")
 
     # First call -> initialise buffer + delegate to fit on the new batch.
-    is_first = (
-        getattr(self, "_partial_fit_X_buffer_", None) is None
-        or getattr(self, "_partial_fit_y_buffer_", None) is None
-    )
+    is_first = getattr(self, "_partial_fit_X_buffer_", None) is None or getattr(self, "_partial_fit_y_buffer_", None) is None
     if is_first:
         # Apply the rolling window even on the first call so callers that
         # ship a giant initial batch with a small window get the contracted
@@ -227,9 +214,7 @@ def partial_fit(
         batch_sizes = [len(X_df)]
         X_buf, y_buf = X_df.reset_index(drop=True), y_ser.reset_index(drop=True)
         if window is not None and len(X_buf) > window:
-            X_buf, y_buf, batch_sizes = _apply_rolling_window(
-                X_buf, y_buf, batch_sizes, window
-            )
+            X_buf, y_buf, batch_sizes = _apply_rolling_window(X_buf, y_buf, batch_sizes, window)
         self._partial_fit_X_buffer_ = X_buf
         self._partial_fit_y_buffer_ = y_buf
         self._partial_fit_batch_sizes_ = batch_sizes
@@ -253,23 +238,17 @@ def partial_fit(
         X_df.columns = X_buf.columns
 
     X_buf = pd.concat([X_buf, X_df], axis=0, ignore_index=True)
-    y_buf = pd.concat(
-        [y_buf, y_ser], axis=0, ignore_index=True
-    )
+    y_buf = pd.concat([y_buf, y_ser], axis=0, ignore_index=True)
     batch_sizes.append(len(X_df))
 
     if window is not None and len(X_buf) > window:
-        X_buf, y_buf, batch_sizes = _apply_rolling_window(
-            X_buf, y_buf, batch_sizes, window
-        )
+        X_buf, y_buf, batch_sizes = _apply_rolling_window(X_buf, y_buf, batch_sizes, window)
 
     self._partial_fit_X_buffer_ = X_buf
     self._partial_fit_y_buffer_ = y_buf
     self._partial_fit_batch_sizes_ = batch_sizes
     self._partial_fit_n_seen_ = int(getattr(self, "_partial_fit_n_seen_", 0)) + int(len(X_df))
-    self._partial_fit_n_since_refit_ = (
-        int(getattr(self, "_partial_fit_n_since_refit_", 0)) + int(len(X_df))
-    )
+    self._partial_fit_n_since_refit_ = int(getattr(self, "_partial_fit_n_since_refit_", 0)) + int(len(X_df))
 
     if self._partial_fit_n_since_refit_ < min_recompute:
         # Below the recompute threshold; buffer-only update keeps support_
@@ -295,10 +274,7 @@ def partial_fit(
             if sw_new.shape[0] >= kept_new:
                 sw_new = sw_new[-kept_new:]
             else:
-                raise ValueError(
-                    f"MRMR.partial_fit: sample_weight length {sw_new.shape[0]} "
-                    f"does not align with the new batch length {len(X_df)}."
-                )
+                raise ValueError(f"MRMR.partial_fit: sample_weight length {sw_new.shape[0]} " f"does not align with the new batch length {len(X_df)}.")
         # Apply the caller weights to the trailing block (new batch survivors).
         n_new_kept = batch_sizes[-1]
         weights[-n_new_kept:] = weights[-n_new_kept:] * sw_new[-n_new_kept:]

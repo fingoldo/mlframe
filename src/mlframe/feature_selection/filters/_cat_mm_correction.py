@@ -85,7 +85,7 @@ def _compute_pair_ii_mm(
     target_indices: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
-    h_y: float,                  # H(Y), precomputed once at orchestrator level
+    h_y: float,  # H(Y), precomputed once at orchestrator level
     use_mm: bool,
     dtype,
 ) -> float:
@@ -242,9 +242,9 @@ def _maybe_rerank_with_mm(
             touched_cols.add(int(pairs_a[k]))
             touched_cols.add(int(pairs_b[k]))
 
-    h_marginal_cache: dict = {}     # idx -> H(X_idx)
-    h_marginal_y_cache: dict = {}   # idx -> H(X_idx, Y)
-    k_marginal_cache: dict = {}     # idx -> occupied bin count of X_idx (for the telescoped II bias)
+    h_marginal_cache: dict = {}  # idx -> H(X_idx)
+    h_marginal_y_cache: dict = {}  # idx -> H(X_idx, Y)
+    k_marginal_cache: dict = {}  # idx -> occupied bin count of X_idx (for the telescoped II bias)
     for col_idx in touched_cols:
         cls_x, freqs_x, _ = merge_vars(
             factors_data=factors_data,
@@ -294,15 +294,7 @@ def _maybe_rerank_with_mm(
         )
         h_x1x2y = _entropy_for_mode(freqs_pair_y, n_samples, use_mm=not use_kt, use_kt=use_kt)
         # II = H(X1,X2) + H(X1,Y) + H(X2,Y) - H(X1,X2,Y) - H(X1) - H(X2) - H(Y)
-        ii_mm = (
-            h_x1x2
-            + h_marginal_y_cache[idx_a]
-            + h_marginal_y_cache[idx_b]
-            - h_x1x2y
-            - h_marginal_cache[idx_a]
-            - h_marginal_cache[idx_b]
-            - h_y_mm
-        )
+        ii_mm = h_x1x2 + h_marginal_y_cache[idx_a] + h_marginal_y_cache[idx_b] - h_x1x2y - h_marginal_cache[idx_a] - h_marginal_cache[idx_b] - h_y_mm
         if not use_kt:
             # Single telescoped MM II bias on occupied marginal cardinalities (the six terms above are now all
             # plug-in under MM mode, so subtract the closed-form bias once instead of per-entropy -- the per-term
@@ -323,5 +315,3 @@ def _maybe_rerank_with_mm(
         score = np.abs(ii_mm_arr[selected_idx])
     order = np.argsort(-score)
     return ii_mm_arr, selected_idx[order]
-
-

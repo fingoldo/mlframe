@@ -144,8 +144,7 @@ def brute_force_top_n_gpu(
         combos_d = cp.asarray(np.ascontiguousarray(combos, dtype=np.int32).ravel())
         out_d = cp.empty(C, dtype=cp.float64)
         grid = ((C + block - 1) // block,)
-        kernel(grid, (block,), (phi_d, base_d, y_d, combos_d, np.int32(n), np.int32(f),
-                                np.int32(r), np.int64(C), np.int32(metric_code), out_d))
+        kernel(grid, (block,), (phi_d, base_d, y_d, combos_d, np.int32(n), np.int32(f), np.int32(r), np.int64(C), np.int32(metric_code), out_d))
         # SR1 (mirror of the CPU path): map non-finite losses to +inf so a NaN cannot be argpartition-
         # selected as "top"; lower=better, so +inf sinks. Cannot be exercised on this CPU-only box.
         out_d[~cp.isfinite(out_d)] = cp.inf

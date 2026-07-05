@@ -224,15 +224,11 @@ def score_features_by_lasso_coef(
     """
     if len(raw_X) != len(engineered_X):
         raise ValueError(
-            f"score_features_by_lasso_coef: raw_X has {len(raw_X)} rows "
-            f"but engineered_X has {len(engineered_X)}; positional row "
-            f"alignment required."
+            f"score_features_by_lasso_coef: raw_X has {len(raw_X)} rows " f"but engineered_X has {len(engineered_X)}; positional row " f"alignment required."
         )
     if len(raw_X) != len(np.asarray(y)):
         raise ValueError(
-            f"score_features_by_lasso_coef: raw_X has {len(raw_X)} rows "
-            f"but y has {len(np.asarray(y))}; positional row alignment "
-            f"required."
+            f"score_features_by_lasso_coef: raw_X has {len(raw_X)} rows " f"but y has {len(np.asarray(y))}; positional row alignment " f"required."
         )
     raw_cols = list(raw_X.columns)
     eng_cols = list(engineered_X.columns)
@@ -255,7 +251,7 @@ def score_features_by_lasso_coef(
         random_state=int(random_state),
     )
     raw_coef_map = dict(zip(raw_cols, abs_coefs[: len(raw_cols)].tolist()))
-    eng_coefs = abs_coefs[len(raw_cols):]
+    eng_coefs = abs_coefs[len(raw_cols) :]
     rows = []
     for j, eng_name in enumerate(eng_cols):
         source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
@@ -351,19 +347,13 @@ def hybrid_orth_mi_lasso_fe(
     if scores.empty:
         return X.copy(), scores
     raw_baselines = scores["baseline_mi"].to_numpy()
-    max_raw_baseline = (
-        float(raw_baselines.max()) if raw_baselines.size else 0.0
-    )
+    max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
     legacy_floor = float(min_abs_mi_frac) * max(0.0, max_raw_baseline)
     # L1 floor: columns Lasso drove to EXACTLY zero are guaranteed
     # noise rejects; they never enter the qualified set regardless of the
     # uplift ratio (uplift = 0 / 0 is undefined / inf; the strict
     # ``engineered_mi > 0`` gate is the safety net).
-    qualified = scores[
-        (scores["engineered_mi"] > 0.0)
-        & (scores["engineered_mi"] >= legacy_floor)
-        & (scores["uplift"] >= float(min_uplift))
-    ]
+    qualified = scores[(scores["engineered_mi"] > 0.0) & (scores["engineered_mi"] >= legacy_floor) & (scores["uplift"] >= float(min_uplift))]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
@@ -416,15 +406,14 @@ def hybrid_orth_mi_lasso_fe_with_recipes(
         chosen_degree = None
         for code in ("LL", "He", "T", "L"):
             if suffix.startswith(code):
-                rest = suffix[len(code):]
+                rest = suffix[len(code) :]
                 if rest.isdigit():
                     chosen_basis = code_to_basis[code]
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
             logger.warning(
-                "hybrid_orth_mi_lasso_fe_with_recipes: cannot parse "
-                "basis/degree from column name %r; skipping recipe build.",
+                "hybrid_orth_mi_lasso_fe_with_recipes: cannot parse " "basis/degree from column name %r; skipping recipe build.",
                 name,
             )
             continue

@@ -140,8 +140,7 @@ def calibration_penalty(
         inf = np.asarray(infold_residuals, dtype=np.float64).reshape(-1)
         in_iqr = _iqr(inf)
         oof_iqr = _iqr(r)
-        if (np.isfinite(in_iqr) and in_iqr > _EPS
-                and np.isfinite(oof_iqr)):
+        if np.isfinite(in_iqr) and in_iqr > _EPS and np.isfinite(oof_iqr):
             var_miscal = abs(oof_iqr / in_iqr - 1.0)
 
     penalty = bias_weight * bias

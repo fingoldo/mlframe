@@ -32,7 +32,6 @@ from ._gpu_resident_fe import (
     fe_gpu_resident_codes_enabled,
 )
 
-
 # CHUNK-MATERIALISE CUDA RawKernel (2026-06-20). The FE chunk path's #1 CPU hotspot is
 # ``_materialise_chunk_njit`` -- it builds the (n, K) float32 candidate matrix by gathering strided
 # operand columns ``tv[r, ai]`` / ``tv[r, bi]`` out of a row-major operand table and applying the
@@ -244,13 +243,13 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block, ret
     # (array_equal) to the row-major kernel; falls back to it on any transpose/compile/launch failure.
     if fe_gpu_materialise_cm_enabled() and n > 0 and K > 0:
         try:
-            tv_cm = _operand_table_cm(cp, tv_gpu)                 # (n_operands, n) C-order, once/step (cached)
+            tv_cm = _operand_table_cm(cp, tv_gpu)  # (n_operands, n) C-order, once/step (cached)
             cm_out = cp.empty((K, n), dtype=cp.float32)
             _get_fe_materialise_cm_kernel()(
                 (blocks,), (threads,),
                 (tv_cm, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), cm_out),
             )
-            rm = _transpose_cm_to_rm(cm_out)                     # (K, n) -> (n, K) row-major (coalesced)
+            rm = _transpose_cm_to_rm(cm_out)  # (K, n) -> (n, K) row-major (coalesced)
             # LAUNCH-FUSION (2026-06-27): hand the cm buffer back so the radix-select edges step reuses it
             # instead of transposing rm back to cm (the inverse of the transpose just done). Bit-identical.
             return (rm, cm_out) if return_cm else rm
@@ -543,8 +542,8 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
     # upload. The device column is a strided VIEW into the group matrix -- _unary_apply is elementwise, so the
     # result equals the contiguous-input result bit-for-bit. Any group/build failure falls that column back to
     # the host copy below (never a correctness regression).
-    _raw_slot: dict = {}   # id(raw_vals) -> (dtype_key, slot_in_group)
-    _groups: dict = {}     # dtype_key -> list[host column in native float dtype]
+    _raw_slot: dict = {}  # id(raw_vals) -> (dtype_key, slot_in_group)
+    _groups: dict = {}  # dtype_key -> list[host column in native float dtype]
     for _spec_t in col_specs:
         col_idx, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
         if raw_vals is not None and unary_name not in fb:
@@ -560,8 +559,7 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
     _dev_groups: dict = {}  # dtype_key -> device (n, m) array (ONE H2D per dtype group)
     for _dk, cols in _groups.items():
         try:
-            _host = (np.ascontiguousarray(np.column_stack(cols)) if len(cols) > 1
-                     else np.ascontiguousarray(cols[0]).reshape(-1, 1))
+            _host = np.ascontiguousarray(np.column_stack(cols)) if len(cols) > 1 else np.ascontiguousarray(cols[0]).reshape(-1, 1)
             _dev_groups[_dk] = cp.asarray(_host)
         except Exception:
             _dev_groups[_dk] = None
@@ -573,9 +571,9 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
     # Only ops in _BATCH_UNARY_OPS and non-prewarp specs whose group loaded qualify; everything else stays on
     # the exact per-column path below (which skips the already-batched col_idx).
     _batched: set = set()
-    _f64_key = np.dtype(np.float64).str   # batch ONLY the float64 group: the kernel computes in f64, matching
-    try:                                  # the CPU tr_func's f64 math; an f32 group must compute in f32 -> per-col
-        _bg: dict = {}   # dtype_key -> (slots[], opcs[], out_cols[])
+    _f64_key = np.dtype(np.float64).str  # batch ONLY the float64 group: the kernel computes in f64, matching
+    try:  # the CPU tr_func's f64 math; an f32 group must compute in f32 -> per-col
+        _bg: dict = {}  # dtype_key -> (slots[], opcs[], out_cols[])
         for _spec_t in col_specs:
             col_idx, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
             _payload = _spec_t[3] if len(_spec_t) > 3 else None
@@ -603,13 +601,13 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
                 ncols = len(s)
                 total = n * ncols
                 threads = 256
-                _ker(((total + threads - 1) // threads,), (threads,),
-                     (G, slot, opc, out_col, np.int64(n), np.int32(m), np.int32(ncols),
-                      np.int32(n_operands), g))
+                _ker(
+                    ((total + threads - 1) // threads,), (threads,), (G, slot, opc, out_col, np.int64(n), np.int32(m), np.int32(ncols), np.int32(n_operands), g)
+                )
                 _batched.update(oc)
             n_gpu += len(_batched)
     except Exception:
-        _batched = set()   # any batch failure -> every column rebuilt by the exact per-column path below
+        _batched = set()  # any batch failure -> every column rebuilt by the exact per-column path below
     for _spec_t in col_specs:
         col_idx, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
         if col_idx in _batched:
@@ -621,7 +619,7 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
                 _dk, _slot = _raw_slot[id(raw_vals)]
                 _dev = _dev_groups.get(_dk)
                 if _dev is not None:
-                    x = _dev[:, _slot]   # native-dtype device view of this raw operand (no per-operand H2D)
+                    x = _dev[:, _slot]  # native-dtype device view of this raw operand (no per-operand H2D)
                     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
                         if _payload is not None and _payload.get("kind") == "prewarp":
                             # R1: APPLY the prewarp on the device (preprocess + Clenshaw) from the raw + spec,
@@ -708,7 +706,7 @@ def gpu_materialise_discretize_codes_host(
     # is drained into ``out_cand`` while THIS block's kernels run. Bit-identical bytes (same DMA, same
     # memcpy); only the schedule changes. Falls back to the synchronous path on any stream/event fault.
     _db_slot = 0
-    _db_pending = None      # (copy_done_event, pinned_view, col_slice, cand_ref)
+    _db_pending = None  # (copy_done_event, pinned_view, col_slice, cand_ref)
     _copy_stream = None
     if out_cand is not None:
         try:
@@ -744,13 +742,13 @@ def gpu_materialise_discretize_codes_host(
                 try:
                     hv = _pinned_view(cand.nbytes, cand.shape, cand.dtype, slot=_db_slot)
                     _mat_done = cp.cuda.Event(disable_timing=True)
-                    _mat_done.record()                       # materialise finished on the default stream
-                    _copy_stream.wait_event(_mat_done)       # copy starts only after cand is fully written
+                    _mat_done.record()  # materialise finished on the default stream
+                    _copy_stream.wait_event(_mat_done)  # copy starts only after cand is fully written
                     cand.get(out=hv, stream=_copy_stream, blocking=False)
                     _cp_done = cp.cuda.Event(disable_timing=True)
                     _cp_done.record(_copy_stream)
-                    _drain_pending()                         # previous block's copy -> out_cand (overlaps GPU)
-                    _db_pending = (_cp_done, hv, slice(start, stop), cand)   # cand kept alive until drained
+                    _drain_pending()  # previous block's copy -> out_cand (overlaps GPU)
+                    _db_pending = (_cp_done, hv, slice(start, stop), cand)  # cand kept alive until drained
                     _db_slot ^= 1
                     _done_async = True
                 except Exception:
@@ -783,7 +781,7 @@ def gpu_materialise_discretize_codes_host(
         # (default fused). When off: bin int32 with an internal transpose, then astype to narrow (the pre-fusion
         # path) -- BIT-IDENTICAL output, just the extra cast launch + transpose for the launch-count baseline.
         if os.environ.get("MLFRAME_FE_FUSION_AB", "1").strip() == "0":
-            codes_gpu = _gpu_resident_discretize_codes(cand, int(nbins))   # int32, internal transpose
+            codes_gpu = _gpu_resident_discretize_codes(cand, int(nbins))  # int32, internal transpose
             codes_out = codes_gpu.astype(cp.dtype(_cd), copy=False) if codes_gpu.dtype != _cd else codes_gpu
         else:
             codes_gpu = _gpu_resident_discretize_codes(cand, int(nbins), out_dtype=_cd, cm_hint=cand_cm)
@@ -796,7 +794,7 @@ def gpu_materialise_discretize_codes_host(
             # Eager host fill (deferral off, or no resident copy): D2H this block's codes into ``out`` now.
             out[:, start:stop] = cp.asnumpy(codes_out)
         del cand, cand_cm, codes_gpu, codes_out
-    _drain_pending()    # last block's async float copy -> out_cand
+    _drain_pending()  # last block's async float copy -> out_cand
     if dev_codes is not None:
         # Stash by the returned host array's identity so the dispatch can pick the device codes up without
         # the chunk path threading a new argument (see _RESIDENT_CODES_HANDOFF). Any consumer that is NOT
@@ -857,7 +855,7 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype: Any = np.i
     _defer_host_codes = bool(defer_host_fill and dev_codes is not None and fe_gpu_defer_host_codes_enabled())
     k_chunk = _gpu_k_chunk(n, bytes_per_elem=4, working_multiple=6, max_cols=K)
     for start in range(0, K, k_chunk):
-        block = cand[:, start:start + k_chunk]
+        block = cand[:, start : start + k_chunk]
         stop = start + block.shape[1]
         codes_gpu = _gpu_resident_discretize_codes(cp.asarray(block), int(nbins))
         # Narrow int32->dtype ON the GPU before D2H (1/4 the bytes for int8, no host astype copy) --

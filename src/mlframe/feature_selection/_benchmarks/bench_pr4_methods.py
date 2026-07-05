@@ -182,22 +182,14 @@ def main(scale: str = "small"):
             X, y, _ = _make(seed)
             res = _run_one(method_name, factory, X, y, informative_idx, seed)
             rows.append(asdict(res))
-            print(
-                f"  {method_name:25s} seed={seed} "
-                f"n_sel={res.n_features_selected:3d} recall={res.informative_recall:.2f} "
-                f"t={res.fit_seconds:5.1f}s"
-            )
+            print(f"  {method_name:25s} seed={seed} " f"n_sel={res.n_features_selected:3d} recall={res.informative_recall:.2f} " f"t={res.fit_seconds:5.1f}s")
 
     # Knockoffs (PR-5): not an RFECV path, so use the dedicated runner.
     for seed in seeds:
         X, y, _ = _make(seed)
         res = _run_knockoffs("knockoffs_lr", X, y, informative_idx, seed)
         rows.append(asdict(res))
-        print(
-            f"  {'knockoffs_lr':25s} seed={seed} "
-            f"n_sel={res.n_features_selected:3d} recall={res.informative_recall:.2f} "
-            f"t={res.fit_seconds:5.1f}s"
-        )
+        print(f"  {'knockoffs_lr':25s} seed={seed} " f"n_sel={res.n_features_selected:3d} recall={res.informative_recall:.2f} " f"t={res.fit_seconds:5.1f}s")
 
     # Aggregate
     print()

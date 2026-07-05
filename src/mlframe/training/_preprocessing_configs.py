@@ -308,10 +308,7 @@ class PreprocessingBackendConfig(BaseConfig):
         v_lower = alias.get(v_lower, v_lower)
         valid = {"mean", "median", "mode"}
         if v_lower not in valid:
-            raise ValueError(
-                f"imputer_strategy must be one of {{'mean','median','most_frequent','mode'}} or None, "
-                f"got '{v}'"
-            )
+            raise ValueError(f"imputer_strategy must be one of {{'mean','median','most_frequent','mode'}} or None, " f"got '{v}'")
         return v_lower
 
 
@@ -347,9 +344,7 @@ class PreprocessingExtensionsConfig(BaseConfig):
     kbins_encode: Literal["ordinal", "onehot"] = "ordinal"
     polynomial_degree: Optional[int] = None
     polynomial_interaction_only: bool = True
-    nonlinear_features: Optional[Literal[
-        "RBFSampler", "Nystroem", "AdditiveChi2Sampler", "SkewedChi2Sampler"
-    ]] = None
+    nonlinear_features: Optional[Literal["RBFSampler", "Nystroem", "AdditiveChi2Sampler", "SkewedChi2Sampler"]] = None
     nonlinear_n_components: int = 100
     tfidf_columns: List[str] = Field(default_factory=list)
     tfidf_max_features: int = 5000
@@ -463,17 +458,13 @@ class PreprocessingExtensionsConfig(BaseConfig):
             return v
         from mlframe.feature_engineering.pysr_operators import VALID_PRESETS
         if v not in VALID_PRESETS:
-            raise ValueError(
-                f"pysr_operator_preset must be one of {VALID_PRESETS} (got {v!r})"
-            )
+            raise ValueError(f"pysr_operator_preset must be one of {VALID_PRESETS} (got {v!r})")
         return v
 
     @model_validator(mode="after")
     def _check_mutual_exclusion(self) -> "PreprocessingExtensionsConfig":
         if self.binarization_threshold is not None and self.kbins is not None:
-            raise ValueError(
-                "binarization_threshold and kbins are mutually exclusive; set at most one."
-            )
+            raise ValueError("binarization_threshold and kbins are mutually exclusive; set at most one.")
         if self.polynomial_degree is not None and self.polynomial_degree < 2:
             raise ValueError("polynomial_degree must be >= 2 when set")
         if self.kbins is not None and self.kbins < 2:
@@ -584,9 +575,6 @@ class FeatureTypesConfig(BaseConfig):
             raise ValueError(
                 "FeatureTypesConfig: text_features=%r supplied but use_text_features=False. "
                 "The list would be silently dropped + columns routed to the cat path. "
-                "Either drop the text_features list OR set use_text_features=True."
-                % (self.text_features,)
+                "Either drop the text_features list OR set use_text_features=True." % (self.text_features,)
             )
         return self
-
-

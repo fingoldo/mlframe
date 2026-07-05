@@ -207,8 +207,7 @@ def basis_route_by_signal(
     """
     x = np.asarray(x, dtype=np.float64)
     yv = np.asarray(y, dtype=np.float64).ravel()
-    if (x.size < 30 or yv.size != x.size
-            or not np.isfinite(yv).all() or float(np.std(yv)) < 1e-12):
+    if x.size < 30 or yv.size != x.size or not np.isfinite(yv).all() or float(np.std(yv)) < 1e-12:
         return basis_route_by_moments(x)
     best_basis = None
     best_corr = -1.0
@@ -363,9 +362,7 @@ def generate_univariate_basis_features(
                 elif aux_col is not None and len(aux_col) > 0:
                     aux_finite = aux_col[np.isfinite(aux_col)]
                     if aux_finite.size > 0:
-                        chosen_basis = basis_route_by_moments(
-                            np.concatenate([x, aux_finite])
-                        )
+                        chosen_basis = basis_route_by_moments(np.concatenate([x, aux_finite]))
                     else:
                         chosen_basis = basis_route_by_moments(x)
                 else:
@@ -401,8 +398,7 @@ def generate_univariate_basis_features(
                     )
                 out_cols[f"{col}__{code.get(chosen_basis, chosen_basis)}{d}"] = vals
             except Exception as exc:
-                logger.warning("generate_univariate_basis_features: basis=%r degree=%d on col=%r raised %r; skipping",
-                               chosen_basis, d, col, exc)
+                logger.warning("generate_univariate_basis_features: basis=%r degree=%d on col=%r raised %r; skipping", chosen_basis, d, col, exc)
                 continue
     return pd.DataFrame(out_cols, index=X.index)
 
@@ -520,8 +516,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     _Mr = None  # resident (n, n_cand) operand matrix uploaded ONCE for routing, reused for the basis-MI build
     if basis == "auto" and y is not None and fe_gpu_routing_enabled():
         _yc = np.asarray(_ya, dtype=np.float64).ravel()
-        if (_yc.size == cand_x[0].size and cand_x[0].size >= 30
-                and np.isfinite(_yc).all() and float(np.std(_yc)) >= 1e-12):
+        if _yc.size == cand_x[0].size and cand_x[0].size >= 30 and np.isfinite(_yc).all() and float(np.std(_yc)) >= 1e-12:
             try:
                 # _Mr is the candidate-column matrix -- each column is a RAW X base column (cand_x[j] =
                 # X[cand_cols[j]] verbatim). DEVICE-ASSEMBLE it from the per-column resident operands so it
@@ -545,7 +540,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     used_x: list = []
     used_bases: list = []
     used_src: list = []
-    used_idx: list = []   # index into cand_x of each survivor, so a resident _Mr can be reused by slice
+    used_idx: list = []  # index into cand_x of each survivor, so a resident _Mr can be reused by slice
     for _i, col in enumerate(cand_cols):
         x = cand_x[_i]
         if basis == "auto":
@@ -819,10 +814,7 @@ def hybrid_orth_mi_fe(
     else:
         eng_noise_floor = 0.0
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
-    qualified = scores[
-        (scores["uplift"] >= float(min_uplift))
-        & (scores["engineered_mi"] >= abs_floor)
-    ]
+    qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
     if _gpu_eng is None:
@@ -833,11 +825,8 @@ def hybrid_orth_mi_fe(
         _g_mat, _g_names = _gpu_eng
         _idx = {nm: i for i, nm in enumerate(_g_names)}
         _cols_host = {k: cp.asnumpy(_g_mat[:, _idx[k]]) for k in keep if k in _idx}
-        X_aug = (pd.concat([X, pd.DataFrame(_cols_host, index=X.index)], axis=1)
-                 if _cols_host else X.copy())
+        X_aug = pd.concat([X, pd.DataFrame(_cols_host, index=X.index)], axis=1) if _cols_host else X.copy()
     return X_aug, scores
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -922,7 +911,7 @@ def hybrid_orth_mi_fe_with_recipes(
         src = _source_from_engineered_name(name, _raw_src_cols)
         # suffix = everything after the recovered ``"{src}__"`` (NOT the first ``"__"``, which
         # would mis-split a one-hot source ``"city__NY__He2"`` -> src="city", suffix="NY__He2").
-        suffix = name[len(src) + 2:] if name.startswith(src + "__") else name.split("__", 1)[1]
+        suffix = name[len(src) + 2 :] if name.startswith(src + "__") else name.split("__", 1)[1]
         # _BASIS_CODE = {"hermite":"He","legendre":"L","chebyshev":"T","laguerre":"LL"}
         # Order longest-first to avoid 'L' matching the start of 'LL'.
         code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
@@ -930,15 +919,15 @@ def hybrid_orth_mi_fe_with_recipes(
         chosen_degree = None
         for code in ("LL", "He", "T", "L"):
             if suffix.startswith(code):
-                rest = suffix[len(code):]
+                rest = suffix[len(code) :]
                 if rest.isdigit():
                     chosen_basis = code_to_basis[code]
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
             logger.warning(
-                "hybrid_orth_mi_fe_with_recipes: cannot parse basis/degree "
-                "from column name %r; skipping recipe build.", name,
+                "hybrid_orth_mi_fe_with_recipes: cannot parse basis/degree " "from column name %r; skipping recipe build.",
+                name,
             )
             continue
         # BUG2 FIX (2026-06-12): freeze the fit-time basis-preprocess params into
@@ -1007,8 +996,6 @@ from ._orth_extra_basis_fe import (  # noqa: E402,F401
     hybrid_orth_extra_basis_fe_with_recipes,
 )
 
-
-
 # ---------------------------------------------------------------------------
 # Layer 56 (2026-05-31): TRI-PRODUCT cross-basis FE lives in sibling module
 # ``_orthogonal_triplet_fe`` (parent module size budget). Re-exporting here
@@ -1023,4 +1010,3 @@ from ._orth_extra_basis_fe import (  # noqa: E402,F401
 #       hybrid_orth_mi_triplet_fe_with_recipes,
 #   )
 # ---------------------------------------------------------------------------
-

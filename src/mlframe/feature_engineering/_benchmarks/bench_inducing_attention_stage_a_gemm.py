@@ -14,7 +14,7 @@ import numpy as np
 
 def _old(anchors, X):
     diffs = anchors[:, None, :] - X[None, :, :]
-    return (diffs ** 2).sum(axis=-1)
+    return (diffs**2).sum(axis=-1)
 
 
 def _new(anchors, X):
@@ -36,7 +36,7 @@ def _bestof(fn, anchors, X, n=7):
 
 if __name__ == "__main__":
     rng = np.random.default_rng(0)
-    for (M, N, d) in [(16, 5000, 30), (16, 20000, 30), (16, 50000, 50), (32, 20000, 100)]:
+    for M, N, d in [(16, 5000, 30), (16, 20000, 30), (16, 50000, 50), (32, 20000, 100)]:
         anchors = rng.standard_normal((M, d)).astype(np.float32)
         X = rng.standard_normal((N, d)).astype(np.float32)
         _old(anchors, X); _new(anchors, X)  # warm

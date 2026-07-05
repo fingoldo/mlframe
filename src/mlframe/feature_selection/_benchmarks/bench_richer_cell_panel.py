@@ -30,10 +30,10 @@ def _shape_target(n, seed):
     cell mean ~ 0 and the std grows mildly, but the q0.9-q0.1 spread / kurtosis track s(cell) most directly."""
     rng = np.random.default_rng(seed)
     g = rng.uniform(0, 1, n)
-    sep = 1.0 + 3.0 * np.abs(g - 0.5)          # mixture separation by cell
-    comp = rng.integers(0, 2, n) * 2 - 1        # +/-1
-    aux = comp * sep + rng.normal(0, 0.5, n)    # bimodal within cell
-    T = sep                                     # predict the separation
+    sep = 1.0 + 3.0 * np.abs(g - 0.5)  # mixture separation by cell
+    comp = rng.integers(0, 2, n) * 2 - 1  # +/-1
+    aux = comp * sep + rng.normal(0, 0.5, n)  # bimodal within cell
+    T = sep  # predict the separation
     return g, aux, T
 
 
@@ -52,7 +52,7 @@ def _panel_per_cell(codes, v, n_cells):
 def run(n, seed):
     g, aux, T = _shape_target(n, seed)
     idx = np.random.default_rng(1000 + seed).permutation(n)
-    tr, te = idx[: n // 2], idx[n // 2:]
+    tr, te = idx[: n // 2], idx[n // 2 :]
     edges = quantile_edges(g[tr], 10)
     ctr = np.searchsorted(edges, g[tr], side="right")
     cte = np.searchsorted(edges, g[te], side="right")

@@ -92,15 +92,11 @@ def _normalize_timestamps(ts: Any) -> np.ndarray | None:
         return None
 
 
-def _is_temporally_monotonic(
-    ts_train: np.ndarray, ts_val: np.ndarray, ts_test: np.ndarray
-) -> bool:
+def _is_temporally_monotonic(ts_train: np.ndarray, ts_val: np.ndarray, ts_test: np.ndarray) -> bool:
     """Strict monotonic split: train.max() <= val.min() AND val.max() <= test.min()."""
     if len(ts_train) == 0 or len(ts_val) == 0 or len(ts_test) == 0:
         return False
-    return (
-        ts_train.max() <= ts_val.min() and ts_val.max() <= ts_test.min()
-    )
+    return ts_train.max() <= ts_val.min() and ts_val.max() <= ts_test.min()
 
 
 def _infer_ts_step_periods(ts_train: np.ndarray) -> tuple[str, list[int]]:
@@ -151,8 +147,8 @@ def _detect_acf_periods(y_train: np.ndarray, n_train: int) -> list[int]:
         from statsmodels.tsa.stattools import acf
     except ImportError as e:
         logger.info(
-            "[dummy-baselines] statsmodels unavailable (%s); ACF period "
-            "detection skipped, using step-size defaults only", e,
+            "[dummy-baselines] statsmodels unavailable (%s); ACF period " "detection skipped, using step-size defaults only",
+            e,
         )
         return []
 
@@ -224,10 +220,7 @@ def _resolve_ts_periods(
     unique_ts = np.unique(ts_train)
     duplicate_threshold = max(10, int(0.01 * n_train))
     if len(unique_ts) < duplicate_threshold:
-        diagnostics["rejected"] = (
-            f"timestamps mostly-duplicate (unique={len(unique_ts)}/{n_train}); "
-            "TS baselines disabled -- likely event-style data"
-        )
+        diagnostics["rejected"] = f"timestamps mostly-duplicate (unique={len(unique_ts)}/{n_train}); " "TS baselines disabled -- likely event-style data"
         return [], diagnostics
 
     if n_train < 30:

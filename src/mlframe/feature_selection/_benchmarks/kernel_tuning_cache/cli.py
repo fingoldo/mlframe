@@ -116,8 +116,7 @@ def _refresh_generic(kernel_label: str, ensure_fn, force: bool = False) -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"# {kernel_label}: {'re-tuned' if force else 'present (re-used cache or tuned if missing)'}, "
-          f"{len(regions)} regions")
+    print(f"# {kernel_label}: {'re-tuned' if force else 'present (re-used cache or tuned if missing)'}, " f"{len(regions)} regions")
     return 0
 
 
@@ -284,11 +283,10 @@ def main(argv=None) -> int:
         "--force", action="store_true",
         help="re-run sweeps even if a valid result is already cached for this host (default: skip cached)",
     )
-    sub.add_parser("show",  help="dump the live cache as JSON to stdout")
+    sub.add_parser("show", help="dump the live cache as JSON to stdout")
     sub.add_parser("where", help="print the on-disk path + hw_fingerprint")
     p_clear = sub.add_parser("clear", help="delete the live host's cache file")
-    p_clear.add_argument("--yes", "-y", action="store_true",
-                          help="skip the y/N prompt")
+    p_clear.add_argument("--yes", "-y", action="store_true", help="skip the y/N prompt")
     sub.add_parser(
         "refresh", parents=[_force],
         help="tune the joint_hist_batched auto-tune sweep (~30s)",

@@ -53,9 +53,7 @@ def _base_arg(df, base_columns: Sequence[str], rows: np.ndarray) -> np.ndarray:
         return np.zeros(rows.size, dtype=np.float64)
     if len(base_columns) == 1:
         return _extract_column_array(df, base_columns[0], rows=rows).astype(np.float64)
-    return np.column_stack(
-        [_extract_column_array(df, c, rows=rows).astype(np.float64) for c in base_columns]
-    )
+    return np.column_stack([_extract_column_array(df, c, rows=rows).astype(np.float64) for c in base_columns])
 
 
 def honest_oof_reconstruction_rmse(
@@ -186,9 +184,8 @@ def honest_oof_reconstruction_rmse(
     n_jobs = min(len(kept_specs), cpu_count_physical())
     if n_jobs > 1:
         from joblib import Parallel, delayed
-        results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(
-            delayed(_score_one)(s) for s in kept_specs
-        )
+
+        results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(delayed(_score_one)(s) for s in kept_specs)
     else:
         results = [_score_one(s) for s in kept_specs]
 

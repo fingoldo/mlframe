@@ -75,10 +75,7 @@ def _resolve_base_str(estimator: Any) -> str:
 
 
 def _is_fitted(estimator: Any) -> bool:
-    return (
-        getattr(estimator, "fitted_params_", None) is not None
-        and hasattr(estimator, "estimator_")
-    )
+    return getattr(estimator, "fitted_params_", None) is not None and hasattr(estimator, "estimator_")
 
 
 def _gather(estimator: Any, X: Any, y: Any) -> dict[str, Any]:
@@ -214,8 +211,7 @@ def _render_markdown(facts: dict[str, Any]) -> str:
     L.append(f"# Composite explainability report: `{facts['transform_name']}`")
     L.append("")
     fitted_tag = "fitted" if facts["fitted"] else "NOT fitted"
-    L.append(f"_Status_: **{fitted_tag}**. Target `{facts['target_col']}`, "
-             f"base column(s) `{facts['base_str']}`, inner `{facts['inner_name']}`.")
+    L.append(f"_Status_: **{fitted_tag}**. Target `{facts['target_col']}`, " f"base column(s) `{facts['base_str']}`, inner `{facts['inner_name']}`.")
     L.append("")
 
     # Provenance / formula
@@ -226,8 +222,7 @@ def _render_markdown(facts: dict[str, Any]) -> str:
     L.append(f"- **Forward**: `{facts['forward']}`")
     L.append(f"- **Inverse**: `{facts['inverse']}`")
     if facts["n_train"] is not None:
-        drop = (f" ({int(facts['n_train_invalid'])} dropped)"
-                if facts["n_train_invalid"] else "")
+        drop = f" ({int(facts['n_train_invalid'])} dropped)" if facts["n_train_invalid"] else ""
         L.append(f"- **n_train**: {int(facts['n_train'])}{drop}")
     L.append("")
 
@@ -257,8 +252,7 @@ def _render_markdown(facts: dict[str, Any]) -> str:
     if attr is not None:
         bs = attr.get("base_share")
         rs = attr.get("residual_share")
-        L.append(f"Over {attr.get('n_rows', 0)} rows ({attr.get('mode')} combine): "
-                 f"**base share = {_fmt_num(bs)}**, residual share = {_fmt_num(rs)}.")
+        L.append(f"Over {attr.get('n_rows', 0)} rows ({attr.get('mode')} combine): " f"**base share = {_fmt_num(bs)}**, residual share = {_fmt_num(rs)}.")
     elif "attribution_error" in facts:
         L.append(f"_Attribution unavailable: {facts['attribution_error']}_")
     else:
@@ -270,10 +264,8 @@ def _render_markdown(facts: dict[str, Any]) -> str:
     L.append("")
     ca = facts["conformal_alphas"]
     qa = facts["cqr_alphas"]
-    L.append("- **Split-conformal**: " + (
-        "calibrated @ alpha=" + ", ".join(f"{a:g}" for a in ca) if ca else "not calibrated"))
-    L.append("- **CQR**: " + (
-        "calibrated @ alpha=" + ", ".join(f"{a:g}" for a in qa) if qa else "not calibrated"))
+    L.append("- **Split-conformal**: " + ("calibrated @ alpha=" + ", ".join(f"{a:g}" for a in ca) if ca else "not calibrated"))
+    L.append("- **CQR**: " + ("calibrated @ alpha=" + ", ".join(f"{a:g}" for a in qa) if qa else "not calibrated"))
     L.append("")
     cov = facts["coverage"]
     if cov:
@@ -297,9 +289,7 @@ def _render_markdown(facts: dict[str, Any]) -> str:
                  + (f", {pr['nonfinite']} non-finite" if pr["nonfinite"] else ""))
     fb = facts["fallback"]
     if fb is not None:
-        L.append(f"- **Fallback / domain-violation rate**: "
-                 f"{fb['domain_violation_rows']}/{fb['rows']} rows "
-                 f"= {fb['fallback_rate']:.2%}")
+        L.append(f"- **Fallback / domain-violation rate**: " f"{fb['domain_violation_rows']}/{fb['rows']} rows " f"= {fb['fallback_rate']:.2%}")
     if pr is None and fb is None:
         L.append("_No data supplied (pass X for prediction range + fallback rate)._")
     L.append("")
@@ -319,15 +309,10 @@ def _md_table_to_html(lines: list[str], i: int) -> tuple[str, int]:
     body: list[str] = []
     while j < len(lines) and lines[j].lstrip().startswith("|"):
         cells = [c.strip() for c in lines[j].strip().strip("|").split("|")]
-        body.append("<tr>" + "".join(
-            f"<td style='padding:2px 8px;border:1px solid #d0d7de;'>"
-            f"{_html.escape(c)}</td>" for c in cells) + "</tr>")
+        body.append("<tr>" + "".join(f"<td style='padding:2px 8px;border:1px solid #d0d7de;'>" f"{_html.escape(c)}</td>" for c in cells) + "</tr>")
         j += 1
-    head = "<tr>" + "".join(
-        f"<th style='padding:2px 8px;border:1px solid #d0d7de;text-align:left;'>"
-        f"{_html.escape(c)}</th>" for c in header) + "</tr>"
-    table = ("<table style='border-collapse:collapse;margin:6px 0;'>"
-             + head + "".join(body) + "</table>")
+    head = "<tr>" + "".join(f"<th style='padding:2px 8px;border:1px solid #d0d7de;text-align:left;'>" f"{_html.escape(c)}</th>" for c in header) + "</tr>"
+    table = "<table style='border-collapse:collapse;margin:6px 0;'>" + head + "".join(body) + "</table>"
     return table, j
 
 
@@ -355,8 +340,7 @@ def _render_html(facts: dict[str, Any]) -> str:
         else:
             out.append(f"<p>{_html.escape(ln)}</p>")
         i += 1
-    return ("<div style='font-family:-apple-system,Segoe UI,sans-serif;"
-            "font-size:13px;max-width:900px;'>" + "".join(out) + "</div>")
+    return "<div style='font-family:-apple-system,Segoe UI,sans-serif;" "font-size:13px;max-width:900px;'>" + "".join(out) + "</div>"
 
 
 def composite_report(
@@ -424,8 +408,6 @@ def composite_value_report(
     """
     if config is not None and not getattr(config, "emit_composite_value_report", True):
         return None
-    report = build_composite_value_report(
-        y_true, y_pred_raw, y_pred_composite, group_ids, y_pred_lag=y_pred_lag, **kwargs
-    )
+    report = build_composite_value_report(y_true, y_pred_raw, y_pred_composite, group_ids, y_pred_lag=y_pred_lag, **kwargs)
     report["markdown"] = render_composite_value_report(report)
     return report

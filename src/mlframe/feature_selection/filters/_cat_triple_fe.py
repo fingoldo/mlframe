@@ -187,11 +187,7 @@ def _encode_triple(
     uniq_c, inv_c = np.unique(cats_c, return_inverse=True)
     nb = len(uniq_b)
     nc = len(uniq_c)
-    combined = (
-        inv_a.astype(np.int64) * (nb * nc)
-        + inv_b.astype(np.int64) * nc
-        + inv_c.astype(np.int64)
-    )
+    combined = inv_a.astype(np.int64) * (nb * nc) + inv_b.astype(np.int64) * nc + inv_c.astype(np.int64)
     uniq_keys, codes = np.unique(combined, return_inverse=True)
     codes = codes.astype(np.int64, copy=False)
     mapping: dict[tuple, int] = {}
@@ -218,21 +214,14 @@ def generate_cat_triple_crosses(
     the replay-only payload (no y reference).
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"generate_cat_triple_crosses: X must be a pandas DataFrame; got "
-            f"{type(X).__name__}"
-        )
+        raise TypeError(f"generate_cat_triple_crosses: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if len(X) == 0:
         raise ValueError("generate_cat_triple_crosses: X is empty")
     cat_cols = [c for c in cat_cols if c in X.columns]
     if triples is None:
         triples = list(combinations(cat_cols, 3))
     else:
-        triples = [
-            (a, b, c) for (a, b, c) in triples
-            if a in X.columns and b in X.columns and c in X.columns
-            and len({a, b, c}) == 3
-        ]
+        triples = [(a, b, c) for (a, b, c) in triples if a in X.columns and b in X.columns and c in X.columns and len({a, b, c}) == 3]
     encoded: dict[str, np.ndarray] = {}
     raw_recipes: dict[str, dict] = {}
     str_cache: dict[str, np.ndarray] = {}
@@ -298,9 +287,7 @@ def score_cat_triples_by_interaction_information(
     descending.
     """
     cat_cols = [c for c in cat_cols if c in X.columns]
-    empty = pd.DataFrame(
-        columns=["cat_a", "cat_b", "cat_c", "engineered_col", "ii3"]
-    )
+    empty = pd.DataFrame(columns=["cat_a", "cat_b", "cat_c", "engineered_col", "ii3"])
     if len(cat_cols) < 3:
         empty.attrs["n_triples_evaluated"] = 0
         empty.attrs["n_triples_exhaustive"] = 0
@@ -315,10 +302,7 @@ def score_cat_triples_by_interaction_information(
         return empty
 
     # Beam seeds (round 1): top pairs by pairwise II (already sorted descending).
-    seed_pairs = [
-        (str(r["cat_i"]), str(r["cat_j"]))
-        for _, r in pair_scores.head(int(top_k_pairs)).iterrows()
-    ]
+    seed_pairs = [(str(r["cat_i"]), str(r["cat_j"])) for _, r in pair_scores.head(int(top_k_pairs)).iterrows()]
 
     y_bin = _bin_target(y, n_bins=n_bins)
 
@@ -343,11 +327,7 @@ def score_cat_triples_by_interaction_information(
         return mi_cache[key]
 
     def _ii3(a: str, b: str, c: str) -> float:
-        return (
-            _mi((a, b, c))
-            - (_mi((a, b)) + _mi((a, c)) + _mi((b, c)))
-            + (_mi((a,)) + _mi((b,)) + _mi((c,)))
-        )
+        return _mi((a, b, c)) - (_mi((a, b)) + _mi((a, c)) + _mi((b, c))) + (_mi((a,)) + _mi((b,)) + _mi((c,)))
 
     seen: set[frozenset] = set()
     triple_ii3: dict[frozenset, float] = {}
@@ -355,7 +335,7 @@ def score_cat_triples_by_interaction_information(
     for _round in range(max(1, int(n_rounds))):
         if not seed_pairs:
             break
-        for (a, b) in seed_pairs:
+        for a, b in seed_pairs:
             for c in cat_cols:
                 if c == a or c == b:
                     continue
@@ -391,10 +371,7 @@ def score_cat_triples_by_interaction_information(
 
     out = pd.DataFrame(rows)
     if not out.empty:
-        out = (
-            out.sort_values("ii3", ascending=False, kind="mergesort")
-            .reset_index(drop=True)
-        )
+        out = out.sort_values("ii3", ascending=False, kind="mergesort").reset_index(drop=True)
     n_exhaustive = len(list(combinations(cat_cols, 3)))
     out.attrs["n_triples_evaluated"] = int(n_evaluated)
     out.attrs["n_triples_exhaustive"] = int(n_exhaustive)
@@ -439,10 +416,7 @@ def hybrid_cat_triple_fe(
     from .engineered_recipes import build_cat_triple_cross_recipe
 
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"hybrid_cat_triple_fe: X must be a pandas DataFrame; got "
-            f"{type(X).__name__}"
-        )
+        raise TypeError(f"hybrid_cat_triple_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if cat_cols is None or len(cat_cols) == 0:
         from ._cat_pair_fe import auto_detect_cat_pair_cols
         cat_cols = auto_detect_cat_pair_cols(X)
@@ -533,10 +507,7 @@ def apply_cat_triple_cross(
     No y reference at replay -- pure function of X.
     """
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_cat_triple_cross: X_test must be a DataFrame; got "
-            f"{type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_cat_triple_cross: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     cats_a = np.asarray(_column_to_str(X_test[cat_a]))
     cats_b = np.asarray(_column_to_str(X_test[cat_b]))
     cats_c = np.asarray(_column_to_str(X_test[cat_c]))
@@ -556,7 +527,7 @@ def apply_cat_triple_cross(
     codes_c, uniq_c = pd.factorize(cats_c)
     nb = len(uniq_b)
     nc = len(uniq_c)
-    joint = (codes_a.astype(np.int64) * (nb * nc) + codes_b.astype(np.int64) * nc + codes_c.astype(np.int64))
+    joint = codes_a.astype(np.int64) * (nb * nc) + codes_b.astype(np.int64) * nc + codes_c.astype(np.int64)
     cell_codes, joint_uniques = pd.factorize(joint)
     vals = np.empty(len(joint_uniques), dtype=np.float64)
     for i, k in enumerate(joint_uniques):

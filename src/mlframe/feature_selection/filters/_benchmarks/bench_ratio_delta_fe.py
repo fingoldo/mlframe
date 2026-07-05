@@ -35,9 +35,7 @@ def _load_old_module() -> types.ModuleType:
     The module imports ``from ._internals import group_key_strings``; we shim a
     package so the relative import resolves against the live _internals.
     """
-    src = subprocess.run(
-        ["git", "show", f"HEAD:{REL}"], cwd=REPO, capture_output=True, text=True, check=True
-    ).stdout
+    src = subprocess.run(["git", "show", f"HEAD:{REL}"], cwd=REPO, capture_output=True, text=True, check=True).stdout
     from mlframe.feature_selection.filters import _internals
 
     pkg_name = "_rd_old_pkg"

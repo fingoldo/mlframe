@@ -93,7 +93,7 @@ def main():
         y_codes = _disc(y); ky = _occupied_k(y_codes)
         with np.errstate(all="ignore"):
             # GENUINE synergy pairs
-            g1 = _ratios(a ** 2 / b, a, b, y_codes, ky, n)            # (a,b) -> a^2/b
+            g1 = _ratios(a**2 / b, a, b, y_codes, ky, n)  # (a,b) -> a^2/b
             g2 = _ratios(np.log(c) * np.sin(d), c, d, y_codes, ky, n)  # (c,d) -> log(c)sin(d)
             # CROSS-SIGNAL ARTEFACT (documented): sub(exp(a), invcbrt(c)) over operands a (signal1) + c (signal2)
             art = _ratios(np.exp(np.clip(a, None, 20)) - np.sign(c) * np.abs(c) ** (-1.0 / 3.0), a, c, y_codes, ky, n)

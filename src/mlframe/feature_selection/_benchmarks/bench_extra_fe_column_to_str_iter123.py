@@ -34,9 +34,7 @@ NEW = M._column_to_str
 def OLD(col):
     s = pd.Series(col)
     if s.isna().any():
-        return s.astype(object).map(
-            lambda v: "__nan__" if (v is None or (isinstance(v, float) and v != v)) else canonical_group_token(v)
-        ).to_numpy()
+        return s.astype(object).map(lambda v: "__nan__" if (v is None or (isinstance(v, float) and v != v)) else canonical_group_token(v)).to_numpy()
     return s.astype(object).map(canonical_group_token).to_numpy()
 
 

@@ -57,13 +57,11 @@ def _fit_3baselines_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: in
     preds_list: list[np.ndarray] = []
     if task == "binary":
         # Baseline 1: LGB depth=3
-        m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
-                                random_state=int(seed), verbose=-1, n_jobs=-1)
+        m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m1.fit(Xt, y_t.astype(np.int32))
         preds_list.append(m1.predict_proba(Xt)[:, 1].astype(np.float32))
         # Baseline 2: LGB depth=5
-        m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1,
-                                random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
+        m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
         m2.fit(Xt, y_t.astype(np.int32))
         preds_list.append(m2.predict_proba(Xt)[:, 1].astype(np.float32))
         # Baseline 3: LogReg (linear model class).
@@ -75,12 +73,10 @@ def _fit_3baselines_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: in
             # Fallback: constant baseline = class prior.
             preds_list.append(np.full(Xt.shape[0], float(y_t.mean()), dtype=np.float32))
     else:
-        m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1,
-                               random_state=int(seed), verbose=-1, n_jobs=-1)
+        m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m1.fit(Xt, y_t)
         preds_list.append(m1.predict(Xt).astype(np.float32))
-        m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1,
-                               random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
+        m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
         m2.fit(Xt, y_t)
         preds_list.append(m2.predict(Xt).astype(np.float32))
         m3 = Ridge(alpha=1.0, random_state=int(seed) + 2)
@@ -177,7 +173,7 @@ def compute_multi_baseline_hard_row_features(
         anchors_combined = combined[anchors_idx].astype(np.float32)
 
         diffs = Xq_s[:, None, :] - anchors_X[None, :, :]
-        sq = (diffs ** 2).sum(axis=-1)
+        sq = (diffs**2).sum(axis=-1)
         scores = -sq
         weights = _softmax(scores, temp=temp)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)

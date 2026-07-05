@@ -115,8 +115,7 @@ def _binary_metrics(y_true: np.ndarray, y_score: np.ndarray, nbins: int) -> dict
         out["BSS"] = float(brier_skill_score(yt_i, ys))
 
     y_pred = (ys >= 0.5).astype(np.int64)
-    (_hits, _misses, accuracy, bal_acc, _supports, precisions, recalls, f1s,
-     _macro, _weighted) = fast_classification_report(yt_i, y_pred, nclasses=2)
+    _hits, _misses, accuracy, bal_acc, _supports, precisions, recalls, f1s, _macro, _weighted = fast_classification_report(yt_i, y_pred, nclasses=2)
     out["accuracy"] = float(accuracy)
     out["balanced_accuracy"] = float(bal_acc)
     out["precision"] = float(precisions[-1])
@@ -156,13 +155,11 @@ def _multiclass_metrics(y_true: np.ndarray, y_score: np.ndarray, n_classes: Opti
         out["log_loss"] = float(ll)
 
     y_pred = np.argmax(ys, axis=1).astype(np.int64)
-    (_hits, _misses, accuracy, bal_acc, supports, _precisions, _recalls, _f1s,
-     macro, weighted) = fast_classification_report(yt, y_pred, nclasses=k)
+    _hits, _misses, accuracy, bal_acc, supports, _precisions, _recalls, _f1s, macro, weighted = fast_classification_report(yt, y_pred, nclasses=k)
     out["accuracy"] = float(accuracy)
     out["balanced_accuracy"] = float(bal_acc)
     out["macro_precision"], out["macro_recall"], out["macro_f1"] = (float(macro[0]), float(macro[1]), float(macro[2]))
-    out["weighted_precision"], out["weighted_recall"], out["weighted_f1"] = (
-        float(weighted[0]), float(weighted[1]), float(weighted[2]))
+    out["weighted_precision"], out["weighted_recall"], out["weighted_f1"] = (float(weighted[0]), float(weighted[1]), float(weighted[2]))
     out["MCC"] = float(matthews_corrcoef_multiclass(yt, y_pred, n_classes=k))
 
     roc_aucs, pr_aucs = [], []

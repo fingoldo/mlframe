@@ -173,8 +173,7 @@ def plot_confusion_matrix(
                     # Raw-count cells format as ints ('d'); the display matrix is float64 either way, so cast the
                     # value to int for an integer format spec (sklearn prints counts as ints too).
                     cell_val = int(round(val)) if values_format.endswith(("d", "n")) else display[i, j]
-                    ax.text(j, i, format(cell_val, values_format),
-                            ha="center", va="center", fontsize=8, color=color)
+                    ax.text(j, i, format(cell_val, values_format), ha="center", va="center", fontsize=8, color=color)
 
     if colorbar:
         fig.colorbar(im, ax=ax)

@@ -80,15 +80,13 @@ def eng_cols_leaksafe(Xtr, Xte, kind):
     if kind == "gated0":
         return (atr > 0).astype(float) * btr, (ate > 0).astype(float) * bte
     if kind == "gated_med":
-        m = np.median(atr)            # TRAIN median, replayed on TEST
+        m = np.median(atr)  # TRAIN median, replayed on TEST
         return (atr > m).astype(float) * btr, (ate > m).astype(float) * bte
     if kind == "thr_and0":
-        return (atr > 0).astype(float) * (btr > 0).astype(float), \
-               (ate > 0).astype(float) * (bte > 0).astype(float)
+        return (atr > 0).astype(float) * (btr > 0).astype(float), (ate > 0).astype(float) * (bte > 0).astype(float)
     if kind == "thr_and_med":
         ma, mb = np.median(atr), np.median(btr)
-        return (atr > ma).astype(float) * (btr > mb).astype(float), \
-               (ate > ma).astype(float) * (bte > mb).astype(float)
+        return (atr > ma).astype(float) * (btr > mb).astype(float), (ate > ma).astype(float) * (bte > mb).astype(float)
     if kind == "absdiff":
         return np.abs(atr - btr), np.abs(ate - bte)
     raise ValueError(kind)
@@ -104,9 +102,9 @@ def auc_models(Xtr, ytr, Xte, yte):
     kn = KNeighborsClassifier(n_neighbors=25, n_jobs=N_JOBS)
     kn.fit(Xs_tr, ytr); out["knn"] = roc_auc_score(yte, kn.predict_proba(Xs_te)[:, 1])
     if _HAVE_LGBM:
-        gb = LGBMClassifier(n_estimators=150, num_leaves=31, n_jobs=N_JOBS,
-                            verbose=-1, random_state=42)
-        gb.fit(Xtr, ytr); out["lgbm"] = roc_auc_score(yte, gb.predict_proba(Xte)[:, 1])
+        gb = LGBMClassifier(n_estimators=150, num_leaves=31, n_jobs=N_JOBS, verbose=-1, random_state=42)
+        gb.fit(Xtr, ytr)
+        out["lgbm"] = roc_auc_score(yte, gb.predict_proba(Xte)[:, 1])
     out["mean"] = float(np.mean(list(out.values())))
     return out
 
@@ -116,8 +114,7 @@ def run(bed_name, X, y):
     Xtr, Xte, ytr, yte = X[tr], X[te], y[tr], y[te]
     print(f"\n# bed={bed_name} n={len(X)} p={X.shape[1]} prev={y.mean():.3f}")
     base = auc_models(Xtr, ytr, Xte, yte)
-    print(f"  {'raw_only':<14} logit={base['logit']:.4f} knn={base['knn']:.4f} "
-          f"lgbm={base.get('lgbm',float('nan')):.4f} mean={base['mean']:.4f}")
+    print(f"  {'raw_only':<14} logit={base['logit']:.4f} knn={base['knn']:.4f} " f"lgbm={base.get('lgbm',float('nan')):.4f} mean={base['mean']:.4f}")
     for kind in ("product", "gated0", "gated_med", "thr_and0", "thr_and_med", "absdiff"):
         ctr, cte = eng_cols_leaksafe(Xtr, Xte, kind)
         Xtr2 = np.column_stack([Xtr, ctr])

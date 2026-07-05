@@ -70,8 +70,8 @@ def _floor_mean_from_nulls_dev(cp, nulls_dev, quantile: float):
     lo = int(np.floor(pos))
     hi = min(lo + 1, m - 1)
     frac = pos - lo
-    q_dev = vs[lo] * (1.0 - frac) + vs[hi] * frac         # device 0-dim
-    both = cp.asnumpy(cp.stack([q_dev, cp.mean(nulls_dev)]))   # single D2H for (floor, mean)
+    q_dev = vs[lo] * (1.0 - frac) + vs[hi] * frac  # device 0-dim
+    both = cp.asnumpy(cp.stack([q_dev, cp.mean(nulls_dev)]))  # single D2H for (floor, mean)
     return float(both[0]), float(both[1])
 
 
@@ -161,9 +161,9 @@ def conditional_perm_null_gpu(
         # non-uniform but valid permutation (this is a NULL estimate; selection-equivalent, same bar as the
         # device-RNG stream itself).
         keys = rs.randint(0, np.iinfo(np.int32).max, size=(n, nperm), dtype=cp.int32)
-        perm = cp.argsort(keys, axis=0)                          # (n, nperm) free permutations
-        Xp_d = dx[perm]                                          # (n, nperm) shuffled candidate columns
-        nulls_dev = batched_cmi_gpu(Xp_d, y_h, None, return_device=True)   # null CMI vector stays RESIDENT
+        perm = cp.argsort(keys, axis=0)  # (n, nperm) free permutations
+        Xp_d = dx[perm]  # (n, nperm) shuffled candidate columns
+        nulls_dev = batched_cmi_gpu(Xp_d, y_h, None, return_device=True)  # null CMI vector stays RESIDENT
         return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
 
     # CONDITIONAL null: within-stratum uniform shuffle via the single-key argsort (z_rank + key), SAME as CPU.
@@ -180,18 +180,18 @@ def conditional_perm_null_gpu(
     # the passed-in host order/z_rank (byte path unchanged).
     if isinstance(z_i, cp.ndarray):
         z_for_cmi = z_i.astype(cp.int64, copy=False).ravel()
-        order_d = cp.argsort(z_for_cmi)                          # stratum grouping on device (ties broken by sort)
+        order_d = cp.argsort(z_for_cmi)  # stratum grouping on device (ties broken by sort)
         _sorted_z = z_for_cmi[order_d]
         z_rank_1d = cp.zeros(n, dtype=cp.float64)
         if n > 1:
-            z_rank_1d[1:] = cp.cumsum((_sorted_z[1:] != _sorted_z[:-1]).astype(cp.float64))   # dense block index
+            z_rank_1d[1:] = cp.cumsum((_sorted_z[1:] != _sorted_z[:-1]).astype(cp.float64))  # dense block index
         z_rank_d = z_rank_1d[:, None]
         del _sorted_z, z_rank_1d
     else:
         z_for_cmi = np.ascontiguousarray(z_i, dtype=np.int64).ravel()
         order_d = cp.asarray(np.ascontiguousarray(order, dtype=np.int64).ravel())
-        z_rank_d = cp.asarray(np.ascontiguousarray(z_rank, dtype=np.float64).ravel())[:, None]   # (n, 1)
-    x_sorted_d = dx[order_d]                                     # x reordered into contiguous stratum blocks
+        z_rank_d = cp.asarray(np.ascontiguousarray(z_rank, dtype=np.float64).ravel())[:, None]  # (n, 1)
+    x_sorted_d = dx[order_d]  # x reordered into contiguous stratum blocks
 
     # WITHIN-STRATUM shuffle keys. INT32 RANK-PACK fast path (2026-07-02, nsys-driven): the argsort of the
     # combined (z_rank + key) matrix was the dominant per-call cost (micro-bench 305ms of ~880ms at n=1M,
@@ -202,15 +202,15 @@ def conditional_perm_null_gpu(
     # order: a microscopically non-uniform but valid permutation -- the same selection-equivalence bar as the
     # device RNG stream itself. Falls back to the exact f64 (rank + uniform) sum when the occupied stratum
     # count leaves fewer than 12 random bits (never at the gate's shapes).
-    _nrank = int(z_rank_d[-1, 0]) + 1                            # dense ranks are monotone over the sorted rows
+    _nrank = int(z_rank_d[-1, 0]) + 1  # dense ranks are monotone over the sorted rows
     _rb = max(1, int(np.ceil(np.log2(max(2, _nrank)))))
     _rand_bits = 31 - _rb
     if _rand_bits >= 12:
         _zr32 = (z_rank_d[:, 0].astype(cp.int32) << np.int32(_rand_bits))[:, None]
         keys = _zr32 | rs.randint(0, 1 << _rand_bits, size=(n, nperm), dtype=cp.int32)
     else:
-        keys = z_rank_d + rs.random_sample(size=(n, nperm))      # exact f64 fallback (huge stratum counts)
-    within = cp.argsort(keys, axis=0)                            # (n, nperm) within-stratum orders (no overlap)
+        keys = z_rank_d + rs.random_sample(size=(n, nperm))  # exact f64 fallback (huge stratum counts)
+    within = cp.argsort(keys, axis=0)  # (n, nperm) within-stratum orders (no overlap)
 
     # SPARSE sort/run-length CMI (2026-07-02, design-agent + nsys): at the raw-redundancy gate the conditioning
     # support is near-continuous (Kz ~ 1e5 -> Kx*Kyz multi-million), so the dense (chunk, Kx*Kyz) joint of the
@@ -229,14 +229,14 @@ def conditional_perm_null_gpu(
                 dyd = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
             Kx = int(dx.max()) + 1
             Ky = int(dyd.max()) + 1
-            _Kz_est = _nrank                                     # occupied stratum count (dense rank max + 1)
-            dense_joint_bytes = Kx * Ky * _Kz_est * 8            # span upper bound of the dense (Kx*Kyz) joint
-            sparse_ws_bytes = 4 * n * nperm * 8                  # sort + boundary/scan temporaries
+            _Kz_est = _nrank  # occupied stratum count (dense rank max + 1)
+            dense_joint_bytes = Kx * Ky * _Kz_est * 8  # span upper bound of the dense (Kx*Kyz) joint
+            sparse_ws_bytes = 4 * n * nperm * 8  # sort + boundary/scan temporaries
             if dense_joint_bytes > max(sparse_ws_bytes, 64 << 20):
                 inv_n = 1.0 / float(max(1, n))
-                zr = z_rank_d[:, 0].astype(cp.int64)             # (n,) monotone stratum id (z-sorted domain)
-                ys = dyd[order_d]                                # fixed target in z-sorted order
-                xs_p = x_sorted_d[within]                        # (n, nperm) permuted candidate, z-sorted order
+                zr = z_rank_d[:, 0].astype(cp.int64)  # (n,) monotone stratum id (z-sorted domain)
+                ys = dyd[order_d]  # fixed target in z-sorted order
+                xs_p = x_sorted_d[within]  # (n, nperm) permuted candidate, z-sorted order
                 key_xz = (zr * np.int64(Kx))[:, None] + xs_p
                 h_xz, k_xz = _sparse_batched_entropy_k(cp, key_xz, inv_n)
                 del key_xz
@@ -246,16 +246,14 @@ def conditional_perm_null_gpu(
                 # fixed y/z terms, ONCE per null: zr is already sorted (monotone) and (zr*Ky + ys) sorts cheap.
                 h_z, k_z = _sparse_batched_entropy_k(cp, zr[:, None], inv_n)
                 h_yz, k_yz = _sparse_batched_entropy_k(cp, (zr * np.int64(Ky) + ys)[:, None], inv_n)
-                cmi = cp.maximum(
-                    (h_xz + float(h_yz[0]) - float(h_z[0]) - h_xyz)
-                    - (k_xyz + float(k_z[0]) - k_xz - float(k_yz[0])) * (0.5 * inv_n), 0.0)
-                return _floor_mean_from_nulls_dev(cp, cmi, quantile)   # cmi stays resident
+                cmi = cp.maximum((h_xz + float(h_yz[0]) - float(h_z[0]) - h_xyz) - (k_xyz + float(k_z[0]) - k_xz - float(k_yz[0])) * (0.5 * inv_n), 0.0)
+                return _floor_mean_from_nulls_dev(cp, cmi, quantile)  # cmi stays resident
         except Exception:
             logger.debug("sparse perm-null CMI failed; dense chunked path", exc_info=True)
 
     Xp_d = cp.empty((n, nperm), dtype=cp.int64)
-    Xp_d[order_d, :] = x_sorted_d[within]                        # xp[order] = x_sorted[within], per perm
-    del keys, within, x_sorted_d, z_rank_d, order_d            # free the (n,nperm) build + per-call order/zrank
+    Xp_d[order_d, :] = x_sorted_d[within]  # xp[order] = x_sorted[within], per perm
+    del keys, within, x_sorted_d, z_rank_d, order_d  # free the (n,nperm) build + per-call order/zrank
     # (dx is resident-cached -> retained by the cache, not freed here)
     nulls_dev = _batched_cmi_resident_chunked(Xp_d, y_h, z_for_cmi)
     return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
@@ -271,14 +269,14 @@ def _sparse_batched_entropy_k(cp, keys2d, inv_n: float):
     S = cp.sort(keys2d, axis=0)
     b = cp.empty(S.shape, dtype=cp.bool_)
     b[0, :] = True
-    b[1:, :] = S[1:, :] != S[:-1, :]                       # run starts
+    b[1:, :] = S[1:, :] != S[:-1, :]  # run starts
     idx = cp.arange(n, dtype=cp.int64)[:, None]
-    rs = cp.maximum.accumulate(cp.where(b, idx, np.int64(0)), axis=0)          # run-start index per element
+    rs = cp.maximum.accumulate(cp.where(b, idx, np.int64(0)), axis=0)  # run-start index per element
     is_end = cp.empty(S.shape, dtype=cp.bool_)
     is_end[-1, :] = True
-    is_end[:-1, :] = b[1:, :]                              # run-end elements
+    is_end[:-1, :] = b[1:, :]  # run-end elements
     re = cp.minimum.accumulate(cp.where(is_end, idx, np.int64(n))[::-1, :], axis=0)[::-1, :]
-    p = (re - rs + 1).astype(cp.float64) * inv_n           # cell probability, valid at run starts
+    p = (re - rs + 1).astype(cp.float64) * inv_n  # cell probability, valid at run starts
     h = -(cp.where(b, p * cp.log(p), 0.0)).sum(axis=0)
     k = b.sum(axis=0, dtype=cp.int64)
     return h, k
@@ -339,26 +337,26 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z):
     h_z, k_z = joint_entropy_gpu([_dz], [Kz], _inv_n)
     h_yz, k_yz = joint_entropy_gpu([_yzk], [Kyz], _inv_n)
     _precomp = (_dz, Kz, h_z, k_z, _yzk, Kyz, h_yz, k_yz)
-    joint_bytes = max(1, Kx * Kyz * 4)   # int32 counts (2026-07-02) -> the dense joint is half its old size
+    joint_bytes = max(1, Kx * Kyz * 4)  # int32 counts (2026-07-02) -> the dense joint is half its old size
     try:
         free_b, _ = cp.cuda.runtime.memGetInfo()
     except Exception:
         free_b = 1 << 30
     # 0.30 of free VRAM leaves headroom for batched_cmi_gpu's sort / entropy temporaries beyond the dense joint.
     chunk = max(1, min(nperm, int(free_b * 0.30) // joint_bytes))
-    nulls_dev = cp.empty(nperm, dtype=cp.float64)               # assembled RESIDENT -> reduced on-device by caller
+    nulls_dev = cp.empty(nperm, dtype=cp.float64)  # assembled RESIDENT -> reduced on-device by caller
     s = 0
     while s < nperm:
         c = min(chunk, nperm - s)
         try:
-            cols = cp.ascontiguousarray(Xp_d[:, s:s + c])       # contiguous (n, c) for the joint-hist kernels
-            nulls_dev[s:s + c] = batched_cmi_gpu(cols, _dy, z, precomp_yz=_precomp, kx=Kx, return_device=True)
+            cols = cp.ascontiguousarray(Xp_d[:, s : s + c])  # contiguous (n, c) for the joint-hist kernels
+            nulls_dev[s : s + c] = batched_cmi_gpu(cols, _dy, z, precomp_yz=_precomp, kx=Kx, return_device=True)
             del cols
             s += c
         except cp.cuda.memory.OutOfMemoryError:
             if c == 1:
-                raise                                            # one perm still won't fit -> caller -> CPU loop
-            chunk = max(1, c // 2)                               # halve and retry this slice
+                raise  # one perm still won't fit -> caller -> CPU loop
+            chunk = max(1, c // 2)  # halve and retry this slice
     return nulls_dev
 
 

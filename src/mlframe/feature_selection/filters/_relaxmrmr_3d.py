@@ -41,8 +41,7 @@ from numba import njit
 
 
 @njit(nogil=True, cache=True)
-def _cmi_xy_given_z_njit(x: np.ndarray, y: np.ndarray, z: np.ndarray,
-                          K_x: int, K_y: int, K_z: int) -> float:
+def _cmi_xy_given_z_njit(x: np.ndarray, y: np.ndarray, z: np.ndarray, K_x: int, K_y: int, K_z: int) -> float:
     """Plug-in I(X; Y | Z) on integer-bin inputs."""
     n = x.shape[0]
     if n <= 0:
@@ -68,8 +67,7 @@ def _cmi_xy_given_z_njit(x: np.ndarray, y: np.ndarray, z: np.ndarray,
         for j in range(K_y):
             for k in range(K_z):
                 v = joint[i, j, k]
-                if v <= 0.0 or Pxz[i, k] <= 0.0 or Pyz[j, k] <= 0.0 \
-                        or Pz[k] <= 0.0:
+                if v <= 0.0 or Pxz[i, k] <= 0.0 or Pyz[j, k] <= 0.0 or Pz[k] <= 0.0:
                     continue
                 p_xyz = v / n_f
                 p_z = Pz[k] / n_f
@@ -80,10 +78,7 @@ def _cmi_xy_given_z_njit(x: np.ndarray, y: np.ndarray, z: np.ndarray,
 
 
 @njit(nogil=True, cache=True)
-def _joint_cmi_xy_given_zw_njit(x: np.ndarray, y: np.ndarray,
-                                  z1: np.ndarray, z2: np.ndarray,
-                                  K_x: int, K_y: int,
-                                  K_z1: int, K_z2: int) -> float:
+def _joint_cmi_xy_given_zw_njit(x: np.ndarray, y: np.ndarray, z1: np.ndarray, z2: np.ndarray, K_x: int, K_y: int, K_z1: int, K_z2: int) -> float:
     """I(X; Y | Z_1, Z_2) via plug-in on composite (Z_1, Z_2). Treats the
     pair (Z_1, Z_2) as a single conditioning variable of size K_z1*K_z2."""
     n = x.shape[0]
@@ -97,8 +92,7 @@ def _joint_cmi_xy_given_zw_njit(x: np.ndarray, y: np.ndarray,
 
 
 @njit(nogil=True, cache=True)
-def _mi_x_pair_njit(x: np.ndarray, z1: np.ndarray, z2: np.ndarray,
-                     K_x: int, K_z1: int, K_z2: int) -> float:
+def _mi_x_pair_njit(x: np.ndarray, z1: np.ndarray, z2: np.ndarray, K_x: int, K_z1: int, K_z2: int) -> float:
     """Unconditional I(X; Z_1, Z_2) via plug-in on the composite (Z_1, Z_2)."""
     n = x.shape[0]
     if n <= 0:
@@ -128,10 +122,9 @@ def _mi_x_pair_njit(x: np.ndarray, z1: np.ndarray, z2: np.ndarray,
     return max(0.0, mi)
 
 
-def relax_mrmr_score(x_cand: np.ndarray, selected_cols: list[np.ndarray],
-                      y: np.ndarray, nbins_x: int,
-                      nbins_selected: list[int], nbins_y: int,
-                      alpha: float = 1.0) -> float:
+def relax_mrmr_score(
+    x_cand: np.ndarray, selected_cols: list[np.ndarray], y: np.ndarray, nbins_x: int, nbins_selected: list[int], nbins_y: int, alpha: float = 1.0
+) -> float:
     """RelaxMRMR / FJMI 3-D-MI score for one candidate (Vinh 2016).
 
     Args:
@@ -168,7 +161,7 @@ def relax_mrmr_score(x_cand: np.ndarray, selected_cols: list[np.ndarray],
     sel_int = [col.astype(np.int64) for col in selected_cols]
     K_sel = [int(k) for k in nbins_selected]
     pair_red = 0.0
-    marg_mi = np.empty(n_S, dtype=np.float64)   # I(X; X_j)
+    marg_mi = np.empty(n_S, dtype=np.float64)  # I(X; X_j)
     cmi_given_y = np.empty(n_S, dtype=np.float64)  # I(X; X_j | Y)
     for j in range(n_S):
         K_z = K_sel[j]

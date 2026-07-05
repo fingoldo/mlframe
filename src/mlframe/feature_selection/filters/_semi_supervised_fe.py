@@ -120,9 +120,7 @@ def _build_pool_mapping(
     the two frames. Numeric-only: non-numeric columns are silently skipped,
     matching ``generate_univariate_basis_features`` semantics.
     """
-    if not isinstance(X_labeled, pd.DataFrame) or not isinstance(
-        X_unlabeled, pd.DataFrame
-    ):
+    if not isinstance(X_labeled, pd.DataFrame) or not isinstance(X_unlabeled, pd.DataFrame):
         raise TypeError(
             "fit_with_unlabeled: both X_labeled and X_unlabeled must be "
             "pandas DataFrames; got "
@@ -192,9 +190,7 @@ def fit_with_unlabeled(
                 stacklevel=2,
             )
         return mrmr.fit(X_labeled, y_labeled, **fit_params)
-    if X_unlabeled is None or (
-        hasattr(X_unlabeled, "shape") and X_unlabeled.shape[0] == 0
-    ):
+    if X_unlabeled is None or (hasattr(X_unlabeled, "shape") and X_unlabeled.shape[0] == 0):
         # Master switch ON but caller passed no unlabeled rows -- run the
         # legacy fit. We do NOT install an empty pool because installing it
         # would still flip the moment-router auto-routing on/off branch.

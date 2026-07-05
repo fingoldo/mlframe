@@ -46,8 +46,7 @@ if _NUMBA_AVAILABLE:
     _FASTMATH = {"reassoc", "contract", "arcp", "afn"}
 
     @_numba.njit(cache=True, fastmath=_FASTMATH)
-    def _bocpd_inner(seg, hazard, mu0, kappa0, alpha0, beta0,
-                     out_p_change, out_expected_rl, out_max_rl, max_run_length):
+    def _bocpd_inner(seg, hazard, mu0, kappa0, alpha0, beta0, out_p_change, out_expected_rl, out_max_rl, max_run_length):
         T = seg.size
         # Run-length posterior grows by 1 per step (O(T) state, O(T^2) total). ``max_run_length`` caps it: when
         # cur_len would exceed the cap, the (lowest-probability) tail of large run lengths is dropped and the
@@ -95,9 +94,7 @@ if _NUMBA_AVAILABLE:
                     scale_sq = beta[r] * (kappa[r] + 1.0) / (alpha[r] * kappa[r])
                     half_df = 0.5 * df
                     z2 = (x - mu[r]) * (x - mu[r]) / scale_sq
-                    lp = (math.lgamma(half_df + 0.5) - math.lgamma(half_df)
-                          - 0.5 * math.log(math.pi * df * scale_sq)
-                          - (half_df + 0.5) * math.log1p(z2 / df))
+                    lp = math.lgamma(half_df + 0.5) - math.lgamma(half_df) - 0.5 * math.log(math.pi * df * scale_sq) - (half_df + 0.5) * math.log1p(z2 / df)
                     log_pred[r] = lp
                     if lp > log_pred_max:
                         log_pred_max = lp
@@ -137,10 +134,8 @@ if _NUMBA_AVAILABLE:
             out_expected_rl[t] = ex
             out_max_rl[t] = float(mx_idx)
 
-
     @_numba.njit(cache=True, fastmath=_FASTMATH)
-    def _oblr_inner(y_arr, X_arr, prior_precision, noise_sigma,
-                    out_pred_mean, out_pred_var, out_log_marg):
+    def _oblr_inner(y_arr, X_arr, prior_precision, noise_sigma, out_pred_mean, out_pred_var, out_log_marg):
         n, k = X_arr.shape
         mu = np.zeros(k, dtype=np.float64)
         Sigma = np.eye(k, dtype=np.float64) / prior_precision
@@ -163,10 +158,7 @@ if _NUMBA_AVAILABLE:
             out_pred_var[t] = pred_var
             y_t = y_arr[t]
             if np.isfinite(y_t):
-                out_log_marg[t] = -0.5 * (
-                    math.log(2.0 * math.pi * pred_var)
-                    + (y_t - pred_mean) * (y_t - pred_mean) / pred_var
-                )
+                out_log_marg[t] = -0.5 * (math.log(2.0 * math.pi * pred_var) + (y_t - pred_mean) * (y_t - pred_mean) / pred_var)
                 innovation = y_t - pred_mean
                 inv_pv = 1.0 / pred_var
                 for i in range(k):
@@ -184,40 +176,32 @@ if _NUMBA_AVAILABLE:
     # (_dispatch_recursion_backend) routes between them by group count.
 
     @_numba.njit(cache=True)
-    def _bocpd_groups_serial(obs_sorted, starts, ends, hazard,
-                             mu0, kappa0, alpha0, beta0,
-                             out_p, out_ex, out_max, max_run_length):
+    def _bocpd_groups_serial(obs_sorted, starts, ends, hazard, mu0, kappa0, alpha0, beta0, out_p, out_ex, out_max, max_run_length):
         for g in range(starts.size):
-            s = starts[g]; e = ends[g]
-            _bocpd_inner(obs_sorted[s:e], hazard, mu0, kappa0, alpha0, beta0,
-                         out_p[s:e], out_ex[s:e], out_max[s:e], max_run_length)
+            s = starts[g]
+            e = ends[g]
+            _bocpd_inner(obs_sorted[s:e], hazard, mu0, kappa0, alpha0, beta0, out_p[s:e], out_ex[s:e], out_max[s:e], max_run_length)
 
     @_numba.njit(parallel=True, cache=True)
-    def _bocpd_groups_parallel(obs_sorted, starts, ends, hazard,
-                               mu0, kappa0, alpha0, beta0,
-                               out_p, out_ex, out_max, max_run_length):
+    def _bocpd_groups_parallel(obs_sorted, starts, ends, hazard, mu0, kappa0, alpha0, beta0, out_p, out_ex, out_max, max_run_length):
         for g in _numba.prange(starts.size):
-            s = starts[g]; e = ends[g]
-            _bocpd_inner(obs_sorted[s:e], hazard, mu0, kappa0, alpha0, beta0,
-                         out_p[s:e], out_ex[s:e], out_max[s:e], max_run_length)
+            s = starts[g]
+            e = ends[g]
+            _bocpd_inner(obs_sorted[s:e], hazard, mu0, kappa0, alpha0, beta0, out_p[s:e], out_ex[s:e], out_max[s:e], max_run_length)
 
     @_numba.njit(cache=True)
-    def _oblr_groups_serial(y_sorted, X_sorted, starts, ends,
-                            prior_precision, noise_sigma,
-                            out_pm, out_pv, out_lm):
+    def _oblr_groups_serial(y_sorted, X_sorted, starts, ends, prior_precision, noise_sigma, out_pm, out_pv, out_lm):
         for g in range(starts.size):
-            s = starts[g]; e = ends[g]
-            _oblr_inner(y_sorted[s:e], X_sorted[s:e], prior_precision, noise_sigma,
-                        out_pm[s:e], out_pv[s:e], out_lm[s:e])
+            s = starts[g]
+            e = ends[g]
+            _oblr_inner(y_sorted[s:e], X_sorted[s:e], prior_precision, noise_sigma, out_pm[s:e], out_pv[s:e], out_lm[s:e])
 
     @_numba.njit(parallel=True, cache=True)
-    def _oblr_groups_parallel(y_sorted, X_sorted, starts, ends,
-                              prior_precision, noise_sigma,
-                              out_pm, out_pv, out_lm):
+    def _oblr_groups_parallel(y_sorted, X_sorted, starts, ends, prior_precision, noise_sigma, out_pm, out_pv, out_lm):
         for g in _numba.prange(starts.size):
-            s = starts[g]; e = ends[g]
-            _oblr_inner(y_sorted[s:e], X_sorted[s:e], prior_precision, noise_sigma,
-                        out_pm[s:e], out_pv[s:e], out_lm[s:e])
+            s = starts[g]
+            e = ends[g]
+            _oblr_inner(y_sorted[s:e], X_sorted[s:e], prior_precision, noise_sigma, out_pm[s:e], out_pv[s:e], out_lm[s:e])
 
     # 1-D Kalman-filter scalar recurrence. fastmath=False keeps the exact op
     # order, so the (T,5) output is bit-identical to the Python reference (the
@@ -245,10 +229,7 @@ if _NUMBA_AVAILABLE:
                 K = var_pred / (innovation_var + 1e-12)
                 mean = mean_pred + K * innovation
                 var = (1.0 - K) * var_pred
-                log_lik = -0.5 * (
-                    math.log(2.0 * math.pi * innovation_var)
-                    + (innovation * innovation) / innovation_var
-                )
+                log_lik = -0.5 * (math.log(2.0 * math.pi * innovation_var) + (innovation * innovation) / innovation_var)
             else:
                 mean = mean_pred
                 var = var_pred
@@ -292,9 +273,7 @@ def _pf_single_segment(
         return out
 
     # Initial particles around the first finite observation (or prior).
-    init_val = observations[0] if np.isfinite(observations[0]) else (
-        prior[0] if np.isfinite(prior[0]) else 0.0
-    )
+    init_val = observations[0] if np.isfinite(observations[0]) else (prior[0] if np.isfinite(prior[0]) else 0.0)
     particles = rng.normal(
         loc=init_val, scale=max(observation_sigma, 1e-6), size=n_particles,
     )
@@ -320,7 +299,7 @@ def _pf_single_segment(
             weights /= weights.sum() + 1e-300
 
             # Effective sample size -> resample if too low.
-            ess = 1.0 / np.sum(weights ** 2)
+            ess = 1.0 / np.sum(weights**2)
             if ess < resample_threshold * n_particles:
                 # Systematic resampling.
                 positions = (rng.uniform(0, 1) + np.arange(n_particles)) / n_particles
@@ -349,7 +328,7 @@ def _pf_single_segment(
         out[t, 3] = float(np.sum(particles * weights))
         # Effective sample size (Liu 1996): 1 / sum(w^2). Diagnoses
         # particle-degeneracy independent of the resample threshold.
-        out[t, 4] = 1.0 / (float(np.sum(weights ** 2)) + 1e-12)
+        out[t, 4] = 1.0 / (float(np.sum(weights**2)) + 1e-12)
     return out
 
 
@@ -407,9 +386,7 @@ def particle_filter_posterior(
     else:
         prior_arr = np.ascontiguousarray(prior, dtype=np.float64)
         if prior_arr.size != n:
-            raise ValueError(
-                f"prior length {prior_arr.size} != observations length {n}"
-            )
+            raise ValueError(f"prior length {prior_arr.size} != observations length {n}")
     rng = np.random.default_rng(seed)
 
     out_p10 = np.full(n, np.nan, dtype=np.float64)
@@ -488,8 +465,8 @@ def _kf_single_segment(
     log_lik) per timestep. Innovations are y_t - E[x_t | y_{1..t-1}]
     (one-step-ahead predictive residuals) -- canonical anomaly signal.
     """
-    Q = transition_sigma ** 2
-    R = observation_sigma ** 2
+    Q = transition_sigma**2
+    R = observation_sigma**2
     if _NUMBA_AVAILABLE:
         # njit machine-code recurrence: ~165-290x over the Python loop,
         # bit-identical (fastmath=False). See _benchmarks/bench_kalman_filter_njit.py.
@@ -517,10 +494,7 @@ def _kf_single_segment(
             mean = mean_pred + K * innovation
             var = (1.0 - K) * var_pred
             # log p(y_t | y_{1..t-1}) under N(mean_pred, innovation_var)
-            log_lik = -0.5 * (
-                math.log(2.0 * math.pi * innovation_var)
-                + (innovation * innovation) / innovation_var
-            )
+            log_lik = -0.5 * (math.log(2.0 * math.pi * innovation_var) + (innovation * innovation) / innovation_var)
         else:
             mean = mean_pred
             var = var_pred
@@ -640,7 +614,7 @@ def kalman_smoother_posterior_1d(
         prior_arr = np.ascontiguousarray(prior, dtype=np.float64)
     out_mean = np.full(n, np.nan, dtype=np.float64)
     out_var = np.full(n, np.nan, dtype=np.float64)
-    Q = transition_sigma ** 2
+    Q = transition_sigma**2
 
     def _run(idx_seg: np.ndarray) -> None:
         seg_obs = obs[idx_seg]
@@ -655,7 +629,7 @@ def kalman_smoother_posterior_1d(
         p_var = np.empty(T, dtype=np.float64)
         mean = float(seg_obs[0]) if np.isfinite(seg_obs[0]) else 0.0
         var = float(initial_variance)
-        R = observation_sigma ** 2
+        R = observation_sigma**2
         for t in range(T):
             drift = 0.0
             if t > 0 and np.isfinite(seg_prior[t]) and np.isfinite(seg_prior[t - 1]):
@@ -746,8 +720,7 @@ def bocpd_features(
             seg_p = np.empty(T, dtype=np.float64)
             seg_ex = np.empty(T, dtype=np.float64)
             seg_max = np.empty(T, dtype=np.float64)
-            _bocpd_inner(seg, hazard, mu0, kappa0, alpha0, beta0,
-                         seg_p, seg_ex, seg_max, max_run_length)
+            _bocpd_inner(seg, hazard, mu0, kappa0, alpha0, beta0, seg_p, seg_ex, seg_max, max_run_length)
             out_p_change[idx_seg] = seg_p
             out_expected_rl[idx_seg] = seg_ex
             out_max_rl[idx_seg] = seg_max
@@ -783,12 +756,7 @@ def bocpd_features(
             scale_sq = beta * (kappa + 1.0) / (alpha * kappa)
             half_df = 0.5 * df
             z2 = (x - mu) ** 2 / scale_sq
-            log_pred = (
-                _gammaln(half_df + 0.5)
-                - _gammaln(half_df)
-                - 0.5 * np.log(np.pi * df * scale_sq)
-                - (half_df + 0.5) * np.log1p(z2 / df)
-            )
+            log_pred = _gammaln(half_df + 0.5) - _gammaln(half_df) - 0.5 * np.log(np.pi * df * scale_sq) - (half_df + 0.5) * np.log1p(z2 / df)
             pred = np.exp(log_pred - log_pred.max())
             growth = rl_probs * pred * (1.0 - hazard)
             cp = (rl_probs * pred * hazard).sum()
@@ -830,11 +798,9 @@ def bocpd_features(
         # MLFRAME_FE_RECURSION_BACKEND env, so the sweep cannot flip a concurrently-running caller's backend.
         backend = _force_backend if _force_backend in ("serial", "parallel") else dispatch_recursion_backend("fe_bocpd", n, int(starts.size))
         if backend == "parallel":
-            _bocpd_groups_parallel(obs_sorted, starts, ends, hazard,
-                                   mu0, kappa0, alpha0, beta0, p_s, ex_s, max_s, max_run_length)
+            _bocpd_groups_parallel(obs_sorted, starts, ends, hazard, mu0, kappa0, alpha0, beta0, p_s, ex_s, max_s, max_run_length)
         else:
-            _bocpd_groups_serial(obs_sorted, starts, ends, hazard,
-                                 mu0, kappa0, alpha0, beta0, p_s, ex_s, max_s, max_run_length)
+            _bocpd_groups_serial(obs_sorted, starts, ends, hazard, mu0, kappa0, alpha0, beta0, p_s, ex_s, max_s, max_run_length)
         out_p_change[sort_idx] = p_s
         out_expected_rl[sort_idx] = ex_s
         out_max_rl[sort_idx] = max_s
@@ -877,9 +843,7 @@ def online_bayesian_linear_regression(
     y_arr = np.ascontiguousarray(y, dtype=np.float64)
     X_arr = np.ascontiguousarray(X, dtype=np.float64)
     if X_arr.ndim != 2 or X_arr.shape[0] != y_arr.size:
-        raise ValueError(
-            f"X must be 2-D (n, k) with X.shape[0]=={y_arr.size}; got {X_arr.shape}"
-        )
+        raise ValueError(f"X must be 2-D (n, k) with X.shape[0]=={y_arr.size}; got {X_arr.shape}")
     n, k = X_arr.shape
     out_pred_mean = np.full(n, np.nan, dtype=np.float64)
     out_pred_var = np.full(n, np.nan, dtype=np.float64)
@@ -903,7 +867,7 @@ def online_bayesian_linear_regression(
         # Track covariance Sigma + Sherman-Morrison update: O(k^2) per step.
         mu = np.zeros(k, dtype=np.float64)
         Sigma = np.eye(k, dtype=np.float64) / prior_precision
-        noise_var = noise_sigma ** 2
+        noise_var = noise_sigma**2
         for t in idx_seg:
             x_t = X_arr[t]
             y_t = float(y_arr[t])
@@ -913,10 +877,7 @@ def online_bayesian_linear_regression(
             out_pred_mean[t] = pred_mean
             out_pred_var[t] = pred_var
             if np.isfinite(y_t):
-                out_log_marg[t] = -0.5 * (
-                    math.log(2.0 * math.pi * pred_var)
-                    + (y_t - pred_mean) ** 2 / pred_var
-                )
+                out_log_marg[t] = -0.5 * (math.log(2.0 * math.pi * pred_var) + (y_t - pred_mean) ** 2 / pred_var)
                 innovation = y_t - pred_mean
                 K = Sx / pred_var
                 mu = mu + K * innovation
@@ -935,11 +896,9 @@ def online_bayesian_linear_regression(
         lm = np.full(n, np.nan, dtype=np.float64)
         backend = _force_backend if _force_backend in ("serial", "parallel") else dispatch_recursion_backend("fe_oblr", n, int(starts.size))
         if backend == "parallel":
-            _oblr_groups_parallel(y_sorted, X_sorted, starts, ends,
-                                  prior_precision, noise_sigma, pm, pv, lm)
+            _oblr_groups_parallel(y_sorted, X_sorted, starts, ends, prior_precision, noise_sigma, pm, pv, lm)
         else:
-            _oblr_groups_serial(y_sorted, X_sorted, starts, ends,
-                                prior_precision, noise_sigma, pm, pv, lm)
+            _oblr_groups_serial(y_sorted, X_sorted, starts, ends, prior_precision, noise_sigma, pm, pv, lm)
         out_pred_mean[sort_idx] = pm
         out_pred_var[sort_idx] = pv
         out_log_marg[sort_idx] = lm

@@ -166,9 +166,7 @@ def _compute_per_scorer_rank_table(
     """
     if len(raw_X) != len(engineered_X):
         raise ValueError(
-            f"_compute_per_scorer_rank_table: raw_X has {len(raw_X)} rows "
-            f"but engineered_X has {len(engineered_X)}; positional row "
-            f"alignment required."
+            f"_compute_per_scorer_rank_table: raw_X has {len(raw_X)} rows " f"but engineered_X has {len(engineered_X)}; positional row " f"alignment required."
         )
     y_arr = np.asarray(y).ravel()
     raw_cols = list(raw_X.columns)
@@ -221,28 +219,21 @@ def _compute_per_scorer_rank_table(
                 from ._orthogonal_univariate_fe import _mi_classif_batch
                 y_mi = y_arr
                 if not np.issubdtype(y_mi.dtype, np.integer):
-                    uniq = np.unique(
-                        y_mi[np.isfinite(y_mi)] if y_mi.dtype.kind in "fc" else y_mi)
+                    uniq = np.unique(y_mi[np.isfinite(y_mi)] if y_mi.dtype.kind in "fc" else y_mi)
                     if uniq.size <= 32:
                         y_mi = y_mi.astype(np.int64)
-                res[s] = np.asarray(
-                    _mi_classif_batch(Xmat, y_mi, nbins=int(nbins)), dtype=np.float64)
+                res[s] = np.asarray(_mi_classif_batch(Xmat, y_mi, nbins=int(nbins)), dtype=np.float64)
             elif s == "copula":
                 from ._orthogonal_copula_mi_fe import _copula_mi_batch
-                res[s] = np.asarray(
-                    _copula_mi_batch(Xmat, y_arr, n_bins=int(copula_n_bins)),
-                    dtype=np.float64)
+
+                res[s] = np.asarray(_copula_mi_batch(Xmat, y_arr, n_bins=int(copula_n_bins)), dtype=np.float64)
         return res
 
     raw_batched = _batch_scores(raw_X, raw_cols)
     baseline_per_source: dict = {}
     for ci, src in enumerate(raw_cols):
         x_full = raw_X[src].to_numpy(dtype=_dt)
-        baseline_per_source[src] = {
-            s: (float(raw_batched[s][ci]) if s in _batch_scorers
-                else float(_call(s, x_full, y_arr)))
-            for s in scorers
-        }
+        baseline_per_source[src] = {s: (float(raw_batched[s][ci]) if s in _batch_scorers else float(_call(s, x_full, y_arr))) for s in scorers}
 
     eng_batched = _batch_scores(engineered_X, eng_cols)
     rows = []
@@ -266,12 +257,15 @@ def _compute_per_scorer_rank_table(
             continue
         # rank descending (higher score = better = rank 1); 'first' tie
         # breaking keeps the rank table deterministic across replays.
-        ranks = score_table[col].rank(
-            ascending=False, method="first",
-        ).astype(int)
-        rank_per_scorer[s] = dict(
-            zip(score_table["engineered_col"], ranks)
+        ranks = (
+            score_table[col]
+            .rank(
+                ascending=False,
+                method="first",
+            )
+            .astype(int)
         )
+        rank_per_scorer[s] = dict(zip(score_table["engineered_col"], ranks))
     return score_table, baseline_per_source, rank_per_scorer
 
 
@@ -308,9 +302,7 @@ def _aggregate_ranks(
     out: dict = {}
     if aggregator == "mean_rank":
         for col in eng_cols:
-            ranks = [
-                rank_per_scorer[s].get(col, n_cols + 1) for s in scorers
-            ]
+            ranks = [rank_per_scorer[s].get(col, n_cols + 1) for s in scorers]
             out[col] = float(np.mean(ranks))
         return out
     if aggregator == "borda_count":
@@ -318,7 +310,7 @@ def _aggregate_ranks(
             pts = 0.0
             for s in scorers:
                 r = rank_per_scorer[s].get(col, n_cols + 1)
-                pts += (n_cols + 1 - r)
+                pts += n_cols + 1 - r
             # Borda points are higher-is-better; negate so the downstream
             # "lower = better" contract is uniform across all aggregators.
             out[col] = -float(pts)
@@ -341,9 +333,7 @@ def _aggregate_ranks(
         k_thr = max(1, int(mutual_top_k))
         sentinel = float(n_cols * 1000 + 1)
         for col in eng_cols:
-            ranks = [
-                rank_per_scorer[s].get(col, n_cols + 1) for s in scorers
-            ]
+            ranks = [rank_per_scorer[s].get(col, n_cols + 1) for s in scorers]
             worst = max(ranks) if ranks else (n_cols + 1)
             if worst <= k_thr:
                 # Qualified: rank by worst-case (weakest-link) rank.
@@ -351,10 +341,7 @@ def _aggregate_ranks(
             else:
                 out[col] = sentinel
         return out
-    raise ValueError(
-        f"unknown aggregator {aggregator!r}; expected one of "
-        f"{ENSEMBLE_AGGREGATORS}"
-    )
+    raise ValueError(f"unknown aggregator {aggregator!r}; expected one of " f"{ENSEMBLE_AGGREGATORS}")
 
 
 def score_features_by_ensemble_uplift(
@@ -424,21 +411,13 @@ def score_features_by_ensemble_uplift(
       contract holds across aggregators).
     """
     if aggregator not in ENSEMBLE_AGGREGATORS:
-        raise ValueError(
-            f"score_features_by_ensemble_uplift: aggregator {aggregator!r} "
-            f"not in {ENSEMBLE_AGGREGATORS}"
-        )
+        raise ValueError(f"score_features_by_ensemble_uplift: aggregator {aggregator!r} " f"not in {ENSEMBLE_AGGREGATORS}")
     scorers_tuple = tuple(scorers)
     if not scorers_tuple:
-        raise ValueError(
-            "score_features_by_ensemble_uplift: scorers must be non-empty"
-        )
+        raise ValueError("score_features_by_ensemble_uplift: scorers must be non-empty")
     for s in scorers_tuple:
         if s not in SCORER_NAMES:
-            raise ValueError(
-                f"score_features_by_ensemble_uplift: unknown scorer "
-                f"{s!r}; expected one of {SCORER_NAMES}"
-            )
+            raise ValueError(f"score_features_by_ensemble_uplift: unknown scorer " f"{s!r}; expected one of {SCORER_NAMES}")
     if engineered_X.empty:
         return pd.DataFrame(columns=[
             "engineered_col", "source_col", "baseline_mi",
@@ -481,9 +460,7 @@ def score_features_by_ensemble_uplift(
         per_rank_dict = {}
         for s in scorers_tuple:
             raw_eng = float(srow[f"score_{s}"])
-            raw_base = float(
-                baseline_per_source.get(src, {}).get(s, 0.0)
-            )
+            raw_base = float(baseline_per_source.get(src, {}).get(s, 0.0))
             norm_eng.append(raw_eng / per_scorer_max[s])
             norm_base.append(raw_base / per_scorer_max[s])
             per_score_dict[s] = raw_eng
@@ -580,9 +557,7 @@ def hybrid_orth_mi_ensemble_fe(
     # Same two-gate calibration as the auto-scorer path for cross-layer
     # parity (uplift + MAD floor on baseline_mi and engineered_mi).
     raw_baselines = scores["baseline_mi"].to_numpy()
-    max_raw_baseline = (
-        float(raw_baselines.max()) if raw_baselines.size else 0.0
-    )
+    max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
     legacy_floor = float(min_abs_mi_frac) * max(0.0, max_raw_baseline)
     if raw_baselines.size >= 4:
         med = float(np.median(raw_baselines))
@@ -598,10 +573,7 @@ def hybrid_orth_mi_ensemble_fe(
     else:
         eng_noise_floor = 0.0
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
-    qualified = scores[
-        (scores["uplift"] >= float(min_uplift))
-        & (scores["engineered_mi"] >= abs_floor)
-    ]
+    qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     # Layer 82 mutual_top_k: drop rows the strict-conjunction aggregator
     # disqualified (they carry a sentinel aggregate_rank far above n_cols).
     # The uplift/abs gates can still admit them on borderline data, so the
@@ -613,9 +585,7 @@ def hybrid_orth_mi_ensemble_fe(
         qualified = qualified[qualified["aggregate_rank"] <= mutual_cut]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
-    X_aug = (
-        pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
-    )
+    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
     return X_aug, scores
 
 
@@ -671,15 +641,14 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
         chosen_degree = None
         for code in ("LL", "He", "T", "L"):
             if suffix.startswith(code):
-                rest = suffix[len(code):]
+                rest = suffix[len(code) :]
                 if rest.isdigit():
                     chosen_basis = code_to_basis[code]
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
             logger.warning(
-                "hybrid_orth_mi_ensemble_fe_with_recipes: cannot parse "
-                "basis/degree from column name %r; skipping recipe build.",
+                "hybrid_orth_mi_ensemble_fe_with_recipes: cannot parse " "basis/degree from column name %r; skipping recipe build.",
                 name,
             )
             continue

@@ -78,7 +78,7 @@ def _detect_multi_modal(y: np.ndarray, n_bins: int = _MULTI_MODAL_KDE_BINS,
             if sep < min_peak_sep_stds:
                 continue
             lo, hi = min(pi, pj), max(pi, pj)
-            valley = float(smoothed[lo:hi + 1].min())
+            valley = float(smoothed[lo : hi + 1].min())
             lower_peak = float(min(smoothed[pi], smoothed[pj]))
             if lower_peak <= 0:
                 continue

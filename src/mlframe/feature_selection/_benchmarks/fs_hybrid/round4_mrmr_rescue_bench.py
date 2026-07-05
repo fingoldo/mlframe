@@ -100,7 +100,7 @@ def engineer_products(X, pairs):
     new = {}
     for i, (a, b) in enumerate(pairs):
         if a in X.columns and b in X.columns:
-            new[f"tprod_{i}"] = (X[a].values * X[b].values)
+            new[f"tprod_{i}"] = X[a].values * X[b].values
     if not new:
         return X.copy()
     return pd.concat([X, pd.DataFrame(new, index=X.index)], axis=1)
@@ -126,8 +126,7 @@ def run_bed(name, X, y, cap_grid, seed=0):
     # 1) baseline mrmr_fe (default cap=60)
     t0 = time.time()
     sel = build_mrmr().fit(Xtr, ytr)
-    emit(rows, name, "mrmr_fe_default", sel.transform(Xtr), sel.transform(Xte), ytr, yte, t0,
-         extra=f"(raw={sel.n_raw_} eng={sel.n_eng_})")
+    emit(rows, name, "mrmr_fe_default", sel.transform(Xtr), sel.transform(Xte), ytr, yte, t0, extra=f"(raw={sel.n_raw_} eng={sel.n_eng_})")
     ckpt(f"bed={name} mrmr_fe_default done n_raw={sel.n_raw_} n_eng={sel.n_eng_}")
 
     # 2) raise the synergy cap so the bootstrap runs on wide frames
@@ -139,8 +138,7 @@ def run_bed(name, X, y, cap_grid, seed=0):
         t0 = time.time()
         try:
             sel = build_mrmr(fe_synergy_screen_max_features=cap).fit(Xtr, ytr)
-            emit(rows, name, f"mrmr_cap{cap}", sel.transform(Xtr), sel.transform(Xte), ytr, yte, t0,
-                 extra=f"(raw={sel.n_raw_} eng={sel.n_eng_})")
+            emit(rows, name, f"mrmr_cap{cap}", sel.transform(Xtr), sel.transform(Xte), ytr, yte, t0, extra=f"(raw={sel.n_raw_} eng={sel.n_eng_})")
             ckpt(f"bed={name} mrmr_cap{cap} done n_raw={sel.n_raw_} n_eng={sel.n_eng_} t={round(time.time()-t0,1)}s")
         except Exception as e:
             print(f"[{name}] mrmr_cap{cap} FAILED: {type(e).__name__}: {e}", flush=True)

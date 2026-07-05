@@ -85,13 +85,13 @@ def _summary_naive_resort_per_k(sorted_y_true, sorted_y_score, group_starts, eva
             for j in range(limit):
                 rel = rels_ideal[j]
                 if rel > 0:
-                    idcg += ((2.0 ** rel) - 1.0) / np.log2(j + 2.0)
+                    idcg += ((2.0**rel) - 1.0) / np.log2(j + 2.0)
             if idcg > 0.0:
                 dcg = 0.0
                 for j in range(limit):
                     rel = rels_pred[j]
                     if rel > 0:
-                        dcg += ((2.0 ** rel) - 1.0) / np.log2(j + 2.0)
+                        dcg += ((2.0**rel) - 1.0) / np.log2(j + 2.0)
                 ndcg_per_group[i, kj] = dcg / idcg
 
             if n_rel_total > 0:
@@ -164,8 +164,7 @@ def main():
         t_naive, r_naive = _best_of(_summary_naive_resort_per_k, (yt, ys, gs, eval_ks))
         t_prod, r_prod = _best_of(_summary_batched_kernel, (yt, ys, gs, eval_ks))
         # Identity: prod must equal naive exactly (both deterministic, mergesort).
-        same = all(np.array_equal(a, b) if isinstance(a, np.ndarray) else a == b
-                   for a, b in zip(r_prod, r_naive))
+        same = all(np.array_equal(a, b) if isinstance(a, np.ndarray) else a == b for a, b in zip(r_prod, r_naive))
         speedup = t_naive / t_prod
         print(f"{f'{n_groups} x {qlen}':>24} | {t_naive*1e3:13.3f} ms | {t_prod*1e3:11.3f} ms | {speedup:6.2f}x | {same}")
 

@@ -39,7 +39,6 @@ from mlframe.reporting.spec import (
     HistogramPanelSpec, LinePanelSpec, PanelSpec,
 )
 
-
 # Above this K the per-label ROC / reliability overlays put K curves in one panel: slow (K sklearn fits) and unreadable.
 # Past it the composer draws only the OVERLAY_TOP_N worst-by-AUC labels + a macro-average.
 _OVERLAY_MAX_LABELS: int = 12
@@ -58,7 +57,7 @@ def _per_label_auc(y_true: np.ndarray, y_proba: np.ndarray) -> np.ndarray:
         col = y_proba[:, k]
         finite = np.isfinite(col)
         scores = col[finite]
-        pos = (y_true[finite, k] == 1)
+        pos = y_true[finite, k] == 1
         n_pos = int(pos.sum())
         n_neg = scores.shape[0] - n_pos
         if n_pos == 0 or n_neg == 0:
@@ -115,8 +114,8 @@ def _per_label_prf1(y_true: np.ndarray, y_pred: np.ndarray):
     yt = (np.asarray(y_true) == 1).astype(np.intp)
     yp = (np.asarray(y_pred) == 1).astype(np.intp)
     K = yt.shape[1]
-    code = (yt * 2 + yp)                                   # (N, K) in {0,1,2,3}
-    flat = (np.arange(K) * 4 + code).ravel()               # column-offset code
+    code = yt * 2 + yp  # (N, K) in {0,1,2,3}
+    flat = (np.arange(K) * 4 + code).ravel()  # column-offset code
     counts = np.bincount(flat, minlength=K * 4).reshape(K, 4)
     tp = counts[:, 3].astype(np.float64)
     fp = counts[:, 1].astype(np.float64)
@@ -437,7 +436,7 @@ def _per_label_f1_sweep(y_true: np.ndarray, y_proba: np.ndarray, thresholds: np.
     otherwise the readable numpy histogram path runs. ``thresholds`` is ascending in [0, 1]; F1 is reported
     at each grid point (predict-positive when proba >= threshold), zero-division -> 0 (sklearn default).
     """
-    yt = (np.asarray(y_true) == 1)
+    yt = np.asarray(y_true) == 1
     P = np.asarray(y_proba, dtype=np.float64)
     K = P.shape[1]
     T = thresholds.shape[0]
@@ -488,15 +487,11 @@ def _threshold_sweep_panel(y_true, y_proba, labels) -> PanelSpec:
     best_col = np.argmax(f1, axis=1)
     best_t = thresholds[best_col]
     best_f1 = f1[np.arange(K), best_col]
-    row_labels = tuple(
-        f"{labels[k]} @t*={best_t[k]:.2f} (F1={best_f1[k]:.2f})" for k in range(K)
-    )
+    row_labels = tuple(f"{labels[k]} @t*={best_t[k]:.2f} (F1={best_f1[k]:.2f})" for k in range(K))
     # Column labels: a sparse subset of the grid so the axis stays readable at 200 thresholds.
     n_ticks = min(11, _SWEEP_N_THRESHOLDS)
     tick_pos = np.linspace(0, _SWEEP_N_THRESHOLDS - 1, n_ticks).astype(int)
-    col_labels = tuple(
-        f"{thresholds[j]:.2f}" if j in set(tick_pos.tolist()) else "" for j in range(_SWEEP_N_THRESHOLDS)
-    )
+    col_labels = tuple(f"{thresholds[j]:.2f}" if j in set(tick_pos.tolist()) else "" for j in range(_SWEEP_N_THRESHOLDS))
     return HeatmapPanelSpec(
         matrix=f1,
         row_labels=row_labels,
@@ -553,22 +548,14 @@ def compose_multilabel_figure(
     y_true = np.asarray(y_true)
     y_proba = np.asarray(y_proba, dtype=np.float64)
     if y_true.ndim != 2 or y_proba.ndim != 2:
-        raise ValueError(
-            f"multilabel panels require 2-D y_true/y_proba; "
-            f"got shapes {y_true.shape}, {y_proba.shape}"
-        )
+        raise ValueError(f"multilabel panels require 2-D y_true/y_proba; " f"got shapes {y_true.shape}, {y_proba.shape}")
     if y_true.shape != y_proba.shape:
-        raise ValueError(
-            f"y_true {y_true.shape} != y_proba {y_proba.shape}"
-        )
+        raise ValueError(f"y_true {y_true.shape} != y_proba {y_proba.shape}")
 
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(
-            f"Unknown multilabel panel tokens {unknown}. "
-            f"Allowed: {sorted(ALLOWED_MULTILABEL_PANEL_TOKENS)}"
-        )
+        raise ValueError(f"Unknown multilabel panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_MULTILABEL_PANEL_TOKENS)}")
     K = y_true.shape[1]
     _OVERLAY_TOKENS = {"ROC", "CALIB_GRID"}
     label_subset = None
@@ -586,8 +573,7 @@ def compose_multilabel_figure(
     return FigureSpec(
         suptitle=suptitle,
         panels=grid,
-        figsize=figsize_for_grid(n_rows, n_cols,
-                                 cell_width=cell_width, cell_height=cell_height),
+        figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
     )
 
 

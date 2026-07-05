@@ -87,8 +87,7 @@ def main():
     parser.add_argument("--p", type=int, default=50)
     parser.add_argument("--n-informative", type=int, default=15)
     parser.add_argument("--n-runs", type=int, default=3, help="timed runs after warmup")
-    parser.add_argument("--ksg-only", action="store_true",
-                        help="skip the slower MRMR-based methods")
+    parser.add_argument("--ksg-only", action="store_true", help="skip the slower MRMR-based methods")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -111,7 +110,7 @@ def main():
     def _ksg_topk(X, y):
         Xn = X.to_numpy() if hasattr(X, "to_numpy") else X
         mi = ksg_mi_with_target(Xn, y, feature_indices=list(range(Xn.shape[1])))
-        return np.argsort(mi)[::-1][:args.n_informative]
+        return np.argsort(mi)[::-1][: args.n_informative]
 
     _bench_method("KSG top-K (no sig test)", _ksg_topk, X, y, inf, args.n_runs)
 
@@ -152,8 +151,7 @@ def main():
     from mlframe.feature_selection.filters.stability import StabilityMRMR
 
     def _stability(X, y):
-        s = StabilityMRMR(estimator=MRMR(**base_kw), n_bootstraps=5,
-                          sample_fraction=0.7, support_threshold=0.6, random_state=42)
+        s = StabilityMRMR(estimator=MRMR(**base_kw), n_bootstraps=5, sample_fraction=0.7, support_threshold=0.6, random_state=42)
         s.fit(X, y)
         return s.support_
 

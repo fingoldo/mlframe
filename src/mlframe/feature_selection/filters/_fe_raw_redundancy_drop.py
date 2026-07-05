@@ -355,8 +355,7 @@ def drop_redundant_raw_operands(
             # Continuous iff far more distinct values than the (possibly collapsed) code
             # cardinality -- avoids re-binning an already-discrete few-class target.
             if int(np.unique(_yc).size) > max(2 * _BINS, 2 * _target_card):
-                _nb = int(min(max(_BINS, _target_card),
-                             max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
+                _nb = int(min(max(_BINS, _target_card), max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
                 y_arr = np.ascontiguousarray(_quantile_bin(_yc.astype(np.float64), nbins=_nb)).astype(np.int64)
                 _target_card = int(np.unique(y_arr).size)
 
@@ -377,8 +376,7 @@ def drop_redundant_raw_operands(
     #     (F4 ``b`` stays well above the relative bar).
     # The cardinality is capped by a fragmentation guard so the JOINT consuming-
     # survivor support keeps measurable strata at small n.
-    _eng_card = int(min(max(_BINS, int(np.unique(y_arr).size)),
-                        max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
+    _eng_card = int(min(max(_BINS, int(np.unique(y_arr).size)), max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
     _eng_cont = engineered_continuous or {}
 
     # RAW-OPERAND BINNING (2026-06-15 compromise). The prior design binned the raw at the LOSSY fit codes
@@ -412,14 +410,12 @@ def drop_redundant_raw_operands(
                     _rc = np.asarray(raw_X[_rname], dtype=np.float64).ravel()
                 if _rc is not None and _rc.shape[0] == n_rows and np.isfinite(_rc).any():
                     _clean = np.nan_to_num(_rc, nan=0.0, posinf=0.0, neginf=0.0)
-                    _dev = _dev_from_cont(_clean)   # device-born codes = same percentile-edge partition
+                    _dev = _dev_from_cont(_clean)  # device-born codes = same percentile-edge partition
                     if _dev is not None:
                         import cupy as _cp
                         _out = _cp.asnumpy(_dev).astype(np.int64)   # host copy = D2H of the SAME resident partition
                     else:
-                        _out = np.ascontiguousarray(
-                            _quantile_bin(_clean, nbins=_eng_card)
-                        ).astype(np.int64)
+                        _out = np.ascontiguousarray(_quantile_bin(_clean, nbins=_eng_card)).astype(np.int64)
             except Exception:
                 _out = _fit
                 _dev = None
@@ -467,8 +463,7 @@ def drop_redundant_raw_operands(
         eng_bin_dev[ei] = _eb_dev
         # Score the anchor MI from the RESIDENT codes when available so the candidate never re-crosses H2D at
         # the ``cmi_cand_x`` / ``permnull_cand_x`` sites; host codes otherwise.
-        _, _, exc = _excess_and_floor(_eb_dev if _eb_dev is not None else eb, y_arr, None, seed=seed,
-                                      kx=(int(eb.max()) + 1 if getattr(eb, "size", 0) else 1))
+        _, _, exc = _excess_and_floor(_eb_dev if _eb_dev is not None else eb, y_arr, None, seed=seed, kx=(int(eb.max()) + 1 if getattr(eb, "size", 0) else 1))
         eng_anchor_excess[ei] = exc
 
     # DPI-TRAP GUARD (2026-06-10): an engineered child is a LEGITIMATE subsumer of a
@@ -502,9 +497,8 @@ def drop_redundant_raw_operands(
             _raw_marg_cache[_rname] = (0.0, 0.0, 0.0)
             return _raw_marg_cache[_rname]
         _rb = _raw_codes(_rname, _ridx)
-        _rb_dev = _raw_dev(_rname, _ridx)   # RESIDENT candidate code (scored marginal) -> no re-upload; host otherwise
-        _res = _excess_and_floor(_rb_dev if _rb_dev is not None else _rb, y_arr, None, seed=seed,
-                                 kx=(int(_rb.max()) + 1 if getattr(_rb, "size", 0) else 1))
+        _rb_dev = _raw_dev(_rname, _ridx)  # RESIDENT candidate code (scored marginal) -> no re-upload; host otherwise
+        _res = _excess_and_floor(_rb_dev if _rb_dev is not None else _rb, y_arr, None, seed=seed, kx=(int(_rb.max()) + 1 if getattr(_rb, "size", 0) else 1))
         _raw_marg_cache[_rname] = _res
         return _res
 
@@ -567,9 +561,7 @@ def drop_redundant_raw_operands(
             for _t in _TOKEN_SPLIT.split(getattr(_sub, "name", "") or ""):
                 if not _t:
                     continue
-                _base = _t if _t in raw_name_set else (
-                    _t.split("__", 1)[0] if ("__" in _t and _t.split("__", 1)[0] in raw_name_set) else None
-                )
+                _base = _t if _t in raw_name_set else (_t.split("__", 1)[0] if ("__" in _t and _t.split("__", 1)[0] in raw_name_set) else None)
                 if _base is not None:
                     _p.add(_base)
             return {p for p in _p if _raw_is_signal_bearing(p)}
@@ -659,11 +651,7 @@ def drop_redundant_raw_operands(
         # consumes the raw (the exclusion set is empty). A raw FULLY subsumed by a genuine ``a**2/b``
         # child still drops (that child stays); a raw whose ONLY consumers are pseudo re-mixes is no
         # longer spuriously dropped (no genuine subsumer remains -> the DPI-empty guard below keeps it).
-        consumers = [
-            ei for ei in all_consumers
-            if (len(_eng_signal_parents.get(ei, set()) - {rname}) >= 1)
-            and not _is_pseudo_remix_child(cols[ei])
-        ]
+        consumers = [ei for ei in all_consumers if (len(_eng_signal_parents.get(ei, set()) - {rname}) >= 1) and not _is_pseudo_remix_child(cols[ei])]
         if not consumers:
             if verbose:
                 logger.info(
@@ -691,17 +679,11 @@ def drop_redundant_raw_operands(
         # capture from the fused composite's second signal term so a fully-subsumed
         # operand's conditional excess collapses (DROP) while a genuine private term keeps
         # its residual (KEEP).
-        _cond_bins = [
-            _clean_subexpr_bin.get((rname, ei), eng_bin[ei])
-            for ei in consumers
-        ]
+        _cond_bins = [_clean_subexpr_bin.get((rname, ei), eng_bin[ei]) for ei in consumers]
         # RESIDENT twin of each conditioning column (clean sub-expr dev if that column used one, else eng dev),
         # for the device-born support join. None-safe: any missing twin -> host support scored.
-        _cond_bins_dev = [
-            (_clean_subexpr_bin_dev.get((rname, ei)) if (rname, ei) in _clean_subexpr_bin else eng_bin_dev.get(ei))
-            for ei in consumers
-        ]
-        z_support, _zcard = _renumber_joint(*_cond_bins)   # _renumber_joint returns the occupied cardinality
+        _cond_bins_dev = [(_clean_subexpr_bin_dev.get((rname, ei)) if (rname, ei) in _clean_subexpr_bin else eng_bin_dev.get(ei)) for ei in consumers]
+        z_support, _zcard = _renumber_joint(*_cond_bins)  # _renumber_joint returns the occupied cardinality
         z_support_dev = _join_dev(*_cond_bins_dev)
         cmi, floor, excess = _excess_and_floor(rb_cand, y_arr, z_support, seed=seed, z_support_dev=z_support_dev,
                                                kx=(int(rb.max()) + 1 if getattr(rb, "size", 0) else 1), kz=int(_zcard))
@@ -759,20 +741,19 @@ def drop_redundant_raw_operands(
             if _clean is not None:
                 _z_full, _ = _renumber_joint(eng_bin[ei])
                 _z_full_dev = _join_dev(eng_bin_dev.get(ei))
-                _cmi_f, _floor_f, _excess_f = _excess_and_floor(
-                    rb_cand, y_arr, _z_full, seed=seed, z_support_dev=_z_full_dev)
+                _cmi_f, _floor_f, _excess_f = _excess_and_floor(rb_cand, y_arr, _z_full, seed=seed, z_support_dev=_z_full_dev)
                 if _excess_f < excess:
                     cmi, floor, excess = _cmi_f, _floor_f, _excess_f
         _sibling_names: list = []
         for ei in consumers:
-            for _sp in (_eng_signal_parents.get(ei, set()) - {rname}):
+            for _sp in _eng_signal_parents.get(ei, set()) - {rname}:
                 if _sp not in _sibling_names:
                     _sibling_names.append(_sp)
-        if _sibling_names and excess > 0.0:   # same selection-exact short-circuit: excess already 0 -> no update possible
+        if _sibling_names and excess > 0.0:  # same selection-exact short-circuit: excess already 0 -> no update possible
             _sibling_names.sort(key=lambda nm: -_raw_marginal(nm)[2])
             _budget = max(1, n_rows // _SUPPORT_FRAG_DIVISOR)
             _sib_cond = list(_cond_bins)
-            _sib_cond_dev = list(_cond_bins_dev)   # parallel resident twins for the device-born support join
+            _sib_cond_dev = list(_cond_bins_dev)  # parallel resident twins for the device-born support join
             _added = False
             for _sn in _sibling_names:
                 try:
@@ -784,13 +765,12 @@ def drop_redundant_raw_operands(
                 if (int(np.unique(_trial).size) if _trial.size else 1) > _budget:
                     continue  # adding this sibling would over-fragment the joint strata
                 _sib_cond.append(_sb)
-                _sib_cond_dev.append(_raw_dev(_sn, _sidx))   # resident twin (None if host-fallback -> host z)
+                _sib_cond_dev.append(_raw_dev(_sn, _sidx))  # resident twin (None if host-fallback -> host z)
                 _added = True
             if _added:
                 _z_sib, _ = _renumber_joint(*_sib_cond)
                 _z_sib_dev = _join_dev(*_sib_cond_dev)
-                _cmi_s, _floor_s, _excess_s = _excess_and_floor(
-                    rb_cand, y_arr, _z_sib, seed=seed, z_support_dev=_z_sib_dev)
+                _cmi_s, _floor_s, _excess_s = _excess_and_floor(rb_cand, y_arr, _z_sib, seed=seed, z_support_dev=_z_sib_dev)
                 # Take the conditioning that gives the SMALLEST debiased excess -- the
                 # strongest evidence of subsumption -- carrying its own (cmi, floor) so the
                 # floor check below stays consistent with the chosen conditioning.
@@ -857,8 +837,7 @@ def drop_redundant_raw_operands(
                     _lin_raw = np.asarray(raw_X[rname], dtype=np.float64).ravel()
                 if _lin_raw is None:
                     _lin_raw = np.asarray(data[:, ri], dtype=np.float64).ravel()
-                _lin_y = (np.asarray(y_continuous, dtype=np.float64).ravel()
-                          if y_continuous is not None else np.asarray(y_arr, dtype=np.float64).ravel())
+                _lin_y = np.asarray(y_continuous, dtype=np.float64).ravel() if y_continuous is not None else np.asarray(y_arr, dtype=np.float64).ravel()
                 _lin_children = []
                 for _ei in consumers:
                     _enm = cols[_ei]
@@ -918,11 +897,7 @@ def drop_redundant_raw_operands(
                                if (engineered_continuous and _enm in engineered_continuous) else None)
                         if _sv is not None and _sv.shape[0] == _yc.shape[0]:
                             _s_lin = max(_s_lin, _abs_pearson(_yc, _sv))
-                    if (
-                        _s_lin >= float(tail_subsume_min_corr)
-                        and _r_lin < _s_lin
-                        and _r_rank <= float(tail_subsume_rank_frac) * _r_lin
-                    ):
+                    if _s_lin >= float(tail_subsume_min_corr) and _r_lin < _s_lin and _r_rank <= float(tail_subsume_rank_frac) * _r_lin:
                         keep = False
                         if verbose:
                             logger.info(
@@ -997,8 +972,7 @@ def drop_redundant_raw_operands(
                 return np.asarray(data[:, i], dtype=np.float64).ravel()
 
             _kept_idx = [i for i in sel if i not in drop_idx_set]
-            _raw_names = ([c for c in raw_X.columns if c in raw_name_set]
-                          if (raw_X is not None and hasattr(raw_X, "columns")) else [])
+            _raw_names = [c for c in raw_X.columns if c in raw_name_set] if (raw_X is not None and hasattr(raw_X, "columns")) else []
             if _kept_idx and _raw_names and _yv.shape[0] == n_rows:
                 _X_kept = np.column_stack([_cont_of(i) for i in _kept_idx])
                 _X_rawonly = np.column_stack([np.asarray(raw_X[c], dtype=np.float64).ravel() for c in _raw_names])

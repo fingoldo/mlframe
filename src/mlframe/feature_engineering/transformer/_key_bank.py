@@ -59,9 +59,7 @@ class KeyBank:
         n_heads_p, d_input_p, head_dim_p = self.projections.shape
         n_heads_k, n_train_k, head_dim_k = self.k_proj.shape
         if (n_heads_p, head_dim_p) != (n_heads_k, head_dim_k):
-            raise ValueError(
-                f"KeyBank: projections vs k_proj inconsistent: projections={self.projections.shape} k_proj={self.k_proj.shape}."
-            )
+            raise ValueError(f"KeyBank: projections vs k_proj inconsistent: projections={self.projections.shape} k_proj={self.k_proj.shape}.")
         if self.y_train.shape != (n_train_k,):
             raise ValueError(f"KeyBank: y_train shape {self.y_train.shape} != ({n_train_k},).")
         self.n_heads = n_heads_p

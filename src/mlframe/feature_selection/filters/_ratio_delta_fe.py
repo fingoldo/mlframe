@@ -212,9 +212,7 @@ def pairwise_log_ratio_features(
                 continue
             a_vals = np.asarray(X[a].to_numpy(), dtype=np.float64)
             b_vals = np.asarray(X[b].to_numpy(), dtype=np.float64)
-            lr = np.log1p(np.abs(a_vals) + float(eps)) - np.log1p(
-                np.abs(b_vals) + float(eps)
-            )
+            lr = np.log1p(np.abs(a_vals) + float(eps)) - np.log1p(np.abs(b_vals) + float(eps))
             lr = np.nan_to_num(lr, nan=0.0, posinf=0.0, neginf=0.0)
             if not _passes_redundancy(lr, a_vals, b_vals, redundancy_corr_threshold):
                 continue
@@ -252,13 +250,9 @@ def _passes_redundancy(
 
 def apply_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_ratio: X_test must be a DataFrame; got {type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_ratio: X_test must be a DataFrame; got {type(X_test).__name__}")
     if a not in X_test.columns or b not in X_test.columns:
-        raise KeyError(
-            f"apply_ratio: missing source column(s) {a!r}/{b!r} from X_test"
-        )
+        raise KeyError(f"apply_ratio: missing source column(s) {a!r}/{b!r} from X_test")
     a_vals = np.asarray(X_test[a].to_numpy(), dtype=np.float64)
     b_vals = np.asarray(X_test[b].to_numpy(), dtype=np.float64)
     r = _safe_div(a_vals, b_vals, float(eps))
@@ -267,13 +261,9 @@ def apply_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
 
 def apply_log_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_log_ratio: X_test must be a DataFrame; got {type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_log_ratio: X_test must be a DataFrame; got {type(X_test).__name__}")
     if a not in X_test.columns or b not in X_test.columns:
-        raise KeyError(
-            f"apply_log_ratio: missing source column(s) {a!r}/{b!r} from X_test"
-        )
+        raise KeyError(f"apply_log_ratio: missing source column(s) {a!r}/{b!r} from X_test")
     a_vals = np.asarray(X_test[a].to_numpy(), dtype=np.float64)
     b_vals = np.asarray(X_test[b].to_numpy(), dtype=np.float64)
     lr = np.log1p(np.abs(a_vals) + float(eps)) - np.log1p(np.abs(b_vals) + float(eps))
@@ -302,9 +292,7 @@ def grouped_delta_features(
     if len(X) == 0:
         raise ValueError("grouped_delta_features: X is empty")
     if group_col not in X.columns:
-        raise ValueError(
-            f"grouped_delta_features: group_col {group_col!r} missing from X"
-        )
+        raise ValueError(f"grouped_delta_features: group_col {group_col!r} missing from X")
     num_cols = [c for c in num_cols if c in X.columns and c != group_col]
     if not num_cols:
         return pd.DataFrame(index=X.index), {}
@@ -324,9 +312,7 @@ def grouped_delta_features(
         lookup_std = {str(k): float(s) for k, s in zip(agg.index.astype(str), agg_std)}
         finite_mask = np.isfinite(x)
         global_mean = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
-        global_std_raw = (
-            float(np.nanstd(x[finite_mask])) if finite_mask.any() else 1.0
-        )
+        global_std_raw = float(np.nanstd(x[finite_mask])) if finite_mask.any() else 1.0
         global_std = global_std_raw if global_std_raw > 0.0 else 1.0
         # Build the engineered columns.
         per_row_mean = _map_group_keys(g.values, lookup_mean, global_mean)
@@ -363,10 +349,7 @@ def grouped_delta_features(
 
 def apply_grouped_delta(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_grouped_delta: X_test must be a DataFrame; got "
-            f"{type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_grouped_delta: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     group_col = recipe["group_col"]
     num_col = recipe["num_col"]
     op = recipe["op"]
@@ -375,10 +358,7 @@ def apply_grouped_delta(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     global_mean = float(recipe["global_mean"])
     global_std = float(recipe["global_std"]) or 1.0
     if group_col not in X_test.columns or num_col not in X_test.columns:
-        raise KeyError(
-            f"apply_grouped_delta: missing column(s) {group_col!r}/{num_col!r} "
-            f"from X_test"
-        )
+        raise KeyError(f"apply_grouped_delta: missing column(s) {group_col!r}/{num_col!r} " f"from X_test")
     g_vals = group_key_strings(X_test[group_col])
     x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
     per_row_mean = _map_group_keys(g_vals, lookup_mean, global_mean)
@@ -455,18 +435,12 @@ def lagged_diff_features(
 
 def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_lagged_diff: X_test must be a DataFrame; got "
-            f"{type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_lagged_diff: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     time_col = recipe["time_col"]
     value_col = recipe["value_col"]
     period = int(recipe["period"])
     if time_col not in X_test.columns or value_col not in X_test.columns:
-        raise KeyError(
-            f"apply_lagged_diff: missing column(s) {time_col!r}/{value_col!r} "
-            f"from X_test"
-        )
+        raise KeyError(f"apply_lagged_diff: missing column(s) {time_col!r}/{value_col!r} " f"from X_test")
     sort_idx = np.argsort(X_test[time_col].to_numpy(), kind="mergesort")
     inv_perm = np.empty_like(sort_idx)
     inv_perm[sort_idx] = np.arange(len(X_test))
@@ -622,10 +596,7 @@ def grouped_delta_with_recipes(
         enc_df = enc_df[[c for c in enc_df.columns if c in keep]]
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
-    recipes = [
-        build_grouped_delta_recipe(name=name, **raw_recipes[name])
-        for name in appended
-    ]
+    recipes = [build_grouped_delta_recipe(name=name, **raw_recipes[name]) for name in appended]
     return X_aug, appended, recipes
 
 
@@ -667,10 +638,7 @@ def lagged_diff_with_recipes(
         enc_df = enc_df[[c for c in enc_df.columns if c in keep]]
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
-    recipes = [
-        build_lagged_diff_recipe(name=name, **raw_recipes[name])
-        for name in appended
-    ]
+    recipes = [build_lagged_diff_recipe(name=name, **raw_recipes[name]) for name in appended]
     return X_aug, appended, recipes
 
 
@@ -690,18 +658,12 @@ def _coerce_X_for_pair(X, a: str, b: str, recipe_name: str) -> pd.DataFrame:
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
         return pd.DataFrame({a: X[a], b: X[b]})
-    raise TypeError(
-        f"recipe '{recipe_name}': cannot extract columns {a!r}/{b!r} from "
-        f"X of type {type(X).__name__}"
-    )
+    raise TypeError(f"recipe '{recipe_name}': cannot extract columns {a!r}/{b!r} from " f"X of type {type(X).__name__}")
 
 
 def _apply_pairwise_ratio_recipe(recipe, X) -> np.ndarray:
     if len(recipe.src_names) != 2:
-        raise ValueError(
-            f"pairwise_ratio recipe '{recipe.name}' must have exactly 2 "
-            f"src_names; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"pairwise_ratio recipe '{recipe.name}' must have exactly 2 " f"src_names; got {len(recipe.src_names)}")
     a, b = recipe.src_names
     kind = str(recipe.extra.get("kind", "div"))
     eps = float(recipe.extra.get("eps", 1e-9))
@@ -727,10 +689,7 @@ def _coerce_X_for_grouped_delta(X, group_col: str, num_col: str, recipe_name: st
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
         return pd.DataFrame({group_col: X[group_col], num_col: X[num_col]})
-    raise TypeError(
-        f"recipe '{recipe_name}': cannot extract {group_col!r}/{num_col!r} "
-        f"from X of type {type(X).__name__}"
-    )
+    raise TypeError(f"recipe '{recipe_name}': cannot extract {group_col!r}/{num_col!r} " f"from X of type {type(X).__name__}")
 
 
 def _apply_grouped_delta_recipe(recipe, X) -> np.ndarray:
@@ -765,10 +724,7 @@ def _coerce_X_for_lagged_diff(X, time_col: str, value_col: str, recipe_name: str
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
         return pd.DataFrame({time_col: X[time_col], value_col: X[value_col]})
-    raise TypeError(
-        f"recipe '{recipe_name}': cannot extract {time_col!r}/{value_col!r} "
-        f"from X of type {type(X).__name__}"
-    )
+    raise TypeError(f"recipe '{recipe_name}': cannot extract {time_col!r}/{value_col!r} " f"from X of type {type(X).__name__}")
 
 
 def _apply_lagged_diff_recipe(recipe, X) -> np.ndarray:

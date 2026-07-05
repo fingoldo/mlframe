@@ -228,8 +228,7 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
             _yi = np.ascontiguousarray(np.asarray(yi)).astype(np.int64).ravel()
             _ym = int(_yi.min()) if _yi.size else 0
             _nc = (int(_yi.max()) - _ym + 1) if _yi.size else 1
-            _r = best_existing_op_mi_resident(arrs, names, yi, nbins, y_min=_ym, n_classes=_nc,
-                                              rank_binning=_gate_rank)
+            _r = best_existing_op_mi_resident(arrs, names, yi, nbins, y_min=_ym, n_classes=_nc, rank_binning=_gate_rank)
             if _r is not None:
                 return _r
     except Exception:
@@ -253,8 +252,7 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
     return float(np.max(mis))
 
 
-def _responded(feat_mi: float, baseline: float, null_hi: float, min_margin: float = _MIN_MARGIN,
-               null_margin: float = _MIN_NULL_MARGIN) -> bool:
+def _responded(feat_mi: float, baseline: float, null_hi: float, min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
     """Gate: the engineered column's MI must clear BOTH the operand baseline (by ``min_margin``) AND the permutation-null upper band by an
     absolute ``null_margin`` (not just ``> null_hi`` -- guards the cardinality-inflation false positive on a few-class y; see ``_MIN_NULL_MARGIN``).
     Mirrors ``_pairwise_modular_fe._responded`` (``baseline`` plays the smooth-basis floor role)."""
@@ -317,7 +315,7 @@ def _argmax_resident(arrs, tri):
         for c in tri:
             _h = np.ascontiguousarray(np.asarray(arrs[c], dtype=np.float64))
             if not np.all(np.isfinite(_h)):
-                return None   # host np.argmax NaN semantics differ -> keep the host path for a non-finite operand
+                return None  # host np.argmax NaN semantics differ -> keep the host path for a non-finite operand
             _ops.append(resident_operand(_h, ("argmax_op", str(c)), dtype=cp.float64))
         return cp.argmax(cp.stack(_ops, axis=1), axis=1).astype(cp.float64)
     except Exception:
@@ -362,8 +360,7 @@ def _gate_grid_mi(feats: np.ndarray, yi: np.ndarray, nbins: int) -> np.ndarray:
     ``_mi_classif_batch`` bins each column independently, only the per-call dispatch overhead is amortised)."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
-    return np.asarray(_mi_classif_batch(np.ascontiguousarray(feats), yi, nbins=nbins,
-                                        rank_binning=_gate_rank_binning()), dtype=np.float64)
+    return np.asarray(_mi_classif_batch(np.ascontiguousarray(feats), yi, nbins=nbins, rank_binning=_gate_rank_binning()), dtype=np.float64)
 
 
 def _is_argmax_eligible(x: np.ndarray) -> bool:
@@ -684,8 +681,7 @@ def cheap_conditional_gate_scan(
             _cv = np.ascontiguousarray(cv, dtype=np.float64)
             if mode == "mask":
                 return _gate_mask_grid_njit(_cv, np.ascontiguousarray(operands[1], dtype=np.float64), _t)
-            return _gate_select_grid_njit(_cv, np.ascontiguousarray(operands[1], dtype=np.float64),
-                                          np.ascontiguousarray(operands[2], dtype=np.float64), _t)
+            return _gate_select_grid_njit(_cv, np.ascontiguousarray(operands[1], dtype=np.float64), np.ascontiguousarray(operands[2], dtype=np.float64), _t)
         feats = np.empty((n, len(taus)), dtype=np.float64)
         if mode == "mask":
             av = operands[1]
@@ -716,8 +712,7 @@ def cheap_conditional_gate_scan(
             # Carry the operand COLUMN NAMES (ctup) so the resident operand cache keys stably per column (the
             # same gate / operand column recurs across many specs -> uploaded ONCE per fit, not per spec).
             specs = [(mode, ctup, operands, taus) for (mode, ctup, operands, taus, _bkey) in _pending]
-            return gate_grid_mi_resident(specs, yi, nbins, rank_binning=_gate_rank_binning(),
-                                         y_min=_ym, n_classes=_nc)
+            return gate_grid_mi_resident(specs, yi, nbins, rank_binning=_gate_rank_binning(), y_min=_ym, n_classes=_nc)
         except Exception:
             return None
 
@@ -816,8 +811,7 @@ def detect_conditional_gate(
     for h in hits:
         if not h.responded:
             continue
-        out.append({"mode": h.mode, "cols": h.cols, "tau": h.tau, "feat_mi": h.feat_mi,
-                    "baseline_mi": h.baseline_mi, "margin": h.margin_over_baseline})
+        out.append({"mode": h.mode, "cols": h.cols, "tau": h.tau, "feat_mi": h.feat_mi, "baseline_mi": h.baseline_mi, "margin": h.margin_over_baseline})
         if len(out) >= int(top_k):
             break
     return out

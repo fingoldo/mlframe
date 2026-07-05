@@ -24,7 +24,7 @@ def make(n, p=P, seed=5):
     X = rng.normal(size=(n, p)).astype(np.float32)
     # zero-marginal synergy (x0*x1) + a couple linear signals; rest noise
     logit = 1.0 * X[:, 0] * X[:, 1] + 0.8 * X[:, 2] + 0.6 * X[:, 3]
-    y = (rng.random(n) < 1/(1+np.exp(-logit))).astype(np.int64)
+    y = (rng.random(n) < 1 / (1 + np.exp(-logit))).astype(np.int64)
     cols = [f"x{i}" for i in range(p)]
     return pd.DataFrame(X, columns=cols), pd.Series(y, name="y")
 
@@ -62,8 +62,7 @@ def main():
     for n in NS:
         t60, t250 = results[(n, 60)], results[(n, 250)]
         d = t250 - t60
-        print(f"  n={n:>7}: cap60={t60:.2f}s cap250={t250:.2f}s  "
-              f"delta=+{d:.2f}s ({100*d/max(t60,1e-9):+.0f}%)")
+        print(f"  n={n:>7}: cap60={t60:.2f}s cap250={t250:.2f}s  " f"delta=+{d:.2f}s ({100*d/max(t60,1e-9):+.0f}%)")
 
 
 if __name__ == "__main__":

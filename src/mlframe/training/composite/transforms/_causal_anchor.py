@@ -36,7 +36,6 @@ from typing import Any
 
 import numpy as np
 
-
 # Moderate shrink prior: when data is scarce or the anchor carries no slope
 # information, default alpha toward a half-way commit rather than 0 (ignore the
 # anchor) or 1 (fully commit like diff).

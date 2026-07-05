@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 __all__ = [
     "compute_countaggs",
     "get_countaggs_names",
@@ -87,8 +86,7 @@ def compute_countaggs(
             res.extend(extra_features)
         else:
             logger.debug(
-                "compute_countaggs: counts_compute_values_numaggs=True but values dtype is %s "
-                "(non-numeric); padding with NaN.",
+                "compute_countaggs: counts_compute_values_numaggs=True but values dtype is %s " "(non-numeric); padding with NaN.",
                 values.dtype,
             )
             res.extend([np.nan] * len(_directional_numaggs_names_cache))

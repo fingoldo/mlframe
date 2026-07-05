@@ -25,16 +25,11 @@ def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     of ``hermite_fe`` keeps this module dependency-light at import time.
     """
     if len(recipe.src_names) != 2:
-        raise ValueError(
-            f"hermite_pair recipe '{recipe.name}' must have exactly 2 src_names; "
-            f"got {len(recipe.src_names)}"
-        )
-    for key in ("coef_a", "coef_b", "basis", "bin_func_name",
-                "preprocess_a", "preprocess_b"):
+        raise ValueError(f"hermite_pair recipe '{recipe.name}' must have exactly 2 src_names; " f"got {len(recipe.src_names)}")
+    for key in ("coef_a", "coef_b", "basis", "bin_func_name", "preprocess_a", "preprocess_b"):
         if key not in recipe.extra:
             raise KeyError(
-                f"hermite_pair recipe '{recipe.name}' missing '{key}' in extra. "
-                f"Re-fit with the current build_hermite_pair_recipe to repopulate."
+                f"hermite_pair recipe '{recipe.name}' missing '{key}' in extra. " f"Re-fit with the current build_hermite_pair_recipe to repopulate."
             )
 
     # Lazy imports to avoid circular dependency (hermite_fe -> mrmr -> recipes).
@@ -43,15 +38,10 @@ def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     basis = recipe.extra["basis"]
     bin_func_name = recipe.extra["bin_func_name"]
     if basis not in _POLY_BASES:
-        raise KeyError(
-            f"hermite_pair recipe '{recipe.name}' references unknown basis "
-            f"{basis!r}; available: {sorted(_POLY_BASES)}"
-        )
+        raise KeyError(f"hermite_pair recipe '{recipe.name}' references unknown basis " f"{basis!r}; available: {sorted(_POLY_BASES)}")
     if bin_func_name not in _DEFAULT_BIN_FUNCS:
         raise KeyError(
-            f"hermite_pair recipe '{recipe.name}' references unknown "
-            f"bin_func_name {bin_func_name!r}; available: "
-            f"{sorted(_DEFAULT_BIN_FUNCS)}"
+            f"hermite_pair recipe '{recipe.name}' references unknown " f"bin_func_name {bin_func_name!r}; available: " f"{sorted(_DEFAULT_BIN_FUNCS)}"
         )
 
     name_a, name_b = recipe.src_names
@@ -191,7 +181,7 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         signs_row = np.where(signs_row == 0.0, 1.0, signs_row)
         out = signs_row * abs_Z[rows, idx]
     elif method == "signed_l2_sum":
-        out = np.sum(np.sign(Z) * (Z ** 2), axis=1)
+        out = np.sum(np.sign(Z) * (Z**2), axis=1)
     else:
         if "weights" not in recipe.extra:
             raise KeyError(f"cluster_aggregate recipe '{recipe.name}' (method={method!r}) missing 'weights' in extra.")
@@ -220,15 +210,9 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 def _apply_target_encoding(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     """Look up each test row's (a, b) merged cell in ``cell_means``, return per-row encoded float. Unseen combinations map to ``global_mean`` (or per ``unknown_strategy``)."""
     if len(recipe.src_names) != 2:
-        raise NotImplementedError(
-            f"target_encoding for k>2 not implemented yet "
-            f"(recipe '{recipe.name}' has {len(recipe.src_names)} src)."
-        )
+        raise NotImplementedError(f"target_encoding for k>2 not implemented yet " f"(recipe '{recipe.name}' has {len(recipe.src_names)} src).")
     if "cell_means" not in recipe.extra or "factorize_lookup" not in recipe.extra:
-        raise KeyError(
-            f"target_encoding recipe '{recipe.name}' is missing 'cell_means' "
-            f"or 'factorize_lookup' in extra. Re-fit to materialize."
-        )
+        raise KeyError(f"target_encoding recipe '{recipe.name}' is missing 'cell_means' " f"or 'factorize_lookup' in extra. Re-fit to materialize.")
     name_a, name_b = recipe.src_names
     nbins_a, nbins_b = recipe.factorize_nbins
     factorize_lookup: np.ndarray = recipe.extra["factorize_lookup"]

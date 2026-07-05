@@ -75,10 +75,7 @@ def gpu_fe_batch_mi(
                 # In-place where(isfinite) not cp.nan_to_num(nan=0,...): nan_to_num runs cupy.isnan() on each
                 # scalar fill arg (a blocking D2H sync); Xg[...]= assigns elementwise in place, identical result.
                 Xg[...] = cp.where(cp.isfinite(Xg), Xg, cp.asarray(0.0, dtype=Xg.dtype))
-            out[sl] = np.asarray(
-                _plugin_mi_classif_batch_cuda_resident(Xg, y_gpu, nbins, y_min=y_min, n_classes=n_classes,
-                                                       keep_dtype=_f32)
-            )
+            out[sl] = np.asarray(_plugin_mi_classif_batch_cuda_resident(Xg, y_gpu, nbins, y_min=y_min, n_classes=n_classes, keep_dtype=_f32))
             del Xg
             if free_blocks:
                 cp.get_default_memory_pool().free_all_blocks()

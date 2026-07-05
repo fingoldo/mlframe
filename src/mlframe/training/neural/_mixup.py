@@ -88,9 +88,7 @@ def mixup_batch(
     if alpha <= 0:
         raise ValueError(f"mixup alpha must be > 0; got {alpha}")
     if x.shape[0] != y.shape[0]:
-        raise ValueError(
-            f"x batch dim {x.shape[0]} != y batch dim {y.shape[0]}"
-        )
+        raise ValueError(f"x batch dim {x.shape[0]} != y batch dim {y.shape[0]}")
 
     # Sample lam ~ Beta(alpha, alpha) on the same device for zero CPU sync.
     # torch.distributions.Beta is OK but allocates a Distribution object
@@ -151,9 +149,7 @@ def mixup_sequence_batch(
         raise ValueError(f"mixup alpha must be > 0; got {alpha}")
     B = sequences.shape[0]
     if lengths.shape[0] != B or y.shape[0] != B:
-        raise ValueError(
-            f"batch dim mismatch: sequences={B}, lengths={lengths.shape[0]}, y={y.shape[0]}"
-        )
+        raise ValueError(f"batch dim mismatch: sequences={B}, lengths={lengths.shape[0]}, y={y.shape[0]}")
 
     lam_t = torch.distributions.Beta(alpha, alpha).sample().to(sequences.device)
     lam = float(lam_t.clamp(min=1e-3, max=1.0 - 1e-3).item())

@@ -26,8 +26,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-C3 = dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
-          redundancy_rho=0.8, snr=8.0, seed=0)
+C3 = dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0)
 
 
 def _make_dataset(cfg):
@@ -107,19 +106,19 @@ def main():
     base = results[0]
     print("\n=== chosen-subset comparison vs baseline value=100 ===")
     for r in results:
-        ident = "IDENTICAL" if r['chosen'] == base['chosen'] else "DIFFER"
-        jac = len(set(r['chosen']) & set(base['chosen'])) / max(1, len(set(r['chosen']) | set(base['chosen'])))
-        symdiff = set(base['chosen']) ^ set(r['chosen'])
+        ident = "IDENTICAL" if r["chosen"] == base["chosen"] else "DIFFER"
+        jac = len(set(r["chosen"]) & set(base["chosen"])) / max(1, len(set(r["chosen"]) | set(base["chosen"])))
+        symdiff = set(base["chosen"]) ^ set(r["chosen"])
         print(f"  value={r['value']:>3}: {ident}  jaccard={jac:.3f}  symdiff={sorted(symdiff)}")
 
     print("\n=== composite fidelity delta vs baseline ===")
-    base_fid = base['proxy_fidelity_score'] or 0.0
+    base_fid = base["proxy_fidelity_score"] or 0.0
     for r in results:
-        fid = r['proxy_fidelity_score'] or 0.0
+        fid = r["proxy_fidelity_score"] or 0.0
         delta = (fid - base_fid) / abs(base_fid) if base_fid else 0.0
         print(f"  value={r['value']:>3}: fidelity={fid:.4f}  delta={delta*100:+.2f}%")
 
-    print("\nbaseline (value=100) chosen:", sorted(base['chosen']))
+    print("\nbaseline (value=100) chosen:", sorted(base["chosen"]))
 
 
 if __name__ == "__main__":

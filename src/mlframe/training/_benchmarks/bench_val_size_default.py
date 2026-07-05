@@ -152,8 +152,7 @@ def main():
             else:
                 ties += 1
         n = len(cells)
-        summary[str(alt)] = {"wins": wins, "ties": ties, "losses": losses, "n": n,
-                             "verdict": "FLIP" if wins > n / 2 else "KEEP_DEFAULT"}
+        summary[str(alt)] = {"wins": wins, "ties": ties, "losses": losses, "n": n, "verdict": "FLIP" if wins > n / 2 else "KEEP_DEFAULT"}
 
     out = {"baseline_val_size": baseline, "cells": cells, "summary": summary}
     res_dir = Path(__file__).parent / "_results"

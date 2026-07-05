@@ -59,14 +59,14 @@ class _RingBuffer:
         if m >= cap:
             # The new batch alone overflows the window: keep only its tail and
             # reset the ring so the contiguous view starts at index 0.
-            self._store[:] = arr[m - cap:]
+            self._store[:] = arr[m - cap :]
             self._head = 0
             self._count = cap
             return
         # Write ``m`` rows starting at the current tail, wrapping the ring.
         tail = (self._head + self._count) % cap
         first = min(m, cap - tail)
-        self._store[tail:tail + first] = arr[:first]
+        self._store[tail : tail + first] = arr[:first]
         if first < m:
             self._store[: m - first] = arr[first:]
         new_count = self._count + m
@@ -115,9 +115,7 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
     info: dict carrying the same fields as ``streaming_alpha_check_and_refit`` (refit / z_score / alpha_buffer / beta_buffer / reason) PLUS ``buffer_n_total`` (current buffer size after the update).
     """
     if not getattr(self, "online_refit_enabled", False):
-        raise RuntimeError(
-            "CompositeTargetEstimator.update: online_refit_enabled is False. Set it to True in __init__ to enable streaming refit."
-        )
+        raise RuntimeError("CompositeTargetEstimator.update: online_refit_enabled is False. Set it to True in __init__ to enable streaming refit.")
     # linear_residual_robust shares the {alpha, beta} param shape and the
     # forward/inverse of linear_residual, so the closed-form streaming refit
     # applies to it too (the streaming refit recomputes alpha/beta by OLS on
@@ -127,9 +125,7 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
             f"streaming alpha refit only supported for 'linear_residual'; got transform_name={self.transform_name!r}. Other transforms have transform-specific params (eps for ratio, mad_eff for logratio, per-bin medians for quantile_residual, etc.) that don't fit the closed-form alpha/beta refit pattern."
         )
     if not hasattr(self, "fitted_params_"):
-        raise RuntimeError(
-            "CompositeTargetEstimator.update called before fit (no fitted_params_ to refit)."
-        )
+        raise RuntimeError("CompositeTargetEstimator.update called before fit (no fitted_params_ to refit).")
     # Lazy-init the preallocated ring buffers on first update. The trailing
     # underscore marks runtime-only state that sklearn.clone() drops (cloned
     # estimators start with an empty buffer).
@@ -139,9 +135,7 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
     y_arr = np.asarray(y_recent, dtype=np.float64).reshape(-1)
     base_arr = np.asarray(base_recent, dtype=np.float64).reshape(-1)
     if y_arr.size != base_arr.size:
-        raise ValueError(
-            f"CompositeTargetEstimator.update: y_recent ({y_arr.size} rows) and base_recent ({base_arr.size} rows) must have equal length."
-        )
+        raise ValueError(f"CompositeTargetEstimator.update: y_recent ({y_arr.size} rows) and base_recent ({base_arr.size} rows) must have equal length.")
     # Append only the new rows (O(new_rows)); the heavy whole-buffer unboxing of
     # the old deque path is gone -- the drift check reads a contiguous view.
     self._buffer_y_.append(y_arr)
@@ -193,8 +187,8 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
                         self.fitted_params_["t_clip_high"] = _med_t + 10.0 * _mad_t
         except Exception as _env_err:
             logger.warning(
-                "[CompositeTargetEstimator.update] envelope refresh after drift "
-                "refit failed (%s); kept the pre-drift clip bounds.", _env_err,
+                "[CompositeTargetEstimator.update] envelope refresh after drift " "refit failed (%s); kept the pre-drift clip bounds.",
+                _env_err,
             )
         logger.info(
             "[CompositeTargetEstimator.update] streaming refit fired (z=%.2f > %.2f). alpha %.4f -> %.4f, beta %.4f -> %.4f. buffer_n=%d",

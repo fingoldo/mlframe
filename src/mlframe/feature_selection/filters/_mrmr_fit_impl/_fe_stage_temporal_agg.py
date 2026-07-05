@@ -56,24 +56,13 @@ def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes):
                 from .._temporal_agg_fe import hybrid_temporal_agg_fe
 
                 _ta_time = getattr(self, "fe_temporal_agg_time_col", None)
-                _ta_entities = [
-                    c for c in (getattr(self, "fe_temporal_agg_entity_cols", ()) or ())
-                    if c in X.columns
-                ]
-                _ta_values = [
-                    c for c in (getattr(self, "fe_temporal_agg_value_cols", ()) or ())
-                    if c in X.columns
-                ]
+                _ta_entities = [c for c in (getattr(self, "fe_temporal_agg_entity_cols", ()) or ()) if c in X.columns]
+                _ta_values = [c for c in (getattr(self, "fe_temporal_agg_value_cols", ()) or ()) if c in X.columns]
                 if _ta_time is None or _ta_time not in X.columns or not _ta_entities or not _ta_values:
                     if verbose:
-                        logger.info(
-                            "MRMR.fit temporal_agg: skipped (need time_col + "
-                            "entity_cols + value_cols all present in X)."
-                        )
+                        logger.info("MRMR.fit temporal_agg: skipped (need time_col + " "entity_cols + value_cols all present in X).")
                 else:
-                    _y_for_ta = (
-                        _y_np
-                    )
+                    _y_for_ta = _y_np
                     if _y_for_ta.dtype.kind in "fc":
                         if int(np.unique(_y_for_ta).size) <= 32:
                             _y_for_ta = _y_for_ta.astype(np.int64)
@@ -84,10 +73,7 @@ def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes):
                                 ).astype(np.int64)
                             except Exception:
                                 _y_for_ta = _y_for_ta.astype(np.int64)
-                    _ta_stats = tuple(
-                        getattr(self, "fe_temporal_agg_stats", ())
-                        or ("mean", "std", "count")
-                    )
+                    _ta_stats = tuple(getattr(self, "fe_temporal_agg_stats", ()) or ("mean", "std", "count"))
                     _ta_windows = tuple(getattr(self, "fe_temporal_agg_windows", ()) or ())
                     _ta_lags = tuple(getattr(self, "fe_temporal_agg_lags", (1,)) or ())
                     _ta_top_k = int(getattr(self, "fe_temporal_agg_top_k", 10))
@@ -98,9 +84,7 @@ def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes):
                         time_col=_ta_time, stats=_ta_stats,
                         windows=_ta_windows, lags=_ta_lags, top_k=_ta_top_k,
                     )
-                    _ta_appended = [
-                        c for c in _ta_appended if c not in _X_before_ta_cols
-                    ]
+                    _ta_appended = [c for c in _ta_appended if c not in _X_before_ta_cols]
                     if _ta_appended:
                         # A temporal winner whose name collides with an existing X column is filtered out of
                         # _ta_appended above, but hybrid_temporal_agg_fe's concat still left the duplicate label in
@@ -109,22 +93,20 @@ def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes):
                             X_ta = X_ta.loc[:, ~X_ta.columns.duplicated()]
                         X = X_ta
                         self.temporal_agg_features_ = list(_ta_appended)
-                        self.hybrid_orth_features_ = (
-                            list(self.hybrid_orth_features_ or []) + list(_ta_appended)
-                        )
+                        self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ta_appended)
                         for _r in _ta_recipes:
                             if _r.name in _ta_appended:
                                 _temporal_agg_pre_recipes[_r.name] = _r
                         if verbose:
                             logger.info(
-                                "MRMR.fit temporal_agg: appended %d engineered "
-                                "column(s): %s",
-                                len(_ta_appended), _ta_appended[:8],
+                                "MRMR.fit temporal_agg: appended %d engineered " "column(s): %s",
+                                len(_ta_appended),
+                                _ta_appended[:8],
                             )
             except Exception as _ta_exc:
                 logger.warning(
-                    "MRMR.fit temporal_agg FE raised %s: %s; continuing without "
-                    "temporal-aggregate columns.",
-                    type(_ta_exc).__name__, _ta_exc,
+                    "MRMR.fit temporal_agg FE raised %s: %s; continuing without " "temporal-aggregate columns.",
+                    type(_ta_exc).__name__,
+                    _ta_exc,
                 )
     return X

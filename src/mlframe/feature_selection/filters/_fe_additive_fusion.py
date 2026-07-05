@@ -239,8 +239,7 @@ def propose_additive_fusions(
         floor, _ = _conditional_perm_null(vb, y_dense, None, seed=seed)
         if mi <= floor:
             continue  # not relevant -- never a fusion half
-        halves.append({"name": nm, "recipe": rec, "vals": vals, "tokens": toks,
-                       "mi": mi, "floor": float(floor), "binned": vb})
+        halves.append({"name": nm, "recipe": rec, "vals": vals, "tokens": toks, "mi": mi, "floor": float(floor), "binned": vb})
 
     if len(halves) < 2:
         return [], set(), set()
@@ -347,8 +346,7 @@ def propose_additive_fusions(
                 nested_parent_a=ha["recipe"],
                 nested_parent_b=hb["recipe"],
             )
-            admitted.append({"name": name, "values": fused_vals, "recipe": recipe,
-                             "mi": fused_mi})
+            admitted.append({"name": name, "values": fused_vals, "recipe": recipe, "mi": fused_mi})
             existing_names.add(name)
             # The two fragments are now subsumed by the fused compound (it carries BOTH
             # additive terms): drop them from selection / the recipe dict.

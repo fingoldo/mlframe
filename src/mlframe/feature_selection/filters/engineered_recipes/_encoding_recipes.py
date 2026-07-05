@@ -52,16 +52,10 @@ def _apply_kfold_target_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     lookup + global_mean; no y reference. Categories not present in the
     lookup map to ``global_mean``."""
     if len(recipe.src_names) != 1:
-        raise ValueError(
-            f"kfold_target_encoded recipe '{recipe.name}' must have exactly "
-            f"1 src_names; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"kfold_target_encoded recipe '{recipe.name}' must have exactly " f"1 src_names; got {len(recipe.src_names)}")
     for key in ("lookup", "global_mean"):
         if key not in recipe.extra:
-            raise KeyError(
-                f"kfold_target_encoded recipe '{recipe.name}' missing '{key}' "
-                f"in extra. Re-fit MRMR to regenerate."
-            )
+            raise KeyError(f"kfold_target_encoded recipe '{recipe.name}' missing '{key}' " f"in extra. Re-fit MRMR to regenerate.")
     # Lazy import to avoid circular dependency at module-load time.
     from .._target_encoding_fe import apply_target_encoding
 
@@ -144,14 +138,9 @@ def build_kfold_target_encoded_recipe(
 def _apply_count_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     """Replay count encoding via the stored per-category lookup."""
     if len(recipe.src_names) != 1:
-        raise ValueError(
-            f"count_encoded recipe '{recipe.name}' must have exactly 1 "
-            f"src_names; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"count_encoded recipe '{recipe.name}' must have exactly 1 " f"src_names; got {len(recipe.src_names)}")
     if "lookup" not in recipe.extra:
-        raise KeyError(
-            f"count_encoded recipe '{recipe.name}' missing 'lookup' in extra."
-        )
+        raise KeyError(f"count_encoded recipe '{recipe.name}' missing 'lookup' in extra.")
     from .._count_freq_interaction_fe import apply_count_encoding
 
     name = recipe.src_names[0]
@@ -162,10 +151,7 @@ def _apply_count_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     elif isinstance(X, np.ndarray) and X.dtype.names is not None:
         X_view = pd.DataFrame({name: X[name]})
     else:
-        raise TypeError(
-            f"count_encoded recipe '{recipe.name}': cannot extract column "
-            f"{name!r} from X of type {type(X).__name__}."
-        )
+        raise TypeError(f"count_encoded recipe '{recipe.name}': cannot extract column " f"{name!r} from X of type {type(X).__name__}.")
     return apply_count_encoding(
         X_view, name, {
             "lookup": dict(recipe.extra["lookup"]),
@@ -177,14 +163,9 @@ def _apply_count_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 def _apply_frequency_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     """Replay frequency encoding via the stored per-category lookup."""
     if len(recipe.src_names) != 1:
-        raise ValueError(
-            f"frequency_encoded recipe '{recipe.name}' must have exactly 1 "
-            f"src_names; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"frequency_encoded recipe '{recipe.name}' must have exactly 1 " f"src_names; got {len(recipe.src_names)}")
     if "lookup" not in recipe.extra:
-        raise KeyError(
-            f"frequency_encoded recipe '{recipe.name}' missing 'lookup' in extra."
-        )
+        raise KeyError(f"frequency_encoded recipe '{recipe.name}' missing 'lookup' in extra.")
     from .._count_freq_interaction_fe import apply_frequency_encoding
 
     name = recipe.src_names[0]
@@ -195,10 +176,7 @@ def _apply_frequency_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     elif isinstance(X, np.ndarray) and X.dtype.names is not None:
         X_view = pd.DataFrame({name: X[name]})
     else:
-        raise TypeError(
-            f"frequency_encoded recipe '{recipe.name}': cannot extract column "
-            f"{name!r} from X of type {type(X).__name__}."
-        )
+        raise TypeError(f"frequency_encoded recipe '{recipe.name}': cannot extract column " f"{name!r} from X of type {type(X).__name__}.")
     return apply_frequency_encoding(
         X_view, name, {
             "lookup": dict(recipe.extra["lookup"]),
@@ -210,15 +188,10 @@ def _apply_frequency_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 def _apply_cat_num_residual(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     """Replay cat x num residual: ``X[num] - lookup.get(X[cat], global_mean)``."""
     if len(recipe.src_names) != 2:
-        raise ValueError(
-            f"cat_num_residual recipe '{recipe.name}' must have exactly 2 "
-            f"src_names (cat_col, num_col); got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"cat_num_residual recipe '{recipe.name}' must have exactly 2 " f"src_names (cat_col, num_col); got {len(recipe.src_names)}")
     for key in ("lookup", "global_mean"):
         if key not in recipe.extra:
-            raise KeyError(
-                f"cat_num_residual recipe '{recipe.name}' missing {key!r} in extra."
-            )
+            raise KeyError(f"cat_num_residual recipe '{recipe.name}' missing {key!r} in extra.")
     from .._count_freq_interaction_fe import apply_cat_num_residual
 
     cat_name, num_name = recipe.src_names
@@ -235,10 +208,7 @@ def _apply_cat_num_residual(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             num_name: X[num_name],
         })
     else:
-        raise TypeError(
-            f"cat_num_residual recipe '{recipe.name}': cannot extract columns "
-            f"from X of type {type(X).__name__}."
-        )
+        raise TypeError(f"cat_num_residual recipe '{recipe.name}': cannot extract columns " f"from X of type {type(X).__name__}.")
     return apply_cat_num_residual(
         X_view, cat_name, num_name, {
             "lookup": dict(recipe.extra["lookup"]),
@@ -335,17 +305,13 @@ def build_cat_pair_cross_recipe(
     # Canonicalise each key element (int<->float drift safe, idempotent on the already-canonical strings the
     # generator passes) so a future raw-value caller cannot desync the build keys from the canonical apply-side
     # lookup and silently route every row to the global fallback (EN-1).
-    mapping_pairs = [
-        [[canonical_group_token(a) for a in k], int(v)] for k, v in mapping.items()
-    ]
+    mapping_pairs = [[[canonical_group_token(a) for a in k], int(v)] for k, v in mapping.items()]
     extra: dict = {
         "mapping": mapping_pairs,
         "encoding": str(encoding),
     }
     if encoding == "target":
-        extra["te_lookup"] = [
-            [int(k), float(v)] for k, v in (te_lookup or {}).items()
-        ]
+        extra["te_lookup"] = [[int(k), float(v)] for k, v in (te_lookup or {}).items()]
         extra["global_mean"] = float(global_mean)
     return EngineeredRecipe(
         name=name,
@@ -383,17 +349,13 @@ def build_cat_triple_cross_recipe(
     # Canonicalise each key element (int<->float drift safe, idempotent on the already-canonical strings the
     # generator passes) so a future raw-value caller cannot desync the build keys from the canonical apply-side
     # lookup and silently route every row to the global fallback (EN-1).
-    mapping_pairs = [
-        [[canonical_group_token(a) for a in k], int(v)] for k, v in mapping.items()
-    ]
+    mapping_pairs = [[[canonical_group_token(a) for a in k], int(v)] for k, v in mapping.items()]
     extra: dict = {
         "mapping": mapping_pairs,
         "encoding": str(encoding),
     }
     if encoding == "target":
-        extra["te_lookup"] = [
-            [int(k), float(v)] for k, v in (te_lookup or {}).items()
-        ]
+        extra["te_lookup"] = [[int(k), float(v)] for k, v in (te_lookup or {}).items()]
         extra["global_mean"] = float(global_mean)
     return EngineeredRecipe(
         name=name,

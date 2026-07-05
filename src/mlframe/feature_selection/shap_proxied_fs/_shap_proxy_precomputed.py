@@ -56,15 +56,11 @@ def restrict_artifacts(artifacts: dict, kept_indices) -> dict:
         names; schema_version + n_samples_at_fit forwarded unchanged.
     """
     if not isinstance(artifacts, dict):
-        raise TypeError(
-            f"restrict_artifacts: expected dict from MRMR.export_artifacts(), got {type(artifacts).__name__}"
-        )
+        raise TypeError(f"restrict_artifacts: expected dict from MRMR.export_artifacts(), got {type(artifacts).__name__}")
     idx = np.asarray(kept_indices, dtype=np.intp)
     names_full = list(artifacts.get("feature_names", []))
     if names_full and idx.size > 0 and int(idx.max()) >= len(names_full):
-        raise ValueError(
-            f"restrict_artifacts: kept_indices max={int(idx.max())} >= feature_names len={len(names_full)}"
-        )
+        raise ValueError(f"restrict_artifacts: kept_indices max={int(idx.max())} >= feature_names len={len(names_full)}")
 
     out: dict[str, Any] = {}
     if "schema_version" in artifacts:
@@ -140,17 +136,13 @@ def align_precomputed_to_X(
     names = precomputed.get("feature_names")
     if su is None or names is None:
         report["reason"] = "missing_required_keys"
-        logger.warning(
-            "ShapProxiedFS(precomputed=...): missing 'su_to_target' or 'feature_names'; ignoring."
-        )
+        logger.warning("ShapProxiedFS(precomputed=...): missing 'su_to_target' or 'feature_names'; ignoring.")
         return None, report
 
     su_arr = np.asarray(su, dtype=np.float64)
     names = list(names)
     if su_arr.ndim != 1 or su_arr.shape[0] != len(names):
-        report["reason"] = (
-            f"shape_mismatch_su={su_arr.shape}_names={len(names)}"
-        )
+        report["reason"] = f"shape_mismatch_su={su_arr.shape}_names={len(names)}"
         logger.warning(
             "ShapProxiedFS(precomputed=...): su_to_target shape %s vs feature_names len %d; ignoring.",
             su_arr.shape, len(names),
@@ -204,9 +196,7 @@ def align_precomputed_to_X(
             aligned["nbins_per_feature"] = {n: nbins_pf[n] for n in X_cols if n in nbins_pf}
 
         report["honoured"] = True
-        report["reason"] = (
-            "permutation_match" if len(X_cols) == len(names) else "subset_match"
-        )
+        report["reason"] = "permutation_match" if len(X_cols) == len(names) else "subset_match"
         report["n_features"] = len(X_cols)
         report["su_available"] = True
         report["mi_available"] = "mi_to_target" in aligned

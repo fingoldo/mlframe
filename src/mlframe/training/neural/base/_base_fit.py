@@ -114,10 +114,7 @@ class _FitMixin(_FitPrepMixin):
         if self.float32_matmul_precision and torch.cuda.is_available():
             _allowed_matmul = ("highest", "high", "medium")
             if self.float32_matmul_precision not in _allowed_matmul:
-                raise ValueError(
-                    f"float32_matmul_precision must be one of {_allowed_matmul}, "
-                    f"got {self.float32_matmul_precision!r}"
-                )
+                raise ValueError(f"float32_matmul_precision must be one of {_allowed_matmul}, " f"got {self.float32_matmul_precision!r}")
             if hasattr(torch, "set_float32_matmul_precision"):
                 torch.set_float32_matmul_precision(self.float32_matmul_precision)
                 logger.info("Enabled float32_matmul_precision=%s", self.float32_matmul_precision)
@@ -156,10 +153,7 @@ class _FitMixin(_FitPrepMixin):
         # datamodule constructor, otherwise the fit-time build raises
         # ``TorchDataModule.__init__() got an unexpected keyword argument
         # 'predict_batch_size'`` the moment a caller sets mlp_predict_batch_size.
-        _local_dm_params = {
-            k: v for k, v in self.datamodule_params.items()
-            if k not in _PREDICT_ONLY_DM_PARAM_KEYS
-        }
+        _local_dm_params = {k: v for k, v in self.datamodule_params.items() if k not in _PREDICT_ONLY_DM_PARAM_KEYS}
         if _is_multilabel_target:
             # BCEWithLogitsLoss requires float labels; CrossEntropyLoss (the
             # classifier default in helpers.py) requires Long. The estimator
@@ -176,9 +170,7 @@ class _FitMixin(_FitPrepMixin):
         # F-19 in the 2026-05-30 mlp audit). Build the bidirectional encoder
         # once and stash on ``self`` so ``predict`` can ``inverse_transform``
         # at inference time (F-01).
-        _classifier_single_label = (
-            isinstance(self, ClassifierMixin) and not _is_multilabel_target
-        )
+        _classifier_single_label = isinstance(self, ClassifierMixin) and not _is_multilabel_target
         if _classifier_single_label:
             from sklearn.preprocessing import LabelEncoder as _LabelEncoder
             if is_partial_fit and classes is not None:
@@ -204,10 +196,7 @@ class _FitMixin(_FitPrepMixin):
             # Encode validation labels with the SAME encoder so val_loss /
             # val_MSE share the index space the model trains on.
             if eval_set[1] is not None:
-                _y_arr_val = (
-                    eval_set[1].values if isinstance(eval_set[1], pd.Series)
-                    else np.asarray(eval_set[1])
-                )
+                _y_arr_val = eval_set[1].values if isinstance(eval_set[1], pd.Series) else np.asarray(eval_set[1])
                 if _y_arr_val.ndim == 2 and _y_arr_val.shape[1] == 1:
                     _y_arr_val = _y_arr_val.ravel()
                 eval_set = (eval_set[0], self._label_encoder.transform(_y_arr_val))
@@ -258,14 +247,11 @@ class _FitMixin(_FitPrepMixin):
                     _sw_arr = np.asarray(sample_weight, dtype=np.float32).ravel()
                     if _sw_arr.shape != _cw_weights.shape:
                         raise ValueError(
-                            f"class_weight-derived weights shape "
-                            f"{_cw_weights.shape} != sample_weight shape "
-                            f"{_sw_arr.shape}; cannot multiply."
+                            f"class_weight-derived weights shape " f"{_cw_weights.shape} != sample_weight shape " f"{_sw_arr.shape}; cannot multiply."
                         )
                     sample_weight = _sw_arr * _cw_weights
                 logger.info(
-                    "Applied class_weight=%r -> per-sample weights "
-                    "with mean=%.4g, min=%.4g, max=%.4g",
+                    "Applied class_weight=%r -> per-sample weights " "with mean=%.4g, min=%.4g, max=%.4g",
                     self.class_weight,
                     float(np.mean(sample_weight)),
                     float(np.min(sample_weight)),
@@ -314,7 +300,7 @@ class _FitMixin(_FitPrepMixin):
                 elif not hasattr(self, "classes_"):
                     # Must be ndarray (not list) for numpy fancy indexing in evaluation.py::report_probabilistic_model_perf
                     # (line ``preds = model.classes_[preds]`` fails on list + ndarray index). Sklearn convention is classes_ ndarray.
-                    _y_arr = (y.unique() if isinstance(y, pd.Series) else np.unique(y))
+                    _y_arr = y.unique() if isinstance(y, pd.Series) else np.unique(y)
                     # Wave 61 (2026-05-20): object-dtype y (mixed-type label set
                     # incl. None / np.nan + str) would TypeError on Python sorted();
                     # use np.sort for ndarrays and str-key fallback for object dtype.
@@ -370,12 +356,7 @@ class _FitMixin(_FitPrepMixin):
         # so an explicit user-set scale or center is preserved.
         _scale_set = _net_params.get("output_activation_scale") is not None
         _center_set = _net_params.get("output_activation_center") is not None
-        if (
-            _out_act == "tanh_train_range"
-            and num_classes == 1
-            and not getattr(self, "_is_multi_target_regression", False)
-            and not (_scale_set and _center_set)
-        ):
+        if _out_act == "tanh_train_range" and num_classes == 1 and not getattr(self, "_is_multi_target_regression", False) and not (_scale_set and _center_set):
             try:
                 _y_arr = np.asarray(
                     y.values if isinstance(y, pd.Series) else y,
@@ -413,15 +394,12 @@ class _FitMixin(_FitPrepMixin):
                     )
                 else:
                     logger.warning(
-                        "MLP output_activation='tanh_train_range' requested "
-                        "but y_train has <=1 finite value; falling back to "
-                        "'linear' for this fit.",
+                        "MLP output_activation='tanh_train_range' requested " "but y_train has <=1 finite value; falling back to " "'linear' for this fit.",
                     )
                     _net_params["output_activation"] = "linear"
             except Exception as _oa_err:
                 logger.warning(
-                    "MLP output_activation='tanh_train_range' y_train "
-                    "derivation failed (%s); falling back to 'linear'.",
+                    "MLP output_activation='tanh_train_range' y_train " "derivation failed (%s); falling back to 'linear'.",
                     _oa_err,
                 )
                 _net_params["output_activation"] = "linear"
@@ -435,7 +413,7 @@ class _FitMixin(_FitPrepMixin):
             _net_params.setdefault("categorical_embed_dim", getattr(self, "categorical_embed_dim", None))
 
         # getattr handles freshly cloned models that don't have network attribute yet
-        if getattr(self, 'network', None) is None:
+        if getattr(self, "network", None) is None:
             self.network = generate_mlp(num_features=X.shape[1], num_classes=_network_output_dim, **_net_params)
 
         if num_classes > 1:
@@ -523,8 +501,7 @@ class _FitMixin(_FitPrepMixin):
         _resolved = safe_accelerator(_requested)
         if _resolved != _requested and _requested in ("cuda", "gpu"):
             logger.warning(
-                "Requested accelerator=%r but CUDA probe failed; "
-                "downgrading to CPU so fit can complete.",
+                "Requested accelerator=%r but CUDA probe failed; " "downgrading to CPU so fit can complete.",
                 _requested,
             )
         trainer_params["accelerator"] = _resolved
@@ -561,8 +538,8 @@ class _FitMixin(_FitPrepMixin):
                         )
             except Exception as _cc_err:
                 logger.debug(
-                    "F-27 bf16 auto-enable probe failed (%s); leaving "
-                    "precision at Lightning default.", _cc_err,
+                    "F-27 bf16 auto-enable probe failed (%s); leaving " "precision at Lightning default.",
+                    _cc_err,
                 )
 
         # Default logger for LearningRateMonitor compatibility. CSV logs land in the SAME per-fit subdir as the checkpoint so the
@@ -613,14 +590,12 @@ class _FitMixin(_FitPrepMixin):
                         group_by_input_shapes=True,
                     )
                     logger.info(
-                        "F-36: MLFRAME_TORCH_PROFILE=1 active; chrome traces "
-                        "land in %s. Open via chrome://tracing or Perfetto.",
+                        "F-36: MLFRAME_TORCH_PROFILE=1 active; chrome traces " "land in %s. Open via chrome://tracing or Perfetto.",
                         _prof_dir,
                     )
                 except Exception as _prof_err:
                     logger.warning(
-                        "MLFRAME_TORCH_PROFILE=1 but profiler setup failed "
-                        "(%s); fit continues without profiling.",
+                        "MLFRAME_TORCH_PROFILE=1 but profiler setup failed " "(%s); fit continues without profiling.",
                         _prof_err,
                     )
 
@@ -739,9 +714,7 @@ class _FitMixin(_FitPrepMixin):
             # Record per-epoch train/val history in the booster ``evals_result_`` shape so the per-model
             # training-curve chart (reporting._render_training_curves, default-ON) auto-emits for neural
             # models exactly as it does for lgb/xgb/cb -- with the early-stop vline + wasted-post-ES shading.
-            callbacks.append(
-                TrainingHistoryRecorder(monitor=f"val_{metric_name}", mode="min")
-            )
+            callbacks.append(TrainingHistoryRecorder(monitor=f"val_{metric_name}", mode="min"))
             # Per-epoch full-metric-suite capture for meta-learning / HPO-from-early-observation. Default-ON for
             # neural: val predictions are already concatenated each validation epoch, so the only marginal cost is
             # the cheap metric kernel. ``capture_iteration_metrics=False`` on the estimator opts out.
@@ -800,12 +773,7 @@ class _FitMixin(_FitPrepMixin):
             # ``logits.shape[1] > 1`` branch would mistakenly apply
             # softmax to (N, K) regression outputs.
             _local_model_params["task_type"] = "regression"
-        elif (
-            isinstance(self, ClassifierMixin)
-            and not self._is_multilabel
-            and not self._binary_sigmoid_head
-            and self.label_smoothing > 0.0
-        ):
+        elif isinstance(self, ClassifierMixin) and not self._is_multilabel and not self._binary_sigmoid_head and self.label_smoothing > 0.0:
             # F-30 (2026-05-31): label smoothing for MULTICLASS only.
             # Replaces the caller's CrossEntropyLoss with one carrying
             # label_smoothing=epsilon. Per RealMLP-TD NeurIPS 2024:
@@ -905,8 +873,7 @@ class _FitMixin(_FitPrepMixin):
                 # (which hold the same tensors via the Dataset's own
                 # attributes), null those too. Predict-path setup
                 # rebuilds them from the predict-side X / y.
-                for _attr in ("_train_dataset", "_val_dataset",
-                              "train_dataset", "val_dataset"):
+                for _attr in ("_train_dataset", "_val_dataset", "train_dataset", "val_dataset"):
                     if hasattr(_dm, _attr):
                         setattr(_dm, _attr, None)
             self._datamodule_tensors_dropped = True

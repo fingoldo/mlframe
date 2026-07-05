@@ -63,13 +63,11 @@ def _fit_3baselines_predict_two(
     train_emb = np.zeros((Xt.shape[0], 3), dtype=np.float32)
     query_emb = np.zeros((Xq.shape[0], 3), dtype=np.float32)
     if task == "binary":
-        m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
-                                random_state=int(seed), verbose=-1, n_jobs=-1)
+        m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m1.fit(Xt, y_t.astype(np.int32))
         train_emb[:, 0] = m1.predict_proba(Xt)[:, 1].astype(np.float32)
         query_emb[:, 0] = m1.predict_proba(Xq)[:, 1].astype(np.float32)
-        m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1,
-                                random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
+        m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
         m2.fit(Xt, y_t.astype(np.int32))
         train_emb[:, 1] = m2.predict_proba(Xt)[:, 1].astype(np.float32)
         query_emb[:, 1] = m2.predict_proba(Xq)[:, 1].astype(np.float32)
@@ -83,13 +81,11 @@ def _fit_3baselines_predict_two(
             train_emb[:, 2] = prior
             query_emb[:, 2] = prior
     else:
-        m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1,
-                               random_state=int(seed), verbose=-1, n_jobs=-1)
+        m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m1.fit(Xt, y_t)
         train_emb[:, 0] = m1.predict(Xt).astype(np.float32)
         query_emb[:, 0] = m1.predict(Xq).astype(np.float32)
-        m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1,
-                               random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
+        m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
         m2.fit(Xt, y_t)
         train_emb[:, 1] = m2.predict(Xt).astype(np.float32)
         query_emb[:, 1] = m2.predict(Xq).astype(np.float32)

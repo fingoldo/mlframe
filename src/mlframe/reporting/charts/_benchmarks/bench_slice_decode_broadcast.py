@@ -75,7 +75,7 @@ def bench():
         if "5000" in label:
             n_combos = 5000
         per = max(1, total // n_combos)
-        batches = [cell_ids[i:i + per] for i in range(0, total, per)]
+        batches = [cell_ids[i : i + per] for i in range(0, total, per)]
 
         best_old = best_new = 1e9
         for _ in range(7):
@@ -87,8 +87,7 @@ def bench():
             for b in batches:
                 decode_new(b, strides)
             best_new = min(best_new, time.perf_counter() - t)
-        print(f"{label:42s}  identity={'OK' if ok else 'FAIL'}  "
-              f"OLD={best_old*1e3:8.3f}ms  NEW={best_new*1e3:8.3f}ms  speedup={best_old/best_new:5.2f}x")
+        print(f"{label:42s}  identity={'OK' if ok else 'FAIL'}  " f"OLD={best_old*1e3:8.3f}ms  NEW={best_new*1e3:8.3f}ms  speedup={best_old/best_new:5.2f}x")
 
 
 if __name__ == "__main__":

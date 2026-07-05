@@ -85,11 +85,8 @@ def run_one(regime: dict, time_budget_s: float = 90.0) -> dict:
     _hb(f"regime {name}: spearman={sp:.4f} recall@k={rc:.4f} composite={comp:.4f} "
         f"recovery={recovery}/{n_inf} rate={recovery_rate:.3f} elapsed={elapsed:.1f}s")
     if elapsed > time_budget_s:
-        _hb(f"  WARNING: regime {name} exceeded soft budget {time_budget_s:.0f}s "
-            f"(actual {elapsed:.1f}s); consider narrower kwargs")
-    return dict(name=name, spearman=sp, recall_at_k=rc, composite=comp,
-                recovery=recovery, n_informative=n_inf, recovery_rate=recovery_rate,
-                elapsed=elapsed)
+        _hb(f"  WARNING: regime {name} exceeded soft budget {time_budget_s:.0f}s " f"(actual {elapsed:.1f}s); consider narrower kwargs")
+    return dict(name=name, spearman=sp, recall_at_k=rc, composite=comp, recovery=recovery, n_informative=n_inf, recovery_rate=recovery_rate, elapsed=elapsed)
 
 
 def main():
@@ -100,8 +97,7 @@ def main():
         _hb(f"  cumulative wall: {time.time() - overall_t0:.1f}s")
 
     print("\nper-regime table (iter18 composite + recovery_rate):", flush=True)
-    print(f"{'regime':<20} {'spearman':>10} {'recall@k':>10} {'composite':>10} "
-          f"{'recovery':>10} {'rate':>7} {'sec':>7}", flush=True)
+    print(f"{'regime':<20} {'spearman':>10} {'recall@k':>10} {'composite':>10} " f"{'recovery':>10} {'rate':>7} {'sec':>7}", flush=True)
     for r in rows:
         print(f"{r['name']:<20} {r['spearman']:>10.4f} {r['recall_at_k']:>10.4f} "
               f"{r['composite']:>10.4f} {r['recovery']:>5}/{r['n_informative']:<4} "
@@ -112,17 +108,13 @@ def main():
     fail_rows = [r for r in rows if r["recovery_rate"] < RECOVERY_FAIL_THRESHOLD]
     ambig_rows = [r for r in rows if RECOVERY_FAIL_THRESHOLD <= r["recovery_rate"] < RECOVERY_PASS_THRESHOLD]
 
-    print(f"\nrecovery_rate >= {RECOVERY_PASS_THRESHOLD} (PASS group): "
-          f"{[r['name'] for r in pass_rows]}", flush=True)
-    print(f"recovery_rate <  {RECOVERY_FAIL_THRESHOLD} (FAIL group): "
-          f"{[r['name'] for r in fail_rows]}", flush=True)
+    print(f"\nrecovery_rate >= {RECOVERY_PASS_THRESHOLD} (PASS group): " f"{[r['name'] for r in pass_rows]}", flush=True)
+    print(f"recovery_rate <  {RECOVERY_FAIL_THRESHOLD} (FAIL group): " f"{[r['name'] for r in fail_rows]}", flush=True)
     if ambig_rows:
-        print(f"ambiguous (between thresholds, NOT used for floor): "
-              f"{[r['name'] for r in ambig_rows]}", flush=True)
+        print(f"ambiguous (between thresholds, NOT used for floor): " f"{[r['name'] for r in ambig_rows]}", flush=True)
 
     if not pass_rows or not fail_rows:
-        print("\nINCONCLUSIVE: need at least one PASS and one FAIL regime to bracket the floor; "
-              "keeping legacy 0.5 as a fallback default.", flush=True)
+        print("\nINCONCLUSIVE: need at least one PASS and one FAIL regime to bracket the floor; " "keeping legacy 0.5 as a fallback default.", flush=True)
         return dict(rows=rows, proposed=0.5, inconclusive=True)
 
     pass_floor = min(r["composite"] for r in pass_rows)
@@ -152,8 +144,7 @@ def main():
 
     overall = time.time() - overall_t0
     print(f"\ntotal wall: {overall:.1f}s", flush=True)
-    return dict(rows=rows, proposed=proposed, inconclusive=False,
-                pass_floor=pass_floor, fail_ceiling=fail_ceiling)
+    return dict(rows=rows, proposed=proposed, inconclusive=False, pass_floor=pass_floor, fail_ceiling=fail_ceiling)
 
 
 if __name__ == "__main__":

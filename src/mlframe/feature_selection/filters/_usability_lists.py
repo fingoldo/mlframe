@@ -175,8 +175,7 @@ def materialize_usability_features(candidates: list, X: Any):
                     cand.name, _n_coerced, _replayed.size,
                 )
             return np.nan_to_num(_replayed, nan=0.0, posinf=0.0, neginf=0.0)
-        return np.nan_to_num(np.asarray(apply_recipe(cand.recipe, X), dtype=np.float64),
-                             nan=0.0, posinf=0.0, neginf=0.0)
+        return np.nan_to_num(np.asarray(apply_recipe(cand.recipe, X), dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
 
     data = {cand.name: _col(cand) for cand in candidates}
     return pd.DataFrame(data, index=getattr(X, "index", None))

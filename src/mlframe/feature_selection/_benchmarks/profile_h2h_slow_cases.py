@@ -34,7 +34,6 @@ from sklearn.model_selection import KFold, StratifiedKFold
 
 from mlframe.feature_selection.wrappers import RFECV
 
-
 RESULTS = Path(__file__).parent / "_results"
 RESULTS.mkdir(parents=True, exist_ok=True)
 

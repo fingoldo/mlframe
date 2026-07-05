@@ -280,9 +280,7 @@ def tail_concentration_form_override(perf, usability, *, min_corr, pairness_marg
         if not perf or not usability:
             return None
         _mi_leader = max(perf.items(), key=lambda kv: float(kv[1]))[0]
-        _corr_leader, _corr_val = max(
-            ((k, float(usability.get(k, 0.0))) for k in perf.keys()), key=lambda kv: kv[1]
-        )
+        _corr_leader, _corr_val = max(((k, float(usability.get(k, 0.0))) for k in perf.keys()), key=lambda kv: kv[1])
         if _corr_leader == _mi_leader:
             return None
         _band = float(mi_band) if (mi_band and mi_band > 0.0) else 0.0

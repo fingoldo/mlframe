@@ -28,7 +28,6 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-
 RESULTS_DIR = Path(__file__).parent / "_results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -98,25 +97,15 @@ def _new_drift_snapshot(train_df, val_df, test_df, cols):
     cols_present = [c for c in cols if c in train_df.columns]
     if not cols_present:
         return [], []
-    _card_row = train_df.lazy().select(
-        [pl.col(c).n_unique().alias(c) for c in cols_present]
-    ).collect()
+    _card_row = train_df.lazy().select([pl.col(c).n_unique().alias(c) for c in cols_present]).collect()
     pairs = [(c, int(_card_row[c][0])) for c in cols_present]
     pairs.sort(key=lambda x: -x[1])
-    drift_cols = [c for c, card in pairs
-                  if card <= _DRIFT_SKIP_CARD
-                  and c in val_df.columns and c in test_df.columns]
+    drift_cols = [c for c, card in pairs if card <= _DRIFT_SKIP_CARD and c in val_df.columns and c in test_df.columns]
     drift_rows = []
     if drift_cols:
-        _tr = train_df.lazy().select(
-            [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
-        ).collect()
-        _v = val_df.lazy().select(
-            [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
-        ).collect()
-        _te = test_df.lazy().select(
-            [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
-        ).collect()
+        _tr = train_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
+        _v = val_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
+        _te = test_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
         _card_by_col = dict(pairs)
         for c in drift_cols:
             tr_set = set(_tr[c][0].to_list())

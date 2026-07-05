@@ -175,10 +175,7 @@ def detect_clusters_by_correlation(
     """
     if cols is None:
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
-    cols = [
-        c for c in cols
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    cols = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if len(cols) < min_cluster_size:
         return {}
     dense_arrays: list[np.ndarray] = []
@@ -233,10 +230,7 @@ def detect_clusters_by_correlation(
                     dense_names[idx],
                 ))
             mean_corr.sort()
-            members = sorted(
-                dense_names[dense_names.index(name)]
-                for (_, name) in mean_corr[: int(max_cluster_size)]
-            )
+            members = sorted(dense_names[dense_names.index(name)] for (_, name) in mean_corr[: int(max_cluster_size)])
         anchor = members[0]
         out[anchor] = members
     return out
@@ -287,10 +281,7 @@ def compute_cluster_aggregate(
     1-D ndarray of length ``len(X)`` with the aggregated column.
     """
     if aggregator not in _VALID_AGGREGATORS:
-        raise ValueError(
-            f"compute_cluster_aggregate: unknown aggregator {aggregator!r}; "
-            f"expected one of {_VALID_AGGREGATORS}."
-        )
+        raise ValueError(f"compute_cluster_aggregate: unknown aggregator {aggregator!r}; " f"expected one of {_VALID_AGGREGATORS}.")
     if not members:
         z = np.zeros(len(X), dtype=np.float64)
         empty = {"member_mean": [], "member_std": [], "signs": [], "weights": None}
@@ -354,8 +345,7 @@ def compute_cluster_aggregate(
             "member_mean": [float(v) for v in np.asarray(mean).ravel()],
             "member_std": [float(v) for v in np.asarray(std).ravel()],
             "signs": [float(v) for v in np.asarray(signs).ravel()],
-            "weights": ([float(v) for v in np.asarray(weights).ravel()]
-                        if weights is not None else None),
+            "weights": ([float(v) for v in np.asarray(weights).ravel()] if weights is not None else None),
         }
         return out, fit_stats
     return out
@@ -423,24 +413,14 @@ def generate_cluster_basis_features(
             diagnostics.
     """
     if basis not in _POLY_BASES:
-        raise ValueError(
-            f"generate_cluster_basis_features: unknown basis {basis!r}; "
-            f"expected one of {sorted(_POLY_BASES.keys())}."
-        )
+        raise ValueError(f"generate_cluster_basis_features: unknown basis {basis!r}; " f"expected one of {sorted(_POLY_BASES.keys())}.")
     if aggregator not in _VALID_AGGREGATORS:
-        raise ValueError(
-            f"generate_cluster_basis_features: unknown aggregator "
-            f"{aggregator!r}; expected one of {_VALID_AGGREGATORS}."
-        )
+        raise ValueError(f"generate_cluster_basis_features: unknown aggregator " f"{aggregator!r}; expected one of {_VALID_AGGREGATORS}.")
     degrees = tuple(int(d) for d in degrees)
     if not degrees or not cluster_members:
         return pd.DataFrame(index=X.index), {}
 
-    y_arr = (
-        np.asarray(y).astype(np.int64)
-        if not np.issubdtype(np.asarray(y).dtype, np.integer)
-        else np.asarray(y, dtype=np.int64)
-    )
+    y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
 
     # Filter clusters down to members that are actually present and numeric
     # in X. Sort members deterministically (lexicographic) so the recipe
@@ -449,10 +429,7 @@ def generate_cluster_basis_features(
     for anchor, members in cluster_members.items():
         if not members:
             continue
-        kept = tuple(sorted(
-            m for m in members
-            if m in X.columns and pd.api.types.is_numeric_dtype(X[m])
-        ))
+        kept = tuple(sorted(m for m in members if m in X.columns and pd.api.types.is_numeric_dtype(X[m])))
         if len(kept) < 2:
             continue
         cleaned[str(anchor)] = kept
@@ -466,8 +443,7 @@ def generate_cluster_basis_features(
     if not finite.all():
         col_means = np.where(
             finite.any(axis=0),
-            np.where(finite, raw_mat, 0.0).sum(axis=0)
-            / np.maximum(finite.sum(axis=0), 1),
+            np.where(finite, raw_mat, 0.0).sum(axis=0) / np.maximum(finite.sum(axis=0), 1),
             0.0,
         )
         raw_mat = np.where(finite, raw_mat, col_means[None, :])
@@ -746,16 +722,14 @@ def hybrid_orth_mi_cluster_basis_fe_with_recipes(
     appended = [c for c in X_aug.columns if c not in X.columns]
     if not appended:
         return X_aug, scores, []
-    name_to_row = {
-        str(row["engineered_col"]): row for _, row in scores.iterrows()
-    }
+    name_to_row = {str(row["engineered_col"]): row for _, row in scores.iterrows()}
     recipes = []
     for name in appended:
         row = name_to_row.get(name)
         if row is None:
             logger.warning(
-                "hybrid_orth_mi_cluster_basis_fe_with_recipes: appended "
-                "column %r missing from scores; skipping recipe.", name,
+                "hybrid_orth_mi_cluster_basis_fe_with_recipes: appended " "column %r missing from scores; skipping recipe.",
+                name,
             )
             continue
         recipes.append(build_orth_cluster_basis_recipe(
@@ -781,24 +755,15 @@ def _apply_orth_cluster_basis(recipe, X) -> np.ndarray:
     """
     from .engineered_recipes import _extract_column
     if len(recipe.src_names) < 2:
-        raise ValueError(
-            f"orth_cluster_basis recipe '{recipe.name}' must have >=2 "
-            f"src_names (cluster members); got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"orth_cluster_basis recipe '{recipe.name}' must have >=2 " f"src_names (cluster members); got {len(recipe.src_names)}")
     for key in ("basis", "degree", "aggregator"):
         if key not in recipe.extra:
-            raise KeyError(
-                f"orth_cluster_basis recipe '{recipe.name}' missing "
-                f"'{key}' in extra. Re-fit MRMR to regenerate."
-            )
+            raise KeyError(f"orth_cluster_basis recipe '{recipe.name}' missing " f"'{key}' in extra. Re-fit MRMR to regenerate.")
     basis = str(recipe.extra["basis"])
     degree = int(recipe.extra["degree"])
     aggregator = str(recipe.extra["aggregator"])
     if aggregator not in _VALID_AGGREGATORS:
-        raise ValueError(
-            f"orth_cluster_basis recipe '{recipe.name}' references unknown "
-            f"aggregator {aggregator!r}; expected one of {_VALID_AGGREGATORS}."
-        )
+        raise ValueError(f"orth_cluster_basis recipe '{recipe.name}' references unknown " f"aggregator {aggregator!r}; expected one of {_VALID_AGGREGATORS}.")
     # Reconstruct a minimal frame with only the cluster members so the
     # aggregate helper can z-score each column independently. We pull each
     # member via the recipe-aware ``_extract_column`` helper to support

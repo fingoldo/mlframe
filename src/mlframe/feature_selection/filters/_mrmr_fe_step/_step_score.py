@@ -227,9 +227,7 @@ def materialise_and_finalise_fe_candidates(
                 _filtered_additions[_rp] = (_tpf, _tvals, _ncols, _nnb, _msgs)
                 continue
             # Name -> config map (authoritative column<->config link).
-            _name_to_cfg = {
-                _get_new_feature_name(_cfg, cols): _cfg for _cfg, _ in _tpf
-            }
+            _name_to_cfg = {_get_new_feature_name(_cfg, cols): _cfg for _cfg, _ in _tpf}
             _new_tpf = set()
             for _new_pos, _old_i in enumerate(_keep_idx):
                 _cfg = _name_to_cfg.get(_ncols[_old_i])
@@ -237,11 +235,7 @@ def materialise_and_finalise_fe_candidates(
                     _new_tpf.add((_cfg, _new_pos))
             _new_tvals = _tvals[:, _keep_idx]
             _new_ncols = [_ncols[i] for i in _keep_idx]
-            _new_nnb = (
-                [_nnb[i] for i in _keep_idx]
-                if _nnb is not None and hasattr(_nnb, "__len__") and len(_nnb) == len(_ncols)
-                else _nnb
-            )
+            _new_nnb = [_nnb[i] for i in _keep_idx] if _nnb is not None and hasattr(_nnb, "__len__") and len(_nnb) == len(_ncols) else _nnb
             _filtered_additions[_rp] = (_new_tpf, _new_tvals, _new_ncols, _new_nnb, _msgs)
         prospective_additions = _filtered_additions
 
@@ -295,10 +289,7 @@ def materialise_and_finalise_fe_candidates(
                     _name_marg[_nm0] = float(_vm0[1])
                 except Exception:
                     pass
-        _clean_forms = [
-            (_bare_tokens(_nm), _name_marg.get(_nm, 0.0))
-            for _nm in _all_names if not _gate_cols_in(_nm)
-        ]
+        _clean_forms = [(_bare_tokens(_nm), _name_marg.get(_nm, 0.0)) for _nm in _all_names if not _gate_cols_in(_nm)]
 
         # A gate-operand COMPOSITE is over-materialization (DROP) when its whole raw coverage is already
         # provided by the clean survivors AND it is NOT the genuine carrier of an otherwise-uncaptured
@@ -329,10 +320,7 @@ def materialise_and_finalise_fe_candidates(
             _g_marg = _name_marg.get(_nm, 0.0)
             _multi_gate = len(set(_gcs)) >= 2
             _within_one = any(_gate_src <= _cf_cov for _cf_cov, _ in _clean_forms)
-            _stronger_clean_same_pair = any(
-                (_gate_src <= _cf_cov) and (_cf_marg >= _g_marg)
-                for _cf_cov, _cf_marg in _clean_forms
-            )
+            _stronger_clean_same_pair = any((_gate_src <= _cf_cov) and (_cf_marg >= _g_marg) for _cf_cov, _cf_marg in _clean_forms)
             # (4) it drags an EXTRA raw operand beyond its own gate pair (``sub(sin(a),sin(gate_mask__d__c))``
             #     -- the gate is over (c,d) but the node also pulls in raw ``a`` from the OTHER group) while
             #     the gate pair is already WITHIN a clean survivor: the node is then an ENTANGLED cross-group
@@ -363,11 +351,7 @@ def materialise_and_finalise_fe_candidates(
                     _cfg = _n2c.get(_ncols[_oi])
                     if _cfg is not None:
                         _new_tpf.add((_cfg, _np))
-                _new_nnb = (
-                    [_nnb[i] for i in _keep_idx]
-                    if _nnb is not None and hasattr(_nnb, "__len__") and len(_nnb) == len(_ncols)
-                    else _nnb
-                )
+                _new_nnb = [_nnb[i] for i in _keep_idx] if _nnb is not None and hasattr(_nnb, "__len__") and len(_nnb) == len(_ncols) else _nnb
                 _filtered[_rp] = (_new_tpf, _tvals[:, _keep_idx], [_ncols[i] for i in _keep_idx], _new_nnb, _msgs)
             prospective_additions = _filtered
             for _dn in _gate_composite_drop:
@@ -425,9 +409,7 @@ def materialise_and_finalise_fe_candidates(
 
         # Clean (non-gate) survivor coverage as a per-survivor list of bare-token sets, so "within one
         # survivor" can be tested for a candidate operand pair (mirrors the composite block's _clean_forms).
-        _clean_token_sets_fsc = [
-            _bare_tokens_fsc(_nm) for _nm in _all_names_fsc if not _gate_cols_in_fsc(_nm)
-        ]
+        _clean_token_sets_fsc = [_bare_tokens_fsc(_nm) for _nm in _all_names_fsc if not _gate_cols_in_fsc(_nm)]
 
         _fsc_drop: set = set()
         for _nm in _all_names_fsc:
@@ -478,11 +460,7 @@ def materialise_and_finalise_fe_candidates(
                     _cfg = _n2c.get(_ncols[_oi])
                     if _cfg is not None:
                         _new_tpf.add((_cfg, _np))
-                _new_nnb = (
-                    [_nnb[i] for i in _keep_idx]
-                    if _nnb is not None and hasattr(_nnb, "__len__") and len(_nnb) == len(_ncols)
-                    else _nnb
-                )
+                _new_nnb = [_nnb[i] for i in _keep_idx] if _nnb is not None and hasattr(_nnb, "__len__") and len(_nnb) == len(_ncols) else _nnb
                 _filtered_fsc[_rp] = (_new_tpf, _tvals[:, _keep_idx], [_ncols[i] for i in _keep_idx], _new_nnb, _msgs)
             prospective_additions = _filtered_fsc
             for _dn in _fsc_drop:
@@ -524,11 +502,7 @@ def materialise_and_finalise_fe_candidates(
     # materialise copies once; the later escalation / additive-fusion blocks then mutate that same
     # private frame in place instead of copying it again (three full-frame copies collapse to one).
     _x_is_owned = False
-    if (
-        not _is_polars_input
-        and hasattr(X, "columns")
-        and any(v[0] for v in prospective_additions.values())
-    ):
+    if not _is_polars_input and hasattr(X, "columns") and any(v[0] for v in prospective_additions.values()):
         X = X.copy()
         _x_is_owned = True
     # Accumulate the per-pair discretised code blocks and concatenate ONCE after the loop instead of
@@ -575,10 +549,7 @@ def materialise_and_finalise_fe_candidates(
                 # recipe's quantile edges.
                 if _is_polars_input:
                     # Polars is immutable: with_columns returns a new frame sharing buffers; caller's X untouched.
-                    _series_to_add = [
-                        pl.Series(col, new_vals[:, j])
-                        for j, col in enumerate(new_cols)
-                    ]
+                    _series_to_add = [pl.Series(col, new_vals[:, j]) for j, col in enumerate(new_cols)]
                     X = X.with_columns(_series_to_add)
                 else:
                     # 2026-06-01: index by the per-column position, not the
@@ -622,8 +593,8 @@ def materialise_and_finalise_fe_candidates(
                         # transformations_pair = ((var_a_idx, unary_a_name),
                         #                        (var_b_idx, unary_b_name))
                         transformations_pair, bin_func_name, _ = config
-                        (var_a_idx, unary_a_name) = transformations_pair[0]
-                        (var_b_idx, unary_b_name) = transformations_pair[1]
+                        var_a_idx, unary_a_name = transformations_pair[0]
+                        var_b_idx, unary_b_name = transformations_pair[1]
                         # Map cols-index -> name. A RAW parent resolves to a ``feature_names_in_``
                         # name; an ENGINEERED parent resolves to its prior recipe (nested replay).
                         src_a_name_raw = cols[var_a_idx]
@@ -639,12 +610,8 @@ def materialise_and_finalise_fe_candidates(
                         # DOMINANT-CAPTURE leak). The preserved store keeps the fragment recipe object
                         # available for nested replay WITHOUT re-admitting the bare fragment to selection.
                         _subsumed_store = getattr(self, "_fe_subsumed_recipes_", None) or {}
-                        _nested_a = None if src_a_name_raw in _raw_names else (
-                            engineered_recipes.get(src_a_name_raw) or _subsumed_store.get(src_a_name_raw)
-                        )
-                        _nested_b = None if src_b_name_raw in _raw_names else (
-                            engineered_recipes.get(src_b_name_raw) or _subsumed_store.get(src_b_name_raw)
-                        )
+                        _nested_a = None if src_a_name_raw in _raw_names else (engineered_recipes.get(src_a_name_raw) or _subsumed_store.get(src_a_name_raw))
+                        _nested_b = None if src_b_name_raw in _raw_names else (engineered_recipes.get(src_b_name_raw) or _subsumed_store.get(src_b_name_raw))
                         # Skip only when an operand is engineered but its parent recipe is missing
                         # (un-replayable) -- e.g. a parent from a stage that did not register one.
                         _a_unreplayable = (src_a_name_raw not in _raw_names) and (_nested_a is None)
@@ -652,8 +619,7 @@ def materialise_and_finalise_fe_candidates(
                         if _a_unreplayable or _b_unreplayable:
                             if verbose:
                                 logger.info(
-                                    "Skipping recipe construction for nested engineered feature "
-                                    "'%s' (parent %s has no replayable recipe).",
+                                    "Skipping recipe construction for nested engineered feature " "'%s' (parent %s has no replayable recipe).",
                                     get_new_feature_name(config, cols),
                                     src_a_name_raw if _a_unreplayable else src_b_name_raw,
                                 )
@@ -666,8 +632,7 @@ def materialise_and_finalise_fe_candidates(
                         # re-quantiled on test data, silently shifting
                         # bin codes between fit and transform under
                         # distribution drift.
-                        _fit_vals = transformed_vals[:, _j] \
-                            if transformed_vals.shape[1] > _j else None
+                        _fit_vals = transformed_vals[:, _j] if transformed_vals.shape[1] > _j else None
                         # Per-operand pre-warp: when a side used the learned
                         # ``prewarp`` pseudo-unary, hand its fitted spec to the
                         # recipe so replay reproduces the closed-form warp.
@@ -698,8 +663,7 @@ def materialise_and_finalise_fe_candidates(
                                         _p = _dc2.replace(_p, quantization=None)
                                     _ov = np.asarray(_ar(_p, X), dtype=np.float64)
                                 else:
-                                    _ov = np.asarray(X[_src_name].values if hasattr(X[_src_name], "values")
-                                                     else X[_src_name], dtype=np.float64)
+                                    _ov = np.asarray(X[_src_name].values if hasattr(X[_src_name], "values") else X[_src_name], dtype=np.float64)
                                 _mn = float(np.nanmin(_ov))
                                 return (1e-5 - _mn) if _mn <= 0 else 0.0
                             except Exception:
@@ -762,9 +726,7 @@ def materialise_and_finalise_fe_candidates(
     # floor + the S5 conditional-MI redundancy gate vs the admitted engineered
     # support). Structurally a no-op (one set-difference) when every surviving pair
     # produced an admitted column -- the common case. See ``_fe_auto_escalation``.
-    if bool(getattr(self, "fe_auto_escalation_enable", True)) and (
-        prospective_pairs or _prevalence_failed_synergy
-    ):
+    if bool(getattr(self, "fe_auto_escalation_enable", True)) and (prospective_pairs or _prevalence_failed_synergy):
         try:
             # Per-fit escalation ledger: a pair escalated once is never re-escalated
             # in a later FE step of the SAME fit (a step-2 retry would re-propose the
@@ -774,13 +736,8 @@ def materialise_and_finalise_fe_candidates(
                 self._fe_escalation_done_pairs_ = set()
                 self.fe_escalation_history_ = []
             _esc_done = self._fe_escalation_done_pairs_
-            _esc_pairs_with_additions = {
-                _rp for _rp, _v in prospective_additions.items() if _v[0]
-            }
-            _esc_failed = [
-                (_k[0], float(_k[1])) for _k in prospective_pairs
-                if _k[0] not in _esc_pairs_with_additions and _k[0] not in _esc_done
-            ]
+            _esc_pairs_with_additions = {_rp for _rp, _v in prospective_additions.items() if _v[0]}
+            _esc_failed = [(_k[0], float(_k[1])) for _k in prospective_pairs if _k[0] not in _esc_pairs_with_additions and _k[0] not in _esc_done]
             # PREVALENCE-FAILED SYNERGY RESCUE (2026-06-12, F2 a**2/b miss): synergy
             # pairs that cleared the order-2 maxT floor but missed the stricter raw-MI
             # synergy prevalence ratio (the raw-MI ratio under-estimates a smooth ratio
@@ -790,10 +747,7 @@ def materialise_and_finalise_fe_candidates(
             # entered ``prospective_pairs`` (the prevalence gate dropped them), so the
             # set-difference above cannot contain them; add directly (skip ones already
             # escalated this fit / already admitted by the unary search).
-            _esc_failed.extend(
-                (_pp, _pmi) for _pp, _pmi in _prevalence_failed_synergy.items()
-                if _pp not in _esc_pairs_with_additions and _pp not in _esc_done
-            )
+            _esc_failed.extend((_pp, _pmi) for _pp, _pmi in _prevalence_failed_synergy.items() if _pp not in _esc_pairs_with_additions and _pp not in _esc_done)
             # UNDERDELIVERY trigger (2026-06-10): a pair that DID admit a column but
             # whose best capture leaves SIGNIFICANT conditional pair MI on the table
             # (leftover CMI(joint(a,b); y | best admitted) above its conditional-
@@ -867,9 +821,7 @@ def materialise_and_finalise_fe_candidates(
                 # Mark the pairs escalation actually PROCESSED (budget-selected
                 # eligible) as done for this fit, admitted or not -- a retry on
                 # identical data cannot change the verdict.
-                _esc_done.update(
-                    getattr(self, "fe_escalation_info_", {}).get("eligible_idx", []) or []
-                )
+                _esc_done.update(getattr(self, "fe_escalation_info_", {}).get("eligible_idx", []) or [])
                 if _esc_admitted:
                     # Materialise exactly like the unary/binary survivors above:
                     # discretised codes into data/X, name into cols, nbins in
@@ -904,10 +856,7 @@ def materialise_and_finalise_fe_candidates(
                         _eng_cont_store = {}
                         self._engineered_continuous_ = _eng_cont_store
                     if _is_polars_input:
-                        X = X.with_columns([
-                            pl.Series(_ec["name"], _esc_new_codes[:, _je])
-                            for _je, _ec in enumerate(_esc_admitted)
-                        ])
+                        X = X.with_columns([pl.Series(_ec["name"], _esc_new_codes[:, _je]) for _je, _ec in enumerate(_esc_admitted)])
                     for _je, _ec in enumerate(_esc_admitted):
                         if not _is_polars_input:
                             X[_ec["name"]] = _esc_new_codes[:, _je]
@@ -964,10 +913,7 @@ def materialise_and_finalise_fe_candidates(
             _eng_cont_store = getattr(self, "_engineered_continuous_", None) or {}
             # Names of the engineered columns just materialised this step (cols-space indices
             # -> names) that have a registered (replayable) recipe.
-            _newly_names = [
-                cols[i] for i in _newly_engineered_indices
-                if 0 <= i < len(cols) and cols[i] in engineered_recipes
-            ]
+            _newly_names = [cols[i] for i in _newly_engineered_indices if 0 <= i < len(cols) and cols[i] in engineered_recipes]
             _raw_name_set = set(self.feature_names_in_)
             _fused, _subsumed, _subsumed_raws = propose_additive_fusions(
                 self,
@@ -1005,10 +951,7 @@ def materialise_and_finalise_fe_candidates(
                 _fused_indices = list(range(_n_cols_before_fz, len(cols)))
                 n_recommended_features += len(_fused)
                 if _is_polars_input:
-                    X = X.with_columns([
-                        pl.Series(_fc["name"], _fz_codes[:, _jf])
-                        for _jf, _fc in enumerate(_fused)
-                    ])
+                    X = X.with_columns([pl.Series(_fc["name"], _fz_codes[:, _jf]) for _jf, _fc in enumerate(_fused)])
                 for _jf, _fc in enumerate(_fused):
                     if not _is_polars_input:
                         X[_fc["name"]] = _fz_codes[:, _jf]
@@ -1019,10 +962,7 @@ def materialise_and_finalise_fe_candidates(
                 # (by cols-space index) from selected_vars + the recipe dict so neither
                 # support_ nor _engineered_recipes_ keeps a now-redundant fragment.
                 _drop_names = set(_subsumed) | set(_subsumed_raws)
-                _subsumed_idx = {
-                    i for i in selected_vars
-                    if 0 <= i < len(cols) and cols[i] in _drop_names
-                }
+                _subsumed_idx = {i for i in selected_vars if 0 <= i < len(cols) and cols[i] in _drop_names}
                 _sv = [i for i in selected_vars if i not in _subsumed_idx]
                 _sv_set = set(_sv)
                 selected_vars = _sv + [i for i in _fused_indices if i not in _sv_set]
@@ -1031,9 +971,9 @@ def materialise_and_finalise_fe_candidates(
                 # as engineered (the vote replays them via ``engineered_recipes`` regardless,
                 # but this keeps the engineered-index bookkeeping consistent), and drop the
                 # subsumed fragments' indices so they are not re-screened as engineered.
-                _newly_engineered_indices = [
-                    i for i in _newly_engineered_indices if i not in _subsumed_idx
-                ] + [i for i in _fused_indices if i not in set(_newly_engineered_indices)]
+                _newly_engineered_indices = [i for i in _newly_engineered_indices if i not in _subsumed_idx] + [
+                    i for i in _fused_indices if i not in set(_newly_engineered_indices)
+                ]
                 # Preserve each subsumed fragment's recipe in a side-store BEFORE popping it from
                 # the active recipe dict, so a later FE step that re-derives a composite nesting
                 # the fragment can still resolve a replayable recipe for it (without re-admitting
@@ -1099,11 +1039,7 @@ def materialise_and_finalise_fe_candidates(
     # ``selected_vars`` (so they never reach ``support_``). Default-ON; self-gates
     # to a no-op below 2 unary_binary survivors / k<2 / tiny n. ``fe_stability_vote_enable=False``
     # byte-reproduces the pre-vote support.
-    if (
-        engineered_recipes
-        and bool(getattr(self, "fe_stability_vote_enable", True))
-        and _newly_engineered_indices
-    ):
+    if engineered_recipes and bool(getattr(self, "fe_stability_vote_enable", True)) and _newly_engineered_indices:
         try:
             from .._fe_stability_vote import confirm_recipes_cross_fold, resolve_adaptive_vote_k
 

@@ -231,11 +231,7 @@ def _heldout_hinge_r2_uplift(
         return 1.0 - sse / yv_ss
 
     r2_lin = _val_r2(lambda xx: np.column_stack([np.ones_like(xx), xx]))
-    r2_hinge = _val_r2(
-        lambda xx: np.column_stack(
-            [np.ones_like(xx), xx, np.maximum(xx - tau, 0.0)]
-        )
-    )
+    r2_hinge = _val_r2(lambda xx: np.column_stack([np.ones_like(xx), xx, np.maximum(xx - tau, 0.0)]))
     if not (np.isfinite(r2_lin) and np.isfinite(r2_hinge)):
         return 0.0
     return float(r2_hinge - r2_lin)
@@ -481,9 +477,7 @@ def build_hinge_basis_recipe(
     ``build_orth_spline_recipe``."""
     from .engineered_recipes import EngineeredRecipe
     if side not in ("gt", "lt", "ind"):
-        raise ValueError(
-            f"build_hinge_basis_recipe: side must be 'gt'|'lt'|'ind'; got {side!r}"
-        )
+        raise ValueError(f"build_hinge_basis_recipe: side must be 'gt'|'lt'|'ind'; got {side!r}")
     return EngineeredRecipe(
         name=name,
         kind="hinge_basis",
@@ -497,16 +491,10 @@ def _apply_hinge_basis(recipe, X) -> np.ndarray:
     function of the source column (no y). Mirrors ``_apply_orth_spline``."""
     from .engineered_recipes import _extract_column
     if len(recipe.src_names) != 1:
-        raise ValueError(
-            f"hinge_basis recipe '{recipe.name}' must have exactly 1 "
-            f"src_names; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"hinge_basis recipe '{recipe.name}' must have exactly 1 " f"src_names; got {len(recipe.src_names)}")
     for key in ("tau", "side"):
         if key not in recipe.extra:
-            raise KeyError(
-                f"hinge_basis recipe '{recipe.name}' missing '{key}' in extra. "
-                f"Re-fit MRMR to regenerate."
-            )
+            raise KeyError(f"hinge_basis recipe '{recipe.name}' missing '{key}' in extra. " f"Re-fit MRMR to regenerate.")
     name = recipe.src_names[0]
     tau = float(recipe.extra["tau"])
     side = str(recipe.extra["side"])

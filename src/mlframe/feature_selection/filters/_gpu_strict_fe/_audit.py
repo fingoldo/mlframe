@@ -20,7 +20,7 @@ class ResidencyReport:
     (``>= BULK_BYTES``) vs scalar transfers so the resident-FE contract can be asserted on bulk volume."""
 
     def __init__(self):
-        self.h2d = []   # list of byte sizes
+        self.h2d = []  # list of byte sizes
         self.d2h = []
 
     @property
@@ -84,7 +84,7 @@ def residency_audit() -> Iterator[ResidencyReport]:
     cp.asarray = _asarray
     cp.asnumpy = _asnumpy
     try:
-        cp.ndarray.get = _get   # may be read-only on some cupy builds; guarded
+        cp.ndarray.get = _get  # may be read-only on some cupy builds; guarded
     except Exception:
         pass
     try:

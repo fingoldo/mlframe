@@ -48,8 +48,7 @@ logger = logging.getLogger(__name__)
 _OOF_FOLD_FIT_CACHE_PREFIX = "oof_fold_fit_"
 
 
-def _build_oof_fold_fit_disk_key(model_template, X_tr_fold, y_tr_fold, classification, seed,
-                                 jitter_depth, n_estimators_cap):
+def _build_oof_fold_fit_disk_key(model_template, X_tr_fold, y_tr_fold, classification, seed, jitter_depth, n_estimators_cap):
     """Stable cache key for a per-fold fitted booster inside ``compute_shap_matrix`` (iter83).
 
     Cache determinants: the fold's actual training slice ((X_tr_fold, y_tr_fold) summary -- these
@@ -291,9 +290,7 @@ def _shap_phi_and_base(explainer_base, X: pd.DataFrame, backend: str = "auto"):
     if phi.ndim == 3:
         # (n, f, n_classes) -- take the positive (last) class for binary.
         if phi.shape[2] != 2:
-            raise ValueError(
-                f"ShapProxiedFS supports binary / single-target only; got {phi.shape[2]} output classes."
-            )
+            raise ValueError(f"ShapProxiedFS supports binary / single-target only; got {phi.shape[2]} output classes.")
         phi = phi[:, :, 1]
         base = np.asarray(base, dtype=np.float64).ravel()[-1]
     if phi.ndim != 2:
@@ -444,8 +441,7 @@ def _fit_one(model_template, X, y, classification: bool, seed: Optional[int], ji
 _VALID_BOOSTER_KINDS = ("xgboost", "catboost")
 
 
-def make_default_estimator(classification: bool, random_state: int = 0, n_estimators: int = 300,
-                            *, booster_kind: Optional[str] = None, cat_features=None):
+def make_default_estimator(classification: bool, random_state: int = 0, n_estimators: int = 300, *, booster_kind: Optional[str] = None, cat_features=None):
     """Fast tree booster whose SHAP path is exact and well-behaved.
 
     ``booster_kind`` selects the GBT family: ``"xgboost"`` (default, fast hist tree with shap-library
@@ -463,9 +459,7 @@ def make_default_estimator(classification: bool, random_state: int = 0, n_estima
         booster_kind = "xgboost"
     kind = str(booster_kind).lower()
     if kind not in _VALID_BOOSTER_KINDS:
-        raise ValueError(
-            f"booster_kind must be one of {_VALID_BOOSTER_KINDS}; got {booster_kind!r}"
-        )
+        raise ValueError(f"booster_kind must be one of {_VALID_BOOSTER_KINDS}; got {booster_kind!r}")
     if kind == "catboost":
         from mlframe.feature_selection.shap_proxied_fs._shap_proxy_catboost import make_catboost_estimator
 
@@ -743,16 +737,14 @@ def compute_shap_matrix(
         inner = None
 
     def _one_fold(fold_id, tr_idx, va_idx):
-        pf, bf, vf = _models_phi(X.iloc[tr_idx], y[tr_idx], X.iloc[va_idx], fold_seeds[fold_id],
-                                 inner_n_jobs=inner)
+        pf, bf, vf = _models_phi(X.iloc[tr_idx], y[tr_idx], X.iloc[va_idx], fold_seeds[fold_id], inner_n_jobs=inner)
         _assert_additivity_and_base(pf, bf, fold_tag=f" fold {fold_id}")
         return fold_id, va_idx, pf, bf, vf
 
     if outer > 1:
         from joblib import Parallel, delayed
 
-        fold_results = Parallel(n_jobs=outer, prefer="threads")(
-            delayed(_one_fold)(fid, tr, va) for fid, (tr, va) in enumerate(folds))
+        fold_results = Parallel(n_jobs=outer, prefer="threads")(delayed(_one_fold)(fid, tr, va) for fid, (tr, va) in enumerate(folds))
     else:
         iter_folds = folds
         if tqdm_desc:

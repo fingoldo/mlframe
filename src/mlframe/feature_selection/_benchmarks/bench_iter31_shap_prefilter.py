@@ -23,8 +23,8 @@ def _make_dataset(*, n_features=1000, n_rows=5000, n_inf=12, snr=8.0, seed=0):
 
     n_noise = max(0, n_features - n_inf)
     X, y, roles = make_regime_dataset(
-        n_samples=n_rows, n_informative=n_inf, n_redundant=0,
-        redundancy_rho=0.9, n_noise=n_noise, snr=snr, task="binary", seed=seed)
+        n_samples=n_rows, n_informative=n_inf, n_redundant=0, redundancy_rho=0.9, n_noise=n_noise, snr=snr, task="binary", seed=seed
+    )
     return X, y, roles
 
 
@@ -57,13 +57,11 @@ def _recovered(sel, roles):
     return len(inf & set(sel.selected_features_)), len(inf)
 
 
-def run_one(seed: int, *, shap_prefilter_enabled: bool, n_features: int = 1000,
-            n_rows: int = 5000, n_inf: int = 12, snr: float = 8.0,
-            do_cprofile: bool = False):
-    print(f"  [seed={seed} shap_prefilter_enabled={shap_prefilter_enabled}] building dataset...",
-          flush=True)
-    X, y, roles = _make_dataset(n_features=n_features, n_rows=n_rows, n_inf=n_inf, snr=snr,
-                                seed=seed)
+def run_one(
+    seed: int, *, shap_prefilter_enabled: bool, n_features: int = 1000, n_rows: int = 5000, n_inf: int = 12, snr: float = 8.0, do_cprofile: bool = False
+):
+    print(f"  [seed={seed} shap_prefilter_enabled={shap_prefilter_enabled}] building dataset...", flush=True)
+    X, y, roles = _make_dataset(n_features=n_features, n_rows=n_rows, n_inf=n_inf, snr=snr, seed=seed)
     sel = _build_selector(seed, shap_prefilter_enabled=shap_prefilter_enabled)
     sel._stage_timings = {}
     print(f"  [seed={seed}] fitting...", flush=True)
@@ -79,9 +77,7 @@ def run_one(seed: int, *, shap_prefilter_enabled: bool, n_features: int = 1000,
     total = time.perf_counter() - t0
     rec_hit, rec_total = _recovered(sel, roles)
     stage_timings = dict(sel._stage_timings)
-    return dict(seed=seed, total=total, stage_timings=stage_timings,
-                recall=(rec_hit, rec_total), profile=pr,
-                selected=list(sel.selected_features_))
+    return dict(seed=seed, total=total, stage_timings=stage_timings, recall=(rec_hit, rec_total), profile=pr, selected=list(sel.selected_features_))
 
 
 def print_stage_table(timings: dict, total: float):
@@ -121,16 +117,15 @@ def main(argv=None):
     modes = ["baseline", "new"] if args.mode == "both" else [args.mode]
 
     common = dict(n_features=args.n_features, n_rows=args.n_rows, n_inf=args.n_inf, snr=args.snr)
-    print(f"Live regime: width={args.n_features} rows={args.n_rows} n_inf={args.n_inf} "
-          f"snr={args.snr}")
+    print(f"Live regime: width={args.n_features} rows={args.n_rows} n_inf={args.n_inf} " f"snr={args.snr}")
     print(f"Modes: {modes}  Seeds: {seeds}", flush=True)
 
     results = {}
     for mode in modes:
         results[mode] = []
-        enabled = (mode == "new")
+        enabled = mode == "new"
         for seed in seeds:
-            do_p = (seed == args.cprofile_seed)
+            do_p = seed == args.cprofile_seed
             print(f"\n[{mode}] seed={seed} cprofile={do_p}", flush=True)
             r = run_one(seed, shap_prefilter_enabled=enabled, do_cprofile=do_p, **common)
             results[mode].append(r)
@@ -153,8 +148,7 @@ def main(argv=None):
         for s_idx, seed in enumerate(seeds):
             b = results["baseline"][s_idx]["total"]
             n = results["new"][s_idx]["total"]
-            print(f"  seed={seed} baseline={b:.2f}s new={n:.2f}s "
-                  f"speedup={b/n:.2f}x ({100*(b-n)/b:+.1f}%)")
+            print(f"  seed={seed} baseline={b:.2f}s new={n:.2f}s " f"speedup={b/n:.2f}x ({100*(b-n)/b:+.1f}%)")
 
     return results
 

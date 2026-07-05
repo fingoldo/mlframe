@@ -25,9 +25,7 @@ from mlframe.reporting.spec import FigureSpec, LinePanelSpec
 _FIT_SUBSAMPLE_CAP: int = 200_000
 
 
-def fuzzy_membership_curves(
-    x, *, n_partitions: int = 5, kind: str = "triangular", grid: int = 200, seed: int = 0
-) -> Tuple[np.ndarray, np.ndarray]:
+def fuzzy_membership_curves(x, *, n_partitions: int = 5, kind: str = "triangular", grid: int = 200, seed: int = 0) -> Tuple[np.ndarray, np.ndarray]:
     """Fit a fuzzy partition on ``x`` and evaluate each set's membership over a ``grid``-point linspace of ``x``'s range.
 
     Returns ``(grid_x (grid,), memberships (n_sets, grid))`` where ``n_sets`` is the number of fitted sets (equal to
@@ -49,9 +47,7 @@ def fuzzy_membership_curves(
     return grid_x, np.ascontiguousarray(memberships.T)
 
 
-def fuzzy_membership_panel(
-    x, *, n_partitions: int = 5, kind: str = "triangular", grid: int = 200, seed: int = 0
-) -> LinePanelSpec:
+def fuzzy_membership_panel(x, *, n_partitions: int = 5, kind: str = "triangular", grid: int = 200, seed: int = 0) -> LinePanelSpec:
     """Multi-series ``LinePanelSpec`` of the fuzzy-partition membership curves (one series per set)."""
     grid_x, memberships = fuzzy_membership_curves(x, n_partitions=n_partitions, kind=kind, grid=grid, seed=seed)
     n_sets = memberships.shape[0]

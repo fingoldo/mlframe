@@ -112,9 +112,7 @@ def _compute_target_encoding(
         for c in range(int(n_uniq)):
             if cell_cnt[c] > 0:
                 raw = cell_sum[c] / cell_cnt[c]
-                cell_means[c] = (cell_cnt[c] * raw + smoothing * te_global) / (
-                    cell_cnt[c] + smoothing
-                )
+                cell_means[c] = (cell_cnt[c] * raw + smoothing * te_global) / (cell_cnt[c] + smoothing)
             else:
                 cell_means[c] = te_global
         te_values = cell_means[classes_merged.astype(np.int64)]
@@ -143,9 +141,7 @@ def _compute_target_encoding(
         for c in range(int(n_uniq)):
             if cell_cnt[c] > 0:
                 raw = cell_sum[c] / cell_cnt[c]
-                cell_means_fold[c] = (
-                    cell_cnt[c] * raw + smoothing * te_global
-                ) / (cell_cnt[c] + smoothing)
+                cell_means_fold[c] = (cell_cnt[c] * raw + smoothing * te_global) / (cell_cnt[c] + smoothing)
         # Apply to test fold rows (vectorised gather; bit-identical to the per-row assignment)
         te_values[test_mask] = cell_means_fold[np.asarray(classes_merged, dtype=np.int64)[test_mask]]
 
@@ -158,9 +154,7 @@ def _compute_target_encoding(
     for c in range(int(n_uniq)):
         if cell_cnt[c] > 0:
             raw = cell_sum[c] / cell_cnt[c]
-            cell_means_global[c] = (
-                cell_cnt[c] * raw + smoothing * te_global
-            ) / (cell_cnt[c] + smoothing)
+            cell_means_global[c] = (cell_cnt[c] * raw + smoothing * te_global) / (cell_cnt[c] + smoothing)
     return te_values, cell_means_global
 
 
@@ -180,7 +174,7 @@ def _pair_search_kernel_weighted_njit(
     marginal_mi: np.ndarray,
     nbins: np.ndarray,
     classes_y: np.ndarray,
-    weights: np.ndarray,        # (n,) float64; sum(weights) > 0
+    weights: np.ndarray,  # (n,) float64; sum(weights) > 0
     dtype,
 ) -> tuple:
     """Weighted variant of ``_pair_search_kernel_njit``.

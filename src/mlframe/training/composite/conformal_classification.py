@@ -115,9 +115,8 @@ def calibrate_conformal_set(self, X_cal, y_cal, alpha=0.1, score: str = "lac"):
     """
     if not hasattr(self, "estimator_"):
         from sklearn.exceptions import NotFittedError
-        raise NotFittedError(
-            "CompositeClassificationEstimator.calibrate_conformal_set called before fit."
-        )
+
+        raise NotFittedError("CompositeClassificationEstimator.calibrate_conformal_set called before fit.")
     score = str(score).lower()
     if score not in ("lac", "aps"):
         raise ValueError(f"score must be 'lac' or 'aps', got {score!r}")
@@ -126,22 +125,10 @@ def calibrate_conformal_set(self, X_cal, y_cal, alpha=0.1, score: str = "lac"):
     # Label-encode against the fitted classes_ (the order predict_proba emits in).
     y_enc = np.searchsorted(self.classes_, y_true)
     if proba.shape[0] != y_enc.shape[0]:
-        raise ValueError(
-            "calibrate_conformal_set: predict_proba produced "
-            f"{proba.shape[0]} rows but y_cal has {y_enc.shape[0]}"
-        )
-    if (y_enc < 0).any() or (y_enc >= proba.shape[1]).any() or not np.all(
-        self.classes_[np.clip(y_enc, 0, proba.shape[1] - 1)] == y_true
-    ):
-        raise ValueError(
-            "calibrate_conformal_set: y_cal contains labels unseen at fit; "
-            f"fitted classes_={list(self.classes_)}"
-        )
-    scores = (
-        _lac_true_label_scores(proba, y_enc)
-        if score == "lac"
-        else _aps_true_label_scores(proba, y_enc)
-    )
+        raise ValueError("calibrate_conformal_set: predict_proba produced " f"{proba.shape[0]} rows but y_cal has {y_enc.shape[0]}")
+    if (y_enc < 0).any() or (y_enc >= proba.shape[1]).any() or not np.all(self.classes_[np.clip(y_enc, 0, proba.shape[1] - 1)] == y_true):
+        raise ValueError("calibrate_conformal_set: y_cal contains labels unseen at fit; " f"fitted classes_={list(self.classes_)}")
+    scores = _lac_true_label_scores(proba, y_enc) if score == "lac" else _aps_true_label_scores(proba, y_enc)
     alphas = [alpha] if np.isscalar(alpha) else list(alpha)
     if not hasattr(self, "_conformal_set_q_") or self._conformal_set_q_ is None:
         self._conformal_set_q_ = {}

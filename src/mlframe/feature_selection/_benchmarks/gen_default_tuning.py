@@ -67,9 +67,7 @@ logger = logging.getLogger(__name__)
 # (filters/_kernel_tuning.py) so it ships inside the wheel (package-data picks up
 # the json); this dev-only producer is NOT packaged, so it writes across to that
 # runtime location to keep the two in sync.
-DEFAULT_OUTPUT_PATH = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "filters", "default_kernel_tuning.json")
-)
+DEFAULT_OUTPUT_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "filters", "default_kernel_tuning.json"))
 
 # Schema version of the defaults document. Must match what
 # ``register_default_cache`` expects (pyutilz cache SCHEMA_VERSION == 3).
@@ -322,8 +320,7 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true", help="INFO-level logging")
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
-                        format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 
     document = generate_defaults(
         package=args.package, output_path=args.output,

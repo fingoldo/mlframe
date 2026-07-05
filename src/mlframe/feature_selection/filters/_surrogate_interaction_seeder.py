@@ -66,7 +66,7 @@ def _walk_paths_tally(
     gain = float(node.get("split_gain", 0.0) or 0.0)
     if gain < 0.0:
         gain = 0.0
-    w = gain * (depth_discount ** depth)
+    w = gain * (depth_discount**depth)
     feat_w[feat] = feat_w.get(feat, 0.0) + w
 
     # Pairs: (ancestor, current). Triples: (ancestor_i, ancestor_j, current).
@@ -74,7 +74,7 @@ def _walk_paths_tally(
         if fa != feat:
             key = (fa, feat) if fa < feat else (feat, fa)
             pair_w[key] = pair_w.get(key, 0.0) + min(wa, w)
-        for fb, wb in path[i + 1:]:
+        for fb, wb in path[i + 1 :]:
             trio = tuple(sorted({fa, fb, feat}))
             if len(trio) == 3:
                 triple_w[trio] = triple_w.get(trio, 0.0) + min(wa, wb, w)
@@ -224,8 +224,7 @@ def surrogate_gbm_interaction_seeds(
     The surrogate is trained on the CANDIDATE-ONLY submatrix (the target column is excluded;
     training on the full screening matrix, which contains the discretised target, leaks a
     perfect OOF). Only ``candidate_indices`` columns are eligible to be seeded."""
-    info: dict = {"oof_real": float("nan"), "oof_perm": float("nan"), "self_gate_z": float("nan"),
-                  "gated": False, "n_pairs": 0, "n_triples": 0}
+    info: dict = {"oof_real": float("nan"), "oof_perm": float("nan"), "self_gate_z": float("nan"), "gated": False, "n_pairs": 0, "n_triples": 0}
     cand_list = sorted(set(int(c) for c in candidate_indices))
     cand_set = set(cand_list)
     if len(cand_set) < 2 or disc_X.shape[0] < 30:
@@ -365,13 +364,10 @@ def surrogate_gbm_interaction_seeds(
     feat_w = {_g(i): v for i, v in feat_w_local.items()}
 
     # PAIRS: emitted only when the OOF pair self-gate passed (2-way signal IS OOF-detectable).
-    seeded_pairs = (
-        [k for k, _ in sorted(pair_w.items(), key=lambda kv: kv[1], reverse=True)[:int(top_k_pairs)]]
-        if pairs_pass else []
-    )
+    seeded_pairs = [k for k, _ in sorted(pair_w.items(), key=lambda kv: kv[1], reverse=True)[: int(top_k_pairs)]] if pairs_pass else []
     # TRIPLES: ALWAYS emitted (the order-3 maxT floor is their binding gate -- the OOF
     # statistic is blind to a hard 3-way, so gating triple emission on it would drop the needle).
-    seeded_triplets = [k for k, _ in sorted(triple_w.items(), key=lambda kv: kv[1], reverse=True)[:int(top_k_triples)]]
+    seeded_triplets = [k for k, _ in sorted(triple_w.items(), key=lambda kv: kv[1], reverse=True)[: int(top_k_triples)]]
     info["n_pairs"] = len(seeded_pairs)
     info["n_triples"] = len(seeded_triplets)
     info["pair_weights"] = pair_w

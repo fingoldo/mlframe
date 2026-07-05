@@ -326,10 +326,7 @@ def _render_post_fit_diagnostics(
             n_time_bins=getattr(cfg, "class_structure_time_bins", 20),
         )
 
-    if (
-        getattr(cfg, "category_discriminability_charts", True) and df is not None
-        and tt == "binary_classification" and y_arr is not None and y_arr.ndim == 1
-    ):
+    if getattr(cfg, "category_discriminability_charts", True) and df is not None and tt == "binary_classification" and y_arr is not None and y_arr.ndim == 1:
         render_category_discriminability_diagnostic(
             df=df, y_true=y_arr, feature_names=names,
             plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,

@@ -469,11 +469,7 @@ def integral_calibration_error_from_metrics(
     # Without this guard the entire ICE becomes NaN, which silently breaks
     # early-stopping comparisons (NaN > best is always False, so the trainer
     # gets stuck on iteration-1 best instead of failing loud).
-    base_loss = (
-        brier_loss * brier_loss_weight
-        + calibration_mae * mae_weight
-        + calibration_std * std_weight
-    )
+    base_loss = brier_loss * brier_loss_weight + calibration_mae * mae_weight + calibration_std * std_weight
     roc_term = 0.0 if np.isnan(roc_auc) else np.abs(roc_auc - 0.5) * roc_auc_weight
     pr_term = 0.0 if np.isnan(pr_auc) else pr_auc * pr_auc_weight
     res = base_loss - roc_term - pr_term

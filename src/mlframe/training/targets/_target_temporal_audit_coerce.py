@@ -28,10 +28,10 @@ def _import_ruptures():
 _AUDIT_DATETIME_LOW_NS = np.int64(0)  # 1970-01-01 in nanoseconds-since-epoch
 _AUDIT_DATETIME_HIGH_NS = np.int64(7258118400_000_000_000)  # 2200-01-01 in ns
 _AUDIT_UNIT_NS_FACTOR: dict[str, int] = {
-    "s":  1_000_000_000,
-    "ms":     1_000_000,
-    "us":         1_000,
-    "ns":             1,
+    "s": 1_000_000_000,
+    "ms": 1_000_000,
+    "us": 1_000,
+    "ns": 1,
 }
 
 
@@ -87,12 +87,12 @@ def coerce_timestamps_for_audit(
             if _n_nat > 0:
                 import logging as _logging
                 _logging.getLogger(__name__).warning(
-                    "coerce_timestamps_for_audit: %d timestamp value(s) were unparseable "
-                    "and coerced to NaT (silently dropped from the temporal audit).", _n_nat,
+                    "coerce_timestamps_for_audit: %d timestamp value(s) were unparseable " "and coerced to NaT (silently dropped from the temporal audit).",
+                    _n_nat,
                 )
         except Exception:
             pass
-        _had_tz = (getattr(_coerced.dtype, "tz", None) is not None)
+        _had_tz = getattr(_coerced.dtype, "tz", None) is not None
         if _had_tz:
             _coerced = _coerced.tz_convert("UTC").tz_localize(None)
             import logging as _logging
@@ -119,10 +119,7 @@ def coerce_timestamps_for_audit(
 
     if explicit_unit is not None:
         if explicit_unit not in _AUDIT_UNIT_NS_FACTOR:
-            raise ValueError(
-                f"audit timestamp unit={explicit_unit!r} not in "
-                f"{sorted(_AUDIT_UNIT_NS_FACTOR)!r}"
-            )
+            raise ValueError(f"audit timestamp unit={explicit_unit!r} not in " f"{sorted(_AUDIT_UNIT_NS_FACTOR)!r}")
         return _to_ns(pd.to_datetime(arr, unit=explicit_unit))
 
     # Auto-detect: coarsest-first so degenerate ns-as-seconds reads pick "s" not "ns".

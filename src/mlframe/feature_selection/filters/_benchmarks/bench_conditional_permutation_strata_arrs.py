@@ -30,9 +30,7 @@ REL = "src/mlframe/feature_selection/filters/_conditional_permutation.py"
 
 
 def _load_old_module() -> types.ModuleType:
-    src = subprocess.run(
-        ["git", "show", f"HEAD:{REL}"], cwd=REPO, capture_output=True, text=True, check=True
-    ).stdout
+    src = subprocess.run(["git", "show", f"HEAD:{REL}"], cwd=REPO, capture_output=True, text=True, check=True).stdout
     from mlframe.feature_selection.filters import _cmi_perm_stop  # noqa: F401
 
     pkg_name = "_cpt_old_pkg"
@@ -69,10 +67,7 @@ def bench(old_mod, new_mod, n=20_000, nbx=8, nby=8, nbz=10, B=200, seed=0):
 
     t_old = _median_time(lambda: old_mod.conditional_permutation_test(x, y, z, nbx, nby, nbz, n_permutations=B, seed=7))
     t_new = _median_time(lambda: new_mod.conditional_permutation_test(x, y, z, nbx, nby, nbz, n_permutations=B, seed=7))
-    print(
-        f"[cpt] n={n} nbz={nbz} B={B}: OLD {t_old*1e3:8.2f} ms -> NEW {t_new*1e3:8.2f} ms"
-        f"  ({t_old/t_new:.2f}x)  identity=exact (obs,p)={new_res}"
-    )
+    print(f"[cpt] n={n} nbz={nbz} B={B}: OLD {t_old*1e3:8.2f} ms -> NEW {t_new*1e3:8.2f} ms" f"  ({t_old/t_new:.2f}x)  identity=exact (obs,p)={new_res}")
 
 
 def main():

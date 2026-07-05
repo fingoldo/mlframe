@@ -5,7 +5,6 @@ https://en.wikipedia.org/wiki/Hurst_exponent
 
 from __future__ import annotations
 
-
 __all__ = [
     "compute_hurst_rs",
     "precompute_hurst_exponent",
@@ -26,7 +25,6 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 from numba import njit, prange
-
 
 _FASTMATH = False
 _ZERO_EPS = 1e-12
@@ -208,7 +206,7 @@ def _rolling_hurst_kernel(
     """
     n = arr.size
     for i in prange(K - 1, n):
-        out[i] = _hurst_rs_single(arr[i - K + 1: i + 1])
+        out[i] = _hurst_rs_single(arr[i - K + 1 : i + 1])
 
 
 @njit(cache=True, fastmath=True)
@@ -243,7 +241,7 @@ def dfa_alpha(x: np.ndarray) -> float:
         t = np.arange(s).astype(np.float64)
         tm = t.mean()
         for j in range(m):
-            seg = y[j * s:(j + 1) * s]
+            seg = y[j * s : (j + 1) * s]
             sm = seg.mean()
             num = 0.0
             den = 0.0
@@ -274,7 +272,7 @@ def dfa_alpha(x: np.ndarray) -> float:
 def _rolling_dfa_kernel(arr: np.ndarray, K: int, out: np.ndarray) -> None:
     n = arr.size
     for i in prange(K - 1, n):
-        out[i] = dfa_alpha(arr[i - K + 1: i + 1])
+        out[i] = dfa_alpha(arr[i - K + 1 : i + 1])
 
 
 @njit(cache=True, fastmath=True)
@@ -320,7 +318,7 @@ def _rolling_hfd_kernel(
 ) -> None:
     n = arr.size
     for i in prange(K - 1, n):
-        out[i] = higuchi_fd(arr[i - K + 1: i + 1], kmax)
+        out[i] = higuchi_fd(arr[i - K + 1 : i + 1], kmax)
 
 
 def _per_group_rolling(
@@ -411,9 +409,7 @@ def rolling_higuchi_fd(
     fewer than 2 valid points and the kernel returns NaN.
     """
     if window_K < kmax * 4:
-        raise ValueError(
-            f"window_K must be >= kmax*4 ({kmax * 4}) for Higuchi, got {window_K}"
-        )
+        raise ValueError(f"window_K must be >= kmax*4 ({kmax * 4}) for Higuchi, got {window_K}")
     return _per_group_rolling(values, group_ids, window_K, _rolling_hfd_kernel, window_K, kmax)
 
 
@@ -517,9 +513,7 @@ def dfa_alpha2_quadratic(x: np.ndarray) -> float:
         M00 = S0; M01 = S1; M02 = S2
         M11 = S2; M12 = S3
         M22 = S4
-        det = (M00 * (M11 * M22 - M12 * M12)
-               - M01 * (M01 * M22 - M12 * M02)
-               + M02 * (M01 * M12 - M11 * M02))
+        det = M00 * (M11 * M22 - M12 * M12) - M01 * (M01 * M22 - M12 * M02) + M02 * (M01 * M12 - M11 * M02)
         if abs(det) < 1e-12:
             # Design matrix degenerate for this scale (depends only on ``s``): every segment would have been skipped, so f_s collapses to 0 -- matches the pre-hoist per-segment ``continue``.
             log_s[k] = np.log(s)
@@ -534,7 +528,7 @@ def dfa_alpha2_quadratic(x: np.ndarray) -> float:
         c12 = -(M00 * M12 - M01 * M02) * inv_det
         c22 = (M00 * M11 - M01 * M01) * inv_det
         for j in range(m):
-            seg = y[j * s:(j + 1) * s]
+            seg = y[j * s : (j + 1) * s]
             Sy = seg.sum()
             Sty = (t * seg).sum()
             St2y = (t * t * seg).sum()
@@ -611,7 +605,7 @@ def multifractal_dfa(
         t = np.arange(s).astype(np.float64)
         tm = t.mean()
         for j in range(m):
-            seg = y[j * s:(j + 1) * s]
+            seg = y[j * s : (j + 1) * s]
             sm = seg.mean()
             num = 0.0
             den = 0.0

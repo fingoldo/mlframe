@@ -79,8 +79,7 @@ def ensure_triton_loaded() -> bool:
             try:
                 ctypes.WinDLL(pyd, winmode=0x8)
                 logger.info(
-                    "F-42: Triton bootstrap preloaded libtriton.pyd via "
-                    "WinDLL (winmode=0x8). Source: %s",
+                    "F-42: Triton bootstrap preloaded libtriton.pyd via " "WinDLL (winmode=0x8). Source: %s",
                     pyd,
                 )
                 # Verify the import actually works now.
@@ -104,8 +103,8 @@ def ensure_triton_loaded() -> bool:
     except Exception as _bootstrap_err:
         _triton_loaded = False
         logger.warning(
-            "F-42: Triton bootstrap raised unexpectedly (%s); "
-            "Triton paths disabled.", _bootstrap_err,
+            "F-42: Triton bootstrap raised unexpectedly (%s); " "Triton paths disabled.",
+            _bootstrap_err,
         )
         return False
 

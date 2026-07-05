@@ -74,8 +74,7 @@ def compute_variance_baseline_features(
             mu_train = m_mu.predict_proba(Xt_s)[:, 1].astype(np.float32)
             mu_query = m_mu.predict_proba(Xq_s)[:, 1].astype(np.float32)
         else:
-            m_mu = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1,
-                                     random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
+            m_mu = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
             mu_train = m_mu.predict(Xt_s).astype(np.float32)
             mu_query = m_mu.predict(Xq_s).astype(np.float32)
 

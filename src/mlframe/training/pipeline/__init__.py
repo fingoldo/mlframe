@@ -6,7 +6,6 @@ Handles Polars-ds and sklearn pipeline creation, fitting, and transformation.
 
 from __future__ import annotations
 
-
 # *****************************************************************************************************************************************************
 # IMPORTS
 # *****************************************************************************************************************************************************
@@ -61,7 +60,6 @@ from pyutilz.pandaslib import ensure_dataframe_float32_convertability
 from ..utils import log_ram_usage
 from ..configs import PreprocessingBackendConfig, PreprocessingExtensionsConfig
 from ..strategies import PANDAS_CATEGORICAL_DTYPES, get_polars_cat_columns
-
 
 _SCALER_FACTORIES = {
     "StandardScaler": lambda: __import__("sklearn.preprocessing", fromlist=["StandardScaler"]).StandardScaler(),
@@ -132,7 +130,7 @@ def _build_extension_steps(config: PreprocessingExtensionsConfig, n_features: in
         # the upper bound is OK we additionally evaluate the exact combinatorial count to surface a
         # better diagnostic when the user is right at the boundary; both stay below the guard,
         # both pass.
-        projected_upper = n_features ** config.polynomial_degree
+        projected_upper = n_features**config.polynomial_degree
         if projected_upper > config.memory_safety_max_features:
             # Exact count for the diagnostic only (no behavioural change vs legacy formula).
             from mlframe.training.feature_handling.polynomial import _projected_output_cols
@@ -155,8 +153,8 @@ def _build_extension_steps(config: PreprocessingExtensionsConfig, n_features: in
         )))
     if config.nonlinear_features is not None:
         from sklearn.kernel_approximation import RBFSampler, Nystroem, AdditiveChi2Sampler, SkewedChi2Sampler
-        _nl = {"RBFSampler": RBFSampler, "Nystroem": Nystroem,
-               "AdditiveChi2Sampler": AdditiveChi2Sampler, "SkewedChi2Sampler": SkewedChi2Sampler}
+
+        _nl = {"RBFSampler": RBFSampler, "Nystroem": Nystroem, "AdditiveChi2Sampler": AdditiveChi2Sampler, "SkewedChi2Sampler": SkewedChi2Sampler}
         cls = _nl[config.nonlinear_features]
         kw = {"n_components": config.nonlinear_n_components}
         if cls is AdditiveChi2Sampler:
@@ -255,10 +253,6 @@ class PreprocessingExtensionsBundle:
         return getattr(self.sklearn_pipe, "feature_names_in_", None)
 
 
-
-
-
-
 def prepare_df_for_catboost(df: pd.DataFrame, cat_features: List[str]) -> None:
     """
     Prepare categorical features for CatBoost.
@@ -336,9 +330,7 @@ def prepare_dfs_for_catboost_joint(
                 _first = next((v for v in _col_series.head(8) if v is not None), None)
             except Exception:
                 _first = None
-            if _first is not None and (hasattr(_first, "shape") or (
-                hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
-            )):
+            if _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))):
                 logger.warning(
                     "prepare_dfs_for_catboost_joint: column '%s' looks like an "
                     "embedding/list column (first cell type=%s); skipping joint-"
@@ -424,10 +416,7 @@ def _select_scalable_numeric_columns(
     # the zero-spread check entirely, and the bogus method propagated to
     # polars_ds.scale where it crashed with a cryptic message).
     if method not in ("robust", "standard", "min_max", "abs_max"):
-        raise ValueError(
-            f"_select_scalable_numeric_columns: unknown method={method!r}; "
-            "expected one of 'robust', 'standard', 'min_max', 'abs_max'."
-        )
+        raise ValueError(f"_select_scalable_numeric_columns: unknown method={method!r}; " "expected one of 'robust', 'standard', 'min_max', 'abs_max'.")
 
     numeric_cols = [name for name, dtype in train_df.schema.items() if dtype.is_numeric()]
     if not numeric_cols:
@@ -625,10 +614,7 @@ def create_polarsds_pipeline(
         # Numeric-only target: text/string/categorical columns are
         # handled by the categorical encoder, not here. Reuse the same
         # column filter as the scaler so the two stay aligned.
-        _imputable_cols = [
-            name for name, dtype in train_df.schema.items()
-            if dtype.is_numeric() and not dtype == pl.Boolean
-        ]
+        _imputable_cols = [name for name, dtype in train_df.schema.items() if dtype.is_numeric() and not dtype == pl.Boolean]
         if _imputable_cols:
             # polars-ds ``Blueprint.impute`` (and our mode path's ``fill_null``)
             # only fill polars NULL -- they leave float ``NaN`` untouched. Real
@@ -636,19 +622,10 @@ def create_polarsds_pipeline(
             # of non-positive), so NaN would survive the imputer and reach the
             # scaler / downstream model despite this step. Convert NaN -> NULL on
             # the float imputable columns first so every missing marker is filled.
-            _float_imputable = [
-                c for c in _imputable_cols if train_df.schema[c].is_float()
-            ]
+            _float_imputable = [c for c in _imputable_cols if train_df.schema[c].is_float()]
             if _float_imputable:
-                bp = bp.with_columns(
-                    *[
-                        pl.when(pl.col(_c).is_nan())
-                        .then(None)
-                        .otherwise(pl.col(_c))
-                        .alias(_c)
-                        for _c in _float_imputable
-                    ]
-                )
+                bp = bp.with_columns(*[pl.when(pl.col(_c).is_nan()).then(None).otherwise(pl.col(_c)).alias(_c) for _c in _float_imputable])
+
             # ``config.imputer_strategy`` has been canonicalised by the
             # validator to one of {mean, median, mode}. mean / median map
             # directly to polars-ds's ``Blueprint.impute``; ``mode`` does NOT
@@ -735,13 +712,7 @@ def create_polarsds_pipeline(
             if name in excluded:
                 continue
             # Mirror polars-ds's auto-detection for string-like dtypes.
-            if (
-                dtype == pl.Utf8
-                or dtype == pl.String
-                or dtype == pl.Categorical
-                or dtype == pl.Boolean
-                or (hasattr(pl, "Enum") and isinstance(dtype, pl.Enum))
-            ):
+            if dtype == pl.Utf8 or dtype == pl.String or dtype == pl.Categorical or dtype == pl.Boolean or (hasattr(pl, "Enum") and isinstance(dtype, pl.Enum)):
                 out.append(name)
         return out
 
@@ -763,10 +734,7 @@ def create_polarsds_pipeline(
             # Cast any Enum candidate to Categorical first so Enum-typed inputs
             # (input_type='polars_enum') encode instead of crashing the pipeline build.
             _enum_cls = getattr(pl, "Enum", None)
-            _enum_to_cast = [
-                name for name in candidate_cols
-                if _enum_cls is not None and isinstance(train_df.schema.get(name), _enum_cls)
-            ]
+            _enum_to_cast = [name for name in candidate_cols if _enum_cls is not None and isinstance(train_df.schema.get(name), _enum_cls)]
             if _enum_to_cast:
                 bp = bp.with_columns(*[pl.col(_c).cast(pl.Categorical) for _c in _enum_to_cast])
             cols_arg = candidate_cols if excluded else None
@@ -784,10 +752,7 @@ def create_polarsds_pipeline(
     # row FE-L-3.
     try:
         _narrow_int_dtypes = {pl.Int8, pl.Int16, pl.UInt8, pl.UInt16}
-        _wide_int_cols = [
-            name for name, dtype in train_df.schema.items()
-            if dtype.is_integer() and dtype not in _narrow_int_dtypes
-        ]
+        _wide_int_cols = [name for name, dtype in train_df.schema.items() if dtype.is_integer() and dtype not in _narrow_int_dtypes]
         if _wide_int_cols:
             _cast_exprs = [pl.col(c).cast(pl.Float32) for c in _wide_int_cols]
             # polars-ds Blueprint.with_columns is ``*exprs`` style; unpack.
@@ -895,8 +860,6 @@ def _warn_on_schema_drift(
             "train dtypes.",
             split_name, len(dtype_mismatches), dtype_mismatches,
         )
-
-
 
 
 __all__ = [

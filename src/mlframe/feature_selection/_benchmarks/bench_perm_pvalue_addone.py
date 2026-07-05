@@ -109,7 +109,7 @@ def main(n_seeds: int = 40, n: int = 2000, npermutations: int = 200, alpha: floa
         # MRMR gate at the screen's small null budget (32 effective perms via _NULL_MEAN_MIN_PERMS).
         p_plain = _run_mode_pvalue(False, data, nbins, ncols, 2, seed)
         p_add = _run_mode_pvalue(True, data, nbins, ncols, 2, seed)
-        keep_plain = p_plain < alpha   # kept = significant = NOT demoted
+        keep_plain = p_plain < alpha  # kept = significant = NOT demoted
         keep_add = p_add < alpha
         for j in range(ncols):
             if keep_plain[j] != keep_add[j]:

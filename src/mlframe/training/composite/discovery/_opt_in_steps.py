@@ -102,9 +102,8 @@ def _run_region_adaptive(
     n_jobs = min(len(bases), cpu_count_physical())
     if n_jobs > 1:
         from joblib import Parallel, delayed
-        results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(
-            delayed(_fit_one)(b) for b in bases
-        )
+
+        results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(delayed(_fit_one)(b) for b in bases)
     else:
         results = [_fit_one(b) for b in bases]
     out: list[Any] = [r for r in results if r is not None]
@@ -166,10 +165,7 @@ def _run_auto_chain(
     ``get_transform`` resolve it) and emit a well-formed :class:`CompositeSpec`
     the caller appends to ``kept_specs``.
     """
-    res_names = sorted({
-        s.transform_name for s in kept_specs
-        if s.transform_name in ("linear_residual", "monotonic_residual")
-    })
+    res_names = sorted({s.transform_name for s in kept_specs if s.transform_name in ("linear_residual", "monotonic_residual")})
     if not res_names:
         return []
     bases = []
@@ -189,9 +185,7 @@ def _run_auto_chain(
     # matrix -- bit-identical to a per-base ``column_stack`` of ``feat_cols`` minus the base (the
     # surviving column order is preserved), but it re-gathers ~400 columns from the frame ONCE
     # instead of once per base.
-    x_full = np.column_stack(
-        [_extract_column_array(df, c, rows=screen_idx) for c in feat_cols]
-    )
+    x_full = np.column_stack([_extract_column_array(df, c, rows=screen_idx) for c in feat_cols])
     col_index = {c: i for i, c in enumerate(feat_cols)}
 
     def _chains_for_base(base_col: str):
@@ -200,10 +194,7 @@ def _run_auto_chain(
             return base_col, []
         try:
             base_screen = _extract_column_array(df, base_col, rows=screen_idx)
-            x_matrix = (
-                np.delete(x_full, col_index[base_col], axis=1)
-                if base_col in col_index else x_full
-            )
+            x_matrix = np.delete(x_full, col_index[base_col], axis=1) if base_col in col_index else x_full
             chains = discover_chains(
                 y=y_screen, base=base_screen, x_matrix=x_matrix,
                 residual_names=res_names,
@@ -228,9 +219,8 @@ def _run_auto_chain(
     n_jobs = min(len(bases), cpu_count_physical())
     if n_jobs > 1:
         from joblib import Parallel, delayed
-        per_base = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(
-            delayed(_chains_for_base)(b) for b in bases
-        )
+
+        per_base = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(delayed(_chains_for_base)(b) for b in bases)
     else:
         per_base = [_chains_for_base(b) for b in bases]
 

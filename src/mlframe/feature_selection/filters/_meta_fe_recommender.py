@@ -248,12 +248,12 @@ def _skew_kurt(x):
         return 0.0, 0.0
     m = x.mean()
     d = x - m
-    var = float((d ** 2).mean())
+    var = float((d**2).mean())
     if var <= 1e-12:
         return 0.0, 0.0
-    sd = var ** 0.5
+    sd = var**0.5
     z = d / sd
-    return float((z ** 3).mean()), float((z ** 4).mean() - 3.0)
+    return float((z**3).mean()), float((z**4).mean() - 3.0)
 
 
 # ---------------------------------------------------------------------------
@@ -369,8 +369,7 @@ class MetaFERecommender:
 
     # ----- observe / learn -----
 
-    def fit_observe(self, X, y, flags_used: Mapping[str, bool], cv_score: float,
-                    ts: Optional[str] = None) -> None:
+    def fit_observe(self, X, y, flags_used: Mapping[str, bool], cv_score: float, ts: Optional[str] = None) -> None:
         """Record that ``flags_used`` scored ``cv_score`` (higher = better) on the
         fingerprint of ``(X, y)``. Future :meth:`recommend` calls on a
         similar fingerprint learn from this."""
@@ -419,9 +418,7 @@ def _stable_bucket_key(fp: Mapping[str, Any]) -> str:
     import orjson
     # orjson emits compact output (no spaces), matching the old
     # ``separators=(",", ":")``; decode to keep the ``str`` return contract.
-    return orjson.dumps(
-        bucketize_fingerprint(fp), default=str, option=orjson.OPT_SORT_KEYS
-    ).decode("utf-8")
+    return orjson.dumps(bucketize_fingerprint(fp), default=str, option=orjson.OPT_SORT_KEYS).decode("utf-8")
 
 
 __all__ = [

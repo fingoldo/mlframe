@@ -65,11 +65,11 @@ _FALLBACK_COLORS: Tuple[str, ...] = ("#8c564b", "#e377c2", "#7f7f7f", "#bcbd22",
 class OverfitVerdict:
     """The cross-split overfit traffic-light + the gap that drove it (read by tests / triage, not just drawn)."""
 
-    color: str            # "green" / "amber" / "red"
-    label: str            # short headline, e.g. "GENERALIZES" / "MILD OVERFIT" / "OVERFIT"
-    reason: str           # human-readable justification incl. the headline gap
-    gap: float            # the headline degradation (train->test AUC drop, or test/train RMSE ratio)
-    metric: str           # the metric the gap is measured on
+    color: str  # "green" / "amber" / "red"
+    label: str  # short headline, e.g. "GENERALIZES" / "MILD OVERFIT" / "OVERFIT"
+    reason: str  # human-readable justification incl. the headline gap
+    gap: float  # the headline degradation (train->test AUC drop, or test/train RMSE ratio)
+    metric: str  # the metric the gap is measured on
 
 
 def _order_splits(names: Sequence[str]) -> List[str]:

@@ -21,10 +21,10 @@ from hybrid_selector import HybridSelector
 
 SEEDS = [0, 1, 2]
 VARIANTS = {
-    "vote1_guard":        dict(vote=1, fi_guard=True),
-    "vote1_noguard":      dict(vote=1, fi_guard=False),
+    "vote1_guard": dict(vote=1, fi_guard=True),
+    "vote1_noguard": dict(vote=1, fi_guard=False),
     "vote1_guard_expand": dict(vote=1, fi_guard=True, expand_clusters=True),
-    "vote2":              dict(vote=2, fi_guard=True),
+    "vote2": dict(vote=2, fi_guard=True),
 }
 
 

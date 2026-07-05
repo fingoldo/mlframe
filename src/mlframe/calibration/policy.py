@@ -215,8 +215,7 @@ def _normalize_binary_labels(y: np.ndarray) -> np.ndarray:
     uniq = np.unique(finite)
     if uniq.size != 2:
         raise ValueError(
-            f"_ece_score: y_true must have exactly 2 distinct (finite) label values for binary "
-            f"ECE; got {uniq.size} distinct value(s): {uniq.tolist()[:10]}"
+            f"_ece_score: y_true must have exactly 2 distinct (finite) label values for binary " f"ECE; got {uniq.size} distinct value(s): {uniq.tolist()[:10]}"
         )
     if uniq[0] == 0 and uniq[1] == 1:
         return arr.astype(np.int64, copy=False)
@@ -429,7 +428,7 @@ def _build_resample_indices(
         for _c in range(_class_sizes.shape[0]):
             _sz = int(_class_sizes[_c])
             _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
-            out[b, _class_offsets[_c]:_class_offsets[_c + 1]] = _groups_list[_c][_rand]
+            out[b, _class_offsets[_c] : _class_offsets[_c + 1]] = _groups_list[_c][_rand]
     return out
 
 
@@ -514,8 +513,7 @@ def _stratified_inner_folds(y: np.ndarray, n_splits: int, random_state: Optional
     classes = np.unique(y)
     if classes.size != 2:
         raise ValueError(
-            f"_stratified_inner_folds: binary calibration requires exactly 2 classes; "
-            f"got {classes.size} distinct value(s): {classes.tolist()[:10]}"
+            f"_stratified_inner_folds: binary calibration requires exactly 2 classes; " f"got {classes.size} distinct value(s): {classes.tolist()[:10]}"
         )
     rng = np.random.default_rng(random_state)
     fold_of = np.empty(n, dtype=np.int64)
@@ -626,16 +624,8 @@ def _emit_reliability_plot(
     raw_p = raw_p.ravel()
     y = np.asarray(oof_y, dtype=np.float64).ravel()
 
-    calibrated = {
-        name: np.asarray(info["calibrated_probs"]).ravel()
-        for name, info in candidates.items()
-        if info.get("calibrated_probs") is not None
-    }
-    labels = {
-        name: f"{name} ECE={info['ece_mean']:.4f}"
-        for name, info in candidates.items()
-        if info.get("calibrated_probs") is not None
-    }
+    calibrated = {name: np.asarray(info["calibrated_probs"]).ravel() for name, info in candidates.items() if info.get("calibrated_probs") is not None}
+    labels = {name: f"{name} ECE={info['ece_mean']:.4f}" for name, info in candidates.items() if info.get("calibrated_probs") is not None}
 
     spec = build_reliability_overlay_spec(
         raw_p, y, calibrated_probs=calibrated, series_labels=labels, n_bins=n_bins,
@@ -758,9 +748,7 @@ def pick_best_calibrator(
     oof_y_arr = np.asarray(oof_y).ravel()
     n_oof = int(oof_y_arr.shape[0])
     if oof_p_pos.shape[0] != n_oof:
-        raise ValueError(
-            f"pick_best_calibrator: oof_probs rows ({oof_p_pos.shape[0]}) do not match oof_y ({n_oof})"
-        )
+        raise ValueError(f"pick_best_calibrator: oof_probs rows ({oof_p_pos.shape[0]}) do not match oof_y ({n_oof})")
     if n_oof < 4:
         raise ValueError(f"pick_best_calibrator: need at least 4 OOF rows; got n_oof={n_oof}")
 
@@ -822,10 +810,7 @@ def pick_best_calibrator(
         }
 
     if not results:
-        raise RuntimeError(
-            "pick_best_calibrator: every candidate calibrator failed; check optional deps "
-            "(betacal, ml_insights) and OOF input shape."
-        )
+        raise RuntimeError("pick_best_calibrator: every candidate calibrator failed; check optional deps " "(betacal, ml_insights) and OOF input shape.")
 
     ranked = sorted(results.items(), key=lambda kv: kv[1]["ece_mean"])
     chosen_name = ranked[0][0]
@@ -880,10 +865,7 @@ def pick_best_calibrator(
         "chosen": chosen_name,
         "ece_mean": float(results[chosen_name]["ece_mean"]),
         "ece_ci": tuple(results[chosen_name]["ece_ci"]),
-        "alternatives": {
-            name: {"ece_mean": info["ece_mean"], "ece_ci": info["ece_ci"]}
-            for name, info in results.items()
-        },
+        "alternatives": {name: {"ece_mean": info["ece_mean"], "ece_ci": info["ece_ci"]} for name, info in results.items()},
         "rule": selection_rule,
         "n_oof": n_oof,
         "plot_path": plot_out,

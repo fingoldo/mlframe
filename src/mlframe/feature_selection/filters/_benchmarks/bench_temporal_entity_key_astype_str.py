@@ -42,10 +42,7 @@ def main(n: int = 200_000) -> None:
         old = _best(lambda: s.astype(object).map(lambda v: str(v)))
         new = _best(lambda: s.astype(str))
         identical = s.astype(object).map(lambda v: str(v)).equals(s.astype(str))
-        print(
-            f"{desc:6s} old={old * 1000:8.2f}ms new={new * 1000:8.2f}ms "
-            f"speedup={old / new:.2f}x identical={identical}"
-        )
+        print(f"{desc:6s} old={old * 1000:8.2f}ms new={new * 1000:8.2f}ms " f"speedup={old / new:.2f}x identical={identical}")
 
 
 if __name__ == "__main__":

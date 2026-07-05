@@ -80,8 +80,7 @@ def rfecv_backward_union(Xtr_aug, ytr, union, seed):
     # max_refits low: the union is small (~20-40 cols), so a short MBH budget reaches the elbow; max_runtime caps
     # the worst case on the concurrent-load box. n_jobs=1 (the LightGBM estimator is already native-multithreaded).
     sc = SearchConfig(max_refits=12, max_runtime_mins=4)
-    r = RFECV(estimator=est, cv=3, scoring=None, verbose=0, fi_config=fi, search_config=sc,
-              n_jobs=1, random_state=seed)
+    r = RFECV(estimator=est, cv=3, scoring=None, verbose=0, fi_config=fi, search_config=sc, n_jobs=1, random_state=seed)
     r.fit(Xtr_aug[union], ytr)
     surv = [c for c in r.get_feature_names_out() if c in Xtr_aug.columns]
     return surv or list(union)
@@ -93,12 +92,11 @@ def run_bed(name, X, y, seed):
     t0 = time.time()
     h = HybridSelector(vote=1, use_fe=True, random_state=seed).fit(Xtr, ytr)
     fit_s = round(time.time() - t0, 1)
-    Ztr, Zte = h._augment(Xtr), h._augment(Xte)        # replay FE once for ALL downstream evals
+    Ztr, Zte = h._augment(Xtr), h._augment(Xte)  # replay FE once for ALL downstream evals
     cols = list(Ztr.columns)
     ms = h.member_selections_
     union = union_of_members(ms, cols)
-    log(f"{name} seed={seed}: hybrid fit {fit_s}s; members={ {k: len(v) for k, v in ms.items()} }; "
-        f"|union|={len(union)} |baseline|={len(h.raw_selected_)}")
+    log(f"{name} seed={seed}: hybrid fit {fit_s}s; members={ {k: len(v) for k, v in ms.items()} }; " f"|union|={len(union)} |baseline|={len(h.raw_selected_)}")
 
     rows = []
 
@@ -178,8 +176,7 @@ def main():
             if v not in piv.index:
                 continue
             d = round(float(piv[v]) - base, 4)
-            row = dict(bed=bed, variant=v, auc_mean=round(float(piv[v]), 4), n=round(float(npiv[v]), 1),
-                       delta_vs_baseline=d)
+            row = dict(bed=bed, variant=v, auc_mean=round(float(piv[v]), 4), n=round(float(npiv[v]), 1), delta_vs_baseline=d)
             summary.append(row)
             log(f"  {bed:12s} {v:16s} auc={row['auc_mean']:.4f} n={row['n']:.1f} d={d:+.4f}")
     sdf = pd.DataFrame(summary)

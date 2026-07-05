@@ -57,8 +57,7 @@ def main():
                     cols = [c for c in s.selected_features_ if c in X.columns]
                     a = downstream(Xtr, Xte, ytr, yte, cols)
                     am = round(float(np.nanmean([v for v in a.values()])), 4)
-                    row = dict(scenario=sc, seed=sd, config=name, n=len(cols), base=len(set(cols) & base),
-                               fit_s=round(dt, 1), auc=a, auc_mean=am)
+                    row = dict(scenario=sc, seed=sd, config=name, n=len(cols), base=len(set(cols) & base), fit_s=round(dt, 1), auc=a, auc_mean=am)
                 except Exception as e:
                     row = dict(scenario=sc, seed=sd, config=name, error=f"{type(e).__name__}: {e}")
                 rows.append(row)

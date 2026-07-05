@@ -91,7 +91,7 @@ def main():
         y = a ** 2 / b + np.log(c) * np.sin(d) + rng.normal(0.0, 1.0, n) / 5.0
         y_codes = _disc(y); ky = _occupied_k(y_codes)
         with np.errstate(all="ignore"):
-            g1 = _joint_ratio(a ** 2 / b, a, b, y_codes, ky, n)
+            g1 = _joint_ratio(a**2 / b, a, b, y_codes, ky, n)
             g2 = _joint_ratio(np.log(c) * np.sin(d), c, d, y_codes, ky, n)
             art = _joint_ratio(np.exp(np.clip(a, None, 20)) - np.sign(c) * np.abs(c) ** (-1.0 / 3.0), a, c, y_codes, ky, n)
         for r, lr, ld in [(g1, raw_g, deb_g), (g2, raw_g, deb_g), (art, raw_x, deb_x)]:

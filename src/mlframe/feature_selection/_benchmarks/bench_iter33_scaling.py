@@ -49,14 +49,10 @@ warnings.filterwarnings("ignore")
 
 # Canonical configs from the iter33 task spec. Edit ONLY here; everything else reads from this dict.
 CONFIGS = {
-    "C1": dict(width=5000, n_rows=5000, n_informative=12, n_redundant=0,
-               redundancy_rho=0.8, snr=8.0, seed=0),
-    "C2": dict(width=10000, n_rows=5000, n_informative=20, n_redundant=0,
-               redundancy_rho=0.8, snr=8.0, seed=0),
-    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
-               redundancy_rho=0.8, snr=8.0, seed=0),
-    "C4": dict(width=20000, n_rows=10000, n_informative=20, n_redundant=20,
-               redundancy_rho=0.8, snr=8.0, seed=0),
+    "C1": dict(width=5000, n_rows=5000, n_informative=12, n_redundant=0, redundancy_rho=0.8, snr=8.0, seed=0),
+    "C2": dict(width=10000, n_rows=5000, n_informative=20, n_redundant=0, redundancy_rho=0.8, snr=8.0, seed=0),
+    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0),
+    "C4": dict(width=20000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0),
 }
 
 _STAGE_ORDER = (
@@ -231,12 +227,10 @@ def main(argv=None):
     t_bench0 = time.perf_counter()
     for name in requested:
         cfg = CONFIGS[name]
-        r = run_one(name, cfg, do_cprofile=(name in profile_set),
-                   run_preflight=not args.no_preflight)
+        r = run_one(name, cfg, do_cprofile=(name in profile_set), run_preflight=not args.no_preflight)
         results[name] = r
         print_stage_table(r["stage_timings"], r["total"])
-        print(f"  recall: {r['recall'][0]}/{r['recall'][1]}  "
-              f"n_selected={r['n_selected']}  trustworthy={r['trustworthy']}", flush=True)
+        print(f"  recall: {r['recall'][0]}/{r['recall'][1]}  " f"n_selected={r['n_selected']}  trustworthy={r['trustworthy']}", flush=True)
         if r["chosen_honest_loss"] is not None:
             print(f"  chosen_honest_loss={r['chosen_honest_loss']:.4f}  "
                   f"random_baseline_brier={r['random_baseline_brier']:.4f}  "
@@ -250,15 +244,13 @@ def main(argv=None):
             print(f"  cProfile top 10 by cumulative:")
             print_cprofile(r["profile"], n=10, sort="cumulative")
         if r["total"] > args.per_config_cap_s:
-            print(f"  [WARN] {name} exceeded soft cap {args.per_config_cap_s:.0f}s "
-                  f"({r['total']:.1f}s)", flush=True)
+            print(f"  [WARN] {name} exceeded soft cap {args.per_config_cap_s:.0f}s " f"({r['total']:.1f}s)", flush=True)
 
     # Summary table
     print("\n" + "=" * 70)
     print("SCALING SUMMARY")
     print("=" * 70)
-    header = (f"{'config':<6} {'width':>6} {'rows':>6} {'inf':>4} {'red':>4} "
-              f"{'total':>8} {'recall':>8} {'subset':>7} {'trust':>6}")
+    header = f"{'config':<6} {'width':>6} {'rows':>6} {'inf':>4} {'red':>4} " f"{'total':>8} {'recall':>8} {'subset':>7} {'trust':>6}"
     print(header)
     for name in requested:
         c = CONFIGS[name]; r = results[name]

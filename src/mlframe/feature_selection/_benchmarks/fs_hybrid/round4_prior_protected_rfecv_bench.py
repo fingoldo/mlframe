@@ -70,8 +70,7 @@ def protected_rfecv(Xtr, ytr, core):
     fi = FIConfig(importance_getter="auto", n_features_selection_rule="one_se_min")
     sc = SearchConfig(max_refits=18, max_runtime_mins=3)
     est = lgb.LGBMClassifier(n_estimators=150, num_leaves=31, learning_rate=0.06, n_jobs=4, verbose=-1)
-    r = RFECV(estimator=est, cv=3, scoring=None, verbose=0, fi_config=fi, search_config=sc,
-              random_state=0, must_include=list(core))
+    r = RFECV(estimator=est, cv=3, scoring=None, verbose=0, fi_config=fi, search_config=sc, random_state=0, must_include=list(core))
     r.fit(Xtr, ytr)
     return [c for c in r.get_feature_names_out() if c in Xtr.columns]
 
@@ -82,8 +81,7 @@ def run_bed(name, X, y, truth, seed=0):
     relevant = set(truth["relevant"]); noise = set(truth["noise"])
 
     core = high_conf_core(Xtr, ytr)
-    print(f"  high-conf core: n={len(core)} (rel={sum(1 for c in core if c in relevant)} "
-          f"noise={sum(1 for c in core if c in noise)})", flush=True)
+    print(f"  high-conf core: n={len(core)} (rel={sum(1 for c in core if c in relevant)} " f"noise={sum(1 for c in core if c in noise)})", flush=True)
 
     rows = []
     # plain RFECV (rejected baseline)
@@ -96,9 +94,7 @@ def run_bed(name, X, y, truth, seed=0):
     prot_sel = protected_rfecv(Xtr, ytr, core)
     t_prot = round(time.time() - t1, 1)
 
-    for tag, sel, ts in (("plain_rfecv", plain_sel, t_plain),
-                         ("protected_rfecv", prot_sel, t_prot),
-                         ("core_only", core, 0.0)):
+    for tag, sel, ts in (("plain_rfecv", plain_sel, t_plain), ("protected_rfecv", prot_sel, t_prot), ("core_only", core, 0.0)):
         auc, n = downstream(Xtr, Xte, ytr, yte, sel)
         rec = sum(1 for c in sel if c in relevant); nn = sum(1 for c in sel if c in noise)
         rows.append(dict(bed=name, variant=tag, n=n, rel_recall=rec, n_noise=nn, auc=auc, fit_s=ts))

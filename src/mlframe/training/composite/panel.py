@@ -120,16 +120,11 @@ def _resolve_entity_ids(X: Any, entity_column: Optional[str], entity_id: Optiona
     if entity_id is not None:
         ids = np.asarray(entity_id, dtype=object).ravel()
         if ids.shape[0] != n:
-            raise ValueError(
-                f"CompositePanelEstimator: entity_id length {ids.shape[0]} != n_rows {n}."
-            )
+            raise ValueError(f"CompositePanelEstimator: entity_id length {ids.shape[0]} != n_rows {n}.")
         return ids
     if entity_column is not None:
         return _extract_entity(X, entity_column)
-    raise ValueError(
-        "CompositePanelEstimator: supply the entity id either via entity_column (a column "
-        "in X) or via the entity_id= argument to fit/predict."
-    )
+    raise ValueError("CompositePanelEstimator: supply the entity id either via entity_column (a column " "in X) or via the entity_id= argument to fit/predict.")
 
 
 class CompositePanelEstimator(BaseEstimator, RegressorMixin):

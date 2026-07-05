@@ -133,16 +133,12 @@ def check_precomputed_fingerprint(
     A mismatch (caller passed a bundle from a different run) is a silent label-leak vector -- we WARN-and-recompute rather than trust the precomputed stats.
     """
     _precomp_fp_ok = True
-    if (
-        precomputed is not None
-        and precomputed.train_df_fingerprint
-        and train_df is not None
-    ):
+    if precomputed is not None and precomputed.train_df_fingerprint and train_df is not None:
         try:
             from ..feature_handling.fingerprint import fingerprint_df as _fp
             _live_fp = _fp(train_df).short()
             _bundle_fp = str(precomputed.train_df_fingerprint)
-            if _bundle_fp not in (_live_fp, _live_fp[:len(_bundle_fp)]):
+            if _bundle_fp not in (_live_fp, _live_fp[: len(_bundle_fp)]):
                 logger.warning(
                     "precomputed.train_df_fingerprint (%s) does not match live train_df fingerprint (%s); "
                     "ignoring the precomputed bundle and recomputing inline.",

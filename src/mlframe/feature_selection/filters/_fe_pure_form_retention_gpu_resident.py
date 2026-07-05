@@ -156,9 +156,9 @@ def adds_nonlinear_value_batch_gpu_resident(
                 return None
             Bhost[:, i] = col
 
-        Vdev = cp.asarray(Vhost)          # (n, P) resident
-        Bdev = cp.asarray(Bhost)          # (n, B) resident
-        ydev = cp.asarray(rel_host)       # (n,) resident
+        Vdev = cp.asarray(Vhost)  # (n, P) resident
+        Bdev = cp.asarray(Bhost)  # (n, B) resident
+        ydev = cp.asarray(rel_host)  # (n,) resident
 
         # Precompute the 6-function additive basis for EVERY distinct raw operand ONCE (resident, (n, 6) each),
         # so a candidate's design is two index lookups -- not a re-derivation/re-upload per candidate.
@@ -176,7 +176,7 @@ def adds_nonlinear_value_batch_gpu_resident(
         # Relevance-target centered pieces (resident, computed ONCE).
         ybar_rel = ydev.mean()
         yc_rel = ydev - ybar_rel
-        ss_yrel = float(cp.dot(yc_rel, yc_rel))   # scalar; bounded
+        ss_yrel = float(cp.dot(yc_rel, yc_rel))  # scalar; bounded
         y_std = float(ydev.std())
 
         # BATCHED-READ gate (2026-07-02, residency): the per-candidate OLS keeps the EXACT per-candidate lstsq
@@ -208,7 +208,7 @@ def adds_nonlinear_value_batch_gpu_resident(
                 return None  # operand missing from the resident base set -> exact CPU path
             fv = Vdev[:, j]
             _fstd_v[j] = fv.std()
-            Xr = cp.concatenate([basis_by_idx[ia], basis_by_idx[ib]], axis=1)   # (n, 12)
+            Xr = cp.concatenate([basis_by_idx[ia], basis_by_idx[ib]], axis=1)  # (n, 12)
             Xc = Xr - Xr.mean(axis=0, keepdims=True)
             fc = fv - fv.mean()
             _G[j] = Xc.T @ Xc
@@ -217,12 +217,12 @@ def adds_nonlinear_value_batch_gpu_resident(
             _sfc[j] = cp.dot(fc, fc)
             _fyr[j] = cp.dot(fc, yc_rel)
         _ridge = (1e-10 * cp.einsum("pii->p", _G) / 12.0 + 1e-30)[:, None, None] * cp.eye(12, dtype=cp.float64)
-        _beta = cp.linalg.solve(_G + _ridge, _rhs[:, :, None])[:, :, 0]     # (P, 12) batched
+        _beta = cp.linalg.solve(_G + _ridge, _rhs[:, :, None])[:, :, 0]  # (P, 12) batched
         _ssrc_v = _sfc - (_beta * _rhs).sum(axis=1)
         _rstd_v = cp.sqrt(cp.maximum(_ssrc_v, 0.0) / _nrows)
         _num_v = _fyr - (_beta * _xy).sum(axis=1)
         # ONE batched D2H of every candidate's gate scalars (was a per-candidate lstsq sync + gate reads).
-        _gate = cp.asnumpy(cp.stack([_fstd_v, _rstd_v, _ssrc_v, _num_v], axis=1))   # (P, 4)
+        _gate = cp.asnumpy(cp.stack([_fstd_v, _rstd_v, _ssrc_v, _num_v], axis=1))  # (P, 4)
         for j in range(P):
             f_std, resid_std, ss_rc, num = (float(_v) for _v in _gate[j])
             if f_std <= 1e-12:

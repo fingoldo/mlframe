@@ -78,7 +78,7 @@ def _ilr_basis(k: int) -> np.ndarray:
     for j in range(k - 1):
         r = j + 1  # number of parts on the "numerator" side
         scale = np.sqrt(r / (r + 1.0))
-        v[: r, j] = 1.0 / r
+        v[:r, j] = 1.0 / r
         v[r, j] = -1.0
         v[:, j] *= scale
     return v
@@ -130,7 +130,7 @@ def alr_forward(y: np.ndarray, ref: int) -> np.ndarray:
     """
     logy = np.log(y)
     keep = [j for j in range(y.shape[1]) if j != ref]
-    return logy[:, keep] - logy[:, ref:ref + 1]
+    return logy[:, keep] - logy[:, ref : ref + 1]
 
 
 def alr_inverse(z: np.ndarray, ref: int, k: int) -> np.ndarray:

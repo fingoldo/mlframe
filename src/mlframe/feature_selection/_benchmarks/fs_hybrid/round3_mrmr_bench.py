@@ -28,13 +28,13 @@ from mlframe.feature_selection.filters import MRMR
 SEEDS = [0, 1, 2]
 _SAFE = re.compile(r"^[A-Za-z0-9_]+$")
 CONFIGS = {
-    "default":       dict(),
-    "dcd_off":       dict(dcd_enable=False),
-    "aggr_off":      dict(cluster_aggregate_enable=False),
-    "rescue_on":     dict(run_additional_rfecv_minutes=0.5),
+    "default": dict(),
+    "dcd_off": dict(dcd_enable=False),
+    "aggr_off": dict(cluster_aggregate_enable=False),
+    "rescue_on": dict(run_additional_rfecv_minutes=0.5),
     "relfloor_0.02": dict(min_relevance_gain_relative_to_first=0.02),
-    "fe_pairs_25":   dict(fe_max_pair_features=25),
-    "fe_strict":     dict(fe_synergy_min_prevalence=1.5, fe_min_engineered_mi_prevalence=0.97),
+    "fe_pairs_25": dict(fe_max_pair_features=25),
+    "fe_strict": dict(fe_synergy_min_prevalence=1.5, fe_min_engineered_mi_prevalence=0.97),
 }
 
 

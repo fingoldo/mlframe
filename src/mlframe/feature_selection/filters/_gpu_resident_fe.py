@@ -474,8 +474,7 @@ def _unary_apply(xp, name, x):
     if name == "exp":
         return xp.exp(x)
     # --- maximal: trig / inverse-trig / hyperbolic / inverse-hyperbolic (all native to numpy AND cupy) ---
-    if name in ("sinc", "cos", "tan", "arcsin", "arccos", "arctan",
-                "sinh", "cosh", "tanh", "arcsinh", "arccosh", "arctanh"):
+    if name in ("sinc", "cos", "tan", "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh", "arcsinh", "arccosh", "arctanh"):
         return getattr(xp, name)(x)
     # --- maximal: special functions (scipy.special / cupyx.scipy.special) ---
     if name == "erf":
@@ -492,8 +491,6 @@ def _unary_apply(xp, name, x):
     # if name == "dawsn":
     #     return _xp_special(xp).dawsn(x)
     raise ValueError(f"unknown unary {name!r}")
-
-
 
 
 _PREWARP_TRANSFORM_SRC = r"""
@@ -610,14 +607,14 @@ def _binary_apply(xp, name, x, y):
         return xp.abs(x - y)
     if name == "hypot":
         return xp.hypot(x, y)
-    if name == "signed":            # sign(x)*|y| -- non-symmetrical
+    if name == "signed":  # sign(x)*|y| -- non-symmetrical
         return xp.sign(x) * xp.abs(y)
-    if name == "ratio_abs":         # x/(|y|+1) -- non-symmetrical
+    if name == "ratio_abs":  # x/(|y|+1) -- non-symmetrical
         return x / (xp.abs(y) + 1.0)
     # --- maximal ---
     if name == "logaddexp":
         return xp.logaddexp(x, y)
-    if name == "pow":               # non-symmetrical; negative^frac -> nan, scrubbed downstream (matches np.power)
+    if name == "pow":  # non-symmetrical; negative^frac -> nan, scrubbed downstream (matches np.power)
         return xp.power(x, y)
     if name == "heaviside":
         return xp.heaviside(x, y)
@@ -645,10 +642,7 @@ def _binary_apply(xp, name, x, y):
 
 
 def _candidate_names(a_label: str = "a", b_label: str = "b") -> list[str]:
-    return [
-        f"{bop}({ua}({a_label}),{ub}({b_label}))"
-        for ua in _MINIMAL_UNARY for ub in _MINIMAL_UNARY for bop in _MINIMAL_BINARY
-    ]
+    return [f"{bop}({ua}({a_label}),{ub}({b_label}))" for ua in _MINIMAL_UNARY for ub in _MINIMAL_UNARY for bop in _MINIMAL_BINARY]
 
 
 # (ua, ub, bop) combo order, matching _candidate_names / _build_candidate_matrix column order.
@@ -846,7 +840,7 @@ def fe_gpu_grand_fusion_enabled() -> bool:
 
 
 _COMBO_IDX_CACHE: dict = {}  # block-tuple -> (ua_idx, ub_idx, bop) device int32; module-level -> pickle-safe
-_QLEVELS_CACHE: dict = {}    # (nbins, work-dtype) -> cp.linspace(0,100,nbins+1) device vector; read-only, shared
+_QLEVELS_CACHE: dict = {}  # (nbins, work-dtype) -> cp.linspace(0,100,nbins+1) device vector; read-only, shared
 
 
 def _quantile_levels_dev(cp, nbins: int, work):
@@ -898,7 +892,7 @@ def _fused_generate_block(ua_cm, ub_cm, combos_block, *, column_major: bool = Fa
     threads = 256
     blocks = (total + threads - 1) // threads
     if column_major:
-        out = cp.empty((K, n), dtype=cp.float64)   # (K, n) C-order == column-major over the (n, K) matrix
+        out = cp.empty((K, n), dtype=cp.float64)  # (K, n) C-order == column-major over the (n, K) matrix
         _get_fused_gen_cm_kernel()((blocks,), (threads,), (ua_cm, ub_cm, ua_idx, ub_idx, bop, np.int64(n), np.int32(K), out))
         return out
     out = cp.empty((n, K), dtype=cp.float64)
@@ -919,7 +913,7 @@ def _unary_stack_cm(xp, x):
     minimal unary preserves that dtype, so ``plane`` dtype = ``x.dtype`` matches what stack would infer."""
     plane = xp.empty((len(_MINIMAL_UNARY), x.shape[0]), dtype=x.dtype)
     for u in _MINIMAL_UNARY:
-        plane[_UNARY_IDX[u]] = _unary_apply(xp, u, x)   # copies the fresh unary result into its row slice
+        plane[_UNARY_IDX[u]] = _unary_apply(xp, u, x)  # copies the fresh unary result into its row slice
     return plane
 
 # Per-element GPU working-set multiple for the cupy plug-in MI: the (n, k) cand f64 + argsort int64 +
@@ -1044,7 +1038,7 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     # f32 = 1.00x; see _hermite_fe_mi._plugin_mi_classif_batch_cuda note) but in the BINNING sort, which is
     # captured separately via MLFRAME_FE_GPU_BINNING_DTYPE. So this path stays f64. (proto
     # D:/Temp/_bench_resident_f32.py)
-    a_gpu = cp.asarray(a, dtype=cp.float64)   # the ONE H2D of the raw operands
+    a_gpu = cp.asarray(a, dtype=cp.float64)  # the ONE H2D of the raw operands
     b_gpu = cp.asarray(b, dtype=cp.float64)
     n = int(a_gpu.shape[0])
     y_i64 = np.ascontiguousarray(y_codes, dtype=np.int64)
@@ -1053,7 +1047,7 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     # bit-equal, ~15x faster generation). Only the chunk matrix is bounded, so peak VRAM is governed.
     ua_cm = _unary_stack_cm(cp, a_gpu)
     ub_cm = _unary_stack_cm(cp, b_gpu)
-    y_gpu = cp.asarray(y_i64)   # upload y ONCE, reused across chunks (the host wrapper re-H2D'd it per chunk)
+    y_gpu = cp.asarray(y_i64)  # upload y ONCE, reused across chunks (the host wrapper re-H2D'd it per chunk)
     # y's min/max are a fit-constant -> compute ONCE here (one cp.min/max + one scalar D2H) and pass into the
     # resident MI for every chunk, instead of the resident MI recomputing them per chunk (nsys 2026-06-22:
     # that per-chunk recompute was the #1 source of the cp.max reductions + tiny D2H syncs). Bit-identical.
@@ -1062,14 +1056,14 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     k_chunk = _gpu_k_chunk(n)
     mi_parts: list[np.ndarray] = []
     for start in range(0, len(_COMBOS), k_chunk):
-        block = _COMBOS[start:start + k_chunk]
-        cand = _fused_generate_block(ua_cm, ub_cm, block)   # one-launch fused generation
+        block = _COMBOS[start : start + k_chunk]
+        cand = _fused_generate_block(ua_cm, ub_cm, block)  # one-launch fused generation
         # Both operands are already device-resident (cand from the fused kernel, y_gpu uploaded once), so the
         # H2D-free resident MI scores the chunk with no per-chunk transfer (bit-identical to the host-input
         # variant -- test_resident_batch_cuda_matches_host_input pins maxdiff 0). y_min/n_classes hoisted.
-        mi_parts.append(np.asarray(
-            _plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins, y_min=_ymin, n_classes=_ncls, relax_binning=True),
-            dtype=np.float64))
+        mi_parts.append(
+            np.asarray(_plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins, y_min=_ymin, n_classes=_ncls, relax_binning=True), dtype=np.float64)
+        )
         del cand
     return _candidate_names(), np.concatenate(mi_parts) if mi_parts else np.empty(0)
 
@@ -1141,7 +1135,7 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
         block = cp.empty((n, len(idxs)), dtype=cp.float64)
         for jj, idx in enumerate(idxs):
             block[:, jj] = _col(idx)
-        approx[start:start + len(idxs)] = cp.asnumpy(_sortfree_mi_gpu(block, y_i64, nbins))
+        approx[start : start + len(idxs)] = cp.asnumpy(_sortfree_mi_gpu(block, y_i64, nbins))
         del block
     # REFINE: exact argsort MI on the top-refine_k by approx MI.
     k = min(int(refine_k), len(_COMBOS))
@@ -1151,7 +1145,7 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
         refine_mat[:, jj] = _col(int(idx))
     exact_top = np.asarray(_plugin_mi_classif_batch_cuda(refine_mat, y_i64, nbins), dtype=np.float64)
     mi = approx.copy()
-    mi[top] = exact_top   # exact MI for the head, approx for the cheap tail
+    mi[top] = exact_top  # exact MI for the head, approx for the cheap tail
     return _candidate_names(), mi
     # MEASURED (GTX 1050 Ti, K=384, refine_k=48): exact winner preserved 6/6 seeds @ n=100k, but the
     # end-to-end speedup over the pure-exact GPU path is only ~1.16x @100k / ~1.06x @1M -- NOT the ~2x the
@@ -1159,9 +1153,6 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
     # all 384 in the prescreen) are counted, trimming only the argsort to the top-48 saves less than
     # argsort's in-kernel share. Real + exact, but modest; the bigger lever is cutting generation/math
     # (or a fused sort-free EXACT kernel), not just the sort. Kept as a validated option, not the default.
-
-
-
 
 
 # --- Tier E carve re-exports (2026-06-22): prewarp/orth-basis + grand-fusion block -> _gpu_resident_basis.py,

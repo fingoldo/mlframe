@@ -201,8 +201,7 @@ def compose_calibration_heatmap_2d_figure(
             e = ece_grid[i, j]
             cell_text[i, j] = "n/a" if not np.isfinite(e) else f"{e:.3f}\nn={support[i, j]:,}"
 
-    headline = (f"worst cell: {feat_x_name}={x_labels[wx]}, {feat_y_name}={y_labels[wy]}  ECE={worst:.3f}  [{light}]"
-                f"  |  median-cell ECE={median_ece:.3f}")
+    headline = f"worst cell: {feat_x_name}={x_labels[wx]}, {feat_y_name}={y_labels[wy]}  ECE={worst:.3f}  [{light}]" f"  |  median-cell ECE={median_ece:.3f}"
     skipped_note = ("  skipped: " + ", ".join(skipped)) if skipped else ""
 
     panel: PanelSpec = HeatmapPanelSpec(

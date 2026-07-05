@@ -88,9 +88,7 @@ logger = logging.getLogger(__name__)
 # We therefore GATE on per-fold TRAIN-row count: batch below the threshold, fall back
 # to the bit-identical scalar per-column path above it. Override via env var for
 # hardware retuning.
-_OOF_BATCH_BINNING_MAX_TRAIN_ROWS = int(
-    os.environ.get("MLFRAME_OOF_BATCH_BINNING_MAX_TRAIN_ROWS", "16000")
-)
+_OOF_BATCH_BINNING_MAX_TRAIN_ROWS = int(os.environ.get("MLFRAME_OOF_BATCH_BINNING_MAX_TRAIN_ROWS", "16000"))
 
 __all__ = [
     "score_features_by_kfold_oof_mi",
@@ -352,10 +350,7 @@ def score_features_by_kfold_oof_mi(
             f"K-fold splitting requires aligned indices."
         )
     if len(raw_X) != len(np.asarray(y)):
-        raise ValueError(
-            f"score_features_by_kfold_oof_mi: raw_X has {len(raw_X)} rows "
-            f"but y has {len(np.asarray(y))}; aligned indices required."
-        )
+        raise ValueError(f"score_features_by_kfold_oof_mi: raw_X has {len(raw_X)} rows " f"but y has {len(np.asarray(y))}; aligned indices required.")
 
     y_arr = _coerce_y_int64(y)
     raw_cols = list(raw_X.columns)
@@ -364,16 +359,13 @@ def score_features_by_kfold_oof_mi(
     n_folds_eff = max(2, int(n_folds))
     if n < 2 * n_folds_eff:
         logger.warning(
-            "score_features_by_kfold_oof_mi: n=%d < 2 * n_folds=%d; "
-            "falling back to n_folds=2 to retain at least one held-out "
-            "row per fold.", n, n_folds_eff,
+            "score_features_by_kfold_oof_mi: n=%d < 2 * n_folds=%d; " "falling back to n_folds=2 to retain at least one held-out " "row per fold.",
+            n,
+            n_folds_eff,
         )
         n_folds_eff = 2
 
-    src_map = {
-        eng_name: (eng_name.split("__", 1)[0] if "__" in eng_name else eng_name)
-        for eng_name in eng_cols
-    }
+    src_map = {eng_name: (eng_name.split("__", 1)[0] if "__" in eng_name else eng_name) for eng_name in eng_cols}
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     raw_arr = raw_X.to_numpy(dtype=_dt)
@@ -417,10 +409,7 @@ def score_features_by_kfold_oof_mi(
             raw_arr, train_idx, test_idx, len(raw_cols), nbins,
         )
         raw_mi_k = np.array(
-            [
-                _mi_from_binned_xy(raw_test_bins[:, j], y_test_bin, clip_zero=False)
-                for j in range(len(raw_cols))
-            ],
+            [_mi_from_binned_xy(raw_test_bins[:, j], y_test_bin, clip_zero=False) for j in range(len(raw_cols))],
             dtype=np.float64,
         )
         raw_fold_mis.append(raw_mi_k)
@@ -430,10 +419,7 @@ def score_features_by_kfold_oof_mi(
             eng_arr, train_idx, test_idx, len(eng_cols), nbins,
         )
         eng_mi_k = np.array(
-            [
-                _mi_from_binned_xy(eng_test_bins[:, j], y_test_bin, clip_zero=False)
-                for j in range(len(eng_cols))
-            ],
+            [_mi_from_binned_xy(eng_test_bins[:, j], y_test_bin, clip_zero=False) for j in range(len(eng_cols))],
             dtype=np.float64,
         )
         eng_fold_mis.append(eng_mi_k)
@@ -441,10 +427,7 @@ def score_features_by_kfold_oof_mi(
     if not raw_fold_mis:
         # All folds degenerated. Fall back to plug-in MI on full frame so
         # caller still gets a usable ranking (documented behaviour).
-        logger.warning(
-            "score_features_by_kfold_oof_mi: every fold collapsed to a "
-            "single-class held-out set; falling back to plug-in MI."
-        )
+        logger.warning("score_features_by_kfold_oof_mi: every fold collapsed to a " "single-class held-out set; falling back to plug-in MI.")
         raw_mi = _mi_classif_batch(raw_arr, y_arr, nbins=nbins)
         eng_mi = _mi_classif_batch(eng_arr, y_arr, nbins=nbins)
     else:
@@ -503,10 +486,7 @@ def _cmi_gate_scores(
     if np.unique(y_int).size < 2:
         return {c: 0.0 for c in engineered_X.columns}
     # Build the support joint key.
-    sup_bins = [
-        _quantile_bin(current_support[c].to_numpy(), nbins=nbins)
-        for c in current_support.columns
-    ]
+    sup_bins = [_quantile_bin(current_support[c].to_numpy(), nbins=nbins) for c in current_support.columns]
     z_joint, _ = _renumber_joint(*sup_bins)
     _, y_bin = np.unique(y_int, return_inverse=True)
     y_bin = y_bin.astype(np.int64)
@@ -571,10 +551,7 @@ def hybrid_orth_mi_three_gate_fe(
     if engineered.empty:
         return X.copy(), pd.DataFrame(columns=empty_cols)
 
-    raw_X = X[[
-        c for c in (cols or X.columns)
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]]
+    raw_X = X[[c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]]
     scores = score_features_by_kfold_oof_mi(
         raw_X, engineered, y,
         n_folds=n_folds, seed=seed, nbins=nbins,
@@ -585,10 +562,7 @@ def hybrid_orth_mi_three_gate_fe(
     # Gate 3: CMI conditional on current_support.
     y_int = _coerce_y_int64(y)
     use_cmi_gate = (
-        current_support is not None
-        and isinstance(current_support, pd.DataFrame)
-        and current_support.shape[1] > 0
-        and len(current_support) == len(engineered)
+        current_support is not None and isinstance(current_support, pd.DataFrame) and current_support.shape[1] > 0 and len(current_support) == len(engineered)
     )
     if use_cmi_gate:
         cmi_map = _cmi_gate_scores(
@@ -614,10 +588,7 @@ def hybrid_orth_mi_three_gate_fe(
         noise_floor = 0.0
     abs_floor = max(legacy_floor, noise_floor)
 
-    mask = (
-        (scores["uplift_oof"] >= float(min_uplift))
-        & (scores["engineered_mi_oof"] >= abs_floor)
-    )
+    mask = (scores["uplift_oof"] >= float(min_uplift)) & (scores["engineered_mi_oof"] >= abs_floor)
     if use_cmi_gate:
         mask = mask & (scores["cmi_support"] >= float(cmi_min))
 
@@ -671,15 +642,14 @@ def hybrid_orth_mi_three_gate_fe_with_recipes(
         chosen_degree = None
         for code in ("LL", "He", "T", "L"):
             if suffix.startswith(code):
-                rest = suffix[len(code):]
+                rest = suffix[len(code) :]
                 if rest.isdigit():
                     chosen_basis = code_to_basis[code]
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
             logger.warning(
-                "hybrid_orth_mi_three_gate_fe_with_recipes: cannot parse "
-                "basis/degree from column name %r; skipping recipe build.",
+                "hybrid_orth_mi_three_gate_fe_with_recipes: cannot parse " "basis/degree from column name %r; skipping recipe build.",
                 name,
             )
             continue

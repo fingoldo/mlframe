@@ -236,9 +236,7 @@ def _build_stability_replay_state(
     else:
         row_idx = np.arange(n_rows)
 
-    cand_codes = np.ascontiguousarray(
-        data[np.ix_(row_idx, cand_cols)], dtype=np.int32
-    )
+    cand_codes = np.ascontiguousarray(data[np.ix_(row_idx, cand_cols)], dtype=np.int32)
     y_codes = np.ascontiguousarray(data[row_idx, t_idx], dtype=np.int32)
 
     # Per-recipe frozen bin codes for the unary_binary survival replay. ``data``
@@ -393,8 +391,7 @@ def fe_decide_on_subsample(
             _full_cols[r.name] = np.asarray(apply_recipe(r, X))
     except Exception:
         logger.warning(
-            "fe_decide_on_subsample: full-n replay failed for %r; "
-            "falling back to full-data decision.",
+            "fe_decide_on_subsample: full-n replay failed for %r; " "falling back to full-data decision.",
             getattr(r, "name", "?"),
         )
         return fit_with_recipes_fn(fe_to_pandas(X), y, **kwargs)

@@ -90,11 +90,7 @@ class _MoEGatedDeployableModel:
 def _resolve_lag_model(metadata: dict, tt_e: Any, orig_tname: str) -> _LagPredictDeployableModel | None:
     """Rebuild the lag_predict deployable from the dummy-baselines ``feature_used`` column, or None if absent."""
     try:
-        _dbl = (
-            metadata.get("dummy_baselines", {})
-            .get(str(tt_e), {})
-            .get(str(orig_tname), {})
-        )
+        _dbl = metadata.get("dummy_baselines", {}).get(str(tt_e), {}).get(str(orig_tname), {})
         _extras = _dbl.get("extras", {}) if isinstance(_dbl, dict) else {}
         _lag_meta = _extras.get("lag_predict") if isinstance(_extras, dict) else None
         _lag_col = _lag_meta.get("feature_used") if isinstance(_lag_meta, dict) else None
@@ -153,7 +149,7 @@ def run_composite_moe_and_value_report(
         for _key in list(_by_name.keys()):
             if not str(_key).startswith("_CT_ENSEMBLE__"):
                 continue
-            _orig_tname = str(_key)[len("_CT_ENSEMBLE__"):]
+            _orig_tname = str(_key)[len("_CT_ENSEMBLE__") :]
             _entries = _by_name.get(_key) or []
             if not _entries:
                 continue
@@ -217,8 +213,7 @@ def run_composite_moe_and_value_report(
                         _y_sel, _raw_sel, _composite_sel, _groups_sel,
                         y_pred_lag=_lag_sel, sample_weight=_sw_sel,
                     )
-                    metadata.setdefault("composite_value_report", {}) \
-                        .setdefault(str(_tt_e), {})[_orig_tname] = _report
+                    metadata.setdefault("composite_value_report", {}).setdefault(str(_tt_e), {})[_orig_tname] = _report
                     logger.info(
                         "[CompositeValueReport] target='%s'\n%s",
                         _orig_tname, render_composite_value_report(_report),
@@ -252,17 +247,16 @@ def run_composite_moe_and_value_report(
                     gate=_gate,
                     group_column=_group_column,
                 )
-                metadata.setdefault("composite_moe_gate", {}) \
-                    .setdefault(str(_tt_e), {})[_orig_tname] = {
-                        "group_choice": dict(_gate.group_choice_),
-                        "global_choice": _gate.global_choice_,
-                        "guarantee": dict(_gate.guarantee_),
-                        "group_column": _group_column,
-                    }
+                metadata.setdefault("composite_moe_gate", {}).setdefault(str(_tt_e), {})[_orig_tname] = {
+                    "group_choice": dict(_gate.group_choice_),
+                    "global_choice": _gate.global_choice_,
+                    "guarantee": dict(_gate.guarantee_),
+                    "group_column": _group_column,
+                }
                 logger.info(
-                    "[CompositeMoE] target='%s' wrapped deployed ensemble in MoE gate "
-                    "(global='%s', not_worse_than_lag=%s, pooled RMSE gate=%s vs lag=%s).",
-                    _orig_tname, _gate.global_choice_,
+                    "[CompositeMoE] target='%s' wrapped deployed ensemble in MoE gate " "(global='%s', not_worse_than_lag=%s, pooled RMSE gate=%s vs lag=%s).",
+                    _orig_tname,
+                    _gate.global_choice_,
                     _gate.guarantee_.get("not_worse_than_lag"),
                     _gate.guarantee_.get("pooled_rmse_gate"),
                     _gate.guarantee_.get("pooled_rmse_per_expert", {}).get("lag"),

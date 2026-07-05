@@ -76,9 +76,7 @@ def _multiclass_confidence(proba: np.ndarray) -> np.ndarray:
     return proba.max(axis=1)
 
 
-def _prepare_classification(
-    y_true, y_score, *, task: Task
-) -> Tuple[np.ndarray, np.ndarray]:
+def _prepare_classification(y_true, y_score, *, task: Task) -> Tuple[np.ndarray, np.ndarray]:
     """Return (confidence, correct) finite-only arrays; correct is 1.0 where the argmax/threshold prediction is right.
 
     Binary ``y_score`` is the positive-class probability (predict iff >=0.5). Multiclass ``y_score`` is an (n, K) proba
@@ -177,8 +175,7 @@ def build_risk_coverage_spec(
     (constant full-data accuracy / error) makes the selective-gain GAP visible. The 80%-coverage operating point is
     marked. Headline = AURC vs random AURC + accuracy@80% vs @100%.
     """
-    coverage, accuracy, risk, aurc, full_risk, has_signal = compute_risk_coverage(
-        y_true, y_score, task=task, confidence=confidence)
+    coverage, accuracy, risk, aurc, full_risk, has_signal = compute_risk_coverage(y_true, y_score, task=task, confidence=confidence)
     is_regression = task == "regression"
 
     # Plain-language explainer wired into the title so a reader who has never seen a risk-coverage curve knows what it

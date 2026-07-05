@@ -91,8 +91,7 @@ def _pooltable_njit(operands, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_co
     """Reference: the host per-pair njit table kernel, looped over every pair (what the resident path replaces)."""
     from ._usability_njit_pool import score_pair_combos
 
-    rows = [score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_codes)
-            for (x1, x2) in operands]
+    rows = [score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_codes) for (x1, x2) in operands]
     return np.stack(rows, axis=0)
 
 

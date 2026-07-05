@@ -59,8 +59,8 @@ def conditional_permutation_test(
     z = np.asarray(z).astype(np.int64).ravel()
     if statistic_fn is None:
         def _default_stat(_x, _y, _z):
-            return float(_cmi_plugin_njit(_x, _y, _z, int(nbins_x),
-                                            int(nbins_y), int(nbins_z)))
+            return float(_cmi_plugin_njit(_x, _y, _z, int(nbins_x), int(nbins_y), int(nbins_z)))
+
         statistic_fn = _default_stat
     observed = float(statistic_fn(x, y, z))
     if n_permutations <= 0:
@@ -75,11 +75,7 @@ def conditional_permutation_test(
     # ~48% of wall at B=200), all redundant work. Bit-identical: ``rng.permutation``
     # sees the SAME int64 arrays in the SAME dict-iteration order, so the RNG draw
     # sequence and the resulting permutations are unchanged.
-    stratum_arrs = [
-        np.asarray(idx_list, dtype=np.int64)
-        for idx_list in strata.values()
-        if len(idx_list) > 1
-    ]
+    stratum_arrs = [np.asarray(idx_list, dtype=np.int64) for idx_list in strata.values() if len(idx_list) > 1]
     null_dist = np.empty(int(n_permutations), dtype=np.float64)
     for p in range(int(n_permutations)):
         x_perm = x.copy()

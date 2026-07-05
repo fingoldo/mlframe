@@ -137,7 +137,7 @@ def retention_form_is_subsumed(
                 cand_dev = _quantile_bin_gpu_resident(cand, int(nbins))
                 _inc_dev = [_quantile_bin_gpu_resident(c, int(nbins)) for c in _inc_clean]
                 if cand_dev is not None and _inc_dev and all(d is not None for d in _inc_dev):
-                    cand_bin = _cp.asnumpy(cand_dev).astype(np.int64).ravel()   # host copy = D2H of the partition
+                    cand_bin = _cp.asnumpy(cand_dev).astype(np.int64).ravel()  # host copy = D2H of the partition
                     inc_bins = [_cp.asnumpy(d).astype(np.int64).ravel() for d in _inc_dev]
                     z_support_dev, _ = _renumber_joint_gpu(*_inc_dev)
                 else:
@@ -148,7 +148,7 @@ def retention_form_is_subsumed(
         if cand_dev is None:
             cand_bin = np.asarray(_quantile_bin(cand, nbins=nbins)).astype(np.int64).ravel()
             inc_bins = [np.asarray(_quantile_bin(c, nbins=nbins)).astype(np.int64).ravel() for c in _inc_clean]
-        z_support, _zcard = _renumber_joint(*inc_bins)   # _renumber_joint returns the occupied cardinality
+        z_support, _zcard = _renumber_joint(*inc_bins)  # _renumber_joint returns the occupied cardinality
         # Prefer the resident candidate codes + device-born support for the scoring (resident-input branches);
         # host otherwise.
         _cb = cand_dev if cand_dev is not None else cand_bin
@@ -161,8 +161,7 @@ def retention_form_is_subsumed(
         marg_excess = max(0.0, marg_cmi - marg_null_mean)
         # Conditional CMI given the incumbent engineered survivors.
         cmi = float(_cmi_from_binned(_cb, y_arr, _zc, kx=_cbkx, kz=int(_zcard)))
-        floor, null_mean = _conditional_perm_null(
-            _cb, y_arr, z_support, seed=seed, z_support_dev=z_support_dev)
+        floor, null_mean = _conditional_perm_null(_cb, y_arr, z_support, seed=seed, z_support_dev=z_support_dev)
         excess = max(0.0, cmi - null_mean)
     except Exception:
         return False

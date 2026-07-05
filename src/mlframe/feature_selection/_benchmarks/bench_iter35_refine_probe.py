@@ -25,10 +25,8 @@ warnings.filterwarnings("ignore")
 
 
 CONFIGS = {
-    "C2": dict(width=10000, n_rows=5000, n_informative=20, n_redundant=0,
-               redundancy_rho=0.8, snr=8.0, seed=0),
-    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
-               redundancy_rho=0.8, snr=8.0, seed=0),
+    "C2": dict(width=10000, n_rows=5000, n_informative=20, n_redundant=0, redundancy_rho=0.8, snr=8.0, seed=0),
+    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0),
 }
 
 
@@ -64,9 +62,7 @@ def _patch_refine_for_substage_timing():
     """Wrap within_cluster_refine so each call records sub-stage timings to a shared dict."""
     from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_revalidate as R
 
-    timings: dict = {"stage1_total": 0.0, "stage2a_total": 0.0, "stage2b_total": 0.0,
-                     "stage2b_rounds": 0, "stage2b_trials": 0,
-                     "calls": 0}
+    timings: dict = {"stage1_total": 0.0, "stage2a_total": 0.0, "stage2b_total": 0.0, "stage2b_rounds": 0, "stage2b_trials": 0, "calls": 0}
     orig = R.within_cluster_refine
 
     def wrapped(*args, **kwargs):

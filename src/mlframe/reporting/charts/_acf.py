@@ -96,7 +96,7 @@ def pacf_levinson(x: np.ndarray, nlags: int = MAX_ACF_LAGS) -> Tuple[np.ndarray,
         phi[m] = refl
         for j in range(1, m):
             phi[j] = phi_prev[j] - refl * phi_prev[m - j]
-        v *= (1.0 - refl * refl)
+        v *= 1.0 - refl * refl
         pacf[m - 1] = refl
         phi_prev[: m + 1] = phi[: m + 1]
     return pacf, n

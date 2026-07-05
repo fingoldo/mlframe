@@ -105,9 +105,8 @@ def main():
         seed = 12345
         to, ro = _best_of(lambda: _cond_old(*base, np.random.default_rng(seed)), ())
         tn, rn = _best_of(lambda: _cond_new(*base, np.random.default_rng(seed)), ())
-        ident = (ro == rn)
-        print(f"n={n:>6} strata={ns:>5}: old={to*1e3:7.2f}ms new={tn*1e3:7.2f}ms "
-              f"speedup={to/tn:5.2f}x identical={ident}  old={ro} new={rn}")
+        ident = ro == rn
+        print(f"n={n:>6} strata={ns:>5}: old={to*1e3:7.2f}ms new={tn*1e3:7.2f}ms " f"speedup={to/tn:5.2f}x identical={ident}  old={ro} new={rn}")
 
     print("=== MARGINAL loop (H(Y) hoisted) ===")
     for n, kx, ky in [(2000, 8, 4), (10000, 16, 6), (30000, 24, 8)]:
@@ -117,9 +116,8 @@ def main():
         seed = 999
         to, ro = _best_of(lambda: _marg_old(x, y, np.random.default_rng(seed)), ())
         tn, rn = _best_of(lambda: _marg_new(x, y, np.random.default_rng(seed)), ())
-        ident = (ro == rn)
-        print(f"n={n:>6} kx={kx:>3}: old={to*1e3:7.2f}ms new={tn*1e3:7.2f}ms "
-              f"speedup={to/tn:5.2f}x identical={ident}  old={ro} new={rn}")
+        ident = ro == rn
+        print(f"n={n:>6} kx={kx:>3}: old={to*1e3:7.2f}ms new={tn*1e3:7.2f}ms " f"speedup={to/tn:5.2f}x identical={ident}  old={ro} new={rn}")
 
 
 if __name__ == "__main__":

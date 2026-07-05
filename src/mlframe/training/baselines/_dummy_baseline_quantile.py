@@ -90,12 +90,8 @@ def _compute_quantile_baselines(
         # the j-th column -- the "right" multi-quantile constant baseline.
         # This is actually what most quantile-loss models should beat.
         consts_arr = np.asarray(consts_per_alpha, dtype=np.float64)
-        val_preds["multi_quantile_empirical"] = np.broadcast_to(
-            consts_arr, (n_val, K)
-        ).copy()
-        test_preds["multi_quantile_empirical"] = np.broadcast_to(
-            consts_arr, (n_test, K)
-        ).copy()
+        val_preds["multi_quantile_empirical"] = np.broadcast_to(consts_arr, (n_val, K)).copy()
+        test_preds["multi_quantile_empirical"] = np.broadcast_to(consts_arr, (n_test, K)).copy()
 
     if boundary_log:
         extras["quantile_boundary_clamped"] = boundary_log

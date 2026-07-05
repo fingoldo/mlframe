@@ -114,8 +114,7 @@ def main():
 
         t_old = _bench(lambda: _old_cusum(x))
         t_new = _bench(lambda: cusum_features(x))
-        print(f"n={n:>9} OLD={t_old*1e3:9.3f}ms NEW={t_new*1e3:9.3f}ms "
-              f"speedup={t_old/t_new:5.2f}x identical={ident} max_abs={max_abs:.2e}")
+        print(f"n={n:>9} OLD={t_old*1e3:9.3f}ms NEW={t_new*1e3:9.3f}ms " f"speedup={t_old/t_new:5.2f}x identical={ident} max_abs={max_abs:.2e}")
 
 
 if __name__ == "__main__":

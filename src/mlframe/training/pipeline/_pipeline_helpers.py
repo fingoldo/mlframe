@@ -188,9 +188,7 @@ def _prepare_test_split(
                 if (
                     _sel_chk is not None
                     and _is_fitted(_sel_chk)
-                    and _test_df_is_raw_pipeline_input(
-                        pre_pipeline, test_df, selector_passthrough_cols, skip_preprocessing
-                    )
+                    and _test_df_is_raw_pipeline_input(pre_pipeline, test_df, selector_passthrough_cols, skip_preprocessing)
                 ):
                     _id_equiv = False
             if not _id_equiv:
@@ -626,7 +624,6 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
 # Wave 93 (2026-05-21): _pipeline_signature_for_cache /
 # _pre_pipeline_cache_key / _get / _set / _clear moved to sibling file
 # _pipeline_cache.py and re-exported from this module's top-level imports.
-
 
 
 # _apply_pre_pipeline_transforms / _validate_pre_pipeline_output_against_model carved to _pipeline_helpers_apply.py (1k-LOC ceiling).

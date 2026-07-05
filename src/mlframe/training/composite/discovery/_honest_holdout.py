@@ -66,8 +66,8 @@ def split_screening_holdout(
         # Degenerate config: a full holdout leaves nothing to screen on. Treat
         # as disabled rather than starving the screening pass.
         logger.warning(
-            "[CompositeTargetDiscovery] honest_holdout_frac=%.3f >= 1.0 leaves no "
-            "screening rows; disabling the holdout split for this fit.", holdout_frac,
+            "[CompositeTargetDiscovery] honest_holdout_frac=%.3f >= 1.0 leaves no " "screening rows; disabling the holdout split for this fit.",
+            holdout_frac,
         )
         return train_idx, None
     n = train_idx.size
@@ -184,18 +184,15 @@ def apply_honest_holdout(
     overlay, never load-bearing for the spec itself.
     """
     if np.intersect1d(train_idx, holdout_idx).size:
-        raise ValueError(
-            "[CompositeTargetDiscovery] honest-holdout indices overlap the screening "
-            "pool -- post-selection estimate would leak."
-        )
+        raise ValueError("[CompositeTargetDiscovery] honest-holdout indices overlap the screening " "pool -- post-selection estimate would leak.")
     try:
         rescore_specs_on_holdout(
             self, df, target_col, kept_specs, usable_features, holdout_idx, y_full,
         )
     except Exception as ho_err:  # noqa: BLE001 -- diagnostic, never load-bearing
         logger.warning(
-            "[CompositeTargetDiscovery] honest-holdout re-score failed (%s); specs keep "
-            "honest_holdout_gain=None, in-screen mi_gain unaffected.", ho_err,
+            "[CompositeTargetDiscovery] honest-holdout re-score failed (%s); specs keep " "honest_holdout_gain=None, in-screen mi_gain unaffected.",
+            ho_err,
         )
 
 
@@ -250,9 +247,7 @@ def rescore_specs_on_holdout(
         elif len(base_columns) == 1:
             base_arg = _extract_column_array(df, base_columns[0], rows=holdout_idx).astype(np.float64)
         else:
-            base_arg = np.column_stack(
-                [_extract_column_array(df, c, rows=holdout_idx).astype(np.float64) for c in base_columns]
-            )
+            base_arg = np.column_stack([_extract_column_array(df, c, rows=holdout_idx).astype(np.float64) for c in base_columns])
         y_h = y_holdout.astype(np.float64)
         # Domain filter on holdout, then the fitted-domain refinement -- the SAME
         # two-stage gate eval_one_transform applies, so T and y are scored on the
@@ -309,9 +304,8 @@ def rescore_specs_on_holdout(
     n_jobs = min(len(kept_specs), cpu_count_physical())
     if n_jobs > 1:
         from joblib import Parallel, delayed
-        Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(
-            delayed(_rescore_one)(s) for s in kept_specs
-        )
+
+        Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(delayed(_rescore_one)(s) for s in kept_specs)
     else:
         for s in kept_specs:
             _rescore_one(s)

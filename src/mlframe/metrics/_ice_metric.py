@@ -91,10 +91,7 @@ def compute_probabilistic_multiclass_error(
     # Bad method slipped past under -O when this was an ``assert``; the elif
     # chain then returned a default value for the wrong metric definition.
     if method not in ("multicrit", "brier_score", "precision"):
-        raise ValueError(
-            f"method must be 'multicrit', 'brier_score', or 'precision'; "
-            f"got {method!r}."
-        )
+        raise ValueError(f"method must be 'multicrit', 'brier_score', or 'precision'; " f"got {method!r}.")
 
     if isinstance(y_true, (pd.Series, pd.DataFrame)):
         y_true = y_true.to_numpy()
@@ -122,16 +119,9 @@ def compute_probabilistic_multiclass_error(
     # fuzz c0000 / c0008 (cb / multilabel target) - without the stack, the
     # ``y_true == class_id`` fall-through raised ``truth value of array
     # ambiguous`` on the cell-array comparison.
-    if (
-        isinstance(y_true, np.ndarray)
-        and y_true.dtype == object
-        and y_true.ndim == 1
-        and y_true.shape[0] > 0
-    ):
+    if isinstance(y_true, np.ndarray) and y_true.dtype == object and y_true.ndim == 1 and y_true.shape[0] > 0:
         _first = y_true[0]
-        if hasattr(_first, "shape") or (
-            hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
-        ):
+        if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
             try:
                 y_true = np.stack([np.asarray(c) for c in y_true], axis=0)
             except Exception as _e_stack:
@@ -142,8 +132,7 @@ def compute_probabilistic_multiclass_error(
                 # the multilabel detection is best-effort) so the trail
                 # exists for triage.
                 logger.debug(
-                    "compute_probabilistic_multiclass_error: y_true stack "
-                    "failed (%s); multilabel auto-detect may misroute.",
+                    "compute_probabilistic_multiclass_error: y_true stack " "failed (%s); multilabel auto-detect may misroute.",
                     _e_stack,
                 )
     if not multilabel and isinstance(y_true, np.ndarray) and y_true.ndim == 2 and y_true.shape[1] == len(probs):
@@ -190,10 +179,7 @@ def compute_probabilistic_multiclass_error(
     # ``profiling/bench_compute_multiclass_error.py``.
     if method == "multicrit" and not verbose:
         # Build the set of class_ids to evaluate (binary case skips 0).
-        _class_ids = [
-            c for c in range(len(probs))
-            if not (len(probs) == 2 and c == 0 and not multilabel)
-        ]
+        _class_ids = [c for c in range(len(probs)) if not (len(probs) == 2 and c == 0 and not multilabel)]
         try:
             # Stack y_pred_NK. column_stack on a single-element list still
             # allocates a fresh (N, 1) array; cheaper to ``.reshape(-1, 1)``
@@ -262,9 +248,7 @@ def compute_probabilistic_multiclass_error(
             if weights_sum > 0:
                 total_error /= weights_sum
             else:
-                logger.warning(
-                    "compute_probabilistic_multiclass_error: sum of per-class weights is 0; returning NaN."
-                )
+                logger.warning("compute_probabilistic_multiclass_error: sum of per-class weights is 0; returning NaN.")
                 total_error = float("nan")
             if return_per_class:
                 return total_error, _ice_by_class

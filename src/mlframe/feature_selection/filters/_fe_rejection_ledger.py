@@ -54,19 +54,18 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-
 logger = _logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
 # Canonical gate labels. Public surface; tests pin the membership.
 FE_GATE_LABELS = (
-    "marginal_pair_mi_prescreen",   # gate 1: joint-MI prevalence ratio pre-screen (~1.05 / synergy 1.5)
-    "order2_maxt_floor",            # gate 2: order-2/3 max-T permutation null floor on the joint MI
-    "engineered_mi_prevalence",     # gate 6: best_mi / pair_mi vs fe_min_engineered_mi_prevalence (~0.97)
-    "marginal_uplift_floor",        # gate 5: marginal-uplift / joint-recovery (abs-MAD) fallback floor
-    "cmi_redundancy",               # gate 3: S5 conditional-MI redundancy gate
-    "stability_vote",               # gate 4: cross-fold stability quorum vote
-    "ledger_capped",                # synthetic marker: records dropped past the memory cap
+    "marginal_pair_mi_prescreen",  # gate 1: joint-MI prevalence ratio pre-screen (~1.05 / synergy 1.5)
+    "order2_maxt_floor",  # gate 2: order-2/3 max-T permutation null floor on the joint MI
+    "engineered_mi_prevalence",  # gate 6: best_mi / pair_mi vs fe_min_engineered_mi_prevalence (~0.97)
+    "marginal_uplift_floor",  # gate 5: marginal-uplift / joint-recovery (abs-MAD) fallback floor
+    "cmi_redundancy",  # gate 3: S5 conditional-MI redundancy gate
+    "stability_vote",  # gate 4: cross-fold stability quorum vote
+    "ledger_capped",  # synthetic marker: records dropped past the memory cap
 )
 
 
@@ -152,15 +151,13 @@ def record_fe_rejection(
                         "threshold": float(FE_REJECTION_LEDGER_CAP),
                         "margin": 0.0,
                         "reason": (
-                            f"rejection ledger reached its {FE_REJECTION_LEDGER_CAP}-record cap; "
-                            "further rejected candidates are not recorded for this fit"
+                            f"rejection ledger reached its {FE_REJECTION_LEDGER_CAP}-record cap; " "further rejected candidates are not recorded for this fit"
                         ),
                         "step": int(step),
                     }
                 )
                 logger.warning(
-                    "MRMR FE rejection ledger hit its %d-record cap; further rejected "
-                    "candidates this fit are not recorded.",
+                    "MRMR FE rejection ledger hit its %d-record cap; further rejected " "candidates this fit are not recorded.",
                     FE_REJECTION_LEDGER_CAP,
                 )
             return
@@ -215,9 +212,9 @@ def populate_fe_rejection_ledger(mrmr_self: Any) -> None:
         mrmr_self.fe_rejection_ledger_ = compute_fe_rejection_ledger(mrmr_self)
     except Exception as exc:
         logger.warning(
-            "MRMR.fit: fe_rejection_ledger_ population failed (%s: %s); "
-            "get_fe_rejection_report() will surface the empty-DataFrame message.",
-            type(exc).__name__, exc,
+            "MRMR.fit: fe_rejection_ledger_ population failed (%s: %s); " "get_fe_rejection_report() will surface the empty-DataFrame message.",
+            type(exc).__name__,
+            exc,
         )
         mrmr_self.fe_rejection_ledger_ = pd.DataFrame(
             {col: pd.Series([], dtype=object) for col in _LEDGER_COLUMNS},

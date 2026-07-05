@@ -54,9 +54,7 @@ def _best_of(fn, *args, n=7):
 def main():
     rng = np.random.default_rng(0)
     # warm the njit kernel
-    _new_y_iqr(rng.standard_normal(2000).astype(np.float32),
-               rng.integers(0, 2000, size=(8, 32)).astype(np.int64),
-               rng.random((8, 32)).astype(np.float32))
+    _new_y_iqr(rng.standard_normal(2000).astype(np.float32), rng.integers(0, 2000, size=(8, 32)).astype(np.int64), rng.random((8, 32)).astype(np.float32))
     for n_queries in (10_000, 50_000, 100_000):
         for k in (32, 64):
             n_train = max(n_queries, 2000)
@@ -68,8 +66,7 @@ def main():
             t_old, o_old = _best_of(_old_y_iqr, y_train, topk_ids, w)
             t_new, o_new = _best_of(_new_y_iqr, y_train, topk_ids, w)
             max_abs = float(np.max(np.abs(o_old - o_new)))
-            print(f"n_q={n_queries:>7} k={k:>3}  y_iqr  old={t_old*1e3:8.2f}ms  new={t_new*1e3:8.2f}ms  "
-                  f"speedup={t_old/t_new:5.2f}x  max|d|={max_abs:.2e}")
+            print(f"n_q={n_queries:>7} k={k:>3}  y_iqr  old={t_old*1e3:8.2f}ms  new={t_new*1e3:8.2f}ms  " f"speedup={t_old/t_new:5.2f}x  max|d|={max_abs:.2e}")
 
 
 if __name__ == "__main__":

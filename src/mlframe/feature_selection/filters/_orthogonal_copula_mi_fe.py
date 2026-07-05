@@ -103,10 +103,7 @@ def _bin_mi_uniform_pair(
     u_arr = np.asarray(u, dtype=np.float64).ravel()
     v_arr = np.asarray(v, dtype=np.float64).ravel()
     if u_arr.shape[0] != v_arr.shape[0]:
-        raise ValueError(
-            f"_bin_mi_uniform_pair: u has {u_arr.shape[0]} rows, "
-            f"v has {v_arr.shape[0]}; row alignment required."
-        )
+        raise ValueError(f"_bin_mi_uniform_pair: u has {u_arr.shape[0]} rows, " f"v has {v_arr.shape[0]}; row alignment required.")
     n = u_arr.shape[0]
     if n < 2:
         return 0.0
@@ -278,9 +275,7 @@ def score_features_by_copula_mi_uplift(
         )
     if len(raw_X) != len(np.asarray(y)):
         raise ValueError(
-            f"score_features_by_copula_mi_uplift: raw_X has {len(raw_X)} "
-            f"rows but y has {len(np.asarray(y))}; positional row "
-            f"alignment required."
+            f"score_features_by_copula_mi_uplift: raw_X has {len(raw_X)} " f"rows but y has {len(np.asarray(y))}; positional row " f"alignment required."
         )
     y_arr = np.asarray(y).ravel()
     raw_cols = list(raw_X.columns)
@@ -386,10 +381,7 @@ def hybrid_orth_mi_copula_fe(
     else:
         eng_noise_floor = 0.0
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
-    qualified = scores[
-        (scores["uplift"] >= float(min_uplift))
-        & (scores["engineered_mi"] >= abs_floor)
-    ]
+    qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
@@ -439,15 +431,14 @@ def hybrid_orth_mi_copula_fe_with_recipes(
         chosen_degree = None
         for code in ("LL", "He", "T", "L"):
             if suffix.startswith(code):
-                rest = suffix[len(code):]
+                rest = suffix[len(code) :]
                 if rest.isdigit():
                     chosen_basis = code_to_basis[code]
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
             logger.warning(
-                "hybrid_orth_mi_copula_fe_with_recipes: cannot parse "
-                "basis/degree from column name %r; skipping recipe build.",
+                "hybrid_orth_mi_copula_fe_with_recipes: cannot parse " "basis/degree from column name %r; skipping recipe build.",
                 name,
             )
             continue

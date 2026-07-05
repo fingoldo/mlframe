@@ -86,9 +86,7 @@ if __name__ == "__main__":
     do_profile = "--profile" in sys.argv
     for n in (200_000, 1_000_000):
         med, res = bench(n, reps=5)
-        keys = {k: (round(v.get("point", float("nan")), 6),
-                    round(v.get("lo", float("nan")), 6),
-                    round(v.get("hi", float("nan")), 6)) for k, v in res.items()}
+        keys = {k: (round(v.get("point", float("nan")), 6), round(v.get("lo", float("nan")), 6), round(v.get("hi", float("nan")), 6)) for k, v in res.items()}
         print(f"n={n:>9}  median wall={med:.3f}s  {keys}")
     if do_profile:
         y_true, y_f64, p_f64 = build_inputs(1_000_000)

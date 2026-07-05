@@ -55,9 +55,7 @@ def _variance_function(mu: np.ndarray, family: str, tweedie_power: float) -> np.
     elif family == "tweedie":
         v = np.power(np.maximum(mu, 0.0), float(tweedie_power))
     else:
-        raise ValueError(
-            f"conformal_glm: unknown family {family!r}; choose poisson / gamma / tweedie."
-        )
+        raise ValueError(f"conformal_glm: unknown family {family!r}; choose poisson / gamma / tweedie.")
     return np.maximum(v, 1e-12)
 
 
@@ -75,10 +73,7 @@ def standardized_conformal_quantile(
     r = np.abs(np.asarray(residuals, dtype=np.float64).reshape(-1))
     s = np.asarray(std, dtype=np.float64).reshape(-1)
     if s.shape[0] != r.shape[0]:
-        raise ValueError(
-            f"standardized_conformal_quantile: {s.shape[0]} std values for "
-            f"{r.shape[0]} residuals"
-        )
+        raise ValueError(f"standardized_conformal_quantile: {s.shape[0]} std values for " f"{r.shape[0]} residuals")
     if not (0.0 < alpha < 1.0):
         raise ValueError(f"conformal alpha must be in (0, 1), got {alpha!r}")
     scores = r / s
@@ -112,10 +107,7 @@ def calibrate_conformal_glm(self, X_cal, y_cal, alpha=0.1):
     y_true = np.asarray(y_cal, dtype=np.float64).reshape(-1)
     mu = np.asarray(self.predict(X_cal), dtype=np.float64).reshape(-1)
     if mu.shape[0] != y_true.shape[0]:
-        raise ValueError(
-            "calibrate_conformal_glm: predict produced "
-            f"{mu.shape[0]} rows but y_cal has {y_true.shape[0]}"
-        )
+        raise ValueError("calibrate_conformal_glm: predict produced " f"{mu.shape[0]} rows but y_cal has {y_true.shape[0]}")
     residuals = y_true - mu
     std = np.sqrt(_variance_function(mu, self.family, self.tweedie_power))
     alphas = [alpha] if np.isscalar(alpha) else list(alpha)

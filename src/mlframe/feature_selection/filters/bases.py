@@ -123,8 +123,7 @@ def _rbf_apply(x: np.ndarray, params: dict) -> np.ndarray:
 
 
 @njit(fastmath=True, cache=True)
-def _rbf_eval_kernel_njit(z: np.ndarray, c: np.ndarray,
-                            centres: np.ndarray, bandwidth: float) -> np.ndarray:
+def _rbf_eval_kernel_njit(z: np.ndarray, c: np.ndarray, centres: np.ndarray, bandwidth: float) -> np.ndarray:
     """``sum_k c_k * exp(-((z - centres_k) / bandwidth)^2)``."""
     n = z.shape[0]
     K = centres.shape[0]
@@ -189,9 +188,7 @@ def _sigmoid_apply(x: np.ndarray, params: dict) -> np.ndarray:
 
 
 @njit(fastmath=True, cache=True)
-def _sigmoid_eval_kernel_njit(z: np.ndarray, c: np.ndarray,
-                                thresholds: np.ndarray,
-                                slope: float) -> np.ndarray:
+def _sigmoid_eval_kernel_njit(z: np.ndarray, c: np.ndarray, thresholds: np.ndarray, slope: float) -> np.ndarray:
     n = z.shape[0]
     K = thresholds.shape[0]
     out = np.zeros(n, dtype=np.float64)

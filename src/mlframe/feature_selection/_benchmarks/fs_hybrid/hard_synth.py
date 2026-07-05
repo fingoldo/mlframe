@@ -19,7 +19,7 @@ import pandas as pd
 
 N_STRONG = 4
 N_WEAK = 8
-N_REDUNDANT = 5          # noisy copies of strong[0]
+N_REDUNDANT = 5  # noisy copies of strong[0]
 N_NOISE = 200
 WEAK_COEF = 0.40
 CLUSTER_NOISE_SD = 0.30
@@ -28,8 +28,8 @@ CLUSTER_NOISE_SD = 0.30
 def make_hard_dataset(n_samples: int = 6000, seed: int = 0):
     rng = np.random.default_rng(seed)
     strong = rng.standard_normal((n_samples, N_STRONG))
-    ia, ib = rng.standard_normal(n_samples), rng.standard_normal(n_samples)   # interaction operands
-    sq = rng.standard_normal(n_samples)                                       # quadratic operand
+    ia, ib = rng.standard_normal(n_samples), rng.standard_normal(n_samples)  # interaction operands
+    sq = rng.standard_normal(n_samples)  # quadratic operand
     weak = rng.standard_normal((n_samples, N_WEAK))
 
     logit = (1.3 * strong[:, 0] + 1.1 * strong[:, 1] - 1.0 * strong[:, 2] + 0.9 * strong[:, 3]

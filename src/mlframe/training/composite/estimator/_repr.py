@@ -15,7 +15,6 @@ from __future__ import annotations
 import html
 from typing import Any
 
-
 # Headline fitted parameters shown first (in this order) when present; every
 # other fitted_params_ key is summarised in a count so the table stays compact.
 _HEADLINE_PARAM_KEYS: tuple[str, ...] = (
@@ -69,11 +68,7 @@ def _repr_html_(self: Any) -> str:
     try:
         return _build_repr_html(self)
     except Exception as exc:  # pragma: no cover - a repr must never raise
-        return (
-            "<div style='font-family:monospace;color:#a00;'>"
-            f"CompositeTargetEstimator (repr failed: {html.escape(str(exc))})"
-            "</div>"
-        )
+        return "<div style='font-family:monospace;color:#a00;'>" f"CompositeTargetEstimator (repr failed: {html.escape(str(exc))})" "</div>"
 
 
 def _build_repr_html(self: Any) -> str:
@@ -105,11 +100,7 @@ def _build_repr_html(self: Any) -> str:
         n_valid = fitted.get("n_train_valid")
         if n_valid is not None:
             n_invalid = fitted.get("n_train_invalid", 0)
-            rows.append(
-                _row("n_train_valid", _fmt_value(n_valid)
-                     + (f" ({_fmt_value(n_invalid)} dropped)"
-                        if n_invalid else ""))
-            )
+            rows.append(_row("n_train_valid", _fmt_value(n_valid) + (f" ({_fmt_value(n_invalid)} dropped)" if n_invalid else "")))
         # Headline fitted params (alpha / beta / clip envelope) in fixed order.
         shown = 0
         for key in _HEADLINE_PARAM_KEYS:
@@ -119,25 +110,15 @@ def _build_repr_html(self: Any) -> str:
         # Summarise the remaining fitted-param keys without dumping them all.
         other = [k for k in fitted if k not in _HEADLINE_PARAM_KEYS]
         if other:
-            rows.append(
-                _row("other fitted params",
-                     html.escape(f"{len(other)}: " + ", ".join(map(str, other[:6]))
-                                 + ("..." if len(other) > 6 else "")))
-            )
+            rows.append(_row("other fitted params", html.escape(f"{len(other)}: " + ", ".join(map(str, other[:6])) + ("..." if len(other) > 6 else ""))))
         if getattr(self, "recurrence_continuation", False):
             rows.append(_row("recurrence_continuation", "True"))
 
     # Conformal / CQR calibration state -- the dicts are keyed per alpha-level.
     conf_q = getattr(self, "_conformal_q_", None) or {}
     cqr_q = getattr(self, "_cqr_q_", None) or {}
-    conf_str = (
-        "calibrated @ alpha=" + ", ".join(f"{a:g}" for a in sorted(conf_q))
-        if conf_q else "not calibrated"
-    )
-    cqr_str = (
-        "calibrated @ alpha=" + ", ".join(f"{a:g}" for a in sorted(cqr_q))
-        if cqr_q else "not calibrated"
-    )
+    conf_str = "calibrated @ alpha=" + ", ".join(f"{a:g}" for a in sorted(conf_q)) if conf_q else "not calibrated"
+    cqr_str = "calibrated @ alpha=" + ", ".join(f"{a:g}" for a in sorted(cqr_q)) if cqr_q else "not calibrated"
     rows.append(_row("conformal interval", html.escape(conf_str)))
     rows.append(_row("CQR interval", html.escape(cqr_str)))
 
@@ -148,7 +129,5 @@ def _build_repr_html(self: Any) -> str:
         "font-family:-apple-system,Segoe UI,sans-serif;font-size:13px;'>"
         f"<div style='font-weight:700;color:{title_colour};"
         "margin-bottom:6px;'>CompositeTargetEstimator</div>"
-        "<table style='border-collapse:collapse;'>"
-        + "".join(rows)
-        + "</table></div>"
+        "<table style='border-collapse:collapse;'>" + "".join(rows) + "</table></div>"
     )

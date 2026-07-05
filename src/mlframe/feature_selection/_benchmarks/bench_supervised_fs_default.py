@@ -40,14 +40,11 @@ from sklearn.preprocessing import StandardScaler
 
 def _make(scenario, seed, n=2500):
     if scenario == "many_noise":
-        X, y = make_classification(n_samples=n, n_features=80, n_informative=10, n_redundant=10,
-                                   n_repeated=0, random_state=seed)
+        X, y = make_classification(n_samples=n, n_features=80, n_informative=10, n_redundant=10, n_repeated=0, random_state=seed)
     elif scenario == "few_noise":
-        X, y = make_classification(n_samples=n, n_features=25, n_informative=12, n_redundant=5,
-                                   n_repeated=0, random_state=seed)
+        X, y = make_classification(n_samples=n, n_features=25, n_informative=12, n_redundant=5, n_repeated=0, random_state=seed)
     elif scenario == "wide_sparse":
-        X, y = make_classification(n_samples=n, n_features=150, n_informative=8, n_redundant=4,
-                                   n_repeated=0, random_state=seed)
+        X, y = make_classification(n_samples=n, n_features=150, n_informative=8, n_redundant=4, n_repeated=0, random_state=seed)
     else:
         raise ValueError(scenario)
     cols = [f"f{i}" for i in range(X.shape[1])]
@@ -84,11 +81,9 @@ def main():
                 X, y = _make(sc, seed)
                 for fs in ("none", "mi_topk"):
                     auc, nfeat = _eval(X, y, fs, seed, model_kind)
-                    results.append({"model": model_kind, "scenario": sc, "seed": seed,
-                                    "fs": fs, "auc": auc, "n_features": nfeat})
+                    results.append({"model": model_kind, "scenario": sc, "seed": seed, "fs": fs, "auc": auc, "n_features": nfeat})
     df = pd.DataFrame(results)
-    summary = df.groupby(["model", "scenario", "fs"]).agg(
-        auc_mean=("auc", "mean"), n_mean=("n_features", "mean")).reset_index()
+    summary = df.groupby(["model", "scenario", "fs"]).agg(auc_mean=("auc", "mean"), n_mean=("n_features", "mean")).reset_index()
     print(summary.to_string(index=False))
     # Majority-of-seeds win count for mi_topk over none, per (model, scenario).
     print("\nmi_topk beats none (per model+scenario, seeds win count):")

@@ -74,12 +74,12 @@ _RARE_CLASS_MIN_N: int = 100
 _NEAR_SINGLETON_MAX_FRACTION: float = 0.99
 
 # Feature-side detector thresholds (used by analyze_feature_distribution).
-_LOW_VAR_REL_STD: float = 1e-3       # std / (|mean|+eps) below this -> near-constant
-_LOW_VAR_NUNIQUE: int = 2             # binary features with imbalance flagged separately
-_REDUNDANT_CORR_THRESHOLD: float = 0.95   # |Pearson| above this -> redundant pair
-_HIGH_CARDINALITY_MAX: int = 100      # categorical features above this -> recommend encoder
+_LOW_VAR_REL_STD: float = 1e-3  # std / (|mean|+eps) below this -> near-constant
+_LOW_VAR_NUNIQUE: int = 2  # binary features with imbalance flagged separately
+_REDUNDANT_CORR_THRESHOLD: float = 0.95  # |Pearson| above this -> redundant pair
+_HIGH_CARDINALITY_MAX: int = 100  # categorical features above this -> recommend encoder
 _NAN_FRACTION_THRESHOLD: float = 0.5  # 50%+ NaN rate -> structural issue, not random missingness
-_LEAKAGE_CORR_THRESHOLD: float = 0.99 # feature-target |corr| above this -> suspected leakage
+_LEAKAGE_CORR_THRESHOLD: float = 0.99  # feature-target |corr| above this -> suspected leakage
 # Computing the full correlation matrix is O(n_features^2). Cap to keep the analyzer
 # fast on wide frames; redundant-pair detection is a heuristic, not a guarantee.
 _REDUNDANCY_MAX_NUMERIC_FEATURES: int = 500

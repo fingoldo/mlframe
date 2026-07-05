@@ -236,9 +236,9 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
             burned_now = _record_kaleido_persistent_failure()
             logger.warning(
                 "kaleido persistent save(%s) raised %s%s.",
-                fmt, type(_exc[0]).__name__,
-                "; persistent path BURNED" if burned_now else
-                " (will retry up to threshold)",
+                fmt,
+                type(_exc[0]).__name__,
+                "; persistent path BURNED" if burned_now else " (will retry up to threshold)",
             )
             # Server is likely still alive but its async task chain may be poisoned -- restart it
             # so the oneshot retry below uses a clean queue. Best-effort; if restart hangs we fall

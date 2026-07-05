@@ -41,14 +41,12 @@ from mlframe.feature_selection._benchmarks.bench_adaptive_nbins import (
     _legacy_quantile_edges, _bin_with_edges,
 )
 
-
 # =============================================================================
 # Score wrappers (uniform API: x_train, y_train, x_val, y_val -> mi_val)
 # =============================================================================
 
 
-def _score_binning(x_tr, y_tr, x_va, y_va, method: str, miller_madow: bool,
-                   **method_kwargs) -> float:
+def _score_binning(x_tr, y_tr, x_va, y_va, method: str, miller_madow: bool, **method_kwargs) -> float:
     """Binning-style scorer: fit edges on train, bin val, plug-in MI."""
     X_tr = x_tr.reshape(-1, 1)
     if method == "quantile10":
@@ -71,8 +69,8 @@ def _score_ksg_lnc(x_tr, y_tr, x_va, y_va, k: int = 5, alpha: float = 0.65) -> f
 
 def _score_mine(x_tr, y_tr, x_va, y_va, n_epochs: int = 200, seed: int = 0) -> float:
     from mlframe.feature_selection.filters._neural_mi import mine_mi
-    return mine_mi(x_va, y_va.astype(np.float64), n_epochs=n_epochs, seed=seed,
-                   device="auto"), 0
+
+    return mine_mi(x_va, y_va.astype(np.float64), n_epochs=n_epochs, seed=seed, device="auto"), 0
 
 
 def _score_infonet(x_tr, y_tr, x_va, y_va, seed: int = 0) -> float:
@@ -87,14 +85,14 @@ def _score_mist(x_tr, y_tr, x_va, y_va) -> float:
 
 def _score_fastmi_silv(x_tr, y_tr, x_va, y_va, grid_size: int = 128) -> float:
     from mlframe.feature_selection.filters._fastmi import fastmi
-    return fastmi(x_va, y_va.astype(np.float64), grid_size=grid_size,
-                  bandwidth="silverman"), 0
+
+    return fastmi(x_va, y_va.astype(np.float64), grid_size=grid_size, bandwidth="silverman"), 0
 
 
 def _score_fastmi_mise(x_tr, y_tr, x_va, y_va, grid_size: int = 128) -> float:
     from mlframe.feature_selection.filters._fastmi import fastmi
-    return fastmi(x_va, y_va.astype(np.float64), grid_size=grid_size,
-                  bandwidth="mise"), 0
+
+    return fastmi(x_va, y_va.astype(np.float64), grid_size=grid_size, bandwidth="mise"), 0
 
 
 def _score_median_panel(x_tr, y_tr, x_va, y_va) -> float:
@@ -141,8 +139,7 @@ BINNING_KWARGS = {
 # same _score_binning; KSG / MINE / fastMI / aggregator each have their own.
 def _make_scorers() -> Dict[str, Callable]:
     scorers: Dict[str, Callable] = {}
-    for method in ["quantile10", "sturges", "freedman_diaconis", "qs",
-                   "knuth", "blocks", "fayyad_irani", "optimal_joint"]:
+    for method in ["quantile10", "sturges", "freedman_diaconis", "qs", "knuth", "blocks", "fayyad_irani", "optimal_joint"]:
         kw = BINNING_KWARGS[method]
         def make(m=method, mkw=kw):
             def _score(x_tr, y_tr, x_va, y_va):
@@ -209,8 +206,7 @@ def run_mega_bench(
 
     rng_master = np.random.default_rng(random_state)
     results: List[MegaFoldResult] = []
-    total = (len(distributions) * len(signal_kinds) * len(sample_sizes)
-             * n_repeats * n_splits * len(scorers))
+    total = len(distributions) * len(signal_kinds) * len(sample_sizes) * n_repeats * n_splits * len(scorers)
     if verbose:
         print(f"[mega] {total} fold-method evaluations across {len(scorers)} methods")
 
@@ -290,13 +286,10 @@ def print_mega_summary(summary: Dict) -> None:
     print("\n" + "=" * 96)
     print("MEGA BENCH: all MI estimators head-to-head (WAVE 1 fixes applied on binning)")
     print("=" * 96)
-    print(f"{'method':<28} {'MI_mean':>9} {'MI_med':>8} {'no_sig':>8} "
-          f"{'rt_ms':>9} {'win_rate':>9}")
+    print(f"{'method':<28} {'MI_mean':>9} {'MI_med':>8} {'no_sig':>8} " f"{'rt_ms':>9} {'win_rate':>9}")
     print("-" * 96)
     for m, d in sorted(pm.items(), key=lambda kv: -kv[1]["mi_mean"]):
-        print(f"{m:<28} {d['mi_mean']:>9.4f} {d['mi_median']:>8.4f} "
-              f"{ns.get(m, float('nan')):>8.4f} {d['rt_ms_mean']:>9.3f} "
-              f"{wr.get(m, 0.0):>9.2%}")
+        print(f"{m:<28} {d['mi_mean']:>9.4f} {d['mi_median']:>8.4f} " f"{ns.get(m, float('nan')):>8.4f} {d['rt_ms_mean']:>9.3f} " f"{wr.get(m, 0.0):>9.2%}")
     print()
 
 

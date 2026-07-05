@@ -228,9 +228,7 @@ def score_prospective_pairs(
                 # which would clear the lenient 1.05 gate and inject a spurious
                 # feature (observed regressing F-MONO). Genuine synergy has joint MI
                 # far above the marginal sum, so the stricter bar keeps it.
-                _is_synergy_pair = bool(_synergy_added_idx) and (
-                    raw_vars_pair[0] in _synergy_added_idx or raw_vars_pair[1] in _synergy_added_idx
-                )
+                _is_synergy_pair = bool(_synergy_added_idx) and (raw_vars_pair[0] in _synergy_added_idx or raw_vars_pair[1] in _synergy_added_idx)
                 _prev_thresh = fe_min_pair_mi_prevalence
                 if _is_synergy_pair:
                     _prev_thresh = max(fe_min_pair_mi_prevalence, _synergy_prev_resolved)
@@ -322,10 +320,7 @@ def score_prospective_pairs(
                 # resulting fused features HELP or HURT downstream is being decided by RMSE,
                 # not assumed. ``fe_pair_perm_null_admission_enable`` (default False).
                 _admit_via_perm = False
-                if (
-                    (not _passes_prevalence) and _passes_maxt
-                    and bool(getattr(self, "fe_pair_perm_null_admission_enable", False))
-                ):
+                if (not _passes_prevalence) and _passes_maxt and bool(getattr(self, "fe_pair_perm_null_admission_enable", False)):
                     try:
                         from .._fe_cmi_redundancy_gate import _conditional_perm_null
                         from .._mi_greedy_cmi_fe import _cmi_from_binned
@@ -395,18 +390,12 @@ def score_prospective_pairs(
                 # on failure). Toggle ``fe_pair_usability_admission_enable`` (default True; set False for the
                 # legacy rank-MI-only, byte-identical admission).
                 _admit_via_usability = False
-                if (
-                    (not (_passes_prevalence and _passes_maxt)) and pair_mi > 0
-                    and bool(getattr(self, "fe_pair_usability_admission_enable", True))
-                ):
+                if (not (_passes_prevalence and _passes_maxt)) and pair_mi > 0 and bool(getattr(self, "fe_pair_usability_admission_enable", True)):
                     try:
                         _yc = getattr(self, "_fe_prewarp_y_continuous_", None)
                         _o0 = _usability_operand_continuous(self, X, cols, raw_vars_pair[0])
                         _o1 = _usability_operand_continuous(self, X, cols, raw_vars_pair[1])
-                        if (
-                            _yc is not None and _o0 is not None and _o1 is not None
-                            and len(_yc) == data.shape[0] == _o0.shape[0] == _o1.shape[0]
-                        ):
+                        if _yc is not None and _o0 is not None and _o1 is not None and len(_yc) == data.shape[0] == _o0.shape[0] == _o1.shape[0]:
                             _ya = np.asarray(_yc, dtype=np.float64).reshape(-1)
                             _min_corr = float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6))
                             _margin = float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05))
@@ -422,8 +411,7 @@ def score_prospective_pairs(
                                 _admit_via_usability = True
                                 if verbose >= 2:
                                     logger.info(
-                                        "Factors pair %s ADMITTED via usability (rank-collapsed tail-concentrated "
-                                        "linear signal) despite rank-MI rejection.",
+                                        "Factors pair %s ADMITTED via usability (rank-collapsed tail-concentrated " "linear signal) despite rank-MI rejection.",
                                         raw_vars_pair,
                                     )
                     except Exception:

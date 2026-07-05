@@ -75,10 +75,10 @@ def fused_par(yt, yp, nt):
     return sa,ss,mx,TM2
 
 np.random.seed(0)
-nt=numba.get_num_threads()
+nt = numba.get_num_threads()
 for mean_ in (0.0, 11500.0):
-    yt=(np.random.randn(10_000_000)+mean_).astype(np.float64)
-    yp=(yt+np.random.randn(10_000_000)*0.5).astype(np.float64)
+    yt = (np.random.randn(10_000_000) + mean_).astype(np.float64)
+    yp = (yt + np.random.randn(10_000_000) * 0.5).astype(np.float64)
     # warm
     old(yt[:1000],yp[:1000],nt); fused_par(yt[:1000],yp[:1000],nt)
     o=old(yt,yp,nt); f=fused_par(yt,yp,nt)

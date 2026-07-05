@@ -62,7 +62,7 @@ def _parse_code_deg(token: str):
     as the host generator did (the name carries only leg-1's code, the same convention the recipe builders unwind)."""
     for code in ("LL", "He", "T", "L"):
         if token.startswith(code):
-            rest = token[len(code):]
+            rest = token[len(code) :]
             if rest.isdigit():
                 return int(rest)
     return None
@@ -119,8 +119,8 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
         robust_axis = False
 
     n = len(X)
-    leg_cache: dict = {}      # (col, basis, degree) -> (n,) cupy float64 leg values
-    basis_of_col: dict = {}   # col -> routed basis (host moment route, computed once)
+    leg_cache: dict = {}  # (col, basis, degree) -> (n,) cupy float64 leg values
+    basis_of_col: dict = {}  # col -> routed basis (host moment route, computed once)
 
     def _leg(col: str, degree: int, explicit_basis: str = None):
         # Ensure the mean-filled operand is materialised + cached for this col (needed by both routes).
@@ -239,8 +239,7 @@ def raw_and_product_mi_resident(
         # uploaded once by the basis builders, so stacking the resident columns content-hits the cache and the
         # whole (n, k) matrix never crosses H2D (vs the prior single whole-matrix upload, a distinct blob that
         # never deduped). Column j is raw_X[raw_cols[j]] verbatim -> same bytes -> selection-identical.
-        raw_gpu = assemble_resident_matrix(raw_np, raw_cols, ("xbasis_raw_baseline", tuple(raw_cols)),
-                                           dtype=_dt)
+        raw_gpu = assemble_resident_matrix(raw_np, raw_cols, ("xbasis_raw_baseline", tuple(raw_cols)), dtype=_dt)
         raw_mi = _resident_mi(cp, raw_gpu, y, nbins)
         raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
         return raw_mi_map, eng_mi

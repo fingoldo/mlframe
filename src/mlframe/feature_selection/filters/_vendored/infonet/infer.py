@@ -11,38 +11,30 @@ global device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def load_config(config_path):
-    with open(config_path, 'r') as file:
+    with open(config_path, "r") as file:
         config = yaml.safe_load(file)
     return config
 
 def create_model(config):
     encoder = Encoder(
-        input_dim=config['model']['input_dim'],
-        latent_num=config['model']['latent_num'],
-        latent_dim=config['model']['latent_dim'],
-        cross_attn_heads=config['model']['cross_attn_heads'],
-        self_attn_heads=config['model']['self_attn_heads'],
-        num_self_attn_per_block=config['model']['num_self_attn_per_block'],
-        num_self_attn_blocks=config['model']['num_self_attn_blocks']
+        input_dim=config["model"]["input_dim"],
+        latent_num=config["model"]["latent_num"],
+        latent_dim=config["model"]["latent_dim"],
+        cross_attn_heads=config["model"]["cross_attn_heads"],
+        self_attn_heads=config["model"]["self_attn_heads"],
+        num_self_attn_per_block=config["model"]["num_self_attn_per_block"],
+        num_self_attn_blocks=config["model"]["num_self_attn_blocks"],
     )
 
     decoder = Decoder(
-        q_dim=config['model']['decoder_query_dim'],
-        latent_dim=config['model']['latent_dim'],
+        q_dim=config["model"]["decoder_query_dim"],
+        latent_dim=config["model"]["latent_dim"],
     )
 
-    query_gen = Query_Gen_transformer(
-        input_dim=config['model']['input_dim'],
-        dim=config['model']['decoder_query_dim']
-    )
-    
-    model = infonet(
-        encoder=encoder,
-        decoder=decoder,
-        query_gen=query_gen,
-        decoder_query_dim=config['model']['decoder_query_dim']
-    ).to(device)
-    
+    query_gen = Query_Gen_transformer(input_dim=config["model"]["input_dim"], dim=config["model"]["decoder_query_dim"])
+
+    model = infonet(encoder=encoder, decoder=decoder, query_gen=query_gen, decoder_query_dim=config["model"]["decoder_query_dim"]).to(device)
+
     return model
 
 def load_model(config_path, checkpoint_path):
@@ -89,15 +81,15 @@ def compute_smi_mean(sample_x, sample_y, model, proj_num, seq_len, batchsize):
     dx = sample_x.shape[1]
     dy = sample_y.shape[1]
     results = []
-    for i in range(proj_num//batchsize):
+    for i in range(proj_num // batchsize):
         batch = np.zeros((batchsize, seq_len, 2))
         for j in range(batchsize):
             theta = np.random.randn(dx)
             phi = np.random.randn(dy)
             x_proj = np.dot(sample_x, theta)
             y_proj = np.dot(sample_y, phi)
-            x_proj = rankdata(x_proj)/seq_len
-            y_proj = rankdata(y_proj)/seq_len
+            x_proj = rankdata(x_proj) / seq_len
+            y_proj = rankdata(y_proj) / seq_len
             xy = np.column_stack((x_proj, y_proj))
             batch[j, :, :] = xy
         infer1 = infer(model, batch)
@@ -110,13 +102,13 @@ def example_d_1():
     seq_len = 4781
     results = []
     real_MIs = []
-    
+
     for rou in np.arange(-0.9, 1, 0.1):
-        x, y = np.random.multivariate_normal(mean=[0,0], cov=[[1,rou],[rou,1]], size=seq_len).T
-        x = rankdata(x)/seq_len #### important, data preprocessing is needed, using rankdata(x)/seq_len to map x and y to [0,1]
-        y = rankdata(y)/seq_len
+        x, y = np.random.multivariate_normal(mean=[0, 0], cov=[[1, rou], [rou, 1]], size=seq_len).T
+        x = rankdata(x) / seq_len  #### important, data preprocessing is needed, using rankdata(x)/seq_len to map x and y to [0,1]
+        y = rankdata(y) / seq_len
         result = estimate_mi(model, x, y).squeeze().cpu().numpy()
-        real_MI = -np.log(1-rou**2)/2
+        real_MI = -np.log(1 - rou**2) / 2
         real_MIs.append(real_MI)
         results.append(result)
         print("estimate mutual information is: ", result, "real MI is ", real_MI  )
@@ -137,9 +129,9 @@ if __name__ == "__main__":
     parser.add_argument('--checkpoint', type=str, required=False, default="saved/uniform/model_5000_32_1000-720--0.16.pt", help='Path to the model checkpoint')
     
     args = parser.parse_args()
-    
+
     model = load_model(args.config, args.checkpoint)
     print("Model loaded successfully")
 
     example_d_1()
-    #example_highd()
+    # example_highd()

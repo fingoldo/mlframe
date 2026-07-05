@@ -74,8 +74,8 @@ def _best(fn, *args, repeats: int = 3) -> float:
 
 def _raw_jaccard(y_t, y_p, lbl):
     from mlframe.reporting.charts._jaccard_kernel import jaccard_rows
-    j = jaccard_rows(np.ascontiguousarray(y_t, dtype=np.int8),
-                     np.ascontiguousarray(y_p, dtype=np.float32))
+
+    j = jaccard_rows(np.ascontiguousarray(y_t, dtype=np.int8), np.ascontiguousarray(y_p, dtype=np.float32))
     return HistogramPanelSpec(values=j, bins=20, density=True)
 
 
@@ -97,11 +97,10 @@ def main() -> None:
         nonlocal j
         from mlframe.reporting.charts._jaccard_kernel import jaccard_rows
         if j is None:
-            j = jaccard_rows(np.ascontiguousarray(yt, dtype=np.int8),
-                             np.ascontiguousarray(yp, dtype=np.float32))
+            j = jaccard_rows(np.ascontiguousarray(yt, dtype=np.int8), np.ascontiguousarray(yp, dtype=np.float32))
         prebin_histogram(j, 20, True)
-    print(f"\n  np.histogram-only (Jaccard, n={_N}): {_best(lambda: _prebin_only()):8.3f} ms "
-          f"(the extra spec-build cost the pre-bin adds)")
+
+    print(f"\n  np.histogram-only (Jaccard, n={_N}): {_best(lambda: _prebin_only()):8.3f} ms " f"(the extra spec-build cost the pre-bin adds)")
 
     pr = cProfile.Profile()
     pr.enable()

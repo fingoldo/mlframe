@@ -167,10 +167,7 @@ def score_features_by_bootstrap_mi(
             f"subsampling requires aligned indices."
         )
     if len(raw_X) != len(np.asarray(y)):
-        raise ValueError(
-            f"score_features_by_bootstrap_mi: raw_X has {len(raw_X)} rows but "
-            f"y has {len(np.asarray(y))}; aligned indices required."
-        )
+        raise ValueError(f"score_features_by_bootstrap_mi: raw_X has {len(raw_X)} rows but " f"y has {len(np.asarray(y))}; aligned indices required.")
 
     y_arr = _coerce_y_int64(y)
     raw_cols = list(raw_X.columns)
@@ -178,10 +175,7 @@ def score_features_by_bootstrap_mi(
     n = len(raw_X)
 
     # Map engineered_col -> source col (prefix before ``__``).
-    src_map = {
-        eng_name: (eng_name.split("__", 1)[0] if "__" in eng_name else eng_name)
-        for eng_name in eng_cols
-    }
+    src_map = {eng_name: (eng_name.split("__", 1)[0] if "__" in eng_name else eng_name) for eng_name in eng_cols}
     # Per-engineered baseline lookup is via the raw_X MI vector; we cache the
     # per-replicate raw MI as a name -> mi dict to avoid re-indexing per col.
     from ._fe_usability_signal import _crit_np_dtype
@@ -214,9 +208,7 @@ def score_features_by_bootstrap_mi(
     # cols whose source is absent from raw_X map to -1 -> 0.0 baseline (matches
     # the listcomp's ``.get(..., 0.0)`` fallback).
     _raw_pos = {c: i for i, c in enumerate(raw_cols)}
-    _src_idx = np.array(
-        [_raw_pos.get(src_map[ec], -1) for ec in eng_cols], dtype=np.int64
-    )
+    _src_idx = np.array([_raw_pos.get(src_map[ec], -1) for ec in eng_cols], dtype=np.int64)
     _src_valid = _src_idx >= 0
     _src_idx_clipped = np.where(_src_valid, _src_idx, 0)
 
@@ -376,10 +368,7 @@ def hybrid_orth_mi_bootstrap_fe(
     else:
         noise_floor = 0.0
     abs_floor = max(legacy_floor, noise_floor)
-    qualified = scores[
-        (scores["uplift_lcb"] >= float(min_uplift_lcb))
-        & (scores["engineered_mi_lcb"] >= abs_floor)
-    ]
+    qualified = scores[(scores["uplift_lcb"] >= float(min_uplift_lcb)) & (scores["engineered_mi_lcb"] >= abs_floor)]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
@@ -430,15 +419,14 @@ def hybrid_orth_mi_bootstrap_fe_with_recipes(
         chosen_degree = None
         for code in ("LL", "He", "T", "L"):
             if suffix.startswith(code):
-                rest = suffix[len(code):]
+                rest = suffix[len(code) :]
                 if rest.isdigit():
                     chosen_basis = code_to_basis[code]
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
             logger.warning(
-                "hybrid_orth_mi_bootstrap_fe_with_recipes: cannot parse "
-                "basis/degree from column name %r; skipping recipe build.",
+                "hybrid_orth_mi_bootstrap_fe_with_recipes: cannot parse " "basis/degree from column name %r; skipping recipe build.",
                 name,
             )
             continue

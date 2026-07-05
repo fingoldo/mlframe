@@ -13,22 +13,61 @@ def ext1_par(yt,yp,nt):
     la=np.zeros(nt);ls=np.zeros(nt);lm=np.zeros(nt);ly=np.zeros(nt);lp=np.zeros(nt)
     lsig=np.zeros(nt);lape=np.zeros(nt);lsm=np.zeros(nt);lay=np.zeros(nt);lz=np.zeros(nt,np.int64)
     for tid in prange(nt):
-        sa=0.;ss=0.;ma=0.;sy=0.;sp=0.;sg=0.;sape=0.;ssm=0.;say=0.;nz=0
-        st=tid*chunk;en=min(st+chunk,n)
-        for i in range(st,en):
-            a=yt[i];b=yp[i];e=a-b;ae=e if e>=0 else -e
-            sa+=ae;ss+=e*e
-            if ae>ma:ma=ae
-            sy+=a;sp+=b;sg+=b-a
-            ay=a if a>=0 else -a; say+=ay
-            dm=ay if ay>=eps else eps; sape+=ae/dm
-            if a==0.:nz+=1
-            ap=b if b>=0 else -b; ds=ay+ap
-            if ds<eps:ds=eps
-            ssm+=2.*ae/ds
-        la[tid]=sa;ls[tid]=ss;lm[tid]=ma;ly[tid]=sy;lp[tid]=sp;lsig[tid]=sg
-        lape[tid]=sape;lsm[tid]=ssm;lay[tid]=say;lz[tid]=nz
-    sa=0.;ss=0.;ma=0.;sy=0.;sp=0.;sg=0.;sape=0.;ssm=0.;say=0.;nz=0
+        sa = 0.0
+        ss = 0.0
+        ma = 0.0
+        sy = 0.0
+        sp = 0.0
+        sg = 0.0
+        sape = 0.0
+        ssm = 0.0
+        say = 0.0
+        nz = 0
+        st = tid * chunk
+        en = min(st + chunk, n)
+        for i in range(st, en):
+            a = yt[i]
+            b = yp[i]
+            e = a - b
+            ae = e if e >= 0 else -e
+            sa += ae
+            ss += e * e
+            if ae > ma:
+                ma = ae
+            sy += a
+            sp += b
+            sg += b - a
+            ay = a if a >= 0 else -a
+            say += ay
+            dm = ay if ay >= eps else eps
+            sape += ae / dm
+            if a == 0.0:
+                nz += 1
+            ap = b if b >= 0 else -b
+            ds = ay + ap
+            if ds < eps:
+                ds = eps
+            ssm += 2.0 * ae / ds
+        la[tid] = sa
+        ls[tid] = ss
+        lm[tid] = ma
+        ly[tid] = sy
+        lp[tid] = sp
+        lsig[tid] = sg
+        lape[tid] = sape
+        lsm[tid] = ssm
+        lay[tid] = say
+        lz[tid] = nz
+    sa = 0.0
+    ss = 0.0
+    ma = 0.0
+    sy = 0.0
+    sp = 0.0
+    sg = 0.0
+    sape = 0.0
+    ssm = 0.0
+    say = 0.0
+    nz = 0
     for tid in range(nt):
         sa+=la[tid];ss+=ls[tid]
         if lm[tid]>ma:ma=lm[tid]
@@ -36,8 +75,13 @@ def ext1_par(yt,yp,nt):
     return sa,ss,ma,sy,sp,sg,sape,ssm,say,nz
 
 @njit(**NP, parallel=True)
-def ext2_par(yt,yp,ym,pm):
-    n=yt.shape[0];rm=ym-pm;sst=0.;ssp=0.;sxy=0.;ssr=0.
+def ext2_par(yt, yp, ym, pm):
+    n = yt.shape[0]
+    rm = ym - pm
+    sst = 0.0
+    ssp = 0.0
+    sxy = 0.0
+    ssr = 0.0
     for i in prange(n):
         dy=yt[i]-ym;dp=yp[i]-pm;sst+=dy*dy;ssp+=dp*dp;sxy+=dy*dp
         dr=(yt[i]-yp[i])-rm;ssr+=dr*dr
@@ -56,40 +100,112 @@ def fused_par(yt,yp,nt):
     lcnt=np.zeros(nt);lmy=np.zeros(nt);lmp=np.zeros(nt);lmr=np.zeros(nt)
     lM2y=np.zeros(nt);lM2p=np.zeros(nt);lM2r=np.zeros(nt);lCxy=np.zeros(nt)
     for tid in prange(nt):
-        sa=0.;ss=0.;ma=0.;sg=0.;sape=0.;ssm=0.;say=0.;nz=0
-        cnt=0.;my=0.;mp=0.;mr=0.;M2y=0.;M2p=0.;M2r=0.;Cxy=0.
-        st=tid*chunk;en=min(st+chunk,n)
-        for i in range(st,en):
-            a=yt[i];b=yp[i];e=a-b;ae=e if e>=0 else -e
-            sa+=ae;ss+=e*e
-            if ae>ma:ma=ae
-            sg+=b-a
-            ay=a if a>=0 else -a; say+=ay
-            dm=ay if ay>=eps else eps; sape+=ae/dm
-            if a==0.:nz+=1
-            ap=b if b>=0 else -b; ds=ay+ap
-            if ds<eps:ds=eps
-            ssm+=2.*ae/ds
-            cnt+=1.0
-            dy=a-my; my+=dy/cnt; dy2=a-my; M2y+=dy*dy2
-            dp=b-mp; mp+=dp/cnt; dp2=b-mp; M2p+=dp*dp2
-            Cxy+=dy*dp2
-            r=e; dr=r-mr; mr+=dr/cnt; M2r+=dr*(r-mr)
-        la[tid]=sa;ls[tid]=ss;lm[tid]=ma;lsig[tid]=sg
-        lape[tid]=sape;lsm[tid]=ssm;lay[tid]=say;lz[tid]=nz
-        lcnt[tid]=cnt;lmy[tid]=my;lmp[tid]=mp;lmr[tid]=mr
-        lM2y[tid]=M2y;lM2p[tid]=M2p;lM2r[tid]=M2r;lCxy[tid]=Cxy
-    sa=0.;ss=0.;ma=0.;sg=0.;sape=0.;ssm=0.;say=0.;nz=0
-    Tc=0.;Tmy=0.;Tmp=0.;Tmr=0.;TM2y=0.;TM2p=0.;TM2r=0.;TCxy=0.
+        sa = 0.0
+        ss = 0.0
+        ma = 0.0
+        sg = 0.0
+        sape = 0.0
+        ssm = 0.0
+        say = 0.0
+        nz = 0
+        cnt = 0.0
+        my = 0.0
+        mp = 0.0
+        mr = 0.0
+        M2y = 0.0
+        M2p = 0.0
+        M2r = 0.0
+        Cxy = 0.0
+        st = tid * chunk
+        en = min(st + chunk, n)
+        for i in range(st, en):
+            a = yt[i]
+            b = yp[i]
+            e = a - b
+            ae = e if e >= 0 else -e
+            sa += ae
+            ss += e * e
+            if ae > ma:
+                ma = ae
+            sg += b - a
+            ay = a if a >= 0 else -a
+            say += ay
+            dm = ay if ay >= eps else eps
+            sape += ae / dm
+            if a == 0.0:
+                nz += 1
+            ap = b if b >= 0 else -b
+            ds = ay + ap
+            if ds < eps:
+                ds = eps
+            ssm += 2.0 * ae / ds
+            cnt += 1.0
+            dy = a - my
+            my += dy / cnt
+            dy2 = a - my
+            M2y += dy * dy2
+            dp = b - mp
+            mp += dp / cnt
+            dp2 = b - mp
+            M2p += dp * dp2
+            Cxy += dy * dp2
+            r = e
+            dr = r - mr
+            mr += dr / cnt
+            M2r += dr * (r - mr)
+        la[tid] = sa
+        ls[tid] = ss
+        lm[tid] = ma
+        lsig[tid] = sg
+        lape[tid] = sape
+        lsm[tid] = ssm
+        lay[tid] = say
+        lz[tid] = nz
+        lcnt[tid] = cnt
+        lmy[tid] = my
+        lmp[tid] = mp
+        lmr[tid] = mr
+        lM2y[tid] = M2y
+        lM2p[tid] = M2p
+        lM2r[tid] = M2r
+        lCxy[tid] = Cxy
+    sa = 0.0
+    ss = 0.0
+    ma = 0.0
+    sg = 0.0
+    sape = 0.0
+    ssm = 0.0
+    say = 0.0
+    nz = 0
+    Tc = 0.0
+    Tmy = 0.0
+    Tmp = 0.0
+    Tmr = 0.0
+    TM2y = 0.0
+    TM2p = 0.0
+    TM2r = 0.0
+    TCxy = 0.0
     for tid in range(nt):
-        sa+=la[tid];ss+=ls[tid]
-        if lm[tid]>ma:ma=lm[tid]
-        sg+=lsig[tid];sape+=lape[tid];ssm+=lsm[tid];say+=lay[tid];nz+=lz[tid]
-        cb=lcnt[tid]
-        if cb>0.:
-            if Tc==0.:
-                Tc=cb;Tmy=lmy[tid];Tmp=lmp[tid];Tmr=lmr[tid]
-                TM2y=lM2y[tid];TM2p=lM2p[tid];TM2r=lM2r[tid];TCxy=lCxy[tid]
+        sa += la[tid]
+        ss += ls[tid]
+        if lm[tid] > ma:
+            ma = lm[tid]
+        sg += lsig[tid]
+        sape += lape[tid]
+        ssm += lsm[tid]
+        say += lay[tid]
+        nz += lz[tid]
+        cb = lcnt[tid]
+        if cb > 0.0:
+            if Tc == 0.0:
+                Tc = cb
+                Tmy = lmy[tid]
+                Tmp = lmp[tid]
+                Tmr = lmr[tid]
+                TM2y = lM2y[tid]
+                TM2p = lM2p[tid]
+                TM2r = lM2r[tid]
+                TCxy = lCxy[tid]
             else:
                 tot=Tc+cb;f=Tc*cb/tot
                 ddy=lmy[tid]-Tmy;ddp=lmp[tid]-Tmp;ddr=lmr[tid]-Tmr

@@ -51,16 +51,16 @@ class TreeEnsemble:
     the global id of each tree's root so the kernel can iterate tree-by-tree without ragged arrays.
     """
 
-    children_left: np.ndarray   # (N,) int32  global id of "yes"/left child, or _NO_CHILD for leaf
+    children_left: np.ndarray  # (N,) int32  global id of "yes"/left child, or _NO_CHILD for leaf
     children_right: np.ndarray  # (N,) int32  global id of "no"/right child
     children_default: np.ndarray  # (N,) int32 global id of "missing" child
-    features: np.ndarray        # (N,) int32  split feature index, or -1 for leaf
-    thresholds: np.ndarray      # (N,) float32 split_condition (float32 to match xgboost routing)
-    values: np.ndarray          # (N,) float64 leaf output (0.0 for internal nodes)
+    features: np.ndarray  # (N,) int32  split feature index, or -1 for leaf
+    thresholds: np.ndarray  # (N,) float32 split_condition (float32 to match xgboost routing)
+    values: np.ndarray  # (N,) float64 leaf output (0.0 for internal nodes)
     node_sample_weight: np.ndarray  # (N,) float64 node cover (hessian-weighted count)
-    tree_roots: np.ndarray      # (T,) int32  global id of each tree's root node
-    max_depth: int              # max tree depth across the ensemble (sizes the per-thread scratch)
-    base_offset: float          # ensemble intercept (base_score) added once to the margin
+    tree_roots: np.ndarray  # (T,) int32  global id of each tree's root node
+    max_depth: int  # max tree depth across the ensemble (sizes the per-thread scratch)
+    base_offset: float  # ensemble intercept (base_score) added once to the margin
     n_features: int
 
 
@@ -160,8 +160,7 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
     # cover-weighted mean leaf value (the tree's unconditional expected output). phi measures the
     # deviation from THAT conditional expectation, so additivity requires this base. Compute each
     # tree's root expectation E[root] = (cover_L*E[L] + cover_R*E[R]) / cover_node bottom-up.
-    expected = base_offset + _ensemble_expected_value(
-        children_left, children_right, values, node_sample_weight, tree_roots_arr)
+    expected = base_offset + _ensemble_expected_value(children_left, children_right, values, node_sample_weight, tree_roots_arr)
 
     return TreeEnsemble(
         children_left=children_left,
@@ -272,13 +271,13 @@ def _unwound_sum(pf_zero, pf_one, pweight, off, unique_depth, path_index):
             total += tmp
             next_one = pweight[off + i] - tmp * zero_frac * (unique_depth - i)
             i -= 1
-        total *= (unique_depth + 1.0)
+        total *= unique_depth + 1.0
     else:
         i = unique_depth - 1
         while i >= 0:
             total += pweight[off + i] / (zero_frac * (unique_depth - i))
             i -= 1
-        total *= (unique_depth + 1.0)
+        total *= unique_depth + 1.0
     return total
 
 
@@ -391,8 +390,8 @@ def _treeshap_batch(
     """Fill ``phi`` (n, f) for all samples, parallel over rows. Excludes the base offset."""
     n = X.shape[0]
     n_trees = tree_roots.shape[0]
-    width = max_path + 2          # entries available to each path window
-    n_levels = max_path + 2       # root..deepest leaf
+    width = max_path + 2  # entries available to each path window
+    n_levels = max_path + 2  # root..deepest leaf
     stack_size = 2 * (max_path + 2)  # DFS stack depth bound (two children per pushed level)
     scratch = width * n_levels
     for i in prange(n):
@@ -508,8 +507,7 @@ def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
     values = np.asarray(val, dtype=np.float64)
     node_sample_weight = np.asarray(cover, dtype=np.float64)
     tree_roots_arr = np.asarray(tree_roots, dtype=np.int32)
-    base_offset = _ensemble_expected_value(
-        children_left, children_right, values, node_sample_weight, tree_roots_arr)
+    base_offset = _ensemble_expected_value(children_left, children_right, values, node_sample_weight, tree_roots_arr)
 
     return TreeEnsemble(
         children_left=children_left,

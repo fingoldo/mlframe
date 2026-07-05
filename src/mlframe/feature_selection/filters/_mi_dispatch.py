@@ -86,9 +86,7 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
     y_arr = np.asarray(y).ravel()
 
     if estimator == "plug_in":
-        return _score_plug_in(x, y_arr, nbins_strategy=nbins_strategy,
-                               nbins_strategy_kwargs=nbins_strategy_kwargs,
-                               miller_madow=miller_madow)
+        return _score_plug_in(x, y_arr, nbins_strategy=nbins_strategy, nbins_strategy_kwargs=nbins_strategy_kwargs, miller_madow=miller_madow)
     if estimator in ("mixed_ksg", "ksg_lnc"):
         from ._ksg import mixed_ksg_mi, ksg_lnc_mi
         fn = mixed_ksg_mi if estimator == "mixed_ksg" else ksg_lnc_mi
@@ -101,16 +99,11 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
         from ._fastmi import fastmi
         return float(fastmi(x, y_arr.astype(np.float64), **estimator_kwargs))
     if estimator in ("median", "genie"):
-        return _score_aggregator(x, y_arr, kind=estimator,
-                                   nbins_strategy=nbins_strategy,
-                                   nbins_strategy_kwargs=nbins_strategy_kwargs)
+        return _score_aggregator(x, y_arr, kind=estimator, nbins_strategy=nbins_strategy, nbins_strategy_kwargs=nbins_strategy_kwargs)
     raise ValueError(f"score_pair_mi: unknown estimator {estimator!r}")
 
 
-def _score_plug_in(x: np.ndarray, y_arr: np.ndarray, *,
-                    nbins_strategy: Optional[str],
-                    nbins_strategy_kwargs: Optional[Dict],
-                    miller_madow: bool) -> float:
+def _score_plug_in(x: np.ndarray, y_arr: np.ndarray, *, nbins_strategy: Optional[str], nbins_strategy_kwargs: Optional[Dict], miller_madow: bool) -> float:
     from ._adaptive_nbins import per_feature_edges, _plug_in_mi
     strategy_kwargs = dict(nbins_strategy_kwargs or {})
     if nbins_strategy is None:
@@ -140,21 +133,12 @@ def _score_plug_in(x: np.ndarray, y_arr: np.ndarray, *,
     return _plug_in_mi(xb, y_arr.astype(np.int64), miller_madow=miller_madow)
 
 
-def _score_aggregator(x: np.ndarray, y_arr: np.ndarray, *,
-                       kind: str,
-                       nbins_strategy: Optional[str],
-                       nbins_strategy_kwargs: Optional[Dict]) -> float:
+def _score_aggregator(x: np.ndarray, y_arr: np.ndarray, *, kind: str, nbins_strategy: Optional[str], nbins_strategy_kwargs: Optional[Dict]) -> float:
     from ._mi_aggregator import median_mi_panel, genie_mi_panel
     from ._ksg import mixed_ksg_mi
     estimators = {
-        "fd": lambda a, b: _score_plug_in(a, np.asarray(b),
-                                           nbins_strategy="freedman_diaconis",
-                                           nbins_strategy_kwargs={},
-                                           miller_madow=True),
-        "qs": lambda a, b: _score_plug_in(a, np.asarray(b),
-                                           nbins_strategy="qs",
-                                           nbins_strategy_kwargs={},
-                                           miller_madow=True),
+        "fd": lambda a, b: _score_plug_in(a, np.asarray(b), nbins_strategy="freedman_diaconis", nbins_strategy_kwargs={}, miller_madow=True),
+        "qs": lambda a, b: _score_plug_in(a, np.asarray(b), nbins_strategy="qs", nbins_strategy_kwargs={}, miller_madow=True),
         "mixed_ksg": lambda a, b: float(mixed_ksg_mi(a, np.asarray(b).astype(np.float64), k=5)),
     }
     fn = median_mi_panel if kind == "median" else genie_mi_panel

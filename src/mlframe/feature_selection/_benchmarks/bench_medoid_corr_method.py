@@ -49,7 +49,7 @@ def _make_scenario(kind: str, seed: int, n: int = 2000):
             cols[f"n{i}"] = rng.randn(n)
     elif kind == "nonmonotone_redundancy":
         cols["z0"] = z
-        cols["z1"] = z ** 2  # Pearson ~0 with z0, SU high
+        cols["z1"] = z**2  # Pearson ~0 with z0, SU high
         cols["z2"] = np.abs(z)
         cols["w0"] = w
         for i in range(3):
@@ -83,8 +83,7 @@ def main():
             for method in ("pearson", "su"):
                 t0 = time.perf_counter()
                 auc, nfeat = _eval(X, y, method, seed)
-                results.append({"scenario": sc, "seed": seed, "method": method,
-                                "auc": auc, "n_medoids": nfeat, "wall_s": time.perf_counter() - t0})
+                results.append({"scenario": sc, "seed": seed, "method": method, "auc": auc, "n_medoids": nfeat, "wall_s": time.perf_counter() - t0})
     df = pd.DataFrame(results)
     summary = df.groupby(["scenario", "method"]).agg(
         auc_mean=("auc", "mean"), auc_std=("auc", "std"),

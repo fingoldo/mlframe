@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -160,9 +159,7 @@ def estimate_features_relevancy(
 
     # Wave 31 (2026-05-20): assert -> ValueError.
     if min_randomized_permutations < 1:
-        raise ValueError(
-            f"min_randomized_permutations must be >= 1; got {min_randomized_permutations!r}."
-        )
+        raise ValueError(f"min_randomized_permutations must be >= 1; got {min_randomized_permutations!r}.")
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # What MI implementation is the fastest for current machine?
@@ -291,9 +288,7 @@ def estimate_features_relevancy(
         raw_mi_row = np.asarray(original_mi_results[target_idx], dtype=np.float64)
         # Vectorized over ALL candidate columns in one gammaincc (was a per-column analytic_mi_null loop -> 138k scalar
         # chi2.sf calls, the #1 MRMR-screen hotspot). Bit-identical to the scalar loop.
-        null_mean_row, p_values = analytic_mi_null_batch(
-            raw_mi_row, n_samples, occupied_bins_per_col[: bins.shape[1]], by
-        )
+        null_mean_row, p_values = analytic_mi_null_batch(raw_mi_row, n_samples, occupied_bins_per_col[: bins.shape[1]], by)
         debiased_mi = np.where(np.isfinite(raw_mi_row), raw_mi_row - null_mean_row, -np.inf)
 
         if not permuted_max_mi_quantile:
@@ -385,10 +380,7 @@ def run_efs(
         if len(set(target_columns)) != len(target_columns):
             from collections import Counter as _Counter
             _dupes = [_t for _t, _n in _Counter(target_columns).items() if _n > 1]
-            raise ValueError(
-                f"target_columns has {len(_dupes)} duplicate(s) ({_dupes[:5]}); "
-                "deduplicate to avoid silently dropping MI rows."
-            )
+            raise ValueError(f"target_columns has {len(_dupes)} duplicate(s) ({_dupes[:5]}); " "deduplicate to avoid silently dropping MI rows.")
         features_mis = pd.DataFrame({target_columns[col]: mutual_informations[col, :] for col in range(len(target_columns))})
         features_mis["feature"] = bins.columns
         features_mis = features_mis.sort_values(target_columns[0], ascending=False)

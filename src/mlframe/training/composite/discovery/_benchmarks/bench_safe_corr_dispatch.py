@@ -82,10 +82,7 @@ def main() -> None:
     t_nb = _time(_numba, y, X, _REPS)
     speedup = t_np / t_nb if t_nb > 0 else float("inf")
 
-    print(
-        f"safe_abs_corr_all bench  n={_N} F={_F} reps={_REPS} "
-        f"py={sys.version.split()[0]}"
-    )
+    print(f"safe_abs_corr_all bench  n={_N} F={_F} reps={_REPS} " f"py={sys.version.split()[0]}")
     print(f"  max abs diff numpy vs numba: {max_diff:.2e}")
     print(f"  numpy reference: {t_np * 1e3:8.3f} ms")
     print(f"  numba kernel:    {t_nb * 1e3:8.3f} ms  ({speedup:.2f}x)")

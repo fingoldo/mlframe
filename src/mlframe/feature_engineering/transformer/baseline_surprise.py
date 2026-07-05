@@ -46,14 +46,12 @@ def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task:
     except ImportError as exc:
         raise ImportError("baseline_surprise requires lightgbm") from exc
     if task == "binary":
-        m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
-                               random_state=int(seed), verbose=-1, n_jobs=-1)
+        m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m.fit(Xt, y_t.astype(np.int32))
         p_train = m.predict_proba(Xt)[:, 1].astype(np.float32)
         p_query = m.predict_proba(Xq)[:, 1].astype(np.float32)
     else:
-        m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1,
-                              random_state=int(seed), verbose=-1, n_jobs=-1)
+        m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m.fit(Xt, y_t)
         p_train = m.predict(Xt).astype(np.float32)
         p_query = m.predict(Xq).astype(np.float32)
@@ -102,7 +100,7 @@ def compute_baseline_surprise_features(
         else:
             resid = (y_t - p_train).astype(np.float32)
             sigma = float(resid.std()) + 1e-6
-            surprise_train = ((resid ** 2) / (2.0 * sigma * sigma)).astype(np.float32)
+            surprise_train = ((resid**2) / (2.0 * sigma * sigma)).astype(np.float32)
 
         # kNN aggregation of train surprises onto query rows.
         k_eff = min(k_neighbors, Xt_s.shape[0])

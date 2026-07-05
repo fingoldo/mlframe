@@ -39,13 +39,13 @@ warnings.filterwarnings("ignore")
 # convention) so the ground-truth verdict is unambiguous. We then ask: does the
 # ablation diagnostic recover x0 (and a stable ranking of the strong features)
 # at reduced provisioning, on every scenario+seed?
-N_ROWS = 4000           # per scenario; large enough for a stable LightGBM signal, small enough for budget
+N_ROWS = 4000  # per scenario; large enough for a stable LightGBM signal, small enough for budget
 N_FEATURES = 8
 SEEDS = (0, 1, 2)
-DEFAULT_N_ESTIMATORS = 200       # current BaselineDiagnosticsConfig.quick_model_n_estimators
-DEFAULT_SAMPLE_N = N_ROWS        # use full frame; sample_n reductions are tested as separate cells
+DEFAULT_N_ESTIMATORS = 200  # current BaselineDiagnosticsConfig.quick_model_n_estimators
+DEFAULT_SAMPLE_N = N_ROWS  # use full frame; sample_n reductions are tested as separate cells
 ABLATION_TOP_K = 5
-TOPK_VERDICT = 3        # how many leading ablation entries define the "ranking verdict"
+TOPK_VERDICT = 3  # how many leading ablation entries define the "ranking verdict"
 
 
 def _scenario_linear(rng):
@@ -60,10 +60,7 @@ def _scenario_interaction(rng):
     """Interaction-dominant: x0*x1 drives y; x0 still the single strongest mover."""
     X = {f"x{i}": rng.normal(size=N_ROWS) for i in range(N_FEATURES)}
     df = pd.DataFrame(X)
-    df["y"] = (
-        4.0 * df["x0"] * df["x1"] + 2.5 * df["x0"] + 0.8 * df["x2"]
-        + 0.3 * rng.normal(size=N_ROWS)
-    )
+    df["y"] = 4.0 * df["x0"] * df["x1"] + 2.5 * df["x0"] + 0.8 * df["x2"] + 0.3 * rng.normal(size=N_ROWS)
     return df, [], "regression"
 
 
@@ -197,10 +194,8 @@ def main():
                     row["dominant_same_as_default"] = True
                     row["topk_same_as_default"] = True
                 else:
-                    row["dominant_same_as_default"] = (dom == ref["dominant_feature"])
-                    row["topk_same_as_default"] = (
-                        ranking[:TOPK_VERDICT] == ref["topk_ranking"]
-                    )
+                    row["dominant_same_as_default"] = dom == ref["dominant_feature"]
+                    row["topk_same_as_default"] = ranking[:TOPK_VERDICT] == ref["topk_ranking"]
                 results.append(row)
                 print(
                     f"{scen_name:22s} seed={seed} {cell['name']:14s} "
@@ -224,11 +219,7 @@ def main():
         # wall win vs default, averaged over scenario+seed pairs
         speedups = []
         for r in rows:
-            ref = next(
-                d for d in results
-                if d["scenario"] == r["scenario"] and d["seed"] == r["seed"]
-                and d["cell"] == "default"
-            )
+            ref = next(d for d in results if d["scenario"] == r["scenario"] and d["seed"] == r["seed"] and d["cell"] == "default")
             if r["wall_s"] > 0:
                 speedups.append(ref["wall_s"] / r["wall_s"])
         summary[cell_name] = {

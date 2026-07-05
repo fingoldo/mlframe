@@ -43,7 +43,7 @@ from round3_realdata_bench import load_real, downstream
 import fs_selectors as S
 
 PROGRESS = "D:/Temp/rfecv_floor_progress.txt"
-FULL_CACHE = "D:/Temp/rfecv_madelon_full.pkl"   # full curve + per-N feature lists (NEW; old cache was support-only)
+FULL_CACHE = "D:/Temp/rfecv_madelon_full.pkl"  # full curve + per-N feature lists (NEW; old cache was support-only)
 
 
 def checkpoint(msg: str):
@@ -149,7 +149,7 @@ def noise_floor_first(n_grid, real_curve, perm_curves, pct=95.0):
     Returns (N*, idx*, real_gain array, perm_envelope array).
     """
     real_gain = real_curve - real_curve[0]
-    perm_gain = perm_curves - perm_curves[:, [0]]          # each permutation's gain over its own N_min
+    perm_gain = perm_curves - perm_curves[:, [0]]  # each permutation's gain over its own N_min
     envelope = np.percentile(perm_gain, pct, axis=0)
     star_idx = next((i for i in range(len(n_grid)) if real_gain[i] > envelope[i]), len(n_grid) - 1)
     return n_grid[star_idx], star_idx, real_gain, envelope
@@ -201,8 +201,7 @@ def lgbm_gain_ranking(Xtr, ytr):
     madelon -> selected_features_ had 1 entry). A 'top-N by FI' cut is exactly what the noise-floor needs and this is a
     standard, valid FI ranking.
     """
-    m = lgb.LGBMClassifier(n_estimators=300, num_leaves=31, learning_rate=0.05, n_jobs=4,
-                           importance_type="gain", verbose=-1).fit(Xtr, ytr)
+    m = lgb.LGBMClassifier(n_estimators=300, num_leaves=31, learning_rate=0.05, n_jobs=4, importance_type="gain", verbose=-1).fit(Xtr, ytr)
     order = np.argsort(m.feature_importances_)[::-1]
     return [Xtr.columns[i] for i in order]
 
@@ -276,8 +275,7 @@ def run_madelon(n_perm=3):
     emit(f"floor_PLATEAU_N{N_plat}", ranked[:N_plat])
 
     curve_table = _curve_table(n_grid, real_curve, perm_mean, first_env, plat_gain, plat_env)
-    return dict(name=name, N_first=N_first, N_plateau=N_plat, n_grid=n_grid,
-                support=len(rfecv_support), p=p, rows=rows, curve=curve_table)
+    return dict(name=name, N_first=N_first, N_plateau=N_plat, n_grid=n_grid, support=len(rfecv_support), p=p, rows=rows, curve=curve_table)
 
 
 # ----------------------------------------------------------------------------- synth sanity (must NOT over-cut)
@@ -301,8 +299,7 @@ def run_synth(n_samples=5000, n_perm=3):
 
     def recalls(N):
         picked = set(ranked[:N])
-        return (round(len(picked & set(base)) / len(base), 3),
-                round(len(picked & relevant) / len(relevant), 3))
+        return (round(len(picked & set(base)) / len(base), 3), round(len(picked & relevant) / len(relevant), 3))
 
     br_f, rr_f = recalls(N_first)
     br_p, rr_p = recalls(N_plat)

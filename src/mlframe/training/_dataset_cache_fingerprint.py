@@ -54,18 +54,10 @@ def compute_signature(X: Any, *, extra: tuple = ()) -> tuple:
         ``text_features``). Always positional so callers can compose
         without changing the key when ``extra`` is omitted.
     """
-    cols = (
-        tuple(str(c) for c in X.columns) if hasattr(X, "columns") else None
-    )
+    cols = tuple(str(c) for c in X.columns) if hasattr(X, "columns") else None
     shape = getattr(X, "shape", (None, None))
-    n_rows = (
-        int(shape[0]) if shape and shape[0] is not None else None
-    )
-    n_cols = (
-        int(shape[1])
-        if shape and len(shape) > 1 and shape[1] is not None
-        else None
-    )
+    n_rows = int(shape[0]) if shape and shape[0] is not None else None
+    n_cols = int(shape[1]) if shape and len(shape) > 1 and shape[1] is not None else None
     content_hash = _row_sample_hash(X, n_rows)
     return (cols, n_rows, n_cols, content_hash, extra)
 

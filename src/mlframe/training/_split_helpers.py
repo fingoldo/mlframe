@@ -79,9 +79,7 @@ def _stratified_split(
             n_splits=1, test_size=test_size, random_state=random_state,
         )
     else:
-        raise ValueError(
-            f"stratify_y must be 1-D or 2-D, got shape {stratify_y.shape}"
-        )
+        raise ValueError(f"stratify_y must be 1-D or 2-D, got shape {stratify_y.shape}")
 
     left_pos, right_pos = next(splitter.split(np.zeros(len(indices)), stratify_y))
     return indices[left_pos], indices[right_pos]
@@ -89,13 +87,7 @@ def _stratified_split(
 
 def _use_multilabel_3way(groups, stratify_y, test_size: float, val_size: float) -> bool:
     """True when the single-pass multilabel 3-way carve applies (2-D strat, no groups, both carves)."""
-    return (
-        groups is None
-        and stratify_y is not None
-        and getattr(stratify_y, "ndim", 0) == 2
-        and test_size > 0
-        and val_size > 0
-    )
+    return groups is None and stratify_y is not None and getattr(stratify_y, "ndim", 0) == 2 and test_size > 0 and val_size > 0
 
 
 def _stratified_split_3way(

@@ -129,8 +129,8 @@ class PerModelHybrid(HybridSelector):
         vc = self._vote_count()
         out = [self._top_fi_rep(r, cols) for r, n in vc.items() if n >= 2]
         out = [c for c in out if c is not None]
-        out += [c for c in eng if c in cols]                       # always keep engineered interaction cols
-        if len(out) < 2:                                           # never collapse to nothing
+        out += [c for c in eng if c in cols]  # always keep engineered interaction cols
+        if len(out) < 2:  # never collapse to nothing
             out = list(self.raw_selected_)
         return [c for c in dict.fromkeys(out) if c in cols]
 
@@ -212,11 +212,11 @@ def run_bed(name, X, y, seed):
         return s if s else list(h.raw_selected_)
 
     S = slice_ok(list(h.raw_selected_))
-    L1 = slice_ok(h.set_linear_consensus_eng())   # consensus + engineered (drop single-vote noise)
-    L2 = slice_ok(h.set_linear_fi_floored())      # FI-floored single-vote cut + engineered
-    T1 = slice_ok(h.set_tree_expand_operands())   # expand redundant copies + raw operands
-    T2 = slice_ok(h.set_tree_shared_S())          # control == S
-    K1 = slice_ok(h.set_knn_consensus_clean())    # tightest clean consensus set
+    L1 = slice_ok(h.set_linear_consensus_eng())  # consensus + engineered (drop single-vote noise)
+    L2 = slice_ok(h.set_linear_fi_floored())  # FI-floored single-vote cut + engineered
+    T1 = slice_ok(h.set_tree_expand_operands())  # expand redundant copies + raw operands
+    T2 = slice_ok(h.set_tree_shared_S())  # control == S
+    K1 = slice_ok(h.set_knn_consensus_clean())  # tightest clean consensus set
 
     def auc(model_fn, sel):
         return model_fn(Ztr[sel], Zte[sel], ytr, yte)

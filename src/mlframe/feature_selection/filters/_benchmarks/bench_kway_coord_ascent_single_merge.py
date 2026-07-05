@@ -48,20 +48,36 @@ def _make(n, n_cols, n_bins, seed):
 def _eval_old(data, nbins, classes_y, freqs_y, tup, dtype):
     new_tuple_sorted = tuple(sorted(tup))
     new_classes, _, new_nuniq = merge_vars(
-        factors_data=data, vars_indices=np.array(new_tuple_sorted, dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        factors_data=data,
+        vars_indices=np.array(new_tuple_sorted, dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=dtype,
     )
-    new_mi = compute_mi_from_classes(
-        classes_x=new_classes, freqs_x=None,
-        classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
-    ) if False else None
+    new_mi = (
+        compute_mi_from_classes(
+            classes_x=new_classes,
+            freqs_x=None,
+            classes_y=classes_y,
+            freqs_y=freqs_y,
+            dtype=dtype,
+        )
+        if False
+        else None
+    )
     _, new_freqs, _ = merge_vars(
-        factors_data=data, vars_indices=np.array(new_tuple_sorted, dtype=np.int64),
-        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        factors_data=data,
+        vars_indices=np.array(new_tuple_sorted, dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=nbins,
+        dtype=dtype,
     )
     new_mi = compute_mi_from_classes(
-        classes_x=new_classes, freqs_x=new_freqs,
-        classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+        classes_x=new_classes,
+        freqs_x=new_freqs,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        dtype=dtype,
     )
     return new_mi, new_classes, new_nuniq
 
@@ -109,8 +125,7 @@ def main():
                     _eval_new(data, nbins, cls_y, fq_y, t, dtype)
             best_new = min(best_new, time.perf_counter() - t0)
         speedup = best_old / best_new
-        print(f"n={n:>7}: OLD={best_old*1e3:8.2f}ms  NEW={best_new*1e3:8.2f}ms  "
-              f"speedup={speedup:.3f}x  max|dMI|={max_diff:.2e}")
+        print(f"n={n:>7}: OLD={best_old*1e3:8.2f}ms  NEW={best_new*1e3:8.2f}ms  " f"speedup={speedup:.3f}x  max|dMI|={max_diff:.2e}")
 
 
 if __name__ == "__main__":

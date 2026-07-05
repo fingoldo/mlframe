@@ -32,8 +32,7 @@ try:
     import numba
 
     @numba.njit(cache=True, fastmath=False)
-    def _accumulate_group_time(group_codes: np.ndarray, time_codes: np.ndarray, y: np.ndarray,
-                               n_groups: int, n_time: int):
+    def _accumulate_group_time(group_codes: np.ndarray, time_codes: np.ndarray, y: np.ndarray, n_groups: int, n_time: int):
         # Single length-n pass building the per-cell (sum of y, count) over the group x time grid. Row-order float64
         # accumulation, so the sums are bit-identical to a two-``np.bincount`` walk on the flattened cell index.
         sums = np.zeros((n_groups, n_time), dtype=np.float64)
@@ -57,8 +56,7 @@ except Exception:  # numba unavailable: fall back to a flattened two-bincount nu
         return sums.reshape(n_groups, n_time), counts.reshape(n_groups, n_time)
 
 
-def class_structure_matrix(group_codes: np.ndarray, time_codes: np.ndarray, y: np.ndarray,
-                           n_groups: int, n_time: int) -> Tuple[np.ndarray, np.ndarray]:
+def class_structure_matrix(group_codes: np.ndarray, time_codes: np.ndarray, y: np.ndarray, n_groups: int, n_time: int) -> Tuple[np.ndarray, np.ndarray]:
     """Return ``(rate_matrix, count_matrix)`` of shape ``(n_groups, n_time)``.
 
     ``rate_matrix[g, t]`` is ``mean(y)`` over the rows whose group code is ``g`` and time code is ``t`` (the
@@ -96,8 +94,7 @@ def _equal_population_codes(values: np.ndarray, n_bins: int) -> np.ndarray:
     return codes.astype(np.int64)
 
 
-def _time_codes(df: Any, y_len: int, timestamps: Optional[np.ndarray], time_col: Optional[Any],
-                n_time_bins: int) -> np.ndarray:
+def _time_codes(df: Any, y_len: int, timestamps: Optional[np.ndarray], time_col: Optional[Any], n_time_bins: int) -> np.ndarray:
     """Equal-population time codes from explicit ``timestamps``, an integer ``time_col``, or row order as a fallback."""
     if timestamps is not None:
         vals = np.asarray(timestamps)
@@ -162,8 +159,7 @@ def compose_class_structure_figure(df: Any, y: np.ndarray, *, group: Any, timest
                                    n_time_bins: int = DEFAULT_N_TIME_BINS, seed: int = 0,
                                    suptitle: str = "Class structure by group x time") -> FigureSpec:
     """One-panel FigureSpec wrapping :func:`class_structure_panel`."""
-    panel = class_structure_panel(df, y, group=group, timestamps=timestamps, time_col=time_col,
-                                  max_groups=max_groups, n_time_bins=n_time_bins, seed=seed)
+    panel = class_structure_panel(df, y, group=group, timestamps=timestamps, time_col=time_col, max_groups=max_groups, n_time_bins=n_time_bins, seed=seed)
     return FigureSpec(suptitle=suptitle, panels=((panel,),), figsize=(7.0, 5.0))
 
 

@@ -66,8 +66,7 @@ def main():
         max_abs = float(np.nanmax(np.abs(a.to_numpy() - b.to_numpy())))
         exact = bool(np.array_equal(a.to_numpy(), b.to_numpy(), equal_nan=True))
 
-        print(f"n={n:>7} cols={ncols:>2}  OLD={old*1e3:8.2f}ms  NEW={new*1e3:8.2f}ms  "
-              f"speedup={old/new:5.2f}x  max|diff|={max_abs:.2e}  exact_eq={exact}")
+        print(f"n={n:>7} cols={ncols:>2}  OLD={old*1e3:8.2f}ms  NEW={new*1e3:8.2f}ms  " f"speedup={old/new:5.2f}x  max|diff|={max_abs:.2e}  exact_eq={exact}")
 
 
 if __name__ == "__main__":

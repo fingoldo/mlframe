@@ -44,8 +44,7 @@ def _lw_pc1(Z):
 
 def main():
     print("metric = |corr(aggregate, clean latent)|; higher = better recovery")
-    print(f"{'outlier%':>8} | {'mean_z':>7} {'median_z':>8} {'pca_pc1':>7} | "
-          f"{'LW_pc1':>7} | {'LW - best_existing':>18}")
+    print(f"{'outlier%':>8} | {'mean_z':>7} {'median_z':>8} {'pca_pc1':>7} | " f"{'LW_pc1':>7} | {'LW - best_existing':>18}")
     for frac in (0.0, 0.02, 0.05, 0.10):
         res = {m: [] for m in ("mean_z", "median_z", "pca_pc1", "lw")}
         for seed in range(10):
@@ -66,8 +65,7 @@ def main():
             res["lw"].append(abs(np.corrcoef(_lw_pc1(Z), z)[0, 1]))
         mz, md, pc, lw = (np.mean(res[m]) for m in ("mean_z", "median_z", "pca_pc1", "lw"))
         best_exist = max(mz, md, pc)
-        print(f"{frac*100:>7.0f}% | {mz:>7.3f} {md:>8.3f} {pc:>7.3f} | {lw:>7.3f} | "
-              f"{lw - best_exist:>+18.3f}")
+        print(f"{frac*100:>7.0f}% | {mz:>7.3f} {md:>8.3f} {pc:>7.3f} | {lw:>7.3f} | " f"{lw - best_exist:>+18.3f}")
     print("WIN for LW iff the last column is materially > 0 (LW beats best existing).")
 
 

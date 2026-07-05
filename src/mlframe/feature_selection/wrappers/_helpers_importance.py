@@ -15,7 +15,6 @@ from mlframe.votenrank import Leaderboard
 
 from ._enums import VotesAggregation
 
-
 logger = logging.getLogger(__name__)
 
 # Cell budget (n_rows * n_cols of the per-fold held-out set) below which the unspecified ('auto')
@@ -268,7 +267,7 @@ def _conditional_permutation_importance(
             if j > 0:
                 Xnotj_buf[:, :j] = X_arr[:, :j]
             if j < p - 1:
-                Xnotj_buf[:, j:] = X_arr[:, j + 1:]
+                Xnotj_buf[:, j:] = X_arr[:, j + 1 :]
             Xnotj = Xnotj_buf
 
         if Xnotj.shape[1] == 0:
@@ -278,9 +277,7 @@ def _conditional_permutation_importance(
             try:
                 for _ in range(n_repeats):
                     X_perm[:, j] = rng.permutation(orig_col)
-                    X_for_score = (
-                        pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
-                    )
+                    X_for_score = pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
                     score_losses.append(baseline - float(model.score(X_for_score, y)))
             finally:
                 X_perm[:, j] = orig_col
@@ -325,9 +322,7 @@ def _conditional_permutation_importance(
                         continue
                     shuffled_positions = rng.permutation(in_leaf)
                     X_perm[in_leaf, j] = orig_col[shuffled_positions]
-                X_for_score = (
-                    pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
-                )
+                X_for_score = pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
                 # E11 ext: wrap model.score in try/except so a custom scorer crash
                 # on the permuted X doesn't kill the whole CPI loop. NaN signals
                 # the failure to the consumer.
@@ -393,10 +388,7 @@ def get_feature_importances(
     if isinstance(importance_getter, str):
         if importance_getter == "permutation":
             if target is None:
-                raise ValueError(
-                    "importance_getter='permutation' requires target (y_test) "
-                    "to score against. Pass target= explicitly."
-                )
+                raise ValueError("importance_getter='permutation' requires target (y_test) " "to score against. Pass target= explicitly.")
             from sklearn.inspection import permutation_importance
             # sklearn's permutation_importance shuffles a column in place (``X_permuted[:, col] = ...``); a read-only
             # ndarray backing (polars/Arrow zero-copy view, pandas copy-on-write, or a loky memmap) makes that raise
@@ -456,10 +448,7 @@ def get_feature_importances(
             res = pi.importances_mean
         elif importance_getter == "conditional_permutation":
             if target is None:
-                raise ValueError(
-                    "importance_getter='conditional_permutation' requires target (y_test) "
-                    "to score against. Pass target= explicitly."
-                )
+                raise ValueError("importance_getter='conditional_permutation' requires target (y_test) " "to score against. Pass target= explicitly.")
             # F10 (Wave 3, 2026-05-28): cpi_max_depth=None lets the auxiliary tree grow
             # until min_samples_leaf constraint kicks in (Strobl 2008 recommendation).
             # random_state forwarded (default 0 preserves legacy behaviour); lets
@@ -478,9 +467,7 @@ def get_feature_importances(
             # O(p * full_fit_time) -- infeasible on p>=1000. Useful as a
             # ground-truth oracle when benchmarking other importance methods.
             if data is None or target is None:
-                raise ValueError(
-                    "importance_getter='drop_column' requires data (X) and target (y) at the call site."
-                )
+                raise ValueError("importance_getter='drop_column' requires data (X) and target (y) at the call site.")
             from sklearn.base import clone as _clone
             _Xnp = data.to_numpy(copy=False) if hasattr(data, "to_numpy") else np.asarray(data)
             _baseline = float(model.score(data, target))
@@ -505,9 +492,7 @@ def get_feature_importances(
             # categoricals. Use 'boruta_shap' for the SHAP-based unbiased
             # version when shap is available.
             if data is None or target is None:
-                raise ValueError(
-                    "importance_getter='boruta' requires data (X) and target (y) at the call site."
-                )
+                raise ValueError("importance_getter='boruta' requires data (X) and target (y) at the call site.")
             from sklearn.base import clone as _clone
             rng = np.random.default_rng(0)
             _Xnp = data.to_numpy(copy=False) if hasattr(data, "to_numpy") else np.asarray(data)
@@ -521,9 +506,7 @@ def get_feature_importances(
             try:
                 _model_clone.fit(_Xjoint, target)
             except Exception as _exc:
-                raise RuntimeError(
-                    f"Boruta refit on [X, shadow] failed for {type(model).__name__}: {_exc}"
-                ) from _exc
+                raise RuntimeError(f"Boruta refit on [X, shadow] failed for {type(model).__name__}: {_exc}") from _exc
             # Read importances of joint model.
             if hasattr(_model_clone, "feature_importances_"):
                 _imps = np.asarray(_model_clone.feature_importances_)
@@ -533,8 +516,7 @@ def get_feature_importances(
                     _imps = _imps.max(axis=0)
             else:
                 raise AttributeError(
-                    f"'boruta' importance_getter requires feature_importances_ or coef_ on the refit model; "
-                    f"{type(_model_clone).__name__} has neither."
+                    f"'boruta' importance_getter requires feature_importances_ or coef_ on the refit model; " f"{type(_model_clone).__name__} has neither."
                 )
             _real = _imps[:_p]
             _shadow_max = float(_imps[_p:].max()) if len(_imps) > _p else 0.0
@@ -563,8 +545,7 @@ def get_feature_importances(
                 # is incompatible with the BorutaShap call shape below, so
                 # aliasing it would crash rather than degrade gracefully.
                 raise ImportError(
-                    "importance_getter='boruta_shap' requires the optional ``BorutaShap`` package. "
-                    "Install via ``pip install BorutaShap``."
+                    "importance_getter='boruta_shap' requires the optional ``BorutaShap`` package. " "Install via ``pip install BorutaShap``."
                 ) from _exc2
             try:
                 _bs = _BorutaShap(model=model, importance_measure="shap", classification=hasattr(model, "classes_"))
@@ -572,8 +553,7 @@ def get_feature_importances(
                 # Output: BorutaShap stores accepted/rejected lists; build dense importance with shadow-relative scores.
                 _accepted = set(getattr(_bs, "accepted", []) or [])
                 _tentative = set(getattr(_bs, "tentative", []) or [])
-                res = np.array([1.0 if c in _accepted else (0.5 if c in _tentative else 0.0)
-                                for c in current_features], dtype=float)
+                res = np.array([1.0 if c in _accepted else (0.5 if c in _tentative else 0.0) for c in current_features], dtype=float)
             except Exception as _exc:
                 raise RuntimeError(f"BorutaShap failed: {_exc}") from _exc
         elif importance_getter == "powershap":
@@ -584,8 +564,7 @@ def get_feature_importances(
                 from powershap import PowerShap as _PowerShap
             except ImportError as _exc:
                 raise ImportError(
-                    "importance_getter='powershap' requires the optional ``powershap`` package. "
-                    "Install via ``pip install powershap``."
+                    "importance_getter='powershap' requires the optional ``powershap`` package. " "Install via ``pip install powershap``."
                 ) from _exc
             try:
                 _ps = _PowerShap(model=model)
@@ -606,8 +585,7 @@ def get_feature_importances(
                 import shap as _shap
             except ImportError as _exc:
                 raise ImportError(
-                    f"importance_getter={importance_getter!r} requires the optional "
-                    f"``shap`` package. Install via ``pip install shap``."
+                    f"importance_getter={importance_getter!r} requires the optional " f"``shap`` package. Install via ``pip install shap``."
                 ) from _exc
             try:
                 explainer = _shap.Explainer(model, data)
@@ -617,10 +595,7 @@ def get_feature_importances(
                     vals = np.abs(vals).mean(axis=tuple(range(2, vals.ndim)))
                 res = np.abs(vals).mean(axis=0)
             except Exception as _exc:
-                raise RuntimeError(
-                    f"shap.Explainer failed for {type(model).__name__}: {_exc}. "
-                    f"Try importance_getter='permutation' instead."
-                ) from _exc
+                raise RuntimeError(f"shap.Explainer failed for {type(model).__name__}: {_exc}. " f"Try importance_getter='permutation' instead.") from _exc
         else:
             # 2026-05-28 sklearn-parity: ``importance_getter`` may be a dotted
             # path such as ``regressor_.coef_`` (for TransformedTargetRegressor)
@@ -885,9 +860,7 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
     elif votes_aggregation_method == VotesAggregation.Plurality:
         ranks = lb.plurality_ranking()
     else:
-        raise NotImplementedError(
-            f"votes_aggregation_method={votes_aggregation_method!r} not handled"
-        )
+        raise NotImplementedError(f"votes_aggregation_method={votes_aggregation_method!r} not handled")
     # F7 tie-breaker: lexicographic on feature name. Without this the order
     # of equal-rank features depends on Leaderboard's internal sort and on
     # the order of the original dict keys -> different runs of the SAME

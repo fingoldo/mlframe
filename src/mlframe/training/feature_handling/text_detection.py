@@ -221,9 +221,7 @@ def _is_string_column(df: Any, column: str) -> bool:
     try:
         import polars as pl
         if isinstance(df, pl.DataFrame):
-            return df.schema[column] in (pl.Utf8, pl.String, pl.Categorical) or (
-                hasattr(pl, "Enum") and isinstance(df.schema[column], pl.Enum)
-            )
+            return df.schema[column] in (pl.Utf8, pl.String, pl.Categorical) or (hasattr(pl, "Enum") and isinstance(df.schema[column], pl.Enum))
     except ImportError:  # pragma: no cover
         pass
     try:
@@ -313,10 +311,7 @@ def detect_text_columns(
         # whitespace (single-token strings). Real text usually fails
         # AT LEAST ONE -- has spaces OR rich alphabet. So we filter
         # only when BOTH ID-like signals fire.
-        is_uuid_like = (
-            stats["alphabet_entropy"] < cfg.min_alphabet_entropy
-            and stats["mean_tokens"] < cfg.min_mean_tokens_for_text
-        )
+        is_uuid_like = stats["alphabet_entropy"] < cfg.min_alphabet_entropy and stats["mean_tokens"] < cfg.min_mean_tokens_for_text
         if is_uuid_like:
             decisions.append(TextDetectionDecision(
                 column=col, rule_name="anti_uuid_filter", decision=False, stats=stats,
@@ -331,30 +326,21 @@ def detect_text_columns(
             ))
             continue
 
-        if (
-            stats["mean_chars"] >= cfg.text_min_mean_chars
-            and stats["mean_tokens"] >= cfg.text_min_mean_tokens
-        ):
+        if stats["mean_chars"] >= cfg.text_min_mean_chars and stats["mean_tokens"] >= cfg.text_min_mean_tokens:
             text_cols.append(col)
             decisions.append(TextDetectionDecision(
                 column=col, rule_name="medium_with_tokens", decision=True, stats=stats,
             ))
             continue
 
-        if (
-            stats["unique_ratio"] >= cfg.text_min_unique_ratio
-            and stats["mean_chars"] >= 15
-        ):
+        if stats["unique_ratio"] >= cfg.text_min_unique_ratio and stats["mean_chars"] >= 15:
             text_cols.append(col)
             decisions.append(TextDetectionDecision(
                 column=col, rule_name="high_unique_ratio", decision=True, stats=stats,
             ))
             continue
 
-        if (
-            stats["n_unique"] > cfg.text_min_cardinality
-            and stats["mean_chars"] >= cfg.text_min_mean_chars
-        ):
+        if stats["n_unique"] > cfg.text_min_cardinality and stats["mean_chars"] >= cfg.text_min_mean_chars:
             text_cols.append(col)
             decisions.append(TextDetectionDecision(
                 column=col, rule_name="high_cardinality", decision=True, stats=stats,

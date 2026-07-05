@@ -69,7 +69,7 @@ def run(n, seed, k=2):
     aux = rng.normal(0, sigma, n)
     T = sigma
     idx = rng.permutation(n)
-    tr, te = idx[: n // 2], idx[n // 2:]
+    tr, te = idx[: n // 2], idx[n // 2 :]
     out = {}
     for name, nbins_fn in (
         ("fixed10", lambda: 10),

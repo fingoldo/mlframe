@@ -36,8 +36,7 @@ try:
 except ImportError:
     _NUMBA_AVAILABLE = False
     logger.warning(
-        "_univariate_ht: numba is not available; falling back to pure-Python kernels "
-        "(~10-30x slower on rank/U/H/tau). Install numba for the fast path."
+        "_univariate_ht: numba is not available; falling back to pure-Python kernels " "(~10-30x slower on rank/U/H/tau). Install numba for the fast path."
     )
     def njit(*args, **kwargs):  # type: ignore
         if args and callable(args[0]):
@@ -70,11 +69,7 @@ _MULTICLASS_MAX_LABELS = 50
 
 def _is_multiclass_cardinality(n_unique: int, n_rows: int) -> bool:
     """Multiclass iff few distinct labels (absolute cap) AND cardinality << n_rows."""
-    return (
-        n_unique <= _MULTICLASS_MAX_LABELS
-        and n_unique <= max(10, int(np.sqrt(max(n_rows, 1))))
-        and n_unique <= 0.05 * n_rows
-    )
+    return n_unique <= _MULTICLASS_MAX_LABELS and n_unique <= max(10, int(np.sqrt(max(n_rows, 1)))) and n_unique <= 0.05 * n_rows
 
 
 def _classify_target(y: np.ndarray) -> str:
@@ -623,8 +618,7 @@ def calculate_relevance_table(
                 # Categorical / object feature: chi-squared independence.
                 # For continuous target, bin into deciles to make a contingency table.
                 if target_type == "continuous":
-                    yb = pd.qcut(pd.Series(y_arr), q=min(10, max(2, len(y_arr) // 50)),
-                                 labels=False, duplicates="drop")
+                    yb = pd.qcut(pd.Series(y_arr), q=min(10, max(2, len(y_arr) // 50)), labels=False, duplicates="drop")
                     # ``duplicates="drop"`` (heavily-tied y) and NaN in y both leave NaN bins in ``yb``; pairing them
                     # against ``x_cat`` and dropping the NaN-bin rows from BOTH keeps the contingency table aligned
                     # (else crosstab silently drops only the NaN-y rows, mismatching the two series' lengths).

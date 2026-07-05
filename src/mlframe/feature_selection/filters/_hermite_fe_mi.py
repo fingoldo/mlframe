@@ -40,8 +40,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
 
 @njit(cache=True, fastmath=True)
-def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray,
-                              n_bins: int = 20) -> float:
+def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
     """Plug-in MI estimator for continuous x (1-D float64) and discrete y (1-D int64). Returns MI in nats.
     ~50x faster than sklearn for n<=10k, single-thread."""
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
@@ -89,8 +88,7 @@ def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray,
     return mi
 
 @njit(cache=True, fastmath=True)
-def _plugin_mi_regression_njit(x: np.ndarray, y: np.ndarray,
-                                 n_bins: int = 20) -> float:
+def _plugin_mi_regression_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
     """Plug-in MI for continuous x (1-D) and continuous y (1-D). Bin both into n_bins equi-frequency bins, then plug-in estimator."""
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
@@ -127,8 +125,7 @@ def _plugin_mi_regression_njit(x: np.ndarray, y: np.ndarray,
     return mi
 
 @njit(cache=True, fastmath=True)
-def _plugin_mi_from_binned_njit(x_binned: np.ndarray, y: np.ndarray,
-                                  n_bins: int) -> float:
+def _plugin_mi_from_binned_njit(x_binned: np.ndarray, y: np.ndarray, n_bins: int) -> float:
     """Plug-in MI given pre-binned x. Skips the ``np.argsort`` step inside
     :func:`_plugin_mi_classif_njit`; the caller does the argsort + bin
     assignment in pure numpy (which is ~1.6x faster than numba-wrapped
@@ -181,8 +178,8 @@ def _plugin_mi_from_binned_njit(x_binned: np.ndarray, y: np.ndarray,
         mi = 0.0
     return mi
 
-def plugin_mi_classif_fast(x: np.ndarray, y: np.ndarray,
-                            n_bins: int = 20) -> float:
+
+def plugin_mi_classif_fast(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
     """Faster single-column plug-in MI: numpy argsort + njit histogram math.
 
     Measured 2026-05-20 at n=1500 (CMA-ES inner-loop scale):
@@ -253,8 +250,7 @@ def _fe_gpu_fuse_mi_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_GPU_FUSE_MI", "1").strip().lower() in ("1", "true", "on", "yes")
 
 
-def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray,
-                                  n_bins: int = 20) -> np.ndarray:
+def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Cupy batch plug-in MI. Quantile-bins each column on GPU via
     ``cp.argsort`` -> rank-to-bin lookup, then computes joint histograms
     via a single ``cp.bincount`` across (col, bin, class) flat indices.
@@ -324,7 +320,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     if y_min is None or n_classes is None:
         _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
         y_min = int(_ymm[0])
-        n_classes = int(_ymm[1]) - y_min + 1   # == max(orig)-y_min+1, i.e. max of the shifted y plus 1
+        n_classes = int(_ymm[1]) - y_min + 1  # == max(orig)-y_min+1, i.e. max of the shifted y plus 1
     # y is a fit-CONSTANT and y_min a fit-CONSTANT, so ``y_gpu - y_min`` yields the IDENTICAL shifted vector on
     # every per-chunk / per-candidate call. Skip it entirely when y_min == 0 (already 0-based dense labels, the
     # common case -> the subtraction is a pure no-op that still launched), and memoize the shifted vector keyed
@@ -390,8 +386,8 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # binned_mi_from_values_gpu call above that already trusts these same codes.
     return binned_mi_from_codes_gpu(X_binned, y_gpu, kx_per_col=[int(n_bins)] * k, ky=int(n_classes), codes_trusted=True)
 
-def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,
-                                n_bins: int = 20) -> float:
+
+def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
     """Single-column plug-in MI for continuous x and discrete y.
 
     Routes to :func:`_plugin_mi_classif_njit` (CPU) or
@@ -420,8 +416,8 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,
     # =cuda forces GPU.
     return float(_plugin_mi_classif_njit(x, y, n_bins))
 
-def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray,
-                                      n_bins: int = 20) -> np.ndarray:
+
+def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Batch plug-in MI per column of ``X_cols`` against discrete ``y``.
 
     Routes to :func:`_plugin_mi_classif_batch_njit` (prange CPU) or

@@ -153,10 +153,7 @@ def _bin_columns(
         arr64 = None
     if arr64 is not None and np.isfinite(arr64).all():
         bins_arr = _quantile_bin_batched(arr64, nbins=int(nbins))
-        ks = [
-            (int(bins_arr[:, j].max()) + 1) if bins_arr.shape[0] else 1
-            for j in range(bins_arr.shape[1])
-        ]
+        ks = [(int(bins_arr[:, j].max()) + 1) if bins_arr.shape[0] else 1 for j in range(bins_arr.shape[1])]
         ks = [max(1, k) for k in ks]
         bins = [np.ascontiguousarray(bins_arr[:, j]) for j in range(bins_arr.shape[1])]
         return bins, ks, names
@@ -258,16 +255,10 @@ def score_features_by_jmim(
     """
     if len(raw_X) != len(engineered_X):
         raise ValueError(
-            f"score_features_by_jmim: raw_X has {len(raw_X)} rows but "
-            f"engineered_X has {len(engineered_X)}; positional row "
-            f"alignment required."
+            f"score_features_by_jmim: raw_X has {len(raw_X)} rows but " f"engineered_X has {len(engineered_X)}; positional row " f"alignment required."
         )
     if len(raw_X) != len(np.asarray(y)):
-        raise ValueError(
-            f"score_features_by_jmim: raw_X has {len(raw_X)} rows but "
-            f"y has {len(np.asarray(y))}; positional row alignment "
-            f"required."
-        )
+        raise ValueError(f"score_features_by_jmim: raw_X has {len(raw_X)} rows but " f"y has {len(np.asarray(y))}; positional row alignment " f"required.")
     empty_cols = [
         "engineered_col", "source_col",
         "baseline_mi", "engineered_mi", "uplift",
@@ -287,21 +278,16 @@ def score_features_by_jmim(
     # Build the reference set ``S`` for the JMIM min. Default to raw_X
     # when no explicit current_support is provided.
     use_support = current_support
-    if (
-        use_support is None
-        or not isinstance(use_support, pd.DataFrame)
-        or use_support.shape[1] == 0
-    ):
+    if use_support is None or not isinstance(use_support, pd.DataFrame) or use_support.shape[1] == 0:
         use_support = raw_X
     if len(use_support) != len(engineered_X):
         # Defensive: a misaligned support is treated as empty (falls
         # back to the first-round case in jmim_score, which returns
         # I(X_cand; y)).
         logger.warning(
-            "score_features_by_jmim: current_support length %d does not "
-            "match engineered_X length %d; falling back to raw_X as "
-            "redundancy reference.",
-            len(use_support), len(engineered_X),
+            "score_features_by_jmim: current_support length %d does not " "match engineered_X length %d; falling back to raw_X as " "redundancy reference.",
+            len(use_support),
+            len(engineered_X),
         )
         use_support = raw_X
     sel_bins, sel_ks, _ = _bin_columns(use_support, nbins=int(n_bins))
@@ -443,10 +429,7 @@ def hybrid_orth_mi_jmim_fe(
     if engineered.empty:
         return X.copy(), pd.DataFrame(columns=empty_cols)
 
-    raw_X = X[[
-        c for c in (cols or X.columns)
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]]
+    raw_X = X[[c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]]
     scores = score_features_by_jmim(
         raw_X, engineered, y,
         current_support=current_support,
@@ -522,15 +505,14 @@ def hybrid_orth_mi_jmim_fe_with_recipes(
         chosen_degree = None
         for code in ("LL", "He", "T", "L"):
             if suffix.startswith(code):
-                rest = suffix[len(code):]
+                rest = suffix[len(code) :]
                 if rest.isdigit():
                     chosen_basis = code_to_basis[code]
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
             logger.warning(
-                "hybrid_orth_mi_jmim_fe_with_recipes: cannot parse "
-                "basis/degree from column name %r; skipping recipe build.",
+                "hybrid_orth_mi_jmim_fe_with_recipes: cannot parse " "basis/degree from column name %r; skipping recipe build.",
                 name,
             )
             continue

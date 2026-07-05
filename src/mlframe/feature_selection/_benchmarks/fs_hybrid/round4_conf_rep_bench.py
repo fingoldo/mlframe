@@ -116,8 +116,7 @@ def run_bed(name, X, y, truth, seed=0):
         am = round(float(np.nanmean(list(a.values()))), 4)
         rec = sum(1 for c in sel if c in relevant)
         ndiff = getattr(h, "_last_n_diff_", 0) if "A5-5" in tag else 0
-        rows.append(dict(bed=name, variant=tag, n=len(sel), rel_recall=rec, reps_changed=ndiff,
-                         auc_mean=am, **a))
+        rows.append(dict(bed=name, variant=tag, n=len(sel), rel_recall=rec, reps_changed=ndiff, auc_mean=am, **a))
         print(f"  [{tag:16s}] n={len(sel):3d} rel={rec} reps_changed={ndiff} mean={am} {a}", flush=True)
         ck(f"A5-5 {name} {tag} n={len(sel)} reps_changed={ndiff} mean={am}")
     return rows

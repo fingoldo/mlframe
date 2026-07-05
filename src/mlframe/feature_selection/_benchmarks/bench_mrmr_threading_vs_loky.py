@@ -37,11 +37,7 @@ def _build_frame(n_rows: int, seed: int) -> tuple[pd.DataFrame, pd.Series]:
     n_features = 12
     cols = {f"num{i}": rng.standard_normal(n_rows).astype(np.float64) for i in range(n_features)}
     # Target: nonlinear combination of two features + noise; multiclass-ish.
-    y_raw = (
-        2.0 * cols["num0"] - 1.5 * cols["num1"] * cols["num2"]
-        + 0.5 * np.sin(cols["num3"])
-        + 0.3 * rng.standard_normal(n_rows)
-    )
+    y_raw = 2.0 * cols["num0"] - 1.5 * cols["num1"] * cols["num2"] + 0.5 * np.sin(cols["num3"]) + 0.3 * rng.standard_normal(n_rows)
     # Discretise to 3 classes via quantiles so MI computation has a sensible
     # joint histogram (avoids the all-continuous numba paths that don't
     # exercise the joblib outer loop the bench is measuring).

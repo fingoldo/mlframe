@@ -90,7 +90,7 @@ if _HAS_NUMBA:
                     base = ti * lam + 1.0
                     if base < _YJ_INV_BASE_FLOOR:
                         base = _YJ_INV_BASE_FLOOR
-                    out[i] = base ** inv_lam - 1.0
+                    out[i] = base**inv_lam - 1.0
             else:
                 if lam_is_two:
                     out[i] = -np.expm1(-ti)
@@ -98,7 +98,7 @@ if _HAS_NUMBA:
                     base = -ti * two_minus_lam + 1.0
                     if base < _YJ_INV_BASE_FLOOR:
                         base = _YJ_INV_BASE_FLOOR
-                    out[i] = -(base ** inv_2ml - 1.0)
+                    out[i] = -(base**inv_2ml - 1.0)
         return out
 
 
@@ -160,7 +160,7 @@ def signed_power_y_fit(y: np.ndarray) -> Dict[str, Any]:
     best_p = 1.0
     best_skew = np.inf
     for p in _SIGNED_POWER_GRID:
-        t = sign * absval ** p
+        t = sign * absval**p
         std = float(t.std())
         if std <= 0.0:
             continue

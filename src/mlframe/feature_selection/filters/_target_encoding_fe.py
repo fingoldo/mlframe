@@ -105,13 +105,13 @@ def _per_category_stats_smoothed(
         elif stat == "std":
             raw = std
         elif stat == "skew":
-            s3 = np.bincount(inverse, weights=y_arr ** 3, minlength=n_cats)
-            m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean ** 3
-            raw = np.where(std > 1e-9, m3 / (std ** 3 + 1e-12), 0.0)
+            s3 = np.bincount(inverse, weights=y_arr**3, minlength=n_cats)
+            m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean**3
+            raw = np.where(std > 1e-9, m3 / (std**3 + 1e-12), 0.0)
         elif stat == "kurt":
-            s3 = np.bincount(inverse, weights=y_arr ** 3, minlength=n_cats)
-            s4 = np.bincount(inverse, weights=y_arr ** 4, minlength=n_cats)
-            m4 = (s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean ** 2 * (s2 / safe) - 3.0 * mean ** 4)
+            s3 = np.bincount(inverse, weights=y_arr**3, minlength=n_cats)
+            s4 = np.bincount(inverse, weights=y_arr**4, minlength=n_cats)
+            m4 = s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean**2 * (s2 / safe) - 3.0 * mean**4
             raw = np.where(m2 > 1e-12, m4 / (m2 * m2 + 1e-12) - 3.0, 0.0)  # excess kurtosis
         else:
             raise ValueError(f"target-encoding stat {stat!r} not in {TE_SUPPORTED_STATS}")
@@ -333,14 +333,10 @@ def kfold_target_encode_fit(
     if len(X) == 0:
         raise ValueError("kfold_target_encode_fit: X is empty")
     if len(y) != len(X):
-        raise ValueError(
-            f"kfold_target_encode_fit: len(y)={len(y)} != len(X)={len(X)}"
-        )
+        raise ValueError(f"kfold_target_encode_fit: len(y)={len(y)} != len(X)={len(X)}")
     missing = [c for c in cat_cols if c not in X.columns]
     if missing:
-        raise ValueError(
-            f"kfold_target_encode_fit: columns missing from X: {missing}"
-        )
+        raise ValueError(f"kfold_target_encode_fit: columns missing from X: {missing}")
 
     stats = tuple(stats) if stats else ("mean",)
     bad = [s for s in stats if s not in TE_SUPPORTED_STATS]
@@ -445,20 +441,14 @@ def apply_target_encoding(
         Float64 encoded column.
     """
     if "lookup" not in recipe or "global_mean" not in recipe:
-        raise KeyError(
-            f"apply_target_encoding: recipe for col {col!r} is missing "
-            f"'lookup' or 'global_mean'. Re-fit to regenerate."
-        )
+        raise KeyError(f"apply_target_encoding: recipe for col {col!r} is missing " f"'lookup' or 'global_mean'. Re-fit to regenerate.")
     if isinstance(X_test, pd.DataFrame):
         col_series = X_test[col]
     elif hasattr(X_test, "__getitem__") and not isinstance(X_test, np.ndarray):
         # polars or similar; fall back to repeated single-column extract.
         col_series = pd.Series(X_test[col].to_numpy())
     else:
-        raise TypeError(
-            f"apply_target_encoding: X_test must be a DataFrame with "
-            f"named columns; got {type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_target_encoding: X_test must be a DataFrame with " f"named columns; got {type(X_test).__name__}")
     lookup: dict = recipe["lookup"]
     global_mean: float = float(recipe["global_mean"])
     # Integer / unsigned / bool source columns (the common high-cardinality
@@ -488,12 +478,7 @@ def apply_target_encoding(
     # unseen categories -> NaN -> global_mean, replacing the per-row Python
     # dict.get loop. Bit-identical (same key -> same value; the str-keyed lookup
     # and NaN-fill reproduce the dict.get(default) semantics exactly).
-    out = (
-        pd.Series(cats, copy=False)
-        .map(lookup)
-        .fillna(global_mean)
-        .to_numpy(dtype=np.float64)
-    )
+    out = pd.Series(cats, copy=False).map(lookup).fillna(global_mean).to_numpy(dtype=np.float64)
     return out
 
 

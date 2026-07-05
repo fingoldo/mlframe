@@ -256,8 +256,7 @@ def _score_one_pair(
                 # PREFETCH the next chunk into the alternate buffer while this chunk's pairs replay.
                 if _ex is not None and _bufs is not None and (_my_chunk + 1) < len(_fe_chunks):
                     try:
-                        chunk_state.setdefault("pipeline_futures", {})[_my_chunk + 1] = _ex.submit(
-                            _produce, _my_chunk + 1, _bufs[(_my_chunk + 1) % 2])
+                        chunk_state.setdefault("pipeline_futures", {})[_my_chunk + 1] = _ex.submit(_produce, _my_chunk + 1, _bufs[(_my_chunk + 1) % 2])
                     except Exception:
                         logger.debug("chunk prefetch submit failed; falling back to lazy compute", exc_info=True)
             _chunk_entry = chunk_state["mi_cache"].get(raw_vars_pair)
@@ -268,9 +267,7 @@ def _score_one_pair(
         final_transformed_vals = None if _this_chunk_deferred else chunk_state.get("active_buffer", _chunk_buffer)
     else:
         final_transformed_vals = final_transformed_vals_shared
-    _col_buf_1d: np.ndarray | None = (
-        np.empty(len(X), dtype=np.float32) if _need_recompute_map else None
-    )
+    _col_buf_1d: np.ndarray | None = np.empty(len(X), dtype=np.float32) if _need_recompute_map else None
     _config_by_i: dict[int, tuple] = {} if _need_recompute_map else None
 
     def _resolve_col(_buf_col):
@@ -321,9 +318,7 @@ def _score_one_pair(
     # A deferred chunk has final_transformed_vals=None (buffer not filled) but still drives the
     # cross-pair replay path (its MI is precomputed, its columns re-materialise on demand via
     # _resolve_col) -- so treat a present _chunk_entry as batch-disc-eligible even when deferred.
-    _use_batch_disc = (
-        (final_transformed_vals is not None) or (_chunk_entry is not None and _this_chunk_deferred)
-    ) and (quantization_method == "quantile")
+    _use_batch_disc = ((final_transformed_vals is not None) or (_chunk_entry is not None and _this_chunk_deferred)) and (quantization_method == "quantile")
 
     if _use_batch_disc:
         # CROSS-PAIR fast path: this pair was batched together with the rest of its
@@ -412,16 +407,11 @@ def _score_one_pair(
                     _ops: list = []
                     _gpu_cands = []
                     for transformations_pair in combs:
-                        if (transformations_pair[0] not in vars_transformations) or (
-                            transformations_pair[1] not in vars_transformations
-                        ):
+                        if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
                             continue
                         _ai = vars_transformations[transformations_pair[0]]
                         _bi = vars_transformations[transformations_pair[1]]
-                        _uses_pw = (
-                            transformations_pair[0][1] == _PREWARP_UNARY
-                            or transformations_pair[1][1] == _PREWARP_UNARY
-                        )
+                        _uses_pw = transformations_pair[0][1] == _PREWARP_UNARY or transformations_pair[1][1] == _PREWARP_UNARY
                         for _opn, bin_func_name in enumerate(_name_list):
                             _a_cols.append(_ai)
                             _b_cols.append(_bi)
@@ -465,10 +455,7 @@ def _score_one_pair(
                         continue
                     param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
                     param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
-                    _uses_pw = (
-                        transformations_pair[0][1] == _PREWARP_UNARY
-                        or transformations_pair[1][1] == _PREWARP_UNARY
-                    )
+                    _uses_pw = transformations_pair[0][1] == _PREWARP_UNARY or transformations_pair[1][1] == _PREWARP_UNARY
                     # Same wide errstate scope as the original per-pair-comb path.
                     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
                         for bin_func_name, bin_func in binary_transformations.items():
@@ -631,10 +618,7 @@ def _score_one_pair(
 
             # A config "uses prewarp" iff either operand's unary name is the
             # pseudo-unary. Invariant across the bin_func loop -> compute once.
-            _uses_pw = (
-                transformations_pair[0][1] == _PREWARP_UNARY
-                or transformations_pair[1][1] == _PREWARP_UNARY
-            )
+            _uses_pw = transformations_pair[0][1] == _PREWARP_UNARY or transformations_pair[1][1] == _PREWARP_UNARY
 
             # ``bin_func`` produces NaN/+-inf on extreme Optuna-picked params
             # (overflow in mul/exp, divide-by-zero in log); the downstream
@@ -967,13 +951,7 @@ def _score_one_pair(
     # (``_prewarp_accept``), and promoting a prewarp form here would require the per-operand
     # warp spec to round-trip into the recipe -- which is only guaranteed on the prewarp path.
     _marginal_uplift_accept = False
-    if (
-        not _passes_joint_gate
-        and not _prewarp_accept
-        and best_nonprewarp_config is not None
-        and best_nonprewarp_mi > 0.0
-        and pair_mi > 0.0
-    ):
+    if not _passes_joint_gate and not _prewarp_accept and best_nonprewarp_config is not None and best_nonprewarp_mi > 0.0 and pair_mi > 0.0:
         _max_operand_marginal = max(
             _operand_marginal_mi(raw_vars_pair[0]),
             _operand_marginal_mi(raw_vars_pair[1]),
@@ -984,18 +962,10 @@ def _score_one_pair(
         # same-signal pair clears EITHER the strict joint floor on its own OR is a clear-synergy
         # pair (high uplift) that clears the relaxed base floor. A cross-signal artefact clears
         # neither, so a small cross-HW MI perturbation cannot flip it into the support.
-        _joint_recovery_ok = (
-            _joint_ratio >= _FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO
-            or (
-                _uplift_ratio >= _FE_MARGINAL_UPLIFT_SYNERGY_UPLIFT
-                and _joint_ratio >= _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO
-            )
+        _joint_recovery_ok = _joint_ratio >= _FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO or (
+            _uplift_ratio >= _FE_MARGINAL_UPLIFT_SYNERGY_UPLIFT and _joint_ratio >= _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO
         )
-        if (
-            _max_operand_marginal > 0.0
-            and best_nonprewarp_mi >= _max_operand_marginal * _FE_MARGINAL_UPLIFT_MIN_RATIO
-            and _joint_recovery_ok
-        ):
+        if _max_operand_marginal > 0.0 and best_nonprewarp_mi >= _max_operand_marginal * _FE_MARGINAL_UPLIFT_MIN_RATIO and _joint_recovery_ok:
             _marginal_uplift_accept = True
             # Promote the best non-prewarp form so the standard single-best
             # materialisation path emits a recipe-replayable winner.
@@ -1111,11 +1081,7 @@ def _score_one_pair(
     # |corr|~0.99, so it would DISPLACE the clean univariate basis from the support and kill recovery.
     # Genuine synergy (a*b, log(c)*sin(d)) keeps the engineered column tracking y (no collapse), so the
     # wide 2x fraction margin never condemns it. Pure-noise pairs never reach here (upstream screens).
-    if (
-        (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept)
-        and _corr_y_cont is not None
-        and best_config is not None
-    ):
+    if (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept) and _corr_y_cont is not None and best_config is not None:
         try:
             _win_vals = _resolve_col(best_config[2]) if (final_transformed_vals is not None or _this_chunk_deferred) else None
             _win_corr = _safe_abs_corr(_win_vals) if _win_vals is not None else None
@@ -1130,11 +1096,7 @@ def _score_one_pair(
                 if _opk is not None and _opk in vars_transformations:
                     _op_corr = max(_op_corr, _safe_abs_corr(transformed_vars[:, vars_transformations[_opk]]))
                 _op_corr = max(_op_corr, _safe_abs_corr(_extval_raw_col(raw_vars_pair[_side])))
-            if (
-                _win_corr is not None
-                and _op_corr >= _NOISE_WRAP_MIN_OPERAND_CORR
-                and _win_corr < _op_corr * _NOISE_WRAP_CORR_COLLAPSE_FRAC
-            ):
+            if _win_corr is not None and _op_corr >= _NOISE_WRAP_MIN_OPERAND_CORR and _win_corr < _op_corr * _NOISE_WRAP_CORR_COLLAPSE_FRAC:
                 _passes_joint_gate = _prewarp_accept = _marginal_uplift_accept = False
                 _usability_accept = _usability_primary = False
                 if verbose:
@@ -1156,10 +1118,7 @@ def _score_one_pair(
             # to EACH operand's chosen-unary continuous values: if it is ~= ONE operand (|corr| >= 0.999) the
             # pair adds nothing a single warped operand does not -- veto so the clean single-source form wins.
             # A genuine 2-var pair (a/b, a*b) sits FAR below 0.999 with EITHER operand and is untouched.
-            if (
-                (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept)
-                and _win_vals is not None
-            ):
+            if (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept) and _win_vals is not None:
                 _tp2 = best_config[0]
                 _max_single_op_corr = 0.0
                 for _side in (0, 1):

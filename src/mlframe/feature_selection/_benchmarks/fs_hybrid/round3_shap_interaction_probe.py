@@ -24,8 +24,7 @@ from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 CASES = [("make_dataset", 0), ("make_dataset", 1), ("xor2", 0), ("xor2", 1)]
 # interaction_on16 = the default gate (phi.shape[1] <= 16) -> never fires on these wide cells (== off, confirmed).
 # interaction_on60 raises the gate so the coalition path ACTUALLY engages (phi units <= 60). This is the real test.
-CONFIGS = {"interaction_off": dict(interaction_aware=False),
-           "interaction_on60": dict(interaction_aware=True, max_interaction_features=60)}
+CONFIGS = {"interaction_off": dict(interaction_aware=False), "interaction_on60": dict(interaction_aware=True, max_interaction_features=60)}
 
 
 def load(name, seed):

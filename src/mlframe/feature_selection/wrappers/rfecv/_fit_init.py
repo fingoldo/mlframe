@@ -118,10 +118,7 @@ def _init_fit_state(
     _polars_time_series_hint = False
     if isinstance(X, pl.DataFrame):
         try:
-            _dt_cols = [
-                n for n, d in X.schema.items()
-                if d in (pl.Datetime, pl.Date) or str(d).startswith(("Datetime", "Date"))
-            ]
+            _dt_cols = [n for n, d in X.schema.items() if d in (pl.Datetime, pl.Date) or str(d).startswith(("Datetime", "Date"))]
             if len(_dt_cols) == 1:
                 _col = X.get_column(_dt_cols[0])
                 if _col.is_sorted(descending=False) and _col.null_count() == 0:
@@ -132,10 +129,7 @@ def _init_fit_state(
         # safe path is the historical default, but ad-hoc / notebook callers who pass their own polars frame would silently lose data. Gate on the ``_mlframe_owned_frame_`` marker (set by suite
         # internals on subsets it owns) OR on the explicit instance flag ``_rfecv_owns_polars_frame_`` so a caller can opt in deliberately. Default behaviour for unmarked frames: pay the extra
         # buffer copy rather than corrupt caller data.
-        _frame_is_internally_owned = bool(
-            getattr(X, "_mlframe_owned_frame_", False)
-            or getattr(self, "_rfecv_owns_polars_frame_", False)
-        )
+        _frame_is_internally_owned = bool(getattr(X, "_mlframe_owned_frame_", False) or getattr(self, "_rfecv_owns_polars_frame_", False))
         try:
             X = X.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=_frame_is_internally_owned)
         except TypeError:
@@ -173,8 +167,7 @@ def _init_fit_state(
                 f"impute these rows before passing y to RFECV."
             )
     # Single-class y for classification is a fold-collapse trap.
-    if is_classifier(self.estimator if self.estimator is not None
-                     else (self.estimators[0] if self.estimators else None)):
+    if is_classifier(self.estimator if self.estimator is not None else (self.estimators[0] if self.estimators else None)):
         unique_y = np.unique(y_arr)
         if len(unique_y) < 2:
             raise ValueError(
@@ -212,10 +205,7 @@ def _init_fit_state(
         me_set = set(self.must_exclude)
         overlap = mi_set & me_set
         if overlap:
-            raise ValueError(
-                f"must_include and must_exclude both contain {sorted(overlap)}. "
-                f"Resolve the conflict in your config."
-            )
+            raise ValueError(f"must_include and must_exclude both contain {sorted(overlap)}. " f"Resolve the conflict in your config.")
 
     # X-side input checks. Run after y validation so common operator mistakes surface clearly at fit entry.
     if isinstance(X, pd.DataFrame):
@@ -281,14 +271,9 @@ def _init_fit_state(
         except (TypeError, ValueError):
             _n_groups_for_floor = None
         if _n_groups_for_floor is not None and _n_groups_for_floor < 2 * cv_n:
-            raise ValueError(
-                f"n_groups={_n_groups_for_floor} < 2 * cv ({cv_n}); group-aware splitter would fail. Reduce cv or merge groups."
-            )
+            raise ValueError(f"n_groups={_n_groups_for_floor} < 2 * cv ({cv_n}); group-aware splitter would fail. Reduce cv or merge groups.")
     if X.shape[0] < 2 * cv_n:
-        raise ValueError(
-            f"n_samples={X.shape[0]} < 2 * cv ({cv_n}); each fold would "
-            f"have <2 train samples. Reduce cv or get more data."
-        )
+        raise ValueError(f"n_samples={X.shape[0]} < 2 * cv ({cv_n}); each fold would " f"have <2 train samples. Reduce cv or get more data.")
 
     X = _sanitize_X_inputs(self, X, y)
 
@@ -309,9 +294,7 @@ def _init_fit_state(
     else:
         columns_key = ("__ndarray__", int(X.shape[1]))
     try:
-        _y_arr = np.ascontiguousarray(
-            y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
-        )
+        _y_arr = np.ascontiguousarray(y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y))
         _y_hash = hashlib.blake2b(_y_arr.tobytes(), digest_size=16).hexdigest()
     except (TypeError, ValueError):
         # Object-dtype y or otherwise non-bytes-castable; fall back to a stringified per-element hash that still discriminates content.

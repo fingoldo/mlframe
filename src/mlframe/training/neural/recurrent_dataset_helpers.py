@@ -45,7 +45,6 @@ from ._recurrent_config import RNNType, InputMode, RecurrentConfig
 from ._recurrent_data import RecurrentDataset, recurrent_collate_fn
 from ._recurrent_torch_model import RecurrentTorchModel
 
-
 # Default number of channels per timestep when callers don't supply
 # sequences (FEATURES_ONLY mode keeps the RNN branch dormant). Kept as a
 # module-level constant so the save/load round-trip and the wrapper
@@ -287,10 +286,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         elif mode == "per_sequence_zscore":
             start_col = 0
         else:
-            raise ValueError(
-                f"_preprocess_sequence: unknown mode {mode!r}; expected one of "
-                "{'none', 'per_sequence_zscore', 'astronomy_mjd_delta'}"
-            )
+            raise ValueError(f"_preprocess_sequence: unknown mode {mode!r}; expected one of " "{'none', 'per_sequence_zscore', 'astronomy_mjd_delta'}")
 
         for col_idx in range(start_col, n_cols):
             col = seq[:, col_idx]
@@ -318,7 +314,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         # delivered as a 1-column 2-D array are still SINGLE-label; treating
         # them as multilabel suppresses the stratified sampler for what is
         # actually a stratifiable single-label classification dataset.
-        _is_multilabel_ds = (dataset.labels.ndim == 2 and dataset.labels.shape[1] >= 2)
+        _is_multilabel_ds = dataset.labels.ndim == 2 and dataset.labels.shape[1] >= 2
         if shuffle and self._cfg.use_stratified_sampler and not self._is_regression and not _is_multilabel_ds:
             labels = dataset.labels.numpy()
             # np.bincount needs non-negative contiguous integer labels and
@@ -353,10 +349,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         # host CUDA availability. Pinning when the trainer runs on CPU (user
         # set ``accelerator="cpu"`` on a CUDA box for debugging) emits
         # "pin_memory is set as true but no accelerator is found" per batch.
-        _pin_memory = (
-            torch.cuda.is_available()
-            and self._cfg.accelerator in ("auto", "gpu", "cuda")
-        )
+        _pin_memory = torch.cuda.is_available() and self._cfg.accelerator in ("auto", "gpu", "cuda")
         return DataLoader(
             dataset,
             batch_size=batch_size or self._cfg.batch_size,
@@ -444,9 +437,8 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
             _ema_decay = getattr(self._cfg, "ema_decay", 0.999)
             try:
                 from lightning.pytorch.callbacks import WeightAveraging
-                callbacks.append(
-                    WeightAveraging(avg_fn=get_ema_avg_fn(decay=_ema_decay))
-                )
+
+                callbacks.append(WeightAveraging(avg_fn=get_ema_avg_fn(decay=_ema_decay)))
             except ImportError:
                 from lightning.pytorch.callbacks import StochasticWeightAveraging
                 callbacks.append(
@@ -663,9 +655,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         # consequence here would be a misconfigured BCEWithLogitsLoss with
         # a num_classes=1 output head for what is actually multi-class
         # classification.
-        self._is_multilabel = bool(
-            hasattr(labels, "ndim") and labels.ndim == 2 and np.asarray(labels).shape[1] >= 2
-        )
+        self._is_multilabel = bool(hasattr(labels, "ndim") and labels.ndim == 2 and np.asarray(labels).shape[1] >= 2)
         if self._is_multilabel:
             self._n_labels = int(np.asarray(labels).shape[1])
             # Override config.num_classes to match label count so the MLP head builds the right number of output units.
@@ -698,11 +688,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         val_loader = self._create_dataloader(val_dataset, shuffle=False) if val_dataset else None
 
         self._aux_input_size = features.shape[1] if features is not None else 0
-        self._seq_input_size = (
-            sequences[0].shape[1]
-            if sequences is not None and len(sequences) > 0
-            else _DEFAULT_SEQ_INPUT_SIZE
-        )
+        self._seq_input_size = sequences[0].shape[1] if sequences is not None and len(sequences) > 0 else _DEFAULT_SEQ_INPUT_SIZE
 
         self.model = self._create_model(
             seq_input_size=self._seq_input_size,
@@ -892,11 +878,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         val_loader = self._create_dataloader(val_dataset, shuffle=False) if val_dataset else None
 
         self._aux_input_size = features.shape[1] if features is not None else 0
-        self._seq_input_size = (
-            sequences[0].shape[1]
-            if sequences is not None and len(sequences) > 0
-            else _DEFAULT_SEQ_INPUT_SIZE
-        )
+        self._seq_input_size = sequences[0].shape[1] if sequences is not None and len(sequences) > 0 else _DEFAULT_SEQ_INPUT_SIZE
 
         self.model = self._create_model(
             seq_input_size=self._seq_input_size,

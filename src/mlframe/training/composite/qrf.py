@@ -175,9 +175,7 @@ def _batch_weighted_quantiles_kernel(
 
 
 if _HAS_NUMBA:  # pragma: no branch
-    _batch_weighted_quantiles_kernel = numba.njit(parallel=True, cache=True, fastmath=True)(
-        _batch_weighted_quantiles_kernel
-    )
+    _batch_weighted_quantiles_kernel = numba.njit(parallel=True, cache=True, fastmath=True)(_batch_weighted_quantiles_kernel)
 
 logger = logging.getLogger(__name__)
 
@@ -547,11 +545,7 @@ class CompositeQRFEstimator(BaseEstimator, RegressorMixin):
         when ``enforce_non_crossing`` so ``q_low <= ... <= q_high``.
         """
         self._check_fitted()
-        levels = (
-            np.asarray(quantiles, dtype=np.float64).reshape(-1)
-            if quantiles is not None
-            else np.asarray(_DEFAULT_DENSE_QUANTILES, dtype=np.float64)
-        )
+        levels = np.asarray(quantiles, dtype=np.float64).reshape(-1) if quantiles is not None else np.asarray(_DEFAULT_DENSE_QUANTILES, dtype=np.float64)
         if levels.size == 0:
             raise ValueError("CompositeQRFEstimator.predict_quantile: quantiles is empty.")
         if np.any((levels <= 0.0) | (levels >= 1.0)):
@@ -602,9 +596,7 @@ class CompositeQRFEstimator(BaseEstimator, RegressorMixin):
         qmat, levels = self._dense_matrix(X)  # (n, K)
         y = np.asarray(y_true, dtype=np.float64).reshape(-1)
         if y.shape[0] != qmat.shape[0]:
-            raise ValueError(
-                f"CompositeQRFEstimator.crps: y_true length {y.shape[0]} != n_samples {qmat.shape[0]}."
-            )
+            raise ValueError(f"CompositeQRFEstimator.crps: y_true length {y.shape[0]} != n_samples {qmat.shape[0]}.")
         u = y[:, None] - qmat  # (n, K)
         rho = u * (levels[None, :] - (u < 0.0).astype(np.float64))
         per_row = (2.0 / levels.shape[0]) * rho.sum(axis=1)

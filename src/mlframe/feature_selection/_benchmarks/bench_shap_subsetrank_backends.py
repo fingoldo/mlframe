@@ -61,8 +61,7 @@ def main():
         C = sum(math.comb(f, r) for r in range(1, mc + 1))
         cpu, tc = _time(brute_force_top_n, phi, base, y, classification=True, max_card=mc, top_n=30, parallel=True)
         ref, tr = _time(brute_force_top_n_cpu_ref, phi, base, y, classification=True, max_card=mc, top_n=30)
-        row = dict(n=n, f=f, max_card=mc, C=C, cpu_s=round(tc, 5), cpu_ref_s=round(tr, 5),
-                   ref_set_match=set(c for _, c in cpu) == set(c for _, c in ref))
+        row = dict(n=n, f=f, max_card=mc, C=C, cpu_s=round(tc, 5), cpu_ref_s=round(tr, 5), ref_set_match=set(c for _, c in cpu) == set(c for _, c in ref))
         if gpu_on:
             gpu, tg = _time(brute_force_top_n_gpu, phi, base, y, classification=True, max_card=mc, top_n=30)
             row.update(gpu_s=round(tg, 5), speedup_gpu_vs_cpu=round(tc / tg, 3),

@@ -51,9 +51,7 @@ def _extra_equal(a: dict, b: dict) -> bool:
                 # NaN-aware check.
                 if va.shape != vb.shape:
                     return False
-                _eq = (va == vb) | (
-                    (va != va) & (vb != vb)  # both NaN -> equal
-                )
+                _eq = (va == vb) | ((va != va) & (vb != vb))  # both NaN -> equal
                 if not bool(_eq.all()):
                     return False
         else:

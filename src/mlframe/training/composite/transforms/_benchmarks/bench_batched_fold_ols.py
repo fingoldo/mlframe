@@ -74,10 +74,7 @@ def main(repeats: int = 2000) -> None:
         _linear_residual_fit_batched(xs, ys)
     t_bat = (time.perf_counter() - t) / repeats * 1e6
 
-    print(
-        f"K={len(xs)} folds  seq-lstsq={t_lstsq:8.1f} us/call  "
-        f"batched={t_bat:8.1f} us/call  speedup={t_lstsq / t_bat:5.2f}x"
-    )
+    print(f"K={len(xs)} folds  seq-lstsq={t_lstsq:8.1f} us/call  " f"batched={t_bat:8.1f} us/call  speedup={t_lstsq / t_bat:5.2f}x")
 
 
 if __name__ == "__main__":

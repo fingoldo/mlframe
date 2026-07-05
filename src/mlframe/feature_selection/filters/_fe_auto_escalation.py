@@ -127,8 +127,7 @@ def _candidate_values(x_a: np.ndarray, spec_a: dict, x_b: np.ndarray, spec_b: di
     return out
 
 
-def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
-                  pairness_margin: float = 1.15):
+def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_margin: float = 1.15):
     """Signal-adaptive orth-poly proposer: rank-1 ALS pair warp per shipped basis,
     held-out stride validation of the rank-1 reconstruction, best basis wins.
 
@@ -180,8 +179,7 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
     deg = max(1, int(degree))
 
     def _heldout_corr(vals_va) -> float:
-        vals_va = np.nan_to_num(np.asarray(vals_va, dtype=np.float64),
-                                copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        vals_va = np.nan_to_num(np.asarray(vals_va, dtype=np.float64), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
         if float(np.std(vals_va)) < 1e-12:
             return 0.0
         cc = float(np.corrcoef(vals_va, y_va)[0, 1])
@@ -271,15 +269,10 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
             # device from these standardised columns (the SAME basis_fit the prebuilt
             # Ba_tr/Bb_tr used), collapsing the ~358MB design H2D at 300k. Ba_tr/Bb_tr
             # still feed the byte-identical CPU fallback (default, flag-off) path.
-            coef_a, coef_b = warm_start_als_seed(
-                Ba_tr, Bb_tr, y_tr, iters=3, x_a=xa_tr, x_b=xb_tr,
-                z_a=za_tr, z_b=zb_tr, basis=basis)
+            coef_a, coef_b = warm_start_als_seed(Ba_tr, Bb_tr, y_tr, iters=3, x_a=xa_tr, x_b=xb_tr, z_a=za_tr, z_b=zb_tr, basis=basis)
             if coef_a is None or coef_b is None:
                 continue
-            c = _heldout_corr(
-                (Ba_va @ np.ascontiguousarray(coef_a, dtype=np.float64))
-                * (Bb_va @ np.ascontiguousarray(coef_b, dtype=np.float64))
-            )
+            c = _heldout_corr((Ba_va @ np.ascontiguousarray(coef_a, dtype=np.float64)) * (Bb_va @ np.ascontiguousarray(coef_b, dtype=np.float64)))
         except Exception:
             continue
         if c > best_corr:
@@ -575,8 +568,7 @@ def run_fe_auto_escalation(
     from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
     from .engineered_recipes import build_unary_binary_recipe
 
-    info: dict = {"eligible_pairs": [], "proposed": 0, "admitted": [], "rejected": {},
-                  "pair_maxt_floor": float(pair_maxt_floor)}
+    info: dict = {"eligible_pairs": [], "proposed": 0, "admitted": [], "rejected": {}, "pair_maxt_floor": float(pair_maxt_floor)}
     self.fe_escalation_info_ = info
     # Accumulated per-call history (one entry per FE step that ran escalation), so a
     # late no-op step does not erase the provenance of an earlier admitting step.
@@ -614,17 +606,13 @@ def run_fe_auto_escalation(
     _esc_do_sub = isinstance(_esc_ss_n, int) and 0 < _esc_ss_n < n_rows
     _y_rank_eff = getattr(self, "_fe_escalation_y_rank_", None)
     if _esc_do_sub:
-        _esc_idx = np.sort(
-            np.random.default_rng(seed).choice(n_rows, size=int(_esc_ss_n), replace=False)
-        )
+        _esc_idx = np.sort(np.random.default_rng(seed).choice(n_rows, size=int(_esc_ss_n), replace=False))
         X = X.iloc[_esc_idx].reset_index(drop=True) if hasattr(X, "iloc") else np.asarray(X)[_esc_idx]
         classes_y = np.asarray(classes_y)[_esc_idx]
         if capture_vals:
             capture_vals = {k: np.asarray(v)[_esc_idx] for k, v in capture_vals.items()}
         if admitted_pool:
-            admitted_pool = {
-                k: (np.asarray(v)[_esc_idx], m) for k, (v, m) in (admitted_pool or {}).items()
-            }
+            admitted_pool = {k: (np.asarray(v)[_esc_idx], m) for k, (v, m) in (admitted_pool or {}).items()}
         if _y_rank_eff is not None and np.asarray(_y_rank_eff).shape[0] == n_rows:
             _y_rank_eff = np.asarray(_y_rank_eff)[_esc_idx]
         n_rows = int(_esc_ss_n)
@@ -701,9 +689,7 @@ def run_fe_auto_escalation(
                 _r = np.asarray(y_f, dtype=np.float64).copy()
                 _nb_res = int(min(32, max(8, n_rows // 64)))
                 for _j in range(_A.shape[1]):
-                    _cb = _quantile_bin(
-                        np.nan_to_num(_A[:, _j], nan=0.0, posinf=0.0, neginf=0.0), nbins=_nb_res
-                    ).astype(np.int64)
+                    _cb = _quantile_bin(np.nan_to_num(_A[:, _j], nan=0.0, posinf=0.0, neginf=0.0), nbins=_nb_res).astype(np.int64)
                     _cnt = np.maximum(np.bincount(_cb, minlength=int(_cb.max()) + 1), 1)
                     _means = np.bincount(_cb, weights=_r, minlength=int(_cb.max()) + 1) / _cnt
                     _r = _r - _means[_cb]
@@ -730,8 +716,7 @@ def run_fe_auto_escalation(
                 })
         # 2) Demodulated adaptive-frequency Fourier / chirp, both warp directions.
         for x_w, x_m, nw, nm in ((x_a, x_b, na, nb), (x_b, x_a, nb, na)):
-            for prop in _propose_fourier(x_w, x_m, y_pair, min_val_corr=min_val_corr,
-                                         max_freqs=max_freqs, chirp=True):
+            for prop in _propose_fourier(x_w, x_m, y_pair, min_val_corr=min_val_corr, max_freqs=max_freqs, chirp=True):
                 spec_m = _identity_prewarp_spec(x_m)
                 if spec_m is None:
                     continue
@@ -750,7 +735,7 @@ def run_fe_auto_escalation(
             c["_binned"] = vb
             c["mi"] = float(_cmi_from_binned(vb, y_dense, None))
         pair_cands.sort(key=lambda c: c["mi"], reverse=True)
-        candidates.extend(pair_cands[:max(1, per_pair_cap)])
+        candidates.extend(pair_cands[: max(1, per_pair_cap)])
 
     info["proposed"] = len(candidates)
     if not candidates:

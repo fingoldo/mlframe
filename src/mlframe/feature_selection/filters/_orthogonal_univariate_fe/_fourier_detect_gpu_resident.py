@@ -114,14 +114,14 @@ def _power_grid_centered_gpu(cp, z, yc, y_ss: float, freqs_dev):
     per frequency: same raw-moment v_ss = v@v - sum(v)^2/n, same num = v@yc, same
     relative degeneracy guard, summed over the sin + cos planes."""
     n = z.shape[0]
-    ang = (_TWO_PI * freqs_dev)[:, None] * z[None, :]      # (F, n)
+    ang = (_TWO_PI * freqs_dev)[:, None] * z[None, :]  # (F, n)
     s = cp.sin(ang)
     c = cp.cos(ang)
 
     def _corr_sq_rows(plane):
-        sv = plane.sum(axis=1)                              # (F,)
-        vv = (plane * plane).sum(axis=1)                    # (F,)
-        vy = plane @ yc                                     # (F,)
+        sv = plane.sum(axis=1)  # (F,)
+        vv = (plane * plane).sum(axis=1)  # (F,)
+        vy = plane @ yc  # (F,)
         v_ss = vv - sv * sv / n
         ok = (v_ss > 1e-12 * vv) & (v_ss >= 1e-24)
         denom = v_ss * y_ss
@@ -149,7 +149,7 @@ def _refine_peak_freq_gpu(cp, z_tr, yc, y_ss: float, coarse_f: float) -> float:
         freqs_host[1:] = lo_r + step * np.arange(n_steps, dtype=np.float64)
         freqs_dev = cp.asarray(freqs_host)
         powers = _power_grid_centered_gpu(cp, z_tr, yc, y_ss, freqs_dev)
-        bi = int(cp.argmax(powers))                        # single scalar D2H per scan
+        bi = int(cp.argmax(powers))  # single scalar D2H per scan
         return float(freqs_host[bi]), 0.0
     f1, _ = _scan(coarse_f, 0.25, 0.05)
     f2, _ = _scan(f1, 0.05, 0.0125)
@@ -274,22 +274,22 @@ def detect_fourier_freqs_for_col_gpu(
         # Narrowed from bare Exception so a device fault propagates to the dispatch CPU fallback and a logic bug
         # surfaces instead of silently skipping the detrend (which would diverge from the CPU detector).
         pass
-    _std_tr, _std_va = cp.asnumpy(cp.stack([cp.std(y_tr), cp.std(y_va)]))   # one D2H for the pair
+    _std_tr, _std_va = cp.asnumpy(cp.stack([cp.std(y_tr), cp.std(y_va)]))  # one D2H for the pair
     if _std_tr < 1e-9 or _std_va < 1e-9:
         return []
 
     _eff_min_val_corr = max(float(min_val_corr), 0.30)
 
     # Coarse-grid sin/cos plane on TRAIN, built ONCE (depends only on z). Resident (nf, n).
-    grid_dev = cp.asarray(np.asarray(grid, dtype=np.float64))          # tiny H2D (grid is O(48))
-    ang_plane = (_TWO_PI * grid_dev)[:, None] * z_tr[None, :]          # (nf, n)
+    grid_dev = cp.asarray(np.asarray(grid, dtype=np.float64))  # tiny H2D (grid is O(48))
+    ang_plane = (_TWO_PI * grid_dev)[:, None] * z_tr[None, :]  # (nf, n)
     sin_plane = cp.sin(ang_plane)
     cos_plane = cp.cos(ang_plane)
     sin_mean = sin_plane.mean(axis=1, keepdims=True)
     cos_mean = cos_plane.mean(axis=1, keepdims=True)
-    sc_plane = sin_plane - sin_mean                                    # centered (nf, n)
+    sc_plane = sin_plane - sin_mean  # centered (nf, n)
     cc_plane = cos_plane - cos_mean
-    s_ss_vec = (sc_plane * sc_plane).sum(axis=1)                       # (nf,)
+    s_ss_vec = (sc_plane * sc_plane).sum(axis=1)  # (nf,)
     c_ss_vec = (cc_plane * cc_plane).sum(axis=1)
 
     out: list = []
@@ -303,12 +303,12 @@ def detect_fourier_freqs_for_col_gpu(
         if y_ss < 1e-24:
             break
         # Coarse peak-pick: batched matvec over the resident plane -> power per grid freq, scalar argmax.
-        num_s = sc_plane @ yc                                          # (nf,)
+        num_s = sc_plane @ yc  # (nf,)
         num_c = cc_plane @ yc
         p_s = cp.where(s_ss_vec >= 1e-24, (num_s * num_s) / (s_ss_vec * y_ss), 0.0)
         p_c = cp.where(c_ss_vec >= 1e-24, (num_c * num_c) / (c_ss_vec * y_ss), 0.0)
-        power_vec = p_s + p_c                                          # (nf,)
-        best_gi = int(cp.argmax(power_vec))                            # scalar D2H
+        power_vec = p_s + p_c  # (nf,)
+        best_gi = int(cp.argmax(power_vec))  # scalar D2H
         best_f = grid[best_gi]
         refined_f = _refine_peak_freq_gpu(cp, z_tr, yc, y_ss, best_f)
         if any(abs(refined_f - g) < 0.25 for g in out):

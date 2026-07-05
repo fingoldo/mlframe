@@ -41,7 +41,7 @@ def OLD_dfa_alpha(x):
         m = n // s
         var_sum = 0.0
         for j in range(m):
-            seg = y[j * s:(j + 1) * s]
+            seg = y[j * s : (j + 1) * s]
             t = np.arange(s).astype(np.float64)
             tm = t.mean()
             sm = seg.mean()
@@ -92,7 +92,7 @@ def OLD_dfa_alpha2(x):
         m = n // s
         var_sum = 0.0
         for j in range(m):
-            seg = y[j * s:(j + 1) * s]
+            seg = y[j * s : (j + 1) * s]
             t = np.arange(s).astype(np.float64)
             S0 = float(s)
             S1 = t.sum()
@@ -105,9 +105,7 @@ def OLD_dfa_alpha2(x):
             M00 = S0; M01 = S1; M02 = S2
             M11 = S2; M12 = S3
             M22 = S4
-            det = (M00 * (M11 * M22 - M12 * M12)
-                   - M01 * (M01 * M22 - M12 * M02)
-                   + M02 * (M01 * M12 - M11 * M02))
+            det = M00 * (M11 * M22 - M12 * M12) - M01 * (M01 * M22 - M12 * M02) + M02 * (M01 * M12 - M11 * M02)
             if abs(det) < 1e-12:
                 continue
             inv_det = 1.0 / det

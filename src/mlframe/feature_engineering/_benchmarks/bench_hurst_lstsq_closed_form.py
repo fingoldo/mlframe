@@ -19,7 +19,7 @@ import numpy as np
 def old_fit(window_sizes_arr, rs_arr):
     x = np.vstack([np.log10(window_sizes_arr), np.ones(len(rs_arr))]).T
     h, c = np.linalg.lstsq(x, np.log10(rs_arr), rcond=None)[0]
-    c = 10 ** c
+    c = 10**c
     return h, c
 
 

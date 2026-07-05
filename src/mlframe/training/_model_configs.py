@@ -428,7 +428,6 @@ class ModelHyperparamsConfig(BaseConfig):
     mlp_predict_batch_size: Optional[int] = None
 
 
-
 # TrainingBehaviorConfig / MultilabelDispatchConfig / LearningToRankConfig / QuantileRegressionConfig carved to
 # ``_model_configs_behavior.py`` (1k-LOC ceiling); re-exported so existing import paths keep resolving.
 from ._model_configs_behavior import (  # noqa: E402, F401
@@ -445,5 +444,3 @@ from ._model_configs_behavior import (  # noqa: E402, F401
 # bottom-of-monolith pattern (class identity is preserved by the
 # re-export, so ``isinstance`` checks downstream keep working).
 from ._model_configs_ensembling import EnsemblingConfig  # noqa: E402, F401
-
-

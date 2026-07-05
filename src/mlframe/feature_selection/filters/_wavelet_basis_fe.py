@@ -432,10 +432,8 @@ def _heldout_incremental_mi(
             Yp_d = cp.asarray(Yp)
             joint_d = cp.asarray(np.ascontiguousarray(joint.astype(np.int64)))
             xc_d = cp.asarray(np.ascontiguousarray(xc.astype(np.int64)))
-            jm = np.asarray(binned_mi_from_codes_gpu(Yp_d, joint_d, kx_per_col=[n_cls] * n_perm, ky=int(joint_nb)),
-                            dtype=np.float64)
-            bm = np.asarray(binned_mi_from_codes_gpu(Yp_d, xc_d, kx_per_col=[n_cls] * n_perm, ky=int(base_nb)),
-                            dtype=np.float64)
+            jm = np.asarray(binned_mi_from_codes_gpu(Yp_d, joint_d, kx_per_col=[n_cls] * n_perm, ky=int(joint_nb)), dtype=np.float64)
+            bm = np.asarray(binned_mi_from_codes_gpu(Yp_d, xc_d, kx_per_col=[n_cls] * n_perm, ky=int(base_nb)), dtype=np.float64)
             null = jm - bm
         except Exception:
             null = None
@@ -516,7 +514,7 @@ def _select_wavelet_legs(
     yb_va = _bin_y_codes(y[va])
     cand: list[tuple] = []  # (train_mi, heldout_mi, j, k)
     for j in range(int(max_scale) + 1):
-        for k in range(2 ** j):
+        for k in range(2**j):
             leg = _dyadic_haar_leg(z, j, k)
             nz_left = int(np.count_nonzero(leg > 0))
             nz_right = int(np.count_nonzero(leg < 0))
@@ -627,7 +625,7 @@ def generate_wavelet_features(
             )
             continue
         z = np.clip((x - lo) / span, 0.0, 1.0)
-        for (j, k) in legs:
+        for j, k in legs:
             leg = _dyadic_haar_leg(z, j, k, dtype=feature_dtype)
             if float(np.std(leg)) <= 1e-12:
                 continue
@@ -669,16 +667,10 @@ def _apply_orth_wavelet(recipe, X) -> np.ndarray:
     """
     from .engineered_recipes import _extract_column
     if len(recipe.src_names) != 1:
-        raise ValueError(
-            f"orth_wavelet recipe '{recipe.name}' must have exactly 1 "
-            f"src_names; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"orth_wavelet recipe '{recipe.name}' must have exactly 1 " f"src_names; got {len(recipe.src_names)}")
     for key in ("j", "k", "lo", "span"):
         if key not in recipe.extra:
-            raise KeyError(
-                f"orth_wavelet recipe '{recipe.name}' missing '{key}' in extra. "
-                f"Re-fit MRMR to regenerate."
-            )
+            raise KeyError(f"orth_wavelet recipe '{recipe.name}' missing '{key}' in extra. " f"Re-fit MRMR to regenerate.")
     name = recipe.src_names[0]
     j = int(recipe.extra["j"])
     k = int(recipe.extra["k"])
@@ -786,19 +778,24 @@ def hybrid_wavelet_fe_with_recipes(
         )
         # Two-condition admission: (a) absolute incremental floor, (b) the leg
         # beats the smooth-refinement competitor (complementarity guard).
-        passed = bool(
-            (incr >= float(min_incr_mi))
-            and (incr >= float(smooth_complement_ratio) * max(smooth_gain, 0.0))
+        passed = bool((incr >= float(min_incr_mi)) and (incr >= float(smooth_complement_ratio) * max(smooth_gain, 0.0)))
+        rows.append(
+            {
+                "engineered_col": name,
+                "source_col": src,
+                "incr_mi": float(incr),
+                "smooth_gain": float(smooth_gain),
+                "passed": passed,
+            }
         )
-        rows.append({
-            "engineered_col": name, "source_col": src,
-            "incr_mi": float(incr),
-            "smooth_gain": float(smooth_gain),
-            "passed": passed,
-        })
-    scores = pd.DataFrame(rows).sort_values(
-        "incr_mi", ascending=False,
-    ).reset_index(drop=True)
+    scores = (
+        pd.DataFrame(rows)
+        .sort_values(
+            "incr_mi",
+            ascending=False,
+        )
+        .reset_index(drop=True)
+    )
     qualified = scores[scores["passed"]]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])

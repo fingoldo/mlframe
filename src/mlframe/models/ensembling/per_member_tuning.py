@@ -144,8 +144,7 @@ def _measure_per_member_crossover(ndim: int, grid: list, repeats: int, rng) -> t
     return crossover, worst_diff
 
 
-def run_per_member_sweep(observed_elements: int | None = None, max_elements: int | None = None,
-                         repeats: int = 25) -> list[dict]:
+def run_per_member_sweep(observed_elements: int | None = None, max_elements: int | None = None, repeats: int = 25) -> list[dict]:
     """Benchmark numpy vs numba across a bounded element grid on THIS host, for BOTH
     ndim=2 and ndim=3 (separate crossovers -- the 3-D per-column reduction has a
     different cost profile than the 2-D one). Returns ``ndim_eq``-tagged regions for
@@ -156,8 +155,7 @@ def run_per_member_sweep(observed_elements: int | None = None, max_elements: int
         logger.info("per_member sweep: numba unavailable -> numpy everywhere")
         return [{"elements_per_member_max": None, "backend_choice": "numpy"}]
     cap = _resolve_max_elements(observed_elements, max_elements)
-    grid = sorted({e for e in _SWEEP_ELEMENTS if e <= cap}
-                  | ({int(observed_elements)} if observed_elements and observed_elements <= _SWEEP_CEILING else set()))
+    grid = sorted({e for e in _SWEEP_ELEMENTS if e <= cap} | ({int(observed_elements)} if observed_elements and observed_elements <= _SWEEP_CEILING else set()))
     if not grid:
         grid = [_SWEEP_ELEMENTS[0]]
     rng = np.random.default_rng(0)
@@ -168,16 +166,12 @@ def run_per_member_sweep(observed_elements: int | None = None, max_elements: int
     for ndim in (2, 3):
         crossover, worst_diff = _measure_per_member_crossover(ndim, grid, repeats, rng)
         if crossover is None:  # numba never won (or always diverged) for this ndim
-            regions.append({"ndim_eq": ndim, "elements_per_member_max": None,
-                            "backend_choice": "numpy", "max_abs_diff": worst_diff})
+            regions.append({"ndim_eq": ndim, "elements_per_member_max": None, "backend_choice": "numpy", "max_abs_diff": worst_diff})
         elif crossover <= grid[0]:  # numba won from the smallest swept size
-            regions.append({"ndim_eq": ndim, "elements_per_member_max": None,
-                            "backend_choice": "numba", "max_abs_diff": worst_diff})
+            regions.append({"ndim_eq": ndim, "elements_per_member_max": None, "backend_choice": "numba", "max_abs_diff": worst_diff})
         else:
-            regions.append({"ndim_eq": ndim, "elements_per_member_max": crossover - 1,
-                            "backend_choice": "numpy", "max_abs_diff": worst_diff})
-            regions.append({"ndim_eq": ndim, "elements_per_member_max": None,
-                            "backend_choice": "numba", "max_abs_diff": worst_diff})
+            regions.append({"ndim_eq": ndim, "elements_per_member_max": crossover - 1, "backend_choice": "numpy", "max_abs_diff": worst_diff})
+            regions.append({"ndim_eq": ndim, "elements_per_member_max": None, "backend_choice": "numba", "max_abs_diff": worst_diff})
     return regions
 
 
@@ -204,10 +198,8 @@ def ensure_per_member_tuning(observed_elements: int | None = None, observed_grou
                  "auto-tuning numpy-vs-numba now (observed elements=%s)",
                  _PER_MEMBER_KERNEL_NAME, observed_elements)
     try:
-        regions = run_per_member_sweep(observed_elements=observed_elements,
-                                       max_elements=max_elements, repeats=repeats)
-        cache.update(_PER_MEMBER_KERNEL_NAME,
-                     axes=["elements_per_member", "n_groups", "ndim"], regions=regions)
+        regions = run_per_member_sweep(observed_elements=observed_elements, max_elements=max_elements, repeats=repeats)
+        cache.update(_PER_MEMBER_KERNEL_NAME, axes=["elements_per_member", "n_groups", "ndim"], regions=regions)
         logger.info("per_member auto-tune winners persisted to %s: %s", cache_path(), regions)
     except Exception as e:  # never let calibration break a training run
         logger.debug("per_member auto-tune failed (using fallback): %s", e)

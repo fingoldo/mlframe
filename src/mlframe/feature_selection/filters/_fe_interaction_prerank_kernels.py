@@ -61,11 +61,11 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # model fit_seconds ~ p / cols_per_second(n) and store cols_per_second per (n) region. The
 # ~113 cols/s figure is ONLY the cold-cache analytic FALLBACK (per feedback_use_kernel_
 # tuning_cache_for_gpu: the live path measures-and-caches per (n) below).
-_GBM_FALLBACK_COLS_PER_SEC = 113.0   # cold-cache analytic fallback (bench 2026-06-19, n=8000)
-_GBM_FALLBACK_FIXED_SEC = 2.0        # constant fit overhead (dataset build + boosting setup)
+_GBM_FALLBACK_COLS_PER_SEC = 113.0  # cold-cache analytic fallback (bench 2026-06-19, n=8000)
+_GBM_FALLBACK_FIXED_SEC = 2.0  # constant fit overhead (dataset build + boosting setup)
 _GBM_COST_SWEEP_N_SAMPLES = [2000, 8000, 32000]
 _GBM_COST_SALT = 1
-_GBM_BENCH_P = 256                   # small synthetic cell width (kept tiny so the warm-up bench is ~sub-second)
+_GBM_BENCH_P = 256  # small synthetic cell width (kept tiny so the warm-up bench is ~sub-second)
 _GBM_BENCH_ROUNDS = 100
 
 
@@ -79,8 +79,7 @@ def _measure_gbm_cols_per_second(n_samples: int) -> float:
     rng = np.random.default_rng(0)
     X = rng.standard_normal((n, _GBM_BENCH_P))
     y = (rng.random(n) < 0.5).astype(np.float64)
-    params = dict(objective="binary", num_leaves=31, learning_rate=0.1, verbose=-1,
-                  min_child_samples=20, feature_fraction=1.0)
+    params = dict(objective="binary", num_leaves=31, learning_rate=0.1, verbose=-1, min_child_samples=20, feature_fraction=1.0)
     ds = lgb.Dataset(X, label=y)
     t0 = time.perf_counter()
     lgb.train(params, ds, num_boost_round=_GBM_BENCH_ROUNDS)
@@ -186,12 +185,12 @@ def _standardize_cols(M: np.ndarray) -> np.ndarray:
     (n,p) temporaries per call (the dominant cost at p>=10k -- cProfile 2026-06-19); here we
     reciprocate the per-column norm (length p) once, zero the dead columns' scale, and scale
     the centered matrix in place, so only the one centered copy is held."""
-    Mc = M - M.mean(axis=0)                      # one (n,p) copy (centered)
+    Mc = M - M.mean(axis=0)  # one (n,p) copy (centered)
     norm = np.sqrt(np.einsum("ij,ij->j", Mc, Mc))  # (p,) column L2; einsum avoids a (n,p) square temp
     inv = np.zeros_like(norm)
     nz = norm > 0.0
-    inv[nz] = 1.0 / norm[nz]                      # constant columns -> 0 scale -> zero column
-    Mc *= inv                                     # broadcast (p,) over rows, in place
+    inv[nz] = 1.0 / norm[nz]  # constant columns -> 0 scale -> zero column
+    Mc *= inv  # broadcast (p,) over rows, in place
     return np.ascontiguousarray(Mc)
 
 
@@ -203,7 +202,7 @@ def _standardize_indicators(yf: np.ndarray, classes: np.ndarray) -> np.ndarray:
     n = yf.shape[0]
     Y = np.zeros((n, classes.size), dtype=np.float64)
     for k, c in enumerate(classes):
-        Y[:, k] = (yf == c)
+        Y[:, k] = yf == c
     Yc = Y - Y.mean(axis=0)
     norm = np.sqrt((Yc * Yc).sum(axis=0))
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -219,8 +218,8 @@ def discrete_score_numpy(ZV: np.ndarray, ZV2: np.ndarray, Yc: np.ndarray) -> np.
 
     ZV, ZV2 are the standardized V and V2 (n, p); Yc the standardized indicators (n, K).
     corr(col, indicator) = standardized_col . standardized_indicator, so |corr| is |ZV.T @ Yc|."""
-    c1 = ZV.T @ Yc          # (p, K) = sum_c corr(V[:,j], 1[y=c])
-    c2 = ZV2.T @ Yc         # (p, K) = sum_c corr(V2[:,j], 1[y=c])
+    c1 = ZV.T @ Yc  # (p, K) = sum_c corr(V[:,j], 1[y=c])
+    c2 = ZV2.T @ Yc  # (p, K) = sum_c corr(V2[:,j], 1[y=c])
     return np.abs(c1).sum(axis=1) + np.abs(c2).sum(axis=1)
 
 
@@ -291,8 +290,7 @@ _VARIANTS = {
 # given BLAS, but kept as a HW-dependent option the sweep can elect).
 _DEFAULT_CUPY_WORK_THRESHOLD = 8000 * 50000 * 2  # ~ p>=50k at n=8000,K=2
 
-_SWEEP_WORK = [8000 * 1000 * 2, 8000 * 10000 * 2, 8000 * 50000 * 2,
-               8000 * 100000 * 2, 20000 * 100000 * 2]
+_SWEEP_WORK = [8000 * 1000 * 2, 8000 * 10000 * 2, 8000 * 50000 * 2, 8000 * 100000 * 2, 20000 * 100000 * 2]
 
 
 def _gpu_available() -> bool:
@@ -362,8 +360,7 @@ def _get_spec():
     return _SPEC
 
 
-def compute_discrete_score(V: np.ndarray, V2: np.ndarray, yf: np.ndarray,
-                           classes: np.ndarray, backend: str | None = None) -> np.ndarray:
+def compute_discrete_score(V: np.ndarray, V2: np.ndarray, yf: np.ndarray, classes: np.ndarray, backend: str | None = None) -> np.ndarray:
     """Standardize once + dispatch the K-class GEMM to the fastest backend for the work size.
 
     ``backend`` forces a specific variant ("numpy"/"numba"/"cupy") -- used by parity tests; when

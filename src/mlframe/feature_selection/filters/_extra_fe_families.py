@@ -139,8 +139,7 @@ def _freq_band_codes(
     ``[rare_threshold, 4*rare_threshold, dominant_cut]`` -> bands 0..3
     (very_rare / rare / common / dominant) via a single ``np.searchsorted``."""
     cuts = np.array(
-        [float(rare_threshold), _RARE_BAND_MULT * float(rare_threshold),
-         float(dominant_cut)],
+        [float(rare_threshold), _RARE_BAND_MULT * float(rare_threshold), float(dominant_cut)],
         dtype=np.float64,
     )
     cuts = np.maximum.accumulate(cuts)  # guard monotonicity for searchsorted
@@ -160,10 +159,7 @@ def generate_rare_category_features(
     (no ``y`` reference), so transform() is leakage-free.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"generate_rare_category_features: X must be a pandas DataFrame; "
-            f"got {type(X).__name__}"
-        )
+        raise TypeError(f"generate_rare_category_features: X must be a pandas DataFrame; " f"got {type(X).__name__}")
     if len(X) == 0:
         raise ValueError("generate_rare_category_features: X is empty")
     cat_cols = [c for c in cat_cols if c in X.columns]
@@ -179,9 +175,7 @@ def generate_rare_category_features(
             cats, return_inverse=True, return_counts=True,
         )
         freqs = counts.astype(np.float64) / float(n)
-        freq_lookup = {
-            str(unique_cats[c]): float(freqs[c]) for c in range(unique_cats.shape[0])
-        }
+        freq_lookup = {str(unique_cats[c]): float(freqs[c]) for c in range(unique_cats.shape[0])}
         # Data-driven common/dominant split: 90th percentile of the per-category
         # frequency distribution (frequency-weighted is wrong here -- we want the
         # split over the CATEGORIES, so a few dominant categories don't drag it).
@@ -218,15 +212,10 @@ def apply_rare_category(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     Unseen categories map to frequency 0 (=> very_rare / is_rare=1), the natural
     prior for a category absent from training. Reads only X_test."""
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_rare_category: X_test must be a DataFrame; got "
-            f"{type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_rare_category: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     src_col = recipe["src_col"]
     if src_col not in X_test.columns:
-        raise KeyError(
-            f"apply_rare_category: missing source column {src_col!r} from X_test"
-        )
+        raise KeyError(f"apply_rare_category: missing source column {src_col!r} from X_test")
     kind = recipe.get("kind", "is_rare")
     freq_lookup = dict(recipe["freq_lookup"])
     rare_threshold = float(recipe["rare_threshold"])
@@ -234,9 +223,7 @@ def apply_rare_category(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     cats = _column_to_str(X_test[src_col])
     # Resolve once per UNIQUE key, broadcast back (hot-path friendly).
     uniq, inverse = np.unique(cats, return_inverse=True)
-    uniq_freq = np.array(
-        [freq_lookup.get(str(k), 0.0) for k in uniq], dtype=np.float64
-    )
+    uniq_freq = np.array([freq_lookup.get(str(k), 0.0) for k in uniq], dtype=np.float64)
     row_freq = uniq_freq[inverse]
     if kind == "is_rare":
         return (row_freq < rare_threshold).astype(np.float64)
@@ -255,9 +242,7 @@ def build_rare_category_recipe(
     from .engineered_recipes import EngineeredRecipe
 
     if kind not in ("is_rare", "freq_band"):
-        raise ValueError(
-            f"rare_category kind must be 'is_rare' or 'freq_band'; got {kind!r}"
-        )
+        raise ValueError(f"rare_category kind must be 'is_rare' or 'freq_band'; got {kind!r}")
     return EngineeredRecipe(
         name=name,
         kind="rare_category",
@@ -288,10 +273,7 @@ def _apply_rare_category_recipe(recipe, X) -> np.ndarray:
             if isinstance(X, np.ndarray) and X.dtype.names is not None:
                 X_view = pd.DataFrame({src_col: X[src_col]})
             else:
-                raise TypeError(
-                    f"rare_category recipe '{recipe.name}': cannot extract "
-                    f"{src_col!r} from X of type {type(X).__name__}."
-                )
+                raise TypeError(f"rare_category recipe '{recipe.name}': cannot extract " f"{src_col!r} from X of type {type(X).__name__}.")
     return apply_rare_category(
         X_view,
         {
@@ -347,10 +329,7 @@ def hybrid_rare_category_fe(
     and suppress this family. Defaults to ``X`` for standalone callers whose X is raw.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"hybrid_rare_category_fe: X must be a pandas DataFrame; got "
-            f"{type(X).__name__}"
-        )
+        raise TypeError(f"hybrid_rare_category_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if cat_cols is None or len(cat_cols) == 0:
         cat_cols = _auto_detect_cat_cols(X)
     else:
@@ -441,16 +420,10 @@ def generate_conditional_residual_features(
     stored edges and subtracts the stored per-bin mean (no ``y``, leak-safe).
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"generate_conditional_residual_features: X must be a pandas "
-            f"DataFrame; got {type(X).__name__}"
-        )
+        raise TypeError(f"generate_conditional_residual_features: X must be a pandas " f"DataFrame; got {type(X).__name__}")
     if len(X) == 0:
         raise ValueError("generate_conditional_residual_features: X is empty")
-    num_cols = [
-        c for c in num_cols
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    num_cols = [c for c in num_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     encoded: dict[str, np.ndarray] = {}
     raw_recipes: dict[str, dict] = {}
     if len(num_cols) < 2:
@@ -502,17 +475,11 @@ def apply_conditional_residual(X_test: pd.DataFrame, recipe: dict) -> np.ndarray
     """Replay ``x_i - E[x_i | bin(x_j)]`` from the stored x_j edges + per-bin
     mean. NaN ``x_i`` rows emit 0.0 (no deviation information). Reads only X."""
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_conditional_residual: X_test must be a DataFrame; got "
-            f"{type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_conditional_residual: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     x_i = recipe["x_i"]
     x_j = recipe["x_j"]
     if x_i not in X_test.columns or x_j not in X_test.columns:
-        raise KeyError(
-            f"apply_conditional_residual: missing column(s) {x_i!r}/{x_j!r} "
-            f"from X_test"
-        )
+        raise KeyError(f"apply_conditional_residual: missing column(s) {x_i!r}/{x_j!r} " f"from X_test")
     edges = np.asarray(recipe["edges"], dtype=np.float64)
     bin_mean = np.asarray(recipe["bin_mean"], dtype=np.float64)
     xi = np.asarray(X_test[x_i].to_numpy(), dtype=np.float64)
@@ -557,19 +524,14 @@ def _apply_conditional_residual_recipe(recipe, X) -> np.ndarray:
         try:
             import polars as _pl
             if isinstance(X, _pl.DataFrame):
-                X_view = pd.DataFrame(
-                    {x_i: X[x_i].to_numpy(), x_j: X[x_j].to_numpy()}
-                )
+                X_view = pd.DataFrame({x_i: X[x_i].to_numpy(), x_j: X[x_j].to_numpy()})
             else:
                 raise TypeError
         except (ImportError, TypeError):
             if isinstance(X, np.ndarray) and X.dtype.names is not None:
                 X_view = pd.DataFrame({x_i: X[x_i], x_j: X[x_j]})
             else:
-                raise TypeError(
-                    f"conditional_residual recipe '{recipe.name}': cannot "
-                    f"extract {x_i!r}/{x_j!r} from X of type {type(X).__name__}."
-                )
+                raise TypeError(f"conditional_residual recipe '{recipe.name}': cannot " f"extract {x_i!r}/{x_j!r} from X of type {type(X).__name__}.")
     return apply_conditional_residual(
         X_view,
         {
@@ -627,19 +589,11 @@ def hybrid_conditional_residual_fe(
     and suppress this family. Defaults to ``X`` for standalone callers whose X is raw.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"hybrid_conditional_residual_fe: X must be a pandas DataFrame; got "
-            f"{type(X).__name__}"
-        )
+        raise TypeError(f"hybrid_conditional_residual_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if num_cols is None or len(num_cols) == 0:
-        num_cols = [
-            c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])
-        ]
+        num_cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
     else:
-        num_cols = [
-            c for c in num_cols
-            if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-        ]
+        num_cols = [c for c in num_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if len(num_cols) < 2:
         return X.copy(), [], [], pd.DataFrame()
 
@@ -670,10 +624,7 @@ def hybrid_conditional_residual_fe(
         return X.copy(), [], [], pd.DataFrame()
 
     X_aug = pd.concat([X, enc_df[winners]], axis=1)
-    recipes = [
-        build_conditional_residual_recipe(name=name, **raw_recipes[name])
-        for name in winners
-    ]
+    recipes = [build_conditional_residual_recipe(name=name, **raw_recipes[name]) for name in winners]
     return X_aug, winners, recipes, enc_df
 
 
@@ -776,16 +727,10 @@ def generate_rankgauss_features(
     average-tie ranks.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"generate_rankgauss_features: X must be a pandas DataFrame; got "
-            f"{type(X).__name__}"
-        )
+        raise TypeError(f"generate_rankgauss_features: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if len(X) == 0:
         raise ValueError("generate_rankgauss_features: X is empty")
-    num_cols = [
-        c for c in num_cols
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    num_cols = [c for c in num_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     encoded: dict[str, np.ndarray] = {}
     raw_recipes: dict[str, dict] = {}
     if not num_cols:
@@ -823,15 +768,10 @@ def apply_rankgauss(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     test values rank at the appropriate extreme (the searchsorted position).
     NaN rows -> 0.0. Reads only X."""
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_rankgauss: X_test must be a DataFrame; got "
-            f"{type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_rankgauss: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     src_col = recipe["src_col"]
     if src_col not in X_test.columns:
-        raise KeyError(
-            f"apply_rankgauss: missing source column {src_col!r} from X_test"
-        )
+        raise KeyError(f"apply_rankgauss: missing source column {src_col!r} from X_test")
     fit_sorted = np.asarray(recipe["fit_sorted"], dtype=np.float64)
     n_fit = int(recipe["n_fit"])
     x = np.asarray(X_test[src_col].to_numpy(), dtype=np.float64)
@@ -884,10 +824,7 @@ def _apply_rankgauss_recipe(recipe, X) -> np.ndarray:
             if isinstance(X, np.ndarray) and X.dtype.names is not None:
                 X_view = pd.DataFrame({src_col: X[src_col]})
             else:
-                raise TypeError(
-                    f"rankgauss recipe '{recipe.name}': cannot extract "
-                    f"{src_col!r} from X of type {type(X).__name__}."
-                )
+                raise TypeError(f"rankgauss recipe '{recipe.name}': cannot extract " f"{src_col!r} from X of type {type(X).__name__}.")
     return apply_rankgauss(
         X_view,
         {
@@ -915,17 +852,11 @@ def hybrid_rankgauss_fe(
     reference -> leak-safe replay.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"hybrid_rankgauss_fe: X must be a pandas DataFrame; got "
-            f"{type(X).__name__}"
-        )
+        raise TypeError(f"hybrid_rankgauss_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if num_cols is None or len(num_cols) == 0:
         num_cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
     else:
-        num_cols = [
-            c for c in num_cols
-            if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-        ]
+        num_cols = [c for c in num_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if not num_cols:
         return X.copy(), [], [], pd.DataFrame()
 
@@ -941,10 +872,7 @@ def hybrid_rankgauss_fe(
 
     winners = list(enc_df.columns)
     X_aug = pd.concat([X, enc_df[winners]], axis=1)
-    recipes = [
-        build_rankgauss_recipe(name=name, **raw_recipes[name])
-        for name in winners
-    ]
+    recipes = [build_rankgauss_recipe(name=name, **raw_recipes[name]) for name in winners]
     return X_aug, winners, recipes, enc_df
 
 

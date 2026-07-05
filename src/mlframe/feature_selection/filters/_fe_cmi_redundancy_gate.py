@@ -164,8 +164,6 @@ _MIN_ROWS_FOR_CMI = 500
 # tunable (``MLFRAME_CMI_ANALYTIC_NULL_MIN_N``); a future kernel_tuning_cache sweep can refine per host.
 import os as _os
 
-
-
 # COST GUARD (2026-06-11): the greedy gate is O(K^2) in the candidate count K --
 # every still-remaining candidate is re-scored against the admitted support in
 # EACH greedy round, and each scoring runs a within-stratum permutation null (25
@@ -339,7 +337,7 @@ def apply_cmi_redundancy_gate(
         if _dev is not None:
             import cupy as _cp
             cand_bins_dev[nm] = _dev
-            cand_bins[nm] = _cp.asnumpy(_dev).astype(np.int64)   # host copy = D2H of the SAME resident partition
+            cand_bins[nm] = _cp.asnumpy(_dev).astype(np.int64)  # host copy = D2H of the SAME resident partition
         else:
             cand_bins[nm] = _quantile_bin(vals, nbins=nbins)
     marg = {nm: float(candidates[nm][1]) for nm in names}
@@ -359,7 +357,7 @@ def apply_cmi_redundancy_gate(
     # redundant siblings never pay the greedy cost. Partition identity is hashed on
     # the canonical (dense-renumbered) bin codes so a reversed-but-identical
     # partition collapses to the same key.
-    _partition_rep: dict = {}   # canonical partition key -> representative name
+    _partition_rep: dict = {}  # canonical partition key -> representative name
     _dups_collapsed: list[str] = []
     for nm in sorted(names):  # deterministic iteration (name order)
         _, inv = np.unique(cand_bins[nm], return_inverse=True)
@@ -385,8 +383,7 @@ def apply_cmi_redundancy_gate(
             )
         if verbose:
             logger.info(
-                "CMI-redundancy gate: collapsed %d exact-partition duplicate(s) "
-                "(monotone/linear remaps of a kept feature) before the greedy.",
+                "CMI-redundancy gate: collapsed %d exact-partition duplicate(s) " "(monotone/linear remaps of a kept feature) before the greedy.",
                 len(_dups_collapsed),
             )
 
@@ -400,7 +397,7 @@ def apply_cmi_redundancy_gate(
     _dropped_for_cost: list[str] = []
     if int(max_candidates) > 0 and len(names) > int(max_candidates):
         names_by_marg = sorted(names, key=lambda nm: (float(candidates[nm][1]), nm), reverse=True)
-        _dropped_for_cost = names_by_marg[int(max_candidates):]
+        _dropped_for_cost = names_by_marg[int(max_candidates) :]
         names = names_by_marg[: int(max_candidates)]
         for nm in _dropped_for_cost:
             diagnostics[nm] = dict(
@@ -417,7 +414,7 @@ def apply_cmi_redundancy_gate(
                 int(max_candidates), len(_dropped_for_cost),
             )
 
-    accepted: list[str] = []          # admitted candidate names, in selection order
+    accepted: list[str] = []  # admitted candidate names, in selection order
     accepted_bins: list[np.ndarray] = []
     # Parallel list of the RESIDENT (device) code for each admitted feature (None where that feature fell back to
     # host binning). When every admitted feature has a resident code the round conditioning support Z is built
@@ -495,7 +492,7 @@ def apply_cmi_redundancy_gate(
         if z_support_dev is None:
             z_support, _ = _renumber_joint(*accepted_bins)
         else:
-            z_support = None   # host support built lazily only if a host consumer needs it this round
+            z_support = None  # host support built lazily only if a host consumer needs it this round
         # z handed to the DEVICE scorers (round-batched CMI + per-candidate CMI): the resident support when
         # device-born, else the host support -- both accepted by the cupy resident-input branches.
         _z_scored = z_support_dev if z_support_dev is not None else z_support
@@ -518,7 +515,7 @@ def apply_cmi_redundancy_gate(
         # under STRICT/CMI_GPU (default OFF -> per-candidate CPU, byte-identical).
         _round_cmi: dict = {}
         _round_floor: dict = {}
-        _round_cards: dict = {}   # nm -> (k_z, k_xz, k_yz, k_xyz) from the batched return_cards workload
+        _round_cards: dict = {}  # nm -> (k_z, k_xz, k_yz, k_xyz) from the batched return_cards workload
         # Stable, hash-independent iteration order: ``remaining`` is a set of name strings, so a
         # bare ``list(remaining)`` is PYTHONHASHSEED-randomised and the per-round winner tie-break
         # (``cmi_excess > best_excess``, first-wins) would flip across processes on equal-excess
@@ -549,9 +546,9 @@ def apply_cmi_redundancy_gate(
                 # cards for EVERY candidate -> pass to the per-candidate permutation-null fallback so it never
                 # recomputes joint_cardinalities_cupy (z_support is conditional here, so cards apply).
                 if _z_scored is not None:
-                    _kxz_a = np.asarray(_kxz); _kxyz_a = np.asarray(_kxyz)
-                    _round_cards = {_nm: (int(_kz), int(_kxz_a[_j]), int(_kyz), int(_kxyz_a[_j]))
-                                    for _j, _nm in enumerate(_rem_list)}
+                    _kxz_a = np.asarray(_kxz)
+                    _kxyz_a = np.asarray(_kxyz)
+                    _round_cards = {_nm: (int(_kz), int(_kxz_a[_j]), int(_kyz), int(_kxyz_a[_j])) for _j, _nm in enumerate(_rem_list)}
                 # analytic floor/null for all candidates from the batched cards (matches _conditional_perm_null)
                 try:
                     from ._analytic_mi_null import _HAVE_CHI2, _chi2, _min_expected_cell, analytic_null_enabled
@@ -598,7 +595,7 @@ def apply_cmi_redundancy_gate(
                 )
             cmi_excess = max(0.0, cmi - null_mean)
             scored[nm] = (cmi, cmi_excess)
-            passes_floor = cmi > floor                 # leg 1: significance
+            passes_floor = cmi > floor  # leg 1: significance
             # Strong-significance escape: a candidate whose observed CMI clears
             # its OWN conditional-permutation floor by a robust multiplicative
             # margin carries genuinely NEW conditional information that is NOT in
@@ -609,13 +606,8 @@ def apply_cmi_redundancy_gate(
             # which by itself would FALSELY REJECT a complementary-but-weaker
             # feature as "redundant". The escape requires passes_floor first (no
             # division-by-noise on a sub-floor candidate).
-            strongly_significant = (
-                passes_floor
-                and significance_escape_margin > 1.0
-                and floor > 0.0
-                and cmi >= significance_escape_margin * floor
-            )
-            passes_rel = cmi_excess >= rel_bar         # leg 2: debiased relative gap
+            strongly_significant = passes_floor and significance_escape_margin > 1.0 and floor > 0.0 and cmi >= significance_escape_margin * floor
+            passes_rel = cmi_excess >= rel_bar  # leg 2: debiased relative gap
             passes = passes_floor and (passes_rel or strongly_significant)
             if nm not in diagnostics:
                 diagnostics[nm] = {}

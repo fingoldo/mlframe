@@ -35,7 +35,6 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-
 RESULTS_DIR = Path(__file__).parent / "_results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -54,9 +53,7 @@ def _make_mixed_polars(n_rows: int, n_num: int, n_cat: int, seed: int) -> pl.Dat
     data = {f"num{i}": rng.normal(size=n_rows).astype(np.float64) for i in range(n_num)}
     for j in range(n_cat):
         codes = rng.integers(0, len(cat_pool), size=n_rows)
-        data[f"cat{j}"] = pl.Series(
-            f"cat{j}", [cat_pool[c] for c in codes], dtype=pl.Categorical
-        )
+        data[f"cat{j}"] = pl.Series(f"cat{j}", [cat_pool[c] for c in codes], dtype=pl.Categorical)
     return pl.DataFrame(data)
 
 

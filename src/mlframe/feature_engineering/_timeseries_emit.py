@@ -44,10 +44,7 @@ def _emit_groupby_block(
                 raw_vals = raw_vals / total
             row_features.extend(compute_numaggs(raw_vals, **numaggs_kwds))
             if create_features_names:
-                features_names.extend(
-                    captions_vars_sep.join((dataset_name, sum_var, "grpby", var, feat))
-                    for feat in numaggs_names
-                )
+                features_names.extend(captions_vars_sep.join((dataset_name, sum_var, "grpby", var, feat)) for feat in numaggs_names)
 
 
 def _emit_categorical_counts(
@@ -60,10 +57,7 @@ def _emit_categorical_counts(
     if process_categoricals or (counts_processing_mask_regexp and counts_processing_mask_regexp.search(var)):
         row_features.extend(compute_countaggs(series, **countaggs_kwds))
         if create_features_names:
-            features_names.extend(
-                captions_vars_sep.join((dataset_name, var, "vlscnt", feat))
-                for feat in countaggs_names
-            )
+            features_names.extend(captions_vars_sep.join((dataset_name, var, "vlscnt", feat)) for feat in countaggs_names)
 
 
 def _emit_raw_numaggs(
@@ -89,9 +83,7 @@ def _emit_raw_numaggs(
     simple_numerical_features = compute_numaggs(raw_vals, **custom_numaggs_kwds)
     row_features.extend(simple_numerical_features)
     if create_features_names:
-        features_names.extend(
-            captions_vars_sep.join((dataset_name, var, feat)) for feat in simple_numaggs_names
-        )
+        features_names.extend(captions_vars_sep.join((dataset_name, var, feat)) for feat in simple_numaggs_names)
     return simple_numerical_features, simple_numaggs_names, custom_numaggs_kwds
 
 
@@ -104,10 +96,7 @@ def _emit_differences(
     custom_numaggs_kwds_diffs["return_profit_factor"] = True
     row_features.extend(compute_numaggs(differences, **custom_numaggs_kwds_diffs))
     if create_features_names:
-        features_names.extend(
-            captions_vars_sep.join((dataset_name, var, "dif", feat))
-            for feat in get_numaggs_names(**custom_numaggs_kwds_diffs)
-        )
+        features_names.extend(captions_vars_sep.join((dataset_name, var, "dif", feat)) for feat in get_numaggs_names(**custom_numaggs_kwds_diffs))
 
 
 def _emit_ratios(
@@ -125,10 +114,7 @@ def _emit_ratios(
     custom_numaggs_kwds_ratios["return_profit_factor"] = True
     row_features.extend(compute_numaggs(ratios, **custom_numaggs_kwds_ratios))
     if create_features_names:
-        features_names.extend(
-            captions_vars_sep.join((dataset_name, var, "rat", feat))
-            for feat in get_numaggs_names(**custom_numaggs_kwds_ratios)
-        )
+        features_names.extend(captions_vars_sep.join((dataset_name, var, "rat", feat)) for feat in get_numaggs_names(**custom_numaggs_kwds_ratios))
 
 
 def _emit_wavelets(
@@ -142,10 +128,7 @@ def _emit_wavelets(
         all_coeffs = np.hstack(list(pywt.wavedec(raw_vals, waveletname)))
         row_features.extend(compute_numaggs(all_coeffs, **custom_numaggs_kwds_wave))
         if create_features_names:
-            features_names.extend(
-                captions_vars_sep.join((dataset_name, var, waveletname, feat))
-                for feat in get_numaggs_names(**custom_numaggs_kwds_wave)
-            )
+            features_names.extend(captions_vars_sep.join((dataset_name, var, waveletname, feat)) for feat in get_numaggs_names(**custom_numaggs_kwds_wave))
 
 
 def _emit_weighted(
@@ -167,10 +150,7 @@ def _emit_weighted(
                 weighted = (raw_vals / w_sum) * weighting_values
                 row_features.extend(compute_numaggs(weighted, **numaggs_kwds))
             if create_features_names:
-                features_names.extend(
-                    captions_vars_sep.join((dataset_name, var, "wgt", weighting_var, feat))
-                    for feat in numaggs_names
-                )
+                features_names.extend(captions_vars_sep.join((dataset_name, var, "wgt", weighting_var, feat)) for feat in numaggs_names)
 
 
 def _emit_ewma(
@@ -184,10 +164,7 @@ def _emit_ewma(
         else:
             row_features.extend([0.0] * len(numaggs_names))
         if create_features_names:
-            features_names.extend(
-                captions_vars_sep.join((dataset_name, var, "ewma", str(alpha), feat))
-                for feat in numaggs_names
-            )
+            features_names.extend(captions_vars_sep.join((dataset_name, var, "ewma", str(alpha), feat)) for feat in numaggs_names)
 
 
 def _emit_rolling(
@@ -207,14 +184,9 @@ def _emit_rolling(
         if create_features_names:
             # lightgbm forbids commas in feature names ("Do not support special JSON characters
             # in feature name") - use ";" as the per-kv separator.
-            specs = ";".join(
-                f"{key}={value}" for key, value in dict(**window, m=method, **method_params).items()
-            )
+            specs = ";".join(f"{key}={value}" for key, value in dict(**window, m=method, **method_params).items())
             specs = specs.replace("win_type", "t").replace("window", "w")
-            features_names.extend(
-                captions_vars_sep.join((dataset_name, var, "rol", specs, feat))
-                for feat in numaggs_names
-            )
+            features_names.extend(captions_vars_sep.join((dataset_name, var, "rol", specs, feat)) for feat in numaggs_names)
 
 
 def _emit_nonlinear(
@@ -226,10 +198,7 @@ def _emit_nonlinear(
         transform_name = nonlinear_func.__name__
         row_features.extend(compute_numaggs(nonlinear_func(raw_vals), **numaggs_kwds))
         if create_features_names:
-            features_names.extend(
-                captions_vars_sep.join((dataset_name, var, transform_name, feat))
-                for feat in numaggs_names
-            )
+            features_names.extend(captions_vars_sep.join((dataset_name, var, transform_name, feat)) for feat in numaggs_names)
 
 
 def _emit_robust(
@@ -259,10 +228,7 @@ def _emit_robust(
         else:
             row_features.extend(compute_numaggs(robust_subset, **numaggs_kwds))
         if create_features_names:
-            features_names.extend(
-                captions_vars_sep.join((dataset_name, var, "rbst", feat))
-                for feat in numaggs_names
-            )
+            features_names.extend(captions_vars_sep.join((dataset_name, var, "rbst", feat)) for feat in numaggs_names)
 
 
 def _emit_counts_regexp(
@@ -274,7 +240,4 @@ def _emit_counts_regexp(
     dtype). Used for integer count-like columns that aren't pandas categoricals."""
     row_features.extend(compute_countaggs(series, **countaggs_kwds))
     if create_features_names:
-        features_names.extend(
-            captions_vars_sep.join((dataset_name, var, "vlscnt", feat))
-            for feat in countaggs_names
-        )
+        features_names.extend(captions_vars_sep.join((dataset_name, var, "vlscnt", feat)) for feat in countaggs_names)

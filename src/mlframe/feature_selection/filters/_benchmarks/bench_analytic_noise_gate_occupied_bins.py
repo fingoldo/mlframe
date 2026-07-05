@@ -46,7 +46,7 @@ def _best_of(fn, arg, reps=7):
 
 
 def main():
-    for (n, K, nbins) in [(50_000, 30, 8), (80_000, 30, 8), (200_000, 60, 10)]:
+    for n, K, nbins in [(50_000, 30, 8), (80_000, 30, 8), (200_000, 60, 10)]:
         rng = np.random.default_rng(0)
         disc = rng.integers(0, nbins, size=(n, K)).astype(np.int16)
         old = _old_counts(disc)

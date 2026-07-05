@@ -43,7 +43,6 @@ from mlframe.feature_selection._benchmarks.bench_adaptive_nbins import (
     _bin_with_edges,
 )
 
-
 # =============================================================================
 # Treatment definitions
 # =============================================================================
@@ -70,9 +69,7 @@ TREATMENTS: Dict[str, Dict] = {
     },
     "knuth_combo": {
         "mm": False,
-        "kwargs_by_method": {
-            "knuth": {"knuth_edge_type": "quantile", "knuth_m_max_cap": 64}
-        },
+        "kwargs_by_method": {"knuth": {"knuth_edge_type": "quantile", "knuth_m_max_cap": 64}},
     },
     "bb_midpoint": {
         "mm": False,
@@ -106,9 +103,7 @@ TREATMENTS: Dict[str, Dict] = {
     },
     "mdlp_combo": {
         "mm": False,
-        "kwargs_by_method": {
-            "fayyad_irani": {"mdlp_backend": "njit", "mdlp_scaled_min_split": True}
-        },
+        "kwargs_by_method": {"fayyad_irani": {"mdlp_backend": "njit", "mdlp_scaled_min_split": True}},
     },
     "ALL_FIXES": {  # the bundled patch the user would ship as a single new default
         "mm": True,
@@ -225,8 +220,7 @@ def run_ab_benchmark(
 
     rng_master = np.random.default_rng(random_state)
     all_results: List[ABFoldResult] = []
-    total_folds = (len(distributions) * len(signal_kinds) * len(sample_sizes)
-                   * n_repeats * n_splits * len(methods) * len(treatments))
+    total_folds = len(distributions) * len(signal_kinds) * len(sample_sizes) * n_repeats * n_splits * len(methods) * len(treatments)
     if verbose:
         print(f"[bench_adaptive_nbins_ab] {total_folds} fold-evaluations "
               f"({len(distributions)}d x {len(signal_kinds)}s x {len(sample_sizes)}n "
@@ -259,8 +253,7 @@ def run_ab_benchmark(
                                     all_results.append(res)
                                 counter += 1
                 if verbose:
-                    print(f"  done: dist={dist:15s} signal={sig:12s} "
-                          f"({counter}/{total_folds})")
+                    print(f"  done: dist={dist:15s} signal={sig:12s} " f"({counter}/{total_folds})")
 
     summary = _summarise_ab(all_results)
     return {"results": [asdict(r) for r in all_results], "summary": summary}
@@ -313,8 +306,7 @@ def print_ab_summary(summary: Dict) -> None:
             continue
         print(f"\n[method = {method}]")
         print("-" * 88)
-        print(f"{'treatment':<20} {'MI_mean':>9} {'dMI':>8} {'MI_nosig':>9} {'dnosig':>8} "
-              f"{'rt_ms':>9} {'drt%':>8}")
+        print(f"{'treatment':<20} {'MI_mean':>9} {'dMI':>8} {'MI_nosig':>9} {'dnosig':>8} " f"{'rt_ms':>9} {'drt%':>8}")
         baseline = pmt[method].get("baseline")
         for tname in TREATMENTS.keys():
             if tname not in pmt[method]:
@@ -325,17 +317,12 @@ def print_ab_summary(summary: Dict) -> None:
             if baseline:
                 dmi = t["mi_mean"] - baseline["mi_mean"]
                 dns = n_s - b_ns
-                drt = (
-                    100.0 * (t["rt_ms_mean"] - baseline["rt_ms_mean"])
-                    / max(baseline["rt_ms_mean"], 1e-9)
-                )
+                drt = 100.0 * (t["rt_ms_mean"] - baseline["rt_ms_mean"]) / max(baseline["rt_ms_mean"], 1e-9)
             else:
                 dmi = float("nan")
                 dns = float("nan")
                 drt = float("nan")
-            print(f"{tname:<20} {t['mi_mean']:>9.4f} {dmi:>+8.4f} "
-                  f"{n_s:>9.4f} {dns:>+8.4f} "
-                  f"{t['rt_ms_mean']:>9.3f} {drt:>+8.1f}")
+            print(f"{tname:<20} {t['mi_mean']:>9.4f} {dmi:>+8.4f} " f"{n_s:>9.4f} {dns:>+8.4f} " f"{t['rt_ms_mean']:>9.3f} {drt:>+8.1f}")
     print()
 
 

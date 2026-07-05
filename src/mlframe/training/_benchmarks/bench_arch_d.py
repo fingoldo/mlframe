@@ -62,11 +62,7 @@ def _col_stats_numpy(arr: np.ndarray) -> bytes:
     finite = arr[~isnan]
     if finite.size == 0:
         return f"all_null:{n_null}".encode("utf-8")
-    return (
-        f"min={float(np.min(finite)):.12g};"
-        f"max={float(np.max(finite)):.12g};"
-        f"null={n_null}"
-    ).encode("utf-8")
+    return (f"min={float(np.min(finite)):.12g};" f"max={float(np.max(finite)):.12g};" f"null={n_null}").encode("utf-8")
 
 
 def _build_col_stats_numba():
@@ -168,21 +164,13 @@ def _polars_fastpath_path(X) -> np.ndarray:
     """Mirror of the polars branch of ``_fit_persist_and_transform``."""
     import polars as pl
     cols = X.columns
-    df_imp = X.with_columns([
-        pl.col(c).fill_nan(pl.col(c).drop_nans().mean()) for c in cols
-    ])
-    _stats = df_imp.select(
-        [pl.col(c).mean().alias(f"_mean_{c}") for c in cols] +
-        [pl.col(c).std(ddof=0).alias(f"_std_{c}") for c in cols]
-    ).row(0)
+    df_imp = X.with_columns([pl.col(c).fill_nan(pl.col(c).drop_nans().mean()) for c in cols])
+    _stats = df_imp.select([pl.col(c).mean().alias(f"_mean_{c}") for c in cols] + [pl.col(c).std(ddof=0).alias(f"_std_{c}") for c in cols]).row(0)
     n = len(cols)
     means = np.asarray(_stats[:n], dtype=np.float64)
     stds = np.asarray(_stats[n:], dtype=np.float64)
     stds_safe = np.where(stds == 0.0, 1.0, stds)
-    df_std = df_imp.with_columns([
-        (pl.col(c) - pl.lit(float(means[i]))) / pl.lit(float(stds_safe[i]))
-        for i, c in enumerate(cols)
-    ])
+    df_std = df_imp.with_columns([(pl.col(c) - pl.lit(float(means[i]))) / pl.lit(float(stds_safe[i])) for i, c in enumerate(cols)])
     return df_std.to_numpy()
 
 

@@ -116,5 +116,4 @@ if __name__ == "__main__":
     out = run()
     print("\n=== summary", datetime.now().isoformat(timespec="seconds"), "===")
     for r in out:
-        print(f"n={r['n']:>7} sub={r['n_sub']:>6}: {r['speedup']}x faster, "
-              f"weight_cos={r['weight_cosine']}, rmse_delta={r['rmse_delta_pct']}%")
+        print(f"n={r['n']:>7} sub={r['n_sub']:>6}: {r['speedup']}x faster, " f"weight_cos={r['weight_cosine']}, rmse_delta={r['rmse_delta_pct']}%")

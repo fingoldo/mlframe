@@ -85,12 +85,7 @@ def _make_cat_heavy_multilabel_frame(n_rows: int, *, n_labels: int = 4, seed: in
 
     labels = np.empty((n_rows, n_labels), dtype=np.int8)
     for k in range(n_labels):
-        logit = (
-            rng.uniform(-1, 1) * f0
-            + rng.uniform(-1, 1) * f1
-            + 0.4 * (cat_low_code - 2.0)
-            + rng.normal(0, 0.3, n_rows)
-        )
+        logit = rng.uniform(-1, 1) * f0 + rng.uniform(-1, 1) * f1 + 0.4 * (cat_low_code - 2.0) + rng.normal(0, 0.3, n_rows)
         prob = 1.0 / (1.0 + np.exp(-logit))
         labels[:, k] = (rng.uniform(0, 1, n_rows) < prob).astype(np.int8)
     df["target"] = pd.Series(list(labels), dtype=object)

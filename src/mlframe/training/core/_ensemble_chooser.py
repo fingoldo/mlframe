@@ -56,11 +56,7 @@ _REGRESSION_METRICS = (
 def _build_rank_candidates():
     """Expand (split x metric-family) into the flat probe order: oof first, then val, then test."""
     _metrics = _CLASSIFICATION_METRICS + _REGRESSION_METRICS
-    return tuple(
-        (split, metric, direction)
-        for split in ("oof", "val", "test")
-        for metric, direction in _metrics
-    )
+    return tuple((split, metric, direction) for split in ("oof", "val", "test") for metric, direction in _metrics)
 
 
 _ENSEMBLE_RANK_METRIC_CANDIDATES = _build_rank_candidates()
@@ -131,17 +127,11 @@ def _choose_ensemble_flavour(ensembles_dict: dict) -> str | None:
     """
     if not isinstance(ensembles_dict, dict) or not ensembles_dict:
         return None
-    _candidates = {
-        k: v for k, v in ensembles_dict.items()
-        if isinstance(k, str) and not k.endswith(" conf") and not k.startswith("_")
-    }
+    _candidates = {k: v for k, v in ensembles_dict.items() if isinstance(k, str) and not k.endswith(" conf") and not k.startswith("_")}
     if not _candidates:
         return None
     for _split, _metric, _direction in _ENSEMBLE_RANK_METRIC_CANDIDATES:
-        _scored = [
-            (k, _read_ensemble_metric(v, _split, _metric))
-            for k, v in _candidates.items()
-        ]
+        _scored = [(k, _read_ensemble_metric(v, _split, _metric)) for k, v in _candidates.items()]
         _scored = [(k, s) for k, s in _scored if s is not None]
         if not _scored:
             continue

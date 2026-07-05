@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -205,9 +204,7 @@ def prepare_df_for_catboost(
                             target = np.float32
                         elif isinstance(src, pd.Float64Dtype):
                             target = np.float64
-                        elif isinstance(src, (pd.Int8Dtype, pd.Int16Dtype, pd.Int32Dtype,
-                                              pd.UInt8Dtype, pd.UInt16Dtype, pd.UInt32Dtype,
-                                              pd.BooleanDtype)):
+                        elif isinstance(src, (pd.Int8Dtype, pd.Int16Dtype, pd.Int32Dtype, pd.UInt8Dtype, pd.UInt16Dtype, pd.UInt32Dtype, pd.BooleanDtype)):
                             target = np.float32
                         else:
                             # Int64 / UInt64 / unknown extension: widen to float64.
@@ -274,10 +271,7 @@ def prepare_df_for_xgboost(
     except ImportError:
         is_polars_df = False
     if is_polars_df:
-        raise TypeError(
-            f"prepare_df_for_xgboost requires a pandas DataFrame, got "
-            f"{type(df).__name__}. Convert via get_pandas_view_of_polars_df() first."
-        )
+        raise TypeError(f"prepare_df_for_xgboost requires a pandas DataFrame, got " f"{type(df).__name__}. Convert via get_pandas_view_of_polars_df() first.")
     if cat_features is None:
         cat_features = []
     if not inplace:

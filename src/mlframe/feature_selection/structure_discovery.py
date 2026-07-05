@@ -114,8 +114,7 @@ class StructureReport:
     def summary(self) -> str:
         """Human-readable ranked block."""
         header = (
-            f"StructureReport: {len(self.relations)} discovered relationship(s) "
-            f"over {self.n_columns} columns ({self.n_integer_columns} integer-eligible)."
+            f"StructureReport: {len(self.relations)} discovered relationship(s) " f"over {self.n_columns} columns ({self.n_integer_columns} integer-eligible)."
         )
         if self.skipped:
             return f"{header}\n  (scan skipped: {self.skipped})"
@@ -228,8 +227,7 @@ def _argmax_relations(X, y, names_ok, nbins, seed, n_perm):
         lift = _lift(h.feat_mi, h.operand_floor)
         cols = tuple(str(c) for c in h.cols)
         pval = _perm_pvalue(apply_row_argmax(X, h.cols), y, nbins, n_perm, seed)
-        desc = (f"y depends on which of ({', '.join(cols)}) is largest (argmax)  "
-                f"[MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]")
+        desc = f"y depends on which of ({', '.join(cols)}) is largest (argmax)  " f"[MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]"
         out.append(DiscoveredRelation("argmax", cols, None, float(h.feat_mi), float(h.operand_floor), lift, desc, pval))
     return out
 
@@ -247,13 +245,11 @@ def _gate_relations(X, y, names_ok, nbins, seed, n_perm):
         if h.mode == "select":
             a, b, c = cols
             kind = "gate_select"
-            desc = (f"regime switch: y ~ ({a} if {c}>{h.tau:.3g} else {b})  "
-                    f"[MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]")
+            desc = f"regime switch: y ~ ({a} if {c}>{h.tau:.3g} else {b})  " f"[MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]"
         else:
             a, c = cols
             kind = "gate_mask"
-            desc = (f"masked interaction: y ~ {a} * 1[{c}>{h.tau:.3g}]  "
-                    f"[MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]")
+            desc = f"masked interaction: y ~ {a} * 1[{c}>{h.tau:.3g}]  " f"[MI {h.feat_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]"
         out.append(DiscoveredRelation(kind, cols, float(h.tau), float(h.feat_mi), float(h.baseline_mi), lift, desc, pval))
     return out
 

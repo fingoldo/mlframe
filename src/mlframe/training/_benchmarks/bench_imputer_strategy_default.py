@@ -50,7 +50,7 @@ def _make_scenario(name, rng, n=3000, p=8):
         y = (logit + rng.normal(0, 1, n) > 0).astype(int)
         task = "clf"
     elif name == "pareto_binary":
-        X = (rng.pareto(2.5, size=(n, p)) + 1.0)
+        X = rng.pareto(2.5, size=(n, p)) + 1.0
         beta = rng.normal(0, 1, p)
         logit = (np.log(X) - np.log(X).mean(0)) @ beta
         y = (logit + rng.normal(0, 1.2, n) > 0).astype(int)
@@ -89,12 +89,7 @@ def _run_cell(name, strategy, seed):
 
     def _frame(rows):
         # Build with polars NULL (not float NaN): Blueprint.impute fills nulls.
-        return pl.DataFrame(
-            {
-                c: [None if miss[i, j] else float(X[i, j]) for i in rows]
-                for j, c in enumerate(cols)
-            }
-        )
+        return pl.DataFrame({c: [None if miss[i, j] else float(X[i, j]) for i in rows] for j, c in enumerate(cols)})
 
     cfg = PreprocessingBackendConfig(
         imputer_strategy=strategy,

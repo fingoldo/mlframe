@@ -131,8 +131,7 @@ def main():
                 # total scale-free error (RMS of jitter & bias) / half-width
                 err = float(np.sqrt(jitter**2 + bias**2) / half)
                 cand_err[B] = err
-                rows.append((sc_name, dseed, B, round(err, 5),
-                             round(jitter / half, 5), round(bias / half, 5)))
+                rows.append((sc_name, dseed, B, round(err, 5), round(jitter / half, 5), round(bias / half, 5)))
 
             # the default 1000 is the incumbent; a challenger "wins" the cell
             # only if its error is materially (>=10% relative) lower than 1000.

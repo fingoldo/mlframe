@@ -42,11 +42,11 @@ def main():
     allrows += run(rname, Xr, yr)
     df = pd.DataFrame(allrows)
     print("\n=== mean over seeds ===")
-    print(df.groupby(["bed", "variant"]).agg(auc=("auc_mean","mean"), std=("auc_mean","std"), n=("n","mean")).round(4).to_string())
+    print(df.groupby(["bed", "variant"]).agg(auc=("auc_mean", "mean"), std=("auc_mean", "std"), n=("n", "mean")).round(4).to_string())
     print("\n=== verdict ===")
     for bed in df.bed.unique():
-        d0 = df[(df.bed==bed)&(df.variant=="default")]["auc_mean"].mean()
-        d1 = df[(df.bed==bed)&(df.variant=="cap250")]["auc_mean"].mean()
+        d0 = df[(df.bed == bed) & (df.variant == "default")]["auc_mean"].mean()
+        d1 = df[(df.bed == bed) & (df.variant == "cap250")]["auc_mean"].mean()
         print(f"  {bed:12s} cap250 {round(d1,4)} vs default {round(d0,4)}  d={round(d1-d0,4):+}")
     df.to_csv("D:/Temp/round4_hybrid_mrmrcap_rows.csv", index=False)
 

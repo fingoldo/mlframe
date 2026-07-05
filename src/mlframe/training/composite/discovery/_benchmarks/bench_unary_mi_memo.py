@@ -159,10 +159,7 @@ def main() -> None:
         for tn in _UNARY
     )
 
-    print(
-        f"unary MI memo bench  n={_N} F={_F} B={_B} U={len(_UNARY)} nbins={_NBINS} "
-        f"py={sys.version.split()[0]}"
-    )
+    print(f"unary MI memo bench  n={_N} F={_F} B={_B} U={len(_UNARY)} nbins={_NBINS} " f"py={sys.version.split()[0]}")
     print(f"  bit-identical results:   {identical}")
     print(f"  old (per-base re-eval):  MI-kernel calls={old_calls:3d}  wall={old_wall * 1e3:8.2f} ms")
     print(f"  new (memoised):          MI-kernel calls={new_calls:3d}  wall={new_wall * 1e3:8.2f} ms")

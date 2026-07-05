@@ -55,10 +55,7 @@ def main() -> None:
         ok = np.array_equal(old, new)
         t_old = _best(_old_self_rank, x)
         t_new = _best(_self_avg_tie_rank, x)
-        print(
-            f"  {desc:10s} identical={ok}  old={t_old*1e3:7.1f}ms  new={t_new*1e3:7.1f}ms  "
-            f"speedup={t_old/t_new:4.2f}x"
-        )
+        print(f"  {desc:10s} identical={ok}  old={t_old*1e3:7.1f}ms  new={t_new*1e3:7.1f}ms  " f"speedup={t_old/t_new:4.2f}x")
 
     print("== full generate_rankgauss_features (6 cols x 1M) ==")
     num = pd.DataFrame({f"x{i}": rng.normal(size=1_000_000) for i in range(6)})

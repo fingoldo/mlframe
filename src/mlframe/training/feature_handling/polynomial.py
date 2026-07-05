@@ -205,11 +205,7 @@ class PolynomialFeatureExpander:
         return list(self._feature_names) if self._feature_names else []
 
     def __repr__(self) -> str:
-        return (
-            f"PolynomialFeatureExpander(degree={self.degree}, "
-            f"interaction_only={self.interaction_only}, "
-            f"fitted={self._fitted})"
-        )
+        return f"PolynomialFeatureExpander(degree={self.degree}, " f"interaction_only={self.interaction_only}, " f"fitted={self._fitted})"
 
 
 __all__ = ["PolynomialFeatureExpander"]

@@ -8,7 +8,6 @@ from typing import Sequence
 
 import numpy as np
 
-
 # MARGINAL-UPLIFT alternative acceptance for the per-pair engineered winner. The
 # primary joint-prevalence gate (``best_mi / pair_mi > fe_min_engineered_mi_prevalence``)
 # rejects a genuine signal pair whenever the 2-D JOINT MI is finite-sample-inflated
@@ -182,9 +181,9 @@ def mi_tie_band(nbins: int, n_rows: int, k_y: int) -> float:
     return max(0.0, (float(int(nbins) - 1) * float(int(k_y) - 1)) / (2.0 * n))
 
 
-def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None = None,
-                        usability: dict | None = None, mi_band: float = 0.0,
-                        usability_primary: bool = False):
+def _select_single_best(
+    perf: dict, cols_names: Sequence, secondary: dict | None = None, usability: dict | None = None, mi_band: float = 0.0, usability_primary: bool = False
+):
     """Pick ONE winning ``config`` from a ``{config: mi}`` mapping.
 
     Selection key, in priority order:

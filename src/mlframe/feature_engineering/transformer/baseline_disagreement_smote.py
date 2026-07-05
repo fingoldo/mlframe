@@ -32,9 +32,7 @@ from ._utils import require_seed, validate_numeric_input
 logger = logging.getLogger(__name__)
 
 
-def _smote_oversample_minority(
-    X: np.ndarray, y: np.ndarray, k_neighbors: int = 5, target_ratio: float = 1.0, seed: int = 0
-) -> tuple[np.ndarray, np.ndarray]:
+def _smote_oversample_minority(X: np.ndarray, y: np.ndarray, k_neighbors: int = 5, target_ratio: float = 1.0, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
     """Inline SMOTE: oversample y=1 class to target_ratio of majority class via k-NN interpolation.
 
     target_ratio=1.0 means equal classes. Returns (X_aug, y_aug) with original + synthetic positives.
@@ -82,12 +80,10 @@ def _fit_3baselines_smote_predict_on_query(
         else:
             X_aug, y_aug = Xt, y_t_int
 
-        m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
-                                random_state=int(seed), verbose=-1, n_jobs=-1)
+        m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m1.fit(X_aug, y_aug)
         p1 = m1.predict_proba(Xq)[:, 1].astype(np.float32)
-        m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1,
-                                random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
+        m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
         m2.fit(X_aug, y_aug)
         p2 = m2.predict_proba(Xq)[:, 1].astype(np.float32)
         try:
@@ -97,12 +93,10 @@ def _fit_3baselines_smote_predict_on_query(
         except Exception:
             p3 = np.full(Xq.shape[0], float(y_t.mean()), dtype=np.float32)
     else:
-        m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1,
-                               random_state=int(seed), verbose=-1, n_jobs=-1)
+        m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m1.fit(Xt, y_t)
         p1 = m1.predict(Xq).astype(np.float32)
-        m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1,
-                               random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
+        m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
         m2.fit(Xt, y_t)
         p2 = m2.predict(Xq).astype(np.float32)
         m3 = Ridge(alpha=1.0, random_state=int(seed) + 2)

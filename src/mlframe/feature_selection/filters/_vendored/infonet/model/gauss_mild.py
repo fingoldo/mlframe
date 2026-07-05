@@ -5,11 +5,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 def gauss_kernel(kernlen=5, nsig=3, channels=1):
-    interval = (2*nsig+1.)/(kernlen)
-    x = np.linspace(-nsig-interval/2., nsig+interval/2., kernlen+1)
+    interval = (2 * nsig + 1.0) / (kernlen)
+    x = np.linspace(-nsig - interval / 2.0, nsig + interval / 2.0, kernlen + 1)
     kern1d = np.diff(st.norm.cdf(x))
     kernel_raw = np.sqrt(np.outer(kern1d, kern1d))
-    kernel = kernel_raw/kernel_raw.sum()
+    kernel = kernel_raw / kernel_raw.sum()
     out_filter = np.array(kernel, dtype=np.float32)
     out_filter = out_filter.reshape((1, 1, kernlen, kernlen))
     out_filter = np.repeat(out_filter, channels, axis=2)
@@ -21,15 +21,15 @@ def make_gauss_var(size, nsig, c_i):
     return var
 
 class GaussConv(nn.Module):
-    def __init__(self, size, nsig, channels, padding='same'):
+    def __init__(self, size, nsig, channels, padding="same"):
         super(GaussConv, self).__init__()
         self.padding = padding
         self.kernel = make_gauss_var(size, nsig, channels)
 
     def forward(self, img):
         c_i = img.shape[1]
-        
-        if self.padding == 'same':
+
+        if self.padding == "same":
             padding = self.kernel.shape[2] // 2
         else:
             padding = 0

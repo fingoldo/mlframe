@@ -33,7 +33,6 @@ from .._helpers import (
     split_into_train_test,
 )
 
-
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 # Folds run concurrently under joblib(prefer="threads", require="sharedmem") in _fit_outer_loop; they all
@@ -173,10 +172,7 @@ def _eval_fold_body(
         # Filter feature-list keys (cat_features / text_features / embedding_features) coming in via fit_params to only columns present in the current selector iteration. Otherwise names from the outer call reference columns dropped by the current iteration and CB raises ``Error while processing column for feature 'cat_0'``.
         # cat_features: pack_val_set_into_fit_params above already injected index-based temp_cat_features IFF that list was non-empty. When empty (current_features doesn't intersect self.cat_features) we MUST still pass a name-list filtered to current_features so CB doesn't fall back to auto-detect on numerically-encoded category columns (target-encoded cats look like floats and trip CB's "Invalid type for cat_feature").
         # When current_features holds integer indices (ndarray X path), set-membership against string column names always misses; in that case the user-supplied lists pass through unfiltered (the inner estimator can deal with missing column references on its own).
-        _features_are_integer = (
-            len(current_features) > 0
-            and isinstance(current_features[0], (int, np.integer))
-        )
+        _features_are_integer = len(current_features) > 0 and isinstance(current_features[0], (int, np.integer))
         _current_set = set(current_features) if not _features_are_integer else None
         for _k, _v in fit_params.items():
             if _k == "cat_features":
@@ -351,8 +347,7 @@ def _eval_fold_body(
             # Sign-harmony aggregation (importance_agg='dispatched'): also stash the SIGNED, scale-corrected
             # coef for the linear family so the cross-fold aggregator can detect sign flips. Tree / kernel
             # families and the legacy path skip this (None / no native coef -> no-op).
-            if getattr(self, "importance_agg", "legacy") == "dispatched" \
-                    and getattr(self, "_fi_family", None) == "linear":
+            if getattr(self, "importance_agg", "legacy") == "dispatched" and getattr(self, "_fi_family", None) == "linear":
                 try:
                     from .._helpers_importance_agg import get_signed_linear_coef
                     _signed_full = get_signed_linear_coef(

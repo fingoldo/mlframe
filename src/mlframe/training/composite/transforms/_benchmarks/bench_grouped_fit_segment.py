@@ -28,7 +28,7 @@ def _old_pregather(y, base, inverse_idx, unique_groups, min_group_size):
     """OLD: O(K*n) per-group boolean mask + fancy-index gather, then lstsq."""
     out = {}
     for i, g in enumerate(unique_groups):
-        g_mask = (inverse_idx == i)
+        g_mask = inverse_idx == i
         n_g = int(g_mask.sum())
         if n_g < min_group_size:
             continue
@@ -92,8 +92,7 @@ def main():
         t_old, r_old = _best_of(_old_pregather, y, base, inv, uniq, min_group_size)
         t_new, r_new = _best_of(_new_segment, y, base, inv, uniq, min_group_size)
         ident = r_old == r_new  # exact float equality of (alpha, beta, n) per group
-        print(f"{n:>9} {K:>6} {t_old*1e3:>9.2f} {t_new*1e3:>9.2f} "
-              f"{t_old/t_new:>8.2f} {ident}")
+        print(f"{n:>9} {K:>6} {t_old*1e3:>9.2f} {t_new*1e3:>9.2f} " f"{t_old/t_new:>8.2f} {ident}")
 
 
 if __name__ == "__main__":

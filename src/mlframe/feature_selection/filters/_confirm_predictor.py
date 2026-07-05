@@ -251,11 +251,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
 
         feasible_candidates.append((cand_idx, X, nexisting if reduce_gain_on_subelement_chosen else 0))
 
-    if (
-        n_workers > 1
-        and (not use_simple_mode or len(cached_MIs) < num_possible_candidates)
-        and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS
-    ):
+    if n_workers > 1 and (not use_simple_mode or len(cached_MIs) < num_possible_candidates) and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS:
         temp_cached_cond_MIs = sanitize(cached_cond_MIs)
         temp_entropy_cache = sanitize(entropy_cache)
         # 2026-05-30 Wave 9.1 iter 5 fix: snapshot main-thread Wave 8
@@ -455,9 +451,8 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
         from .info_theory import use_jmim_aggregator as _use_jmim_obs
         if _use_jmim_obs():
             from . import evaluation as _ev_obs
-            _ev_obs._JMIM_CACHE_STATS.append(
-                {"size": len(cached_jmim_MIs), "hits": int(jmim_hit_counter[0])}
-            )
+
+            _ev_obs._JMIM_CACHE_STATS.append({"size": len(cached_jmim_MIs), "hits": int(jmim_hit_counter[0])})
     except Exception:
         pass
 
@@ -526,14 +521,8 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     import os as _os
                     from ._analytic_mi_null import analytic_null_min_n, analytic_null_enabled
                     _cvd = _os.environ.get("CUDA_VISIBLE_DEVICES", None)
-                    _gpu_off = (
-                        _os.environ.get("MLFRAME_DISABLE_GPU", "") == "1"
-                        or (_cvd is not None and _cvd.strip() == "")
-                    )
-                    _analytic_n = (
-                        analytic_null_enabled()
-                        and int(factors_data.shape[0]) >= analytic_null_min_n()
-                    )
+                    _gpu_off = _os.environ.get("MLFRAME_DISABLE_GPU", "") == "1" or (_cvd is not None and _cvd.strip() == "")
+                    _analytic_n = analytic_null_enabled() and int(factors_data.shape[0]) >= analytic_null_min_n()
                     if _gpu_off or _analytic_n:
                         _confirm_use_gpu = False
                 except Exception:
@@ -615,8 +604,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                 if _rows_per_cell < _undersample_threshold:
                     if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                         logger.info(
-                            "confirm %s: conditioning joint undersampled (%.2f rows/cell < %.2f); "
-                            "marginal-MI fallback (conf=%.*f)",
+                            "confirm %s: conditioning joint undersampled (%.2f rows/cell < %.2f); " "marginal-MI fallback (conf=%.*f)",
                             get_candidate_name(X, factors_names=factors_names),
                             _rows_per_cell, _undersample_threshold, ndigits, confidence,
                         )

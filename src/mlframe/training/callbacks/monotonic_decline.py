@@ -112,10 +112,7 @@ class LGBMonotonicDeclineStop:
                 return
             self._best_value = value
         # Track best iteration so the EarlyStopException rolls back to it.
-        is_better = (
-            self._best_value is None
-            or (value > self._best_value if self._stopper.mode == "max" else value < self._best_value)
-        )
+        is_better = self._best_value is None or (value > self._best_value if self._stopper.mode == "max" else value < self._best_value)
         if is_better:
             self._best_value = value
             self._best_iter = env.iteration
@@ -182,10 +179,7 @@ def _make_xgb_monotonic_callback(patience: Optional[int] = 7, monitor_dataset: O
             # ``after_iteration``-return-True keeps the FULL booster including the post-best overfit tail,
             # and ``XGBModel.predict`` would then score with every round. Stamp ``best_iteration`` on the
             # booster so ``_get_iteration_range`` truncates prediction to ``best_iteration + 1``.
-            is_better = (
-                self._best_value is None
-                or (value > self._best_value if self._stopper.mode == "max" else value < self._best_value)
-            )
+            is_better = self._best_value is None or (value > self._best_value if self._stopper.mode == "max" else value < self._best_value)
             if is_better:
                 self._best_value = value
                 self._best_iter = epoch
@@ -196,8 +190,7 @@ def _make_xgb_monotonic_callback(patience: Optional[int] = 7, monitor_dataset: O
                 )
                 if model is not None:
                     # ``best_iteration`` is 0-based; predict uses ``(0, best_iteration + 1)``.
-                    model.set_attr(best_iteration=str(int(self._best_iter)),
-                                   best_score=str(float(self._best_value)))
+                    model.set_attr(best_iteration=str(int(self._best_iter)), best_score=str(float(self._best_value)))
                 return True
             return False
 
@@ -245,9 +238,7 @@ class CBMonotonicDeclineStop:
         metrics = getattr(info, "metrics", None)
         if not metrics:
             return True
-        ds = self.monitor_dataset if self.monitor_dataset in metrics else (
-            "validation" if "validation" in metrics else next(iter(metrics))
-        )
+        ds = self.monitor_dataset if self.monitor_dataset in metrics else ("validation" if "validation" in metrics else next(iter(metrics)))
         ds_metrics = metrics.get(ds)
         if not ds_metrics:
             return True

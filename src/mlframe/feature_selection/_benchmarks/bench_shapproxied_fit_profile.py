@@ -65,8 +65,7 @@ def make_data(n: int = 800, n_inf: int = 8, n_noise: int = 12, n_corr: int = 5, 
     corr = inf[:, :n_corr] + 0.3 * rng.normal(size=(n, n_corr))
     X = pd.DataFrame(
         np.column_stack([inf, noise, corr]),
-        columns=[f"inf{i}" for i in range(n_inf)] + [f"noise{i}" for i in range(n_noise)]
-        + [f"corr{i}" for i in range(n_corr)],
+        columns=[f"inf{i}" for i in range(n_inf)] + [f"noise{i}" for i in range(n_noise)] + [f"corr{i}" for i in range(n_corr)],
     )
     coefs = np.linspace(1.0, 0.3, n_inf)
     logit = inf @ coefs
@@ -107,7 +106,7 @@ def profile_fit(X: pd.DataFrame, y: np.ndarray, label: str) -> ShapProxiedFS:
 
 
 if __name__ == "__main__":
-    for (n, p_inf, p_noise, p_corr, lbl) in [
+    for n, p_inf, p_noise, p_corr, lbl in [
         (800, 8, 12, 5, "primary n=800 p=25"),
         (400, 6, 8, 4, "small n=400 p=18"),
     ]:

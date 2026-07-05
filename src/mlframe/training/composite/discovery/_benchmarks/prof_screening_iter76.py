@@ -71,8 +71,7 @@ def main():
     # filter to mlframe-own + key numpy frames
     print(f"screening prof  n={_N} F={_F} B={_B} nbins={_NBINS} py={sys.version.split()[0]}")
     for line in out.splitlines():
-        if ("mlframe" in line or "screening" in line or "{method" in line
-                or "ncalls" in line or "function calls" in line or "_corr_numba" in line):
+        if "mlframe" in line or "screening" in line or "{method" in line or "ncalls" in line or "function calls" in line or "_corr_numba" in line:
             print(line)
 
 

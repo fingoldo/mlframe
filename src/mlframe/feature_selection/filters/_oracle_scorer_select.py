@@ -175,11 +175,7 @@ class OracleScorerSelector:
         cold-start cascade instead of an over-eager global best. So we read
         the exact-bucket rows directly and apply only the confidence gate.
         """
-        rows = [
-            r for r in self.oracle.store.read_rows()
-            if r.get("fn_name") == ORACLE_FN_NAME
-            and r.get("host") == self.oracle.host
-        ]
+        rows = [r for r in self.oracle.store.read_rows() if r.get("fn_name") == ORACLE_FN_NAME and r.get("host") == self.oracle.host]
         if not rows:
             return None
         from mlframe.utils import stable_json
@@ -205,9 +201,7 @@ class OracleScorerSelector:
             )
             if y is None:
                 raise ValueError("cold-start cascade needs y")
-            X_df = X if isinstance(X, pd.DataFrame) else pd.DataFrame(
-                np.asarray(X)
-            )
+            X_df = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))
             y_arr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
             fp_signal = fingerprint_signal(X_df, y_arr)
             scorer = predict_best_scorer(fp_signal)
@@ -226,8 +220,7 @@ class OracleScorerSelector:
 
     # ----- observe (record a single observation) -----
 
-    def observe_scorer(self, X, scorer: str, quality: float, y=None,
-                       ts: Optional[str] = None) -> None:
+    def observe_scorer(self, X, scorer: str, quality: float, y=None, ts: Optional[str] = None) -> None:
         """Record one ``(fingerprint, scorer) -> quality`` observation so
         future :meth:`recommend_scorer` calls learn from it.
 
@@ -282,18 +275,13 @@ class OracleScorerSelector:
             generate_univariate_basis_features,
         )
 
-        X_df = X if isinstance(X, pd.DataFrame) else pd.DataFrame(
-            np.asarray(X)
-        )
+        X_df = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))
         y_arr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
 
         engineered = generate_univariate_basis_features(
             X_df, cols=cols, degrees=degrees, basis=basis,
         )
-        raw_X = X_df[[
-            c for c in (cols or X_df.columns)
-            if c in X_df.columns and pd.api.types.is_numeric_dtype(X_df[c])
-        ]]
+        raw_X = X_df[[c for c in (cols or X_df.columns) if c in X_df.columns and pd.api.types.is_numeric_dtype(X_df[c])]]
 
         qualities: dict[str, float] = {}
         if not engineered.empty:
@@ -306,11 +294,7 @@ class OracleScorerSelector:
             # is a dict per row; average each scorer over the rows.
             if not table.empty and "lcb_norm_per_scorer" in table.columns:
                 for s in _L68_SCORER_NAMES:
-                    vals = [
-                        float(d.get(s, 0.0))
-                        for d in table["lcb_norm_per_scorer"]
-                        if isinstance(d, dict)
-                    ]
+                    vals = [float(d.get(s, 0.0)) for d in table["lcb_norm_per_scorer"] if isinstance(d, dict)]
                     if vals:
                         qualities[s] = float(np.mean(vals))
 

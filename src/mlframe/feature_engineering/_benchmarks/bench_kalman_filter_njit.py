@@ -27,14 +27,13 @@ import numba
 # --------------------------------------------------------------------------
 # OLD: verbatim current pure-Python baseline (HEAD:_kf_single_segment body).
 # --------------------------------------------------------------------------
-def _kf_old(observations, prior_traj, *, transition_sigma, observation_sigma,
-            initial_variance):
+def _kf_old(observations, prior_traj, *, transition_sigma, observation_sigma, initial_variance):
     T = observations.size
     out = np.full((T, 5), np.nan, dtype=np.float64)
     if T == 0:
         return out
-    Q = transition_sigma ** 2
-    R = observation_sigma ** 2
+    Q = transition_sigma**2
+    R = observation_sigma**2
     init_obs = float(observations[0]) if np.isfinite(observations[0]) else 0.0
     mean = init_obs
     var = float(initial_variance)
@@ -50,10 +49,7 @@ def _kf_old(observations, prior_traj, *, transition_sigma, observation_sigma,
             K = var_pred / (innovation_var + 1e-12)
             mean = mean_pred + K * innovation
             var = (1.0 - K) * var_pred
-            log_lik = -0.5 * (
-                math.log(2.0 * math.pi * innovation_var)
-                + (innovation * innovation) / innovation_var
-            )
+            log_lik = -0.5 * (math.log(2.0 * math.pi * innovation_var) + (innovation * innovation) / innovation_var)
         else:
             mean = mean_pred
             var = var_pred
@@ -94,10 +90,7 @@ def _kf_njit(observations, prior_traj, Q, R, initial_variance):
             K = var_pred / (innovation_var + 1e-12)
             mean = mean_pred + K * innovation
             var = (1.0 - K) * var_pred
-            log_lik = -0.5 * (
-                math.log(2.0 * math.pi * innovation_var)
-                + (innovation * innovation) / innovation_var
-            )
+            log_lik = -0.5 * (math.log(2.0 * math.pi * innovation_var) + (innovation * innovation) / innovation_var)
         else:
             mean = mean_pred
             var = var_pred
@@ -113,8 +106,7 @@ def _kf_njit(observations, prior_traj, Q, R, initial_variance):
 
 
 def _new_wrapper(obs, prior, *, transition_sigma, observation_sigma, initial_variance):
-    return _kf_njit(obs, prior, transition_sigma ** 2, observation_sigma ** 2,
-                    float(initial_variance))
+    return _kf_njit(obs, prior, transition_sigma**2, observation_sigma**2, float(initial_variance))
 
 
 def _make(n, seed=0, nan_frac=0.05):
@@ -164,8 +156,7 @@ def main():
         obs, prior = _make(n, seed=1)
         told = _best_of(_kf_old, obs, prior, **kw)
         tnew = _best_of(_new_wrapper, obs, prior, **kw)
-        print(f"  n={n:>7}: OLD {told*1e3:8.3f} ms  NEW {tnew*1e3:8.3f} ms  "
-              f"speedup {told/tnew:6.2f}x")
+        print(f"  n={n:>7}: OLD {told*1e3:8.3f} ms  NEW {tnew*1e3:8.3f} ms  " f"speedup {told/tnew:6.2f}x")
 
 
 if __name__ == "__main__":

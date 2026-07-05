@@ -372,16 +372,10 @@ def score_features_by_cmim(
     """
     if len(raw_X) != len(engineered_X):
         raise ValueError(
-            f"score_features_by_cmim: raw_X has {len(raw_X)} rows but "
-            f"engineered_X has {len(engineered_X)}; positional row "
-            f"alignment required."
+            f"score_features_by_cmim: raw_X has {len(raw_X)} rows but " f"engineered_X has {len(engineered_X)}; positional row " f"alignment required."
         )
     if len(raw_X) != len(np.asarray(y)):
-        raise ValueError(
-            f"score_features_by_cmim: raw_X has {len(raw_X)} rows but "
-            f"y has {len(np.asarray(y))}; positional row alignment "
-            f"required."
-        )
+        raise ValueError(f"score_features_by_cmim: raw_X has {len(raw_X)} rows but " f"y has {len(np.asarray(y))}; positional row alignment " f"required.")
     empty_cols = [
         "engineered_col", "source_col",
         "baseline_mi", "engineered_mi", "uplift",
@@ -403,20 +397,15 @@ def score_features_by_cmim(
     # Build the reference set ``S`` for the CMIM min. Default to raw_X
     # when no explicit current_support is provided (mirrors Layer 72).
     use_support = current_support
-    if (
-        use_support is None
-        or not isinstance(use_support, pd.DataFrame)
-        or use_support.shape[1] == 0
-    ):
+    if use_support is None or not isinstance(use_support, pd.DataFrame) or use_support.shape[1] == 0:
         use_support = raw_X
     if len(use_support) != len(engineered_X):
         # Defensive: a misaligned support is treated as raw_X (fall back
         # to the first-round case).
         logger.warning(
-            "score_features_by_cmim: current_support length %d does not "
-            "match engineered_X length %d; falling back to raw_X as "
-            "redundancy reference.",
-            len(use_support), len(engineered_X),
+            "score_features_by_cmim: current_support length %d does not " "match engineered_X length %d; falling back to raw_X as " "redundancy reference.",
+            len(use_support),
+            len(engineered_X),
         )
         use_support = raw_X
     sel_bins: list[np.ndarray] = []
@@ -457,10 +446,7 @@ def score_features_by_cmim(
         # source). We want the redundancy filter to penalise OVERLAP
         # with OTHER support members; the self-source overlap is
         # accounted for by ranking on engineered_mi vs baseline_mi.
-        cache_filtered = [
-            entry for entry, sname in zip(full_cache, support_col_names)
-            if sname != source
-        ]
+        cache_filtered = [entry for entry, sname in zip(full_cache, support_col_names) if sname != source]
         if not cache_filtered:
             score = float(_cmi_from_binned(cand_bin, y_bin, None))
         else:
@@ -538,10 +524,7 @@ def hybrid_orth_mi_cmim_fe(
     if engineered.empty:
         return X.copy(), pd.DataFrame(columns=empty_cols)
 
-    raw_X = X[[
-        c for c in (cols or X.columns)
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]]
+    raw_X = X[[c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]]
     scores = score_features_by_cmim(
         raw_X, engineered, y,
         current_support=current_support,
@@ -608,15 +591,14 @@ def hybrid_orth_mi_cmim_fe_with_recipes(
         chosen_degree = None
         for code in ("LL", "He", "T", "L"):
             if suffix.startswith(code):
-                rest = suffix[len(code):]
+                rest = suffix[len(code) :]
                 if rest.isdigit():
                     chosen_basis = code_to_basis[code]
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
             logger.warning(
-                "hybrid_orth_mi_cmim_fe_with_recipes: cannot parse "
-                "basis/degree from column name %r; skipping recipe build.",
+                "hybrid_orth_mi_cmim_fe_with_recipes: cannot parse " "basis/degree from column name %r; skipping recipe build.",
                 name,
             )
             continue

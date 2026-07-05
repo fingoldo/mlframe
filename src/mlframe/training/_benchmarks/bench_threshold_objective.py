@@ -152,9 +152,7 @@ def run():
     summary = {
         "n_cells": n_cells,
         "mean_test_bacc": {o: round(float(np.mean(cells[o])), 4) for o in objectives},
-        "mean_abs_thr_err": {
-            o: round(float(np.mean([r["abs_thr_err"] for r in rows if r["objective"] == o])), 4) for o in objectives
-        },
+        "mean_abs_thr_err": {o: round(float(np.mean([r["abs_thr_err"] for r in rows if r["objective"] == o])), 4) for o in objectives},
         "cell_wins_test_bacc": wins,
         "all_tie_cells": ties,
         "current_default": "f1",

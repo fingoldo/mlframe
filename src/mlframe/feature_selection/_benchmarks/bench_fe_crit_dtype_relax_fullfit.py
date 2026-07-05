@@ -59,7 +59,7 @@ def main():
     f64_times, f32_times = [], []
     sel64 = sel32 = None
     for _ in range(TRIALS):
-        dt64, sel64 = _run("0", X, y)   # alternate f64/f32 so shared-machine load cancels in the paired compare
+        dt64, sel64 = _run("0", X, y)  # alternate f64/f32 so shared-machine load cancels in the paired compare
         dt32, sel32 = _run("1", X, y)
         f64_times.append(dt64)
         f32_times.append(dt32)

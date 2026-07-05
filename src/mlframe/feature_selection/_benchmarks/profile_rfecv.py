@@ -72,8 +72,8 @@ def main():
     print(f"# cProfile RFECV hotspot scan -> {out_dir}")
 
     # Two scales: small (CI-fast) and medium (real-world-ish)
-    _profile_once(out_dir, n=400, p=40,  label="small")
-    _profile_once(out_dir, n=600, p=80,  label="medium")
+    _profile_once(out_dir, n=400, p=40, label="small")
+    _profile_once(out_dir, n=600, p=80, label="medium")
     _profile_once(out_dir, n=1000, p=200, label="large")
 
 

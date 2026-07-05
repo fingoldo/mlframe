@@ -8,7 +8,6 @@ from the regular mlframe pipeline.
 
 from __future__ import annotations
 
-
 # *****************************************************************************************************************************************************
 # IMPORTS
 # *****************************************************************************************************************************************************
@@ -129,7 +128,7 @@ def train_autogluon_model(
                 # Shape-aware roc_auc dispatch:
                 # (N, 2) binary → use class-1 column; K>2 → multi_class='ovr' on full (N, K)
                 if test_probs.ndim == 2 and test_probs.shape[1] > 2:
-                    auc = roc_auc_score(test_target, test_probs, multi_class='ovr')
+                    auc = roc_auc_score(test_target, test_probs, multi_class="ovr")
                 else:
                     auc = fast_roc_auc(np.asarray(test_target), test_probs[:, 1])
                 logger.info("AutoGluon test AUC: %.4f", auc)
@@ -246,12 +245,7 @@ def train_lama_model(
         test_predictions = automl.predict(test_df)
         # LAMA returns predictions in a specific format (binary classification)
         # Validate array shape before indexing
-        if (
-            hasattr(test_predictions, "data")
-            and test_predictions.data is not None
-            and test_predictions.data.ndim >= 1
-            and test_predictions.data.shape[-1] >= 1
-        ):
+        if hasattr(test_predictions, "data") and test_predictions.data is not None and test_predictions.data.ndim >= 1 and test_predictions.data.shape[-1] >= 1:
             pred_col = test_predictions.data[:, 0] if test_predictions.data.ndim > 1 else test_predictions.data
             test_probs = np.vstack([1 - pred_col, pred_col]).T
         else:
@@ -263,7 +257,7 @@ def train_lama_model(
                 # Shape-aware roc_auc dispatch:
                 # (N, 2) binary → use class-1 column; K>2 → multi_class='ovr' on full (N, K)
                 if test_probs.ndim == 2 and test_probs.shape[1] > 2:
-                    auc = roc_auc_score(test_target, test_probs, multi_class='ovr')
+                    auc = roc_auc_score(test_target, test_probs, multi_class="ovr")
                 else:
                     auc = fast_roc_auc(np.asarray(test_target), test_probs[:, 1])
                 logger.info("LAMA test AUC: %.4f", auc)

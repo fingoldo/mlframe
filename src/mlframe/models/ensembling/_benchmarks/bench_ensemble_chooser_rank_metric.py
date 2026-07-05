@@ -51,20 +51,13 @@ def _make_member(rng, y, skill, bias, temp):
 def _scenarios():
     # (name, n, K, base_rate, member_specs[(skill,bias,temp)])
     return [
-        ("balanced_5mem", 4000, 5, 0.5,
-         [(1.0, 0.0, 1.0), (0.8, 0.6, 1.4), (1.1, -0.4, 0.7), (0.6, 0.2, 1.0), (0.9, 0.0, 1.2)]),
-        ("imbalanced_10pct", 5000, 5, 0.1,
-         [(1.0, 0.0, 1.0), (0.9, 0.8, 1.5), (1.2, -0.6, 0.6), (0.5, 0.3, 1.0), (1.0, 0.1, 1.3)]),
-        ("imbalanced_3pct", 6000, 4, 0.03,
-         [(1.1, 0.0, 1.0), (0.7, 1.0, 1.6), (1.0, -0.8, 0.6), (0.9, 0.2, 1.1)]),
-        ("strong_overconfident", 4000, 6, 0.4,
-         [(1.0, 0.0, 2.0), (1.0, 0.0, 2.2), (0.9, 0.0, 1.8), (1.1, 0.0, 2.1), (0.8, 0.0, 1.9), (1.0, 0.0, 2.0)]),
-        ("mixed_skill", 5000, 5, 0.25,
-         [(1.4, 0.0, 1.0), (0.4, 0.5, 1.2), (1.0, -0.3, 0.9), (0.7, 0.1, 1.1), (0.3, 0.0, 1.0)]),
-        ("hard_lowsignal", 5000, 5, 0.3,
-         [(0.35, 0.0, 1.0), (0.30, 0.4, 1.3), (0.40, -0.3, 0.8), (0.25, 0.1, 1.0), (0.32, 0.0, 1.1)]),
-        ("hard_imbal_5pct", 6000, 5, 0.05,
-         [(0.45, 0.0, 1.0), (0.30, 0.7, 1.5), (0.50, -0.6, 0.7), (0.28, 0.2, 1.0), (0.40, 0.0, 1.2)]),
+        ("balanced_5mem", 4000, 5, 0.5, [(1.0, 0.0, 1.0), (0.8, 0.6, 1.4), (1.1, -0.4, 0.7), (0.6, 0.2, 1.0), (0.9, 0.0, 1.2)]),
+        ("imbalanced_10pct", 5000, 5, 0.1, [(1.0, 0.0, 1.0), (0.9, 0.8, 1.5), (1.2, -0.6, 0.6), (0.5, 0.3, 1.0), (1.0, 0.1, 1.3)]),
+        ("imbalanced_3pct", 6000, 4, 0.03, [(1.1, 0.0, 1.0), (0.7, 1.0, 1.6), (1.0, -0.8, 0.6), (0.9, 0.2, 1.1)]),
+        ("strong_overconfident", 4000, 6, 0.4, [(1.0, 0.0, 2.0), (1.0, 0.0, 2.2), (0.9, 0.0, 1.8), (1.1, 0.0, 2.1), (0.8, 0.0, 1.9), (1.0, 0.0, 2.0)]),
+        ("mixed_skill", 5000, 5, 0.25, [(1.4, 0.0, 1.0), (0.4, 0.5, 1.2), (1.0, -0.3, 0.9), (0.7, 0.1, 1.1), (0.3, 0.0, 1.0)]),
+        ("hard_lowsignal", 5000, 5, 0.3, [(0.35, 0.0, 1.0), (0.30, 0.4, 1.3), (0.40, -0.3, 0.8), (0.25, 0.1, 1.0), (0.32, 0.0, 1.1)]),
+        ("hard_imbal_5pct", 6000, 5, 0.05, [(0.45, 0.0, 1.0), (0.30, 0.7, 1.5), (0.50, -0.6, 0.7), (0.28, 0.2, 1.0), (0.40, 0.0, 1.2)]),
     ]
 
 
@@ -94,8 +87,7 @@ def run():
     wins_ice_first = 0
     ties = 0
     deltas = []
-    print(f"{'scenario':22s} {'seed':>4s} {'ice_pick':>8s} {'auc_pick':>8s} "
-          f"{'test_auc_ice':>12s} {'test_auc_auc':>12s} {'delta':>8s}")
+    print(f"{'scenario':22s} {'seed':>4s} {'ice_pick':>8s} {'auc_pick':>8s} " f"{'test_auc_ice':>12s} {'test_auc_auc':>12s} {'delta':>8s}")
     for name, n, K, base, specs in _scenarios():
         for seed in (0, 1, 2):
             rng = np.random.default_rng(1000 + seed)
@@ -142,8 +134,7 @@ def run():
                 wins_ice_first += 1
             else:
                 ties += 1
-            print(f"{name:22s} {seed:>4d} {ice_pick:>8s} {auc_pick:>8s} "
-                  f"{t_ice:>12.5f} {t_auc:>12.5f} {delta:>+8.5f}")
+            print(f"{name:22s} {seed:>4d} {ice_pick:>8s} {auc_pick:>8s} " f"{t_ice:>12.5f} {t_auc:>12.5f} {delta:>+8.5f}")
 
     arr = np.asarray(deltas)
     print("\n=== SUMMARY (honest held-out test ROC-AUC of chosen flavour) ===")
@@ -153,8 +144,7 @@ def run():
     print(f"ties (|delta|<1e-4)   : {ties}")
     print(f"mean test-AUC delta   : {arr.mean():+.6f}  (positive favours AUC-first)")
     print(f"median test-AUC delta : {np.median(arr):+.6f}")
-    maj = "AUC-first" if wins_auc_first > wins_ice_first else (
-        "ICE-first (production)" if wins_ice_first > wins_auc_first else "TIE")
+    maj = "AUC-first" if wins_auc_first > wins_ice_first else ("ICE-first (production)" if wins_ice_first > wins_auc_first else "TIE")
     print(f"MAJORITY              : {maj}")
 
 

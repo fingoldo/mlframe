@@ -34,8 +34,7 @@ from numba import njit
 
 
 @njit(nogil=True, cache=True)
-def _joint_mi_3d_njit(x: np.ndarray, z: np.ndarray, y: np.ndarray,
-                       K_x: int, K_z: int, K_y: int) -> float:
+def _joint_mi_3d_njit(x: np.ndarray, z: np.ndarray, y: np.ndarray, K_x: int, K_z: int, K_y: int) -> float:
     """I((X, Z); Y) via plug-in on the 3-D joint count cube.
 
     Treats (x_i, z_i) as a flat composite category, then collapses to a
@@ -70,9 +69,7 @@ def _joint_mi_3d_njit(x: np.ndarray, z: np.ndarray, y: np.ndarray,
     return max(0.0, mi)
 
 
-def jmim_score(x_cand: np.ndarray, selected_cols: list[np.ndarray],
-                y: np.ndarray, nbins_x: int, nbins_selected: list[int],
-                nbins_y: int) -> float:
+def jmim_score(x_cand: np.ndarray, selected_cols: list[np.ndarray], y: np.ndarray, nbins_x: int, nbins_selected: list[int], nbins_y: int) -> float:
     """JMIM redundancy-controlled score for one candidate (Bennasar 2015).
 
     Args:
@@ -112,8 +109,7 @@ def jmim_score(x_cand: np.ndarray, selected_cols: list[np.ndarray],
     y_int = y.astype(np.int64)
     for j, col_j in enumerate(selected_cols):
         K_z = int(nbins_selected[j])
-        mi = _joint_mi_3d_njit(x_int, col_j.astype(np.int64), y_int,
-                                K_x, K_z, K_y)
+        mi = _joint_mi_3d_njit(x_int, col_j.astype(np.int64), y_int, K_x, K_z, K_y)
         if mi < best:
             best = float(mi)
     return max(0.0, best)

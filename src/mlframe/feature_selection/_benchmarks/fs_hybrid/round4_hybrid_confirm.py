@@ -53,7 +53,7 @@ def main():
         good = (d >= thr) if bed == rname else (d >= thr)
         ok = ok and good
         print(f"  {bed:12s} tree {round(t,4)} vs notree {round(nt,4)}  d={d:+}  ({'OK' if good else 'FAIL'})")
-    print("\nSHIP default-ON:" , "YES" if ok else "NO -- needs regime gate")
+    print("\nSHIP default-ON:", "YES" if ok else "NO -- needs regime gate")
 
 
 if __name__ == "__main__":

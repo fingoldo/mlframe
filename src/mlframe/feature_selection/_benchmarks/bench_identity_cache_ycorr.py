@@ -35,9 +35,9 @@ def _make(seed=0, n=2000):
     z = rng.randn(n)
     X = pd.DataFrame({f"f{i}": rng.randn(n) for i in range(6)})
     X["f0"] = z
-    y_cache = (z + 0.2 * rng.randn(n) > 0).astype(int)        # caching target
-    y_corr = (z + 0.4 * rng.randn(n) > 0).astype(int)         # correlated composite/residual proxy
-    y_indep = rng.randint(0, 2, n)                            # independent target
+    y_cache = (z + 0.2 * rng.randn(n) > 0).astype(int)  # caching target
+    y_corr = (z + 0.4 * rng.randn(n) > 0).astype(int)  # correlated composite/residual proxy
+    y_indep = rng.randint(0, 2, n)  # independent target
     return X, y_cache, y_corr, y_indep
 
 

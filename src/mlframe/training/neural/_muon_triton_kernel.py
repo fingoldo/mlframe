@@ -204,8 +204,7 @@ def get_triton_ns_fn() -> Optional[Callable]:
     _TRITON_NS_FN = _build_triton_ns_fn()
     if _TRITON_NS_FN is not None:
         logger.info(
-            "Triton Newton-Schulz kernel compiled; eligible for Muon matrices "
-            ">= %d on a side, subject to the per-device calibration.",
+            "Triton Newton-Schulz kernel compiled; eligible for Muon matrices " ">= %d on a side, subject to the per-device calibration.",
             _MIN_DIM_FOR_TRITON_NS,
         )
     return _TRITON_NS_FN
@@ -316,8 +315,7 @@ def maybe_newton_schulz_triton(
         return fn(G, steps)
     except Exception as _run_err:
         logger.warning(
-            "Muon Triton Newton-Schulz failed at runtime (%s); falling back "
-            "to eager torch.matmul.",
+            "Muon Triton Newton-Schulz failed at runtime (%s); falling back " "to eager torch.matmul.",
             _run_err,
         )
         return None

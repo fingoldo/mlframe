@@ -25,16 +25,16 @@ def _process_mem_mb() -> tuple[float, float, float]:
     try:
         import psutil as _psutil
         full = _psutil.Process().memory_full_info()
-        uss = float(getattr(full, "uss", rss * 1024 ** 2)) / 1024 ** 2
+        uss = float(getattr(full, "uss", rss * 1024**2)) / 1024**2
         # ``private`` exists on Windows (psutil's MEMORY_PRIVATE_USAGE counter --
         # the actual CommitCharge); on Linux fall back to VMS minus shared.
         priv = getattr(full, "private", None)
         if priv is not None:
-            commit = float(priv) / 1024 ** 2
+            commit = float(priv) / 1024**2
         else:
-            vms = float(getattr(full, "vms", rss * 1024 ** 2))
+            vms = float(getattr(full, "vms", rss * 1024**2))
             shared = float(getattr(full, "shared", 0.0))
-            commit = (vms - shared) / 1024 ** 2
+            commit = (vms - shared) / 1024**2
     except Exception:
         pass
     return rss, uss, commit

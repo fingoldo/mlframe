@@ -75,10 +75,9 @@ class TorchDataset(Dataset):
         _EAGER_TENSOR_BYTES_CAP = 2 * 1024**3  # 2 GB
         try:
             _bytes_estimate = (
-                features.nbytes if hasattr(features, "nbytes")
-                else getattr(features, "estimated_size", lambda: 0)()
-                if hasattr(features, "estimated_size")
-                else 0
+                features.nbytes
+                if hasattr(features, "nbytes")
+                else getattr(features, "estimated_size", lambda: 0)() if hasattr(features, "estimated_size") else 0
             )
         except Exception:
             _bytes_estimate = 0
@@ -92,11 +91,7 @@ class TorchDataset(Dataset):
             self.features = to_tensor_any(features, features_dtype, device)
             # Promote to shared memory so DataLoader workers attach to the same buffer (zero-copy across procs). Guarded: some tensor types / devices
             # reject share_memory_().
-            if (
-                self._share_memory
-                and isinstance(self.features, torch.Tensor)
-                and self.features.device.type == "cpu"
-            ):
+            if self._share_memory and isinstance(self.features, torch.Tensor) and self.features.device.type == "cpu":
                 try:
                     self.features.share_memory_()
                 except (RuntimeError, NotImplementedError):
@@ -128,11 +123,7 @@ class TorchDataset(Dataset):
             # 2-D ndarray with K>=2 passes through; ndim>=3 untouched (caller's responsibility)
             self.labels = torch.tensor(_arr, dtype=labels_dtype, device=device)
             # Same shared-memory promotion as features (labels are accessed per-batch alongside features).
-            if (
-                self._share_memory
-                and isinstance(self.labels, torch.Tensor)
-                and self.labels.device.type == "cpu"
-            ):
+            if self._share_memory and isinstance(self.labels, torch.Tensor) and self.labels.device.type == "cpu":
                 try:
                     self.labels.share_memory_()
                 except (RuntimeError, NotImplementedError):
@@ -161,11 +152,7 @@ class TorchDataset(Dataset):
 
             sample_weight = np.asarray(sample_weight).reshape(-1)
             self.sample_weight = torch.tensor(sample_weight, dtype=torch.float32, device=device)
-            if (
-                self._share_memory
-                and isinstance(self.sample_weight, torch.Tensor)
-                and self.sample_weight.device.type == "cpu"
-            ):
+            if self._share_memory and isinstance(self.sample_weight, torch.Tensor) and self.sample_weight.device.type == "cpu":
                 try:
                     self.sample_weight.share_memory_()
                 except (RuntimeError, NotImplementedError):
@@ -348,10 +335,7 @@ class TorchDataModule(LightningDataModule):
     def _resolve_batch_size(self, batch_size, features, split_name: str) -> int:
         if isinstance(batch_size, str):
             if batch_size.lower() != "auto":
-                raise ValueError(
-                    f"Unsupported MLP DataLoader batch_size={batch_size!r}; "
-                    "expected an int or 'auto'."
-                )
+                raise ValueError(f"Unsupported MLP DataLoader batch_size={batch_size!r}; " "expected an int or 'auto'.")
             try:
                 from mlframe.training.mlp_runtime_defaults import (
                     resolve_mlp_train_batch_size,

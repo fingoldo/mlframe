@@ -179,8 +179,8 @@ def propose_additive_fusions_gpu(
     for j in range(H):
         vals_host[:, j] = _vals_cols[j]
     vals_host = np.nan_to_num(vals_host, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    vals_dev = cp.asarray(vals_host)                                   # (n, H) resident -- FULL n (output values)
-    y_dev = cp.asarray(y_dense)                                        # (n,) resident
+    vals_dev = cp.asarray(vals_host)  # (n, H) resident -- FULL n (output values)
+    y_dev = cp.asarray(y_dense)  # (n,) resident
 
     # SCORING SUBSAMPLE (2026-07-03). The fusion stage only DECIDES which disjoint half-pairs to fuse (per-half
     # relevance MI + floor, then the O(H^2) per-pair add/sub MI + OLS-R separability razor). Every such decision
@@ -192,7 +192,7 @@ def propose_additive_fusions_gpu(
     _fus_max = int(os.environ.get("MLFRAME_FE_FUSION_MAX_ROWS", "250000"))
     _stride = int(n_rows // _fus_max) if _fus_max > 0 and n_rows > _fus_max else 1
     if _stride > 1:
-        vals_sc = cp.ascontiguousarray(vals_dev[::_stride])           # (n_sc, H) resident -- scoring only
+        vals_sc = cp.ascontiguousarray(vals_dev[::_stride])  # (n_sc, H) resident -- scoring only
         y_dense_sc = np.ascontiguousarray(y_dense[::_stride])
         y_dev_sc = cp.ascontiguousarray(y_dev[::_stride])
     else:
@@ -206,8 +206,8 @@ def propose_additive_fusions_gpu(
     # across edges. The binner is row-oriented ((m, n)), so the (n, H) operand is binned as its transpose
     # (H, n); codes come back resident (H, n) -- no code H2D/D2H for the binning itself.
     qs = cp.linspace(0.0, 1.0, int(nbins) + 1)
-    codes_T_dev, _kx = _gpu_quantile_bin_codes(cp.ascontiguousarray(vals_sc.T), qs)   # (H, n_sc) resident codes
-    codes_dev = cp.ascontiguousarray(codes_T_dev.T)                    # (n_sc, H) resident
+    codes_T_dev, _kx = _gpu_quantile_bin_codes(cp.ascontiguousarray(vals_sc.T), qs)  # (H, n_sc) resident codes
+    codes_dev = cp.ascontiguousarray(codes_T_dev.T)  # (n_sc, H) resident
 
     # Every half's marginal relevance MI(half; y) in ONE batched device workload over the RESIDENT codes (no
     # code H2D). Same Miller-Madow plug-in MI as the CPU pre-pass's batched_cmi_gpu.
@@ -260,7 +260,7 @@ def propose_additive_fusions_gpu(
             # FUSED SUM + its bin codes RESIDENT: vals_a + vals_b on the device, then the distinct-edge-dedup
             # resident binner ``_gpu_quantile_bin_codes`` (selection-equivalent to the host ``_quantile_bin``;
             # no interpolation drift). The sum + binning both stay resident -- no binning D2H.
-            ca = vals_sc[:, ha["col"]]                    # SCORING operands (subsampled); output built full-n on admit
+            ca = vals_sc[:, ha["col"]]  # SCORING operands (subsampled); output built full-n on admit
             cb = vals_sc[:, hb["col"]]
             # SIGN-AWARE ALIGNMENT (2026-07-01, mirrors the CPU path in _fe_additive_fusion.py). Each half is
             # picked by SIGN-INVARIANT MI, so ``ca + cb`` can be DESTRUCTIVE toward y (a garbage compound that
@@ -334,8 +334,7 @@ def propose_additive_fusions_gpu(
                 nested_parent_a=ha["recipe"],
                 nested_parent_b=hb["recipe"],
             )
-            admitted.append({"name": name, "values": fused_vals, "recipe": recipe,
-                             "mi": fused_mi})
+            admitted.append({"name": name, "values": fused_vals, "recipe": recipe, "mi": fused_mi})
             existing_names.add(name)
             subsumed.add(ha["name"])
             subsumed.add(hb["name"])
@@ -366,10 +365,10 @@ def propose_additive_fusions_gpu(
                 # The same raw token column recurs across accepted fusions -> content-keyed resident cache so it
                 # uploads once (H2D audit: 4x re-uploads). Read-only (binned below) -> selection-equivalent.
                 from ._fe_resident_operands import resident_operand
-                _rv_dev = resident_operand(np.nan_to_num(_rv_sc, nan=0.0, posinf=0.0, neginf=0.0),
-                                           ("addfusion_rawprobe", _rn))                     # 1 col, cached once
-                _rvb_dev, _kxr = _gpu_quantile_bin_codes(_rv_dev[None, :], qs)              # resident bin codes
-                _rvb = cp.asnumpy(_rvb_dev[0])                                              # probe-input D2H
+
+                _rv_dev = resident_operand(np.nan_to_num(_rv_sc, nan=0.0, posinf=0.0, neginf=0.0), ("addfusion_rawprobe", _rn))  # 1 col, cached once
+                _rvb_dev, _kxr = _gpu_quantile_bin_codes(_rv_dev[None, :], qs)  # resident bin codes
+                _rvb = cp.asnumpy(_rvb_dev[0])  # probe-input D2H
                 # Hand the probe the RESIDENT raw candidate + fused-child codes so its conditioning support is
                 # built DEVICE-BORN (no cmi_z / order/z_rank H2D); the host copies stay the fallback.
                 _retains = raw_retains_signal_given_genuine_children(

@@ -7,7 +7,6 @@ import numpy as np
 
 from ._pairs_common import _module_logger
 
-
 # Code-version for the per-host CPU-vs-GPU split of the batched FE-candidate
 # MI+permutation noise-gate, keyed on the work size (n_rows x n_cols). The CPU
 # njit-prange kernel wins for small/medium batches (its joint-hist pass is tiny and

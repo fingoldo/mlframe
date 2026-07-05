@@ -309,8 +309,7 @@ def _robust_residual_scale(resid: np.ndarray) -> float:
     return s if s > 1e-12 else 1e-12
 
 
-def _huber_irls_lstsq(B: np.ndarray, y: np.ndarray,
-                      *, row_weight: np.ndarray | None = None) -> np.ndarray | None:
+def _huber_irls_lstsq(B: np.ndarray, y: np.ndarray, *, row_weight: np.ndarray | None = None) -> np.ndarray | None:
     """Outlier-robust drop-in for :func:`_ols_lstsq`: solve ``min_c sum rho_Huber((y -
     B c)/s)`` via iteratively-reweighted least squares.
 
@@ -339,8 +338,7 @@ def _huber_irls_lstsq(B: np.ndarray, y: np.ndarray,
             rw = None
     # Warm start from the OLS solution -- IRLS then only has to re-balance the few
     # outlier rows, converging in a handful of iterations.
-    coef = _ols_lstsq(B if rw is None else B * rw[:, None],
-                      y if rw is None else y * rw)
+    coef = _ols_lstsq(B if rw is None else B * rw[:, None], y if rw is None else y * rw)
     if coef is None:
         return None
     prev = coef
@@ -369,8 +367,7 @@ def _huber_irls_lstsq(B: np.ndarray, y: np.ndarray,
     return np.ascontiguousarray(coef, dtype=np.float64)
 
 
-def fit_basis_coef_robust(B: np.ndarray, y: np.ndarray, x_operand: np.ndarray,
-                          *, row_weight: np.ndarray | None = None) -> tuple:
+def fit_basis_coef_robust(B: np.ndarray, y: np.ndarray, x_operand: np.ndarray, *, row_weight: np.ndarray | None = None) -> tuple:
     """Dispatcher: fit warp coefficients ``c`` for ``y ~ B c`` robustly IFF the
     operand column ``x_operand`` is heavy-tailed / outlier-contaminated and the robust
     warp-fit gate is on; otherwise the byte-identical OLS solve.

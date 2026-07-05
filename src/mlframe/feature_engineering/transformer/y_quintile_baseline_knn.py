@@ -49,9 +49,7 @@ _N_STRATA = 5
 _K_NEIGHBOURS = 8
 
 
-def _fit_baseline_predict(
-    Xt: np.ndarray, y_t: np.ndarray, Xall: np.ndarray, task: str, seed: int
-) -> np.ndarray:
+def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, Xall: np.ndarray, task: str, seed: int) -> np.ndarray:
     """Fit LGB baseline on (Xt, y_t), return predictions on Xall. Shape (n_all,)."""
     try:
         import lightgbm as lgb
@@ -59,13 +57,11 @@ def _fit_baseline_predict(
         raise ImportError("y_quintile_baseline_knn requires lightgbm") from exc
 
     if task == "binary":
-        m = lgb.LGBMClassifier(n_estimators=100, max_depth=5, learning_rate=0.1,
-                               random_state=int(seed), verbose=-1, n_jobs=-1)
+        m = lgb.LGBMClassifier(n_estimators=100, max_depth=5, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m.fit(Xt, y_t.astype(np.int32))
         return m.predict_proba(Xall)[:, 1].astype(np.float32)
     else:
-        m = lgb.LGBMRegressor(n_estimators=100, max_depth=5, learning_rate=0.1,
-                              random_state=int(seed), verbose=-1, n_jobs=-1)
+        m = lgb.LGBMRegressor(n_estimators=100, max_depth=5, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m.fit(Xt, y_t)
         return m.predict(Xall).astype(np.float32)
 

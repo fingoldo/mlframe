@@ -158,9 +158,9 @@ def _disable_broken_cupy() -> None:
         import logging
         import sys as _sys_imp
         logging.getLogger(__name__).warning(
-            "mlframe: cupy import raised %s: %s. Disabling cupy for this "
-            "process. Set MLFRAME_KEEP_BROKEN_CUPY=1 to skip.",
-            type(_imp_exc).__name__, _imp_exc,
+            "mlframe: cupy import raised %s: %s. Disabling cupy for this " "process. Set MLFRAME_KEEP_BROKEN_CUPY=1 to skip.",
+            type(_imp_exc).__name__,
+            _imp_exc,
         )
         _sys_imp.modules["cupy"] = None  # type: ignore[assignment]
         return

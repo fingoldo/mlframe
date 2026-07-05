@@ -125,10 +125,7 @@ def _inverse_with_fallback(
         elif self.fallback_predict == "nan":
             pass  # already NaN
         else:
-            raise ValueError(
-                f"CompositeTargetEstimator: unknown fallback_predict "
-                f"'{self.fallback_predict}'; choose 'y_train_median' or 'nan'."
-            )
+            raise ValueError(f"CompositeTargetEstimator: unknown fallback_predict " f"'{self.fallback_predict}'; choose 'y_train_median' or 'nan'.")
 
     # General non-finite guard: a transform inverse can produce NaN/inf even on
     # a domain-valid row. np.clip cannot repair NaN, so a single poisoned row
@@ -215,9 +212,7 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
     the inverse twice. ``predict`` is implemented as a thin clip-applying wrapper around this.
     """
     if not hasattr(self, "estimator_"):
-        raise NotFittedError(
-            "CompositeTargetEstimator.predict called before fit."
-        )
+        raise NotFittedError("CompositeTargetEstimator.predict called before fit.")
     transform = get_transform(self.transform_name)
     params = self.fitted_params_
 
@@ -261,9 +256,7 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
     if transform.requires_groups:
         if not self.group_column:
             raise ValueError(
-                f"CompositeTargetEstimator.predict: transform "
-                f"'{self.transform_name}' requires groups but "
-                f"``group_column`` is not configured."
+                f"CompositeTargetEstimator.predict: transform " f"'{self.transform_name}' requires groups but " f"``group_column`` is not configured."
             )
         inverse_kwargs["groups"] = _extract_groups(X, self.group_column)
 
@@ -275,11 +268,7 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
     # For grouped transforms: strip group_column from X before
     # predict so the inner doesn't see the (typically string)
     # plumbing column -- same logic as fit().
-    X_for_inner = (
-        self._drop_columns(X, [self.group_column])
-        if transform.requires_groups and self.group_column
-        else X
-    )
+    X_for_inner = self._drop_columns(X, [self.group_column]) if transform.requires_groups and self.group_column else X
     t_hat = np.asarray(
         self.estimator_.predict(X_for_inner), dtype=np.float64,
     ).reshape(-1)
@@ -403,9 +392,7 @@ def predict_quantile(
     the ``runtime_stats_callback``.
     """
     if not hasattr(self, "estimator_"):
-        raise NotFittedError(
-            "CompositeTargetEstimator.predict_quantile called before fit."
-        )
+        raise NotFittedError("CompositeTargetEstimator.predict_quantile called before fit.")
     inner = self.estimator_
     if not hasattr(inner, "predict_quantile"):
         raise NotImplementedError(
@@ -466,9 +453,7 @@ def predict_quantile(
     if transform.requires_groups:
         if not self.group_column:
             raise ValueError(
-                f"CompositeTargetEstimator.predict_quantile: transform "
-                f"'{self.transform_name}' requires groups but group_column is "
-                f"not configured."
+                f"CompositeTargetEstimator.predict_quantile: transform " f"'{self.transform_name}' requires groups but group_column is " f"not configured."
             )
         inverse_kwargs["groups"] = _extract_groups(X, self.group_column)
         X_for_inner = self._drop_columns(X, [self.group_column])
@@ -535,9 +520,7 @@ def predict_quantile(
         )
         return y_q
     if t_raw.ndim != 2:
-        raise ValueError(
-            f"CompositeTargetEstimator.predict_quantile: inner returned ndim={t_raw.ndim}; expected 1 or 2."
-        )
+        raise ValueError(f"CompositeTargetEstimator.predict_quantile: inner returned ndim={t_raw.ndim}; expected 1 or 2.")
     # Per-column inverse: base_arr is (n_samples,), so reshape to broadcast.
     cols = [_invert_one(t_raw[:, k]) for k in range(t_raw.shape[1])]
     _record_runtime_stats(

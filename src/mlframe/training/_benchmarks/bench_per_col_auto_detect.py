@@ -30,7 +30,6 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-
 RESULTS_DIR = Path(__file__).parent / "_results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -65,10 +64,7 @@ def _legacy_polars_path(df, threshold, min_non_null_abs):
     """Vendored pre-fix: per-col n_unique + per-col count. Excludes embedding/honor checks (irrelevant here)."""
     text_features, cardinalities, skipped, dropped = [], {}, [], []
     for name, dtype in df.schema.items():
-        is_text_like = (
-            dtype in (pl.String, pl.Utf8, pl.Categorical)
-            or isinstance(dtype, pl.Enum)
-        )
+        is_text_like = dtype in (pl.String, pl.Utf8, pl.Categorical) or isinstance(dtype, pl.Enum)
         if not is_text_like:
             continue
         n_unique = df[name].n_unique()
@@ -84,16 +80,12 @@ def _legacy_polars_path(df, threshold, min_non_null_abs):
 
 def _new_polars_path(df, threshold, min_non_null_abs):
     """Vendored post-fix: single batched aggregation."""
-    text_like_cols = [
-        name for name, dtype in df.schema.items()
-        if dtype in (pl.String, pl.Utf8, pl.Categorical) or isinstance(dtype, pl.Enum)
-    ]
+    text_like_cols = [name for name, dtype in df.schema.items() if dtype in (pl.String, pl.Utf8, pl.Categorical) or isinstance(dtype, pl.Enum)]
     if not text_like_cols:
         return [], {}, []
-    _aggs = (
-        [pl.col(c).n_unique().alias(f"__nu_{i}__") for i, c in enumerate(text_like_cols)]
-        + [pl.col(c).count().alias(f"__cnt_{i}__") for i, c in enumerate(text_like_cols)]
-    )
+    _aggs = [pl.col(c).n_unique().alias(f"__nu_{i}__") for i, c in enumerate(text_like_cols)] + [
+        pl.col(c).count().alias(f"__cnt_{i}__") for i, c in enumerate(text_like_cols)
+    ]
     _agg_row = df.lazy().select(_aggs).collect()
     text_features, cardinalities, skipped = [], {}, []
     for i, name in enumerate(text_like_cols):

@@ -68,7 +68,7 @@ def _fwl_relu_legs(cp, xg, cuts, n: int, min_seg_rows: int):
     round). Materialising the (n, C) relu block is the stage's largest device allocation; hoisting it
     out of the round loop removes one full (n, C) build + the segment-row count per breakpoint round."""
     cuts_d = cp.asarray(np.ascontiguousarray(cuts, dtype=np.float64))
-    R = cp.maximum(xg[:, None] - cuts_d[None, :], 0.0)          # (n, C) all relu legs at once
+    R = cp.maximum(xg[:, None] - cuts_d[None, :], 0.0)  # (n, C) all relu legs at once
     n_right = (xg[:, None] > cuts_d[None, :]).sum(axis=0)
     ok = (n_right >= min_seg_rows) & ((n - n_right) >= min_seg_rows)
     return R, ok
@@ -82,7 +82,7 @@ def _batched_fwl_sse(cp, R, ok, r_y, proj, sse_B: float, cuts, found):
     ``sse_B = r_y @ r_y``. Returns a host float64 (C,) SSE vector with ``inf`` at cuts failing the
     per-side segment-row guard / the found-tau dedup, and ``sse_B`` where relu lies in span(B)
     (``denom < 1e-24`` -- the host detector's rank-deficiency skip)."""
-    Rres = R - proj(R)                                          # FWL residuals vs B, one GEMM pair
+    Rres = R - proj(R)  # FWL residuals vs B, one GEMM pair
     denom = cp.einsum("ij,ij->j", Rres, Rres)
     num = Rres.T @ r_y
     sse = cp.where(denom < 1e-24, sse_B, sse_B - num * num / cp.maximum(denom, 1e-300))

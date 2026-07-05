@@ -47,11 +47,11 @@ def _make_ar1_leak_frame(n: int = 2000, seed: int = 0, n_noise: int = 5, ar: flo
     s = np.zeros(n + 2)
     for t in range(1, n + 2):
         s[t] = ar * s[t - 1] + e[t]
-    y = s[1:n + 1].copy()
+    y = s[1 : n + 1].copy()
     lag1 = s[0:n]
-    lag2 = np.concatenate([[0.0], s[0:n - 1]])
-    lag3 = np.concatenate([[0.0, 0.0], s[0:n - 2]])
-    lead1 = s[2:n + 2].copy()
+    lag2 = np.concatenate([[0.0], s[0 : n - 1]])
+    lag3 = np.concatenate([[0.0, 0.0], s[0 : n - 2]])
+    lead1 = s[2 : n + 2].copy()
     cols = {"lag1": lag1, "lag2": lag2, "lag3": lag3, "lead1": lead1}
     for i in range(n_noise):
         cols[f"noise{i}"] = rng.standard_normal(n)
@@ -135,8 +135,8 @@ def run():
         "gain_dominance_ordering": "legit >> leak (the wrong direction for a leak audit)",
         "clean_gain_based_discriminator_exists": False,
         "decision": "REJECTED: no clean gain-based discriminator; partial look-ahead leak is gain-indistinguishable "
-                    "from a strong legit feature without temporal metadata. Leak handled instead by RFECV "
-                    "leakage_corr_threshold (correlation route, separate precision cost).",
+        "from a strong legit feature without temporal metadata. Leak handled instead by RFECV "
+        "leakage_corr_threshold (correlation route, separate precision cost).",
         "per_seed": rows,
     }
 

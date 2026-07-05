@@ -65,8 +65,7 @@ def _make(n, seed):
 def main():
     from sklearn.metrics import adjusted_rand_score
     tau = 0.6
-    print(f"tau={tau}; planted: 5 monotone-nonlinear reflections of z + 3 linear "
-          f"reflections of w + 2 noise")
+    print(f"tau={tau}; planted: 5 monotone-nonlinear reflections of z + 3 linear " f"reflections of w + 2 noise")
     pe, sp = [], []
     for seed in range(6):
         X, truth = _make(3000, seed)
@@ -84,10 +83,8 @@ def main():
         print(f"seed={seed}: Pearson ARI={pe[-1]:.3f} (z-group split into {pe_groups}) | "
               f"Spearman ARI={sp[-1]:.3f} (z-group split into {sp_groups})  [1=intact]")
     print("---")
-    print(f"mean ARI: Pearson={np.mean(pe):.3f}  Spearman={np.mean(sp):.3f}  "
-          f"delta={np.mean(sp)-np.mean(pe):+.3f}")
-    print("WIN for Spearman/MI edge iff it keeps the nonlinear z-group intact "
-          "where Pearson splits it.")
+    print(f"mean ARI: Pearson={np.mean(pe):.3f}  Spearman={np.mean(sp):.3f}  " f"delta={np.mean(sp)-np.mean(pe):+.3f}")
+    print("WIN for Spearman/MI edge iff it keeps the nonlinear z-group intact " "where Pearson splits it.")
 
 
 if __name__ == "__main__":

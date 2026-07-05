@@ -132,8 +132,7 @@ class H36(HybridSelector):  # cluster confirmed by any vote; emit engineered mem
         return out
 
 
-VARIANTS = {"default": HybridSelector, "H32_voteOOF": H32, "H33_feprotect": H33,
-            "H34_rfecv": H34, "H35_autocombine": H35, "H36_decouple": H36}
+VARIANTS = {"default": HybridSelector, "H32_voteOOF": H32, "H33_feprotect": H33, "H34_rfecv": H34, "H35_autocombine": H35, "H36_decouple": H36}
 
 
 def downstream(Ztr, Zte, ytr, yte):
@@ -163,8 +162,7 @@ def main():
                 print(f"sd{sd} {name:16s} ERROR {type(e).__name__}: {e}", flush=True)
     df = pd.DataFrame(rows)
     print("\n=== mean over seeds (vs default) ===")
-    g = df.groupby("variant").agg(auc_mean=("auc_mean", "mean"), base_recall=("base_recall", "mean"),
-                                  n=("n", "mean"), fit_s=("fit_s", "mean")).round(4)
+    g = df.groupby("variant").agg(auc_mean=("auc_mean", "mean"), base_recall=("base_recall", "mean"), n=("n", "mean"), fit_s=("fit_s", "mean")).round(4)
     d = g.loc["default", "auc_mean"] if "default" in g.index else float("nan")
     g["delta_vs_default"] = (g["auc_mean"] - d).round(4)
     print(g.to_string())

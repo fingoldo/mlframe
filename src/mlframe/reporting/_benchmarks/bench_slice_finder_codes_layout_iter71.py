@@ -36,8 +36,8 @@ def main():
     n_pairs = 300
     mat, err = _make(n, p)
     err = np.ascontiguousarray(err)
-    codes_c, _edges = _bin_matrix(mat, 4)            # current: C-order
-    codes_f = np.asfortranarray(codes_c)             # proposed: F-order
+    codes_c, _edges = _bin_matrix(mat, 4)  # current: C-order
+    codes_f = np.asfortranarray(codes_c)  # proposed: F-order
     assert codes_c.flags["C_CONTIGUOUS"] and codes_f.flags["F_CONTIGUOUS"]
     rng = np.random.default_rng(1)
     allpairs = [(int(a), int(b)) for a in range(p) for b in range(a + 1, p)]

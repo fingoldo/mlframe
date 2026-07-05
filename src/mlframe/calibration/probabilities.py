@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import numpy as np
@@ -103,9 +102,7 @@ def generate_probs_from_outcomes(
     bin_offsets = (rng.random(size=nbins) - 0.5) * bins_std
     # One length-n uniform draw sliced per chunk (same consumption order as the old per-chunk draws).
     noise = rng.random(size=n) if n else np.empty(0, dtype=np.float64)
-    return _generate_probs_from_outcomes_kernel(
-        outcomes, indices, bin_offsets, noise, int(chunk_size), float(scale), int(nbins), float(flip_percent)
-    )
+    return _generate_probs_from_outcomes_kernel(outcomes, indices, bin_offsets, noise, int(chunk_size), float(scale), int(nbins), float(flip_percent))
 
 
 from scipy.special import logit, expit
@@ -201,8 +198,9 @@ def generate_similar_probs(predicted_probs, true_outcomes, noise_scale=0.05, n_i
         new_brier_score = fast_brier_score_loss(true_outcomes, noisy_probs)
         new_auc = fast_roc_auc(true_outcomes, noisy_probs)
 
-        score = abs(new_brier_score - original_brier_score) / max(abs(original_brier_score), 1e-12) + \
-                abs(new_auc - original_auc) / max(abs(original_auc), 1e-12)
+        score = abs(new_brier_score - original_brier_score) / max(abs(original_brier_score), 1e-12) + abs(new_auc - original_auc) / max(
+            abs(original_auc), 1e-12
+        )
         if score < best_score:
             best_score = score
             best_probs = noisy_probs

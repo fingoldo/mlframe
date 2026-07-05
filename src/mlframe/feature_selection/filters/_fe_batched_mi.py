@@ -236,9 +236,9 @@ _MI_SPLIT_KERNELS = None
 # path's). Only X's storage/transpose dtype changes: the (n,K) upcast is gone and the transpose runs in
 # f32 (transpose_f32, half the bytes). Everything else (histogram int32, MI f64 math) is unchanged.
 _MI_FROM_VALUES_F32_SRC = (
-    _MI_FROM_VALUES_SRC
-    .replace("const double* __restrict__ X, const double* __restrict__ edges,",
-             "const float* __restrict__ X, const double* __restrict__ edges,")
+    _MI_FROM_VALUES_SRC.replace(
+        "const double* __restrict__ X, const double* __restrict__ edges,", "const float* __restrict__ X, const double* __restrict__ edges,"
+    )
     .replace("const double* Xc = X", "const float* Xc = X")
     .replace("void mi_from_values(", "void mi_from_values_f32(")
     .replace("void mi_hist_split(", "void mi_hist_split_f32(")
@@ -340,8 +340,7 @@ def _get_dedup_edges_kernel():
 # (dedup'd) interior edges -- everything else is byte-for-byte the mi_mm_from_values kernel. When ne_k[c] ==
 # nbins-1 (continuous columns, no dup/boundary edges) it is bit-identical to mi_mm_from_values.
 _MI_MM_FROM_VALUES_NEK_SRC = (
-    _MI_MM_FROM_VALUES_SRC
-    .replace("void mi_mm_from_values(", "void mi_mm_from_values_nek(")
+    _MI_MM_FROM_VALUES_SRC.replace("void mi_mm_from_values(", "void mi_mm_from_values_nek(")
     .replace(
         "const double h_y, const int k_y,\n                       double* __restrict__ mi_out) {",
         "const double h_y, const int k_y,\n                       const int* __restrict__ ne_k, double* __restrict__ mi_out) {")
@@ -353,10 +352,9 @@ _MI_MM_FROM_VALUES_NEK_KERNEL = None
 # mi_from_values twin: the only use of X is ``double v = X[i*K+c]`` (widening float->double promotion), so
 # reading X as f32 and promoting per-element yields the exact f64 the f64 path stored via X.astype(f64) ->
 # BIT-IDENTICAL codes/MM-MI. Edges stay f64. Kills the (n,K) f32->f64 upcast on the pair-combo MM path.
-_MI_MM_FROM_VALUES_NEK_F32_SRC = (
-    _MI_MM_FROM_VALUES_NEK_SRC
-    .replace("void mi_mm_from_values_nek(const double* __restrict__ X, const double* __restrict__ edges,",
-             "void mi_mm_from_values_nek_f32(const float* __restrict__ X, const double* __restrict__ edges,")
+_MI_MM_FROM_VALUES_NEK_F32_SRC = _MI_MM_FROM_VALUES_NEK_SRC.replace(
+    "void mi_mm_from_values_nek(const double* __restrict__ X, const double* __restrict__ edges,",
+    "void mi_mm_from_values_nek_f32(const float* __restrict__ X, const double* __restrict__ edges,",
 )
 _MI_MM_FROM_VALUES_NEK_F32_KERNEL = None
 
@@ -398,7 +396,7 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     # edges f64) instead of upcasting the whole (n,K) matrix to f64. BIT-IDENTICAL: the kernel reads X only
     # via ``double v = X[i*K+c]`` (widening float->double promotion == the exact f64 the f64 path stored),
     # and cmin/cmax are order statistics of the same f32 values (max/min then exact f64 upcast, unchanged).
-    _is_f32 = (getattr(x_vals, "dtype", None) == cp.float32)
+    _is_f32 = getattr(x_vals, "dtype", None) == cp.float32
     Xd = x_vals if _is_f32 else x_vals.astype(cp.float64, copy=False)
     if Xd.ndim == 1:
         Xd = Xd[:, None]
@@ -433,8 +431,7 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     Ec = cp.empty((ne + 1, K), dtype=cp.float64)
     ne_k = cp.empty(K, dtype=cp.int32)
     threads = 256
-    _get_dedup_edges_kernel()(((K + threads - 1) // threads,), (threads,),
-        (E, cmin, cmax, np.int32(ne), np.int32(K), Ec, ne_k))
+    _get_dedup_edges_kernel()(((K + threads - 1) // threads,), (threads,), (E, cmin, cmax, np.int32(ne), np.int32(K), Ec, ne_k))
     _mm_nek = _get_mi_mm_from_values_nek_f32_kernel() if _is_f32 else _get_mi_mm_from_values_nek_kernel()
     _mm_nek((K,), (256,),
         (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(int(nbins)),
@@ -496,12 +493,12 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
     # of X is ``double v = Xc[i]`` (widening float->double promotion == the exact f64 the f64 path stored via
     # X.astype(f64)); edges kept f64 so the comparison is byte-for-byte the f64 path's. Non-f32 input upcasts
     # to f64 as before (the generic contract). The transpose runs in f32 (transpose_f32, half the bytes).
-    _is_f32 = (getattr(x_vals, "dtype", None) == cp.float32)
+    _is_f32 = getattr(x_vals, "dtype", None) == cp.float32
     Xd = x_vals if _is_f32 else x_vals.astype(cp.float64, copy=False)
     if Xd.ndim == 1:
         Xd = Xd[:, None]
     n, K = int(Xd.shape[0]), int(Xd.shape[1])
-    E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))   # (nbins-1, K)
+    E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))  # (nbins-1, K)
     yv = y_codes.astype(cp.int64, copy=False).ravel() if isinstance(y_codes, cp.ndarray) else cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel())
     Ky = int(ky)
     if int(nbins) * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
@@ -533,23 +530,19 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
             M = int(nbins) * Ky
             gcounts = cp.zeros(K * M, dtype=cp.int32)
             _hist, _mi = _get_mi_split_f32_kernels(cp) if _is_f32 else _get_mi_split_kernels(cp)
-            _hist((K, S), (256,),
-                  (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), np.int32(S), gcounts),
-                  shared_mem=M * 4)
+            _hist((K, S), (256,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), np.int32(S), gcounts), shared_mem=M * 4)
             _mi((K,), (32,), (gcounts, np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out))
             return cp.asnumpy(mi_out)
         except Exception:
             import logging
             logging.getLogger(__name__).debug("mi split-n path failed; single-launch mi_from_values", exc_info=True)
     _single = _get_mi_from_values_f32_kernel() if _is_f32 else _get_mi_from_values_kernel()
-    _single((K,), (256,), (Xc, E, yv, np.int64(n), np.int32(K),
-                           np.int32(int(nbins)), np.int32(Ky), _inv, mi_out),
-            shared_mem=int(nbins) * Ky * 4)
+    _single((K,), (256,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out), shared_mem=int(nbins) * Ky * 4)
     return cp.asnumpy(mi_out)
 
 
-_MI_FROM_CODES_KERNEL = None   # module-level singleton (lazy-compiled; never on an instance -> pickle-safe)
-_MI_FROM_CODES_MAX_SHARED = 44000   # bytes; stay under the 48KB default shared cap (Kx*Ky*4 must fit)
+_MI_FROM_CODES_KERNEL = None  # module-level singleton (lazy-compiled; never on an instance -> pickle-safe)
+_MI_FROM_CODES_MAX_SHARED = 44000  # bytes; stay under the 48KB default shared cap (Kx*Ky*4 must fit)
 
 
 def _get_mi_from_codes_kernel():
@@ -621,10 +614,10 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     Xd = Xd.astype(cp.float64, copy=False)
     n, K = int(Xd.shape[0]), int(Xd.shape[1])
     qs = cp.linspace(0.0, 100.0, nbins + 1)
-    edges_all = cp.percentile(Xd, qs, axis=0)        # (nbins+1, K) -- one batched device sort
+    edges_all = cp.percentile(Xd, qs, axis=0)  # (nbins+1, K) -- one batched device sort
     codes = cp.zeros((n, K), dtype=cp.int64)
     for k in range(K):
-        edges = cp.unique(edges_all[:, k])           # dedupe equi-freq edges (mirror np.unique on host)
+        edges = cp.unique(edges_all[:, k])  # dedupe equi-freq edges (mirror np.unique on host)
         if int(edges.size) <= 2:
             if int(edges.size) == 2:
                 codes[:, k] = (Xd[:, k] >= edges[1]).astype(cp.int64)
@@ -646,9 +639,9 @@ def cmi_device_argmax(mi_d: Any) -> tuple[int, float]:
 
     if mi_d.size == 0:
         return -1, float("-inf")
-    idx_d = cp.argmax(mi_d)                       # first-max index on device (matches np.argmax tiebreak)
-    best_idx = int(idx_d.get())                   # 8-byte scalar D2H
-    best_val = float(mi_d[best_idx].get())        # 8-byte scalar D2H (gather the single winning value)
+    idx_d = cp.argmax(mi_d)  # first-max index on device (matches np.argmax tiebreak)
+    best_idx = int(idx_d.get())  # 8-byte scalar D2H
+    best_val = float(mi_d[best_idx].get())  # 8-byte scalar D2H (gather the single winning value)
     return best_idx, best_val
 
 
@@ -684,7 +677,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
         X = cp.asarray(np.ascontiguousarray(x_cols).astype(np.int64))
     if X.ndim == 1:
         X = X[:, None]
-    X = cp.ascontiguousarray(X)   # batched joint-hist kernels read X[row*K+col] (C-order (n,K)); no-op if already
+    X = cp.ascontiguousarray(X)  # batched joint-hist kernels read X[row*K+col] (C-order (n,K)); no-op if already
     n = int(X.shape[0])
     # y is FIT-CONSTANT: when host, route through the resident-operand cache so it uploads ONCE per fit (keyed
     # on role + shape + content fingerprint) instead of one H2D per candidate batch; when already resident
@@ -710,11 +703,11 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
         # Marginal MI(x_k; y), MM-corrected:  H(x)+H(y)-H(x,y) - (k_x+k_y-k_xy-1)/2n
         Ky = int(ky) if ky and ky > 0 else (int(dy.max()) + 1 if dy.size else 1)
         _assert_codes_in_range(dy, Ky, "batched_cmi_gpu y codes", codes_trusted)
-        cnt_xy = _batched_joint_counts2(X, dy, Kx, Ky)   # (K, Kx*Ky) int32; the reduce casts in-register
+        cnt_xy = _batched_joint_counts2(X, dy, Kx, Ky)  # (K, Kx*Ky) int32; the reduce casts in-register
         h_xy, k_xy = _rows_entropy_and_k(cnt_xy, inv_n)
-        cnt_x = _batched_marginal_counts(X, Kx)          # (K, Kx) int32
+        cnt_x = _batched_marginal_counts(X, Kx)  # (K, Kx) int32
         h_x, k_x = _rows_entropy_and_k(cnt_x, inv_n)
-        h_y, k_y = joint_entropy_gpu([dy], [Ky], inv_n)                     # H(y): fused hist+entropy in ONE launch (same 2-launch fallback if it won't fit shared)
+        h_y, k_y = joint_entropy_gpu([dy], [Ky], inv_n)  # H(y): fused hist+entropy in ONE launch (same 2-launch fallback if it won't fit shared)
         # FUSED assembly: max(h_x - h_xy + h_y - (k_x - k_xy + (k_y-1))/2n, 0) in one (K,) launch.
         mi = _cmi_assemble(h_x, h_xy, float(h_y), k_x, k_xy, float(k_y - 1), 1.0 / (2.0 * nf))
         # return_device: keep the (K,) vector resident (caller device-argmaxes -> 2 scalars cross back, not K).
@@ -744,7 +737,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
         # shared y/z terms (column-invariant): fused hist+entropy in ONE launch each (same 2-launch fallback when
         # the 1D joint won't fit shared) -- bit-identical to _ent_nnz_1d(joint_counts_gpu(...)).
         h_z, k_z = joint_entropy_gpu([dz], [Kz], inv_n)
-        yz = dy * Kz + dz                      # dense (y,z) code (also feeds cnt_xyz below)
+        yz = dy * Kz + dz  # dense (y,z) code (also feeds cnt_xyz below)
         Kyz = int(yz.max()) + 1
         h_yz, k_yz = joint_entropy_gpu([yz], [Kyz], inv_n)
 
@@ -755,27 +748,24 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
     if _fused is not None:
         h_xz, k_xz = _fused
     else:
-        cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz)   # (K, Kx*Kz) int32
+        cnt_xz = _batched_joint_counts2(X, dz, Kx, Kz)  # (K, Kx*Kz) int32
         h_xz, k_xz = _rows_entropy_and_k(cnt_xz, inv_n)
     # H(x_k, y, z) for all k: in-kernel flat key k*(Kx*Kyz) + x*Kyz + yz (same fuse; large Kyz -> fallback)
     _fused = _batched_joint_entropy_and_k2(X, yz, Kx, Kyz, inv_n)
     if _fused is not None:
         h_xyz, k_xyz = _fused
     else:
-        cnt_xyz = _batched_joint_counts2(X, yz, Kx, Kyz) # (K, Kx*Kyz) int32
+        cnt_xyz = _batched_joint_counts2(X, yz, Kx, Kyz)  # (K, Kx*Kyz) int32
         h_xyz, k_xyz = _rows_entropy_and_k(cnt_xyz, inv_n)
 
     # FUSED assembly: max(h_xz - h_xyz + (h_yz - h_z) - (k_xyz - k_xz + (k_z - k_yz))/2n, 0) in one (K,) launch.
-    cmi_d = _cmi_assemble(h_xz, h_xyz, float(h_yz - h_z),
-                          k_xyz, k_xz, float(k_z - k_yz), 1.0 / (2.0 * nf))
+    cmi_d = _cmi_assemble(h_xz, h_xyz, float(h_yz - h_z), k_xyz, k_xz, float(k_z - k_yz), 1.0 / (2.0 * nf))
     if return_cards:
         # return_device: keep cmi + the per-column card arrays RESIDENT (k_z / k_yz are already host scalars);
         # default False = byte-identical D2H of the cmi vector + the two (K,) int card arrays as today.
         if return_device:
-            return (cmi_d, int(k_z), k_xz.astype(cp.int64),
-                    int(k_yz), k_xyz.astype(cp.int64))
-        return (cp.asnumpy(cmi_d), int(k_z), cp.asnumpy(k_xz).astype(np.int64),
-                int(k_yz), cp.asnumpy(k_xyz).astype(np.int64))
+            return (cmi_d, int(k_z), k_xz.astype(cp.int64), int(k_yz), k_xyz.astype(cp.int64))
+        return (cp.asnumpy(cmi_d), int(k_z), cp.asnumpy(k_xz).astype(np.int64), int(k_yz), cp.asnumpy(k_xyz).astype(np.int64))
     if return_device:
         return cmi_d
     return cp.asnumpy(cmi_d)

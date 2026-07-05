@@ -1,6 +1,5 @@
 """Composite-target transform registry: 11 transforms (diff, ratio, logratio, linear_residual + multi/grouped/quantile/monotonic/ewma/rolling_quantile/frac_diff extended set) + Transform dataclass + UnknownTransformError / DomainViolationError. Split out of composite.py to keep transform-implementation surface separate from the wrapper + discovery surface; composite.py re-exports every symbol below at its bottom for full back-compat."""
 
-
 from __future__ import annotations
 
 import logging
@@ -92,8 +91,8 @@ class DomainViolationError(ValueError):
 # ----------------------------------------------------------------------
 
 # Tags used to filter the registry into presets.
-TAG_CORE: str = "core"           # diff / ratio / logratio / linear_residual
-TAG_EXTENDED: str = "extended"   # placeholder; future presets may add more
+TAG_CORE: str = "core"  # diff / ratio / logratio / linear_residual
+TAG_EXTENDED: str = "extended"  # placeholder; future presets may add more
 TAG_REGRESSION: str = "regression"
 
 
@@ -290,7 +289,6 @@ from .unary import (  # noqa: E402,F401
     chain_multi_stage_inverse as _chain_multi_inverse_raw,
 )
 
-
 # ----------------------------------------------------------------------
 # Simple transforms (diff / additive_residual / median_residual /
 # y_quantile_clip / ratio / rolling_quantile_ratio): carved into
@@ -298,7 +296,6 @@ from .unary import (  # noqa: E402,F401
 # build below sees the public-name functions.
 # ----------------------------------------------------------------------
 from .simple import *  # noqa: E402,F401,F403
-
 
 # ----------------------------------------------------------------------
 # Sibling-module function bindings. The two transform clusters live in
@@ -336,7 +333,6 @@ from .nonlinear import (  # noqa: E402,F401
     _quantile_residual_inverse, _rolling_median, _row_alpha_beta,
 )
 
-
 # ----------------------------------------------------------------------
 # Registry + naming: imported AFTER all functional siblings load so the
 # registry dict literal can resolve every per-transform function. The
@@ -361,7 +357,6 @@ from .naming import (  # noqa: E402,F401
     is_composite_target_name,
     list_transforms,
 )
-
 
 # Read-only view exported to callers; the underlying ``_TRANSFORMS_REGISTRY`` is module-private and any extension layer must edit it explicitly. Prevents test / extension code from pop-ing a transform and silently corrupting subsequent suite runs in the same process.
 TRANSFORMS_REGISTRY: "Mapping[str, Transform]" = _MappingProxyType(_TRANSFORMS_REGISTRY)

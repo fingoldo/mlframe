@@ -26,9 +26,7 @@ def _make_data(n=5000, p=200, n_corr_pairs=40, seed=0):
 
 def _old_fit_factory():
     """Load HEAD's MyDecorrelator.fit body as a standalone function."""
-    src = subprocess.check_output(
-        ["git", "show", "HEAD:src/mlframe/estimators/custom.py"], cwd=REPO
-    ).decode("utf-8")
+    src = subprocess.check_output(["git", "show", "HEAD:src/mlframe/estimators/custom.py"], cwd=REPO).decode("utf-8")
     # Extract the class and build it in an isolated namespace.
     ns = {"pd": pd, "np": np}
     # pull just the fit logic to avoid importing sklearn base; replicate old loop directly:

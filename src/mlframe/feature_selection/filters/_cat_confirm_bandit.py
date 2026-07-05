@@ -226,10 +226,7 @@ def _confirm_pairs_bandit_ucb1(
     corrected_conf = _apply_fwer_correction(
         confidence_dict, cfg, n_search_pairs=n_search_pairs,
     )
-    kept_mask = np.array([
-        corrected_conf[(int(pairs_a[k]), int(pairs_b[k]))] >= min_conf
-        for k in selected_idx
-    ])
+    kept_mask = np.array([corrected_conf[(int(pairs_a[k]), int(pairs_b[k]))] >= min_conf for k in selected_idx])
     if verbose:
         for j, k in enumerate(selected_idx):
             ij = (int(pairs_a[k]), int(pairs_b[k]))

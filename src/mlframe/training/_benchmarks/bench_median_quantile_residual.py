@@ -55,7 +55,7 @@ def _median_v2_sort_split(y: np.ndarray, bin_idx: np.ndarray, n_bins: int) -> np
     ends = np.searchsorted(sorted_bins, np.arange(n_bins), side="right")
     for i in range(n_bins):
         if ends[i] > starts[i]:
-            out[i] = float(np.median(sorted_y[starts[i]:ends[i]]))
+            out[i] = float(np.median(sorted_y[starts[i] : ends[i]]))
     return out
 
 
@@ -178,7 +178,7 @@ def _quantile_v2_sort_split(y: np.ndarray, bin_idx: np.ndarray, n_bins: int):
     for i in range(n_bins):
         n = int(sizes[i])
         if n >= 4:
-            sl = sorted_y[starts[i]:ends[i]]
+            sl = sorted_y[starts[i] : ends[i]]
             meds[i] = float(np.median(sl))
             iqr = float(np.subtract(*np.percentile(sl, [75, 25])))
             iqrs[i] = iqr if iqr > 1e-6 else global_iqr

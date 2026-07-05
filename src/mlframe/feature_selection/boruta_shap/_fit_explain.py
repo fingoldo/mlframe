@@ -88,7 +88,7 @@ def _naive_accepted_set_stable(accepted_history, patience):
     """
     if len(accepted_history) <= patience:
         return False
-    recent = accepted_history[-(patience + 1):]
+    recent = accepted_history[-(patience + 1) :]
     return all(s == recent[0] for s in recent[1:])
 
 
@@ -396,9 +396,9 @@ def fit(self, X, y):
         )
         if _self_x_encoded_cols:
             logger.debug(
-                "BorutaShap: ordinal-encoded %d object/category col(s) "
-                "for internal surrogate fit: %s",
-                len(_self_x_encoded_cols), _self_x_encoded_cols,
+                "BorutaShap: ordinal-encoded %d object/category col(s) " "for internal surrogate fit: %s",
+                len(_self_x_encoded_cols),
+                _self_x_encoded_cols,
             )
 
         self.ncols = self.X.shape[1]
@@ -592,8 +592,7 @@ def explain(self):
         _n_basis = int(self.X_boruta.shape[0]) if not self.sample else int(basis.shape[0])
         if not self.sample:
             assert _n_basis == _n_train, (
-                f"BorutaShap: SHAP background row count ({_n_basis}) != train row count ({_n_train}); "
-                f"val/test rows must not leak into the explainer basis."
+                f"BorutaShap: SHAP background row count ({_n_basis}) != train row count ({_n_train}); " f"val/test rows must not leak into the explainer basis."
             )
         logger.info(
             "BorutaShap: SHAP TreeExplainer fitted on train background (n_train=%d, n_basis=%d, sampled=%s)",
@@ -605,11 +604,7 @@ def explain(self):
     # with ``ndim >= 2``. Pre-fix iter-237 / iter-280: BorutaShap on a 1-D
     # regression target crashed after 50+ minutes of SHAP computation
     # with ``IndexError: tuple index out of range``.
-    _y_multi = (
-        hasattr(self.y, "shape")
-        and getattr(self.y, "ndim", 1) >= 2
-        and self.y.shape[1] > 1
-    )
+    _y_multi = hasattr(self.y, "shape") and getattr(self.y, "ndim", 1) >= 2 and self.y.shape[1] > 1
     if self.classification or _y_multi:
         # for some reason shap returns values wraped in a list of length 1
         # Wave 29 P1 fix (2026-05-20): pre-fix wrapped the raw return

@@ -84,8 +84,7 @@ def main():
         best_existing = _best_existing_mi(x, y)
         bern = fit_basis_mi(bernstein_design(x, _DEG), y, nbins=_NBINS)
         # Jacobi/Gegenbauer: sweep a small alpha/beta (lambda) grid, take the best -- the most generous redundancy check.
-        jac = max(fit_basis_mi(jacobi_design(x, _DEG, a, b), y, nbins=_NBINS)
-                  for a in (-0.5, 0.0, 1.0, 2.0) for b in (-0.5, 0.0, 1.0, 2.0))
+        jac = max(fit_basis_mi(jacobi_design(x, _DEG, a, b), y, nbins=_NBINS) for a in (-0.5, 0.0, 1.0, 2.0) for b in (-0.5, 0.0, 1.0, 2.0))
         geg = max(fit_basis_mi(gegenbauer_design(x, _DEG, lam), y, nbins=_NBINS) for lam in (0.25, 0.5, 1.0, 2.0))
         for fam, mi in (("bernstein", bern), ("jacobi", jac), ("gegenbauer", geg)):
             lift = mi / max(best_existing, 1e-6)
@@ -96,8 +95,7 @@ def main():
 
     print(f"{'target':22s} {'family':12s} {'fam_mi':>7s} {'exist':>7s} {'lift':>6s}  verdict")
     for r in rows:
-        print(f"{r['target']:22s} {r['family']:12s} {r['family_mi']:7.3f} {r['best_existing_mi']:7.3f} "
-              f"{r['lift']:6.2f}  {r['verdict']}")
+        print(f"{r['target']:22s} {r['family']:12s} {r['family_mi']:7.3f} {r['best_existing_mi']:7.3f} " f"{r['lift']:6.2f}  {r['verdict']}")
     print(f"\ntotal {total_s:.2f}s")
 
     _RESULTS.mkdir(exist_ok=True)

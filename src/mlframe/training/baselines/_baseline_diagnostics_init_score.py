@@ -100,18 +100,15 @@ def _fit_init_score_baseline(
             # fall back to single-feature mode. KeyboardInterrupt / MemoryError
             # still propagate.
             logger.info(
-                "BaselineDiagnostics: init_score combiner failed (%s); "
-                "falling back to top-1.", exc,
+                "BaselineDiagnostics: init_score combiner failed (%s); " "falling back to top-1.",
+                exc,
             )
             feat = chosen[0].feature
             base_values = X[feat].to_numpy().astype(np.float64)
             feature_used = feat
 
     if not np.all(np.isfinite(base_values)):
-        logger.info(
-            "BaselineDiagnostics: init_score base values contain "
-            "non-finite entries; skipping."
-        )
+        logger.info("BaselineDiagnostics: init_score base values contain " "non-finite entries; skipping.")
         return None
 
     # Convert to the right scale for the inner family. LightGBM's init_score

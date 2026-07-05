@@ -23,10 +23,8 @@ warnings.filterwarnings("ignore")
 
 
 CONFIGS = {
-    "C2": dict(width=10000, n_rows=5000, n_informative=20, n_redundant=0,
-               redundancy_rho=0.8, snr=8.0, seed=0),
-    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
-               redundancy_rho=0.8, snr=8.0, seed=0),
+    "C2": dict(width=10000, n_rows=5000, n_informative=20, n_redundant=0, redundancy_rho=0.8, snr=8.0, seed=0),
+    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0),
 }
 
 
@@ -99,8 +97,7 @@ def run_one(name, cfg, *, refine_ucb_enabled, per_config_cap_s=120.0):
 
 
 def print_stage_table(timings, total):
-    order = ("prefilter", "clustering", "oof_shap", "prescreen", "search",
-             "trust_guard", "revalidation", "importance_ablation", "within_cluster_refine")
+    order = ("prefilter", "clustering", "oof_shap", "prescreen", "search", "trust_guard", "revalidation", "importance_ablation", "within_cluster_refine")
     print(f"  total={total:.2f}s  stages:")
     for k in order:
         v = timings.get(k)
@@ -110,11 +107,9 @@ def print_stage_table(timings, total):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--configs", default="C2,C3",
-                    help="Comma-separated config names (subset of C2,C3).")
+    ap.add_argument("--configs", default="C2,C3", help="Comma-separated config names (subset of C2,C3).")
     ap.add_argument("--per_config_cap_s", type=float, default=120.0)
-    ap.add_argument("--seed", type=int, default=None,
-                    help="Override the per-config seed (lets us re-run for variance characterisation).")
+    ap.add_argument("--seed", type=int, default=None, help="Override the per-config seed (lets us re-run for variance characterisation).")
     args = ap.parse_args(argv)
 
     requested = [c.strip() for c in args.configs.split(",") if c.strip()]
@@ -138,8 +133,7 @@ def main(argv=None):
     print("\n" + "=" * 90)
     print("ITER35 SUMMARY")
     print("=" * 90)
-    print(f"{'cfg':<8} {'label':<12} {'e2e':>8} {'refine':>8} {'reval':>8} {'recall':>8} "
-          f"{'subset':>7} {'rfn_b/a':>9} {'loss':>8} {'random':>8}")
+    print(f"{'cfg':<8} {'label':<12} {'e2e':>8} {'refine':>8} {'reval':>8} {'recall':>8} " f"{'subset':>7} {'rfn_b/a':>9} {'loss':>8} {'random':>8}")
     for name in requested:
         for r in results[name]:
             tref = r["stage_timings"].get("within_cluster_refine", 0.0)

@@ -16,10 +16,9 @@ from sklearn.feature_selection import mutual_info_classif, mutual_info_regressio
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
 
-def detect_pair_symmetry(x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray, *,
-                          discrete_target: bool = True,
-                          mi_estimator: str = "plugin",
-                          plugin_n_bins: int = 20) -> float:
+def detect_pair_symmetry(
+    x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray, *, discrete_target: bool = True, mi_estimator: str = "plugin", plugin_n_bins: int = 20
+) -> float:
     """Symmetry score in [0, 1] for (x_a, x_b) as predictors of y. Targets of form f(a,b)=f(b,a) score near 1; asymmetric like y=sign(a-2b) score lower.
 
     Combines (geometric mean of) two indicators:
@@ -32,18 +31,14 @@ def detect_pair_symmetry(x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray, *,
     x_a = np.asarray(x_a, dtype=np.float64)
     x_b = np.asarray(x_b, dtype=np.float64)
     # Marginal MI test
-    mi_a = _mi_1d(x_a, y, discrete_target=discrete_target,
-                   mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
-    mi_b = _mi_1d(x_b, y, discrete_target=discrete_target,
-                   mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+    mi_a = _mi_1d(x_a, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+    mi_b = _mi_1d(x_b, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
     big_m = max(mi_a, mi_b, 1e-12)
     small_m = min(mi_a, mi_b)
     marginal_score = small_m / big_m
     # Sub vs add test (high = symmetric)
-    mi_add = _mi_1d(x_a + x_b, y, discrete_target=discrete_target,
-                     mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
-    mi_sub_abs = _mi_1d(np.abs(x_a - x_b), y, discrete_target=discrete_target,
-                          mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+    mi_add = _mi_1d(x_a + x_b, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+    mi_sub_abs = _mi_1d(np.abs(x_a - x_b), y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
     big_d = max(mi_add, mi_sub_abs, 1e-12)
     small_d = min(mi_add, mi_sub_abs)
     diff_score = small_d / big_d if big_d > 1e-9 else 0.0
@@ -105,8 +100,8 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     # that produced shape (1500,) vs (n,) errors / silent hermite=0
     # regression measured in development.
     if B_a is not None and B_b is not None:
-        _Ba_slice = np.ascontiguousarray(B_a[:, :coef_a.shape[0]])
-        _Bb_slice = np.ascontiguousarray(B_b[:, :coef_b.shape[0]])
+        _Ba_slice = np.ascontiguousarray(B_a[:, : coef_a.shape[0]])
+        _Bb_slice = np.ascontiguousarray(B_b[:, : coef_b.shape[0]])
         _ca = np.ascontiguousarray(coef_a, dtype=np.float64)
         _cb = np.ascontiguousarray(coef_b, dtype=np.float64)
         h_a = _Ba_slice @ _ca
@@ -136,8 +131,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
             mi_arr = _plugin_mi_regression_batch_njit(X_batch, y_njit, plugin_n_bins)
     else:  # ksg
         if discrete_target:
-            mi_arr = mutual_info_classif(X_batch, y, n_neighbors=n_neighbors,
-                                           random_state=42, discrete_features=False)
+            mi_arr = mutual_info_classif(X_batch, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)
         else:
             mi_arr = mutual_info_regression(X_batch, y, n_neighbors=n_neighbors,
                                              random_state=42, discrete_features=False)
@@ -209,8 +203,8 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
         ca = coefs_a[p]
         cb = coefs_b[p]
         if B_a is not None and B_b is not None:
-            _Ba_slice = np.ascontiguousarray(B_a[:, :ca.shape[0]])
-            _Bb_slice = np.ascontiguousarray(B_b[:, :cb.shape[0]])
+            _Ba_slice = np.ascontiguousarray(B_a[:, : ca.shape[0]])
+            _Bb_slice = np.ascontiguousarray(B_b[:, : cb.shape[0]])
             _ca = np.ascontiguousarray(ca, dtype=np.float64)
             _cb = np.ascontiguousarray(cb, dtype=np.float64)
             h_a = _Ba_slice @ _ca
@@ -261,11 +255,9 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
             mi_arr = _plugin_mi_regression_batch_njit(X_batch, y_njit, plugin_n_bins)
     else:  # ksg
         if discrete_target:
-            mi_arr = mutual_info_classif(X_batch, y, n_neighbors=n_neighbors,
-                                          random_state=42, discrete_features=False)
+            mi_arr = mutual_info_classif(X_batch, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)
         else:
-            mi_arr = mutual_info_regression(X_batch, y, n_neighbors=n_neighbors,
-                                              random_state=42, discrete_features=False)
+            mi_arr = mutual_info_regression(X_batch, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)
 
     # Phase 4: per-candidate l2 penalty + best-bf selection
     penalties = np.zeros(P, dtype=np.float64)
@@ -311,9 +303,7 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
 
     # Warm-start batch: evaluate canonical seeds in one batch call.
     if warm_start_seeds:
-        seeds_arr = np.stack([
-            np.asarray(s, dtype=np.float64) for s in warm_start_seeds
-        ])
+        seeds_arr = np.stack([np.asarray(s, dtype=np.float64) for s in warm_start_seeds])
         ws_a = seeds_arr[:, :ca_size]
         ws_b = seeds_arr[:, ca_size:]
         ws_scores, ws_raws, ws_idxs = _eval_coef_pair_batch(
@@ -324,8 +314,7 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
             if not np.isfinite(sc):
                 continue
             if track_history and ws_idxs[j] >= 0:
-                history.append((float(sc), float(ws_raws[j]), int(ws_idxs[j]),
-                                ws_a[j].copy(), ws_b[j].copy()))
+                history.append((float(sc), float(ws_raws[j]), int(ws_idxs[j]), ws_a[j].copy(), ws_b[j].copy()))
             if sc > best_score:
                 best_score = sc
                 best_raw = ws_raws[j]
@@ -335,8 +324,7 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
                     best_coefs = (nc_a.copy(), nc_b.copy())
                 else:
                     best_coefs = (ws_a[j].copy(), ws_b[j].copy())
-        x0 = (np.concatenate([best_coefs[0], best_coefs[1]])
-              if best_coefs is not None else np.zeros(dim, dtype=np.float64))
+        x0 = np.concatenate([best_coefs[0], best_coefs[1]]) if best_coefs is not None else np.zeros(dim, dtype=np.float64)
         sigma0 = sigma0 * 0.5
     else:
         x0 = np.zeros(dim, dtype=np.float64)
@@ -378,8 +366,7 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
             if not np.isfinite(sc):
                 continue
             if track_history and idxs_batch[j] >= 0:
-                history.append((float(sc), float(raws_batch[j]), int(idxs_batch[j]),
-                                  ca_batch[j].copy(), cb_batch[j].copy()))
+                history.append((float(sc), float(raws_batch[j]), int(idxs_batch[j]), ca_batch[j].copy(), cb_batch[j].copy()))
             if sc > best_score:
                 best_score = sc
                 best_raw = raws_batch[j]
@@ -451,9 +438,7 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
 
     # Warm-start: evaluate canonical seeds in one batch first.
     if warm_start_seeds:
-        seeds_arr = np.stack([
-            np.asarray(s, dtype=np.float64) for s in warm_start_seeds
-        ])
+        seeds_arr = np.stack([np.asarray(s, dtype=np.float64) for s in warm_start_seeds])
         ws_a = seeds_arr[:, :ca_size]
         ws_b = seeds_arr[:, ca_size:]
         ws_scores, ws_raws, ws_idxs = _eval_coef_pair_batch(
@@ -464,8 +449,7 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
             if not np.isfinite(sc):
                 continue
             if track_history and ws_idxs[j] >= 0:
-                history.append((float(sc), float(ws_raws[j]), int(ws_idxs[j]),
-                                ws_a[j].copy(), ws_b[j].copy()))
+                history.append((float(sc), float(ws_raws[j]), int(ws_idxs[j]), ws_a[j].copy(), ws_b[j].copy()))
             if sc > best_score:
                 best_score = sc
                 best_raw = ws_raws[j]
@@ -480,24 +464,16 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
         if n_evals >= n_trials:
             break
         eff_batch = min(batch_size, n_trials - n_evals)
-        coefs_a_batch = rng.uniform(coef_range[0], coef_range[1],
-                                     size=(eff_batch, ca_size))
-        coefs_b_batch = rng.uniform(coef_range[0], coef_range[1],
-                                     size=(eff_batch, cb_size))
+        coefs_a_batch = rng.uniform(coef_range[0], coef_range[1], size=(eff_batch, ca_size))
+        coefs_b_batch = rng.uniform(coef_range[0], coef_range[1], size=(eff_batch, cb_size))
         # Elitism: replace first K slots with perturbed best.
         if best_coefs is not None:
             k = min(elitism_k, eff_batch)
-            coefs_a_batch[:k] = best_coefs[0] + rng.normal(
-                0.0, sigma, (k, ca_size)
-            )
-            coefs_b_batch[:k] = best_coefs[1] + rng.normal(
-                0.0, sigma, (k, cb_size)
-            )
+            coefs_a_batch[:k] = best_coefs[0] + rng.normal(0.0, sigma, (k, ca_size))
+            coefs_b_batch[:k] = best_coefs[1] + rng.normal(0.0, sigma, (k, cb_size))
             # Clip to bounds.
-            np.clip(coefs_a_batch[:k], coef_range[0], coef_range[1],
-                     out=coefs_a_batch[:k])
-            np.clip(coefs_b_batch[:k], coef_range[0], coef_range[1],
-                     out=coefs_b_batch[:k])
+            np.clip(coefs_a_batch[:k], coef_range[0], coef_range[1], out=coefs_a_batch[:k])
+            np.clip(coefs_b_batch[:k], coef_range[0], coef_range[1], out=coefs_b_batch[:k])
         scores_batch, raws_batch, idxs_batch = _eval_coef_pair_batch(
             coefs_a_batch, coefs_b_batch,
             direction_only=direction_only, **eval_kwargs,
@@ -510,20 +486,14 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
             best_raw = float(raws_batch[best_p])
             best_idx = int(idxs_batch[best_p])
             if direction_only:
-                nc_a, nc_b = _l2_normalize_pair(
-                    coefs_a_batch[best_p], coefs_b_batch[best_p]
-                )
+                nc_a, nc_b = _l2_normalize_pair(coefs_a_batch[best_p], coefs_b_batch[best_p])
                 best_coefs = (nc_a.copy(), nc_b.copy())
             else:
-                best_coefs = (coefs_a_batch[best_p].copy(),
-                              coefs_b_batch[best_p].copy())
+                best_coefs = (coefs_a_batch[best_p].copy(), coefs_b_batch[best_p].copy())
         if track_history:
             for j in range(eff_batch):
                 if np.isfinite(scores_batch[j]) and idxs_batch[j] >= 0:
-                    history.append((float(scores_batch[j]), float(raws_batch[j]),
-                                      int(idxs_batch[j]),
-                                      coefs_a_batch[j].copy(),
-                                      coefs_b_batch[j].copy()))
+                    history.append((float(scores_batch[j]), float(raws_batch[j]), int(idxs_batch[j]), coefs_a_batch[j].copy(), coefs_b_batch[j].copy()))
 
     if best_coefs is None:
         return None
@@ -532,8 +502,7 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     return (best_coefs[0], best_coefs[1], best_idx, best_raw, n_evals)
 
 
-def _select_diverse_topm(history: list, top_m: int,
-                            min_l2_distance: float = 0.3) -> list:
+def _select_diverse_topm(history: list, top_m: int, min_l2_distance: float = 0.3) -> list:
     """Greedy diverse-top-M selection from (score, raw_mi, bf_idx, coef_a, coef_b) tuples; keeps entries whose joint (L2-normalized) coef vector is >= min_l2_distance from prior kept.
 
     Module-private; coefficient vectors of differing lengths are zero-padded to a common axis for cross-degree comparison.
@@ -554,10 +523,7 @@ def _select_diverse_topm(history: list, top_m: int,
         return v
 
     kept = [sorted_h[0]]
-    kept_dirs = [
-        _padded_vec(sorted_h[0][3], sorted_h[0][4])
-        / (np.linalg.norm(_padded_vec(sorted_h[0][3], sorted_h[0][4])) + 1e-12)
-    ]
+    kept_dirs = [_padded_vec(sorted_h[0][3], sorted_h[0][4]) / (np.linalg.norm(_padded_vec(sorted_h[0][3], sorted_h[0][4])) + 1e-12)]
     for entry in sorted_h[1:]:
         if len(kept) >= top_m:
             break
@@ -622,8 +588,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
             )
             n_evals += 1
             if track_history and bf_idx >= 0 and np.isfinite(score):
-                history.append((float(score), float(raw_mi), int(bf_idx),
-                                  coef_a.copy(), coef_b.copy()))
+                history.append((float(score), float(raw_mi), int(bf_idx), coef_a.copy(), coef_b.copy()))
             if score > best_score:
                 best_score = score
                 best_raw = raw_mi
@@ -634,8 +599,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                 else:
                     best_coefs = (coef_a.copy(), coef_b.copy())
         # Use the best canonical seed as CMA's starting point.
-        x0 = (np.concatenate([best_coefs[0], best_coefs[1]])
-              if best_coefs is not None else np.zeros(dim, dtype=np.float64))
+        x0 = np.concatenate([best_coefs[0], best_coefs[1]]) if best_coefs is not None else np.zeros(dim, dtype=np.float64)
         # Tighter sigma when we already have a good seed -- exploit
         # rather than explore.
         sigma0 = sigma0 * 0.5
@@ -657,8 +621,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     )
     # Inject remaining canonical seeds into the first generation -- CMA
     # 4.x lets us replace ask()'s random samples directly.
-    inject_arrays = [np.asarray(s, dtype=np.float64)
-                      for s in (warm_start_seeds or [])]
+    inject_arrays = [np.asarray(s, dtype=np.float64) for s in (warm_start_seeds or [])]
 
     first_gen = True
     # 2026-05-20 NEW-D: plateau early-stop state. Tracks how many
@@ -689,8 +652,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
             )
             n_evals += 1
             if track_history and bf_idx >= 0 and np.isfinite(score):
-                history.append((float(score), float(raw_mi), int(bf_idx),
-                                  coef_a.copy(), coef_b.copy()))
+                history.append((float(score), float(raw_mi), int(bf_idx), coef_a.copy(), coef_b.copy()))
             if score > best_score:
                 best_score = score
                 best_raw = raw_mi
@@ -719,13 +681,11 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     if best_coefs is None:
         return None
     if track_history:
-        return (best_coefs[0], best_coefs[1], best_idx, best_raw, n_evals,
-                history)
+        return (best_coefs[0], best_coefs[1], best_idx, best_raw, n_evals, history)
     return (best_coefs[0], best_coefs[1], best_idx, best_raw, n_evals)
 
-def _baseline_mi_pair(x_a, x_b, y, *, discrete_target: bool,
-                        n_neighbors: int = 3, mi_estimator: str = "plugin",
-                        plugin_n_bins: int = 20) -> float:
+
+def _baseline_mi_pair(x_a, x_b, y, *, discrete_target: bool, n_neighbors: int = 3, mi_estimator: str = "plugin", plugin_n_bins: int = 20) -> float:
     """Identity baseline: MI of (x_a, x_b) vs target. Plug-in is 1-D-x by design so we use max(MI(x_a, y), MI(x_b, y)) (lower bound on joint MI); KSG path uses sklearn's multi-D estimator."""
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
@@ -748,10 +708,8 @@ def _baseline_mi_pair(x_a, x_b, y, *, discrete_target: bool,
         return float(max(mi_a, mi_b))
     Xn = np.column_stack([x_a, x_b])
     if discrete_target:
-        return float(mutual_info_classif(Xn, y, n_neighbors=n_neighbors,
-                                          random_state=42, discrete_features=False).max())
-    return float(mutual_info_regression(Xn, y, n_neighbors=n_neighbors,
-                                         random_state=42, discrete_features=False).max())
+        return float(mutual_info_classif(Xn, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False).max())
+    return float(mutual_info_regression(Xn, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False).max())
 
 
 def optimise_pair_multimode(
@@ -837,18 +795,14 @@ def optimise_pair_multimode(
     canonical_seeds_func = basis_info.get("canonical_seeds_func")
 
     if mi_estimator == "plugin":
-        y_njit = (np.asarray(y, dtype=np.int64) if discrete_target
-                  else np.asarray(y, dtype=np.float64))
+        y_njit = np.asarray(y, dtype=np.int64) if discrete_target else np.asarray(y, dtype=np.float64)
     else:
         y_njit = None
 
     bf_names_global = list(bin_funcs.keys())
     bf_callables_global = [bin_funcs[n] for n in bf_names_global]
 
-    baseline = _baseline_mi_pair(z_a, z_b, y, discrete_target=discrete_target,
-                                   n_neighbors=n_neighbors,
-                                   mi_estimator=mi_estimator,
-                                   plugin_n_bins=plugin_n_bins)
+    baseline = _baseline_mi_pair(z_a, z_b, y, discrete_target=discrete_target, n_neighbors=n_neighbors, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
 
     # Aggregate history across degrees, then apply diverse top-M.
     full_history = []
@@ -868,8 +822,7 @@ def optimise_pair_multimode(
         )
         warm_seeds = []
         if warm_start:
-            seeds_per_feat = (canonical_seeds_func(degree)
-                               if canonical_seeds_func else _canonical_seeds(basis, degree))
+            seeds_per_feat = canonical_seeds_func(degree) if canonical_seeds_func else _canonical_seeds(basis, degree)
             for s_a in seeds_per_feat:
                 for s_b in seeds_per_feat:
                     warm_seeds.append(np.concatenate([s_a, s_b]))

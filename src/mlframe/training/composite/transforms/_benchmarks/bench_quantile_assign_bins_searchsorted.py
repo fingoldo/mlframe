@@ -116,9 +116,7 @@ def main():
 
         # adversarial identity: NaN / +-inf / out-of-range
         adv = np.array([np.nan, np.inf, -np.inf, 1e300, -1e300, 0.0], dtype=np.float64)
-        assert np.array_equal(
-            _reference_searchsorted(adv, edges), _assign_par_wrap(adv, edges)
-        ), "MISMATCH adversarial"
+        assert np.array_equal(_reference_searchsorted(adv, edges), _assign_par_wrap(adv, edges)), "MISMATCH adversarial"
 
         old = _best(lambda: _reference_searchsorted(base, edges), 100)
         new = _best(lambda: _assign_njit_wrap(base, edges), 100)

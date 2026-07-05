@@ -54,7 +54,4 @@ from mlframe.metrics.regression import (  # noqa: F401
 
 # Preserve the historical ``from mlframe.metrics import *`` surface (every public name the star-imports above brought in)
 # while GUARANTEEING the documented ``fast_calibration_report`` / ``CalibrationReport`` are part of it as a first-class contract.
-__all__ = sorted(
-    {name for name in globals() if not name.startswith("_")}
-    | {"CalibrationReport", "fast_calibration_report"}
-)
+__all__ = sorted({name for name in globals() if not name.startswith("_")} | {"CalibrationReport", "fast_calibration_report"})

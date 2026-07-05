@@ -83,8 +83,7 @@ def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np
         X_arr = np.asarray(X, dtype=float)
     except (ValueError, TypeError) as exc:
         raise ValueError(
-            f"make_gaussian_knockoffs: failed to convert X to float ndarray ({exc}); "
-            f"all knockoff columns must be numeric. Encode categoricals upstream."
+            f"make_gaussian_knockoffs: failed to convert X to float ndarray ({exc}); " f"all knockoff columns must be numeric. Encode categoricals upstream."
         ) from exc
     n, p = X_arr.shape
     if n < 2 or p < 1:
@@ -200,9 +199,7 @@ def select_features_fdr(W: dict, q: float = 0.1) -> list:
     return [n for n, _ in selected]
 
 
-def knockoff_importance(model_factory, X, y, current_features=None, random_state=None,
-                        importance_getter: str = "auto",
-                        w_statistic: str = "auto") -> dict:
+def knockoff_importance(model_factory, X, y, current_features=None, random_state=None, importance_getter: str = "auto", w_statistic: str = "auto") -> dict:
     """Compute knockoff-based importance: W_j = imp(X_j) - imp(X_tilde_j).
 
     Builds Gaussian knockoffs X_tilde, fits a fresh model on [X, X_tilde]
@@ -287,10 +284,7 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
     if _w == "auto":
         # Detect tree-family: any of feature_importances_ AND class-name contains "Forest" / "Boost" / "Tree".
         _name = type(model).__name__
-        _is_tree = (
-            hasattr(model, "feature_importances_") and
-            any(t in _name for t in ("Forest", "Tree", "Boost", "LGBM", "XGB", "CatBoost", "GBM"))
-        )
+        _is_tree = hasattr(model, "feature_importances_") and any(t in _name for t in ("Forest", "Tree", "Boost", "LGBM", "XGB", "CatBoost", "GBM"))
         _w = "shap" if _is_tree else ("coef" if hasattr(model, "coef_") else "gain")
     if _w == "shap":
         # TreeSHAP path.
@@ -298,8 +292,7 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
             import shap as _shap
         except ImportError as _exc:
             raise ImportError(
-                "w_statistic='shap' requires the optional ``shap`` package. "
-                "Install via ``pip install shap`` or set w_statistic='gain'/'coef'."
+                "w_statistic='shap' requires the optional ``shap`` package. " "Install via ``pip install shap`` or set w_statistic='gain'/'coef'."
             ) from _exc
         try:
             _expl = _shap.TreeExplainer(model)
@@ -310,10 +303,7 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
             fi_vals = np.abs(_arr).mean(axis=0)
             fi = {n: float(v) for n, v in zip(joint_names, fi_vals)}
         except Exception as _exc:
-            raise RuntimeError(
-                f"TreeSHAP W-statistic failed for {type(model).__name__}: {_exc}. "
-                f"Set w_statistic='gain' or 'coef' to fall back."
-            ) from _exc
+            raise RuntimeError(f"TreeSHAP W-statistic failed for {type(model).__name__}: {_exc}. " f"Set w_statistic='gain' or 'coef' to fall back.") from _exc
     elif _w == "gain":
         fi = _get_feature_importances(
             model=model, current_features=joint_names,

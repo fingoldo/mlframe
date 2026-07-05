@@ -33,8 +33,7 @@ warnings.filterwarnings("ignore")
 
 
 def _boruta(Xtr, ytr):
-    bs = BorutaShap(importance_measure="gini", classification=True,
-                    n_trials=25, verbose=False, random_state=0)
+    bs = BorutaShap(importance_measure="gini", classification=True, n_trials=25, verbose=False, random_state=0)
     bs.fit(Xtr, ytr)
     return list(bs.accepted)
 
@@ -48,8 +47,7 @@ def _auc(Xtr, ytr, Xte, yte, cols):
 
 
 def _run(name, X, y, seed=0):
-    X = pd.DataFrame(StandardScaler().fit_transform(np.asarray(X, float)),
-                     columns=[f"f{i}" for i in range(np.asarray(X).shape[1])])
+    X = pd.DataFrame(StandardScaler().fit_transform(np.asarray(X, float)), columns=[f"f{i}" for i in range(np.asarray(X).shape[1])])
     y = pd.Series(np.asarray(y).astype(int)).reset_index(drop=True)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.35, random_state=seed, stratify=y)
     Xtr, Xte = Xtr.reset_index(drop=True), Xte.reset_index(drop=True)

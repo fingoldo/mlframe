@@ -42,7 +42,7 @@ def run_bed(name, X, y, seed=0):
     # OOF residual from a model on S
     m = lgb.LGBMClassifier(n_estimators=300, num_leaves=31, learning_rate=0.05, n_jobs=-1, verbose=-1)
     p_oof = cross_val_predict(m, Xtr[S], ytr, cv=4, method="predict_proba", n_jobs=-1)[:, 1]
-    resid = ytr.values.astype(float) - p_oof   # deviance-ish residual
+    resid = ytr.values.astype(float) - p_oof  # deviance-ish residual
 
     # screen DROPPED raw features by |corr| with the residual, and (separately) by MI with a binarized residual
     dropped = [c for c in Xtr.columns if c not in Sset]

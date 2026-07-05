@@ -33,7 +33,7 @@ def _old_loop(deviations: np.ndarray, k_eff: int) -> np.ndarray:
         lambdas = np.linalg.eigvalsh(cov)
         lambdas = np.clip(lambdas, 0.0, None) + 1e-9
         sum_l = float(lambdas.sum())
-        sum_l_sq = float((lambdas ** 2).sum())
+        sum_l_sq = float((lambdas**2).sum())
         participation_ratio = (sum_l * sum_l) / sum_l_sq
         top1 = float(lambdas[-1])
         top2 = float(lambdas[-2]) if len(lambdas) >= 2 else 1e-9
@@ -58,8 +58,8 @@ def _new_batched(deviations: np.ndarray, k_eff: int) -> np.ndarray:
     cov = np.matmul(deviations.transpose(0, 2, 1), deviations) / np.float32(k_eff)
     lambdas = np.linalg.eigvalsh(cov)  # (n_q, d) ascending, batched in C
     lambdas = np.clip(lambdas, 0.0, None) + 1e-9
-    sum_l = lambdas.sum(axis=1)                      # (n_q,)
-    sum_l_sq = (lambdas ** 2).sum(axis=1)            # (n_q,)
+    sum_l = lambdas.sum(axis=1)  # (n_q,)
+    sum_l_sq = (lambdas**2).sum(axis=1)  # (n_q,)
     out = np.empty((n_q, N_FEATURES), dtype=np.float32)
     out[:, 0] = (sum_l * sum_l) / sum_l_sq
     top1 = lambdas[:, -1]
@@ -89,7 +89,7 @@ def _bestof(fn, dev, k_eff, reps=7):
 
 
 def main():
-    for (n_q, k_eff, d) in [(2000, 30, 8), (10000, 30, 20), (5000, 30, 50), (10000, 30, 50)]:
+    for n_q, k_eff, d in [(2000, 30, 8), (10000, 30, 20), (5000, 30, 50), (10000, 30, 50)]:
         dev = _make_inputs(n_q, k_eff, d)
         old = _old_loop(dev, k_eff)
         new = _new_batched(dev, k_eff)

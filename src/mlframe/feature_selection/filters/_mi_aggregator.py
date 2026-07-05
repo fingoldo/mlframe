@@ -37,16 +37,13 @@ logger = logging.getLogger(__name__)
 
 def median_mi(estimates: Sequence[float]) -> float:
     """Take the median of K MI estimates. Robust to outliers (e.g. FD's noise floor)."""
-    arr = np.asarray([e for e in estimates if e is not None and np.isfinite(e)],
-                     dtype=np.float64)
+    arr = np.asarray([e for e in estimates if e is not None and np.isfinite(e)], dtype=np.float64)
     if arr.size == 0:
         return 0.0
     return float(np.median(arr))
 
 
-def median_mi_panel(x: np.ndarray, y: np.ndarray,
-                     estimators: Dict[str, Callable[[np.ndarray, np.ndarray], float]]
-                     ) -> float:
+def median_mi_panel(x: np.ndarray, y: np.ndarray, estimators: Dict[str, Callable[[np.ndarray, np.ndarray], float]]) -> float:
     """Apply each estimator to (x, y) and return the median of the K MI scores."""
     scores = []
     for name, est in estimators.items():
@@ -62,9 +59,7 @@ def median_mi_panel(x: np.ndarray, y: np.ndarray,
 # =============================================================================
 
 
-def genie_weights(estimator_bias_rates: Sequence[float],
-                   estimator_variance: Sequence[float],
-                   ridge: float = 1e-6) -> np.ndarray:
+def genie_weights(estimator_bias_rates: Sequence[float], estimator_variance: Sequence[float], ridge: float = 1e-6) -> np.ndarray:
     """Solve for GENIE bias-cancelling weights.
 
     Given K estimators with known analytical bias rates ``b_k(N)`` (e.g. KSG

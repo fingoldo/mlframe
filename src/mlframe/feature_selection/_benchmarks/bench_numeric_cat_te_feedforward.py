@@ -175,8 +175,7 @@ def run_one(n: int, seed: int, kind: str = "axis") -> dict:
         return H_tr, H_te
 
     h_tr, h_te = _herm_basis(te_tr, te_te, deg=4)
-    res["raw+cross_TE+hermite(TE)"] = _logreg_auc(np.hstack([raw_tr, te_tr[:, None], h_tr]), ytr,
-                                                  np.hstack([raw_te, te_te[:, None], h_te]), yte)
+    res["raw+cross_TE+hermite(TE)"] = _logreg_auc(np.hstack([raw_tr, te_tr[:, None], h_tr]), ytr, np.hstack([raw_te, te_te[:, None], h_te]), yte)
 
     # 5) TE-as-operand feedforward: feed TE forward as an operand into a pair interaction mul(TE, x_lin).
     #    This is the strongest fair form of "pass target stats into further FE" -- it only pays off when the
@@ -185,14 +184,11 @@ def run_one(n: int, seed: int, kind: str = "axis") -> dict:
     te_c_te = te_te - te_tr.mean()
     mte_tr = (te_c_tr * Xtr_df["x_lin"].to_numpy())[:, None]
     mte_te = (te_c_te * Xte_df["x_lin"].to_numpy())[:, None]
-    res["raw+cross_TE+mul(TE,x_lin)"] = _logreg_auc(
-        np.hstack([raw_tr, te_tr[:, None], mte_tr]), ytr,
-        np.hstack([raw_te, te_te[:, None], mte_te]), yte)
+    res["raw+cross_TE+mul(TE,x_lin)"] = _logreg_auc(np.hstack([raw_tr, te_tr[:, None], mte_tr]), ytr, np.hstack([raw_te, te_te[:, None], mte_te]), yte)
 
     # Tree-downstream context (per project: trees recover axis-aligned interactions natively -> expect no lift)
     res["[tree] raw"] = _rf_auc(raw_tr, ytr, raw_te, yte)
-    res["[tree] raw+cross_TE"] = _rf_auc(np.hstack([raw_tr, te_tr[:, None]]), ytr,
-                                         np.hstack([raw_te, te_te[:, None]]), yte)
+    res["[tree] raw+cross_TE"] = _rf_auc(np.hstack([raw_tr, te_tr[:, None]]), ytr, np.hstack([raw_te, te_te[:, None]]), yte)
     return res
 
 

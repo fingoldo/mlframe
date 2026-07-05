@@ -62,8 +62,6 @@ def _median_per_call(fn, args=None, *, concurrency: int, n_iters: int, make_inpu
 # them as documented.
 
 
-
-
 def _run_sweep_joint_hist(n_iters: int = 5) -> list[dict]:
     """Returns a list of region dicts ready for KernelTuningCache.update."""
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
@@ -107,27 +105,23 @@ def _run_sweep_joint_hist(n_iters: int = 5) -> list[dict]:
         d_x = cp.asarray(classes_x)
         d_y_perms = cp.asarray(classes_y.reshape(1, -1).copy())
         d_out = cp.zeros((1, joint), dtype=cp.int32)
-        args = (d_x, d_y_perms, d_out,
-                np.int32(n_samples), np.int32(nbx), np.int32(nby))
+        args = (d_x, d_y_perms, d_out, np.int32(n_samples), np.int32(nbx), np.int32(nby))
 
         best_wall = float("inf")
         best_choice = None
         for variant, bs in itertools.product(("shared", "global"), _BLOCK_SIZE_AXIS):
             d_out[:] = 0
             grid_x = (n_samples + bs - 1) // bs
-            kernel = (compute_joint_hist_batched_shared_cuda if variant == "shared"
-                      else compute_joint_hist_batched_cuda)
+            kernel = compute_joint_hist_batched_shared_cuda if variant == "shared" else compute_joint_hist_batched_cuda
             smem = joint * 4 if variant == "shared" else 0
             try:
-                wall = _measure_one(kernel, grid_x, bs, args, n_iters=n_iters,
-                                    shared_mem_bytes=smem)
+                wall = _measure_one(kernel, grid_x, bs, args, n_iters=n_iters, shared_mem_bytes=smem)
             except Exception as e:
                 logger.debug("auto_tune skipped (variant=%s bs=%d): %s", variant, bs, e)
                 continue
             if wall < best_wall:
                 best_wall = wall
-                best_choice = {"kernel_variant": variant, "block_size": bs,
-                               "wall_ms": round(wall, 4)}
+                best_choice = {"kernel_variant": variant, "block_size": bs, "wall_ms": round(wall, 4)}
         if best_choice is not None:
             # Stamp the per-axis nbins values so the saved region carries
             # the finer-grained nbins_x_max / nbins_y_max keys (WAVE 4).
@@ -208,8 +202,7 @@ def ensure_joint_hist_tuning(force: bool = False) -> Optional[list[dict]]:
     logger.info("kernel_tuning_cache: joint_hist sweep done in %.2fs", time.perf_counter() - t0)
 
     try:
-        cache.update("joint_hist_batched",
-                     axes=["n_samples", "joint_size"], regions=regions)
+        cache.update("joint_hist_batched", axes=["n_samples", "joint_size"], regions=regions)
     except OSError as e:
         logger.warning("kernel_tuning_cache: cache save failed: %s", e)
 
@@ -355,10 +348,7 @@ def ensure_mi_classif_dispatch_tuning(force: bool = False) -> Optional[list[dict
         if regions:
             return regions
 
-    logger.info(
-        "kernel_tuning_cache: plugin_mi_classif_dispatch sweep starting "
-        "(one-time per host)"
-    )
+    logger.info("kernel_tuning_cache: plugin_mi_classif_dispatch sweep starting " "(one-time per host)")
     t0 = time.perf_counter()
     try:
         regions = _run_sweep_mi_classif_dispatch(n_iters=2)
@@ -466,14 +456,12 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
                         _polyeval_cuda(basis, x, coef)
                         t_cuda.append(time.perf_counter() - t0)
             except Exception as exc:
-                logger.debug("polyeval sweep skipped basis=%s n=%d: %s",
-                             basis, n, exc)
+                logger.debug("polyeval sweep skipped basis=%s n=%d: %s", basis, n, exc)
                 continue
             timing_table[n] = {
                 "njit": float(np.median(t_njit) * 1000),
                 "njit_par": float(np.median(t_par) * 1000),
-                "cuda": (float(np.median(t_cuda) * 1000) if t_cuda
-                          else float("inf")),
+                "cuda": (float(np.median(t_cuda) * 1000) if t_cuda else float("inf")),
             }
             logger.info(
                 "auto_tune polyeval basis=%s n=%d njit=%.2fms njit_par=%.2fms cuda=%.2fms",
@@ -538,9 +526,7 @@ def ensure_polyeval_tuning(force: bool = False) -> Optional[list[dict]]:
         if regions:
             return regions
 
-    logger.info(
-        "kernel_tuning_cache: polyeval sweep starting (one-time per host)"
-    )
+    logger.info("kernel_tuning_cache: polyeval sweep starting (one-time per host)")
     t0 = time.perf_counter()
     try:
         regions = _run_sweep_polyeval(n_iters=2)
@@ -600,18 +586,15 @@ def _run_sweep_joint_hist_single_perm(n_iters: int = 5) -> list[dict]:
             d_out[:] = 0
             grid_x = (n + bs - 1) // bs
             try:
-                wall = _measure_one(kernel, grid_x, bs, args, n_iters=n_iters,
-                                    shared_mem_bytes=0)
+                wall = _measure_one(kernel, grid_x, bs, args, n_iters=n_iters, shared_mem_bytes=0)
             except Exception as exc:
-                logger.debug("auto_tune joint_hist_single_perm skipped n=%d bs=%d: %s",
-                             n, bs, exc)
+                logger.debug("auto_tune joint_hist_single_perm skipped n=%d bs=%d: %s", n, bs, exc)
                 continue
             if wall < best_wall:
                 best_wall = wall
                 best_bs = bs
         if best_bs is not None:
-            best_per_n[n] = {"block_size": int(best_bs),
-                              "wall_ms": round(best_wall, 4)}
+            best_per_n[n] = {"block_size": int(best_bs), "wall_ms": round(best_wall, 4)}
             logger.info(
                 "auto_tune joint_hist_single_perm n=%d -> bs=%d (%.3fms)",
                 n, best_bs, best_wall,
@@ -662,8 +645,7 @@ def ensure_joint_hist_single_perm_tuning(force: bool = False) -> Optional[list[d
     )
     if regions:
         try:
-            cache.update("joint_hist_single_perm", axes=["n_samples"],
-                          regions=regions)
+            cache.update("joint_hist_single_perm", axes=["n_samples"], regions=regions)
         except OSError as e:
             logger.warning(
                 "kernel_tuning_cache: joint_hist_single_perm save failed: %s", e,
@@ -701,7 +683,7 @@ def _run_sweep_joint_hist_multi_pair(n_iters: int = 5) -> list[dict]:
         nbins_a = np.full(n_pairs, nbins_per_col, dtype=np.int32)
         # joint per-pair cells = nbins_per_col * nbins_per_col * nbins_y
         per_pair_cells = nbins_per_col * nbins_per_col * nbins_y
-        joint_offsets = (np.arange(n_pairs + 1, dtype=np.int32) * per_pair_cells)
+        joint_offsets = np.arange(n_pairs + 1, dtype=np.int32) * per_pair_cells
         total_cells = int(joint_offsets[-1])
 
         d_factors = cp.asarray(factors_T)
@@ -711,8 +693,7 @@ def _run_sweep_joint_hist_multi_pair(n_iters: int = 5) -> list[dict]:
         d_nba = cp.asarray(nbins_a)
         d_off = cp.asarray(joint_offsets)
         d_out = cp.zeros(total_cells, dtype=cp.int32)
-        args = (d_factors, d_y, d_pa, d_pb, d_nba, d_off, d_out,
-                np.int32(n_rows), np.int32(n_pairs), np.int32(nbins_y))
+        args = (d_factors, d_y, d_pa, d_pb, d_nba, d_off, d_out, np.int32(n_rows), np.int32(n_pairs), np.int32(nbins_y))
 
         best_wall = float("inf")
         best_bs = None
@@ -795,8 +776,7 @@ def ensure_joint_hist_multi_pair_tuning(force: bool = False) -> Optional[list[di
     )
     if regions:
         try:
-            cache.update("joint_hist_multi_pair",
-                          axes=["n_rows", "n_pairs"], regions=regions)
+            cache.update("joint_hist_multi_pair", axes=["n_rows", "n_pairs"], regions=regions)
         except OSError as e:
             logger.warning(
                 "kernel_tuning_cache: joint_hist_multi_pair save failed: %s", e,
@@ -826,7 +806,7 @@ def _run_sweep_batch_pair_mi(n_iters: int = 3) -> list[dict]:
         _pb = np.array([2, 3], dtype=np.int32)
         _nb = np.full(n_cols, nbins_per_col, dtype=np.int32)
         _cy = rng.integers(0, nbins_y, size=2000).astype(np.int32)
-        _fy = (np.bincount(_cy, minlength=nbins_y).astype(np.float64) / 2000)
+        _fy = np.bincount(_cy, minlength=nbins_y).astype(np.float64) / 2000
         batch_pair_mi_njit_prange(_fd, _pa, _pb, _nb, _cy, _fy)
         if _CUDA_AVAIL:
             try:
@@ -849,8 +829,7 @@ def _run_sweep_batch_pair_mi(n_iters: int = 3) -> list[dict]:
         pair_b = rng.integers(0, n_cols, size=n_pairs).astype(np.int32)
         nbins = np.full(n_cols, nbins_per_col, dtype=np.int32)
         classes_y = rng.integers(0, nbins_y, size=n_rows).astype(np.int32)
-        freqs_y = (np.bincount(classes_y, minlength=nbins_y).astype(np.float64)
-                   / max(1, n_rows))
+        freqs_y = np.bincount(classes_y, minlength=nbins_y).astype(np.float64) / max(1, n_rows)
 
         timings = {"njit": float("inf"), "cuda": float("inf"), "cupy": float("inf")}
         for backend_name, fn, avail in (
@@ -910,29 +889,33 @@ def _run_sweep_batch_pair_mi(n_iters: int = 3) -> list[dict]:
     # Per-region rows mirror _run_sweep_mi_classif_dispatch.
     regions: list[dict] = []
     for (n_rows, n_pairs), choice in sorted(best_per_combo.items()):
-        regions.append({
-            "n_samples_max": int(n_rows),
-            "n_pairs_max": int(n_pairs),
-            "backend_choice": choice["backend_choice"],
+        regions.append(
+            {
+                "n_samples_max": int(n_rows),
+                "n_pairs_max": int(n_pairs),
+                "backend_choice": choice["backend_choice"],
+                "cuda_min_rows": int(cuda_min_rows) if cuda_min_rows is not None else 10**9,
+                "cuda_min_pairs": int(cuda_min_pairs) if cuda_min_pairs is not None else 10**9,
+                "cupy_min_rows": int(cupy_min_rows) if cupy_min_rows is not None else 10**9,
+                "cupy_min_pairs": int(cupy_min_pairs) if cupy_min_pairs is not None else 10**9,
+                "njit_ms": choice["njit_ms"],
+                "cuda_ms": choice["cuda_ms"],
+                "cupy_ms": choice["cupy_ms"],
+            }
+        )
+    largest_key = max(best_per_combo, key=lambda k: (k[0], k[1]))
+    largest = best_per_combo[largest_key]
+    regions.append(
+        {
+            "n_samples_max": None,
+            "n_pairs_max": None,
+            "backend_choice": largest["backend_choice"],
             "cuda_min_rows": int(cuda_min_rows) if cuda_min_rows is not None else 10**9,
             "cuda_min_pairs": int(cuda_min_pairs) if cuda_min_pairs is not None else 10**9,
             "cupy_min_rows": int(cupy_min_rows) if cupy_min_rows is not None else 10**9,
             "cupy_min_pairs": int(cupy_min_pairs) if cupy_min_pairs is not None else 10**9,
-            "njit_ms": choice["njit_ms"],
-            "cuda_ms": choice["cuda_ms"],
-            "cupy_ms": choice["cupy_ms"],
-        })
-    largest_key = max(best_per_combo, key=lambda k: (k[0], k[1]))
-    largest = best_per_combo[largest_key]
-    regions.append({
-        "n_samples_max": None,
-        "n_pairs_max": None,
-        "backend_choice": largest["backend_choice"],
-        "cuda_min_rows": int(cuda_min_rows) if cuda_min_rows is not None else 10**9,
-        "cuda_min_pairs": int(cuda_min_pairs) if cuda_min_pairs is not None else 10**9,
-        "cupy_min_rows": int(cupy_min_rows) if cupy_min_rows is not None else 10**9,
-        "cupy_min_pairs": int(cupy_min_pairs) if cupy_min_pairs is not None else 10**9,
-    })
+        }
+    )
     return regions
 def ensure_batch_pair_mi_tuning(force: bool = False) -> Optional[list[dict]]:
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
@@ -959,8 +942,7 @@ def ensure_batch_pair_mi_tuning(force: bool = False) -> Optional[list[dict]]:
     )
     if regions:
         try:
-            cache.update("batch_pair_mi",
-                          axes=["n_samples", "n_pairs"], regions=regions)
+            cache.update("batch_pair_mi", axes=["n_samples", "n_pairs"], regions=regions)
         except OSError as e:
             logger.warning("kernel_tuning_cache: batch_pair_mi save failed: %s", e)
     return regions

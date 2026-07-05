@@ -149,7 +149,7 @@ def _isotonic_pava(y_sorted: np.ndarray) -> np.ndarray:
     out = np.empty(n, dtype=np.float64)
     for b in range(k):
         end = starts[b + 1] if b + 1 < k else n
-        out[starts[b]:end] = vals[b]
+        out[starts[b] : end] = vals[b]
     return out
 
 

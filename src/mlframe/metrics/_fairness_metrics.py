@@ -66,16 +66,11 @@ def create_fairness_subgroups(
     # deeper in pandas grouping with an opaque message.
     if isinstance(min_pop_cat_thresh, float):
         if not (0 < min_pop_cat_thresh < 1.0):
-            raise ValueError(
-                f"min_pop_cat_thresh (float) must be in (0, 1); got {min_pop_cat_thresh!r}."
-            )
+            raise ValueError(f"min_pop_cat_thresh (float) must be in (0, 1); got {min_pop_cat_thresh!r}.")
         min_pop_cat_thresh = int(len(df) * min_pop_cat_thresh)  # convert to abs value
     elif isinstance(min_pop_cat_thresh, int):
         if not (0 < min_pop_cat_thresh <= len(df) // 2):
-            raise ValueError(
-                f"min_pop_cat_thresh (int) must be in (0, len(df)//2={len(df) // 2}]; "
-                f"got {min_pop_cat_thresh!r}."
-            )
+            raise ValueError(f"min_pop_cat_thresh (int) must be in (0, len(df)//2={len(df) // 2}]; " f"got {min_pop_cat_thresh!r}.")
 
     subgroups = {}
     for feature_name in features:
@@ -202,7 +197,7 @@ def create_fairness_subgroups_indices(
                 if c < 0:
                     group_indices[bin_name] = np.empty(0, dtype=np.intp)
                 else:
-                    group_indices[bin_name] = order[boundaries[c]:ends[c]]
+                    group_indices[bin_name] = order[boundaries[c] : ends[c]]
 
             fairness_subgroups_indices[group_name] = dict(bins=group_indices, weight=group_weights.get(group_name, 1.0))
 
@@ -315,9 +310,7 @@ def compute_fairness_metrics(
                 if bins is not None:
                     if subset_index is None:
                         raise RuntimeError(
-                            "compute_fairness_metrics: bins is set but "
-                            "subset_index is None; the function's state "
-                            "machine reached an unreachable branch."
+                            "compute_fairness_metrics: bins is set but " "subset_index is None; the function's state " "machine reached an unreachable branch."
                         )
                     bins = bins.loc[subset_index]
                 bins_names = group_params.get("bins_names")  # noqa: F841 -- preserved for parity with original
@@ -339,10 +332,7 @@ def compute_fairness_metrics(
             _code_of = {u: i for i, u in enumerate(_code_uniques)}
             # A bin_name absent from factorize uniques (e.g. NaN, which factorize codes as -1) never matched
             # under the old ``bins == bin_name`` either -> empty mask, skipped below. Match that exactly.
-            _masks = {
-                bn: (_codes == _code_of[bn]) if bn in _code_of else np.zeros(_codes.shape, dtype=bool)
-                for bn in unique_bins
-            }
+            _masks = {bn: (_codes == _code_of[bn]) if bn in _code_of else np.zeros(_codes.shape, dtype=bool) for bn in unique_bins}
             for bin_name in unique_bins:
                 idx = _masks[bin_name]
                 n_points = idx.sum()

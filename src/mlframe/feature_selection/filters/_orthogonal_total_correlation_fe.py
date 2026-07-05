@@ -219,9 +219,7 @@ def _bin_dataframe_batched(
         arr64 = None
     if arr64 is not None and np.isfinite(arr64).all():
         bins_arr = _quantile_bin_batched(arr64, nbins=int(nbins))
-        return [
-            np.ascontiguousarray(bins_arr[:, j]) for j in range(bins_arr.shape[1])
-        ]
+        return [np.ascontiguousarray(bins_arr[:, j]) for j in range(bins_arr.shape[1])]
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     return [
@@ -270,10 +268,7 @@ def total_correlation(
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
     if arr.ndim != 2:
-        raise ValueError(
-            f"total_correlation: expected 2-D array (n, d), got shape "
-            f"{arr.shape}"
-        )
+        raise ValueError(f"total_correlation: expected 2-D array (n, d), got shape " f"{arr.shape}")
     n, d = arr.shape
     if d == 0 or n == 0:
         return 0.0
@@ -311,17 +306,13 @@ def _build_support_bins(
     behaviour -- no extra TC contribution from the empty support, so the
     score reduces to the candidate's own TC contribution with y).
     """
-    if (
-        current_support is None
-        or not isinstance(current_support, pd.DataFrame)
-        or current_support.shape[1] == 0
-    ):
+    if current_support is None or not isinstance(current_support, pd.DataFrame) or current_support.shape[1] == 0:
         return [], 0.0
     if len(current_support) != len(raw_X):
         logger.warning(
-            "score_features_by_tc_uplift: current_support length %d does "
-            "not match raw_X length %d; falling back to empty support.",
-            len(current_support), len(raw_X),
+            "score_features_by_tc_uplift: current_support length %d does " "not match raw_X length %d; falling back to empty support.",
+            len(current_support),
+            len(raw_X),
         )
         return [], 0.0
     bins: list[np.ndarray] = []
@@ -400,16 +391,10 @@ def score_features_by_tc_uplift(
     """
     if len(raw_X) != len(engineered_X):
         raise ValueError(
-            f"score_features_by_tc_uplift: raw_X has {len(raw_X)} rows "
-            f"but engineered_X has {len(engineered_X)}; positional row "
-            f"alignment required."
+            f"score_features_by_tc_uplift: raw_X has {len(raw_X)} rows " f"but engineered_X has {len(engineered_X)}; positional row " f"alignment required."
         )
     if len(raw_X) != len(np.asarray(y)):
-        raise ValueError(
-            f"score_features_by_tc_uplift: raw_X has {len(raw_X)} rows "
-            f"but y has {len(np.asarray(y))}; positional row alignment "
-            f"required."
-        )
+        raise ValueError(f"score_features_by_tc_uplift: raw_X has {len(raw_X)} rows " f"but y has {len(np.asarray(y))}; positional row alignment " f"required.")
     empty_cols = [
         "engineered_col", "source_col",
         "baseline_mi", "engineered_mi", "uplift",
@@ -568,10 +553,7 @@ def hybrid_orth_mi_tc_fe(
     if engineered.empty:
         return X.copy(), pd.DataFrame(columns=empty_cols)
 
-    raw_X = X[[
-        c for c in (cols or X.columns)
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]]
+    raw_X = X[[c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]]
     scores = score_features_by_tc_uplift(
         raw_X, engineered, y,
         current_support=current_support,
@@ -634,15 +616,14 @@ def hybrid_orth_mi_tc_fe_with_recipes(
         chosen_degree = None
         for code in ("LL", "He", "T", "L"):
             if suffix.startswith(code):
-                rest = suffix[len(code):]
+                rest = suffix[len(code) :]
                 if rest.isdigit():
                     chosen_basis = code_to_basis[code]
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
             logger.warning(
-                "hybrid_orth_mi_tc_fe_with_recipes: cannot parse "
-                "basis/degree from column name %r; skipping recipe build.",
+                "hybrid_orth_mi_tc_fe_with_recipes: cannot parse " "basis/degree from column name %r; skipping recipe build.",
                 name,
             )
             continue

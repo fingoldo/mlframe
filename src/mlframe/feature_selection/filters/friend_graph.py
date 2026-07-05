@@ -53,21 +53,21 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class FriendGraphNode:
-    idx: int                          # column index into the discretized factor matrix
+    idx: int  # column index into the discretized factor matrix
     name: str
-    entropy: float                    # H(X) in nats
-    relevance: float                  # I(X; Y)
-    weighted_degree: float            # sum of edge MIs to neighbors
-    shared_frac: float                # weighted_degree / H(X) (capped at compute time)
-    neighbors_unique_target: float    # sum_j I(Y; X_j | X) over neighbors (0 unless suspect)
-    klass: str                        # "green" | "red" | "yellow"
+    entropy: float  # H(X) in nats
+    relevance: float  # I(X; Y)
+    weighted_degree: float  # sum of edge MIs to neighbors
+    shared_frac: float  # weighted_degree / H(X) (capped at compute time)
+    neighbors_unique_target: float  # sum_j I(Y; X_j | X) over neighbors (0 unless suspect)
+    klass: str  # "green" | "red" | "yellow"
 
 
 @dataclass
 class FriendGraphEdge:
-    a: int                            # explaining feature (arrow source)
-    b: int                            # explained feature (arrow target)
-    mi: float                         # I(X_a; X_b)
+    a: int  # explaining feature (arrow source)
+    b: int  # explained feature (arrow target)
+    mi: float  # I(X_a; X_b)
 
 
 @dataclass
@@ -167,8 +167,7 @@ def _joint_entropy_2vars(factors_data, a, b, factors_nbins, dtype=np.int32) -> f
     (``friend_graph_gpu._friend_graph_cpu_stats``) consumes this SAME helper, so its
     CPU-reference bit-identity contract is preserved (the value is unchanged).
     """
-    return float(joint_entropy_2var(factors_data, int(a), int(b),
-                                    int(factors_nbins[a]), int(factors_nbins[b])))
+    return float(joint_entropy_2var(factors_data, int(a), int(b), int(factors_nbins[a]), int(factors_nbins[b])))
 
 
 def pairwise_mi_edge(factors_data, a, b, factors_nbins, n_samples, mi_eps=1e-6, edge_significance=3.0, dtype=np.int32, h_a=None, h_b=None):
@@ -409,7 +408,7 @@ def build_friend_graph(
             u_a = m / H[a] if H[a] > 0 else 0.0
             u_b = m / H[b] if H[b] > 0 else 0.0
             if u_a >= u_b:
-                src, dst = b, a   # b explains a more -> arrow b -> a
+                src, dst = b, a  # b explains a more -> arrow b -> a
             else:
                 src, dst = a, b
             edges.append(FriendGraphEdge(a=src, b=dst, mi=m))
@@ -444,9 +443,7 @@ def build_friend_graph(
         degree = len(neighbors[i])
         if degree >= garbage_min_degree:
             # sum_j I(Y; X_j | X_i) via the chain rule (shared helper).
-            total_unique, detail = neighbor_unique_target(
-                factors_data, i, [j for j, _m in neighbors[i]], target, rel[i], factors_nbins, dtype=dtype
-            )
+            total_unique, detail = neighbor_unique_target(factors_data, i, [j for j, _m in neighbors[i]], target, rel[i], factors_nbins, dtype=dtype)
             neighbors_unique[i] = total_unique
             graph._neighbor_unique_detail[i] = detail
             # F3 finite-sample debias: the red-flag compares ``total_unique`` (a SUM of ``degree`` chain-rule CMIs, each carrying the upward plug-in bias of a 2-variable
@@ -484,9 +481,7 @@ def build_friend_graph(
     return graph
 
 
-def prune_by_friend_graph(
-    graph: FriendGraph, selected_vars: Sequence[int], protect_indices: Sequence[int] = ()
-) -> Tuple[List[int], Dict[str, str]]:
+def prune_by_friend_graph(graph: FriendGraph, selected_vars: Sequence[int], protect_indices: Sequence[int] = ()) -> Tuple[List[int], Dict[str, str]]:
     """Drop suspected-garbage features while protecting the cause of each removal.
 
     Worst-first over red nodes: a red feature ``X`` is removed only when at least
@@ -533,8 +528,7 @@ def prune_by_friend_graph(
 # ----------------------------------------------------------------------------
 
 
-def friend_graph_to_figurespec(graph: FriendGraph, *, title: str = "Feature friend graph",
-                               edge_cmap: Optional[str] = None):
+def friend_graph_to_figurespec(graph: FriendGraph, *, title: str = "Feature friend graph", edge_cmap: Optional[str] = None):
     """Wrap a ``FriendGraph`` in a single-panel ``FigureSpec`` (``NetworkPanelSpec``)."""
     from mlframe.reporting.colors import FRIEND_GRAPH_EDGE_CMAP, friend_graph_node_color
     from mlframe.reporting.spec import FigureSpec, NetworkPanelSpec
@@ -575,8 +569,7 @@ def friend_graph_to_figurespec(graph: FriendGraph, *, title: str = "Feature frie
     return FigureSpec(suptitle=title, panels=((panel,),), figsize=(11.0, 8.0))
 
 
-def plot_friend_graph(graph: FriendGraph, *, plot_outputs: str, base_path: str,
-                      title: str = "Feature friend graph") -> None:
+def plot_friend_graph(graph: FriendGraph, *, plot_outputs: str, base_path: str, title: str = "Feature friend graph") -> None:
     """Render + save the friend graph via the reporting DSL (mirrors other domain plots)."""
     from mlframe.reporting.output import parse_plot_output_dsl
     from mlframe.reporting.renderers import render_and_save

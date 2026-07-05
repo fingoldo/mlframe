@@ -44,7 +44,6 @@ from ._gpu_resident_fe import (
     fe_gpu_grand_fusion_enabled,
 )
 
-
 # --- GPU port of the per-operand PRE-WARP apply (phase R1, 2026-06-21) ----------------------------------
 # Mirrors hermite_fe.apply_operand_prewarp so the operand-table mirror can BUILD a prewarp operand column on
 # the device (from the resident raw input + the tiny stored spec) instead of COPYING the host-computed column
@@ -119,8 +118,8 @@ def _lag_clenshaw_gpu(cp, x, c):
     out = cp.full(x.shape, c[0], dtype=x.dtype)
     if nc == 1:
         return out
-    p_prev = cp.ones_like(x)        # L_0
-    p_curr = 1.0 - x               # L_1
+    p_prev = cp.ones_like(x)  # L_0
+    p_curr = 1.0 - x  # L_1
     out = out + c[1] * p_curr
     for k in range(2, nc):
         p_next = ((2 * k - 1 - x) * p_curr - (k - 1) * p_prev) / k
@@ -208,8 +207,7 @@ def _clenshaw_basis_block_gpu(cp, Zg, basis, degrees):
     out = cp.empty((n, m * nd), dtype=cp.float64)
     total = n * m * nd
     threads = 256
-    _get_clenshaw_kernel()(((total + threads - 1) // threads,), (threads,),
-                           (Z, degs, np.int64(n), np.int32(m), np.int32(nd), np.int32(bid), out))
+    _get_clenshaw_kernel()(((total + threads - 1) // threads,), (threads,), (Z, degs, np.int64(n), np.int32(m), np.int32(nd), np.int32(bid), out))
     return out
 
 # --- GPU port of the orth-FE basis-column evaluation (matrix-native, Piece 2, 2026-06-21) -------------
@@ -367,9 +365,9 @@ def _gpu_robust_scale_batched(cp, M, med, *, q25=None, q75=None):
     cp.percentile) to drop the per-call full sort -- the measured #1 GPU-launch source. ``q25`` / ``q75``
     may be passed pre-computed by a caller that already extracted M's quartiles (e.g. heavy-tail folds
     them into one [0.25,0.5,0.75] radix call) to skip the redundant q25/q75 select+interp here."""
-    mad = _batched_quantiles(cp, cp.abs(M - med), [0.5])[0]   # median(|M-med|) per column
+    mad = _batched_quantiles(cp, cp.abs(M - med), [0.5])[0]  # median(|M-med|) per column
     if q25 is None or q75 is None:
-        q = _batched_quantiles(cp, M, [0.25, 0.75])           # (2, g) == cp.percentile(M,[25,75],axis=0)
+        q = _batched_quantiles(cp, M, [0.25, 0.75])  # (2, g) == cp.percentile(M,[25,75],axis=0)
         q25, q75 = q[0], q[1]
     # FUSED combine (launch-reduction): 1.4826*MAD, IQR/1.349 fallback, 0 degenerate -- one (K,) kernel vs
     # the scale + iqr + where + where chain. Same f64 ops -> bit-identical; cupy chain fallback on error.
@@ -476,10 +474,7 @@ def _gpu_detect_heavy_tail_batched(cp, M):
         bulk_edge = cp.where(outer, -cp.inf, dev).max(axis=0)
         outer_min = cp.where(outer, dev, cp.inf).min(axis=0)
         gap_ok = (outer_min / cp.maximum(bulk_edge, 1e-12)) >= _GPU_ROBUST_AXIS_GAP
-        return (
-            (scale > 1e-12) & (n_outer > 0)
-            & (n_outer <= _GPU_ROBUST_AXIS_MAX_FRAC * n) & gap_ok
-        )
+        return (scale > 1e-12) & (n_outer > 0) & (n_outer <= _GPU_ROBUST_AXIS_MAX_FRAC * n) & gap_ok
 
 
 _BASIS_PREPROCESS_SRC = r"""
@@ -667,8 +662,8 @@ def _gpu_basis_preprocess_robust_fused(cp, M, basis):
     code = _BASIS_PREPROCESS_CODE[basis]
     n, g = int(M.shape[0]), int(M.shape[1])
     Mc = cp.ascontiguousarray(M.astype(cp.float64, copy=False))
-    mn, mx = _col_minmax(cp, Mc)                       # min + max in ONE launch (bit-identical)
-    stdcol = Mc.std(axis=0) if code == 0 else scale   # std only used by the hermite fallback; else unused
+    mn, mx = _col_minmax(cp, Mc)  # min + max in ONE launch (bit-identical)
+    stdcol = Mc.std(axis=0) if code == 0 else scale  # std only used by the hermite fallback; else unused
     out = cp.empty((n, g), dtype=cp.float64)
     total = n * g
     threads = 256
@@ -686,10 +681,9 @@ def _gpu_basis_preprocess_batched(cp, M, basis, *, robust):
     """Vectorized per-basis preprocess over (n, g) M (all g columns share basis + robust). Returns Z (n, g)."""
     if basis in _BASIS_PREPROCESS_CODE:
         try:
-            return (_gpu_basis_preprocess_robust_fused(cp, M, basis) if robust
-                    else _gpu_basis_preprocess_nonrobust_fused(cp, M, basis))
+            return _gpu_basis_preprocess_robust_fused(cp, M, basis) if robust else _gpu_basis_preprocess_nonrobust_fused(cp, M, basis)
         except Exception:  # noqa: BLE001
-            pass   # fall through to the exact cupy chain below
+            pass  # fall through to the exact cupy chain below
     if basis == "hermite":  # z-score
         if robust:
             center = _batched_quantiles(cp, M, [0.5])[0]
@@ -761,7 +755,7 @@ def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis, heavy_host
             for d in degrees:
                 coef = [0.0] * (int(d) + 1)
                 coef[int(d)] = 1.0
-                cand_blocks.append(clen(cp, Zg, coef))   # (n, len(idx))
+                cand_blocks.append(clen(cp, Zg, coef))  # (n, len(idx))
                 meta.extend((ci, basis, int(d)) for ci in idx)
     if not cand_blocks:
         return None, []
@@ -824,10 +818,9 @@ def _gpu_batched_abs_corr(cp, cand, y_cont):
         n, m = int(cand2.shape[0]), int(cand2.shape[1])
         cand2 = cp.ascontiguousarray(cand2.astype(cp.float64, copy=False))
         yv = y_cont.astype(cp.float64, copy=False).ravel()
-        Sy, Syy = (float(_s) for _s in cp.asnumpy(cp.stack([yv.sum(), (yv * yv).sum()])))   # one D2H for the pair
+        Sy, Syy = (float(_s) for _s in cp.asnumpy(cp.stack([yv.sum(), (yv * yv).sum()])))  # one D2H for the pair
         out = cp.empty(m, dtype=cp.float64)
-        _get_abs_corr_kernel()((m,), (256,), (cand2, yv, np.int64(n), np.int32(m),
-                                              np.float64(Sy), np.float64(Syy), out), shared_mem=3 * 8)
+        _get_abs_corr_kernel()((m,), (256,), (cand2, yv, np.int64(n), np.int32(m), np.float64(Sy), np.float64(Syy), out), shared_mem=3 * 8)
         return out
     except Exception:
         yc = y_cont - y_cont.mean()
@@ -864,7 +857,7 @@ def _gpu_route_bases_batched(cp, M, y_cont, candidate_bases, degrees, *, robust_
         bcorr = np.zeros(K, dtype=np.float64)
         cand, meta = _gpu_evaluate_basis_matrix(cp, M, [basis] * K, list(degrees), robust_axis=robust_axis, heavy_host=_heavy)
         if cand is not None:
-            ac = cp.asnumpy(_gpu_batched_abs_corr(cp, cand, y_cont))   # (len(meta),)
+            ac = cp.asnumpy(_gpu_batched_abs_corr(cp, cand, y_cont))  # (len(meta),)
             for j, (ci, _b, _d) in enumerate(meta):
                 if ac[j] > bcorr[ci]:
                     bcorr[ci] = ac[j]
@@ -873,7 +866,7 @@ def _gpu_route_bases_batched(cp, M, y_cont, candidate_bases, degrees, *, robust_
     for ci in range(K):
         best_corr = -1.0
         best_basis = None
-        for basis in candidate_bases:        # candidate_bases order -> first basis wins a tie (host parity)
+        for basis in candidate_bases:  # candidate_bases order -> first basis wins a tie (host parity)
             bc = float(corr_by_basis[basis][ci])
             if bc > best_corr:
                 best_corr = bc
@@ -923,18 +916,16 @@ def gpu_pairs_fe_mi(cand: np.ndarray, quantization_nbins: int, classes_y: np.nda
         # None -> the CPU dispatcher.
         _nb = int(quantization_nbins)
         cand_d = cp.asarray(np.ascontiguousarray(cand, dtype=np.float32))
-        codes_d = _gpu_resident_discretize_codes(cand_d, _nb, out_dtype=cp.int32)   # (n,K) RESIDENT int codes
+        codes_d = _gpu_resident_discretize_codes(cand_d, _nb, out_dtype=cp.int32)  # (n,K) RESIDENT int codes
         yc = np.ascontiguousarray(classes_y, dtype=np.int64)
         observed = np.asarray(binned_mi_from_codes_gpu(codes_d, yc, ky=by, codes_trusted=True), dtype=np.float64)
         # occupied bins per column ON device: one bincount over code*K+col (values < nb*K), reshaped (nb, K).
         _K = int(codes_d.shape[1])
-        _cnt = cp.bincount((codes_d.astype(cp.int64, copy=False) * _K
-                            + cp.arange(_K, dtype=cp.int64)[None, :]).ravel(), minlength=_nb * _K)
+        _cnt = cp.bincount((codes_d.astype(cp.int64, copy=False) * _K + cp.arange(_K, dtype=cp.int64)[None, :]).ravel(), minlength=_nb * _K)
         bx = cp.asnumpy((_cnt.reshape(_nb, _K) > 0).sum(axis=0)).astype(np.int64)
         # The analytic keep/reject is cheap CPU post-processing on the (K,) observed MI + the device-counted
         # occupied-bin df (disc_2d unused -- bx_per_col is supplied), identical to the host gate's decision.
-        return analytic_batch_noise_gate(None, observed, yc, n,
-                                         float(min_nonzero_confidence), bx_per_col=bx, by=by)
+        return analytic_batch_noise_gate(None, observed, yc, n, float(min_nonzero_confidence), bx_per_col=bx, by=by)
     except Exception:
         # Surface the cause (don't silently degrade to CPU forever): a real logic/shape/numeric bug in
         # the GPU path would otherwise be invisible -- the exact "GPU never helped" failure mode.
@@ -963,7 +954,7 @@ def _make_fe_gpu_pairs_inputs(dims: dict) -> tuple:
     a = rng.uniform(1.0, 5.0, n); b = rng.uniform(1.0, 5.0, n)
     cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b)).astype(np.float32)
     np.nan_to_num(cand, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    y = a ** 2 / b
+    y = a**2 / b
     edges = np.quantile(y, np.linspace(0, 1, 21)[1:-1])
     yc = np.searchsorted(edges, y).astype(np.int64)
     fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
@@ -1052,8 +1043,7 @@ def ensure_fe_gpu_pairs_mi_tuning(force: bool = False):
                 return existing
         regions = _run_fe_gpu_pairs_mi_sweep()
         if regions:
-            cache.update("fe_gpu_pairs_mi", axes=["n_rows"], regions=regions,
-                         code_version=_fe_gpu_pairs_mi_code_version())
+            cache.update("fe_gpu_pairs_mi", axes=["n_rows"], regions=regions, code_version=_fe_gpu_pairs_mi_code_version())
         return regions
     except Exception:
         return None
@@ -1173,8 +1163,7 @@ def ensure_fe_gpu_binning_tuning(force: bool = False) -> list | None:
                 return existing
         regions = _run_fe_gpu_binning_sweep()
         if regions:
-            cache.update("fe_gpu_binning", axes=["n_rows"], regions=regions,
-                         code_version=_fe_gpu_binning_code_version())
+            cache.update("fe_gpu_binning", axes=["n_rows"], regions=regions, code_version=_fe_gpu_binning_code_version())
         return regions
     except Exception:
         return None
@@ -1237,8 +1226,8 @@ def grand_fused_pair_mi(
     k_chunk = _gpu_k_chunk(n)
     parts: list[np.ndarray] = []
     for start in range(0, len(_COMBOS), k_chunk):
-        block = _COMBOS[start:start + k_chunk]
-        cand = _fused_generate_block(ua_cm, ub_cm, block)        # GPU gen (resident)
+        block = _COMBOS[start : start + k_chunk]
+        cand = _fused_generate_block(ua_cm, ub_cm, block)  # GPU gen (resident)
         disc_host = cp.asnumpy(_gpu_resident_discretize_codes(cand, nbins).astype(cp.int8))  # GPU disc -> small D2H
         del cand
         fnb = np.full(len(block), int(nbins), dtype=np.int64)
@@ -1393,7 +1382,7 @@ def grand_fused_pair_mi_fused(
     original_mi_parts: list[np.ndarray] = []
     perm_mi_parts: list[list[np.ndarray]] = [[] for _ in range(nperm)]
     for start in range(0, len(_COMBOS), k_chunk):
-        block = _COMBOS[start:start + k_chunk]
+        block = _COMBOS[start : start + k_chunk]
         blk = len(block)
         # PASS 1: transient generate -> exact percentile edges -> discard the float matrix. Generate directly
         # COLUMN-MAJOR (blk, n): the ONLY consumer here is the per-candidate percentile, and cp.percentile over
@@ -1401,15 +1390,15 @@ def grand_fused_pair_mi_fused(
         # -- vs axis=0 over the (n, blk) row-major matrix, which sorts the STRIDED axis (cupy copies/transposes
         # it internally). Same value set per candidate -> BIT-IDENTICAL edges (and the (blk, nbins-1) edges_int
         # below is unchanged). cand is discarded straight after, so no (n, K) consumer sees the flipped layout.
-        cand = _fused_generate_block(ua_cm, ub_cm, block, column_major=True)   # (blk, n) f64, transient
+        cand = _fused_generate_block(ua_cm, ub_cm, block, column_major=True)  # (blk, n) f64, transient
         if cand.dtype != work:
             cand = cand.astype(work, copy=False)
         if blk == 1:
             # cupy single-column percentile bug guard (mirror _gpu_resident_discretize_codes).
             bin_edges = cp.percentile(cand.ravel(), qs).reshape(-1, 1)  # (nbins+1, 1)
         else:
-            bin_edges = cp.percentile(cand, qs, axis=1)             # (nbins+1, blk) over the (blk, n) plane
-        del cand                                                    # (n,blk) float GONE before the hist pass
+            bin_edges = cp.percentile(cand, qs, axis=1)  # (nbins+1, blk) over the (blk, n) plane
+        del cand  # (n,blk) float GONE before the hist pass
         # interior edges, transposed to (blk, nbins-1) row-major f64 for the kernel's per-candidate scan.
         edges_int = cp.ascontiguousarray(bin_edges[1:-1, :].T.astype(cp.float64))
         del bin_edges

@@ -112,10 +112,7 @@ def calibration_drift(
     ts = _as_sortable_timestamps(timestamps)
     n = yt.shape[0]
     if not (ys.shape[0] == n == ts.shape[0]):
-        raise ValueError(
-            f"calibration_drift: y_true ({n}), y_score ({ys.shape[0]}), timestamps ({ts.shape[0]}) "
-            "must have equal length"
-        )
+        raise ValueError(f"calibration_drift: y_true ({n}), y_score ({ys.shape[0]}), timestamps ({ts.shape[0]}) " "must have equal length")
     if n_windows < 1:
         raise ValueError(f"n_windows must be >= 1, got {n_windows}")
     if n_bins < 2:

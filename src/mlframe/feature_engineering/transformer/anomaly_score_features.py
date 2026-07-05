@@ -45,13 +45,11 @@ def _fit_anomaly_predict(Xt: np.ndarray, Xq: np.ndarray, seed: int) -> np.ndarra
     """Fit 2 IsolationForest models on Xt with different seeds, return 5 features per Xq row."""
     from sklearn.ensemble import IsolationForest
 
-    iso1 = IsolationForest(n_estimators=100, contamination="auto", random_state=int(seed),
-                           n_jobs=-1, max_samples=min(256, Xt.shape[0]))
+    iso1 = IsolationForest(n_estimators=100, contamination="auto", random_state=int(seed), n_jobs=-1, max_samples=min(256, Xt.shape[0]))
     iso1.fit(Xt)
     s1 = -iso1.score_samples(Xq).astype(np.float32)  # negate so higher = more anomalous
 
-    iso2 = IsolationForest(n_estimators=100, contamination="auto", random_state=int(seed) + 41,
-                           n_jobs=-1, max_samples=min(256, Xt.shape[0]))
+    iso2 = IsolationForest(n_estimators=100, contamination="auto", random_state=int(seed) + 41, n_jobs=-1, max_samples=min(256, Xt.shape[0]))
     iso2.fit(Xt)
     s2 = -iso2.score_samples(Xq).astype(np.float32)
 

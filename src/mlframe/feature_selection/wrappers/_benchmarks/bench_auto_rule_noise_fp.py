@@ -141,8 +141,7 @@ def _run_scenario(make, seeds, label, rule="auto"):
             noise_kept.append(len(selected & noise_idx))
     # MAJORITY = median across seeds (robust to one outlier seed).
     med_sel = int(np.median(sel_counts))
-    out = {"label": label, "p": p, "n_inform": n_inform,
-           "sel_counts": sel_counts, "median_selected": med_sel}
+    out = {"label": label, "p": p, "n_inform": n_inform, "sel_counts": sel_counts, "median_selected": med_sel}
     if recoveries:
         out["recoveries"] = recoveries
         out["median_recovery"] = int(np.median(recoveries))

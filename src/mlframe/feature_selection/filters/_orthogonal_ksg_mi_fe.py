@@ -173,15 +173,11 @@ def score_features_by_ksg_mi_uplift(
     """
     if len(raw_X) != len(engineered_X):
         raise ValueError(
-            f"score_features_by_ksg_mi_uplift: raw_X has {len(raw_X)} rows "
-            f"but engineered_X has {len(engineered_X)}; positional row "
-            f"alignment required."
+            f"score_features_by_ksg_mi_uplift: raw_X has {len(raw_X)} rows " f"but engineered_X has {len(engineered_X)}; positional row " f"alignment required."
         )
     if len(raw_X) != len(np.asarray(y)):
         raise ValueError(
-            f"score_features_by_ksg_mi_uplift: raw_X has {len(raw_X)} rows "
-            f"but y has {len(np.asarray(y))}; positional row alignment "
-            f"required."
+            f"score_features_by_ksg_mi_uplift: raw_X has {len(raw_X)} rows " f"but y has {len(np.asarray(y))}; positional row alignment " f"required."
         )
     y_arr = np.asarray(y).ravel()
     raw_cols = list(raw_X.columns)
@@ -299,10 +295,7 @@ def hybrid_orth_mi_ksg_fe(
     else:
         eng_noise_floor = 0.0
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
-    qualified = scores[
-        (scores["uplift"] >= float(min_uplift))
-        & (scores["engineered_mi"] >= abs_floor)
-    ]
+    qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
@@ -351,15 +344,14 @@ def hybrid_orth_mi_ksg_fe_with_recipes(
         chosen_degree = None
         for code in ("LL", "He", "T", "L"):
             if suffix.startswith(code):
-                rest = suffix[len(code):]
+                rest = suffix[len(code) :]
                 if rest.isdigit():
                     chosen_basis = code_to_basis[code]
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
             logger.warning(
-                "hybrid_orth_mi_ksg_fe_with_recipes: cannot parse "
-                "basis/degree from column name %r; skipping recipe build.",
+                "hybrid_orth_mi_ksg_fe_with_recipes: cannot parse " "basis/degree from column name %r; skipping recipe build.",
                 name,
             )
             continue

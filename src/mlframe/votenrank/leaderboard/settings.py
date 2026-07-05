@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 RANKING_METHODS = ["mean", "plurality", "borda", "dowdall", "copeland", "minimax", "optimality_gap"]
@@ -22,7 +21,7 @@ METHODS_SETTINGS = {
     "mean": {"mean_type": ["arithmetic", "geometric"]},
     "copeland": {"slice_type": ["difference"]},
     "minimax": {"score_type": ["winning_votes"]},
-    "optimality_gap": {"gamma": [95]}
+    "optimality_gap": {"gamma": [95]},
 }
 
 PRETTY_NAMES = {

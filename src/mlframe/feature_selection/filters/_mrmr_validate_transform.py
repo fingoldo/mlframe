@@ -59,10 +59,7 @@ def _validate_string_params(self):
         # ``"auto"``; any other string is a configuration error.
         if isinstance(_tau_raw, str):
             if _tau_raw.lower() != "auto":
-                raise ValueError(
-                    f"MRMR: dcd_tau_cluster must be a float in (0, 1] or the "
-                    f"literal string 'auto'; got {_tau_raw!r}."
-                )
+                raise ValueError(f"MRMR: dcd_tau_cluster must be a float in (0, 1] or the " f"literal string 'auto'; got {_tau_raw!r}.")
             # 'auto' string short-circuits the numeric range check.
             _tau = None
         else:
@@ -70,37 +67,22 @@ def _validate_string_params(self):
             # Layer 46 (2026-05-31): ``"auto"`` (distance) returns max(SU, VI_sim) so the
             # score lives in [0, 1] just like SU; reuse the SU range check.
             if _d in ("su", "auto") and not (0.0 < _tau <= 1.0):
-                raise ValueError(
-                    f"MRMR: dcd_tau_cluster must be in (0, 1] for "
-                    f"distance={_d!r}; got {_tau}."
-                )
+                raise ValueError(f"MRMR: dcd_tau_cluster must be in (0, 1] for " f"distance={_d!r}; got {_tau}.")
             if _d in ("vi", "sotoca_pla") and _tau <= 0.0:
-                raise ValueError(
-                    f"MRMR: dcd_tau_cluster must be > 0 for distance={_d!r}; "
-                    f"got {_tau}."
-                )
+                raise ValueError(f"MRMR: dcd_tau_cluster must be > 0 for distance={_d!r}; " f"got {_tau}.")
         # 2026-05-31 Layer 42: lower bound from 2 to 1. The threshold counts
         # cluster MEMBERS (not anchor + members), so threshold=1 fires the
         # PC1 swap on the strict 2-feature redundancy case (anchor + 1
         # perfect duplicate); threshold=2 (the new default) fires only when
         # the cluster grew anchor + >=2 members. Both are sane settings.
         if int(getattr(self, "dcd_cluster_size_threshold", 2)) < 1:
-            raise ValueError(
-                f"MRMR: dcd_cluster_size_threshold must be >= 1; got "
-                f"{self.dcd_cluster_size_threshold}."
-            )
+            raise ValueError(f"MRMR: dcd_cluster_size_threshold must be >= 1; got " f"{self.dcd_cluster_size_threshold}.")
         if float(getattr(self, "dcd_swap_gain_threshold", 0.05)) < 0.0:
-            raise ValueError(
-                f"MRMR: dcd_swap_gain_threshold must be >= 0; got "
-                f"{self.dcd_swap_gain_threshold}."
-            )
+            raise ValueError(f"MRMR: dcd_swap_gain_threshold must be >= 0; got " f"{self.dcd_swap_gain_threshold}.")
         _alpha = float(getattr(self, "dcd_swap_alpha", 0.05))
         if not (0.0 < _alpha <= 1.0):
-            raise ValueError(
-                f"MRMR: dcd_swap_alpha must be in (0, 1]; got {_alpha}."
-            )
-        if (bool(getattr(self, "dcd_postoc_compose", False)) and
-                bool(getattr(self, "cluster_aggregate_enable", True))):
+            raise ValueError(f"MRMR: dcd_swap_alpha must be in (0, 1]; got {_alpha}.")
+        if bool(getattr(self, "dcd_postoc_compose", False)) and bool(getattr(self, "cluster_aggregate_enable", True)):
             import warnings as _w_dcd
             _w_dcd.warn(
                 "MRMR: dcd_enable=True AND cluster_aggregate_enable=True AND "
@@ -132,15 +114,9 @@ def _validate_string_params(self):
         if _val is None:
             continue
         if not isinstance(_val, str):
-            raise ValueError(
-                f"MRMR: {_name} must be a string; got {type(_val).__name__}={_val!r}. "
-                f"Valid values: {_valid}."
-            )
+            raise ValueError(f"MRMR: {_name} must be a string; got {type(_val).__name__}={_val!r}. " f"Valid values: {_valid}.")
         if _val not in _valid:
-            raise ValueError(
-                f"MRMR: {_name}={_val!r} is not a recognised value. "
-                f"Valid values: {_valid}."
-            )
+            raise ValueError(f"MRMR: {_name}={_val!r} is not a recognised value. " f"Valid values: {_valid}.")
     # 2026-06-01 Layer 85 — validate the orth default-scorer routing flag.
     # Kept outside the ``_checks`` loop because the attribute lives on the
     # MRMR class as ``_VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS`` (longer name
@@ -159,19 +135,14 @@ def _validate_string_params(self):
                     f"Valid values: {_valid_scorers}."
                 )
             if _default_scorer not in _valid_scorers:
-                raise ValueError(
-                    f"MRMR: fe_hybrid_orth_default_scorer={_default_scorer!r} "
-                    f"is not a recognised value. "
-                    f"Valid values: {_valid_scorers}."
-                )
+                raise ValueError(f"MRMR: fe_hybrid_orth_default_scorer={_default_scorer!r} " f"is not a recognised value. " f"Valid values: {_valid_scorers}.")
     # cluster_aggregate_methods is a sequence; validate each element.
     _methods = getattr(self, "cluster_aggregate_methods", None)
     if _methods is not None:
         for _m in _methods:
             if _m not in self._VALID_CLUSTER_AGGREGATE_METHODS:
                 raise ValueError(
-                    f"MRMR: cluster_aggregate_methods contains {_m!r}, not a recognised value. "
-                    f"Valid values: {self._VALID_CLUSTER_AGGREGATE_METHODS}."
+                    f"MRMR: cluster_aggregate_methods contains {_m!r}, not a recognised value. " f"Valid values: {self._VALID_CLUSTER_AGGREGATE_METHODS}."
                 )
 
 # Input validation contract: explicit guards for memory-exhaustion shapes, malformed dtypes,
@@ -297,24 +268,19 @@ def _validate_inputs(self, X, y):
     try:
         _y_arr = np.asarray(y)
         if _y_arr.ndim == 2:
-            _per_col_unique = [
-                len(np.unique(_y_arr[:, _j])) for _j in range(_y_arr.shape[1])
-            ]
+            _per_col_unique = [len(np.unique(_y_arr[:, _j])) for _j in range(_y_arr.shape[1])]
             _y_is_constant = max(_per_col_unique) == 1 if _per_col_unique else True
         else:
             _y_is_constant = len(np.unique(_y_arr)) == 1
         if _y_is_constant:
             raise ValueError(
-                "MRMR.fit: target y has only 1 unique value. H(y)=0 "
-                "so all features have MI(X_j, y)=0 by construction. "
-                "Drop or rebuild y before fitting."
+                "MRMR.fit: target y has only 1 unique value. H(y)=0 " "so all features have MI(X_j, y)=0 by construction. " "Drop or rebuild y before fitting."
             )
     except ValueError:
         raise  # re-raise our own ValueError
     except Exception:
         logger.debug("MRMR.fit: constant-y validation scan failed unexpectedly; skipping the guard.", exc_info=True)
     return X
-
 
 
 def transform(self, X, y=None):
@@ -333,10 +299,8 @@ def transform(self, X, y=None):
     # Unfitted -> NotFittedError (sklearn-canonical); previously returned X unchanged, masking config bugs.
     if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
         from sklearn.exceptions import NotFittedError
-        raise NotFittedError(
-            "This MRMR instance is not fitted yet. Call 'fit' before "
-            "using 'transform'."
-        )
+
+        raise NotFittedError("This MRMR instance is not fitted yet. Call 'fit' before " "using 'transform'.")
     # 2026-05-30 Wave 9.1 fix (loop iter 19): sklearn ``n_features_in_``
     # contract. Pre-fix ``transform()`` accepted ndarray (and any non-
     # DataFrame array) with wrong column count and silently sliced
@@ -351,10 +315,7 @@ def transform(self, X, y=None):
     if _n_features_in is None:
         # Fallback to feature_names_in_ length for legacy estimators
         # missing the n_features_in_ attribute.
-        _n_features_in = (
-            len(self.feature_names_in_)
-            if hasattr(self, "feature_names_in_") else None
-        )
+        _n_features_in = len(self.feature_names_in_) if hasattr(self, "feature_names_in_") else None
     if _n_features_in is not None and hasattr(X, "shape") and len(X.shape) >= 2:
         if int(X.shape[1]) != int(_n_features_in):
             # When X is a pandas / polars DataFrame the column-name validation
@@ -363,15 +324,9 @@ def transform(self, X, y=None):
             # column frames so the column-name path can fire (the wrappers
             # audit + edge-coverage tests pin RuntimeError on column drift);
             # for plain ndarrays without column names this is the only signal.
-            _is_named_frame = (
-                (pd is not None and isinstance(X, pd.DataFrame))
-                or hasattr(X, "schema")  # polars DataFrame / LazyFrame
-            )
+            _is_named_frame = (pd is not None and isinstance(X, pd.DataFrame)) or hasattr(X, "schema")  # polars DataFrame / LazyFrame
             if not _is_named_frame:
-                raise ValueError(
-                    f"X has {int(X.shape[1])} features, but MRMR is expecting "
-                    f"{int(_n_features_in)} features as input."
-                )
+                raise ValueError(f"X has {int(X.shape[1])} features, but MRMR is expecting " f"{int(_n_features_in)} features as input.")
     support = self.support_
     recipes = getattr(self, "_engineered_recipes_", [])
 
@@ -511,16 +466,10 @@ def _append_engineered(self, base_out, X, recipes):
     # K-way recipes ship a chained-lookup payload (extras ``chain_lookups`` / ``chain_nuniqs``) so they
     # replay on test data alongside pair recipes. The only filter is the legacy ``requires_refit_for_replay``
     # flag retained for OLD pickles that pre-date the chain payload.
-    replayable = [
-        r for r in recipes
-        if r.extra.get("chain_lookups") is not None
-        or not r.extra.get("requires_refit_for_replay")
-    ]
+    replayable = [r for r in recipes if r.extra.get("chain_lookups") is not None or not r.extra.get("requires_refit_for_replay")]
     if len(replayable) < len(recipes) and self.verbose:
         logger.info(
-            "MRMR.transform: skipping %d legacy k-way recipe(s) "
-            "without chained-lookup payload (pre-D3 pickle). Re-fit "
-            "to materialise the chain.",
+            "MRMR.transform: skipping %d legacy k-way recipe(s) " "without chained-lookup payload (pre-D3 pickle). Re-fit " "to materialise the chain.",
             len(recipes) - len(replayable),
         )
     if not replayable:
@@ -667,9 +616,7 @@ def _append_engineered(self, base_out, X, recipes):
     try:
         import polars as _pl
         if isinstance(base_out, _pl.DataFrame):
-            return base_out.with_columns([
-                _pl.Series(r.name, col) for r, col in zip(recipes, engineered_cols)
-            ])
+            return base_out.with_columns([_pl.Series(r.name, col) for r, col in zip(recipes, engineered_cols)])
     except ImportError:
         pass
 
@@ -686,11 +633,7 @@ def _append_engineered(self, base_out, X, recipes):
     # preserve per-column dtype. fit_transform(ndarray) thus diverged
     # from fit(pd.DataFrame).transform(ndarray), violating sklearn
     # contract.
-    engineered_arr = (
-        np.column_stack(engineered_cols)
-        if engineered_cols
-        else np.empty((base_out.shape[0], 0))
-    )
+    engineered_arr = np.column_stack(engineered_cols) if engineered_cols else np.empty((base_out.shape[0], 0))
     common_dtype = np.result_type(base_out.dtype, engineered_arr.dtype)
     if base_out.size == 0:
         return engineered_arr.astype(common_dtype, copy=False)

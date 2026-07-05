@@ -35,12 +35,10 @@ from numpy.polynomial.legendre import legval as _np_legval
 from numpy.polynomial.chebyshev import chebval as _np_chebval
 from numpy.polynomial.laguerre import lagval as _np_lagval
 
-
 # Backend 2: njit single-thread (already in hermite_fe.py)
 from mlframe.feature_selection.filters.hermite_fe import (
     _hermeval_njit, _legval_njit, _chebval_njit, _lagval_njit,
 )
-
 
 # Backend 3: njit parallel (prange over array elements)
 try:
@@ -556,11 +554,9 @@ def _time_call(fn, args, n_warmup=3, n_iter=200):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--basis", default="hermite",
-                        choices=["hermite", "legendre", "chebyshev", "laguerre"])
+    parser.add_argument("--basis", default="hermite", choices=["hermite", "legendre", "chebyshev", "laguerre"])
     parser.add_argument("--n-iter", type=int, default=300)
-    parser.add_argument("--include-h2d", action="store_true",
-                        help="for cupy backends, include host->device transfer in timing")
+    parser.add_argument("--include-h2d", action="store_true", help="for cupy backends, include host->device transfer in timing")
     args = parser.parse_args()
 
     BACKENDS = {
@@ -650,8 +646,7 @@ def main():
             v = row["backends"].get(k)
             cells.append(f"{v:8.1f}" if v else "       -")
         winner = min(row["backends"].items(), key=lambda kv: kv[1])[0]
-        print(f"  {row['n']:>10d}  {row['nc'] - 1:>6d}  " +
-              "  ".join(cells) + f"  {winner:>11s}")
+        print(f"  {row['n']:>10d}  {row['nc'] - 1:>6d}  " + "  ".join(cells) + f"  {winner:>11s}")
 
 
 if __name__ == "__main__":

@@ -88,9 +88,7 @@ logger = logging.getLogger(__name__)
 # Dense default grid: 0.05 .. 0.95 step 0.05 (19 levels). Symmetric, includes the
 # 0.5 median, gives a fine enough quantile mesh that the pinball-integral CRPS is
 # a close approximation of the continuous CRPS while keeping K inner fits modest.
-_DEFAULT_DENSE_QUANTILES: tuple[float, ...] = tuple(
-    round(0.05 * k, 2) for k in range(1, 20)
-)
+_DEFAULT_DENSE_QUANTILES: tuple[float, ...] = tuple(round(0.05 * k, 2) for k in range(1, 20))
 
 
 class CompositeDistributionEstimator(BaseEstimator, RegressorMixin):
@@ -160,13 +158,8 @@ class CompositeDistributionEstimator(BaseEstimator, RegressorMixin):
         ``self``.
         """
         if self.base_estimator is None:
-            raise ValueError(
-                "CompositeDistributionEstimator: base_estimator must not be None."
-            )
-        quantiles = (
-            self.quantiles if self.quantiles is not None
-            else _DEFAULT_DENSE_QUANTILES
-        )
+            raise ValueError("CompositeDistributionEstimator: base_estimator must not be None.")
+        quantiles = self.quantiles if self.quantiles is not None else _DEFAULT_DENSE_QUANTILES
         qest = CompositeQuantileEstimator(
             base_estimator=self.base_estimator,
             transform_name=self.transform_name,
@@ -190,9 +183,7 @@ class CompositeDistributionEstimator(BaseEstimator, RegressorMixin):
         if not hasattr(self, "quantile_estimator_"):
             from sklearn.exceptions import NotFittedError
 
-            raise NotFittedError(
-                "CompositeDistributionEstimator: call fit before this method."
-            )
+            raise NotFittedError("CompositeDistributionEstimator: call fit before this method.")
 
     # ------------------------------------------------------------------
     # Quantile / point pass-through
@@ -265,10 +256,7 @@ class CompositeDistributionEstimator(BaseEstimator, RegressorMixin):
         self._check_fitted()
         if n <= 0:
             raise ValueError(f"CompositeDistributionEstimator.sample: n must be > 0; got {n}.")
-        rng = (
-            random_state if isinstance(random_state, np.random.Generator)
-            else np.random.default_rng(random_state)
-        )
+        rng = random_state if isinstance(random_state, np.random.Generator) else np.random.default_rng(random_state)
         qmat = self._quantile_matrix(X)  # (n_rows, K)
         levels = self.quantiles_  # (K,)
         n_rows = qmat.shape[0]
@@ -307,10 +295,7 @@ class CompositeDistributionEstimator(BaseEstimator, RegressorMixin):
         levels = self.quantiles_  # (K,)
         y = np.asarray(y_true, dtype=np.float64).reshape(-1)  # (n,)
         if y.shape[0] != qmat.shape[0]:
-            raise ValueError(
-                "CompositeDistributionEstimator.crps: y_true length "
-                f"{y.shape[0]} != n_samples {qmat.shape[0]}."
-            )
+            raise ValueError("CompositeDistributionEstimator.crps: y_true length " f"{y.shape[0]} != n_samples {qmat.shape[0]}.")
         # Pinball loss per (row, level): u = y - Q ; rho = u*(q - 1{u<0}).
         u = y[:, None] - qmat  # (n, K)
         rho = u * (levels[None, :] - (u < 0.0).astype(np.float64))  # (n, K)
@@ -319,7 +304,4 @@ class CompositeDistributionEstimator(BaseEstimator, RegressorMixin):
             return per_row
         if reduce == "mean":
             return float(np.mean(per_row))
-        raise ValueError(
-            f"CompositeDistributionEstimator.crps: reduce must be 'mean' or 'none', "
-            f"got {reduce!r}."
-        )
+        raise ValueError(f"CompositeDistributionEstimator.crps: reduce must be 'mean' or 'none', " f"got {reduce!r}.")

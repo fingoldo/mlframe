@@ -133,10 +133,7 @@ def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None], *, fs
     # need mkstemp's "secure unique name" guarantee for an internal temp file
     # inside our own directory -- a pid + counter + 8-byte uuid suffix avoids
     # collisions cheaply.
-    _tmp_basename = (
-        f"{os.path.basename(target_path)}.tmp."
-        f"{os.getpid()}.{_atomic_write_counter():d}.{uuid.uuid4().hex[:8]}"
-    )
+    _tmp_basename = f"{os.path.basename(target_path)}.tmp." f"{os.getpid()}.{_atomic_write_counter():d}.{uuid.uuid4().hex[:8]}"
     tmp_path = os.path.join(target_dir, _tmp_basename)
     fd = os.open(tmp_path, os.O_CREAT | os.O_WRONLY | os.O_EXCL)
     # ``fd`` ownership: passed to ``os.fdopen`` -> the resulting BufferedWriter takes
@@ -284,9 +281,7 @@ def _safe_getattr(obj, name, *default):
     allowlisted object to an arbitrary callable. Plain attribute access (including underscore-prefixed
     library helpers) is allowed because the operand itself already passed the module/class allowlist."""
     if not isinstance(name, str) or name in _DANGEROUS_GETATTR_ATTRS:
-        raise dill.UnpicklingError(
-            f"Unsafe getattr blocked by _SafeUnpickler allowlist: getattr({type(obj).__name__}, {name!r})"
-        )
+        raise dill.UnpicklingError(f"Unsafe getattr blocked by _SafeUnpickler allowlist: getattr({type(obj).__name__}, {name!r})")
     return getattr(obj, name, *default)
 
 
@@ -296,9 +291,7 @@ def _safe_setattr(obj, name, value):
     allowlist, so the only residual risk is type-confusion through dunder attributes (``__class__`` /
     ``__dict__`` / ``__bases__`` / ...). Those names are refused; ordinary attribute restoration is allowed."""
     if not isinstance(name, str) or name in _DANGEROUS_GETATTR_ATTRS:
-        raise dill.UnpicklingError(
-            f"Unsafe setattr blocked by _SafeUnpickler allowlist: setattr({type(obj).__name__}, {name!r})"
-        )
+        raise dill.UnpicklingError(f"Unsafe setattr blocked by _SafeUnpickler allowlist: setattr({type(obj).__name__}, {name!r})")
     setattr(obj, name, value)
 
 
@@ -308,9 +301,7 @@ class _SafeUnpickler(dill.Unpickler):
     def find_class(self, module: str, name: str):
         # Block code-exec builtins even though ``builtins`` is allowlisted for data containers.
         if module in ("builtins", "__builtin__") and name in _UNSAFE_BUILTINS:
-            raise dill.UnpicklingError(
-                f"Unsafe builtin blocked by _SafeUnpickler allowlist: {module}.{name}"
-            )
+            raise dill.UnpicklingError(f"Unsafe builtin blocked by _SafeUnpickler allowlist: {module}.{name}")
         # ``getattr`` / ``setattr`` are allowed but via restricted reconstructors (dangerous attr names denied).
         if module in ("builtins", "__builtin__") and name == "getattr":
             return _safe_getattr
@@ -323,9 +314,7 @@ class _SafeUnpickler(dill.Unpickler):
         for prefix in _SAFE_MODULE_PREFIXES:
             if module == prefix or module.startswith(prefix + "."):
                 return super().find_class(module, name)
-        raise dill.UnpicklingError(
-            f"Unsafe class blocked by _SafeUnpickler allowlist: {module}.{name}"
-        )
+        raise dill.UnpicklingError(f"Unsafe class blocked by _SafeUnpickler allowlist: {module}.{name}")
 
 
 _SIDECAR_META_VERSION = 1
@@ -548,8 +537,7 @@ def validate_load_meta_sidecar(
     if drift:
         msg = (
             f"load_mlframe_model: library-version drift detected for "
-            f"bundle {bundle_path!r}:\n  " + "\n  ".join(drift) +
-            "\nBooster libraries are typically forward-compatible for minor "
+            f"bundle {bundle_path!r}:\n  " + "\n  ".join(drift) + "\nBooster libraries are typically forward-compatible for minor "
             "versions; if you see unexplained metric regression after a "
             "library upgrade, retrain on the live environment."
         )
@@ -610,7 +598,7 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
             _max_mb = float(_size_mb_env)
         except ValueError:
             _max_mb = 2048.0
-        if _st.st_size <= _max_mb * (1024 ** 2):
+        if _st.st_size <= _max_mb * (1024**2):
             _cache_key = (_abs, _st.st_mtime_ns, bool(safe))
             with _LOAD_MODEL_CACHE_LOCK:
                 _hit = _LOAD_MODEL_CACHE.get(_cache_key)
@@ -640,8 +628,8 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
         # the bundle itself may still be loadable. Logger.warning was already
         # called inside the helper for the known cases.
         logger.debug(
-            "load_mlframe_model: sidecar validation raised unexpectedly "
-            "(%s); proceeding with bundle load.", _meta_e,
+            "load_mlframe_model: sidecar validation raised unexpectedly " "(%s); proceeding with bundle load.",
+            _meta_e,
         )
     try:
         with open(file, "rb") as f:

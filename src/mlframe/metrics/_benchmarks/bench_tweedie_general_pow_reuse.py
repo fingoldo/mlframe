@@ -47,8 +47,8 @@ def new_kernel(y_true, y_pred, power):
         if yt == 0.0:
             term_y = 0.0
         else:
-            term_y = (yt ** e2) * c_y
-        yp_pow1 = yp ** e1
+            term_y = (yt**e2) * c_y
+        yp_pow1 = yp**e1
         term_yp = yt * yp_pow1 * c_yp
         term_p = (yp_pow1 * yp) * c_p
         s += 2.0 * (term_y - term_yp + term_p)

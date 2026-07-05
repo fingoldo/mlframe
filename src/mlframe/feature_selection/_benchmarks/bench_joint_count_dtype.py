@@ -98,8 +98,7 @@ def main():
         mi64 = compute_mi_from_classes(cx, fx, cy, fy, dtype=np.int32)  # ships int64 accumulator
         mi32 = _mi_int32_accumulator(cx, fx, cy, fy)
         identical = mi64 == mi32
-        print(f"  n={n:>9} K_x={kx:>2} K_y={ky:>2}  mi64={mi64:.15g}  mi32={mi32:.15g}  "
-              f"bit-identical={identical}")
+        print(f"  n={n:>9} K_x={kx:>2} K_y={ky:>2}  mi64={mi64:.15g}  mi32={mi32:.15g}  " f"bit-identical={identical}")
         assert identical, f"int64 vs int32 MI diverged at n={n}: {mi64!r} != {mi32!r}"
 
     print("\n=== wall (best-of-%d, warm) ===" % repeats)
@@ -109,13 +108,11 @@ def main():
         compute_mi_from_classes(cx, fx, cy, fy, dtype=np.int32)
         _mi_int32_accumulator(cx, fx, cy, fy)
 
-        t64 = _best_of(lambda a, b, c, d: compute_mi_from_classes(a, b, c, d, dtype=np.int32),
-                       (cx, fx, cy, fy), repeats)
+        t64 = _best_of(lambda a, b, c, d: compute_mi_from_classes(a, b, c, d, dtype=np.int32), (cx, fx, cy, fy), repeats)
         t32 = _best_of(_mi_int32_accumulator, (cx, fx, cy, fy), repeats)
         ratio = t64 / t32 if t32 else float("nan")
         verdict = "no regression" if ratio <= 1.03 else f"REGRESSION {ratio:.3f}x"
-        print(f"  n={n:>9} K_x={kx:>2} K_y={ky:>2}  int64={t64*1e3:8.3f} ms  "
-              f"int32={t32*1e3:8.3f} ms  int64/int32={ratio:.3f}x  [{verdict}]")
+        print(f"  n={n:>9} K_x={kx:>2} K_y={ky:>2}  int64={t64*1e3:8.3f} ms  " f"int32={t32*1e3:8.3f} ms  int64/int32={ratio:.3f}x  [{verdict}]")
 
 
 if __name__ == "__main__":

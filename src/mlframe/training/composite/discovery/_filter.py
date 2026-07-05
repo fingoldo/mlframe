@@ -102,11 +102,7 @@ def _maybe_sample_for_leak_corr(
     if sample_idx.size > target_rows:
         sample_idx = sample_idx[:target_rows]
     sampled = [arr[sample_idx] for arr in candidate_arrays]
-    y_sampled = (
-        y_train[sample_idx]
-        if y_train is not None and y_train.shape[0] == n_rows
-        else y_train
-    )
+    y_sampled = y_train[sample_idx] if y_train is not None and y_train.shape[0] == n_rows else y_train
     logger.info(
         "[CompositeTargetDiscovery] leak-corr matrix sampled from %d to %d rows "
         "(stride=%d): full-frame alloc %.2f GB would exceed %.0f%% of %.2f GB "
@@ -116,8 +112,8 @@ def _maybe_sample_for_leak_corr(
         n_rows, sample_idx.size, stride,
         needed_bytes / 1024 ** 3,
         _LEAK_CORR_ALLOC_AVAIL_FRACTION * 100,
-        available_bytes / 1024 ** 3,
-        (sample_idx.size * n_cols * 4) / 1024 ** 3,
+        available_bytes / 1024**3,
+        (sample_idx.size * n_cols * 4) / 1024**3,
         sample_idx.size,
     )
     return sampled, y_sampled
@@ -235,9 +231,7 @@ def _filter_features(
                 var_y = float(np.dot(y_dev, y_dev))
                 if var_x < 1e-24 or var_y < 1e-24:
                     continue
-                abs_corrs[j] = abs(
-                    float(np.dot(x_dev, y_dev)) / np.sqrt(var_x * var_y)
-                )
+                abs_corrs[j] = abs(float(np.dot(x_dev, y_dev)) / np.sqrt(var_x * var_y))
         threshold = float(self.config.forbidden_base_corr_threshold)
         for col, corr_val in zip(candidates, abs_corrs.tolist()):
             if corr_val >= threshold:

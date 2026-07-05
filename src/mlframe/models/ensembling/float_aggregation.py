@@ -48,9 +48,7 @@ def robust_float_ensemble(stacked: np.ndarray, *, mad_factor: float = DEFAULT_MA
     return masked_sum / keep_counts
 
 
-def combine_float_predictions(
-    stacked: np.ndarray, *, flavour: str = "robust", mad_factor: float = DEFAULT_MAD_FACTOR
-) -> np.ndarray:
+def combine_float_predictions(stacked: np.ndarray, *, flavour: str = "robust", mad_factor: float = DEFAULT_MAD_FACTOR) -> np.ndarray:
     """Aggregate stacked float member predictions ``(K, ...)`` into one array.
 
     ``flavour``: ``"robust"`` (default, MAD-gated mean), ``"mean"`` (legacy raw mean), ``"median"``.

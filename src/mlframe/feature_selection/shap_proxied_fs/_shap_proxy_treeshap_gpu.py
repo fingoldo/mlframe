@@ -224,9 +224,7 @@ def treeshap_phi_base_gpu(ensemble, X: np.ndarray):
     import cupy as cp
 
     if ensemble.max_depth > _MAX_SUPPORTED_DEPTH:
-        raise ValueError(
-            f"GPU TreeSHAP supports depth <= {_MAX_SUPPORTED_DEPTH}; ensemble depth is "
-            f"{ensemble.max_depth}. Use the numba backend.")
+        raise ValueError(f"GPU TreeSHAP supports depth <= {_MAX_SUPPORTED_DEPTH}; ensemble depth is " f"{ensemble.max_depth}. Use the numba backend.")
 
     Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
     n, f = Xf.shape

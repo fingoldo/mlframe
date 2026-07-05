@@ -60,7 +60,7 @@ def main():
         mi_old, bx_old = _legacy(fd, 0, fnb, cy, fy)
         mi_new, bx_new = _relevance_mi_1var_fused(fd, 0, nb_x, cy, fy)
         maxdiff = abs(mi_old - mi_new)
-        bx_ok = (bx_old == bx_new)
+        bx_ok = bx_old == bx_new
         assert maxdiff == 0.0, f"MI not bit-identical at n={n}: {mi_old} vs {mi_new} (diff {maxdiff})"
         assert bx_ok, f"bx mismatch at n={n}: {bx_old} vs {bx_new}"
 

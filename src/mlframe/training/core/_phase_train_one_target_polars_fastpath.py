@@ -57,14 +57,14 @@ def resolve_pandas_view_cache_budget_bytes() -> float:
     still honoured as ``ABSOLUTE_MB`` when the new vars are unset. Falls back to 2 GB absolute when
     psutil is unavailable or the env is malformed.
     """
-    _DEFAULT_ABS_BYTES = 2048.0 * (1024 ** 2)
+    _DEFAULT_ABS_BYTES = 2048.0 * (1024**2)
     _legacy_mb = os.environ.get("MLFRAME_PANDAS_VIEW_CACHE_MAX_MB")
     ctype = os.environ.get("MLFRAME_PANDAS_VIEW_CACHE_TYPE", "").strip().upper()
     size_raw = os.environ.get("MLFRAME_PANDAS_VIEW_CACHE_SIZE", "").strip()
     # Deprecated-alias path: old MAX_MB set and the new vars not -> treat as ABSOLUTE_MB.
     if _legacy_mb is not None and not ctype and not size_raw:
         try:
-            return max(0.0, float(_legacy_mb)) * (1024 ** 2) or _DEFAULT_ABS_BYTES
+            return max(0.0, float(_legacy_mb)) * (1024**2) or _DEFAULT_ABS_BYTES
         except ValueError:
             return _DEFAULT_ABS_BYTES
     if not ctype:
@@ -76,7 +76,7 @@ def resolve_pandas_view_cache_budget_bytes() -> float:
     if size <= 0:
         return _DEFAULT_ABS_BYTES
     if ctype == "ABSOLUTE_MB":
-        return size * (1024 ** 2)
+        return size * (1024**2)
     try:
         import psutil
         vm = psutil.virtual_memory()
@@ -176,9 +176,9 @@ def _prepare_strategy_inputs(
                     )
                 except Exception as _emb_exc:
                     logger.warning(
-                        "build_polars_enum_map failed for %s; "
-                        "falling back to per-DF Enum cast: %s",
-                        type(strategy).__name__, _emb_exc,
+                        "build_polars_enum_map failed for %s; " "falling back to per-DF Enum cast: %s",
+                        type(strategy).__name__,
+                        _emb_exc,
                     )
                     _xgb_category_map = None
                 tier_enum_map_cache[_enum_cache_key] = _xgb_category_map
@@ -197,11 +197,7 @@ def _prepare_strategy_inputs(
                 text_cols_present = filter_existing(prepared_train, text_features)
                 if text_cols_present:
                     # Determine which of the text columns need a dtype cast.
-                    needs_cast = [
-                        c for c in text_cols_present
-                        if prepared_train.schema[c] == pl.Categorical
-                        or isinstance(prepared_train.schema[c], pl.Enum)
-                    ]
+                    needs_cast = [c for c in text_cols_present if prepared_train.schema[c] == pl.Categorical or isinstance(prepared_train.schema[c], pl.Enum)]
                     prep_exprs = []
                     for c in text_cols_present:
                         expr = pl.col(c)
@@ -215,9 +211,9 @@ def _prepare_strategy_inputs(
                         prepared_test = prepared_test.with_columns(prep_exprs)
                     if needs_cast and verbose:
                         logger.info(
-                            "  Cast %d text feature(s) from Polars Categorical to String "
-                            "for CatBoost: %s",
-                            len(needs_cast), needs_cast,
+                            "  Cast %d text feature(s) from Polars Categorical to String " "for CatBoost: %s",
+                            len(needs_cast),
+                            needs_cast,
                         )
 
             # Null-in-Categorical fill is applied upstream once on train_df_polars/val/test (search:
@@ -259,17 +255,9 @@ def _prepare_strategy_inputs(
         if isinstance(df_, pl.DataFrame):
             if not _logged_lazy_conv and verbose:
                 if strategy.supports_polars:
-                    _reason = (
-                        "Polars originals released "
-                        "(common_params still carries "
-                        "polars frames; converting to "
-                        "pandas for inner predict path)"
-                    )
+                    _reason = "Polars originals released " "(common_params still carries " "polars frames; converting to " "pandas for inner predict path)"
                 else:
-                    _reason = (
-                        f"non-Polars-native strategy "
-                        f"{type(strategy).__name__}"
-                    )
+                    _reason = f"non-Polars-native strategy " f"{type(strategy).__name__}"
                 logger.info(
                     "  Lazy pandas conversion for %s -- %s",
                     mlframe_model_name, _reason,

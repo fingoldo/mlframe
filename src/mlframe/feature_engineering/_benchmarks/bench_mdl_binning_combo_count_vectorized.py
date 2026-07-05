@@ -56,10 +56,7 @@ def main() -> None:
         assert uc_old == uc_new, (uc_old, uc_new)
         b_old = _best_of(_old, tb, qb)
         b_new = _best_of(_new, tb, qb)
-        print(
-            f"n_train={n_train} n_query={n_query}: OLD {b_old * 1000:.2f}ms  "
-            f"NEW {b_new * 1000:.2f}ms  speedup {b_old / b_new:.1f}x  identical=True"
-        )
+        print(f"n_train={n_train} n_query={n_query}: OLD {b_old * 1000:.2f}ms  " f"NEW {b_new * 1000:.2f}ms  speedup {b_old / b_new:.1f}x  identical=True")
 
 
 if __name__ == "__main__":

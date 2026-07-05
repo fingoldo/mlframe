@@ -139,8 +139,7 @@ def _column_names(X: Any) -> List[Any]:
     return list(range(np.asarray(X).shape[1]))
 
 
-def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample: int = DEFAULT_SAMPLE,
-                       seed: int = 0) -> ScatterPanelSpec:
+def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample: int = DEFAULT_SAMPLE, seed: int = 0) -> ScatterPanelSpec:
     """ScatterPanelSpec of the two named ``features`` coloured by ``y``, titled with the 2-D Fisher separability score.
 
     Both features are pulled as narrow float64 views and seeded-subsampled to ``sample`` rows; the score is computed on

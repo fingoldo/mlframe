@@ -105,9 +105,7 @@ def per_cell_stats_bincount(codes: np.ndarray, v: np.ndarray, n_cells: int, stat
     # One-pass njit raw-moment accumulation (cnt, s1..s4) replaces up to FOUR np.bincount passes +
     # full-array power ops -- ~30x faster at n=100k (0.59 vs 18 ms). s2 (x*x) matches np.bincount(v*v)
     # exactly; s3/s4 differ from numpy v**3/v**4 only at the last ULP, far below the bin resolution.
-    cnt, s1, s2, s3, s4 = _per_cell_raw_moments_njit(
-        np.ascontiguousarray(codes).astype(np.int64), np.ascontiguousarray(v).astype(np.float64), int(n_cells)
-    )
+    cnt, s1, s2, s3, s4 = _per_cell_raw_moments_njit(np.ascontiguousarray(codes).astype(np.int64), np.ascontiguousarray(v).astype(np.float64), int(n_cells))
     safe = np.maximum(cnt, 1.0)
     mean = s1 / safe
     out: dict = {}
@@ -121,10 +119,10 @@ def per_cell_stats_bincount(codes: np.ndarray, v: np.ndarray, n_cells: int, stat
         elif stat == "std":
             raw = std
         elif stat == "skew":
-            m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean ** 3
-            raw = np.where(std > 1e-9, m3 / (std ** 3 + 1e-12), 0.0)
+            m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean**3
+            raw = np.where(std > 1e-9, m3 / (std**3 + 1e-12), 0.0)
         elif stat == "kurt":
-            m4 = s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean ** 2 * (s2 / safe) - 3.0 * mean ** 4
+            m4 = s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean**2 * (s2 / safe) - 3.0 * mean**4
             raw = np.where(m2 > 1e-12, m4 / (m2 * m2 + 1e-12) - 3.0, 0.0)
         else:
             raise ValueError(f"binned_numeric_agg stat {stat!r} not in {SUPPORTED_STATS}")
@@ -307,8 +305,7 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
         import os as _os
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         # No size gate under STRICT (user contract: 100% residency, no KTC-style size dispatch).
-        if (_os.environ.get("MLFRAME_FE_CHEAP_MI_GPU", "1").strip().lower() in ("1", "true", "on", "yes")
-                and fe_gpu_strict_resident_enabled()):
+        if _os.environ.get("MLFRAME_FE_CHEAP_MI_GPU", "1").strip().lower() in ("1", "true", "on", "yes") and fe_gpu_strict_resident_enabled():
             import cupy as cp
             from ._resident_bincount import resident_bincount
             cvd = cp.asarray(cv)
@@ -458,10 +455,10 @@ def binned_numeric_agg_with_recipes(
         except Exception:
             survivor_list = None
         if survivor_list is None:
-            _device_binagg = False   # device gate unavailable -> host all-columns path below
+            _device_binagg = False  # device gate unavailable -> host all-columns path below
         else:
             _surv_set = set(survivor_list)
-            survivors = [c for c in cand_names if c in _surv_set]   # capped order, filtered to survivors
+            survivors = [c for c in cand_names if c in _surv_set]  # capped order, filtered to survivors
             if not survivors:
                 return X.copy(), [], []
             # HOST OOF for the SURVIVOR pairs only (bit-identical values, few columns). The pair-restricted fit

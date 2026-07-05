@@ -263,10 +263,7 @@ def _periodogram_power(z01: np.ndarray, y: np.ndarray, freq: float) -> float:
     if y_ss < 1e-24:
         return 0.0
     ang = 2.0 * np.pi * float(freq) * z01
-    return (
-        _corr_sq_centered(np.sin(ang), yc, y_ss)
-        + _corr_sq_centered(np.cos(ang), yc, y_ss)
-    )
+    return _corr_sq_centered(np.sin(ang), yc, y_ss) + _corr_sq_centered(np.cos(ang), yc, y_ss)
 
 
 # Parallel path wins from ~n>=4k (thread spawn amortised by the per-element transcendental work); below it the
@@ -355,10 +352,7 @@ def _power_centered(z: np.ndarray, yc: np.ndarray, y_ss: float, freq: float) -> 
             float(y_ss), float(freq),
         )
     ang = 2.0 * np.pi * float(freq) * z
-    return (
-        _corr_sq_centered(np.sin(ang), yc, y_ss)
-        + _corr_sq_centered(np.cos(ang), yc, y_ss)
-    )
+    return _corr_sq_centered(np.sin(ang), yc, y_ss) + _corr_sq_centered(np.cos(ang), yc, y_ss)
 
 
 def _refine_peak_freq(
@@ -833,7 +827,6 @@ def _detect_fourier_freq_for_col(
         min_rows=min_rows, max_freqs=1,
     )
     return float(freqs[0]) if freqs else None
-
 
 
 # generate/recipe entry points carved to _orth_extra_basis_fe_generate.py (1k-LOC ceiling).

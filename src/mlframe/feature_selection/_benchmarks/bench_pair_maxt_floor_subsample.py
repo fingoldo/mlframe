@@ -67,7 +67,7 @@ def best_of(fn, reps=3):
 
 def main():
     N_FULL = 30000
-    P = 60          # -> C(60,2)=1770 pairs
+    P = 60  # -> C(60,2)=1770 pairs
     NBINS = 10
     K = 25
     Q = 0.95

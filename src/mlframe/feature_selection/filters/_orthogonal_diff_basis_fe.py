@@ -90,7 +90,7 @@ def parse_diff_basis_col_name(name: str) -> Optional[tuple[str, str, str, int]]:
         return None
     body, suffix = name.split("__", 1)
     # body starts with "diff_"; strip prefix.
-    body = body[len("diff_"):]
+    body = body[len("diff_") :]
     # ``body`` is ``"{col_a}_{col_b}"`` but col names may themselves contain
     # underscores. We can't unambiguously split here, so the recipe
     # ``src_names`` tuple is the canonical source -- this helper is best-
@@ -100,7 +100,7 @@ def parse_diff_basis_col_name(name: str) -> Optional[tuple[str, str, str, int]]:
     code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
     for code in ("LL", "He", "T", "L"):
         if suffix.startswith(code):
-            deg_str = suffix[len(code):]
+            deg_str = suffix[len(code) :]
             if deg_str.isdigit():
                 # Split body on the LAST underscore -- if col names contain
                 # underscores the split may be wrong; recipe metadata is the
@@ -152,10 +152,7 @@ def detect_correlated_pairs(
     """
     if cols is None:
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
-    cols = [
-        c for c in cols
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    cols = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if len(cols) < 2:
         return []
     # Stack dense varying columns into a single matrix; skip constant /
@@ -274,10 +271,7 @@ def generate_diff_basis_features(
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     if basis not in _POLY_BASES:
-        raise ValueError(
-            f"generate_diff_basis_features: unknown basis {basis!r}; "
-            f"expected one of {sorted(_POLY_BASES.keys())}."
-        )
+        raise ValueError(f"generate_diff_basis_features: unknown basis {basis!r}; " f"expected one of {sorted(_POLY_BASES.keys())}.")
     degrees = tuple(int(d) for d in degrees)
     if not degrees:
         return pd.DataFrame(index=X.index), {}
@@ -293,10 +287,7 @@ def generate_diff_basis_features(
         pair_corr_map = {}
         for pair in pairs:
             if len(pair) != 2:
-                raise ValueError(
-                    f"generate_diff_basis_features: every entry in ``pairs`` "
-                    f"must be a 2-tuple; got {pair!r}."
-                )
+                raise ValueError(f"generate_diff_basis_features: every entry in ``pairs`` " f"must be a 2-tuple; got {pair!r}.")
             a, b = pair
             if a not in X.columns or b not in X.columns:
                 logger.warning(
@@ -304,8 +295,7 @@ def generate_diff_basis_features(
                     "column missing from X.", a, b,
                 )
                 continue
-            if not (pd.api.types.is_numeric_dtype(X[a])
-                    and pd.api.types.is_numeric_dtype(X[b])):
+            if not (pd.api.types.is_numeric_dtype(X[a]) and pd.api.types.is_numeric_dtype(X[b])):
                 logger.warning(
                     "generate_diff_basis_features: pair (%r, %r) skipped; "
                     "non-numeric dtype.", a, b,
@@ -325,11 +315,7 @@ def generate_diff_basis_features(
     if not pairs_norm:
         return pd.DataFrame(index=X.index), {}
 
-    y_arr = (
-        np.asarray(y).astype(np.int64)
-        if not np.issubdtype(np.asarray(y).dtype, np.integer)
-        else np.asarray(y, dtype=np.int64)
-    )
+    y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
     # ---- Step 2: raw baselines for every column touched by a pair.
     touched = sorted({c for pair in pairs_norm for c in pair})
     raw_mat = X[touched].to_numpy(dtype=np.float64, copy=False)
@@ -575,16 +561,14 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
     appended = [c for c in X_aug.columns if c not in X.columns]
     if not appended:
         return X_aug, scores, []
-    name_to_row = {
-        str(row["engineered_col"]): row for _, row in scores.iterrows()
-    }
+    name_to_row = {str(row["engineered_col"]): row for _, row in scores.iterrows()}
     recipes = []
     for name in appended:
         row = name_to_row.get(name)
         if row is None:
             logger.warning(
-                "hybrid_orth_mi_diff_basis_fe_with_recipes: appended column "
-                "%r missing from scores; skipping recipe.", name,
+                "hybrid_orth_mi_diff_basis_fe_with_recipes: appended column " "%r missing from scores; skipping recipe.",
+                name,
             )
             continue
         _ca, _cb = str(row["col_a"]), str(row["col_b"])
@@ -628,16 +612,10 @@ def _apply_orth_diff_basis(recipe, X) -> np.ndarray:
     """
     from .engineered_recipes import _extract_column, _eval_orth_basis_column
     if len(recipe.src_names) != 2:
-        raise ValueError(
-            f"orth_diff_basis recipe '{recipe.name}' must have exactly 2 "
-            f"src_names; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"orth_diff_basis recipe '{recipe.name}' must have exactly 2 " f"src_names; got {len(recipe.src_names)}")
     for key in ("basis", "degree"):
         if key not in recipe.extra:
-            raise KeyError(
-                f"orth_diff_basis recipe '{recipe.name}' missing '{key}' "
-                f"in extra. Re-fit MRMR to regenerate."
-            )
+            raise KeyError(f"orth_diff_basis recipe '{recipe.name}' missing '{key}' " f"in extra. Re-fit MRMR to regenerate.")
     col_a, col_b = recipe.src_names
     basis = str(recipe.extra["basis"])
     degree = int(recipe.extra["degree"])

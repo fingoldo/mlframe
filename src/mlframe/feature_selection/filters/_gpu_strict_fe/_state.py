@@ -27,15 +27,15 @@ class ResidentFEState:
     launch config. The candidate generation/scoring (Phase 1+) shards columns across ``profiles`` and reads
     these resident replicas with zero per-candidate H2D."""
 
-    profiles: list                       # list[DeviceProfile] (>=1; collapses to 1 entry single-GPU)
-    op_names: list                       # host: operand column names, len == n_ops (column order is canonical)
-    n_sub: int                           # subsample row count
-    y_min: int                           # fit-constant label min (host scalar, hoisted once)
-    n_classes: int                       # fit-constant class span (host scalar)
-    f32: bool                            # f32 operand/candidate dtype (MLFRAME_FE_VRAM_F32) else f64
+    profiles: list  # list[DeviceProfile] (>=1; collapses to 1 entry single-GPU)
+    op_names: list  # host: operand column names, len == n_ops (column order is canonical)
+    n_sub: int  # subsample row count
+    y_min: int  # fit-constant label min (host scalar, hoisted once)
+    n_classes: int  # fit-constant class span (host scalar)
+    f32: bool  # f32 operand/candidate dtype (MLFRAME_FE_VRAM_F32) else f64
     # device index -> resident cupy arrays (populated by build(); NEVER pickled)
-    _operands: dict = field(default_factory=dict)   # device -> (n_sub, n_ops) cupy operand table replica
-    _y_codes: dict = field(default_factory=dict)     # device -> (n_sub,) cupy int64 label codes
+    _operands: dict = field(default_factory=dict)  # device -> (n_sub, n_ops) cupy operand table replica
+    _y_codes: dict = field(default_factory=dict)  # device -> (n_sub,) cupy int64 label codes
     _y_cont: Optional[dict] = field(default_factory=dict)  # device -> (n_sub,) cupy float (corr/routing), or {}
 
     # ---- construction -----------------------------------------------------------------------------------
@@ -56,20 +56,19 @@ class ResidentFEState:
             raise RuntimeError("ResidentFEState.build: no CUDA device profiles available")
 
         dt = np.float32 if f32 else np.float64
-        ops_h = np.ascontiguousarray(operands_host, dtype=dt)            # (n_sub, n_ops)
+        ops_h = np.ascontiguousarray(operands_host, dtype=dt)  # (n_sub, n_ops)
         if ops_h.ndim == 1:
             ops_h = ops_h.reshape(-1, 1)
         n_sub = int(ops_h.shape[0])
         yc_h = np.ascontiguousarray(np.asarray(y_codes_host)).astype(np.int64).ravel()
         y_min = int(yc_h.min()) if yc_h.size else 0
         n_classes = (int(yc_h.max()) - y_min + 1) if yc_h.size else 1
-        ycont_h = (np.ascontiguousarray(np.asarray(y_cont_host, dtype=np.float64).ravel())
-                   if y_cont_host is not None else None)
+        ycont_h = np.ascontiguousarray(np.asarray(y_cont_host, dtype=np.float64).ravel()) if y_cont_host is not None else None
 
         st = cls(profiles=profs, op_names=list(op_names), n_sub=n_sub, y_min=y_min, n_classes=n_classes, f32=bool(f32))
         for p in profs:
             with cp.cuda.Device(p.device):
-                st._operands[p.device] = cp.asarray(ops_h)               # ONE bulk H2D per device
+                st._operands[p.device] = cp.asarray(ops_h)  # ONE bulk H2D per device
                 st._y_codes[p.device] = cp.asarray(yc_h)
                 if ycont_h is not None:
                     st._y_cont[p.device] = cp.asarray(ycont_h)
@@ -104,7 +103,7 @@ class ResidentFEState:
         max_threads = int(getattr(p, "max_threads_per_block", 1024) or 1024)
         cfg = {"threads": min(256, max_threads), "shared_per_block": shared}
         if ky is not None:
-            cfg["use_fused"] = (int(ky) * 4) <= shared   # one int32 histogram row per class fits shared
+            cfg["use_fused"] = (int(ky) * 4) <= shared  # one int32 histogram row per class fits shared
         return cfg
 
     def k_chunk(self, device: int, n_cols: int, *, working_multiple: int = 5) -> int:
@@ -116,8 +115,7 @@ class ResidentFEState:
         p = self.profile(device)
         free = int(getattr(p, "free_vram", 0)) or None
         bpe = 4 if self.f32 else 8
-        chunk = _gpu_k_chunk(self.n_sub, free_bytes=free, bytes_per_elem=bpe,
-                             working_multiple=working_multiple, max_cols=int(n_cols))
+        chunk = _gpu_k_chunk(self.n_sub, free_bytes=free, bytes_per_elem=bpe, working_multiple=working_multiple, max_cols=int(n_cols))
         return max(1, int(chunk))
 
     def free(self) -> None:

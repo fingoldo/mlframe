@@ -81,8 +81,8 @@ _DEFAULT_CLUSTER_SU_AUTO_MAX_FEATURES = 2000
 # Overridable per-HW via kernel_tuning_cache key ``mlframe.shap_proxied_fs.adaptive_prescreen_stability_thresholds``
 # which accepts a list of ``[stability_threshold, cap_delta]`` pairs sorted descending by threshold.
 _DEFAULT_ADAPTIVE_PRESCREEN_THRESHOLDS = (
-    (0.8, 0),    # stability >= 0.8: no narrowing, keep default cap
-    (0.6, -4),   # 0.6 <= stability < 0.8: narrow by 4
+    (0.8, 0),  # stability >= 0.8: no narrowing, keep default cap
+    (0.6, -4),  # 0.6 <= stability < 0.8: narrow by 4
     (-1.0, -8),  # stability < 0.6: narrow by 8 (catches negative correlations too)
 )
 _ADAPTIVE_PRESCREEN_FLOOR = 16  # never narrow below this regardless of stability
@@ -108,9 +108,9 @@ _ADAPTIVE_N_ANCHORS_LO = 10
 _ADAPTIVE_N_ANCHORS_HI = 100
 
 
-def _resolve_adaptive_n_anchors(n_search_cols: int, *, c: float = _DEFAULT_ADAPTIVE_N_ANCHORS_C,
-                                lo: int = _ADAPTIVE_N_ANCHORS_LO,
-                                hi: int = _ADAPTIVE_N_ANCHORS_HI) -> int:
+def _resolve_adaptive_n_anchors(
+    n_search_cols: int, *, c: float = _DEFAULT_ADAPTIVE_N_ANCHORS_C, lo: int = _ADAPTIVE_N_ANCHORS_LO, hi: int = _ADAPTIVE_N_ANCHORS_HI
+) -> int:
     """Self-tuning anchor count for the trust guard: ``clip(round(c*sqrt(p)), lo, hi)``.
 
     ``p`` is the post-prefilter proxy search width (``phi.shape[1]``). Reads override params from
@@ -119,8 +119,7 @@ def _resolve_adaptive_n_anchors(n_search_cols: int, *, c: float = _DEFAULT_ADAPT
     try:
         from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
-        params = kernel_tuning_cache.get(
-            "mlframe.shap_proxied_fs.adaptive_n_anchors_params", default=None)
+        params = kernel_tuning_cache.get("mlframe.shap_proxied_fs.adaptive_n_anchors_params", default=None)
         if params:
             c, lo, hi = float(params[0]), int(params[1]), int(params[2])
     except Exception:
@@ -130,8 +129,7 @@ def _resolve_adaptive_n_anchors(n_search_cols: int, *, c: float = _DEFAULT_ADAPT
     return int(min(int(hi), max(int(lo), n)))
 
 
-def _resolve_knee_prescreen_cap(importance, default_cap: int, *,
-                                floor: int = _ADAPTIVE_PRESCREEN_FLOOR) -> tuple[int, dict]:
+def _resolve_knee_prescreen_cap(importance, default_cap: int, *, floor: int = _ADAPTIVE_PRESCREEN_FLOOR) -> tuple[int, dict]:
     """Data-driven prescreen cap from the sorted |phi| importance curve (knee detection).
 
     Replaces the hardcoded stability ladder with a distribution read: a DENSE-signal frame (many
@@ -172,8 +170,7 @@ def _resolve_brute_force_max_features(default: int = _DEFAULT_BRUTE_FORCE_MAX_FE
     try:
         from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
-        value = kernel_tuning_cache.get(
-            "mlframe.shap_proxied_fs.brute_force_max_features", default=default)
+        value = kernel_tuning_cache.get("mlframe.shap_proxied_fs.brute_force_max_features", default=default)
         return int(value)
     except Exception:
         return default
@@ -186,8 +183,7 @@ def _resolve_brute_force_n_sub_gate(default: int = _DEFAULT_BRUTE_FORCE_N_SUB_GA
     try:
         from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
-        value = kernel_tuning_cache.get(
-            "mlframe.shap_proxied_fs.brute_force_n_sub_gate", default=default)
+        value = kernel_tuning_cache.get("mlframe.shap_proxied_fs.brute_force_n_sub_gate", default=default)
         return int(value)
     except Exception:
         return default
@@ -204,8 +200,7 @@ def _resolve_cluster_su_auto_max_features(
     try:
         from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
-        value = kernel_tuning_cache.get(
-            "mlframe.shap_proxied_fs.cluster_su_auto_max_features", default=default)
+        value = kernel_tuning_cache.get("mlframe.shap_proxied_fs.cluster_su_auto_max_features", default=default)
         return int(value)
     except Exception:
         return default
@@ -222,8 +217,7 @@ def _resolve_adaptive_prescreen_thresholds():
     try:
         from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
-        cached = kernel_tuning_cache.get(
-            "mlframe.shap_proxied_fs.adaptive_prescreen_stability_thresholds", default=None)
+        cached = kernel_tuning_cache.get("mlframe.shap_proxied_fs.adaptive_prescreen_stability_thresholds", default=None)
         if cached:
             raw = cached
     except Exception:
@@ -233,8 +227,7 @@ def _resolve_adaptive_prescreen_thresholds():
     return tuple(pairs)
 
 
-def _resolve_adaptive_prescreen_width(stability: float, default_cap: int,
-                                      floor: int = _ADAPTIVE_PRESCREEN_FLOOR) -> int:
+def _resolve_adaptive_prescreen_width(stability: float, default_cap: int, floor: int = _ADAPTIVE_PRESCREEN_FLOOR) -> int:
     """Resolve the prescreen pool width from the measured cross-fold SHAP rank stability.
 
     Returns ``max(floor, default_cap + delta)`` where ``delta`` is read from the first threshold

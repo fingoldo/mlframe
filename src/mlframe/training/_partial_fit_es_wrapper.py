@@ -223,8 +223,7 @@ class PartialFitESWrapper:
             self._fit_dichotomic(X_tr, y_tr, X_val, y_val, metric_fn, metric_name, mode)
         else:
             raise ValueError(
-                f"Estimator {type(self.estimator).__name__} has no ``partial_fit`` and "
-                f"no ``budget_param`` was supplied; cannot apply ES wrapper."
+                f"Estimator {type(self.estimator).__name__} has no ``partial_fit`` and " f"no ``budget_param`` was supplied; cannot apply ES wrapper."
             )
         self._fitted = True
         return self

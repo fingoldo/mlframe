@@ -149,8 +149,7 @@ def run_bed(name, X, y, truth):
     for syn, jsu, a, b in top_pairs[:6]:
         star = "  <-- TRUE PAIR" if {a, b} == op_set else ""
         print(f"    syn={syn:+.4f} joint_su={jsu:.4f}  {a} x {b}{star}", flush=True)
-    print(f"  >> true operand pair rank in SU-top-20: "
-          f"{'NOT FOUND' if rank_of_true is None else '#'+str(rank_of_true)}", flush=True)
+    print(f"  >> true operand pair rank in SU-top-20: " f"{'NOT FOUND' if rank_of_true is None else '#'+str(rank_of_true)}", flush=True)
 
     # --- end-to-end: plain ShapSel vs ShapSel + SU-top-K product columns ----------------------
     def recall_of(sel_cols):

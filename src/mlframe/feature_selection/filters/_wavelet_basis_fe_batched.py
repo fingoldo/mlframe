@@ -50,12 +50,12 @@ def batched_binned_mi_gpu(code_cols: np.ndarray, y_codes: np.ndarray, kx_per_col
     Kx = max(Kx, 1)
     inv_n = 1.0 / float(n)
     # flat = k*(Kx*Ky) + cx*Ky + cy ; ONE bincount -> (K, Kx, Ky) joint counts for all columns at once.
-    col_off = (cp.arange(K, dtype=cp.int64) * (Kx * Ky))[None, :]          # (1, K)
-    flat = C * Ky + y[:, None] + col_off                                  # (n, K)
+    col_off = (cp.arange(K, dtype=cp.int64) * (Kx * Ky))[None, :]  # (1, K)
+    flat = C * Ky + y[:, None] + col_off  # (n, K)
     counts = cp.bincount(flat.ravel(), minlength=K * Kx * Ky).astype(cp.float64).reshape(K, Kx, Ky)
-    pij = counts * inv_n                                                  # joint p(x,y) per column
-    pi = pij.sum(axis=2)                                                  # (K, Kx) p(x)
-    pj = pij.sum(axis=1)                                                  # (K, Ky) p(y)
+    pij = counts * inv_n  # joint p(x,y) per column
+    pi = pij.sum(axis=2)  # (K, Kx) p(x)
+    pj = pij.sum(axis=1)  # (K, Ky) p(y)
     # MI = sum pij * log(pij / (pi*pj)) over occupied cells.
     denom = pi[:, :, None] * pj[:, None, :]
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -155,7 +155,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         pos_all: list = []
         neg_all: list = []
         for j in range(int(max_scale) + 1):
-            for k in range(2 ** j):
+            for k in range(2**j):
                 leg = _dyadic_haar_leg_gpu(cp, z_g, j, k)
                 legs_all.append(leg)
                 metas_all.append((int(j), int(k)))
@@ -179,8 +179,8 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         if not metas:
             return []
 
-        tr_mat = cp.ascontiguousarray(cp.stack(tr_cols, axis=1))   # resident (n_tr, K) int64 codes
-        va_mat = cp.ascontiguousarray(cp.stack(va_cols, axis=1))   # resident (n_va, K) int64 codes
+        tr_mat = cp.ascontiguousarray(cp.stack(tr_cols, axis=1))  # resident (n_tr, K) int64 codes
+        va_mat = cp.ascontiguousarray(cp.stack(va_cols, axis=1))  # resident (n_va, K) int64 codes
         yb_tr = _bin_y_codes(y[tr_mask])
         yb_va = _bin_y_codes(y[va_mask])
         ky_tr = int(np.asarray(yb_tr).max()) + 1
@@ -258,13 +258,13 @@ def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: f
     yb_tr = _bin_y_codes(y[tr])
     yb_va = _bin_y_codes(y[va])
 
-    metas: list[tuple] = []          # (j, k)
+    metas: list[tuple] = []  # (j, k)
     tr_cols: list[np.ndarray] = []
     va_cols: list[np.ndarray] = []
     tr_kx: list[int] = []
     va_kx: list[int] = []
     for j in range(int(max_scale) + 1):
-        for k in range(2 ** j):
+        for k in range(2**j):
             leg = _dyadic_haar_leg(z, j, k)
             if int(np.count_nonzero(leg > 0)) < _WAVELET_MIN_HALF_ROWS or int(np.count_nonzero(leg < 0)) < _WAVELET_MIN_HALF_ROWS:
                 continue
@@ -278,8 +278,8 @@ def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: f
     if not metas:
         return []
 
-    tr_mat = np.stack(tr_cols, axis=1)   # (n_tr, K)
-    va_mat = np.stack(va_cols, axis=1)   # (n_va, K)
+    tr_mat = np.stack(tr_cols, axis=1)  # (n_tr, K)
+    va_mat = np.stack(va_cols, axis=1)  # (n_va, K)
     ky_tr = int(np.asarray(yb_tr).max()) + 1
     ky_va = int(np.asarray(yb_va).max()) + 1
     # Fused one-launch MI-from-codes (launch-reduction): replaces the cupy bincount+entropy chain per

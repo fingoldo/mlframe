@@ -57,7 +57,7 @@ class _ResidentClfFallback(Exception):
 # per-fold logloss agrees with sklearn lbfgs to the selection gate's tolerance.
 _NEWTON_MAX_ITER = 200
 _NEWTON_TOL = 1e-9
-_C = 1.0          # sklearn LogisticRegression default inverse-regularisation strength
+_C = 1.0  # sklearn LogisticRegression default inverse-regularisation strength
 _LOGLOSS_EPS = 1e-15
 
 
@@ -145,9 +145,9 @@ def usability_greedy_clf_gpu_resident(
             if col.shape[0] != n:
                 return None  # ragged pool -> let the CPU path handle it exactly
             Vhost[:, j] = col
-        Vdev = cp.asarray(Vhost)                       # (n, P) resident
+        Vdev = cp.asarray(Vhost)  # (n, P) resident
         yenc_dev = cp.asarray(y_enc.astype(np.int64))  # (n,) resident class codes
-        ydev_f = yenc_dev.astype(cp.float64)           # binary positive-class indicator helper
+        ydev_f = yenc_dev.astype(cp.float64)  # binary positive-class indicator helper
 
         # RAM GOVERNOR (mirror the CPU path so the resident selection matches under memory pressure).
         try:
@@ -264,7 +264,7 @@ def usability_greedy_clf_gpu_resident(
                         blk = (A * wgt[:, None]).T @ A
                         if c == c2:
                             blk = blk + regdiag
-                        Hbig[c * d:(c + 1) * d, c2 * d:(c2 + 1) * d] = blk
+                        Hbig[c * d : (c + 1) * d, c2 * d : (c2 + 1) * d] = blk
                 try:
                     step = cp.linalg.solve(Hbig, grad)
                 except Exception:
@@ -344,9 +344,9 @@ def usability_greedy_clf_gpu_resident(
                     Xtr_s, (Xho_s,) = _standardize(Xtr, [Xho])
                     proba = _fit_proba(Xtr_s, [Xho_s], yenc_dev[tr])[0]
                     if proba.ndim == 1:
-                        phat = proba                      # binary: P(class 1) == P(pos)
+                        phat = proba  # binary: P(class 1) == P(pos)
                     else:
-                        phat = proba[:, pos_cls]          # multiclass: P(majority)
+                        phat = proba[:, pos_cls]  # multiclass: P(majority)
                     resid = pos_dev[ho] - phat
                 else:
                     resid = pos_dev[ho] - pos_dev[tr].mean()
@@ -371,9 +371,9 @@ def usability_greedy_clf_gpu_resident(
             errs = np.empty(nf, dtype=np.float64)
             for fo in range(nf):
                 tr, va = tr_masks[fo], va_masks[fo]
-                p1 = float(pos_dev[tr].mean())                 # bounded scalar D2H (the train-fold prior)
+                p1 = float(pos_dev[tr].mean())  # bounded scalar D2H (the train-fold prior)
                 p1 = min(max(p1, _LOGLOSS_EPS), 1.0 - _LOGLOSS_EPS)
-                yv = ydev_f[va]                                # resident {0,1} val labels (class 1 == positive)
+                yv = ydev_f[va]  # resident {0,1} val labels (class 1 == positive)
                 errs[fo] = float(-cp.mean(yv * math.log(p1) + (1.0 - yv) * math.log(1.0 - p1)))
             return errs
 

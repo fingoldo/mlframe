@@ -150,8 +150,7 @@ def resolve_prefilter_method(method: str, *, n_features: int, n_rows: int) -> st
     """
     if method != "auto":
         if method not in PREFILTER_METHODS:
-            raise ValueError(
-                f"prefilter_method={method!r} unknown; expected one of {('auto',) + PREFILTER_METHODS}.")
+            raise ValueError(f"prefilter_method={method!r} unknown; expected one of {('auto',) + PREFILTER_METHODS}.")
         return method
     if n_features < _auto_fast_width():
         return "model"
@@ -414,16 +413,12 @@ def _rank_two_stage(
     wanting marginal-strength scores read ``stage1_f_scores``. -inf entries flag constant / degenerate
     columns (same sentinel as ``_rank_univariate``)."""
     t0 = time.perf_counter()
-    scores = _rank_univariate(X, y, classification=classification,
-                              batch_size=univariate_batch_size)
+    scores = _rank_univariate(X, y, classification=classification, batch_size=univariate_batch_size)
     stage1_keep = max(1, min(stage1_keep, n_features))
     stage1_cols = _topk(scores, stage1_keep)
     stage_a_dt = time.perf_counter() - t0
-    logger.info(
-        "ShapProxiedFS prefilter two_stage: stage A done in %.1fs, kept %d/%d",
-        stage_a_dt, int(len(stage1_cols)), int(n_features))
-    print(f"ShapProxiedFS prefilter two_stage: stage A done in {stage_a_dt:.1f}s, "
-          f"kept {len(stage1_cols)}/{n_features}", flush=True)
+    logger.info("ShapProxiedFS prefilter two_stage: stage A done in %.1fs, kept %d/%d", stage_a_dt, int(len(stage1_cols)), int(n_features))
+    print(f"ShapProxiedFS prefilter two_stage: stage A done in {stage_a_dt:.1f}s, " f"kept {len(stage1_cols)}/{n_features}", flush=True)
 
     # Stage B: fit a capped booster on the survivors only and rank by native importances.
     # Keep the survivor slice as a NAMELESS numpy array (do NOT rewrap into a named DataFrame): the
@@ -439,16 +434,11 @@ def _rank_two_stage(
     # amortizes; on small problems / no GPU build the CPU model path stays faster (and is the only
     # correct path when the xgboost binary lacks USE_CUDA -- gpu_model_available() guards both).
     n_features_b = int(len(stage1_cols))
-    stage_b_routed_gpu = _stage_b_should_route_gpu(
-        n_rows=int(Xv.shape[0]), n_features_b=n_features_b)
+    stage_b_routed_gpu = _stage_b_should_route_gpu(n_rows=int(Xv.shape[0]), n_features_b=n_features_b)
     if stage_b_routed_gpu:
-        stage_b_imp = _rank_gpu_model(model_template, X_stage1, y,
-                                      n_features=n_features_b,
-                                      n_estimators_cap=n_estimators_cap)
+        stage_b_imp = _rank_gpu_model(model_template, X_stage1, y, n_features=n_features_b, n_estimators_cap=n_estimators_cap)
     else:
-        stage_b_imp = _rank_model(model_template, X_stage1, y,
-                                  n_features=n_features_b,
-                                  n_estimators_cap=n_estimators_cap)
+        stage_b_imp = _rank_model(model_template, X_stage1, y, n_features=n_features_b, n_estimators_cap=n_estimators_cap)
     stage_b_dt = time.perf_counter() - t1
     # Stage-A survivors in canonical (sorted) original-positional space -- downstream consumers (trust
     # guard / clustering / future SHAP-on-stage-A routing) need the SUPERSET cohort + the same
@@ -460,8 +450,7 @@ def _rank_two_stage(
     if stage_b_imp is None:
         # No-importance fallthrough on stage B -> degrade to the stage-A cohort as-is (still better
         # than the identity full-frame fallback because we already shed the noise tail by F-score).
-        logger.warning("ShapProxiedFS prefilter two_stage: stage B returned no importances; "
-                       "falling back to the stage-A survivors as working_cols.")
+        logger.warning("ShapProxiedFS prefilter two_stage: stage B returned no importances; " "falling back to the stage-A survivors as working_cols.")
         working_cols = stage1_survivors_sorted
         return working_cols, dict(
             method="two_stage", kept=int(len(working_cols)), of=int(n_features),
@@ -475,11 +464,8 @@ def _rank_two_stage(
     local_top = _topk(stage_b_imp, keep_b)
     # Map back to ORIGINAL indices via stage1_cols (positional), then sort for the canonical contract.
     working_cols = np.sort(stage1_cols[local_top])
-    logger.info(
-        "ShapProxiedFS prefilter two_stage: stage B done in %.1fs, kept %d/%d",
-        stage_b_dt, int(len(working_cols)), int(len(stage1_cols)))
-    print(f"ShapProxiedFS prefilter two_stage: stage B done in {stage_b_dt:.1f}s, "
-          f"kept {len(working_cols)}/{len(stage1_cols)}", flush=True)
+    logger.info("ShapProxiedFS prefilter two_stage: stage B done in %.1fs, kept %d/%d", stage_b_dt, int(len(working_cols)), int(len(stage1_cols)))
+    print(f"ShapProxiedFS prefilter two_stage: stage B done in {stage_b_dt:.1f}s, " f"kept {len(working_cols)}/{len(stage1_cols)}", flush=True)
     return working_cols, dict(
         method="two_stage", kept=int(len(working_cols)), of=int(n_features),
         stage1_kept=int(len(stage1_cols)), stage1_of=int(n_features),
@@ -501,8 +487,7 @@ def _rank_univariate(X, y, *, classification: bool, batch_size: Optional[int] = 
     width=20000 / n_rows=10000) BEFORE the per-class slicing, which OOMs the C4 regime at the
     univariate stage. The chunked path caps per-batch allocation at ``8 * n_samples * batch_size``
     bytes independent of total feature count."""
-    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter_univariate import (
-        f_classif_chunked, f_regression_chunked)
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter_univariate import f_classif_chunked, f_regression_chunked
 
     Xv = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
     if classification:
@@ -556,32 +541,26 @@ def prefilter_columns(
                                stage1_keep=s1, n_estimators_cap=n_estimators_cap,
                                univariate_batch_size=univariate_batch_size)
     if resolved == "univariate":
-        importance = _rank_univariate(X, y, classification=classification,
-                                      batch_size=univariate_batch_size)
+        importance = _rank_univariate(X, y, classification=classification, batch_size=univariate_batch_size)
         applied_cap = None  # univariate has no booster -> cap is meaningfully N/A in the report
         # Surface the F-score vector so downstream stages can re-rank by marginal strength without
         # paying a second f_classif / f_regression pass; sentinel -inf flags constant columns.
         _univariate_f_scores = importance
     elif resolved == "fast_model":
-        importance = _rank_fast_model(model_template, X, y, n_features=n_features,
-                                      n_estimators_cap=n_estimators_cap)
+        importance = _rank_fast_model(model_template, X, y, n_features=n_features, n_estimators_cap=n_estimators_cap)
         applied_cap = n_estimators_cap
     elif resolved == "gpu_model":
-        importance = _rank_gpu_model(model_template, X, y, n_features=n_features,
-                                     n_estimators_cap=n_estimators_cap)
+        importance = _rank_gpu_model(model_template, X, y, n_features=n_features, n_estimators_cap=n_estimators_cap)
         applied_cap = n_estimators_cap
     else:  # "model"
-        importance = _rank_model(model_template, X, y, n_features=n_features,
-                                 n_estimators_cap=n_estimators_cap)
+        importance = _rank_model(model_template, X, y, n_features=n_features, n_estimators_cap=n_estimators_cap)
         applied_cap = n_estimators_cap
 
     if importance is None or importance.shape[0] != n_features:
         # Ranking unavailable -> keep all columns (identity), exactly the pre-existing fall-through.
-        return np.arange(n_features), dict(method=resolved, kept=int(n_features), of=int(n_features),
-                                           skipped="no_importance", n_estimators_cap=applied_cap)
+        return np.arange(n_features), dict(method=resolved, kept=int(n_features), of=int(n_features), skipped="no_importance", n_estimators_cap=applied_cap)
     working_cols = _topk(importance, prefilter_top)
-    info = dict(method=resolved, kept=int(len(working_cols)), of=int(n_features),
-                n_estimators_cap=applied_cap)
+    info = dict(method=resolved, kept=int(len(working_cols)), of=int(n_features), n_estimators_cap=applied_cap)
     if resolved == "univariate":
         # ``univariate`` already has the dense F-score vector in hand -- expose it for the same
         # downstream consumers that read ``stage1_f_scores`` from the ``two_stage`` path so the two

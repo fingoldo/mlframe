@@ -82,8 +82,7 @@ def make_synthetic(n: int, n_cat: int, signal_pair: bool = True, seed: int = 0):
     return data, nbins, cls_y, fq_y, n_cat
 
 
-def time_one(n: int, n_cat: int, cfg_overrides: dict | None = None,
-             signal_pair: bool = True, warmup: bool = False) -> dict:
+def time_one(n: int, n_cat: int, cfg_overrides: dict | None = None, signal_pair: bool = True, warmup: bool = False) -> dict:
     """Run cat-FE once on the (n, n_cat) shape, return timing dict."""
     data, nbins, cls_y, fq_y, tgt = make_synthetic(n, n_cat, signal_pair)
     cols_names = [f"c{i}" for i in range(n_cat)] + ["y"]
@@ -91,7 +90,7 @@ def time_one(n: int, n_cat: int, cfg_overrides: dict | None = None,
         enable=True,
         top_k_pairs=16,
         min_interaction_information=0.05,
-        full_npermutations=0,        # bench focuses on search, not perm test
+        full_npermutations=0,  # bench focuses on search, not perm test
         fwer_correction="none",
         n_folds_stability=0,
         max_kway_order=2,
@@ -133,11 +132,7 @@ def main() -> None:
 
     # Grid: small + medium shapes. Skip the n>=500k shape unless
     # explicitly requested -- it adds 60+s to the bench.
-    grid = [
-        (n, n_cat)
-        for n in (1_000, 10_000, 100_000)
-        for n_cat in (10, 50, 100)
-    ]
+    grid = [(n, n_cat) for n in (1_000, 10_000, 100_000) for n_cat in (10, 50, 100)]
     if os.environ.get("MLFRAME_CAT_FE_BENCH_PROD"):
         grid.extend([(500_000, 200), (1_000_000, 200)])
 
@@ -146,10 +141,7 @@ def main() -> None:
     for n, n_cat in grid:
         r = time_one(n=n, n_cat=n_cat)
         results.append(r)
-        print(
-            f"  n={n:>8} n_cat={n_cat:>4} pairs={r['n_pairs_considered']:>6} "
-            f"recipes={r['n_recipes_produced']:>3} wall={r['wall_seconds']:.3f}s"
-        )
+        print(f"  n={n:>8} n_cat={n_cat:>4} pairs={r['n_pairs_considered']:>6} " f"recipes={r['n_recipes_produced']:>3} wall={r['wall_seconds']:.3f}s")
 
     # cProfile attribution on one mid-shape config so the user can see
     # where time goes. n=10k, n_cat=50 is a reasonable representative.

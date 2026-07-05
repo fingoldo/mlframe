@@ -239,7 +239,7 @@ class ModularHit:
     modulus: int
     residue_mi: float
     baseline_mi: float  # raw-combiner MI = the best a smooth basis could recover
-    null_hi: float      # permutation-null upper band on residue MI
+    null_hi: float  # permutation-null upper band on residue MI
 
     @property
     def margin_over_baseline(self) -> float:
@@ -250,8 +250,7 @@ class ModularHit:
         return _responded(self.residue_mi, self.baseline_mi, self.null_hi)
 
 
-def _responded(residue_mi: float, baseline_mi: float, null_hi: float,
-               min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
+def _responded(residue_mi: float, baseline_mi: float, null_hi: float, min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
     """Gate: the residue MI must clear BOTH the smooth-basis baseline (by ``min_margin``) AND the permutation-null upper band by an absolute
     ``null_margin`` (not just ``> null_hi`` -- a high-cardinality residue's cardinality-inflated plug-in MI can sit ~0.007 nats above a z=3
     null on noise; a true hit clears it by >1 nat). ``min_margin`` is the measured separation floor between a true modular hit and the best
@@ -259,8 +258,7 @@ def _responded(residue_mi: float, baseline_mi: float, null_hi: float,
     return (residue_mi - baseline_mi) >= min_margin and residue_mi > (null_hi + null_margin)
 
 
-def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int,
-                  n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
+def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int, n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
     """Upper band (mean + z*std) of ``c mod k`` MI under y permutation -- the noise reference the
     residue MI must clear. Cheap: n_perm small, the residue is computed once and only y is shuffled."""
     r = np.mod(c, k).astype(np.float64)

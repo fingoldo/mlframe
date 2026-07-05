@@ -63,9 +63,9 @@ _AUTOCONFIG_SAMPLE_N: int = 20_000
 # cheap enough to screen exactly (None); within the mid band the shipped 100k
 # default is adequate; above the large band the screen must cap to stay under a
 # minute on 4M+ rows.
-_MI_SAMPLE_SMALL_N: int = 50_000      # below this -> full train (mi_sample_n=None)
-_MI_SAMPLE_MID_N: int = 500_000       # below this -> 100k sample
-_MI_SAMPLE_LARGE: int = 100_000       # the cap used above the mid band
+_MI_SAMPLE_SMALL_N: int = 50_000  # below this -> full train (mi_sample_n=None)
+_MI_SAMPLE_MID_N: int = 500_000  # below this -> 100k sample
+_MI_SAMPLE_LARGE: int = 100_000  # the cap used above the mid band
 
 # Target-skew thresholds. ``skew`` here is the standardised third moment of the
 # target sample; ``> _SKEW_TRANSFORM_MIN`` is "strongly right-skewed" (a
@@ -162,28 +162,19 @@ def suggest_discovery_config(
     # ---- mi_sample_n: scale to frame size ----------------------------------
     if n_rows < _MI_SAMPLE_SMALL_N:
         suggested["mi_sample_n"] = None
-        rationale["mi_sample_n"] = (
-            f"n={n_rows} < {_MI_SAMPLE_SMALL_N}: small frame, screen the full "
-            "train exactly (no sampling)."
-        )
+        rationale["mi_sample_n"] = f"n={n_rows} < {_MI_SAMPLE_SMALL_N}: small frame, screen the full " "train exactly (no sampling)."
     elif n_rows < _MI_SAMPLE_MID_N:
         suggested["mi_sample_n"] = _MI_SAMPLE_LARGE
-        rationale["mi_sample_n"] = (
-            f"n={n_rows}: mid frame, keep the {_MI_SAMPLE_LARGE} default MI "
-            "sample (adequate, sub-minute)."
-        )
+        rationale["mi_sample_n"] = f"n={n_rows}: mid frame, keep the {_MI_SAMPLE_LARGE} default MI " "sample (adequate, sub-minute)."
     else:
         suggested["mi_sample_n"] = _MI_SAMPLE_LARGE
         rationale["mi_sample_n"] = (
-            f"n={n_rows} >= {_MI_SAMPLE_MID_N}: large frame, cap the MI sample "
-            f"at {_MI_SAMPLE_LARGE} to keep the screen under a minute."
+            f"n={n_rows} >= {_MI_SAMPLE_MID_N}: large frame, cap the MI sample " f"at {_MI_SAMPLE_LARGE} to keep the screen under a minute."
         )
 
     # Degenerate frame: no rows / no target -> conservative defaults only.
     if n_rows == 0 or target_col not in _frame_columns(df):
-        rationale["enabled"] = (
-            "Empty frame or target absent: returning conservative defaults."
-        )
+        rationale["enabled"] = "Empty frame or target absent: returning conservative defaults."
         cfg = CompositeTargetDiscoveryConfig(**{**suggested, **config_overrides})
         return cfg, rationale
 
@@ -234,9 +225,7 @@ def suggest_discovery_config(
         suggested["time_column"] = time_col
         suggested["time_series_transforms_enabled"] = True
         rationale["time_column"] = (
-            f"'{time_col}' looks chronological ("
-            f"{'datetime' if info.get('is_datetime') else 'monotone numeric'}): "
-            "set as time_column."
+            f"'{time_col}' looks chronological (" f"{'datetime' if info.get('is_datetime') else 'monotone numeric'}): " "set as time_column."
         )
         rationale["time_series_transforms_enabled"] = (
             "Time column found: enabled the chronological-order transforms "
@@ -252,8 +241,7 @@ def suggest_discovery_config(
         suggested["dominant_features_hint"] = hint_cols
         kind_desc = ", ".join(f"{c}={kinds.get(c, '?')}" for c in hint_cols)
         rationale["dominant_features_hint"] = (
-            f"structural detectors surfaced obvious base(s): {kind_desc} -- "
-            "seeded as dominant_features_hint so auto-base starts from them."
+            f"structural detectors surfaced obvious base(s): {kind_desc} -- " "seeded as dominant_features_hint so auto-base starts from them."
         )
 
     cfg = CompositeTargetDiscoveryConfig(**{**suggested, **config_overrides})
@@ -325,21 +313,12 @@ def _structural_base_hints(
     detected ``time_col``, which is already wired as ``time_column``) are
     scored, on the bounded sample.
     """
-    numeric = [
-        c for c in feature_cols
-        if c != target_col and c != time_col and c in _frame_columns(df)
-        and _is_numeric_column(df, c)
-    ]
+    numeric = [c for c in feature_cols if c != target_col and c != time_col and c in _frame_columns(df) and _is_numeric_column(df, c)]
     if not numeric:
         return [], {}
     try:
-        y = _extract_column_array(df, target_col, rows=sample_idx).astype(
-            np.float64, copy=False
-        )
-        cols_arrays = [
-            _extract_column_array(df, c, rows=sample_idx).astype(np.float64, copy=False)
-            for c in numeric
-        ]
+        y = _extract_column_array(df, target_col, rows=sample_idx).astype(np.float64, copy=False)
+        cols_arrays = [_extract_column_array(df, c, rows=sample_idx).astype(np.float64, copy=False) for c in numeric]
         x_matrix = np.column_stack(cols_arrays)
     except Exception as _e:  # pragma: no cover - defensive
         logger.debug("autoconfig: structural-hint matrix build failed: %s", _e)

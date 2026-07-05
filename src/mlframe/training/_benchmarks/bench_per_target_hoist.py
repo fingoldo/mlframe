@@ -45,7 +45,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-
 RESULTS_DIR = Path(__file__).parent / "_results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_PATH = RESULTS_DIR / "bench_per_target_hoist.json"
@@ -89,8 +88,7 @@ def _build_dataset(n_rows: int, n_features: int, n_targets: int, seed: int = 202
         a = t % n_features
         b = (t + 7) % n_features
         c = (t + 13) % n_features
-        df[f"y{t}"] = (X[:, a] - 0.6 * X[:, b] + 0.4 * X[:, c]
-                      + 0.1 * rng.standard_normal(n_rows)).astype(np.float32)
+        df[f"y{t}"] = (X[:, a] - 0.6 * X[:, b] + 0.4 * X[:, c] + 0.1 * rng.standard_normal(n_rows)).astype(np.float32)
     return df
 
 
@@ -194,12 +192,8 @@ def main() -> dict:
         # Warm-up: first suite run primes joblib worker pools / sklearn caches; otherwise the
         # post-fix timing absorbs one-shot overheads attributable to neither path.
         _ = _time_suite(df, case["n_targets"], force_clear_caches=True)
-        t_pre = min(
-            _time_suite(df, case["n_targets"], force_clear_caches=True) for _ in range(2)
-        )
-        t_post = min(
-            _time_suite(df, case["n_targets"], force_clear_caches=False) for _ in range(2)
-        )
+        t_pre = min(_time_suite(df, case["n_targets"], force_clear_caches=True) for _ in range(2))
+        t_post = min(_time_suite(df, case["n_targets"], force_clear_caches=False) for _ in range(2))
         speedup_pct = 100.0 * (1.0 - t_post / t_pre) if t_pre > 0 else 0.0
         case_out = {
             **case,

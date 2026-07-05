@@ -105,7 +105,7 @@ def compute_multi_temp_band_attention_features(
             band_y_mean[b] = float(y_band.mean())
             band_y_std[b] = float(y_band.std()) + 1e-9
         diffs = Xq_s[:, None, :] - band_centroids[None, :, :]
-        sq = (diffs ** 2).sum(axis=-1)  # (n_q, n_bands)
+        sq = (diffs**2).sum(axis=-1)  # (n_q, n_bands)
         scores = -sq
         n_q = Xq_s.shape[0]
         out_blocks = np.zeros((n_q, n_temps * features_per_temp), dtype=np.float32)

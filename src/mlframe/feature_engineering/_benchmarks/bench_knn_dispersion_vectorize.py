@@ -26,9 +26,7 @@ SPATIAL_REL = "src/mlframe/feature_engineering/spatial.py"
 
 
 def _load_baseline_module():
-    src = subprocess.check_output(
-        ["git", "show", f"HEAD:{SPATIAL_REL}"], cwd=REPO, text=True
-    )
+    src = subprocess.check_output(["git", "show", f"HEAD:{SPATIAL_REL}"], cwd=REPO, text=True)
     tmpdir = Path(tempfile.mkdtemp(prefix="spatial_baseline_"))
     p = tmpdir / "spatial_baseline.py"
     p.write_text(src, encoding="utf-8")
@@ -77,8 +75,7 @@ def main():
             t_old, r_old = _best_of(lambda: base.knn_label_dispersion_features(q, ref, labels, **kw))
             t_new, r_new = _best_of(lambda: new_mod.knn_label_dispersion_features(q, ref, labels, **kw))
             max_abs = _cmp(r_old, r_new)
-            print(f"task={task:<14} n_q={n_q:>6}  OLD={t_old*1e3:8.2f}ms  "
-                  f"NEW={t_new*1e3:8.2f}ms  speedup={t_old/t_new:5.2f}x  max_abs_diff={max_abs:.2e}")
+            print(f"task={task:<14} n_q={n_q:>6}  OLD={t_old*1e3:8.2f}ms  " f"NEW={t_new*1e3:8.2f}ms  speedup={t_old/t_new:5.2f}x  max_abs_diff={max_abs:.2e}")
 
 
 if __name__ == "__main__":

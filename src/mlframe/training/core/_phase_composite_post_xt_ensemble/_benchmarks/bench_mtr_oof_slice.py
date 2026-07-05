@@ -151,9 +151,9 @@ def _divergence(X, folds, y) -> dict:
     n_noreset_nonzero = 0
     layouts = {"reset_contiguous": None, "noreset_contiguous": None}
     for tr_idx, _ho in folds:
-        b_reset = slice_reset(X, tr_idx).to_numpy()      # non-contiguous (pandas reorders on reset_index)
-        b_nores = slice_noreset(X, tr_idx).to_numpy()    # C-contiguous
-        b_contg = np.ascontiguousarray(b_reset)          # force contiguity of the kept-path block
+        b_reset = slice_reset(X, tr_idx).to_numpy()  # non-contiguous (pandas reorders on reset_index)
+        b_nores = slice_noreset(X, tr_idx).to_numpy()  # C-contiguous
+        b_contg = np.ascontiguousarray(b_reset)  # force contiguity of the kept-path block
         layouts["reset_contiguous"] = bool(b_reset.flags["C_CONTIGUOUS"])
         layouts["noreset_contiguous"] = bool(b_nores.flags["C_CONTIGUOUS"])
         assert np.array_equal(b_reset, b_nores), "slice contents must be identical; only layout differs"

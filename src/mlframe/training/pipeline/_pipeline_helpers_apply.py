@@ -52,7 +52,6 @@ from ._pipeline_cache import (  # noqa: F401, E402
     _UncachableSentinel,
 )
 
-
 # Parent helpers used by the moved bodies (defined before the parent's bottom re-export, so this top-level import is cycle-safe).
 from ._pipeline_helpers import (  # noqa: E402
     _extract_feature_selector, _is_fitted, _is_stale_fit_state_value_error,
@@ -102,16 +101,12 @@ def _apply_pre_pipeline_transforms(
         # (selected all columns, created none). Set on the pre_pipeline
         # instance so the suite loop in core/main.py can skip redundant
         # branches.
-        _input_cols = (
-            list(train_df.columns) if hasattr(train_df, "columns") else None
-        )
+        _input_cols = list(train_df.columns) if hasattr(train_df, "columns") else None
         # Row count BEFORE transform. The pre_pipeline slot is row-PRESERVING (selects columns /
         # engineers features, never rows). A resampler here breaks that: this driver returns only
         # (train_df, val_df), so train_target + sample_weight stay at the original row count while
         # train_df grows/shrinks, silently desyncing X from y at model fit (guard at the return).
-        _input_n_rows = (
-            train_df.shape[0] if hasattr(train_df, "shape") and len(getattr(train_df, "shape", ())) >= 1 else None
-        )
+        _input_n_rows = train_df.shape[0] if hasattr(train_df, "shape") and len(getattr(train_df, "shape", ())) >= 1 else None
         # Structurally-identical-pipeline cache. When the
         # PER-TARGET loop runs Linear then MLP back-to-back, both build
         # ``SimpleImputer + StandardScaler``; without this short-circuit we
@@ -367,14 +362,11 @@ def _apply_pre_pipeline_transforms(
                 # empty-frame return on val_df so trainer.py's 0-feature guard can fire
                 # cleanly. (Covered by test_mrmr_no_impact_classification
                 # which uses min_relevance_gain=10.0 to force 0 features.)
-                _train_is_empty = (
-                    hasattr(train_df, "shape") and len(train_df.shape) == 2 and train_df.shape[1] == 0
-                )
+                _train_is_empty = hasattr(train_df, "shape") and len(train_df.shape) == 2 and train_df.shape[1] == 0
                 if val_df is not None and _train_is_empty:
                     if verbose:
                         logger.info(
-                            "Skipping val_df transform: train_df has 0 features after fit (selector "
-                            "rejected all). Returning empty (N, 0) val_df to match.",
+                            "Skipping val_df transform: train_df has 0 features after fit (selector " "rejected all). Returning empty (N, 0) val_df to match.",
                         )
                     if pl is not None and isinstance(val_df, pl.DataFrame):
                         val_df = val_df.select([])
@@ -437,9 +429,7 @@ def _apply_pre_pipeline_transforms(
                         _has_value_transforms = True
                         break
             try:
-                pre_pipeline._mlframe_identity_equivalent = (
-                    _cols_same and not _has_value_transforms
-                )
+                pre_pipeline._mlframe_identity_equivalent = _cols_same and not _has_value_transforms
             except Exception:
                 pass  # non-writable pre_pipeline (e.g. tuple), safe to ignore
 

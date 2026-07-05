@@ -45,14 +45,13 @@ def _build_selector(seed: int = 0):
         random_state=seed, verbose=False)
 
 
-def _make(*, n_features: int, n_rows: int, snr: float, seed: int,
-          n_informative: int = 8, n_redundant: int = 12):
+def _make(*, n_features: int, n_rows: int, snr: float, seed: int, n_informative: int = 8, n_redundant: int = 12):
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
 
     n_noise = max(0, n_features - n_informative - n_redundant)
     X, y, roles = make_regime_dataset(
-        n_samples=n_rows, n_informative=n_informative, n_redundant=n_redundant,
-        redundancy_rho=0.9, n_noise=n_noise, snr=snr, task="binary", seed=seed)
+        n_samples=n_rows, n_informative=n_informative, n_redundant=n_redundant, redundancy_rho=0.9, n_noise=n_noise, snr=snr, task="binary", seed=seed
+    )
     return X, y, roles
 
 
@@ -60,8 +59,7 @@ def _agg(values):
     n = len(values)
     if n == 0:
         return {"mean": float("nan"), "std": float("nan"), "min": float("nan"), "max": float("nan")}
-    return {"mean": sum(values) / n, "std": statistics.pstdev(values) if n >= 2 else 0.0,
-            "min": min(values), "max": max(values)}
+    return {"mean": sum(values) / n, "std": statistics.pstdev(values) if n >= 2 else 0.0, "min": min(values), "max": max(values)}
 
 
 def run_cell(*, n_features: int, n_rows: int, snr: float, n_seeds: int):
@@ -80,11 +78,8 @@ def run_cell(*, n_features: int, n_rows: int, snr: float, n_seeds: int):
         recall = rec / n_inf if n_inf else float("nan")
         recalls.append(recall)
         walls.append(wall)
-        per_seed.append({"seed": seed, "recall": recall, "recovered": rec,
-                         "n_informative": n_inf, "wall": wall,
-                         "n_selected": len(sel.selected_features_)})
-        print(f"[width={n_features} n_rows={n_rows} snr={snr} seed={seed}] "
-              f"done in {wall:.2f}s, recall={recall:.3f} ({rec}/{n_inf})", flush=True)
+        per_seed.append({"seed": seed, "recall": recall, "recovered": rec, "n_informative": n_inf, "wall": wall, "n_selected": len(sel.selected_features_)})
+        print(f"[width={n_features} n_rows={n_rows} snr={snr} seed={seed}] " f"done in {wall:.2f}s, recall={recall:.3f} ({rec}/{n_inf})", flush=True)
     return {"recall": _agg(recalls), "wall": _agg(walls), "per_seed": per_seed}
 
 
@@ -97,10 +92,8 @@ def main() -> None:
     ap.add_argument("--n_rows_levels", default="2000,5000,10000")
     ap.add_argument("--snr_levels", default="5,8,12")
     # Held-fixed values on the non-swept axis.
-    ap.add_argument("--fixed_n_rows", type=int, default=2000,
-                    help="n_rows held fixed when sweeping snr (matches the iter23 regime)")
-    ap.add_argument("--fixed_snr", type=float, default=5.0,
-                    help="snr held fixed when sweeping n_rows (matches the iter23 regime)")
+    ap.add_argument("--fixed_n_rows", type=int, default=2000, help="n_rows held fixed when sweeping snr (matches the iter23 regime)")
+    ap.add_argument("--fixed_snr", type=float, default=5.0, help="snr held fixed when sweeping n_rows (matches the iter23 regime)")
     args = ap.parse_args()
 
     if args.axis == "n_rows":
@@ -112,14 +105,12 @@ def main() -> None:
         cells = [{"n_features": args.width, "n_rows": args.fixed_n_rows, "snr": lv} for lv in levels]
         axis_label = "snr"
 
-    print(f"=== noise-pool diagnosis sweep: axis={axis_label}, width={args.width}, "
-          f"n_seeds={args.n_seeds} ===", flush=True)
+    print(f"=== noise-pool diagnosis sweep: axis={axis_label}, width={args.width}, " f"n_seeds={args.n_seeds} ===", flush=True)
 
     results = []
     for cell in cells:
         print(f"\n--- cell: {cell} ---", flush=True)
-        r = run_cell(n_features=cell["n_features"], n_rows=cell["n_rows"],
-                     snr=cell["snr"], n_seeds=args.n_seeds)
+        r = run_cell(n_features=cell["n_features"], n_rows=cell["n_rows"], snr=cell["snr"], n_seeds=args.n_seeds)
         results.append({"cell": cell, **r})
         print(f"--- cell done: recall mean={r['recall']['mean']:.3f} "
               f"std={r['recall']['std']:.3f} (min={r['recall']['min']:.3f}, "
@@ -134,8 +125,7 @@ def main() -> None:
         lv = entry["cell"][axis_label]
         rec = entry["recall"]
         wall = entry["wall"]
-        print(f"{lv:>10}{rec['mean']:>14.3f}{rec['std']:>12.3f}"
-              f"{rec['min']:>12.3f}{rec['max']:>12.3f}{wall['mean']:>14.2f}", flush=True)
+        print(f"{lv:>10}{rec['mean']:>14.3f}{rec['std']:>12.3f}" f"{rec['min']:>12.3f}{rec['max']:>12.3f}{wall['mean']:>14.2f}", flush=True)
     print("-" * len(header))
 
     # Diagnosis verdict: monotone increase in mean recall toward 1.0 confirms the noise-pool effect.
@@ -146,8 +136,7 @@ def main() -> None:
               f"The 7/8 recall at width=7000 / low-{axis_label} is a noise-pool artifact, "
               f"NOT a ShapProxiedFS pipeline bias.")
     else:
-        print(f"\nDIAGNOSIS NOT CONFIRMED on this run (mean recalls: {means}). "
-              f"Recheck levels or n_seeds, or revisit the hypothesis.")
+        print(f"\nDIAGNOSIS NOT CONFIRMED on this run (mean recalls: {means}). " f"Recheck levels or n_seeds, or revisit the hypothesis.")
 
 
 if __name__ == "__main__":

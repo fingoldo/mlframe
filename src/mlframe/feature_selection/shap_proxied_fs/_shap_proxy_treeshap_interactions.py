@@ -198,7 +198,7 @@ def _interaction_batch(
     P = phi_main.shape[1]
     n_cond = cond_feats.shape[0]
     width = max_path + 2
-    n_levels = max_path + 3       # conditioned passes can reach one extra level via child_depth+1
+    n_levels = max_path + 3  # conditioned passes can reach one extra level via child_depth+1
     stack_size = 2 * (max_path + 3)
     scratch = width * n_levels
 

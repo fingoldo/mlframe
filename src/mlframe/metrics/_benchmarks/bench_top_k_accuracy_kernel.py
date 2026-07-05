@@ -87,8 +87,7 @@ def main():
         identical = old == new
         t_old = _best_of(_old_top_k_accuracy, yt, p, k)
         t_new = _best_of(_new_top_k_accuracy, yt, p, k)
-        print(f"{n:>9} {K:>4} {k:>3} {t_old*1e3:>10.3f} {t_new*1e3:>10.3f} "
-              f"{t_old/t_new:>8.2f}  {identical}")
+        print(f"{n:>9} {K:>4} {k:>3} {t_old*1e3:>10.3f} {t_new*1e3:>10.3f} " f"{t_old/t_new:>8.2f}  {identical}")
 
 
 if __name__ == "__main__":

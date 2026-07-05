@@ -303,13 +303,11 @@ def interaction_tensor_gpu(ensemble, X: np.ndarray):
 
     if ensemble.max_depth > _MAX_SUPPORTED_DEPTH:
         raise ValueError(
-            f"GPU TreeSHAP interactions support depth <= {_MAX_SUPPORTED_DEPTH}; ensemble depth is "
-            f"{ensemble.max_depth}. Use the numba backend.")
+            f"GPU TreeSHAP interactions support depth <= {_MAX_SUPPORTED_DEPTH}; ensemble depth is " f"{ensemble.max_depth}. Use the numba backend."
+        )
     P = ensemble.n_features
     if P > _MAX_SUPPORTED_FEATURES:
-        raise ValueError(
-            f"GPU TreeSHAP interactions support width <= {_MAX_SUPPORTED_FEATURES}; ensemble width is "
-            f"{P}. Use the numba backend.")
+        raise ValueError(f"GPU TreeSHAP interactions support width <= {_MAX_SUPPORTED_FEATURES}; ensemble width is " f"{P}. Use the numba backend.")
 
     Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
     n, f = Xf.shape
@@ -317,8 +315,7 @@ def interaction_tensor_gpu(ensemble, X: np.ndarray):
         raise ValueError(f"X has {f} features but ensemble expects {P}.")
 
     split_feats = ensemble.features[ensemble.features >= 0]
-    cond_feats = (np.unique(split_feats).astype(np.int32)
-                  if split_feats.size else np.empty(0, dtype=np.int32))
+    cond_feats = np.unique(split_feats).astype(np.int32) if split_feats.size else np.empty(0, dtype=np.int32)
 
     kernel = _ensure_kernel()
     block = _block_size()

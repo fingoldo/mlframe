@@ -595,11 +595,8 @@ def mi_direct(
         from ._analytic_mi_null import (
             analytic_mi_null, analytic_null_enabled, analytic_null_min_n, analytic_null_applicable,
         )
-        _analytic_ok = (
-            analytic_null_enabled()
-            and int(factors_data.shape[0]) >= analytic_null_min_n()
-            and not use_su_normalization()
-        )
+
+        _analytic_ok = analytic_null_enabled() and int(factors_data.shape[0]) >= analytic_null_min_n() and not use_su_normalization()
     except Exception:
         _analytic_ok = False
     if _analytic_ok:
@@ -668,12 +665,7 @@ def mi_direct(
     # ``return_null_mean=True`` is forced onto the CPU permutation kernels (the only ones that accumulate the per-permutation MI sum). The GPU permutation path does not
     # surface the empirical null, and the screen's relevance-baseline budget (``npermutations<32``) never reaches the GPU branch anyway, so routing-to-CPU here costs nothing
     # in practice; it only guards the unusual case of a caller asking for the null mean with a large budget on a CUDA host.
-    if (
-        prefer_gpu
-        and npermutations >= 32
-        and parallelism in ("outer", "none")
-        and not return_null_mean
-    ):
+    if prefer_gpu and npermutations >= 32 and parallelism in ("outer", "none") and not return_null_mean:
         try:
             from pyutilz.core.pythonlib import is_cuda_available
             _gpu_ok = is_cuda_available()
@@ -799,8 +791,7 @@ def mi_direct(
             # when ``n_checked == npermutations`` (the outer/inner/workers
             # paths below), so this fix is BC-specific.
             _rate_floor = float(1.0 - float(min_nonzero_confidence))
-            if (nfailed >= max_failed
-                    or (n_checked > 0 and (nfailed / float(n_checked)) >= _rate_floor)):
+            if nfailed >= max_failed or (n_checked > 0 and (nfailed / float(n_checked)) >= _rate_floor):
                 original_mi = 0.0
         elif parallelism == "inner" and npermutations > NMAX_NONPARALLEL_ITERS:
             # Inner parallelism via numba prange. Single function call returns (nfailed, npermutations) -- matches outer-pool aggregation contract.
@@ -834,9 +825,7 @@ def mi_direct(
             # ``TypingError: No implementation of function asarray(none)``.
             # Each worker ``parallel_mi`` already ``.copy()``s the array
             # internally so workers don't race on the shared ``classes_y``.
-            _classes_y_for_workers = (
-                classes_y_safe if classes_y_safe is not None else classes_y
-            )
+            _classes_y_for_workers = classes_y_safe if classes_y_safe is not None else classes_y
             # 2026-05-30 Wave 9.1 fix (loop iter 18): use the SAME
             # ``base_seed`` for every worker and pass each worker its
             # cumulative ``perm_offset`` so the perm-index seeding in

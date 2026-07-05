@@ -219,9 +219,7 @@ class TailCompositeEstimator(BaseEstimator, RegressorMixin):
         on the training ``(X, y)`` themselves.
         """
         if not 0.0 < float(self.threshold_pct) < 1.0:
-            raise ValueError(
-                f"threshold_pct must be in (0, 1), got {self.threshold_pct!r}"
-            )
+            raise ValueError(f"threshold_pct must be in (0, 1), got {self.threshold_pct!r}")
 
         self.body_estimator_ = CompositeTargetEstimator(
             base_estimator=clone(self.base_estimator) if self.base_estimator is not None else None,
@@ -253,9 +251,7 @@ class TailCompositeEstimator(BaseEstimator, RegressorMixin):
             self.gpd_fitted_ = False
         else:
             self.residuals_sorted_ = np.sort(resid)
-            self.threshold_ = float(
-                np.quantile(self.residuals_sorted_, self.threshold_cov_)
-            )
+            self.threshold_ = float(np.quantile(self.residuals_sorted_, self.threshold_cov_))
             exceed = resid[resid > self.threshold_] - self.threshold_
             if exceed.size >= int(self.min_exceedances):
                 xi, beta = fit_gpd_exceedances(exceed, method=self.gpd_method)
@@ -268,8 +264,7 @@ class TailCompositeEstimator(BaseEstimator, RegressorMixin):
                 self.gpd_scale_ = None
                 self.gpd_fitted_ = False
                 logger.debug(
-                    "TailCompositeEstimator: %d exceedances < min %d; "
-                    "GPD tail disabled (empirical-quantile fallback).",
+                    "TailCompositeEstimator: %d exceedances < min %d; " "GPD tail disabled (empirical-quantile fallback).",
                     exceed.size,
                     int(self.min_exceedances),
                 )
@@ -352,6 +347,4 @@ class TailCompositeEstimator(BaseEstimator, RegressorMixin):
         if not hasattr(self, "body_estimator_"):
             from sklearn.exceptions import NotFittedError
 
-            raise NotFittedError(
-                "TailCompositeEstimator is not fitted; call fit() first."
-            )
+            raise NotFittedError("TailCompositeEstimator is not fitted; call fit() first.")

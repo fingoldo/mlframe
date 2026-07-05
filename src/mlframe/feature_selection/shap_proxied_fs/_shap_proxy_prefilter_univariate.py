@@ -145,8 +145,7 @@ def f_classif_chunked(
     n_samples, n_features = X.shape
     y_arr = np.asarray(y).ravel()
     if y_arr.shape[0] != n_samples:
-        raise ValueError(
-            f"y length {y_arr.shape[0]} does not match X rows {n_samples}")
+        raise ValueError(f"y length {y_arr.shape[0]} does not match X rows {n_samples}")
 
     classes, counts = np.unique(y_arr, return_counts=True)
     K = int(classes.shape[0])
@@ -255,8 +254,7 @@ def f_regression_chunked(
     n_samples, n_features = X.shape
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     if y_arr.shape[0] != n_samples:
-        raise ValueError(
-            f"y length {y_arr.shape[0]} does not match X rows {n_samples}")
+        raise ValueError(f"y length {y_arr.shape[0]} does not match X rows {n_samples}")
 
     N = int(n_samples)
     out = np.empty(n_features, dtype=np.float64)

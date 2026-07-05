@@ -166,7 +166,7 @@ def render_multi_target_panels(
     # ``target_type`` is provided, gate strictly on it; otherwise the
     # back-compat shape heuristic fires (note: misfires for
     # regression-with-group_ids — pass target_type to avoid).
-    _ltr_allowed = (tt == "" or tt == "learning_to_rank")
+    _ltr_allowed = tt == "" or tt == "learning_to_rank"
     if _ltr_allowed and group_ids is not None and ltr_panels and targets_arr is not None:
         scores = preds if preds is not None else probs
         if scores is not None and np.ndim(scores) == 1:
@@ -183,8 +183,7 @@ def render_multi_target_panels(
                 if plot_dpi is not None:
                     import dataclasses as _dc
                     spec = _dc.replace(spec, dpi=plot_dpi)
-                render_and_save(spec, parse_plot_output_dsl(plot_outputs),
-                                base_path + "_ltr_panels")
+                render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path + "_ltr_panels")
                 return "ltr"
             except Exception:
                 logger.exception("LTR panel rendering failed; continuing.")
@@ -194,12 +193,8 @@ def render_multi_target_panels(
     # LTR, this is order-sensitive vs the multilabel branch (multilabel
     # also wants 2-D preds), so check QR FIRST and fall through if the
     # caller didn't supply quantile_alphas.
-    _quantile_allowed = (tt == "" or tt == "quantile_regression")
-    if (
-        _quantile_allowed
-        and quantile_panels and quantile_alphas is not None
-        and preds is not None and targets_arr is not None
-    ):
+    _quantile_allowed = tt == "" or tt == "quantile_regression"
+    if _quantile_allowed and quantile_panels and quantile_alphas is not None and preds is not None and targets_arr is not None:
         preds_arr_q = np.asarray(preds)
         if preds_arr_q.ndim == 2 and targets_arr.ndim == 1:
             try:
@@ -215,8 +210,7 @@ def render_multi_target_panels(
                 if plot_dpi is not None:
                     import dataclasses as _dc
                     spec = _dc.replace(spec, dpi=plot_dpi)
-                render_and_save(spec, parse_plot_output_dsl(plot_outputs),
-                                base_path + "_quantile_panels")
+                render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path + "_quantile_panels")
                 return "quantile"
             except Exception:
                 logger.exception("Quantile panel rendering failed; continuing.")
@@ -228,13 +222,13 @@ def render_multi_target_panels(
     probs_arr = np.asarray(probs)
 
     # Multilabel: 2-D targets aligned with 2-D probs.
-    _ml_allowed = (tt == "" or tt == "multilabel_classification")
+    _ml_allowed = tt == "" or tt == "multilabel_classification"
     if _ml_allowed and targets_arr.ndim == 2 and probs_arr.ndim == 2 and multilabel_panels:
         if targets_arr.shape != probs_arr.shape:
             logger.warning(
-                "render_multi_target_panels: multilabel targets %s != probs %s; "
-                "skipping multilabel panels.",
-                targets_arr.shape, probs_arr.shape,
+                "render_multi_target_panels: multilabel targets %s != probs %s; " "skipping multilabel panels.",
+                targets_arr.shape,
+                probs_arr.shape,
             )
             return None
         try:
@@ -242,8 +236,7 @@ def render_multi_target_panels(
             from mlframe.reporting.output import parse_plot_output_dsl
             from mlframe.reporting.renderers import render_and_save
 
-            labels = list(classes) if classes is not None else \
-                [f"label_{i}" for i in range(probs_arr.shape[1])]
+            labels = list(classes) if classes is not None else [f"label_{i}" for i in range(probs_arr.shape[1])]
             spec = compose_multilabel_figure(
                 targets_arr, probs_arr, labels,
                 panels_template=multilabel_panels, suptitle=suptitle,
@@ -252,24 +245,21 @@ def render_multi_target_panels(
             if plot_dpi is not None:
                 import dataclasses as _dc
                 spec = _dc.replace(spec, dpi=plot_dpi)
-            render_and_save(spec, parse_plot_output_dsl(plot_outputs),
-                            base_path + "_multilabel_panels")
+            render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path + "_multilabel_panels")
             return "multilabel"
         except Exception:
             logger.exception("Multilabel panel rendering failed; continuing.")
             return None
 
     # Multiclass: 1-D targets, K>=3 classes in the proba matrix.
-    _mc_allowed = (tt == "" or tt == "multiclass_classification")
-    if (_mc_allowed and targets_arr.ndim == 1 and probs_arr.ndim == 2
-            and probs_arr.shape[1] >= 3 and multiclass_panels):
+    _mc_allowed = tt == "" or tt == "multiclass_classification"
+    if _mc_allowed and targets_arr.ndim == 1 and probs_arr.ndim == 2 and probs_arr.shape[1] >= 3 and multiclass_panels:
         try:
             from mlframe.reporting.charts.multiclass import compose_multiclass_figure
             from mlframe.reporting.output import parse_plot_output_dsl
             from mlframe.reporting.renderers import render_and_save
 
-            classes_seq = list(classes) if classes is not None else \
-                list(range(probs_arr.shape[1]))
+            classes_seq = list(classes) if classes is not None else list(range(probs_arr.shape[1]))
             spec = compose_multiclass_figure(
                 targets_arr, probs_arr, classes_seq,
                 panels_template=multiclass_panels, suptitle=suptitle,
@@ -278,8 +268,7 @@ def render_multi_target_panels(
             if plot_dpi is not None:
                 import dataclasses as _dc
                 spec = _dc.replace(spec, dpi=plot_dpi)
-            render_and_save(spec, parse_plot_output_dsl(plot_outputs),
-                            base_path + "_multiclass_panels")
+            render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path + "_multiclass_panels")
             return "multiclass"
         except Exception:
             logger.exception("Multiclass panel rendering failed; continuing.")
@@ -290,7 +279,7 @@ def render_multi_target_panels(
     # else the 1-D probs / preds). Regression is already excluded above by the
     # authoritative target_type gate; the shape heuristic here is the binary
     # back-compat path for callers that do not pass target_type.
-    _bin_allowed = (tt == "" or tt == "binary_classification")
+    _bin_allowed = tt == "" or tt == "binary_classification"
     if _bin_allowed and binary_panels and targets_arr is not None and targets_arr.ndim == 1:
         y_score = None
         if probs_arr.ndim == 2 and probs_arr.shape[1] == 2:
@@ -321,8 +310,7 @@ def render_multi_target_panels(
                 if plot_dpi is not None:
                     import dataclasses as _dc
                     spec = _dc.replace(spec, dpi=plot_dpi)
-                render_and_save(spec, parse_plot_output_dsl(plot_outputs),
-                                base_path + "_binary_panels")
+                render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path + "_binary_panels")
                 return "binary"
             except Exception:
                 logger.exception("Binary panel rendering failed; continuing.")

@@ -91,9 +91,8 @@ SCENARIOS = {
 
 def _ece_equal_width(y, p, nbins):
     from mlframe.metrics.calibration._calibration_metrics import compute_ece_and_brier_decomposition
-    return compute_ece_and_brier_decomposition(
-        np.asarray(y, dtype=np.float64), np.asarray(p, dtype=np.float64), nbins
-    )[0]
+
+    return compute_ece_and_brier_decomposition(np.asarray(y, dtype=np.float64), np.asarray(p, dtype=np.float64), nbins)[0]
 
 
 def _ece_quantile(y, p, nbins):

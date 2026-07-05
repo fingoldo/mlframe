@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 __all__ = [
     "create_date_features",
     "add_cyclical_date_features",
@@ -333,9 +332,7 @@ def create_date_features(
             for method, np_dtype in methods.items():
                 pl_dtype = _NP_TO_PL_DTYPE.get(np_dtype)
                 if pl_dtype is None:
-                    raise ValueError(
-                        f"Unsupported dtype {np_dtype} for polars; supported: {list(_NP_TO_PL_DTYPE.keys())}"
-                    )
+                    raise ValueError(f"Unsupported dtype {np_dtype} for polars; supported: {list(_NP_TO_PL_DTYPE.keys())}")
                 all_exprs.append(_resolve_polars_expr(col, method, pl_dtype))
         df = df.with_columns(all_exprs)
 
@@ -417,9 +414,7 @@ def add_cyclical_date_features(
 
     for period_name, _ in periods:
         if period_name not in _DATE_METHOD_ALIASES:
-            raise ValueError(
-                f"Unknown cyclical period name: {period_name!r}. Recognised names: {sorted(_DATE_METHOD_ALIASES.keys())}"
-            )
+            raise ValueError(f"Unknown cyclical period name: {period_name!r}. Recognised names: {sorted(_DATE_METHOD_ALIASES.keys())}")
 
     two_pi = float(2.0 * np.pi)
 
@@ -453,9 +448,7 @@ def add_cyclical_date_features(
             col_dt = pl.col(col).dt
             for period_name, period_value in periods:
                 if period_name == "is_weekend":
-                    raise ValueError(
-                        "is_weekend is a binary indicator, not periodic; cyclical encoding is meaningless. Drop it from `periods`."
-                    )
+                    raise ValueError("is_weekend is a binary indicator, not periodic; cyclical encoding is meaningless. Drop it from `periods`.")
                 if period_name == "weekday":
                     base_expr = (col_dt.weekday() - 1).cast(pl.Float64)
                 else:
@@ -463,7 +456,7 @@ def add_cyclical_date_features(
                     if pl_name is None or not hasattr(col_dt, pl_name):
                         raise ValueError(f"Unknown polars .dt accessor for period {period_name!r}")
                     base_expr = getattr(col_dt, pl_name)().cast(pl.Float64)
-                angle_expr = (base_expr * two_pi / float(period_value))
+                angle_expr = base_expr * two_pi / float(period_value)
                 all_exprs.append(angle_expr.sin().cast(pl.Float32).alias(f"{col}_{period_name}_sin"))
                 all_exprs.append(angle_expr.cos().cast(pl.Float32).alias(f"{col}_{period_name}_cos"))
         df = df.with_columns(all_exprs)

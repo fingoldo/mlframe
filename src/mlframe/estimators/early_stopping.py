@@ -29,7 +29,6 @@ acceleration-ladder rule does not apply -- the cost is entirely inside the wrapp
 
 from __future__ import annotations
 
-
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -56,7 +55,6 @@ from mlframe.metrics.core import accuracy_ratio, fast_root_mean_squared_error
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
 from .early_stopping_monotonic import MonotonicDeclineStopper
-
 
 # Incremental-count attributes a warm-start learner uses to grow capacity, in probe order: boosters/ensembles
 # expose ``n_estimators``, linear/MLP expose ``max_iter``. Mirrors learning_curve._WARM_START_N_ATTRS.

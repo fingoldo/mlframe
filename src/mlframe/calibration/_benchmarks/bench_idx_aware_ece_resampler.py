@@ -67,8 +67,7 @@ def main(sizes=((2000, 1000), (20000, 1000), (200000, 500)), reps=50, n_bins=15)
             _new_loop(y, p, idx, n_bins)
         new_ms = (time.perf_counter() - t) / reps * 1000
 
-        print(f"n={n} nb={nbs}: old={old_ms:.2f}ms new={new_ms:.2f}ms "
-              f"speedup={old_ms / new_ms:.2f}x bit_identical={identical}")
+        print(f"n={n} nb={nbs}: old={old_ms:.2f}ms new={new_ms:.2f}ms " f"speedup={old_ms / new_ms:.2f}x bit_identical={identical}")
 
 
 if __name__ == "__main__":

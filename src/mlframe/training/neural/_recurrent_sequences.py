@@ -45,14 +45,8 @@ def extract_sequences(
         stacked = np.stack(col_mats, axis=-1)  # (n_rows, seq_len, k)
         return [stacked[i] for i in range(n_rows)]
     except ValueError:
-        col_arrays: list[list[np.ndarray]] = [
-            [np.asarray(v, dtype=np.float32) for v in df[col].to_list()]
-            for col in columns
-        ]
-        return [
-            np.stack([col_arrays[j][i] for j in range(n_cols)], axis=-1)
-            for i in range(n_rows)
-        ]
+        col_arrays: list[list[np.ndarray]] = [[np.asarray(v, dtype=np.float32) for v in df[col].to_list()] for col in columns]
+        return [np.stack([col_arrays[j][i] for j in range(n_cols)], axis=-1) for i in range(n_rows)]
 
 
 def extract_sequences_chunked(

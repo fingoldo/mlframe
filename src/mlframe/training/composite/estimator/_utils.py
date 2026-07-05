@@ -16,10 +16,7 @@ def _require_fitted(self, attr: str) -> Any:
     """
     est = getattr(self, "estimator_", None)
     if est is None:
-        raise NotFittedError(
-            f"CompositeTargetEstimator has no fitted ``estimator_``; "
-            f"call .fit(...) before accessing .{attr}."
-        )
+        raise NotFittedError(f"CompositeTargetEstimator has no fitted ``estimator_``; " f"call .fit(...) before accessing .{attr}.")
     return est
 
 

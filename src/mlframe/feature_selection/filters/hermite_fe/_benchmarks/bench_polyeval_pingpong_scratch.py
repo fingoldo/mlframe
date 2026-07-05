@@ -77,8 +77,8 @@ def _legval_pingpong(x, c):
         return out
     c1 = c[1]
     # Two scratch buffers. buf_prev starts as P_0 (ones), buf_curr as P_1 (x).
-    buf_a = np.ones(n, dtype=np.float64)      # P_{k-2}
-    buf_b = np.empty(n, dtype=np.float64)     # P_{k-1}
+    buf_a = np.ones(n, dtype=np.float64)  # P_{k-2}
+    buf_b = np.empty(n, dtype=np.float64)  # P_{k-1}
     for i in range(n):
         xi = x[i]
         buf_b[i] = xi

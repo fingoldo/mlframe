@@ -253,8 +253,7 @@ def _cv_score_candidate(
             pred = np.asarray(est.predict(X_te), dtype=np.float64)
             fold_scores.append(float(scorer(y_te, pred)))
         except Exception as err:  # noqa: BLE001 -- penalise, don't crash search
-            logger.debug("optimize_composite: candidate %r/%r fold failed: %r",
-                         transform_name, inner_params, err)
+            logger.debug("optimize_composite: candidate %r/%r fold failed: %r", transform_name, inner_params, err)
             fold_scores.append(float("inf"))
     if not fold_scores:
         return float("inf")
@@ -304,8 +303,8 @@ def _resolve_splits(
     all_idx = np.arange(n_rows)
     splits: List[Tuple[np.ndarray, np.ndarray]] = []
     for i in range(n_splits):
-        te = all_idx[bounds[i]: bounds[i + 1]]
-        tr = np.concatenate([all_idx[: bounds[i]], all_idx[bounds[i + 1]:]])
+        te = all_idx[bounds[i] : bounds[i + 1]]
+        tr = np.concatenate([all_idx[: bounds[i]], all_idx[bounds[i + 1] :]])
         splits.append((tr, te))
     return splits
 
@@ -385,8 +384,7 @@ def optimize_composite(
     if inner_spaces is None:
         inner_spaces = _default_inner_spaces(inner_factory())
 
-    splits = _resolve_splits(X, n_rows, cv,
-                             None if time_ordering is None else np.asarray(time_ordering))
+    splits = _resolve_splits(X, n_rows, cv, None if time_ordering is None else np.asarray(time_ordering))
 
     trials_log: List[Tuple[str, Dict[str, Any], float]] = []
 
@@ -450,10 +448,8 @@ def _run_search(
             optuna = None
 
     if optuna is not None:
-        return _search_optuna(optuna, transform_candidates, inner_spaces,
-                              n_trials, random_state, evaluate)
-    return _search_random(transform_candidates, inner_spaces,
-                          n_trials, random_state, evaluate)
+        return _search_optuna(optuna, transform_candidates, inner_spaces, n_trials, random_state, evaluate)
+    return _search_random(transform_candidates, inner_spaces, n_trials, random_state, evaluate)
 
 
 def _search_optuna(

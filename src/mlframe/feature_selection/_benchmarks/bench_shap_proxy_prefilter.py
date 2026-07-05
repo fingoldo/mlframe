@@ -38,8 +38,8 @@ def make_wide(n_features, *, n_rows, n_informative=8, n_redundant=12, seed=0):
 
     n_noise = max(0, n_features - n_informative - n_redundant)
     return make_regime_dataset(
-        n_samples=n_rows, n_informative=n_informative, n_redundant=n_redundant,
-        redundancy_rho=0.9, n_noise=n_noise, snr=5.0, task="binary", seed=seed)
+        n_samples=n_rows, n_informative=n_informative, n_redundant=n_redundant, redundancy_rho=0.9, n_noise=n_noise, snr=5.0, task="binary", seed=seed
+    )
 
 
 def _informative_names(roles):
@@ -54,16 +54,13 @@ def time_prefilter_stage(method, X, y, roles, *, prefilter_top, seed=0):
     model = make_default_estimator(classification=True, random_state=seed)
     yf = np.asarray(y, dtype=np.float64)
     t0 = time.perf_counter()
-    working_cols, info = prefilter_columns(
-        model, X, yf, method=method, prefilter_top=prefilter_top,
-        classification=True, n_features=X.shape[1])
+    working_cols, info = prefilter_columns(model, X, yf, method=method, prefilter_top=prefilter_top, classification=True, n_features=X.shape[1])
     secs = time.perf_counter() - t0
 
     kept_names = {str(X.columns[i]) for i in working_cols}
     informative = _informative_names(roles)
     pre_recall = len(informative & kept_names)
-    return dict(secs=secs, resolved=info["method"], kept=info["kept"],
-                pre_recall=pre_recall, n_informative=len(informative))
+    return dict(secs=secs, resolved=info["method"], kept=info["kept"], pre_recall=pre_recall, n_informative=len(informative))
 
 
 def time_end_to_end(method, X, y, roles, *, prefilter_top, seed=0):

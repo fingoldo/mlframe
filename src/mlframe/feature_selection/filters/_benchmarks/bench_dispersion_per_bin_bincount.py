@@ -86,8 +86,7 @@ def main():
                 return best
             to = timeit(old_per_bin)
             tn = timeit(new_per_bin)
-            print(f"n={n:>9} nb={nb}: OLD {to*1e6:9.1f}us  NEW {tn*1e6:9.1f}us  "
-                  f"speedup {to/tn:5.2f}x  max|diff|={md:.2e}")
+            print(f"n={n:>9} nb={nb}: OLD {to*1e6:9.1f}us  NEW {tn*1e6:9.1f}us  " f"speedup {to/tn:5.2f}x  max|diff|={md:.2e}")
 
 
 if __name__ == "__main__":

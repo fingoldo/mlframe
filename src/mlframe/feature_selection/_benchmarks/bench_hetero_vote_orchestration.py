@@ -103,8 +103,7 @@ def microbench() -> None:
                     np.column_stack([rng.permutation(Xv[:, j]) for j in range(p)])
 
         def hoisted():
-            shadows = [np.column_stack([np.random.default_rng(tr).permutation(Xv[:, j]) for j in range(p)])
-                       for tr in range(n_trials)]
+            shadows = [np.column_stack([np.random.default_rng(tr).permutation(Xv[:, j]) for j in range(p)]) for tr in range(n_trials)]
             for _m in range(n_models):
                 for tr in range(n_trials):
                     _ = shadows[tr]
@@ -118,8 +117,7 @@ def microbench() -> None:
         for _ in range(reps):
             hoisted()
         t_hoist = (time.perf_counter() - t0) / reps
-        print(f"  n={n:5d} p={p:3d}: current={t_cur*1e3:7.3f}ms  hoisted={t_hoist*1e3:7.3f}ms  "
-              f"speedup={t_cur/t_hoist:5.2f}x")
+        print(f"  n={n:5d} p={p:3d}: current={t_cur*1e3:7.3f}ms  hoisted={t_hoist*1e3:7.3f}ms  " f"speedup={t_cur/t_hoist:5.2f}x")
 
 
 if __name__ == "__main__":

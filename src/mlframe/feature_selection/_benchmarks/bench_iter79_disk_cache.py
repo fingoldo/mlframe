@@ -26,8 +26,7 @@ def _make_data(n=4000, width=2000, n_inf=8, seed=0):
     noise = rng.standard_normal((n, width - n_inf))
     X = pd.DataFrame(
         np.column_stack([inf, noise]),
-        columns=[f"inf{i}" for i in range(n_inf)]
-        + [f"noise{i}" for i in range(width - n_inf)],
+        columns=[f"inf{i}" for i in range(n_inf)] + [f"noise{i}" for i in range(width - n_inf)],
     )
     coefs = np.linspace(1.0, 0.4, n_inf)
     logits = inf @ coefs

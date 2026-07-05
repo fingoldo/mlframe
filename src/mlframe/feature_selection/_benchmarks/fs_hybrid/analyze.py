@@ -30,8 +30,7 @@ def per_scenario_hybrid_check(rows):
     ok = [r for r in rows if not r.get("error") and r.get("auc_mean") is not None]
     if not ok:
         return
-    df = pd.DataFrame([dict(scenario=r.get("scenario", "default"), strategy=r["strategy"],
-                            seed=r["seed"], auc_mean=r["auc_mean"]) for r in ok])
+    df = pd.DataFrame([dict(scenario=r.get("scenario", "default"), strategy=r["strategy"], seed=r["seed"], auc_mean=r["auc_mean"]) for r in ok])
     print("\n================ PER-SCENARIO HYBRID-BEATS-ALL CHECK ================")
     for scen in sorted(df["scenario"].unique()):
         sub = df[df["scenario"] == scen]

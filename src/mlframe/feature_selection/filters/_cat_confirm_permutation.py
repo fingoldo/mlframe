@@ -301,9 +301,7 @@ def _count_nfailed_joint_indep_cupy(
 # Serial CPU variant: recompile the prange body WITHOUT ``parallel`` (prange -> range).
 # The tuner picks cpu_serial (small n: no thread-spawn overhead) vs cpu_parallel vs
 # cupy per region. getattr fallback for NUMBA_DISABLE_JIT=1 (no .py_func).
-_count_nfailed_joint_indep_serial = njit(cache=True)(
-    getattr(_count_nfailed_joint_indep_prange, "py_func", _count_nfailed_joint_indep_prange)
-)
+_count_nfailed_joint_indep_serial = njit(cache=True)(getattr(_count_nfailed_joint_indep_prange, "py_func", _count_nfailed_joint_indep_prange))
 
 
 def _perm_kernel_backend_choice(n_samples: int, n_perms: int) -> str:
@@ -855,9 +853,7 @@ def _confirm_pairs_via_permutation(
                 # bit-identical across permutations. (We still subtract the same
                 # marginal as the observed II.)
                 # I(X2_shuffled; Y) -- per the conditional-null property, this equals I(X2; Y) up to floating-point noise; we recompute for safety.
-                fq_x2_perm = np.bincount(
-                    classes_x2_safe.astype(np.int64), minlength=int(classes_x2_safe.max()) + 1
-                ).astype(np.float64) / n_samples_local
+                fq_x2_perm = np.bincount(classes_x2_safe.astype(np.int64), minlength=int(classes_x2_safe.max()) + 1).astype(np.float64) / n_samples_local
                 i_x2_p = compute_mi_from_classes(
                     classes_x=classes_x2_safe.astype(dtype, copy=False),
                     freqs_x=fq_x2_perm.astype(np.float64),
@@ -882,9 +878,7 @@ def _confirm_pairs_via_permutation(
                 _k_fq_pair, _k_fq_x1, _k_fq_x2 = fq_pair, fq_x1, fq_x2
             # Dispatch the permutation kernel to GPU when (N * n_perms) is above the crossover threshold. Below, CPU numba prange wins -- GPU launch + transfer cost
             # dominates short permutation budgets. See ``_perm_kernel_dispatch_use_gpu`` for the policy.
-            _kernel_n = (
-                int(_k_cls_pair.size) if _ss_idx is not None else n_samples
-            )
+            _kernel_n = int(_k_cls_pair.size) if _ss_idx is not None else n_samples
             if _perm_kernel_dispatch_use_gpu(_kernel_n, n_perms, cfg.backend):
                 try:
                     n_failed = _count_nfailed_joint_indep_cupy(
@@ -895,8 +889,8 @@ def _confirm_pairs_via_permutation(
                     )
                 except Exception as _gpu_exc:
                     logger.warning(
-                        "cat-FE: GPU permutation kernel failed (%s); "
-                        "falling back to CPU numba.", _gpu_exc,
+                        "cat-FE: GPU permutation kernel failed (%s); " "falling back to CPU numba.",
+                        _gpu_exc,
                     )
                     n_failed = _count_nfailed_joint_indep_prange(
                         _k_cls_pair, _k_fq_pair, _k_cls_x1, _k_fq_x1,
@@ -907,9 +901,7 @@ def _confirm_pairs_via_permutation(
             else:
                 # CPU: serial vs parallel njit per the tuned per-host choice.
                 _cpu_fn = (
-                    _count_nfailed_joint_indep_serial
-                    if _perm_kernel_backend_choice(_kernel_n, n_perms) == "cpu_serial"
-                    else _count_nfailed_joint_indep_prange
+                    _count_nfailed_joint_indep_serial if _perm_kernel_backend_choice(_kernel_n, n_perms) == "cpu_serial" else _count_nfailed_joint_indep_prange
                 )
                 n_failed = _cpu_fn(
                     _k_cls_pair, _k_fq_pair, _k_cls_x1, _k_fq_x1,
@@ -929,10 +921,7 @@ def _confirm_pairs_via_permutation(
     )
 
     # Drop pairs whose CORRECTED confidence falls below the floor.
-    kept_mask = np.array([
-        corrected_conf[(int(pairs_a[k]), int(pairs_b[k]))] >= min_conf
-        for k in selected_idx
-    ])
+    kept_mask = np.array([corrected_conf[(int(pairs_a[k]), int(pairs_b[k]))] >= min_conf for k in selected_idx])
     if verbose:
         for j, k in enumerate(selected_idx):
             ipair = (int(pairs_a[k]), int(pairs_b[k]))
@@ -946,4 +935,3 @@ def _confirm_pairs_via_permutation(
                 )
 
     return selected_idx[kept_mask], corrected_conf
-

@@ -34,10 +34,7 @@ def _resolve_must_include(self, *, X, original_features, verbose):
             p = X.shape[1]
             missing = [m for m in self.must_include if not (isinstance(m, (int, np.integer)) and 0 <= int(m) < p)]
         if missing:
-            raise ValueError(
-                f"must_include contains entries not in X: {missing}. "
-                f"Available: {list(original_features)[:20]}..."
-            )
+            raise ValueError(f"must_include contains entries not in X: {missing}. " f"Available: {list(original_features)[:20]}...")
         must_include_resolved = list(self.must_include)
         # Remove from search universe; the optimiser explores only the
         # COMPLEMENT. Final support_ = must_include + optimiser's pick.
@@ -48,9 +45,6 @@ def _resolve_must_include(self, *, X, original_features, verbose):
                 len(must_include_resolved), len(original_features),
             )
         if len(original_features) == 0:
-            logger.warning(
-                "must_include exhausts every feature in X; nothing for "
-                "the optimiser to pick. Fitting on the pinned set only."
-            )
+            logger.warning("must_include exhausts every feature in X; nothing for " "the optimiser to pick. Fitting on the pinned set only.")
     self._must_include_resolved = must_include_resolved
     return original_features, must_include_resolved

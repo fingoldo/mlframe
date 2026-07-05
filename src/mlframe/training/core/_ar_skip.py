@@ -58,14 +58,7 @@ def _extreme_ar_discovery_skip(
     ``>= threshold``; and this is the analyzer's picked target. On a strongly-AR group-aware target the residual signal
     is near-zero on unseen groups and lag_predict already carries it, so discovery is wasted compute.
     """
-    return bool(
-        skip_enabled
-        and group_aware_active
-        and bounded_only_zoo
-        and lag1_ar is not None
-        and is_picked_target
-        and float(lag1_ar) >= threshold
-    )
+    return bool(skip_enabled and group_aware_active and bounded_only_zoo and lag1_ar is not None and is_picked_target and float(lag1_ar) >= threshold)
 
 
 def _recompute_lag1_ar_per_group(y_full, group_ids, train_idx) -> Optional[float]:

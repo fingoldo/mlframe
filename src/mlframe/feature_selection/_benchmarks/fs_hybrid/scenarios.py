@@ -17,8 +17,7 @@ import numpy as np
 import pandas as pd
 
 
-def _gen(seed, n, n_linear, interaction_pairs, n_quadratic, cluster_parents, cluster_size,
-         cluster_noise_sd, n_noise, coef_scale, temperature, monotone):
+def _gen(seed, n, n_linear, interaction_pairs, n_quadratic, cluster_parents, cluster_size, cluster_noise_sd, n_noise, coef_scale, temperature, monotone):
     """Parametric builder. Latent z columns are the causal features; observed X = z + redundant copies + noise."""
     rng = np.random.default_rng(seed)
     n_base = n_linear + 2 * interaction_pairs + n_quadratic
@@ -69,7 +68,7 @@ def _gen(seed, n, n_linear, interaction_pairs, n_quadratic, cluster_parents, clu
 
 
 # Named presets. Each stresses a different selector failure mode.
-def _base(seed, n=5000):       # 4 linear + 1 interaction + 1 quadratic + 3 clusters x4 + 32 noise (the original)
+def _base(seed, n=5000):  # 4 linear + 1 interaction + 1 quadratic + 3 clusters x4 + 32 noise (the original)
     return _gen(seed, n, 4, 1, 1, [0, 4, 6], 4, 0.30, 32, 1.0, 1.6, False)
 
 def _xor2(seed, n=5000):       # interaction-heavy: 2 pairs + 1 quadratic + 2 linear -> synergy blindspot

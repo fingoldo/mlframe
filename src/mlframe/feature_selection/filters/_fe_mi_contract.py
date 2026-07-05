@@ -49,7 +49,6 @@ THE CONTRACT (applies to the FE BATCHER paths -- the new CPU and GPU resident sc
 """
 from __future__ import annotations
 
-
 # Quantisation grid for the EXACT-MI tiebreaker leg, in nats. Chosen so that
 #   cross-backend drift (unified binning -> fp reduction order, ~1e-12)  <<  QUANTUM  <<  genuine MI gaps.
 # The plug-in MI tie band is ``(k_x-1)(k_y-1)/2n`` ~ 1e-3 on the FE quantiser, and the tightest genuine

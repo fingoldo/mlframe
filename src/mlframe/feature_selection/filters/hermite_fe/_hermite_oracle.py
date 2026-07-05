@@ -95,8 +95,7 @@ def get_polyeval_oracle():
     return _polyeval_oracle_singleton
 
 
-def benchmark_polyeval_cpu_backends(basis: str, sizes=(200, 500_000),
-                                    repeats: int = 3, oracle=None) -> dict:
+def benchmark_polyeval_cpu_backends(basis: str, sizes=(200, 500_000), repeats: int = 3, oracle=None) -> dict:
     """Sweep njit vs njit_par at the given array sizes, timing each, and record
     the wall-times into the CPU-backend ParamOracle. Populates the oracle so
     later ``inference`` calls recommend the empirically faster backend per size.
@@ -121,8 +120,7 @@ def benchmark_polyeval_cpu_backends(basis: str, sizes=(200, 500_000),
                 times.append(_time.perf_counter() - t0)
             med = float(sorted(times)[len(times) // 2])
             fp = _polyeval_size_fingerprint(n)
-            oracle.record(fp, {"backend": backend}, {"elapsed_s": med},
-                          fn_name=_POLYEVAL_ORACLE_FN_NAME)
+            oracle.record(fp, {"backend": backend}, {"elapsed_s": med}, fn_name=_POLYEVAL_ORACLE_FN_NAME)
             results[(int(n), backend)] = med
     return results
 

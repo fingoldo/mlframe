@@ -47,31 +47,25 @@ _MODEL_AXIS_SUPPORT: Dict[Tuple[str, Axis], FrozenSet[str]] = {
     # native embedding_features=).
     ("cb", Axis.CAT): frozenset({"native", "ordinal", "onehot", "target_mean", "target_m_estimate", "target_james_stein", "target_loo", "woe", "drop"}),
     ("cb", Axis.TEXT): frozenset({"native", "tfidf", "hashing", "frozen_text_embedding", "drop"}),
-
     # XGBoost: native cat (enable_categorical=True), no native text.
     ("xgb", Axis.CAT): frozenset({"native", "ordinal", "onehot", "target_mean", "target_m_estimate", "target_james_stein", "target_loo", "woe", "drop"}),
     ("xgb", Axis.TEXT): frozenset({"tfidf", "hashing", "frozen_text_embedding", "drop"}),
-
     # LightGBM: native cat (`categorical_feature=`), no native text.
     ("lgb", Axis.CAT): frozenset({"native", "ordinal", "onehot", "target_mean", "target_m_estimate", "target_james_stein", "target_loo", "woe", "drop"}),
     ("lgb", Axis.TEXT): frozenset({"tfidf", "hashing", "frozen_text_embedding", "drop"}),
-
     # HGB / RF / NGB: dense-only, no native cat (sklearn pipeline encodes).
     ("hgb", Axis.CAT): frozenset({"ordinal", "onehot", "target_mean", "target_m_estimate", "target_james_stein", "target_loo", "woe", "drop"}),
     ("hgb", Axis.TEXT): frozenset({"tfidf", "hashing", "frozen_text_embedding", "drop"}),
     ("ngb", Axis.CAT): frozenset({"ordinal", "onehot", "target_mean", "target_m_estimate", "target_james_stein", "target_loo", "woe", "drop"}),
     ("ngb", Axis.TEXT): frozenset({"tfidf", "hashing", "frozen_text_embedding", "drop"}),
-
     # Linear / Ridge / SGD: same dense-or-sparse, no native cat.
     ("linear", Axis.CAT): frozenset({"ordinal", "onehot", "target_mean", "target_m_estimate", "target_james_stein", "target_loo", "woe", "drop"}),
     ("linear", Axis.TEXT): frozenset({"tfidf", "hashing", "frozen_text_embedding", "drop"}),
     ("ridge", Axis.CAT): frozenset({"ordinal", "onehot", "target_mean", "target_m_estimate", "target_james_stein", "target_loo", "woe", "drop"}),
     ("ridge", Axis.TEXT): frozenset({"tfidf", "hashing", "frozen_text_embedding", "drop"}),
-
     # TabNet: native cat via cat_idxs/cat_dims; embedding=our TabularInputEncoder.
     ("tabnet", Axis.CAT): frozenset({"native", "embedding", "ordinal", "onehot", "drop"}),
     ("tabnet", Axis.TEXT): frozenset({"tfidf", "hashing", "frozen_text_embedding", "drop"}),
-
     # MLP / Recurrent: neural; cat="embedding" is the default and
     # learnable_text_embedding is exclusive to neural.
     ("mlp", Axis.CAT): frozenset({"embedding", "ordinal", "onehot", "drop"}),
@@ -110,10 +104,7 @@ def register_model_axis_support(
     new_set = frozenset(methods)
     existing = _MODEL_AXIS_SUPPORT.get(key)
     if existing is not None and existing != new_set:
-        raise ValueError(
-            f"compat matrix entry for {key!r} already registered as {sorted(existing)!r}; "
-            f"cannot reassign to {sorted(new_set)!r}"
-        )
+        raise ValueError(f"compat matrix entry for {key!r} already registered as {sorted(existing)!r}; " f"cannot reassign to {sorted(new_set)!r}")
     _MODEL_AXIS_SUPPORT[key] = new_set
 
 
@@ -180,9 +171,7 @@ def validate_handler_for_model(
         )
 
     if is_neural_required and model_kind not in _NEURAL_MODELS:
-        raise ValueError(
-            f"this handler requires a neural model; got {model_kind!r}."
-        )
+        raise ValueError(f"this handler requires a neural model; got {model_kind!r}.")
 
 
 def validate_fhc_handlers(
@@ -221,10 +210,7 @@ def validate_fhc_handlers(
                 errors.append(f"  - {model_kind} cat: {e}")
 
     if errors:
-        raise ValueError(
-            "FeatureHandlingConfig has incompatible handler/model combinations:\n"
-            + "\n".join(errors)
-        )
+        raise ValueError("FeatureHandlingConfig has incompatible handler/model combinations:\n" + "\n".join(errors))
 
 
 __all__ = [

@@ -180,12 +180,7 @@ def _sanitize_X_inputs(self, X, y):
     # collinear-cluster mates) sits far below it and BOTH members survive, so it cannot drop a weak recoverable signal. Reducing a genuine high-VIF cluster to a
     # representative remains the redundancy-aware GroupAwareMRMR wrapper's job (cluster_reduce=True); this is only the exact/near-exact replica case. Default on;
     # opt out via drop_near_dup_corr=False.
-    if (
-        getattr(self, "drop_near_dup_corr", True)
-        and isinstance(X, pd.DataFrame)
-        and X.shape[1] > 1
-        and X.shape[0] >= 50
-    ):
+    if getattr(self, "drop_near_dup_corr", True) and isinstance(X, pd.DataFrame) and X.shape[1] > 1 and X.shape[0] >= 50:
         _thr = float(getattr(self, "near_dup_corr_threshold", 0.999))
         from pandas.api.types import is_numeric_dtype as _is_num_dup
 
@@ -290,8 +285,7 @@ def _sanitize_X_inputs(self, X, y):
         if _missing:
             if getattr(self, "must_exclude_strict", True):
                 raise ValueError(
-                    f"RFECV: must_exclude contains {len(_missing)} name(s) not in X: "
-                    f"{_missing[:20]}. Set must_exclude_strict=False to silently ignore."
+                    f"RFECV: must_exclude contains {len(_missing)} name(s) not in X: " f"{_missing[:20]}. Set must_exclude_strict=False to silently ignore."
                 )
             else:
                 logger.warning(
@@ -340,8 +334,8 @@ def _sanitize_X_inputs(self, X, y):
                     # Use is_numeric_dtype so pandas nullable extension dtypes (Int8/.../Float64) and boolean dtypes also enter the
                     # leakage scan; select_dtypes(include="number") silently skips them.
                     from pandas.api.types import is_numeric_dtype, is_bool_dtype
-                    _numeric_cols = [c for c in X.columns
-                                     if is_numeric_dtype(X[c]) or is_bool_dtype(X[c])]
+
+                    _numeric_cols = [c for c in X.columns if is_numeric_dtype(X[c]) or is_bool_dtype(X[c])]
                     for _c in _numeric_cols:
                         _x_arr = np.asarray(X[_c].values, dtype=float)
                         _mask = np.isfinite(_x_arr) & np.isfinite(_y_arr)
@@ -384,9 +378,7 @@ def _sanitize_X_inputs(self, X, y):
                 # Else: all offenders are pinned; downgrade to warn (handled above) and proceed.
             elif _action == "exclude":
                 if _non_pinned_leaky_cols:
-                    logger.warning(
-                        _msg + " (leakage_action='exclude' - dropping these columns)"
-                    )
+                    logger.warning(_msg + " (leakage_action='exclude' - dropping these columns)")
                     X = X.drop(columns=_non_pinned_leaky_cols)
             else:
                 logger.warning(_msg)

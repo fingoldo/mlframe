@@ -70,23 +70,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-
-
-
-
-
-
-
-
 # ----------------------------------------------------------------------
 # CompositeSpec moved to composite_spec.py (broke circular import with
 # composite_discovery). Re-export below preserves callers doing
 # ``from mlframe.training.composite import CompositeSpec``.
 # ----------------------------------------------------------------------
 from .spec import CompositeSpec  # noqa: F401
-
-
-
 
 # Re-export everything from composite_transforms for full back-compat.
 # Existing callers ``from mlframe.training.composite import Transform,
@@ -141,7 +130,6 @@ from .transforms import (  # noqa: E402,F401
     _frac_diff_forward, _frac_diff_inverse, _frac_diff_fit, _frac_diff_domain,
 )
 
-
 # ----------------------------------------------------------------------
 # Re-export CompositeTargetEstimator + helpers from composite_estimator
 # for full back-compat (callers import from this module).
@@ -159,7 +147,6 @@ from .estimator import (  # noqa: E402,F401
     predict_quantile_ensemble,
 )
 
-
 # ----------------------------------------------------------------------
 # Re-export CompositeProvenance + report_to_markdown.
 # ----------------------------------------------------------------------
@@ -168,7 +155,6 @@ from .provenance import (  # noqa: E402,F401
     _format_transform_formulas,
     report_to_markdown,
 )
-
 
 # ----------------------------------------------------------------------
 # Re-export ensemble + OOF + util symbols.
@@ -181,7 +167,6 @@ from .ensemble import (  # noqa: E402,F401
     env_signature,
     _is_monotone_nondecreasing,
 )
-
 
 # ----------------------------------------------------------------------
 # Re-export screening helpers.
@@ -247,7 +232,6 @@ from .ensemble.feature_stacking import (  # noqa: E402,F401
     composite_predictions_as_feature,
     composite_oof_predictions,
 )
-
 
 # ----------------------------------------------------------------------
 # Re-export CompositeTargetDiscovery.

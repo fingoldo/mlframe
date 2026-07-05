@@ -36,7 +36,7 @@ from round3_realdata_bench import load_real, downstream
 from synth import make_dataset
 from hard_synth import make_hard_dataset
 
-NJ = 4                  # n_jobs cap under concurrent load
+NJ = 4  # n_jobs cap under concurrent load
 PROGRESS = "D:/Temp/fe_accept_progress.txt"
 
 
@@ -52,8 +52,7 @@ def shallow_tree_signals(X, y, n_estimators=120, max_depth=3, top_pairs=30, seed
     GENEROUS top_pairs (30) so acceptance rules have a real candidate pool to prune (the whole point: if
     keep-all of a generous pool dilutes, a good acceptance rule should recover by pruning).
     """
-    m = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, num_leaves=2 ** max_depth,
-                           learning_rate=0.1, n_jobs=NJ, verbose=-1, random_state=seed)
+    m = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, num_leaves=2**max_depth, learning_rate=0.1, n_jobs=NJ, verbose=-1, random_state=seed)
     m.fit(X, y)
     cols = list(X.columns)
     imp = pd.Series(m.feature_importances_, index=cols).sort_values(ascending=False)
@@ -81,8 +80,7 @@ def build_products(X, pairs):
 
 def _auc_cv(Xmat, y, n_estimators=150, seed=0):
     """Honest OOF AUC of a small lgbm on a numeric matrix (used inside the greedy inner loop)."""
-    m = lgb.LGBMClassifier(n_estimators=n_estimators, num_leaves=31, learning_rate=0.05,
-                           n_jobs=NJ, verbose=-1, random_state=seed)
+    m = lgb.LGBMClassifier(n_estimators=n_estimators, num_leaves=31, learning_rate=0.05, n_jobs=NJ, verbose=-1, random_state=seed)
     p = cross_val_predict(m, Xmat, y, cv=3, method="predict_proba", n_jobs=1)[:, 1]
     return roc_auc_score(y, p)
 
@@ -97,8 +95,7 @@ def holdout_greedy_accept(base_df, prod_dict, y, floor=0.0015, seed=0):
     if not prod_dict:
         return []
     n = len(base_df)
-    tr_pos, va_pos = train_test_split(
-        np.arange(n), test_size=0.4, random_state=seed, stratify=y.values)
+    tr_pos, va_pos = train_test_split(np.arange(n), test_size=0.4, random_state=seed, stratify=y.values)
     base_mat = base_df.values.astype(np.float64)
     base_tr, base_va = base_mat[tr_pos], base_mat[va_pos]
     yi_tr, yi_va = y.values[tr_pos], y.values[va_pos]
@@ -108,8 +105,7 @@ def holdout_greedy_accept(base_df, prod_dict, y, floor=0.0015, seed=0):
     def fit_auc(extra_tr, extra_va):
         Mtr = np.hstack([base_tr] + extra_tr) if extra_tr else base_tr
         Mva = np.hstack([base_va] + extra_va) if extra_va else base_va
-        m = lgb.LGBMClassifier(n_estimators=150, num_leaves=31, learning_rate=0.05,
-                               n_jobs=NJ, verbose=-1, random_state=seed)
+        m = lgb.LGBMClassifier(n_estimators=150, num_leaves=31, learning_rate=0.05, n_jobs=NJ, verbose=-1, random_state=seed)
         m.fit(Mtr, yi_tr)
         return roc_auc_score(yi_va, m.predict_proba(Mva)[:, 1])
 
@@ -135,8 +131,7 @@ def resid_mi_rank(base_df, prod_dict, y, seed=0):
     """Rank products by MI with the OOF residual of a model on the raw base set (A3-6)."""
     if not prod_dict:
         return []
-    m = lgb.LGBMClassifier(n_estimators=150, num_leaves=31, learning_rate=0.05,
-                           n_jobs=NJ, verbose=-1, random_state=seed)
+    m = lgb.LGBMClassifier(n_estimators=150, num_leaves=31, learning_rate=0.05, n_jobs=NJ, verbose=-1, random_state=seed)
     p_oof = cross_val_predict(m, base_df.values, y, cv=4, method="predict_proba", n_jobs=1)[:, 1]
     resid = y.values.astype(float) - p_oof
     rbin = (resid > np.median(resid)).astype(int)

@@ -60,7 +60,6 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-
 # Canonical origin labels. Public surface; tests pin the membership.
 FE_ORIGIN_LABELS = (
     "raw",
@@ -153,11 +152,11 @@ _RECIPE_KIND_TO_ORIGIN: dict[str, str] = {
     "rankgauss": "extra_fe",
     # Threshold-gate / number-theoretic / binned-aggregate families (default-ON 2026; previously
     # unmapped -> their surviving columns showed as engineered_unknown in fe_provenance_).
-    "conditional_gate": "conditional_gate",   # gate_mask__ / gate_select__ regime-switch
+    "conditional_gate": "conditional_gate",  # gate_mask__ / gate_select__ regime-switch
     "row_argmax": "row_argmax",
     "pairwise_integer_lattice": "integer_lattice",  # il_gcd / il_lcm / il_and
-    "pairwise_modular": "periodic",            # pmod_ residue -- same family as the single-col "modular"
-    "binned_numeric_agg": "grouped_agg",       # binagg_ qbin-strata aggregate of a numeric col
+    "pairwise_modular": "periodic",  # pmod_ residue -- same family as the single-col "modular"
+    "binned_numeric_agg": "grouped_agg",  # binagg_ qbin-strata aggregate of a numeric col
     # ``factorize`` stays engineered_unknown by design: the cat k-way
     # materializer emits it as a generic ordinal lookup with no single
     # mechanism semantics worth a dedicated origin bucket.
@@ -261,8 +260,7 @@ def _origin_from_recipe(recipe: Any) -> tuple[str, dict]:
     # scalar / tuple by construction; ndarray-valued knobs are never on
     # the dataclass surface (they live in ``extra``), so a plain truthy
     # check is safe here.
-    for attr in ("unary_names", "binary_name", "unary_preset",
-                 "binary_preset", "factorize_nbins", "unknown_strategy"):
+    for attr in ("unary_names", "binary_name", "unary_preset", "binary_preset", "factorize_nbins", "unknown_strategy"):
         val = getattr(recipe, attr, None)
         if val is None:
             continue
@@ -417,16 +415,9 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
     # every simplified column (e.g. ``abs(div(sqr(a),neg(b)))`` -> ``abs(div(sqr(a),b))``) and
     # mis-tag it ``engineered_unknown``. ``simplify_fe_name`` is idempotent + safe on raw names.
     from .engineered_recipes._recipe_name_simplify import simplify_fe_name
-    recipe_by_name = {
-        simplify_fe_name(str(getattr(r, "name", ""))): r
-        for r in produced_recipes
-        if getattr(r, "name", None) is not None
-    }
-    recipe_by_name.update({
-        simplify_fe_name(str(getattr(r, "name", ""))): r
-        for r in engineered_recipes
-        if getattr(r, "name", None) is not None
-    })
+
+    recipe_by_name = {simplify_fe_name(str(getattr(r, "name", ""))): r for r in produced_recipes if getattr(r, "name", None) is not None}
+    recipe_by_name.update({simplify_fe_name(str(getattr(r, "name", ""))): r for r in engineered_recipes if getattr(r, "name", None) is not None})
     predictors = getattr(mrmr_self, "_predictors_log_", None) or ()
     # mrmr_gains_ is in greedy selection order (set in _mrmr_fit_impl ~line
     # 2169). Index by position when the name lines up; fall back to NaN.
@@ -531,14 +522,12 @@ def get_unlabeled_recipe_kinds(mrmr_self: Any) -> dict[str, int]:
     # each engineered column's recipe.kind. Mirrors compute_fe_provenance's join.
     recipe_by_name: dict[str, Any] = {}
     for attr in ("_produced_recipes_", "_engineered_recipes_"):
-        for r in (getattr(mrmr_self, attr, None) or []):
+        for r in getattr(mrmr_self, attr, None) or []:
             nm = getattr(r, "name", None)
             if nm is not None:
                 recipe_by_name[str(nm)] = r
     try:
-        unlabeled = prov[
-            (prov["origin"] == "engineered_unknown") & (prov["support_rank"] >= 0)
-        ]
+        unlabeled = prov[(prov["origin"] == "engineered_unknown") & (prov["support_rank"] >= 0)]
     except Exception:
         return out
     for name in unlabeled["feature_name"].tolist():
@@ -567,10 +556,7 @@ def get_fe_report(mrmr_self: Any) -> str:
     """
     prov = getattr(mrmr_self, "fe_provenance_", None)
     if prov is None or not isinstance(prov, pd.DataFrame) or prov.empty:
-        return (
-            "MRMR.fe_provenance_ is empty: estimator is unfitted or "
-            "the fitted attributes have been wiped. Call fit() first."
-        )
+        return "MRMR.fe_provenance_ is empty: estimator is unfitted or " "the fitted attributes have been wiped. Call fit() first."
     by_origin = prov.groupby("origin", dropna=False).size().sort_values(ascending=False)
     header_parts = [f"{origin}={count}" for origin, count in by_origin.items()]
     header = "MRMR FE provenance: " + ", ".join(header_parts)

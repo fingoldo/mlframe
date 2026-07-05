@@ -98,8 +98,7 @@ def _time(fn, *args, iters: int = 200) -> float:
 
 def main() -> None:
     rng = np.random.default_rng(7)
-    print(f"{'n':>8} {'ratio':>6} {'numpy_us':>10} {'fused_us':>10} {'inker_us':>10} "
-          f"{'fu_sp':>7} {'ik_sp':>7} {'identical':>10}")
+    print(f"{'n':>8} {'ratio':>6} {'numpy_us':>10} {'fused_us':>10} {'inker_us':>10} " f"{'fu_sp':>7} {'ik_sp':>7} {'identical':>10}")
     for n in (2_000, 20_000, 100_000, 200_000):
         for ratio in (0.5, 0.1):
             ys = rng.random(n)
@@ -112,10 +111,7 @@ def main() -> None:
             t_np = min(_time(ks_numpy_current, yt, ys) for _ in range(3))
             t_fu = min(_time(ks_fused_gather, yt, ys) for _ in range(3))
             t_ik = min(_time(ks_inkernel, yt, ys) for _ in range(3))
-            print(
-                f"{n:>8} {ratio:>6.2f} {t_np:>10.1f} {t_fu:>10.1f} {t_ik:>10.1f} "
-                f"{t_np / t_fu:>6.2f}x {t_np / t_ik:>6.2f}x {str(identical):>10}"
-            )
+            print(f"{n:>8} {ratio:>6.2f} {t_np:>10.1f} {t_fu:>10.1f} {t_ik:>10.1f} " f"{t_np / t_fu:>6.2f}x {t_np / t_ik:>6.2f}x {str(identical):>10}")
 
 
 if __name__ == "__main__":

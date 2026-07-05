@@ -87,5 +87,4 @@ if __name__ == "__main__":
             # simulate top_k_pairs calls per fit
             t_old = best_of(lambda: [_populate_numpy(fd, 0, 1, nba, nbb, cls) for _ in range(top_k)], 15)
             t_new = best_of(lambda: [_populate_njit(fd, 0, 1, nba, nbb, cls) for _ in range(top_k)], 15)
-            print(f"{n:>9} {nba:>5} {nbb:>5} {t_old*1e6:>9.1f} {t_new*1e6:>9.1f} "
-                  f"{t_old/t_new:>7.2f}x {ident}")
+            print(f"{n:>9} {nba:>5} {nbb:>5} {t_old*1e6:>9.1f} {t_new*1e6:>9.1f} " f"{t_old/t_new:>7.2f}x {ident}")

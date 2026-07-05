@@ -41,10 +41,7 @@ class _LagPredictDeployableModel:
     def set_params(self, **params: Any) -> "_LagPredictDeployableModel":
         for k, v in params.items():
             if k != "lag_column":
-                raise ValueError(
-                    f"_LagPredictDeployableModel has no parameter {k!r}; "
-                    f"valid: ['lag_column']"
-                )
+                raise ValueError(f"_LagPredictDeployableModel has no parameter {k!r}; " f"valid: ['lag_column']")
             self.lag_column = str(v)
         return self
 

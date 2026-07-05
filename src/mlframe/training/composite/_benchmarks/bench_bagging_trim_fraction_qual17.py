@@ -54,7 +54,7 @@ def _trim(members: np.ndarray, trim: float) -> np.ndarray:
     if k == 0:
         return members.mean(axis=0)
     s = np.sort(members, axis=0)
-    return s[k:m - k].mean(axis=0)
+    return s[k : m - k].mean(axis=0)
 
 
 def run():

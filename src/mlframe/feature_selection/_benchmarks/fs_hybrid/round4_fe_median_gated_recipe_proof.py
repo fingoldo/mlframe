@@ -21,7 +21,7 @@ def gate_med_apply(x, median):
 
 def main():
     rng = np.random.default_rng(0)
-    a_tr = rng.normal(3.0, 1.0, size=2000)   # shifted operand, median ~3
+    a_tr = rng.normal(3.0, 1.0, size=2000)  # shifted operand, median ~3
     b_tr = rng.normal(0.0, 1.0, size=2000)
     a_te = rng.normal(3.0, 1.0, size=800)
     b_te = rng.normal(0.0, 1.0, size=800)

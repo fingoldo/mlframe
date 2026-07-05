@@ -82,10 +82,7 @@ def get_kernel_tuning_cache() -> Optional[object]:
                 from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
                 _CACHE_SINGLETON = KernelTuningCache()
             except ImportError:
-                logger.debug(
-                    "pyutilz.performance.kernel_tuning.cache unavailable; "
-                    "filters will use hand-tuned fallbacks"
-                )
+                logger.debug("pyutilz.performance.kernel_tuning.cache unavailable; " "filters will use hand-tuned fallbacks")
                 _CACHE_SINGLETON = False
                 return None
             except Exception as _exc:

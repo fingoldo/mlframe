@@ -130,5 +130,4 @@ if __name__ == "__main__":
             n_best, n_med = best(new_f)
             ov, nv = old_f(), new_f()
             ident = "IDENTICAL" if (ov == nv or (np.isnan(ov) and np.isnan(nv))) else f"DIFF old={ov} new={nv}"
-            print(f"  {name:9s} OLD {o_best*1e3:7.2f}ms  NEW {n_best*1e3:7.2f}ms  "
-                  f"speedup {o_best/n_best:5.2f}x  {ident}")
+            print(f"  {name:9s} OLD {o_best*1e3:7.2f}ms  NEW {n_best*1e3:7.2f}ms  " f"speedup {o_best/n_best:5.2f}x  {ident}")

@@ -58,8 +58,7 @@ def main():
         sb = _softmax_from_dists(_dists_broadcast(X, anchors), temp)
         sg = _softmax_from_dists(_dists_gemm(X, anchors), temp)
         max_delta = float(np.max(np.abs(sb - sg)))
-        print(f"n={n_rows} d={d} K={n_anchors}: broadcast={tb*1e3:.3f}ms gemm={tg*1e3:.3f}ms "
-              f"speedup={tb/tg:.2f}x  max|softmax delta|={max_delta:.2e}")
+        print(f"n={n_rows} d={d} K={n_anchors}: broadcast={tb*1e3:.3f}ms gemm={tg*1e3:.3f}ms " f"speedup={tb/tg:.2f}x  max|softmax delta|={max_delta:.2e}")
 
 
 if __name__ == "__main__":

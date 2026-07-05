@@ -85,11 +85,7 @@ class _MRMRConfigMixin:
 
         saved: dict = {}
         try:
-            _defaults = {
-                p.name: p.default
-                for p in inspect.signature(type(self).__init__).parameters.values()
-                if p.default is not inspect._empty
-            }
+            _defaults = {p.name: p.default for p in inspect.signature(type(self).__init__).parameters.values() if p.default is not inspect._empty}
         except Exception as exc:
             logger.debug("mrmr: ctor-default introspection failed in _apply_default_screen_subsample; leaving knobs unchanged: %r", exc, exc_info=True)
             return saved
@@ -120,11 +116,7 @@ class _MRMRConfigMixin:
 
         saved: dict = {}
         try:
-            _defaults = {
-                p.name: p.default
-                for p in inspect.signature(type(self).__init__).parameters.values()
-                if p.default is not inspect._empty
-            }
+            _defaults = {p.name: p.default for p in inspect.signature(type(self).__init__).parameters.values() if p.default is not inspect._empty}
         except Exception as exc:
             logger.debug("mrmr: ctor-default introspection failed in _apply_fast_search_profile; treating all knobs as user-set: %r", exc, exc_info=True)
             _defaults = {}
@@ -268,11 +260,7 @@ class _MRMRConfigMixin:
         legacy-pickle overrides below.
         """
         sig = inspect.signature(cls.__init__)
-        return {
-            name: param.default
-            for name, param in sig.parameters.items()
-            if param.default is not inspect.Parameter.empty
-        }
+        return {name: param.default for name, param in sig.parameters.items() if param.default is not inspect.Parameter.empty}
 
     @classmethod
     def recommend_enabled_fe(cls, X=None, y=None) -> dict:

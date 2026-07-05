@@ -21,8 +21,6 @@ import numpy as np
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 
-
-
 def _run_suite_profiled(
     target_type: str,
     n_rows: int,
@@ -117,35 +115,16 @@ def _run_suite_profiled(
     # post-Pack-H/J/K wave at production shapes. Defaults are
     # OFF-weighted because each axis adds cost (composite discovery
     # ~1-5s, MRMR FE-pollination ~2-10s for the n_total=1M case).
-    _composite_discovery_enabled = (
-        target_type == "regression"
-        and bool(_axis_rng.random() < 0.30)
-    )
-    _composite_transforms_mode = (
-        str(_axis_rng.choice(["all", "unary_only", "chain_only", "legacy"]))
-        if _composite_discovery_enabled else "off"
-    )
+    _composite_discovery_enabled = target_type == "regression" and bool(_axis_rng.random() < 0.30)
+    _composite_transforms_mode = str(_axis_rng.choice(["all", "unary_only", "chain_only", "legacy"])) if _composite_discovery_enabled else "off"
     # MRMR FE knobs only when MRMR is on (otherwise no-op). Probabilities
     # weighted to give meaningful coverage without exploding wall time.
     _mrmr_fe_ntop = int(_axis_rng.choice([0, 5], p=[0.60, 0.40])) if _use_mrmr_fs else 0
-    _mrmr_fe_npermutations = (
-        int(_axis_rng.choice([0, 10], p=[0.50, 0.50]))
-        if (_use_mrmr_fs and _mrmr_fe_ntop > 0) else 0
-    )
-    _mrmr_fe_unary_preset = str(
-        _axis_rng.choice(["minimal", "medium"], p=[0.50, 0.50])
-    ) if _use_mrmr_fs else "minimal"
-    _mrmr_fe_binary_preset = str(
-        _axis_rng.choice(["minimal", "medium"], p=[0.50, 0.50])
-    ) if _use_mrmr_fs else "minimal"
-    _mrmr_fe_smart_polynom_iters = (
-        int(_axis_rng.choice([0, 1], p=[0.70, 0.30]))
-        if _use_mrmr_fs else 0
-    )
-    _mrmr_cat_fe_include_numeric = (
-        bool(_axis_rng.random() < 0.30)
-        if _use_mrmr_fs else False
-    )
+    _mrmr_fe_npermutations = int(_axis_rng.choice([0, 10], p=[0.50, 0.50])) if (_use_mrmr_fs and _mrmr_fe_ntop > 0) else 0
+    _mrmr_fe_unary_preset = str(_axis_rng.choice(["minimal", "medium"], p=[0.50, 0.50])) if _use_mrmr_fs else "minimal"
+    _mrmr_fe_binary_preset = str(_axis_rng.choice(["minimal", "medium"], p=[0.50, 0.50])) if _use_mrmr_fs else "minimal"
+    _mrmr_fe_smart_polynom_iters = int(_axis_rng.choice([0, 1], p=[0.70, 0.30])) if _use_mrmr_fs else 0
+    _mrmr_cat_fe_include_numeric = bool(_axis_rng.random() < 0.30) if _use_mrmr_fs else False
     print(
         f"  axes: mrmr_fs={_use_mrmr_fs} outlier={_outlier_method} "
         f"ensembles={_use_ensembles} cat_enc={_categorical_encoding} "
@@ -327,23 +306,23 @@ def _run_suite_profiled(
                 _mrmr_kwargs_extra["cat_fe_config"] = CatFEConfig(
                     enable=True, include_numeric=True,
                 )
-            _mrmr_kwargs_extra.update({
-                "fe_ntop_features": _mrmr_fe_ntop,
-                "fe_npermutations": _mrmr_fe_npermutations,
-                "fe_unary_preset": _mrmr_fe_unary_preset,
-                "fe_binary_preset": _mrmr_fe_binary_preset,
-                "fe_smart_polynom_iters": _mrmr_fe_smart_polynom_iters,
-                "fe_smart_polynom_optimization_steps": (
-                    10 if _mrmr_fe_smart_polynom_iters > 0 else 1000
-                ),
-                "fe_min_polynom_degree": 3,
-                "fe_max_polynom_degree": 5 if _mrmr_fe_smart_polynom_iters > 0 else 3,
-            })
-        _fs_cfg = (
-            FeatureSelectionConfig(
-                use_mrmr_fs=_use_mrmr_fs,
-                use_boruta_shap=_use_boruta_shap,
-                mrmr_kwargs=({
+            _mrmr_kwargs_extra.update(
+                {
+                    "fe_ntop_features": _mrmr_fe_ntop,
+                    "fe_npermutations": _mrmr_fe_npermutations,
+                    "fe_unary_preset": _mrmr_fe_unary_preset,
+                    "fe_binary_preset": _mrmr_fe_binary_preset,
+                    "fe_smart_polynom_iters": _mrmr_fe_smart_polynom_iters,
+                    "fe_smart_polynom_optimization_steps": (10 if _mrmr_fe_smart_polynom_iters > 0 else 1000),
+                    "fe_min_polynom_degree": 3,
+                    "fe_max_polynom_degree": 5 if _mrmr_fe_smart_polynom_iters > 0 else 3,
+                }
+            )
+        _fs_cfg = FeatureSelectionConfig(
+            use_mrmr_fs=_use_mrmr_fs,
+            use_boruta_shap=_use_boruta_shap,
+            mrmr_kwargs=(
+                {
                     "verbose": 0,
                     "max_runtime_mins": 1,
                     "n_workers": 1,
@@ -372,7 +351,6 @@ def _run_suite_profiled(
                     "classification": target_type != "regression",
                 } if _use_boruta_shap else None),
             )
-        )
         _od_detector = None
         if _outlier_method == "isolation_forest":
             from sklearn.ensemble import IsolationForest
@@ -475,13 +453,7 @@ def _run_suite_profiled(
     predict_wall = 0.0
     predict_profile_text = ""
     _predict_results = None
-    if (
-        profile_predict
-        and status == "OK"
-        and trained_models is not None
-        and trained_metadata is not None
-        and any(trained_models.values())
-    ):
+    if profile_predict and status == "OK" and trained_models is not None and trained_metadata is not None and any(trained_models.values()):
         # Fresh FTE: the training FTE captures fit-time state; predict
         # path should reuse the public API the way a real downstream
         # would (load suite, run predict on raw input).
@@ -570,12 +542,7 @@ def _run_suite_profiled(
     parity_status = "skip"  # "skip" / "ok" / "diff:<summary>"
     _save_tmpdir_obj = None
     _save_root: Optional[Path] = None
-    if (
-        profile_save
-        and status.startswith("OK")
-        and trained_models is not None
-        and any(trained_models.values())
-    ):
+    if profile_save and status.startswith("OK") and trained_models is not None and any(trained_models.values()):
         import tempfile
         import pickle as _pickle
         import zstandard as _zstd
@@ -708,11 +675,7 @@ def _run_suite_profiled(
     # de-serialization, and metadata schema changes between save and load.
     loaded_models = None
     loaded_metadata = None
-    if (
-        _save_root is not None
-        and (_save_root / "metadata.pkl.zst").exists()
-        and save_n_models > 0
-    ):
+    if _save_root is not None and (_save_root / "metadata.pkl.zst").exists() and save_n_models > 0:
         from mlframe.training.core.predict import load_mlframe_suite as _load_suite
         load_profiler = cProfile.Profile()
         l0 = time.perf_counter()
@@ -743,11 +706,7 @@ def _run_suite_profiled(
     # FTE-replay drift, etc.) and provides the substrate for the parity
     # check below.
     _predict_loaded_results = None
-    if (
-        loaded_models is not None
-        and loaded_metadata is not None
-        and any(loaded_models.values())
-    ):
+    if loaded_models is not None and loaded_metadata is not None and any(loaded_models.values()):
         from mlframe.training.core.predict import predict_from_models as _predict_from_models_loaded
         predict_loaded_profiler = cProfile.Profile()
         lp0 = time.perf_counter()
@@ -786,10 +745,7 @@ def _run_suite_profiled(
     # ``skip`` (insufficient data either side). Missing-key surface
     # (pre-only / post-only) is also reported as a diff -- a model key
     # disappearing on reload is a real bug class.
-    if (
-        _predict_results is not None
-        and _predict_loaded_results is not None
-    ):
+    if _predict_results is not None and _predict_loaded_results is not None:
         _diffs: list[str] = []
 
         def _cmp_array(_label: str, _a: Any, _b: Any) -> None:
@@ -865,14 +821,10 @@ def _run_suite_profiled(
         _any_shared = bool(
             (set(_pre.get("predictions") or {}) & set(_post.get("predictions") or {}))
             or (set(_pre.get("probabilities") or {}) & set(_post.get("probabilities") or {}))
-            or (_pre.get("ensemble_predictions") is not None
-                and _post.get("ensemble_predictions") is not None)
-            or (_pre.get("ensemble_probabilities") is not None
-                and _post.get("ensemble_probabilities") is not None)
-            or (set(_pre.get("per_target_predictions") or {})
-                & set(_post.get("per_target_predictions") or {}))
-            or (set(_pre.get("per_target_probabilities") or {})
-                & set(_post.get("per_target_probabilities") or {}))
+            or (_pre.get("ensemble_predictions") is not None and _post.get("ensemble_predictions") is not None)
+            or (_pre.get("ensemble_probabilities") is not None and _post.get("ensemble_probabilities") is not None)
+            or (set(_pre.get("per_target_predictions") or {}) & set(_post.get("per_target_predictions") or {}))
+            or (set(_pre.get("per_target_probabilities") or {}) & set(_post.get("per_target_probabilities") or {}))
         )
         if _diffs:
             parity_status = "diff:" + "; ".join(_diffs[:8])

@@ -309,9 +309,9 @@ def report_regression_model_perf(
                 _ext_MASE = float(np.mean(np.abs(targets_arr - preds_arr))) / float(mase_naive_mae)
         except (ValueError, TypeError, FloatingPointError) as _ext_err:
             logger.warning(
-                "regression metric extras failed for '%s': %s. "
-                "Continuing with the core block only.",
-                model_name, _ext_err,
+                "regression metric extras failed for '%s': %s. " "Continuing with the core block only.",
+                model_name,
+                _ext_err,
             )
 
     current_metrics = dict(
@@ -350,10 +350,7 @@ def report_regression_model_perf(
     _residual_audit = None
     from ...evaluation import _get_residual_audit_enabled  # lazy: breaks cycle with .evaluation
     _audit_log_enabled = bool(_get_residual_audit_enabled())
-    if not (
-        (targets_arr.ndim > 1 and targets_arr.shape[1] > 1)
-        or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)
-    ):
+    if not ((targets_arr.ndim > 1 and targets_arr.shape[1] > 1) or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)):
         try:
             from ...targets import audit_residuals as _audit_residuals_fn
             _residual_audit = _audit_residuals_fn(targets, preds)
@@ -442,17 +439,13 @@ def report_regression_model_perf(
             "MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS",
         ):
             logger.info(
-                "%s %s: T-scale chart skipped here; y-scale chart for this "
-                "model is emitted by [CompositeTargetEstimator] wrap-pass.",
-                report_title, model_name,
+                "%s %s: T-scale chart skipped here; y-scale chart for this " "model is emitted by [CompositeTargetEstimator] wrap-pass.",
+                report_title,
+                model_name,
             )
             return preds_arr, None
         _scale_tag = " [T-scale residual]" if _is_t_scale_composite_chart else ""
-        header_str = (
-            report_title + " " + model_name +
-            f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]"
-            + _scale_tag
-        )
+        header_str = report_title + " " + model_name + f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]" + _scale_tag
         from ..._format import format_metric as _fmt
 
         # 2026-05-28 audit batch: token-based regression title.
@@ -536,15 +529,11 @@ def report_regression_model_perf(
         # emit K overlapping point clouds with no visual separation.
         # Skip the plot when targets are 2-D -- title metrics already
         # carry the per-output-aggregated MAE/RMSE/R2.
-        _is_multioutput = (
-            (targets_arr.ndim > 1 and targets_arr.shape[1] > 1)
-            or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)
-        )
+        _is_multioutput = (targets_arr.ndim > 1 and targets_arr.shape[1] > 1) or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)
         if _is_multioutput:
             if print_report:
                 logger.info(
-                    "  [multioutput regression: target shape=%s, "
-                    "skipping scatter plot -- per-output plotting would mix K clouds]",
+                    "  [multioutput regression: target shape=%s, " "skipping scatter plot -- per-output plotting would mix K clouds]",
                     targets_arr.shape,
                 )
         else:
@@ -628,14 +617,9 @@ def report_regression_model_perf(
                 # (moved from the dropped 3rd panel so the signal stays visible).
                 _scatter_title = metrics_str
                 if _audit is not None:
-                    _het_marker = (
-                        "(!) heteroscedastic" if _audit.hetero_significant else "homoscedastic"
-                    )
+                    _het_marker = "(!) heteroscedastic" if _audit.hetero_significant else "homoscedastic"
                     if np.isfinite(_audit.hetero_spearman):
-                        _scatter_title = (
-                            f"{metrics_str}\nspearman(|resid|, y_hat) = "
-                            f"{_audit.hetero_spearman:+.3f} ({_het_marker})"
-                        )
+                        _scatter_title = f"{metrics_str}\nspearman(|resid|, y_hat) = " f"{_audit.hetero_spearman:+.3f} ({_het_marker})"
 
                 ax_scatter.scatter(
                     preds[idx], targets[idx], marker=plot_marker, alpha=0.3,

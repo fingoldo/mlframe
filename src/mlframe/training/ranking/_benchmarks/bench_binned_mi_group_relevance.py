@@ -117,8 +117,7 @@ def _bench_mask_build(seed=0, n=50000, g=2000, it=15):
     to, tn = best(old), best(new)
     so, _ = old(groups, uniq)
     sn, _ = new(groups, uniq)
-    print(f"[mask-build] OLD {to*1000:.2f}ms NEW {tn*1000:.2f}ms speedup {to/tn:.2f}x "
-          f"identical={np.array_equal(so, sn)}  (REJECT: ~0.7% of full fn)")
+    print(f"[mask-build] OLD {to*1000:.2f}ms NEW {tn*1000:.2f}ms speedup {to/tn:.2f}x " f"identical={np.array_equal(so, sn)}  (REJECT: ~0.7% of full fn)")
 
 
 def _bench_joint_hist(seed=0):

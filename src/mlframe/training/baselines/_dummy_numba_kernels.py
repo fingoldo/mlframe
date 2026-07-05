@@ -268,4 +268,3 @@ if _NUMBA_AVAILABLE:
                     ll -= np.log(1.0 - pi)
             out[i] = ll / n
         return out
-

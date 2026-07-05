@@ -151,8 +151,8 @@ def _get_fused_stats(cp) -> dict:
         mean = s1 / safe
         m2 = cp.maximum(s2 / safe - mean * mean, 0.0)
         std = cp.sqrt(m2)
-        m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean ** 3
-        raw = cp.where(std > 1e-9, m3 / (std ** 3 + 1e-12), 0.0)
+        m3 = s3 / safe - 3.0 * mean * (s2 / safe) + 2.0 * mean**3
+        raw = cp.where(std > 1e-9, m3 / (std**3 + 1e-12), 0.0)
         return cp.where(cnt > 0, raw, nan)
 
     @cp.fuse()
@@ -160,7 +160,7 @@ def _get_fused_stats(cp) -> dict:
         safe = cp.maximum(cnt, 1.0)
         mean = s1 / safe
         m2 = cp.maximum(s2 / safe - mean * mean, 0.0)
-        m4 = s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean ** 2 * (s2 / safe) - 3.0 * mean ** 4
+        m4 = s4 / safe - 4.0 * mean * (s3 / safe) + 6.0 * mean**2 * (s2 / safe) - 3.0 * mean**4
         raw = cp.where(m2 > 1e-12, m4 / (m2 * m2 + 1e-12) - 3.0, 0.0)
         return cp.where(cnt > 0, raw, nan)
 
@@ -227,8 +227,8 @@ def build_binagg_oof_matrix_gpu(
     # Per group column the codes / n_cells are SHARED across its agg columns + stats -> compute once, keyed on
     # the group column name. Per (group, agg) the finite mask + train moments per fold are shared across its
     # stats -> compute once, keyed on (group, agg). The per-stat gather/fallback is the only per-column work.
-    code_cache: dict = {}   # gcol -> (codes_g, n_cells)
-    pair_cache: dict = {}   # (gcol, acol) -> (av_g, finite_g, v_safe, finite_f, per-fold moments/stat cache)
+    code_cache: dict = {}  # gcol -> (codes_g, n_cells)
+    pair_cache: dict = {}  # (gcol, acol) -> (av_g, finite_g, v_safe, finite_f, per-fold moments/stat cache)
 
     # Stats requested per (group, agg) pair -> derive ALL of a pair's stats from the shared per-fold moments in
     # ONE _stats_from_moments_gpu pass (was one call per (pair, fold, stat): mean/std/skew/kurt each derived by a
@@ -400,11 +400,7 @@ def local_mi_gate_binagg_resident(
         return None
 
     # Keep/rank IDENTICAL to local_mi_gate: floor -> survivors -> sort by MI desc -> top_k.
-    scored = [
-        (col, float(cand_mi[j]))
-        for j, col in enumerate(cand_cols)
-        if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor
-    ]
+    scored = [(col, float(cand_mi[j])) for j, col in enumerate(cand_cols) if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor]
     if reject_sink is not None:
         for j, col in enumerate(cand_cols):
             _mi = cand_mi[j]

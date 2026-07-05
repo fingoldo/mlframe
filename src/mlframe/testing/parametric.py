@@ -54,7 +54,6 @@ from hypothesis import HealthCheck, settings, strategies as st
 import polars as pl
 from polars.testing.parametric import column, dataframes
 
-
 # =============================================================================
 # Hypothesis profile registration (idempotent)
 # =============================================================================
@@ -78,8 +77,8 @@ def register_profiles() -> None:
         ],
         derandomize=False,
     )
-    settings.register_profile("mlframe-fast",    max_examples=10,  **common)
-    settings.register_profile("mlframe-ci",      max_examples=50,  **common)
+    settings.register_profile("mlframe-fast", max_examples=10, **common)
+    settings.register_profile("mlframe-ci", max_examples=50, **common)
     settings.register_profile("mlframe-nightly", max_examples=500, **common)
 
     # Users can select via env var at import time.
@@ -131,9 +130,7 @@ def _weighted_null(value_strategy: st.SearchStrategy, null_rate: float) -> st.Se
         return st.none()
     bucket = 10_000
     value_threshold = int(bucket * (1.0 - null_rate))
-    return st.integers(0, bucket - 1).flatmap(
-        lambda i: value_strategy if i < value_threshold else st.none()
-    )
+    return st.integers(0, bucket - 1).flatmap(lambda i: value_strategy if i < value_threshold else st.none())
 
 
 def categorical_column(
@@ -186,9 +183,7 @@ def inf_heavy_float_column(
     # Shrinker converges on "no specials", which is correct minimization.
     bucket = 10_000
     normal_threshold = int(bucket * (1.0 - specials_rate))
-    mixed = st.integers(0, bucket - 1).flatmap(
-        lambda i: normal if i < normal_threshold else specials
-    )
+    mixed = st.integers(0, bucket - 1).flatmap(lambda i: normal if i < normal_threshold else specials)
     return column(
         name=name, dtype=dtype,
         strategy=_weighted_null(mixed, null_rate),
@@ -199,8 +194,7 @@ def inf_heavy_float_column(
 def constant_column(name: str, dtype: pl.DataType, value):
     """Every row has the same ``value``. Shakes out code paths that
     expect variance in a feature (e.g. scalers dividing by std)."""
-    return column(name=name, dtype=dtype, strategy=st.just(value),
-                  allow_null=False)
+    return column(name=name, dtype=dtype, strategy=st.just(value), allow_null=False)
 
 
 def id_column(name: str, *, width: int = 32):
@@ -284,12 +278,8 @@ def adversarial_frame(
     those, keep hand-built frames.
     """
     cols = [
-        column("num_f32", dtype=pl.Float32,
-               strategy=_weighted_null(st.floats(width=32), 0.05),
-               allow_null=True),
-        column("num_i16", dtype=pl.Int16,
-               strategy=_weighted_null(st.integers(-32000, 32000), 0.02),
-               allow_null=True),
+        column("num_f32", dtype=pl.Float32, strategy=_weighted_null(st.floats(width=32), 0.05), allow_null=True),
+        column("num_i16", dtype=pl.Int16, strategy=_weighted_null(st.integers(-32000, 32000), 0.02), allow_null=True),
         column("bool_col", dtype=pl.Boolean, allow_null=False),
     ]
     if include_null_in_cat:
@@ -343,18 +333,10 @@ def prod_like_frame(
             ["entry", "inter", "expert", "__MISSING__"],
             null_rate=0.1,
         ),
-        column("num_f0", dtype=pl.Float32,
-               strategy=_weighted_null(st.floats(width=32, allow_nan=False, allow_infinity=False), 0.02),
-               allow_null=True),
-        column("num_f1", dtype=pl.Float32,
-               strategy=st.floats(width=32, allow_nan=False, allow_infinity=False),
-               allow_null=False),
-        column("num_f2", dtype=pl.Float32,
-               strategy=st.floats(width=32, allow_nan=False, allow_infinity=False),
-               allow_null=False),
-        column("num_i0", dtype=pl.Int16,
-               strategy=_weighted_null(st.integers(-1000, 1000), 0.05),
-               allow_null=True),
+        column("num_f0", dtype=pl.Float32, strategy=_weighted_null(st.floats(width=32, allow_nan=False, allow_infinity=False), 0.02), allow_null=True),
+        column("num_f1", dtype=pl.Float32, strategy=st.floats(width=32, allow_nan=False, allow_infinity=False), allow_null=False),
+        column("num_f2", dtype=pl.Float32, strategy=st.floats(width=32, allow_nan=False, allow_infinity=False), allow_null=False),
+        column("num_i0", dtype=pl.Int16, strategy=_weighted_null(st.integers(-1000, 1000), 0.05), allow_null=True),
         column("bool_0", dtype=pl.Boolean, allow_null=False),
     ]
     if with_timestamps:
@@ -393,21 +375,18 @@ def prod_like_frame_small(
     import datetime as dt
     cols = [
         categorical_column("category", ["a", "b", "c", "d", "__MISSING__"], null_rate=0.05),
-        column("num_f0", dtype=pl.Float32,
-               strategy=st.floats(width=32, allow_nan=False, allow_infinity=False),
-               allow_null=False),
-        column("num_f1", dtype=pl.Float32,
-               strategy=st.floats(width=32, allow_nan=False, allow_infinity=False),
-               allow_null=False),
-        column("timestamp", dtype=pl.Datetime,
-               strategy=st.datetimes(
-                   min_value=dt.datetime(2024, 1, 1),
-                   max_value=dt.datetime(2024, 2, 1),  # 1 month, enough for wholeday disabled
-               ),
-               allow_null=False),
-        column("target", dtype=pl.Int8,
-               strategy=st.sampled_from([0, 1]),
-               allow_null=False),
+        column("num_f0", dtype=pl.Float32, strategy=st.floats(width=32, allow_nan=False, allow_infinity=False), allow_null=False),
+        column("num_f1", dtype=pl.Float32, strategy=st.floats(width=32, allow_nan=False, allow_infinity=False), allow_null=False),
+        column(
+            "timestamp",
+            dtype=pl.Datetime,
+            strategy=st.datetimes(
+                min_value=dt.datetime(2024, 1, 1),
+                max_value=dt.datetime(2024, 2, 1),  # 1 month, enough for wholeday disabled
+            ),
+            allow_null=False,
+        ),
+        column("target", dtype=pl.Int8, strategy=st.sampled_from([0, 1]), allow_null=False),
     ]
     min_size, max_size = _size_tuple(n_rows)
     return dataframes(cols, min_size=min_size, max_size=max_size)

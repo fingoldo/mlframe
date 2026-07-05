@@ -34,21 +34,12 @@ def _build_recommendation(
     # delta% - positive means init_score baseline performed WORSE than raw
     # (residual still has structure). Negative or near-zero means init_score
     # baseline already matches raw, so composite-mode unlikely to extract more signal.
-    init_score_sufficient = (
-        init_score_baseline is not None
-        and abs(init_score_baseline.delta_vs_raw_pct) <= cfg.init_score_optimal_threshold_pct
-    )
+    init_score_sufficient = init_score_baseline is not None and abs(init_score_baseline.delta_vs_raw_pct) <= cfg.init_score_optimal_threshold_pct
 
     if max_dom >= cfg.high_potential_min_dominance_pct and not init_score_sufficient:
-        reason = (
-            f"top ablation delta%={max_dom:.2f} >= {cfg.high_potential_min_dominance_pct:.2f} "
-            "(strong dominant feature)"
-        )
+        reason = f"top ablation delta%={max_dom:.2f} >= {cfg.high_potential_min_dominance_pct:.2f} " "(strong dominant feature)"
         if init_score_baseline is not None:
-            reason += (
-                f"; init_score baseline still off raw by "
-                f"{init_score_baseline.delta_vs_raw_pct:+.2f}% (residual has structure)"
-            )
+            reason += f"; init_score baseline still off raw by " f"{init_score_baseline.delta_vs_raw_pct:+.2f}% (residual has structure)"
         return "high_potential", reason
 
     if init_score_sufficient:
@@ -63,11 +54,9 @@ def _build_recommendation(
     if max_dom >= cfg.marginal_threshold_pct:
         return (
             "marginal",
-            f"top ablation delta%={max_dom:.2f} in "
-            f"[{cfg.marginal_threshold_pct:.2f}, {cfg.high_potential_min_dominance_pct:.2f})",
+            f"top ablation delta%={max_dom:.2f} in " f"[{cfg.marginal_threshold_pct:.2f}, {cfg.high_potential_min_dominance_pct:.2f})",
         )
     return (
         "unlikely_to_help",
-        f"top ablation delta%={max_dom:.2f} < {cfg.marginal_threshold_pct:.2f} "
-        "(no dominant features)",
+        f"top ablation delta%={max_dom:.2f} < {cfg.marginal_threshold_pct:.2f} " "(no dominant features)",
     )

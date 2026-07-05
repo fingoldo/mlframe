@@ -458,4 +458,3 @@ def score_ensemble(
 
     maybe_build_votenrank_leaderboard(res, is_regression=is_regression, build_votenrank_leaderboard_flag=build_votenrank_leaderboard)
     return res
-

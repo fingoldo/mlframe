@@ -165,16 +165,11 @@ def _run_fe_step(
     _strat_knob = getattr(self, "fe_subsample_stratify", None)
     _strat_yc = getattr(self, "_fe_prewarp_y_continuous_", None)
     if _strat_yc is not None and len(_strat_yc) == len(classes_y):
-        _fe_subsample_stratify = _resolve_strat(
-            _strat_knob, np.asarray(_strat_yc), is_clf=bool(_infer_clf(np.asarray(_strat_yc)))
-        )
+        _fe_subsample_stratify = _resolve_strat(_strat_knob, np.asarray(_strat_yc), is_clf=bool(_infer_clf(np.asarray(_strat_yc))))
     else:
         _fe_subsample_stratify = _resolve_strat(_strat_knob, np.asarray(classes_y), is_clf=True)
 
-    _prevalence_debias_auto = (
-        isinstance(fe_min_pair_mi_prevalence, str)
-        and fe_min_pair_mi_prevalence.strip().lower() == "auto"
-    )
+    _prevalence_debias_auto = isinstance(fe_min_pair_mi_prevalence, str) and fe_min_pair_mi_prevalence.strip().lower() == "auto"
     if _prevalence_debias_auto:
         fe_min_pair_mi_prevalence = 1.05
     # SYNERGY prevalence "auto" (conversion #3, 2026-06-13): the synergy-pair bar
@@ -208,7 +203,7 @@ def _run_fe_step(
         if self.fe_fallback_to_all:
             logger.info("Proceeding with all features though (fe_fallback_to_all=True).")
             selected_vars = np.array([cols.index(col) for col in cols if col not in target_names])
-        elif (getattr(self, "cluster_aggregate_enable", False) and num_fs_steps == 0):
+        elif getattr(self, "cluster_aggregate_enable", False) and num_fs_steps == 0:
             # cluster_aggregate operates on raw ``feature_names_in_`` columns
             # (correlation-based clusters) and does NOT need ``selected_vars``.
             # When screening returns 0 features (heavily-correlated reflection
@@ -454,10 +449,7 @@ def _run_fe_step(
         # + the downstream pair-MI / engineered-MI / uplift gates already bound
         # the pure-noise risk.
         if _synergy_added_idx and not _screening_returned_empty:
-            _filtered_for_polynom = {
-                k: v for k, v in prospective_pairs.items()
-                if not (k[0][0] in _synergy_added_idx or k[0][1] in _synergy_added_idx)
-            }
+            _filtered_for_polynom = {k: v for k, v in prospective_pairs.items() if not (k[0][0] in _synergy_added_idx or k[0][1] in _synergy_added_idx)}
             # 2026-06-03 (wave-9 follow-up, default_filtering.py:165): apply the
             # speculative-synergy exclusion ONLY if it leaves a non-empty pool.
             # When the selected pool is too small to form any NON-synergy pair
@@ -983,5 +975,3 @@ def _run_fe_step(
     _free_gpu_fe_mempool()
 
     return data, cols, nbins, X, selected_vars, n_recommended_features
-
-

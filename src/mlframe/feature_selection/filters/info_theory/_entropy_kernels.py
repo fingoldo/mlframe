@@ -510,9 +510,7 @@ def conditional_mi(
             if len(x) == 1:
                 # Fused single-candidate melt onto the precomputed (Y,Z) classes: histogram + entropy in one
                 # pass, no final_classes mutation/remap (all discarded by this path). Bit-identical, ~2.5-4.5x.
-                entropy_xyz = _entropy_x_onto_classes(
-                    factors_data, x[0], classes_yz, current_nclasses_yz, factors_nbins[x[0]]
-                )
+                entropy_xyz = _entropy_x_onto_classes(factors_data, x[0], classes_yz, current_nclasses_yz, factors_nbins[x[0]])
             else:
                 _, freqs_xyz, _ = merge_vars(
                     factors_data=factors_data,

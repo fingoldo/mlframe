@@ -129,8 +129,8 @@ def usability_greedy_gpu_resident(
             if col.shape[0] != n:
                 return None  # ragged pool -> let the CPU path handle it exactly
             Vhost[:, j] = col
-        Vdev = cp.asarray(Vhost)            # (n, P) resident
-        ydev = cp.asarray(y_host)           # (n,) resident
+        Vdev = cp.asarray(Vhost)  # (n, P) resident
+        ydev = cp.asarray(y_host)  # (n,) resident
 
         # RAM GOVERNOR (mirror the CPU path so the resident selection matches under memory pressure). The
         # CPU greedy caps K (and the shortlist with it) to the largest (n, K) float64 design the FE buffer
@@ -173,13 +173,13 @@ def usability_greedy_gpu_resident(
                 M = Vdev
                 rv = resid_dev
             else:
-                M = Vdev[rows_mask]            # (m, P) resident view-copy
+                M = Vdev[rows_mask]  # (m, P) resident view-copy
                 rv = resid_dev
             m = int(M.shape[0])
             out = cp.zeros(P, dtype=cp.float64)
             if m == 0:
                 return cp.asnumpy(out)
-            col_std = M.std(axis=0)            # (P,)
+            col_std = M.std(axis=0)  # (P,)
             v_std = float(rv.std())
             if v_std < 1e-12:
                 return cp.asnumpy(out)
@@ -188,8 +188,8 @@ def usability_greedy_gpu_resident(
             if ssv <= 0.0:
                 return cp.asnumpy(out)
             Mc = M - M.mean(axis=0, keepdims=True)
-            num = Mc.T @ vm                    # (P,) centered dot
-            ssc = (Mc * Mc).sum(axis=0)        # (P,)
+            num = Mc.T @ vm  # (P,) centered dot
+            ssc = (Mc * Mc).sum(axis=0)  # (P,)
             denom = cp.sqrt(ssc * ssv)
             valid = (col_std >= 1e-12) & (ssc > 0.0) & (denom > 0.0)
             r = cp.where(valid, num / cp.where(denom > 0.0, denom, 1.0), 0.0)
@@ -265,7 +265,7 @@ def usability_greedy_gpu_resident(
                 ytr = ydev[tr]
                 ybar = ytr.mean()
                 yc = ytr - ybar
-                yva = ydev[va]                                   # fold-invariant across candidates; gather ONCE per fold
+                yva = ydev[va]  # fold-invariant across candidates; gather ONCE per fold
                 if sel_idx:
                     Str = Vdev[tr][:, sel_idx]
                     Sva = Vdev[va][:, sel_idx]
@@ -281,7 +281,7 @@ def usability_greedy_gpu_resident(
             # Accumulate EVERY candidate's per-fold MAE row resident, then do ONE D2H for the whole
             # shortlist (a (n_cand, nf) stacked pull) instead of one .get() per candidate -- the values
             # are unchanged, just coalesced into a single device->host sync per round.
-            errs_rows = []          # resident (nf,) row per candidate, in cand_list order
+            errs_rows = []  # resident (nf,) row per candidate, in cand_list order
             cand_keys = []
             # Round-1 (empty selection) singular-border guard, kept RESIDENT: the per-candidate-per-fold
             # cc_tr.cc_tr was previously pulled back as a float() scalar PER CANDIDATE PER FOLD (a per-candidate
@@ -290,12 +290,12 @@ def usability_greedy_gpu_resident(
             # as the fold-MAE matrix below; the border is then checked host-side once per round. Same verdict:
             # if any round-1 candidate-fold has cc_tr.cc_tr <= 1e-12 the round raises _ResidentFallback (the
             # whole resident path then refits exactly on CPU), identical to the prior mid-loop break.
-            mind_rows = []          # resident scalar (min fold d) per candidate when Sc_tr is None; else None
+            mind_rows = []  # resident scalar (min fold d) per candidate when Sc_tr is None; else None
             for i in cand_list:
                 ci = Vdev[:, i]
-                errs_dev = cp.empty(nf, dtype=cp.float64)   # accumulate fold MAEs resident; ONE D2H/candidate
+                errs_dev = cp.empty(nf, dtype=cp.float64)  # accumulate fold MAEs resident; ONE D2H/candidate
                 singular = False
-                cand_mind = None     # resident running-min cc_tr.cc_tr over folds (round-1 border)
+                cand_mind = None  # resident running-min cc_tr.cc_tr over folds (round-1 border)
                 for fo in range(nf):
                     tr, va, ybar, yc, yva, Sc_tr, Sc_va, Gs, bs = per_fold[fo]
                     ctr = ci[tr]
@@ -304,7 +304,7 @@ def usability_greedy_gpu_resident(
                     cc_tr = ctr - cmu
                     cc_va = cva - cmu
                     if Sc_tr is None:
-                        d = cp.dot(cc_tr, cc_tr)          # resident; border checked in the coalesced D2H below
+                        d = cp.dot(cc_tr, cc_tr)  # resident; border checked in the coalesced D2H below
                         cand_mind = d if cand_mind is None else cp.minimum(cand_mind, d)
                         # cc_tr.cc_tr == 0 only on a constant train operand; the divide then yields inf/nan,
                         # the fold MAE is nan, and the host-side border check below converts that to a fallback.
@@ -337,7 +337,7 @@ def usability_greedy_gpu_resident(
                 mind_rows.append(cand_mind)
             out: dict = {}
             if errs_rows:
-                errs_host = cp.asnumpy(cp.stack(errs_rows, axis=0))   # ONE D2H for the whole shortlist
+                errs_host = cp.asnumpy(cp.stack(errs_rows, axis=0))  # ONE D2H for the whole shortlist
                 # Coalesced round-1 border check: pull the per-candidate min cc_tr.cc_tr back in the SAME
                 # round (one stacked D2H), then fall back exactly if any candidate sits on the singular border.
                 if any(m is not None for m in mind_rows):

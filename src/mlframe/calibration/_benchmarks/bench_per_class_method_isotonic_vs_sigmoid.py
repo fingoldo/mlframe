@@ -31,7 +31,6 @@ os.environ.setdefault("MLFRAME_KEEP_BROKEN_CUPY", "1")
 from sklearn.isotonic import IsotonicRegression  # noqa: E402
 from sklearn.linear_model import LogisticRegression  # noqa: E402
 
-
 N_BINS = 10
 
 
@@ -149,10 +148,8 @@ def main():
                 print(f"n_cal={n_cal:5d} {scn:14s} seed={seed}  raw={raw:.4f}  iso={iso:.4f}  sig={sig:.4f}  -> {w}")
         mean_iso = float(np.mean([r["iso"] for r in rows]))
         mean_sig = float(np.mean([r["sig"] for r in rows]))
-        print(f"  -> n_cal={n_cal}: sigmoid_wins={sig_wins} isotonic_wins={iso_wins} ties={ties}"
-              f"  mean_iso={mean_iso:.4f} mean_sig={mean_sig:.4f}\n")
-        all_results[str(n_cal)] = dict(rows=rows, sigmoid_wins=sig_wins, isotonic_wins=iso_wins,
-                                       ties=ties, mean_iso=mean_iso, mean_sig=mean_sig)
+        print(f"  -> n_cal={n_cal}: sigmoid_wins={sig_wins} isotonic_wins={iso_wins} ties={ties}" f"  mean_iso={mean_iso:.4f} mean_sig={mean_sig:.4f}\n")
+        all_results[str(n_cal)] = dict(rows=rows, sigmoid_wins=sig_wins, isotonic_wins=iso_wins, ties=ties, mean_iso=mean_iso, mean_sig=mean_sig)
 
     out = Path(__file__).parent / "_results"
     out.mkdir(exist_ok=True)

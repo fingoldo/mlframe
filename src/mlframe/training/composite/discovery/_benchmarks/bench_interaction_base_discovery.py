@@ -74,12 +74,7 @@ def main() -> None:
             cand_tr, y_tr, ops=("mul",), top_k=3, nbins=_NBINS,
         )
         top = scored[0] if scored else None
-        scorer_ok.append(
-            top is not None
-            and top["op"] == "mul"
-            and set(top["parents"]) == {"a", "b"}
-            and top["qualifies"]
-        )
+        scorer_ok.append(top is not None and top["op"] == "mul" and set(top["parents"]) == {"a", "b"} and top["qualifies"])
         # Best single base by marginal MI proxy: pick the candidate whose ridge
         # OOS RMSE is lowest (the honest "single/additive spec" baseline).
         best_single = min(
@@ -111,13 +106,9 @@ def main() -> None:
     rel_improve = (single_mean - inter_mean) / single_mean if single_mean else 0.0
     scorer_pass = sum(scorer_ok)
     win_seeds = sum(1 for s, i in zip(single_rmses, inter_rmses) if i < s - 1e-9)
-    verdict = (
-        "SHIP-as-default" if win_seeds >= 3 and rel_improve >= 0.10
-        else "REJECT-keep-as-optin"
-    )
+    verdict = "SHIP-as-default" if win_seeds >= 3 and rel_improve >= 0.10 else "REJECT-keep-as-optin"
 
-    print(f"interaction-base discovery bench  n={_N} nbins={_NBINS} "
-          f"py={sys.version.split()[0]}")
+    print(f"interaction-base discovery bench  n={_N} nbins={_NBINS} " f"py={sys.version.split()[0]}")
     print(f"  scorer top-pair correct + qualifies: {scorer_pass}/{len(seeds)}")
     print(f"  single-base OOS RMSE (mean):   {single_mean:.4f}")
     print(f"  interaction OOS RMSE (mean):   {inter_mean:.4f}")

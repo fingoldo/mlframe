@@ -90,9 +90,7 @@ def _build_feature_selection_report(
         if _all_in is not None and kept_columns is not None:
             try:
                 _kept_set = set(kept_columns)
-                _report["reason_per_feature"] = {
-                    str(c): ("kept" if c in _kept_set else "dropped") for c in _all_in
-                }
+                _report["reason_per_feature"] = {str(c): ("kept" if c in _kept_set else "dropped") for c in _all_in}
             except Exception:
                 pass
     elif _kind == "RFECV":
@@ -138,11 +136,7 @@ def _build_feature_selection_report(
                 _rank_arr = list(_ranking)
                 if len(_rank_arr) == len(_all_in):
                     _report["reason_per_feature"] = {
-                        str(c): (
-                            f"kept@rank={_rank_arr[i]}" if c in _kept_set
-                            else f"dropped@rank={_rank_arr[i]}"
-                        )
-                        for i, c in enumerate(_all_in)
+                        str(c): (f"kept@rank={_rank_arr[i]}" if c in _kept_set else f"dropped@rank={_rank_arr[i]}") for i, c in enumerate(_all_in)
                     }
         except Exception:
             pass
@@ -309,10 +303,7 @@ def _maybe_run_feature_handling_apply(
     except ValueError as fhc_err:
         # Surface configuration errors with the kwarg name so users grep the right place; chain so the
         # original validation traceback is preserved.
-        raise ValueError(
-            f"feature_handling_config rejected for model_kind={model_kind!r} on target "
-            f"{cur_target_name!r}: {fhc_err}"
-        ) from fhc_err
+        raise ValueError(f"feature_handling_config rejected for model_kind={model_kind!r} on target " f"{cur_target_name!r}: {fhc_err}") from fhc_err
     except Exception as fhc_err:
         logger.warning(
             "feature_handling_apply failed for target %r (model_kind=%s): %s; continuing without FHC enrichment for this target.",

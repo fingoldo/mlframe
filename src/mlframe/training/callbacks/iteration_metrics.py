@@ -33,9 +33,7 @@ def _store(iteration_metrics: dict, round_idx: int, y_true, y_score, target_type
     from mlframe.metrics import compute_all_metrics
 
     try:
-        iteration_metrics[int(round_idx)] = compute_all_metrics(
-            y_true, y_score, target_type=target_type, n_classes=n_classes
-        )
+        iteration_metrics[int(round_idx)] = compute_all_metrics(y_true, y_score, target_type=target_type, n_classes=n_classes)
     except Exception as exc:  # never let metric capture abort a training run
         logger.warning("iteration-metrics capture failed at round %d: %s", round_idx, exc, exc_info=False)
 

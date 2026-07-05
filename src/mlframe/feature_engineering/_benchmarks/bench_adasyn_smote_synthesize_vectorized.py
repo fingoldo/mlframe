@@ -30,7 +30,7 @@ def _old(X, n_syn, k_smote, seed):
     out = np.zeros((n_syn, X.shape[1]), dtype=np.float32)
     for i in range(n_syn):
         src_idx = src_indices[i]
-        candidates = ids_pos[src_idx, 1:min(k_smote + 1, n_min)]
+        candidates = ids_pos[src_idx, 1 : min(k_smote + 1, n_min)]
         if candidates.size == 0:
             out[i] = X[src_idx]
             continue

@@ -83,8 +83,7 @@ def _cv_skill(est, X, y, *, classification: bool, folds: int, random_state: int)
         # A genuine scoring failure (too few rows/folds, single-class fold) legitimately maps to
         # zero above-chance skill, but a silent 0.0 also hides real bugs (shape/dtype/wiring) that
         # would otherwise mis-weight the panel vote. Log so the failure is visible, then fall back.
-        logger.warning("_cv_skill: CV scoring failed for %s (%s: %s); treating skill as 0.0",
-                       type(est).__name__, type(e).__name__, e)
+        logger.warning("_cv_skill: CV scoring failed for %s (%s: %s); treating skill as 0.0", type(est).__name__, type(e).__name__, e)
         return 0.0
     return max(0.0, score - chance)
 
@@ -154,8 +153,7 @@ def heterogeneous_relevance_vote(
             hits += (imp[:P] > thr).astype(float)
         passes.append((hits / max(1, n_shadow_trials) >= per_model_hit_frac).astype(float))
         if weight_by_cv_skill:
-            weights.append(max(cv_skill_floor, _cv_skill(est, Xv, yv, classification=classification,
-                                                          folds=cv_skill_folds, random_state=random_state)))
+            weights.append(max(cv_skill_floor, _cv_skill(est, Xv, yv, classification=classification, folds=cv_skill_folds, random_state=random_state)))
         else:
             weights.append(1.0)
     W = np.asarray(weights, dtype=float)

@@ -28,8 +28,7 @@ def _hetero_frame(n, seed):
     # over-weights the noisy ones; inv-var / PC1 should downweight them.
     sigmas = [0.2, 0.3, 1.3, 1.6, 1.9]
     refl = {f"refl{i}": latent + s * rng.standard_normal(n) for i, s in enumerate(sigmas)}
-    X = pd.DataFrame({"strong": strong, **refl,
-                      "noise_a": rng.standard_normal(n), "noise_b": rng.standard_normal(n)})
+    X = pd.DataFrame({"strong": strong, **refl, "noise_a": rng.standard_normal(n), "noise_b": rng.standard_normal(n)})
     logit = 1.2 * strong + 1.7 * latent
     y = (rng.random(n) < 1.0 / (1.0 + np.exp(-logit))).astype(int)
     return X, pd.Series(y)
@@ -61,8 +60,7 @@ def main():
         a_mean.append(am); a_menu.append(amenu)
         print(f"seed={seed}: mean_z auc={am:.4f} ({win_m}) | menu auc={amenu:.4f} ({win_menu})")
     print("---")
-    print(f"mean OOS AUC: mean_z-only={np.mean(a_mean):.4f}  curated-menu={np.mean(a_menu):.4f}  "
-          f"delta={np.mean(a_menu)-np.mean(a_mean):+.4f}")
+    print(f"mean OOS AUC: mean_z-only={np.mean(a_mean):.4f}  curated-menu={np.mean(a_menu):.4f}  " f"delta={np.mean(a_menu)-np.mean(a_mean):+.4f}")
 
 
 if __name__ == "__main__":

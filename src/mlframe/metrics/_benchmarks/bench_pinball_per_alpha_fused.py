@@ -30,10 +30,7 @@ def _fast_pinball(y, q, alpha):
 
 
 def _per_alpha_old(y, P, alphas):
-    return {
-        float(a): float(_fast_pinball(y, np.ascontiguousarray(P[:, j]), float(a)))
-        for j, a in enumerate(alphas)
-    }
+    return {float(a): float(_fast_pinball(y, np.ascontiguousarray(P[:, j]), float(a))) for j, a in enumerate(alphas)}
 
 
 @numba.njit(**_NJIT_KW)
@@ -86,8 +83,7 @@ def main():
             maxdiff = max(abs(old[float(a)] - new[float(a)]) for a in alphas)
             t_old = _best_of(_per_alpha_old, y, P, alphas)
             t_new = _best_of(_per_alpha_new, y, P, alphas)
-            print(f"n={n:>7} k={k:>2}  old={t_old*1e3:8.3f}ms  new={t_new*1e3:8.3f}ms  "
-                  f"speedup={t_old/t_new:5.2f}x  maxdiff={maxdiff:.2e}")
+            print(f"n={n:>7} k={k:>2}  old={t_old*1e3:8.3f}ms  new={t_new*1e3:8.3f}ms  " f"speedup={t_old/t_new:5.2f}x  maxdiff={maxdiff:.2e}")
 
 
 if __name__ == "__main__":

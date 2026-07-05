@@ -19,9 +19,7 @@ GridEntry = Union[Dict[str, Any], Tuple[str, Dict[str, Any]]]
 def _label_for(entry: GridEntry, idx: int) -> tuple[str, dict[str, Any]]:
     if isinstance(entry, tuple):
         if len(entry) != 2 or not isinstance(entry[0], str) or not isinstance(entry[1], dict):
-            raise TypeError(
-                f"grid entry {idx} must be dict or (label, dict); got {type(entry).__name__}"
-            )
+            raise TypeError(f"grid entry {idx} must be dict or (label, dict); got {type(entry).__name__}")
         return entry[0], entry[1]
     if isinstance(entry, dict):
         return f"variant_{idx}", entry

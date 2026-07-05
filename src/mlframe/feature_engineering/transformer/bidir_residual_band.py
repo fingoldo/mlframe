@@ -137,7 +137,7 @@ def compute_bidir_residual_band_features(
             band_signed_residual_mean[b] = float(sr_band.mean())
 
         diffs = Xq_s[:, None, :] - band_centroids[None, :, :]
-        sq = (diffs ** 2).sum(axis=-1)
+        sq = (diffs**2).sum(axis=-1)
         scores = -sq
         weights = _softmax(scores, temp=temp)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)

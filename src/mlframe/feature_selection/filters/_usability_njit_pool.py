@@ -96,41 +96,41 @@ def _apply_unary(v, code, xmin):
     """One element of the medium-preset unary, in float64 (the Python path applies the numpy unary to
     the float64 operand). ``xmin`` is the operand column's ``nanmin`` -- only ``log`` (smart_log) uses
     it (additive shift ``1e-5 - xmin`` when ``xmin<=0``, exact ``log`` when ``xmin>0``)."""
-    if code == 0:        # identity
+    if code == 0:  # identity
         return v
-    elif code == 1:      # neg
+    elif code == 1:  # neg
         return -v
-    elif code == 2:      # abs
+    elif code == 2:  # abs
         return abs(v)
-    elif code == 3:      # sqr = np.power(x, 2)
+    elif code == 3:  # sqr = np.power(x, 2)
         return v * v
-    elif code == 4:      # reciproc = np.power(x, -1)
+    elif code == 4:  # reciproc = np.power(x, -1)
         return 1.0 / v
-    elif code == 5:      # sqrt = np.sqrt(np.abs(x))
+    elif code == 5:  # sqrt = np.sqrt(np.abs(x))
         return np.sqrt(abs(v))
-    elif code == 6:      # log = smart_log
+    elif code == 6:  # log = smart_log
         if xmin > 0.0:
             return np.log(v)
         return np.log(v + (1e-5 - xmin))
-    elif code == 7:      # sin
+    elif code == 7:  # sin
         return np.sin(v)
-    elif code == 8:      # sign = np.sign
+    elif code == 8:  # sign = np.sign
         return 0.0 if v == 0.0 else (1.0 if v > 0.0 else -1.0)
-    elif code == 9:      # rint
+    elif code == 9:  # rint
         return np.rint(v)
-    elif code == 10:     # qubed = np.power(x, 3)
+    elif code == 10:  # qubed = np.power(x, 3)
         return v * v * v
-    elif code == 11:     # invsquared = np.power(x, -2)
+    elif code == 11:  # invsquared = np.power(x, -2)
         return 1.0 / (v * v)
-    elif code == 12:     # invqubed = np.power(x, -3)
+    elif code == 12:  # invqubed = np.power(x, -3)
         return 1.0 / (v * v * v)
-    elif code == 13:     # cbrt
+    elif code == 13:  # cbrt
         return np.cbrt(v)
-    elif code == 14:     # invcbrt = np.power(x, -1/3)
+    elif code == 14:  # invcbrt = np.power(x, -1/3)
         return v ** (-1.0 / 3.0)
-    elif code == 15:     # invsqrt = np.power(x, -1/2)
+    elif code == 15:  # invsqrt = np.power(x, -1/2)
         return v ** (-0.5)
-    else:                # code == 16: exp
+    else:  # code == 16: exp
         return np.exp(v)
 
 
@@ -139,20 +139,20 @@ def _apply_binary(a, b, bn):
     """One element of the minimal-preset binary, returning the float32-scrubbed value cast back to
     float64 (the Python path does ``_scrub(bf(ta, tb), float32)`` then upcasts to float64 for binning).
     Matches numpy's nan-propagating max/min and ``_safe_div`` exactly."""
-    if bn == 0:          # mul
+    if bn == 0:  # mul
         v = a * b
-    elif bn == 1:        # add
+    elif bn == 1:  # add
         v = a + b
-    elif bn == 2:        # sub
+    elif bn == 2:  # sub
         v = a - b
-    elif bn == 3:        # div = _safe_div: exact a/b for b!=0, 1e-9 floor on exact-zero denominator
+    elif bn == 3:  # div = _safe_div: exact a/b for b!=0, 1e-9 floor on exact-zero denominator
         v = a / (1e-9 if b == 0.0 else b)
-    elif bn == 4:        # max = np.maximum (nan-propagating)
+    elif bn == 4:  # max = np.maximum (nan-propagating)
         if a != a or b != b:
             v = a + b
         else:
             v = a if a > b else b
-    else:                # bn == 5: min = np.minimum (nan-propagating)
+    else:  # bn == 5: min = np.minimum (nan-propagating)
         if a != a or b != b:
             v = a + b
         else:
@@ -445,41 +445,41 @@ def _gpu_apply_unary(x, code, xmin):
     """cupy float64 vectorised twin of :func:`_apply_unary` over the whole column ``x`` (1-D device
     array). ``code`` is a Python int; ``xmin`` the operand's nanmin (only smart_log uses it)."""
     cp = _cp
-    if code == 0:        # identity
+    if code == 0:  # identity
         return x
-    elif code == 1:      # neg
+    elif code == 1:  # neg
         return -x
-    elif code == 2:      # abs
+    elif code == 2:  # abs
         return cp.abs(x)
-    elif code == 3:      # sqr
+    elif code == 3:  # sqr
         return x * x
-    elif code == 4:      # reciproc
+    elif code == 4:  # reciproc
         return 1.0 / x
-    elif code == 5:      # sqrt = sqrt(abs)
+    elif code == 5:  # sqrt = sqrt(abs)
         return cp.sqrt(cp.abs(x))
-    elif code == 6:      # log = smart_log
+    elif code == 6:  # log = smart_log
         if xmin > 0.0:
             return cp.log(x)
         return cp.log(x + (1e-5 - xmin))
-    elif code == 7:      # sin
+    elif code == 7:  # sin
         return cp.sin(x)
-    elif code == 8:      # sign
+    elif code == 8:  # sign
         return cp.sign(x)
-    elif code == 9:      # rint
+    elif code == 9:  # rint
         return cp.rint(x)
-    elif code == 10:     # qubed
+    elif code == 10:  # qubed
         return x * x * x
-    elif code == 11:     # invsquared
+    elif code == 11:  # invsquared
         return 1.0 / (x * x)
-    elif code == 12:     # invqubed
+    elif code == 12:  # invqubed
         return 1.0 / (x * x * x)
-    elif code == 13:     # cbrt
+    elif code == 13:  # cbrt
         return cp.cbrt(x)
-    elif code == 14:     # invcbrt
+    elif code == 14:  # invcbrt
         return x ** (-1.0 / 3.0)
-    elif code == 15:     # invsqrt
+    elif code == 15:  # invsqrt
         return x ** (-0.5)
-    else:                # exp
+    else:  # exp
         return cp.exp(x)
 
 
@@ -487,18 +487,18 @@ def _gpu_apply_binary(a, b, bn):
     """cupy float64 vectorised twin of :func:`_apply_binary` -- including the ``np.float32`` scrub +
     nan/inf->0 at float32 precision -- returning a float64 device array of the scrubbed values."""
     cp = _cp
-    if bn == 0:          # mul
+    if bn == 0:  # mul
         v = a * b
-    elif bn == 1:        # add
+    elif bn == 1:  # add
         v = a + b
-    elif bn == 2:        # sub
+    elif bn == 2:  # sub
         v = a - b
-    elif bn == 3:        # div = _safe_div (1e-9 floor only on exact-zero denom)
+    elif bn == 3:  # div = _safe_div (1e-9 floor only on exact-zero denom)
         denom = cp.where(b == 0.0, cp.float64(1e-9), b)
         v = a / denom
-    elif bn == 4:        # max = np.maximum (nan-propagating)
+    elif bn == 4:  # max = np.maximum (nan-propagating)
         v = cp.maximum(a, b)
-    else:                # min = np.minimum (nan-propagating)
+    else:  # min = np.minimum (nan-propagating)
         v = cp.minimum(a, b)
     # np.nan_to_num(nan=0, posinf=0, neginf=0) at float32 precision (feature_dtype).
     f = v.astype(cp.float32)
@@ -512,12 +512,12 @@ def _gpu_quantile_bin_codes(V, qs):
     ``m`` combos in the chunk; the searchsorted is done per row (each row has its own edge vector)."""
     cp = _cp
     m, n = V.shape
-    srt = cp.sort(V, axis=1)                      # (m, n) ascending -- matches np.sort
-    pos = qs * (n - 1)                            # virtual indices, (nq,)
-    lo = cp.floor(pos).astype(cp.int64)           # (nq,)
+    srt = cp.sort(V, axis=1)  # (m, n) ascending -- matches np.sort
+    pos = qs * (n - 1)  # virtual indices, (nq,)
+    lo = cp.floor(pos).astype(cp.int64)  # (nq,)
     hi = cp.where(lo < n - 1, lo + 1, lo)
     frac = pos - lo
-    q = srt[:, lo] + (srt[:, hi] - srt[:, lo]) * frac[None, :]   # (m, nq) lerp edges
+    q = srt[:, lo] + (srt[:, hi] - srt[:, lo]) * frac[None, :]  # (m, nq) lerp edges
     codes = cp.zeros((m, n), dtype=cp.int64)
     kx = cp.ones(m, dtype=cp.int64)
     # Per-combo dedup + searchsorted. nq is tiny (nbins+1, ~11), so the Python loop over rows is the
@@ -525,7 +525,7 @@ def _gpu_quantile_bin_codes(V, qs):
     for r in range(m):
         qr = q[r]
         # np.unique on an ascending vector == adjacent dedup.
-        edges = cp.unique(qr)                     # ascending, deduped
+        edges = cp.unique(qr)  # ascending, deduped
         me = int(edges.shape[0])
         if me <= 1:
             kx[r] = 1
@@ -534,8 +534,8 @@ def _gpu_quantile_bin_codes(V, qs):
             codes[r] = (V[r] >= edges[1]).astype(cp.int64)
             kx[r] = 2
             continue
-        inner = edges[1:me - 1]
-        cr = cp.searchsorted(inner, V[r], side="right")   # 0..ni
+        inner = edges[1 : me - 1]
+        cr = cp.searchsorted(inner, V[r], side="right")  # 0..ni
         codes[r] = cr
         kx[r] = int(cr.max()) + 1
     return codes, kx

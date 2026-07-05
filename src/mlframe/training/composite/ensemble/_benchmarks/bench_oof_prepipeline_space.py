@@ -83,10 +83,7 @@ def _bench(comps, names, X, y, *, iters=20, warmup=3):
 
     for _ in range(warmup):
         _run()
-    best = min(
-        (lambda t0: (_run(), time.perf_counter() - t0)[1])(time.perf_counter())
-        for _ in range(iters)
-    )
+    best = min((lambda t0: (_run(), time.perf_counter() - t0)[1])(time.perf_counter()) for _ in range(iters))
     return best
 
 

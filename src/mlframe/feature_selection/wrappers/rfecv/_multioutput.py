@@ -60,9 +60,7 @@ def fit_multioutput(self, X, y, groups, sample_weight, fit_params, strategy: str
 
     if not per_column_selected:
         if skipped_columns:
-            raise ValueError(
-                f"RFECV multioutput: all {n_columns} output column(s) failed to fit: {skipped_columns}"
-            )
+            raise ValueError(f"RFECV multioutput: all {n_columns} output column(s) failed to fit: {skipped_columns}")
         raise ValueError("RFECV multioutput: y has no output columns to fit.")
 
     sets = [set(v) for v in per_column_selected.values()]

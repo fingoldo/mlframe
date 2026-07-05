@@ -70,8 +70,7 @@ def _read_importances(model, importance: str, X, y, n_repeats: int, random_state
         coef = np.abs(np.asarray(model.coef_, dtype=np.float64))
         return coef.max(axis=0) if coef.ndim > 1 else coef
     raise AttributeError(
-        f"ACE importance='native' needs feature_importances_ or coef_ on the fitted "
-        f"{type(model).__name__}; got neither. Use importance='permutation'."
+        f"ACE importance='native' needs feature_importances_ or coef_ on the fitted " f"{type(model).__name__}; got neither. Use importance='permutation'."
     )
 
 
@@ -237,9 +236,7 @@ def _run_ace_round(
     contrast_pool: list[np.ndarray] = []
     for r in range(n_replicates):
         rng = np.random.default_rng(random_state + r)
-        real_r, contrast_r = _one_replicate_importances(
-            estimator, X, y, importance=importance, n_perm_repeats=n_perm_repeats, rng=rng, seed=random_state + r
-        )
+        real_r, contrast_r = _one_replicate_importances(estimator, X, y, importance=importance, n_perm_repeats=n_perm_repeats, rng=rng, seed=random_state + r)
         real_imps[r] = real_r
         contrast_pool.append(contrast_r)
     pooled = np.concatenate(contrast_pool)
@@ -359,9 +356,5 @@ def _default_estimator(y: np.ndarray, n: int, random_state: int):
     if y.dtype.kind in ("i", "u", "b", "O", "U", "S"):
         is_classification = np.unique(y).size <= max(20, int(np.sqrt(n)))
     if is_classification:
-        return RandomForestClassifier(
-            n_estimators=n_estimators, n_jobs=-1, random_state=random_state, max_features="sqrt"
-        )
-    return RandomForestRegressor(
-        n_estimators=n_estimators, n_jobs=-1, random_state=random_state, max_features="sqrt"
-    )
+        return RandomForestClassifier(n_estimators=n_estimators, n_jobs=-1, random_state=random_state, max_features="sqrt")
+    return RandomForestRegressor(n_estimators=n_estimators, n_jobs=-1, random_state=random_state, max_features="sqrt")

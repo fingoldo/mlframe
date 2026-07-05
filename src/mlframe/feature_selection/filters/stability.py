@@ -114,15 +114,9 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         #   * Negative / out-of-range params leaked to numpy with
         #     unhelpful errors.
         if not isinstance(self.n_bootstraps, (int, np.integer)) or self.n_bootstraps < 1:
-            raise ValueError(
-                f"StabilityMRMR: n_bootstraps must be a positive integer; "
-                f"got {self.n_bootstraps!r}."
-            )
+            raise ValueError(f"StabilityMRMR: n_bootstraps must be a positive integer; " f"got {self.n_bootstraps!r}.")
         if not (0.0 < float(self.sample_fraction) <= 1.0):
-            raise ValueError(
-                f"StabilityMRMR: sample_fraction must be in (0, 1]; "
-                f"got {self.sample_fraction!r}."
-            )
+            raise ValueError(f"StabilityMRMR: sample_fraction must be in (0, 1]; " f"got {self.sample_fraction!r}.")
         # support_threshold lives on the probability axis [0, 1] for
         # in-range gating, but the boundary and >1 values are useful
         # sentinels documented in the test contract: 0.0 keeps every
@@ -130,10 +124,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         # an empty support (no probability can clear it). Accept the
         # extended [0, +inf) interval and let the >= mask resolve it.
         if float(self.support_threshold) < 0.0:
-            raise ValueError(
-                f"StabilityMRMR: support_threshold must be >= 0; "
-                f"got {self.support_threshold!r}."
-            )
+            raise ValueError(f"StabilityMRMR: support_threshold must be >= 0; " f"got {self.support_threshold!r}.")
         rng = np.random.default_rng(self.random_state)
         n_samples = X.shape[0]
         n_features = X.shape[1]
@@ -141,13 +132,10 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         # degenerate; MI estimators raise or return NaN at n<2).
         sub_size = max(2, int(round(self.sample_fraction * n_samples)))
         if sub_size > n_samples:
-            raise ValueError(
-                f"StabilityMRMR: sub_size ({sub_size}) exceeds n_samples "
-                f"({n_samples}); reduce sample_fraction."
-            )
+            raise ValueError(f"StabilityMRMR: sub_size ({sub_size}) exceeds n_samples " f"({n_samples}); reduce sample_fraction.")
 
         # Generate seeds upfront so the bootstrap is deterministic for a given ``random_state`` regardless of joblib worker order.
-        seeds = rng.integers(0, 2 ** 31 - 1, size=self.n_bootstraps)
+        seeds = rng.integers(0, 2**31 - 1, size=self.n_bootstraps)
 
         # Decide once whether stratified sampling applies: ON when requested AND y looks class-like (few distinct values). A high-cardinality / continuous y is a
         # regression target where per-class stratification is meaningless, so fall back to the plain draw. The per-class index groups are precomputed once and reused.
@@ -219,7 +207,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         self.avg_selected_per_bootstrap_ = float(np.mean([len(s) for s in supports])) if supports else 0.0
         _pi = float(self.support_threshold)
         if abs(float(self.sample_fraction) - 0.5) <= 1e-9 and _pi > 0.5 and n_features > 0:
-            self.pfer_bound_ = (self.avg_selected_per_bootstrap_ ** 2) / ((2.0 * _pi - 1.0) * n_features)
+            self.pfer_bound_ = (self.avg_selected_per_bootstrap_**2) / ((2.0 * _pi - 1.0) * n_features)
         else:
             self.pfer_bound_ = float("nan")
         if hasattr(X, "columns"):
@@ -244,17 +232,12 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
                     X = X[fit_cols]
                 else:
                     missing = sorted(set(fit_cols) - set(cols))
-                    raise ValueError(
-                        f"StabilityMRMR.transform: X columns differ from "
-                        f"fit; missing {missing!r}."
-                    )
+                    raise ValueError(f"StabilityMRMR.transform: X columns differ from " f"fit; missing {missing!r}.")
         elif hasattr(self, "n_features_in_"):
             _ncols = int(X.shape[1])
             if _ncols != int(self.n_features_in_):
                 raise ValueError(
-                    f"StabilityMRMR.transform: X has {_ncols} features, "
-                    f"but StabilityMRMR is expecting "
-                    f"{int(self.n_features_in_)} features as input."
+                    f"StabilityMRMR.transform: X has {_ncols} features, " f"but StabilityMRMR is expecting " f"{int(self.n_features_in_)} features as input."
                 )
         if hasattr(X, "iloc"):
             return X.iloc[:, self.support_]

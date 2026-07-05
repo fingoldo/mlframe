@@ -32,7 +32,6 @@ from sklearn.model_selection import train_test_split
 from mlframe.feature_selection.wrappers.rfecv import RFECV
 from mlframe.feature_selection.wrappers._enums import OptimumSearch
 
-
 SCENARIOS = [
     ("narrow_p30", dict(n_features=30, n_informative=8, n_redundant=6)),
     ("mid_p80", dict(n_features=80, n_informative=12, n_redundant=10)),

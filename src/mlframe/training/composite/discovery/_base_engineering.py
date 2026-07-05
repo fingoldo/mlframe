@@ -89,7 +89,7 @@ def _causal_rolling(y_sorted: np.ndarray, window: int, *, median: bool) -> np.nd
     if window < 1:
         return out
     for i in range(window, n):
-        past = y_sorted[i - window:i]  # strictly earlier than row i
+        past = y_sorted[i - window : i]  # strictly earlier than row i
         out[i] = np.median(past) if median else past.mean()
     return out
 

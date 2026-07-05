@@ -49,8 +49,8 @@ def ks_via_desc_reverse(y_true: np.ndarray, y_score: np.ndarray) -> float:
     ys = np.asarray(y_score, dtype=np.float64)
     if yt.shape[0] == 0:
         return np.nan
-    desc = np.argsort(ys)[::-1]      # what AUC computes
-    asc = desc[::-1]                 # reverse-view -> ascending
+    desc = np.argsort(ys)[::-1]  # what AUC computes
+    asc = desc[::-1]  # reverse-view -> ascending
     asc = np.ascontiguousarray(asc)  # kernel walks it; make contiguous
     return float(_ks_statistic_kernel(yt[asc], ys[asc]))
 

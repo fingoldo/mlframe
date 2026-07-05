@@ -82,12 +82,11 @@ def main():
         b = _new_loop(*args_base, 3, dtype)
         for n_perms in (50, 500):
             args = (*args_base, n_perms, dtype)
-            ident = (_old_loop(*args) == _new_loop(*args))
+            ident = _old_loop(*args) == _new_loop(*args)
             reps = 20 if n <= 20000 else 8
             old = _best_of(_old_loop, args, reps)
             new = _best_of(_new_loop, args, reps)
-            print(f"{n:>8} {n_perms:>8} {old*1e3:>10.4f} {new*1e3:>10.4f} "
-                  f"{old/new:>7.1f}x  {ident}")
+            print(f"{n:>8} {n_perms:>8} {old*1e3:>10.4f} {new*1e3:>10.4f} " f"{old/new:>7.1f}x  {ident}")
 
 
 if __name__ == "__main__":

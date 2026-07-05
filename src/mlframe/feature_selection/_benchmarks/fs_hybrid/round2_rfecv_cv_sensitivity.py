@@ -57,8 +57,7 @@ def main():
         for cv in (2, 3, 5):
             t0 = time.time(); s = fit_rfecv(Xtr, ytr, cv); dt = time.time() - t0
             sels[cv] = s
-            rows.append(dict(seed=sd, cv=cv, n=len(s), auc_mean=auc(Xtr, Xte, ytr, yte, s),
-                             jacc_vs_cv3=jacc(s, sels.get(3, s)), fit_s=round(dt, 1)))
+            rows.append(dict(seed=sd, cv=cv, n=len(s), auc_mean=auc(Xtr, Xte, ytr, yte, s), jacc_vs_cv3=jacc(s, sels.get(3, s)), fit_s=round(dt, 1)))
             print(f"sd{sd} cv={cv} n={len(s):2d} auc={rows[-1]['auc_mean']} jacc_vs_cv3={rows[-1]['jacc_vs_cv3']} {dt:5.1f}s", flush=True)
     df = pd.DataFrame(rows)
     print("\n=== mean over seeds ===")

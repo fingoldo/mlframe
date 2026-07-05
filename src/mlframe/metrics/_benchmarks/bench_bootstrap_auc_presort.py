@@ -47,8 +47,7 @@ def _bench(n: int, n_boot: int = 1000, seed: int = 0) -> dict:
     new_ms = (time.perf_counter() - t1) * 1e3
 
     max_abs = float(np.max(np.abs(old_vals - new_vals)))
-    return {"n": n, "old_ms": old_ms, "new_ms": new_ms,
-            "speedup": old_ms / new_ms, "max_abs_diff": max_abs}
+    return {"n": n, "old_ms": old_ms, "new_ms": new_ms, "speedup": old_ms / new_ms, "max_abs_diff": max_abs}
 
 
 if __name__ == "__main__":
@@ -56,5 +55,4 @@ if __name__ == "__main__":
     _bench(2000, n_boot=5)
     for n in (5000, 20000, 50000, 200000):
         r = _bench(n)
-        print(f"n={r['n']:>7}  old={r['old_ms']:8.1f}ms  new={r['new_ms']:8.1f}ms  "
-              f"speedup={r['speedup']:.2f}x  max|diff|={r['max_abs_diff']:.2e}")
+        print(f"n={r['n']:>7}  old={r['old_ms']:8.1f}ms  new={r['new_ms']:8.1f}ms  " f"speedup={r['speedup']:.2f}x  max|diff|={r['max_abs_diff']:.2e}")

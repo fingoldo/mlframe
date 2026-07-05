@@ -105,8 +105,7 @@ def _quantize_for_su(X) -> tuple:
         for c in col_iter:
             col = X[c].to_numpy(dtype=np.float64, copy=False)
             names.append(str(c))
-            edges = np.quantile(col[np.isfinite(col)] if np.isfinite(col).any() else col,
-                                 np.linspace(0, 1, n_bins + 1))
+            edges = np.quantile(col[np.isfinite(col)] if np.isfinite(col).any() else col, np.linspace(0, 1, n_bins + 1))
             edges = np.unique(edges)
             if edges.size < 3:
                 binned = np.zeros(col.shape, dtype=np.int32)
@@ -339,14 +338,10 @@ def build_cluster_hierarchy(
                             "(treated as non-redundant). Further failures "
                             "suppressed for this build.", a_name, b_name, exc,
                         )
-                pair_sus[(a_name, b_name)] = (
-                    float(s) if np.isfinite(s) else 0.0
-                )
+                pair_sus[(a_name, b_name)] = float(s) if np.isfinite(s) else 0.0
         else:
             for (a_name, b_name), s in zip(name_pairs, scores):
-                pair_sus[(a_name, b_name)] = (
-                    float(s) if np.isfinite(s) else 0.0
-                )
+                pair_sus[(a_name, b_name)] = float(s) if np.isfinite(s) else 0.0
         components = _components_from_pair_sus(
             resolved_names, pair_sus, super_tau,
         )

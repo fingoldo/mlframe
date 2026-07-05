@@ -109,7 +109,7 @@ def run(seeds=12, ns=(1000, 5000, 20000), nbins_grid=(5, 10, 15, 20, 30, 50), ve
     if verbose:
         print(f"ECE n_bins bench | seeds={seeds} | ground-truth grid={N_GRID}")
         print(f"{'scenario':16s} {'n':>6s} {'nbins':>5s} {'ECEtrue':>8s} {'bias':>9s} {'std':>8s} {'rmse':>8s}")
-        for (name, n, nb, et, bias, std, rmse) in rows:
+        for name, n, nb, et, bias, std, rmse in rows:
             mark = " *" if cell_winner[(name, n)] == nb else ""
             print(f"{name:16s} {n:6d} {nb:5d} {et:8.4f} {bias:+9.4f} {std:8.4f} {rmse:8.4f}{mark}")
         print("\nPer-cell RMSE winners:")
@@ -122,9 +122,9 @@ def run(seeds=12, ns=(1000, 5000, 20000), nbins_grid=(5, 10, 15, 20, 30, 50), ve
         per_nb_rmse = {nb: [] for nb in nbins_grid}
         # rebuild rmse lookup
         rl = {}
-        for (name, n, nb, et, bias, std, rmse) in rows:
+        for name, n, nb, et, bias, std, rmse in rows:
             rl[(name, n, nb)] = rmse
-        for (name, n) in cell_winner:
+        for name, n in cell_winner:
             for nb in nbins_grid:
                 per_nb_rmse[nb].append(rl[(name, n, nb)])
         print("\nMean RMSE across all cells per fixed nbins (lower=better):")

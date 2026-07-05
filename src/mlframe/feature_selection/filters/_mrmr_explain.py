@@ -153,10 +153,7 @@ def _rejection_section(mrmr_self: Any) -> tuple[str, str | None]:
         f"Rejections: {n_total} FE candidates dropped across {int(len(by_gate))} gate(s).",
         f"  BINDING gate: {binding_gate} -- dropped {binding_n}{band_str}.",
     ]
-    others = [
-        f"{g}={int(c)}"
-        for g, c in list(by_gate.items())[1:_MAX_LEDGER_GATES]
-    ]
+    others = [f"{g}={int(c)}" for g, c in list(by_gate.items())[1:_MAX_LEDGER_GATES]]
     if others:
         lines.append("  other gates: " + ", ".join(others))
     return ("\n".join(lines), binding_gate)

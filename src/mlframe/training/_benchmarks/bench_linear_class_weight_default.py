@@ -59,8 +59,7 @@ def main():
             )
             res = {}
             for cw in (None, "balanced"):
-                m = LogisticRegression(C=1.0, solver="lbfgs", max_iter=1000,
-                                       class_weight=cw, random_state=seed)
+                m = LogisticRegression(C=1.0, solver="lbfgs", max_iter=1000, class_weight=cw, random_state=seed)
                 m.fit(Xtr, ytr)
                 p = m.predict_proba(Xte)[:, 1]
                 pred = (p >= 0.5).astype(int)
@@ -75,14 +74,11 @@ def main():
                 wins_bal_acc += 1
             if d_auc > 1e-6:
                 wins_auc += 1
-            rows.append((name, seed, res[None][0], res["balanced"][0], d_ba,
-                         res[None][1], res["balanced"][1], d_auc))
+            rows.append((name, seed, res[None][0], res["balanced"][0], d_ba, res[None][1], res["balanced"][1], d_auc))
 
-    print(f"{'scenario':<16}{'seed':<5}{'ba_none':>9}{'ba_bal':>9}{'dBA':>9}"
-          f"{'auc_none':>10}{'auc_bal':>9}{'dAUC':>9}")
+    print(f"{'scenario':<16}{'seed':<5}{'ba_none':>9}{'ba_bal':>9}{'dBA':>9}" f"{'auc_none':>10}{'auc_bal':>9}{'dAUC':>9}")
     for r in rows:
-        print(f"{r[0]:<16}{r[1]:<5}{r[2]:>9.4f}{r[3]:>9.4f}{r[4]:>+9.4f}"
-              f"{r[5]:>10.4f}{r[6]:>9.4f}{r[7]:>+9.4f}")
+        print(f"{r[0]:<16}{r[1]:<5}{r[2]:>9.4f}{r[3]:>9.4f}{r[4]:>+9.4f}" f"{r[5]:>10.4f}{r[6]:>9.4f}{r[7]:>+9.4f}")
     mean_dba = np.mean([r[4] for r in rows])
     mean_dauc = np.mean([r[7] for r in rows])
     print(f"\nbalanced wins balanced-accuracy: {wins_bal_acc}/{total}  mean dBA={mean_dba:+.4f}")

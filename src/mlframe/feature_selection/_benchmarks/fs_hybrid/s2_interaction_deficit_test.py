@@ -26,8 +26,7 @@ from scenarios import make
 def honest_brier(X, y, cols):
     if not cols:
         return 0.25
-    p = cross_val_predict(lgb.LGBMClassifier(n_estimators=120, num_leaves=31, verbose=-1), X[cols], y, cv=3,
-                          method="predict_proba")[:, 1]
+    p = cross_val_predict(lgb.LGBMClassifier(n_estimators=120, num_leaves=31, verbose=-1), X[cols], y, cv=3, method="predict_proba")[:, 1]
     return brier_score_loss(y, p)
 
 
@@ -51,9 +50,9 @@ def run(scenario, seed=0, n_anchors=45):
         names = [cols[i] for i in idx]
         proxy = brier_score_loss(ytr, np.clip(expit(base + phi[:, idx].sum(1)), 1e-6, 1 - 1e-6))
         honest = honest_brier(Xtr, ytr, names)
-        im = float(np.mean([2 * np.abs(Phi[:, idx[a], idx[b]]).sum()
-                            for a in range(len(idx)) for b in range(a + 1, len(idx))]))
-        mass.append(im); bias.append(honest - proxy)
+        im = float(np.mean([2 * np.abs(Phi[:, idx[a], idx[b]]).sum() for a in range(len(idx)) for b in range(a + 1, len(idx))]))
+        mass.append(im)
+        bias.append(honest - proxy)
     mass, bias = np.array(mass), np.array(bias)
     return pearsonr(mass, bias)[0], spearmanr(mass, bias)[0]
 

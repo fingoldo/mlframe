@@ -61,14 +61,10 @@ def _base_arg(df, base_columns: Sequence[str], rows: np.ndarray) -> np.ndarray:
         return np.zeros(rows.size, dtype=np.float64)
     if len(base_columns) == 1:
         return _extract_column_array(df, base_columns[0], rows=rows).astype(np.float64)
-    return np.column_stack(
-        [_extract_column_array(df, c, rows=rows).astype(np.float64) for c in base_columns]
-    )
+    return np.column_stack([_extract_column_array(df, c, rows=rows).astype(np.float64) for c in base_columns])
 
 
-def _carve_group_disjoint(
-    sample_idx: np.ndarray, groups_sample: np.ndarray, holdout_frac: float, rng: np.random.Generator
-) -> tuple[np.ndarray, np.ndarray]:
+def _carve_group_disjoint(sample_idx: np.ndarray, groups_sample: np.ndarray, holdout_frac: float, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
     """Split ``sample_idx`` into (fit_idx, eval_idx) with DISJOINT groups.
 
     Whole groups go to one side or the other -- mirroring the production group-aware split so the
@@ -334,9 +330,7 @@ def apply_yscale_holdout_gate(
                 np.unique(groups_sample).size, min_groups,
             )
             return kept_specs
-        fit_idx, eval_idx = _carve_group_disjoint(
-            sample_idx, groups_sample, float(getattr(cfg, "yscale_holdout_gate_holdout_group_frac", 0.3)), rng
-        )
+        fit_idx, eval_idx = _carve_group_disjoint(sample_idx, groups_sample, float(getattr(cfg, "yscale_holdout_gate_holdout_group_frac", 0.3)), rng)
         y_fit = y_full[fit_idx].astype(np.float64)
         y_eval = y_full[eval_idx].astype(np.float64)
         _gate_mode = "train-group-holdout"

@@ -48,8 +48,8 @@ def _binary_pair_indices(rel: torch.Tensor):
     Empty (n_pos == 0 or n_neg == 0) returns two zero-length long tensors on
     the same device, matching torch.where's empty-result shape.
     """
-    is_one = (rel == 1)
-    is_zero = (rel == 0)
+    is_one = rel == 1
+    is_zero = rel == 0
     if not (is_zero | is_one).all():
         return None
     pos = torch.nonzero(is_one, as_tuple=False).squeeze(-1)
@@ -99,7 +99,7 @@ def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torc
         return scores.new_zeros(())
 
     # Cap quadratic blowup: 10k docs -> 100M pairs ~> 400MB float32 alloc.
-    _max_n = int(_RANKNET_MAX_PAIRS_PER_QUERY ** 0.5)
+    _max_n = int(_RANKNET_MAX_PAIRS_PER_QUERY**0.5)
     if n > _max_n:
         # torch.randperm picks a unique-index subsample on-device; uniform
         # over docs preserves the pair-distribution in expectation.

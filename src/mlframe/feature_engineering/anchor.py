@@ -65,8 +65,7 @@ if _NUMBA_AVAILABLE:
     _ANCHOR_FASTMATH = {"reassoc", "contract", "arcp", "afn"}
 
     @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)
-    def _anchor_rmse_core(label, is_anchor, K_slope, K_rmse,
-                          residual_out, rmse_out):
+    def _anchor_rmse_core(label, is_anchor, K_slope, K_rmse, residual_out, rmse_out):
         m = label.size
         pos = np.empty(m, dtype=np.float64)
         val = np.empty(m, dtype=np.float64)
@@ -147,15 +146,9 @@ if _NUMBA_AVAILABLE:
                 if abs(det) > 1e-300:
                     inv_det = 1.0 / det
                     # Cramer for c (coef[2]) and full solve for prediction.
-                    a = (b0 * (m11 * m22 - m12 * m21)
-                         - m01 * (b1 * m22 - m12 * b2)
-                         + m02 * (b1 * m21 - m11 * b2)) * inv_det
-                    b = (m00 * (b1 * m22 - m12 * b2)
-                         - b0 * (m10 * m22 - m12 * m20)
-                         + m02 * (m10 * b2 - b1 * m20)) * inv_det
-                    c = (m00 * (m11 * b2 - b1 * m21)
-                         - m01 * (m10 * b2 - b1 * m20)
-                         + b0 * (m10 * m21 - m11 * m20)) * inv_det
+                    a = (b0 * (m11 * m22 - m12 * m21) - m01 * (b1 * m22 - m12 * b2) + m02 * (b1 * m21 - m11 * b2)) * inv_det
+                    b = (m00 * (b1 * m22 - m12 * b2) - b0 * (m10 * m22 - m12 * m20) + m02 * (m10 * b2 - b1 * m20)) * inv_det
+                    c = (m00 * (m11 * b2 - b1 * m21) - m01 * (m10 * b2 - b1 * m20) + b0 * (m10 * m21 - m11 * m20)) * inv_det
                     dx_now = i - last_r
                     accel_out[i] = c
                     quad_out[i] = a + b * dx_now + c * dx_now * dx_now
@@ -336,9 +329,7 @@ def add_anchor_extrapolation_features(
     is_anchor = np.ascontiguousarray(is_anchor, dtype=bool)
     n = label.size
     if is_anchor.size != n:
-        raise ValueError(
-            f"label / is_anchor length mismatch: {n} vs {is_anchor.size}"
-        )
+        raise ValueError(f"label / is_anchor length mismatch: {n} vs {is_anchor.size}")
     if K_slope < 2:
         raise ValueError(f"K_slope must be >= 2, got {K_slope}")
 

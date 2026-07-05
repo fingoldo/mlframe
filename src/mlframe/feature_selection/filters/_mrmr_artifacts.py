@@ -216,10 +216,7 @@ def validate_artifact_dict(artifacts: dict | None) -> bool:
     su = artifacts.get("su_to_target")
     names = artifacts.get("feature_names")
     if su is None or names is None:
-        logger.warning(
-            "Precomputed artifact dict missing required keys (su_to_target / feature_names); "
-            "ignoring and recomputing from scratch."
-        )
+        logger.warning("Precomputed artifact dict missing required keys (su_to_target / feature_names); " "ignoring and recomputing from scratch.")
         return False
     try:
         su_arr = np.asarray(su)
@@ -227,9 +224,9 @@ def validate_artifact_dict(artifacts: dict | None) -> bool:
         return False
     if su_arr.ndim != 1 or su_arr.shape[0] != len(names):
         logger.warning(
-            "Precomputed artifact su_to_target shape %s does not match feature_names len %d; "
-            "ignoring and recomputing from scratch.",
-            su_arr.shape, len(names),
+            "Precomputed artifact su_to_target shape %s does not match feature_names len %d; " "ignoring and recomputing from scratch.",
+            su_arr.shape,
+            len(names),
         )
         return False
     return True

@@ -56,8 +56,7 @@ def main() -> None:
                 print(f"  n={n_rows:>10_} nperm={npermutations:>6} ERROR: {type(e).__name__}: {e}")
                 continue
             spd = t_serial / max(t_streamed, 1e-9)
-            print(f"  {n_rows:>10_} {npermutations:>6} "
-                  f"{t_serial * 1000:>9.2f}  {t_streamed * 1000:>11.2f}  {spd:>7.2f}x")
+            print(f"  {n_rows:>10_} {npermutations:>6} " f"{t_serial * 1000:>9.2f}  {t_streamed * 1000:>11.2f}  {spd:>7.2f}x")
 
 
 if __name__ == "__main__":

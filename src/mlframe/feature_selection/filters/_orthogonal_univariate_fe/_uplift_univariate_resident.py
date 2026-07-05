@@ -63,12 +63,12 @@ def _specs_from_engineered_names(eng_names, raw_cols):
             return None
         if not name.startswith(src + "__"):
             return None
-        suffix = name[len(src) + 2:]
+        suffix = name[len(src) + 2 :]
         deg = None
         basis_name = None
         for code in _POLY_CODES:
             if suffix.startswith(code):
-                rest = suffix[len(code):]
+                rest = suffix[len(code) :]
                 if rest.isdigit():
                     deg = int(rest)
                     basis_name = _CODE_TO_BASIS[code]

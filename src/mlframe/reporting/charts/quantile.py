@@ -222,10 +222,7 @@ def _width_dist_panel(y_true, preds_NK, alphas) -> HistogramPanelSpec:
         bins=bins,
         bin_centers=centers,
         bin_width=width,
-        title=(
-            f"Width(q_{a_hi} - q_{a_lo}) "
-            f"(mean={mean_w:.3f}, max={max_w:.3f})"
-        ),
+        title=(f"Width(q_{a_hi} - q_{a_lo}) " f"(mean={mean_w:.3f}, max={max_w:.3f})"),
         xlabel=f"Interval width (q_{a_hi} - q_{a_lo})",
         ylabel="Density",
         density=True,
@@ -344,10 +341,7 @@ def _pit_hist_panel(y_true, preds_NK, alphas) -> PanelSpec:
         bins=20,
         bin_centers=centers,
         bin_width=width,
-        title=(
-            f"PIT histogram (uniform = calibrated; "
-            f"mean={mean:.3f})"
-        ),
+        title=(f"PIT histogram (uniform = calibrated; " f"mean={mean:.3f})"),
         xlabel="PIT value",
         ylabel="Density",
         density=True,
@@ -556,10 +550,7 @@ def _quantile_crossing_panel(y_true, preds_NK, alphas) -> PanelSpec:
         rates[j] = (c / n) if n else 0.0
         cats.append(f"{a_arr[j]:g}>{a_arr[j + 1]:g}")
     worst = int(np.argmax(counts))
-    title = (
-        f"Quantile crossing rate (worst {cats[worst]}: "
-        f"{counts[worst]} rows, {rates[worst]:.3%})"
-    )
+    title = f"Quantile crossing rate (worst {cats[worst]}: " f"{counts[worst]} rows, {rates[worst]:.3%})"
     return BarPanelSpec(
         categories=tuple(cats),
         values=rates,
@@ -678,8 +669,7 @@ ALLOWED_QUANTILE_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
 
 
 DEFAULT_QUANTILE_PANELS: str = (
-    "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST "
-    "QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING"
+    "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST " "QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING"
 )
 
 
@@ -704,29 +694,17 @@ def compose_quantile_figure(
     y = np.asarray(y_true)
     P = np.asarray(preds_NK)
     if P.ndim != 2:
-        raise ValueError(
-            f"compose_quantile_figure requires 2-D preds_NK; "
-            f"got shape {P.shape}"
-        )
+        raise ValueError(f"compose_quantile_figure requires 2-D preds_NK; " f"got shape {P.shape}")
     if P.shape[0] != y.shape[0]:
-        raise ValueError(
-            f"preds_NK.shape[0]={P.shape[0]} != len(y_true)={y.shape[0]}"
-        )
+        raise ValueError(f"preds_NK.shape[0]={P.shape[0]} != len(y_true)={y.shape[0]}")
     if P.shape[1] != len(alphas):
-        raise ValueError(
-            f"preds_NK.shape[1]={P.shape[1]} != len(alphas)={len(alphas)}"
-        )
+        raise ValueError(f"preds_NK.shape[1]={P.shape[1]} != len(alphas)={len(alphas)}")
 
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(
-            f"Unknown quantile panel tokens {unknown}. "
-            f"Allowed: {sorted(ALLOWED_QUANTILE_PANEL_TOKENS)}"
-        )
-    panels: List[PanelSpec] = [
-        _TOKEN_BUILDERS[tok](y, P, alphas) for tok in tokens
-    ]
+        raise ValueError(f"Unknown quantile panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_QUANTILE_PANEL_TOKENS)}")
+    panels: List[PanelSpec] = [_TOKEN_BUILDERS[tok](y, P, alphas) for tok in tokens]
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)
     n_cols = max_cols if grid else 0

@@ -116,7 +116,7 @@ def raw_retains_signal_given_genuine_children(
                 _rb_cand = resident_code_operand(rb, "cmi_cand_x")
         except Exception:
             _rb_cand = rb
-    _rb_kx = (int(rb.max()) + 1 if getattr(rb, "size", 0) else 1)   # host raw codes -> free cardinality
+    _rb_kx = int(rb.max()) + 1 if getattr(rb, "size", 0) else 1  # host raw codes -> free cardinality
     _, _, marg_excess = _excess_and_floor(_rb_cand, yb, None, seed=seed, kx=_rb_kx)
     if not _gc:
         return True  # no genuine subsumer survives -> the raw cannot be proven redundant
@@ -124,7 +124,7 @@ def raw_retains_signal_given_genuine_children(
     # (``_renumber_joint_gpu``, same partition -> selection-identical) so the support never crosses H2D (cmi_z +
     # perm-null order/z_rank). None if any child lacks a resident twin -> host z scored.
     z_support_dev = None
-    _zcard = 0   # occupied cardinality of the conditioning support (from whichever join runs) -> kz, no device read
+    _zcard = 0  # occupied cardinality of the conditioning support (from whichever join runs) -> kz, no device read
     if genuine_child_bins_dev is not None:
         _gcd = [g for g in genuine_child_bins_dev if g is not None]
         if _gcd and len(_gcd) == len(_gc):
@@ -140,8 +140,7 @@ def raw_retains_signal_given_genuine_children(
     z_support = None
     if z_support_dev is None:
         z_support, _zcard = _renumber_joint(*_gc)
-    cmi, floor, excess = _excess_and_floor(_rb_cand, yb, z_support, seed=seed, z_support_dev=z_support_dev,
-                                           kx=_rb_kx, kz=int(_zcard))
+    cmi, floor, excess = _excess_and_floor(_rb_cand, yb, z_support, seed=seed, z_support_dev=z_support_dev, kx=_rb_kx, kz=int(_zcard))
     if (cmi > floor) and (excess >= self_retain_frac * max(0.0, marg_excess)):
         return True
     # LINEAR-USABILITY leg (variant-3): a linearly-usable raw whose conditional CMI collapsed
@@ -259,8 +258,7 @@ def _excess_and_floor(cand_bin, y_bin, z_support, *, seed=0, z_support_dev=None,
         # ``_z_scored`` is the device-born support when available (resident -> no cmi_z H2D) else the host one.
         cmi_v, _cards = _cmi_from_binned(cand_bin, y_bin, _z_scored, return_cards=True, kx=kx, kz=kz)
         cmi = float(cmi_v)
-        floor, null_mean = _conditional_perm_null(
-            cand_bin, y_bin, z_support, seed=seed, precomp_cards=_cards, z_support_dev=z_support_dev)
+        floor, null_mean = _conditional_perm_null(cand_bin, y_bin, z_support, seed=seed, precomp_cards=_cards, z_support_dev=z_support_dev)
     return cmi, floor, max(0.0, cmi - null_mean)
 
 

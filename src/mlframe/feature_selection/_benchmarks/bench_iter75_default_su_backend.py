@@ -75,16 +75,14 @@ def run_regime(name, width, n_rows, max_features=10, **kw):
             f"selected={sorted(chosen)}",
             flush=True,
         )
-        rows.append(dict(backend_arg=backend, chosen=b, bins_src=src, n_mc=n_mc,
-                         e2e=dt, recall=recall, selected=sorted(chosen)))
+        rows.append(dict(backend_arg=backend, chosen=b, bins_src=src, n_mc=n_mc, e2e=dt, recall=recall, selected=sorted(chosen)))
     return rows
 
 
 def main():
     print("iter75 bench: SU-as-default vs Pearson opt-in", flush=True)
     run_regime("width=2000/n=5000 (auto -> SU expected)", width=2000, n_rows=5000, max_features=10)
-    run_regime("width=10000/n=10000 (auto -> Pearson expected)", width=10000, n_rows=10000,
-               max_features=10)
+    run_regime("width=10000/n=10000 (auto -> Pearson expected)", width=10000, n_rows=10000, max_features=10)
 
 
 if __name__ == "__main__":

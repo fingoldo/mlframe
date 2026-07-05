@@ -29,7 +29,4 @@ def _check_equal_length(y_true: Any, y_pred: Any) -> None:
     n_true = len(y_true)
     n_pred = len(y_pred)
     if n_true != n_pred:
-        raise ValueError(
-            f"Found input variables with inconsistent numbers of samples: "
-            f"y_true has {n_true}, y_pred/y_score has {n_pred}."
-        )
+        raise ValueError(f"Found input variables with inconsistent numbers of samples: " f"y_true has {n_true}, y_pred/y_score has {n_pred}.")

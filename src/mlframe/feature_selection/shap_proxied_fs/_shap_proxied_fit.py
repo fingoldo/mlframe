@@ -66,31 +66,26 @@ class ShapProxiedFitMixin:
 
     def _run_search(self, optimizer, phi, base, y):
         """Dispatch to the chosen optimizer; returns list of (proxy_loss, feature_idx tuple)."""
-        kw = dict(classification=self.classification, metric=self.metric,
-                  max_card=self.max_features, top_n=self.top_n)
+        kw = dict(classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n)
         if optimizer == "bruteforce":
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 
-            return brute_force_top_n(phi, base, y, min_card=self.min_features,
-                                     parallel=(phi.shape[1] >= 14), **kw)
+            return brute_force_top_n(phi, base, y, min_card=self.min_features, parallel=(phi.shape[1] >= 14), **kw)
         if optimizer == "bruteforce_gpu":
             # Size-aware dispatcher: defaults to CPU, routes to the cupy kernel only when the KTC
             # crossover says GPU wins, and auto-falls back to the CPU kernel on any cupy/OOM error
             # (catch + log once). Keeps zero crash risk on hosts that segfault importing cupy.
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_subsetrank import brute_force_top_n_dispatch
 
-            return brute_force_top_n_dispatch(phi, base, y, min_card=self.min_features,
-                                              parallel=True, prefer_gpu=True, **kw)
+            return brute_force_top_n_dispatch(phi, base, y, min_card=self.min_features, parallel=True, prefer_gpu=True, **kw)
         from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_heuristics as H
 
         if optimizer == "beam":
             return H.beam_search(phi, base, y, beam_width=self.beam_width, min_card=self.min_features, **kw)
         if optimizer == "greedy_forward":
-            return H.greedy_forward(phi, base, y, classification=self.classification, metric=self.metric,
-                                    max_card=self.max_features, top_n=self.top_n)
+            return H.greedy_forward(phi, base, y, classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n)
         if optimizer == "greedy_backward":
-            return H.greedy_backward(phi, base, y, classification=self.classification, metric=self.metric,
-                                     min_card=self.min_features, top_n=self.top_n)
+            return H.greedy_backward(phi, base, y, classification=self.classification, metric=self.metric, min_card=self.min_features, top_n=self.top_n)
         if optimizer == "multistart":
             return H.multistart_local(phi, base, y, rng=self._rng, **kw)
         if optimizer == "genetic":
@@ -100,8 +95,7 @@ class ShapProxiedFitMixin:
         if optimizer == "gradient":
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gradient import gradient_top_n
 
-            return gradient_top_n(phi, base, y, classification=self.classification, metric=self.metric,
-                                  random_state=int(self.random_state), top_n=self.top_n)
+            return gradient_top_n(phi, base, y, classification=self.classification, metric=self.metric, random_state=int(self.random_state), top_n=self.top_n)
         raise ValueError(f"Unknown optimizer={optimizer!r}")
 
     # ------------------------------------------------------------------ fit
@@ -189,9 +183,7 @@ class ShapProxiedFitMixin:
         # Disjoint holdout for honest re-validation + trust guard (avoids winner's curse).
         stratify = y if self.classification else None
         idx_all = np.arange(len(X))
-        idx_search, idx_hold = train_test_split(
-            idx_all, test_size=self.holdout_size, random_state=int(self.random_state),
-            shuffle=True, stratify=stratify)
+        idx_search, idx_hold = train_test_split(idx_all, test_size=self.holdout_size, random_state=int(self.random_state), shuffle=True, stratify=stratify)
         # Wide-frame split with deferred holdout materialisation. At C4 (width=20000, n_rows=10000)
         # the original frame is 1.49 GiB, the search slice (75% rows) is 1.12 GiB, and the holdout
         # slice (25% rows) is 381 MiB; the legacy back-to-back
@@ -240,9 +232,7 @@ class ShapProxiedFitMixin:
             self.precomputed, X_search,
         )
         report["precomputed_used"] = _precomputed_report
-        report["precomputed_bins_available"] = bool(
-            isinstance(_precomputed_aligned, dict) and _precomputed_aligned.get("bins")
-        )
+        report["precomputed_bins_available"] = bool(isinstance(_precomputed_aligned, dict) and _precomputed_aligned.get("bins"))
 
         # Cheap native-importance pre-filter BEFORE the expensive OOF-SHAP. SHAP cost scales with the
         # column count, and clustering only compresses CORRELATED features (independent noise stays as
@@ -266,8 +256,7 @@ class ShapProxiedFitMixin:
         # double-booster work AND keeps the lever's win on warm runs.
         effective_prefilter_top = self.prefilter_top
         if self.shap_prefilter_enabled and self.prefilter_top is not None:
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_shap_prefilter import (
-                resolve_shap_prefilter_top)
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_shap_prefilter import resolve_shap_prefilter_top
 
             sp_top = (self.shap_prefilter_top if self.shap_prefilter_top is not None
                       else resolve_shap_prefilter_top(
@@ -277,13 +266,11 @@ class ShapProxiedFitMixin:
             # Tighten only -- never expand the user's prefilter budget.
             effective_prefilter_top = min(int(self.prefilter_top), int(sp_top))
             report["shap_prefilter"] = dict(
-                requested_top=int(sp_top),
-                effective_prefilter_top=int(effective_prefilter_top),
-                user_prefilter_top=int(self.prefilter_top))
+                requested_top=int(sp_top), effective_prefilter_top=int(effective_prefilter_top), user_prefilter_top=int(self.prefilter_top)
+            )
         working_cols = np.arange(n_features)
         if effective_prefilter_top is not None and n_features > effective_prefilter_top:
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import (
-                _default_stage1_keep, prefilter_columns, resolve_prefilter_method)
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter import _default_stage1_keep, prefilter_columns, resolve_prefilter_method
 
             # iter33 SHAP-aware stage-A tightening: when ``shap_prefilter`` shrinks
             # ``effective_prefilter_top`` far below the legacy 2000 default, the two_stage prefilter's
@@ -295,14 +282,10 @@ class ShapProxiedFitMixin:
             #      ``shap_prefilter_enabled=True``, (c) the resolved prefilter method == two_stage
             #      (only two_stage reads ``stage1_keep``; other paths ignore it).
             effective_stage1_keep = self.prefilter_stage1_keep
-            if (effective_stage1_keep is None and self.shap_aware_stage1_keep
-                    and self.shap_prefilter_enabled):
-                _resolved = resolve_prefilter_method(
-                    self.prefilter_method, n_features=n_features,
-                    n_rows=int(X_search.shape[0]))
+            if effective_stage1_keep is None and self.shap_aware_stage1_keep and self.shap_prefilter_enabled:
+                _resolved = resolve_prefilter_method(self.prefilter_method, n_features=n_features, n_rows=int(X_search.shape[0]))
                 if _resolved == "two_stage":
-                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_shap_prefilter import (
-                        resolve_shap_aware_stage1_keep)
+                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_shap_prefilter import resolve_shap_aware_stage1_keep
 
                     effective_stage1_keep = resolve_shap_aware_stage1_keep(
                         effective_prefilter_top=int(effective_prefilter_top),
@@ -311,12 +294,10 @@ class ShapProxiedFitMixin:
                         default_stage1_keep=_default_stage1_keep(n_features))
                     if "shap_prefilter" in report and isinstance(report["shap_prefilter"], dict):
                         report["shap_prefilter"]["stage1_keep_tightened"] = int(effective_stage1_keep)
-                        report["shap_prefilter"]["stage1_keep_default"] = int(
-                            _default_stage1_keep(n_features))
+                        report["shap_prefilter"]["stage1_keep_default"] = int(_default_stage1_keep(n_features))
 
             with _stage("prefilter"):
-                if (_precomputed_aligned is not None
-                        and "su_to_target" in _precomputed_aligned):
+                if _precomputed_aligned is not None and "su_to_target" in _precomputed_aligned:
                     # iter66: replace the booster / F-statistic prefilter with
                     # the SU(X_j, y) ranking the MRMR screen already computed.
                     # Skips the cloned-booster fit / chunked f_classif pass
@@ -377,15 +358,12 @@ class ShapProxiedFitMixin:
                             if str(_ca) in _name_to_orig and str(_cb) in _name_to_orig:
                                 _rescue_orig.add(_name_to_orig[str(_ca)])
                                 _rescue_orig.add(_name_to_orig[str(_cb)])
-                                self._su_seeded_pairs_orig.append(
-                                    (float(_syn), str(_ca), str(_cb)))
+                                self._su_seeded_pairs_orig.append((float(_syn), str(_ca), str(_cb)))
                         if _rescue_orig:
                             _wc_set = set(int(c) for c in working_cols)
                             _added = sorted(_rescue_orig - _wc_set)
                             if _added:
-                                working_cols = np.sort(np.concatenate(
-                                    [np.asarray(working_cols, dtype=np.int64),
-                                     np.asarray(_added, dtype=np.int64)]))
+                                working_cols = np.sort(np.concatenate([np.asarray(working_cols, dtype=np.int64), np.asarray(_added, dtype=np.int64)]))
                         self._su_seeded_screen_info = dict(_su_prefilter_info)
                         self._su_seeded_screen_info["n_rescued_orig"] = len(_rescue_orig)
                 if len(working_cols) < n_features:
@@ -395,8 +373,7 @@ class ShapProxiedFitMixin:
         # optional correlated-feature clustering. Carved verbatim into a sibling helper (Tier E LOC
         # carve); returns (X_hold, X_proxy, unit_to_members) and mutates report["clustering"] in
         # place + clears self._deferred_holdout exactly as the inline block did.
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit_prefilter import (
-            materialise_holdout_and_cluster)
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit_prefilter import materialise_holdout_and_cluster
 
         X_hold, X_proxy, unit_to_members = materialise_holdout_and_cluster(
             self=self, working_cols=working_cols, n_features=n_features,
@@ -442,16 +419,13 @@ class ShapProxiedFitMixin:
             # Data-driven ladder: narrow the cap toward the knee of the sorted |phi| importance curve.
             # Dense-signal frames keep the full cap; sparse frames prune harder. Always runs.
             importance_full = np.abs(phi).mean(axis=0)
-            effective_brute_force_cap, adaptive_info = _resolve_knee_prescreen_cap(
-                importance_full, default_cap=self.brute_force_max_features)
+            effective_brute_force_cap, adaptive_info = _resolve_knee_prescreen_cap(importance_full, default_cap=self.brute_force_max_features)
             report["adaptive_prescreen"] = adaptive_info
         elif ladder_mode == "hardcoded" and want_per_fold_phi and per_fold_phi_mean is not None and per_fold_phi_mean.shape[0] >= 2:
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_phi_rank_stability
 
-            stability = compute_phi_rank_stability(
-                per_fold_phi_mean, top_k=2 * max(self.brute_force_max_features, 40))
-            effective_brute_force_cap = _resolve_adaptive_prescreen_width(
-                stability, default_cap=self.brute_force_max_features)
+            stability = compute_phi_rank_stability(per_fold_phi_mean, top_k=2 * max(self.brute_force_max_features, 40))
+            effective_brute_force_cap = _resolve_adaptive_prescreen_width(stability, default_cap=self.brute_force_max_features)
             adaptive_info = dict(
                 stability=float(stability),
                 default_cap=int(self.brute_force_max_features),
@@ -545,9 +519,7 @@ class ShapProxiedFitMixin:
                     unit_to_members = [unit_to_members[i] for i in keep]
                 else:
                     unit_to_members = [np.array([int(i)], dtype=np.int64) for i in keep]
-                report["prescreen"] = dict(
-                    kept=int(len(keep)), of=int(n_proxy),
-                    su_rescued=int(len(_su_rescue_proxy_idx)))
+                report["prescreen"] = dict(kept=int(len(keep)), of=int(n_proxy), su_rescued=int(len(_su_rescue_proxy_idx)))
 
         optimizer = self._resolve_optimizer(phi.shape[1])
         with _stage("search"):
@@ -558,12 +530,10 @@ class ShapProxiedFitMixin:
         # SHAP-interaction coalition value and let honest re-validation arbitrate. Bounded to a small
         # proxy width (post pre-screen); tensor is O(P^2).
         if self.interaction_aware and phi.shape[1] <= self.max_interaction_features:
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import (
-                compute_interaction_tensor, interaction_top_n)
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import compute_interaction_tensor, interaction_top_n
 
             X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
-            Phi, ibase = compute_interaction_tensor(
-                model_template, X_proxy_kept, y_search, classification=self.classification, rng=self._rng)
+            Phi, ibase = compute_interaction_tensor(model_template, X_proxy_kept, y_search, classification=self.classification, rng=self._rng)
             icands = interaction_top_n(
                 Phi, ibase, y_phi, classification=self.classification, metric=self.metric,
                 min_card=self.min_features, max_card=self.max_features, top_n=self.top_n,
@@ -586,18 +556,14 @@ class ShapProxiedFitMixin:
         # tensor returns None-equivalent and the block no-ops).
         if str(getattr(self, "proxy_mode", "additive")).lower() == "interaction" and phi.shape[1] >= 2:
             with _stage("proxy_mode_interaction"):
-                from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import (
-                    compute_interaction_tensor)
-                from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interaction_proxy import (
-                    interaction_proxy_top_n)
+                from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import compute_interaction_tensor
+                from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interaction_proxy import interaction_proxy_top_n
 
                 applied = False
                 n_int_cands = 0
                 try:
                     X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
-                    Phi_ip, _ibase = compute_interaction_tensor(
-                        model_template, X_proxy_kept, y_search, classification=self.classification,
-                        rng=self._rng)
+                    Phi_ip, _ibase = compute_interaction_tensor(model_template, X_proxy_kept, y_search, classification=self.classification, rng=self._rng)
                     icands = interaction_proxy_top_n(
                         phi, Phi_ip, base, y_phi, classification=self.classification, metric=self.metric,
                         min_card=self.min_features, max_card=self.max_features, top_n=self.top_n,
@@ -614,8 +580,8 @@ class ShapProxiedFitMixin:
                 except Exception as exc:  # unsupported model / tensor failure -> additive fallback
                     logger.warning("proxy_mode=interaction fell back to additive: %s", exc)
                 report["proxy_mode_interaction"] = dict(
-                    applied=applied, n_proxy=int(phi.shape[1]),
-                    interaction_top_k=int(self.interaction_proxy_top_k), n_added=int(n_int_cands))
+                    applied=applied, n_proxy=int(phi.shape[1]), interaction_top_k=int(self.interaction_proxy_top_k), n_added=int(n_int_cands)
+                )
 
         # su_seeded_interactions merge (#5b, OPT-IN): the CHEAP sparse alternative to
         # ``interaction_aware``'s O(P^2) tensor. The synergy screen + SNR gate ran above (operands
@@ -627,8 +593,7 @@ class ShapProxiedFitMixin:
         # columns. Runs at ANY phi width (no max_interaction_features gate). When the screen kept no
         # pair this whole block is skipped (the SNR-gate no-op).
         if self.su_seeded_interactions:
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import (
-                sparse_interaction_candidates)
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import sparse_interaction_candidates
 
             with _stage("su_seeded_interactions"):
                 # Map proxy-column NAMES -> phi-column indices (X_proxy_kept aligns 1:1 with phi).
@@ -636,10 +601,7 @@ class ShapProxiedFitMixin:
                 name_to_phi_idx = {str(c): i for i, c in enumerate(X_proxy_kept.columns)}
                 # Keep only pairs whose BOTH operand proxy-columns survived into phi (the prescreen
                 # rescue should guarantee this for every kept pair; the filter is defensive).
-                usable_pairs = [
-                    (s, a, b) for s, a, b in _su_kept_pairs
-                    if str(a) in name_to_phi_idx and str(b) in name_to_phi_idx
-                ]
+                usable_pairs = [(s, a, b) for s, a, b in _su_kept_pairs if str(a) in name_to_phi_idx and str(b) in name_to_phi_idx]
                 n_seed_cands = 0
                 if usable_pairs:
                     # ISOLATED rng (NOT self._rng): keep the sparse-interaction refit off the shared
@@ -676,9 +638,9 @@ class ShapProxiedFitMixin:
                     # Inject the bare operand pair of every surviving synergistic pair so honest
                     # re-validation downstream can still revalidate the minimal interacting pair on
                     # real columns; pairs with no measured proxy loss go in at +inf (cannot win).
-                    _inject_operand_pairs(merged, usable_pairs, name_to_phi_idx,
-                                          phi=phi, base=base, y_phi=y_phi,
-                                          classification=self.classification, metric=self.metric)
+                    _inject_operand_pairs(
+                        merged, usable_pairs, name_to_phi_idx, phi=phi, base=base, y_phi=y_phi, classification=self.classification, metric=self.metric
+                    )
                     candidates = sorted(((l, c) for c, l in merged.items()), key=lambda t: t[0])
                 report["su_seeded_interactions"] = dict(
                     applied=True,
@@ -686,8 +648,7 @@ class ShapProxiedFitMixin:
                     n_kept_pairs=len(_su_kept_pairs),
                     n_usable_pairs=len(usable_pairs),
                     n_seed_candidates=int(n_seed_cands),
-                    kept_pairs=[(round(float(s), 6), str(a), str(b))
-                                for s, a, b in _su_kept_pairs],
+                    kept_pairs=[(round(float(s), 6), str(a), str(b)) for s, a, b in _su_kept_pairs],
                     snr_gate=round(float(_su_screen_info.get("gate", float("nan"))), 6),
                     best_synergy=round(float(_su_screen_info.get("best_synergy", float("nan"))), 6),
                     n_screened_cols=int(_su_screen_info.get("n_screened_cols", 0)),
@@ -700,8 +661,7 @@ class ShapProxiedFitMixin:
         if not candidates:
             raise RuntimeError("ShapProxiedFS: search produced no candidate subsets.")
 
-        report.update(optimizer=optimizer, n_candidates=len(candidates),
-                      proxy_best=dict(features=tuple(candidates[0][1]), proxy_loss=candidates[0][0]))
+        report.update(optimizer=optimizer, n_candidates=len(candidates), proxy_best=dict(features=tuple(candidates[0][1]), proxy_loss=candidates[0][0]))
 
         # One honest-retrain memo shared across trust guard, re-validation, ablation, and within-cluster
         # refine: within this fit the train/holdout split + model + metric are fixed, so a retrain's
@@ -759,9 +719,7 @@ class ShapProxiedFitMixin:
                                 unit_f_scores = f_working
                         else:
                             if all(int(m) < f_working.shape[0] for u in unit_to_members for m in u):
-                                unit_f_scores = np.array(
-                                    [float(np.mean(f_working[np.asarray(u, dtype=np.int64)]))
-                                     for u in unit_to_members], dtype=np.float64)
+                                unit_f_scores = np.array([float(np.mean(f_working[np.asarray(u, dtype=np.int64)])) for u in unit_to_members], dtype=np.float64)
             # iter18: resolve fidelity_floor / spearman_floor (deprecated alias). Supplying both
             # at the facade level is an error; supplying only the legacy name emits a
             # DeprecationWarning and copies the value through. ``None`` is the "unset" sentinel for
@@ -772,9 +730,7 @@ class ShapProxiedFitMixin:
             if self.spearman_floor is not None:
                 import warnings
                 if self.fidelity_floor is not None:
-                    raise ValueError(
-                        "ShapProxiedFS: set either `fidelity_floor` (new name) or `spearman_floor` "
-                        "(deprecated alias), not both.")
+                    raise ValueError("ShapProxiedFS: set either `fidelity_floor` (new name) or `spearman_floor` " "(deprecated alias), not both.")
                 warnings.warn(
                     "`ShapProxiedFS(spearman_floor=...)` is deprecated since iter18; use "
                     "`fidelity_floor=...` (same semantics). The kwarg name was inherited from the "
@@ -847,11 +803,9 @@ class ShapProxiedFitMixin:
             if len(kept_idx) < n_total:
                 candidates = [candidates[i] for i in kept_idx]
                 score = score[np.asarray(kept_idx, dtype=np.int64)]
-                report["revalidation_mmr"] = dict(applied=True, tau=float(mmr_tau),
-                                                  n_kept=len(kept_idx), n_total=int(n_total))
+                report["revalidation_mmr"] = dict(applied=True, tau=float(mmr_tau), n_kept=len(kept_idx), n_total=int(n_total))
             else:
-                report["revalidation_mmr"] = dict(applied=True, tau=float(mmr_tau),
-                                                  n_kept=int(n_total), n_total=int(n_total))
+                report["revalidation_mmr"] = dict(applied=True, tau=float(mmr_tau), n_kept=int(n_total), n_total=int(n_total))
 
         # Expose the ranked candidate subsets (expanded to feature names) so downstream patterns
         # (e.g. proposal-generator seeding RFECV/genetic honest search) can consume them.
@@ -862,8 +816,7 @@ class ShapProxiedFitMixin:
                 cols = sorted(int(i) for i in idx)
             return [str(self.feature_names_in_[i]) for i in cols]
 
-        report["candidates"] = [dict(proxy_loss=float(l), features=_cand_names(c))
-                                for l, c in candidates[: self.top_n]]
+        report["candidates"] = [dict(proxy_loss=float(l), features=_cand_names(c)) for l, c in candidates[: self.top_n]]
 
         # Honest re-validation of the top-N on the disjoint holdout (active-learning variant when the
         # corrector anchors are available, else the static top-N retrain).
@@ -897,8 +850,7 @@ class ShapProxiedFitMixin:
                         ucb_enabled=self.revalidation_ucb_enabled,
                         ucb_min_eval_size=self.revalidation_ucb_min_eval_size,
                         ucb_slack=self.revalidation_ucb_slack,
-                        ucb_stdev_multiplier=self._resolve_revalidation_ucb_stdev_multiplier(
-                            n_features),
+                        ucb_stdev_multiplier=self._resolve_revalidation_ucb_stdev_multiplier(n_features),
                         adaptive_n_models=self.revalidation_adaptive_n_models,
                         candidate_score=score, **rv)
                     report["revalidation"] = dict(ranked=ranked[: self.top_n], random_baseline=baseline)
@@ -931,9 +883,7 @@ class ShapProxiedFitMixin:
                 # representative in ONE parallel batch (O(sum k_c) trials) instead of legacy
                 # O(k^2) greedy drops. unit_to_members is in proxy-unit space; each chosen unit
                 # contributes one group of member columns.
-                member_groups = [
-                    [int(c) for c in unit_to_members[int(u)]] for u in best_idx
-                ]
+                member_groups = [[int(c) for c in unit_to_members[int(u)]] for u in best_idx]
                 refined = within_cluster_refine(
                     member_cols, model_template, X_search, y_search, X_hold, y_hold,
                     classification=self.classification, metric=self.metric,
@@ -971,6 +921,5 @@ class ShapProxiedFitMixin:
         self.support_ = np.array([i in best_set for i in range(n_features)], dtype=bool)
         self.shap_proxy_report_ = report
         if self.verbose:
-            logger.info("ShapProxiedFS: optimizer=%s selected %d/%d features: %s",
-                        optimizer, len(self.selected_features_), n_features, self.selected_features_)
+            logger.info("ShapProxiedFS: optimizer=%s selected %d/%d features: %s", optimizer, len(self.selected_features_), n_features, self.selected_features_)
         return self

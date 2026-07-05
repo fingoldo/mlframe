@@ -37,8 +37,6 @@ from typing import Dict, Optional
 # third-party
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 
-
-
 # iter189 (2026-05-23): Lightning's _load_external_callbacks scans every
 # installed Python distribution via importlib.metadata.entry_points on EACH
 # Trainer.fit() / Trainer.predict() invocation -- ~180ms / call on a Windows
@@ -107,11 +105,7 @@ try:
         for _mod_name, _mod in list(_sys_for_rebind.modules.items()):
             if _mod is None:
                 continue
-            if not (
-                _mod_name == "lightning"
-                or _mod_name == "lightning_fabric"
-                or _mod_name.startswith(_rebind_prefixes)
-            ):
+            if not (_mod_name == "lightning" or _mod_name == "lightning_fabric" or _mod_name.startswith(_rebind_prefixes)):
                 continue
             _local_ref = getattr(_mod, "_load_external_callbacks", None)
             if _local_ref is None or _local_ref is _load_external_callbacks_cached:
@@ -233,7 +227,6 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
         store_params_in_object(obj=self, params=get_parent_func_args())
         # Runtime (non-param) attribute, mirrored in __getstate__/__setstate__. F-67 prediction-trainer caching was reverted 2026-06-02 (Lightning Trainer reuse broke multi-predict fits), so this stays empty -- predict() builds a fresh Trainer per call -- but the attribute must exist so introspection and the pickle-state symmetry don't hit AttributeError on a freshly-constructed (never-pickled) estimator.
         self._prediction_trainer_cache = {}
-
 
     # sklearn protocol methods carved to ``_base_sklearn_params`` (monolith
     # split). Bound here so ``clone()`` / ``get_params(deep=True)`` behave

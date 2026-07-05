@@ -123,8 +123,7 @@ def main(reps: int = 1000) -> dict:
             "speedup": round(cur_t / fused_t, 2) if fused_t else None,
             "max_abs_diff_vs_exact": max_abs,
         }
-        print(f"n={n:_}: current={cur_t}s fused={fused_t}s "
-              f"speedup={out[f'n{n}']['speedup']}x maxdiff={max_abs:.2e}", flush=True)
+        print(f"n={n:_}: current={cur_t}s fused={fused_t}s " f"speedup={out[f'n{n}']['speedup']}x maxdiff={max_abs:.2e}", flush=True)
     return out
 
 

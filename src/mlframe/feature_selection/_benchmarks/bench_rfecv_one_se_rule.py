@@ -48,8 +48,7 @@ def _eval(seed, rule):
     def _mk():
         return CatBoostClassifier(iterations=120, depth=4, learning_rate=0.1, verbose=0, random_seed=seed)
 
-    sel = RFECV(estimator=_mk(), n_features_selection_rule=rule, cv=3, random_state=seed,
-                max_refits=12, verbose=0)
+    sel = RFECV(estimator=_mk(), n_features_selection_rule=rule, cv=3, random_state=seed, max_refits=12, verbose=0)
     t0 = time.perf_counter()
     sel.fit(Xtr, ytr)
     kept = list(getattr(sel, "support_names_", [])) or [c for c, m in zip(X.columns, sel.support_) if m]
@@ -75,8 +74,7 @@ def main():
             results.append({"seed": seed, "rule": rule, "auc": auc, "n_features": nfeat, "wall_s": wall})
             print(f"seed={seed} rule={rule:11s} auc={auc:.4f} n={nfeat:2d} wall={wall:.1f}s")
     df = pd.DataFrame(results)
-    summary = df.groupby("rule").agg(auc_mean=("auc", "mean"), auc_std=("auc", "std"),
-                                     n_mean=("n_features", "mean")).reset_index()
+    summary = df.groupby("rule").agg(auc_mean=("auc", "mean"), auc_std=("auc", "std"), n_mean=("n_features", "mean")).reset_index()
     print(summary.to_string(index=False))
     wins = 0
     for seed in seeds:

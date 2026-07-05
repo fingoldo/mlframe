@@ -76,10 +76,7 @@ def _require_fitted_with_base(estimator: Any) -> Any:
     base term to attribute against and raises ``ValueError``.
     """
     if not hasattr(estimator, "estimator_") or not hasattr(estimator, "fitted_params_"):
-        raise NotFittedError(
-            "explain_prediction called before fit: the CompositeTargetEstimator "
-            "has no fitted inner model / params yet. Call fit() first."
-        )
+        raise NotFittedError("explain_prediction called before fit: the CompositeTargetEstimator " "has no fitted inner model / params yet. Call fit() first.")
     transform = get_transform(estimator.transform_name)
     if not transform.requires_base:
         raise ValueError(
@@ -90,8 +87,7 @@ def _require_fitted_with_base(estimator: Any) -> Any:
     return transform
 
 
-def _base_level(estimator: Any, transform, base_arr: np.ndarray,
-                params: dict[str, Any], inverse_kwargs: dict[str, Any]) -> np.ndarray:
+def _base_level(estimator: Any, transform, base_arr: np.ndarray, params: dict[str, Any], inverse_kwargs: dict[str, Any]) -> np.ndarray:
     """Pure base level / factor: invert the transform at its NEUTRAL residual.
 
     Additive transforms use T=0 (the base level at zero residual); the
@@ -150,10 +146,7 @@ def explain_prediction(estimator: Any, X: Any) -> pd.DataFrame:
     inverse_kwargs: dict[str, Any] = {}
     if transform.requires_groups:
         if not estimator.group_column:
-            raise ValueError(
-                f"explain_prediction: transform '{estimator.transform_name}' "
-                "requires groups but group_column is not configured."
-            )
+            raise ValueError(f"explain_prediction: transform '{estimator.transform_name}' " "requires groups but group_column is not configured.")
         inverse_kwargs["groups"] = _extract_groups(X, estimator.group_column)
 
     y_hat = np.asarray(estimator.predict(X), dtype=np.float64).reshape(-1)

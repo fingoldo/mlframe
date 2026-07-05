@@ -61,8 +61,7 @@ def raw_mdlp_bins(x, y):
 
 def prod_bins_matrix(X, y, method, **kw):
     """bins per column from PRODUCTION per_feature_edges (incl. fallback chain). list of bin-counts."""
-    edges_list = per_feature_edges(np.asarray(X, dtype=np.float64), y=np.asarray(y),
-                                   method=method, **kw)
+    edges_list = per_feature_edges(np.asarray(X, dtype=np.float64), y=np.asarray(y), method=method, **kw)
     return [int(np.asarray(e).size + 1) for e in edges_list]
 
 
@@ -125,8 +124,7 @@ def main():
     lines = ["# MDLP-1-bin-collapse diagnostic (round-4, READ-ONLY)\n"]
     lines.append("bins = inner_edges + 1. 1 bin == collapsed-to-constant (joint MI destroyed).")
     lines.append("RAW MDLP = supervised_binning.mdlp_bin_edges (literal hypothesis target).")
-    lines.append("PROD mdlp(+fb) = per_feature_edges(method='mdlp') = what MRMR actually calls "
-                 "(has collapsed->quantile fallback).")
+    lines.append("PROD mdlp(+fb) = per_feature_edges(method='mdlp') = what MRMR actually calls " "(has collapsed->quantile fallback).")
 
     # ----- BED 1: hard_synth with KNOWN operands -----
     Xh, yh, truth = make_hard_dataset(n_samples=5000, seed=0)
@@ -185,22 +183,18 @@ def main():
         n_pf1 = int((pf <= 1).sum())
         n_q1 = int((q10 <= 1).sum())
         lines.append(f"\n## madelon  shape={Xr.shape}  (500 cols)")
-        lines.append(f"  RAW MDLP        : n_1bin={n_raw1}/500  (min={int(raw_b.min())} "
-                     f"med={int(np.median(raw_b))} max={int(raw_b.max())})")
-        lines.append(f"  PROD mdlp(+fb)  : n_1bin={n_pm1}/500  (min={int(pm.min())} "
-                     f"med={int(np.median(pm))} max={int(pm.max())})")
-        lines.append(f"  PROD fd (unsup) : n_1bin={n_pf1}/500  (min={int(pf.min())} "
-                     f"med={int(np.median(pf))} max={int(pf.max())})")
-        lines.append(f"  quantile10      : n_1bin={n_q1}/500  (min={int(q10.min())} "
-                     f"med={int(np.median(q10))} max={int(q10.max())})")
+        lines.append(f"  RAW MDLP        : n_1bin={n_raw1}/500  (min={int(raw_b.min())} " f"med={int(np.median(raw_b))} max={int(raw_b.max())})")
+        lines.append(f"  PROD mdlp(+fb)  : n_1bin={n_pm1}/500  (min={int(pm.min())} " f"med={int(np.median(pm))} max={int(pm.max())})")
+        lines.append(f"  PROD fd (unsup) : n_1bin={n_pf1}/500  (min={int(pf.min())} " f"med={int(np.median(pf))} max={int(pf.max())})")
+        lines.append(f"  quantile10      : n_1bin={n_q1}/500  (min={int(q10.min())} " f"med={int(np.median(q10))} max={int(q10.max())})")
         for ln in lines[-5:]:
             print(ln, flush=True)
 
         # lgbm top-20 importance = madelon's informative set; are they among RAW-MDLP-collapsed?
         ckpt("madelon lgbm importance")
         import lightgbm as lgb
-        m = lgb.LGBMClassifier(n_estimators=200, max_depth=4, num_leaves=16,
-                               learning_rate=0.1, n_jobs=2, verbose=-1, random_state=0)
+
+        m = lgb.LGBMClassifier(n_estimators=200, max_depth=4, num_leaves=16, learning_rate=0.1, n_jobs=2, verbose=-1, random_state=0)
         m.fit(Xr, yr)
         imp = pd.Series(m.feature_importances_, index=cols).sort_values(ascending=False)
         top20 = list(imp.index[:20])
@@ -220,8 +214,7 @@ def main():
         for ln in lines[-25:]:
             print(ln, flush=True)
     else:
-        lines.append(f"\n## madelon UNAVAILABLE (got {rname if Xr is not None else 'load-fail'}); "
-                     f"skipping real-data layer")
+        lines.append(f"\n## madelon UNAVAILABLE (got {rname if Xr is not None else 'load-fail'}); " f"skipping real-data layer")
 
     with open(RESULTS, "w") as f:
         f.write("\n".join(lines) + "\n")

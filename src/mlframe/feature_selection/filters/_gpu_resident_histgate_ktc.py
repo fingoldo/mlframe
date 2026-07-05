@@ -71,7 +71,7 @@ def histgate_threads(n_rows: int) -> int:
         return _HISTGATE_THREADS_DEFAULT
     if isinstance(choice, str) and choice.startswith("th_"):
         try:
-            return int(choice[len("th_"):])
+            return int(choice[len("th_") :])
         except ValueError:
             return _HISTGATE_THREADS_DEFAULT
     return _HISTGATE_THREADS_DEFAULT
@@ -122,10 +122,7 @@ def _run_histgate_threads_sweep() -> list:
     thread counts produce the SAME gated-MI vector (integer commutative counts), so equivalence is met."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
-    variants = {
-        f"th_{t}": (lambda *a, _t=t: _hist_counts_with_threads(*a, _t))
-        for t in _HISTGATE_THREADS_VARIANTS
-    }
+    variants = {f"th_{t}": (lambda *a, _t=t: _hist_counts_with_threads(*a, _t)) for t in _HISTGATE_THREADS_VARIANTS}
     return sweep_backend_grid(
         variants,
         {"n_rows": _HISTGATE_THREADS_SWEEP_N_ROWS},

@@ -131,18 +131,11 @@ def _global_prior(values: np.ndarray, stat: str) -> float:
 
 def _validate(X, entity_cols, value_cols, time_col, fn_name):
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"{fn_name}: X must be a pandas DataFrame; got {type(X).__name__}"
-        )
+        raise TypeError(f"{fn_name}: X must be a pandas DataFrame; got {type(X).__name__}")
     entity_cols = [c for c in (entity_cols or []) if c in X.columns]
-    value_cols = [
-        c for c in (value_cols or [])
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    value_cols = [c for c in (value_cols or []) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if time_col is None or time_col not in X.columns:
-        raise KeyError(
-            f"{fn_name}: time_col {time_col!r} not present in X.columns"
-        )
+        raise KeyError(f"{fn_name}: time_col {time_col!r} not present in X.columns")
     return entity_cols, value_cols
 
 
@@ -477,8 +470,7 @@ def generate_rolling_window_agg_features(
             ent_key = str(key_sorted[rows[0]])
             t_list = times_sorted[rows]
             history[ent_key] = {
-                "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist()
-                      if _is_datetime_like(t_list) else t_list.astype(np.float64).tolist()),
+                "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist() if _is_datetime_like(t_list) else t_list.astype(np.float64).tolist()),
                 "v": vals_sorted[rows].astype(np.float64).tolist(),
                 "is_datetime": bool(_is_datetime_like(t_list)),
             }
@@ -551,8 +543,7 @@ def generate_lag_features(
             ent_key = str(key_sorted[rows[0]])
             t_list = times_sorted[rows]
             history[ent_key] = {
-                "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist()
-                      if _is_datetime_like(t_list) else t_list.astype(np.float64).tolist()),
+                "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist() if _is_datetime_like(t_list) else t_list.astype(np.float64).tolist()),
                 "v": vals_sorted[rows].astype(np.float64).tolist(),
                 "is_datetime": bool(_is_datetime_like(t_list)),
             }
@@ -654,10 +645,7 @@ def _coerce_replay_frame(X, entity_cols, value_col, time_col, recipe_name):
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
         return pd.DataFrame({c: X[c] for c in cols})
-    raise TypeError(
-        f"recipe '{recipe_name}': cannot extract temporal columns from X of "
-        f"type {type(X).__name__}"
-    )
+    raise TypeError(f"recipe '{recipe_name}': cannot extract temporal columns from X of " f"type {type(X).__name__}")
 
 
 def _replay_keys_times(X_test, entity_cols, time_col):
@@ -853,8 +841,7 @@ def apply_temporal_lag(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
     key, times = _replay_keys_times(X_test, entity_cols, time_col)
     vals = np.asarray(X_test[value_col].to_numpy(), dtype=np.float64)
     is_dt = _is_datetime_like(times)
-    times_num = (times.astype("datetime64[ns]").astype(np.int64) if is_dt
-                 else np.asarray(times, dtype=np.float64))
+    times_num = times.astype("datetime64[ns]").astype(np.int64) if is_dt else np.asarray(times, dtype=np.float64)
     n = len(X_test)
     out = np.full(n, prior, dtype=np.float64)
     order = _stable_time_order(times_num)
@@ -941,10 +928,7 @@ def hybrid_temporal_agg_fe(
     transform-time replay is leak-free.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"hybrid_temporal_agg_fe: X must be a pandas DataFrame; got "
-            f"{type(X).__name__}"
-        )
+        raise TypeError(f"hybrid_temporal_agg_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     entity_cols = [c for c in (entity_cols or []) if c in X.columns]
     value_cols = [c for c in (value_cols or []) if c in X.columns]
     if not entity_cols or not value_cols or time_col not in X.columns:

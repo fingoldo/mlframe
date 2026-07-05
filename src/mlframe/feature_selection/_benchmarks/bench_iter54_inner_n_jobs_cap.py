@@ -23,12 +23,9 @@ warnings.filterwarnings("ignore")
 
 
 CONFIGS = {
-    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
-               redundancy_rho=0.8, snr=8.0, seed=0),
-    "C3_wide": dict(width=15000, n_rows=8000, n_informative=20, n_redundant=20,
-                    redundancy_rho=0.8, snr=8.0, seed=0),
-    "C4": dict(width=20000, n_rows=10000, n_informative=20, n_redundant=20,
-               redundancy_rho=0.8, snr=8.0, seed=0),
+    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0),
+    "C3_wide": dict(width=15000, n_rows=8000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0),
+    "C4": dict(width=20000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0),
 }
 
 _STAGE_ORDER = (
@@ -77,8 +74,7 @@ def run_one(name: str, cfg: dict, inner_n_jobs_cap: bool, X, y, roles):
     stage_timings = dict(sel._stage_timings)
     report = dict(sel.shap_proxy_report_)
 
-    ranked = report.get("revalidation", {}).get("ranked", []) if isinstance(
-        report.get("revalidation"), dict) else []
+    ranked = report.get("revalidation", {}).get("ranked", []) if isinstance(report.get("revalidation"), dict) else []
     chosen_loss = None
     if ranked:
         chosen_loss = ranked[0].get("honest_loss", ranked[0].get("honest_loss_capped"))
@@ -101,8 +97,7 @@ def print_stage_table(name: str, label: str, timings: dict, total: float):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--configs", default="C3",
-                    help="Comma-separated config names (subset of C3, C3_wide, C4).")
+    ap.add_argument("--configs", default="C3", help="Comma-separated config names (subset of C3, C3_wide, C4).")
     ap.add_argument("--out_file", default=None)
     args = ap.parse_args(argv)
 
@@ -133,8 +128,7 @@ def main(argv=None):
         print(f"\n[{name}] cfg={cfg}", flush=True)
         t_data = time.perf_counter()
         X, y, roles = _make_dataset(cfg)
-        print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s",
-              flush=True)
+        print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
         # Run cap_off (NEW default) first so any JIT warmup is amortised against the slower legacy
         # path. Then cap_on. iter53 used the same warm-then-warm ordering so reported deltas are
         # the steady-state perf gap, not first-fit JIT cost.
@@ -148,21 +142,18 @@ def main(argv=None):
         print(f"\n  [{name}] e2e: cap_off={r_off['total']:.2f}s  cap_on={r_on['total']:.2f}s  "
               f"delta={d_e2e*100:+.1f}% (positive = cap is slower)", flush=True)
         print(f"  [{name}] recall: cap_off={r_off['recall']}  cap_on={r_on['recall']}", flush=True)
-        print(f"  [{name}] n_selected: cap_off={r_off['n_selected']}  cap_on={r_on['n_selected']}",
-              flush=True)
+        print(f"  [{name}] n_selected: cap_off={r_off['n_selected']}  cap_on={r_on['n_selected']}", flush=True)
         subset_equal = r_off["chosen_subset"] == r_on["chosen_subset"]
         print(f"  [{name}] chosen_subset_equal={subset_equal}", flush=True)
         if r_off["chosen_honest_loss"] is not None and r_on["chosen_honest_loss"] is not None:
-            print(f"  [{name}] chosen_honest_loss: cap_off={r_off['chosen_honest_loss']:.6f}  "
-                  f"cap_on={r_on['chosen_honest_loss']:.6f}", flush=True)
+            print(f"  [{name}] chosen_honest_loss: cap_off={r_off['chosen_honest_loss']:.6f}  " f"cap_on={r_on['chosen_honest_loss']:.6f}", flush=True)
         # Per-stage deltas (positive = cap is slower)
         print(f"  [{name}] per-stage walls (delta = cap_on/cap_off - 1):")
         for k in _STAGE_ORDER:
             a = r_off["stage_timings"].get(k)
             b = r_on["stage_timings"].get(k)
             if a and b:
-                print(f"    {k:24s} cap_off={a:7.3f}s  cap_on={b:7.3f}s  "
-                      f"delta={(b/a - 1)*100:+.1f}%")
+                print(f"    {k:24s} cap_off={a:7.3f}s  cap_on={b:7.3f}s  " f"delta={(b/a - 1)*100:+.1f}%")
 
     return overall
 

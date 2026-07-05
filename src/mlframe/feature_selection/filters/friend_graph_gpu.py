@@ -216,7 +216,7 @@ def friend_graph_stats_cupy(
 
     H: dict = {}
     for i in range(k):
-        block = node_counts[off_node[i]: off_node[i + 1]]
+        block = node_counts[off_node[i] : off_node[i + 1]]
         H[int(sel_arr[i])] = _entropy_from_counts(block, n)
 
     # ----- Feature-target relevance (single-target fast path on GPU; else CPU).
@@ -225,12 +225,10 @@ def friend_graph_stats_cupy(
     if tcol is not None:
         nb_y = int(nbins[tcol])
         d_y = cp.asarray(np.ascontiguousarray(factors_data[:, tcol], dtype=np.int64)).reshape(n, 1)
-        h_y = _entropy_from_counts(
-            np.bincount(np.asarray(factors_data[:, tcol], dtype=np.int64), minlength=nb_y).astype(np.int64), n
-        )
+        h_y = _entropy_from_counts(np.bincount(np.asarray(factors_data[:, tcol], dtype=np.int64), minlength=nb_y).astype(np.int64), n)
         # merge_vars sorts vars -> for feature f and target t the joint code is
         # ``val_first + val_second*nbins_first`` over sorted (f, t). Build per-column codes.
-        per_col_joint = (nb_sel * nb_y)  # (k,)
+        per_col_joint = nb_sel * nb_y  # (k,)
         off_rel = np.zeros(k + 1, dtype=np.int64)
         off_rel[1:] = np.cumsum(per_col_joint)
         total_rel = int(off_rel[k])
@@ -241,14 +239,14 @@ def friend_graph_stats_cupy(
             f = int(sel_arr[i])
             va = d_sub[:, i].astype(cp.int64)
             if f < tcol:
-                code = va + d_y_flat * np.int64(int(nb_sel[i]))      # nbins_first = nbins[f]
+                code = va + d_y_flat * np.int64(int(nb_sel[i]))  # nbins_first = nbins[f]
             else:
-                code = d_y_flat + va * np.int64(nb_y)                # nbins_first = nbins[t]
+                code = d_y_flat + va * np.int64(nb_y)  # nbins_first = nbins[t]
             d_codes[:, i] = code + np.int64(off_rel[i])
         rel_counts = cp.asnumpy(cp.bincount(d_codes.reshape(-1), minlength=total_rel)[:total_rel])
         for i in range(k):
             f = int(sel_arr[i])
-            block = rel_counts[off_rel[i]: off_rel[i + 1]]
+            block = rel_counts[off_rel[i] : off_rel[i + 1]]
             h_xy = _entropy_from_counts(block, n)
             rel[f] = H[f] + h_y - h_xy  # raw mi() value (mi() does not clamp relevance)
     else:
@@ -299,9 +297,9 @@ def friend_graph_stats_cupy(
             # (rows, n) joint codes: va + vb*nbins[a], offset into per-pair count slots.
             t_nb_a = d_nb_a[start:stop].reshape(rows, 1)
             # gather columns: d_sub is (n, k); we want (rows, n) where row r uses col pos_a[r].
-            va = d_sub[:, d_pos_a[start:stop]].T.astype(cp.int64)   # (rows, n)
-            vb = d_sub[:, d_pos_b[start:stop]].T.astype(cp.int64)   # (rows, n)
-            code = va + vb * t_nb_a                                 # (rows, n)
+            va = d_sub[:, d_pos_a[start:stop]].T.astype(cp.int64)  # (rows, n)
+            vb = d_sub[:, d_pos_b[start:stop]].T.astype(cp.int64)  # (rows, n)
+            code = va + vb * t_nb_a  # (rows, n)
             # per-tile slot offsets so one bincount fills all rows of the tile.
             tile_off = off_pair[start:stop] - off_pair[start]
             d_tile_off = cp.asarray(tile_off.reshape(rows, 1))
@@ -335,12 +333,12 @@ def _cuda_pair_hist_kernel_factory():
 
     @_nb_cuda.jit
     def _kernel(
-        sub,            # (n, k) int32 -- selected sub-frame
-        pair_posa,      # (n_pairs,) int64 -- column position in sub for endpoint a
-        pair_posb,      # (n_pairs,) int64 -- column position in sub for endpoint b
-        pair_nba,       # (n_pairs,) int64 -- nbins of endpoint a (joint stride)
-        pair_off,       # (n_pairs,) int64 -- start offset of pair p in counts_flat
-        counts_flat,    # (total_size,) int64 -- output, zeroed by host
+        sub,  # (n, k) int32 -- selected sub-frame
+        pair_posa,  # (n_pairs,) int64 -- column position in sub for endpoint a
+        pair_posb,  # (n_pairs,) int64 -- column position in sub for endpoint b
+        pair_nba,  # (n_pairs,) int64 -- nbins of endpoint a (joint stride)
+        pair_off,  # (n_pairs,) int64 -- start offset of pair p in counts_flat
+        counts_flat,  # (total_size,) int64 -- output, zeroed by host
         n,
     ):
         p = _nb_cuda.blockIdx.x
@@ -368,9 +366,9 @@ def _cuda_node_hist_kernel_factory():
 
     @_nb_cuda.jit
     def _kernel(
-        codes,          # (n, k) int64 -- per-column code (marginal: va; joint: code(va, y))
-        col_off,        # (k,) int64 -- start offset of column i in counts_flat
-        counts_flat,    # (total_size,) int64 -- output, zeroed by host
+        codes,  # (n, k) int64 -- per-column code (marginal: va; joint: code(va, y))
+        col_off,  # (k,) int64 -- start offset of column i in counts_flat
+        counts_flat,  # (total_size,) int64 -- output, zeroed by host
         n,
         k,
     ):
@@ -447,7 +445,7 @@ def friend_graph_stats_cuda(
     node_counts = _launch_node(d_node_codes, off_node[:k], int(off_node[k]))
     H: dict = {}
     for i in range(k):
-        H[int(sel_arr[i])] = _entropy_from_counts(node_counts[off_node[i]: off_node[i + 1]], n)
+        H[int(sel_arr[i])] = _entropy_from_counts(node_counts[off_node[i] : off_node[i + 1]], n)
 
     # ---- Relevance (single-target GPU fast path; else CPU on the caller).
     tcol = _target_col(target_indices)
@@ -471,7 +469,7 @@ def friend_graph_stats_cuda(
         rel: dict = {}
         for i in range(k):
             f = int(sel_arr[i])
-            h_xy = _entropy_from_counts(rel_counts[off_rel[i]: off_rel[i + 1]], n)
+            h_xy = _entropy_from_counts(rel_counts[off_rel[i] : off_rel[i + 1]], n)
             rel[f] = H[f] + h_y - h_xy
     else:
         rel = None
@@ -505,7 +503,7 @@ def friend_graph_stats_cuda(
             )
         pair_counts = d_counts.copy_to_host()
         for p in range(n_pairs):
-            block = pair_counts[off_pair[p]: off_pair[p + 1]]
+            block = pair_counts[off_pair[p] : off_pair[p + 1]]
             h_ab = _entropy_from_counts(block, n)
             m = H[int(pa[p])] + H[int(pb[p])] - h_ab
             edge_mi[(int(pa[p]), int(pb[p]))] = m if m > 0.0 else 0.0

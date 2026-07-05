@@ -146,9 +146,7 @@ class LightningStopFileCallback:
 
     def __init__(self, fpath: str):
         if not _HAS_LIGHTNING:
-            raise ImportError(
-                "pytorch_lightning is not installed; cannot use LightningStopFileCallback"
-            )
+            raise ImportError("pytorch_lightning is not installed; cannot use LightningStopFileCallback")
         import pytorch_lightning as _pl_mod  # lazy
         # Dynamically subclass the real Callback at first use.
         base = _pl_mod.callbacks.Callback

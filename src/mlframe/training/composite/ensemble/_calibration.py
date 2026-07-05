@@ -46,13 +46,9 @@ class OutputCalibrator:
 
     def __init__(self, method: str = "isotonic", sigmoid_fit: str = "platt") -> None:
         if method not in _VALID_METHODS:
-            raise ValueError(
-                f"OutputCalibrator: method must be one of {_VALID_METHODS}; got {method!r}."
-            )
+            raise ValueError(f"OutputCalibrator: method must be one of {_VALID_METHODS}; got {method!r}.")
         if sigmoid_fit not in _VALID_SIGMOID_FITS:
-            raise ValueError(
-                f"OutputCalibrator: sigmoid_fit must be one of {_VALID_SIGMOID_FITS}; got {sigmoid_fit!r}."
-            )
+            raise ValueError(f"OutputCalibrator: sigmoid_fit must be one of {_VALID_SIGMOID_FITS}; got {sigmoid_fit!r}.")
         self.method = method
         # "platt" = maximum-likelihood logistic fit (the correct Platt map, default since qual-16); "ols_logit" =
         # the legacy OLS-on-centred-logit map, kept opt-in for byte-identical replay of pre-qual-16 fits.
@@ -79,17 +75,13 @@ class OutputCalibrator:
         p = np.asarray(raw_pred, dtype=np.float64).reshape(-1)
         t = np.asarray(y, dtype=np.float64).reshape(-1)
         if p.shape[0] != t.shape[0]:
-            raise ValueError(
-                f"OutputCalibrator: raw_pred length {p.shape[0]} != y length {t.shape[0]}."
-            )
+            raise ValueError(f"OutputCalibrator: raw_pred length {p.shape[0]} != y length {t.shape[0]}.")
         finite = np.isfinite(p) & np.isfinite(t)
         w = None
         if sample_weight is not None:
             w = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
             if w.shape[0] != p.shape[0]:
-                raise ValueError(
-                    f"OutputCalibrator: sample_weight length {w.shape[0]} != n {p.shape[0]}."
-                )
+                raise ValueError(f"OutputCalibrator: sample_weight length {w.shape[0]} != n {p.shape[0]}.")
             if not np.all(np.isfinite(w)) or (w < 0).any():
                 raise ValueError("OutputCalibrator: sample_weight must be finite and non-negative.")
             finite &= np.isfinite(w)

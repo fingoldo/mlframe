@@ -36,12 +36,12 @@ compute_joint_hist_batched_shared_cuda: Any = None
 # + alloc cost on every iteration. Buffers grow monotonically (never shrink) so repeated calls with similar shapes hit the cached allocation.
 class _GpuBufferPool:
     def __init__(self):
-        self.classes_x = None        # CuPy int32 vector, length >= n
-        self.classes_y = None        # CuPy int32 vector, length >= n
-        self.freqs_x = None          # CuPy float64 vector, length >= nbins_x
-        self.freqs_y = None          # CuPy float64 vector, length >= nbins_y
-        self.joint_counts = None     # CuPy int32, shape >= (nbins_x, nbins_y)
-        self.totals = None           # CuPy float64 length 1
+        self.classes_x = None  # CuPy int32 vector, length >= n
+        self.classes_y = None  # CuPy int32 vector, length >= n
+        self.freqs_x = None  # CuPy float64 vector, length >= nbins_x
+        self.freqs_y = None  # CuPy float64 vector, length >= nbins_y
+        self.joint_counts = None  # CuPy int32, shape >= (nbins_x, nbins_y)
+        self.totals = None  # CuPy float64 length 1
         self.cap_n = 0
         self.cap_nbins_x = 0
         self.cap_nbins_y = 0
@@ -68,9 +68,7 @@ class _GpuBufferPool:
         # is a module-singleton pool that persists across fits, so a prior fit with
         # more target bins could leave a wider buffer); the row count may still grow
         # monotonically since slicing only the leading rows keeps each row contiguous.
-        if (self.joint_counts is None
-                or self.joint_counts.shape[0] < nbins_x
-                or self.joint_counts.shape[1] != nbins_y):
+        if self.joint_counts is None or self.joint_counts.shape[0] < nbins_x or self.joint_counts.shape[1] != nbins_y:
             _rows = max(int(nbins_x), int(self.joint_counts.shape[0]) if self.joint_counts is not None else 0)
             self.joint_counts = cp.empty((_rows, nbins_y), dtype=cp.int32)
         if self.totals is None:
@@ -136,8 +134,8 @@ def init_kernels() -> None:
                 logger.info("mlframe.filters.gpu: pinned to CUDA device %d", _best)
     except Exception as _exc:
         logger.debug(
-            "mlframe.filters.gpu: select_best_gpu unavailable (%s); "
-            "using current CUDA device", _exc,
+            "mlframe.filters.gpu: select_best_gpu unavailable (%s); " "using current CUDA device",
+            _exc,
         )
 
     module.compute_joint_hist_cuda = cp.RawKernel(
@@ -814,16 +812,16 @@ def mi_direct_gpu_batched_streamed(
             joint_counts_batch = cp.zeros((b, joint_size), dtype=cp.int32)
             if use_shared_hist:
                 compute_joint_hist_batched_shared_cuda(
-                    (grid_x, b), (block_size,),
-                    (classes_x_gpu, perms_y, joint_counts_batch,
-                     np.int32(n), np.int32(nbins_x), np.int32(nbins_y)),
+                    (grid_x, b),
+                    (block_size,),
+                    (classes_x_gpu, perms_y, joint_counts_batch, np.int32(n), np.int32(nbins_x), np.int32(nbins_y)),
                     shared_mem=shared_mem_bytes,
                 )
             else:
                 compute_joint_hist_batched_cuda(
-                    (grid_x, b), (block_size,),
-                    (classes_x_gpu, perms_y, joint_counts_batch,
-                     np.int32(n), np.int32(nbins_x), np.int32(nbins_y)),
+                    (grid_x, b),
+                    (block_size,),
+                    (classes_x_gpu, perms_y, joint_counts_batch, np.int32(n), np.int32(nbins_x), np.int32(nbins_y)),
                 )
             # Same reduction as the gate reference (outer_safe + closure hoisted above); mask the ratio (not
             # the log) to keep nan/inf out of cp.log entirely.
@@ -956,8 +954,8 @@ def mi_direct_gpu(
         max_failed = npermutations
 
     confidence = 0.0
-    nfailed = 0            # defined outside the block so the return_null_mean path is valid when the block is skipped
-    _null_sum = 0.0        # sum of per-permutation MIs -> empirical null mean = _null_sum / _nchecked
+    nfailed = 0  # defined outside the block so the return_null_mean path is valid when the block is skipped
+    _null_sum = 0.0  # sum of per-permutation MIs -> empirical null mean = _null_sum / _nchecked
     _nchecked = 0
     if original_mi > 0 and npermutations > 0:
         if not max_failed:
@@ -1062,4 +1060,3 @@ def mi_direct_gpu(
 # (`from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched_pairs`)
 # keep working.
 from ._gpu_pairs import mi_direct_gpu_batched_pairs  # noqa: F401, E402
-

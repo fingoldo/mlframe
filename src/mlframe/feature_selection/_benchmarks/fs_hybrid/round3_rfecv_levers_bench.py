@@ -129,8 +129,7 @@ def main():
         print(f"sd{sd} R2r-4 routing: cells={cells} (cap={_PERM_CAP}) -> permutation {'ALWAYS runs (routing is a NO-OP here)' if cells <= _PERM_CAP else 'would route to impurity'}", flush=True)
     df = pd.DataFrame(rows)
     print("\n=== mean over seeds (vs baseline) ===")
-    g = df.groupby("variant").agg(auc_mean=("auc_mean", "mean"), base_recall=("base_recall", "mean"),
-                                  noise=("noise", "mean"), n=("n", "mean")).round(4)
+    g = df.groupby("variant").agg(auc_mean=("auc_mean", "mean"), base_recall=("base_recall", "mean"), noise=("noise", "mean"), n=("n", "mean")).round(4)
     b = g.loc["baseline", "auc_mean"] if "baseline" in g.index else float("nan")
     g["delta"] = (g["auc_mean"] - b).round(4)
     print(g.to_string())

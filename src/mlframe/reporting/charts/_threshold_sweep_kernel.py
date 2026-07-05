@@ -31,7 +31,7 @@ if _NUMBA_AVAILABLE:
     @njit(cache=True, parallel=True)
     def _f1_sweep_numba(
         y_true: np.ndarray,  # (N, K) uint8 {0,1}
-        proba: np.ndarray,   # (N, K) float64
+        proba: np.ndarray,  # (N, K) float64
         T: int,
     ) -> np.ndarray:
         n = y_true.shape[0]

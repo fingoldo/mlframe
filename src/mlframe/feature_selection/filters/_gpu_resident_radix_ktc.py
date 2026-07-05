@@ -86,7 +86,7 @@ def radix_select_threads(n: int) -> int:
         return _RADIX_THREADS_DEFAULT
     if isinstance(choice, str) and choice.startswith("th_"):
         try:
-            return int(choice[len("th_"):])
+            return int(choice[len("th_") :])
         except ValueError:
             return _RADIX_THREADS_DEFAULT
     return _RADIX_THREADS_DEFAULT
@@ -147,10 +147,7 @@ def _run_radix_f32_variant_sweep() -> list:
     wins. Both variants produce the SAME edges (order-statistic invariance), so equivalence is trivially met."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
-    variants = {
-        v: (lambda cand, _v=v: _radix_edges_with_f32_variant(cand, 20, _v))
-        for v in _RADIX_F32_VARIANTS
-    }
+    variants = {v: (lambda cand, _v=v: _radix_edges_with_f32_variant(cand, 20, _v)) for v in _RADIX_F32_VARIANTS}
     return sweep_backend_grid(
         variants,
         {"n_samples": _RADIX_THREADS_SWEEP_N_SAMPLES},
@@ -198,7 +195,7 @@ def _make_radix_inputs(dims: dict):
     rng = np.random.default_rng(0)
     a = rng.uniform(0.1, 1.1, (n, K)).astype(np.float32)
     b = rng.uniform(0.1, 1.1, (n, K)).astype(np.float32)
-    cand = (a * a) / b   # heavy-tailed a**2/b, f32 throughout (no f64 temp)
+    cand = (a * a) / b  # heavy-tailed a**2/b, f32 throughout (no f64 temp)
     return (cp.asarray(cand),)
 
 
@@ -207,10 +204,7 @@ def _run_radix_threads_sweep() -> list:
     All thread counts produce the SAME edges (sum-reduction invariance), so equivalence is trivially met."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
-    variants = {
-        f"th_{t}": (lambda cand, _t=t: _radix_edges_with_threads(cand, 20, _t))
-        for t in _RADIX_THREADS_VARIANTS
-    }
+    variants = {f"th_{t}": (lambda cand, _t=t: _radix_edges_with_threads(cand, 20, _t)) for t in _RADIX_THREADS_VARIANTS}
     return sweep_backend_grid(
         variants,
         {"n_samples": _RADIX_THREADS_SWEEP_N_SAMPLES},

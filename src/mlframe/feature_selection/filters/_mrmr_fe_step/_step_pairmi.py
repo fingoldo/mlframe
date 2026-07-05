@@ -79,9 +79,9 @@ def compute_pair_mis_and_floor(
     # ``fe_escalation_feedforward_enable`` (default OFF -- terminal is the safe default).
     if not bool(getattr(self, "fe_escalation_feedforward_enable", False)):
         _esc_idx = {
-            v for v in _engineered_in_pool
-            if str(cols[v]).startswith("esc_") or "esc_poly_" in str(cols[v])
-            or "esc_fourier_" in str(cols[v]) or "esc_chirp_" in str(cols[v])
+            v
+            for v in _engineered_in_pool
+            if str(cols[v]).startswith("esc_") or "esc_poly_" in str(cols[v]) or "esc_fourier_" in str(cols[v]) or "esc_chirp_" in str(cols[v])
         }
         if _esc_idx:
             numeric_vars_to_consider = set(numeric_vars_to_consider) - _esc_idx
@@ -154,11 +154,7 @@ def compute_pair_mis_and_floor(
         except Exception:
             _exh_cuda = False
         _exhaustive_backend = "cuda" if _exh_cuda else "njit_parallel"
-    if (
-        _BATCH_PRECOMPUTE_ENABLED
-        and (_exhaustive_active or _k <= _MRMR_BATCH_PRECOMPUTE_MAX_K)
-        and n_pairs >= _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS
-    ):
+    if _BATCH_PRECOMPUTE_ENABLED and (_exhaustive_active or _k <= _MRMR_BATCH_PRECOMPUTE_MAX_K) and n_pairs >= _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS:
         try:
             from mlframe.feature_selection.filters.batch_pair_mi_gpu import dispatch_batch_pair_mi
 

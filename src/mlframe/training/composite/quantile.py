@@ -162,9 +162,7 @@ def _transform_inverse_decreasing(transform_name: str) -> bool:
     base_probe = np.full(3, 2.0, dtype=np.float64)
     try:
         params = transform.fit(np.array([1.0, 2.0, 3.0]), base_probe)
-        y_probe = np.asarray(
-            transform.inverse(t_probe, base_probe, params), dtype=np.float64
-        ).reshape(-1)
+        y_probe = np.asarray(transform.inverse(t_probe, base_probe, params), dtype=np.float64).reshape(-1)
     except Exception:  # pragma: no cover - probe failure -> assume increasing
         return False
     if y_probe.shape[0] != 3 or not np.all(np.isfinite(y_probe)):
@@ -244,16 +242,10 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
         if q_arr.size == 0:
             raise ValueError(f"CompositeQuantileEstimator: quantiles is empty; got {self.quantiles!r}.")
         if np.any((q_arr <= 0.0) | (q_arr >= 1.0)):
-            raise ValueError(
-                "CompositeQuantileEstimator: quantiles must be strictly in (0, 1); "
-                f"got {q_arr.tolist()!r}."
-            )
+            raise ValueError("CompositeQuantileEstimator: quantiles must be strictly in (0, 1); " f"got {q_arr.tolist()!r}.")
         q_sorted = np.unique(q_arr)
         if q_sorted.size != q_arr.size:
-            raise ValueError(
-                "CompositeQuantileEstimator: quantiles must be unique; got "
-                f"{q_arr.tolist()!r}."
-            )
+            raise ValueError("CompositeQuantileEstimator: quantiles must be unique; got " f"{q_arr.tolist()!r}.")
         return q_sorted
 
     def fit(
@@ -274,9 +266,7 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
         Returns ``self``.
         """
         if self.base_estimator is None:
-            raise ValueError(
-                "CompositeQuantileEstimator: base_estimator must not be None."
-            )
+            raise ValueError("CompositeQuantileEstimator: base_estimator must not be None.")
         # Surface a typo'd transform name at fit, not on the first predict.
         get_transform(self.transform_name)
         quantiles = self._resolve_quantiles()
@@ -337,24 +327,18 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
         if not hasattr(self, "estimators_"):
             from sklearn.exceptions import NotFittedError
 
-            raise NotFittedError(
-                "CompositeQuantileEstimator.predict_quantile called before fit."
-            )
+            raise NotFittedError("CompositeQuantileEstimator.predict_quantile called before fit.")
         n_in = getattr(self, "n_features_in_", None)
         cols = getattr(X, "columns", None)
         n_x = len(cols) if cols is not None else (int(X.shape[1]) if getattr(X, "shape", None) is not None and len(X.shape) >= 2 else None)
         if n_in is not None and n_x is not None and n_x != n_in:
-            raise ValueError(
-                f"CompositeQuantileEstimator.predict_quantile: X has {n_x} features, but the estimator was fit with {n_in}."
-            )
+            raise ValueError(f"CompositeQuantileEstimator.predict_quantile: X has {n_x} features, but the estimator was fit with {n_in}.")
         if quantiles is None:
             req = self.quantiles_
         else:
             req = np.asarray(quantiles, dtype=np.float64).reshape(-1)
             if req.size == 0:
-                raise ValueError(
-                    "CompositeQuantileEstimator.predict_quantile: quantiles is empty."
-                )
+                raise ValueError("CompositeQuantileEstimator.predict_quantile: quantiles is empty.")
             req = np.sort(req)
 
         decreasing = bool(getattr(self, "_inverse_decreasing_", False))

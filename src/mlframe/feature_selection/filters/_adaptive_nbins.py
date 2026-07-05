@@ -225,8 +225,7 @@ def edges_freedman_diaconis(x: np.ndarray, base: str = "quantile") -> np.ndarray
     return _edges_from_quantiles(x, n_bins) if base == "quantile" else _edges_from_uniform(x, n_bins)
 
 
-def edges_knuth(x: np.ndarray, edge_type: str = "uniform",
-                m_max_cap: int = 500) -> np.ndarray:
+def edges_knuth(x: np.ndarray, edge_type: str = "uniform", m_max_cap: int = 500) -> np.ndarray:
     """Knuth (2006) Bayesian-optimal nbins. Flags forwarded to ``_knuth_bin_edges``:
 
     Args:
@@ -234,16 +233,13 @@ def edges_knuth(x: np.ndarray, edge_type: str = "uniform",
         m_max_cap: ``500`` legacy | ``64`` audit recommendation to stay in
             low plug-in bias regime on small val-folds.
     """
-    full_edges = _knuth_bin_edges(np.asarray(x), edge_type=edge_type,
-                                   m_max_cap=int(m_max_cap))
+    full_edges = _knuth_bin_edges(np.asarray(x), edge_type=edge_type, m_max_cap=int(m_max_cap))
     if full_edges.size <= 2:
         return np.array([], dtype=np.float64)
     return np.asarray(full_edges[1:-1], dtype=np.float64)
 
 
-def edges_bayesian_blocks(x: np.ndarray, p0: float = 0.05,
-                           edge_placement: str = "start",
-                           subsample_threshold: int = 0) -> np.ndarray:
+def edges_bayesian_blocks(x: np.ndarray, p0: float = 0.05, edge_placement: str = "start", subsample_threshold: int = 0) -> np.ndarray:
     """Bayesian Blocks (Scargle 2013) variable-width edges. Flags forwarded:
 
     Args:
@@ -251,9 +247,7 @@ def edges_bayesian_blocks(x: np.ndarray, p0: float = 0.05,
         edge_placement: ``'start'`` legacy | ``'midpoint'`` Scargle/astropy convention fix.
         subsample_threshold: ``0`` disabled | ``1000`` audit fast path.
     """
-    full_edges = _bayesian_blocks_bin_edges(np.asarray(x), p0=p0,
-                                             edge_placement=edge_placement,
-                                             subsample_threshold=int(subsample_threshold))
+    full_edges = _bayesian_blocks_bin_edges(np.asarray(x), p0=p0, edge_placement=edge_placement, subsample_threshold=int(subsample_threshold))
     if full_edges.size <= 2:
         return np.array([], dtype=np.float64)
     return np.asarray(full_edges[1:-1], dtype=np.float64)
@@ -272,9 +266,9 @@ def edges_mah(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.ndarra
     return inner[np.isfinite(inner)] if inner.size else inner
 
 
-def edges_fayyad_irani(x: np.ndarray, y: np.ndarray, *, max_depth: int = 8,
-                        min_split_size: int = 5, backend: str = "njit",
-                        scaled_min_split: bool = False) -> np.ndarray:
+def edges_fayyad_irani(
+    x: np.ndarray, y: np.ndarray, *, max_depth: int = 8, min_split_size: int = 5, backend: str = "njit", scaled_min_split: bool = False
+) -> np.ndarray:
     """Fayyad-Irani MDLP supervised edges. Flags forwarded:
 
     Args:
@@ -294,9 +288,9 @@ def edges_fayyad_irani(x: np.ndarray, y: np.ndarray, *, max_depth: int = 8,
         scaled_min_split: ``False`` legacy | ``True`` audit fix
             (``max(5, 0.02*N)``).
     """
-    full_edges = mdlp_bin_edges(np.asarray(x), np.asarray(y),
-                                 max_depth=max_depth, min_split_size=min_split_size,
-                                 backend=backend, scaled_min_split=scaled_min_split)
+    full_edges = mdlp_bin_edges(
+        np.asarray(x), np.asarray(y), max_depth=max_depth, min_split_size=min_split_size, backend=backend, scaled_min_split=scaled_min_split
+    )
     if full_edges.size <= 2:
         return np.array([], dtype=np.float64)
     inner = full_edges[1:-1]
@@ -349,8 +343,7 @@ def edges_optimal_joint(
                 continue
             train_x = x[train_mask]
             val_x, val_y = x[val_mask], y[val_mask]
-            edges = _edges_from_quantiles(train_x, M) if base == "quantile" \
-                else _edges_from_uniform(train_x, M)
+            edges = _edges_from_quantiles(train_x, M) if base == "quantile" else _edges_from_uniform(train_x, M)
             if edges.size == 0:
                 continue
             binned_val_x = np.searchsorted(edges, val_x, side="right")
@@ -363,13 +356,11 @@ def edges_optimal_joint(
                 best_score = mean_mi
                 best_M = M
     # Return edges built on full data at the winning M.
-    return _edges_from_quantiles(x, best_M) if base == "quantile" \
-        else _edges_from_uniform(x, best_M)
+    return _edges_from_quantiles(x, best_M) if base == "quantile" else _edges_from_uniform(x, best_M)
 
 
 @njit(nogil=True, cache=True)
-def _plug_in_mi_njit(x_binned: np.ndarray, y_b: np.ndarray, K_x: int, K_y: int,
-                     miller_madow: bool) -> float:
+def _plug_in_mi_njit(x_binned: np.ndarray, y_b: np.ndarray, K_x: int, K_y: int, miller_madow: bool) -> float:
     """njit core: plug-in MI from already-integer-encoded bins, optional Miller-Madow.
 
     Miller-Madow (Miller 1955; Madow 1948) bias term: ``(K_x - 1) * (K_y - 1) / (2 * N)``.
@@ -518,15 +509,10 @@ def per_feature_edges(
     n_features = X.shape[1]
     method_resolved = _METHOD_ALIASES.get(method.lower() if isinstance(method, str) else method)
     if method_resolved is None:
-        raise ValueError(
-            f"per_feature_edges: unknown method={method!r}. Expected one of "
-            f"{sorted(set(_METHOD_ALIASES.values()))}."
-        )
+        raise ValueError(f"per_feature_edges: unknown method={method!r}. Expected one of " f"{sorted(set(_METHOD_ALIASES.values()))}.")
     needs_y = method_resolved in ("fayyad_irani", "optimal_joint", "mah")
     if needs_y and y is None:
-        raise ValueError(
-            f"per_feature_edges: method={method_resolved!r} is supervised and requires y."
-        )
+        raise ValueError(f"per_feature_edges: method={method_resolved!r} is supervised and requires y.")
     if y is not None:
         y = np.asarray(y).ravel()
 
@@ -636,9 +622,7 @@ def per_feature_edges(
         # the joint level. The single-feature MDLP signal is already
         # gone (it returned no splits), so the unsupervised fallback
         # can only improve detection power, never hurt.
-        if method_resolved in ("fayyad_irani", "optimal_joint", "mah") and (
-            edges is None or (hasattr(edges, "size") and edges.size == 0)
-        ):
+        if method_resolved in ("fayyad_irani", "optimal_joint", "mah") and (edges is None or (hasattr(edges, "size") and edges.size == 0)):
             _fallback_nb = int(kwargs.get("collapsed_fallback_nbins", 5))
             if base == "quantile":
                 edges = _edges_from_quantiles(col, _fallback_nb)
@@ -655,9 +639,7 @@ def per_feature_edges(
         # with support=['tok_0']). Detect the sparse-dominance pattern
         # explicitly and split into a separate-bin for the dominant
         # value + quantile bins on the non-dominant subset.
-        if _finite.size >= 4 and (
-            edges is None or (hasattr(edges, "size") and edges.size <= 1)
-        ):
+        if _finite.size >= 4 and (edges is None or (hasattr(edges, "size") and edges.size <= 1)):
             _vals_sp, _counts_sp = np.unique(_finite, return_counts=True)
             if _vals_sp.size >= 2:
                 _max_idx = int(_counts_sp.argmax())

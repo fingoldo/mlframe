@@ -110,10 +110,7 @@ def _apply_outlier_detection_global(
     # the per-call schema iteration is ~us on typical column counts so the cache adds maintenance burden without measurable wall gain.
     def _numeric_only_view(df_):
         if isinstance(df_, pl.DataFrame):
-            numeric_cols = [
-                name for name, dt in df_.schema.items()
-                if dt.is_numeric() or dt == pl.Boolean
-            ]
+            numeric_cols = [name for name, dt in df_.schema.items() if dt.is_numeric() or dt == pl.Boolean]
             return df_.select(numeric_cols) if len(numeric_cols) != len(df_.columns) else df_
         if hasattr(df_, "select_dtypes"):
             return df_.select_dtypes(include=["number", "bool"])
@@ -139,11 +136,7 @@ def _apply_outlier_detection_global(
         # Name the NaN-bearing columns so the operator knows exactly which features need imputing
         # (cheap per-column null-count scan, never a whole-frame copy).
         _nan_cols = _columns_with_nan(_train_numeric)
-        _nan_hint = (
-            f" NaN-bearing column(s): {', '.join(_nan_cols[:20])}{' ...' if len(_nan_cols) > 20 else ''}."
-            if _nan_cols
-            else ""
-        )
+        _nan_hint = f" NaN-bearing column(s): {', '.join(_nan_cols[:20])}{' ...' if len(_nan_cols) > 20 else ''}." if _nan_cols else ""
         logger.error(
             "Outlier detector %s raised during fit/predict on train: %s. Skipping outlier "
             "detection for this run; train_df / val_df returned unfiltered. Wrap the detector "
@@ -174,16 +167,8 @@ def _apply_outlier_detection_global(
                 if _tv is None:
                     continue
                 try:
-                    _y_pre = (
-                        _tv[train_idx]
-                        if isinstance(_tv, (np.ndarray, pl.Series))
-                        else _tv.iloc[train_idx]
-                    )
-                    _y_post = (
-                        _tv[train_idx[train_od_idx]]
-                        if isinstance(_tv, (np.ndarray, pl.Series))
-                        else _tv.iloc[train_idx[train_od_idx]]
-                    )
+                    _y_pre = _tv[train_idx] if isinstance(_tv, (np.ndarray, pl.Series)) else _tv.iloc[train_idx]
+                    _y_post = _tv[train_idx[train_od_idx]] if isinstance(_tv, (np.ndarray, pl.Series)) else _tv.iloc[train_idx[train_od_idx]]
                     _arr_pre = np.asarray(_y_pre)
                     _arr_post = np.asarray(_y_post)
                     _flat_pre = _arr_pre.flatten() if _arr_pre.ndim > 1 else _arr_pre
@@ -237,9 +222,9 @@ def _apply_outlier_detection_global(
             is_inlier = outlier_detector.predict(_numeric_only_view(val_df))
         except (ValueError, TypeError, ImportError, RuntimeError, MemoryError, AttributeError) as _od_exc:
             logger.error(
-                "Outlier detector %s raised on val frame: %s. Skipping val-side OD filter; "
-                "original val_df retained for evaluation.",
-                type(outlier_detector).__name__, _od_exc,
+                "Outlier detector %s raised on val frame: %s. Skipping val-side OD filter; " "original val_df retained for evaluation.",
+                type(outlier_detector).__name__,
+                _od_exc,
             )
             return filtered_train_df, val_df, filtered_train_idx, val_idx, train_od_idx, None
         val_od_idx = is_inlier == 1
@@ -250,16 +235,8 @@ def _apply_outlier_detection_global(
                 if _tv is None:
                     continue
                 try:
-                    _y_pre = (
-                        _tv[val_idx]
-                        if isinstance(_tv, (np.ndarray, pl.Series))
-                        else _tv.iloc[val_idx]
-                    )
-                    _y_post = (
-                        _tv[val_idx[val_od_idx]]
-                        if isinstance(_tv, (np.ndarray, pl.Series))
-                        else _tv.iloc[val_idx[val_od_idx]]
-                    )
+                    _y_pre = _tv[val_idx] if isinstance(_tv, (np.ndarray, pl.Series)) else _tv.iloc[val_idx]
+                    _y_post = _tv[val_idx[val_od_idx]] if isinstance(_tv, (np.ndarray, pl.Series)) else _tv.iloc[val_idx[val_od_idx]]
                     _arr_pre = np.asarray(_y_pre)
                     _arr_post = np.asarray(_y_post)
                     _flat_pre = _arr_pre.flatten() if _arr_pre.ndim > 1 else _arr_pre

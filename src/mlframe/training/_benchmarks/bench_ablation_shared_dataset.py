@@ -92,8 +92,7 @@ def bench_binning_fraction() -> None:
 
     Xdf, y, cols = _make_data()
     Xtr, _, ytr, _ = train_test_split(Xdf, y, test_size=0.2, random_state=101, stratify=y)
-    params = dict(n_estimators=200, num_leaves=31, learning_rate=0.05,
-                  random_state=101, n_jobs=1, verbose=-1, force_col_wise=True)
+    params = dict(n_estimators=200, num_leaves=31, learning_rate=0.05, random_state=101, n_jobs=1, verbose=-1, force_col_wise=True)
     lgb.LGBMClassifier(**params).fit(Xtr, ytr)  # warm
 
     cts = []
@@ -105,8 +104,7 @@ def bench_binning_fraction() -> None:
         m = lgb.LGBMClassifier(**params)
         t = time.perf_counter(); m.fit(Xtr, ytr); fts.append(time.perf_counter() - t)
     cc, ff = sorted(cts)[2], sorted(fts)[1]
-    print(f"construct(binning)={cc*1000:.1f}ms  full_fit={ff*1000:.1f}ms  "
-          f"binning_frac={cc/ff*100:.1f}%")
+    print(f"construct(binning)={cc*1000:.1f}ms  full_fit={ff*1000:.1f}ms  " f"binning_frac={cc/ff*100:.1f}%")
 
 
 def check_reference_infeasible() -> None:
@@ -129,8 +127,7 @@ def check_ignore_column_not_bit_identical() -> None:
     import lightgbm as lgb
 
     Xdf, y, cols = _make_data(n=4000, nf=8)
-    params = dict(objective="binary", num_leaves=31, learning_rate=0.05,
-                  verbose=-1, seed=42, force_col_wise=True, deterministic=True)
+    params = dict(objective="binary", num_leaves=31, learning_rate=0.05, verbose=-1, seed=42, force_col_wise=True, deterministic=True)
     keep = [c for c in cols if c != cols[0]]
     m = lgb.LGBMClassifier(n_estimators=50, **{k: v for k, v in params.items() if k != "objective"})
     m.fit(Xdf[keep], y)
@@ -139,8 +136,7 @@ def check_ignore_column_not_bit_identical() -> None:
     ds = lgb.Dataset(Xdf, label=y, free_raw_data=False, params={"ignore_column": "0"})
     b = lgb.train({**params, "num_iterations": 50}, ds)
     p_ign = b.predict(Xdf)
-    print(f"ignore_column max abs(delta proba) vs drop = "
-          f"{np.max(np.abs(p_drop - p_ign)):.4f} (NON-zero -> not bit-identical)")
+    print(f"ignore_column max abs(delta proba) vs drop = " f"{np.max(np.abs(p_drop - p_ign)):.4f} (NON-zero -> not bit-identical)")
 
 
 if __name__ == "__main__":

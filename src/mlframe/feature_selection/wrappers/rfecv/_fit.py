@@ -67,7 +67,7 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
                 logger.warning("Prescreen callable failed (%s); skipping prescreen.", exc)
             return candidate_features
         if _topk is not None and len(_kept) > _topk:
-            _kept = _kept[:int(_topk)]
+            _kept = _kept[: int(_topk)]
         return _kept
     # mRMR pre-screening (TODO from pre-Wave-1 high-priority, 2026-05-28):
     # use the existing ``mlframe.feature_selection.filters.mrmr.MRMR`` to
@@ -119,9 +119,7 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
         from .._univariate_ht import calculate_relevance_table as _crt
         try:
             _Xsub = X[candidate_features]
-            _rel = _crt(_Xsub, np.asarray(y),
-                        fdr_level=float(getattr(self, "prescreen_fdr_level", 0.05)),
-                        ml_task="auto", n_jobs=1)
+            _rel = _crt(_Xsub, np.asarray(y), fdr_level=float(getattr(self, "prescreen_fdr_level", 0.05)), ml_task="auto", n_jobs=1)
             _rel = _rel[_rel["relevant"]].sort_values("p_value", ascending=True)
             _kept = list(_rel["feature"])
         except Exception as exc:
@@ -129,7 +127,7 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
                 logger.warning("univariate_ht prescreen failed (%s); skipping.", exc)
             return candidate_features
         if _topk is not None and len(_kept) > _topk:
-            _kept = _kept[:int(_topk)]
+            _kept = _kept[: int(_topk)]
         _kept_set = set(_kept)
         return [c for c in candidate_features if c in _kept_set]
     if verbose:
@@ -179,7 +177,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
         _issparse = None
     if _issparse is not None and _issparse(X):
         _dense_bytes = int(X.shape[0]) * int(X.shape[1]) * 8
-        if _dense_bytes > 2 * 1024 ** 3:
+        if _dense_bytes > 2 * 1024**3:
             raise NotImplementedError(
                 f"RFECV does not accept scipy.sparse X whose dense form would be {_dense_bytes / 1024 ** 3:.1f} GB "
                 f"(> 2 GB); densify a representative subset or pass a DataFrame/ndarray that fits in RAM."
@@ -284,9 +282,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # ``estimators`` (list) supersedes the singular ``estimator``. Work with a list internally; singular path is a len-1 list.
     # Score per fold = mean across estimators; FI runs stored under separate keys so the voting layer treats each estimator's
     # importance as an independent "run".
-    estimators_list = list(self.estimators) if self.estimators else (
-        [self.estimator] if self.estimator is not None else []
-    )
+    estimators_list = list(self.estimators) if self.estimators else ([self.estimator] if self.estimator is not None else [])
     if not estimators_list:
         raise ValueError("RFECV requires either estimator= or estimators=.")
     # ``estimator`` retained for legacy code paths inside fit() that need a single object for type-dispatch (CV stratification,
@@ -463,11 +459,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     _n_candidates = len(original_features)
     _eff_n_repeats = int(getattr(self, "n_repeats", 5))
     self._wide_data_fi_applied_ = None
-    if (
-        getattr(self, "wide_data_fi_fallback", True)
-        and isinstance(importance_getter, str)
-        and importance_getter in _perm_getters
-    ):
+    if getattr(self, "wide_data_fi_fallback", True) and isinstance(importance_getter, str) and importance_getter in _perm_getters:
         _threshold = int(getattr(self, "wide_data_fi_threshold", 200))
         if _n_candidates > _threshold:
             self._wide_data_fi_applied_ = {

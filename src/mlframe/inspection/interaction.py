@@ -110,7 +110,7 @@ def _h_from_1d_pdps(model, X, i0, i1, p0, p1, xi, xj, *, grid, sample, seed) -> 
     c_i = _centered_interp_1d(p0["grid"], p0["pdp"], xi)
     c_j = _centered_interp_1d(p1["grid"], p1["pdp"], xj)
 
-    denom = float(np.sum(c_ij ** 2))
+    denom = float(np.sum(c_ij**2))
     if denom <= 1e-12:
         return 0.0  # joint PD is flat -> model ignores the pair
     numer = float(np.sum((c_ij - c_i - c_j) ** 2))
@@ -148,7 +148,6 @@ def pairwise_interaction_strength(
         for b in range(a + 1, F):
             if cols[a] == cols[b]:
                 continue  # duplicate feature reference -> no interaction with itself
-            h = _h_from_1d_pdps(model, X, cols[a], cols[b], pdps[a], pdps[b], xs[a], xs[b],
-                                grid=grid, sample=sample, seed=seed)
+            h = _h_from_1d_pdps(model, X, cols[a], cols[b], pdps[a], pdps[b], xs[a], xs[b], grid=grid, sample=sample, seed=seed)
             M[a, b] = M[b, a] = h
     return M

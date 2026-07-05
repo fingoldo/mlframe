@@ -49,12 +49,7 @@ def screen_dcd_discover_and_swap(
             commit_swap as _dcd_commit_swap,
         )
         # candidate_pool = surviving non-pruned non-selected indices
-        _pool = [
-            i for i in range(factors_data.shape[1])
-            if i != var
-            and not dcd_state.pool_pruned_mask[i]
-            and i not in selected_vars
-        ]
+        _pool = [i for i in range(factors_data.shape[1]) if i != var and not dcd_state.pool_pruned_mask[i] and i not in selected_vars]
         _dcd_discover(
             dcd_state, var, _pool,
             entropy_cache=entropy_cache,
@@ -136,9 +131,7 @@ def screen_dcd_discover_and_swap(
         # convergence) are caught one level down in
         # the DCD module itself.
         raise RuntimeError(
-            f"DCD discover/swap raised a programming "
-            f"error -- this indicates an mlframe bug, "
-            f"not a data issue: {_dcd_exc!r}"
+            f"DCD discover/swap raised a programming " f"error -- this indicates an mlframe bug, " f"not a data issue: {_dcd_exc!r}"
         ) from _dcd_exc
     except Exception as _dcd_exc:
         # Genuinely best-effort -- numeric / fitting

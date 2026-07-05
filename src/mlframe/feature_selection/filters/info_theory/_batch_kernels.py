@@ -819,7 +819,7 @@ def _run_batch_mi_kernel_sweep():
             cand[:, k] = (base * (1.0 + 0.01 * rng.standard_normal(n)) + 0.001 * k).astype(np.float32)
         np.nan_to_num(cand, copy=False)
         disc = discretize_2d_quantile_batch(cand, n_bins=nbins, dtype=np.int8, assume_finite=True)
-        y = a ** 2 / b
+        y = a**2 / b
         edges = np.quantile(y, np.linspace(0, 1, nbins + 1)[1:-1])
         yc = np.searchsorted(edges, y).astype(np.int64)
         fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n

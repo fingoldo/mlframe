@@ -310,10 +310,7 @@ def _validate_multilabel_pair(y_true, y_pred) -> tuple:
     yt = _coerce_multilabel_array(y_true)
     yp = _coerce_multilabel_array(y_pred)
     if yt.shape != yp.shape:
-        raise ValueError(
-            f"y_true shape {yt.shape} != y_pred shape {yp.shape}; "
-            "multilabel metrics require matching shapes."
-        )
+        raise ValueError(f"y_true shape {yt.shape} != y_pred shape {yp.shape}; " "multilabel metrics require matching shapes.")
     return yt, yp
 
 

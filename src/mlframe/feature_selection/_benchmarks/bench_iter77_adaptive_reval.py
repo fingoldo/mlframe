@@ -21,13 +21,11 @@ warnings.filterwarnings("ignore")
 
 
 CONFIGS = {
-    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
-               redundancy_rho=0.8, snr=8.0, seed=0),
+    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0),
     # iter92 lever: comparison criterion changes only inside the adaptive loop; at higher
     # redundancy_rho cluster aggregation collapses more units to identical member sets, so the
     # member-equiv early-stop is more likely to fire one round before the unit-equiv would.
-    "C3_high_redundancy": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
-                               redundancy_rho=0.9, snr=8.0, seed=0),
+    "C3_high_redundancy": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.9, snr=8.0, seed=0),
 }
 
 
@@ -95,8 +93,7 @@ def run_one(name, cfg, *, adaptive):
 
 
 def print_stage_table(timings, total):
-    order = ("prefilter", "clustering", "oof_shap", "prescreen", "search",
-             "trust_guard", "revalidation", "importance_ablation", "within_cluster_refine")
+    order = ("prefilter", "clustering", "oof_shap", "prescreen", "search", "trust_guard", "revalidation", "importance_ablation", "within_cluster_refine")
     print(f"  total={total:.2f}s  stages:")
     for k in order:
         v = timings.get(k)
@@ -126,14 +123,11 @@ def main():
     delta_rev = rev_lev - rev_base
     delta_e2e = lev["total"] - base["total"]
     print("\n=== iter77 summary ===")
-    print(f"  reval baseline={rev_base:.3f}s   adaptive={rev_lev:.3f}s   delta={delta_rev:+.3f}s "
-          f"({100*delta_rev/rev_base:+.1f}%)")
-    print(f"  e2e   baseline={base['total']:.3f}s   adaptive={lev['total']:.3f}s   delta={delta_e2e:+.3f}s "
-          f"({100*delta_e2e/base['total']:+.1f}%)")
+    print(f"  reval baseline={rev_base:.3f}s   adaptive={rev_lev:.3f}s   delta={delta_rev:+.3f}s " f"({100*delta_rev/rev_base:+.1f}%)")
+    print(f"  e2e   baseline={base['total']:.3f}s   adaptive={lev['total']:.3f}s   delta={delta_e2e:+.3f}s " f"({100*delta_e2e/base['total']:+.1f}%)")
     print(f"  recall baseline={base['recall']}, adaptive={lev['recall']}")
     print(f"  n_models_run baseline={base['n_models_run']}, adaptive={lev['n_models_run']}")
-    print(f"  chosen-subset Jaccard: "
-          f"{len(set(base['chosen']) & set(lev['chosen'])) / max(1, len(set(base['chosen']) | set(lev['chosen']))):.3f}")
+    print(f"  chosen-subset Jaccard: " f"{len(set(base['chosen']) & set(lev['chosen'])) / max(1, len(set(base['chosen']) | set(lev['chosen']))):.3f}")
     print(f"  iter92 member_equiv_fired (adaptive): {lev.get('member_equiv_fired')}")
 
 

@@ -48,7 +48,7 @@ def _demo_mi_correction_chao_shen_silently_degrades():
     from mlframe.feature_selection.filters.info_theory._state_and_dispatch import use_mi_miller_madow, set_mi_miller_madow
 
     for corr in ("none", "miller_madow", "chao_shen"):
-        mm_on = corr == "miller_madow"      # exactly MRMR.fit's wiring
+        mm_on = corr == "miller_madow"  # exactly MRMR.fit's wiring
         set_mi_miller_madow(mm_on)
         print(f"mi_correction={corr!r:14s} -> use_mi_miller_madow()={use_mi_miller_madow()}  "
               f"(chao_shen and none produce the SAME plug-in observed+null: no estimator mismatch)")

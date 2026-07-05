@@ -113,7 +113,7 @@ def _strat_clf_kernel(codes, n_classes, size, n, seed):
     out = np.empty(total, dtype=np.int64)
     pos = 0
     for c in range(n_classes):
-        mem = packed[offsets[c]:offsets[c + 1]]
+        mem = packed[offsets[c] : offsets[c + 1]]
         # per-stratum LCG seed mixes the caller seed with the class index (golden-ratio constant) so
         # strata are independent yet fully determined by ``seed`` -- no process-global RNG involved.
         drawn = _partial_fisher_yates(mem, alloc[c], np.uint64(seed) + np.uint64(c) * np.uint64(11400714819323198485))
@@ -163,7 +163,7 @@ def _strat_reg_kernel(bin_ids, n_bins, size, n, seed):
     for b in range(n_bins):
         if counts[b] == 0:
             continue
-        mem = packed[offsets[b]:offsets[b + 1]]
+        mem = packed[offsets[b] : offsets[b + 1]]
         drawn = _partial_fisher_yates(mem, alloc[b], np.uint64(seed) + np.uint64(b + 1) * np.uint64(11400714819323198485))
         for j in range(drawn.shape[0]):
             out[pos] = drawn[j]

@@ -31,7 +31,7 @@ def _make(task: str, n: int, seed: int):
     x2 = rng.standard_normal(n)
     x3 = rng.standard_normal(n)
     noise_cols = rng.standard_normal((n, 4))
-    signal = cat_effect[cat] + 1.5 * np.sin(2.0 * x1) * x2 + 0.7 * (x3 ** 2)
+    signal = cat_effect[cat] + 1.5 * np.sin(2.0 * x1) * x2 + 0.7 * (x3**2)
     X = np.column_stack([cat.astype(np.float64), x1, x2, x3, noise_cols])
     cols = ["cat", "x1", "x2", "x3", "n0", "n1", "n2", "n3"]
     if task == "regression":
@@ -83,8 +83,7 @@ def _score(task, Xtr, ytr, Xho, yho):
     hard = (proba > 0.5).astype(np.int64)
     rep = fast_classification_report(np.asarray(yho, dtype=np.int64), hard, nclasses=2)
     accuracy, bal_acc, macro = float(rep[2]), float(rep[3]), rep[8]  # macro = [precision, recall, f1]
-    return {"ROC_AUC": float(roc), "PR_AUC": float(pr), "Brier": brier, "LogLoss": logloss,
-            "Accuracy": accuracy, "BalAcc": bal_acc, "MacroF1": float(macro[2])}
+    return {"ROC_AUC": float(roc), "PR_AUC": float(pr), "Brier": brier, "LogLoss": logloss, "Accuracy": accuracy, "BalAcc": bal_acc, "MacroF1": float(macro[2])}
 
 
 def _improved(metric, delta):

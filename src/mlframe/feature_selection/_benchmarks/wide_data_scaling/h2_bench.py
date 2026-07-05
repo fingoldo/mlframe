@@ -13,7 +13,7 @@ def ck(msg):
 N = 8000
 NBINS = 8
 P = 2000
-K = 6              # planted pure pair interactions -> 12 operand cols
+K = 6  # planted pure pair interactions -> 12 operand cols
 SEEDS = [0, 1, 2, 3, 4]
 LEAKS = [0.0, 0.1, 0.3]
 MS = [100, 250, 500]
@@ -119,16 +119,13 @@ def crit_cond_resp_var(X, y):
 def crit_gbm_splits(X, y):
     p = X.shape[1]
     ds = lgb.Dataset(X, label=y)
-    params = dict(objective="binary", num_leaves=31, learning_rate=0.1,
-                  verbose=-1, min_child_samples=20, feature_fraction=1.0)
+    params = dict(objective="binary", num_leaves=31, learning_rate=0.1, verbose=-1, min_child_samples=20, feature_fraction=1.0)
     booster = lgb.train(params, ds, num_boost_round=100)
     imp = booster.feature_importance(importance_type="split")
     return imp.astype(float)
 
 
-CRITS = [("marginal_MI", crit_marginal_mi),
-         ("2nd_moment", crit_second_moment),
-         ("cond_resp_var", crit_cond_resp_var)]
+CRITS = [("marginal_MI", crit_marginal_mi), ("2nd_moment", crit_second_moment), ("cond_resp_var", crit_cond_resp_var)]
 if HAS_DCOR:
     CRITS.append(("dcor", crit_dcor))
 if HAS_LGB:

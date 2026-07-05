@@ -7,17 +7,17 @@ import scipy.stats, numba
 from mlframe.preprocessing.cleaning import analyse_and_clean_features
 
 def make(n=10_000_000, seed=0):
-    rng=np.random.RandomState(seed)
-    a=rng.randint(0,50,n)
-    rp=rng.choice(n,300_000,replace=False)
-    a[rp]=rng.randint(1000,1080,300_000)
-    return pd.DataFrame({"x":a.astype('int64')})
+    rng = np.random.RandomState(seed)
+    a = rng.randint(0, 50, n)
+    rp = rng.choice(n, 300_000, replace=False)
+    a[rp] = rng.randint(1000, 1080, 300_000)
+    return pd.DataFrame({"x": a.astype("int64")})
 
 if __name__=="__main__":
     out=make()
     t=time.perf_counter()
     analyse_and_clean_features(out, update_data=True, verbose=0)
-    dt=time.perf_counter()-t
+    dt = time.perf_counter() - t
     print(f"clean wall: {dt:.3f}s ; nunique_after={out['x'].nunique(dropna=False)}")
-    vc=out['x'].value_counts(dropna=False).sort_index()
-    print("VC_HASH", pd.util.hash_pandas_object(vc).sum(), "NNA", int(out['x'].isna().sum()))
+    vc = out["x"].value_counts(dropna=False).sort_index()
+    print("VC_HASH", pd.util.hash_pandas_object(vc).sum(), "NNA", int(out["x"].isna().sum()))

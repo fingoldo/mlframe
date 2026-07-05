@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 __all__ = [
     "DEFAULT_BINARY_OPERATORS",
     "DEFAULT_UNARY_OPERATORS",
@@ -151,9 +150,7 @@ def run_pysr_feature_engineering(
         # Polars-side per-column median imputation: keeps the fill inside the Arrow buffer so the downstream ``to_pandas()`` allocates exactly once. Numeric-only because non-numeric columns (Utf8 / Datetime / Duration) hit the dtype-mismatch path on polars 1.x and would either be dropped or encoded downstream anyway. Median (not 0) preserves central tendency so PySR's candidate-score ranking does not silently collapse NaN rows onto real-0 rows.
         #
         # ``drop_nans()`` BEFORE ``median()`` is required: polars 1.x ``Series.median()`` includes NaN in the sort order, so on [1,2,3,4,NaN,6,7,8,9,10] it returns 6.5 (mid-pair of the 10-element sort) instead of 6.0 (median of the 9 finite values). Verified on polars 1.x 2026-05-26.
-        sampled = sampled.with_columns([
-            cs.numeric().fill_nan(cs.numeric().drop_nans().median()).fill_null(cs.numeric().drop_nans().median())
-        ])
+        sampled = sampled.with_columns([cs.numeric().fill_nan(cs.numeric().drop_nans().median()).fill_null(cs.numeric().drop_nans().median())])
         sampled_bytes = sampled.estimated_size()
         if sampled_bytes > _bytes_limit:
             raise ValueError(

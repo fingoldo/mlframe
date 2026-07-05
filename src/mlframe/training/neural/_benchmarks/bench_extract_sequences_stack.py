@@ -33,23 +33,14 @@ def _make_df(n_rows: int, seq_len: int, columns):
 
 
 def _old(df, columns):
-    col_arrays = [
-        [np.asarray(v, dtype=np.float32) for v in df[col].to_list()]
-        for col in columns
-    ]
-    return [
-        np.stack([col_arrays[j][i] for j in range(len(columns))], axis=-1)
-        for i in range(len(df))
-    ]
+    col_arrays = [[np.asarray(v, dtype=np.float32) for v in df[col].to_list()] for col in columns]
+    return [np.stack([col_arrays[j][i] for j in range(len(columns))], axis=-1) for i in range(len(df))]
 
 
 def _new(df, columns):
     k = len(columns)
     n_rows = len(df)
-    col_arrays = [
-        [np.asarray(v, dtype=np.float32) for v in df[col].to_list()]
-        for col in columns
-    ]
+    col_arrays = [[np.asarray(v, dtype=np.float32) for v in df[col].to_list()] for col in columns]
     result = []
     for i in range(n_rows):
         seq_len = col_arrays[0][i].shape[0]
@@ -72,14 +63,8 @@ def _new2(df, columns):
         if any(m.ndim != 2 for m in col_mats):
             raise ValueError("ragged")
     except ValueError:
-        col_arrays = [
-            [np.asarray(v, dtype=np.float32) for v in df[col].to_list()]
-            for col in columns
-        ]
-        return [
-            np.stack([col_arrays[j][i] for j in range(k)], axis=-1)
-            for i in range(n_rows)
-        ]
+        col_arrays = [[np.asarray(v, dtype=np.float32) for v in df[col].to_list()] for col in columns]
+        return [np.stack([col_arrays[j][i] for j in range(k)], axis=-1) for i in range(n_rows)]
     stacked = np.stack(col_mats, axis=-1)  # (n_rows, seq_len, k)
     return [stacked[i] for i in range(n_rows)]
 
@@ -105,12 +90,8 @@ def main():
         t_old, o_old = _bestof(_old, df, columns)
         t_new, o_new = _bestof(_new, df, columns)
         t_new2, o_new2 = _bestof(_new2, df, columns)
-        identical = len(o_old) == len(o_new) and all(
-            np.array_equal(a, b) for a, b in zip(o_old, o_new)
-        )
-        identical2 = len(o_old) == len(o_new2) and all(
-            np.array_equal(a, b) for a, b in zip(o_old, o_new2)
-        )
+        identical = len(o_old) == len(o_new) and all(np.array_equal(a, b) for a, b in zip(o_old, o_new))
+        identical2 = len(o_old) == len(o_new2) and all(np.array_equal(a, b) for a, b in zip(o_old, o_new2))
         print(
             f"n_rows={n_rows} seq_len={seq_len}: old={t_old*1e3:.1f}ms "
             f"new={t_new*1e3:.1f}ms ({t_old/t_new:.2f}x, id={identical}) "

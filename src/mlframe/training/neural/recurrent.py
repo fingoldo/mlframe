@@ -36,7 +36,6 @@ logger = logging.getLogger(__name__)
 
 from typing import TYPE_CHECKING
 
-
 try:
     import xxhash as _xxhash  # noqa: F401  module-top for hot cache-key path
     _HAS_XXHASH = True
@@ -82,7 +81,6 @@ from .base import _ensure_numpy  # noqa: E402,F401  shared with _recurrent_data
 from ._recurrent_config import RNNType, InputMode, RecurrentConfig  # noqa: E402,F401
 from ._recurrent_data import RecurrentDataset, recurrent_collate_fn, RecurrentDataModule  # noqa: E402,F401
 from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSequenceEncoder, MLPHead  # noqa: E402,F401
-
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Lightning Module

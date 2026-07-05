@@ -1,6 +1,5 @@
 """CompositeTargetEstimator + helpers: sklearn-compatible wrapper that hides the transform-and-invert loop from downstream callers. Split out of composite.py to keep wrapper surface independent of CompositeTargetDiscovery; composite.py re-exports every symbol below at its bottom for full back-compat."""
 
-
 from __future__ import annotations
 
 import logging
@@ -105,10 +104,7 @@ def _extract_base(X: Any, base_column: str) -> np.ndarray:
                 "Columns: " + ", ".join(map(str, X.columns[:8])) + ("..." if len(X.columns) > 8 else "")
             )
         return X[base_column].to_numpy(dtype=np.float64)
-    raise TypeError(
-        f"CompositeTargetEstimator: unsupported X type {type(X).__name__}; "
-        "pass a pandas or polars DataFrame."
-    )
+    raise TypeError(f"CompositeTargetEstimator: unsupported X type {type(X).__name__}; " "pass a pandas or polars DataFrame.")
 
 
 def _extract_groups(X: Any, group_column: str) -> np.ndarray:
@@ -120,24 +116,15 @@ def _extract_groups(X: Any, group_column: str) -> np.ndarray:
     """
     if _is_polars_df(X):
         if group_column not in X.columns:
-            raise KeyError(
-                f"CompositeTargetEstimator: group column '{group_column}' "
-                f"missing from X."
-            )
+            raise KeyError(f"CompositeTargetEstimator: group column '{group_column}' " f"missing from X.")
         # Polars Series.to_numpy() already returns an ndarray; the prior
         # np.asarray wrapper allocated a redundant view.
         return X.get_column(group_column).to_numpy()
     if isinstance(X, pd.DataFrame):
         if group_column not in X.columns:
-            raise KeyError(
-                f"CompositeTargetEstimator: group column '{group_column}' "
-                f"missing from X."
-            )
+            raise KeyError(f"CompositeTargetEstimator: group column '{group_column}' " f"missing from X.")
         return X[group_column].to_numpy()
-    raise TypeError(
-        f"CompositeTargetEstimator: unsupported X type {type(X).__name__}; "
-        "pass pandas / polars DataFrame."
-    )
+    raise TypeError(f"CompositeTargetEstimator: unsupported X type {type(X).__name__}; " "pass pandas / polars DataFrame.")
 
 
 def _extract_base_matrix(X: Any, base_columns: Sequence[str]) -> np.ndarray:
@@ -153,10 +140,7 @@ def _extract_base_matrix(X: Any, base_columns: Sequence[str]) -> np.ndarray:
     feature-selection drops are easy to diagnose.
     """
     if len(base_columns) == 0:
-        raise ValueError(
-            "CompositeTargetEstimator: base_columns is empty; multi-base "
-            "transforms require at least one base column."
-        )
+        raise ValueError("CompositeTargetEstimator: base_columns is empty; multi-base " "transforms require at least one base column.")
     # Single-select fast path: a polars ``.select(cols).to_numpy()`` materialises all K cols in one Arrow
     # buffer (~3-5x faster than the per-column-then-column_stack loop on K>=4 cols, validated on a
     # 1M-row x 8-col synthetic in bench_extract_base_matrix.py). Same for pandas: ``loc[:, cols].to_numpy()``
@@ -251,30 +235,20 @@ def predict_quantile_ensemble(
 
     quantiles_arr = np.asarray(quantiles, dtype=np.float64)
     if quantiles_arr.ndim != 1 or quantiles_arr.size == 0:
-        raise ValueError(
-            f"predict_quantile_ensemble: quantiles must be a non-empty 1-D sequence, got shape {quantiles_arr.shape!r}"
-        )
+        raise ValueError(f"predict_quantile_ensemble: quantiles must be a non-empty 1-D sequence, got shape {quantiles_arr.shape!r}")
     if np.any((quantiles_arr <= 0.0) | (quantiles_arr >= 1.0)):
-        raise ValueError(
-            f"predict_quantile_ensemble: quantiles must be strictly between 0 and 1; got {quantiles_arr.tolist()!r}"
-        )
+        raise ValueError(f"predict_quantile_ensemble: quantiles must be strictly between 0 and 1; got {quantiles_arr.tolist()!r}")
     if not np.all(np.diff(quantiles_arr) > 0):
-        raise ValueError(
-            f"predict_quantile_ensemble: quantiles must be sorted ascending and unique; got {quantiles_arr.tolist()!r}"
-        )
+        raise ValueError(f"predict_quantile_ensemble: quantiles must be sorted ascending and unique; got {quantiles_arr.tolist()!r}")
 
     if weights is None:
         w = np.full(len(members), 1.0 / len(members), dtype=np.float64)
     else:
         w = np.asarray(weights, dtype=np.float64)
         if w.shape != (len(members),):
-            raise ValueError(
-                f"predict_quantile_ensemble: weights length {w.shape!r} != n_members {len(members)}"
-            )
+            raise ValueError(f"predict_quantile_ensemble: weights length {w.shape!r} != n_members {len(members)}")
         if np.any(w < 0):
-            raise ValueError(
-                f"predict_quantile_ensemble: weights must be non-negative; got {w.tolist()!r}"
-            )
+            raise ValueError(f"predict_quantile_ensemble: weights must be non-negative; got {w.tolist()!r}")
         w_sum = float(w.sum())
         if w_sum <= 0:
             raise ValueError("predict_quantile_ensemble: weights sum to zero")
@@ -324,9 +298,7 @@ def predict_quantile_ensemble(
                         )
                     pred_arr = pred_arr[:, 0]
                 elif pred_arr.ndim != 1:
-                    raise ValueError(
-                        f"predict_quantile_ensemble: member {idx} predict_quantile returned ndim={pred_arr.ndim} (expected 1 or 2)"
-                    )
+                    raise ValueError(f"predict_quantile_ensemble: member {idx} predict_quantile returned ndim={pred_arr.ndim} (expected 1 or 2)")
                 cols.append(pred_arr)
             member_mat = np.column_stack(cols)
         if expected_shape is None:

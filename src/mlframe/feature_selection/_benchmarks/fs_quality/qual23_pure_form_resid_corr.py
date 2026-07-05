@@ -32,7 +32,7 @@ def make_data(scenario, seed, n=1100):
     if scenario == "weak_joint":
         # dominant additive linear part + a WEAK non-separable joint ratio term (low resid-corr ~0.05-0.08).
         strong = 3.0 * a + 2.0 * d + 1.5 * c
-        weak = 0.45 * (a ** 2 / b)  # joint, non-separable, weak contribution
+        weak = 0.45 * (a**2 / b)  # joint, non-separable, weak contribution
         y = strong + weak + 0.4 * rng.normal(size=n)
     else:  # control: purely additive-separable, NO joint term -> NEW must be a no-op
         y = 3.0 * a + 2.0 * d + 1.5 * c + 0.8 * np.sin(b) + 0.4 * rng.normal(size=n)

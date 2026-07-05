@@ -135,8 +135,7 @@ def main():
         old = _best_of(_legval_old, x, c, reps)
         new = _best_of(_legval_new, x, c, reps)
         fus = _best_of(_legval_fused, x, c, reps)
-        print(f"{n:>8} old={old*1e3:>9.4f} reg={new*1e3:>9.4f}({old/new:>5.2f}x) "
-              f"fused={fus*1e3:>9.4f}({old/fus:>5.2f}x) reg_id={ident} fused_id={ident_f}")
+        print(f"{n:>8} old={old*1e3:>9.4f} reg={new*1e3:>9.4f}({old/new:>5.2f}x) " f"fused={fus*1e3:>9.4f}({old/fus:>5.2f}x) reg_id={ident} fused_id={ident_f}")
 
 
 if __name__ == "__main__":

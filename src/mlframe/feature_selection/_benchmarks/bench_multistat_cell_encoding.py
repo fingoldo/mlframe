@@ -157,14 +157,13 @@ def _eval(x0, x1, y, src, task, raw_extra, seed):
     n = len(y)
     rng = np.random.default_rng(1000 + seed)
     idx = rng.permutation(n)
-    tr, te = idx[: n // 2], idx[n // 2:]
+    tr, te = idx[: n // 2], idx[n // 2 :]
     codes_tr, e0, e1, _ = _make_cross_codes(x0[tr], x1[tr], 8)
     codes_te, *_ = _make_cross_codes(x0[te], x1[te], 8, e0, e1)
     raw_tr = raw_extra[tr] if raw_extra is not None else np.empty((len(tr), 0))
     raw_te = raw_extra[te] if raw_extra is not None else np.empty((len(te), 0))
     out = {}
-    for label, which in (("mean_only", ("mean",)),
-                         ("+std+skew+kurt", STATS)):
+    for label, which in (("mean_only", ("mean",)), ("+std+skew+kurt", STATS)):
         f_tr, table, g = _oof_multistat_encode(codes_tr, src[tr], 5, seed, which, src[tr])
         f_te = _apply_table(codes_te, table, g, which)
         Xtr = np.hstack([raw_tr, f_tr])

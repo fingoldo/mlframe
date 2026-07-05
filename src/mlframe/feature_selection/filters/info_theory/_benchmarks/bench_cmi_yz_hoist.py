@@ -55,10 +55,9 @@ def _cmi_one_hoisted(factors_data, xi, zi, classes_yz, nclasses_yz, ent_yz, ent_
     _, freqs_xz, _ = merge_vars(factors_data, xz, None, factors_nbins, dtype=dtype)
     ent_xz = entropy(freqs_xz)
     scratch = classes_yz.copy()
-    xarr = np.empty(1, dtype=np.int64); xarr[0] = xi
-    _, freqs_xyz, _ = merge_vars(
-        factors_data, xarr, None, factors_nbins,
-        current_nclasses=nclasses_yz, final_classes=scratch, dtype=dtype)
+    xarr = np.empty(1, dtype=np.int64)
+    xarr[0] = xi
+    _, freqs_xyz, _ = merge_vars(factors_data, xarr, None, factors_nbins, current_nclasses=nclasses_yz, final_classes=scratch, dtype=dtype)
     ent_xyz = entropy(freqs_xyz)
     r = ent_xz + ent_yz - ent_z - ent_xyz
     return r if r > 0.0 else 0.0
@@ -95,10 +94,9 @@ def _cpu_cmi_loop_hoisted(factors_data, cand_indices, y, z, factors_nbins, dtype
         ent_xz = entropy(freqs_xz)
         # H(X,Y,Z): melt X on top of a PRIVATE copy of classes_yz (never mutate the shared one)
         scratch = classes_yz.copy()
-        xarr = np.empty(1, dtype=np.int64); xarr[0] = xi
-        _, freqs_xyz, _ = merge_vars(
-            factors_data, xarr, None, factors_nbins,
-            current_nclasses=nclasses_yz, final_classes=scratch, dtype=dtype)
+        xarr = np.empty(1, dtype=np.int64)
+        xarr[0] = xi
+        _, freqs_xyz, _ = merge_vars(factors_data, xarr, None, factors_nbins, current_nclasses=nclasses_yz, final_classes=scratch, dtype=dtype)
         ent_xyz = entropy(freqs_xyz)
         r = ent_xz + ent_yz - ent_z - ent_xyz
         out[i] = r if r > 0.0 else 0.0
@@ -123,8 +121,7 @@ def bench(n, p, nb, reps=5, serial=False):
             return out
         return _cpu_cmi_loop_parallel(fd, cand, y, z, fnb, _vin)
 
-    hoist_fn = (lambda: _cpu_cmi_loop_hoisted_serial(fd, cand, y, z, fnb)) if serial \
-        else (lambda: _cpu_cmi_loop_hoisted(fd, cand, y, z, fnb))
+    hoist_fn = (lambda: _cpu_cmi_loop_hoisted_serial(fd, cand, y, z, fnb)) if serial else (lambda: _cpu_cmi_loop_hoisted(fd, cand, y, z, fnb))
 
     a = base_fn(); b = hoist_fn()
     maxdiff = float(np.max(np.abs(a - b)))
@@ -144,8 +141,8 @@ def bench(n, p, nb, reps=5, serial=False):
 
 if __name__ == "__main__":
     # serial regime (p<32) -- the wellbore's actual branch (profile attributes tottime to _cpu_cmi_loop:407)
-    for (n, p, nb) in [(998327, 10, 10), (998327, 20, 10)]:
+    for n, p, nb in [(998327, 10, 10), (998327, 20, 10)]:
         bench(n, p, nb, serial=True)
     # parallel regime (p>=32)
-    for (n, p, nb) in [(998327, 100, 10), (998327, 300, 10), (200000, 100, 10), (998327, 64, 16)]:
+    for n, p, nb in [(998327, 100, 10), (998327, 300, 10), (200000, 100, 10), (998327, 64, 16)]:
         bench(n, p, nb)

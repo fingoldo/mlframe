@@ -16,7 +16,6 @@ from ._pairs_materialise import (
 )
 from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO  # noqa: F401 -- re-exported via package __init__
 
-
 # NOTE: the authoritative ``_FE_BUFFER_RAM_BUDGET_RATIO`` (and the RAM-budget block comment
 # documenting the hoist/recompute dispatch) lives in ``feature_engineering.py`` (value 0.3). The
 # chunk module previously carried a stale duplicate (0.4) that nothing here read -- the chunk WIDTH
@@ -79,10 +78,7 @@ def _plan_fe_chunks(*, prospective_pairs, pair_combs, vars_transformations, n_bi
     pair_cols: dict = {}
     for (raw_vars_pair, _pm), _u in prospective_pairs.items():
         combs = pair_combs.get(raw_vars_pair, [])
-        valid = [
-            tp for tp in combs
-            if (tp[0] in vars_transformations) and (tp[1] in vars_transformations)
-        ]
+        valid = [tp for tp in combs if (tp[0] in vars_transformations) and (tp[1] in vars_transformations)]
         pair_valid_combs[raw_vars_pair] = valid
         pair_cols[raw_vars_pair] = len(valid) * n_binary
 
@@ -177,10 +173,7 @@ def _compute_one_fe_chunk(
             for transformations_pair in pair_valid_combs[raw_vars_pair]:
                 _ai = vars_transformations[transformations_pair[0]]
                 _bi = vars_transformations[transformations_pair[1]]
-                uses_pw = (
-                    transformations_pair[0][1] == prewarp_unary
-                    or transformations_pair[1][1] == prewarp_unary
-                )
+                uses_pw = transformations_pair[0][1] == prewarp_unary or transformations_pair[1][1] == prewarp_unary
                 for _opn, bin_func_name in enumerate(_name_list):
                     _a_cols.append(_ai)
                     _b_cols.append(_bi)
@@ -296,10 +289,7 @@ def _compute_one_fe_chunk(
             for transformations_pair in pair_valid_combs[raw_vars_pair]:
                 param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
                 param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
-                uses_pw = (
-                    transformations_pair[0][1] == prewarp_unary
-                    or transformations_pair[1][1] == prewarp_unary
-                )
+                uses_pw = transformations_pair[0][1] == prewarp_unary or transformations_pair[1][1] == prewarp_unary
                 with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
                     for bin_func_name, bin_func in binary_transformations.items():
                         start = timer()

@@ -53,11 +53,9 @@ def _make_extra_sympy_mappings() -> Dict[str, Callable[..., Any]]:
         "safe_log": lambda x: sp.Piecewise((sp.log(x), x > 0), (sp.nan, True)),
         "safe_sqrt": lambda x: sp.Piecewise((sp.sqrt(x), x >= 0), (sp.sqrt(-x), True)),
         "inv": lambda x: 1 / x,
-        "gauss": lambda x: sp.exp(-(x ** 2)),
+        "gauss": lambda x: sp.exp(-(x**2)),
         "softplus": lambda x: sp.log(1 + sp.exp(x)),
-        "harmonic_mean": lambda x, y: sp.Piecewise(
-            (2 * x * y / (x + y), (x + y) > 0), (sp.nan, True)
-        ),
+        "harmonic_mean": lambda x, y: sp.Piecewise((2 * x * y / (x + y), (x + y) > 0), (sp.nan, True)),
         "xlogy": lambda x, y: sp.Piecewise((x * sp.log(y), y > 0), (sp.nan, True)),
     }
 
@@ -98,10 +96,7 @@ def _operators_for_preset(preset: str) -> Tuple[List[str], List[str]]:
             OPERATOR_JULIA_SIGNATURES["inv"],
         ]
     else:
-        raise ValueError(
-            f"Unknown pysr_operator_preset {preset!r}; expected one of "
-            f"{{'minimal', 'standard', 'physics'}}"
-        )
+        raise ValueError(f"Unknown pysr_operator_preset {preset!r}; expected one of " f"{{'minimal', 'standard', 'physics'}}")
     return binary, unary
 
 

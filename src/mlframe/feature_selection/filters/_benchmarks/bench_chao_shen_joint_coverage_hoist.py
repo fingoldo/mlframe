@@ -202,8 +202,7 @@ def main():
     rng = np.random.default_rng(0)
     print(f"{'shape':>14} {'n':>8} {'old_us':>10} {'new_us':>10} {'speedup':>8}  identical")
     # Realistic MRMR sparse-contingency shapes: feature card x target card.
-    for (K_x, K_y, n) in [(10, 2, 1500), (14, 10, 1500), (39, 39, 1500),
-                          (50, 50, 5000), (100, 100, 10000)]:
+    for K_x, K_y, n in [(10, 2, 1500), (14, 10, 1500), (39, 39, 1500), (50, 50, 5000), (100, 100, 10000)]:
         j = _make_joint(rng, n, K_x, K_y)
         a = _joint_old(j); b = _joint_new(j)
         ident = (a == b)

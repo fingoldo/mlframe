@@ -177,8 +177,7 @@ def _grouped_sse_bincount(codes, w, y, P, n_groups, n_experts, lag_idx):
 
 def _grouped_sse(codes, w, y, P, n_groups, n_experts, lag_idx):
     if _HAVE_NUMBA:
-        return _grouped_sse_njit(np.ascontiguousarray(codes, dtype=np.int64), w, y,
-                                 np.ascontiguousarray(P), n_groups, n_experts, lag_idx)
+        return _grouped_sse_njit(np.ascontiguousarray(codes, dtype=np.int64), w, y, np.ascontiguousarray(P), n_groups, n_experts, lag_idx)
     return _grouped_sse_bincount(codes, w, y, P, n_groups, n_experts, lag_idx)
 
 
@@ -319,9 +318,7 @@ class MoESelectionGate:
         if self._groupless:
             self._global_idx = int(self.group_choice_idx_[0])
 
-        self.group_choice_ = {
-            _to_native(uniq[g]): self.expert_names_[int(self.group_choice_idx_[g])] for g in range(n_groups)
-        }
+        self.group_choice_ = {_to_native(uniq[g]): self.expert_names_[int(self.group_choice_idx_[g])] for g in range(n_groups)}
         self.global_choice_ = self.expert_names_[self._global_idx]
         self.guarantee_ = self._verify_guarantee(sse_all, W_all)
         return self

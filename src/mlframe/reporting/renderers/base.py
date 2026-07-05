@@ -48,10 +48,7 @@ def get_renderer(backend: str) -> Renderer:
     if backend == "plotly":
         from mlframe.reporting.renderers.plotly import PlotlyRenderer
         return PlotlyRenderer()
-    raise ValueError(
-        f"unknown renderer backend {backend!r}; "
-        "supported: matplotlib, plotly"
-    )
+    raise ValueError(f"unknown renderer backend {backend!r}; " "supported: matplotlib, plotly")
 
 
 __all__ = ["Renderer", "get_renderer"]

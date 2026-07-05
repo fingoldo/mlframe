@@ -44,7 +44,7 @@ def _apply_sis_screen(self, X, y):
 
     if isinstance(X, pd.DataFrame):
         Xmat = X.to_numpy()
-        if Xmat.dtype.kind in "USO" or Xmat.dtype == object:   # mixed/object frame -> factorise per column
+        if Xmat.dtype.kind in "USO" or Xmat.dtype == object:  # mixed/object frame -> factorise per column
             Xmat = _numeric_matrix(X)
     elif str(type(X).__module__).startswith("polars"):
         Xmat = X.to_numpy()
@@ -52,7 +52,7 @@ def _apply_sis_screen(self, X, y):
             Xmat = _numeric_matrix(X.to_pandas())
     else:
         Xmat = np.asarray(X)
-        if Xmat.dtype.kind in "USO" or Xmat.dtype == object:   # object ndarray -> factorise per column
+        if Xmat.dtype.kind in "USO" or Xmat.dtype == object:  # object ndarray -> factorise per column
             Xmat = _numeric_matrix(pd.DataFrame(Xmat))
 
     k_target = getattr(self, "n_features", None)
@@ -76,9 +76,7 @@ def _apply_sis_screen(self, X, y):
     )
     survivors = np.asarray(survivors, dtype=np.int64)
     _mi_full = _sis_scores.get("mi")
-    self.sis_relevance_prior_ = (
-        {int(s): float(_mi_full[int(s)]) for s in survivors} if _mi_full is not None else {}
-    )
+    self.sis_relevance_prior_ = {int(s): float(_mi_full[int(s)]) for s in survivors} if _mi_full is not None else {}
     self.sis_survivors_ = survivors
     self.sis_n_input_features_ = int(Xmat.shape[1])
     logger.info(

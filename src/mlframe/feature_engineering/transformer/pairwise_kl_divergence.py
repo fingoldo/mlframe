@@ -29,8 +29,8 @@ def _bernoulli_kl(p: np.ndarray, q: np.ndarray) -> np.ndarray:
 
 
 def _gaussian_kl(mu_i: np.ndarray, mu_j: np.ndarray, sigma_i: float, sigma_j: float) -> np.ndarray:
-    var_i = sigma_i ** 2 + 1e-9
-    var_j = sigma_j ** 2 + 1e-9
+    var_i = sigma_i**2 + 1e-9
+    var_j = sigma_j**2 + 1e-9
     return np.log(sigma_j / sigma_i) + (var_i + (mu_i - mu_j) ** 2) / (2.0 * var_j) - 0.5
 
 

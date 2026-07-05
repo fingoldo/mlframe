@@ -398,7 +398,7 @@ def rolling_spectral_flux(
         # Flux at row r = sum over k of (mag[r, k] - mag[r-1, k])^2.
         # First row of segment has no previous -> NaN.
         diff = mag[1:] - mag[:-1]
-        flux = (diff ** 2).sum(axis=1)
+        flux = (diff**2).sum(axis=1)
         if normalize:
             tot = mag[1:].sum(axis=1) + mag[:-1].sum(axis=1) + 1e-12
             flux = flux / tot
@@ -441,7 +441,7 @@ def rolling_periodicity_score(
         # Use first half (lags 0 .. K//2) where ACF is meaningful.
         half = window_K // 2
         start = 1 if exclude_lag_zero else 0
-        acf_lags = acf[:, start:half + 1]
+        acf_lags = acf[:, start : half + 1]
         peak = np.abs(acf_lags).max(axis=1)
         mean_abs = np.abs(acf_lags).mean(axis=1) + 1e-12
         out[write_idx] = peak / mean_abs

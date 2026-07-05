@@ -136,10 +136,7 @@ def _resolve_cv_and_val_cv(
             try:
                 import polars as _pl
                 if isinstance(X, _pl.DataFrame):
-                    _dt_cols = [
-                        n for n, d in X.schema.items()
-                        if d in (_pl.Datetime, _pl.Date) or str(d).startswith(("Datetime", "Date"))
-                    ]
+                    _dt_cols = [n for n, d in X.schema.items() if d in (_pl.Datetime, _pl.Date) or str(d).startswith(("Datetime", "Date"))]
                     # Exactly one datetime column = unambiguous time axis; multiple datetimes would require the
                     # caller to disambiguate via an explicit cv= (we won't guess which column orders the rows).
                     if len(_dt_cols) == 1:
@@ -184,16 +181,13 @@ def _resolve_cv_and_val_cv(
             cv = TimeSeriesSplit(n_splits=cv)
             if verbose:
                 logger.info(
-                    "Using cv=%s (auto-detected from monotonic DatetimeIndex; "
-                    "pass cv=KFold(...) explicitly to override).", cv,
+                    "Using cv=%s (auto-detected from monotonic DatetimeIndex; " "pass cv=KFold(...) explicitly to override).",
+                    cv,
                 )
             # Distinguish the auto-upgrade case so callers running the outer suite in temporal mode see an explicit confirmation that the inner FS CV is temporal too. Without this line, a caller who set ctx.split_config.timestamps had to inspect cv_ attribute manually to confirm the upgrade reached RFECV.
             logger.info(
-                "RFECV: temporal CV upgrade applied because outer split_config is temporal "
-                "(detected via %s); inner FS folds will respect time ordering.",
-                "fit_params['timestamps'] hint" if _ts_hint is not None else (
-                    "polars datetime schema" if _polars_time_series_hint else "pandas DatetimeIndex"
-                ),
+                "RFECV: temporal CV upgrade applied because outer split_config is temporal " "(detected via %s); inner FS folds will respect time ordering.",
+                "fit_params['timestamps'] hint" if _ts_hint is not None else ("polars datetime schema" if _polars_time_series_hint else "pandas DatetimeIndex"),
             )
         elif is_classifier(estimator):
             if groups is not None and _use_group_time_series:

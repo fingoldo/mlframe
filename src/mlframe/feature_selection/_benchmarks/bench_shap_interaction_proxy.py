@@ -34,9 +34,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_f
 def _xgb():
     import xgboost as xgb
 
-    return xgb.XGBClassifier(
-        n_estimators=120, max_depth=4, learning_rate=0.15, subsample=0.9,
-        n_jobs=1, tree_method="hist", verbosity=0, random_state=0)
+    return xgb.XGBClassifier(n_estimators=120, max_depth=4, learning_rate=0.15, subsample=0.9, n_jobs=1, tree_method="hist", verbosity=0, random_state=0)
 
 
 def make_bed(kind: str, n: int, p_noise: int, seed: int):
@@ -129,14 +127,12 @@ def run():
             Xs, _Xh, ys, _yh = train_test_split(X, y, test_size=0.25, random_state=seed, stratify=y)
             Xs = Xs.reset_index(drop=True); ys = np.asarray(ys)
             phi, base, y_phi = compute_shap_matrix(
-                _xgb(), Xs, ys, classification=True, out_of_fold=True, n_splits=3, n_models=1,
-                rng=np.random.default_rng(seed), n_jobs=1)
-            Phi, ibase = compute_interaction_tensor(
-                _xgb(), Xs, ys, classification=True, rng=np.random.default_rng(seed))
+                _xgb(), Xs, ys, classification=True, out_of_fold=True, n_splits=3, n_models=1, rng=np.random.default_rng(seed), n_jobs=1
+            )
+            Phi, ibase = compute_interaction_tensor(_xgb(), Xs, ys, classification=True, rng=np.random.default_rng(seed))
             # ADDITIVE proxy (current default): brute force over the (small) width.
             P = phi.shape[1]
-            add_c = brute_force_top_n(phi, base, y_phi, classification=True, metric="brier",
-                                      min_card=1, max_card=min(cap, P), top_n=30, parallel=False)
+            add_c = brute_force_top_n(phi, base, y_phi, classification=True, metric="brier", min_card=1, max_card=min(cap, P), top_n=30, parallel=False)
             # INTERACTION proxy: re-score additive candidates + sweep gated pairs.
             int_c = interaction_proxy_top_n(
                 phi, Phi, base, y_phi, classification=True, metric="brier",

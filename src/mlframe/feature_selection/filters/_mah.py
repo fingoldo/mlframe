@@ -62,11 +62,7 @@ def _nml_regret(K: int, N: int) -> float:
     if K <= 1 or N <= 0:
         return 0.0
     half_K = float(K) / 2.0
-    return (
-        (K - 1) * 0.5 * math.log(max(N, 1) / (2.0 * math.pi))
-        + math.lgamma(half_K)
-        - half_K * math.lgamma(0.5)
-    )
+    return (K - 1) * 0.5 * math.log(max(N, 1) / (2.0 * math.pi)) + math.lgamma(half_K) - half_K * math.lgamma(0.5)
 
 
 @njit(nogil=True, cache=True)
@@ -274,8 +270,7 @@ def _greedy_merge_with_history(joint: np.ndarray):
     return cur, row_merges, col_merges
 
 
-def _apply_merges_to_edges(initial_inner_edges: np.ndarray,
-                            row_merges) -> np.ndarray:
+def _apply_merges_to_edges(initial_inner_edges: np.ndarray, row_merges) -> np.ndarray:
     """Walk through the row-merge sequence and drop the inner edges that
     got swallowed by a merge.
 
@@ -300,8 +295,7 @@ def _apply_merges_to_edges(initial_inner_edges: np.ndarray,
     return initial_inner_edges[np.asarray(remaining_positions, dtype=np.int64)]
 
 
-def mah_bin_edges(x: np.ndarray, y: np.ndarray, *,
-                   initial_k: int = 16) -> np.ndarray:
+def mah_bin_edges(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.ndarray:
     """Multidimensional Adaptive Histogram bin edges for X (Marx 2021).
 
     Wave 7 (2026-05-29): exposed as a Family-1 ``nbins_strategy`` option.
@@ -343,8 +337,7 @@ def mah_bin_edges(x: np.ndarray, y: np.ndarray, *,
         qy_unique = np.unique(qy)
         if qy_unique.size < 3:
             return initial_inner
-        yb = np.searchsorted(qy_unique[1:-1], y.astype(np.float64),
-                              side="right").astype(np.int64)
+        yb = np.searchsorted(qy_unique[1:-1], y.astype(np.float64), side="right").astype(np.int64)
     K_x = int(xb.max()) + 1
     K_y = int(yb.max()) + 1
     if K_x < 2 or K_y < 2:
@@ -355,9 +348,7 @@ def mah_bin_edges(x: np.ndarray, y: np.ndarray, *,
     return _apply_merges_to_edges(initial_inner, row_merges)
 
 
-def mah_mi(x: np.ndarray, y: np.ndarray, *,
-            initial_k: int = 16,
-            return_sci: bool = False) -> float:
+def mah_mi(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16, return_sci: bool = False) -> float:
     """MAH/SCI mutual information estimator (Marx 2021, SDM). See module
     docstring for the algorithm. Returns I(X; Y) in nats; for ``return_sci=True``
     returns the SCI difference (regret-normalised hypothesis test statistic).
@@ -381,8 +372,7 @@ def mah_mi(x: np.ndarray, y: np.ndarray, *,
         qy_unique = np.unique(qy)
         if qy_unique.size < 3:
             return 0.0
-        yb = np.searchsorted(qy_unique[1:-1], y.astype(np.float64),
-                              side="right").astype(np.int64)
+        yb = np.searchsorted(qy_unique[1:-1], y.astype(np.float64), side="right").astype(np.int64)
     K_x = int(xb.max()) + 1
     K_y = int(yb.max()) + 1
     if K_x < 2 or K_y < 2:

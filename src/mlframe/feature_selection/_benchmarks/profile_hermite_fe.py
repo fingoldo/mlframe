@@ -98,8 +98,7 @@ def main():
         wall_with_profile[sc_name] = time.perf_counter() - t0
         profilers[sc_name] = prof
         overhead_pct = 100 * (wall_with_profile[sc_name] / wall_no_profile[sc_name] - 1)
-        print(f"    {sc_name}: {wall_with_profile[sc_name]:.2f}s "
-              f"(profiler overhead: {overhead_pct:+.1f}%)")
+        print(f"    {sc_name}: {wall_with_profile[sc_name]:.2f}s " f"(profiler overhead: {overhead_pct:+.1f}%)")
 
     # Print top hotspots per scenario
     out_dir = Path(__file__).parent / "_results"

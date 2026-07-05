@@ -75,7 +75,6 @@ from .neural import (  # noqa: E402, F401
     RecurrentModelStrategy,
 )
 
-
 # =============================================================================
 # Strategy Registry
 # =============================================================================
@@ -262,9 +261,7 @@ def _resolve_model_spec(
     if isinstance(entry, tuple) and len(entry) == 2:
         name, est = entry
         if not isinstance(name, str):
-            raise TypeError(
-                f"Tuple model spec requires (str, estimator); got name of type {type(name).__name__}"
-            )
+            raise TypeError(f"Tuple model spec requires (str, estimator); got name of type {type(name).__name__}")
         key = _dedupe_key(_slugify(name), used_keys)
         strat = _strategy_for_estimator(est)
         return key, est, strat
@@ -310,7 +307,6 @@ from .pipeline_cache import (  # noqa: E402, F401
     _estimate_entry_nbytes,
     _DEFAULT_PIPELINE_CACHE_BYTES_LIMIT,
 )
-
 
 __all__ = [
     "PANDAS_CATEGORICAL_DTYPES",

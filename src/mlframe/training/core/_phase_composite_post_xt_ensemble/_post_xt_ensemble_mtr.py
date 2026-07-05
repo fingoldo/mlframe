@@ -62,13 +62,9 @@ class MTRPerColumnEqualMeanEnsemble:
         if not components:
             raise ValueError("MTRPerColumnEqualMeanEnsemble requires at least 1 component")
         if strategy not in ("equal_mean", "nnls"):
-            raise ValueError(
-                f"strategy must be 'equal_mean' or 'nnls'; got {strategy!r}"
-            )
+            raise ValueError(f"strategy must be 'equal_mean' or 'nnls'; got {strategy!r}")
         self._components = list(components)
-        self._component_names = list(component_names) if component_names else [
-            f"comp{i}" for i in range(len(self._components))
-        ]
+        self._component_names = list(component_names) if component_names else [f"comp{i}" for i in range(len(self._components))]
         self._n_targets = int(n_targets)
         self._strategy = strategy
         # Pre-supplied weights take precedence (e.g. a future PR that
@@ -77,10 +73,7 @@ class MTRPerColumnEqualMeanEnsemble:
         if weights is not None:
             weights = np.asarray(weights, dtype=np.float64)
             if weights.shape != (len(self._components), self._n_targets):
-                raise ValueError(
-                    f"weights shape {weights.shape} != "
-                    f"({len(self._components)}, {self._n_targets})"
-                )
+                raise ValueError(f"weights shape {weights.shape} != " f"({len(self._components)}, {self._n_targets})")
             self._weights = weights
             self._strategy = "nnls"  # caller provided weights -> use them
         else:
@@ -155,9 +148,7 @@ class MTRPerColumnEqualMeanEnsemble:
         if y_arr.ndim == 1:
             y_arr = y_arr.reshape(-1, 1)
         if y_arr.shape[1] != self._n_targets:
-            raise ValueError(
-                f"y.shape[1] = {y_arr.shape[1]} != n_targets = {self._n_targets}"
-            )
+            raise ValueError(f"y.shape[1] = {y_arr.shape[1]} != n_targets = {self._n_targets}")
 
         n_comp = len(self._components)
         weights = np.zeros((n_comp, self._n_targets), dtype=np.float64)
@@ -239,9 +230,9 @@ def _build_mtr_per_column_ensemble(
 
     if len(_components) < 2:
         logger.info(
-            "[MTR CT_ENSEMBLE] target='%s': only %d component(s) "
-            "available; need >=2 for an ensemble. Skipping.",
-            _orig_tname, len(_components),
+            "[MTR CT_ENSEMBLE] target='%s': only %d component(s) " "available; need >=2 for an ensemble. Skipping.",
+            _orig_tname,
+            len(_components),
         )
         return
 
@@ -254,10 +245,7 @@ def _build_mtr_per_column_ensemble(
         _K = 1
 
     # Honest-OOF NNLS when valid precomputed weights are supplied; equal_mean otherwise.
-    _use_nnls = (
-        oof_weights is not None
-        and getattr(oof_weights, "shape", None) == (len(_components), _K)
-    )
+    _use_nnls = oof_weights is not None and getattr(oof_weights, "shape", None) == (len(_components), _K)
     if oof_weights is not None and not _use_nnls:
         logger.warning(
             "[MTR CT_ENSEMBLE] target='%s': supplied OOF weights shape %s != (%d, %d); using equal-mean.",
@@ -290,8 +278,7 @@ def _build_mtr_per_column_ensemble(
         metrics={},
     )
     models.setdefault(_tt_e, {}).setdefault(_orig_tname, []).append(_ens_entry)
-    metadata.setdefault("mtr_ct_ensemble", {}).setdefault(
-        str(_tt_e), {})[_orig_tname] = {
+    metadata.setdefault("mtr_ct_ensemble", {}).setdefault(str(_tt_e), {})[_orig_tname] = {
         "strategy": _strategy_label,
         "n_components": len(_components),
         "component_names": list(_component_names),
@@ -307,9 +294,7 @@ def _build_mtr_per_column_ensemble(
     # verification). The MTRPerColumnEqualMeanEnsemble model carries its own
     # per-column weights, so this stamp is a provenance/parity record, not a
     # predict-path combine-flavour dependency.
-    metadata.setdefault("ensembles_chosen", {}) \
-        .setdefault("cross_target", {}) \
-        .setdefault(str(_tt_e), {})[_orig_tname] = _strategy_label
+    metadata.setdefault("ensembles_chosen", {}).setdefault("cross_target", {}).setdefault(str(_tt_e), {})[_orig_tname] = _strategy_label
     logger.info(
         "[MTR CT_ENSEMBLE] target='%s' (K=%d): %s ensemble built "
         "over %d components: %s.",

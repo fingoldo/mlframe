@@ -61,8 +61,7 @@ def _run_once():
             models = res[0] if isinstance(res, tuple) else getattr(res, "models", None)
             metadata = res[1] if isinstance(res, tuple) else getattr(res, "metadata", None)
             try:
-                predict_from_models(df=df, models=models, metadata=metadata,
-                                    features_and_targets_extractor=fte, verbose=0)
+                predict_from_models(df=df, models=models, metadata=metadata, features_and_targets_extractor=fte, verbose=0)
             except Exception as e:
                 print("predict skipped:", type(e).__name__, str(e)[:120])
     return res

@@ -38,7 +38,7 @@ def trivial_pair_features(x_a: np.ndarray, x_b: np.ndarray) -> dict:
     feats["ratio_ba"] = x_b / (x_a + np.sign(x_a) * eps + eps)
     # Distance / max / min -- common in gradient-boosting FE libraries.
     feats["sq_dist"] = (x_a - x_b) ** 2
-    feats["sum_sq"] = x_a ** 2 + x_b ** 2
+    feats["sum_sq"] = x_a**2 + x_b**2
     feats["maxab"] = np.maximum(x_a, x_b)
     feats["minab"] = np.minimum(x_a, x_b)
     # Log-magnitude with sign retained -- captures multiplicative structure (log(|a*b|) = log|a| + log|b|).
@@ -50,9 +50,7 @@ def trivial_pair_features(x_a: np.ndarray, x_b: np.ndarray) -> dict:
     return feats
 
 
-def _mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool,
-            mi_estimator: str = "plugin", plugin_n_bins: int = 20,
-            n_neighbors: int = 3) -> float:
+def _mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool, mi_estimator: str = "plugin", plugin_n_bins: int = 20, n_neighbors: int = 3) -> float:
     """1-D MI(x, y) using the configured estimator (fast plug-in or slower KSG)."""
     if not np.all(np.isfinite(x)):
         return 0.0
@@ -163,20 +161,16 @@ def auto_unary_transforms(x: np.ndarray, y: np.ndarray, *,
         "log_abs": np.log(np.abs(x) + eps),
         "sqrt_abs_signed": np.sign(x) * np.sqrt(np.abs(x)),
         "inv": np.sign(x) / (np.abs(x) + eps),
-        "square": x ** 2,
+        "square": x**2,
         "cube": x * x * x,
         "tanh": np.tanh(x),
     }
-    base = _mi_1d(x, y, discrete_target=discrete_target,
-                   mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
-                   n_neighbors=n_neighbors)
+    base = _mi_1d(x, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, n_neighbors=n_neighbors)
     out = {}
     for name, arr in transforms.items():
         if not np.all(np.isfinite(arr)):
             continue
-        mi = _mi_1d(arr, y, discrete_target=discrete_target,
-                    mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
-                    n_neighbors=n_neighbors)
+        mi = _mi_1d(arr, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, n_neighbors=n_neighbors)
         if name == "identity" or mi >= base * min_uplift:
             out[name] = (arr, float(mi))
     return out
@@ -191,8 +185,7 @@ def best_unary_transform(x: np.ndarray, y: np.ndarray, **kwargs) -> tuple:
     return name, arr, mi
 
 
-def triplet_pair_features(x_a: np.ndarray, x_b: np.ndarray,
-                            x_c: np.ndarray) -> dict:
+def triplet_pair_features(x_a: np.ndarray, x_b: np.ndarray, x_c: np.ndarray) -> dict:
     """3-way pair-style features. Captures ``y = sign(x_a * x_b * x_c)`` and similar 3-way interactions that pair-FE cannot represent."""
     x_a = np.asarray(x_a, dtype=np.float64)
     x_b = np.asarray(x_b, dtype=np.float64)
@@ -205,27 +198,22 @@ def triplet_pair_features(x_a: np.ndarray, x_b: np.ndarray,
         "a_plus_bc": x_a + x_b * x_c,
         "a_times_bc": x_a * (x_b + x_c),
         "ab_plus_ac": x_a * x_b + x_a * x_c,
-        "sum_of_squares": x_a ** 2 + x_b ** 2 + x_c ** 2,
+        "sum_of_squares": x_a**2 + x_b**2 + x_c**2,
         "atan2_ab_c": np.arctan2(x_a * x_b, x_c),
         "geo_mean3": np.sign(x_a * x_b * x_c) * np.cbrt(np.abs(x_a * x_b * x_c) + eps),
     }
 
 
-def score_triplet_baselines(x_a, x_b, x_c, y, *,
-                              discrete_target: bool = True,
-                              mi_estimator: str = "plugin",
-                              plugin_n_bins: int = 20,
-                              n_neighbors: int = 3) -> dict:
+def score_triplet_baselines(
+    x_a, x_b, x_c, y, *, discrete_target: bool = True, mi_estimator: str = "plugin", plugin_n_bins: int = 20, n_neighbors: int = 3
+) -> dict:
     """Rank 3-way trivial features by MI."""
     feats = triplet_pair_features(x_a, x_b, x_c)
     scores = {}
     for name, f in feats.items():
         if not np.all(np.isfinite(f)):
             continue
-        scores[name] = _mi_1d(f, y, discrete_target=discrete_target,
-                              mi_estimator=mi_estimator,
-                              plugin_n_bins=plugin_n_bins,
-                              n_neighbors=n_neighbors)
+        scores[name] = _mi_1d(f, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, n_neighbors=n_neighbors)
     # Wave 58 (2026-05-20): secondary key on name; tied MIs no longer make
     # next(iter(...)) winner depend on dict insertion order.
     return dict(sorted(scores.items(), key=lambda kv: (-kv[1], kv[0])))

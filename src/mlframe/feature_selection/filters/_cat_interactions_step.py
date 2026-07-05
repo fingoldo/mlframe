@@ -47,8 +47,6 @@ def _quantile_bin_with_edges(raw: np.ndarray, n_bins: int) -> tuple:
 # ============================================================================
 
 
-
-
 def run_cat_interaction_step(
     *,
     data: np.ndarray,
@@ -61,7 +59,7 @@ def run_cat_interaction_step(
     categorical_vars: list,
     cfg: CatFEConfig,
     selected_so_far: list = None,
-    weights: np.ndarray = None,    # Per-row sample weights; None = uniform.
+    weights: np.ndarray = None,  # Per-row sample weights; None = uniform.
     streaming_cache: dict = None,  # Prior-fit cache for incremental re-fit.
     numeric_raw_values: dict = None,  # {orig_col_idx -> raw float values} for include_numeric quantile-binning.
     dtype: type = np.int32,
@@ -184,11 +182,7 @@ def run_cat_interaction_step(
         logger.info("cat-FE: marginal MI screen over %d candidate columns", len(candidate_idxs))
 
     # Streaming cache check. If enabled AND cache provided, reuse cached marginal MIs for columns whose distribution hasn't drifted (KL < threshold).
-    cache_active = (
-        getattr(cfg, "enable_streaming_cache", False)
-        and streaming_cache is not None
-        and streaming_cache  # non-empty
-    )
+    cache_active = getattr(cfg, "enable_streaming_cache", False) and streaming_cache is not None and streaming_cache  # non-empty
     # Content signature of the (discretized) target -- gates cache reuse so a changed Y invalidates the
     # cached MI(X;Y) even when X's distribution is unchanged.
     from .cat_interactions import _target_signature
@@ -242,10 +236,7 @@ def run_cat_interaction_step(
         state.streaming_cache_out = {
             "target_sig": target_sig,
             "col_signatures": new_signatures,
-            "marginal_mis": {
-                int(candidate_idxs_arr[k]): float(candidate_mi[k])
-                for k in range(len(candidate_idxs_arr))
-            },
+            "marginal_mis": {int(candidate_idxs_arr[k]): float(candidate_mi[k]) for k in range(len(candidate_idxs_arr))},
         }
     # marginal_floor prune
     if cfg.marginal_floor > 0:
@@ -306,10 +297,7 @@ def run_cat_interaction_step(
         # _get_softlink retry path.
         from mlframe.feature_engineering.transformer import is_gpu_available
         if not is_gpu_available():
-            raise RuntimeError(
-                "cat-FE: backend='gpu' requested but cupy/CUDA is not usable. "
-                "Install cupy matching your CUDA toolkit, or set backend='cpu'."
-            )
+            raise RuntimeError("cat-FE: backend='gpu' requested but cupy/CUDA is not usable. " "Install cupy matching your CUDA toolkit, or set backend='cpu'.")
         use_gpu = True
     elif cfg.backend == "auto":
         n_cols_eff = len(candidate_idxs_arr)
@@ -319,9 +307,9 @@ def run_cat_interaction_step(
                 use_gpu = True
             elif verbose:
                 logger.info(
-                    "cat-FE: backend='auto' wanted GPU at N=%d, n=%d "
-                    "but cupy is unavailable; falling back to CPU.",
-                    n_cols_eff, n_samples,
+                    "cat-FE: backend='auto' wanted GPU at N=%d, n=%d " "but cupy is unavailable; falling back to CPU.",
+                    n_cols_eff,
+                    n_samples,
                 )
 
     # Choose weighted vs unweighted kernel. Use weighted only when weights are actually non-uniform; uniform weights are equivalent to unweighted and the weighted
@@ -334,10 +322,7 @@ def run_cat_interaction_step(
     if use_gpu:
         from .gpu import mi_direct_gpu_batched_pairs
         if use_weights:
-            logger.warning(
-                "cat-FE: sample weights ignored on GPU path; "
-                "falling back to CPU weighted kernel."
-            )
+            logger.warning("cat-FE: sample weights ignored on GPU path; " "falling back to CPU weighted kernel.")
             use_gpu = False
         else:
             if verbose:
@@ -466,18 +451,10 @@ def run_cat_interaction_step(
     # Full Westfall-Young requires the per-shuffle max-II across ALL search pairs, materially more expensive than per-survivor permutation. To get the full WY
     # behaviour, we substitute the per-pair p-values from the joint-independence test with the WY-corrected versions BEFORE the orchestrator applies the floor.
     # Memory budget: full WY pre-merges m * n int32 cells; if that exceeds e.g. 500 MB we fall back to Bonferroni-on-survivors via the _apply_fwer_correction path.
-    use_full_wy = (
-        cfg.fwer_correction == "westfall_young"
-        and cfg.full_npermutations > 0
-        and len(pairs_a) * n_samples * 4 < 500 * 1024 * 1024
-    )
+    use_full_wy = cfg.fwer_correction == "westfall_young" and cfg.full_npermutations > 0 and len(pairs_a) * n_samples * 4 < 500 * 1024 * 1024
 
     # Bandit UCB1 budget allocation overrides the fixed path when cfg.perm_budget_strategy='bandit_ucb1' (and full_npermutations>0 AND not using full WY which has its own coordination).
-    if (
-        getattr(cfg, "perm_budget_strategy", "fixed") == "bandit_ucb1"
-        and cfg.full_npermutations > 0
-        and not use_full_wy
-    ):
+    if getattr(cfg, "perm_budget_strategy", "fixed") == "bandit_ucb1" and cfg.full_npermutations > 0 and not use_full_wy:
         selected_idx, confidence_dict = _confirm_pairs_bandit_ucb1(
             factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b,
             selected_idx=selected_idx, ii_arr=ii_arr,
@@ -497,10 +474,7 @@ def run_cat_interaction_step(
         )
         confidence_dict = {ij: 1.0 - p for ij, p in wy_corrected_p.items()}
         min_conf = 0.95
-        kept_mask = np.array([
-            confidence_dict[(int(pairs_a[k]), int(pairs_b[k]))] >= min_conf
-            for k in selected_idx
-        ])
+        kept_mask = np.array([confidence_dict[(int(pairs_a[k]), int(pairs_b[k]))] >= min_conf for k in selected_idx])
         if verbose:
             for j, k in enumerate(selected_idx):
                 ij = (int(pairs_a[k]), int(pairs_b[k]))
@@ -589,8 +563,7 @@ def run_cat_interaction_step(
         if not kway_results and len(pairs_a) > len(selected_idx):
             if verbose:
                 logger.info(
-                    "cat-FE: top-K seeds produced 0 k-way results; "
-                    "falling back to all %d pairs (quadratic cost)",
+                    "cat-FE: top-K seeds produced 0 k-way results; " "falling back to all %d pairs (quadratic cost)",
                     len(pairs_a),
                 )
             # Phase 2 (fallback): all pairs
@@ -673,17 +646,9 @@ def run_cat_interaction_step(
                 "n_obs_per_cell_p25": float(n_samples / max(int(n_uniq_arr[k_in]), 1)),
                 # Joint-dependence confidence: honest naming -- this tests "(X1, X2) jointly independent of Y", not "no synergy".
                 # ``None`` when no permutation test ran (full_npermutations=0).
-                "joint_dependence_confidence": (
-                    float(confidence_dict[(i, j)])
-                    if (i, j) in confidence_dict
-                    else None
-                ),
+                "joint_dependence_confidence": (float(confidence_dict[(i, j)]) if (i, j) in confidence_dict else None),
                 # Bootstrap CI on II. ``None`` when disabled.
-                "bootstrap_ii_ci": (
-                    bootstrap_ci_dict[(i, j)]
-                    if (i, j) in bootstrap_ci_dict
-                    else None
-                ),
+                "bootstrap_ii_ci": (bootstrap_ci_dict[(i, j)] if (i, j) in bootstrap_ci_dict else None),
             }
 
     state.recipes.extend(new_recipes)
@@ -733,9 +698,7 @@ def run_cat_interaction_step(
                 )
             )
         if te_cols_list:
-            te_block = np.column_stack([
-                v.astype(np.float64, copy=False) for v in te_cols_list
-            ])
+            te_block = np.column_stack([v.astype(np.float64, copy=False) for v in te_cols_list])
             # Target-encoded cols are FLOAT, not ordinal. Add as a separate block; downstream screening will discretize them again per quantization_method. nbins[te_col]
             # is unknown until then; leave a sentinel that categorize_dataset will overwrite. We store these in state.diagnostics but NOT in the main data block
             # (the cat-FE pipeline assumes ordinal-encoded data; TE cols would need a quantization round-trip).
@@ -759,11 +722,7 @@ def run_cat_interaction_step(
     # value (3.7 -> 3) instead of binning it through the fit-time quantile edges -> a silent train/serve skew.
     if numeric_edges_by_name:
         for _ri, _r in enumerate(state.recipes):
-            _edges_for_recipe = {
-                _src: numeric_edges_by_name[_src]
-                for _src in (getattr(_r, "src_names", ()) or ())
-                if _src in numeric_edges_by_name
-            }
+            _edges_for_recipe = {_src: numeric_edges_by_name[_src] for _src in (getattr(_r, "src_names", ()) or ()) if _src in numeric_edges_by_name}
             if _edges_for_recipe:
                 state.recipes[_ri] = _r.with_extra(src_bin_edges=_edges_for_recipe)
 

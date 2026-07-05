@@ -49,11 +49,9 @@ def bench(n: int = 200_000, ks=(10, 50, 100), **compose_kwargs) -> None:
     print(f"=== compose times (n={n:_}), kwargs={compose_kwargs} ===")
     for K in ks:
         y, proba, classes = make_multiclass(n, K)
-        mc = _time(lambda: compose_multiclass_figure(
-            y, proba, classes, panels_template="CONFUSION ROC PR_CURVES CALIB_GRID", **compose_kwargs))
+        mc = _time(lambda: compose_multiclass_figure(y, proba, classes, panels_template="CONFUSION ROC PR_CURVES CALIB_GRID", **compose_kwargs))
         yt, mlp, labels = make_multilabel(n, K)
-        ml = _time(lambda: compose_multilabel_figure(
-            yt, mlp, labels, panels_template="ROC CALIB_GRID PR_F1", **compose_kwargs))
+        ml = _time(lambda: compose_multilabel_figure(yt, mlp, labels, panels_template="ROC CALIB_GRID PR_F1", **compose_kwargs))
         print(f"  K={K:3d}  multiclass={mc * 1e3:8.1f} ms   multilabel={ml * 1e3:8.1f} ms")
 
 

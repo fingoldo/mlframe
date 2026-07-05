@@ -319,16 +319,11 @@ class CompositeTargetTransformer(TransformerMixin, BaseEstimator):
         if self.base is not None:
             arr = _to_1d_numpy(self.base)
             if arr.shape[0] != n:
-                raise ValueError(
-                    f"CompositeTargetTransformer: base length {arr.shape[0]} != y length {n}."
-                )
+                raise ValueError(f"CompositeTargetTransformer: base length {arr.shape[0]} != y length {n}.")
             return arr
         if self.base_columns:
             if X is None:
-                raise ValueError(
-                    "CompositeTargetTransformer: base_columns set but no X passed to fit; "
-                    "call fit(y, X) or pass base=<array>."
-                )
+                raise ValueError("CompositeTargetTransformer: base_columns set but no X passed to fit; " "call fit(y, X) or pass base=<array>.")
             mat = _extract_base_matrix(X, list(self.base_columns))
             # Multi-base fit stores its own K-col base; collapse to the first column
             # for the single-array replay contract (the multi-base transform reads
@@ -336,10 +331,7 @@ class CompositeTargetTransformer(TransformerMixin, BaseEstimator):
             return mat[:, 0]
         if self.base_column:
             if X is None:
-                raise ValueError(
-                    "CompositeTargetTransformer: base_column set but no X passed to fit; "
-                    "call fit(y, X) or pass base=<array>."
-                )
+                raise ValueError("CompositeTargetTransformer: base_column set but no X passed to fit; " "call fit(y, X) or pass base=<array>.")
             return _extract_base(X, self.base_column)
         raise ValueError(
             f"CompositeTargetTransformer: transform {self.transform_name!r} requires a base "

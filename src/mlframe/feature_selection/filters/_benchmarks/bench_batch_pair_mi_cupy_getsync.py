@@ -83,8 +83,7 @@ def main() -> None:
 
         t_new = timed(new.batch_pair_mi_cupy)
         t_old = timed(old.batch_pair_mi_cupy)
-        print(f"n={n} pairs={n_pairs}: identical={identical} maxdiff={maxdiff:.2e} | "
-              f"OLD {t_old:.2f}ms NEW {t_new:.2f}ms speedup {t_old / t_new:.2f}x")
+        print(f"n={n} pairs={n_pairs}: identical={identical} maxdiff={maxdiff:.2e} | " f"OLD {t_old:.2f}ms NEW {t_new:.2f}ms speedup {t_old / t_new:.2f}x")
 
 
 if __name__ == "__main__":

@@ -33,11 +33,9 @@ SCALES = {
 def _config_for(scale: str, name: str) -> dict:
     s = SCALES[scale]
     if name == "C3":
-        return dict(width=s["width"], n_rows=s["n_rows"], n_informative=20, n_redundant=20,
-                    redundancy_rho=0.8, snr=8.0, seed=0)
+        return dict(width=s["width"], n_rows=s["n_rows"], n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0)
     if name == "C3_hard":
-        return dict(width=s["width"], n_rows=s["n_rows"], n_informative=20, n_redundant=0,
-                    redundancy_rho=0.8, snr=2.0, seed=0)
+        return dict(width=s["width"], n_rows=s["n_rows"], n_informative=20, n_redundant=0, redundancy_rho=0.8, snr=2.0, seed=0)
     raise SystemExit(f"unknown config {name!r}; known: C3, C3_hard")
 
 
@@ -83,8 +81,7 @@ def run_one(name: str, cfg: dict, adaptive: bool, X, y, roles, n_jobs: int):
     stage_timings = dict(sel._stage_timings)
     report = dict(sel.shap_proxy_report_)
     adapt_info = report.get("adaptive_prescreen") or {}
-    ranked = report.get("revalidation", {}).get("ranked", []) if isinstance(
-        report.get("revalidation"), dict) else []
+    ranked = report.get("revalidation", {}).get("ranked", []) if isinstance(report.get("revalidation"), dict) else []
     chosen_loss = ranked[0].get("honest_loss", ranked[0].get("honest_loss_capped")) if ranked else None
     return dict(
         label=label, adaptive=adaptive, total=total,
@@ -101,9 +98,7 @@ def run_one(name: str, cfg: dict, adaptive: bool, X, y, roles, n_jobs: int):
 
 def _print_summary(name: str, results: list[dict]):
     print(f"\n=== [{name}] adaptive A/B summary ===", flush=True)
-    header = (
-        f"  {'label':>9} {'e2e_s':>8} {'search_s':>9} {'recall':>9} "
-        f"{'n_sel':>5} {'honest_loss':>12} {'stab':>6} {'cap':>4}")
+    header = f"  {'label':>9} {'e2e_s':>8} {'search_s':>9} {'recall':>9} " f"{'n_sel':>5} {'honest_loss':>12} {'stab':>6} {'cap':>4}"
     print(header, flush=True)
     for r in results:
         rec_str = f"{r['recall'][0]}/{r['recall'][1]}"
@@ -111,10 +106,7 @@ def _print_summary(name: str, results: list[dict]):
         sw = "-" if r["search_wall"] is None else f"{r['search_wall']:.2f}"
         stab = "-" if r["stability"] is None else f"{r['stability']:.3f}"
         cap = "-" if r["effective_cap"] is None else str(r["effective_cap"])
-        print(
-            f"  {r['label']:>9} {r['total']:>8.2f} {sw:>9} {rec_str:>9} "
-            f"{r['n_selected']:>5} {hl:>12} {stab:>6} {cap:>4}",
-            flush=True)
+        print(f"  {r['label']:>9} {r['total']:>8.2f} {sw:>9} {rec_str:>9} " f"{r['n_selected']:>5} {hl:>12} {stab:>6} {cap:>4}", flush=True)
     base = next((r for r in results if not r["adaptive"]), results[0])
     for r in results:
         if r is base:
@@ -128,8 +120,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--configs", default="C3,C3_hard")
     ap.add_argument("--scale", default="full", choices=list(SCALES))
-    ap.add_argument("--n_jobs", type=int, default=-1,
-                    help="Selector n_jobs; set to 1 for serial when CPU is busy with other work.")
+    ap.add_argument("--n_jobs", type=int, default=-1, help="Selector n_jobs; set to 1 for serial when CPU is busy with other work.")
     ap.add_argument("--out_file", default=None)
     args = ap.parse_args(argv)
 
@@ -149,13 +140,10 @@ def main(argv=None):
         builtins.print = _tee_print
 
     requested = [c.strip() for c in args.configs.split(",") if c.strip()]
-    print(f"iter59 adaptive-prescreen A/B: scale={args.scale} configs={requested} n_jobs={args.n_jobs}",
-          flush=True)
+    print(f"iter59 adaptive-prescreen A/B: scale={args.scale} configs={requested} n_jobs={args.n_jobs}", flush=True)
     print("\n[warmup] tiny fit to amortise JIT compile across the A/B...", flush=True)
     t_warm = time.perf_counter()
-    _warm_X, _warm_y, _ = _make_dataset(
-        dict(width=200, n_rows=400, n_informative=10, n_redundant=5,
-             redundancy_rho=0.5, snr=4.0, seed=0))
+    _warm_X, _warm_y, _ = _make_dataset(dict(width=200, n_rows=400, n_informative=10, n_redundant=5, redundancy_rho=0.5, snr=4.0, seed=0))
     _warm_sel = _build_selector(seed=0, adaptive=True, n_jobs=args.n_jobs)
     _warm_sel.fit(_warm_X, _warm_y)
     print(f"[warmup] done in {time.perf_counter()-t_warm:.1f}s", flush=True)

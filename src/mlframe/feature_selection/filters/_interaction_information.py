@@ -47,8 +47,8 @@ import numpy as np
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Routing tags threaded onto a prospective pair by signed interaction information.
-ROUTE_SYNERGY = "synergy"      # II > floor: genuine joint signal -> product / cross-basis FE (keep, rank high)
-ROUTE_ADDITIVE = "additive"    # 0 <= II <= floor: no interaction -> demote out of the synergy FE search (cross-mix)
+ROUTE_SYNERGY = "synergy"  # II > floor: genuine joint signal -> product / cross-basis FE (keep, rank high)
+ROUTE_ADDITIVE = "additive"  # 0 <= II <= floor: no interaction -> demote out of the synergy FE search (cross-mix)
 ROUTE_REDUNDANT = "redundant"  # II < 0: a and b carry the same signal -> cluster-aggregate / denoise candidate
 
 
@@ -202,7 +202,7 @@ def _marginal_mi_codes(x_codes: np.ndarray, y_codes: np.ndarray, k_x: int, k_y: 
     value is ``#{X-bins with count>0}`` -- the occupied cardinality the Miller-Madow bias must be computed on (the
     design ``k_x`` over-corrects sparse / heavy-tailed columns, see :func:`pair_interaction_information`).
     """
-    joint = (x_codes.astype(np.int64) * k_y + y_codes.astype(np.int64))
+    joint = x_codes.astype(np.int64) * k_y + y_codes.astype(np.int64)
     counts = np.bincount(joint, minlength=k_x * k_y).astype(np.float64)
     counts = counts.reshape(k_x, k_y)
     px = counts.sum(axis=1) * inv_n

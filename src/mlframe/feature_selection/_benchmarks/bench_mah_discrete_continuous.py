@@ -38,7 +38,6 @@ from mlframe.feature_selection.filters._adaptive_nbins import (
 from mlframe.feature_selection.filters._ksg import mixed_ksg_mi
 from mlframe.feature_selection.filters._mah import mah_mi
 
-
 # =============================================================================
 # Synthetic discrete-continuous y suite
 # =============================================================================
@@ -55,13 +54,11 @@ def _draw_x(distribution: str, n: int, rng: np.random.Generator) -> np.ndarray:
         return rng.exponential(scale=1.0, size=n)
     if distribution == "bimodal":
         flag = rng.integers(0, 2, n).astype(np.float64)
-        return flag * rng.normal(loc=-2, scale=0.5, size=n) + \
-               (1 - flag) * rng.normal(loc=2, scale=0.5, size=n)
+        return flag * rng.normal(loc=-2, scale=0.5, size=n) + (1 - flag) * rng.normal(loc=2, scale=0.5, size=n)
     raise ValueError(distribution)
 
 
-def _draw_discrete_y(x: np.ndarray, signal: str, K: int,
-                     rng: np.random.Generator) -> np.ndarray:
+def _draw_discrete_y(x: np.ndarray, signal: str, K: int, rng: np.random.Generator) -> np.ndarray:
     """Generate K-class discrete y conditioned on continuous x.
 
     Signals:
@@ -144,8 +141,7 @@ class Row:
     runtime_ms: float
 
 
-def _truth(distribution: str, signal: str, K: int, n_truth: int = 100_000,
-            seed: int = 42) -> float:
+def _truth(distribution: str, signal: str, K: int, n_truth: int = 100_000, seed: int = 42) -> float:
     """Large-N Mixed-KSG reference for the (distribution, signal, K) cell."""
     rng = np.random.default_rng(int(seed))
     x = _draw_x(distribution, n_truth, rng)
@@ -153,11 +149,8 @@ def _truth(distribution: str, signal: str, K: int, n_truth: int = 100_000,
     return float(mixed_ksg_mi(x, y.astype(np.float64), k=5))
 
 
-def run_bench(N: int = 5000, n_repeats: int = 2,
-               distributions=None, signals=None, K_values=None,
-               estimators=None, seed: int = 0, verbose: int = 1):
-    distributions = distributions or ["gaussian", "lognormal", "heavy_tail_t",
-                                       "exponential", "bimodal"]
+def run_bench(N: int = 5000, n_repeats: int = 2, distributions=None, signals=None, K_values=None, estimators=None, seed: int = 0, verbose: int = 1):
+    distributions = distributions or ["gaussian", "lognormal", "heavy_tail_t", "exponential", "bimodal"]
     signals = signals or ["no_signal", "monotone", "threshold", "xor"]
     K_values = K_values or [2, 3, 5, 10]
     estimators = estimators or ESTIMATORS
@@ -165,8 +158,7 @@ def run_bench(N: int = 5000, n_repeats: int = 2,
 
     truths: Dict = {}
     results: List[Row] = []
-    total = (len(distributions) * len(signals) * len(K_values)
-              * n_repeats * len(estimators))
+    total = len(distributions) * len(signals) * len(K_values) * n_repeats * len(estimators)
     if verbose:
         print(f"[mah-disc] {total} (est, dist, sig, K, rep) cells; N per cell={N}")
 
@@ -197,8 +189,7 @@ def run_bench(N: int = 5000, n_repeats: int = 2,
                         ))
                         counter += 1
                 if verbose:
-                    print(f"  done dist={dist:<12} sig={sig:<10} K={K} "
-                          f"({counter}/{total})")
+                    print(f"  done dist={dist:<12} sig={sig:<10} K={K} " f"({counter}/{total})")
     return {"results": [asdict(r) for r in results]}
 
 
@@ -214,21 +205,16 @@ def print_summary(results_dicts):
         by_est_sig[r["estimator"]][r["signal"]].append(r)
 
     # Overall.
-    print(f"\n{'estimator':<24} {'mean_abs_err':>14} {'mean_rt_ms':>12} "
-          f"{'n_cells':>8}")
+    print(f"\n{'estimator':<24} {'mean_abs_err':>14} {'mean_rt_ms':>12} " f"{'n_cells':>8}")
     print("-" * 110)
-    for est, rs in sorted(by_est.items(),
-                            key=lambda kv: np.nanmean([abs(r["mi_val"] - r["truth"])
-                                                         for r in kv[1]])):
-        errs = [abs(r["mi_val"] - r["truth"]) for r in rs
-                 if np.isfinite(r["mi_val"])]
+    for est, rs in sorted(by_est.items(), key=lambda kv: np.nanmean([abs(r["mi_val"] - r["truth"]) for r in kv[1]])):
+        errs = [abs(r["mi_val"] - r["truth"]) for r in rs if np.isfinite(r["mi_val"])]
         rts = [r["runtime_ms"] for r in rs]
-        print(f"{est:<24} {np.nanmean(errs):>14.4f} {np.nanmean(rts):>12.2f} "
-              f"{len(rs):>8}")
+        print(f"{est:<24} {np.nanmean(errs):>14.4f} {np.nanmean(rts):>12.2f} " f"{len(rs):>8}")
     # Per-signal.
     signals = sorted({r["signal"] for r in results_dicts})
     print(f"\nPer-signal mean |error| vs truth:")
-    print(f"{'estimator':<24}" + ''.join(f'{s:>12}' for s in signals))
+    print(f"{'estimator':<24}" + "".join(f"{s:>12}" for s in signals))
     print("-" * 110)
     for est in by_est:
         row = []
@@ -237,13 +223,12 @@ def print_summary(results_dicts):
             if not sub:
                 row.append(float("nan"))
             else:
-                row.append(np.nanmean([abs(r["mi_val"] - r["truth"]) for r in sub
-                                        if np.isfinite(r["mi_val"])]))
-        print(f"{est:<24}" + ''.join(f'{v:>12.4f}' for v in row))
+                row.append(np.nanmean([abs(r["mi_val"] - r["truth"]) for r in sub if np.isfinite(r["mi_val"])]))
+        print(f"{est:<24}" + "".join(f"{v:>12.4f}" for v in row))
     # Per-K.
     Ks = sorted({r["K"] for r in results_dicts})
     print(f"\nPer-K (number of y classes) mean |error|:")
-    print(f"{'estimator':<24}" + ''.join(f'{("K=" + str(k)):>10}' for k in Ks))
+    print(f"{'estimator':<24}" + "".join(f'{("K=" + str(k)):>10}' for k in Ks))
     print("-" * 110)
     for est in by_est:
         row = []
@@ -252,9 +237,8 @@ def print_summary(results_dicts):
             if not sub:
                 row.append(float("nan"))
             else:
-                row.append(np.nanmean([abs(r["mi_val"] - r["truth"]) for r in sub
-                                        if np.isfinite(r["mi_val"])]))
-        print(f"{est:<24}" + ''.join(f'{v:>10.4f}' for v in row))
+                row.append(np.nanmean([abs(r["mi_val"] - r["truth"]) for r in sub if np.isfinite(r["mi_val"])]))
+        print(f"{est:<24}" + "".join(f"{v:>10.4f}" for v in row))
 
 
 def main():

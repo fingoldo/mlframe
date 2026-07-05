@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from sklearn.utils import check_random_state, check_X_y
@@ -67,7 +66,6 @@ logger = logging.getLogger(__name__)
 # SelectorMixin surface (get_support / get_feature_names_out) rather than inheriting SelectorMixin, to keep full control
 # over the fitted-mask semantics; SelectorMixin is deliberately NOT added to avoid clashing with those hand-rolled methods.
 class BorutaShap(BaseEstimator, TransformerMixin):
-
     """
     BorutaShap is a wrapper feature selection method built on the foundations of both the SHAP and Boruta algorithms.
 
@@ -524,7 +522,6 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             except TypeError:
                 self.model_.fit(X, y, **(self.fit_params or {}))
 
-
     def transform(
         self,
         X,
@@ -547,8 +544,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         from sklearn.exceptions import NotFittedError
         if not hasattr(self, "selected_features_"):
             raise NotFittedError(
-                "BorutaShap.transform called before fit. Call fit_transform "
-                "or fit + transform before using the selector.",
+                "BorutaShap.transform called before fit. Call fit_transform " "or fit + transform before using the selector.",
             )
         # sklearn contract: validate the transform-time feature space against what fit saw. A width mismatch
         # (n_features_in_) or, for named frames, a column-name mismatch means the caller is transforming a frame
@@ -556,17 +552,12 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         n_in = getattr(self, "n_features_in_", None)
         _width = X.shape[1] if getattr(X, "ndim", 1) >= 2 else None
         if n_in is not None and _width is not None and _width != n_in:
-            raise ValueError(
-                f"BorutaShap.transform: X has {_width} features, but the selector was fitted on {n_in}."
-            )
+            raise ValueError(f"BorutaShap.transform: X has {_width} features, but the selector was fitted on {n_in}.")
         names_in = getattr(self, "feature_names_in_", None)
         if names_in is not None and hasattr(X, "columns"):
             missing = [c for c in self.selected_features_ if c not in set(X.columns)]
             if missing:
-                raise ValueError(
-                    f"BorutaShap.transform: X is missing {len(missing)} selected feature(s) "
-                    f"present at fit time, e.g. {missing[:5]}."
-                )
+                raise ValueError(f"BorutaShap.transform: X is missing {len(missing)} selected feature(s) " f"present at fit time, e.g. {missing[:5]}.")
         selected = list(self.selected_features_)
         if hasattr(X, "loc"):
             return X.loc[:, selected]

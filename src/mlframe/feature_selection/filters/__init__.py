@@ -32,7 +32,6 @@ Module dependency graph (acyclic)::
 
 from __future__ import annotations
 
-
 # Legacy monolith star-import keeps every existing importer working transparently.
 from ._legacy import *  # noqa: F401,F403
 from ._legacy import (  # explicit re-exports, kept stable
@@ -103,13 +102,11 @@ from ._cluster_aggregate import (  # noqa: E402, F401
     _apply_method_nonlinear as apply_cluster_aggregate_nonlinear,
 )
 
-
 # Cat-FE re-exports. Imported here (not via the ``_legacy`` star) so that
 # ``from mlframe.feature_selection.filters import CatFEConfig`` works as advertised in the public ``MRMR(cat_fe_config=CatFEConfig(...))`` API.
 from .cat_fe_state import CatFEConfig, CatFEState  # noqa: E402
 from .cat_interactions import run_cat_interaction_step  # noqa: E402
 from .engineered_recipes import EngineeredRecipe  # noqa: E402
-
 
 # Pickle BC: MRMR was historically saved with __module__="mlframe.feature_selection.filters". After the move into a package, the class object's __module__
 # becomes "..._legacy" (or "..._mrmr"). Reassign here so cloudpickle / joblib continue to resolve unpickling against the package's __init__.

@@ -43,8 +43,12 @@ _KFOLD_SPLIT_CACHE: dict[tuple[int, int, int], list[tuple[np.ndarray, np.ndarray
 _KFOLD_SPLIT_CACHE_MAX = 256
 
 
+from ._screening_tiny import (
+    _build_tiny_model,
+    _cached_kfold_splits,
+    _silence_tiny_model_output,
+)  # noqa: E402 (cycle-safe: defined before parent's bottom re-export)
 
-from ._screening_tiny import _build_tiny_model, _cached_kfold_splits, _silence_tiny_model_output  # noqa: E402 (cycle-safe: defined before parent's bottom re-export)
 
 def _per_bin_rmse(
     y_true: np.ndarray,
@@ -231,19 +235,14 @@ def _tiny_cv_rmse_y_scale(
         if _g_arr.shape[0] == len(y_train):
             # Align groups to whichever population the split runs on -- the
             # finite-y superset under fallback emulation, else the valid subset.
-            groups_clean = (
-                _g_arr[_group_mask] if _group_mask is not None else _g_arr
-            )
+            groups_clean = _g_arr[_group_mask] if _group_mask is not None else _g_arr
             _n_groups = int(np.unique(groups_clean).size)
             if _n_groups < cv_folds:
                 # Groups requested but too few distinct groups survive the
                 # domain mask -> silent downgrade to KFold (different fold
                 # population, no group separation). WARN so the operator sees
                 # why the group split did not apply.
-                _fallback_desc = (
-                    "the caller-supplied cv_splitter" if cv_splitter is not None
-                    else ("TimeSeriesSplit" if time_aware else "shuffled KFold")
-                )
+                _fallback_desc = "the caller-supplied cv_splitter" if cv_splitter is not None else ("TimeSeriesSplit" if time_aware else "shuffled KFold")
                 logger.warning(
                     "_tiny_cv_rmse_y_scale: groups supplied but only %d distinct "
                     "group(s) survive the domain mask (< cv_folds=%d); falling "
@@ -257,11 +256,7 @@ def _tiny_cv_rmse_y_scale(
         # Escape hatch (parity with _tiny_cv_rmse_raw_y): a caller-supplied
         # splitter wins over the groups/time_aware/KFold auto-pick.
         kf = cv_splitter
-        splits = (
-            list(kf.split(x_clean, groups=groups_clean))
-            if groups_clean is not None
-            else list(kf.split(x_clean))
-        )
+        splits = list(kf.split(x_clean, groups=groups_clean)) if groups_clean is not None else list(kf.split(x_clean))
     elif groups_clean is not None:
         if time_aware:
             # Both group- and time-awareness were requested but the splitter
@@ -341,9 +336,7 @@ def _tiny_cv_rmse_y_scale(
             # heavy-tail transforms like logratio look better in
             # screening than they actually deliver).
             # _y_train_clip_bounds is imported at module level above (race-safe across joblib threading folds). The y-clip envelope is fit on the domain-valid train rows (the rows the production estimator's clip bounds were learned from).
-            y_clip_low, y_clip_high = _y_train_clip_bounds(
-                y_clean[_fit_rows]
-            )
+            y_clip_low, y_clip_high = _y_train_clip_bounds(y_clean[_fit_rows])
             y_hat = np.clip(
                 y_hat.astype(np.float64), y_clip_low, y_clip_high,
             )
@@ -351,9 +344,7 @@ def _tiny_cv_rmse_y_scale(
             _y_train_fallback: float | None = None
             if _val_valid is not None and (~_val_valid).any():
                 _y_fit = y_clean[_fit_rows]
-                _y_train_fallback = float(np.median(
-                    _y_fit[np.isfinite(_y_fit)]
-                )) if np.isfinite(_y_fit).any() else 0.0
+                _y_train_fallback = float(np.median(_y_fit[np.isfinite(_y_fit)])) if np.isfinite(_y_fit).any() else 0.0
                 y_hat[~_val_valid] = _y_train_fallback
             non_finite = ~np.isfinite(y_hat)
             if non_finite.any():
@@ -361,9 +352,7 @@ def _tiny_cv_rmse_y_scale(
                     y_train_median = _y_train_fallback
                 else:
                     _y_fit = y_clean[_fit_rows]
-                    y_train_median = float(np.median(
-                        _y_fit[np.isfinite(_y_fit)]
-                    )) if np.isfinite(_y_fit).any() else 0.0
+                    y_train_median = float(np.median(_y_fit[np.isfinite(_y_fit)])) if np.isfinite(_y_fit).any() else 0.0
                 y_hat[non_finite] = y_train_median
             diff = y_hat - y_clean[val_fold]
             finite = np.isfinite(diff)

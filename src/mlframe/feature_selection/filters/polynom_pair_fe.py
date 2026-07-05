@@ -309,9 +309,9 @@ def run_polynom_pair_fe(
                 _trivial_name, _trivial_feat, _trivial_baseline = _t
         except Exception as _e:
             logger.debug(
-                "best_trivial_pair precompute failed for pair %s: %r; "
-                "optimise_hermite_pair will recompute internally.",
-                raw_vars_pair, _e,
+                "best_trivial_pair precompute failed for pair %s: %r; " "optimise_hermite_pair will recompute internally.",
+                raw_vars_pair,
+                _e,
             )
 
         # CHEAP-FIRST DISPATCH: skip the expensive CMA/Optuna search when the
@@ -323,17 +323,9 @@ def run_polynom_pair_fe(
         # pairs whose non-monotone inner the trivial set cannot express (trivial
         # MI << ceiling) fall through and DO optimise, so recovery on the cases
         # that need the orthogonal-poly basis is unaffected.
-        if (
-            poly_cheap_skip_ratio < 1.0
-            and _trivial_baseline is not None
-            and _trivial_baseline > 0.0
-        ):
+        if poly_cheap_skip_ratio < 1.0 and _trivial_baseline is not None and _trivial_baseline > 0.0:
             _ceiling = _pair_mi_ceiling.get(raw_vars_pair)
-            if (
-                _ceiling is not None
-                and _ceiling > 0.0
-                and _trivial_baseline >= _ceiling * poly_cheap_skip_ratio
-            ):
+            if _ceiling is not None and _ceiling > 0.0 and _trivial_baseline >= _ceiling * poly_cheap_skip_ratio:
                 # LINEAR-USABILITY GUARD: MI saturation is necessary but not
                 # sufficient. A trivial feature can hit the MI ceiling while being
                 # nearly orthogonal to y in LINEAR terms (atan2 on a bilinear
@@ -406,8 +398,7 @@ def run_polynom_pair_fe(
     # (those release the GIL); the polynom-FE inner search is the
     # opposite regime.
     _PARALLEL_PAIR_THRESHOLD = 16
-    if (_polynom_n_jobs > 1
-            and _n_pairs_to_eval >= _PARALLEL_PAIR_THRESHOLD):
+    if _polynom_n_jobs > 1 and _n_pairs_to_eval >= _PARALLEL_PAIR_THRESHOLD:
         # ``inner_max_num_threads=1`` caps the per-loky-worker BLAS / OpenMP /
         # Numba thread pool so 16 worker processes don't each spawn N numba
         # threads and oversubscribe the CPU. The inner polyeval_dispatch
@@ -440,16 +431,16 @@ def run_polynom_pair_fe(
     else:
         if _polynom_n_jobs > 1 and verbose:
             logger.info(
-                "Polynomial-pair FE: n_pairs=%d < threshold %d -- "
-                "running serial to avoid joblib overhead.",
-                _n_pairs_to_eval, _PARALLEL_PAIR_THRESHOLD,
+                "Polynomial-pair FE: n_pairs=%d < threshold %d -- " "running serial to avoid joblib overhead.",
+                _n_pairs_to_eval,
+                _PARALLEL_PAIR_THRESHOLD,
             )
         _poly_pair_results = [_eval_one_pair(rv, X_ndarr, classes_y) for rv in _pair_keys]
     _eval_elapsed = time.perf_counter() - _poly_t0
     logger.info(
-        "Polynomial-pair FE eval phase done in %.1fs (%d pairs, "
-        "%.2fs/pair median).",
-        _eval_elapsed, _n_pairs_to_eval,
+        "Polynomial-pair FE eval phase done in %.1fs (%d pairs, " "%.2fs/pair median).",
+        _eval_elapsed,
+        _n_pairs_to_eval,
         _eval_elapsed / max(_n_pairs_to_eval, 1),
     )
 
@@ -485,20 +476,9 @@ def run_polynom_pair_fe(
             ).reshape(-1)
             if not np.all(np.isfinite(_t_vals)):
                 continue
-            _src_a = (
-                cols[raw_vars_pair[0]]
-                if 0 <= raw_vars_pair[0] < len(cols)
-                else f"col{raw_vars_pair[0]}"
-            )
-            _src_b = (
-                cols[raw_vars_pair[1]]
-                if 0 <= raw_vars_pair[1] < len(cols)
-                else f"col{raw_vars_pair[1]}"
-            )
-            _new_col_name = (
-                f"_polynom_{best_res.basis}_{best_res.bin_func_name}"
-                f"__{_src_a}__{_src_b}"
-            )
+            _src_a = cols[raw_vars_pair[0]] if 0 <= raw_vars_pair[0] < len(cols) else f"col{raw_vars_pair[0]}"
+            _src_b = cols[raw_vars_pair[1]] if 0 <= raw_vars_pair[1] < len(cols) else f"col{raw_vars_pair[1]}"
+            _new_col_name = f"_polynom_{best_res.basis}_{best_res.bin_func_name}" f"__{_src_a}__{_src_b}"
             if _new_col_name in cols:
                 continue
             _new_binned = discretize_array(
@@ -543,9 +523,9 @@ def run_polynom_pair_fe(
         except Exception as _inj_err:
             if verbose:
                 logger.warning(
-                    "Polynomial-pair FE injection failed for pair=%s: %s. "
-                    "Standard FE block below still runs.",
-                    raw_vars_pair, _inj_err,
+                    "Polynomial-pair FE injection failed for pair=%s: %s. " "Standard FE block below still runs.",
+                    raw_vars_pair,
+                    _inj_err,
                 )
     if _n_cheap_skipped:
         logger.info(

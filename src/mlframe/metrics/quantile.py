@@ -213,9 +213,7 @@ def pinball_loss(y_true, y_pred, alpha: float) -> float:
     y = np.ascontiguousarray(np.asarray(y_true, dtype=np.float64).ravel())
     q = np.ascontiguousarray(np.asarray(y_pred, dtype=np.float64).ravel())
     if y.shape != q.shape:
-        raise ValueError(
-            f"pinball_loss: y_true.shape={y.shape} != y_pred.shape={q.shape}"
-        )
+        raise ValueError(f"pinball_loss: y_true.shape={y.shape} != y_pred.shape={q.shape}")
     return float(_fast_pinball(y, q, float(alpha)))
 
 
@@ -228,13 +226,9 @@ def pinball_loss_per_alpha(
     if P.ndim != 2:
         raise ValueError(f"preds_NK must be 2-D; got shape {P.shape}")
     if P.shape[0] != y.shape[0]:
-        raise ValueError(
-            f"preds_NK.shape[0]={P.shape[0]} != len(y_true)={y.shape[0]}"
-        )
+        raise ValueError(f"preds_NK.shape[0]={P.shape[0]} != len(y_true)={y.shape[0]}")
     if P.shape[1] != len(alphas):
-        raise ValueError(
-            f"preds_NK.shape[1]={P.shape[1]} != len(alphas)={len(alphas)}"
-        )
+        raise ValueError(f"preds_NK.shape[1]={P.shape[1]} != len(alphas)={len(alphas)}")
     # One fused row-major pass over the C-contiguous (N, K) matrix scores every
     # alpha at once -- avoids K strided ``P[:, j]`` column copies + K JIT-call
     # boundaries (up to ~19x faster at K=19/N=200k, bit-identical). See
@@ -263,9 +257,7 @@ def coverage(y_true, q_lo, q_hi) -> float:
     lo = np.ascontiguousarray(q_lo).ravel()
     hi = np.ascontiguousarray(q_hi).ravel()
     if not (y.shape == lo.shape == hi.shape):
-        raise ValueError(
-            f"coverage: shape mismatch y={y.shape}, q_lo={lo.shape}, q_hi={hi.shape}"
-        )
+        raise ValueError(f"coverage: shape mismatch y={y.shape}, q_lo={lo.shape}, q_hi={hi.shape}")
     return float(_fast_coverage(y, lo, hi))
 
 
@@ -274,9 +266,7 @@ def mean_interval_width(q_lo, q_hi) -> float:
     lo = np.asarray(q_lo, dtype=np.float64).ravel()
     hi = np.asarray(q_hi, dtype=np.float64).ravel()
     if lo.shape != hi.shape:
-        raise ValueError(
-            f"mean_interval_width: q_lo.shape={lo.shape} != q_hi.shape={hi.shape}"
-        )
+        raise ValueError(f"mean_interval_width: q_lo.shape={lo.shape} != q_hi.shape={hi.shape}")
     return float(np.mean(hi - lo))
 
 
@@ -305,9 +295,7 @@ def winkler_score(y_true, q_lo, q_hi, alpha_miscov: float) -> float:
     lo = np.ascontiguousarray(q_lo).ravel()
     hi = np.ascontiguousarray(q_hi).ravel()
     if not (y.shape == lo.shape == hi.shape):
-        raise ValueError(
-            f"winkler_score: shape mismatch y={y.shape}, q_lo={lo.shape}, q_hi={hi.shape}"
-        )
+        raise ValueError(f"winkler_score: shape mismatch y={y.shape}, q_lo={lo.shape}, q_hi={hi.shape}")
     if not (0.0 < alpha_miscov < 1.0):
         raise ValueError(f"alpha_miscov must be in (0, 1); got {alpha_miscov}")
     return float(_fast_winkler(y, lo, hi, float(alpha_miscov)))
@@ -338,10 +326,7 @@ def pit_values(y_true, preds_NK, alphas: Sequence[float]) -> np.ndarray:
     P = np.asarray(preds_NK, dtype=np.float64)
     a_arr = np.asarray(alphas, dtype=np.float64)
     if P.ndim != 2 or P.shape[0] != y.shape[0] or P.shape[1] != a_arr.shape[0]:
-        raise ValueError(
-            f"pit_values: shape mismatch y={y.shape}, preds={P.shape}, "
-            f"alphas={a_arr.shape}"
-        )
+        raise ValueError(f"pit_values: shape mismatch y={y.shape}, preds={P.shape}, " f"alphas={a_arr.shape}")
     # K==0 (empty alphas) makes the per-row interpolation read sq[0]/sq[k-1] out of bounds; with numba
     # boundscheck off this returns garbage rather than raising. A PIT diagram needs >=2 quantile levels
     # to interpolate at all, so reject K<2 with a clear message.

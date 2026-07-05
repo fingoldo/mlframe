@@ -115,20 +115,11 @@ def _compute_ltr_baselines(
     # Defensive: hard-fail on length mismatch with actionable message.
     # A length mismatch is a caller bug, not a runtime degraded condition.
     if len(g_train) != len(train_y):
-        raise ValueError(
-            f"[dummy-baselines] target='{target_name}' learning_to_rank: "
-            f"len(group_ids_train)={len(g_train)} != len(train_y)={len(train_y)}"
-        )
+        raise ValueError(f"[dummy-baselines] target='{target_name}' learning_to_rank: " f"len(group_ids_train)={len(g_train)} != len(train_y)={len(train_y)}")
     if val_y is not None and len(g_val) != len(val_y):
-        raise ValueError(
-            f"[dummy-baselines] target='{target_name}' learning_to_rank: "
-            f"len(group_ids_val)={len(g_val)} != len(val_y)={len(val_y)}"
-        )
+        raise ValueError(f"[dummy-baselines] target='{target_name}' learning_to_rank: " f"len(group_ids_val)={len(g_val)} != len(val_y)={len(val_y)}")
     if test_y is not None and len(g_test) != len(test_y):
-        raise ValueError(
-            f"[dummy-baselines] target='{target_name}' learning_to_rank: "
-            f"len(group_ids_test)={len(g_test)} != len(test_y)={len(test_y)}"
-        )
+        raise ValueError(f"[dummy-baselines] target='{target_name}' learning_to_rank: " f"len(group_ids_test)={len(g_test)} != len(test_y)={len(test_y)}")
 
     # Group sanity gate
     n_groups_train = len(np.unique(g_train))
@@ -141,10 +132,7 @@ def _compute_ltr_baselines(
     _factor_codes = pd.factorize(g_train)[0]
     train_group_sizes = np.bincount(_factor_codes[_factor_codes >= 0])
     if train_group_sizes.max() > 0.5 * len(g_train):
-        extras["ltr_skip_reason"] = (
-            f"max_group_pct={train_group_sizes.max() / len(g_train) * 100:.1f}% "
-            "(non-rankable structure)"
-        )
+        extras["ltr_skip_reason"] = f"max_group_pct={train_group_sizes.max() / len(g_train) * 100:.1f}% " "(non-rankable structure)"
         return val_preds, test_preds, extras
 
     extras["n_groups_train"] = int(n_groups_train)
@@ -195,11 +183,7 @@ def _compute_ltr_baselines(
             d_train = np.asarray(doc_ids_train)
             d_val = np.asarray(doc_ids_val)
             d_test = np.asarray(doc_ids_test)
-            if (
-                len(d_train) == len(train_y)
-                and len(d_val) == n_val
-                and len(d_test) == n_test
-            ):
+            if len(d_train) == len(train_y) and len(d_val) == n_val and len(d_test) == n_test:
                 # Coerce non-numeric doc IDs to a hashable string form
                 # so pd.Series.value_counts handles them uniformly.
                 if d_train.dtype.kind not in ("i", "u", "f"):
@@ -328,5 +312,3 @@ def _empty_report(
         n_train_finite=0, n_val_finite=0, n_test_finite=0,
         extras={"skip_reason": reason},
     )
-
-

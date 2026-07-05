@@ -388,10 +388,7 @@ def _train_model_with_fallback(
         # cast category-dtype columns routed to text/embedding back to object.
         _text_set = set(fit_params.get("text_features") or [])
         _emb_set = set(fit_params.get("embedding_features") or [])
-        _cat_dtype_cols = [
-            c for c, dt in zip(train_df.columns, train_df.dtypes)
-            if isinstance(dt, pd.CategoricalDtype)
-        ]
+        _cat_dtype_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes) if isinstance(dt, pd.CategoricalDtype)]
         _explicit_cats = set(fit_params.get("cat_features") or [])
         _missing_cats = [c for c in _cat_dtype_cols if c not in _explicit_cats and c not in _text_set and c not in _emb_set]
         if _missing_cats:
@@ -869,7 +866,6 @@ def _train_model_with_fallback(
         )
 
     return model, best_iter
-
 
 
 # xgb-objective / 2d-target-wrap helpers carved to _training_loop_objectives.py (1k-LOC ceiling).

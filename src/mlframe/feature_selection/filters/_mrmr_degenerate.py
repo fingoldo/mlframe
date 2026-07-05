@@ -114,8 +114,8 @@ def audit_degenerate_columns(X) -> dict:
     matching column.
     """
     degenerate: dict = {}
-    seen_content: dict = {}          # content_key -> first column name
-    numeric_cols: list = []          # (name, standardized values) for collinearity pass
+    seen_content: dict = {}  # content_key -> first column name
+    numeric_cols: list = []  # (name, standardized values) for collinearity pass
 
     for name, values in _column_arrays(X):
         if _is_all_nan(values):

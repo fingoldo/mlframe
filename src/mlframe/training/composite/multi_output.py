@@ -109,9 +109,7 @@ def make_per_column_specs(
         :class:`CompositeTargetEstimator`.
     """
     if n_outputs <= 0:
-        raise ValueError(
-            f"make_per_column_specs: n_outputs must be positive, got {n_outputs}."
-        )
+        raise ValueError(f"make_per_column_specs: n_outputs must be positive, got {n_outputs}.")
     shared = dict(shared_spec) if shared_spec else {}
     per_column = per_column or {}
     base_columns_map = base_columns_map or {}
@@ -214,10 +212,7 @@ class CompositeMultiOutputEstimator(MultiOutputMixin, RegressorMixin, BaseEstima
         if arr.ndim == 1:
             arr = arr.reshape(-1, 1)
         elif arr.ndim != 2:
-            raise ValueError(
-                f"CompositeMultiOutputEstimator: y must be 1-D or 2-D, got "
-                f"ndim={arr.ndim}."
-            )
+            raise ValueError(f"CompositeMultiOutputEstimator: y must be 1-D or 2-D, got " f"ndim={arr.ndim}.")
         return arr.astype(np.float64, copy=False)
 
     def _resolve_specs(self, n_outputs: int) -> List[ColumnSpec]:
@@ -234,10 +229,7 @@ class CompositeMultiOutputEstimator(MultiOutputMixin, RegressorMixin, BaseEstima
         else:
             specs = [dict(s) for s in cs]
             if len(specs) != n_outputs:
-                raise ValueError(
-                    f"CompositeMultiOutputEstimator: column_specs has "
-                    f"{len(specs)} entries but y has {n_outputs} columns."
-                )
+                raise ValueError(f"CompositeMultiOutputEstimator: column_specs has " f"{len(specs)} entries but y has {n_outputs} columns.")
         bcm = self.base_columns_map or {}
         for k in range(n_outputs):
             if k in bcm:
@@ -266,10 +258,7 @@ class CompositeMultiOutputEstimator(MultiOutputMixin, RegressorMixin, BaseEstima
         if inner is None:
             inner = self.base_estimator
         if inner is None:
-            raise ValueError(
-                "CompositeMultiOutputEstimator: no base_estimator -- supply one "
-                "on the estimator or in every per-column spec."
-            )
+            raise ValueError("CompositeMultiOutputEstimator: no base_estimator -- supply one " "on the estimator or in every per-column spec.")
         return CompositeTargetEstimator(base_estimator=clone(inner), **spec)
 
     # ------------------------------------------------------------------
@@ -335,9 +324,7 @@ class CompositeMultiOutputEstimator(MultiOutputMixin, RegressorMixin, BaseEstima
         if not hasattr(self, "estimators_"):
             from sklearn.exceptions import NotFittedError
 
-            raise NotFittedError(
-                "CompositeMultiOutputEstimator: call fit before predict."
-            )
+            raise NotFittedError("CompositeMultiOutputEstimator: call fit before predict.")
         # Determine row count from the first successful per-column predict, or
         # fall back to len(X) when every column failed (all-constant output).
         cols: List[Optional[np.ndarray]] = []

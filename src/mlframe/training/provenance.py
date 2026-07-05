@@ -113,9 +113,5 @@ def format_provenance_table(metadata: Optional[Mapping[str, Any]]) -> str:
     lines = [header, "-" * len(header)]
     for step in sorted(trail):
         rec = trail[step]
-        lines.append(
-            f"{step:<40} {str(rec.get('source','?')):<12} "
-            f"{str(rec.get('n_rows','-')):>10} {str(rec.get('seed','-')):>8} "
-            f"{rec.get('ts','-')}"
-        )
+        lines.append(f"{step:<40} {str(rec.get('source','?')):<12} " f"{str(rec.get('n_rows','-')):>10} {str(rec.get('seed','-')):>8} " f"{rec.get('ts','-')}")
     return "\n".join(lines)

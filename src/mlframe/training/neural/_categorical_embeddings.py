@@ -61,16 +61,8 @@ class CategoricalEmbedding(nn.Module):
         self.cardinalities = list(cardinalities)
         self.n_cat = len(self.cardinalities)
         # +1 reserved row per table: an unseen-at-fit-time or out-of-range code clamps to index ``card`` (the last row).
-        self.embed_dims = [
-            (embed_dim if embed_dim is not None else default_embed_dim(c))
-            for c in self.cardinalities
-        ]
-        self.embeddings = nn.ModuleList(
-            [
-                nn.Embedding(card + 1, dim, padding_idx=padding_idx)
-                for card, dim in zip(self.cardinalities, self.embed_dims)
-            ]
-        )
+        self.embed_dims = [(embed_dim if embed_dim is not None else default_embed_dim(c)) for c in self.cardinalities]
+        self.embeddings = nn.ModuleList([nn.Embedding(card + 1, dim, padding_idx=padding_idx) for card, dim in zip(self.cardinalities, self.embed_dims)])
         # out_features is resolved lazily against the live input width in forward(): the numeric block is ``D - n_cat`` columns. We expose the
         # CAT contribution here; ``_numeric_width`` is filled on first forward so callers that need the exact total can read ``out_features``
         # after a forward, but generate_mlp passes the known total width via out_features computed from the fit-time D (see set_num_numeric).
@@ -101,9 +93,7 @@ class CategoricalEmbedding(nn.Module):
         if x.dim() != 2:
             raise ValueError(f"CategoricalEmbedding expects 2-D input (N, D); got shape {tuple(x.shape)}")
         if x.shape[1] < self.n_cat:
-            raise ValueError(
-                f"CategoricalEmbedding input has {x.shape[1]} columns but {self.n_cat} leading cat columns are expected"
-            )
+            raise ValueError(f"CategoricalEmbedding input has {x.shape[1]} columns but {self.n_cat} leading cat columns are expected")
 
         outs = []
         for i, emb in enumerate(self.embeddings):
@@ -113,7 +103,7 @@ class CategoricalEmbedding(nn.Module):
             outs.append(emb(codes))
 
         if x.shape[1] > self.n_cat:
-            outs.append(x[:, self.n_cat:])
+            outs.append(x[:, self.n_cat :])
         return torch.cat(outs, dim=1)
 
     def extra_repr(self) -> str:

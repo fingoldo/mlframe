@@ -22,7 +22,6 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 
-
 N_TREES = 500
 SEEDS = list(range(6))
 
@@ -32,11 +31,11 @@ def _data(scenario, seed, n=2400, d=20):
     X = rng.randn(n, d)
     w = np.r_[rng.randn(5), np.zeros(d - 5)]
     logit = X @ w
-    if scenario == "overfit":          # heavy label noise -> val/test peak early then degrade
+    if scenario == "overfit":  # heavy label noise -> val/test peak early then degrade
         y = (logit + 2.6 * rng.randn(n) > 0).astype(int)
-    elif scenario == "clean":          # low noise -> val keeps improving (stop must NOT fire early)
+    elif scenario == "clean":  # low noise -> val keeps improving (stop must NOT fire early)
         y = (logit + 0.4 * rng.randn(n) > 0).astype(int)
-    else:                               # "noisy_plateau" -> moderate noise, long flat tail
+    else:  # "noisy_plateau" -> moderate noise, long flat tail
         y = (logit + 1.6 * rng.randn(n) > 0).astype(int)
     tr, va, te = slice(0, n // 2), slice(n // 2, 3 * n // 4), slice(3 * n // 4, n)
     return X[tr], y[tr], X[va], y[va], X[te], y[te]
@@ -75,7 +74,7 @@ def stop_old_worsening(val, coeff=5, min_iters=5):
             continue
         improved_over_prev = v > prev
         prev = v
-        if improved or improved_over_prev:   # OLD: plateau (==prev) does NOT reset -> falls through to +=1
+        if improved or improved_over_prev:  # OLD: plateau (==prev) does NOT reset -> falls through to +=1
             streak = 0
             continue
         streak += 1
@@ -87,11 +86,11 @@ def stop_old_worsening(val, coeff=5, min_iters=5):
 def stop_new_monotonic(val, n=3):
     best, prev, streak = -np.inf, None, 0
     for i, v in enumerate(val):
-        if v > best:                          # NEW: new best resets
+        if v > best:  # NEW: new best resets
             best, streak = v, 0
-        elif prev is not None and v < prev:    # strict decline
+        elif prev is not None and v < prev:  # strict decline
             streak += 1
-        else:                                  # plateau / bounce-up resets
+        else:  # plateau / bounce-up resets
             streak = 0
         prev = v
         if streak >= n:
@@ -108,7 +107,7 @@ def main():
         "new_monotonic3": lambda v: stop_new_monotonic(v, 3),
         "new_monotonic5": lambda v: stop_new_monotonic(v, 5),
     }
-    agg = {r: {"test_gap": [], "stop": []} for r in rules}      # gap = oracle_test - rule_test (lower=better)
+    agg = {r: {"test_gap": [], "stop": []} for r in rules}  # gap = oracle_test - rule_test (lower=better)
     old_fires_before_patience = 0
     total = 0
     for sc in scenarios:
@@ -120,7 +119,7 @@ def main():
             )
             val_curve = _auc_curve(booster, Xva, yva)
             test_curve = _auc_curve(booster, Xte, yte)
-            oracle_i = int(np.argmax(val_curve))             # best-val iteration (what ES tries to find)
+            oracle_i = int(np.argmax(val_curve))  # best-val iteration (what ES tries to find)
             oracle_test = test_curve[oracle_i]
             stops = {r: f(val_curve) for r, f in rules.items()}
             for r, si in stops.items():

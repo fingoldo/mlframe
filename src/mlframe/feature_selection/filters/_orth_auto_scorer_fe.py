@@ -69,8 +69,7 @@ def _score_plug_in(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> float:
     return float(out[0])
 
 
-def _score_ksg(x: np.ndarray, y: np.ndarray, *, n_neighbors: int = 3,
-               random_state: int = 0) -> float:
+def _score_ksg(x: np.ndarray, y: np.ndarray, *, n_neighbors: int = 3, random_state: int = 0) -> float:
     """KSG / k-NN MI(x; y) -- Layer 65's Kraskov estimator.
 
     Delegates to the ``_ksg_mi_batch`` helper in the Layer 65 module so
@@ -97,8 +96,7 @@ def _score_copula(x: np.ndarray, y: np.ndarray, *, n_bins: int = 20) -> float:
     ))
 
 
-def _score_dcor(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500,
-                random_state: int = 0) -> float:
+def _score_dcor(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500, random_state: int = 0) -> float:
     """Szekely-Rizzo distance correlation -- Layer 67's non-MI dependence."""
     from ._orthogonal_dcor_fe import distance_correlation
 
@@ -108,8 +106,7 @@ def _score_dcor(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500,
     ))
 
 
-def _score_hsic(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500,
-                random_state: int = 0) -> float:
+def _score_hsic(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500, random_state: int = 0) -> float:
     """HSIC -- Layer 71's kernel-based non-MI dependence (RBF, median heuristic)."""
     from ._orthogonal_hsic_fe import hsic
 
@@ -227,22 +224,24 @@ def select_best_scorer_per_column(
     """
     if len(raw_X) != len(engineered_X):
         raise ValueError(
-            f"select_best_scorer_per_column: raw_X has {len(raw_X)} rows "
-            f"but engineered_X has {len(engineered_X)}; positional row "
-            f"alignment required."
+            f"select_best_scorer_per_column: raw_X has {len(raw_X)} rows " f"but engineered_X has {len(engineered_X)}; positional row " f"alignment required."
         )
     y_arr = np.asarray(y).ravel()
     if len(raw_X) != len(y_arr):
-        raise ValueError(
-            f"select_best_scorer_per_column: raw_X has {len(raw_X)} rows "
-            f"but y has {len(y_arr)}; positional row alignment required."
-        )
+        raise ValueError(f"select_best_scorer_per_column: raw_X has {len(raw_X)} rows " f"but y has {len(y_arr)}; positional row alignment required.")
     if engineered_X.empty:
-        return pd.DataFrame(columns=[
-            "engineered_col", "source_col", "best_scorer", "lcb",
-            "baseline_lcb", "uplift", "lcb_per_scorer",
-            "lcb_norm_per_scorer",
-        ])
+        return pd.DataFrame(
+            columns=[
+                "engineered_col",
+                "source_col",
+                "best_scorer",
+                "lcb",
+                "baseline_lcb",
+                "uplift",
+                "lcb_per_scorer",
+                "lcb_norm_per_scorer",
+            ]
+        )
     n = len(raw_X)
     boot_idx = _bootstrap_subsample_indices(
         n, int(n_boot), int(random_state),
@@ -336,28 +335,25 @@ def select_best_scorer_per_column(
         # raw signal IT could detect -- not the scorer with the largest natural scale, nor a scorer whose tiny raw ceiling would let any engineered
         # value inflate into a degenerate ratio. A scorer whose engineered LCB merely matches its own noise floor scores ~0 and cannot win a column;
         # a scorer that genuinely lifts above its own raw baseline (HSIC on a non-monotone signal) scores high and can win where it is strongest.
-        per_scorer_norm = {
-            s: (per_scorer[s] - per_scorer_max[s]) / per_scorer_scale[s]
-            for s in SCORER_NAMES
-        }
+        per_scorer_norm = {s: (per_scorer[s] - per_scorer_max[s]) / per_scorer_scale[s] for s in SCORER_NAMES}
         best_scorer = max(
             SCORER_NAMES, key=lambda s: per_scorer_norm[s],
         )
         best_lcb = float(per_scorer[best_scorer])
-        baseline_lcb = float(
-            source_lcb.get(src, {}).get(best_scorer, 0.0)
-        )
+        baseline_lcb = float(source_lcb.get(src, {}).get(best_scorer, 0.0))
         uplift = best_lcb / (baseline_lcb + 1e-12)
-        rows.append({
-            "engineered_col": eng_name,
-            "source_col": src,
-            "best_scorer": best_scorer,
-            "lcb": best_lcb,
-            "baseline_lcb": baseline_lcb,
-            "uplift": uplift,
-            "lcb_per_scorer": dict(per_scorer),
-            "lcb_norm_per_scorer": dict(per_scorer_norm),
-        })
+        rows.append(
+            {
+                "engineered_col": eng_name,
+                "source_col": src,
+                "best_scorer": best_scorer,
+                "lcb": best_lcb,
+                "baseline_lcb": baseline_lcb,
+                "uplift": uplift,
+                "lcb_per_scorer": dict(per_scorer),
+                "lcb_norm_per_scorer": dict(per_scorer_norm),
+            }
+        )
     df = pd.DataFrame(rows)
     if not df.empty:
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
@@ -398,19 +394,36 @@ def score_features_by_auto_scorer_uplift(
         copula_n_bins=int(copula_n_bins), dcor_n_sample=int(dcor_n_sample),
     )
     if raw_table.empty:
-        return pd.DataFrame(columns=[
-            "engineered_col", "source_col", "baseline_mi", "engineered_mi",
-            "uplift", "best_scorer", "lcb_per_scorer",
+        return pd.DataFrame(
+            columns=[
+                "engineered_col",
+                "source_col",
+                "baseline_mi",
+                "engineered_mi",
+                "uplift",
+                "best_scorer",
+                "lcb_per_scorer",
+                "lcb_norm_per_scorer",
+            ]
+        )
+    out = raw_table.rename(
+        columns={
+            "lcb": "engineered_mi",
+            "baseline_lcb": "baseline_mi",
+        }
+    )
+    return out[
+        [
+            "engineered_col",
+            "source_col",
+            "baseline_mi",
+            "engineered_mi",
+            "uplift",
+            "best_scorer",
+            "lcb_per_scorer",
             "lcb_norm_per_scorer",
-        ])
-    out = raw_table.rename(columns={
-        "lcb": "engineered_mi", "baseline_lcb": "baseline_mi",
-    })
-    return out[[
-        "engineered_col", "source_col", "baseline_mi", "engineered_mi",
-        "uplift", "best_scorer", "lcb_per_scorer",
-        "lcb_norm_per_scorer",
-    ]]
+        ]
+    ]
 
 
 def hybrid_orth_mi_auto_scorer_fe(
@@ -494,10 +507,7 @@ def hybrid_orth_mi_auto_scorer_fe(
     else:
         eng_noise_floor = 0.0
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
-    qualified = scores[
-        (scores["uplift"] >= float(min_uplift))
-        & (scores["engineered_mi"] >= abs_floor)
-    ]
+    qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
@@ -554,15 +564,14 @@ def hybrid_orth_mi_auto_scorer_fe_with_recipes(
         chosen_degree = None
         for code in ("LL", "He", "T", "L"):
             if suffix.startswith(code):
-                rest = suffix[len(code):]
+                rest = suffix[len(code) :]
                 if rest.isdigit():
                     chosen_basis = code_to_basis[code]
                     chosen_degree = int(rest)
                     break
         if chosen_basis is None or chosen_degree is None:
             logger.warning(
-                "hybrid_orth_mi_auto_scorer_fe_with_recipes: cannot parse "
-                "basis/degree from column name %r; skipping recipe build.",
+                "hybrid_orth_mi_auto_scorer_fe_with_recipes: cannot parse " "basis/degree from column name %r; skipping recipe build.",
                 name,
             )
             continue

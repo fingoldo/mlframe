@@ -145,7 +145,7 @@ def parse_routing_col_name(name: str) -> Optional[tuple[str, str, str, int]]:
     code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
     for code in ("LL", "He", "T", "L"):
         if rest.startswith(code):
-            deg_str = rest[len(code):]
+            deg_str = rest[len(code) :]
             if deg_str.isdigit():
                 return (src, pre_transform, code_to_basis[code], int(deg_str))
     return None
@@ -214,10 +214,7 @@ def generate_conditional_basis_routing_features(
     """
     if cols is None:
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
-    cols = [
-        c for c in cols
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    cols = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if dedup_collinear_sources:
         cols = _dedup_collinear_source_cols(
             X, list(cols), corr_threshold=dedup_corr_threshold,
@@ -225,22 +222,14 @@ def generate_conditional_basis_routing_features(
     degrees = tuple(int(d) for d in degrees)
     if candidate_bases is None:
         candidate_bases = ("hermite", "legendre", "chebyshev", "laguerre")
-    candidate_bases = tuple(
-        b for b in candidate_bases if b in _POLY_BASES
-    )
+    candidate_bases = tuple(b for b in candidate_bases if b in _POLY_BASES)
     if transform_variants is None:
         transform_variants = PRE_TRANSFORM_NAMES
-    transform_variants = tuple(
-        t for t in transform_variants if t in PRE_TRANSFORM_NAMES
-    )
+    transform_variants = tuple(t for t in transform_variants if t in PRE_TRANSFORM_NAMES)
     if not cols or not degrees or not candidate_bases or not transform_variants:
         return pd.DataFrame(index=X.index), {}
 
-    y_arr = (
-        np.asarray(y).astype(np.int64)
-        if not np.issubdtype(np.asarray(y).dtype, np.integer)
-        else np.asarray(y, dtype=np.int64)
-    )
+    y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
 
     # ---- Step 1: raw baselines (one batch MI call across the chosen cols)
     from ._fe_usability_signal import _crit_np_dtype
@@ -547,16 +536,14 @@ def hybrid_orth_mi_conditional_routing_fe_with_recipes(
     appended = [c for c in X_aug.columns if c not in X.columns]
     if not appended:
         return X_aug, scores, []
-    name_to_row = {
-        str(row["engineered_col"]): row for _, row in scores.iterrows()
-    }
+    name_to_row = {str(row["engineered_col"]): row for _, row in scores.iterrows()}
     recipes = []
     for name in appended:
         row = name_to_row.get(name)
         if row is None:
             logger.warning(
-                "hybrid_orth_mi_conditional_routing_fe_with_recipes: appended "
-                "column %r missing from scores; skipping recipe.", name,
+                "hybrid_orth_mi_conditional_routing_fe_with_recipes: appended " "column %r missing from scores; skipping recipe.",
+                name,
             )
             continue
         recipes.append(build_orth_univariate_recipe(

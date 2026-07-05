@@ -37,7 +37,6 @@ DIAG_ROW_CAP: int = 100_000
 DIAG_MAX_FEATURES: int = 200
 
 
-
 # The four record/save helpers live in the parent ``diagnostics_dispatch``, which re-exports THIS module's
 # render_* + _entry_score at its own bottom -- a mutual cycle. A top-level ``from .diagnostics_dispatch
 # import ...`` was "cycle-safe" only when the parent imported FIRST; when a sibling (e.g. discover_tuners
@@ -471,7 +470,7 @@ def _first_group_column(df, names, max_card: int = 50):
     column whose sampled cardinality is in [2, max_card]. The chart caps to its own ``max_groups`` anyway, so a slightly
     higher-cardinality object column is still acceptable -- this only skips free-text / id-like columns.
     """
-    for c in (names or []):
+    for c in names or []:
         try:
             col = df[c]
         except Exception:

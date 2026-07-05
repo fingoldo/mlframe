@@ -10,7 +10,6 @@ from numba import njit, prange
 # searchsorted kernels on the serial-main-thread path (no hardcoded threshold).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
-
 # NJIT MATERIALISATION (2026-06-06). The chunk's candidate columns were filled by a PYTHON loop
 # (``out[:, col] = bin_func(a, b)`` per candidate) -- GIL-held -> the remaining single-core bottleneck after the
 # discretize/MI kernels were batched. ``_materialise_chunk_njit`` fills the WHOLE chunk in ONE ``nogil`` njit call,
@@ -87,36 +86,36 @@ def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
         for r in range(n):
             a = tv[r, ai]
             b = tv[r, bi]
-            if op == 0:        # mul
+            if op == 0:  # mul
                 v = a * b
-            elif op == 1:      # add
+            elif op == 1:  # add
                 v = a + b
-            elif op == 2:      # sub
+            elif op == 2:  # sub
                 v = a - b
-            elif op == 3:      # div = _safe_div (2026-06-13 form): EXACT x/y for y != 0, eps floor only on an
+            elif op == 3:  # div = _safe_div (2026-06-13 form): EXACT x/y for y != 0, eps floor only on an
                 # exact-zero denominator (the prior x/(y+sign(y)*eps+eps) perturbed every positive denom by 2*eps,
                 # diverging from the canonical _safe_div). float64-promoted then cast to float32 to match _safe_div's
                 # float64 division exactly (an all-float32 div would differ in the last bit).
                 v = np.float32(np.float64(a) / (np.float64(b) if b != zero else 1e-9))
-            elif op == 4:      # max = np.maximum (nan-propagating)
+            elif op == 4:  # max = np.maximum (nan-propagating)
                 if a != a or b != b:
                     v = a + b  # nan + anything -> nan (matches np.maximum nan propagation)
                 else:
                     v = a if a > b else b
-            elif op == 5:      # min = np.minimum (nan-propagating)
+            elif op == 5:  # min = np.minimum (nan-propagating)
                 if a != a or b != b:
                     v = a + b
                 else:
                     v = a if a < b else b
-            elif op == 6:      # abs_diff = |a - b|
+            elif op == 6:  # abs_diff = |a - b|
                 v = abs(a - b)
-            elif op == 7:      # signed = sign(a)*|b|. np.sign(nan)=nan and np.abs(nan)=nan -> propagate nan.
+            elif op == 7:  # signed = sign(a)*|b|. np.sign(nan)=nan and np.abs(nan)=nan -> propagate nan.
                 if a != a or b != b:
                     v = a + b
                 else:
                     sgn = zero if a == zero else (one if a > zero else -one)
                     v = sgn * abs(b)
-            else:              # op == 8: ratio_abs = a/(|b|+1). numpy/numba promote the float64 ``1.0`` literal ->
+            else:  # op == 8: ratio_abs = a/(|b|+1). numpy/numba promote the float64 ``1.0`` literal ->
                 # compute in float64 then cast, matching the numpy expression's last bit.
                 v = np.float32(np.float64(a) / (np.float64(abs(b)) + 1.0))
             # np.nan_to_num(nan=0, posinf=0, neginf=0)
@@ -155,34 +154,34 @@ def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
         for r in range(n):
             a = tv[r, ai]
             b = tv[r, bi]
-            if op == 0:        # mul
+            if op == 0:  # mul
                 v = a * b
-            elif op == 1:      # add
+            elif op == 1:  # add
                 v = a + b
-            elif op == 2:      # sub
+            elif op == 2:  # sub
                 v = a - b
-            elif op == 3:      # div = _safe_div (2026-06-13 form): EXACT x/y for y != 0, eps floor only on exact-zero
+            elif op == 3:  # div = _safe_div (2026-06-13 form): EXACT x/y for y != 0, eps floor only on exact-zero
                 # (matches the serial twin + canonical _safe_div; float64-promoted then cast to float32).
                 v = np.float32(np.float64(a) / (np.float64(b) if b != zero else 1e-9))
-            elif op == 4:      # max = np.maximum (nan-propagating)
+            elif op == 4:  # max = np.maximum (nan-propagating)
                 if a != a or b != b:
                     v = a + b
                 else:
                     v = a if a > b else b
-            elif op == 5:      # min = np.minimum (nan-propagating)
+            elif op == 5:  # min = np.minimum (nan-propagating)
                 if a != a or b != b:
                     v = a + b
                 else:
                     v = a if a < b else b
-            elif op == 6:      # abs_diff = |a - b|
+            elif op == 6:  # abs_diff = |a - b|
                 v = abs(a - b)
-            elif op == 7:      # signed = sign(a)*|b|
+            elif op == 7:  # signed = sign(a)*|b|
                 if a != a or b != b:
                     v = a + b
                 else:
                     sgn = zero if a == zero else (one if a > zero else -one)
                     v = sgn * abs(b)
-            else:              # op == 8: ratio_abs = a/(|b|+1); float64-promoted like the serial twin
+            else:  # op == 8: ratio_abs = a/(|b|+1); float64-promoted like the serial twin
                 v = np.float32(np.float64(a) / (np.float64(abs(b)) + 1.0))
             if not (v == v and v != np.inf and v != -np.inf):
                 v = zero
@@ -314,32 +313,32 @@ def _materialise_extval_njit(param_a, param_b_mat, op_codes, out):
             for r in range(n):
                 a = np.float64(param_a[r])
                 b = param_b_mat[r, e]
-                if op == 0:        # mul
+                if op == 0:  # mul
                     v = a * b
-                elif op == 1:      # add
+                elif op == 1:  # add
                     v = a + b
-                elif op == 2:      # sub
+                elif op == 2:  # sub
                     v = a - b
-                elif op == 3:      # div = _safe_div: exact x/y for y != 0, eps floor only on an exact-zero denominator
+                elif op == 3:  # div = _safe_div: exact x/y for y != 0, eps floor only on an exact-zero denominator
                     v = a / (b if b != 0.0 else 1e-9)
-                elif op == 4:      # max = np.maximum (nan-propagating)
+                elif op == 4:  # max = np.maximum (nan-propagating)
                     if a != a or b != b:
                         v = a + b
                     else:
                         v = a if a > b else b
-                elif op == 5:      # min = np.minimum (nan-propagating)
+                elif op == 5:  # min = np.minimum (nan-propagating)
                     if a != a or b != b:
                         v = a + b
                     else:
                         v = a if a < b else b
-                elif op == 6:      # abs_diff = |a - b|
+                elif op == 6:  # abs_diff = |a - b|
                     v = abs(a - b)
-                elif op == 7:      # signed = sign(a)*|b| (nan-propagating)
+                elif op == 7:  # signed = sign(a)*|b| (nan-propagating)
                     if a != a or b != b:
                         v = a + b
                     else:
                         sgn = 0.0 if a == 0.0 else (1.0 if a > 0.0 else -1.0)
                         v = sgn * abs(b)
-                else:              # op == 8: ratio_abs = a/(|b|+1)
+                else:  # op == 8: ratio_abs = a/(|b|+1)
                     v = a / (abs(b) + 1.0)
                 out[r, col] = v

@@ -12,8 +12,7 @@ import lightgbm as lgb
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from round3_realdata_bench import load_real, downstream
-from round4_noise_floor_bench import (lgbm_gain_ranking, cv_curve, noise_floor_plateau,
-                                       noise_floor_first, _mk_model)
+from round4_noise_floor_bench import lgbm_gain_ranking, cv_curve, noise_floor_plateau, noise_floor_first, _mk_model
 
 OUT = "D:/Temp/rfecv_floor_robust.txt"
 

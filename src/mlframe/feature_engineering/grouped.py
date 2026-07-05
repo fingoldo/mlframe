@@ -271,10 +271,7 @@ def per_group_apply(
     values_arr = np.ascontiguousarray(values)
     n = values_arr.size
     if n != len(group_ids):
-        raise ValueError(
-            f"per_group_apply: values length {n} != group_ids length "
-            f"{len(group_ids)}"
-        )
+        raise ValueError(f"per_group_apply: values length {n} != group_ids length " f"{len(group_ids)}")
     out_shape = (n,) + tuple(output_shape_extra)
     out = np.full(out_shape, fill_value, dtype=output_dtype)
     sort_idx, starts, ends = iter_group_segments(group_ids)
@@ -296,10 +293,7 @@ def per_group_apply(
             continue
         res = np.asarray(res)
         if res.shape[0] != (e - s):
-            raise ValueError(
-                f"per_group_apply: fn returned shape {res.shape} but "
-                f"segment length is {e - s}; per-row output expected."
-            )
+            raise ValueError(f"per_group_apply: fn returned shape {res.shape} but " f"segment length is {e - s}; per-row output expected.")
         # Scatter into output array. Trailing dims (if any) flow naturally.
         out[sort_idx[s:e]] = res
     return out
@@ -410,9 +404,7 @@ def per_group_cum_reduce(
             out[seg_idx] = arange
         return out
     if op not in _accum:
-        raise ValueError(
-            f"op={op!r} not in {{'sum', 'prod', 'max', 'min', 'count'}}"
-        )
+        raise ValueError(f"op={op!r} not in {{'sum', 'prod', 'max', 'min', 'count'}}")
     fn = _accum[op]
     values_arr = np.ascontiguousarray(values, dtype=output_dtype)
     out = np.empty_like(values_arr, dtype=output_dtype)
@@ -455,9 +447,7 @@ def per_group_rolling_reduce(
     if min_periods is None:
         min_periods = window_K
     if min_periods < 1 or min_periods > window_K:
-        raise ValueError(
-            f"min_periods must be in [1, window_K], got {min_periods}"
-        )
+        raise ValueError(f"min_periods must be in [1, window_K], got {min_periods}")
 
     from numpy.lib.stride_tricks import sliding_window_view
 
@@ -479,7 +469,7 @@ def per_group_rolling_reduce(
             if op == "mean":
                 window_sums = window_sums / window_K
             # Write into out at last-position-anchor of each window.
-            out[seg_idx[window_K - 1:]] = window_sums
+            out[seg_idx[window_K - 1 :]] = window_sums
             # min_periods shorter prefix
             if min_periods < window_K:
                 for k in range(min_periods - 1, window_K - 1):
@@ -499,11 +489,9 @@ def per_group_rolling_reduce(
                 vals = wins.min(axis=1)
             elif op == "max":
                 vals = wins.max(axis=1)
-            out[seg_idx[window_K - 1:]] = vals
+            out[seg_idx[window_K - 1 :]] = vals
         else:
-            raise ValueError(
-                f"op={op!r} not in {{'mean','sum','std','var','min','max','median'}}"
-            )
+            raise ValueError(f"op={op!r} not in {{'mean','sum','std','var','min','max','median'}}")
     return out
 
 
@@ -577,9 +565,7 @@ def per_group_rank(
     FE step 40 min" hotspot; this version vectorises per segment.
     """
     if method not in {"average", "min", "max", "dense", "ordinal"}:
-        raise ValueError(
-            f"method={method!r} not in {{'average','min','max','dense','ordinal'}}"
-        )
+        raise ValueError(f"method={method!r} not in {{'average','min','max','dense','ordinal'}}")
     values_arr = np.ascontiguousarray(values, dtype=np.float64)
     out = np.full(values_arr.size, np.nan, dtype=np.float64)
     sort_idx, starts, ends = iter_group_segments(group_ids)
@@ -610,9 +596,7 @@ def per_group_rank(
         fstarts = finite_cum[starts]
         fends = finite_cum[ends]
         del seg_len
-        ranks_fin = _per_group_rank_sorted_njit(
-            fin_vals, fstarts.astype(np.intp), fends.astype(np.intp), _RANK_METHOD_CODES[method], bool(pct)
-        )
+        ranks_fin = _per_group_rank_sorted_njit(fin_vals, fstarts.astype(np.intp), fends.astype(np.intp), _RANK_METHOD_CODES[method], bool(pct))
         out[sort_idx[seg_finite_idx]] = ranks_fin
         del n_groups
         return out
@@ -699,5 +683,5 @@ def per_group_sliding_window(
         wins = sliding_window_view(seg, window_K)
         # write_indices: original row indices of the LAST-POSITION
         # anchor (rows K-1 ... seg_len-1 of the segment).
-        write_indices = sort_idx_seg[window_K - 1:]
+        write_indices = sort_idx_seg[window_K - 1 :]
         yield sort_idx_seg, wins, write_indices

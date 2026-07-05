@@ -91,9 +91,7 @@ def bench(n, p, n_folds, nbins=10, repeats=5, seed=0):
     t_old = _time(_scalar_path)
     t_new = _time(_batched_path)
     print(
-        f"n={n:>7} p={p:>4} folds={n_folds}  "
-        f"OLD={t_old * 1e3:8.2f}ms  NEW={t_new * 1e3:8.2f}ms  "
-        f"speedup={t_old / t_new:5.2f}x  identical={identical}"
+        f"n={n:>7} p={p:>4} folds={n_folds}  " f"OLD={t_old * 1e3:8.2f}ms  NEW={t_new * 1e3:8.2f}ms  " f"speedup={t_old / t_new:5.2f}x  identical={identical}"
     )
     return t_old, t_new, identical
 

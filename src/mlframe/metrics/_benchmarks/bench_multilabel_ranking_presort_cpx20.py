@@ -215,18 +215,16 @@ def _check_identity():
     cases.append(_make(200, 30, rng, 1.0))  # all scores few-valued
     # edges: rows with n_true=0, n_true=K, all-equal scores
     yt = np.zeros((5, 8), dtype=np.int64)
-    yt[1, :] = 1            # all true
-    yt[2, 0] = 1            # one true
+    yt[1, :] = 1  # all true
+    yt[2, 0] = 1  # one true
     yt[3, :4] = 1
     sc = np.ones((5, 8), dtype=np.float64)  # all equal scores
     cases.append((yt, sc))
     # single row, all-equal
-    cases.append((np.array([[1, 0, 1, 0]], dtype=np.int64),
-                  np.array([[2.0, 2.0, 2.0, 2.0]])))
+    cases.append((np.array([[1, 0, 1, 0]], dtype=np.int64), np.array([[2.0, 2.0, 2.0, 2.0]])))
     ok = True
     for idx, (yt, sc) in enumerate(cases):
-        for name, old, new in (("lrap", _lrap_old, _lrap_new),
-                               ("rloss", _ranking_loss_old, _ranking_loss_new)):
+        for name, old, new in (("lrap", _lrap_old, _lrap_new), ("rloss", _ranking_loss_old, _ranking_loss_new)):
             o = old(yt, sc)
             v = new(yt, sc)
             same = (o == v) or (np.isnan(o) and np.isnan(v))
@@ -259,8 +257,7 @@ def main():
     print(f"\n{'shape':>14} {'kernel':>8} {'OLD ms':>10} {'NEW ms':>10} {'speedup':>8}")
     for K in (20, 50, 100):
         yt, sc = _make(n, K, rng, 0.0)
-        for name, old, new in (("lrap", _lrap_old, _lrap_new),
-                               ("rloss", _ranking_loss_old, _ranking_loss_new)):
+        for name, old, new in (("lrap", _lrap_old, _lrap_new), ("rloss", _ranking_loss_old, _ranking_loss_new)):
             to = _bestof(old, yt, sc) * 1e3
             tn = _bestof(new, yt, sc) * 1e3
             print(f"  n={n} K={K:>3} {name:>8} {to:>10.3f} {tn:>10.3f} {to/tn:>7.2f}x")

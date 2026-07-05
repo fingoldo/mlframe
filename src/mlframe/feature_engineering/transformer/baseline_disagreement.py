@@ -56,12 +56,10 @@ def _fit_3baselines_predict_on_query(
     from sklearn.linear_model import Ridge, LogisticRegression
 
     if task == "binary":
-        m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
-                                random_state=int(seed), verbose=-1, n_jobs=-1)
+        m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m1.fit(Xt, y_t.astype(np.int32))
         p1 = m1.predict_proba(Xq)[:, 1].astype(np.float32)
-        m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1,
-                                random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
+        m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
         m2.fit(Xt, y_t.astype(np.int32))
         p2 = m2.predict_proba(Xq)[:, 1].astype(np.float32)
         try:
@@ -71,12 +69,10 @@ def _fit_3baselines_predict_on_query(
         except Exception:
             p3 = np.full(Xq.shape[0], float(y_t.mean()), dtype=np.float32)
     else:
-        m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1,
-                               random_state=int(seed), verbose=-1, n_jobs=-1)
+        m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m1.fit(Xt, y_t)
         p1 = m1.predict(Xq).astype(np.float32)
-        m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1,
-                               random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
+        m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
         m2.fit(Xt, y_t)
         p2 = m2.predict(Xq).astype(np.float32)
         m3 = Ridge(alpha=1.0, random_state=int(seed) + 2)
@@ -123,7 +119,7 @@ def compute_baseline_disagreement_features(
         mean = stack.mean(axis=1)
         std = stack.std(axis=1)
         rng = stack.max(axis=1) - stack.min(axis=1)
-        lgb_diff = p1 - p2          # shallow vs deep
+        lgb_diff = p1 - p2  # shallow vs deep
         lgb_vs_linear = ((p1 + p2) / 2.0) - p3  # boosting average vs linear
         return np.column_stack([p1, p2, p3, mean, std, rng, lgb_diff, lgb_vs_linear])
 

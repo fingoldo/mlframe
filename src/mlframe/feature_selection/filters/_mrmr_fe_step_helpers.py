@@ -59,10 +59,7 @@ def apply_synergy_bootstrap(
         _raw_names = set(getattr(self, "feature_names_in_", []) or [])
         _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
         _cat_set = set(categorical_vars)
-        _raw_numeric_idx = {
-            i for i, nm in enumerate(cols)
-            if nm in _raw_names and i not in _target_idx_set and i not in _cat_set
-        }
+        _raw_numeric_idx = {i for i, nm in enumerate(cols) if nm in _raw_names and i not in _target_idx_set and i not in _cat_set}
         _raw_numeric_idx -= non_numeric_idx
         if self.factors_to_use is not None:
             _raw_numeric_idx &= set(self.factors_to_use)
@@ -87,8 +84,7 @@ def apply_synergy_bootstrap(
                 logger.info("MRMR FE synergy exhaustive: %s", _exh_reason)
         except Exception as _exh_e:
             if verbose:
-                logger.info("MRMR FE synergy exhaustive decision degraded (%s: %s); using pre-rank path.",
-                            type(_exh_e).__name__, _exh_e)
+                logger.info("MRMR FE synergy exhaustive decision degraded (%s: %s); using pre-rank path.", type(_exh_e).__name__, _exh_e)
         # WIDE-FRAME PRE-RANK (2026-06-19). Above the cap the bootstrap historically SKIPPED entirely, so a
         # zero-marginal interaction on a wide frame (p >> cap) was engineered as NOTHING. Marginal MI cannot
         # pick the surviving cap columns (the operands have ~0 marginal MI by construction -- the whole reason
@@ -110,9 +106,7 @@ def apply_synergy_bootstrap(
             synergy_cap = _n_raw
             synergy_max_sweep_cost = float("inf")
             self._fe_synergy_exhaustive_active_ = True
-        elif _prerank_on and _n_raw > synergy_cap and (
-            n_rows_for_synergy * (synergy_cap ** 2) > synergy_max_sweep_cost
-        ):
+        elif _prerank_on and _n_raw > synergy_cap and (n_rows_for_synergy * (synergy_cap**2) > synergy_max_sweep_cost):
             # COST-GATE FIRST (2026-06-19, critique #4). After the pre-rank keeps exactly ``synergy_cap``
             # columns the sweep cost is n*cap^2; if THAT already exceeds the budget the sweep below will be
             # skipped regardless -- so do NOT pay the O(p*n) pre-rank (which also risks OOM on a very wide
@@ -154,9 +148,8 @@ def apply_synergy_bootstrap(
                         )
             except Exception as _e:  # correctness over the optimisation -- fall back to the legacy skip
                 if verbose:
-                    logger.info("MRMR FE synergy pre-rank degraded (%s: %s); using legacy skip-past-cap.",
-                                type(_e).__name__, _e)
-        _sweep_cost = n_rows_for_synergy * (_n_raw ** 2)
+                    logger.info("MRMR FE synergy pre-rank degraded (%s: %s); using legacy skip-past-cap.", type(_e).__name__, _e)
+        _sweep_cost = n_rows_for_synergy * (_n_raw**2)
         if 0 < _n_raw <= synergy_cap and _sweep_cost <= synergy_max_sweep_cost:
             _added = _raw_numeric_idx - numeric_vars_to_consider
             if _added:
@@ -230,10 +223,7 @@ def apply_surrogate_gbm_seeder(
     _raw_name_set = set(getattr(self, "feature_names_in_", []) or [])
     _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
     _cat_set = set(categorical_vars)
-    _raw_numeric_idx = {
-        i for i, nm in enumerate(cols)
-        if nm in _raw_name_set and i not in _target_idx_set and i not in _cat_set
-    }
+    _raw_numeric_idx = {i for i, nm in enumerate(cols) if nm in _raw_name_set and i not in _target_idx_set and i not in _cat_set}
     _raw_numeric_idx -= set(non_numeric_idx)
     if self.factors_to_use is not None:
         _raw_numeric_idx &= set(self.factors_to_use)
@@ -273,8 +263,7 @@ def apply_surrogate_gbm_seeder(
             self_gate_min_z=float(getattr(self, "fe_gbm_seeder_self_gate_min_z", 2.0)),
             random_seed=int(getattr(self, "random_seed", 0) or 0),
         )
-        self.fe_gbm_seeder_info_ = {k: v for k, v in info.items()
-                                    if k in ("oof_real", "oof_perm", "self_gate_z", "gated", "n_pairs", "n_triples")}
+        self.fe_gbm_seeder_info_ = {k: v for k, v in info.items() if k in ("oof_real", "oof_perm", "self_gate_z", "gated", "n_pairs", "n_triples")}
         # The seeder fit failed entirely (no surrogate) -> nothing to do. ``gated`` is the PAIR
         # self-gate; TRIPLES are emitted regardless (the order-3 floor gates them), so we do NOT
         # early-return on ``gated=False`` -- only when there is no co-occurrence output at all.
@@ -294,7 +283,7 @@ def apply_surrogate_gbm_seeder(
         # legs map to a name) are forwarded; an index out of range is skipped defensively.
         _ncols = len(cols)
         _named = []
-        for (a, b, c) in _kept_triples:
+        for a, b, c in _kept_triples:
             if 0 <= a < _ncols and 0 <= b < _ncols and 0 <= c < _ncols:
                 _named.append((cols[a], cols[b], cols[c]))
         self._seeded_triplets_names_ = _named
@@ -663,10 +652,7 @@ def log_fe_summary(
     except Exception:
         _n_pairs_considered = -1
     try:
-        _n_pairs_with_additions = sum(
-            1 for v in prospective_additions.values()
-            if v[0]  # this_pair_features non-empty
-        )
+        _n_pairs_with_additions = sum(1 for v in prospective_additions.values() if v[0])  # this_pair_features non-empty
     except Exception:
         _n_pairs_with_additions = -1
     if verbose >= 1:

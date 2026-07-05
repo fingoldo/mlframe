@@ -64,17 +64,14 @@ def compose_pair_fe(
 
     for r in range(n_rounds):
         if verbose:
-            print(f"  [compose] round {r + 1}/{n_rounds}, "
-                  f"current X shape = {cur_X.shape}", flush=True)
+            print(f"  [compose] round {r + 1}/{n_rounds}, " f"current X shape = {cur_X.shape}", flush=True)
         # Single-feature MI ranking on current X.
         single_mi = []
         for j in range(cur_X.shape[1]):
             xj = cur_X[:, j]
             if np.std(xj) < 1e-12:
                 continue
-            mi = _mi_1d(xj, y, discrete_target=discrete_target,
-                         mi_estimator=mi_estimator,
-                         plugin_n_bins=plugin_n_bins)
+            mi = _mi_1d(xj, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
             single_mi.append((j, mi))
         # Wave 58 (2026-05-20): plugin MI quantises -> ties realistic; secondary
         # key on feature index for deterministic top-K across runs.
@@ -91,16 +88,14 @@ def compose_pair_fe(
         for i, j in pairs:
             xi, xj = cur_X[:, i], cur_X[:, j]
             mi_pair = max(
-                _mi_1d(xi * xj, y, discrete_target=discrete_target,
-                        mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins),
-                _mi_1d(xi + xj, y, discrete_target=discrete_target,
-                        mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins),
+                _mi_1d(xi * xj, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins),
+                _mi_1d(xi + xj, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins),
             )
             pair_scores.append((i, j, mi_pair))
         # Wave 58 (2026-05-20): secondary key on (i, j) for deterministic
         # pair selection across runs when MIs tie.
         pair_scores.sort(key=lambda kv: (-kv[2], kv[0], kv[1]))
-        top_pairs = pair_scores[: top_k_per_round]
+        top_pairs = pair_scores[:top_k_per_round]
 
         new_cols = []
         new_names = []
@@ -191,9 +186,7 @@ def validate_pair_fe_cv(
 
     x_a = np.asarray(x_a, dtype=np.float64)
     x_b = np.asarray(x_b, dtype=np.float64)
-    cv = (StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-          if discrete_target
-          else KFold(n_splits=n_splits, shuffle=True, random_state=seed))
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed) if discrete_target else KFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
     # In-sample reference (full data).
     res_full = optimise_hermite_pair(
@@ -234,15 +227,11 @@ def validate_pair_fe_cv(
                 "in_fold_mi": res.mi, "ratio": 0.0,
             })
             continue
-        oos_mi = _mi_1d(eng_va, y[va], discrete_target=discrete_target,
-                          mi_estimator=mi_estimator,
-                          plugin_n_bins=plugin_n_bins)
+        oos_mi = _mi_1d(eng_va, y[va], discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
         # Compute trivial baseline on heldout for honest uplift.
         from .fe_baselines import best_trivial_pair
-        triv = best_trivial_pair(x_a[va], x_b[va], y[va],
-                                  discrete_target=discrete_target,
-                                  mi_estimator=mi_estimator,
-                                  plugin_n_bins=plugin_n_bins)
+
+        triv = best_trivial_pair(x_a[va], x_b[va], y[va], discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
         triv_mi = triv[2] if triv else 0.0
         if oos_mi > triv_mi:
             folds_with_pos_uplift += 1
@@ -262,10 +251,8 @@ def validate_pair_fe_cv(
         "oos_mean": float(np.mean(oos_arr)),
         "oos_std": float(np.std(oos_arr)),
         "oos_per_fold": oos_per_fold,
-        "optimism_ratio": (in_sample_mi / max(float(np.mean(oos_arr)), 1e-9)
-                           if in_sample_mi > 0 else 0.0),
+        "optimism_ratio": (in_sample_mi / max(float(np.mean(oos_arr)), 1e-9) if in_sample_mi > 0 else 0.0),
         "trivial_oos_mean": float(np.mean(triv_arr)),
-        "honest_uplift_vs_trivial": (float(np.mean(oos_arr))
-                                       / max(float(np.mean(triv_arr)), 1e-9)),
+        "honest_uplift_vs_trivial": (float(np.mean(oos_arr)) / max(float(np.mean(triv_arr)), 1e-9)),
         "folds_with_positive_uplift": folds_with_pos_uplift,
     }

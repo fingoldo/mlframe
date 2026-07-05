@@ -222,8 +222,7 @@ def _renumber_joint_codes(code_x: np.ndarray, code_y: np.ndarray) -> tuple[np.nd
     return inv.astype(np.int64), int(uniq.size)
 
 
-def joint_synergy_mi(code_x: np.ndarray, code_y: np.ndarray, target_codes: np.ndarray,
-                     *, min_rows_per_cell: float = 5.0) -> float:
+def joint_synergy_mi(code_x: np.ndarray, code_y: np.ndarray, target_codes: np.ndarray, *, min_rows_per_cell: float = 5.0) -> float:
     """Miller-Madow-corrected MI (nats) between the JOINT (x,y) code grid and the target codes.
 
     The bias correction debits ``(k_joint-1 + k_target-1 - (k_cells-1)) / (2n)`` using the OCCUPIED
@@ -302,7 +301,7 @@ def detect_synergy_combos(
     # remaining cap slots with the lowest-marginal ones so pure-XOR operands are not excluded.
     if len(idx) > max_candidates:
         _by = sorted(idx, key=lambda i: -_marg[i])
-        idx = _by[: max_candidates // 2] + _by[-(max_candidates - max_candidates // 2):]
+        idx = _by[: max_candidates // 2] + _by[-(max_candidates - max_candidates // 2) :]
         idx = sorted(set(idx))
     # Dense joint cardinality cap: the njit histogram allocates ``prod(cards)*kt`` cells; skip a combo
     # whose mixed-radix cell count blows past this bound (high-card columns) -- such a combo's joint MI

@@ -217,11 +217,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         # convex combination of two single-target losses (classification).
         # Off by default; ``use_mixup=True`` opts in. See _mixup.py for
         # algorithmic detail + sample-weight semantics caveat.
-        _mixup_active = (
-            self.hparams.use_mixup
-            and self.training
-            and features.shape[0] >= 2
-        )
+        _mixup_active = self.hparams.use_mixup and self.training and features.shape[0] >= 2
         if _mixup_active:
             from .._mixup import mixup_batch
             features, _y_a, _y_b, _lam = mixup_batch(
@@ -238,11 +234,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         # silently destroyed training (R^2 hit -0.0001). Squeeze ONLY when
         # the label is 1-D; if the label keeps the trailing-1 dim, keep the
         # prediction in matching shape.
-        if (
-            raw_predictions.ndim == 2
-            and raw_predictions.shape[1] == 1
-            and labels.ndim == 1
-        ):
+        if raw_predictions.ndim == 2 and raw_predictions.shape[1] == 1 and labels.ndim == 1:
             raw_predictions_for_loss = raw_predictions.squeeze(1)
         else:
             raw_predictions_for_loss = raw_predictions
@@ -310,11 +302,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
             # Python sum() forces a host-side reduction per parameter tensor,
             # so each .abs().sum() implicitly syncs the GPU. Stack the per-
             # tensor scalars first and sum once on-device to amortise the sync.
-            _abs_sums = [
-                p.abs().sum().unsqueeze(0)
-                for p in self.network.parameters()
-                if id(p) not in self._l1_excluded_param_ids
-            ]
+            _abs_sums = [p.abs().sum().unsqueeze(0) for p in self.network.parameters() if id(p) not in self._l1_excluded_param_ids]
             l1_norm = torch.cat(_abs_sums).sum() if _abs_sums else torch.tensor(0.0, device=loss.device)
             loss = loss + self.hparams.l1_alpha * l1_norm
             # self.log raises RuntimeError when the module is detached from a Trainer (unit-test usage).
@@ -363,11 +351,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         # Mirror the training_step rank-align fix: squeeze only when label is 1-D.
         # 2-D y of shape (N, 1) MUST keep the trailing dim so MSELoss doesn't
         # broadcast pred=(N,) against label=(N, 1) to an (N, N) tensor.
-        if (
-            raw_predictions.ndim == 2
-            and raw_predictions.shape[1] == 1
-            and labels.ndim == 1
-        ):
+        if raw_predictions.ndim == 2 and raw_predictions.shape[1] == 1 and labels.ndim == 1:
             raw_predictions_for_loss = raw_predictions.squeeze(1)
         else:
             raw_predictions_for_loss = raw_predictions

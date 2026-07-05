@@ -71,17 +71,14 @@ def _finalize_fit_results(
     try:
         from mlframe.core.helpers import has_early_stopping_support as _has_es
         from sklearn.pipeline import Pipeline as _Pipeline
-        _est_type_name = (
-            type(estimator.steps[-1][1]).__name__
-            if isinstance(estimator, _Pipeline) else type(estimator).__name__
-        )
+
+        _est_type_name = type(estimator.steps[-1][1]).__name__ if isinstance(estimator, _Pipeline) else type(estimator).__name__
         _es_active = bool(_has_es(_est_type_name))
     except Exception:
         _es_active = False
     _has_val_cv = _val_cv_knob_set and _es_active
     _allow_swap_without_es = bool(getattr(self, "swap_top_k_allow_no_es", False))
-    if self.swap_top_k and self.swap_top_k > 0 and best_nfeatures > 0 \
-            and (not _has_val_cv or _allow_swap_without_es):
+    if self.swap_top_k and self.swap_top_k > 0 and best_nfeatures > 0 and (not _has_val_cv or _allow_swap_without_es):
         try:
             self._sffs_swap_pass(
                 X=X, y=y, X_estimator=X_estimator, col_pos=col_pos, estimator=estimator, cv=cv, scoring=scoring,
@@ -211,8 +208,8 @@ def _finalize_fit_results(
         if _expanded > 0:
             if verbose:
                 logger.info(
-                    "RFECV: feature_groups expanded support_ by %d column(s) "
-                    "for all-or-nothing group decisions.", _expanded,
+                    "RFECV: feature_groups expanded support_ by %d column(s) " "for all-or-nothing group decisions.",
+                    _expanded,
                 )
             self.support_ = support_mask
             self.n_features_ = int(support_mask.sum())

@@ -28,7 +28,6 @@ import polars as pl
 
 from mlframe.training.pipeline._pipeline_helpers import _content_fingerprint_for_cache
 
-
 RESULTS_DIR = Path(__file__).parent / "_results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 

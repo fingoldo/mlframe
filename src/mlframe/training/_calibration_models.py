@@ -402,9 +402,7 @@ def calibrate_namespace_model(entry: Any, *, target_type: "TargetTypes | None" =
     _cp = _np.asarray(calib_probs)
     _cy = _np.asarray(calib_target)
     if _cp.shape[0] == 0 or _cp.shape[0] != _cy.shape[0]:
-        raise ValueError(
-            f"calibrate_namespace_model: calib_probs/calib_target row mismatch {_cp.shape[0]} vs {_cy.shape[0]}"
-        )
+        raise ValueError(f"calibrate_namespace_model: calib_probs/calib_target row mismatch {_cp.shape[0]} vs {_cy.shape[0]}")
 
     # Hard leak guard: calib must not be the honest test slice. The base model never trained on calib
     # (carved from train), so the remaining hazard is a caller wiring calib == test by mistake.
@@ -426,9 +424,7 @@ def calibrate_namespace_model(entry: Any, *, target_type: "TargetTypes | None" =
         from .configs import TargetTypes
         _ttype = target_type if target_type is not None else getattr(entry, "target_type", None)
         if isinstance(_ttype, str):
-            _ttype = getattr(TargetTypes, _ttype, None) or (
-                TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION
-            )
+            _ttype = getattr(TargetTypes, _ttype, None) or (TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION)
         if _ttype is None:
             _ttype = TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION
         calibrator = _PerClassIsotonicCalibrator.fit(_cp, _cy, _ttype, classes=getattr(base, "classes_", None))

@@ -112,8 +112,7 @@ def _get_cache():
     return cache if cache is not None else False
 
 
-def lookup_joint_hist(n_samples: int, joint_size: int,
-                       *, run_auto_tune: bool = False) -> dict:
+def lookup_joint_hist(n_samples: int, joint_size: int, *, run_auto_tune: bool = False) -> dict:
     """Return ``{"kernel_variant", "block_size"}`` for the given size pair.
 
     Hits the pyutilz ``KernelTuningCache`` for ``joint_hist_batched``.
@@ -200,9 +199,7 @@ def _maybe_online_relearn(n_samples: int, joint_size: int, current_choice: dict)
             existing = cache.get_regions("joint_hist_batched") or []
             # Drop any region with the same caps as the new one.
             new_regions = [
-                r for r in existing
-                if (r.get("n_samples_max") != region.get("n_samples_max")
-                    or r.get("joint_size_max") != region.get("joint_size_max"))
+                r for r in existing if (r.get("n_samples_max") != region.get("n_samples_max") or r.get("joint_size_max") != region.get("joint_size_max"))
             ]
             new_regions.append(region)
             # Move catch-all (None caps) to the end.
@@ -228,8 +225,7 @@ def _fallback_for_joint_size(joint_size: int) -> dict:
     return _hw_aware_fallback(joint_size)
 
 
-def lookup_mi_classif_backend(n_samples: int, k: int,
-                               *, run_auto_tune: bool = False) -> str:
+def lookup_mi_classif_backend(n_samples: int, k: int, *, run_auto_tune: bool = False) -> str:
     """Return ``"njit"`` or ``"cuda"`` for the plug-in MI dispatcher.
 
     Hits the pyutilz ``KernelTuningCache`` for ``plugin_mi_classif_dispatch``.

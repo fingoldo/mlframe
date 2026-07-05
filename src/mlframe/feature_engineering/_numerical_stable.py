@@ -87,7 +87,7 @@ def welford_moments_seq(arr: np.ndarray) -> Tuple[float, float, float, float, in
     var = M2 / n
     if not np.isfinite(var) or var <= 0.0:
         return mean, max(var, 0.0), 0.0, 0.0, n
-    skew = (M3 / n) / (var ** 1.5)
+    skew = (M3 / n) / (var**1.5)
     kurt = (n * M4) / (M2 * M2) - 3.0
     return mean, var, skew, kurt, n
 
@@ -217,6 +217,6 @@ def naive_moments_two_pass_seq(arr: np.ndarray) -> Tuple[float, float, float, fl
     if var <= 0.0 or not np.isfinite(var):
         return mean, max(var, 0.0), 0.0, 0.0, n
     std = np.sqrt(var)
-    skew = (s3 / n) / (std ** 3)
-    kurt = (s4 / n) / (var ** 2) - 3.0
+    skew = (s3 / n) / (std**3)
+    kurt = (s4 / n) / (var**2) - 3.0
     return mean, var, skew, kurt, n

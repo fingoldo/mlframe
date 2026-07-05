@@ -36,11 +36,11 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # group), so their additive inverse ``y = T_hat + y_prev`` stays in-range on unseen groups -- the single most valuable
     # base class for autoregressive sequential targets. No-op unless a group key is available. Set False for legacy replay.
     engineer_causal_bases: bool = True
-    engineer_causal_group_column: Optional[str] = None       # explicit override; falls back to ``group_column``
-    engineer_causal_lags: Tuple[int, ...] = (1,)             # per-group lag_k bases to build
+    engineer_causal_group_column: Optional[str] = None  # explicit override; falls back to ``group_column``
+    engineer_causal_lags: Tuple[int, ...] = (1,)  # per-group lag_k bases to build
     engineer_causal_trailing_windows: Tuple[int, ...] = (3,)  # causal trailing-mean window sizes
     engineer_causal_ops: Tuple[str, ...] = ("lag", "trailing_mean", "expanding_mean")
-    engineer_causal_first_fill: str = "group_first"          # first-in-group fill: "group_first" (finite) or "nan"
+    engineer_causal_first_fill: str = "group_first"  # first-in-group fill: "group_first" (finite) or "nan"
 
     # Exempt strictly-causal bases (grouped-causal engineered ``__gcausal_*`` or a named ``{y}_prev`` lag) from the
     # near-copy-of-y and structural-fragility gates. Those gates drop bases whose additive inverse extrapolates on unseen
@@ -56,9 +56,9 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # lag_predict failsafe (prod footgun: setting that flag False disabled the entire skip). Records
     # ``composite_precheck_verdict_``. Default ON.
     composite_achievable_ceiling_precheck: bool = True
-    composite_achievable_ceiling_margin: float = 0.02          # required fractional headroom over min(raw, lag) to proceed
-    composite_achievable_ceiling_sample_n: int = 30_000        # subsample cap for the measurement
-    composite_achievable_ceiling_holdout_frac: float = 0.3     # group-disjoint holdout fraction for the optimistic composite
+    composite_achievable_ceiling_margin: float = 0.02  # required fractional headroom over min(raw, lag) to proceed
+    composite_achievable_ceiling_sample_n: int = 30_000  # subsample cap for the measurement
+    composite_achievable_ceiling_holdout_frac: float = 0.3  # group-disjoint holdout fraction for the optimistic composite
     composite_achievable_ceiling_strong_floor_frac: float = 0.5  # strong-AR fast-path floor on min(raw,lag)/std(y)
 
     # Near-copy increment-learnability precheck: before dropping a near-copy-of-y base (|corr|>base_max_abs_corr_with_y),
@@ -68,20 +68,20 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # stay exempt regardless (see causal_base_gate_exempt).
     near_copy_increment_learnability_precheck: bool = True
     near_copy_increment_learnability_mi_threshold: float = 0.05  # min null-corrected residual bin-MI to keep the base
-    near_copy_precheck_max_sample: int = 5000                    # row cap for the precheck measurement
+    near_copy_precheck_max_sample: int = 5000  # row cap for the precheck measurement
 
     # MoE selection gate at the composite deploy boundary (run_composite_post_processing): route the shipped prediction
     # among {composite, raw, lag} per group with a never-worse-than-lag guarantee. Default ON; no-op without lag / groups.
     moe_gate_enabled: bool = True
-    moe_gate_shrink_rtol: float = 0.0        # a non-lag expert must beat lag by this margin to be chosen over the failsafe
-    moe_gate_min_group_rows: int = 1         # groups below this row count defer to the lag failsafe
+    moe_gate_shrink_rtol: float = 0.0  # a non-lag expert must beat lag by this margin to be chosen over the failsafe
+    moe_gate_min_group_rows: int = 1  # groups below this row count defer to the lag failsafe
 
     # Base-candidate ranking criterion. "mi" (default) ranks by pairwise MI(base, y); "mrmr" reranks by
     # min-redundancy-max-relevance so a top-K of near-duplicate strong bases is diversified (score = MI(base,y) -
     # beta * mean redundancy vs already-picked). Default "mi" keeps discovery byte-identical; "mrmr" is opt-in pending
     # a broad benchmark before flipping the default.
     base_ranking_criterion: str = "mi"
-    base_ranking_mrmr_beta: float = 1.0      # MRMR redundancy weight (only used when base_ranking_criterion="mrmr")
+    base_ranking_mrmr_beta: float = 1.0  # MRMR redundancy weight (only used when base_ranking_criterion="mrmr")
 
     # AR(1) lag-failsafe val cross-check. The ensemble deploys zero-param lag_predict when its group-K-fold OOF RMSE ties
     # the best trained component. That OOF underestimates the full-data model, so a tie can ship lag over a model that
@@ -227,10 +227,10 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
 
     # Robust CV-selector: argmin(mean(fold_rmses)) silently rewards lucky candidates whose mean wins by less than the per-fold std. ``cv_selector_mode`` != "mean" augments the per-fold scores with a dispersion penalty before the argmin (stable mediocre beats unstable lucky); see ``_cv_aggregation.aggregate_fold_scores``. Default "mean" is bit-identical.
     cv_selector_mode: Literal["mean", "mean_minus_std", "median_minus_mad", "t_lcb", "quantile"] = "mean"
-    cv_selector_alpha: float = 1.0          # used by mean_minus_std / median_minus_mad
-    cv_selector_confidence: float = 0.9     # one-sided Student-t confidence for t_lcb
-    cv_selector_quantile_level: float = 0.9 # for aggregate="quantile" (auto-flip by direction)
-    cv_persist_fold_scores: bool = False    # surface per-fold scores in forward-stepwise diagnostics
+    cv_selector_alpha: float = 1.0  # used by mean_minus_std / median_minus_mad
+    cv_selector_confidence: float = 0.9  # one-sided Student-t confidence for t_lcb
+    cv_selector_quantile_level: float = 0.9  # for aggregate="quantile" (auto-flip by direction)
+    cv_persist_fold_scores: bool = False  # surface per-fold scores in forward-stepwise diagnostics
 
     # Stacked 2-pass composite discovery. When True the suite calls
     # ``CompositeTargetDiscovery.fit_stacked`` instead of plain ``fit``. Pass 1
@@ -791,5 +791,3 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # The floor is measured on the group-disjoint holdout; a spec whose holdout measurement degenerated is never
     # floor-dropped (falls back to the group-internal CV rank). Set False for legacy rank-only behaviour.
     honest_oof_floor_reject_enabled: bool = True
-
-

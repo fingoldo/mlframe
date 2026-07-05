@@ -28,10 +28,10 @@ def run_bed(name, X, y, seed=0):
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=seed, stratify=y)
     rows = []
     variants = {
-        "notree":        dict(use_tree_member=False),
-        "gate_synergy":  dict(use_tree_member=True, tree_top_k=0, tree_prod_gate="synergy"),
-        "gate_relmed":   dict(use_tree_member=True, tree_top_k=0, tree_prod_gate="relevant_median"),
-        "gate_rawmed":   dict(use_tree_member=True, tree_top_k=0, tree_prod_gate="raw_median"),
+        "notree": dict(use_tree_member=False),
+        "gate_synergy": dict(use_tree_member=True, tree_top_k=0, tree_prod_gate="synergy"),
+        "gate_relmed": dict(use_tree_member=True, tree_top_k=0, tree_prod_gate="relevant_median"),
+        "gate_rawmed": dict(use_tree_member=True, tree_top_k=0, tree_prod_gate="raw_median"),
     }
     for tag, kw in variants.items():
         t0 = time.time()
@@ -39,8 +39,7 @@ def run_bed(name, X, y, seed=0):
         Ztr, Zte = h.transform(Xtr), h.transform(Xte)
         a = downstream(Ztr, Zte, ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
         neng = getattr(h, "n_engineered_", 0)
-        rows.append(dict(bed=name, variant=tag, n=int(Ztr.shape[1]), n_eng=int(neng),
-                         fit_s=round(time.time()-t0, 1), auc_mean=am, **a))
+        rows.append(dict(bed=name, variant=tag, n=int(Ztr.shape[1]), n_eng=int(neng), fit_s=round(time.time() - t0, 1), auc_mean=am, **a))
         print(f"[{name}] {tag:16s} n={int(Ztr.shape[1]):3d} eng={int(neng):2d} {rows[-1]['fit_s']:6.1f}s mean={am} {a}", flush=True)
     return rows
 

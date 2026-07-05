@@ -25,10 +25,7 @@ class ShapProxiedMethodsMixin:
         if self.booster_kind is not None:
             kind = str(self.booster_kind).lower()
             if kind not in _VALID_BOOSTER_KINDS:
-                raise ValueError(
-                    f"ShapProxiedFS: unknown booster_kind={self.booster_kind!r}; "
-                    f"expected one of {_VALID_BOOSTER_KINDS}."
-                )
+                raise ValueError(f"ShapProxiedFS: unknown booster_kind={self.booster_kind!r}; " f"expected one of {_VALID_BOOSTER_KINDS}.")
             return kind
         # Auto-detect: prefer xgboost (the historical default; SHAP fast paths are most mature
         # there), fall back to catboost when only catboost is installed.
@@ -40,10 +37,7 @@ class ShapProxiedMethodsMixin:
 
             if catboost_available():
                 return "catboost"
-            raise ImportError(
-                "ShapProxiedFS: neither xgboost nor catboost is installed; install one or pass an "
-                "explicit ``model=`` template."
-            )
+            raise ImportError("ShapProxiedFS: neither xgboost nor catboost is installed; install one or pass an " "explicit ``model=`` template.")
 
     def _resolve_revalidation_ucb_stdev_multiplier(self, n_features: int) -> float:
         """Width-dependent default for the revalidation UCB stdev multiplier.
@@ -158,15 +152,11 @@ class ShapProxiedMethodsMixin:
         # opaque TypingError; surface a clear error at fit entry instead.
         if y.ndim > 1:
             extra = "" if y.ndim != 2 or y.shape[1] != 1 else " (pass y.ravel() for a single-column 2D target)."
-            raise ValueError(
-                f"ShapProxiedFS supports a single-output 1D target only; got y with shape {y.shape}." + extra
-            )
+            raise ValueError(f"ShapProxiedFS supports a single-output 1D target only; got y with shape {y.shape}." + extra)
         if self.classification:
             classes = np.unique(y)
             if len(classes) != 2:
-                raise ValueError(
-                    f"ShapProxiedFS(classification=True) supports binary targets only; got {len(classes)} classes."
-                )
+                raise ValueError(f"ShapProxiedFS(classification=True) supports binary targets only; got {len(classes)} classes.")
             self.classes_ = classes
             y = (y == classes[1]).astype(np.float64)
         else:
@@ -193,7 +183,6 @@ class ShapProxiedMethodsMixin:
             if n_sub <= _resolve_brute_force_n_sub_gate():
                 return "bruteforce_gpu" if self.use_gpu else "bruteforce"
         return "beam"
-
 
     # ------------------------------------------------------------------ transform
     def transform(self, X):

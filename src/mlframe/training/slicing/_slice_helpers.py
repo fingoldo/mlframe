@@ -152,7 +152,7 @@ def _temporal_shards(
     else:
         order = np.argsort(np.asarray(time_values), kind="stable")
     edges = np.linspace(0, n, k + 1, dtype=np.int64)
-    return [order[edges[i]: edges[i + 1]] for i in range(k)]
+    return [order[edges[i] : edges[i + 1]] for i in range(k)]
 
 
 def _fairness_shards(
@@ -215,35 +215,27 @@ def build_slice_eval_sets(
         # silently is unsafe (NDCG on partial queries is meaningless); switch path + WARN.
         from sklearn.model_selection import GroupKFold
         logger.warning(
-            "build_slice_eval_sets: source='random' with group_ids supplied; switching to "
-            "GroupKFold so query boundaries are preserved (ranker-safe shards)",
+            "build_slice_eval_sets: source='random' with group_ids supplied; switching to " "GroupKFold so query boundaries are preserved (ranker-safe shards)",
         )
         gkf = GroupKFold(n_splits=k)
         row_idx_lists = [test_idx for _, test_idx in gkf.split(np.arange(n), groups=np.asarray(group_ids))]
-        return _materialize(val_X, y_arr, row_idx_lists, prefix="valid_shard_r",
-                            sample_weight=sample_weight, base_margin=base_margin,
-                            group_ids=group_ids)
+        return _materialize(val_X, y_arr, row_idx_lists, prefix="valid_shard_r", sample_weight=sample_weight, base_margin=base_margin, group_ids=group_ids)
 
     out: list[SliceEvalSet] = []
 
     if source in ("random", "both"):
         row_idx_lists = _random_shards(n, k, y_arr, random_state=random_state)
-        out.extend(_materialize(val_X, y_arr, row_idx_lists, prefix="valid_shard_r",
-                                sample_weight=sample_weight, base_margin=base_margin,
-                                group_ids=group_ids))
+        out.extend(_materialize(val_X, y_arr, row_idx_lists, prefix="valid_shard_r", sample_weight=sample_weight, base_margin=base_margin, group_ids=group_ids))
 
     if source == "temporal":
         row_idx_lists = _temporal_shards(n, k, time_values=time_values)
-        out.extend(_materialize(val_X, y_arr, row_idx_lists, prefix="valid_shard_t",
-                                sample_weight=sample_weight, base_margin=base_margin,
-                                group_ids=group_ids))
+        out.extend(_materialize(val_X, y_arr, row_idx_lists, prefix="valid_shard_t", sample_weight=sample_weight, base_margin=base_margin, group_ids=group_ids))
 
     if source in ("fairness", "both"):
         sg_pairs = _fairness_shards(indexed_subgroups)
         if not sg_pairs and source == "fairness":
             logger.warning(
-                "build_slice_eval_sets: source='fairness' but no indexed_subgroups supplied; "
-                "returning empty shard list",
+                "build_slice_eval_sets: source='fairness' but no indexed_subgroups supplied; " "returning empty shard list",
             )
             return []
         for sg_name, row_idx in sg_pairs:

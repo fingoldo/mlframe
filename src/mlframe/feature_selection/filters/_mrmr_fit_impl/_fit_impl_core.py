@@ -46,7 +46,7 @@ def _pgn_raw_budget(ceiling: int, n_engineered: int) -> int:
 
 # Above this many bytes of nullable-column data, densify masked columns one-per-``assign`` instead of all at once
 # so peak extra RAM stays ~one float64 column rather than ~2x the whole nullable subset (100GB-frame safe).
-_NULLABLE_DENSIFY_EAGER_MAX_BYTES = 2 * 1024 ** 3
+_NULLABLE_DENSIFY_EAGER_MAX_BYTES = 2 * 1024**3
 
 """MRMR._fit_impl main fit body.
 
@@ -231,8 +231,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _replayed = _replay_fitted_state(self, _cached)
         if self.verbose:
             logger.info(
-                "MRMR.fit: _FIT_CACHE hit -- replayed %d fitted attrs "
-                "from prior fit, skipping cat-FE + permutation.",
+                "MRMR.fit: _FIT_CACHE hit -- replayed %d fitted attrs " "from prior fit, skipping cat-FE + permutation.",
                 _replayed,
             )
         return self
@@ -301,7 +300,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # column-drift contract for any user whose DataFrame happened to
     # use that naming (very common after ``pd.DataFrame(arr)`` + rename).
     if isinstance(X, np.ndarray):
-        X = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+        X = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(X.shape[1])])
         self._feature_names_in_synthesized_ = True
     else:
         self._feature_names_in_synthesized_ = False
@@ -343,10 +342,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # categorize_dataset (their ``dtype.kind`` is 'O' / 'U', not in the masked numeric set). Default ON: a
     # corrective mechanism (the legacy silent column-skip was wrong), no flag.
     if isinstance(X, pd.DataFrame):
-        _nullable_num = [
-            c for c in X.columns
-            if pd.api.types.is_extension_array_dtype(X[c].dtype) and getattr(X[c].dtype, "kind", "O") in ("i", "u", "f", "b")
-        ]
+        _nullable_num = [c for c in X.columns if pd.api.types.is_extension_array_dtype(X[c].dtype) and getattr(X[c].dtype, "kind", "O") in ("i", "u", "f", "b")]
         if _nullable_num:
             # A single ``assign`` of every nullable column materialises all the float64 arrays before building the
             # frame (peak ~2x the nullable-column bytes); above the threshold densify one column per ``assign`` so
@@ -425,9 +421,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # intermediates. The cat_pair / cat_triple auto-detect paths restrict their
     # candidate members to this set so a cross is never built on an engineered
     # column (which cannot be replayed at transform time -> KeyError).
-    _raw_input_cols_pre_fe = (
-        list(X.columns) if hasattr(X, "columns") else []
-    )
+    _raw_input_cols_pre_fe = list(X.columns) if hasattr(X, "columns") else []
     # 2026-06-02 UNIVARIATE-BASIS FE — DEFAULT ON (closes the univariate-
     # nonlinearity gap). The pair-FE path (always on) recovers pair interactions
     # (a*b, a/b, |a-b|) but CANNOT express a single-variable nonlinearity (no
@@ -454,9 +448,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_fe_with_recipes,
                     hybrid_orth_mi_pair_fe_with_recipes,
                 )
-                _y_for_hybrid = (
-                    _y_np
-                )
+
+                _y_for_hybrid = _y_np
                 # Hybrid MI scoring expects discrete y. Two cases:
                 #   (a) Float-encoded discrete labels (0.0/1.0) -- safe to cast to int64.
                 #   (b) Continuous regression target -- truncating to int destroys the
@@ -491,9 +484,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # pipeline auto-routes to all numeric columns of X.
                 _h_cols = None
                 if getattr(self, "factors_names_to_use", None):
-                    _h_cols = [
-                        c for c in self.factors_names_to_use if c in X.columns
-                    ]
+                    _h_cols = [c for c in self.factors_names_to_use if c in X.columns]
                 _X_before_hybrid_cols = list(X.columns)
                 # 2026-06-01 Layer 85 — default-scorer routing for the L21
                 # univariate basis-selection stage. Non-"plug_in" values
@@ -552,9 +543,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         top_k=_h_top_k,
                     )
                 # Identify appended columns vs the pre-hybrid X.
-                _appended = [
-                    c for c in X_h.columns if c not in _X_before_hybrid_cols
-                ]
+                _appended = [c for c in X_h.columns if c not in _X_before_hybrid_cols]
                 if _appended:
                     X = fe_append_columns(X, fe_extract_columns(X_h, _appended))
                     self.hybrid_orth_features_ = list(_appended)
@@ -562,15 +551,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth: appended %d engineered "
-                            "column(s) (univariate + pair): %s",
-                            len(_appended), _appended[:8],
+                            "MRMR.fit hybrid_orth: appended %d engineered " "column(s) (univariate + pair): %s",
+                            len(_appended),
+                            _appended[:8],
                         )
             except Exception as _h_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth FE raised %s: %s; continuing "
-                    "without hybrid-FE columns.",
-                    type(_h_exc).__name__, _h_exc,
+                    "MRMR.fit hybrid_orth FE raised %s: %s; continuing " "without hybrid-FE columns.",
+                    type(_h_exc).__name__,
+                    _h_exc,
                 )
             # 2026-05-31 Layer 32 — extra-basis (B-spline / Fourier) FE stage.
             # Runs only when the master hybrid switch is on AND the user
@@ -578,18 +567,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # Complementary to the polynomial path: spline catches threshold
             # rules, Fourier catches periodic patterns. Recipes are
             # closed-form (no y), replay safe.
-            _extra_bases_cfg = tuple(
-                getattr(self, "fe_hybrid_orth_extra_bases", ()) or ()
-            )
+            _extra_bases_cfg = tuple(getattr(self, "fe_hybrid_orth_extra_bases", ()) or ())
             # Defensive guard: the polynomial-stage ``try:`` may have raised
             # before defining ``_y_for_hybrid`` / ``_h_top_k``. Bind safe
             # defaults so the extra-basis stage can still run.
             try:
                 _y_for_extra = _y_for_hybrid
             except NameError:
-                _y_for_extra = (
-                    _y_np
-                )
+                _y_for_extra = _y_np
                 if _y_for_extra.dtype.kind in "fc":
                     if int(np.unique(_y_for_extra).size) <= 32:
                         _y_for_extra = _y_for_extra.astype(np.int64)
@@ -626,17 +611,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     from .._orthogonal_univariate_fe import (
                         hybrid_orth_extra_basis_fe_with_recipes,
                     )
-                    _fourier_freqs = tuple(
-                        float(f) for f in
-                        getattr(self, "fe_hybrid_orth_fourier_freqs", (1.0, 2.0))
-                    )
-                    _spline_knots = int(
-                        getattr(self, "fe_hybrid_orth_spline_knots", 5)
-                    )
-                    _fourier_powers = tuple(
-                        int(p) for p in
-                        getattr(self, "fe_hybrid_orth_fourier_powers", (1, 2))
-                    )
+
+                    _fourier_freqs = tuple(float(f) for f in getattr(self, "fe_hybrid_orth_fourier_freqs", (1.0, 2.0)))
+                    _spline_knots = int(getattr(self, "fe_hybrid_orth_spline_knots", 5))
+                    _fourier_powers = tuple(int(p) for p in getattr(self, "fe_hybrid_orth_fourier_powers", (1, 2)))
                     _X_before_extra_cols = list(X.columns)
                     # Build the extra basis (Fourier/spline) on RAW columns only --
                     # EXCLUDE the already-appended poly-basis columns (``a__T2`` ...).
@@ -648,14 +626,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # replayable (and honours factors_names_to_use when set).
                     _already_eng_for_extra = set(self.hybrid_orth_features_ or [])
                     if getattr(self, "factors_names_to_use", None):
-                        _e_cols = [
-                            c for c in self.factors_names_to_use
-                            if c in X.columns and c not in _already_eng_for_extra
-                        ]
+                        _e_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _already_eng_for_extra]
                     else:
-                        _e_cols = [
-                            c for c in X.columns if c not in _already_eng_for_extra
-                        ]
+                        _e_cols = [c for c in X.columns if c not in _already_eng_for_extra]
                     # ADAPTIVE-FREQUENCY Fourier (2026-06-03): default ON. The
                     # fixed grid {1, 2} misses arbitrary-period oscillations
                     # (sin(3.7*x), sin(5.3*x)); the adaptive detector sweeps a
@@ -666,9 +639,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # and PROTECTED past screening below (a single leg has low
                     # marginal MI -- phase -- so the screen would drop the
                     # held-out-validated pair otherwise).
-                    _fourier_adaptive = bool(
-                        getattr(self, "fe_univariate_fourier_adaptive", True)
-                    )
+                    _fourier_adaptive = bool(getattr(self, "fe_univariate_fourier_adaptive", True))
                     _fourier_adaptive_mvc = float(
                         getattr(
                             self,
@@ -682,9 +653,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # Fourier cannot express is recovered. Emits __qsin/__qcos
                     # legs tagged adaptive=True -> captured below + protected past
                     # the screen + dedup-exempt exactly like the linear legs.
-                    _fourier_chirp = bool(
-                        getattr(self, "fe_univariate_fourier_chirp", True)
-                    )
+                    _fourier_chirp = bool(getattr(self, "fe_univariate_fourier_chirp", True))
                     _fourier_chirp_mvc = float(
                         getattr(
                             self,
@@ -711,17 +680,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         fourier_chirp=_fourier_chirp,
                         fourier_chirp_min_val_corr=_fourier_chirp_mvc,
                     )
-                    _e_appended = [
-                        c for c in X_e.columns if c not in _X_before_extra_cols
-                    ]
+                    _e_appended = [c for c in X_e.columns if c not in _X_before_extra_cols]
                     if _e_appended:
                         X = fe_append_columns(X, fe_extract_columns(X_e, _e_appended))
                         # Extend hybrid_orth_features_ with the extra-basis winners
                         # so the downstream remap / transform pipeline handles them
                         # exactly like the polynomial winners.
-                        self.hybrid_orth_features_ = (
-                            list(self.hybrid_orth_features_ or []) + list(_e_appended)
-                        )
+                        self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_e_appended)
                         for _r in _e_recipes:
                             _hybrid_orth_pre_recipes[_r.name] = _r
                         # Capture ADAPTIVE-tagged Fourier feature names so the
@@ -734,23 +699,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             and _r.name in set(_e_appended)
                         ]
                         if _adaptive_names:
-                            _prev_adaptive = list(
-                                getattr(self, "_adaptive_fourier_features_", None) or []
-                            )
-                            self._adaptive_fourier_features_ = (
-                                _prev_adaptive + _adaptive_names
-                            )
+                            _prev_adaptive = list(getattr(self, "_adaptive_fourier_features_", None) or [])
+                            self._adaptive_fourier_features_ = _prev_adaptive + _adaptive_names
                         if verbose:
                             logger.info(
-                                "MRMR.fit hybrid_orth extra-basis: appended %d "
-                                "engineered column(s) (spline/fourier): %s",
-                                len(_e_appended), _e_appended[:8],
+                                "MRMR.fit hybrid_orth extra-basis: appended %d " "engineered column(s) (spline/fourier): %s",
+                                len(_e_appended),
+                                _e_appended[:8],
                             )
                 except Exception as _e_exc:
                     logger.warning(
-                        "MRMR.fit hybrid_orth extra-basis FE raised %s: %s; "
-                        "continuing without extra-basis columns.",
-                        type(_e_exc).__name__, _e_exc,
+                        "MRMR.fit hybrid_orth extra-basis FE raised %s: %s; " "continuing without extra-basis columns.",
+                        type(_e_exc).__name__,
+                        _e_exc,
                     )
     # 2026-06-09 backlog #11 — HINGE / piecewise-linear change-point basis stage.
     # Independent opt-in via ``fe_hinge_enable`` (does NOT require
@@ -785,35 +746,21 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # discrete classification y too (the linear-fit slope detection is
                 # scale/shift invariant). y carries no leak: the recipe stores only
                 # {tau, side}, never y.
-                _y_for_hinge = (
-                    _y_np
-                )
+                _y_for_hinge = _y_np
                 _y_for_hinge = np.asarray(_y_for_hinge, dtype=np.float64).ravel()
                 # Seed pool restricted to RAW source columns: a hinge built on a
                 # prior-stage engineered column would create a recipe whose
                 # src_name references an engineered column absent at transform
                 # time (KeyError on replay). Honour factors_names_to_use.
-                _hinge_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+                _hinge_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _hinge_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hinge_already_appended
-                        and fe_is_numeric_col(X, c)
-                    ]
+                    _hinge_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hinge_already_appended and fe_is_numeric_col(X, c)]
                 else:
-                    _hinge_cols = [
-                        c for c in X.columns
-                        if c not in _hinge_already_appended
-                        and fe_is_numeric_col(X, c)
-                    ]
+                    _hinge_cols = [c for c in X.columns if c not in _hinge_already_appended and fe_is_numeric_col(X, c)]
                 _hinge_top_k = int(getattr(self, "fe_hinge_top_k", 5))
                 _hinge_max_bp = int(getattr(self, "fe_hinge_max_breakpoints", 2))
                 _hinge_emit_ind = bool(getattr(self, "fe_hinge_emit_indicator", False))
-                _hinge_mvu = float(
-                    getattr(self, "fe_hinge_min_heldout_r2_uplift", 0.02)
-                )
+                _hinge_mvu = float(getattr(self, "fe_hinge_min_heldout_r2_uplift", 0.02))
                 _X_before_hinge_cols = list(X.columns)
                 X_h, _h_scores, _h_recipes = hybrid_hinge_fe_with_recipes(
                     X, _y_for_hinge,
@@ -823,9 +770,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     min_heldout_r2_uplift=_hinge_mvu,
                     top_k=_hinge_top_k,
                 )
-                _h_appended = [
-                    c for c in X_h.columns if c not in _X_before_hinge_cols
-                ]
+                _h_appended = [c for c in X_h.columns if c not in _X_before_hinge_cols]
                 if _h_appended:
                     # DEFERRED MATERIALISATION (2026-06-09): the hinge legs are a
                     # TERMINAL univariate linear-usability stage -- they must NOT
@@ -841,24 +786,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # untouched). This keeps the hidden-champion win (a pure
                     # slope-change column with no competing composite still gets
                     # its leg) without regressing multi-signal pair recovery.
-                    _hinge_deferred_values = {
-                        c: np.asarray(X_h[c].to_numpy(), dtype=np.float64)
-                        for c in _h_appended
-                    }
-                    _hinge_deferred_recipes = {
-                        _r.name: _r for _r in _h_recipes if _r.name in set(_h_appended)
-                    }
+                    _hinge_deferred_values = {c: np.asarray(X_h[c].to_numpy(), dtype=np.float64) for c in _h_appended}
+                    _hinge_deferred_recipes = {_r.name: _r for _r in _h_recipes if _r.name in set(_h_appended)}
                     if verbose:
                         logger.info(
-                            "MRMR.fit hinge change-point FE: detected %d held-out-"
-                            "validated leg(s) (deferred to support finalisation): %s",
-                            len(_h_appended), _h_appended[:8],
+                            "MRMR.fit hinge change-point FE: detected %d held-out-" "validated leg(s) (deferred to support finalisation): %s",
+                            len(_h_appended),
+                            _h_appended[:8],
                         )
             except Exception as _h_exc:
                 logger.warning(
-                    "MRMR.fit hinge change-point FE raised %s: %s; "
-                    "continuing without hinge columns.",
-                    type(_h_exc).__name__, _h_exc,
+                    "MRMR.fit hinge change-point FE raised %s: %s; " "continuing without hinge columns.",
+                    type(_h_exc).__name__,
+                    _h_exc,
                 )
     # 2026-05-31 Layer 56 — TRI-PRODUCT cross-basis FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable): captures
@@ -879,9 +819,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_triplet_fe_with_recipes,
                 )
                 from .._fe_frame_ops import fe_is_numeric_col, fe_append_columns, fe_extract_columns
-                _y_for_triplet = (
-                    _y_np
-                )
+
+                _y_for_triplet = _y_np
                 if _y_for_triplet.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_triplet).size)
                     if _n_unique <= 32:
@@ -899,37 +838,21 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # would invalidate the 3-way-interaction interpretation
                 # AND create recipes whose src_names reference engineered
                 # columns absent at transform time (KeyError on replay).
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 _t_cols: list | None = None
                 if getattr(self, "factors_names_to_use", None):
-                    _t_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _t_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _t_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
+                    _t_cols = [c for c in X.columns if c not in _hybrid_already_appended]
                 # The triplet stage applies polynomial (Hermite/Legendre) basis transforms that require numeric input; a string / categorical column ('a_1', ...) raises
                 # "could not convert string to float" and the broad guard below would then silently drop the ENTIRE triplet stage. Restrict the seed pool to numeric columns
                 # (categoricals are handled by the dedicated categorical-encoding FE stages instead).
                 _t_cols = [c for c in _t_cols if fe_is_numeric_col(X, c)]
-                _t_max_degree = int(
-                    getattr(self, "fe_hybrid_orth_triplet_max_degree", 1)
-                )
-                _t_seed_k = int(
-                    getattr(self, "fe_hybrid_orth_triplet_seed_k", 4)
-                )
-                _t_top_count = int(
-                    getattr(self, "fe_hybrid_orth_triplet_top_count", 2)
-                )
+                _t_max_degree = int(getattr(self, "fe_hybrid_orth_triplet_max_degree", 1))
+                _t_seed_k = int(getattr(self, "fe_hybrid_orth_triplet_seed_k", 4))
+                _t_top_count = int(getattr(self, "fe_hybrid_orth_triplet_top_count", 2))
                 _t_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
-                _t_degrees = tuple(
-                    int(d) for d in getattr(self, "fe_hybrid_orth_degrees", (2, 3))
-                )
+                _t_degrees = tuple(int(d) for d in getattr(self, "fe_hybrid_orth_degrees", (2, 3)))
                 _t_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _X_before_triplet_cols = list(X.columns)
                 # Forward the GBM seeder's order-3-floored explicit triples (raw column-name
@@ -939,10 +862,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _explicit_triplets = None
                 if _gbm_seeded_triplet_names:
                     _xcols = set(X.columns)
-                    _explicit_triplets = [
-                        tr for tr in _gbm_seeded_triplet_names
-                        if all((c in _xcols and fe_is_numeric_col(X, c)) for c in tr)
-                    ] or None
+                    _explicit_triplets = [tr for tr in _gbm_seeded_triplet_names if all((c in _xcols and fe_is_numeric_col(X, c)) for c in tr)] or None
                 # When the triplet stage runs SOLELY because the GBM seeder forwarded explicit
                 # triples (the legacy univariate-seeded triplet path is OFF), SUPPRESS the
                 # stage-1 univariate hybrid (``top_k=0``): we want ONLY the seeded 3-way cross
@@ -953,26 +873,23 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _t_top_k_eff = _t_top_k
                 if _explicit_triplets is not None and not bool(getattr(self, "fe_hybrid_orth_triplet_enable", False)):
                     _t_top_k_eff = 0
-                X_t, _t_uni_sc, _t_triplet_sc, _t_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_triplet_fe_with_recipes,
-                        X, _y_for_triplet,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_t_cols,
-                        degrees=_t_degrees,
-                        basis=_t_basis,
-                        top_k=_t_top_k_eff,
-                        triplet_max_degree=_t_max_degree,
-                        top_triplet_seed_k=_t_seed_k,
-                        top_triplet_count=_t_top_count,
-                        explicit_triplets=_explicit_triplets,
-                    )
+                X_t, _t_uni_sc, _t_triplet_sc, _t_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_triplet_fe_with_recipes,
+                    X,
+                    _y_for_triplet,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_t_cols,
+                    degrees=_t_degrees,
+                    basis=_t_basis,
+                    top_k=_t_top_k_eff,
+                    triplet_max_degree=_t_max_degree,
+                    top_triplet_seed_k=_t_seed_k,
+                    top_triplet_count=_t_top_count,
+                    explicit_triplets=_explicit_triplets,
                 )
-                _t_appended = [
-                    c for c in X_t.columns if c not in _X_before_triplet_cols
-                ]
+                _t_appended = [c for c in X_t.columns if c not in _X_before_triplet_cols]
                 # Only keep TRUE triplet columns (3 legs joined by '*');
                 # the wrapper may also pass univariate winners through
                 # which the master hybrid stage already handles when
@@ -984,9 +901,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # hybrid-augmented) X. ``hybrid_orth_features_`` was
                     # unconditionally seeded to [] at the top of this fn.
                     X = fe_append_columns(X, fe_extract_columns(X_t, _t_triplet_only))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_t_triplet_only)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_t_triplet_only)
                     # ``_hybrid_orth_pre_recipes`` is unconditionally
                     # initialised earlier in this function (line ~245); the
                     # triplet stage shares the same dict so its recipes
@@ -998,15 +913,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth triplet: appended %d "
-                            "engineered column(s): %s",
-                            len(_t_triplet_only), _t_triplet_only[:8],
+                            "MRMR.fit hybrid_orth triplet: appended %d " "engineered column(s): %s",
+                            len(_t_triplet_only),
+                            _t_triplet_only[:8],
                         )
             except Exception as _t_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth triplet FE raised %s: %s; "
-                    "continuing without triplet-FE columns.",
-                    type(_t_exc).__name__, _t_exc,
+                    "MRMR.fit hybrid_orth triplet FE raised %s: %s; " "continuing without triplet-FE columns.",
+                    type(_t_exc).__name__,
+                    _t_exc,
                 )
     # 2026-06-01 Layer 77 — QUADRUPLET (4-way) cross-basis FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable): captures
@@ -1023,9 +938,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_orth_mi_quadruplet_fe_with_recipes,
                 )
                 from .._fe_frame_ops import fe_is_numeric_col, fe_append_columns, fe_extract_columns
-                _y_for_quad = (
-                    _y_np
-                )
+
+                _y_for_quad = _y_np
                 if _y_for_quad.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_quad).size)
                     if _n_unique <= 32:
@@ -1041,83 +955,60 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # columns from prior stages would create recipes whose
                 # src_names reference an engineered column absent at
                 # transform time (KeyError on replay).
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 _q_cols: list | None = None
                 if getattr(self, "factors_names_to_use", None):
-                    _q_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _q_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _q_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
+                    _q_cols = [c for c in X.columns if c not in _hybrid_already_appended]
                 # Numeric-only seed pool: the quadruplet stage applies the same polynomial basis transforms as the triplet stage, so a string / categorical column would raise
                 # "could not convert string to float" and the broad guard below would silently drop the whole quadruplet stage. Categoricals are handled by the dedicated cat FE stages.
                 _q_cols = [c for c in _q_cols if fe_is_numeric_col(X, c)]
-                _q_max_degree = int(
-                    getattr(self, "fe_hybrid_orth_quadruplet_max_degree", 1)
-                )
-                _q_seed_k = int(
-                    getattr(self, "fe_hybrid_orth_quadruplet_seed_k", 4)
-                )
-                _q_top_count = int(
-                    getattr(self, "fe_hybrid_orth_quadruplet_top_count", 2)
-                )
+                _q_max_degree = int(getattr(self, "fe_hybrid_orth_quadruplet_max_degree", 1))
+                _q_seed_k = int(getattr(self, "fe_hybrid_orth_quadruplet_seed_k", 4))
+                _q_top_count = int(getattr(self, "fe_hybrid_orth_quadruplet_top_count", 2))
                 _q_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
-                _q_degrees = tuple(
-                    int(d) for d in getattr(self, "fe_hybrid_orth_degrees", (2, 3))
-                )
+                _q_degrees = tuple(int(d) for d in getattr(self, "fe_hybrid_orth_degrees", (2, 3)))
                 _q_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _X_before_quad_cols = list(X.columns)
-                X_q, _q_uni_sc, _q_quad_sc, _q_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_quadruplet_fe_with_recipes,
-                        X, _y_for_quad,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_q_cols,
-                        degrees=_q_degrees,
-                        basis=_q_basis,
-                        top_k=_q_top_k,
-                        quadruplet_max_degree=_q_max_degree,
-                        top_quadruplet_seed_k=_q_seed_k,
-                        top_quadruplet_count=_q_top_count,
-                    )
+                X_q, _q_uni_sc, _q_quad_sc, _q_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_quadruplet_fe_with_recipes,
+                    X,
+                    _y_for_quad,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_q_cols,
+                    degrees=_q_degrees,
+                    basis=_q_basis,
+                    top_k=_q_top_k,
+                    quadruplet_max_degree=_q_max_degree,
+                    top_quadruplet_seed_k=_q_seed_k,
+                    top_quadruplet_count=_q_top_count,
                 )
-                _q_appended = [
-                    c for c in X_q.columns if c not in _X_before_quad_cols
-                ]
+                _q_appended = [c for c in X_q.columns if c not in _X_before_quad_cols]
                 # Only keep TRUE quadruplet columns (4 legs joined by '*');
                 # the wrapper may also pass univariate winners through which
                 # the master hybrid stage already handles when enabled.
-                _q_quad_only = [
-                    c for c in _q_appended if c.split("__", 1)[0].count("*") == 3
-                ]
+                _q_quad_only = [c for c in _q_appended if c.split("__", 1)[0].count("*") == 3]
                 if _q_quad_only:
                     X = fe_append_columns(X, fe_extract_columns(X_q, _q_quad_only))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_q_quad_only)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_q_quad_only)
                     _kept = set(_q_quad_only)
                     for _r in _q_recipes:
                         if _r.name in _kept:
                             _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth quadruplet: appended %d "
-                            "engineered column(s): %s",
-                            len(_q_quad_only), _q_quad_only[:8],
+                            "MRMR.fit hybrid_orth quadruplet: appended %d " "engineered column(s): %s",
+                            len(_q_quad_only),
+                            _q_quad_only[:8],
                         )
             except Exception as _q_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth quadruplet FE raised %s: %s; "
-                    "continuing without quadruplet-FE columns.",
-                    type(_q_exc).__name__, _q_exc,
+                    "MRMR.fit hybrid_orth quadruplet FE raised %s: %s; " "continuing without quadruplet-FE columns.",
+                    type(_q_exc).__name__,
+                    _q_exc,
                 )
     # 2026-06-01 Layer 78 — ADAPTIVE-ARITY cross-basis FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
@@ -1132,9 +1023,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_adaptive_arity_fe import (
                     hybrid_orth_mi_adaptive_arity_fe_with_recipes,
                 )
-                _y_for_aa = (
-                    _y_np
-                )
+
+                _y_for_aa = _y_np
                 if _y_for_aa.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_aa).size)
                     if _n_unique <= 32:
@@ -1146,86 +1036,60 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             ).astype(np.int64)
                         except Exception:
                             _y_for_aa = _y_for_aa.astype(np.int64)
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 _aa_cols: list | None = None
                 if getattr(self, "factors_names_to_use", None):
-                    _aa_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _aa_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _aa_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
+                    _aa_cols = [c for c in X.columns if c not in _hybrid_already_appended]
                 # The orthogonal/polynomial FE converts operands to float; drop non-numeric columns (raw cat / string,
                 # e.g. 'B') so it doesn't raise "could not convert string to float" and silently lose the whole FE pass.
                 _aa_cols = _orth_fe_numeric_cols(X, _aa_cols)
-                _aa_max_arity = int(
-                    getattr(self, "fe_hybrid_orth_adaptive_arity_max_arity", 3)
-                )
-                _aa_max_degree = int(
-                    getattr(self, "fe_hybrid_orth_adaptive_arity_max_degree", 1)
-                )
-                _aa_seed_k = int(
-                    getattr(self, "fe_hybrid_orth_adaptive_arity_seed_k", 4)
-                )
-                _aa_top_count = int(
-                    getattr(self, "fe_hybrid_orth_adaptive_arity_top_count", 3)
-                )
+                _aa_max_arity = int(getattr(self, "fe_hybrid_orth_adaptive_arity_max_arity", 3))
+                _aa_max_degree = int(getattr(self, "fe_hybrid_orth_adaptive_arity_max_degree", 1))
+                _aa_seed_k = int(getattr(self, "fe_hybrid_orth_adaptive_arity_seed_k", 4))
+                _aa_top_count = int(getattr(self, "fe_hybrid_orth_adaptive_arity_top_count", 3))
                 _aa_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
-                _aa_degrees = tuple(
-                    int(d) for d in getattr(self, "fe_hybrid_orth_degrees", (2, 3))
-                )
+                _aa_degrees = tuple(int(d) for d in getattr(self, "fe_hybrid_orth_degrees", (2, 3)))
                 _aa_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _X_before_aa_cols = list(X.columns)
-                X_aa, _aa_uni_sc, _aa_adapt_sc, _aa_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_adaptive_arity_fe_with_recipes,
-                        X, _y_for_aa,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_aa_cols,
-                        degrees=_aa_degrees,
-                        basis=_aa_basis,
-                        top_k=_aa_top_k,
-                        seed_k=_aa_seed_k,
-                        max_arity=_aa_max_arity,
-                        max_degree=_aa_max_degree,
-                        top_count=_aa_top_count,
-                    )
+                X_aa, _aa_uni_sc, _aa_adapt_sc, _aa_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_adaptive_arity_fe_with_recipes,
+                    X,
+                    _y_for_aa,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_aa_cols,
+                    degrees=_aa_degrees,
+                    basis=_aa_basis,
+                    top_k=_aa_top_k,
+                    seed_k=_aa_seed_k,
+                    max_arity=_aa_max_arity,
+                    max_degree=_aa_max_degree,
+                    top_count=_aa_top_count,
                 )
-                _aa_appended = [
-                    c for c in X_aa.columns if c not in _X_before_aa_cols
-                ]
+                _aa_appended = [c for c in X_aa.columns if c not in _X_before_aa_cols]
                 # Only keep TRUE cross columns (arity >= 2 -- one or more '*').
-                _aa_cross_only = [
-                    c for c in _aa_appended
-                    if c.split("__", 1)[0].count("*") >= 1
-                ]
+                _aa_cross_only = [c for c in _aa_appended if c.split("__", 1)[0].count("*") >= 1]
                 if _aa_cross_only:
                     X = fe_append_columns(X, fe_extract_columns(X_aa, _aa_cross_only))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_aa_cross_only)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_aa_cross_only)
                     _kept_aa = set(_aa_cross_only)
                     for _r in _aa_recipes:
                         if _r.name in _kept_aa:
                             _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth adaptive-arity: appended %d "
-                            "engineered column(s): %s",
-                            len(_aa_cross_only), _aa_cross_only[:8],
+                            "MRMR.fit hybrid_orth adaptive-arity: appended %d " "engineered column(s): %s",
+                            len(_aa_cross_only),
+                            _aa_cross_only[:8],
                         )
             except Exception as _aa_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth adaptive-arity FE raised %s: %s; "
-                    "continuing without adaptive-arity-FE columns.",
-                    type(_aa_exc).__name__, _aa_exc,
+                    "MRMR.fit hybrid_orth adaptive-arity FE raised %s: %s; " "continuing without adaptive-arity-FE columns.",
+                    type(_aa_exc).__name__,
+                    _aa_exc,
                 )
     # 2026-05-31 Layer 57 — ADAPTIVE PER-COLUMN DEGREE FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
@@ -1240,9 +1104,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_adaptive_degree_fe import (
                     hybrid_orth_mi_adaptive_degree_fe_with_recipes,
                 )
-                _y_for_adapt = (
-                    _y_np
-                )
+
+                _y_for_adapt = _y_np
                 if _y_for_adapt.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_adapt).size)
                     if _n_unique <= 32:
@@ -1258,15 +1121,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # columns from prior stages would create recipes whose
                 # src_names reference an engineered column absent at
                 # transform time (KeyError on replay).
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 _ad_cols: list | None = None
                 if getattr(self, "factors_names_to_use", None):
-                    _ad_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _ad_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
                     _ad_cols = [
                         c for c in X.columns
@@ -1280,27 +1138,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 ))
                 _ad_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
                 _X_before_adaptive_cols = list(X.columns)
-                X_ad, _ad_scores, _ad_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_adaptive_degree_fe_with_recipes,
-                        X, _y_for_adapt,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_ad_cols,
-                        degree_range=_ad_range,
-                        basis=_ad_basis,
-                        min_uplift=_ad_min_uplift,
-                    )
+                X_ad, _ad_scores, _ad_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_adaptive_degree_fe_with_recipes,
+                    X,
+                    _y_for_adapt,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_ad_cols,
+                    degree_range=_ad_range,
+                    basis=_ad_basis,
+                    min_uplift=_ad_min_uplift,
                 )
-                _ad_appended = [
-                    c for c in X_ad.columns if c not in _X_before_adaptive_cols
-                ]
+                _ad_appended = [c for c in X_ad.columns if c not in _X_before_adaptive_cols]
                 if _ad_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_ad, _ad_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_ad_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ad_appended)
                     # Merge into the same recipe dict used by the master
                     # hybrid stage so the end-of-fit remap into
                     # ``_engineered_recipes_`` picks it up.
@@ -1308,15 +1161,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth adaptive-degree: appended "
-                            "%d engineered column(s): %s",
-                            len(_ad_appended), _ad_appended[:8],
+                            "MRMR.fit hybrid_orth adaptive-degree: appended " "%d engineered column(s): %s",
+                            len(_ad_appended),
+                            _ad_appended[:8],
                         )
             except Exception as _ad_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth adaptive-degree FE raised %s: %s; "
-                    "continuing without adaptive-degree columns.",
-                    type(_ad_exc).__name__, _ad_exc,
+                    "MRMR.fit hybrid_orth adaptive-degree FE raised %s: %s; " "continuing without adaptive-degree columns.",
+                    type(_ad_exc).__name__,
+                    _ad_exc,
                 )
     # 2026-05-31 Layer 58 — CONDITIONAL BASIS ROUTING FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
@@ -1331,9 +1184,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_routing_fe import (
                     hybrid_orth_mi_conditional_routing_fe_with_recipes,
                 )
-                _y_for_route = (
-                    _y_np
-                )
+
+                _y_for_route = _y_np
                 if _y_for_route.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_route).size)
                     if _n_unique <= 32:
@@ -1349,64 +1201,64 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # columns from prior stages would create recipes whose
                 # src_names reference an engineered column absent at
                 # transform time.
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 _rt_cols: list | None = None
                 if getattr(self, "factors_names_to_use", None):
-                    _rt_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _rt_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _rt_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
-                _rt_top_k = int(getattr(
-                    self, "fe_hybrid_orth_conditional_routing_top_k", 5,
-                ))
-                _rt_min_uplift = float(getattr(
-                    self, "fe_hybrid_orth_conditional_routing_min_uplift", 1.10,
-                ))
-                _rt_degrees = tuple(int(d) for d in getattr(
-                    self, "fe_hybrid_orth_conditional_routing_degrees", (2, 3),
-                ))
-                _X_before_routing_cols = list(X.columns)
-                X_rt, _rt_scores, _rt_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_conditional_routing_fe_with_recipes,
-                        X, _y_for_route,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_rt_cols,
-                        degrees=_rt_degrees,
-                        top_k=_rt_top_k,
-                        min_uplift=_rt_min_uplift,
+                    _rt_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+                _rt_top_k = int(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_conditional_routing_top_k",
+                        5,
                     )
                 )
-                _rt_appended = [
-                    c for c in X_rt.columns if c not in _X_before_routing_cols
-                ]
+                _rt_min_uplift = float(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_conditional_routing_min_uplift",
+                        1.10,
+                    )
+                )
+                _rt_degrees = tuple(
+                    int(d)
+                    for d in getattr(
+                        self,
+                        "fe_hybrid_orth_conditional_routing_degrees",
+                        (2, 3),
+                    )
+                )
+                _X_before_routing_cols = list(X.columns)
+                X_rt, _rt_scores, _rt_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_conditional_routing_fe_with_recipes,
+                    X,
+                    _y_for_route,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_rt_cols,
+                    degrees=_rt_degrees,
+                    top_k=_rt_top_k,
+                    min_uplift=_rt_min_uplift,
+                )
+                _rt_appended = [c for c in X_rt.columns if c not in _X_before_routing_cols]
                 if _rt_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_rt, _rt_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_rt_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_rt_appended)
                     for _r in _rt_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth conditional-routing: appended "
-                            "%d engineered column(s): %s",
-                            len(_rt_appended), _rt_appended[:8],
+                            "MRMR.fit hybrid_orth conditional-routing: appended " "%d engineered column(s): %s",
+                            len(_rt_appended),
+                            _rt_appended[:8],
                         )
             except Exception as _rt_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth conditional-routing FE raised %s: %s; "
-                    "continuing without conditional-routing columns.",
-                    type(_rt_exc).__name__, _rt_exc,
+                    "MRMR.fit hybrid_orth conditional-routing FE raised %s: %s; " "continuing without conditional-routing columns.",
+                    type(_rt_exc).__name__,
+                    _rt_exc,
                 )
     # 2026-05-31 Layer 59 — DIFF-BASIS FE for highly-correlated source pairs.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
@@ -1421,9 +1273,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_diff_basis_fe import (
                     hybrid_orth_mi_diff_basis_fe_with_recipes,
                 )
-                _y_for_diff = (
-                    _y_np
-                )
+
+                _y_for_diff = _y_np
                 if _y_for_diff.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_diff).size)
                     if _n_unique <= 32:
@@ -1438,63 +1289,63 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # Restrict the seed pool to RAW source columns -- engineered
                 # columns from prior stages would create recipes whose
                 # src_names reference an engineered column absent at transform.
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _df_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _df_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _df_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
-                _df_corr = float(getattr(
-                    self, "fe_hybrid_orth_diff_basis_corr_threshold", 0.7,
-                ))
-                _df_degrees = tuple(int(d) for d in getattr(
-                    self, "fe_hybrid_orth_diff_basis_degrees", (1, 2, 3),
-                ))
-                _df_top_k = int(getattr(
-                    self, "fe_hybrid_orth_diff_basis_top_k", 3,
-                ))
-                _X_before_diff_cols = list(X.columns)
-                X_df, _df_scores, _df_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_diff_basis_fe_with_recipes,
-                        X, _y_for_diff,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_df_cols,
-                        degrees=_df_degrees,
-                        pair_corr_threshold=_df_corr,
-                        top_k=_df_top_k,
+                    _df_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+                _df_corr = float(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_diff_basis_corr_threshold",
+                        0.7,
                     )
                 )
-                _df_appended = [
-                    c for c in X_df.columns if c not in _X_before_diff_cols
-                ]
+                _df_degrees = tuple(
+                    int(d)
+                    for d in getattr(
+                        self,
+                        "fe_hybrid_orth_diff_basis_degrees",
+                        (1, 2, 3),
+                    )
+                )
+                _df_top_k = int(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_diff_basis_top_k",
+                        3,
+                    )
+                )
+                _X_before_diff_cols = list(X.columns)
+                X_df, _df_scores, _df_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_diff_basis_fe_with_recipes,
+                    X,
+                    _y_for_diff,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_df_cols,
+                    degrees=_df_degrees,
+                    pair_corr_threshold=_df_corr,
+                    top_k=_df_top_k,
+                )
+                _df_appended = [c for c in X_df.columns if c not in _X_before_diff_cols]
                 if _df_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_df, _df_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_df_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_df_appended)
                     for _r in _df_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth diff-basis: appended %d "
-                            "engineered column(s): %s",
-                            len(_df_appended), _df_appended[:8],
+                            "MRMR.fit hybrid_orth diff-basis: appended %d " "engineered column(s): %s",
+                            len(_df_appended),
+                            _df_appended[:8],
                         )
             except Exception as _df_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth diff-basis FE raised %s: %s; "
-                    "continuing without diff-basis columns.",
-                    type(_df_exc).__name__, _df_exc,
+                    "MRMR.fit hybrid_orth diff-basis FE raised %s: %s; " "continuing without diff-basis columns.",
+                    type(_df_exc).__name__,
+                    _df_exc,
                 )
     # 2026-05-31 Layer 61 — PER-CLUSTER SHARED-BASIS FE. Independent opt-in
     # (does NOT require fe_hybrid_orth_enable). When active, an internal
@@ -1521,9 +1372,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 def _cb_reject_sink(**_kw):
                     _record_fe_rejection(self, step=_cb_step, **_kw)
 
-                _y_for_cb = (
-                    _y_np
-                )
+                _y_for_cb = _y_np
                 if _y_for_cb.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_cb).size)
                     if _n_unique <= 32:
@@ -1538,73 +1387,77 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # Restrict to RAW source columns -- engineered columns from
                 # prior stages would create recipes whose src_names reference
                 # an engineered column absent at transform.
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _cb_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _cb_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _cb_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
-                _cb_aggregator = str(getattr(
-                    self, "fe_hybrid_orth_cluster_basis_aggregator", "mean_z",
-                ))
-                _cb_degrees = tuple(int(d) for d in getattr(
-                    self, "fe_hybrid_orth_cluster_basis_degrees", (2, 3),
-                ))
-                _cb_top_k = int(getattr(
-                    self, "fe_hybrid_orth_cluster_basis_top_k", 3,
-                ))
+                    _cb_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+                _cb_aggregator = str(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_cluster_basis_aggregator",
+                        "mean_z",
+                    )
+                )
+                _cb_degrees = tuple(
+                    int(d)
+                    for d in getattr(
+                        self,
+                        "fe_hybrid_orth_cluster_basis_degrees",
+                        (2, 3),
+                    )
+                )
+                _cb_top_k = int(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_cluster_basis_top_k",
+                        3,
+                    )
+                )
                 # Cluster detection reuses the diff-basis corr threshold as a
                 # sensible default (same calibration: 0.7 is the reflection-
                 # cluster floor). We deliberately do NOT share the same
                 # constructor argument so callers can tune diff-basis and
                 # cluster-basis independently.
-                _cb_corr = float(getattr(
-                    self, "fe_hybrid_orth_diff_basis_corr_threshold", 0.7,
-                ))
-                _X_before_cb_cols = list(X.columns)
-                X_cb, _cb_scores, _cb_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_cluster_basis_fe_with_recipes,
-                        X, _y_for_cb,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_cb_cols,
-                        aggregator=_cb_aggregator,
-                        degrees=_cb_degrees,
-                        corr_threshold=_cb_corr,
-                        top_k=_cb_top_k,
-                        reject_sink=_cb_reject_sink,
+                _cb_corr = float(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_diff_basis_corr_threshold",
+                        0.7,
                     )
                 )
-                _cb_appended = [
-                    c for c in X_cb.columns if c not in _X_before_cb_cols
-                ]
+                _X_before_cb_cols = list(X.columns)
+                X_cb, _cb_scores, _cb_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_cluster_basis_fe_with_recipes,
+                    X,
+                    _y_for_cb,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_cb_cols,
+                    aggregator=_cb_aggregator,
+                    degrees=_cb_degrees,
+                    corr_threshold=_cb_corr,
+                    top_k=_cb_top_k,
+                    reject_sink=_cb_reject_sink,
+                )
+                _cb_appended = [c for c in X_cb.columns if c not in _X_before_cb_cols]
                 if _cb_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_cb, _cb_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_cb_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cb_appended)
                     for _r in _cb_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth cluster-basis: appended %d "
-                            "engineered column(s): %s",
-                            len(_cb_appended), _cb_appended[:8],
+                            "MRMR.fit hybrid_orth cluster-basis: appended %d " "engineered column(s): %s",
+                            len(_cb_appended),
+                            _cb_appended[:8],
                         )
             except Exception as _cb_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth cluster-basis FE raised %s: %s; "
-                    "continuing without cluster-basis columns.",
-                    type(_cb_exc).__name__, _cb_exc,
+                    "MRMR.fit hybrid_orth cluster-basis FE raised %s: %s; " "continuing without cluster-basis columns.",
+                    type(_cb_exc).__name__,
+                    _cb_exc,
                 )
     # 2026-05-31 Layer 62 — BOOTSTRAP-STABLE MI ranking for the hybrid
     # orth-poly FE (independent opt-in; does NOT require
@@ -1622,9 +1475,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_bootstrap_mi_fe import (
                     hybrid_orth_mi_bootstrap_fe_with_recipes,
                 )
-                _y_for_boot = (
-                    _y_np
-                )
+
+                _y_for_boot = _y_np
                 if _y_for_boot.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_boot).size)
                     if _n_unique <= 32:
@@ -1636,19 +1488,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             ).astype(np.int64)
                         except Exception:
                             _y_for_boot = _y_for_boot.astype(np.int64)
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _boot_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _boot_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _boot_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
+                    _boot_cols = [c for c in X.columns if c not in _hybrid_already_appended]
                 # Orthogonal/polynomial bootstrap FE converts operands to float; a raw categorical / string column would raise
                 # "could not convert string to float" and (via the broad except below) silently drop the entire bootstrap-stable pass.
                 # Scope to numeric/raw columns the same way the conditional-FE families do, instead of swallowing the failure.
@@ -1666,43 +1510,38 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 ))
                 _boot_seed = int(getattr(self, "random_seed", 0) or 0)
                 _X_before_boot_cols = list(X.columns)
-                X_boot, _boot_scores, _boot_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_bootstrap_fe_with_recipes,
-                        X, _y_for_boot,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_boot_cols,
-                        degrees=_boot_degrees,
-                        basis=_boot_basis,
-                        top_k=_boot_top_k,
-                        n_boot=_boot_n,
-                        sample_fraction=_boot_frac,
-                        seed=_boot_seed,
-                    )
+                X_boot, _boot_scores, _boot_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_bootstrap_fe_with_recipes,
+                    X,
+                    _y_for_boot,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_boot_cols,
+                    degrees=_boot_degrees,
+                    basis=_boot_basis,
+                    top_k=_boot_top_k,
+                    n_boot=_boot_n,
+                    sample_fraction=_boot_frac,
+                    seed=_boot_seed,
                 )
-                _boot_appended = [
-                    c for c in X_boot.columns if c not in _X_before_boot_cols
-                ]
+                _boot_appended = [c for c in X_boot.columns if c not in _X_before_boot_cols]
                 if _boot_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_boot, _boot_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_boot_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_boot_appended)
                     for _r in _boot_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth bootstrap-stable: appended "
-                            "%d engineered column(s): %s",
-                            len(_boot_appended), _boot_appended[:8],
+                            "MRMR.fit hybrid_orth bootstrap-stable: appended " "%d engineered column(s): %s",
+                            len(_boot_appended),
+                            _boot_appended[:8],
                         )
             except Exception as _boot_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth bootstrap-stable FE raised %s: %s; "
-                    "continuing without bootstrap-stable columns.",
-                    type(_boot_exc).__name__, _boot_exc,
+                    "MRMR.fit hybrid_orth bootstrap-stable FE raised %s: %s; " "continuing without bootstrap-stable columns.",
+                    type(_boot_exc).__name__,
+                    _boot_exc,
                 )
     # 2026-05-31 Layer 63 — THREE-GATE + K-fold OOF MI ranking for the
     # hybrid orth-poly FE (independent opt-in; does NOT require
@@ -1724,9 +1563,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_three_gate_mi_fe import (
                     hybrid_orth_mi_three_gate_fe_with_recipes,
                 )
-                _y_for_tg = (
-                    _y_np
-                )
+
+                _y_for_tg = _y_np
                 if _y_for_tg.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_tg).size)
                     if _n_unique <= 32:
@@ -1738,19 +1576,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             ).astype(np.int64)
                         except Exception:
                             _y_for_tg = _y_for_tg.astype(np.int64)
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _tg_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _tg_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _tg_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
+                    _tg_cols = [c for c in X.columns if c not in _hybrid_already_appended]
                 # Orthogonal/polynomial FE is numeric-only; drop non-numeric cols (raw cat / string) before the float
                 # conversion, else it raises "could not convert string to float" and the whole FE pass is dropped.
                 _tg_cols = _orth_fe_numeric_cols(X, _tg_cols)
@@ -1772,9 +1602,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # in single-stage runs) Gate 3 is skipped inside the
                 # callee, which preserves Layer 21 behaviour at the
                 # selection level (sans the OOF re-ranking on Gate 1/2).
-                _tg_support_cols = [
-                    c for c in _hybrid_already_appended if c in X.columns
-                ]
+                _tg_support_cols = [c for c in _hybrid_already_appended if c in X.columns]
                 _X_before_tg_cols = list(X.columns)
                 # The current_support sub-frame is READ-only (``.empty`` / ``.shape`` / per-column ``.to_numpy()`` for the
                 # CMI bins). Build it from whatever pandas frame the subsample funnel hands the callee (the subsample block
@@ -1796,27 +1624,23 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     n_folds=_tg_n_folds,
                     seed=_tg_seed,
                 )
-                _tg_appended = [
-                    c for c in X_tg.columns if c not in _X_before_tg_cols
-                ]
+                _tg_appended = [c for c in X_tg.columns if c not in _X_before_tg_cols]
                 if _tg_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_tg, _tg_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_tg_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_tg_appended)
                     for _r in _tg_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth three-gate: appended "
-                            "%d engineered column(s): %s",
-                            len(_tg_appended), _tg_appended[:8],
+                            "MRMR.fit hybrid_orth three-gate: appended " "%d engineered column(s): %s",
+                            len(_tg_appended),
+                            _tg_appended[:8],
                         )
             except Exception as _tg_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth three-gate FE raised %s: %s; "
-                    "continuing without three-gate columns.",
-                    type(_tg_exc).__name__, _tg_exc,
+                    "MRMR.fit hybrid_orth three-gate FE raised %s: %s; " "continuing without three-gate columns.",
+                    type(_tg_exc).__name__,
+                    _tg_exc,
                 )
     # 2026-05-31 Layer 65 — KSG / k-NN MI ranking for the hybrid orth-poly
     # FE (independent opt-in; does NOT require fe_hybrid_orth_enable).
@@ -1833,9 +1657,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_ksg_mi_fe import (
                     hybrid_orth_mi_ksg_fe_with_recipes,
                 )
-                _y_for_ksg = (
-                    _y_np
-                )
+
+                _y_for_ksg = _y_np
                 if _y_for_ksg.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_ksg).size)
                     if _n_unique <= 32:
@@ -1847,22 +1670,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             ).astype(np.int64)
                         except Exception:
                             _y_for_ksg = _y_for_ksg.astype(np.int64)
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _ksg_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _ksg_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _ksg_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
-                _ksg_degrees = tuple(int(d) for d in getattr(
-                    self, "fe_hybrid_orth_degrees", (2, 3),
-                ))
+                    _ksg_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+                _ksg_degrees = tuple(
+                    int(d)
+                    for d in getattr(
+                        self,
+                        "fe_hybrid_orth_degrees",
+                        (2, 3),
+                    )
+                )
                 _ksg_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
                 _ksg_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _ksg_n_neighbors = int(getattr(
@@ -1876,44 +1696,39 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 ))
                 _ksg_seed = int(getattr(self, "random_seed", 0) or 0)
                 _X_before_ksg_cols = list(X.columns)
-                X_ksg, _ksg_scores, _ksg_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_ksg_fe_with_recipes,
-                        X, _y_for_ksg,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_ksg_cols,
-                        degrees=_ksg_degrees,
-                        basis=_ksg_basis,
-                        top_k=_ksg_top_k,
-                        min_uplift=_ksg_min_uplift,
-                        min_abs_mi_frac=_ksg_min_abs_mi_frac,
-                        n_neighbors=_ksg_n_neighbors,
-                        random_state=_ksg_seed,
-                    )
+                X_ksg, _ksg_scores, _ksg_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_ksg_fe_with_recipes,
+                    X,
+                    _y_for_ksg,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_ksg_cols,
+                    degrees=_ksg_degrees,
+                    basis=_ksg_basis,
+                    top_k=_ksg_top_k,
+                    min_uplift=_ksg_min_uplift,
+                    min_abs_mi_frac=_ksg_min_abs_mi_frac,
+                    n_neighbors=_ksg_n_neighbors,
+                    random_state=_ksg_seed,
                 )
-                _ksg_appended = [
-                    c for c in X_ksg.columns if c not in _X_before_ksg_cols
-                ]
+                _ksg_appended = [c for c in X_ksg.columns if c not in _X_before_ksg_cols]
                 if _ksg_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_ksg, _ksg_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_ksg_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ksg_appended)
                     for _r in _ksg_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth KSG-MI: appended "
-                            "%d engineered column(s): %s",
-                            len(_ksg_appended), _ksg_appended[:8],
+                            "MRMR.fit hybrid_orth KSG-MI: appended " "%d engineered column(s): %s",
+                            len(_ksg_appended),
+                            _ksg_appended[:8],
                         )
             except Exception as _ksg_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth KSG-MI FE raised %s: %s; "
-                    "continuing without KSG-MI columns.",
-                    type(_ksg_exc).__name__, _ksg_exc,
+                    "MRMR.fit hybrid_orth KSG-MI FE raised %s: %s; " "continuing without KSG-MI columns.",
+                    type(_ksg_exc).__name__,
+                    _ksg_exc,
                 )
     # 2026-06-01 Layer 66 — COPULA-MI ranking for the hybrid orth-poly FE
     # (independent opt-in; does NOT require fe_hybrid_orth_enable). Each
@@ -1930,28 +1745,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_copula_mi_fe import (
                     hybrid_orth_mi_copula_fe_with_recipes,
                 )
-                _y_for_copula = (
-                    _y_np
-                )
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+
+                _y_for_copula = _y_np
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _copula_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _copula_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _copula_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
-                _copula_degrees = tuple(int(d) for d in getattr(
-                    self, "fe_hybrid_orth_degrees", (2, 3),
-                ))
-                _copula_basis = str(getattr(
-                    self, "fe_hybrid_orth_basis", "auto",
-                ))
+                    _copula_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+                _copula_degrees = tuple(
+                    int(d)
+                    for d in getattr(
+                        self,
+                        "fe_hybrid_orth_degrees",
+                        (2, 3),
+                    )
+                )
+                _copula_basis = str(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_basis",
+                        "auto",
+                    )
+                )
                 _copula_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _copula_n_bins = int(getattr(
                     self, "fe_hybrid_orth_copula_n_bins", 20,
@@ -1968,45 +1783,38 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _copula_min_uplift = 0.95
                 _copula_min_abs_mi_frac = 0.05
                 _X_before_copula_cols = list(X.columns)
-                X_copula, _copula_scores, _copula_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_copula_fe_with_recipes,
-                        X, _y_for_copula,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_copula_cols,
-                        degrees=_copula_degrees,
-                        basis=_copula_basis,
-                        top_k=_copula_top_k,
-                        min_uplift=_copula_min_uplift,
-                        min_abs_mi_frac=_copula_min_abs_mi_frac,
-                        n_bins=_copula_n_bins,
-                    )
+                X_copula, _copula_scores, _copula_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_copula_fe_with_recipes,
+                    X,
+                    _y_for_copula,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_copula_cols,
+                    degrees=_copula_degrees,
+                    basis=_copula_basis,
+                    top_k=_copula_top_k,
+                    min_uplift=_copula_min_uplift,
+                    min_abs_mi_frac=_copula_min_abs_mi_frac,
+                    n_bins=_copula_n_bins,
                 )
-                _copula_appended = [
-                    c for c in X_copula.columns
-                    if c not in _X_before_copula_cols
-                ]
+                _copula_appended = [c for c in X_copula.columns if c not in _X_before_copula_cols]
                 if _copula_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_copula, _copula_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or [])
-                        + list(_copula_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_copula_appended)
                     for _r in _copula_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth copula-MI: appended "
-                            "%d engineered column(s): %s",
-                            len(_copula_appended), _copula_appended[:8],
+                            "MRMR.fit hybrid_orth copula-MI: appended " "%d engineered column(s): %s",
+                            len(_copula_appended),
+                            _copula_appended[:8],
                         )
             except Exception as _copula_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth copula-MI FE raised %s: %s; "
-                    "continuing without copula-MI columns.",
-                    type(_copula_exc).__name__, _copula_exc,
+                    "MRMR.fit hybrid_orth copula-MI FE raised %s: %s; " "continuing without copula-MI columns.",
+                    type(_copula_exc).__name__,
+                    _copula_exc,
                 )
     # 2026-06-01 Layer 67 — DISTANCE-CORRELATION ranking for the hybrid
     # orth-poly FE (independent opt-in; does NOT require
@@ -2023,28 +1831,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_dcor_fe import (
                     hybrid_orth_mi_dcor_fe_with_recipes,
                 )
-                _y_for_dcor = (
-                    _y_np
-                )
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+
+                _y_for_dcor = _y_np
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _dcor_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _dcor_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _dcor_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
-                _dcor_degrees = tuple(int(d) for d in getattr(
-                    self, "fe_hybrid_orth_degrees", (2, 3),
-                ))
-                _dcor_basis = str(getattr(
-                    self, "fe_hybrid_orth_basis", "auto",
-                ))
+                    _dcor_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+                _dcor_degrees = tuple(
+                    int(d)
+                    for d in getattr(
+                        self,
+                        "fe_hybrid_orth_degrees",
+                        (2, 3),
+                    )
+                )
+                _dcor_basis = str(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_basis",
+                        "auto",
+                    )
+                )
                 _dcor_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _dcor_n_sample = int(getattr(
                     self, "fe_hybrid_orth_dcor_n_sample", 500,
@@ -2058,46 +1866,39 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _dcor_min_uplift = 0.95
                 _dcor_min_abs_mi_frac = 0.05
                 _X_before_dcor_cols = list(X.columns)
-                X_dcor, _dcor_scores, _dcor_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_dcor_fe_with_recipes,
-                        X, _y_for_dcor,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_dcor_cols,
-                        degrees=_dcor_degrees,
-                        basis=_dcor_basis,
-                        top_k=_dcor_top_k,
-                        min_uplift=_dcor_min_uplift,
-                        min_abs_mi_frac=_dcor_min_abs_mi_frac,
-                        n_sample=_dcor_n_sample,
-                        random_state=int(getattr(self, "random_seed", 0) or 0),
-                    )
+                X_dcor, _dcor_scores, _dcor_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_dcor_fe_with_recipes,
+                    X,
+                    _y_for_dcor,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_dcor_cols,
+                    degrees=_dcor_degrees,
+                    basis=_dcor_basis,
+                    top_k=_dcor_top_k,
+                    min_uplift=_dcor_min_uplift,
+                    min_abs_mi_frac=_dcor_min_abs_mi_frac,
+                    n_sample=_dcor_n_sample,
+                    random_state=int(getattr(self, "random_seed", 0) or 0),
                 )
-                _dcor_appended = [
-                    c for c in X_dcor.columns
-                    if c not in _X_before_dcor_cols
-                ]
+                _dcor_appended = [c for c in X_dcor.columns if c not in _X_before_dcor_cols]
                 if _dcor_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_dcor, _dcor_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or [])
-                        + list(_dcor_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_dcor_appended)
                     for _r in _dcor_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth dCor: appended %d "
-                            "engineered column(s): %s",
-                            len(_dcor_appended), _dcor_appended[:8],
+                            "MRMR.fit hybrid_orth dCor: appended %d " "engineered column(s): %s",
+                            len(_dcor_appended),
+                            _dcor_appended[:8],
                         )
             except Exception as _dcor_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth dCor FE raised %s: %s; "
-                    "continuing without dCor columns.",
-                    type(_dcor_exc).__name__, _dcor_exc,
+                    "MRMR.fit hybrid_orth dCor FE raised %s: %s; " "continuing without dCor columns.",
+                    type(_dcor_exc).__name__,
+                    _dcor_exc,
                 )
     # 2026-06-01 Layer 71 — HSIC ranking for hybrid orth-poly FE
     # (independent opt-in; does NOT require fe_hybrid_orth_enable).
@@ -2116,28 +1917,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_hsic_fe import (
                     hybrid_orth_mi_hsic_fe_with_recipes,
                 )
-                _y_for_hsic = (
-                    _y_np
-                )
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+
+                _y_for_hsic = _y_np
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _hsic_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _hsic_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _hsic_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
-                _hsic_degrees = tuple(int(d) for d in getattr(
-                    self, "fe_hybrid_orth_degrees", (2, 3),
-                ))
-                _hsic_basis = str(getattr(
-                    self, "fe_hybrid_orth_basis", "auto",
-                ))
+                    _hsic_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+                _hsic_degrees = tuple(
+                    int(d)
+                    for d in getattr(
+                        self,
+                        "fe_hybrid_orth_degrees",
+                        (2, 3),
+                    )
+                )
+                _hsic_basis = str(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_basis",
+                        "auto",
+                    )
+                )
                 _hsic_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _hsic_kernel = str(getattr(
                     self, "fe_hybrid_orth_hsic_kernel", "rbf",
@@ -2154,47 +1955,40 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _hsic_min_uplift = 0.95
                 _hsic_min_abs_mi_frac = 0.05
                 _X_before_hsic_cols = list(X.columns)
-                X_hsic, _hsic_scores, _hsic_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_hsic_fe_with_recipes,
-                        X, _y_for_hsic,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_hsic_cols,
-                        degrees=_hsic_degrees,
-                        basis=_hsic_basis,
-                        top_k=_hsic_top_k,
-                        min_uplift=_hsic_min_uplift,
-                        min_abs_mi_frac=_hsic_min_abs_mi_frac,
-                        kernel=_hsic_kernel,
-                        n_sample=_hsic_n_sample,
-                        random_state=int(getattr(self, "random_seed", 0) or 0),
-                    )
+                X_hsic, _hsic_scores, _hsic_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_hsic_fe_with_recipes,
+                    X,
+                    _y_for_hsic,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_hsic_cols,
+                    degrees=_hsic_degrees,
+                    basis=_hsic_basis,
+                    top_k=_hsic_top_k,
+                    min_uplift=_hsic_min_uplift,
+                    min_abs_mi_frac=_hsic_min_abs_mi_frac,
+                    kernel=_hsic_kernel,
+                    n_sample=_hsic_n_sample,
+                    random_state=int(getattr(self, "random_seed", 0) or 0),
                 )
-                _hsic_appended = [
-                    c for c in X_hsic.columns
-                    if c not in _X_before_hsic_cols
-                ]
+                _hsic_appended = [c for c in X_hsic.columns if c not in _X_before_hsic_cols]
                 if _hsic_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_hsic, _hsic_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or [])
-                        + list(_hsic_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_hsic_appended)
                     for _r in _hsic_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth HSIC: appended %d "
-                            "engineered column(s): %s",
-                            len(_hsic_appended), _hsic_appended[:8],
+                            "MRMR.fit hybrid_orth HSIC: appended %d " "engineered column(s): %s",
+                            len(_hsic_appended),
+                            _hsic_appended[:8],
                         )
             except Exception as _hsic_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth HSIC FE raised %s: %s; "
-                    "continuing without HSIC columns.",
-                    type(_hsic_exc).__name__, _hsic_exc,
+                    "MRMR.fit hybrid_orth HSIC FE raised %s: %s; " "continuing without HSIC columns.",
+                    type(_hsic_exc).__name__,
+                    _hsic_exc,
                 )
     # 2026-06-01 Layer 72 — JMIM (Bennasar 2015) redundancy-aware ranking
     # for hybrid orth-poly FE (independent opt-in; does NOT require
@@ -2210,28 +2004,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_jmim_fe import (
                     hybrid_orth_mi_jmim_fe_with_recipes,
                 )
-                _y_for_jmim = (
-                    _y_np
-                )
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+
+                _y_for_jmim = _y_np
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _jmim_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _jmim_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _jmim_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
-                _jmim_degrees = tuple(int(d) for d in getattr(
-                    self, "fe_hybrid_orth_degrees", (2, 3),
-                ))
-                _jmim_basis = str(getattr(
-                    self, "fe_hybrid_orth_basis", "auto",
-                ))
+                    _jmim_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+                _jmim_degrees = tuple(
+                    int(d)
+                    for d in getattr(
+                        self,
+                        "fe_hybrid_orth_degrees",
+                        (2, 3),
+                    )
+                )
+                _jmim_basis = str(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_basis",
+                        "auto",
+                    )
+                )
                 _jmim_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _jmim_n_bins = int(getattr(
                     self, "fe_hybrid_orth_jmim_n_bins", 10,
@@ -2241,45 +2035,38 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _jmim_min_uplift = 0.95
                 _jmim_min_abs_mi_frac = 0.05
                 _X_before_jmim_cols = list(X.columns)
-                X_jmim, _jmim_scores, _jmim_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_jmim_fe_with_recipes,
-                        X, _y_for_jmim,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_jmim_cols,
-                        degrees=_jmim_degrees,
-                        basis=_jmim_basis,
-                        top_k=_jmim_top_k,
-                        min_uplift=_jmim_min_uplift,
-                        min_abs_mi_frac=_jmim_min_abs_mi_frac,
-                        n_bins=_jmim_n_bins,
-                    )
+                X_jmim, _jmim_scores, _jmim_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_jmim_fe_with_recipes,
+                    X,
+                    _y_for_jmim,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_jmim_cols,
+                    degrees=_jmim_degrees,
+                    basis=_jmim_basis,
+                    top_k=_jmim_top_k,
+                    min_uplift=_jmim_min_uplift,
+                    min_abs_mi_frac=_jmim_min_abs_mi_frac,
+                    n_bins=_jmim_n_bins,
                 )
-                _jmim_appended = [
-                    c for c in X_jmim.columns
-                    if c not in _X_before_jmim_cols
-                ]
+                _jmim_appended = [c for c in X_jmim.columns if c not in _X_before_jmim_cols]
                 if _jmim_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_jmim, _jmim_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or [])
-                        + list(_jmim_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_jmim_appended)
                     for _r in _jmim_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth JMIM: appended %d "
-                            "engineered column(s): %s",
-                            len(_jmim_appended), _jmim_appended[:8],
+                            "MRMR.fit hybrid_orth JMIM: appended %d " "engineered column(s): %s",
+                            len(_jmim_appended),
+                            _jmim_appended[:8],
                         )
             except Exception as _jmim_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth JMIM FE raised %s: %s; "
-                    "continuing without JMIM columns.",
-                    type(_jmim_exc).__name__, _jmim_exc,
+                    "MRMR.fit hybrid_orth JMIM FE raised %s: %s; " "continuing without JMIM columns.",
+                    type(_jmim_exc).__name__,
+                    _jmim_exc,
                 )
     # 2026-06-01 Layer 73 — Total Correlation (Watanabe 1960) multivariate-
     # redundancy ranking for hybrid orth-poly FE (independent opt-in; does
@@ -2295,28 +2082,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_total_correlation_fe import (
                     hybrid_orth_mi_tc_fe_with_recipes,
                 )
-                _y_for_tc = (
-                    _y_np
-                )
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+
+                _y_for_tc = _y_np
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _tc_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _tc_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _tc_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
-                _tc_degrees = tuple(int(d) for d in getattr(
-                    self, "fe_hybrid_orth_degrees", (2, 3),
-                ))
-                _tc_basis = str(getattr(
-                    self, "fe_hybrid_orth_basis", "auto",
-                ))
+                    _tc_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+                _tc_degrees = tuple(
+                    int(d)
+                    for d in getattr(
+                        self,
+                        "fe_hybrid_orth_degrees",
+                        (2, 3),
+                    )
+                )
+                _tc_basis = str(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_basis",
+                        "auto",
+                    )
+                )
                 _tc_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _tc_n_bins = int(getattr(
                     self, "fe_hybrid_orth_tc_n_bins", 10,
@@ -2326,45 +2113,38 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _tc_min_uplift = 0.95
                 _tc_min_abs_mi_frac = 0.05
                 _X_before_tc_cols = list(X.columns)
-                X_tc, _tc_scores, _tc_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_tc_fe_with_recipes,
-                        X, _y_for_tc,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_tc_cols,
-                        degrees=_tc_degrees,
-                        basis=_tc_basis,
-                        top_k=_tc_top_k,
-                        min_uplift=_tc_min_uplift,
-                        min_abs_mi_frac=_tc_min_abs_mi_frac,
-                        n_bins=_tc_n_bins,
-                    )
+                X_tc, _tc_scores, _tc_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_tc_fe_with_recipes,
+                    X,
+                    _y_for_tc,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_tc_cols,
+                    degrees=_tc_degrees,
+                    basis=_tc_basis,
+                    top_k=_tc_top_k,
+                    min_uplift=_tc_min_uplift,
+                    min_abs_mi_frac=_tc_min_abs_mi_frac,
+                    n_bins=_tc_n_bins,
                 )
-                _tc_appended = [
-                    c for c in X_tc.columns
-                    if c not in _X_before_tc_cols
-                ]
+                _tc_appended = [c for c in X_tc.columns if c not in _X_before_tc_cols]
                 if _tc_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_tc, _tc_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or [])
-                        + list(_tc_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_tc_appended)
                     for _r in _tc_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth TC: appended %d "
-                            "engineered column(s): %s",
-                            len(_tc_appended), _tc_appended[:8],
+                            "MRMR.fit hybrid_orth TC: appended %d " "engineered column(s): %s",
+                            len(_tc_appended),
+                            _tc_appended[:8],
                         )
             except Exception as _tc_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth TC FE raised %s: %s; "
-                    "continuing without TC columns.",
-                    type(_tc_exc).__name__, _tc_exc,
+                    "MRMR.fit hybrid_orth TC FE raised %s: %s; " "continuing without TC columns.",
+                    type(_tc_exc).__name__,
+                    _tc_exc,
                 )
     # 2026-06-01 Layer 74 — CMIM (Conditional Mutual Information
     # Maximisation, Fleuret 2004) redundancy-aware ranking for hybrid
@@ -2384,28 +2164,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_cmim_fe import (
                     hybrid_orth_mi_cmim_fe_with_recipes,
                 )
-                _y_for_cmim = (
-                    _y_np
-                )
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+
+                _y_for_cmim = _y_np
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _cmim_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _cmim_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _cmim_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
-                _cmim_degrees = tuple(int(d) for d in getattr(
-                    self, "fe_hybrid_orth_degrees", (2, 3),
-                ))
-                _cmim_basis = str(getattr(
-                    self, "fe_hybrid_orth_basis", "auto",
-                ))
+                    _cmim_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+                _cmim_degrees = tuple(
+                    int(d)
+                    for d in getattr(
+                        self,
+                        "fe_hybrid_orth_degrees",
+                        (2, 3),
+                    )
+                )
+                _cmim_basis = str(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_basis",
+                        "auto",
+                    )
+                )
                 _cmim_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _cmim_n_bins = int(getattr(
                     self, "fe_hybrid_orth_cmim_n_bins", 10,
@@ -2415,45 +2195,38 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _cmim_min_uplift = 0.95
                 _cmim_min_abs_mi_frac = 0.05
                 _X_before_cmim_cols = list(X.columns)
-                X_cmim, _cmim_scores, _cmim_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_cmim_fe_with_recipes,
-                        X, _y_for_cmim,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_cmim_cols,
-                        degrees=_cmim_degrees,
-                        basis=_cmim_basis,
-                        top_k=_cmim_top_k,
-                        min_uplift=_cmim_min_uplift,
-                        min_abs_mi_frac=_cmim_min_abs_mi_frac,
-                        n_bins=_cmim_n_bins,
-                    )
+                X_cmim, _cmim_scores, _cmim_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_cmim_fe_with_recipes,
+                    X,
+                    _y_for_cmim,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_cmim_cols,
+                    degrees=_cmim_degrees,
+                    basis=_cmim_basis,
+                    top_k=_cmim_top_k,
+                    min_uplift=_cmim_min_uplift,
+                    min_abs_mi_frac=_cmim_min_abs_mi_frac,
+                    n_bins=_cmim_n_bins,
                 )
-                _cmim_appended = [
-                    c for c in X_cmim.columns
-                    if c not in _X_before_cmim_cols
-                ]
+                _cmim_appended = [c for c in X_cmim.columns if c not in _X_before_cmim_cols]
                 if _cmim_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_cmim, _cmim_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or [])
-                        + list(_cmim_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cmim_appended)
                     for _r in _cmim_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth CMIM: appended %d "
-                            "engineered column(s): %s",
-                            len(_cmim_appended), _cmim_appended[:8],
+                            "MRMR.fit hybrid_orth CMIM: appended %d " "engineered column(s): %s",
+                            len(_cmim_appended),
+                            _cmim_appended[:8],
                         )
             except Exception as _cmim_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth CMIM FE raised %s: %s; "
-                    "continuing without CMIM columns.",
-                    type(_cmim_exc).__name__, _cmim_exc,
+                    "MRMR.fit hybrid_orth CMIM FE raised %s: %s; " "continuing without CMIM columns.",
+                    type(_cmim_exc).__name__,
+                    _cmim_exc,
                 )
     # 2026-06-01 Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
     # Layer 21 / 65 / 66 / 67 scorer family (independent opt-in; does NOT
@@ -2469,28 +2242,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_scorer_auto_fe import (
                     hybrid_orth_mi_auto_scorer_fe_with_recipes,
                 )
-                _y_for_auto = (
-                    _y_np
-                )
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+
+                _y_for_auto = _y_np
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _auto_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _auto_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _auto_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
-                _auto_degrees = tuple(int(d) for d in getattr(
-                    self, "fe_hybrid_orth_degrees", (2, 3),
-                ))
-                _auto_basis = str(getattr(
-                    self, "fe_hybrid_orth_basis", "auto",
-                ))
+                    _auto_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+                _auto_degrees = tuple(
+                    int(d)
+                    for d in getattr(
+                        self,
+                        "fe_hybrid_orth_degrees",
+                        (2, 3),
+                    )
+                )
+                _auto_basis = str(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_basis",
+                        "auto",
+                    )
+                )
                 _auto_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _auto_n_boot = int(getattr(
                     self, "fe_hybrid_orth_auto_scorer_n_boot", 5,
@@ -2503,46 +2276,39 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _auto_min_uplift = 0.95
                 _auto_min_abs_mi_frac = 0.05
                 _X_before_auto_cols = list(X.columns)
-                X_auto, _auto_scores, _auto_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_auto_scorer_fe_with_recipes,
-                        X, _y_for_auto,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_auto_cols,
-                        degrees=_auto_degrees,
-                        basis=_auto_basis,
-                        top_k=_auto_top_k,
-                        min_uplift=_auto_min_uplift,
-                        min_abs_mi_frac=_auto_min_abs_mi_frac,
-                        n_boot=_auto_n_boot,
-                        random_state=int(getattr(self, "random_seed", 0) or 0),
-                    )
+                X_auto, _auto_scores, _auto_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_auto_scorer_fe_with_recipes,
+                    X,
+                    _y_for_auto,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_auto_cols,
+                    degrees=_auto_degrees,
+                    basis=_auto_basis,
+                    top_k=_auto_top_k,
+                    min_uplift=_auto_min_uplift,
+                    min_abs_mi_frac=_auto_min_abs_mi_frac,
+                    n_boot=_auto_n_boot,
+                    random_state=int(getattr(self, "random_seed", 0) or 0),
                 )
-                _auto_appended = [
-                    c for c in X_auto.columns
-                    if c not in _X_before_auto_cols
-                ]
+                _auto_appended = [c for c in X_auto.columns if c not in _X_before_auto_cols]
                 if _auto_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_auto, _auto_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or [])
-                        + list(_auto_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_auto_appended)
                     for _r in _auto_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth auto-scorer: appended "
-                            "%d engineered column(s): %s",
-                            len(_auto_appended), _auto_appended[:8],
+                            "MRMR.fit hybrid_orth auto-scorer: appended " "%d engineered column(s): %s",
+                            len(_auto_appended),
+                            _auto_appended[:8],
                         )
             except Exception as _auto_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth auto-scorer FE raised %s: %s; "
-                    "continuing without auto-scorer columns.",
-                    type(_auto_exc).__name__, _auto_exc,
+                    "MRMR.fit hybrid_orth auto-scorer FE raised %s: %s; " "continuing without auto-scorer columns.",
+                    type(_auto_exc).__name__,
+                    _auto_exc,
                 )
     # 2026-06-01 Layer 69 — ENSEMBLE-OF-SCORERS rank-fusion across the
     # Layer 21 / 65 / 66 / 67 scorer family (independent opt-in; does NOT
@@ -2560,30 +2326,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_scorer_auto_fe import (
                     hybrid_orth_mi_ensemble_fe_with_recipes,
                 )
-                _y_for_ens = (
-                    y.to_numpy() if hasattr(y, "to_numpy")
-                    else np.asarray(y)
-                )
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+
+                _y_for_ens = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _ens_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns
-                        and c not in _hybrid_already_appended
-                    ]
+                    _ens_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _ens_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
-                _ens_degrees = tuple(int(d) for d in getattr(
-                    self, "fe_hybrid_orth_degrees", (2, 3),
-                ))
-                _ens_basis = str(getattr(
-                    self, "fe_hybrid_orth_basis", "auto",
-                ))
+                    _ens_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+                _ens_degrees = tuple(
+                    int(d)
+                    for d in getattr(
+                        self,
+                        "fe_hybrid_orth_degrees",
+                        (2, 3),
+                    )
+                )
+                _ens_basis = str(
+                    getattr(
+                        self,
+                        "fe_hybrid_orth_basis",
+                        "auto",
+                    )
+                )
                 _ens_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _ens_aggregator = str(getattr(
                     self, "fe_hybrid_orth_ensemble_aggregator", "mean_rank",
@@ -2600,50 +2364,41 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _ens_min_uplift = 0.95
                 _ens_min_abs_mi_frac = 0.05
                 _X_before_ens_cols = list(X.columns)
-                X_ens, _ens_scores, _ens_recipes = (
-                    fe_decide_on_subsample(
-                        hybrid_orth_mi_ensemble_fe_with_recipes,
-                        X, _y_for_ens,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                        cols=_ens_cols,
-                        degrees=_ens_degrees,
-                        basis=_ens_basis,
-                        top_k=_ens_top_k,
-                        min_uplift=_ens_min_uplift,
-                        min_abs_mi_frac=_ens_min_abs_mi_frac,
-                        scorers=_ens_scorers,
-                        aggregator=_ens_aggregator,
-                        random_state=int(
-                            getattr(self, "random_seed", 0) or 0
-                        ),
-                    )
+                X_ens, _ens_scores, _ens_recipes = fe_decide_on_subsample(
+                    hybrid_orth_mi_ensemble_fe_with_recipes,
+                    X,
+                    _y_for_ens,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                    cols=_ens_cols,
+                    degrees=_ens_degrees,
+                    basis=_ens_basis,
+                    top_k=_ens_top_k,
+                    min_uplift=_ens_min_uplift,
+                    min_abs_mi_frac=_ens_min_abs_mi_frac,
+                    scorers=_ens_scorers,
+                    aggregator=_ens_aggregator,
+                    random_state=int(getattr(self, "random_seed", 0) or 0),
                 )
-                _ens_appended = [
-                    c for c in X_ens.columns
-                    if c not in _X_before_ens_cols
-                ]
+                _ens_appended = [c for c in X_ens.columns if c not in _X_before_ens_cols]
                 if _ens_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_ens, _ens_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or [])
-                        + list(_ens_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ens_appended)
                     for _r in _ens_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth ensemble: appended %d "
-                            "engineered column(s) via %s aggregator: %s",
-                            len(_ens_appended), _ens_aggregator,
+                            "MRMR.fit hybrid_orth ensemble: appended %d " "engineered column(s) via %s aggregator: %s",
+                            len(_ens_appended),
+                            _ens_aggregator,
                             _ens_appended[:8],
                         )
             except Exception as _ens_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth ensemble FE raised %s: %s; "
-                    "continuing without ensemble columns.",
-                    type(_ens_exc).__name__, _ens_exc,
+                    "MRMR.fit hybrid_orth ensemble FE raised %s: %s; " "continuing without ensemble columns.",
+                    type(_ens_exc).__name__,
+                    _ens_exc,
                 )
     # 2026-06-01 Layer 76 — META-SCORER auto-selection that LEARNS from
     # cheap signal characteristics ("data fingerprints") and dispatches
@@ -2664,22 +2419,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._orthogonal_meta_scorer_fe import (
                     hybrid_orth_mi_meta_fe_with_recipes,
                 )
-                _y_for_meta = (
-                    _y_np
-                )
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+
+                _y_for_meta = _y_np
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _meta_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _meta_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _meta_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
+                    _meta_cols = [c for c in X.columns if c not in _hybrid_already_appended]
                 # Orthogonal/polynomial FE is numeric-only; drop non-numeric cols (raw cat / string) before the float
                 # conversion, else it raises "could not convert string to float" and the whole FE pass is dropped.
                 _meta_cols = _orth_fe_numeric_cols(X, _meta_cols)
@@ -2719,25 +2465,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     force_scorer=_meta_force,
                     random_state=int(getattr(self, "random_seed", 0) or 0),
                 )
-                _meta_appended = [
-                    c for c in X_meta.columns
-                    if c not in _X_before_meta_cols
-                ]
+                _meta_appended = [c for c in X_meta.columns if c not in _X_before_meta_cols]
                 if _meta_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_meta, _meta_appended))
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or [])
-                        + list(_meta_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_meta_appended)
                     for _r in _meta_recipes:
                         _hybrid_orth_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit hybrid_orth meta-scorer: dispatched "
-                            "to %r (force=%r); appended %d engineered "
-                            "column(s): %s",
-                            _meta_chosen, _meta_force,
-                            len(_meta_appended), _meta_appended[:8],
+                            "MRMR.fit hybrid_orth meta-scorer: dispatched " "to %r (force=%r); appended %d engineered " "column(s): %s",
+                            _meta_chosen,
+                            _meta_force,
+                            len(_meta_appended),
+                            _meta_appended[:8],
                         )
                 # Expose the chosen scorer + fingerprint for downstream
                 # audit / debug (also survives pickle because plain attrs).
@@ -2745,9 +2485,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 self.hybrid_orth_meta_fingerprint_ = dict(_meta_fp)
             except Exception as _meta_exc:
                 logger.warning(
-                    "MRMR.fit hybrid_orth meta-scorer FE raised %s: %s; "
-                    "continuing without meta-scorer columns.",
-                    type(_meta_exc).__name__, _meta_exc,
+                    "MRMR.fit hybrid_orth meta-scorer FE raised %s: %s; " "continuing without meta-scorer columns.",
+                    type(_meta_exc).__name__,
+                    _meta_exc,
                 )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
@@ -2781,9 +2521,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
                 def _mig_reject_sink(**_kw):
                     _record_fe_rejection(self, step=_mig_step, **_kw)
-                _y_for_mig = (
-                    _y_np
-                )
+
+                _y_for_mig = _y_np
                 if _y_for_mig.dtype.kind in "fc":
                     _n_unique = int(np.unique(_y_for_mig).size)
                     if _n_unique <= 32:
@@ -2802,20 +2541,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # column that does not exist at transform time -- replay
                 # would KeyError. Each constructor explores its OWN design
                 # space; the union of winners is screened by MRMR.
-                _hybrid_already_appended = set(
-                    getattr(self, "hybrid_orth_features_", None) or []
-                )
+                _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
                 _mig_cols = None
                 if getattr(self, "factors_names_to_use", None):
-                    _mig_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _hybrid_already_appended
-                    ]
+                    _mig_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
                 else:
-                    _mig_cols = [
-                        c for c in X.columns
-                        if c not in _hybrid_already_appended
-                    ]
+                    _mig_cols = [c for c in X.columns if c not in _hybrid_already_appended]
                 _X_before_mig_cols = list(X.columns)
                 X_mg, _mig_scores, _mig_recipes = fe_decide_on_subsample(
                     greedy_mi_fe_construct_with_recipes,
@@ -2830,9 +2561,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     include_binary=bool(self.fe_mi_greedy_include_binary),
                     reject_sink=_mig_reject_sink,
                 )
-                _mig_appended = [
-                    c for c in X_mg.columns if c not in _X_before_mig_cols
-                ]
+                _mig_appended = [c for c in X_mg.columns if c not in _X_before_mig_cols]
                 if _mig_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_mg, _mig_appended))
                     self.mi_greedy_features_ = list(_mig_appended)
@@ -2840,15 +2569,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _mi_greedy_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit mi_greedy: appended %d engineered "
-                            "column(s): %s",
-                            len(_mig_appended), _mig_appended[:8],
+                            "MRMR.fit mi_greedy: appended %d engineered " "column(s): %s",
+                            len(_mig_appended),
+                            _mig_appended[:8],
                         )
             except Exception as _mig_exc:
                 logger.warning(
-                    "MRMR.fit mi_greedy FE raised %s: %s; continuing "
-                    "without MI-greedy columns.",
-                    type(_mig_exc).__name__, _mig_exc,
+                    "MRMR.fit mi_greedy FE raised %s: %s; continuing " "without MI-greedy columns.",
+                    type(_mig_exc).__name__,
+                    _mig_exc,
                 )
 
     # 2026-05-31 Layer 60 — CMI-greedy FE constructor (sibling to Layer 26).
@@ -2866,9 +2595,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         if True:
             try:
                 from .._mi_greedy_cmi_fe import greedy_cmi_fe_construct_with_recipes
-                _y_for_cmi = (
-                    _y_np
-                )
+
+                _y_for_cmi = _y_np
                 if _y_for_cmi.dtype.kind in "fc":
                     _n_unique_cmi = int(np.unique(_y_for_cmi).size)
                     if _n_unique_cmi <= 32:
@@ -2880,20 +2608,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             ).astype(np.int64)
                         except Exception:
                             _y_for_cmi = _y_for_cmi.astype(np.int64)
-                _eng_already_appended = (
-                    set(getattr(self, "hybrid_orth_features_", None) or [])
-                    | set(self.mi_greedy_features_ or [])
-                )
+                _eng_already_appended = set(getattr(self, "hybrid_orth_features_", None) or []) | set(self.mi_greedy_features_ or [])
                 if getattr(self, "factors_names_to_use", None):
-                    _cmi_cols = [
-                        c for c in self.factors_names_to_use
-                        if c in X.columns and c not in _eng_already_appended
-                    ]
+                    _cmi_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _eng_already_appended]
                 else:
-                    _cmi_cols = [
-                        c for c in X.columns
-                        if c not in _eng_already_appended
-                    ]
+                    _cmi_cols = [c for c in X.columns if c not in _eng_already_appended]
                 _X_before_cmi_cols = list(X.columns)
                 X_cmi, _cmi_scores, _cmi_recipes = fe_decide_on_subsample(
                     greedy_cmi_fe_construct_with_recipes,
@@ -2908,10 +2627,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     include_binary=bool(getattr(self, "fe_mi_greedy_include_binary", True)),
                     min_cmi_gain=float(self.fe_mi_greedy_cmi_min_gain),
                 )
-                _cmi_appended = [
-                    c for c in X_cmi.columns
-                    if c not in _X_before_cmi_cols
-                ]
+                _cmi_appended = [c for c in X_cmi.columns if c not in _X_before_cmi_cols]
                 if _cmi_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_cmi, _cmi_appended))
                     # Merge into the existing mi_greedy_features_ list so
@@ -2930,15 +2646,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             _mi_greedy_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit mi_greedy_cmi: appended %d engineered "
-                            "column(s): %s",
-                            len(_cmi_appended), _cmi_appended[:8],
+                            "MRMR.fit mi_greedy_cmi: appended %d engineered " "column(s): %s",
+                            len(_cmi_appended),
+                            _cmi_appended[:8],
                         )
             except Exception as _cmi_exc:
                 logger.warning(
-                    "MRMR.fit mi_greedy_cmi FE raised %s: %s; continuing "
-                    "without CMI-greedy columns.",
-                    type(_cmi_exc).__name__, _cmi_exc,
+                    "MRMR.fit mi_greedy_cmi FE raised %s: %s; continuing " "without CMI-greedy columns.",
+                    type(_cmi_exc).__name__,
+                    _cmi_exc,
                 )
 
     # 2026-05-31 Layer 33 — K-fold target encoding for raw categorical
@@ -2967,24 +2683,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 from .._target_encoding_fe import (
                     kfold_target_encode_with_recipes,
                 )
-                _te_cols_cfg = tuple(
-                    getattr(self, "fe_kfold_te_cols", ()) or ()
-                )
+
+                _te_cols_cfg = tuple(getattr(self, "fe_kfold_te_cols", ()) or ())
                 # Explicit empty tuple -> auto-detect; explicit names -> use
                 # exactly those (after intersecting with X.columns).
                 _te_cols = list(_te_cols_cfg) if _te_cols_cfg else None
                 if _te_cols is not None:
                     _hybrid_appended = set(self.hybrid_orth_features_ or [])
                     _mig_appended = set(self.mi_greedy_features_ or [])
-                    _te_cols = [
-                        c for c in _te_cols
-                        if c in X.columns
-                        and c not in _hybrid_appended
-                        and c not in _mig_appended
-                    ]
-                _y_for_te = (
-                    _y_np
-                )
+                    _te_cols = [c for c in _te_cols if c in X.columns and c not in _hybrid_appended and c not in _mig_appended]
+                _y_for_te = _y_np
                 # TE works for both binary classification and regression as-
                 # is (mean of {0,1} = P(y=1); mean of continuous = mean).
                 # Cast bool / object to float to avoid type errors inside
@@ -3004,12 +2712,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     fe_to_pandas(X), _y_for_te,
                     cat_cols=_te_cols,
                     n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
-                    smoothing=float(
-                        getattr(self, "fe_kfold_te_smoothing", 10.0)
-                    ),
-                    random_state=int(
-                        getattr(self, "random_seed", 0) or 0
-                    ),
+                    smoothing=float(getattr(self, "fe_kfold_te_smoothing", 10.0)),
+                    random_state=int(getattr(self, "random_seed", 0) or 0),
                     mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                     mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                     reject_sink=_te_reject_sink,
@@ -3024,33 +2728,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # collision pre-condition would require a user-supplied
                 # source column literally named ``{src}__te``. Drop any
                 # accidental name collision rather than overwrite.
-                _te_appended = [
-                    c for c in _te_appended if c not in _X_before_te_cols
-                ]
+                _te_appended = [c for c in _te_appended if c not in _X_before_te_cols]
                 if _te_appended:
                     X = fe_append_columns(X, fe_extract_columns(X_te, _te_appended))
                     self.kfold_te_features_ = list(_te_appended)
                     # Route through hybrid_orth_features_ so the end-of-fit
                     # remap routes by-name selected items into
                     # _engineered_recipes_ (Layer 23 routing path).
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or [])
-                        + list(_te_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_te_appended)
                     for _r in _te_recipes:
                         if _r.name in _te_appended:
                             _kfold_te_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit kfold_te: appended %d engineered "
-                            "column(s): %s",
-                            len(_te_appended), _te_appended[:8],
+                            "MRMR.fit kfold_te: appended %d engineered " "column(s): %s",
+                            len(_te_appended),
+                            _te_appended[:8],
                         )
             except Exception as _te_exc:
                 logger.warning(
-                    "MRMR.fit kfold_te FE raised %s: %s; continuing "
-                    "without target-encoded columns.",
-                    type(_te_exc).__name__, _te_exc,
+                    "MRMR.fit kfold_te FE raised %s: %s; continuing " "without target-encoded columns.",
+                    type(_te_exc).__name__,
+                    _te_exc,
                 )
 
     # GROUPED AGGREGATION OVER QUANTILE-BINNED NUMERIC CELLS (2026-06-13). Appends leak-safe per-cell
@@ -3140,29 +2839,20 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _hybrid_appended_l34 = set(self.hybrid_orth_features_ or [])
             _mig_appended_l34 = set(self.mi_greedy_features_ or [])
             _te_appended_l34 = set(self.kfold_te_features_ or [])
-            _engineered_seen_l34 = (
-                _hybrid_appended_l34 | _mig_appended_l34 | _te_appended_l34
-            )
+            _engineered_seen_l34 = _hybrid_appended_l34 | _mig_appended_l34 | _te_appended_l34
 
             # ----- Count encoding ----------------------------------------
             if bool(getattr(self, "fe_count_encoding_enable", False)):
                 try:
-                    _cnt_cfg = tuple(
-                        getattr(self, "fe_count_encoding_cols", ()) or ()
-                    )
+                    _cnt_cfg = tuple(getattr(self, "fe_count_encoding_cols", ()) or ())
                     if _cnt_cfg:
-                        _cnt_cols = [
-                            c for c in _cnt_cfg
-                            if c in X.columns and c not in _engineered_seen_l34
-                        ]
+                        _cnt_cols = [c for c in _cnt_cfg if c in X.columns and c not in _engineered_seen_l34]
                     else:
                         _cnt_cols = auto_detect_te_cols(
                             X, min_card=5, max_card=500,
                         )
                     _X_before_cnt_cols = list(X.columns)
-                    _y_for_cnt = (
-                        _y_np
-                    )
+                    _y_for_cnt = _y_np
                     X_c, _cnt_appended, _cnt_recipes = count_encode_with_recipes(
                         fe_to_pandas(X), cat_cols=_cnt_cols,
                         mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
@@ -3170,50 +2860,39 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         y=_y_for_cnt,
                         reject_sink=_l34_reject_sink,
                     )
-                    _cnt_appended = [
-                        c for c in _cnt_appended if c not in _X_before_cnt_cols
-                    ]
+                    _cnt_appended = [c for c in _cnt_appended if c not in _X_before_cnt_cols]
                     if _cnt_appended:
                         X = fe_append_columns(X, fe_extract_columns(X_c, _cnt_appended))
                         self.count_encoding_features_ = list(_cnt_appended)
-                        self.hybrid_orth_features_ = (
-                            list(self.hybrid_orth_features_ or []) + list(_cnt_appended)
-                        )
+                        self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cnt_appended)
                         for _r in _cnt_recipes:
                             if _r.name in _cnt_appended:
                                 _count_enc_pre_recipes[_r.name] = _r
                         if verbose:
                             logger.info(
-                                "MRMR.fit count_encoding: appended %d "
-                                "engineered column(s): %s",
-                                len(_cnt_appended), _cnt_appended[:8],
+                                "MRMR.fit count_encoding: appended %d " "engineered column(s): %s",
+                                len(_cnt_appended),
+                                _cnt_appended[:8],
                             )
                 except Exception as _cnt_exc:
                     logger.warning(
-                        "MRMR.fit count_encoding FE raised %s: %s; "
-                        "continuing without count-encoded columns.",
-                        type(_cnt_exc).__name__, _cnt_exc,
+                        "MRMR.fit count_encoding FE raised %s: %s; " "continuing without count-encoded columns.",
+                        type(_cnt_exc).__name__,
+                        _cnt_exc,
                     )
 
             # ----- Frequency encoding ------------------------------------
             if bool(getattr(self, "fe_frequency_encoding_enable", False)):
                 try:
-                    _freq_cfg = tuple(
-                        getattr(self, "fe_frequency_encoding_cols", ()) or ()
-                    )
+                    _freq_cfg = tuple(getattr(self, "fe_frequency_encoding_cols", ()) or ())
                     if _freq_cfg:
-                        _freq_cols = [
-                            c for c in _freq_cfg
-                            if c in X.columns and c not in _engineered_seen_l34
-                        ]
+                        _freq_cols = [c for c in _freq_cfg if c in X.columns and c not in _engineered_seen_l34]
                     else:
                         _freq_cols = auto_detect_te_cols(
                             X, min_card=5, max_card=500,
                         )
                     _X_before_freq_cols = list(X.columns)
-                    _y_for_freq = (
-                        _y_np
-                    )
+                    _y_for_freq = _y_np
                     X_f, _freq_appended, _freq_recipes = frequency_encode_with_recipes(
                         fe_to_pandas(X), cat_cols=_freq_cols,
                         mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
@@ -3221,96 +2900,69 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         y=_y_for_freq,
                         reject_sink=_l34_reject_sink,
                     )
-                    _freq_appended = [
-                        c for c in _freq_appended if c not in _X_before_freq_cols
-                    ]
+                    _freq_appended = [c for c in _freq_appended if c not in _X_before_freq_cols]
                     if _freq_appended:
                         X = fe_append_columns(X, fe_extract_columns(X_f, _freq_appended))
                         self.frequency_encoding_features_ = list(_freq_appended)
-                        self.hybrid_orth_features_ = (
-                            list(self.hybrid_orth_features_ or []) + list(_freq_appended)
-                        )
+                        self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_freq_appended)
                         for _r in _freq_recipes:
                             if _r.name in _freq_appended:
                                 _freq_enc_pre_recipes[_r.name] = _r
                         if verbose:
                             logger.info(
-                                "MRMR.fit frequency_encoding: appended %d "
-                                "engineered column(s): %s",
-                                len(_freq_appended), _freq_appended[:8],
+                                "MRMR.fit frequency_encoding: appended %d " "engineered column(s): %s",
+                                len(_freq_appended),
+                                _freq_appended[:8],
                             )
                 except Exception as _freq_exc:
                     logger.warning(
-                        "MRMR.fit frequency_encoding FE raised %s: %s; "
-                        "continuing without frequency-encoded columns.",
-                        type(_freq_exc).__name__, _freq_exc,
+                        "MRMR.fit frequency_encoding FE raised %s: %s; " "continuing without frequency-encoded columns.",
+                        type(_freq_exc).__name__,
+                        _freq_exc,
                     )
 
             # ----- Cat x Num interaction (OOF residual) ------------------
             if bool(getattr(self, "fe_cat_num_interaction_enable", False)):
                 try:
-                    _cn_cats = tuple(
-                        getattr(self, "fe_cat_num_interaction_cat_cols", ()) or ()
-                    )
-                    _cn_nums = tuple(
-                        getattr(self, "fe_cat_num_interaction_num_cols", ()) or ()
-                    )
-                    _cn_cats = [
-                        c for c in _cn_cats if c in X.columns
-                    ]
-                    _cn_nums = [
-                        c for c in _cn_nums if c in X.columns
-                    ]
+                    _cn_cats = tuple(getattr(self, "fe_cat_num_interaction_cat_cols", ()) or ())
+                    _cn_nums = tuple(getattr(self, "fe_cat_num_interaction_num_cols", ()) or ())
+                    _cn_cats = [c for c in _cn_cats if c in X.columns]
+                    _cn_nums = [c for c in _cn_nums if c in X.columns]
                     if _cn_cats and _cn_nums:
-                        _y_for_cn = (
-                            _y_np
-                        )
+                        _y_for_cn = _y_np
                         _y_for_cn = np.asarray(_y_for_cn, dtype=np.float64).ravel()
                         _X_before_cn_cols = list(X.columns)
-                        X_cn, _cn_appended, _cn_recipes = (
-                            cat_num_interaction_with_recipes(
-                                fe_to_pandas(X), _y_for_cn,
-                                cat_cols=_cn_cats,
-                                num_cols=_cn_nums,
-                                n_folds=int(
-                                    getattr(self, "fe_cat_num_interaction_folds", 5)
-                                ),
-                                smoothing=float(
-                                    getattr(self, "fe_cat_num_interaction_smoothing", 10.0)
-                                ),
-                                random_state=int(
-                                    getattr(self, "random_seed", 0) or 0
-                                ),
-                                mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
-                                mi_gate_top_k=int(
-                                    getattr(self, "fe_local_mi_gate_top_k", 20)
-                                ),
-                                reject_sink=_l34_reject_sink,
-                            )
+                        X_cn, _cn_appended, _cn_recipes = cat_num_interaction_with_recipes(
+                            fe_to_pandas(X),
+                            _y_for_cn,
+                            cat_cols=_cn_cats,
+                            num_cols=_cn_nums,
+                            n_folds=int(getattr(self, "fe_cat_num_interaction_folds", 5)),
+                            smoothing=float(getattr(self, "fe_cat_num_interaction_smoothing", 10.0)),
+                            random_state=int(getattr(self, "random_seed", 0) or 0),
+                            mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                            mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                            reject_sink=_l34_reject_sink,
                         )
-                        _cn_appended = [
-                            c for c in _cn_appended if c not in _X_before_cn_cols
-                        ]
+                        _cn_appended = [c for c in _cn_appended if c not in _X_before_cn_cols]
                         if _cn_appended:
                             X = fe_append_columns(X, fe_extract_columns(X_cn, _cn_appended))
                             self.cat_num_interaction_features_ = list(_cn_appended)
-                            self.hybrid_orth_features_ = (
-                                list(self.hybrid_orth_features_ or []) + list(_cn_appended)
-                            )
+                            self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cn_appended)
                             for _r in _cn_recipes:
                                 if _r.name in _cn_appended:
                                     _cat_num_pre_recipes[_r.name] = _r
                             if verbose:
                                 logger.info(
-                                    "MRMR.fit cat_num_interaction: appended %d "
-                                    "engineered column(s): %s",
-                                    len(_cn_appended), _cn_appended[:8],
+                                    "MRMR.fit cat_num_interaction: appended %d " "engineered column(s): %s",
+                                    len(_cn_appended),
+                                    _cn_appended[:8],
                                 )
                 except Exception as _cn_exc:
                     logger.warning(
-                        "MRMR.fit cat_num_interaction FE raised %s: %s; "
-                        "continuing without cat x num residual columns.",
-                        type(_cn_exc).__name__, _cn_exc,
+                        "MRMR.fit cat_num_interaction FE raised %s: %s; " "continuing without cat x num residual columns.",
+                        type(_cn_exc).__name__,
+                        _cn_exc,
                     )
 
     # 2026-05-31 Layer 37 — MISSINGNESS-AWARE FE. Three independent master
@@ -3378,31 +3030,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             def _resolve_missing_cols(cfg):
                 _cfg = tuple(cfg or ())
                 if _cfg:
-                    return [
-                        c for c in _cfg
-                        if c in X.columns and c not in _engineered_seen_l37
-                    ]
+                    return [c for c in _cfg if c in X.columns and c not in _engineered_seen_l37]
                 # Auto-detect candidate cols with NaN rate in [1%, 99%].
-                return [
-                    c for c in auto_detect_missing_cols(fe_to_pandas(X))
-                    if c not in _engineered_seen_l37
-                ]
+                return [c for c in auto_detect_missing_cols(fe_to_pandas(X)) if c not in _engineered_seen_l37]
 
             # ----- Per-column indicator ------------------------------------
             if bool(getattr(self, "fe_missingness_indicator_enable", False)):
                 try:
-                    _ind_cols = _resolve_missing_cols(
-                        getattr(self, "fe_missingness_indicator_cols", ())
-                    )
+                    _ind_cols = _resolve_missing_cols(getattr(self, "fe_missingness_indicator_cols", ()))
                     _X_before_ind_cols = list(X.columns)
-                    _y_for_ind = (
-                        _y_np
-                    )
+                    _y_for_ind = _y_np
                     # Anchor the indicator's MI noise floor on the RAW input columns, not the engineered-polluted X: an earlier adaptive-Fourier stage appended high-(plug-in)-MI hijacker columns that would otherwise inflate the floor above a genuine MNAR indicator's MI and drop it (a >2%-missing source's signal lives in the NaN pattern the Fourier MI inflates).
-                    _raw_floor_X = (
-                        fe_to_pandas(X)[[c for c in _raw_input_cols_pre_fe if c in X.columns]]
-                        if _raw_input_cols_pre_fe else None
-                    )
+                    _raw_floor_X = fe_to_pandas(X)[[c for c in _raw_input_cols_pre_fe if c in X.columns]] if _raw_input_cols_pre_fe else None
                     X_i, _ind_appended, _ind_recipes = missing_indicator_with_recipes(
                         fe_to_pandas(X), cols=_ind_cols,
                         mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
@@ -3411,100 +3050,84 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         raw_X=_raw_floor_X,
                         reject_sink=_l37_reject_sink,
                     )
-                    _ind_appended = [
-                        c for c in _ind_appended if c not in _X_before_ind_cols
-                    ]
+                    _ind_appended = [c for c in _ind_appended if c not in _X_before_ind_cols]
                     if _ind_appended:
                         X = fe_append_columns(X, fe_extract_columns(X_i, _ind_appended))
                         self.missingness_indicator_features_ = list(_ind_appended)
-                        self.hybrid_orth_features_ = (
-                            list(self.hybrid_orth_features_ or []) + list(_ind_appended)
-                        )
+                        self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ind_appended)
                         for _r in _ind_recipes:
                             if _r.name in _ind_appended:
                                 _miss_ind_pre_recipes[_r.name] = _r
                         if verbose:
                             logger.info(
-                                "MRMR.fit missingness_indicator: appended %d "
-                                "engineered column(s): %s",
-                                len(_ind_appended), _ind_appended[:8],
+                                "MRMR.fit missingness_indicator: appended %d " "engineered column(s): %s",
+                                len(_ind_appended),
+                                _ind_appended[:8],
                             )
                 except Exception as _ind_exc:
                     logger.warning(
-                        "MRMR.fit missingness_indicator FE raised %s: %s; "
-                        "continuing without missingness indicator columns.",
-                        type(_ind_exc).__name__, _ind_exc,
+                        "MRMR.fit missingness_indicator FE raised %s: %s; " "continuing without missingness indicator columns.",
+                        type(_ind_exc).__name__,
+                        _ind_exc,
                     )
 
             # ----- Per-row missingness count -------------------------------
             if bool(getattr(self, "fe_missingness_count_enable", False)):
                 try:
-                    _cnt_cols = _resolve_missing_cols(
-                        getattr(self, "fe_missingness_indicator_cols", ())
-                    )
+                    _cnt_cols = _resolve_missing_cols(getattr(self, "fe_missingness_indicator_cols", ()))
                     _X_before_mc_cols = list(X.columns)
                     X_c, _mc_appended, _mc_recipes = missingness_count_with_recipes(
                         fe_to_pandas(X), cols=_cnt_cols,
                     )
-                    _mc_appended = [
-                        c for c in _mc_appended if c not in _X_before_mc_cols
-                    ]
+                    _mc_appended = [c for c in _mc_appended if c not in _X_before_mc_cols]
                     if _mc_appended:
                         X = fe_append_columns(X, fe_extract_columns(X_c, _mc_appended))
                         self.missingness_count_features_ = list(_mc_appended)
-                        self.hybrid_orth_features_ = (
-                            list(self.hybrid_orth_features_ or []) + list(_mc_appended)
-                        )
+                        self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_mc_appended)
                         for _r in _mc_recipes:
                             if _r.name in _mc_appended:
                                 _miss_cnt_pre_recipes[_r.name] = _r
                         if verbose:
                             logger.info(
-                                "MRMR.fit missingness_count: appended %d "
-                                "engineered column(s): %s",
-                                len(_mc_appended), _mc_appended[:8],
+                                "MRMR.fit missingness_count: appended %d " "engineered column(s): %s",
+                                len(_mc_appended),
+                                _mc_appended[:8],
                             )
                 except Exception as _mc_exc:
                     logger.warning(
-                        "MRMR.fit missingness_count FE raised %s: %s; "
-                        "continuing without missingness count column.",
-                        type(_mc_exc).__name__, _mc_exc,
+                        "MRMR.fit missingness_count FE raised %s: %s; " "continuing without missingness count column.",
+                        type(_mc_exc).__name__,
+                        _mc_exc,
                     )
 
             # ----- Per-row top-K pattern -----------------------------------
             if bool(getattr(self, "fe_missingness_pattern_enable", False)):
                 try:
-                    _pat_cols = _resolve_missing_cols(
-                        getattr(self, "fe_missingness_indicator_cols", ())
-                    )
+                    _pat_cols = _resolve_missing_cols(getattr(self, "fe_missingness_indicator_cols", ()))
                     _top_k = int(getattr(self, "fe_missingness_pattern_top_k", 5))
                     _X_before_pat_cols = list(X.columns)
                     X_p, _pat_appended, _pat_recipes = missingness_pattern_with_recipes(
                         fe_to_pandas(X), cols=_pat_cols, top_k=_top_k,
                     )
-                    _pat_appended = [
-                        c for c in _pat_appended if c not in _X_before_pat_cols
-                    ]
+                    _pat_appended = [c for c in _pat_appended if c not in _X_before_pat_cols]
                     if _pat_appended:
                         X = fe_append_columns(X, fe_extract_columns(X_p, _pat_appended))
                         self.missingness_pattern_features_ = list(_pat_appended)
-                        self.hybrid_orth_features_ = (
-                            list(self.hybrid_orth_features_ or []) + list(_pat_appended)
-                        )
+                        self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_pat_appended)
                         for _r in _pat_recipes:
                             if _r.name in _pat_appended:
                                 _miss_pat_pre_recipes[_r.name] = _r
                         if verbose:
                             logger.info(
-                                "MRMR.fit missingness_pattern: appended %d "
-                                "engineered column(s): %s",
-                                len(_pat_appended), _pat_appended[:8],
+                                "MRMR.fit missingness_pattern: appended %d " "engineered column(s): %s",
+                                len(_pat_appended),
+                                _pat_appended[:8],
                             )
                 except Exception as _pat_exc:
                     logger.warning(
-                        "MRMR.fit missingness_pattern FE raised %s: %s; "
-                        "continuing without missingness pattern column.",
-                        type(_pat_exc).__name__, _pat_exc,
+                        "MRMR.fit missingness_pattern FE raised %s: %s; " "continuing without missingness pattern column.",
+                        type(_pat_exc).__name__,
+                        _pat_exc,
                     )
 
     # 2026-05-31 Layer 38 — CROSS-FEATURE RATIO + GROUPED-DELTA + LAGGED-DIFF.
@@ -3588,9 +3211,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
             _l38_mi_gate = bool(getattr(self, "fe_local_mi_gate", False))
             _l38_mi_gate_top_k = int(getattr(self, "fe_local_mi_gate_top_k", 20))
-            _y_for_l38 = (
-                _y_np
-            )
+            _y_for_l38 = _y_np
             from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
             # W6 follow-up: shared sink for the ratio/log-ratio/grouped-delta/
@@ -3604,9 +3225,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # ----- Pairwise ratio --------------------------------------------
             if bool(getattr(self, "fe_pairwise_ratio_enable", False)):
                 try:
-                    _ratio_cols = tuple(
-                        getattr(self, "fe_pairwise_ratio_cols", ()) or ()
-                    )
+                    _ratio_cols = tuple(getattr(self, "fe_pairwise_ratio_cols", ()) or ())
                     _ratio_cols = [c for c in _ratio_cols if c in X.columns]
                     _eps = float(getattr(self, "fe_pairwise_ratio_eps", 1e-9))
                     _X_before_r_cols = list(X.columns)
@@ -3615,37 +3234,31 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
                         y=_y_for_l38, reject_sink=_l38_reject_sink,
                     )
-                    _r_appended = [
-                        c for c in _r_appended if c not in _X_before_r_cols
-                    ]
+                    _r_appended = [c for c in _r_appended if c not in _X_before_r_cols]
                     if _r_appended:
                         X = fe_append_columns(X, fe_extract_columns(X_r, _r_appended))
                         self.pairwise_ratio_features_ = list(_r_appended)
-                        self.hybrid_orth_features_ = (
-                            list(self.hybrid_orth_features_ or []) + list(_r_appended)
-                        )
+                        self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_r_appended)
                         for _r in _r_recipes:
                             if _r.name in _r_appended:
                                 _ratio_pre_recipes[_r.name] = _r
                         if verbose:
                             logger.info(
-                                "MRMR.fit pairwise_ratio: appended %d "
-                                "engineered column(s): %s",
-                                len(_r_appended), _r_appended[:8],
+                                "MRMR.fit pairwise_ratio: appended %d " "engineered column(s): %s",
+                                len(_r_appended),
+                                _r_appended[:8],
                             )
                 except Exception as _r_exc:
                     logger.warning(
-                        "MRMR.fit pairwise_ratio FE raised %s: %s; "
-                        "continuing without ratio columns.",
-                        type(_r_exc).__name__, _r_exc,
+                        "MRMR.fit pairwise_ratio FE raised %s: %s; " "continuing without ratio columns.",
+                        type(_r_exc).__name__,
+                        _r_exc,
                     )
 
             # ----- Pairwise log-ratio ----------------------------------------
             if bool(getattr(self, "fe_pairwise_log_ratio_enable", False)):
                 try:
-                    _lr_cols = tuple(
-                        getattr(self, "fe_pairwise_log_ratio_cols", ()) or ()
-                    )
+                    _lr_cols = tuple(getattr(self, "fe_pairwise_log_ratio_cols", ()) or ())
                     _lr_cols = [c for c in _lr_cols if c in X.columns]
                     _eps_lr = float(getattr(self, "fe_pairwise_ratio_eps", 1e-9))
                     _X_before_lr_cols = list(X.columns)
@@ -3654,38 +3267,32 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
                         y=_y_for_l38, reject_sink=_l38_reject_sink,
                     )
-                    _lr_appended = [
-                        c for c in _lr_appended if c not in _X_before_lr_cols
-                    ]
+                    _lr_appended = [c for c in _lr_appended if c not in _X_before_lr_cols]
                     if _lr_appended:
                         X = fe_append_columns(X, fe_extract_columns(X_lr, _lr_appended))
                         self.pairwise_log_ratio_features_ = list(_lr_appended)
-                        self.hybrid_orth_features_ = (
-                            list(self.hybrid_orth_features_ or []) + list(_lr_appended)
-                        )
+                        self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_lr_appended)
                         for _r in _lr_recipes:
                             if _r.name in _lr_appended:
                                 _log_ratio_pre_recipes[_r.name] = _r
                         if verbose:
                             logger.info(
-                                "MRMR.fit pairwise_log_ratio: appended %d "
-                                "engineered column(s): %s",
-                                len(_lr_appended), _lr_appended[:8],
+                                "MRMR.fit pairwise_log_ratio: appended %d " "engineered column(s): %s",
+                                len(_lr_appended),
+                                _lr_appended[:8],
                             )
                 except Exception as _lr_exc:
                     logger.warning(
-                        "MRMR.fit pairwise_log_ratio FE raised %s: %s; "
-                        "continuing without log-ratio columns.",
-                        type(_lr_exc).__name__, _lr_exc,
+                        "MRMR.fit pairwise_log_ratio FE raised %s: %s; " "continuing without log-ratio columns.",
+                        type(_lr_exc).__name__,
+                        _lr_exc,
                     )
 
             # ----- Grouped delta ---------------------------------------------
             if bool(getattr(self, "fe_grouped_delta_enable", False)):
                 try:
                     _gd_group = getattr(self, "fe_grouped_delta_group_col", None)
-                    _gd_nums = tuple(
-                        getattr(self, "fe_grouped_delta_num_cols", ()) or ()
-                    )
+                    _gd_nums = tuple(getattr(self, "fe_grouped_delta_num_cols", ()) or ())
                     _gd_nums = [c for c in _gd_nums if c in X.columns]
                     _X_before_gd_cols = list(X.columns)
                     X_gd, _gd_appended, _gd_recipes = grouped_delta_with_recipes(
@@ -3693,42 +3300,34 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
                         y=_y_for_l38, reject_sink=_l38_reject_sink,
                     )
-                    _gd_appended = [
-                        c for c in _gd_appended if c not in _X_before_gd_cols
-                    ]
+                    _gd_appended = [c for c in _gd_appended if c not in _X_before_gd_cols]
                     if _gd_appended:
                         X = fe_append_columns(X, fe_extract_columns(X_gd, _gd_appended))
                         self.grouped_delta_features_ = list(_gd_appended)
-                        self.hybrid_orth_features_ = (
-                            list(self.hybrid_orth_features_ or []) + list(_gd_appended)
-                        )
+                        self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_gd_appended)
                         for _r in _gd_recipes:
                             if _r.name in _gd_appended:
                                 _grouped_delta_pre_recipes[_r.name] = _r
                         if verbose:
                             logger.info(
-                                "MRMR.fit grouped_delta: appended %d "
-                                "engineered column(s): %s",
-                                len(_gd_appended), _gd_appended[:8],
+                                "MRMR.fit grouped_delta: appended %d " "engineered column(s): %s",
+                                len(_gd_appended),
+                                _gd_appended[:8],
                             )
                 except Exception as _gd_exc:
                     logger.warning(
-                        "MRMR.fit grouped_delta FE raised %s: %s; "
-                        "continuing without grouped-delta columns.",
-                        type(_gd_exc).__name__, _gd_exc,
+                        "MRMR.fit grouped_delta FE raised %s: %s; " "continuing without grouped-delta columns.",
+                        type(_gd_exc).__name__,
+                        _gd_exc,
                     )
 
             # ----- Lagged diff -----------------------------------------------
             if bool(getattr(self, "fe_lagged_diff_enable", False)):
                 try:
                     _ld_time = getattr(self, "fe_lagged_diff_time_col", None)
-                    _ld_vals = tuple(
-                        getattr(self, "fe_lagged_diff_value_cols", ()) or ()
-                    )
+                    _ld_vals = tuple(getattr(self, "fe_lagged_diff_value_cols", ()) or ())
                     _ld_vals = [c for c in _ld_vals if c in X.columns]
-                    _ld_periods = tuple(
-                        getattr(self, "fe_lagged_diff_periods", (1, 2)) or (1, 2)
-                    )
+                    _ld_periods = tuple(getattr(self, "fe_lagged_diff_periods", (1, 2)) or (1, 2))
                     _X_before_ld_cols = list(X.columns)
                     X_ld, _ld_appended, _ld_recipes = lagged_diff_with_recipes(
                         fe_to_pandas(X), time_col=_ld_time, value_cols=_ld_vals,
@@ -3736,29 +3335,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
                         y=_y_for_l38, reject_sink=_l38_reject_sink,
                     )
-                    _ld_appended = [
-                        c for c in _ld_appended if c not in _X_before_ld_cols
-                    ]
+                    _ld_appended = [c for c in _ld_appended if c not in _X_before_ld_cols]
                     if _ld_appended:
                         X = fe_append_columns(X, fe_extract_columns(X_ld, _ld_appended))
                         self.lagged_diff_features_ = list(_ld_appended)
-                        self.hybrid_orth_features_ = (
-                            list(self.hybrid_orth_features_ or []) + list(_ld_appended)
-                        )
+                        self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ld_appended)
                         for _r in _ld_recipes:
                             if _r.name in _ld_appended:
                                 _lagged_diff_pre_recipes[_r.name] = _r
                         if verbose:
                             logger.info(
-                                "MRMR.fit lagged_diff: appended %d "
-                                "engineered column(s): %s",
-                                len(_ld_appended), _ld_appended[:8],
+                                "MRMR.fit lagged_diff: appended %d " "engineered column(s): %s",
+                                len(_ld_appended),
+                                _ld_appended[:8],
                             )
                 except Exception as _ld_exc:
                     logger.warning(
-                        "MRMR.fit lagged_diff FE raised %s: %s; "
-                        "continuing without lagged-diff columns.",
-                        type(_ld_exc).__name__, _ld_exc,
+                        "MRMR.fit lagged_diff FE raised %s: %s; " "continuing without lagged-diff columns.",
+                        type(_ld_exc).__name__,
+                        _ld_exc,
                     )
 
     # Layer 87 (2026-06-01): grouped multi-stat aggregator with CMI gate.
@@ -3781,9 +3376,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
                 # CMI gate needs a class-typed target; bin continuous y the
                 # same way the Layer 60 CMI-greedy stage does.
-                _y_for_ga = (
-                    _y_np
-                )
+                _y_for_ga = _y_np
                 if _y_for_ga.dtype.kind in "fc":
                     _n_unique_ga = int(np.unique(_y_for_ga).size)
                     if _n_unique_ga <= 32:
@@ -3796,18 +3389,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         except Exception:
                             _y_for_ga = _y_for_ga.astype(np.int64)
 
-                _ga_groups = tuple(
-                    getattr(self, "fe_grouped_agg_group_cols", ()) or ()
-                )
+                _ga_groups = tuple(getattr(self, "fe_grouped_agg_group_cols", ()) or ())
                 _ga_groups = [c for c in _ga_groups if c in X.columns] or None
-                _ga_nums = tuple(
-                    getattr(self, "fe_grouped_agg_num_cols", ()) or ()
-                )
+                _ga_nums = tuple(getattr(self, "fe_grouped_agg_num_cols", ()) or ())
                 _ga_nums = [c for c in _ga_nums if c in X.columns] or None
-                _ga_stats = tuple(
-                    getattr(self, "fe_grouped_agg_stats", ())
-                    or ("mean", "std", "min", "max", "nunique", "skew", "median")
-                )
+                _ga_stats = tuple(getattr(self, "fe_grouped_agg_stats", ()) or ("mean", "std", "min", "max", "nunique", "skew", "median"))
                 _ga_top_k = int(getattr(self, "fe_grouped_agg_top_k", 10))
                 _X_before_ga_cols = list(X.columns)
                 X_ga, _ga_appended, _ga_recipes, _ga_scores = hybrid_grouped_agg_fe(
@@ -3815,29 +3401,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     group_cols=_ga_groups, num_cols=_ga_nums,
                     stats=_ga_stats, top_k=_ga_top_k,
                 )
-                _ga_appended = [
-                    c for c in _ga_appended if c not in _X_before_ga_cols
-                ]
+                _ga_appended = [c for c in _ga_appended if c not in _X_before_ga_cols]
                 if _ga_appended:
                     X = X_ga
                     self.grouped_agg_features_ = list(_ga_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_ga_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ga_appended)
                     for _r in _ga_recipes:
                         if _r.name in _ga_appended:
                             _grouped_agg_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit grouped_agg: appended %d engineered "
-                            "column(s): %s",
-                            len(_ga_appended), _ga_appended[:8],
+                            "MRMR.fit grouped_agg: appended %d engineered " "column(s): %s",
+                            len(_ga_appended),
+                            _ga_appended[:8],
                         )
             except Exception as _ga_exc:
                 logger.warning(
-                    "MRMR.fit grouped_agg FE raised %s: %s; continuing "
-                    "without grouped-aggregate columns.",
-                    type(_ga_exc).__name__, _ga_exc,
+                    "MRMR.fit grouped_agg FE raised %s: %s; continuing " "without grouped-aggregate columns.",
+                    type(_ga_exc).__name__,
+                    _ga_exc,
                 )
 
     # Layer 93 (2026-06-01): COMPOSITE (multi-column) group-key aggregates.
@@ -3859,9 +3441,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             try:
                 from .._composite_group_agg_fe import hybrid_composite_group_agg_fe
 
-                _y_for_cga = (
-                    _y_np
-                )
+                _y_for_cga = _y_np
                 if _y_for_cga.dtype.kind in "fc":
                     _n_unique_cga = int(np.unique(_y_for_cga).size)
                     if _n_unique_cga <= 32:
@@ -3876,25 +3456,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
                 # key_sets: each entry is a tuple of >= 2 group cols. Empty =>
                 # auto-detect r-combinations of detected group columns.
-                _cga_key_sets_raw = tuple(
-                    getattr(self, "fe_composite_group_agg_key_sets", ()) or ()
-                )
-                _cga_key_sets = [
-                    tuple(c for c in gset if c in X.columns)
-                    for gset in _cga_key_sets_raw
-                ]
+                _cga_key_sets_raw = tuple(getattr(self, "fe_composite_group_agg_key_sets", ()) or ())
+                _cga_key_sets = [tuple(c for c in gset if c in X.columns) for gset in _cga_key_sets_raw]
                 _cga_key_sets = [g for g in _cga_key_sets if len(g) >= 2] or None
-                _cga_nums = tuple(
-                    getattr(self, "fe_composite_group_agg_num_cols", ()) or ()
-                )
+                _cga_nums = tuple(getattr(self, "fe_composite_group_agg_num_cols", ()) or ())
                 _cga_nums = [c for c in _cga_nums if c in X.columns] or None
-                _cga_stats = tuple(
-                    getattr(self, "fe_composite_group_agg_stats", ())
-                    or ("mean", "std", "count")
-                )
-                _cga_max_arity = int(
-                    getattr(self, "fe_composite_group_agg_max_arity", 2)
-                )
+                _cga_stats = tuple(getattr(self, "fe_composite_group_agg_stats", ()) or ("mean", "std", "count"))
+                _cga_max_arity = int(getattr(self, "fe_composite_group_agg_max_arity", 2))
                 _cga_top_k = int(getattr(self, "fe_composite_group_agg_top_k", 10))
                 _X_before_cga_cols = list(X.columns)
                 X_cga, _cga_appended, _cga_recipes, _cga_scores = (
@@ -3905,29 +3473,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         top_k=_cga_top_k,
                     )
                 )
-                _cga_appended = [
-                    c for c in _cga_appended if c not in _X_before_cga_cols
-                ]
+                _cga_appended = [c for c in _cga_appended if c not in _X_before_cga_cols]
                 if _cga_appended:
                     X = X_cga
                     self.composite_group_agg_features_ = list(_cga_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_cga_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cga_appended)
                     for _r in _cga_recipes:
                         if _r.name in _cga_appended:
                             _composite_group_agg_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit composite_group_agg: appended %d "
-                            "engineered column(s): %s",
-                            len(_cga_appended), _cga_appended[:8],
+                            "MRMR.fit composite_group_agg: appended %d " "engineered column(s): %s",
+                            len(_cga_appended),
+                            _cga_appended[:8],
                         )
             except Exception as _cga_exc:
                 logger.warning(
-                    "MRMR.fit composite_group_agg FE raised %s: %s; continuing "
-                    "without composite-aggregate columns.",
-                    type(_cga_exc).__name__, _cga_exc,
+                    "MRMR.fit composite_group_agg FE raised %s: %s; continuing " "without composite-aggregate columns.",
+                    type(_cga_exc).__name__,
+                    _cga_exc,
                 )
 
     # Layer 88 (2026-06-01): per-group histogram + quantile FE with
@@ -3948,22 +3512,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             try:
                 from .._grouped_quantile_fe import hybrid_grouped_quantile_fe
 
-                _y_for_gq = (
-                    _y_np
-                )
+                _y_for_gq = _y_np
                 # Scope auto-detection to the RAW pre-FE columns: by this point X
                 # is already augmented with engineered intermediates from prior FE
                 # stages, and a grouped_quantile recipe built on an engineered group
                 # / num source cannot be replayed at transform() (the engineered
                 # parent is regenerated independently, not present in the apply X)
                 # -> KeyError. Mirrors the cat_pair / cat_triple guard.
-                _gq_groups = tuple(
-                    getattr(self, "fe_grouped_quantile_group_cols", ()) or ()
-                )
+                _gq_groups = tuple(getattr(self, "fe_grouped_quantile_group_cols", ()) or ())
                 _gq_groups = [c for c in _gq_groups if c in X.columns] or None
-                _gq_nums = tuple(
-                    getattr(self, "fe_grouped_quantile_num_cols", ()) or ()
-                )
+                _gq_nums = tuple(getattr(self, "fe_grouped_quantile_num_cols", ()) or ())
                 _gq_nums = [c for c in _gq_nums if c in X.columns] or None
                 _gq_raw = set(_raw_input_cols_pre_fe)
                 if _gq_groups is None or _gq_nums is None:
@@ -3977,13 +3535,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     if _gq_nums is None:
                         _gq_det_groups = _gq_groups or []
                         _gq_nums = _gq_detect_nums(_gq_raw_view, _gq_det_groups) or None
-                _gq_quantiles = tuple(
-                    getattr(self, "fe_grouped_quantile_quantiles", ())
-                    or (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
-                )
-                _gq_target_aware = bool(
-                    getattr(self, "fe_grouped_quantile_target_aware", False)
-                )
+                _gq_quantiles = tuple(getattr(self, "fe_grouped_quantile_quantiles", ()) or (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95))
+                _gq_target_aware = bool(getattr(self, "fe_grouped_quantile_target_aware", False))
                 _gq_n_bins = int(getattr(self, "fe_grouped_quantile_n_bins", 5))
                 _gq_top_k = int(getattr(self, "fe_grouped_quantile_top_k", 8))
                 _X_before_gq_cols = list(X.columns)
@@ -3994,29 +3547,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     n_bins=_gq_n_bins, top_k=_gq_top_k,
                     random_state=int(getattr(self, "random_seed", 0) or 0),
                 )
-                _gq_appended = [
-                    c for c in _gq_appended if c not in _X_before_gq_cols
-                ]
+                _gq_appended = [c for c in _gq_appended if c not in _X_before_gq_cols]
                 if _gq_appended:
                     X = X_gq
                     self.grouped_quantile_features_ = list(_gq_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_gq_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_gq_appended)
                     for _r in _gq_recipes:
                         if _r.name in _gq_appended:
                             _grouped_quantile_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit grouped_quantile: appended %d engineered "
-                            "column(s): %s",
-                            len(_gq_appended), _gq_appended[:8],
+                            "MRMR.fit grouped_quantile: appended %d engineered " "column(s): %s",
+                            len(_gq_appended),
+                            _gq_appended[:8],
                         )
             except Exception as _gq_exc:
                 logger.warning(
-                    "MRMR.fit grouped_quantile FE raised %s: %s; continuing "
-                    "without grouped-quantile columns.",
-                    type(_gq_exc).__name__, _gq_exc,
+                    "MRMR.fit grouped_quantile FE raised %s: %s; continuing " "without grouped-quantile columns.",
+                    type(_gq_exc).__name__,
+                    _gq_exc,
                 )
 
     # Layer 89 (2026-06-01): cat x cat synergy cross with II pre-filter.
@@ -4032,12 +3581,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             try:
                 from .._cat_pair_fe import hybrid_cat_pair_fe
 
-                _y_for_cp = (
-                    _y_np
-                )
-                _cp_cols = tuple(
-                    getattr(self, "fe_cat_pair_cat_cols", ()) or ()
-                )
+                _y_for_cp = _y_np
+                _cp_cols = tuple(getattr(self, "fe_cat_pair_cat_cols", ()) or ())
                 _cp_cols = [c for c in _cp_cols if c in X.columns] or None
                 # When auto-detecting cat-pair members, restrict candidates to
                 # the RAW input columns. By this point X carries engineered
@@ -4050,12 +3595,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # raises KeyError. Crossing raw categoricals only keeps the
                 # recipe a pure function of X.
                 if _cp_cols is None:
-                    _cp_cols = [
-                        c for c in _raw_input_cols_pre_fe if c in X.columns
-                    ] or None
-                _cp_min_ii = float(
-                    getattr(self, "fe_cat_pair_min_interaction_info", 0.001)
-                )
+                    _cp_cols = [c for c in _raw_input_cols_pre_fe if c in X.columns] or None
+                _cp_min_ii = float(getattr(self, "fe_cat_pair_min_interaction_info", 0.001))
                 _cp_top_k = int(getattr(self, "fe_cat_pair_top_k", 5))
                 _X_before_cp_cols = list(X.columns)
                 X_cp, _cp_appended, _cp_recipes, _cp_scores = hybrid_cat_pair_fe(
@@ -4065,29 +3606,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     top_k=_cp_top_k,
                     random_state=int(getattr(self, "random_seed", 0) or 0),
                 )
-                _cp_appended = [
-                    c for c in _cp_appended if c not in _X_before_cp_cols
-                ]
+                _cp_appended = [c for c in _cp_appended if c not in _X_before_cp_cols]
                 if _cp_appended:
                     X = X_cp
                     self.cat_pair_features_ = list(_cp_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_cp_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cp_appended)
                     for _r in _cp_recipes:
                         if _r.name in _cp_appended:
                             _cat_pair_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit cat_pair: appended %d engineered "
-                            "column(s): %s",
-                            len(_cp_appended), _cp_appended[:8],
+                            "MRMR.fit cat_pair: appended %d engineered " "column(s): %s",
+                            len(_cp_appended),
+                            _cp_appended[:8],
                         )
             except Exception as _cp_exc:
                 logger.warning(
-                    "MRMR.fit cat_pair FE raised %s: %s; continuing without "
-                    "cat-pair-cross columns.",
-                    type(_cp_exc).__name__, _cp_exc,
+                    "MRMR.fit cat_pair FE raised %s: %s; continuing without " "cat-pair-cross columns.",
+                    type(_cp_exc).__name__,
+                    _cp_exc,
                 )
 
     # Layer 94 (2026-06-01): cat x cat x cat TRIPLE synergy cross via beam
@@ -4104,24 +3641,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             try:
                 from .._cat_triple_fe import hybrid_cat_triple_fe
 
-                _y_for_ct = (
-                    _y_np
-                )
-                _ct_cols = tuple(
-                    getattr(self, "fe_cat_triple_cat_cols", ()) or ()
-                )
+                _y_for_ct = _y_np
+                _ct_cols = tuple(getattr(self, "fe_cat_triple_cat_cols", ()) or ())
                 _ct_cols = [c for c in _ct_cols if c in X.columns] or None
                 # Same raw-column restriction as the cat_pair stage: auto-
                 # detected triple members must be raw inputs so the cross
                 # recipe replays as a pure function of X (an engineered
                 # intermediate would raise KeyError at transform time).
                 if _ct_cols is None:
-                    _ct_cols = [
-                        c for c in _raw_input_cols_pre_fe if c in X.columns
-                    ] or None
-                _ct_min_ii = float(
-                    getattr(self, "fe_cat_triple_min_interaction_info", 0.001)
-                )
+                    _ct_cols = [c for c in _raw_input_cols_pre_fe if c in X.columns] or None
+                _ct_min_ii = float(getattr(self, "fe_cat_triple_min_interaction_info", 0.001))
                 _ct_beam = int(getattr(self, "fe_cat_triple_beam_width", 3))
                 _ct_top_k = int(getattr(self, "fe_cat_triple_top_k", 3))
                 _X_before_ct_cols = list(X.columns)
@@ -4134,29 +3663,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     top_k_pairs=_ct_beam,
                     random_state=int(getattr(self, "random_seed", 0) or 0),
                 )
-                _ct_appended = [
-                    c for c in _ct_appended if c not in _X_before_ct_cols
-                ]
+                _ct_appended = [c for c in _ct_appended if c not in _X_before_ct_cols]
                 if _ct_appended:
                     X = X_ct
                     self.cat_triple_features_ = list(_ct_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_ct_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ct_appended)
                     for _r in _ct_recipes:
                         if _r.name in _ct_appended:
                             _cat_triple_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit cat_triple: appended %d engineered "
-                            "column(s): %s",
-                            len(_ct_appended), _ct_appended[:8],
+                            "MRMR.fit cat_triple: appended %d engineered " "column(s): %s",
+                            len(_ct_appended),
+                            _ct_appended[:8],
                         )
             except Exception as _ct_exc:
                 logger.warning(
-                    "MRMR.fit cat_triple FE raised %s: %s; continuing without "
-                    "cat-triple-cross columns.",
-                    type(_ct_exc).__name__, _ct_exc,
+                    "MRMR.fit cat_triple FE raised %s: %s; continuing without " "cat-triple-cross columns.",
+                    type(_ct_exc).__name__,
+                    _ct_exc,
                 )
 
     # Layer 90 (2026-06-01): numeric decomposition (multi-precision rounding +
@@ -4175,53 +3700,41 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     hybrid_numeric_decompose_fe_with_recipes,
                 )
 
-                _y_for_nd = (
-                    _y_np
-                )
-                _nd_precisions = tuple(
-                    getattr(self, "fe_numeric_decompose_precisions",
-                            (1, 0.1, 0.01, 0.001))
-                )
-                _nd_digits = tuple(
-                    getattr(self, "fe_numeric_decompose_digits", (0, 1, 2))
-                )
+                _y_for_nd = _y_np
+                _nd_precisions = tuple(getattr(self, "fe_numeric_decompose_precisions", (1, 0.1, 0.01, 0.001)))
+                _nd_digits = tuple(getattr(self, "fe_numeric_decompose_digits", (0, 1, 2)))
                 _nd_n_boot = int(getattr(self, "fe_numeric_decompose_n_boot", 10))
                 _nd_top_k = int(getattr(self, "fe_numeric_decompose_top_k", 5))
                 _X_before_nd_cols = list(X.columns)
-                X_nd, _nd_appended, _nd_recipes, _nd_scores = (
-                    hybrid_numeric_decompose_fe_with_recipes(
-                        X, _y_for_nd,
-                        cols=None,
-                        precisions=_nd_precisions,
-                        digit_positions=_nd_digits,
-                        top_k=_nd_top_k,
-                        n_boot=_nd_n_boot,
-                        seed=int(getattr(self, "random_seed", 0) or 0),
-                    )
+                X_nd, _nd_appended, _nd_recipes, _nd_scores = hybrid_numeric_decompose_fe_with_recipes(
+                    X,
+                    _y_for_nd,
+                    cols=None,
+                    precisions=_nd_precisions,
+                    digit_positions=_nd_digits,
+                    top_k=_nd_top_k,
+                    n_boot=_nd_n_boot,
+                    seed=int(getattr(self, "random_seed", 0) or 0),
                 )
-                _nd_appended = [
-                    c for c in _nd_appended if c not in _X_before_nd_cols
-                ]
+                _nd_appended = [c for c in _nd_appended if c not in _X_before_nd_cols]
                 if _nd_appended:
                     X = X_nd
                     self.numeric_decompose_features_ = list(_nd_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_nd_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_nd_appended)
                     for _r in _nd_recipes:
                         if _r.name in _nd_appended:
                             _numeric_decompose_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit numeric_decompose: appended %d engineered "
-                            "column(s): %s",
-                            len(_nd_appended), _nd_appended[:8],
+                            "MRMR.fit numeric_decompose: appended %d engineered " "column(s): %s",
+                            len(_nd_appended),
+                            _nd_appended[:8],
                         )
             except Exception as _nd_exc:
                 logger.warning(
-                    "MRMR.fit numeric_decompose FE raised %s: %s; continuing "
-                    "without numeric-decomposition columns.",
-                    type(_nd_exc).__name__, _nd_exc,
+                    "MRMR.fit numeric_decompose FE raised %s: %s; continuing " "without numeric-decomposition columns.",
+                    type(_nd_exc).__name__,
+                    _nd_exc,
                 )
 
     # Layer 95 PART A (2026-06-01): periodic / modular decomposition. For each
@@ -4240,47 +3753,37 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             try:
                 from .._periodic_fe import hybrid_modular_fe_with_recipes
 
-                _y_for_md = (
-                    _y_np
-                )
-                _md_periods = tuple(
-                    getattr(self, "fe_modular_periods", (7, 12, 24, 30, 365))
-                    or (7, 12, 24, 30, 365)
-                )
+                _y_for_md = _y_np
+                _md_periods = tuple(getattr(self, "fe_modular_periods", (7, 12, 24, 30, 365)) or (7, 12, 24, 30, 365))
                 _md_top_k = int(getattr(self, "fe_modular_top_k", 6))
                 _X_before_md_cols = list(X.columns)
-                X_md, _md_appended, _md_recipes, _md_scores = (
-                    hybrid_modular_fe_with_recipes(
-                        X, _y_for_md,
-                        cols=None,
-                        periods=_md_periods,
-                        top_k=_md_top_k,
-                        seed=int(getattr(self, "random_seed", 0) or 0),
-                    )
+                X_md, _md_appended, _md_recipes, _md_scores = hybrid_modular_fe_with_recipes(
+                    X,
+                    _y_for_md,
+                    cols=None,
+                    periods=_md_periods,
+                    top_k=_md_top_k,
+                    seed=int(getattr(self, "random_seed", 0) or 0),
                 )
-                _md_appended = [
-                    c for c in _md_appended if c not in _X_before_md_cols
-                ]
+                _md_appended = [c for c in _md_appended if c not in _X_before_md_cols]
                 if _md_appended:
                     X = X_md
                     self.modular_features_ = list(_md_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_md_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_md_appended)
                     for _r in _md_recipes:
                         if _r.name in _md_appended:
                             _modular_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit modular: appended %d engineered "
-                            "column(s): %s",
-                            len(_md_appended), _md_appended[:8],
+                            "MRMR.fit modular: appended %d engineered " "column(s): %s",
+                            len(_md_appended),
+                            _md_appended[:8],
                         )
             except Exception as _md_exc:
                 logger.warning(
-                    "MRMR.fit modular FE raised %s: %s; continuing without "
-                    "modular columns.",
-                    type(_md_exc).__name__, _md_exc,
+                    "MRMR.fit modular FE raised %s: %s; continuing without " "modular columns.",
+                    type(_md_exc).__name__,
+                    _md_exc,
                 )
 
     # Pairwise / n-way modular FE: detect a target that is an integer modulus of a
@@ -4351,9 +3854,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     if _discrete_fe_master and bool(getattr(self, "fe_pairwise_modular_enable", False)):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
-                "MRMR: pairwise-modular FE enabled but X is not a pandas DataFrame; "
-                "the features are skipped. Convert via X.to_pandas() before fit().",
-                UserWarning, stacklevel=3,
+                "MRMR: pairwise-modular FE enabled but X is not a pandas DataFrame; " "the features are skipped. Convert via X.to_pandas() before fit().",
+                UserWarning,
+                stacklevel=3,
             )
         else:
             try:
@@ -4392,23 +3895,21 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         [X, pd.DataFrame(_pm_new, index=X.index)], axis=1,
                     )
                     self.pairwise_modular_features_ = list(_pm_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_pm_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_pm_appended)
                     for _r in _pm_recipes:
                         if _r.name in _pm_appended:
                             _pairwise_modular_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit pairwise_modular: appended %d engineered "
-                            "column(s): %s",
-                            len(_pm_appended), _pm_appended[:8],
+                            "MRMR.fit pairwise_modular: appended %d engineered " "column(s): %s",
+                            len(_pm_appended),
+                            _pm_appended[:8],
                         )
             except Exception as _pm_exc:
                 logger.warning(
-                    "MRMR.fit pairwise-modular FE raised %s: %s; continuing without "
-                    "pairwise-modular columns.",
-                    type(_pm_exc).__name__, _pm_exc,
+                    "MRMR.fit pairwise-modular FE raised %s: %s; continuing without " "pairwise-modular columns.",
+                    type(_pm_exc).__name__,
+                    _pm_exc,
                 )
 
     # Pairwise integer-lattice FE (sibling of pairwise-modular): detect a target that is a function of a hidden common
@@ -4417,9 +3918,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     if _discrete_fe_master and bool(getattr(self, "fe_integer_lattice_enable", False)):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
-                "MRMR: integer-lattice FE enabled but X is not a pandas DataFrame; "
-                "the features are skipped. Convert via X.to_pandas() before fit().",
-                UserWarning, stacklevel=3,
+                "MRMR: integer-lattice FE enabled but X is not a pandas DataFrame; " "the features are skipped. Convert via X.to_pandas() before fit().",
+                UserWarning,
+                stacklevel=3,
             )
         else:
             try:
@@ -4454,23 +3955,21 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         [X, pd.DataFrame(_il_new, index=X.index)], axis=1,
                     )
                     self.integer_lattice_features_ = list(_il_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_il_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_il_appended)
                     for _r in _il_recipes:
                         if _r.name in _il_appended:
                             _integer_lattice_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit integer_lattice: appended %d engineered "
-                            "column(s): %s",
-                            len(_il_appended), _il_appended[:8],
+                            "MRMR.fit integer_lattice: appended %d engineered " "column(s): %s",
+                            len(_il_appended),
+                            _il_appended[:8],
                         )
             except Exception as _il_exc:
                 logger.warning(
-                    "MRMR.fit integer-lattice FE raised %s: %s; continuing without "
-                    "integer-lattice columns.",
-                    type(_il_exc).__name__, _il_exc,
+                    "MRMR.fit integer-lattice FE raised %s: %s; continuing without " "integer-lattice columns.",
+                    type(_il_exc).__name__,
+                    _il_exc,
                 )
 
     # Row-argmax FE (frontier pass 2): for a column triple (a, b, c) emit the integer index 0/1/2 of the row-maximum -- an
@@ -4479,9 +3978,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     if _discrete_fe_master and bool(getattr(self, "fe_row_argmax_enable", False)):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
-                "MRMR: row-argmax FE enabled but X is not a pandas DataFrame; "
-                "the features are skipped. Convert via X.to_pandas() before fit().",
-                UserWarning, stacklevel=3,
+                "MRMR: row-argmax FE enabled but X is not a pandas DataFrame; " "the features are skipped. Convert via X.to_pandas() before fit().",
+                UserWarning,
+                stacklevel=3,
             )
         else:
             try:
@@ -4507,17 +4006,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
                 _am_appended = [c for c in _am_appended if c not in X.columns]
                 if _am_appended:
-                    _am_new = {
-                        _r.name: apply_row_argmax(X, _r.src_names)
-                        for _r in _am_recipes if _r.name in _am_appended
-                    }
+                    _am_new = {_r.name: apply_row_argmax(X, _r.src_names) for _r in _am_recipes if _r.name in _am_appended}
                     X = pd.concat(
                         [X, pd.DataFrame(_am_new, index=X.index)], axis=1,
                     )
                     self.row_argmax_features_ = list(_am_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_am_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_am_appended)
                     for _r in _am_recipes:
                         if _r.name in _am_appended:
                             _row_argmax_pre_recipes[_r.name] = _r
@@ -4527,15 +4021,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             self._gate_col_src_vars_[str(_r.name)] = {str(s) for s in _r.src_names}
                     if verbose:
                         logger.info(
-                            "MRMR.fit row_argmax: appended %d engineered "
-                            "column(s): %s",
-                            len(_am_appended), _am_appended[:8],
+                            "MRMR.fit row_argmax: appended %d engineered " "column(s): %s",
+                            len(_am_appended),
+                            _am_appended[:8],
                         )
             except Exception as _am_exc:
                 logger.warning(
-                    "MRMR.fit row-argmax FE raised %s: %s; continuing without "
-                    "row-argmax columns.",
-                    type(_am_exc).__name__, _am_exc,
+                    "MRMR.fit row-argmax FE raised %s: %s; continuing without " "row-argmax columns.",
+                    type(_am_exc).__name__,
+                    _am_exc,
                 )
 
     # Conditional-gate FE (frontier pass 2): detect a regime switch c>tau ? a : b (select) or a masked interaction 1[c>tau]*a
@@ -4544,9 +4038,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     if _discrete_fe_master and bool(getattr(self, "fe_conditional_gate_enable", False)):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
-                "MRMR: conditional-gate FE enabled but X is not a pandas DataFrame; "
-                "the features are skipped. Convert via X.to_pandas() before fit().",
-                UserWarning, stacklevel=3,
+                "MRMR: conditional-gate FE enabled but X is not a pandas DataFrame; " "the features are skipped. Convert via X.to_pandas() before fit().",
+                UserWarning,
+                stacklevel=3,
             )
         else:
             try:
@@ -4592,9 +4086,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         [X, pd.DataFrame(_cg_new, index=X.index)], axis=1,
                     )
                     self.conditional_gate_features_ = list(_cg_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_cg_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cg_appended)
                     for _r in _cg_recipes:
                         if _r.name in _cg_appended:
                             _conditional_gate_pre_recipes[_r.name] = _r
@@ -4604,15 +4096,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             self._gate_col_src_vars_[str(_r.name)] = {str(s) for s in _r.src_names}
                     if verbose:
                         logger.info(
-                            "MRMR.fit conditional_gate: appended %d engineered "
-                            "column(s): %s",
-                            len(_cg_appended), _cg_appended[:8],
+                            "MRMR.fit conditional_gate: appended %d engineered " "column(s): %s",
+                            len(_cg_appended),
+                            _cg_appended[:8],
                         )
             except Exception as _cg_exc:
                 logger.warning(
-                    "MRMR.fit conditional-gate FE raised %s: %s; continuing without "
-                    "conditional-gate columns.",
-                    type(_cg_exc).__name__, _cg_exc,
+                    "MRMR.fit conditional-gate FE raised %s: %s; continuing without " "conditional-gate columns.",
+                    type(_cg_exc).__name__,
+                    _cg_exc,
                 )
 
     # Layer 95 PART B (2026-06-01): per-group distribution-distance. For each
@@ -4631,49 +4123,39 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             try:
                 from .._group_distance_fe import hybrid_group_distance_fe
 
-                _y_for_gd = (
-                    _y_np
-                )
-                _gd_groups = tuple(
-                    getattr(self, "fe_group_distance_group_cols", ()) or ()
-                )
+                _y_for_gd = _y_np
+                _gd_groups = tuple(getattr(self, "fe_group_distance_group_cols", ()) or ())
                 _gd_groups = [c for c in _gd_groups if c in X.columns] or None
-                _gd_nums = tuple(
-                    getattr(self, "fe_group_distance_num_cols", ()) or ()
-                )
+                _gd_nums = tuple(getattr(self, "fe_group_distance_num_cols", ()) or ())
                 _gd_nums = [c for c in _gd_nums if c in X.columns] or None
                 _gd_top_k = int(getattr(self, "fe_group_distance_top_k", 6))
                 _X_before_gd_cols = list(X.columns)
-                X_gd, _gd_appended, _gd_recipes, _gd_scores = (
-                    hybrid_group_distance_fe(
-                        X, _y_for_gd,
-                        group_cols=_gd_groups, num_cols=_gd_nums,
-                        top_k=_gd_top_k,
-                    )
+                X_gd, _gd_appended, _gd_recipes, _gd_scores = hybrid_group_distance_fe(
+                    X,
+                    _y_for_gd,
+                    group_cols=_gd_groups,
+                    num_cols=_gd_nums,
+                    top_k=_gd_top_k,
                 )
-                _gd_appended = [
-                    c for c in _gd_appended if c not in _X_before_gd_cols
-                ]
+                _gd_appended = [c for c in _gd_appended if c not in _X_before_gd_cols]
                 if _gd_appended:
                     X = X_gd
                     self.group_distance_features_ = list(_gd_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_gd_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_gd_appended)
                     for _r in _gd_recipes:
                         if _r.name in _gd_appended:
                             _group_distance_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit group_distance: appended %d engineered "
-                            "column(s): %s",
-                            len(_gd_appended), _gd_appended[:8],
+                            "MRMR.fit group_distance: appended %d engineered " "column(s): %s",
+                            len(_gd_appended),
+                            _gd_appended[:8],
                         )
             except Exception as _gd_exc:
                 logger.warning(
-                    "MRMR.fit group_distance FE raised %s: %s; continuing "
-                    "without group-distance columns.",
-                    type(_gd_exc).__name__, _gd_exc,
+                    "MRMR.fit group_distance FE raised %s: %s; continuing " "without group-distance columns.",
+                    type(_gd_exc).__name__,
+                    _gd_exc,
                 )
 
     # Layer 104 (2026-06-01): THREE new recipe-based FE families.
@@ -4708,50 +4190,40 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 def _rc_reject_sink(**_kw):
                     _record_fe_rejection(self, step=_rc_step, **_kw)
 
-                _y_for_rc = (
-                    _y_np
-                )
-                _rc_cols = tuple(
-                    getattr(self, "fe_rare_category_cols", ()) or ()
-                )
+                _y_for_rc = _y_np
+                _rc_cols = tuple(getattr(self, "fe_rare_category_cols", ()) or ())
                 _rc_cols = [c for c in _rc_cols if c in X.columns] or None
                 _X_before_rc_cols = list(X.columns)
                 _rc_raw_floor = X[[c for c in _raw_input_cols_pre_fe if c in X.columns]] if _raw_input_cols_pre_fe else None
                 X_rc, _rc_appended, _rc_recipes, _ = hybrid_rare_category_fe(
                     X, _y_for_rc,
                     cat_cols=_rc_cols,
-                    rare_threshold=float(
-                        getattr(self, "fe_rare_category_threshold", 0.01)
-                    ),
+                    rare_threshold=float(getattr(self, "fe_rare_category_threshold", 0.01)),
                     top_k=int(getattr(self, "fe_rare_category_top_k", 10)),
                     mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                     mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                     reject_sink=_rc_reject_sink,
                     raw_floor_X=_rc_raw_floor,
                 )
-                _rc_appended = [
-                    c for c in _rc_appended if c not in _X_before_rc_cols
-                ]
+                _rc_appended = [c for c in _rc_appended if c not in _X_before_rc_cols]
                 if _rc_appended:
                     X = X_rc
                     self.rare_category_features_ = list(_rc_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_rc_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_rc_appended)
                     for _r in _rc_recipes:
                         if _r.name in _rc_appended:
                             _rare_category_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit rare_category: appended %d engineered "
-                            "column(s): %s",
-                            len(_rc_appended), _rc_appended[:8],
+                            "MRMR.fit rare_category: appended %d engineered " "column(s): %s",
+                            len(_rc_appended),
+                            _rc_appended[:8],
                         )
             except Exception as _rc_exc:
                 logger.warning(
-                    "MRMR.fit rare_category FE raised %s: %s; continuing "
-                    "without rare-category columns.",
-                    type(_rc_exc).__name__, _rc_exc,
+                    "MRMR.fit rare_category FE raised %s: %s; continuing " "without rare-category columns.",
+                    type(_rc_exc).__name__,
+                    _rc_exc,
                 )
 
     # FAMILY B -- NUM x NUM conditional residual x_i - E[x_i | bin(x_j)].
@@ -4777,12 +4249,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 def _cr_reject_sink(**_kw):
                     _record_fe_rejection(self, step=_cr_step, **_kw)
 
-                _y_for_cr = (
-                    _y_np
-                )
-                _cr_cols = tuple(
-                    getattr(self, "fe_conditional_residual_cols", ()) or ()
-                )
+                _y_for_cr = _y_np
+                _cr_cols = tuple(getattr(self, "fe_conditional_residual_cols", ()) or ())
                 _cr_cols = [c for c in _cr_cols if c in X.columns] or None
                 # RAW columns only (mirrors conditional_dispersion / wavelet): X is
                 # already augmented with engineered intermediates here, and a
@@ -4799,37 +4267,31 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     num_cols=_cr_cols,
                     n_bins=int(getattr(self, "fe_conditional_residual_n_bins", 10)),
                     top_k=int(getattr(self, "fe_conditional_residual_top_k", 10)),
-                    max_pair_cols=int(
-                        getattr(self, "fe_conditional_residual_max_pair_cols", 6)
-                    ),
+                    max_pair_cols=int(getattr(self, "fe_conditional_residual_max_pair_cols", 6)),
                     mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                     mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                     reject_sink=_cr_reject_sink,
                     raw_floor_X=_cr_raw_floor,
                 )
-                _cr_appended = [
-                    c for c in _cr_appended if c not in _X_before_cr_cols
-                ]
+                _cr_appended = [c for c in _cr_appended if c not in _X_before_cr_cols]
                 if _cr_appended:
                     X = X_cr
                     self.conditional_residual_features_ = list(_cr_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_cr_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cr_appended)
                     for _r in _cr_recipes:
                         if _r.name in _cr_appended:
                             _conditional_residual_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit conditional_residual: appended %d "
-                            "engineered column(s): %s",
-                            len(_cr_appended), _cr_appended[:8],
+                            "MRMR.fit conditional_residual: appended %d " "engineered column(s): %s",
+                            len(_cr_appended),
+                            _cr_appended[:8],
                         )
             except Exception as _cr_exc:
                 logger.warning(
-                    "MRMR.fit conditional_residual FE raised %s: %s; continuing "
-                    "without conditional-residual columns.",
-                    type(_cr_exc).__name__, _cr_exc,
+                    "MRMR.fit conditional_residual FE raised %s: %s; continuing " "without conditional-residual columns.",
+                    type(_cr_exc).__name__,
+                    _cr_exc,
                 )
 
     # FAMILY D -- NUM x NUM conditional DISPERSION / 2nd-moment (backlog #12).
@@ -4860,12 +4322,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 def _cd_reject_sink(**_kw):
                     _record_fe_rejection(self, step=_cd_step, **_kw)
 
-                _y_for_cd = (
-                    _y_np
-                )
-                _cd_cols = tuple(
-                    getattr(self, "fe_conditional_dispersion_cols", ()) or ()
-                )
+                _y_for_cd = _y_np
+                _cd_cols = tuple(getattr(self, "fe_conditional_dispersion_cols", ()) or ())
                 _cd_cols = [c for c in _cd_cols if c in X.columns] or None
                 # RAW columns only (2026-06-10 fix, same class as the wavelet stage
                 # below): the all-numeric default scope over the already-augmented X
@@ -4888,36 +4346,30 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     num_cols=_cd_cols,
                     n_bins=int(getattr(self, "fe_conditional_dispersion_n_bins", 10)),
                     top_k=int(getattr(self, "fe_conditional_dispersion_top_k", 10)),
-                    max_pair_cols=int(
-                        getattr(self, "fe_conditional_dispersion_max_pair_cols", 6)
-                    ),
+                    max_pair_cols=int(getattr(self, "fe_conditional_dispersion_max_pair_cols", 6)),
                     mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                     mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                     reject_sink=_cd_reject_sink,
                 )
-                _cd_appended = [
-                    c for c in _cd_appended if c not in _X_before_cd_cols
-                ]
+                _cd_appended = [c for c in _cd_appended if c not in _X_before_cd_cols]
                 if _cd_appended:
                     X = X_cd
                     self.conditional_dispersion_features_ = list(_cd_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_cd_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cd_appended)
                     for _r in _cd_recipes:
                         if _r.name in _cd_appended:
                             _conditional_dispersion_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit conditional_dispersion: appended %d "
-                            "engineered column(s): %s",
-                            len(_cd_appended), _cd_appended[:8],
+                            "MRMR.fit conditional_dispersion: appended %d " "engineered column(s): %s",
+                            len(_cd_appended),
+                            _cd_appended[:8],
                         )
             except Exception as _cd_exc:
                 logger.warning(
-                    "MRMR.fit conditional_dispersion FE raised %s: %s; continuing "
-                    "without conditional-dispersion columns.",
-                    type(_cd_exc).__name__, _cd_exc,
+                    "MRMR.fit conditional_dispersion FE raised %s: %s; continuing " "without conditional-dispersion columns.",
+                    type(_cd_exc).__name__,
+                    _cd_exc,
                 )
 
     # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
@@ -4947,9 +4399,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             try:
                 from .._wavelet_basis_fe import hybrid_wavelet_fe_with_recipes
 
-                _y_for_wv = (
-                    _y_np
-                )
+                _y_for_wv = _y_np
                 _wv_cols = tuple(getattr(self, "fe_wavelet_cols", ()) or ())
                 _wv_cols = [c for c in _wv_cols if c in X.columns] or None
                 # RAW columns only (2026-06-10 fix, mirrors the extra-basis stage's
@@ -4977,15 +4427,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     top_k=int(getattr(self, "fe_wavelet_top_k", 8)),
                     feature_dtype=getattr(self, "usability_feature_dtype", np.float32),
                 )
-                _wv_appended = [
-                    c for c in _wv_appended if c not in _X_before_wv_cols
-                ]
+                _wv_appended = [c for c in _wv_appended if c not in _X_before_wv_cols]
                 if _wv_appended:
                     X = X_wv
                     self.wavelet_features_ = list(_wv_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_wv_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_wv_appended)
                     for _r in _wv_recipes:
                         if _r.name in _wv_appended:
                             _wavelet_pre_recipes[_r.name] = _r
@@ -4996,9 +4442,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         )
             except Exception as _wv_exc:
                 logger.warning(
-                    "MRMR.fit Haar wavelet FE raised %s: %s; continuing without "
-                    "wavelet columns.",
-                    type(_wv_exc).__name__, _wv_exc,
+                    "MRMR.fit Haar wavelet FE raised %s: %s; continuing without " "wavelet columns.",
+                    type(_wv_exc).__name__,
+                    _wv_exc,
                 )
 
     # FAMILY C -- RankGauss (rank-Gaussianisation). NOT MI-gated: monotone ->
@@ -5017,12 +4463,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             try:
                 from .._extra_fe_families import hybrid_rankgauss_fe
 
-                _y_for_rg = (
-                    _y_np
-                )
-                _rg_cols = tuple(
-                    getattr(self, "fe_rankgauss_cols", ()) or ()
-                )
+                _y_for_rg = _y_np
+                _rg_cols = tuple(getattr(self, "fe_rankgauss_cols", ()) or ())
                 _rg_cols = [c for c in _rg_cols if c in X.columns] or None
                 # RAW columns only (2026-06-10 fix, same class as the wavelet /
                 # conditional-dispersion stages): keep rankgauss recipes 1-deep and
@@ -5039,29 +4481,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     num_cols=_rg_cols,
                     top_k=int(getattr(self, "fe_rankgauss_top_k", 10)),
                 )
-                _rg_appended = [
-                    c for c in _rg_appended if c not in _X_before_rg_cols
-                ]
+                _rg_appended = [c for c in _rg_appended if c not in _X_before_rg_cols]
                 if _rg_appended:
                     X = X_rg
                     self.rankgauss_features_ = list(_rg_appended)
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_rg_appended)
-                    )
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_rg_appended)
                     for _r in _rg_recipes:
                         if _r.name in _rg_appended:
                             _rankgauss_pre_recipes[_r.name] = _r
                     if verbose:
                         logger.info(
-                            "MRMR.fit rankgauss: appended %d engineered "
-                            "column(s): %s",
-                            len(_rg_appended), _rg_appended[:8],
+                            "MRMR.fit rankgauss: appended %d engineered " "column(s): %s",
+                            len(_rg_appended),
+                            _rg_appended[:8],
                         )
             except Exception as _rg_exc:
                 logger.warning(
-                    "MRMR.fit rankgauss FE raised %s: %s; continuing without "
-                    "rankgauss columns.",
-                    type(_rg_exc).__name__, _rg_exc,
+                    "MRMR.fit rankgauss FE raised %s: %s; continuing without " "rankgauss columns.",
+                    type(_rg_exc).__name__,
+                    _rg_exc,
                 )
 
     # Layer 92 (2026-06-01): temporal leak-safe grouped aggregations. Carved
@@ -5073,12 +4511,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     X = _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes)
 
     # ACCURACY GATE (2026-06-04, default ON via ``fe_accuracy_gate``). The MI-uplift gates inside the FE generators are fooled by plug-in MI's bias inflation: a Fourier / chirp / Hermite transform of a strong RAW signal earns an inflated MI estimate and out-ranks (then evicts) the raw column even when it adds NO real predictive value. The adaptive-Fourier PROTECTION block at support-finalisation then force-readds those hijackers past the MRMR screen, so they survive into support_ AND leak into ``hybrid_orth_features_`` / ``_adaptive_fourier_features_`` even when a genuine raw signal (or its is_missing__ MNAR indicator) carries the information. This gate runs a held-out multivariate linear-probe uplift check per engineered column against its raw source: a column that adds no held-out uplift over its source -- or whose source is >2%-missing (MNAR fail-closed, the signal lives in the NaN pattern the probe cannot see) -- is dropped here so it can neither evict the raw signal nor leak into the roster. Only orth_* engineered columns with a single resolvable raw source are gated; the is_missing__ / missingness_* indicators are exempt by construction (their recipes live in ``_miss_*_pre_recipes``, never ``_hybrid_orth_pre_recipes``, so they are never routed here). y is read only at fit; transform replays the survivors without y. Best-effort: any failure falls back to keeping the column.
-    if (
-        bool(getattr(self, "fe_accuracy_gate", True))
-        and isinstance(X, pd.DataFrame)
-        and (self.hybrid_orth_features_ or [])
-        and _hybrid_orth_pre_recipes
-    ):
+    if bool(getattr(self, "fe_accuracy_gate", True)) and isinstance(X, pd.DataFrame) and (self.hybrid_orth_features_ or []) and _hybrid_orth_pre_recipes:
         try:
             from .._fe_accuracy_gate import (
                 _FE_UPLIFT_MIN,
@@ -5141,9 +4574,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _gate_drop_set.add(_gc)
                     continue
                 _base_sibs = _surviving_base_by_src.get(_src, [])
-                _base_mat = np.column_stack(
-                    [_src_arr] + [_gate_col_arr(_b) for _b in _base_sibs]
-                )
+                _base_mat = np.column_stack([_src_arr] + [_gate_col_arr(_b) for _b in _base_sibs])
                 _eng_arr = _gate_col_arr(_gc)
                 _n = _base_mat.shape[0]
                 if _n > 5000:
@@ -5164,35 +4595,26 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if _gate_drop:
                 _gate_drop_set = set(_gate_drop)
                 X = X.drop(columns=[c for c in _gate_drop if c in X.columns])
-                self.hybrid_orth_features_ = [
-                    c for c in (self.hybrid_orth_features_ or []) if c not in _gate_drop_set
-                ]
-                self._adaptive_fourier_features_ = [
-                    c for c in (getattr(self, "_adaptive_fourier_features_", None) or [])
-                    if c not in _gate_drop_set
-                ]
+                self.hybrid_orth_features_ = [c for c in (self.hybrid_orth_features_ or []) if c not in _gate_drop_set]
+                self._adaptive_fourier_features_ = [c for c in (getattr(self, "_adaptive_fourier_features_", None) or []) if c not in _gate_drop_set]
                 # Mirror the cleanup for hinge legs: a hinge the accuracy gate
                 # drops (no held-out uplift over its raw source) must NOT be
                 # re-added by the HINGE-PROTECTION block, so prune it here too.
-                self._hinge_features_ = [
-                    c for c in (getattr(self, "_hinge_features_", None) or [])
-                    if c not in _gate_drop_set
-                ]
+                self._hinge_features_ = [c for c in (getattr(self, "_hinge_features_", None) or []) if c not in _gate_drop_set]
                 for _c in list(_hybrid_orth_pre_recipes.keys()):
                     if _c in _gate_drop_set:
                         _hybrid_orth_pre_recipes.pop(_c, None)
                 if verbose:
                     logger.info(
-                        "MRMR.fit accuracy gate: dropped %d engineered column(s) "
-                        "adding no held-out uplift over their raw source (or MNAR "
-                        "source): %s",
-                        len(_gate_drop), sorted(_gate_drop),
+                        "MRMR.fit accuracy gate: dropped %d engineered column(s) " "adding no held-out uplift over their raw source (or MNAR " "source): %s",
+                        len(_gate_drop),
+                        sorted(_gate_drop),
                     )
         except Exception as _gate_exc:
             logger.warning(
-                "MRMR.fit accuracy gate raised %s: %s; continuing without the "
-                "accuracy gate (engineered columns kept).",
-                type(_gate_exc).__name__, _gate_exc,
+                "MRMR.fit accuracy gate raised %s: %s; continuing without the " "accuracy gate (engineered columns kept).",
+                type(_gate_exc).__name__,
+                _gate_exc,
             )
 
     # Layer 27 (2026-05-31): cross-stage engineered-column dedup. Hybrid and
@@ -5215,22 +4637,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # explodes with ``Data must be 1-dimensional``. The dedup also
     # short-circuits the inner O(K^2) pairwise rank-correlation loop
     # for the trivial perfect-name-match case.
-    _eng_cols_appended_raw = list(self.hybrid_orth_features_ or []) + list(
-        self.mi_greedy_features_ or []
-    )
+    _eng_cols_appended_raw = list(self.hybrid_orth_features_ or []) + list(self.mi_greedy_features_ or [])
     _eng_seen: set[str] = set()
-    _eng_cols_appended = [
-        _c for _c in _eng_cols_appended_raw
-        if not (_c in _eng_seen or _eng_seen.add(_c))
-    ]
+    _eng_cols_appended = [_c for _c in _eng_cols_appended_raw if not (_c in _eng_seen or _eng_seen.add(_c))]
     # ADAPTIVE-FOURIER columns are NEVER pruned by the cross-stage dedup: the
     # held-out detector already validated the frequency, and a sin/cos pair at
     # one frequency is not monotone-equivalent to a fixed-grid twin, so the
     # Spearman gate would only ever drop them on a spurious near-tie. Keeping
     # them here guarantees they remain in ``cols`` for the protection block.
-    _adaptive_fourier_keep = set(
-        getattr(self, "_adaptive_fourier_features_", None) or []
-    )
+    _adaptive_fourier_keep = set(getattr(self, "_adaptive_fourier_features_", None) or [])
     # Keep-higher-MI dedup policy: when a near-duplicate cluster spans stages, the survivor must be the column carrying the MOST information about y, NOT merely the first-appended one.
     # The default-on univariate-basis stage writes into ``hybrid_orth_features_`` and is appended BEFORE ``mi_greedy_features_``, so a first-appended policy silently sacrifices a genuine
     # mi_greedy ``|x|``-family signal (``log_abs(x)`` / ``sqrt_abs(x)`` / ``square(x)`` / ``abs(x)``) to a monotone-equivalent basis twin (``x__L2`` / ``x__cos1`` / ...). We score every appended
@@ -5303,9 +4718,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 if isinstance(_col_view_a, pd.DataFrame):
                     _col_view_a = _col_view_a.iloc[:, 0]
                 _eng_keep.append(_c)
-                _eng_arrs[_c] = np.asarray(
-                    _col_view_a.to_numpy(), dtype=np.float64
-                )
+                _eng_arrs[_c] = np.asarray(_col_view_a.to_numpy(), dtype=np.float64)
                 continue
             # Defense in depth: if X carries duplicate column labels (a
             # caller-side data-quality issue we don't want to silently
@@ -5400,108 +4813,46 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             )
             while True:
                 _protected = {
-                    _s
-                    for _d in _all_pre_recipe_dicts
-                    for _r in _d.values()
-                    if _r.name not in _eng_drop
-                    for _s in (getattr(_r, "src_names", ()) or ())
+                    _s for _d in _all_pre_recipe_dicts for _r in _d.values() if _r.name not in _eng_drop for _s in (getattr(_r, "src_names", ()) or ())
                 }
                 _newly = _eng_drop & _protected
                 if not _newly:
                     break
                 _eng_drop -= _newly
             X = X.drop(columns=list(_eng_drop))
-            self.hybrid_orth_features_ = [
-                c for c in (self.hybrid_orth_features_ or []) if c not in _eng_drop
-            ]
+            self.hybrid_orth_features_ = [c for c in (self.hybrid_orth_features_ or []) if c not in _eng_drop]
             # Mirror cleanup for hinge legs (a hinge near-duplicate of another
             # engineered column the Spearman dedup removed must not be re-added
             # by the HINGE-PROTECTION block).
-            self._hinge_features_ = [
-                c for c in (getattr(self, "_hinge_features_", None) or [])
-                if c not in _eng_drop
-            ]
-            self.mi_greedy_features_ = [
-                c for c in (self.mi_greedy_features_ or []) if c not in _eng_drop
-            ]
+            self._hinge_features_ = [c for c in (getattr(self, "_hinge_features_", None) or []) if c not in _eng_drop]
+            self.mi_greedy_features_ = [c for c in (self.mi_greedy_features_ or []) if c not in _eng_drop]
             # Layer 33: mirror the same cleanup for TE-encoded columns.
-            self.kfold_te_features_ = [
-                c for c in (getattr(self, "kfold_te_features_", []) or [])
-                if c not in _eng_drop
-            ]
+            self.kfold_te_features_ = [c for c in (getattr(self, "kfold_te_features_", []) or []) if c not in _eng_drop]
             # Layer 34: mirror cleanup for count / freq / cat_num residual.
-            self.count_encoding_features_ = [
-                c for c in (getattr(self, "count_encoding_features_", []) or [])
-                if c not in _eng_drop
-            ]
-            self.frequency_encoding_features_ = [
-                c for c in (getattr(self, "frequency_encoding_features_", []) or [])
-                if c not in _eng_drop
-            ]
-            self.cat_num_interaction_features_ = [
-                c for c in (getattr(self, "cat_num_interaction_features_", []) or [])
-                if c not in _eng_drop
-            ]
+            self.count_encoding_features_ = [c for c in (getattr(self, "count_encoding_features_", []) or []) if c not in _eng_drop]
+            self.frequency_encoding_features_ = [c for c in (getattr(self, "frequency_encoding_features_", []) or []) if c not in _eng_drop]
+            self.cat_num_interaction_features_ = [c for c in (getattr(self, "cat_num_interaction_features_", []) or []) if c not in _eng_drop]
             # Layer 37: mirror cleanup for missingness indicator / count / pattern.
-            self.missingness_indicator_features_ = [
-                c for c in (getattr(self, "missingness_indicator_features_", []) or [])
-                if c not in _eng_drop
-            ]
-            self.missingness_count_features_ = [
-                c for c in (getattr(self, "missingness_count_features_", []) or [])
-                if c not in _eng_drop
-            ]
-            self.missingness_pattern_features_ = [
-                c for c in (getattr(self, "missingness_pattern_features_", []) or [])
-                if c not in _eng_drop
-            ]
+            self.missingness_indicator_features_ = [c for c in (getattr(self, "missingness_indicator_features_", []) or []) if c not in _eng_drop]
+            self.missingness_count_features_ = [c for c in (getattr(self, "missingness_count_features_", []) or []) if c not in _eng_drop]
+            self.missingness_pattern_features_ = [c for c in (getattr(self, "missingness_pattern_features_", []) or []) if c not in _eng_drop]
             # Layer 38: mirror cleanup for ratio / log_ratio / grouped_delta / lagged_diff.
-            self.pairwise_ratio_features_ = [
-                c for c in (getattr(self, "pairwise_ratio_features_", []) or [])
-                if c not in _eng_drop
-            ]
-            self.pairwise_log_ratio_features_ = [
-                c for c in (getattr(self, "pairwise_log_ratio_features_", []) or [])
-                if c not in _eng_drop
-            ]
-            self.grouped_delta_features_ = [
-                c for c in (getattr(self, "grouped_delta_features_", []) or [])
-                if c not in _eng_drop
-            ]
-            self.lagged_diff_features_ = [
-                c for c in (getattr(self, "lagged_diff_features_", []) or [])
-                if c not in _eng_drop
-            ]
+            self.pairwise_ratio_features_ = [c for c in (getattr(self, "pairwise_ratio_features_", []) or []) if c not in _eng_drop]
+            self.pairwise_log_ratio_features_ = [c for c in (getattr(self, "pairwise_log_ratio_features_", []) or []) if c not in _eng_drop]
+            self.grouped_delta_features_ = [c for c in (getattr(self, "grouped_delta_features_", []) or []) if c not in _eng_drop]
+            self.lagged_diff_features_ = [c for c in (getattr(self, "lagged_diff_features_", []) or []) if c not in _eng_drop]
             # Layer 87: mirror cleanup for grouped_agg.
-            self.grouped_agg_features_ = [
-                c for c in (getattr(self, "grouped_agg_features_", []) or [])
-                if c not in _eng_drop
-            ]
+            self.grouped_agg_features_ = [c for c in (getattr(self, "grouped_agg_features_", []) or []) if c not in _eng_drop]
             # Layer 93: mirror cleanup for composite_group_agg.
-            self.composite_group_agg_features_ = [
-                c for c in (getattr(self, "composite_group_agg_features_", []) or [])
-                if c not in _eng_drop
-            ]
+            self.composite_group_agg_features_ = [c for c in (getattr(self, "composite_group_agg_features_", []) or []) if c not in _eng_drop]
             # Layer 88: mirror cleanup for grouped_quantile.
-            self.grouped_quantile_features_ = [
-                c for c in (getattr(self, "grouped_quantile_features_", []) or [])
-                if c not in _eng_drop
-            ]
+            self.grouped_quantile_features_ = [c for c in (getattr(self, "grouped_quantile_features_", []) or []) if c not in _eng_drop]
             # Layer 89: mirror cleanup for cat_pair crosses.
-            self.cat_pair_features_ = [
-                c for c in (getattr(self, "cat_pair_features_", []) or [])
-                if c not in _eng_drop
-            ]
+            self.cat_pair_features_ = [c for c in (getattr(self, "cat_pair_features_", []) or []) if c not in _eng_drop]
             # Layer 94: mirror cleanup for cat_triple crosses.
-            self.cat_triple_features_ = [
-                c for c in (getattr(self, "cat_triple_features_", []) or [])
-                if c not in _eng_drop
-            ]
+            self.cat_triple_features_ = [c for c in (getattr(self, "cat_triple_features_", []) or []) if c not in _eng_drop]
             # Layer 90: mirror cleanup for numeric-decomposition columns.
-            self.numeric_decompose_features_ = [
-                c for c in (getattr(self, "numeric_decompose_features_", []) or [])
-                if c not in _eng_drop
-            ]
+            self.numeric_decompose_features_ = [c for c in (getattr(self, "numeric_decompose_features_", []) or []) if c not in _eng_drop]
             for _c in list(_hybrid_orth_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _hybrid_orth_pre_recipes.pop(_c, None)
@@ -5597,9 +4948,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _temporal_agg_pre_recipes.pop(_c, None)
             if verbose:
                 logger.info(
-                    "MRMR.fit engineered-FE dedup: pruned %d near-duplicate "
-                    "engineered column(s) at Spearman |rho| >= 0.99: %s",
-                    len(_eng_drop), sorted(_eng_drop),
+                    "MRMR.fit engineered-FE dedup: pruned %d near-duplicate " "engineered column(s) at Spearman |rho| >= 0.99: %s",
+                    len(_eng_drop),
+                    sorted(_eng_drop),
                 )
 
     # Layer 91 (2026-06-01): Tier-2 UNIFIED SECOND-PASS CMI GATE. The Layer 27
@@ -5614,39 +4965,27 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # y on top of raw + earlier-selected engineered columns. Default OFF (byte-
     # identical legacy path). y is read only here at fit; transform replays the
     # surviving recipes without y.
-    if (
-        bool(getattr(self, "fe_unified_second_pass_gate", False))
-        and isinstance(X, pd.DataFrame)
-    ):
+    if bool(getattr(self, "fe_unified_second_pass_gate", False)) and isinstance(X, pd.DataFrame):
         try:
-            _eng_now = [
-                c for c in (
-                    list(self.hybrid_orth_features_ or [])
-                    + list(self.mi_greedy_features_ or [])
-                )
-                if c in X.columns
-            ]
+            _eng_now = [c for c in (list(self.hybrid_orth_features_ or []) + list(self.mi_greedy_features_ or [])) if c in X.columns]
             # Order-preserving unique.
             _seen_u: set[str] = set()
-            _eng_now = [
-                c for c in _eng_now if not (c in _seen_u or _seen_u.add(c))
-            ]
+            _eng_now = [c for c in _eng_now if not (c in _seen_u or _seen_u.add(c))]
             if len(_eng_now) >= 2:
                 from .._unified_fe_gate import unified_second_pass_gate
 
                 _raw_cols_u = [c for c in X.columns if c not in set(_eng_now)]
-                _y_for_u = (
-                    _y_np
+                _y_for_u = _y_np
+                _keep_u = set(
+                    unified_second_pass_gate(
+                        X,
+                        _y_for_u,
+                        raw_cols=_raw_cols_u,
+                        engineered_cols=_eng_now,
+                        max_keep=getattr(self, "fe_unified_second_pass_max_keep", None),
+                        min_cmi_gain=float(getattr(self, "fe_unified_second_pass_min_gain", 0.005)),
+                    )
                 )
-                _keep_u = set(unified_second_pass_gate(
-                    X, _y_for_u,
-                    raw_cols=_raw_cols_u,
-                    engineered_cols=_eng_now,
-                    max_keep=getattr(self, "fe_unified_second_pass_max_keep", None),
-                    min_cmi_gain=float(
-                        getattr(self, "fe_unified_second_pass_min_gain", 0.005)
-                    ),
-                ))
                 _eng_drop_u = set(_eng_now) - _keep_u
                 if _eng_drop_u:
                     X = X.drop(columns=list(_eng_drop_u))
@@ -5671,21 +5010,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         "rankgauss_features_",
                         "temporal_agg_features_",
                     ):
-                        setattr(self, _attr, [
-                            c for c in (getattr(self, _attr, []) or [])
-                            if c not in _eng_drop_u
-                        ])
+                        setattr(self, _attr, [c for c in (getattr(self, _attr, []) or []) if c not in _eng_drop_u])
                     # Private hinge / adaptive-fourier protection rosters are not
                     # in the public-roster loop above; prune them explicitly so a
                     # second-pass-dropped leg is not re-added by its protection.
-                    self._hinge_features_ = [
-                        c for c in (getattr(self, "_hinge_features_", None) or [])
-                        if c not in _eng_drop_u
-                    ]
-                    self._adaptive_fourier_features_ = [
-                        c for c in (getattr(self, "_adaptive_fourier_features_", None) or [])
-                        if c not in _eng_drop_u
-                    ]
+                    self._hinge_features_ = [c for c in (getattr(self, "_hinge_features_", None) or []) if c not in _eng_drop_u]
+                    self._adaptive_fourier_features_ = [c for c in (getattr(self, "_adaptive_fourier_features_", None) or []) if c not in _eng_drop_u]
                     for _pre in (
                         _hybrid_orth_pre_recipes, _mi_greedy_pre_recipes,
                         _kfold_te_pre_recipes, _count_enc_pre_recipes,
@@ -5714,15 +5044,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 _pre.pop(_c, None)
                     if verbose:
                         logger.info(
-                            "MRMR.fit unified second-pass CMI gate: pruned %d "
-                            "cross-mechanism redundant engineered column(s): %s",
-                            len(_eng_drop_u), sorted(_eng_drop_u),
+                            "MRMR.fit unified second-pass CMI gate: pruned %d " "cross-mechanism redundant engineered column(s): %s",
+                            len(_eng_drop_u),
+                            sorted(_eng_drop_u),
                         )
         except Exception as _u_exc:
             logger.warning(
-                "MRMR.fit unified_second_pass_gate raised %s: %s; continuing "
-                "without the Tier-2 cross-mechanism gate.",
-                type(_u_exc).__name__, _u_exc,
+                "MRMR.fit unified_second_pass_gate raised %s: %s; continuing " "without the Tier-2 cross-mechanism gate.",
+                type(_u_exc).__name__,
+                _u_exc,
             )
 
     # Layer 23: feature_names_in_ MUST exclude hybrid-appended columns so
@@ -6009,7 +5339,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         method=self.quantization_method,
         n_bins=self.quantization_nbins,
         dtype=self.quantization_dtype,
-        max_categorical_cardinality=getattr(self, 'max_categorical_cardinality', None),
+        max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None),
         missing_strategy=_strategy_for_categorize,
         nbins_strategy=_nbins_strategy,
         nbins_strategy_kwargs=_nbins_strategy_kwargs,
@@ -6042,10 +5372,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         for _ti in target_indices:
             _t_name = cols[int(_ti)]
             try:
-                _t_raw = np.asarray(
-                    _x_for_cat[_t_name].to_numpy()
-                    if hasattr(_x_for_cat[_t_name], "to_numpy") else _x_for_cat[_t_name]
-                )
+                _t_raw = np.asarray(_x_for_cat[_t_name].to_numpy() if hasattr(_x_for_cat[_t_name], "to_numpy") else _x_for_cat[_t_name])
             except Exception:
                 continue
             if _t_raw.dtype.kind not in "fiub" or _t_raw.ndim != 1:
@@ -6103,11 +5430,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # Polars schema-driven detection; mirrors categorize_dataset's _is_pl_cat.
         import polars as _pl
         _CAT_DTYPES_FOR_VARS = {_pl.Utf8, _pl.String, _pl.Categorical, _pl.Boolean}
-        categorical_vars_names = [
-            name for name, dt in X.schema.items()
-            if dt in _CAT_DTYPES_FOR_VARS
-            or (hasattr(_pl, "Enum") and isinstance(dt, _pl.Enum))
-        ]
+        categorical_vars_names = [name for name, dt in X.schema.items() if dt in _CAT_DTYPES_FOR_VARS or (hasattr(_pl, "Enum") and isinstance(dt, _pl.Enum))]
     else:
         categorical_vars_names = X.head().select_dtypes(include=("category", "object", "string", "bool")).columns.values.tolist()
     categorical_vars = [_name_to_idx[col] for col in categorical_vars_names]
@@ -6309,9 +5632,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # Engineered cat cols are appended at the end of data/cols at positions [_n_cols_before_cat_fe..].
         _n_cat_fe_added = data.shape[1] - _n_cols_before_cat_fe
         if _n_cat_fe_added > 0:
-            categorical_vars = list(categorical_vars) + list(
-                range(_n_cols_before_cat_fe, data.shape[1])
-            )
+            categorical_vars = list(categorical_vars) + list(range(_n_cols_before_cat_fe, data.shape[1]))
         # Persist cache for next fit() call
         if cat_fe_state.streaming_cache_out:
             self._cat_fe_cache_ = cat_fe_state.streaming_cache_out
@@ -6341,7 +5662,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _src_map_cache: dict = {}
             for _ri, r in enumerate(cat_fe_state.recipes):
                 _maps_for_recipe: dict = {}
-                for _src in (getattr(r, "src_names", ()) or ()):
+                for _src in getattr(r, "src_names", ()) or ():
                     if _src not in _src_map_cache:
                         if _src in _x_for_cat.columns:
                             try:
@@ -6364,8 +5685,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             engineered_recipes[r.name] = r
         if verbose and cat_fe_state.recipes:
             logger.info(
-                "MRMR cat-FE produced %d engineered feature(s); "
-                "data extended from %d to %d cols.",
+                "MRMR cat-FE produced %d engineered feature(s); " "data extended from %d to %d cols.",
                 len(cat_fe_state.recipes),
                 data.shape[1] - len(cat_fe_state.recipes),
                 data.shape[1],
@@ -6373,9 +5693,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     # Resolve effective ``min_relevance_gain`` against the target entropy. ``'relative_to_entropy'`` mode uses ``min_relevance_gain_frac * H(y)`` so the stop floor scales with how much information the target actually carries; ``'absolute'`` mode retains the legacy verbatim value. The target is already discretized into bins (``data[:, target_indices[0]]`` with bin count ``nbins[target_indices[0]]``); ``np.bincount`` + Shannon entropy in nats matches the screen_predictors estimator family.
     if self.min_relevance_gain_mode not in ("absolute", "relative_to_entropy"):
-        raise ValueError(
-            f"MRMR.min_relevance_gain_mode={self.min_relevance_gain_mode!r} must be 'absolute' or 'relative_to_entropy'."
-        )
+        raise ValueError(f"MRMR.min_relevance_gain_mode={self.min_relevance_gain_mode!r} must be 'absolute' or 'relative_to_entropy'.")
     if self.min_relevance_gain_mode == "relative_to_entropy":
         _target_col_idx = int(target_indices[0])
         _y_bins = data[:, _target_col_idx]
@@ -6421,144 +5739,144 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
             logger.warning("mrmr: shared FE subsample resolution failed; screening at FULL n: %r", _sub_exc, exc_info=True)
             _screen_shared_idx = None
-        selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y, _dcd_state = (
-            screen_predictors(
-                factors_data=data,
-                y=target_indices,
-                subsample_idx=_screen_shared_idx,
-                factors_nbins=nbins,
-                factors_names=cols,
-                # Layer 23: when hybrid orth FE appended columns, extend the
-                # candidate pool to include them so they reach the screening
-                # gates. When the caller did not pin factors_names_to_use,
-                # screen_predictors uses every column from ``cols`` so the
-                # hybrid cols are naturally included.
-                factors_names_to_use=(
-                    list(self.factors_names_to_use)
-                    + list(self.hybrid_orth_features_ or [])
-                    + list(getattr(self, "mi_greedy_features_", None) or [])
-                    if (
-                        self.factors_names_to_use
-                        and (
-                            self.hybrid_orth_features_
-                            or getattr(self, "mi_greedy_features_", None)
-                        )
-                    )
-                    else self.factors_names_to_use
-                ),
-                factors_to_use=self.factors_to_use,
-                # algorithm
-                mrmr_relevance_algo=self.mrmr_relevance_algo,
-                mrmr_redundancy_algo=self.mrmr_redundancy_algo,
-                reduce_gain_on_subelement_chosen=self.reduce_gain_on_subelement_chosen,
-                use_simple_mode=self.use_simple_mode,
-                # performance
-                extra_x_shuffling=self.extra_x_shuffling,
-                dtype=self.dtype,
-                random_seed=self.random_seed,
-                use_gpu=self.use_gpu,
-                n_workers=self.n_workers,
-                # confidence
-                min_occupancy=self.min_occupancy,
-                min_nonzero_confidence=self.min_nonzero_confidence,
-                full_npermutations=self.full_npermutations,
-                baseline_npermutations=self.baseline_npermutations,
-                # 2026-06-02 RC2 — sample-size-aware Fleuret confirmation threshold.
-                fe_confirm_undersample_rows_per_cell=float(getattr(self, "fe_confirm_undersample_rows_per_cell", 5.0) or 0.0),
-                # stopping conditions
-                min_relevance_gain=_effective_min_relevance_gain,
-                min_relevance_gain_relative_to_first=float(getattr(self, "min_relevance_gain_relative_to_first", 0.0)),
-                cardinality_bias_correction=bool(getattr(self, "cardinality_bias_correction", True)),
-                max_consec_unconfirmed=self.max_consec_unconfirmed,
-                max_runtime_mins=self.max_runtime_mins,
-                interactions_min_order=self.interactions_min_order,
-                interactions_max_order=self.interactions_max_order,
-                interactions_order_reversed=self.interactions_order_reversed,
-                max_veteranes_interactions_order=self.max_veteranes_interactions_order,
-                only_unknown_interactions=self.only_unknown_interactions,
-                # Resolve effective max_confirmation_cand_nbins: user-pinned wins, else formula default.
-                max_confirmation_cand_nbins=(
-                    self.max_confirmation_cand_nbins
-                    if self.max_confirmation_cand_nbins is not None
-                    else self.quantization_nbins ** self.interactions_max_order * 2
-                ),
-                # FE-on-empty-screen fallback flag (consumed by MRMR.fit).
-                fe_fallback_to_all=self.fe_fallback_to_all,
-                # verbosity and formatting
-                verbose=self.verbose,
-                ndigits=self.ndigits,
-                parallel_kwargs=self.parallel_kwargs,
-                stop_file=self.stop_file,
-                # engineered_lineage from cat-FE step (None when cat-FE didn't run); screen uses it to skip
-                # redundant (orig_parent, engineered_col) k-way candidates.
-                engineered_lineage=(
-                    self._cat_fe_state_.lineage
-                    if getattr(self, "_cat_fe_state_", None) is not None
-                    and self._cat_fe_state_.lineage
-                    else None
-                ),
-                # 2026-05-30 Wave 9 — DCD config forward. Built only when
-                # ``dcd_enable=True`` (per Critic1/F: passed as kwargs, NOT
-                # via thread-local, for joblib parallel-backend safety).
-                dcd_config=(
-                    dict(
-                        enable=True,
-                        tau_cluster=self.dcd_tau_cluster,
-                        distance=self.dcd_distance,
-                        cluster_size_threshold=self.dcd_cluster_size_threshold,
-                        swap_gain_threshold=self.dcd_swap_gain_threshold,
-                        swap_method=self.dcd_swap_method,
-                        pairwise_cache_max=self.dcd_pairwise_cache_max,
-                        min_cluster_size=self.dcd_min_cluster_size,
-                        max_cluster_size=self.dcd_max_cluster_size,
-                        swap_alpha=self.dcd_swap_alpha,
-                        # 2026-06-03 (audit dcd-core-1/dcd-swap-null-1/2):
-                        # the swap null draw count, decoupled from
-                        # full_npermutations. getattr fallback keeps old
-                        # pickles (lacking the attr) loading at the 199 default.
-                        swap_npermutations=getattr(self, "dcd_swap_npermutations", 199),
-                        warp_tiebreak_prefer_linear=getattr(self, "warp_tiebreak_prefer_linear", True),
-                        warp_twin_rank_corr=getattr(self, "warp_twin_rank_corr", 0.99),
-                        warp_linear_margin=getattr(self, "warp_linear_margin", 0.05),
-                        # Layer 47 (2026-05-31): forward the auto-tau
-                        # calibration knobs (number of sampled feature pairs
-                        # and RNG seed) so make_dcd_state can fingerprint
-                        # the calibration sweep deterministically.
-                        tau_calibration_n_pairs=getattr(
-                            self, "dcd_tau_calibration_n_pairs", 100,
-                        ),
-                        tau_calibration_seed=getattr(
-                            self, "dcd_tau_calibration_seed", 0,
-                        ),
-                        X_raw=X,
-                        quantization_method=self.quantization_method,
-                        quantization_nbins=self.quantization_nbins,
-                        quantization_dtype=self.quantization_dtype,
-                    )
-                    if getattr(self, "dcd_enable", False) else None
-                ),
-                # 2026-05-31 Layer 43 (PART A) — thread the local
-                # engineered_recipes dict into screen so DCD's commit_swap can
-                # register the PC1 aggregate as a replayable EngineeredRecipe.
-                # Pre-fix the dict was inaccessible from screen and the swap
-                # silently dropped the aggregate from ``_engineered_recipes_``.
-                engineered_recipes=engineered_recipes,
-                # 2026-06-02 — directed-FE tie-break: pass the snapshot of the
-                # ORIGINAL user input columns (taken before any FE stage appended
-                # engineered intermediates). screen_predictors uses it to mark
-                # any candidate whose name is not in this set as engineered and,
-                # on a near-tie in selection gain, prefer the engineered transform
-                # over its raw parent (e.g. x1__He2 over x1 for an even-symmetric
-                # target). Applies in BOTH the first screen and the post-FE
-                # confirming re-screen (this same call runs in the while-loop).
-                raw_feature_names=_raw_input_cols_pre_fe,
-                # Thread the prior pass's DCDState so cluster discovery
-                # accumulates across the confirm-rescreen (the matrix only
-                # grows; raw indices are stable). Without this the rescreen
-                # rebuilds an empty state and the published dcd_ summary loses
-                # the screen-1 dup cluster (n_pruned/cluster_anchors reset).
-                existing_dcd_state=_persisted_dcd_state,
-            )
+        (
+            selected_vars,
+            predictors,
+            any_influencing,
+            entropy_cache,
+            cached_MIs,
+            cached_confident_MIs,
+            cached_cond_MIs,
+            classes_y,
+            classes_y_safe,
+            freqs_y,
+            _dcd_state,
+        ) = screen_predictors(
+            factors_data=data,
+            y=target_indices,
+            subsample_idx=_screen_shared_idx,
+            factors_nbins=nbins,
+            factors_names=cols,
+            # Layer 23: when hybrid orth FE appended columns, extend the
+            # candidate pool to include them so they reach the screening
+            # gates. When the caller did not pin factors_names_to_use,
+            # screen_predictors uses every column from ``cols`` so the
+            # hybrid cols are naturally included.
+            factors_names_to_use=(
+                list(self.factors_names_to_use) + list(self.hybrid_orth_features_ or []) + list(getattr(self, "mi_greedy_features_", None) or [])
+                if (self.factors_names_to_use and (self.hybrid_orth_features_ or getattr(self, "mi_greedy_features_", None)))
+                else self.factors_names_to_use
+            ),
+            factors_to_use=self.factors_to_use,
+            # algorithm
+            mrmr_relevance_algo=self.mrmr_relevance_algo,
+            mrmr_redundancy_algo=self.mrmr_redundancy_algo,
+            reduce_gain_on_subelement_chosen=self.reduce_gain_on_subelement_chosen,
+            use_simple_mode=self.use_simple_mode,
+            # performance
+            extra_x_shuffling=self.extra_x_shuffling,
+            dtype=self.dtype,
+            random_seed=self.random_seed,
+            use_gpu=self.use_gpu,
+            n_workers=self.n_workers,
+            # confidence
+            min_occupancy=self.min_occupancy,
+            min_nonzero_confidence=self.min_nonzero_confidence,
+            full_npermutations=self.full_npermutations,
+            baseline_npermutations=self.baseline_npermutations,
+            # 2026-06-02 RC2 — sample-size-aware Fleuret confirmation threshold.
+            fe_confirm_undersample_rows_per_cell=float(getattr(self, "fe_confirm_undersample_rows_per_cell", 5.0) or 0.0),
+            # stopping conditions
+            min_relevance_gain=_effective_min_relevance_gain,
+            min_relevance_gain_relative_to_first=float(getattr(self, "min_relevance_gain_relative_to_first", 0.0)),
+            cardinality_bias_correction=bool(getattr(self, "cardinality_bias_correction", True)),
+            max_consec_unconfirmed=self.max_consec_unconfirmed,
+            max_runtime_mins=self.max_runtime_mins,
+            interactions_min_order=self.interactions_min_order,
+            interactions_max_order=self.interactions_max_order,
+            interactions_order_reversed=self.interactions_order_reversed,
+            max_veteranes_interactions_order=self.max_veteranes_interactions_order,
+            only_unknown_interactions=self.only_unknown_interactions,
+            # Resolve effective max_confirmation_cand_nbins: user-pinned wins, else formula default.
+            max_confirmation_cand_nbins=(
+                self.max_confirmation_cand_nbins if self.max_confirmation_cand_nbins is not None else self.quantization_nbins**self.interactions_max_order * 2
+            ),
+            # FE-on-empty-screen fallback flag (consumed by MRMR.fit).
+            fe_fallback_to_all=self.fe_fallback_to_all,
+            # verbosity and formatting
+            verbose=self.verbose,
+            ndigits=self.ndigits,
+            parallel_kwargs=self.parallel_kwargs,
+            stop_file=self.stop_file,
+            # engineered_lineage from cat-FE step (None when cat-FE didn't run); screen uses it to skip
+            # redundant (orig_parent, engineered_col) k-way candidates.
+            engineered_lineage=(self._cat_fe_state_.lineage if getattr(self, "_cat_fe_state_", None) is not None and self._cat_fe_state_.lineage else None),
+            # 2026-05-30 Wave 9 — DCD config forward. Built only when
+            # ``dcd_enable=True`` (per Critic1/F: passed as kwargs, NOT
+            # via thread-local, for joblib parallel-backend safety).
+            dcd_config=(
+                dict(
+                    enable=True,
+                    tau_cluster=self.dcd_tau_cluster,
+                    distance=self.dcd_distance,
+                    cluster_size_threshold=self.dcd_cluster_size_threshold,
+                    swap_gain_threshold=self.dcd_swap_gain_threshold,
+                    swap_method=self.dcd_swap_method,
+                    pairwise_cache_max=self.dcd_pairwise_cache_max,
+                    min_cluster_size=self.dcd_min_cluster_size,
+                    max_cluster_size=self.dcd_max_cluster_size,
+                    swap_alpha=self.dcd_swap_alpha,
+                    # 2026-06-03 (audit dcd-core-1/dcd-swap-null-1/2):
+                    # the swap null draw count, decoupled from
+                    # full_npermutations. getattr fallback keeps old
+                    # pickles (lacking the attr) loading at the 199 default.
+                    swap_npermutations=getattr(self, "dcd_swap_npermutations", 199),
+                    warp_tiebreak_prefer_linear=getattr(self, "warp_tiebreak_prefer_linear", True),
+                    warp_twin_rank_corr=getattr(self, "warp_twin_rank_corr", 0.99),
+                    warp_linear_margin=getattr(self, "warp_linear_margin", 0.05),
+                    # Layer 47 (2026-05-31): forward the auto-tau
+                    # calibration knobs (number of sampled feature pairs
+                    # and RNG seed) so make_dcd_state can fingerprint
+                    # the calibration sweep deterministically.
+                    tau_calibration_n_pairs=getattr(
+                        self,
+                        "dcd_tau_calibration_n_pairs",
+                        100,
+                    ),
+                    tau_calibration_seed=getattr(
+                        self,
+                        "dcd_tau_calibration_seed",
+                        0,
+                    ),
+                    X_raw=X,
+                    quantization_method=self.quantization_method,
+                    quantization_nbins=self.quantization_nbins,
+                    quantization_dtype=self.quantization_dtype,
+                )
+                if getattr(self, "dcd_enable", False)
+                else None
+            ),
+            # 2026-05-31 Layer 43 (PART A) — thread the local
+            # engineered_recipes dict into screen so DCD's commit_swap can
+            # register the PC1 aggregate as a replayable EngineeredRecipe.
+            # Pre-fix the dict was inaccessible from screen and the swap
+            # silently dropped the aggregate from ``_engineered_recipes_``.
+            engineered_recipes=engineered_recipes,
+            # 2026-06-02 — directed-FE tie-break: pass the snapshot of the
+            # ORIGINAL user input columns (taken before any FE stage appended
+            # engineered intermediates). screen_predictors uses it to mark
+            # any candidate whose name is not in this set as engineered and,
+            # on a near-tie in selection gain, prefer the engineered transform
+            # over its raw parent (e.g. x1__He2 over x1 for an even-symmetric
+            # target). Applies in BOTH the first screen and the post-FE
+            # confirming re-screen (this same call runs in the while-loop).
+            raw_feature_names=_raw_input_cols_pre_fe,
+            # Thread the prior pass's DCDState so cluster discovery
+            # accumulates across the confirm-rescreen (the matrix only
+            # grows; raw indices are stable). Without this the rescreen
+            # rebuilds an empty state and the published dcd_ summary loses
+            # the screen-1 dup cluster (n_pruned/cluster_anchors reset).
+            existing_dcd_state=_persisted_dcd_state,
         )
         if _dcd_state is not None:
             _persisted_dcd_state = _dcd_state
@@ -6658,9 +5976,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if _ss_verdict.reached:
                 if verbose:
                     logger.info(
-                        "MRMR.fit: sufficient-summary early-stop at FE step %d -- %s. "
-                        "Skipping the remaining FE search (selection unchanged).",
-                        num_fs_steps, _ss_verdict.reason,
+                        "MRMR.fit: sufficient-summary early-stop at FE step %d -- %s. " "Skipping the remaining FE search (selection unchanged).",
+                        num_fs_steps,
+                        _ss_verdict.reason,
                     )
                 break
 
@@ -6719,12 +6037,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # already-completed expensive Hermite Optuna phase).
         _adaptive = bool(getattr(self, "fe_adaptive_threshold_relax", True))
         _relax_factor = float(getattr(self, "fe_adaptive_relax_factor", 0.9))
-        if (
-            n_recommended_features == 0
-            and _adaptive
-            and fe_max_steps > 0
-            and num_fs_steps == 0   # only on the very first FE step
-        ):
+        if n_recommended_features == 0 and _adaptive and fe_max_steps > 0 and num_fs_steps == 0:  # only on the very first FE step
             _relaxed_engineered = fe_min_engineered_mi_prevalence * _relax_factor
             _relaxed_pair = max(1.001, fe_min_pair_mi_prevalence * _relax_factor)
             if verbose:
@@ -6803,11 +6116,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # hits the ``num_fs_steps >= fe_max_steps`` break at the TOP of the
             # loop (line ~5085) BEFORE the FE step, so FE never runs again -- no
             # unbounded recursion, no new engineered columns.
-            if (
-                getattr(self, "fe_reselect_after_engineering", True)
-                and n_recommended_features > 0
-                and not _did_confirm_rescreen
-            ):
+            if getattr(self, "fe_reselect_after_engineering", True) and n_recommended_features > 0 and not _did_confirm_rescreen:
                 _did_confirm_rescreen = True
                 continue
             break  # uncomment to avoid recheck of single-rounded FE
@@ -6872,9 +6181,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _agg_indices = [
                 int(e.get("new_col_idx"))
                 for e in (getattr(_dcd_state, "swap_log", None) or [])
-                if str(e.get("branch", "aggregate")) == "aggregate"
-                and e.get("aggregate_name")
-                and e.get("new_col_idx") is not None
+                if str(e.get("branch", "aggregate")) == "aggregate" and e.get("aggregate_name") and e.get("new_col_idx") is not None
             ]
             for _agg_idx in _agg_indices:
                 if _agg_idx in _sv_set:
@@ -6920,10 +6227,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if self.friend_graph_prune:
                 # Protect cluster-aggregate columns from pruning: they are correlated with all their
                 # members by construction, so the sink classifier could mis-flag them.
-                _ca_protect = [
-                    v for v in selected_vars
-                    if getattr(engineered_recipes.get(cols[v]), "kind", None) == "cluster_aggregate"
-                ]
+                _ca_protect = [v for v in selected_vars if getattr(engineered_recipes.get(cols[v]), "kind", None) == "cluster_aggregate"]
                 _pruned, _reasons = _prune_fg(_fg, selected_vars, protect_indices=_ca_protect)
                 if _reasons:
                     if verbose:
@@ -6966,10 +6270,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _tok_sg = _re_sg.compile(r"(?<![A-Za-z0-9_])([a-z](?:[a-z]?\d+)?)(?![A-Za-z0-9_])")
             _sel_names_sg = [cols[v] for v in selected_vars]
             # Clean engineered survivors = selected composites that are NOT a bare gate column and NOT raw.
-            _clean_tok_sets_sg = [
-                set(_tok_sg.findall(nm)) for nm in _sel_names_sg
-                if nm not in _gmap_sg and ("(" in nm) and ("gate_mask" not in nm)
-            ]
+            _clean_tok_sets_sg = [set(_tok_sg.findall(nm)) for nm in _sel_names_sg if nm not in _gmap_sg and ("(" in nm) and ("gate_mask" not in nm)]
             _clean_union_sg = set().union(*_clean_tok_sets_sg) if _clean_tok_sets_sg else set()
             # "Genuine single-pair carrier" anchors for the within-one test are PURE-PAIR survivors only
             # (<= 2 distinct raw vars). A FULL-TARGET fused compound spans every var ({a,b,c,d}) and would
@@ -7065,7 +6366,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # Cluster members folded into a denoised MULTI-parent aggregate (cluster_aggregate 'replace' mode -> _cluster_aggregate_removals_, or a DCD PC1/mean_z swap -> cluster_members_) are
         # ALREADY represented by that aggregate. _extract_single_raw_parent only recognises a SOLE-parent transform substitute, so without this exclusion raw-retention would resurrect the
         # very members 'replace' mode just removed and re-inject the redundancy the aggregation collapsed. Same exclusion the additional-RFECV rescue pool applies below.
-        for _ca_member in (getattr(self, "_cluster_aggregate_removals_", None) or []):
+        for _ca_member in getattr(self, "_cluster_aggregate_removals_", None) or []:
             _substituted.add(_ca_member)
         _cm_for_raw_retention = getattr(self, "cluster_members_", None)
         if isinstance(_cm_for_raw_retention, dict):
@@ -7231,7 +6532,6 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 len(_dropped_redundant), _dropped_redundant,
             )
 
-
     # ADAPTIVE-FOURIER PROTECTION (2026-06-03): re-add held-out-validated
     # ADAPTIVE Fourier columns the MRMR screen dropped. The adaptive detector
     # already confirmed the column's dominant frequency on a held-out slice;
@@ -7260,9 +6560,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             selected_vars = list(selected_vars) + _readd_adaptive
             if verbose:
                 logger.info(
-                    "MRMR adaptive-fourier protection: re-added %d held-out-"
-                    "validated adaptive Fourier feature(s) dropped by the screen: %s",
-                    len(_readd_adaptive), [cols[i] for i in _readd_adaptive],
+                    "MRMR adaptive-fourier protection: re-added %d held-out-" "validated adaptive Fourier feature(s) dropped by the screen: %s",
+                    len(_readd_adaptive),
+                    [cols[i] for i in _readd_adaptive],
                 )
 
     # MISSINGNESS-INDICATOR PROTECTION (2026-06-04): re-add the clean ``is_missing__{col}`` indicator the MRMR screen dropped IN FAVOUR OF its raw source. Under ``nan_strategy='separate_bin'``
@@ -7336,28 +6636,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 data = np.append(
                     data, np.hstack(_new_hinge_codes).astype(data.dtype), axis=1,
                 )
-                nbins = np.concatenate([
-                    np.asarray(nbins),
-                    np.asarray(_new_hinge_nbins, dtype=nbins.dtype),
-                ])
-                self.hybrid_orth_features_ = (
-                    list(self.hybrid_orth_features_ or []) + list(_hinge_added_names)
+                nbins = np.concatenate(
+                    [
+                        np.asarray(nbins),
+                        np.asarray(_new_hinge_nbins, dtype=nbins.dtype),
+                    ]
                 )
-                self._hinge_features_ = (
-                    list(getattr(self, "_hinge_features_", None) or [])
-                    + list(_hinge_added_names)
-                )
+                self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_hinge_added_names)
+                self._hinge_features_ = list(getattr(self, "_hinge_features_", None) or []) + list(_hinge_added_names)
                 if verbose:
                     logger.info(
-                        "MRMR.fit hinge change-point FE: materialised %d deferred "
-                        "leg(s) post-loop: %s",
-                        len(_hinge_added_names), _hinge_added_names[:8],
+                        "MRMR.fit hinge change-point FE: materialised %d deferred " "leg(s) post-loop: %s",
+                        len(_hinge_added_names),
+                        _hinge_added_names[:8],
                     )
         except Exception as _h_mat_exc:
             logger.warning(
-                "MRMR.fit hinge deferred materialisation raised %s: %s; "
-                "continuing without hinge columns.",
-                type(_h_mat_exc).__name__, _h_mat_exc,
+                "MRMR.fit hinge deferred materialisation raised %s: %s; " "continuing without hinge columns.",
+                type(_h_mat_exc).__name__,
+                _h_mat_exc,
             )
 
     # HINGE / CHANGE-POINT PROTECTION (2026-06-09): re-add the held-out-tau-
@@ -7650,7 +6947,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _rp_rel_frac = float(getattr(self, "min_relevance_gain_relative_to_first", 0.0) or 0.0)
                 _rp_max_mi = max((float(_v) for _v in cached_MIs.values()), default=0.0) if isinstance(cached_MIs, dict) else 0.0
                 _rp_floor = max(_rp_rel_floor, _rp_max_mi * _rp_rel_frac)
-                for _rn in (getattr(self, "feature_names_in_", None) or []):
+                for _rn in getattr(self, "feature_names_in_", None) or []:
                     _ridx = _cols_index_r.get(_rn)
                     if _ridx is None or _ridx in _sv_set_r or _rn not in X.columns:
                         continue
@@ -7693,8 +6990,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # signal well enough for the usability test (a genuine encoding lifts R^2 >> floor; a noise encoding ~0).
     if isinstance(X, pd.DataFrame) and len(selected_vars):
         _cf_names = []
-        for _attr in ("kfold_te_features_", "count_encoding_features_",
-                      "frequency_encoding_features_", "cat_num_interaction_features_"):
+        for _attr in ("kfold_te_features_", "count_encoding_features_", "frequency_encoding_features_", "cat_num_interaction_features_"):
             _cf_names.extend(getattr(self, _attr, None) or [])
         _cf_names = [n for n in dict.fromkeys(_cf_names)]  # dedup, preserve order
         if _cf_names:
@@ -7817,10 +7113,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _anchor in list(_sel_raw_dcd):
                 if _dcd_st.pool_pruned_mask[_anchor]:
                     continue  # already pruned as a member of an earlier anchor's cluster
-                _pool_dcd = [
-                    c for c in _sel_raw_dcd
-                    if c != _anchor and not _dcd_st.pool_pruned_mask[c]
-                ]
+                _pool_dcd = [c for c in _sel_raw_dcd if c != _anchor and not _dcd_st.pool_pruned_mask[c]]
                 if not _pool_dcd:
                     continue
                 _added = _post_dcd_discover(
@@ -7859,11 +7152,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # comparison (aggregate's denoised latent vs the single noisy anchor dup).
                     _cluster_idx_set = set(_members) | {int(_anchor)}
                     _swap_sel_vars = [
-                        int(v) for v in selected_vars
-                        if int(v) == int(_anchor)
-                        or (int(v) not in _cluster_idx_set
-                            and 0 <= int(v) < _mask_w0
-                            and cols[int(v)] in _raw_name_set_dcd)
+                        int(v)
+                        for v in selected_vars
+                        if int(v) == int(_anchor) or (int(v) not in _cluster_idx_set and 0 <= int(v) < _mask_w0 and cols[int(v)] in _raw_name_set_dcd)
                     ]
                     _dec = _post_dcd_eval_swap(
                         _dcd_st, int(_anchor), _swap_sel_vars,
@@ -7894,8 +7185,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     self.cluster_members_ = dict(self.dcd_.get("cluster_anchors_names", {}))
                 if verbose:
                     logger.info(
-                        "MRMR post-selection DCD: discovered a duplicate cluster the greedy screen never anchored on; "
-                        "pruned %d redundant member(s)%s.",
+                        "MRMR post-selection DCD: discovered a duplicate cluster the greedy screen never anchored on; " "pruned %d redundant member(s)%s.",
                         len(_newly_pruned_dcd),
                         " + committed an aggregate swap" if _did_swap_dcd else "",
                     )
@@ -7947,8 +7237,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             _pcr_consumed.setdefault(_t, []).append(_pi)
                 # A raw is also consumed by a GENUINE (non-pseudo) selected engineered child when its
                 # name token appears there; such a raw is left to the DROP sweep (might be subsumed).
-                _pcr_genuine_eng = [i for i in selected_vars
-                                    if (cols[i] not in _pcr_raw_set) and not _pcr_is_pseudo(cols[i])]
+                _pcr_genuine_eng = [i for i in selected_vars if (cols[i] not in _pcr_raw_set) and not _pcr_is_pseudo(cols[i])]
                 _pcr_y = np.ascontiguousarray(np.asarray(classes_y)).ravel().astype(np.int64)
                 try:
                     _pcr_yv = y.values if hasattr(y, "values") else np.asarray(y)
@@ -8018,10 +7307,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             else:
                                 _child_bins.append(np.asarray(data[:, _gi]).astype(np.int64).ravel())
                     _rb = np.asarray(data[:, _ridx]).astype(np.int64).ravel()
-                    if _pcr_keep(raw_bin=_rb, y_bin=_pcr_y, genuine_child_bins=_child_bins,
-                                 allow_linear_usability=bool(getattr(self, "use_simple_mode", False)),
-                                 seed=int(getattr(self, "random_seed", 0) or 0)) \
-                            and _pcr_raw_is_significant(_ridx):
+                    if _pcr_keep(
+                        raw_bin=_rb,
+                        y_bin=_pcr_y,
+                        genuine_child_bins=_child_bins,
+                        allow_linear_usability=bool(getattr(self, "use_simple_mode", False)),
+                        seed=int(getattr(self, "random_seed", 0) or 0),
+                    ) and _pcr_raw_is_significant(_ridx):
                         _pcr_readd.append(_ridx)
                 if _pcr_readd:
                     selected_vars = list(selected_vars) + [i for i in _pcr_readd if i not in _pcr_sel_set]
@@ -8047,9 +7339,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # is n-INVARIANT (identical at n=1000 and n=50000) and never drops a raw carrying genuine
     # independent signal (a private additive term keeps a large excess and is KEPT). On by
     # default; ``fe_drop_redundant_raw_operands=False`` restores the pre-fix behaviour.
-    if (getattr(self, "fe_drop_redundant_raw_operands", True)
-            and getattr(self, "redundancy_policy", "emit_both") == "drop"
-            and len(selected_vars) >= 2):
+    if getattr(self, "fe_drop_redundant_raw_operands", True) and getattr(self, "redundancy_policy", "emit_both") == "drop" and len(selected_vars) >= 2:
         try:
             from .._fe_raw_redundancy_drop import drop_redundant_raw_operands
             _raw_names_for_redund = set(self.feature_names_in_)
@@ -8115,18 +7405,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # (which re-attaches a raw whose NAME tokenises a confirmed recipe by
                     # marginal MI) does NOT resurrect an operand this n-invariant conditional-
                     # redundancy sweep just dropped. The verdict is authoritative at every n.
-                    self._raw_redundancy_dropped_ = set(
-                        getattr(self, "_raw_redundancy_dropped_", None) or set()
-                    ) | set(_dropped_redund_names)
+                    self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) | set(_dropped_redund_names)
                     # If the drop left NO raw survivor while engineered children survived, the
                     # engineered-only support is the INTENDED, complete outcome (every raw operand
                     # was conditionally subsumed). Flag it so the empty-RAW rescue ``else`` branch
                     # below does NOT mistake this for a "screen returned 0 raw" emergency and
                     # re-pollute the support with the dropped operands (or, worse, a pure-noise
                     # column ranked next by marginal MI).
-                    _remaining_raw_after_drop = [
-                        v for v in selected_vars if cols[v] in set(self.feature_names_in_)
-                    ]
+                    _remaining_raw_after_drop = [v for v in selected_vars if cols[v] in set(self.feature_names_in_)]
                     if not _remaining_raw_after_drop:
                         # NEVER-EMPTY RAW FLOOR (2026-06-27 subsumption-aware fix). The drop is allowed to
                         # remove a raw subsumed by a surviving engineered child WHILE other raws remain (the
@@ -8212,9 +7498,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             _kept_name_floor = cols[_best_floor_idx]
                             # The re-kept raw is no longer "dropped": remove it from the verdict set so the
                             # downstream retention / rescue passes treat it as a genuine survivor.
-                            self._raw_redundancy_dropped_ = set(
-                                getattr(self, "_raw_redundancy_dropped_", None) or set()
-                            ) - {_kept_name_floor}
+                            self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) - {_kept_name_floor}
                             if verbose:
                                 logger.info(
                                     "MRMR raw-redundancy never-empty floor: dropping all raw operands would "
@@ -8510,9 +7794,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     estimator=CatBoostClassifier(**configs.CB_CLASSIF),
                     fit_params=dict(plot=False),
                     cat_features=categorical_vars_names,
-                    scoring=make_scorer(
-                        score_func=compute_probabilistic_multiclass_error, response_method='predict_proba', greater_is_better=False
-                    ),
+                    scoring=make_scorer(score_func=compute_probabilistic_multiclass_error, response_method="predict_proba", greater_is_better=False),
                     **params,
                 )
             else:
@@ -8571,8 +7853,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # the complete feature set -- skip the never-empty re-attach and let ``support_`` stay
     # empty (transform still emits the engineered columns). The re-attach remains active for
     # the genuine degenerate case (engineered-only with no redundancy verdict).
-    if (not selected_vars) and getattr(self, "_engineered_recipes_", None) \
-            and not getattr(self, "_redundancy_emptied_raw_", False):
+    if (not selected_vars) and getattr(self, "_engineered_recipes_", None) and not getattr(self, "_redundancy_emptied_raw_", False):
         try:
             from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _NE_TOK_SPLIT
             from ..info_theory import mi as _ne_mi
@@ -8618,18 +7899,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     raise RuntimeError("redundancy_policy=emit_both: skip subsumption restriction")
                 from .._fe_raw_redundancy_drop import drop_redundant_raw_operands as _ne_drop
                 _recipe_names = [_ne_recipe_name(r) for r in self._engineered_recipes_]
-                _eng_survivor_cols = [
-                    cols.index(_nm) for _nm in _recipe_names
-                    if _nm in cols and _nm not in _raw_names_ne
-                ]
+                _eng_survivor_cols = [cols.index(_nm) for _nm in _recipe_names if _nm in cols and _nm not in _raw_names_ne]
                 if _eng_survivor_cols and _operand_idxs:
                     _trial_sel = sorted(set(_operand_idxs) | set(_eng_survivor_cols))
                     # name -> EngineeredRecipe so the verdict can isolate clean nested
                     # sub-expressions here too (BUG1 nested-operand consumer detection).
-                    _ne_recipes = {
-                        _ne_recipe_name(_r): _r for _r in self._engineered_recipes_
-                        if _ne_recipe_name(_r) is not None
-                    }
+                    _ne_recipes = {_ne_recipe_name(_r): _r for _r in self._engineered_recipes_ if _ne_recipe_name(_r) is not None}
                     _, _ne_dropped = _ne_drop(
                         data=data, cols=cols, selected_cols_idx=_trial_sel,
                         raw_name_set=_raw_names_ne, y_binned=classes_y,
@@ -8650,11 +7925,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # term, so resurrecting it as the never-empty stand-in re-injects the redundant
             # single-group fragment the fusion removed (the FUSION-blocked goal's leftover raw).
             _fused_dropped_ne = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
-            _eligible_idxs = [
-                _oi for _oi in _operand_idxs
-                if cols[_oi] not in _subsumed_operand_names
-                and cols[_oi] not in _fused_dropped_ne
-            ]
+            _eligible_idxs = [_oi for _oi in _operand_idxs if cols[_oi] not in _subsumed_operand_names and cols[_oi] not in _fused_dropped_ne]
             if _eligible_idxs:
                 _tgt_ne = np.asarray(target_indices, dtype=np.int64)
                 _fn_ne = np.asarray(nbins, dtype=np.int64)
@@ -8696,9 +7967,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # the rescue / RFECV / augmentation pools all exclude
                 # ``_raw_redundancy_dropped_``; populate both here so the engineered-only
                 # support stands.
-                self._raw_redundancy_dropped_ = set(
-                    getattr(self, "_raw_redundancy_dropped_", None) or set()
-                ) | set(_subsumed_operand_names)
+                self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) | set(_subsumed_operand_names)
                 self._redundancy_emptied_raw_ = True
                 if verbose:
                     logger.info(
@@ -9025,11 +8294,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _covered.add(_base)
         _strip = _fused_subsumed & _covered
         if _strip:
-            selected_vars = [
-                v for v in selected_vars
-                if not (0 <= int(v) < len(self.feature_names_in_)
-                        and self.feature_names_in_[int(v)] in _strip)
-            ]
+            selected_vars = [v for v in selected_vars if not (0 <= int(v) < len(self.feature_names_in_) and self.feature_names_in_[int(v)] in _strip)]
             if verbose:
                 logger.info(
                     "MRMR C2 additive-fusion: stripped %d raw operand(s) the fused compound fully "
@@ -9058,8 +8323,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         self.support_linear_ = None
         self.support_universal_ = None
         if verbose:
-            logger.info("Usability-aware multi-list post-pass skipped (%s: %s).",
-                        type(_usability_exc).__name__, _usability_exc)
+            logger.info("Usability-aware multi-list post-pass skipped (%s: %s).", type(_usability_exc).__name__, _usability_exc)
 
     # SELECTION-STABILITY REPLAY STATE (backlog W3, 2026-06-11). Store a compact slice of the
     # already-discretised screening matrix ``data`` + the target codes + the per-column selection
@@ -9129,9 +8393,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             )
         except Exception as _exc:
             logger.warning(
-                "MRMR.retain_artifacts: capture failed (%s); export_artifacts() will raise. "
-                "Cause: %s",
-                type(_exc).__name__, _exc,
+                "MRMR.retain_artifacts: capture failed (%s); export_artifacts() will raise. " "Cause: %s",
+                type(_exc).__name__,
+                _exc,
             )
             self._artifacts_ = None
     # 2026-05-30 Wave 9.1 fix (loop iter 30): populate ``mrmr_gains_``
@@ -9252,22 +8516,20 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _retain_extra = _kept_extra
                 except Exception as _subsume_exc:
                     if verbose:
-                        logger.info("MRMR retention engineered-subsumption guard skipped (%s: %s).",
-                                    type(_subsume_exc).__name__, _subsume_exc)
+                        logger.info("MRMR retention engineered-subsumption guard skipped (%s: %s).", type(_subsume_exc).__name__, _subsume_exc)
             for _r_recipe, _r_name in _retain_extra:
                 self._engineered_recipes_.append(_r_recipe)
                 self._engineered_features_.append(_r_name)
                 _retention_added_eng_names.add(str(_r_name))
             if _retain_extra and verbose:
                 logger.info(
-                    "MRMR usability-aware retention: re-attached %d linearly-usable pure pair form(s) "
-                    "the MI greedy dropped for a higher-MI cross-mix: %s",
-                    len(_retain_extra), [n for _, n in _retain_extra],
+                    "MRMR usability-aware retention: re-attached %d linearly-usable pure pair form(s) " "the MI greedy dropped for a higher-MI cross-mix: %s",
+                    len(_retain_extra),
+                    [n for _, n in _retain_extra],
                 )
         except Exception as _retain_exc:  # never let the optional retention break a fit
             if verbose:
-                logger.info("MRMR usability-aware pure-form retention skipped (%s: %s).",
-                            type(_retain_exc).__name__, _retain_exc)
+                logger.info("MRMR usability-aware pure-form retention skipped (%s: %s).", type(_retain_exc).__name__, _retain_exc)
 
         # USABILITY-AWARE RAW RETENTION (2026-06-18). The companion to the pure-form retention above for the
         # case where the genuinely useful structure is a RAW the MI greedy under-ranked, not a pair form.
@@ -9349,7 +8611,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _rr_raw_set = set(self.feature_names_in_)
                 # raw name -> surviving engineered recipe names that consume it as an operand.
                 _rr_consumers: dict = {}
-                for _en in (getattr(self, "_engineered_recipes_", {}) or {}):
+                for _en in getattr(self, "_engineered_recipes_", {}) or {}:
                     _en_name = getattr(_en, "name", _en)
                     for _tok in _RR_TOK_SPLIT2.split(str(_en_name)):
                         if not _tok:
@@ -9387,8 +8649,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                     _child_bins.append(np.asarray(data[:, _cci]).astype(np.int64).ravel())
                                 elif _en_name in _rr_eng_cont:
                                     _child_bins.append(
-                                        np.asarray(_rr_qbin(np.asarray(_rr_eng_cont[_en_name], dtype=np.float64),
-                                                            nbins=10)).astype(np.int64).ravel()
+                                        np.asarray(_rr_qbin(np.asarray(_rr_eng_cont[_en_name], dtype=np.float64), nbins=10)).astype(np.int64).ravel()
                                     )
                             if not _child_bins:
                                 continue  # no usable child to condition on -> not provably subsumed -> KEEP
@@ -9435,8 +8696,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         )
         except Exception as _raw_retain_exc:  # never let the optional retention break a fit
             if verbose:
-                logger.info("MRMR usability-aware raw retention skipped (%s: %s).",
-                            type(_raw_retain_exc).__name__, _raw_retain_exc)
+                logger.info("MRMR usability-aware raw retention skipped (%s: %s).", type(_raw_retain_exc).__name__, _raw_retain_exc)
 
     # POST-RETENTION RAW-REDUNDANCY DROP (BUG1, 2026-06-19). The main raw-vs-engineered
     # redundancy sweep (above, ~line 7915) runs on the screen-stage ``selected_vars`` BEFORE
@@ -9469,16 +8729,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # x_a/x_b in y=x_a+x_b+2*x_a*x_b, main-sweep cmi 1.21x floor -> KEEP, post 1.5x -> DROP). The
             # post-retention sweep exists ONLY for composites retention attached after the sweep ran.
             _post_recipes: dict = {}
-            for _r in (self._engineered_recipes_ or []):
+            for _r in self._engineered_recipes_ or []:
                 _nm = getattr(_r, "name", None)
                 if _nm is not None and _nm not in _post_raw_set and str(_nm) in _retention_added_eng_names:
                     _post_recipes[str(_nm)] = _r
             # Selected raw operand cols-indices (selected_vars is in feature_names_in_ space here;
             # map each surviving raw back to its cols-space index by name).
-            _post_sel_raw_names = [
-                self.feature_names_in_[int(v)] for v in selected_vars
-                if 0 <= int(v) < len(self.feature_names_in_)
-            ]
+            _post_sel_raw_names = [self.feature_names_in_[int(v)] for v in selected_vars if 0 <= int(v) < len(self.feature_names_in_)]
             if _post_recipes and _post_sel_raw_names:
                 _post_cols = list(cols)
                 _post_data = data
@@ -9497,9 +8754,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         except Exception:
                             continue
                     if _enm not in _post_cols and _enm in _post_eng_cont:
-                        _post_extra_cols.append(
-                            _post_qbin(np.asarray(_post_eng_cont[_enm], dtype=np.float64), nbins=10)
-                        )
+                        _post_extra_cols.append(_post_qbin(np.asarray(_post_eng_cont[_enm], dtype=np.float64), nbins=10))
                         _post_cols.append(_enm)
                 if _post_extra_cols:
                     _post_data = np.column_stack([data] + [np.asarray(c).reshape(-1, 1) for c in _post_extra_cols])
@@ -9535,13 +8790,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
                     if _post_dropped:
                         _post_drop_set = set(_post_dropped)
-                        self._raw_redundancy_dropped_ = set(
-                            getattr(self, "_raw_redundancy_dropped_", None) or set()
-                        ) | _post_drop_set
+                        self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) | _post_drop_set
                         selected_vars = [
-                            v for v in selected_vars
-                            if not (0 <= int(v) < len(self.feature_names_in_)
-                                    and self.feature_names_in_[int(v)] in _post_drop_set)
+                            v for v in selected_vars if not (0 <= int(v) < len(self.feature_names_in_) and self.feature_names_in_[int(v)] in _post_drop_set)
                         ]
                         # NEVER-EMPTY RAW FLOOR (mirrors the main sweep): the post-retention drop may not
                         # empty the raw support. If no raw survives, re-add the strongest dropped raw (by
@@ -9564,9 +8815,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                     _bf_rel, _bf_idx = _rel, _dn
                             if _bf_idx is not None and _bf_idx in self.feature_names_in_:
                                 selected_vars = [self.feature_names_in_.index(_bf_idx)]
-                                self._raw_redundancy_dropped_ = set(
-                                    getattr(self, "_raw_redundancy_dropped_", None) or set()
-                                ) - {_bf_idx}
+                                self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) - {_bf_idx}
                         self.support_ = np.array(selected_vars, dtype=np.int64)
                         if verbose:
                             logger.info(
@@ -9598,7 +8847,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # Source tokens referenced by any confirmed engineered recipe (split on the engineered-name separators ``__``, ``(``, ``|``, ``)``, ``,``).
                 import re as _re_aug
                 _eng_names = []
-                for _r in (self._engineered_recipes_ or []):
+                for _r in self._engineered_recipes_ or []:
                     _nm = getattr(_r, "output_name", None) or getattr(_r, "name", None) or (_r.get("name") if isinstance(_r, dict) else None)
                     if _nm:
                         _eng_names.append(str(_nm))
@@ -9749,7 +8998,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 except (TypeError, ValueError):
                     _mb_cap = 1024.0
             if _mb_cap > 0 and _cap > 0 and len(MRMR._FIT_CACHE) > 0:
-                _byte_cap = _mb_cap * (1024 ** 2)
+                _byte_cap = _mb_cap * (1024**2)
                 while len(MRMR._FIT_CACHE) > 1 and _mrmr_cache_bytes_total() > _byte_cap:
                     MRMR._FIT_CACHE.popitem(last=False)
     # 2026-05-30 Wave 8 — post-fit UAED auto-size. When enabled, replaces the

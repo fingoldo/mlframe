@@ -169,9 +169,7 @@ def _conditional_perm_null(
                         from ._mi_greedy_cmi_fe import joint_cardinalities_cupy
                         # RESIDENT candidate code + RESIDENT support (joint_cardinalities_cupy resident-input
                         # branch) -> no re-upload at the ``card_cand_x`` / ``cmi_z`` sites; host code otherwise.
-                        _ks = joint_cardinalities_cupy(
-                            cand_dev if cand_dev is not None else _host_x(), y,
-                            _z if _z is not None else z_support_dev)
+                        _ks = joint_cardinalities_cupy(cand_dev if cand_dev is not None else _host_x(), y, _z if _z is not None else z_support_dev)
                     except Exception:
                         _ks = None
                 if _ks is not None:
@@ -218,8 +216,7 @@ def _conditional_perm_null(
     # the support / order / z_rank / candidate never cross H2D. Only on a cupy fault does control fall through to
     # the host order/z_rank path below (which materialises z from the device copy). Selection-equivalent (this
     # GPU null already uses a device-RNG shuffle; the device stratum grouping is another valid grouping).
-    if z_support_dev is not None and getattr(z_support_dev, "size", 0) > 0 \
-            and _cmi_gpu_enabled() and int(n_permutations) > 1:
+    if z_support_dev is not None and getattr(z_support_dev, "size", 0) > 0 and _cmi_gpu_enabled() and int(n_permutations) > 1:
         try:
             from ._fe_cmi_perm_null_gpu import perm_null_gpu_resident_enabled, conditional_perm_null_gpu
             if perm_null_gpu_resident_enabled():
@@ -388,13 +385,13 @@ def _conditional_perm_null(
             x_sorted = _xh[order]
             keys = np.empty((n_size, _nperm), dtype=np.float64)
             for i in range(_nperm):
-                keys[:, i] = rng.random(n_size)                    # per-perm draw -> SAME sequence as the CPU loop
+                keys[:, i] = rng.random(n_size)  # per-perm draw -> SAME sequence as the CPU loop
             z_rank_d = cp.asarray(z_rank)[:, None]
-            within = cp.argsort(z_rank_d + cp.asarray(keys), axis=0)   # (n, _nperm) within-stratum orders
+            within = cp.argsort(z_rank_d + cp.asarray(keys), axis=0)  # (n, _nperm) within-stratum orders
             x_sorted_d = cp.asarray(x_sorted)
             order_d = cp.asarray(order)
             Xp_d = cp.empty((n_size, _nperm), dtype=cp.int64)
-            Xp_d[order_d, :] = x_sorted_d[within]                  # xp[order] = x_sorted[within], per perm
+            Xp_d[order_d, :] = x_sorted_d[within]  # xp[order] = x_sorted[within], per perm
             from ._fe_cmi_perm_null_gpu import _floor_mean_from_nulls_dev
             nulls_dev = batched_cmi_gpu(Xp_d, y_i, z_i, return_device=True)   # stays resident
             return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)

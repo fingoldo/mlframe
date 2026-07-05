@@ -17,8 +17,6 @@ from sklearn.feature_selection import mutual_info_classif, mutual_info_regressio
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
 
-
-
 def optimise_hermite_pair(
     x_a: np.ndarray,
     x_b: np.ndarray,
@@ -103,14 +101,9 @@ def optimise_hermite_pair(
     # without either sibling importing the other at module-top.
     from ._hermite_fe_optimise import _baseline_mi_pair, _eval_coef_pair, _run_cma_search
     if mi_estimator not in ("plugin", "ksg"):
-        raise ValueError(
-            f"unknown mi_estimator={mi_estimator!r}; expected 'plugin' or 'ksg'"
-        )
+        raise ValueError(f"unknown mi_estimator={mi_estimator!r}; expected 'plugin' or 'ksg'")
     if optimizer not in ("optuna", "cma", "cma_batch", "random_batch", "numba_kernel"):
-        raise ValueError(
-            f"unknown optimizer={optimizer!r}; expected one of "
-            f"'optuna', 'cma', 'cma_batch', 'random_batch', 'numba_kernel'"
-        )
+        raise ValueError(f"unknown optimizer={optimizer!r}; expected one of " f"'optuna', 'cma', 'cma_batch', 'random_batch', 'numba_kernel'")
     if l2_penalty_saturation is None:
         l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
     # Auto-pick n_neighbors based on n.
@@ -181,10 +174,7 @@ def optimise_hermite_pair(
         # Other non-polynomial basis with simple eval_njit (Fourier, Pade).
         eval_func = basis_info["eval_njit"]
 
-    baseline = _baseline_mi_pair(z_a, z_b, y, discrete_target=discrete_target,
-                                  n_neighbors=n_neighbors,
-                                  mi_estimator=mi_estimator,
-                                  plugin_n_bins=plugin_n_bins)
+    baseline = _baseline_mi_pair(z_a, z_b, y, discrete_target=discrete_target, n_neighbors=n_neighbors, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
     logger.debug("baseline MI(pair, y) = %.4f", baseline)
 
     # Stronger gate than the identity max(MI(x_a, y), MI(x_b, y)): try trivial pair-feature transforms
@@ -197,8 +187,7 @@ def optimise_hermite_pair(
     # this elides ~5x duplicated 50-150ms ``best_trivial_pair`` calls per
     # pair on the n=200k production config.
     trivial_baseline_name = precomputed_trivial_name
-    if (use_trivial_baseline
-            and precomputed_trivial_baseline is None):
+    if use_trivial_baseline and precomputed_trivial_baseline is None:
         try:
             from .fe_baselines import best_trivial_pair
             trivial = best_trivial_pair(
@@ -230,8 +219,7 @@ def optimise_hermite_pair(
 
     # Pre-cast y once for the njit fast path.
     if mi_estimator == "plugin":
-        y_njit = (np.asarray(y, dtype=np.int64) if discrete_target
-                  else np.asarray(y, dtype=np.float64))
+        y_njit = np.asarray(y, dtype=np.int64) if discrete_target else np.asarray(y, dtype=np.float64)
     else:
         y_njit = None  # KSG path does not need it
 
@@ -250,7 +238,7 @@ def optimise_hermite_pair(
         sub_idx = rng_mf.choice(n_full, size=1500, replace=False)
         z_a_search = np.ascontiguousarray(z_a[sub_idx], dtype=np.float64)
         z_b_search = np.ascontiguousarray(z_b[sub_idx], dtype=np.float64)
-        y_search = (y_njit[sub_idx] if y_njit is not None else None)
+        y_search = y_njit[sub_idx] if y_njit is not None else None
         y_search_any = y[sub_idx] if isinstance(y, np.ndarray) else np.asarray(y)[sub_idx]
     else:
         z_a_search = z_a
@@ -380,9 +368,7 @@ def optimise_hermite_pair(
         # plateau trapped cma_batch on the F-POLY pre-distortion case. Gated by
         # ``warm_start_als``; requires a polynomial basis with a precomputed
         # basis matrix (factory bases / KSG-only paths skip it).
-        if (warm_start_als and B_a_search is not None and B_b_search is not None
-                and ca_size <= B_a_search.shape[1]
-                and cb_size <= B_b_search.shape[1]):
+        if warm_start_als and B_a_search is not None and B_b_search is not None and ca_size <= B_a_search.shape[1] and cb_size <= B_b_search.shape[1]:
             try:
                 als_a, als_b = warm_start_als_seed(
                     np.ascontiguousarray(B_a_search[:, :ca_size]),
@@ -538,23 +524,16 @@ def optimise_hermite_pair(
                         eval_kwargs=eval_kwargs,
                     )
             except Exception as e:
-                logger.warning("%s failed at degree %d (%s); "
-                                "falling back to Optuna", optimizer, degree, e)
+                logger.warning("%s failed at degree %d (%s); " "falling back to Optuna", optimizer, degree, e)
                 cma_result = None
             if cma_result is None:
                 continue
             coef_a_best, coef_b_best, bf_idx_best, raw_mi_best, _ = cma_result
         else:  # optuna
-            def _optuna_obj(trial, _degree=degree, _ca_size=ca_size, _cb_size=cb_size,
-                            _eval_pair_fn=eval_pair_fn, _eval_kwargs=eval_kwargs):
-                coef_a = np.array([
-                    trial.suggest_float(f"a_{i}", *coef_range)
-                    for i in range(_ca_size)
-                ], dtype=np.float64)
-                coef_b = np.array([
-                    trial.suggest_float(f"b_{i}", *coef_range)
-                    for i in range(_cb_size)
-                ], dtype=np.float64)
+
+            def _optuna_obj(trial, _degree=degree, _ca_size=ca_size, _cb_size=cb_size, _eval_pair_fn=eval_pair_fn, _eval_kwargs=eval_kwargs):
+                coef_a = np.array([trial.suggest_float(f"a_{i}", *coef_range) for i in range(_ca_size)], dtype=np.float64)
+                coef_b = np.array([trial.suggest_float(f"b_{i}", *coef_range) for i in range(_cb_size)], dtype=np.float64)
                 score, raw_mi, bf_idx = (_eval_pair_fn or _eval_coef_pair)(
                     coef_a, coef_b, direction_only=direction_only,
                     **_eval_kwargs,
@@ -567,10 +546,9 @@ def optimise_hermite_pair(
             study = optuna.create_study(direction="maximize", sampler=sampler)
             # Inject canonical warm-start seeds as enqueued trials.
             if warm_seeds:
-                for ws in warm_seeds[:min(8, len(warm_seeds))]:
+                for ws in warm_seeds[: min(8, len(warm_seeds))]:
                     params = {f"a_{i}": float(ws[i]) for i in range(ca_size)}
-                    params.update({f"b_{i}": float(ws[ca_size + i])
-                                    for i in range(cb_size)})
+                    params.update({f"b_{i}": float(ws[ca_size + i]) for i in range(cb_size)})
                     try:
                         study.enqueue_trial(params)
                     except Exception:
@@ -586,26 +564,19 @@ def optimise_hermite_pair(
                         _stop_state["since_improve"] += 1
                     if _stop_state["since_improve"] >= early_stop_no_improve:
                         s.stop()
-                study.optimize(_optuna_obj, n_trials=n_trials,
-                               callbacks=[_early_stop_cb],
-                               show_progress_bar=False)
+
+                study.optimize(_optuna_obj, n_trials=n_trials, callbacks=[_early_stop_cb], show_progress_bar=False)
             else:
-                study.optimize(_optuna_obj, n_trials=n_trials,
-                               show_progress_bar=False)
+                study.optimize(_optuna_obj, n_trials=n_trials, show_progress_bar=False)
             try:
                 bf_idx_best = study.best_trial.user_attrs.get("bf_idx", -1)
                 raw_mi_best = study.best_trial.user_attrs.get("raw_mi", -np.inf)
-                coef_a_best = np.array(
-                    [study.best_params[f"a_{i}"] for i in range(ca_size)],
-                    dtype=np.float64)
-                coef_b_best = np.array(
-                    [study.best_params[f"b_{i}"] for i in range(cb_size)],
-                    dtype=np.float64)
+                coef_a_best = np.array([study.best_params[f"a_{i}"] for i in range(ca_size)], dtype=np.float64)
+                coef_b_best = np.array([study.best_params[f"b_{i}"] for i in range(cb_size)], dtype=np.float64)
             except (ValueError, KeyError):
                 continue
 
-        if (coef_a_best is None or bf_idx_best < 0
-                or raw_mi_best <= 0 or not np.isfinite(raw_mi_best)):
+        if coef_a_best is None or bf_idx_best < 0 or raw_mi_best <= 0 or not np.isfinite(raw_mi_best):
             continue
 
         # Multi-fidelity refinement: re-evaluate the best coef set on the FULL data for an honest gating MI.

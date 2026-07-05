@@ -20,8 +20,7 @@ import numpy as np
 import pandas as pd
 
 
-def _finalize(cols: dict, rng, base_names, redundant_names, noise_names,
-              interaction_operands, quadratic_operands, y):
+def _finalize(cols: dict, rng, base_names, redundant_names, noise_names, interaction_operands, quadratic_operands, y):
     """Assemble DataFrame, shuffle columns (position carries no info), build truth dict."""
     X = pd.DataFrame(cols)
     order = list(X.columns); rng.shuffle(order); X = X[order]
@@ -67,9 +66,9 @@ def pure_xor_zeromain(seed: int = 0, n: int = 8000, p: int = 120):
     noise_names = []
     n_noise = p - n_base
     for i in range(n_noise):
-        cols[name := f"noise_{i}"] = rng.standard_normal(n); noise_names.append(name)
-    return _finalize(cols, rng, base_names, [], noise_names,
-                     [f"inf_{i}" for i in inter_idx], [], y)
+        cols[name := f"noise_{i}"] = rng.standard_normal(n)
+        noise_names.append(name)
+    return _finalize(cols, rng, base_names, [], noise_names, [f"inf_{i}" for i in inter_idx], [], y)
 
 
 # --------------------------------------------------------------------------- D2
@@ -87,11 +86,11 @@ def heavytail_linear(seed: int = 0, n: int = 6000, p: int = 60):
     z = rng.standard_normal((n, n_lin))
     # heavy-tailed contamination on the operands (df=2 -> infinite variance)
     z = z + 0.6 * rng.standard_t(df=2, size=(n, n_lin))
-    warp = np.sign(z) * np.abs(z) ** 3            # severe monotone distortion
+    warp = np.sign(z) * np.abs(z) ** 3  # severe monotone distortion
     logit = np.zeros(n)
     for k in range(n_lin):
         col = warp[:, k]
-        col = col / (np.std(col) + 1e-9)          # normalize the warped contribution
+        col = col / (np.std(col) + 1e-9)  # normalize the warped contribution
         logit += (1.0 - 0.1 * k) * col
     pr = 1.0 / (1.0 + np.exp(-logit / 1.5))
     y = (rng.random(n) < pr).astype(int)
@@ -146,9 +145,9 @@ def rare_class_imbalance(seed: int = 0, n: int = 12000, p: int = 80, pos_rate: f
         cols[name := f"inf_{i}"] = z[:, i]; base_names.append(name)
     noise_names = []
     for i in range(p - n_base):
-        cols[name := f"noise_{i}"] = rng.standard_normal(n); noise_names.append(name)
-    return _finalize(cols, rng, base_names, [], noise_names,
-                     [f"inf_{i}" for i in inter_idx], [], y)
+        cols[name := f"noise_{i}"] = rng.standard_normal(n)
+        noise_names.append(name)
+    return _finalize(cols, rng, base_names, [], noise_names, [f"inf_{i}" for i in inter_idx], [], y)
 
 
 # --------------------------------------------------------------------------- D4
@@ -168,7 +167,7 @@ def categorical_highcard(seed: int = 0, n: int = 8000, p: int = 70):
     cols, base_names = {}, []
     for ci, card in enumerate(cardinalities):
         codes = rng.integers(0, card, size=n)
-        level_effect = rng.standard_normal(card)          # non-monotone per-level target effect
+        level_effect = rng.standard_normal(card)  # non-monotone per-level target effect
         logit += 0.9 * level_effect[codes]
         cols[name := f"inf_cat_{ci}"] = codes.astype(np.int64)
         base_names.append(name)
@@ -207,7 +206,7 @@ def synth_pgg_n(seed: int = 0, n: int = 300, p: int = 2000):
     z = rng.standard_normal((n, n_lin))
     logit = np.zeros(n)
     for k in range(n_lin):
-        logit += 2.0 * z[:, k]                  # strong sparse signals (recoverable by MI even at small n)
+        logit += 2.0 * z[:, k]  # strong sparse signals (recoverable by MI even at small n)
     pr = 1.0 / (1.0 + np.exp(-logit / 2.5))
     y = (rng.random(n) < pr).astype(int)
 
@@ -241,7 +240,7 @@ def noise_dominated_weaksparse(seed: int = 0, n: int = 10000, p: int = 300):
     n_lin = 10
     z = rng.standard_normal((n, n_lin))
     coef = 0.25
-    logit = coef * z.sum(axis=1)                 # collective ~ sqrt(10)*0.25 ~ 0.79 sd; each alone weak
+    logit = coef * z.sum(axis=1)  # collective ~ sqrt(10)*0.25 ~ 0.79 sd; each alone weak
     pr = 1.0 / (1.0 + np.exp(-logit))
     y = (rng.random(n) < pr).astype(int)
 

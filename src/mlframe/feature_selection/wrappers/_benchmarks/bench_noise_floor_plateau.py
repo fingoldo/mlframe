@@ -90,8 +90,7 @@ def main():
 
         t_old = _bench(_old_plateau, (n_grid, real, perm))
         t_new = _bench(noise_floor_plateau, (n_grid, real, perm))
-        print(f"p={p:4d} G={G:2d} n_perm={n_perm:3d}: OLD {t_old:8.1f} us  NEW {t_new:8.1f} us  "
-              f"speedup {t_old / t_new:5.2f}x  (n_star={n[0]} identical)")
+        print(f"p={p:4d} G={G:2d} n_perm={n_perm:3d}: OLD {t_old:8.1f} us  NEW {t_new:8.1f} us  " f"speedup {t_old / t_new:5.2f}x  (n_star={n[0]} identical)")
 
 
 if __name__ == "__main__":

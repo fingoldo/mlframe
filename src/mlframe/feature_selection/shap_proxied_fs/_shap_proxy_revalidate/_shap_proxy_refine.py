@@ -50,8 +50,7 @@ def _winner_from_per_candidate(per_candidate, candidates, member_cols, lambda_st
             continue
         scores = np.asarray(per_candidate[ci], dtype=np.float64)
         mean, std = float(scores.mean()), float(scores.std())
-        ranked.append(dict(features=tuple(idx), n_members=len(member_cols[ci]),
-                           stable_score=mean + lambda_stab * std))
+        ranked.append(dict(features=tuple(idx), n_members=len(member_cols[ci]), stable_score=mean + lambda_stab * std))
     if not ranked:
         return None
     ranked.sort(key=lambda d: d["stable_score"])
@@ -207,8 +206,7 @@ def revalidate_top_n(
     # the slack auto-calibrates the residual gap. When ``None`` (standalone tests, legacy callers),
     # falls back to raw proxy_loss -- the gate still works but may rarely fire on regimes whose
     # proxy_loss spread is too tight to discriminate (corrector-aware score widens the spread).
-    score_arr = (np.asarray(candidate_score, dtype=np.float64)
-                 if candidate_score is not None else proxy_losses_arr)
+    score_arr = np.asarray(candidate_score, dtype=np.float64) if candidate_score is not None else proxy_losses_arr
     # Use the CALLER'S order (the facade already sorts top_n by bias-corrector + uncertainty score,
     # which is a strictly stronger ordering than raw proxy_loss alone). Re-sorting on proxy_loss
     # here would unwind that work and surrender the corrector's per-candidate trust signal -- the
@@ -228,9 +226,7 @@ def revalidate_top_n(
     # batch (3 candidates) and miss the winner. The user-visible failure mode on the biz_val test
     # (noise2 kept where the legacy path picked an informative) is exactly this: 1-job runs are
     # typically test fixtures where determinism + recall matter more than wall savings.
-    use_ucb = (bool(ucb_enabled)
-               and n_total > ucb_min_eval_size_eff
-               and n_jobs not in (1, 0, None))
+    use_ucb = bool(ucb_enabled) and n_total > ucb_min_eval_size_eff and n_jobs not in (1, 0, None)
 
     per_candidate: dict[int, list[float]] = {}
     n_candidates_evaluated = 0
@@ -250,8 +246,7 @@ def revalidate_top_n(
     # member set, so equivalence on members captures convergence one round earlier whenever two
     # different unit tuples collapse to the same deployment. Build a per-candidate member-key
     # lookup (sorted tuple) once -- _expand was already paid for in ``member_cols`` above.
-    members_by_unit_tuple = {tuple(idx): tuple(sorted(int(c) for c in member_cols[ci]))
-                             for ci, (_, idx) in enumerate(candidates)}
+    members_by_unit_tuple = {tuple(idx): tuple(sorted(int(c) for c in member_cols[ci])) for ci, (_, idx) in enumerate(candidates)}
     prev_winner_members: tuple | None = None
     # When the early-stop fires on member-equivalence WHILE unit tuples still differ, that's the
     # iter92-specific win; tracked separately so downstream diagnostics can quantify the lever.
@@ -352,10 +347,8 @@ def revalidate_top_n(
             # iter92: equivalence on EXPANDED members. ``cur_winner`` is the unit tuple; look up its
             # deployed member set. Fallback to the unit tuple if (somehow) absent from the map,
             # which preserves iter77 semantics on degenerate inputs.
-            cur_winner_members = (members_by_unit_tuple.get(cur_winner)
-                                  if cur_winner is not None else None)
-            if (round_k >= 1 and cur_winner_members is not None
-                    and cur_winner_members == prev_winner_members):
+            cur_winner_members = members_by_unit_tuple.get(cur_winner) if cur_winner is not None else None
+            if round_k >= 1 and cur_winner_members is not None and cur_winner_members == prev_winner_members:
                 # Member sets matched; the iter92 "fired earlier than iter77" subcase is when the
                 # unit tuples differ even though the deployed member sets are identical.
                 if cur_winner != prev_winner:
@@ -394,8 +387,8 @@ def revalidate_top_n(
     if best_idx and cap is not None:
         winner_cols = _expand(best_idx, unit_to_members)
         winner_full_loss = _honest_loss(
-            model_template, X_search, y_search, X_holdout, y_holdout, winner_cols,
-            classification, metric, cache=cache, disk_cache=disk_cache)
+            model_template, X_search, y_search, X_holdout, y_holdout, winner_cols, classification, metric, cache=cache, disk_cache=disk_cache
+        )
         # Update the reported entry for the chosen winner. Find it in ranked by features identity.
         for d in ranked:
             if d["features"] == best_idx:
@@ -404,9 +397,7 @@ def revalidate_top_n(
                 # single fit so its std is not refreshed -- the capped-template std remains as a
                 # cross-seed-stability proxy. Update stable_score to reflect the new mean.
                 d["stable_score"] = float(winner_full_loss) + lambda_stab * d["honest_std"]
-                d["honest_loss_capped"] = float(np.asarray(per_candidate[
-                    next(i for i, (_, ix) in enumerate(candidates) if tuple(ix) == best_idx)
-                ]).mean())
+                d["honest_loss_capped"] = float(np.asarray(per_candidate[next(i for i, (_, ix) in enumerate(candidates) if tuple(ix) == best_idx)]).mean())
                 break
 
     # Same-size (in member columns) random-subset baseline for the winner (winner's-curse context).
@@ -504,7 +495,7 @@ def active_learning_revalidate(
                                          inner_n_jobs_cap=inner_n_jobs_cap,
                                          disk_cache=disk_cache)
         for j, i in enumerate(pick):
-            seg = losses[j * n_models:(j + 1) * n_models]
+            seg = losses[j * n_models : (j + 1) * n_models]
             m = float(np.mean(seg))
             honest[i] = m
             cd["proxy"].append(float(proxy_all[i]))
@@ -527,8 +518,8 @@ def active_learning_revalidate(
     if best_idx and cap is not None:
         winner_cols = _expand(best_idx, unit_to_members)
         winner_full_loss = _honest_loss(
-            model_template, X_search, y_search, X_holdout, y_holdout, winner_cols,
-            classification, metric, cache=cache, disk_cache=disk_cache)
+            model_template, X_search, y_search, X_holdout, y_holdout, winner_cols, classification, metric, cache=cache, disk_cache=disk_cache
+        )
         for d in ranked:
             if d["features"] == best_idx:
                 d["honest_loss_capped"] = float(d["honest_loss"])
@@ -825,9 +816,7 @@ def within_cluster_refine(
         ucb_min_eval_size_eff = max(outer_workers, 3)
     else:
         ucb_min_eval_size_eff = max(1, int(ucb_min_eval_size))
-    use_ucb_stage2b = (bool(ucb_enabled)
-                      and n_jobs not in (1, 0, None)
-                      and len(importance_by_col) > 0)
+    use_ucb_stage2b = bool(ucb_enabled) and n_jobs not in (1, 0, None) and len(importance_by_col) > 0
 
     rounds = len(current) if max_drop_rounds is None else max_drop_rounds
     for _ in range(rounds):
@@ -859,7 +848,7 @@ def within_cluster_refine(
                     step = min(ucb_min_eval_size_eff, n_trials - pos)
                 else:
                     step = min(max(1, outer_workers), n_trials - pos)
-                batch_local = order_local[pos:pos + step]
+                batch_local = order_local[pos : pos + step]
                 pos += step
                 tasks = []
                 for li in batch_local:

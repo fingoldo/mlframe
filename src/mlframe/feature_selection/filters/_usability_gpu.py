@@ -105,17 +105,17 @@ def gpu_abscorr_batch(cols: "np.ndarray", v: np.ndarray) -> np.ndarray:
     if n == 0 or K == 0:
         return out
     # std<1e-12 guard per column + for v (population std, ddof=0).
-    col_std = M.std(axis=0)              # (K,)
+    col_std = M.std(axis=0)  # (K,)
     v_std = float(dv.std())
     if v_std < 1e-12:
         return out
-    vm = dv - dv.mean()                  # (n,)
+    vm = dv - dv.mean()  # (n,)
     ssv = float((vm * vm).sum())
     if ssv <= 0.0:
         return out
-    Mc = M - M.mean(axis=0, keepdims=True)          # (n, K)
-    num = Mc.T @ vm                                   # (K,) centered dot
-    ssc = (Mc * Mc).sum(axis=0)                       # (K,)
+    Mc = M - M.mean(axis=0, keepdims=True)  # (n, K)
+    num = Mc.T @ vm  # (K,) centered dot
+    ssc = (Mc * Mc).sum(axis=0)  # (K,)
     denom = cp.sqrt(ssc * ssv)
     valid = (col_std >= 1e-12) & (ssc > 0.0) & (denom > 0.0)
     r = cp.where(valid, num / cp.where(denom > 0.0, denom, 1.0), 0.0)
@@ -138,16 +138,13 @@ def gpu_additive_basis_residual(fv: np.ndarray, xa: np.ndarray, xb: np.ndarray) 
 
     def _basis(x):
         xs = (x - x.mean()) / (x.std() + 1e-12)
-        return [xs, xs * xs, xs * xs * xs,
-                cp.sign(xs) * cp.sqrt(cp.abs(xs)),
-                cp.sign(xs) * cp.log1p(cp.abs(xs)),
-                1.0 / (cp.abs(xs) + 1.0)]
+        return [xs, xs * xs, xs * xs * xs, cp.sign(xs) * cp.sqrt(cp.abs(xs)), cp.sign(xs) * cp.log1p(cp.abs(xs)), 1.0 / (cp.abs(xs) + 1.0)]
 
     dfv = cp.asarray(fv, dtype=cp.float64).ravel()
     dxa = cp.asarray(xa, dtype=cp.float64).ravel()
     dxb = cp.asarray(xb, dtype=cp.float64).ravel()
     cols = _basis(dxa) + _basis(dxb)
-    Xr = cp.stack(cols, axis=1)                       # (n, 12)
+    Xr = cp.stack(cols, axis=1)  # (n, 12)
     # mean-centered OLS with intercept: center design + target, solve normal equations via lstsq.
     Xc = Xr - Xr.mean(axis=0, keepdims=True)
     ybar = dfv.mean()

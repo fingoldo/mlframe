@@ -115,9 +115,7 @@ def compose_target_name(
 # ``debt-ratio-q`` -> ``-ratio-``). ``is_composite_target_name`` now uses a
 # strict structural parse (see below) that anchors the alias as a complete
 # dash-delimited token inside a ``{target}-{alias}-{base}`` triple.
-_COMPOSITE_NAME_FRAGMENTS: frozenset = frozenset(
-    f"-{alias}-" for alias in TRANSFORM_NAME_SHORT.values()
-) | frozenset(
+_COMPOSITE_NAME_FRAGMENTS: frozenset = frozenset(f"-{alias}-" for alias in TRANSFORM_NAME_SHORT.values()) | frozenset(
     f"-{full}-" for full in TRANSFORM_NAME_SHORT.keys()
 )
 
@@ -125,9 +123,7 @@ _COMPOSITE_NAME_FRAGMENTS: frozenset = frozenset(
 # token must equal one of these *exactly* (whole dash-/underscore-delimited
 # segment) to anchor a composite name -- this is what makes the parse strict
 # instead of a substring scan.
-_COMPOSITE_NAME_TOKENS: frozenset = frozenset(
-    TRANSFORM_NAME_SHORT.values()
-) | frozenset(TRANSFORM_NAME_SHORT.keys())
+_COMPOSITE_NAME_TOKENS: frozenset = frozenset(TRANSFORM_NAME_SHORT.values()) | frozenset(TRANSFORM_NAME_SHORT.keys())
 
 
 def _unary_transform_tokens() -> frozenset:
@@ -177,7 +173,7 @@ def _is_composite_via_separator(name: str, sep: str) -> bool:
         if parts[i] not in _COMPOSITE_NAME_TOKENS:
             continue
         target_span = parts[:i]
-        base_span = parts[i + 1:]
+        base_span = parts[i + 1 :]
         # Non-empty, non-blank target and base (reject ``-linres-x`` /
         # ``y-linres-`` style malformed names that the old substring scan
         # silently accepted).
@@ -257,9 +253,7 @@ def get_transform(name: str) -> "Transform":
     try:
         return _TRANSFORMS_REGISTRY[name]
     except KeyError as exc:
-        raise UnknownTransformError(
-            f"Unknown transform '{name}'. Registered: {sorted(_TRANSFORMS_REGISTRY)}"
-        ) from exc
+        raise UnknownTransformError(f"Unknown transform '{name}'. Registered: {sorted(_TRANSFORMS_REGISTRY)}") from exc
 
 
 def list_transforms(*, tags: frozenset[str] | None = None) -> list[str]:
@@ -268,6 +262,4 @@ def list_transforms(*, tags: frozenset[str] | None = None) -> list[str]:
     the requested tags)."""
     if tags is None:
         return sorted(_TRANSFORMS_REGISTRY)
-    return sorted(
-        name for name, t in _TRANSFORMS_REGISTRY.items() if t.tags & tags
-    )
+    return sorted(name for name, t in _TRANSFORMS_REGISTRY.items() if t.tags & tags)

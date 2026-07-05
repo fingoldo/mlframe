@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -31,7 +30,7 @@ def get_best_dummy_score(
     X_test: Union[pd.DataFrame, np.ndarray],
     y_test: Union[pd.DataFrame, np.ndarray, pd.Series],
     scoring: object,
-    verbose:bool=False,
+    verbose: bool = False,
 ) -> float:
     """Given estimator type & train and test sets, finds the best respective dummy estimator"""
     best_dummy_score = -LARGE_CONST
@@ -43,10 +42,7 @@ def get_best_dummy_score(
         dummy_model_type = DummyRegressor
         strategies = "mean median"
     else:
-        raise TypeError(
-            f"get_best_dummy_score: estimator must be a sklearn classifier or regressor, "
-            f"got {type(estimator).__name__}"
-        )
+        raise TypeError(f"get_best_dummy_score: estimator must be a sklearn classifier or regressor, " f"got {type(estimator).__name__}")
 
     for strategy in strategies.split():
         model = dummy_model_type(strategy=strategy)

@@ -24,7 +24,6 @@ import re
 from dataclasses import dataclass
 from typing import Dict, FrozenSet, List, Tuple
 
-
 # Per-backend allowed output formats.
 # matplotlib: ``Figure.savefig`` -> static raster + vector
 # plotly: write_html (interactive) + write_image (kaleido) + to_json
@@ -84,42 +83,27 @@ def parse_plot_output_dsl(s: str) -> PlotOutputSpec:
     for clause in clauses:
         m = _CLAUSE_RE.match(clause)
         if m is None:
-            raise ValueError(
-                f"plot_outputs clause {clause!r} is malformed; "
-                "expected '<backend>[<fmt1>,<fmt2>,...]'."
-            )
+            raise ValueError(f"plot_outputs clause {clause!r} is malformed; " "expected '<backend>[<fmt1>,<fmt2>,...]'.")
         backend = m.group(1).lower()
         if backend not in BACKEND_FORMATS:
-            raise ValueError(
-                f"plot_outputs backend {backend!r} not supported. "
-                f"Allowed: {sorted(BACKEND_FORMATS)}"
-            )
+            raise ValueError(f"plot_outputs backend {backend!r} not supported. " f"Allowed: {sorted(BACKEND_FORMATS)}")
         if backend in seen_backends:
-            raise ValueError(
-                f"plot_outputs lists backend {backend!r} more than once."
-            )
+            raise ValueError(f"plot_outputs lists backend {backend!r} more than once.")
         seen_backends.add(backend)
 
         # Parse format list.
         raw_fmts = [f.strip().lower() for f in m.group(2).split(",") if f.strip()]
         if not raw_fmts:
-            raise ValueError(
-                f"plot_outputs clause {clause!r} declares no formats."
-            )
+            raise ValueError(f"plot_outputs clause {clause!r} declares no formats.")
         if len(raw_fmts) != len(set(raw_fmts)):
             dupes = sorted({f for f in raw_fmts if raw_fmts.count(f) > 1})
-            raise ValueError(
-                f"plot_outputs clause {clause!r} has duplicate format(s): {dupes}"
-            )
+            raise ValueError(f"plot_outputs clause {clause!r} has duplicate format(s): {dupes}")
 
         # Per-backend format compat.
         allowed = BACKEND_FORMATS[backend]
         unknown = [f for f in raw_fmts if f not in allowed]
         if unknown:
-            raise ValueError(
-                f"plot_outputs backend {backend!r} does not support format(s) "
-                f"{unknown}. Allowed for {backend}: {sorted(allowed)}."
-            )
+            raise ValueError(f"plot_outputs backend {backend!r} does not support format(s) " f"{unknown}. Allowed for {backend}: {sorted(allowed)}.")
 
         parsed.append((backend, frozenset(raw_fmts)))
 

@@ -45,8 +45,7 @@ def _fit_holdout_auc(X, y, cols, seed):
     import xgboost as xgb
 
     Xtr, Xte, ytr, yte = train_test_split(X[cols], y, test_size=0.3, random_state=seed, stratify=y)
-    m = xgb.XGBClassifier(n_estimators=120, max_depth=4, n_jobs=1, random_state=seed,
-                          tree_method="hist", verbosity=0)
+    m = xgb.XGBClassifier(n_estimators=120, max_depth=4, n_jobs=1, random_state=seed, tree_method="hist", verbosity=0)
     m.fit(Xtr, ytr)
     return float(roc_auc_score(yte, m.predict_proba(Xte)[:, 1]))
 
@@ -80,13 +79,13 @@ def main():
         for seed in SEEDS:
             # split data ONCE: selector sees the train half only; honest AUC on held-out half.
             X, y, _roles = make_regime_dataset(
-                n_samples=4000, n_informative=n_inf, n_redundant=n_red, redundancy_rho=rho,
-                n_noise=width - n_inf - n_red, snr=snr, task="binary", seed=seed)
+                n_samples=4000, n_informative=n_inf, n_redundant=n_red, redundancy_rho=rho, n_noise=width - n_inf - n_red, snr=snr, task="binary", seed=seed
+            )
             import pandas as pd
             y = pd.Series(y)
-            Xfit, Xhold, yfit, yhold = train_test_split(
-                X, y, test_size=0.3, random_state=seed + 100, stratify=y)
-            Xfit = Xfit.reset_index(drop=True); yfit = yfit.reset_index(drop=True)
+            Xfit, Xhold, yfit, yhold = train_test_split(X, y, test_size=0.3, random_state=seed + 100, stratify=y)
+            Xfit = Xfit.reset_index(drop=True)
+            yfit = yfit.reset_index(drop=True)
             Xfull = pd.concat([Xfit, Xhold]).reset_index(drop=True)
             yfull = pd.concat([yfit, yhold]).reset_index(drop=True)
 
@@ -121,8 +120,7 @@ def main():
     print(f"Lever1 anchors: fidelity_auto >= fidelity_fixed on WIDE: {fid_wins}/{len(wide)}")
     print(f"Lever2 knee ladder: auc_knee >= auc_off (all scenarios): {auc_wins}/{len(rows)}")
 
-    out = dict(rows=rows, lever1_wide_wins=fid_wins, lever1_wide_total=len(wide),
-               lever2_wins=auc_wins, lever2_total=len(rows))
+    out = dict(rows=rows, lever1_wide_wins=fid_wins, lever1_wide_total=len(wide), lever2_wins=auc_wins, lever2_total=len(rows))
     import pathlib
     p = pathlib.Path(__file__).parent / "_results" / "shapproxied_adaptive_guards.json"
     p.parent.mkdir(exist_ok=True)

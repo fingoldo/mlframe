@@ -80,7 +80,7 @@ def _apply_method_nonlinear(Z: np.ndarray, method: str) -> np.ndarray:
         signs_row = np.where(signs_row == 0.0, 1.0, signs_row)
         return signs_row * abs_Z[rows, idx]
     if method == "signed_l2_sum":
-        return np.sum(np.sign(Z) * (Z ** 2), axis=1)
+        return np.sum(np.sign(Z) * (Z**2), axis=1)
     raise ValueError(f"unknown non-linear cluster-aggregate method {method!r}")
 
 
@@ -362,9 +362,7 @@ def _discover_clusters(
         if len(members) > max_cluster_size:
             # keep representative + top-|corr|-to-rep members
             rep_pos = pool.index(rep)
-            members = [rep] + sorted(
-                [m for m in members if m != rep], key=lambda m: -abs(corr[rep_pos, pool.index(m)])
-            )[: max_cluster_size - 1]
+            members = [rep] + sorted([m for m in members if m != rep], key=lambda m: -abs(corr[rep_pos, pool.index(m)]))[: max_cluster_size - 1]
         # Unidimensionality: PC1 explains >= tau of the standardized cluster variance. This is the
         # structural discriminator -- genuine reflections of ONE latent are unidimensional; a
         # partial-shared+distinct cluster (z + delta_i) is multi-factor -> low PC1 ratio -> rejected.
@@ -374,7 +372,7 @@ def _discover_clusters(
         Z, _mu, _sd, _sg = _standardize_align(M, 0)
         Zc = Z - Z.mean(axis=0)
         sv = np.linalg.svd(Zc, full_matrices=False, compute_uv=False)
-        var_ratio = float((sv[0] ** 2) / max(np.sum(sv ** 2), 1e-12))
+        var_ratio = float((sv[0] ** 2) / max(np.sum(sv**2), 1e-12))
         if var_ratio < homogeneity_tau:
             continue
         clusters.append({"members": members, "rep": rep, "rel": {m: rel[m] for m in members}})
@@ -415,7 +413,7 @@ def run_cluster_aggregate_step(
     n_added = 0
     removed_member_names: list = []
     added_indices: list = []  # cols-space indices of accepted aggregates (appended to selected_vars by caller)
-    summary: list = []        # JSON-serializable per-aggregate record for the log + meta_info report
+    summary: list = []  # JSON-serializable per-aggregate record for the log + meta_info report
     new_data_cols = []
     for cl in clusters:
         members = cl["members"]
@@ -514,8 +512,7 @@ def run_cluster_aggregate_step(
             _compact = np.column_stack([data[:, _tcols], binned.astype(data.dtype)])
             _n_t = _tcols.shape[0]
             _compact_nbins = np.concatenate([np.asarray(nbins)[_tcols], [int(quantization_nbins)]]).astype(np.int64)
-            agg_mi = float(mi(_compact, np.array([_n_t], dtype=np.int64),
-                              np.arange(_n_t, dtype=np.int64), _compact_nbins, dtype=dtype))
+            agg_mi = float(mi(_compact, np.array([_n_t], dtype=np.int64), np.arange(_n_t, dtype=np.int64), _compact_nbins, dtype=dtype))
             if best is None or agg_mi > best[0]:
                 best = (agg_mi, recipe, binned, method)
 

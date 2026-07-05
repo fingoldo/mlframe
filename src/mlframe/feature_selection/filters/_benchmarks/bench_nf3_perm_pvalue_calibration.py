@@ -55,10 +55,10 @@ def run(n=1500, npermutations=64, min_nonzero_confidence=0.5, n_seeds=200, alpha
 
     invariant_ok = True
     early_break = 0
-    kept = 0                       # candidates NOT rejected (nfailed < max_failed) -> false positives under a true null
-    p_lt_alpha_full = 0            # kept AND surfaced p (full-budget) < alpha
-    p_lt_alpha_trunc = 0           # kept AND surfaced p (truncated denominator) < alpha
-    p_diff_on_kept = 0            # kept runs where full-budget and truncated p disagree
+    kept = 0  # candidates NOT rejected (nfailed < max_failed) -> false positives under a true null
+    p_lt_alpha_full = 0  # kept AND surfaced p (full-budget) < alpha
+    p_lt_alpha_trunc = 0  # kept AND surfaced p (truncated denominator) < alpha
+    p_diff_on_kept = 0  # kept runs where full-budget and truncated p disagree
 
     for seed in range(n_seeds):
         data, nbins = _true_null_factors(n, seed)

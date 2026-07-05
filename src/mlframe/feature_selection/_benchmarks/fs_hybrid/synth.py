@@ -33,7 +33,7 @@ def make_dataset(n_samples: int = 5000, seed: int = 0):
         + 1.3 * (z[:, 6] ** 2 - 1.0)       # quadratic
         + 0.8 * z[:, 7]
     )
-    logit = logit / 1.6                     # temperature -> non-degenerate classes
+    logit = logit / 1.6  # temperature -> non-degenerate classes
     p = 1.0 / (1.0 + np.exp(-logit))
     y = (rng.random(n_samples) < p).astype(int)
 
@@ -64,7 +64,7 @@ def make_dataset(n_samples: int = 5000, seed: int = 0):
     X = X[order]
 
     truth = {
-        "base": base_names,                 # truly causal
+        "base": base_names,  # truly causal
         "relevant": base_names + redundant_names,  # causal + redundant copies
         "noise": noise_names,
         "interaction_operands": ["inf_4", "inf_5"],

@@ -118,9 +118,7 @@ def _resolve_loss(
     return loss_a, loss_b, _aggregate_score(y_true, pred_a, m), _aggregate_score(y_true, pred_b, m)
 
 
-def _paired_bootstrap_ci(
-    diff: np.ndarray, n_boot: int, alpha: float, rng: np.random.Generator
-) -> tuple[float, float, float]:
+def _paired_bootstrap_ci(diff: np.ndarray, n_boot: int, alpha: float, rng: np.random.Generator) -> tuple[float, float, float]:
     """Percentile-bootstrap CI + two-sided p-value on the mean per-row
     loss difference ``diff`` (positive mean => challenger better).
 

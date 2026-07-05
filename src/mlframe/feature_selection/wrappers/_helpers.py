@@ -12,7 +12,6 @@ import polars as pl
 
 from ._enums import OptimumSearch, VotesAggregation
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -64,8 +63,6 @@ def suppress_irritating_3rdparty_warnings() -> None:
     # "optimze" typo is verbatim from catboost's _catboost.pyx _jit_common_checks(); do not "fix" it or the filter stops matching.
     for message in [r"Can't optimze method \"evaluate\" because self argument is used"]:
         warnings.filterwarnings("ignore", category=UserWarning, message=message)
-
-
 
 
 def split_into_train_test(
@@ -306,10 +303,7 @@ def get_next_features_subset(
         _ordered_keys = [k for k in fi_run_order if k in fi_to_consider]
         _n_runs = len(_ordered_keys)
         if _n_runs > 0:
-            _run_weights = {
-                k: (1.0 - _decay) ** (_n_runs - 1 - i)
-                for i, k in enumerate(_ordered_keys)
-            }
+            _run_weights = {k: (1.0 - _decay) ** (_n_runs - 1 - i) for i, k in enumerate(_ordered_keys)}
     # elimination_rule='stability' (opt-in): rank for elimination by mean_importance discounted
     # by cross-fold selection-frequency at the elimination cut, protecting steady-mid-rank features
     # from one-fold-noise eviction. Operates on the RAW per-fold table independently of importance_agg
@@ -373,9 +367,7 @@ def _curve_is_flat_near_best(evaluated_scores_mean: dict, best_n: int) -> bool:
     return rel < 0.01
 
 
-def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict,
-                         n_total: int, epsilon: float = 0.0,
-                         rng: object = None, step: str = "auto") -> int:
+def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng: object = None, step: str = "auto") -> int:
     """Coarse-to-fine suggester for ExhaustiveDichotomic.
 
     ``step='midpoint'`` (default) is the legacy fixed bisection. ``step='auto'`` is the adaptive elimination-pace schedule:
@@ -440,8 +432,7 @@ def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict,
     return min(remaining, key=lambda n: abs(n - target))
 
 
-def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict,
-                         n_total: int, epsilon: float = 0.0, rng=None) -> int:
+def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng=None) -> int:
     """S5 (Wave 2, 2026-05-28): retained as a thin alias for ExhaustiveDichotomic.
 
     The previous implementation built a piecewise-linear interpolant over evaluated points and ran scipy's ``minimize_scalar`` on it.
@@ -453,8 +444,7 @@ def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict,
     return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total, epsilon=epsilon, rng=rng)
 
 
-def _suggest_scipy_global(remaining: list, evaluated_scores_mean: dict,
-                          n_total: int, epsilon: float = 0.0, rng=None) -> int:
+def _suggest_scipy_global(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng=None) -> int:
     """S5 (Wave 2, 2026-05-28): retained as a thin alias for ExhaustiveDichotomic.
 
     Same reasoning as _suggest_scipy_local: differential_evolution over a piecewise-linear interpolant has no global structure to

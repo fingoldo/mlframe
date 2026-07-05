@@ -47,8 +47,7 @@ def main():
 
     t_old = _best(old)
     t_new = _best(new)
-    print(f"plug_in+copula over p={p} n={n}: OLD(per-col) {t_old*1e3:.2f}ms -> "
-          f"NEW(batched) {t_new*1e3:.2f}ms ({t_old/t_new:.2f}x) identity OK")
+    print(f"plug_in+copula over p={p} n={n}: OLD(per-col) {t_old*1e3:.2f}ms -> " f"NEW(batched) {t_new*1e3:.2f}ms ({t_old/t_new:.2f}x) identity OK")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import scipy.stats as stats
@@ -16,11 +15,7 @@ def kendall_tau(df):
     for method, subset in df.items():
         res_d[method] = subset.apply(lambda x: x.split(":")[1].strip()).tolist()
 
-    return {
-        method: round(stats.kendalltau(res_d["AM"], method_top_k)[0], 3)
-        for method, method_top_k in res_d.items()
-        if method != "AM"
-    }
+    return {method: round(stats.kendalltau(res_d["AM"], method_top_k)[0], 3) for method, method_top_k in res_d.items() if method != "AM"}
 
 
 def agreement_rate(df, k, top_k=True):
@@ -37,11 +32,7 @@ def agreement_rate(df, k, top_k=True):
         res_d[method] = _subset.apply(lambda x: x.split(":")[1].strip()).tolist()
 
     _denom = max(1, _k_eff)
-    return {
-        method: round(len(set(method_top_k).intersection(set(res_d["AM"]))) / _denom, 2)
-        for method, method_top_k in res_d.items()
-        if method != "AM"
-    }
+    return {method: round(len(set(method_top_k).intersection(set(res_d["AM"]))) / _denom, 2) for method, method_top_k in res_d.items() if method != "AM"}
 
 
 def tracker_filename(model, task, dirpath):
@@ -59,9 +50,7 @@ def get_tracker_table(data, dirpath):
 
     tracker_cols = []
     for task in data.columns:
-        tracker_cols += [
-            task.split(".")[0] + "_" + attr for attr in di_attrs + info_attrs
-        ]
+        tracker_cols += [task.split(".")[0] + "_" + attr for attr in di_attrs + info_attrs]
 
     tracker_cols = list(set(tracker_cols))
     tracker_res = pd.DataFrame(columns=tracker_cols, index=data.index)

@@ -29,8 +29,7 @@ import numpy as np
 from ._fe_synergy_screen import _pair_mm_mi_njit, joint_synergy_mi  # noqa: F401
 
 
-def _pair_mm_mi(code_x: np.ndarray, code_y: np.ndarray, yc: np.ndarray,
-                min_rows_per_cell: float = 5.0) -> float:
+def _pair_mm_mi(code_x: np.ndarray, code_y: np.ndarray, yc: np.ndarray, min_rows_per_cell: float = 5.0) -> float:
     """Fused-njit equivalent of ``joint_synergy_mi(code_x, code_y, yc)``.
 
     Builds the dense mixed-radix ``(kx*ky) x kt`` joint histogram in one O(n) pass (no
@@ -70,8 +69,7 @@ def _quantize(col: np.ndarray, nbins: int, rng: np.random.Generator) -> np.ndarr
     return np.clip(np.searchsorted(qs, col), 0, nbins - 1).astype(np.int64)
 
 
-def _excess_for_pairs(codes: list[np.ndarray], marg: list[float], yc: np.ndarray,
-                      pairs: list[tuple[int, int]]) -> float:
+def _excess_for_pairs(codes: list[np.ndarray], marg: list[float], yc: np.ndarray, pairs: list[tuple[int, int]]) -> float:
     """Max INTERACTION INFORMATION ``I({X,Z};Y) - I(X;Y) - I(Z;Y)`` over the given pairs.
 
     This co-information is the correct synergy signature: it is POSITIVE only when the joint carries

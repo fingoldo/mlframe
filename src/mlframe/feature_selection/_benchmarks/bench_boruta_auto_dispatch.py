@@ -44,8 +44,7 @@ PERMUTATION_N_REPEATS = 3
 
 
 def _make(n, p, inf, seed):
-    X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0,
-                               shuffle=False, random_state=seed)
+    X, y = make_classification(n_samples=n, n_features=p, n_informative=inf, n_redundant=0, shuffle=False, random_state=seed)
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), pd.Series(y)
 
 

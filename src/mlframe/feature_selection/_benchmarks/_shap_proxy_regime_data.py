@@ -78,7 +78,7 @@ def make_regime_dataset(
     X[:, :n_informative] = Z.astype(np.float32, copy=False)
 
     R_names_src = []
-    rho_keep = np.sqrt(max(1e-9, 1 - redundancy_rho ** 2))
+    rho_keep = np.sqrt(max(1e-9, 1 - redundancy_rho**2))
     for j in range(n_redundant):
         src = int(rng.integers(0, n_informative))
         X[:, n_informative + j] = (redundancy_rho * Z[:, src] + rho_keep * rng.standard_normal(n_samples)).astype(np.float32, copy=False)
@@ -97,12 +97,12 @@ def make_regime_dataset(
             X[:, noise_start + col : noise_start + col + this] = rng.standard_normal((n_samples, this)).astype(np.float32, copy=False)
             col += this
 
-    names = ([f"inf{i}" for i in range(n_informative)]
-             + [f"red{i}_of{R_names_src[i]}" for i in range(n_redundant)]
-             + [f"noise{i}" for i in range(n_noise)])
-    roles = {**{f"inf{i}": "informative" for i in range(n_informative)},
-             **{f"red{i}_of{R_names_src[i]}": "redundant" for i in range(n_redundant)},
-             **{f"noise{i}": "noise" for i in range(n_noise)}}
+    names = [f"inf{i}" for i in range(n_informative)] + [f"red{i}_of{R_names_src[i]}" for i in range(n_redundant)] + [f"noise{i}" for i in range(n_noise)]
+    roles = {
+        **{f"inf{i}": "informative" for i in range(n_informative)},
+        **{f"red{i}_of{R_names_src[i]}": "redundant" for i in range(n_redundant)},
+        **{f"noise{i}": "noise" for i in range(n_noise)},
+    }
 
     if np.std(f_signal) > 0:
         f_signal = f_signal / np.std(f_signal)

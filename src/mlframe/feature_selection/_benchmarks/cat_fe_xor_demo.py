@@ -69,10 +69,7 @@ def fit_and_summarize(name: str, mrmr: MRMR, df_train, y_train, df_test):
             joint = d.get("joint_MI", float("nan"))
             mx1 = d.get("marginal_X1_MI", float("nan"))
             mx2 = d.get("marginal_X2_MI", float("nan"))
-            print(
-                f"    {r.name}: II={ii:.4f} joint_MI={joint:.4f} "
-                f"marginal_X1={mx1:.4f} marginal_X2={mx2:.4f}"
-            )
+            print(f"    {r.name}: II={ii:.4f} joint_MI={joint:.4f} " f"marginal_X1={mx1:.4f} marginal_X2={mx2:.4f}")
 
 
 def main() -> None:
@@ -118,8 +115,7 @@ def main() -> None:
         if kway_cols:
             col = kway_cols[0]
             # Verify the engineered col actually carries XOR info on test data
-            xor_signal = (df_test["x1"].cat.codes.astype(int) ^
-                          df_test["x2"].cat.codes.astype(int))
+            xor_signal = df_test["x1"].cat.codes.astype(int) ^ df_test["x2"].cat.codes.astype(int)
             engineered = out_catfe[col].to_numpy()
             # The factorize merge produces a deterministic 4-cell encoding;
             # each XOR cell maps to a unique class. The engineered col

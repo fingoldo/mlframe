@@ -41,9 +41,7 @@ class _MRMRFitHelpersMixin:
         # (a) crashed the cluster correlation's float64 coercion and (b) would feed the bootstrap sub-MRMR all-object columns. The stability helpers
         # cluster only the numeric columns (categoricals -> singletons) and hand the sub-selector dtype-preserved rows.
         X_df = X if hasattr(X, "iloc") else pd.DataFrame(np.asarray(X))
-        y_arr = (
-            y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
-        ).ravel()
+        y_arr = (y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)).ravel()
         feature_names = list(X_df.columns)
 
         def _inner_selector(X_sub, y_sub):
@@ -73,15 +71,11 @@ class _MRMRFitHelpersMixin:
             return np.asarray(sub.support_, dtype=np.int64)
 
         if method == "cluster":
-            corr_thr = float(
-                getattr(self, "stability_selection_corr_threshold", 0.8)
-            )
+            corr_thr = float(getattr(self, "stability_selection_corr_threshold", 0.8))
             sel, freq, info = cluster_stability_selection(
                 X_df, y_arr, _inner_selector,
                 n_bootstrap=int(getattr(self, "stability_n_bootstrap", 50)),
-                pi_threshold=float(
-                    getattr(self, "stability_pi_threshold", 0.6)
-                ),
+                pi_threshold=float(getattr(self, "stability_pi_threshold", 0.6)),
                 corr_threshold=corr_thr,
                 rng_seed=int(self.random_seed or 0),
             )
@@ -89,9 +83,7 @@ class _MRMRFitHelpersMixin:
             sel, freq, info = complementary_pairs_stability(
                 X_df, y_arr, _inner_selector,
                 n_pairs=int(getattr(self, "stability_n_bootstrap", 50)),
-                pi_threshold=float(
-                    getattr(self, "stability_pi_threshold", 0.6)
-                ),
+                pi_threshold=float(getattr(self, "stability_pi_threshold", 0.6)),
                 rng_seed=int(self.random_seed or 0),
             )
         else:
@@ -179,35 +171,24 @@ class _MRMRFitHelpersMixin:
             eng = [n for n in names if "(" in n]
             n_raw = len(names) - len(eng)
             n_in = getattr(self, "n_features_in_", "?")
-            print(
-                f"\n[MRMR] selected {len(names)} feature(s) "
-                f"({n_raw} raw + {len(eng)} engineered) from {n_in} input(s)"
-            )
+            print(f"\n[MRMR] selected {len(names)} feature(s) " f"({n_raw} raw + {len(eng)} engineered) from {n_in} input(s)")
             prov = getattr(self, "fe_provenance_", None)
             if prov is not None and hasattr(prov, "empty") and not prov.empty:
-                disp_cols = [
-                    c for c in ("support_rank", "feature_name", "origin", "mrmr_gain")
-                    if c in prov.columns
-                ]
+                disp_cols = [c for c in ("support_rank", "feature_name", "origin", "mrmr_gain") if c in prov.columns]
                 disp = prov[disp_cols].copy()
                 if "support_rank" in disp.columns:
                     # Show in greedy selection order (rank 0 first), not the raw
                     # provenance-frame row order.
                     disp = disp.sort_values("support_rank", kind="stable")
                 if "mrmr_gain" in disp.columns:
-                    disp["mrmr_gain"] = disp["mrmr_gain"].map(
-                        lambda v: f"{float(v):.4f}" if pd.notna(v) else ""
-                    )
+                    disp["mrmr_gain"] = disp["mrmr_gain"].map(lambda v: f"{float(v):.4f}" if pd.notna(v) else "")
                 print(disp.to_string(index=False))
             else:
                 print("  " + ", ".join(names))
             if eng:
                 print(f"[MRMR] {len(eng)} engineered feature(s) discovered: " + ", ".join(eng))
             else:
-                print(
-                    "[MRMR] no engineered features survived the MI-prevalence gate "
-                    "(fe_min_engineered_mi_prevalence); selection is raw-only"
-                )
+                print("[MRMR] no engineered features survived the MI-prevalence gate " "(fe_min_engineered_mi_prevalence); selection is raw-only")
         except Exception as exc:
             logger.debug("mrmr: selection-summary print failed (diagnostic only): %r", exc, exc_info=True)
 
@@ -278,9 +259,7 @@ class _MRMRFitHelpersMixin:
         # crashed on every ndarray fit instead of short-circuiting.
         if hasattr(X, "columns"):
             _cols = X.columns
-            self.feature_names_in_ = (
-                _cols.tolist() if hasattr(_cols, "tolist") else list(_cols)
-            )
+            self.feature_names_in_ = _cols.tolist() if hasattr(_cols, "tolist") else list(_cols)
         else:
             self.feature_names_in_ = [f"f{i}" for i in range(n_cols)]
         self._engineered_features_ = []

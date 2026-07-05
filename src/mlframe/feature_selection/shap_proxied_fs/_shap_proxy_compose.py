@@ -34,9 +34,7 @@ def proposal_generator(X, y, *, classification=True, optimizer="genetic", top_n=
     return [(c["proxy_loss"], tuple(c["features"])) for c in cands]
 
 
-def per_fold_stability_select(
-    X, y, *, classification=True, n_folds=5, vote_threshold=0.5, weight_by_fidelity=True,
-    random_state=0, **shap_kwargs):
+def per_fold_stability_select(X, y, *, classification=True, n_folds=5, vote_threshold=0.5, weight_by_fidelity=True, random_state=0, **shap_kwargs):
     """Run ShapProxiedFS on each of ``n_folds`` train splits; return a stability report.
 
     Returns dict with:
@@ -52,16 +50,14 @@ def per_fold_stability_select(
     X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))
     X = X.reset_index(drop=True)
     y = np.asarray(y)
-    splitter = (StratifiedKFold(n_folds, shuffle=True, random_state=random_state) if classification
-                else KFold(n_folds, shuffle=True, random_state=random_state))
+    splitter = StratifiedKFold(n_folds, shuffle=True, random_state=random_state) if classification else KFold(n_folds, shuffle=True, random_state=random_state)
     split = splitter.split(X, y) if classification else splitter.split(X)
 
     weighted = defaultdict(float)
     total_w = 0.0
     per_fold = []
     for fold, (tr, _) in enumerate(split):
-        sel = ShapProxiedFS(classification=classification, random_state=random_state + fold,
-                            verbose=False, **shap_kwargs)
+        sel = ShapProxiedFS(classification=classification, random_state=random_state + fold, verbose=False, **shap_kwargs)
         sel.fit(X.iloc[tr].reset_index(drop=True), y[tr])
         fidelity = float(sel.shap_proxy_report_.get("trust", {}).get("spearman", 1.0) or 0.0)
         w = max(fidelity, 0.0) if weight_by_fidelity else 1.0

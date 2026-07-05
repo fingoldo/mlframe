@@ -56,8 +56,7 @@ _HONEST_LOSS_CACHE_PREFIX = "honest_loss_"
 _PERM_IMP_FIT_CACHE_PREFIX = "perm_imp_fit_"
 
 
-def _build_honest_loss_disk_key(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric,
-                                seed, n_estimators_cap, template_id) -> Optional[str]:
+def _build_honest_loss_disk_key(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric, seed, n_estimators_cap, template_id) -> Optional[str]:
     """Return a stable cache key for an ``_honest_loss`` call, or ``None`` if hashing fails.
 
     Key inputs cover everything that determines the cached float:

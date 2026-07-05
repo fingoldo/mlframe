@@ -149,9 +149,7 @@ def catboost_shap(model, X, *, cat_features: Optional[Sequence] = None):
             f"regression only; CatBoost returned a {arr.shape} multiclass tensor."
         )
     if arr.ndim != 2:
-        raise ValueError(
-            f"Unexpected catboost ShapValues ndim={arr.ndim}; expected 2-D (n_samples, n_features+1)."
-        )
+        raise ValueError(f"Unexpected catboost ShapValues ndim={arr.ndim}; expected 2-D (n_samples, n_features+1).")
     phi = arr[:, :-1]
     base = float(arr[0, -1])
     return phi, base

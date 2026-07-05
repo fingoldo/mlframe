@@ -40,11 +40,11 @@ from hard_synth import make_hard_dataset
 from synth import make_dataset
 from hybrid_selector import HybridSelector
 
-NJOBS = 4                      # cap for everything THIS bench controls (concurrent-load friendly)
+NJOBS = 4  # cap for everything THIS bench controls (concurrent-load friendly)
 CACHE_DIR = "D:/Temp/gated_recall_cache"
 PROGRESS = "D:/Temp/gated_recall_progress.txt"
-K_PERM = 20                    # permutation-null shuffles
-NULL_PCTILE = 95               # admit a dropped feature iff real residual-MI > this pct of the null-max distribution
+K_PERM = 20  # permutation-null shuffles
+NULL_PCTILE = 95  # admit a dropped feature iff real residual-MI > this pct of the null-max distribution
 SEEDS = (0, 1, 2)
 
 
@@ -158,7 +158,7 @@ def gated_recall(bed, X, y, seed):
         gr_auc = downstream(Ztr[Sprime], Zte[Sprime], ytr, yte)
         gr_mean = round(float(np.nanmean(list(gr_auc.values()))), 4)
     else:
-        gr_auc, gr_mean = dict(base_auc), base_mean   # gate fired nothing -> identical to S (the intended madelon case)
+        gr_auc, gr_mean = dict(base_auc), base_mean  # gate fired nothing -> identical to S (the intended madelon case)
 
     rows = [
         dict(bed=bed, seed=seed, variant="hybrid_S", n=len(Scols), auc_mean=base_mean, **base_auc),
@@ -214,8 +214,7 @@ def main():
     print(sdf.to_string(index=False), flush=True)
 
     print("\n=== MEAN OVER SEEDS ===", flush=True)
-    means = sdf.groupby("bed").agg(hybrid_S=("hybrid_S", "mean"), gated_recall=("gated_recall", "mean"),
-                                   delta=("delta", "mean")).round(4)
+    means = sdf.groupby("bed").agg(hybrid_S=("hybrid_S", "mean"), gated_recall=("gated_recall", "mean"), delta=("delta", "mean")).round(4)
     print(means.to_string(), flush=True)
 
     # VERDICT

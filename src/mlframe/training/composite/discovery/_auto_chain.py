@@ -118,11 +118,11 @@ class ChainCandidate:
     second stage and so cannot rank chains (see module docstring).
     """
 
-    chain_name: str            # registry-style key, e.g. "chain_linear_residual_cbrt"
-    short_name: str            # composed-name fragment, e.g. "linres+cbrt"
+    chain_name: str  # registry-style key, e.g. "chain_linear_residual_cbrt"
+    short_name: str  # composed-name fragment, e.g. "linres+cbrt"
     residual_name: str
     unary_name: str
-    transform: Transform       # ready-to-fit Transform built via _make_chain_transform
+    transform: Transform  # ready-to-fit Transform built via _make_chain_transform
     fitted_params: Dict[str, Any]
     rmse: float
     residual_rmse: float
@@ -134,9 +134,7 @@ class ChainCandidate:
 
 
 def _short(residual_name: str, unary_name: str) -> str:
-    res_frag = {"linear_residual": "linres", "monotonic_residual": "monres"}.get(
-        residual_name, residual_name
-    )
+    res_frag = {"linear_residual": "linres", "monotonic_residual": "monres"}.get(residual_name, residual_name)
     return f"{res_frag}+{unary_name}"
 
 
@@ -191,7 +189,7 @@ def reregister_auto_chain_transforms(transform_names: Iterable[str] | None) -> l
     for nm in {n for n in (transform_names or []) if isinstance(n, str)}:
         if not nm.startswith("chain_") or nm in _TRANSFORMS_REGISTRY:
             continue
-        body = nm[len("chain_"):]
+        body = nm[len("chain_") :]
         for un in _TAIL_UNARIES:
             suffix = "_" + un
             if body.endswith(suffix):
@@ -261,9 +259,7 @@ def _y_scale_cv_rmse(
                 if dom_tr.sum() < cv_folds * 5:
                     return float("inf"), valid_frac
                 params = transform.fit(y_tr[dom_tr], b_tr[dom_tr])
-                t_tr = np.asarray(
-                    transform.forward(y_tr, b_tr, params), dtype=np.float64
-                )
+                t_tr = np.asarray(transform.forward(y_tr, b_tr, params), dtype=np.float64)
                 target_tr = t_tr
                 fit_mask = dom_tr & np.isfinite(t_tr)
             if fit_mask.sum() < cv_folds * 5:
@@ -278,12 +274,9 @@ def _y_scale_cv_rmse(
             if transform is None:
                 y_hat = pred
             else:
-                y_hat = np.asarray(
-                    transform.inverse(pred, b_va, params), dtype=np.float64
-                )
+                y_hat = np.asarray(transform.inverse(pred, b_va, params), dtype=np.float64)
         except Exception as exc:
-            logger.debug("y-scale CV fold failed for %s: %s",
-                         getattr(transform, "name", "raw"), exc)
+            logger.debug("y-scale CV fold failed for %s: %s", getattr(transform, "name", "raw"), exc)
             return float("inf"), valid_frac
         ok = np.isfinite(y_hat) & np.isfinite(y_va)
         if not ok.any():
@@ -426,8 +419,7 @@ def discover_chains(
             ur = unary_rmse.get(un, float("inf"))
             best_single = min(rr, ur)
             margin = best_single - cr
-            if not (np.isfinite(cr) and vf >= min_valid_domain_frac
-                    and margin > min_rmse_margin):
+            if not (np.isfinite(cr) and vf >= min_valid_domain_frac and margin > min_rmse_margin):
                 continue
             mg = float("nan")
             if compute_mi_gain and np.isfinite(mi_y):

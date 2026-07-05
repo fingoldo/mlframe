@@ -89,8 +89,7 @@ def resident_raw_baseline_mi(
         # column names as its second element (e.g. ("raw_noise_floor", tuple(cols))), and column j of ``host`` is
         # that column verbatim (the callers build ``raw_X[cols].to_numpy()``), so the per-column upload is the
         # SAME bytes -> content-keyed dedup -> selection-identical. Any shape/name mismatch -> upload the matrix.
-        _names = role_key[1] if (isinstance(role_key, tuple) and len(role_key) >= 2
-                                 and isinstance(role_key[1], (tuple, list))) else None
+        _names = role_key[1] if (isinstance(role_key, tuple) and len(role_key) >= 2 and isinstance(role_key[1], (tuple, list))) else None
         Xd = assemble_resident_matrix(host, _names, role_key, dtype=cp.float64)
 
         _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()

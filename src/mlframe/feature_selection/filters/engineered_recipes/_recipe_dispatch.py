@@ -157,9 +157,7 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             cat_i, cat_j,
             {tuple(k): int(v) for k, v in recipe.extra["mapping"]},
             encoding=str(recipe.extra.get("encoding", "raw")),
-            te_lookup={
-                int(k): float(v) for k, v in recipe.extra.get("te_lookup", [])
-            },
+            te_lookup={int(k): float(v) for k, v in recipe.extra.get("te_lookup", [])},
             global_mean=float(recipe.extra.get("global_mean", 0.0)),
         )
     if recipe.kind == "cat_triple_cross":
@@ -177,9 +175,7 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             cat_a, cat_b, cat_c,
             {tuple(k): int(v) for k, v in recipe.extra["mapping"]},
             encoding=str(recipe.extra.get("encoding", "raw")),
-            te_lookup={
-                int(k): float(v) for k, v in recipe.extra.get("te_lookup", [])
-            },
+            te_lookup={int(k): float(v) for k, v in recipe.extra.get("te_lookup", [])},
             global_mean=float(recipe.extra.get("global_mean", 0.0)),
         )
     if recipe.kind in ("numeric_rounding", "digit_extract"):

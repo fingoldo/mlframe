@@ -69,16 +69,14 @@ SCENARIOS = {
 
 def _rel_plugin(y, p, nbins):
     from mlframe.metrics.calibration._calibration_metrics import compute_ece_and_brier_decomposition
-    return compute_ece_and_brier_decomposition(
-        np.asarray(y, dtype=np.float64), np.asarray(p, dtype=np.float64), nbins
-    )[1]
+
+    return compute_ece_and_brier_decomposition(np.asarray(y, dtype=np.float64), np.asarray(p, dtype=np.float64), nbins)[1]
 
 
 def _decomp_debiased(y, p, nbins):
     from mlframe.metrics.calibration._calibration_metrics import compute_brier_decomposition_debiased
-    return compute_brier_decomposition_debiased(
-        np.asarray(y, dtype=np.float64), np.asarray(p, dtype=np.float64), nbins
-    )
+
+    return compute_brier_decomposition_debiased(np.asarray(y, dtype=np.float64), np.asarray(p, dtype=np.float64), nbins)
 
 
 def _truth_rel(scn_fn, nbins, n_big=400_000, fine=400):

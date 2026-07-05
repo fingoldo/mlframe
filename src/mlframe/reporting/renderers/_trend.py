@@ -26,9 +26,7 @@ import numpy as np
 _TREND_FIT_CAP = 3_000
 
 
-def robust_fit_endpoints(
-    x: np.ndarray, y: np.ndarray, method: str
-) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
+def robust_fit_endpoints(x: np.ndarray, y: np.ndarray, method: str) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
     """Fit a robust line ``y ~ x`` and return ((x_lo, y_lo), (x_hi, y_hi)) at the x extremes.
 
     Returns ``None`` when the fit is undefined (fewer than 2 finite points, or all x identical).

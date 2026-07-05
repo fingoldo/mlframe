@@ -51,10 +51,7 @@ def main() -> None:
             for _ in range(2000):
                 _new(corr_used, idx_use, K, K)
             best_new = min(best_new, time.perf_counter() - t)
-        print(
-            f"K={K}: old={best_old * 1e6 / 2000:.2f}us new={best_new * 1e6 / 2000:.2f}us "
-            f"speedup={best_old / best_new:.2f}x (bit-identical)"
-        )
+        print(f"K={K}: old={best_old * 1e6 / 2000:.2f}us new={best_new * 1e6 / 2000:.2f}us " f"speedup={best_old / best_new:.2f}x (bit-identical)")
 
 
 if __name__ == "__main__":

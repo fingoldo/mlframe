@@ -194,10 +194,7 @@ def _carrier_with_categoricals(carrier: Any) -> Any:
         return carrier
     if not isinstance(carrier, pd.DataFrame):
         return carrier
-    obj_cols = [
-        c for c in carrier.columns
-        if not (carrier[c].dtype.kind in "iufb" or isinstance(carrier[c].dtype, pd.CategoricalDtype))
-    ]
+    obj_cols = [c for c in carrier.columns if not (carrier[c].dtype.kind in "iufb" or isinstance(carrier[c].dtype, pd.CategoricalDtype))]
     return carrier.assign(**{c: carrier[c].astype("category") for c in obj_cols}) if obj_cols else carrier
 
 
@@ -402,8 +399,7 @@ def compute_pdp_2d(
             block = _substitute_column(block, None, i0, outer_val, col_name=name0, categorical_dtype=_cat0_dtype)
             surface[a] = np.asarray(predict(block)).reshape(m, g1).mean(axis=0)
 
-    return {"grid0": grid0, "grid1": grid1, "surface": surface, "kind": kind,
-            "feature_index": (i0, i1)}
+    return {"grid0": grid0, "grid1": grid1, "surface": surface, "kind": kind, "feature_index": (i0, i1)}
 
 
 def _feat_label(feature: Union[int, str], names: Optional[List[str]], idx: int) -> str:
@@ -526,9 +522,7 @@ def compose_pdp_figure(
     """
     if not features:
         return FigureSpec(suptitle=suptitle, panels=((AnnotationPanelSpec(text="compose_pdp_figure: no features"),),), figsize=(8.0, 3.0))
-    panels: List[PanelSpec] = [
-        pdp_panel(model, X, f, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed) for f in features
-    ]
+    panels: List[PanelSpec] = [pdp_panel(model, X, f, grid=grid, sample=sample, ice=ice, centered=centered, seed=seed) for f in features]
     # Auto-conclusion in the suptitle: a feature whose PDP mean barely moves has ~no marginal effect on
     # the prediction (the model isn't using it on average -- e.g. the two flat panels the operator
     # spotted). Measure each 1-D panel's PDP-mean range (last series = bold mean) and flag those under
@@ -544,10 +538,7 @@ def compose_pdp_figure(
         _max_rng = max((r for _, r in _ranges), default=0.0)
         _flat = [name for name, r in _ranges if _max_rng > 0 and r < 0.05 * _max_rng]
         if _flat:
-            suptitle = (
-                f"{suptitle}\nFlat PDP -- ~no marginal effect (range < 5% of top feature): "
-                f"{', '.join(_flat[:6])}"
-            )
+            suptitle = f"{suptitle}\nFlat PDP -- ~no marginal effect (range < 5% of top feature): " f"{', '.join(_flat[:6])}"
     if interaction_pair is not None:
         panels.append(pdp_2d_panel(model, X, interaction_pair, grid=grid, sample=sample, seed=seed))
     packed = pack_panels(panels, max_cols=max_cols)

@@ -254,18 +254,15 @@ def report_probabilistic_model_perf(
         # multilabel-indicator (2-D), and ``classification_report`` raised
         # ``mix of multilabel-indicator and multiclass targets``.
         _targets_2d = (
-            isinstance(targets, np.ndarray) and targets.ndim == 2
-        ) or (
-            isinstance(targets, pd.DataFrame)
-        ) or (
-            isinstance(targets, np.ndarray)
-            and targets.dtype == object
-            and targets.ndim == 1
-            and targets.shape[0] > 0
-            and (hasattr(targets[0], "shape") or (
-                hasattr(targets[0], "__len__")
-                and not isinstance(targets[0], (str, bytes))
-            ))
+            (isinstance(targets, np.ndarray) and targets.ndim == 2)
+            or (isinstance(targets, pd.DataFrame))
+            or (
+                isinstance(targets, np.ndarray)
+                and targets.dtype == object
+                and targets.ndim == 1
+                and targets.shape[0] > 0
+                and (hasattr(targets[0], "shape") or (hasattr(targets[0], "__len__") and not isinstance(targets[0], (str, bytes))))
+            )
         )
         if _targets_2d:
             # MultiOutputClassifier returns list[(N,2)] for predict_proba -- canonicalize to (N, K).
@@ -279,8 +276,7 @@ def report_probabilistic_model_perf(
             # accepts a (K,) vector -- same downstream shape (N, K).
             _per_label_thr = (
                 multilabel_dispatch_config.per_label_thresholds
-                if (multilabel_dispatch_config is not None
-                    and multilabel_dispatch_config.per_label_thresholds is not None)
+                if (multilabel_dispatch_config is not None and multilabel_dispatch_config.per_label_thresholds is not None)
                 else 0.5
             )
             preds = _predict_from_probs(
@@ -374,7 +370,7 @@ def report_probabilistic_model_perf(
             # Build (N, K) score matrix and (N, K)/(N,) label matrix once.
             if is_multilabel:
                 _y_true_NK = targets_arr  # already (N, K) binary
-                _y_score_NK = probs       # (N, K)
+                _y_score_NK = probs  # (N, K)
             elif len(classes) == 2:
                 # Binary: only class_id=1 is reported (loop skips id=0).
                 # Single column, no batching benefit, but the dispatcher
@@ -386,14 +382,10 @@ def report_probabilistic_model_perf(
                 # bench-attempt-rejected (_benchmarks/bench_report_one_hot.py): an
                 # arange-scatter one-hot loses here -- raw report labels need a
                 # label->col map first; with it, scatter=0.35x col_stack at n=100k/K=5.
-                _y_true_NK = np.column_stack(
-                    [(targets == c).astype(np.int8) for c in classes]
-                )
+                _y_true_NK = np.column_stack([(targets == c).astype(np.int8) for c in classes])
                 _y_score_NK = probs
             roc_batch, pr_batch = compute_batch_aucs(_y_true_NK, _y_score_NK)
-            _precomputed_aucs_per_class = [
-                (float(roc_batch[j]), float(pr_batch[j])) for j in range(_y_score_NK.shape[1])
-            ]
+            _precomputed_aucs_per_class = [(float(roc_batch[j]), float(pr_batch[j])) for j in range(_y_score_NK.shape[1])]
         except (KeyboardInterrupt, MemoryError, SystemExit):
             # Operator cancellation / true OOM MUST propagate -- the
             # previous ``except Exception`` swallowed KI, leaving the
@@ -426,7 +418,7 @@ def report_probabilistic_model_perf(
         if is_multilabel:
             y_true = targets_arr[:, class_id]
         else:
-            y_true = (targets == class_name)
+            y_true = targets == class_name
         y_score = probs[:, class_id]
         if isinstance(y_true, pl.Series):
             y_true = y_true.to_numpy()
@@ -625,9 +617,9 @@ def report_probabilistic_model_perf(
                     logger.debug("Tier 2 calibration extras skipped: %s", _hl_err)
             except (ValueError, TypeError, FloatingPointError, ZeroDivisionError) as _ext_err:
                 logger.warning(
-                    "extended classification metrics failed for class %s: %s. "
-                    "Continuing with the historical metric set only.",
-                    str_class_name, _ext_err,
+                    "extended classification metrics failed for class %s: %s. " "Continuing with the historical metric set only.",
+                    str_class_name,
+                    _ext_err,
                 )
 
             metrics.update({class_id: class_metrics})
@@ -644,10 +636,7 @@ def report_probabilistic_model_perf(
     # Skipped entirely on binary (single positive class, aggregation
     # collapses to the per-class value itself - no new information).
     if metrics is not None and is_multilabel is False and len(classes) > 2:
-        _per_class_blocks = [
-            (cid, metrics[cid]) for cid in metrics
-            if isinstance(cid, (int, np.integer)) and isinstance(metrics[cid], dict)
-        ]
+        _per_class_blocks = [(cid, metrics[cid]) for cid in metrics if isinstance(cid, (int, np.integer)) and isinstance(metrics[cid], dict)]
         if _per_class_blocks:
             # Class supports for weighted-mean (true positives per class).
             try:
@@ -696,9 +685,7 @@ def report_probabilistic_model_perf(
                 w = np.asarray(wts, dtype=np.float64)
                 metrics[f"macro_{key}"] = float(arr.mean())
                 w_total = w.sum()
-                metrics[f"weighted_{key}"] = (
-                    float((arr * w).sum() / w_total) if w_total > 0 else float(arr.mean())
-                )
+                metrics[f"weighted_{key}"] = float((arr * w).sum() / w_total) if w_total > 0 else float(arr.mean())
 
     # Registered single-label classification scalars (quadratic_weighted_kappa / weighted_kappa /
     # exploss from metrics_registry). Mirrors the multilabel dispatch below, but lands the values in
@@ -711,10 +698,8 @@ def report_probabilistic_model_perf(
             try:
                 from ..configs import TargetTypes
                 from ..metrics_registry import iter_extra_metrics
-                _cls_tt = (
-                    TargetTypes.BINARY_CLASSIFICATION if probs.shape[1] == 2
-                    else TargetTypes.MULTICLASS_CLASSIFICATION
-                )
+
+                _cls_tt = TargetTypes.BINARY_CLASSIFICATION if probs.shape[1] == 2 else TargetTypes.MULTICLASS_CLASSIFICATION
                 _cls_extra = list(iter_extra_metrics(_cls_tt, targets, probs, preds))
                 if metrics is not None:
                     for _name, _val in _cls_extra:
@@ -753,11 +738,7 @@ def report_probabilistic_model_perf(
             from mlframe.metrics.core import format_classification_report
             _y_true = np.asarray(targets).astype(np.int64) if not is_multilabel else None
             _y_pred = np.asarray(preds).astype(np.int64) if not is_multilabel else None
-            if (
-                _y_true is not None and _y_pred is not None
-                and _y_true.ndim == 1 and _y_pred.ndim == 1
-                and len(_y_true) == len(_y_pred)
-            ):
+            if _y_true is not None and _y_pred is not None and _y_true.ndim == 1 and _y_pred.ndim == 1 and len(_y_true) == len(_y_pred):
                 # Remap raw integer labels to positions 0..K-1 against ``classes`` so the table carries one row PER class
                 # in label order with correct macro/weighted averages. Inferring nclasses from ``max(label)+1`` instead
                 # injects phantom 0-support rows for non-0-indexed labels (e.g. [1,2,3] -> a spurious class-0 row) which
@@ -905,7 +886,6 @@ def report_probabilistic_model_perf(
         )
 
     return preds, probs
-
 
 
 # calibration/fairness render helpers carved to _reporting_probabilistic_calib.py (1k-LOC ceiling).

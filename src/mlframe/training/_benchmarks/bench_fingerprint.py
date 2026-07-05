@@ -32,9 +32,7 @@ except ImportError:
 
 def _make_frame(n_rows: int, n_cols: int) -> pl.DataFrame:
     rng = np.random.default_rng(20260516)
-    data = {
-        f"f{i}": rng.standard_normal(n_rows).astype(np.float32) for i in range(n_cols)
-    }
+    data = {f"f{i}": rng.standard_normal(n_rows).astype(np.float32) for i in range(n_cols)}
     return pl.DataFrame(data)
 
 

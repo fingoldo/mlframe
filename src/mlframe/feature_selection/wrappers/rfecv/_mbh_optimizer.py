@@ -52,9 +52,7 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
     if self.optimizer_plotting is None:
         plotting_mode = OptimizationProgressPlotting.No
     else:
-        plotting_mode = _plotting_map.get(
-            self.optimizer_plotting, OptimizationProgressPlotting.No
-        )
+        plotting_mode = _plotting_map.get(self.optimizer_plotting, OptimizationProgressPlotting.No)
 
     # Adaptive MBH surrogate. CatBoost has a fixed ~500ms per-fit overhead (Python<->C++ marshalling, roughly independent of
     # n_estimators), which dominates wall-clock on tiny RFECV problems where the outer estimator fits in <10ms. Switch to a sklearn
@@ -67,16 +65,8 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
     #   >100:                     CatBoost iterations=150
     #
     # Users override via ``optimizer_config={"model_name":..., "model_params": {...}}``.
-    _search_space_size = (
-        min(self.max_nfeatures, len(original_features)) + 1
-        if self.max_nfeatures
-        else len(original_features) + 1
-    )
-    _max_evals_budget = (
-        min(max_refits, _search_space_size)
-        if max_refits
-        else _search_space_size
-    )
+    _search_space_size = min(self.max_nfeatures, len(original_features)) + 1 if self.max_nfeatures else len(original_features) + 1
+    _max_evals_budget = min(max_refits, _search_space_size) if max_refits else _search_space_size
     _user_cfg = dict(self.optimizer_config) if self.optimizer_config else {}
     _user_model_name = _user_cfg.pop("model_name", None)
     _user_model_params = dict(_user_cfg.pop("model_params", {}) or {})
@@ -126,7 +116,7 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
         else:
             _K = max(1, int(_init_size_param))
         if _K <= 1 or _p <= 2:
-            _seeded = list(range(1, max(2, _p) + 1))[:max(_K, 1)]
+            _seeded = list(range(1, max(2, _p) + 1))[: max(_K, 1)]
         else:
             _raw = np.linspace(2, _p, _K)
             _seeded = sorted(set(int(round(x)) for x in _raw if 1 <= int(round(x)) <= _p))
@@ -142,11 +132,7 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
     _opt_seed = int(self._rng.integers(0, 2**31 - 1)) if getattr(self, "_rng", None) is not None else None
 
     _mbh_kwargs = dict(
-        search_space=(
-            np.array(np.arange(min(self.max_nfeatures, _p) + 1).tolist() + [_p])
-            if self.max_nfeatures
-            else np.arange(_p + 1)
-        ),
+        search_space=(np.array(np.arange(min(self.max_nfeatures, _p) + 1).tolist() + [_p]) if self.max_nfeatures else np.arange(_p + 1)),
         direction=OptimizationDirection.Maximize,
         init_sampling_method=CandidateSamplingMethod.Equidistant,
         init_evaluate_ascending=False,

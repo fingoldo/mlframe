@@ -128,9 +128,7 @@ def _rescore_spec_gain(
         if len(base_cols) == 1:
             base = _extract_column_array(df, base_cols[0], rows=idx)
         else:
-            base = np.column_stack(
-                [_extract_column_array(df, c, rows=idx) for c in base_cols]
-            )
+            base = np.column_stack([_extract_column_array(df, c, rows=idx) for c in base_cols])
     else:
         base = None
 

@@ -219,7 +219,7 @@ def compute_extra_aggregates(
     # Recompute softmax weights from the same logits the fused kernel used (cosine similarity / softmax_temp). Vectorised gather + einsum + row-wise stable softmax
     # over all queries at once: at n_queries up to 100k (validation-fold size, called once per head per fold) the per-query Python loop dominated this function.
     # The non-finite-logit and degenerate-sum fallbacks to a uniform 1/k row are preserved; einsum reorders the float32 reduction so weights differ by <=1 ULP.
-    gathered = k_proj[topk_ids]                                          # (n_queries, k, head_dim)
+    gathered = k_proj[topk_ids]  # (n_queries, k, head_dim)
     logits = np.einsum("qkd,qd->qk", gathered, q_proj) / softmax_temp
     row_max = logits.max(axis=1, keepdims=True)
     exps = np.exp(logits - row_max)
@@ -245,7 +245,7 @@ def compute_extra_aggregates(
 
     if "y_skew" in aggregates:
         # Weighted skewness (biased): E[(y - mean)^3] / std^3, vectorised over all queries (fixed k).
-        y_nbr = y_train[topk_ids]                                        # (n_queries, k)
+        y_nbr = y_train[topk_ids]  # (n_queries, k)
         mean = (weights * y_nbr).sum(axis=1, keepdims=True)
         d = y_nbr - mean
         wd2 = weights * d * d
@@ -253,14 +253,14 @@ def compute_extra_aggregates(
         m3 = (wd2 * d).sum(axis=1)
         std = np.sqrt(var)
         with np.errstate(invalid="ignore", divide="ignore"):
-            y_skew = np.where(var <= 1e-12, np.float32(0.0), m3 / (std ** 3)).astype(np.float32, copy=False)
+            y_skew = np.where(var <= 1e-12, np.float32(0.0), m3 / (std**3)).astype(np.float32, copy=False)
         out["y_skew"] = y_skew
 
     if "x_centroid_dist" in aggregates:
         # Distance from query projection to weighted centroid of neighbour projections. Larger = query lives further from the cluster centroid =
         # outlier-ish neighbourhood, smaller = query sits inside a dense cluster.
-        neighbours = k_proj[topk_ids]                                   # (n_queries, k, head_dim)
-        centroid = (weights[:, :, None] * neighbours).sum(axis=1)       # (n_queries, head_dim)
+        neighbours = k_proj[topk_ids]  # (n_queries, k, head_dim)
+        centroid = (weights[:, :, None] * neighbours).sum(axis=1)  # (n_queries, head_dim)
         diff = q_proj - centroid
         x_centroid_dist = np.sqrt((diff * diff).sum(axis=1)).astype(np.float32, copy=False)
         out["x_centroid_dist"] = x_centroid_dist

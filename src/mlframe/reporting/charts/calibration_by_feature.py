@@ -174,12 +174,10 @@ def compute_calibration_by_feature_heterogeneity(
     per_bin = {r["label"]: r["ece"] for r in records}
     centers = {r["label"]: r["center"] for r in records}
     if len(records) < 2:
-        return {"per_bin_ece": per_bin, "bin_centers": centers, "heterogeneity": float("nan"),
-                "traffic_light": "n/a", "skipped": skipped}
+        return {"per_bin_ece": per_bin, "bin_centers": centers, "heterogeneity": float("nan"), "traffic_light": "n/a", "skipped": skipped}
     eces = np.asarray([r["ece"] for r in records], dtype=np.float64)
     gap = float(eces.max() - eces.min())
-    return {"per_bin_ece": per_bin, "bin_centers": centers, "heterogeneity": gap,
-            "traffic_light": _het_traffic_light(gap), "skipped": skipped}
+    return {"per_bin_ece": per_bin, "bin_centers": centers, "heterogeneity": gap, "traffic_light": _het_traffic_light(gap), "skipped": skipped}
 
 
 def compose_calibration_by_feature_figure(
@@ -213,8 +211,7 @@ def compose_calibration_by_feature_figure(
     skipped_note = ("  skipped: " + ", ".join(skipped)) if skipped else ""
 
     if len(records) < 2:
-        text = (f"per-feature calibration needs >=2 non-degenerate feature-bins (got {len(records)})."
-                + (skipped_note or ""))
+        text = f"per-feature calibration needs >=2 non-degenerate feature-bins (got {len(records)})." + (skipped_note or "")
         return FigureSpec(
             suptitle="",
             panels=((AnnotationPanelSpec(text=text, title=title),),),

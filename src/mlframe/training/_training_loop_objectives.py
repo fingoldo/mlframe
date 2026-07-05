@@ -16,7 +16,6 @@ except ImportError:
     pl = None  # type: ignore
 
 
-
 # Refit helpers + their module-level constants moved to sibling
 # ``_training_loop_refit.py`` to drop this file below the 1k-LOC
 # monolith threshold; imported here so callers keep using
@@ -27,7 +26,6 @@ from ._training_loop_refit import (  # noqa: F401
 )
 
 logger = logging.getLogger(__name__)
-
 
 
 def _ensure_xgb_classification_objective(model, train_target) -> None:
@@ -171,4 +169,3 @@ def _maybe_wrap_for_2d_target(model, train_target):
             _import_err,
         )
         return model
-

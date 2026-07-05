@@ -21,7 +21,7 @@ class Encoder(nn.Module):
         num_self_attn_per_block: int = 6,
         num_self_attn_blocks: int = 1,
         dropout: float = 0.0,
-        ):
+    ):
 
         super().__init__()
         self.num_self_attn_blocks = num_self_attn_blocks
@@ -35,7 +35,7 @@ class Encoder(nn.Module):
             v_out_dim=v_out_dim,
             heads=cross_attn_heads,
             dropout=dropout,
-            widening_factor=cross_attn_widening_factor
+            widening_factor=cross_attn_widening_factor,
         )
 
         self.self_attn_block = nn.ModuleList([
@@ -50,23 +50,19 @@ class Encoder(nn.Module):
         ])
     
     def forward(self, x: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
-        '''
-            Args:
-                x: (B, M, C)
-                mask: (B, M)
-        '''
+        """
+        Args:
+            x: (B, M, C)
+            mask: (B, M)
+        """
 
-        b, *_= x.shape
+        b, *_ = x.shape
 
         latents = self.latents.repeat(b, 1, 1)
 
-        latents = self.cross_attn_block(
-            x_q=latents,
-            x_kv=x,
-            attention_mask=attention_mask
-        )
+        latents = self.cross_attn_block(x_q=latents, x_kv=x, attention_mask=attention_mask)
         for _ in range(self.num_self_attn_blocks):
             for self_attn_layer in self.self_attn_block:
                 latents = self_attn_layer(latents)
-        
+
         return latents

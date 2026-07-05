@@ -109,9 +109,7 @@ def _build_votenrank_leaderboard_from_results(res: dict, *, is_regression: bool)
             continue
         if is_regression and _flavour.lower().startswith("rrf"):
             continue
-        _metrics = getattr(_result, "metrics", None) or (
-            _result.get("metrics") if isinstance(_result, dict) else None
-        )
+        _metrics = getattr(_result, "metrics", None) or (_result.get("metrics") if isinstance(_result, dict) else None)
         if not _metrics:
             continue
         _flat: dict[str, float] = {}
@@ -175,10 +173,7 @@ def compare_ensembles(
     _DROP_KEYS = ("feature_importances", "fairness_report", "robustness_report")
     items = []
     for ens_name, ens_perf in ensembles.items():
-        perf = {
-            k: ({kk: vv for kk, vv in v.items() if kk not in _DROP_KEYS} if v else v)
-            for k, v in ens_perf.metrics.items()
-        }
+        perf = {k: ({kk: vv for kk, vv in v.items() if kk not in _DROP_KEYS} if v else v) for k, v in ens_perf.metrics.items()}
         ser = pd.json_normalize(perf).iloc[0, :]
         ser.name = ens_name
         items.append(ser)

@@ -207,8 +207,8 @@ def refit_transform_on_fold(
         fold_params = transform.fit(y_v, base_v, **fit_kwargs)
     except Exception as _fit_err:  # noqa: BLE001 -- degenerate fold, keep global
         logger.debug(
-            "refit_transform_on_fold: per-fold fit failed (%s); caller should "
-            "fall back to global params for this fold.", _fit_err,
+            "refit_transform_on_fold: per-fold fit failed (%s); caller should " "fall back to global params for this fold.",
+            _fit_err,
         )
         return None
     if not isinstance(fold_params, dict):
@@ -441,9 +441,7 @@ def _eval_one_transform_impl(
         if _t_train_finite.size > 1 and _y_train_finite.size > 1:
             _y_std = float(np.std(_y_train_finite))
             _t_std = float(np.std(_t_train_finite))
-            _residual_ratio = (
-                _t_std / _y_std if _y_std > 0 else 1.0
-            )
+            _residual_ratio = _t_std / _y_std if _y_std > 0 else 1.0
             if _residual_ratio < 0.001:
                 _local.append(self._reject(
                     base, transform_name, mi_y_for_base, valid_frac,
@@ -495,14 +493,9 @@ def _eval_one_transform_impl(
     # else); the prebinned path -- the default config (mi_estimator='bin') --
     # uses _x_prebinned slices instead, so this was a dead ~80-200 MB copy per
     # work item. Gate it, and gate the prebinned slice on valid_screen.all().
-    x_screen_valid = (
-        x_remaining_matrix[valid_screen] if _x_prebinned is None else None
-    )
+    x_screen_valid = x_remaining_matrix[valid_screen] if _x_prebinned is None else None
     if _x_prebinned is not None:
-        _x_pb_valid = (
-            _x_prebinned if bool(valid_screen.all())
-            else _x_prebinned[valid_screen]
-        )
+        _x_pb_valid = _x_prebinned if bool(valid_screen.all()) else _x_prebinned[valid_screen]
         mi_t = _mi_to_target_prebinned(
             _x_pb_valid, t_screen, **_mi_kwargs,
         )
@@ -582,9 +575,7 @@ def _eval_one_transform_impl(
         # ``y_screen[valid_screen]`` and ``_x_prebinned[valid_screen]`` per replicate
         # even though they are constants across replicates.
         _y_screen_valid = y_screen[valid_screen]
-        _x_pb_valid_const = (
-            _x_prebinned[valid_screen] if _x_prebinned is not None else None
-        )
+        _x_pb_valid_const = _x_prebinned[valid_screen] if _x_prebinned is not None else None
         _boot_fail_count = 0
         for b in range(bootstrap_n):
             idx_b = boot_rng.integers(0, n_screen, size=n_screen)

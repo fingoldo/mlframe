@@ -58,9 +58,7 @@ def _mi_pair_njit(x: np.ndarray, y: np.ndarray, K_x: int, K_y: int) -> float:
     return max(0.0, mi)
 
 
-def bur_term(x_cand: np.ndarray, selected_cols: list[np.ndarray],
-              y: np.ndarray, nbins_x: int, nbins_selected: list[int],
-              nbins_y: int) -> float:
+def bur_term(x_cand: np.ndarray, selected_cols: list[np.ndarray], y: np.ndarray, nbins_x: int, nbins_selected: list[int], nbins_y: int) -> float:
     """Unique-relevance bonus for ``X_cand`` given the selected set.
 
     Computes ``I(X_cand; Y) - max_{j in S} I(X_cand; X_j)``. The first term

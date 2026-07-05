@@ -87,11 +87,11 @@ def _GPU_USABILITY() -> bool:
 @dataclass
 class UsableCandidate:
     name: str
-    values: np.ndarray          # continuous, full-n, scrubbed
-    mi: float                   # binned MI with y
-    recipe: Any = None          # EngineeredRecipe for a pair form; None for a raw column
-    src: tuple = ()             # (op_a, op_b) raw names, for diagnostics
-    ops: tuple = ()             # (unary_a, unary_b, binary) names, for the recipe builder
+    values: np.ndarray  # continuous, full-n, scrubbed
+    mi: float  # binned MI with y
+    recipe: Any = None  # EngineeredRecipe for a pair form; None for a raw column
+    src: tuple = ()  # (op_a, op_b) raw names, for diagnostics
+    ops: tuple = ()  # (unary_a, unary_b, binary) names, for the recipe builder
 
 
 def _binned_mi(x: np.ndarray, y_codes: np.ndarray, nbins: int, y_terms: Any = None) -> float:
@@ -190,10 +190,7 @@ def build_usability_candidate_pool(
         # it -- whereas the MM/occupancy-floored estimator zeroes EVERY pair once rows/cell is small (the
         # 3000-row subsample x 10x10 grid), which would prune the genuine pairs too. Default OFF -> marginal
         # rank, byte-identical.
-        _pj_codes = {
-            nm: _quantile_bin(_f64(_scrub(X_df[nm].to_numpy())), quantization_nbins).astype(np.int64)
-            for nm in base_names
-        }
+        _pj_codes = {nm: _quantile_bin(_f64(_scrub(X_df[nm].to_numpy())), quantization_nbins).astype(np.int64) for nm in base_names}
         _nb = int(quantization_nbins)
 
         def _pair_joint_mi(p):
@@ -213,8 +210,7 @@ def build_usability_candidate_pool(
                 _base_dev = {nm: _cp.asarray(_pj_codes[nm]) for nm in base_names}
                 _joint = _cp.stack([_base_dev[a] * _nb + _base_dev[b] for a, b in pairs], axis=1)
                 _ky = int(np.asarray(y_codes).max()) + 1
-                _mis = np.asarray(binned_mi_from_codes_gpu(_joint, y_codes, ky=_ky, codes_trusted=True),
-                                  dtype=np.float64)
+                _mis = np.asarray(binned_mi_from_codes_gpu(_joint, y_codes, ky=_ky, codes_trusted=True), dtype=np.float64)
                 _pj = {p: quantize_mi_tiebreak(float(_mis[i])) for i, p in enumerate(pairs)}
             except Exception:
                 _pj = None
@@ -288,10 +284,8 @@ def build_usability_candidate_pool(
     if _seleq and _ua_codes is not None:
         try:
             from ._usability_pool_resident import score_pair_combos_table_resident
-            _res_ops = [
-                (_f64(_scrub(X_df[n1].to_numpy())), _f64(_scrub(X_df[n2].to_numpy())))
-                for n1, n2 in pairs
-            ]
+
+            _res_ops = [(_f64(_scrub(X_df[n1].to_numpy())), _f64(_scrub(X_df[n2].to_numpy()))) for n1, n2 in pairs]
             _resident_table = score_pair_combos_table_resident(
                 _res_ops, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
             )
@@ -339,8 +333,8 @@ def build_usability_candidate_pool(
             # sub-quantum (~1e-15) CPU-vs-GPU MI difference can't flip the kept set. Default path: raw MI
             # (byte-identical). Exact ties keep enumeration order; only within-quantum near-ties differ.
             metas.sort(key=lambda t: _mi_key(t[0]), reverse=True)
-            _ta_cache: dict = {}   # unary(x1) by ua index -- reused across combos sharing ua
-            _tb_cache: dict = {}   # unary(x2) by ub index
+            _ta_cache: dict = {}  # unary(x1) by ua index -- reused across combos sharing ua
+            _tb_cache: dict = {}  # unary(x2) by ub index
             _njit_kept: list[UsableCandidate] = []
             for m, ia, ib, ibn in metas:
                 if len(_njit_kept) >= max_per_pair:
@@ -424,8 +418,7 @@ def build_usability_candidate_pool(
             if ok is None:
                 try:
                     replay = _scrub(apply_recipe(recipe, X_df), feature_dtype)
-                    ok = bool(replay.shape == c.values.shape
-                              and np.allclose(_f64(replay), _f64(c.values), atol=1e-4, equal_nan=True))
+                    ok = bool(replay.shape == c.values.shape and np.allclose(_f64(replay), _f64(c.values), atol=1e-4, equal_nan=True))
                 except Exception:
                     ok = False
                 _combo_replay_ok[combo] = ok
@@ -618,9 +611,9 @@ def usability_greedy(
                     beta = float(cc_tr @ yc) / d
                     pred = ybar + cc_va * beta
                 else:
-                    g = Sc_tr.T @ cc_tr            # cross terms (k,)
-                    d = float(cc_tr @ cc_tr)        # new diagonal
-                    bn = float(cc_tr @ yc)          # new rhs entry
+                    g = Sc_tr.T @ cc_tr  # cross terms (k,)
+                    d = float(cc_tr @ cc_tr)  # new diagonal
+                    bn = float(cc_tr @ yc)  # new rhs entry
                     k = Gs.shape[0]
                     G = np.empty((k + 1, k + 1), dtype=np.float64)
                     G[:k, :k] = Gs; G[:k, k] = g; G[k, :k] = g; G[k, k] = d
@@ -665,10 +658,7 @@ def usability_greedy(
                 errs.append(_logloss(y_enc[vam], proba))
             return np.asarray(errs, dtype=np.float64)
         if not sel_idx:
-            return np.array([
-                float(np.mean(np.abs(y_cont[folds == fo] - float(np.mean(y_cont[folds != fo])))))
-                for fo in range(n_folds)
-            ])
+            return np.array([float(np.mean(np.abs(y_cont[folds == fo] - float(np.mean(y_cont[folds != fo]))))) for fo in range(n_folds)])
         Xs = np.column_stack([_f64(pool[i].values) for i in sel_idx])
         errs = []
         for fo in range(n_folds):
@@ -791,6 +781,4 @@ def select_usability_aware_features(
     for raw columns), in selection order. ``classification=True`` routes the greedy to the logistic /
     CV-logloss scorer (the regression CV-MAE path is the default, byte-identical)."""
     pool = build_usability_candidate_pool(X_df, y_cont, base_names, **(pool_kwargs or {}))
-    return usability_greedy(
-        pool, y_cont, w=w, K=K, seed=seed, classification=classification, **(greedy_kwargs or {})
-    )
+    return usability_greedy(pool, y_cont, w=w, K=K, seed=seed, classification=classification, **(greedy_kwargs or {}))

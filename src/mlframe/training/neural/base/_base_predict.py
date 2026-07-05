@@ -77,10 +77,7 @@ class _PredictMixin:
             # temporary datamodule constructor rejects ``predict_batch_size``
             # (it is read off self.datamodule_params at line ~1161 below, not
             # passed to the datamodule).
-            datamodule = self.datamodule_class(**{
-                k: v for k, v in self.datamodule_params.items()
-                if k not in _PREDICT_ONLY_DM_PARAM_KEYS
-            })
+            datamodule = self.datamodule_class(**{k: v for k, v in self.datamodule_params.items() if k not in _PREDICT_ONLY_DM_PARAM_KEYS})
         else:
             # Pre-fix this else-branch was missing and ``datamodule`` was
             # left unbound; line 522 ``datamodule.setup_predict(...)`` then
@@ -268,10 +265,7 @@ class _PredictMixin:
                 # Observed on the multilabel-MLP GPU predict path (2026-06-02).
                 "Expected all tensors to be on the same device",
             )
-            _is_cuda = (
-                trainer_params.get("accelerator") in ("cuda", "gpu", "auto")
-                and any(fp in _msg for fp in _cuda_fingerprints)
-            )
+            _is_cuda = trainer_params.get("accelerator") in ("cuda", "gpu", "auto") and any(fp in _msg for fp in _cuda_fingerprints)
             if not _is_cuda:
                 logger.error(f"Prediction failed: {e}")
                 raise
@@ -345,9 +339,7 @@ class _PredictMixin:
                 # the same dirty-context error.
                 try:
                     _cuda_msg = str(e_cpu)
-                    _is_still_cuda = any(
-                        fp in _cuda_msg for fp in _cuda_fingerprints
-                    )
+                    _is_still_cuda = any(fp in _cuda_msg for fp in _cuda_fingerprints)
                 except Exception:
                     _is_still_cuda = False
                 if _is_still_cuda:
@@ -411,16 +403,15 @@ class _PredictMixin:
                         )
                     except Exception as e_cpu2:
                         logger.error(
-                            "Even with CUDA hidden the predict failed: %s. "
-                            "Re-raising original CUDA error.",
+                            "Even with CUDA hidden the predict failed: %s. " "Re-raising original CUDA error.",
                             e_cpu2,
                         )
                         raise
                 else:
                     logger.error(
-                        "CPU fallback after CUDA prediction failure ALSO failed "
-                        "with a non-CUDA error: %s. Original CUDA error: %s",
-                        e_cpu, e,
+                        "CPU fallback after CUDA prediction failure ALSO failed " "with a non-CUDA error: %s. Original CUDA error: %s",
+                        e_cpu,
+                        e,
                     )
                     raise
         except Exception:

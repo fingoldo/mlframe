@@ -233,11 +233,7 @@ def local_mi_gate(
     # wrapper only RELOCATES the same one-shot upload without collapsing it, so this path stays on the exact
     # host ``_mi_classif_batch`` (byte-identical; the STRICT branch inside already uploads once + caches y).
     cand_mi = np.asarray(_mi_classif_batch(arr, y_bin, nbins=nbins), dtype=np.float64)
-    scored = [
-        (col, float(cand_mi[j]))
-        for j, col in enumerate(cand_cols)
-        if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor
-    ]
+    scored = [(col, float(cand_mi[j])) for j, col in enumerate(cand_cols) if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor]
     # W6 (class-closure): record every candidate the shared abs-MAD noise floor
     # kills (raw_mi_noise_floor = med+k*MAD). Pure-record; the kept set is
     # computed independently above so selection is byte-identical.
@@ -328,45 +324,28 @@ def unified_second_pass_gate(
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
     if not isinstance(X_with_all_engineered, pd.DataFrame):
-        raise TypeError(
-            "unified_second_pass_gate: X must be a pandas DataFrame; got "
-            f"{type(X_with_all_engineered).__name__}"
-        )
-    eng = [
-        c for c in engineered_cols
-        if c in X_with_all_engineered.columns
-        and pd.api.types.is_numeric_dtype(X_with_all_engineered[c])
-    ]
+        raise TypeError("unified_second_pass_gate: X must be a pandas DataFrame; got " f"{type(X_with_all_engineered).__name__}")
+    eng = [c for c in engineered_cols if c in X_with_all_engineered.columns and pd.api.types.is_numeric_dtype(X_with_all_engineered[c])]
     if not eng:
         return []
     y_bin = _coerce_y_classes(y)
 
     # Seed the conditioning support with the top-N raw numeric columns by
     # marginal MI -- the "raw signal" the engineered pool must add to.
-    raw_num = [
-        c for c in raw_cols
-        if c in X_with_all_engineered.columns
-        and pd.api.types.is_numeric_dtype(X_with_all_engineered[c])
-    ]
+    raw_num = [c for c in raw_cols if c in X_with_all_engineered.columns and pd.api.types.is_numeric_dtype(X_with_all_engineered[c])]
     z_joint: Optional[np.ndarray] = None
     if raw_num and int(seed_raw_cols_count) > 0:
         raw_arr = X_with_all_engineered[raw_num].to_numpy(dtype=np.float64)
         raw_mi = np.asarray(_mi_classif_batch(raw_arr, y_bin, nbins=nbins), dtype=np.float64)
         order = np.argsort(-raw_mi)
         seed_cols = [raw_num[i] for i in order[: int(seed_raw_cols_count)]]
-        seed_bins = [
-            _quantile_bin(X_with_all_engineered[c].to_numpy(), nbins=nbins)
-            for c in seed_cols
-        ]
+        seed_bins = [_quantile_bin(X_with_all_engineered[c].to_numpy(), nbins=nbins) for c in seed_cols]
         if seed_bins:
             z_joint, _ = _renumber_joint(*seed_bins)
 
     # Pre-bin every engineered candidate + fingerprint for monotone-equivalence
     # dedup against seated winners.
-    cand_bins: dict[str, np.ndarray] = {
-        c: _quantile_bin(X_with_all_engineered[c].to_numpy(), nbins=nbins)
-        for c in eng
-    }
+    cand_bins: dict[str, np.ndarray] = {c: _quantile_bin(X_with_all_engineered[c].to_numpy(), nbins=nbins) for c in eng}
     cand_fp: dict[str, bytes] = {c: cand_bins[c].tobytes() for c in eng}
 
     n_samples = int(y_bin.size)

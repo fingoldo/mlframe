@@ -94,7 +94,7 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             # surviving engineered child already captures (the underselection redundancy-dedup invariant).
             from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RESC_TOK_SPLIT
             _resc_raw_set = set(self.feature_names_in_)
-            for _en in (getattr(self, "_engineered_recipes_", {}) or {}):
+            for _en in getattr(self, "_engineered_recipes_", {}) or {}:
                 for _tok in _RESC_TOK_SPLIT.split(str(_en)):
                     if not _tok:
                         continue
@@ -163,8 +163,8 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             _signif_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
             _redundancy_frac = float(os.environ.get("MLFRAME_MRMR_FALLBACK_REDUNDANCY_FRAC", "0.5"))
             _q_dtype = getattr(self, "quantization_dtype", np.int32)
-            _accepted = []           # input-space indices accepted into the rescue
-            _accepted_cols = []      # their cols-space indices (for redundancy MI)
+            _accepted = []  # input-space indices accepted into the rescue
+            _accepted_cols = []  # their cols-space indices (for redundancy MI)
             # ENGINEERED-SURVIVOR CONDITIONING (2026-06-08): seed the redundancy-dedup
             # conditioning set with the cols-space indices of every SURVIVING engineered
             # feature. The empty-RAW-screen rescue fires precisely when 0 raw columns

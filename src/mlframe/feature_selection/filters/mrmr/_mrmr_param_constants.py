@@ -82,18 +82,18 @@ _VALID_RFECV_SELECTION_RULES = ("auto", "argmax", "one_se_min", "one_se_max")
 # behaviour byte-for-byte; the other 12 entries route the univariate
 # basis-selection stage through the Layers listed alongside.
 _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS = (
-    "plug_in",     # Layer 21 (default)
-    "cmim",        # Layer 74
-    "jmim",        # Layer 72
-    "tc",          # Layer 73
-    "ksg",         # Layer 65
-    "copula",      # Layer 66
-    "dcor",        # Layer 67
-    "hsic",        # Layer 71
-    "auto",        # Layer 68
-    "ensemble",    # Layer 69
-    "meta",        # Layer 76
-    "lasso",       # Layer 81
+    "plug_in",  # Layer 21 (default)
+    "cmim",  # Layer 74
+    "jmim",  # Layer 72
+    "tc",  # Layer 73
+    "ksg",  # Layer 65
+    "copula",  # Layer 66
+    "dcor",  # Layer 67
+    "hsic",  # Layer 71
+    "auto",  # Layer 68
+    "ensemble",  # Layer 69
+    "meta",  # Layer 76
+    "lasso",  # Layer 81
     "elasticnet",  # Layer 82
     "auto_oracle",  # Layer 100 (L76 cold-start + L68 bake-off + Param-Oracle learning)
 )

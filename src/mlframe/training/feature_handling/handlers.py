@@ -37,7 +37,6 @@ if TYPE_CHECKING:
 # rather than via ``model_rebuild()`` which can fail if order changes.
 from mlframe.training.feature_handling.providers import EmbeddingProvider  # noqa: E402
 
-
 # =====================================================================
 # Per-method TypedDict params
 # =====================================================================
@@ -70,7 +69,7 @@ class TfidfParams(BaseModel):
 class HashingParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal["hashing"] = "hashing"
-    n_features: int = 2 ** 18
+    n_features: int = 2**18
     ngram_range: Tuple[int, int] = (1, 2)
     norm: Literal["l1", "l2"] = "l2"
 
@@ -109,9 +108,7 @@ class TargetEncodeParams(BaseModel):
     N) -- ``cv`` here is the fold count it uses internally.
     """
     model_config = ConfigDict(extra="forbid")
-    kind: Literal[
-        "target_mean", "target_m_estimate", "target_james_stein", "target_loo", "woe"
-    ]
+    kind: Literal["target_mean", "target_m_estimate", "target_james_stein", "target_loo", "woe"]
     # 3.0 (not 10.0) for the MEAN encoders: held-out sweep (bench_target_encoder_smoothing) shows 3.0 wins the majority of cells; 10.0 over-shrinks.
     # WoE is unaffected -- it uses the separate woe_smoothing cushion below (Jeffreys 0.5), passed independently into LeakageSafeEncoder.
     smoothing: float = 3.0
@@ -218,10 +215,7 @@ class TextHandlerSpec(BaseModel, HandlerSpec):
             # in pydantic-V2 if the discriminator allows -- but our
             # default_factory makes NoParams(drop) the fall-through, so
             # method="tfidf" + default params is an inconsistent state.
-            raise ValueError(
-                f"TextHandlerSpec(method={self.method!r}) requires explicit "
-                f"params; got NoParams. Provide params=TfidfParams(...) etc."
-            )
+            raise ValueError(f"TextHandlerSpec(method={self.method!r}) requires explicit " f"params; got NoParams. Provide params=TfidfParams(...) etc.")
         if params_kind != self.method:
             raise ValueError(
                 f"TextHandlerSpec method={self.method!r} does not match "
@@ -273,15 +267,9 @@ class CatHandlerSpec(BaseModel, HandlerSpec):
             allowed_no_params = {"native", "ordinal", "onehot", "embedding", "drop"}
             if self.method in allowed_no_params:
                 return
-            raise ValueError(
-                f"CatHandlerSpec(method={self.method!r}) requires explicit "
-                f"params; got NoParams."
-            )
+            raise ValueError(f"CatHandlerSpec(method={self.method!r}) requires explicit " f"params; got NoParams.")
         if params_kind != self.method:
-            raise ValueError(
-                f"CatHandlerSpec method={self.method!r} does not match "
-                f"params.kind={params_kind!r}."
-            )
+            raise ValueError(f"CatHandlerSpec method={self.method!r} does not match " f"params.kind={params_kind!r}.")
 
 
 # Register at import time so axis lookups work.

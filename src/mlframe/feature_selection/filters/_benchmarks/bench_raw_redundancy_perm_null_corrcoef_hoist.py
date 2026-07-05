@@ -65,8 +65,7 @@ def main() -> None:
         md = float(np.max(np.abs(o - ne)))
         to = _best(_old, rx, ry, nperm, 123)
         tn = _best(_new, rx, ry, nperm, 123)
-        print(f"n={n:>7}: old={to*1e3:7.3f}ms new={tn*1e3:7.3f}ms "
-              f"speedup={to/tn:4.2f}x max_abs_diff={md:.2e}")
+        print(f"n={n:>7}: old={to*1e3:7.3f}ms new={tn*1e3:7.3f}ms " f"speedup={to/tn:4.2f}x max_abs_diff={md:.2e}")
 
 
 if __name__ == "__main__":

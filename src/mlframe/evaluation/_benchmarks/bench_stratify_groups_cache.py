@@ -36,13 +36,11 @@ def bench(n=100_000, n_bootstrap=200, n_calls=12, seed=0):
         return float(np.mean(a) - np.mean(b))
 
     # warm
-    bootstrap_metric(y_true, y_score, metric, n_bootstrap=n_bootstrap, stratify=strat,
-                     random_state=1, method="percentile")
+    bootstrap_metric(y_true, y_score, metric, n_bootstrap=n_bootstrap, stratify=strat, random_state=1, method="percentile")
 
     t = time.perf_counter()
     for c in range(n_calls):
-        bootstrap_metric(y_true, y_score, metric, n_bootstrap=n_bootstrap, stratify=strat,
-                         random_state=c, method="percentile")
+        bootstrap_metric(y_true, y_score, metric, n_bootstrap=n_bootstrap, stratify=strat, random_state=c, method="percentile")
     full_ms = (time.perf_counter() - t) / n_calls * 1e3
 
     print(f"n={n} n_bootstrap={n_bootstrap} n_calls={n_calls}")

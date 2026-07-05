@@ -51,11 +51,7 @@ def apply_fdr_control_to_candidates(
     is NaN, so the finite-p set is empty and nothing is dropped. Returns the
     number of specs dropped so the caller can log the family-wise effect.
     """
-    scored = [
-        e for e in candidates
-        if e.get("spec") is not None
-        and np.isfinite(e.get("bootstrap_p_value", float("nan")))
-    ]
+    scored = [e for e in candidates if e.get("spec") is not None and np.isfinite(e.get("bootstrap_p_value", float("nan")))]
     if not scored:
         return 0
     p_values = np.array(
@@ -283,8 +279,7 @@ def apply_alpha_drift_gate(
     ``kept_specs`` list; a no-op (returns the input unchanged) when the feature
     is disabled, no ``linear_residual`` spec survived, or train is too small.
     """
-    if not (getattr(self.config, "detect_linear_residual_alpha_drift", True)
-            and any(s.transform_name == "linear_residual" for s in kept_specs)):
+    if not (getattr(self.config, "detect_linear_residual_alpha_drift", True) and any(s.transform_name == "linear_residual" for s in kept_specs)):
         return kept_specs
     self._alpha_drift_flags: dict[str, dict[str, float]] = {}
     drift_threshold = float(getattr(self.config, "alpha_drift_z_threshold", 3.0))
@@ -320,8 +315,7 @@ def apply_alpha_drift_gate(
             from ..transforms.linear import _linear_residual_fit_batched
             _alphas, _betas = _linear_residual_fit_batched(
                 [np.asarray(base_h1), np.asarray(base_h2)],
-                [np.asarray(y_train_for_drift[:half]),
-                 np.asarray(y_train_for_drift[half:])],
+                [np.asarray(y_train_for_drift[:half]), np.asarray(y_train_for_drift[half:])],
             )
             # A non-finite base/y half makes the closed-form sums NaN; mirror the
             # legacy lstsq-raises-on-NaN behaviour by skipping the spec.
@@ -399,8 +393,7 @@ def apply_alpha_drift_gate(
     # non-stationary -- drop EVERY other spec on it too, rather than letting a more violent nonlinear
     # inverse (poly2/yj/cbrt) survive on the same fragile base.
     _base_dropped: list[str] = []
-    if (reject_on_drift and _drift_dropped_bases
-            and bool(getattr(self.config, "reject_base_on_alpha_drift", True))):
+    if reject_on_drift and _drift_dropped_bases and bool(getattr(self.config, "reject_base_on_alpha_drift", True)):
         _before = drift_kept
         drift_kept = [s for s in _before if s.base_column not in _drift_dropped_bases]
         _base_dropped = [s.name for s in _before if s.base_column in _drift_dropped_bases]
@@ -413,8 +406,7 @@ def apply_alpha_drift_gate(
                 )
     if drift_dropped:
         logger.info(
-            "[CompositeTargetDiscovery] alpha drift gate dropped %d "
-            "linear_residual spec(s): %s",
+            "[CompositeTargetDiscovery] alpha drift gate dropped %d " "linear_residual spec(s): %s",
             len(drift_dropped),
             ", ".join(f"{n}(z={z:.2f})" for n, z in drift_dropped[:5]),
         )

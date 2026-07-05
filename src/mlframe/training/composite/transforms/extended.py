@@ -96,8 +96,7 @@ def _asinh_residual_forward(
 ) -> np.ndarray:
     alpha = float(params["alpha"])
     beta = float(params["beta"])
-    return np.arcsinh(np.asarray(y, dtype=np.float64)) \
-        - alpha * np.arcsinh(np.asarray(base, dtype=np.float64)) - beta
+    return np.arcsinh(np.asarray(y, dtype=np.float64)) - alpha * np.arcsinh(np.asarray(base, dtype=np.float64)) - beta
 
 
 def _asinh_residual_inverse(
@@ -105,8 +104,7 @@ def _asinh_residual_inverse(
 ) -> np.ndarray:
     alpha = float(params["alpha"])
     beta = float(params["beta"])
-    z = np.asarray(t_hat, dtype=np.float64) \
-        + alpha * np.arcsinh(np.asarray(base, dtype=np.float64)) + beta
+    z = np.asarray(t_hat, dtype=np.float64) + alpha * np.arcsinh(np.asarray(base, dtype=np.float64)) + beta
     return np.sinh(z)
 
 

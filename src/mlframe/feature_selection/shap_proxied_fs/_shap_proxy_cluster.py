@@ -142,8 +142,7 @@ def _resolve_gpu_min_features(default: int = 2000) -> int:
     try:
         from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
-        value = kernel_tuning_cache.get(
-            "mlframe.shap_proxied_fs.cluster_corr.gpu_min_features", default=default)
+        value = kernel_tuning_cache.get("mlframe.shap_proxied_fs.cluster_corr.gpu_min_features", default=default)
         return int(value)
     except Exception:
         return default
@@ -212,8 +211,7 @@ def cluster_correlated_features(
         edges = _edges_blocked(Z, threshold, edge_cap, block, gpu)
     if edges is None:
         raise MemoryError(
-            f"ShapProxiedFS clustering: >{edge_cap} correlation edges at threshold={threshold}. "
-            f"Raise cluster_corr_threshold to merge fewer features."
+            f"ShapProxiedFS clustering: >{edge_cap} correlation edges at threshold={threshold}. " f"Raise cluster_corr_threshold to merge fewer features."
         )
     ei, ej = edges
     return _uf_labels(f, ei, ej)

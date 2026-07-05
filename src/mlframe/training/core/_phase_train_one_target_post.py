@@ -185,9 +185,9 @@ def _run_per_model_post_train_tail(
                     _ue_cols = [c for c in list(getattr(test_df_transformed, "columns", []) or []) if c != cur_target_name]
                 _ue_X = _narrow_numeric_frame(test_df_transformed, _ue_cols) if _ue_cols else None
                 if _ue_X is not None:
-                    _ue_y = np.asarray(
-                        current_test_target.values if hasattr(current_test_target, "values") else current_test_target, dtype=np.float64
-                    ).reshape(-1)
+                    _ue_y = np.asarray(current_test_target.values if hasattr(current_test_target, "values") else current_test_target, dtype=np.float64).reshape(
+                        -1
+                    )
                     if _ue_y.shape[0] == _ue_X.shape[0]:
                         import pandas as _ue_pd
 

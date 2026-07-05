@@ -37,12 +37,10 @@ def _synthetic(n, P, seed=0):
 def _time(n, P, k, reps=3):
     phi, Phi, base, y = _synthetic(n, P)
     # warm numba
-    interaction_proxy_top_n(phi, Phi, base, y, classification=True, metric="brier",
-                            min_card=1, max_card=4, top_n=20, interaction_top_k=k)
+    interaction_proxy_top_n(phi, Phi, base, y, classification=True, metric="brier", min_card=1, max_card=4, top_n=20, interaction_top_k=k)
     t0 = time.perf_counter()
     for _ in range(reps):
-        interaction_proxy_top_n(phi, Phi, base, y, classification=True, metric="brier",
-                                min_card=1, max_card=4, top_n=20, interaction_top_k=k)
+        interaction_proxy_top_n(phi, Phi, base, y, classification=True, metric="brier", min_card=1, max_card=4, top_n=20, interaction_top_k=k)
     return (time.perf_counter() - t0) / reps
 
 
@@ -58,13 +56,11 @@ def run():
 
     print("\n=== cProfile (n=1500, P=200, k=30) top cumulative ===")
     phi, Phi, base, y = _synthetic(1500, 200)
-    interaction_proxy_top_n(phi, Phi, base, y, classification=True, metric="brier",
-                            min_card=1, max_card=4, top_n=20, interaction_top_k=30)  # warm
+    interaction_proxy_top_n(phi, Phi, base, y, classification=True, metric="brier", min_card=1, max_card=4, top_n=20, interaction_top_k=30)  # warm
     pr = cProfile.Profile()
     pr.enable()
     for _ in range(3):
-        interaction_proxy_top_n(phi, Phi, base, y, classification=True, metric="brier",
-                                min_card=1, max_card=4, top_n=20, interaction_top_k=30)
+        interaction_proxy_top_n(phi, Phi, base, y, classification=True, metric="brier", min_card=1, max_card=4, top_n=20, interaction_top_k=30)
     pr.disable()
     s = io.StringIO()
     pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(15)

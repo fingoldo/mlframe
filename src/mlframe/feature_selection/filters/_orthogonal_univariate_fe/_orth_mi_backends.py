@@ -360,14 +360,13 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
                     _resident_on = False
                 if _resident_on:
                     from .._gpu_resident_rank_bin import plugin_mi_classif_batch_rank_cuda_resident
-                    _rank_mi = plugin_mi_classif_batch_rank_cuda_resident(Xd, yd, int(nbins), y_min=_ymin,
-                                                                          n_classes=_ncls)
+
+                    _rank_mi = plugin_mi_classif_batch_rank_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls)
                     if _rank_mi is not None:
                         return np.asarray(_rank_mi, dtype=np.float64)
-            return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin,
-                                                                     n_classes=_ncls), dtype=np.float64)
+            return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls), dtype=np.float64)
     except (ImportError, *_DEV_ERRS):
-        pass   # cupy/strict-module absent OR a genuine device fault -> exact CPU njit below.
+        pass  # cupy/strict-module absent OR a genuine device fault -> exact CPU njit below.
         # NOTE (FIX1): ValueError / IndexError are intentionally NOT caught here -- a -1 / out-of-range
         # code raised by _assert_codes_in_range (illegal-address guard) must surface, not degrade to CPU.
     # A RESIDENT-INPUT caller (device-born matrix or the gate / row-argmax scorer that threads a resident cupy
@@ -395,7 +394,7 @@ def _mi_chunk_cols_for(n_rows: int) -> int:
         import psutil
         free = int(psutil.virtual_memory().available)
     except Exception:
-        free = 2 * 1024 ** 3
+        free = 2 * 1024**3
     budget = max(1, int(free * 0.10))
     by_ram = budget // (max(1, int(n_rows)) * 8 * 3)
     return int(min(1024, max(1, by_ram)))
@@ -429,9 +428,9 @@ def mi_classif_batch_chunked(X, y, *, nbins: int = 10, chunk_cols: int = None) -
     parts = []
     for j0 in range(0, p, chunk_cols):
         if is_df:
-            blk = X.iloc[:, j0:j0 + chunk_cols].to_numpy(dtype=_dt)
+            blk = X.iloc[:, j0 : j0 + chunk_cols].to_numpy(dtype=_dt)
         else:
-            blk = np.asarray(X[:, j0:j0 + chunk_cols], dtype=_dt)
+            blk = np.asarray(X[:, j0 : j0 + chunk_cols], dtype=_dt)
         parts.append(_mi_classif_batch(blk, y, nbins=nbins))
         del blk
     return np.concatenate(parts)

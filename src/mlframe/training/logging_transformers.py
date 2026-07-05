@@ -53,7 +53,7 @@ def log_resources(
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
             proc = psutil.Process()
-            rss0 = proc.memory_info().rss / 1024 ** 2
+            rss0 = proc.memory_info().rss / 1024**2
             t0 = time.perf_counter()
             try:
                 return func(self, *args, **kwargs)
@@ -63,7 +63,7 @@ def log_resources(
                 # NoSuchProcess on zombie children / pool worker shutdown -- and a
                 # raise in finally would mask the func() exception we just caught.
                 try:
-                    rss1 = proc.memory_info().rss / 1024 ** 2
+                    rss1 = proc.memory_info().rss / 1024**2
                 except Exception:
                     rss1 = 0.0
                 label = stage or func.__qualname__

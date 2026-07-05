@@ -64,8 +64,7 @@ def _digamma_scalar(x: float) -> float:
     # Asymptotic expansion.
     inv = 1.0 / x
     inv2 = inv * inv
-    series = math.log(x) - 0.5 * inv \
-        - inv2 * (1.0 / 12.0 - inv2 * (1.0 / 120.0 - inv2 * (1.0 / 252.0)))
+    series = math.log(x) - 0.5 * inv - inv2 * (1.0 / 12.0 - inv2 * (1.0 / 120.0 - inv2 * (1.0 / 252.0)))
     return result + series
 
 
@@ -130,11 +129,7 @@ def _count_within_eps(arr_1d: np.ndarray, eps: np.ndarray) -> np.ndarray:
     return counts.astype(np.int64)
 
 
-def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
-                 use_gpu: bool = False,
-                 intens: float = 1e-10,
-                 max_input_n: int = 50000,
-                 seed: int = 0) -> float:
+def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5, use_gpu: bool = False, intens: float = 1e-10, max_input_n: int = 50000, seed: int = 0) -> float:
     """Mixed-KSG mutual information estimator (Gao et al. NeurIPS 2017).
 
     Handles discrete-continuous mixtures via Gao's tie-aware count rule.
@@ -194,8 +189,7 @@ def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
     eps = np.maximum(eps, 1e-12)
     n_x = _count_within_eps(x, eps)
     n_y = _count_within_eps(y, eps)
-    return float(_mixed_ksg_aggregate(int(k), int(n),
-                                      n_x.astype(np.int64), n_y.astype(np.int64)))
+    return float(_mixed_ksg_aggregate(int(k), int(n), n_x.astype(np.int64), n_y.astype(np.int64)))
 
 
 # =============================================================================
@@ -218,8 +212,7 @@ def _eig2x2(a11: float, a12: float, a22: float):
 
 
 @njit(nogil=True, cache=True)
-def _lnc_correction_v2(knn_xy: np.ndarray, log_d_x: float, log_d_y: float,
-                        alpha: float) -> float:
+def _lnc_correction_v2(knn_xy: np.ndarray, log_d_x: float, log_d_y: float, alpha: float) -> float:
     """Per-point LNC term (canonical NPEET_LNC algorithm, d=2 specialisation).
 
     Args:
@@ -404,18 +397,13 @@ def ksg_lnc_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
     # Classical KSG-1 base via marginal-axis radii (NPEET_LNC mi_Kraskov).
     n_x = _count_within_eps(x, dvec_x)
     n_y = _count_within_eps(y, dvec_y)
-    classical = float(_kraskov1_aggregate(int(k), int(n),
-                                            n_x.astype(np.int64),
-                                            n_y.astype(np.int64), d=2))
+    classical = float(_kraskov1_aggregate(int(k), int(n), n_x.astype(np.int64), n_y.astype(np.int64), d=2))
     # LNC correction term (NPEET_LNC lines 139-200).
     lnc_e = 0.0
     for i in range(n):
         nb_idx = idx_k[i]
         nb_pts = xy[nb_idx] - xy[i]  # relative to focus point (NOT centroid)
-        lnc_e += _lnc_correction_v2(nb_pts,
-                                     math.log(float(dvec_x[i])),
-                                     math.log(float(dvec_y[i])),
-                                     float(alpha)) / float(n)
+        lnc_e += _lnc_correction_v2(nb_pts, math.log(float(dvec_x[i])), math.log(float(dvec_y[i])), float(alpha)) / float(n)
     return max(0.0, classical + lnc_e)
 
 
@@ -439,9 +427,7 @@ def ksg_lnc_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
 # =============================================================================
 
 
-def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5,
-                     intens: float = 1e-10, max_input_n: int = 50000,
-                     seed: int = 0) -> float:
+def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5, intens: float = 1e-10, max_input_n: int = 50000, seed: int = 0) -> float:
     """cupy-accelerated mixed-KSG. KDTree build still CPU; the eps-radius
     counts move to cupy via sorted-array binary search (cp.searchsorted)."""
     try:
@@ -477,10 +463,8 @@ def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5,
     eps_gpu = cp.asarray(eps_cpu)
     sx = cp.sort(x_gpu)
     sy = cp.sort(y_gpu)
-    n_x = (cp.searchsorted(sx, x_gpu + eps_gpu - 1e-12, side="right")
-           - cp.searchsorted(sx, x_gpu - eps_gpu + 1e-12, side="left") - 1)
-    n_y = (cp.searchsorted(sy, y_gpu + eps_gpu - 1e-12, side="right")
-           - cp.searchsorted(sy, y_gpu - eps_gpu + 1e-12, side="left") - 1)
+    n_x = cp.searchsorted(sx, x_gpu + eps_gpu - 1e-12, side="right") - cp.searchsorted(sx, x_gpu - eps_gpu + 1e-12, side="left") - 1
+    n_y = cp.searchsorted(sy, y_gpu + eps_gpu - 1e-12, side="right") - cp.searchsorted(sy, y_gpu - eps_gpu + 1e-12, side="left") - 1
     n_x = cp.maximum(n_x, 0).astype(cp.int64).get()
     n_y = cp.maximum(n_y, 0).astype(cp.int64).get()
     return float(_mixed_ksg_aggregate(int(k), int(n), n_x, n_y))
@@ -491,9 +475,7 @@ def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5,
 # =============================================================================
 
 
-def ksg_mi_dispatch(x: np.ndarray, y: np.ndarray, *, k: int = 5,
-                    estimator: str = "mixed_ksg", alpha: float = 0.65,
-                    prefer_gpu: bool = True) -> float:
+def ksg_mi_dispatch(x: np.ndarray, y: np.ndarray, *, k: int = 5, estimator: str = "mixed_ksg", alpha: float = 0.65, prefer_gpu: bool = True) -> float:
     """Picks the fastest backend per call.
 
     * CPU mixed-KSG / KSG-LNC for N < ``_KSG_GPU_THRESHOLD`` (default 50000).

@@ -80,9 +80,7 @@ def main():
         X, y = _make_data(n, n_groups)
         # warm
         generate_target_aware_group_bins(X, y, ["grp"], ["num"], n_bins=5, n_folds=5)
-        t = _median_time(
-            lambda: generate_target_aware_group_bins(X, y, ["grp"], ["num"], n_bins=5, n_folds=5)
-        )
+        t = _median_time(lambda: generate_target_aware_group_bins(X, y, ["grp"], ["num"], n_bins=5, n_folds=5))
         n_qual, n_diff = _edges_differ_fraction(X, y)
         frac = (n_diff / n_qual) if n_qual else 0.0
         print(f"{n_groups:>9} | {t:>20.3f} | {n_qual:>11} | {n_diff:>5}/{n_qual:<3} ({frac:.0%})")

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import numpy as np
 
-
 _COUNT_DISTINCT_NJIT = None
 
 

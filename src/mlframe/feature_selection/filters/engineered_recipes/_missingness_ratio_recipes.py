@@ -21,15 +21,9 @@ def _apply_mi_greedy_transform(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     stored transform name + source columns; no y reference."""
     from . import _extract_column
     if "transform" not in recipe.extra:
-        raise KeyError(
-            f"mi_greedy_transform recipe '{recipe.name}' missing 'transform' "
-            f"in extra. Re-fit MRMR to regenerate."
-        )
+        raise KeyError(f"mi_greedy_transform recipe '{recipe.name}' missing 'transform' " f"in extra. Re-fit MRMR to regenerate.")
     if len(recipe.src_names) not in (1, 2):
-        raise ValueError(
-            f"mi_greedy_transform recipe '{recipe.name}': src_names must have "
-            f"length 1 (unary) or 2 (binary); got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"mi_greedy_transform recipe '{recipe.name}': src_names must have " f"length 1 (unary) or 2 (binary); got {len(recipe.src_names)}")
     # Lazy import to avoid the circular dependency
     # (_mi_greedy_fe -> engineered_recipes via recipe builder).
     from .._mi_greedy_fe import apply_mi_greedy_transform
@@ -65,9 +59,6 @@ def build_mi_greedy_transform_recipe(
         src_names=tuple(src_names),
         extra={"transform": str(transform)},
     )
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -149,14 +140,10 @@ def build_pairwise_ratio_recipe(
     ``eps``) or ``log1p(|a|+eps) - log1p(|b|+eps)`` (``kind='log_div'``)."""
     from . import EngineeredRecipe
     if kind not in ("div", "log_div"):
-        raise ValueError(
-            f"pairwise_ratio kind must be 'div' or 'log_div'; got {kind!r}"
-        )
+        raise ValueError(f"pairwise_ratio kind must be 'div' or 'log_div'; got {kind!r}")
     return EngineeredRecipe(
         name=name,
         kind="pairwise_ratio",
         src_names=(src_a_name, src_b_name),
         extra={"kind": str(kind), "eps": float(eps)},
     )
-
-

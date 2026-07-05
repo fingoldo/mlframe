@@ -80,8 +80,7 @@ def _bench_one(n, d_input, m, n_iter=20):
 
     t_old = timeit(lambda: _old_numpy(X_std, W, b, m))
     t_new = timeit(lambda: _pcrff_fused_njit(X_std, W, b, scale))
-    print(f"n={n:>7} d={d_input:>3} m={m}: OLD={t_old*1e3:8.3f}ms NEW={t_new*1e3:8.3f}ms "
-          f"speedup={t_old/t_new:5.2f}x  exact=={exact} max_abs={max_abs:.2e}")
+    print(f"n={n:>7} d={d_input:>3} m={m}: OLD={t_old*1e3:8.3f}ms NEW={t_new*1e3:8.3f}ms " f"speedup={t_old/t_new:5.2f}x  exact=={exact} max_abs={max_abs:.2e}")
     return exact
 
 

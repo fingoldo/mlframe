@@ -157,15 +157,14 @@ def _bitident_check(seeds=(0, 1, 7)):
         # equal apply_recipe(recipe, X) bit-for-bit -- proving the fast path == the replay path.
         data_out = out[0]
         Xf = kw["X"]
-        added = data_out[:, data_out.shape[1] - n_added:]
+        added = data_out[:, data_out.shape[1] - n_added :]
         for j, (name, recipe) in enumerate(list(er.items())[-n_added:] if n_added else []):
             replay = apply_recipe(recipe, Xf).astype(added.dtype)
             col = added[:, j]
             if not np.array_equal(col, replay):
                 ok = False
                 print(f"  MISMATCH seed={seed} recipe={name}: {(col != replay).sum()} of {col.size} cells differ")
-        print(f"  seed={seed}: n_added={n_added}, all accepted cols bit-identical to apply_recipe replay: "
-              f"{'YES' if ok else 'NO'}")
+        print(f"  seed={seed}: n_added={n_added}, all accepted cols bit-identical to apply_recipe replay: " f"{'YES' if ok else 'NO'}")
     print(f"BIT-IDENTITY: {'PASS' if ok else 'FAIL'}")
     return ok
 

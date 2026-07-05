@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from pyutilz.system import tqdmu as tqdm
@@ -74,9 +73,7 @@ def stereo_pipeline(model, tokenizer, scorer, good, bad, unrelated):
     bad_scores = naive_model_scores(model, tokenizer, bad, scorer)
     unrelated_scores = naive_model_scores(model, tokenizer, unrelated, scorer)
 
-    lms = (good_scores < unrelated_scores).mean() / 2 + (
-        bad_scores < unrelated_scores
-    ).mean() / 2
+    lms = (good_scores < unrelated_scores).mean() / 2 + (bad_scores < unrelated_scores).mean() / 2
     ss = (bad_scores < good_scores).mean()
     icat = lms * min(ss, 1.0 - ss) * 2
     return {"lms": lms, "ss": ss, "icat": icat}
@@ -85,9 +82,7 @@ def stereo_pipeline(model, tokenizer, scorer, good, bad, unrelated):
 def winobias_pipeline(model, tokenizer, wb_data, scorer):
     result = {}
     for side in ["pro", "anti"]:
-        good_scores = naive_model_scores(
-            model, tokenizer, wb_data[side]["good"], scorer
-        )
+        good_scores = naive_model_scores(model, tokenizer, wb_data[side]["good"], scorer)
         bad_scores = naive_model_scores(model, tokenizer, wb_data[side]["bad"], scorer)
         result[side] = np.mean(good_scores < bad_scores)
     return result

@@ -152,9 +152,7 @@ def analytic_mi_null(original_mi: float, n_rows: int, n_bins_x: int, n_bins_y: i
     return null_mean, p_value
 
 
-def analytic_mi_null_batch(
-    raw_mi_row: np.ndarray, n_rows: int, bx_per_col: np.ndarray, by: int
-) -> tuple[np.ndarray, np.ndarray]:
+def analytic_mi_null_batch(raw_mi_row: np.ndarray, n_rows: int, bx_per_col: np.ndarray, by: int) -> tuple[np.ndarray, np.ndarray]:
     """Vectorized ``analytic_mi_null`` over a whole candidate row -> ``(null_mean_row, p_values)``, each ``(p,)``.
 
     Bit-identical to looping the scalar ``analytic_mi_null`` per column (verified maxdiff 0.0) but issues ONE
@@ -278,7 +276,7 @@ def analytic_batch_noise_gate(
     # applicable), which the p=1.0 default below reproduces.
     _by = int(by)
     _bx = bx_per_col.astype(np.int64, copy=False)
-    _df = (_bx - 1) * (_by - 1)                                    # (K,) G-test degrees of freedom
+    _df = (_bx - 1) * (_by - 1)  # (K,) G-test degrees of freedom
     _cells = np.maximum(1, _bx * _by)
     # OCCUPANCY CAVEAT (mrmr_critique N-F7, DOC): the G-test df uses the DECLARED bin counts (Bx, By), but
     # equi-frequency binning makes the actually-OCCUPIED Bx data-dependent on a tied/low-cardinality column (many rows
@@ -289,10 +287,8 @@ def analytic_batch_noise_gate(
     # or a sparse joint below the expected-cell floor) is NOT permutation-tested here -- it keeps its raw MI ungated by
     # THIS gate and relies on the caller's conservative applicability gate (_pairs_dispatch) to have excluded it. A
     # per-column permutation fallback for the inapplicable case is a FUTURE hardening.
-    _applicable = (int(n_rows) >= analytic_null_min_n()) & (
-        (float(n_rows) / _cells) >= _min_expected_cell()
-    )                                                             # (K,) == analytic_null_applicable per col
-    _p = np.ones(K, dtype=np.float64)                             # df<=0 / mi<=0 / no-chi2 -> p=1.0
+    _applicable = (int(n_rows) >= analytic_null_min_n()) & ((float(n_rows) / _cells) >= _min_expected_cell())  # (K,) == analytic_null_applicable per col
+    _p = np.ones(K, dtype=np.float64)  # df<=0 / mi<=0 / no-chi2 -> p=1.0
     _use_chi2 = (_df > 0) & (fe_mi > 0.0)
     if _HAVE_CHI2 and bool(np.any(_use_chi2)):
         _g = 2.0 * float(n_rows) * fe_mi[_use_chi2]

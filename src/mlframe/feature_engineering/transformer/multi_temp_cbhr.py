@@ -149,7 +149,7 @@ def compute_multi_temp_cbhr_features(
         anchors_abs = abs_residuals[anchors_idx].astype(np.float32)
 
         diffs = Xq_s[:, None, :] - anchors_X[None, :, :]
-        sq = (diffs ** 2).sum(axis=-1)
+        sq = (diffs**2).sum(axis=-1)
         scores = -sq
 
         n_q = Xq_s.shape[0]

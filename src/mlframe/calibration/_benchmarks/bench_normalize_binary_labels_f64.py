@@ -49,7 +49,7 @@ def main():
         yi = y[idx]
         e_old = _ece_score(_old_normalize_f64(yi).astype(np.float64), p[idx], n_bins=10)
         e_new = _ece_score(yi, p[idx], n_bins=10)
-        ok = (e_old == e_new)
+        ok = e_old == e_new
         print(f"{n:>10} {old:>10.2f} {new:>10.2f} {old/new:>7.2f}x  ece_equal={ok} ({e_old:.12f})")
 
     # representative resample loop (n=200k, 200 resamples), isolated normalize cost

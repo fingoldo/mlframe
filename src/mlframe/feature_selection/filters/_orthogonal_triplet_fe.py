@@ -138,11 +138,7 @@ def generate_triplet_cross_basis_features(
                 col_i, col_j, col_k,
             )
             continue
-        if not (
-            pd.api.types.is_numeric_dtype(X[col_i])
-            and pd.api.types.is_numeric_dtype(X[col_j])
-            and pd.api.types.is_numeric_dtype(X[col_k])
-        ):
+        if not (pd.api.types.is_numeric_dtype(X[col_i]) and pd.api.types.is_numeric_dtype(X[col_j]) and pd.api.types.is_numeric_dtype(X[col_k])):
             continue
         from ._fe_usability_signal import _crit_np_dtype
         _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
@@ -157,11 +153,7 @@ def generate_triplet_cross_basis_features(
         basis_i = basis_route_by_moments(x_i) if basis == "auto" else basis
         basis_j = basis_route_by_moments(x_j) if basis == "auto" else basis
         basis_k = basis_route_by_moments(x_k) if basis == "auto" else basis
-        if (
-            basis_i not in _POLY_BASES
-            or basis_j not in _POLY_BASES
-            or basis_k not in _POLY_BASES
-        ):
+        if basis_i not in _POLY_BASES or basis_j not in _POLY_BASES or basis_k not in _POLY_BASES:
             logger.warning(
                 "generate_triplet_cross_basis_features: unknown basis %r/%r/%r "
                 "for triplet (%r,%r,%r); skipping",
@@ -264,11 +256,7 @@ def score_triplet_cross_basis_by_mi_uplift(
     """
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
-    y_arr = (
-        np.asarray(y).astype(np.int64)
-        if not np.issubdtype(np.asarray(y).dtype, np.integer)
-        else np.asarray(y, dtype=np.int64)
-    )
+    y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
     raw_cols = list(raw_X.columns)
     if engineered_X.empty:
         return pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
@@ -415,10 +403,7 @@ def hybrid_orth_mi_triplet_fe(
     # ``top_triplet_seed_k`` of them, preserving caller order). Only fall
     # back to raw-MI ranking when ``cols=None`` AND the input width is
     # larger than ``top_triplet_seed_k`` (the algo has to pick somehow).
-    raw_cols_all = [
-        c for c in (cols or X.columns)
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    raw_cols_all = [c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     seed_sources: list[str] = []
     if len(raw_cols_all) >= 3:
         if cols is not None:
@@ -437,11 +422,7 @@ def hybrid_orth_mi_triplet_fe(
             # cols=None on wide X: rank by MI(x; y) and keep the top-k.
             # This is best-effort; on a 3-way XOR with 100 columns and
             # seed_k=4 the caller should pass cols=[<candidates>].
-            y_arr = (
-                np.asarray(y).astype(np.int64)
-                if not np.issubdtype(np.asarray(y).dtype, np.integer)
-                else np.asarray(y, dtype=np.int64)
-            )
+            y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
             raw_X_all = X[raw_cols_all]
             from ._fe_usability_signal import _crit_np_dtype
             _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
@@ -500,39 +481,25 @@ def hybrid_orth_mi_triplet_fe(
     # Two-gate selection mirrors Layer 22's pair stage. Triplet candidate
     # counts are larger (O(seed_k^3 * deg^3)) so the Bonferroni-scaled
     # sigma threshold is correspondingly stricter.
-    max_raw_baseline = (
-        float(triplet_scores["baseline_mi"].max()) if not triplet_scores.empty else 0.0
-    )
+    max_raw_baseline = float(triplet_scores["baseline_mi"].max()) if not triplet_scores.empty else 0.0
     if not uni_scores.empty:
         max_raw_baseline = max(max_raw_baseline, float(uni_scores["baseline_mi"].max()))
-    max_triplet_engineered = (
-        float(triplet_scores["engineered_mi"].max()) if not triplet_scores.empty else 0.0
-    )
+    max_triplet_engineered = float(triplet_scores["engineered_mi"].max()) if not triplet_scores.empty else 0.0
     legacy_floor = float(triplet_min_abs_mi_frac) * max(
-        max_raw_baseline, max_triplet_engineered,
+        max_raw_baseline,
+        max_triplet_engineered,
     )
-    _baselines = (
-        triplet_scores["baseline_mi"].to_numpy()
-        if not triplet_scores.empty
-        else np.array([])
-    )
+    _baselines = triplet_scores["baseline_mi"].to_numpy() if not triplet_scores.empty else np.array([])
     n_cands = int(_baselines.size)
     sigma_thresh = max(
         5.0,
         float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
     )
     noise_floor = _noise_aware_floor(_baselines, sigma_thresh)
-    _eng_mis = (
-        triplet_scores["engineered_mi"].to_numpy()
-        if not triplet_scores.empty
-        else np.array([])
-    )
+    _eng_mis = triplet_scores["engineered_mi"].to_numpy() if not triplet_scores.empty else np.array([])
     eng_noise_floor = _noise_aware_floor(_eng_mis, sigma_thresh)
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
-    qualified = triplet_scores[
-        (triplet_scores["uplift"] >= float(triplet_min_uplift))
-        & (triplet_scores["engineered_mi"] >= abs_floor)
-    ]
+    qualified = triplet_scores[(triplet_scores["uplift"] >= float(triplet_min_uplift)) & (triplet_scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_triplet_count))
     keep_triplet = list(winners["engineered_col"])
     if keep_triplet:
@@ -596,7 +563,7 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
     def _parse_code_deg(s: str):
         for code in ("LL", "He", "T", "L"):
             if s.startswith(code):
-                rest = s[len(code):]
+                rest = s[len(code) :]
                 if rest.isdigit():
                     return code_to_basis[code], int(rest)
         return None, None
@@ -612,14 +579,14 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
                 parts = suffix.split("_")
             except (ValueError, IndexError):
                 logger.warning(
-                    "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse "
-                    "suffix in %r; skipping recipe.", name,
+                    "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse " "suffix in %r; skipping recipe.",
+                    name,
                 )
                 continue
             if len(parts) != 3:
                 logger.warning(
-                    "hybrid_orth_mi_triplet_fe_with_recipes: expected 3 deg "
-                    "parts in %r; skipping recipe.", name,
+                    "hybrid_orth_mi_triplet_fe_with_recipes: expected 3 deg " "parts in %r; skipping recipe.",
+                    name,
                 )
                 continue
             basis_a, deg_a = _parse_code_deg(parts[0])
@@ -627,8 +594,8 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
             basis_c, deg_c = _parse_code_deg(parts[2])
             if basis_a is None or basis_b is None or basis_c is None:
                 logger.warning(
-                    "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse "
-                    "code/deg from %r; skipping recipe.", name,
+                    "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse " "code/deg from %r; skipping recipe.",
+                    name,
                 )
                 continue
             # Same auto-routing fixup as Layer 22 pair recipe builder.
@@ -670,8 +637,8 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
             chosen_basis, chosen_degree = _parse_code_deg(suffix)
             if chosen_basis is None or chosen_degree is None:
                 logger.warning(
-                    "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse basis/"
-                    "degree from %r; skipping recipe.", name,
+                    "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse basis/" "degree from %r; skipping recipe.",
+                    name,
                 )
                 continue
             # REPLAY-FIDELITY FIX (2026-06-13): freeze the fit-time basis-preprocess params (mirrors

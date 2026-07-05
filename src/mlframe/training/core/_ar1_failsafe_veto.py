@@ -80,8 +80,7 @@ def compute_val_veto(
     """
     if not bool(getattr(config, "ar1_failsafe_val_crosscheck", True)):
         return None
-    if ("lag_predict" not in oof_names or filtered_val_df is None
-            or filtered_val_idx is None or oof_y_full is None):
+    if "lag_predict" not in oof_names or filtered_val_df is None or filtered_val_idx is None or oof_y_full is None:
         return None
     try:
         yv = np.asarray(oof_y_full)[filtered_val_idx].astype(np.float64)

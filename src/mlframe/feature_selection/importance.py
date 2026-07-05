@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 # *****************************************************************************************************************************************************
@@ -71,10 +70,7 @@ def _format_top_fi_for_log(
     head = sorted_df.head(top_n)
     if head.empty:
         return f"[FI top-{top_n}] {kind}: (no features)"
-    items = [
-        f"{str(name)[:40]}={fi:+.4g}"
-        for name, fi in zip(head.index, head["fi"].values)
-    ]
+    items = [f"{str(name)[:40]}={fi:+.4g}" for name, fi in zip(head.index, head["fi"].values)]
     total_n = len(sorted_df)
     sum_top = float(head["fi"].sum())
     sum_all = float(sorted_df["fi"].sum())
@@ -82,18 +78,14 @@ def _format_top_fi_for_log(
     parts = [f"[FI top-{len(items)}] {kind}:"]
     line = parts[-1]
     for item in items:
-        candidate = (line + " " + item) if line.endswith(":") \
-            else (line + ", " + item)
+        candidate = (line + " " + item) if line.endswith(":") else (line + ", " + item)
         if len(candidate) > width:
             parts.append("  " + item)
             line = parts[-1]
         else:
             parts[-1] = candidate
             line = parts[-1]
-    parts.append(
-        f"  (N_total={total_n}, top_sum={sum_top:.4g}, "
-        f"share={share:.1f}%)"
-    )
+    parts.append(f"  (N_total={total_n}, top_sum={sum_top:.4g}, " f"share={share:.1f}%)")
     return "\n".join(parts)
 
 
@@ -244,7 +236,7 @@ def plot_feature_importance(
             _fi_eps = 1e-12
         _nonzero_mask = _abs_picked > _fi_eps
         _nonzero_ids = _picked[_nonzero_mask]
-        _zero_ids = _picked[~_nonzero_mask][:max(0, int(max_zero_fi_to_plot))]
+        _zero_ids = _picked[~_nonzero_mask][: max(0, int(max_zero_fi_to_plot))]
         _abs_order = np.concatenate([_nonzero_ids, _zero_ids])
         # Re-sort the picked subset by signed value so the bars stack
         # cleanly (most-negative at the bottom, most-positive at the top).
@@ -354,11 +346,7 @@ def compute_permutation_importances(*sklearn_args, columns: list, **sklearn_kwar
     # `result` is a Bunch; "importances" is 2D (n_features x n_repeats) and
     # breaks Polars construction on some versions. Keep only the per-feature
     # 1-D arrays that survive conversion, then assemble the frame explicitly.
-    frame = {
-        key: np.asarray(value)
-        for key, value in result.items()
-        if key != "importances" and hasattr(value, "__len__") and np.asarray(value).ndim == 1
-    }
+    frame = {key: np.asarray(value) for key, value in result.items() if key != "importances" and hasattr(value, "__len__") and np.asarray(value).ndim == 1}
     frame["feature"] = list(columns)
 
     return (

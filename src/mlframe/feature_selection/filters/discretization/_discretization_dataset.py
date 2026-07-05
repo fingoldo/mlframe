@@ -150,9 +150,7 @@ def create_redundant_continuous_factor(
         rvs = dist.rvs
         # Wave 31 (2026-05-20): assert -> AttributeError.
         if not callable(rvs):
-            raise AttributeError(
-                f"dist must have a callable .rvs method; got {dist!r}."
-            )
+            raise AttributeError(f"dist must have a callable .rvs method; got {dist!r}.")
         noise = rvs(*dist_args, size=len(df), random_state=rng)
     else:
         noise = rng.random(len(df))
@@ -205,13 +203,8 @@ def categorize_dataset(
 
     if _is_polars:
         def _is_pl_cat(dt):
-            return (
-                dt == pl.Utf8
-                or dt == pl.String
-                or dt == pl.Categorical
-                or dt == pl.Boolean
-                or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
-            )
+            return dt == pl.Utf8 or dt == pl.String or dt == pl.Categorical or dt == pl.Boolean or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
+
         numerical_cols = [name for name, dt in df.schema.items() if not _is_pl_cat(dt)]
         categorical_cols_detected = [name for name, dt in df.schema.items() if _is_pl_cat(dt)]
     else:
@@ -240,11 +233,7 @@ def categorize_dataset(
     # 'separate_bin' so NaN positions get re-routed to the dedicated NaN
     # bin instead of silently colliding with the top real bin via
     # np.searchsorted(NaN -> ej.size).
-    _nan_mask = (
-        np.isnan(arr)
-        if (missing_strategy in ("separate_bin", "propagate") and arr.size > 0)
-        else None
-    )
+    _nan_mask = np.isnan(arr) if (missing_strategy in ("separate_bin", "propagate") and arr.size > 0) else None
 
     # Unified NaN handling for both pandas and polars.
     arr = _handle_missing(arr, strategy=missing_strategy)
@@ -295,8 +284,7 @@ def categorize_dataset(
             if ej.size == 0:
                 data[:, j] = 0
             else:
-                data[:, j] = np.searchsorted(ej, arr[:, j].astype(np.float64),
-                                              side="right").astype(dtype)
+                data[:, j] = np.searchsorted(ej, arr[:, j].astype(np.float64), side="right").astype(dtype)
     else:
         # Unsupervised numeric path: each column binned independently of others AND of the target, so per-column
         # codes are cached cross-instance (huge win across a suite's many targets on one feature frame). Bit-identical.
@@ -396,9 +384,7 @@ def categorize_dataset(
             if _has_nan and _missing_strategy_str == "raise":
                 _nan_cnt = int((new_vals < 0).sum())
                 raise ValueError(
-                    f"categorize_dataset: {_nan_cnt} NaN value(s) in "
-                    f"categorical column(s) {categorical_cols} with "
-                    f"missing_strategy='raise'."
+                    f"categorize_dataset: {_nan_cnt} NaN value(s) in " f"categorical column(s) {categorical_cols} with " f"missing_strategy='raise'."
                 )
             if _has_nan:
                 # Shift +1: -1 -> 0, k -> k+1. Cast back to dtype after
@@ -420,9 +406,7 @@ def categorize_dataset(
                     dtype = _candidate
                     break
             else:
-                raise ValueError(
-                    f"categorize_dataset: category cardinality {global_max} exceeds int64 max; cannot encode."
-                )
+                raise ValueError(f"categorize_dataset: category cardinality {global_max} exceeds int64 max; cannot encode.")
         new_vals = new_vals.astype(dtype)
 
         if data is None:

@@ -115,8 +115,7 @@ def _mixed_realism() -> dict:
         caught = len(pmod_cols) >= 1
         all_ok = all_ok and caught
         runs.append({"seed": seed, "n_pmod_selected": len(pmod_cols), "pmod_cols": pmod_cols, "caught": caught})
-        print(f"  mixed-realism seed={seed} (a+b)mod7 + 25 noise -> pmod selected={len(pmod_cols)}  "
-              f"{'CAUGHT' if caught else 'MISSED'}")
+        print(f"  mixed-realism seed={seed} (a+b)mod7 + 25 noise -> pmod selected={len(pmod_cols)}  " f"{'CAUGHT' if caught else 'MISSED'}")
     return {"real_signal_caught_with_25_noise": all_ok, "runs": runs}
 
 

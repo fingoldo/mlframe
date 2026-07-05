@@ -58,9 +58,9 @@ _RED = "#d62728"
 class ModelCardVerdict:
     """The traffic-light verdict + the reason that drove it (surfaced to callers/tests, not just drawn)."""
 
-    color: str           # "green" / "amber" / "red"
-    label: str           # short headline, e.g. "STRONG" / "USABLE" / "WEAK"
-    reason: str          # human-readable justification
+    color: str  # "green" / "amber" / "red"
+    label: str  # short headline, e.g. "STRONG" / "USABLE" / "WEAK"
+    reason: str  # human-readable justification
     headline: Dict[str, float]
 
 

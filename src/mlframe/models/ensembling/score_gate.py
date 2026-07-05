@@ -17,7 +17,6 @@ from typing import Any, List, Optional, Tuple
 
 import numpy as np
 
-
 logger = logging.getLogger("mlframe.models.ensembling")
 
 # Matches the "[member+tags]" label bracket inside an ensemble_name, e.g. "[cb+xgb] level2".
@@ -65,11 +64,7 @@ def select_gate_source_split(
             break
     # COARSE-GATE-FALLBACK: when OOF is unavailable AND require_oof_for_gate=True, the fine-grained 2.5x gate is intentionally skipped to avoid double-dipping on val. But that lets catastrophic outliers (R^2=-4.75 alongside R^2=0.99 members) survive into the ensemble. Run a SECOND coarse-threshold pass against the val/test/train fallback chain to catch only the disasters. Marked separately in logs (split=val-coarse) so it can't be confused with the strict gate.
     _coarse_gate_active = False
-    if (
-        require_oof_for_gate
-        and _gate_preds_for_check is None
-        and (coarse_gate_max_mae_relative > 0.0 or coarse_gate_max_std_relative > 0.0)
-    ):
+    if require_oof_for_gate and _gate_preds_for_check is None and (coarse_gate_max_mae_relative > 0.0 or coarse_gate_max_std_relative > 0.0):
         _coarse_fallback_attrs = (
             ("val_preds", "val-coarse"),
             ("test_preds", "test-coarse"),
@@ -135,11 +130,7 @@ def catastrophic_drop_kn(
 
     Mutates ``res`` in place (matches the legacy contract). Returns possibly-sliced ``(level_models_and_predictions, _gate_preds_for_check, _ensemble_member_tags, _ensemble_short_tags)``.
     """
-    if not (
-        _gate_preds_for_check is not None
-        and len(_gate_preds_for_check) > 2
-        and k2_catastrophic_mae_ratio > 1.0
-    ):
+    if not (_gate_preds_for_check is not None and len(_gate_preds_for_check) > 2 and k2_catastrophic_mae_ratio > 1.0):
         return level_models_and_predictions, _gate_preds_for_check, _ensemble_member_tags, _ensemble_short_tags
     _gate_target_arr_kn = None
     if _gate_source_split in ("test", "test-coarse"):
@@ -172,9 +163,7 @@ def catastrophic_drop_kn(
             # E4.3 (2026-05-21): surface a borderline-member diagnostic for operators. Any member whose target-MAE exceeds 0.5 * catastrophic_ratio (default 10x best) but stays below the catastrophic_ratio (20x best) is "borderline" -- not dropped, but worth knowing in metadata for the next-session tune of model selection.
             _blowout_floor = 0.5 * float(k2_catastrophic_mae_ratio)
             _blowout_idx = [
-                i for i in range(len(_gate_preds_for_check))
-                if math.isfinite(_ratios[i])
-                and _blowout_floor <= _ratios[i] < float(k2_catastrophic_mae_ratio)
+                i for i in range(len(_gate_preds_for_check)) if math.isfinite(_ratios[i]) and _blowout_floor <= _ratios[i] < float(k2_catastrophic_mae_ratio)
             ]
             if _blowout_idx:
                 res["_diagnostic_mae_blowout"] = {
@@ -267,11 +256,7 @@ def catastrophic_drop_k2(
 
     Mutates ``res`` in place; returns ``(level_models_and_predictions, _ensemble_member_tags, _ensemble_short_tags, ensemble_name, early_return)``. When ``early_return`` is True the caller must immediately ``return res`` (legacy single-member short-circuit path).
     """
-    if not (
-        _gate_preds_for_check is not None
-        and len(_gate_preds_for_check) == 2
-        and k2_catastrophic_mae_ratio > 1.0
-    ):
+    if not (_gate_preds_for_check is not None and len(_gate_preds_for_check) == 2 and k2_catastrophic_mae_ratio > 1.0):
         return level_models_and_predictions, _ensemble_member_tags, _ensemble_short_tags, ensemble_name, False
     # Match the gate source to its target array. ``oof_*`` aligns with train rows; ``val/test/train`` (and their *-coarse variants) align with the matching target_arr that score_ensemble already produced above.
     _gate_target_arr = None

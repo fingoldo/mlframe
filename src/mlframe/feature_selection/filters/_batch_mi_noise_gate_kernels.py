@@ -84,9 +84,9 @@ def _cupy_bincount_known_size(d_flat, size):
 
 @njit(nogil=True, cache=True)
 def _mi_from_counts_cpu(
-    joint_counts: np.ndarray,   # (nbins_x, K_y) int64 -- integer joint histogram
+    joint_counts: np.ndarray,  # (nbins_x, K_y) int64 -- integer joint histogram
     nbins_x: int,
-    freqs_y: np.ndarray,        # (K_y,) float64
+    freqs_y: np.ndarray,  # (K_y,) float64
     n: int,
     use_su: bool,
 ) -> float:
@@ -143,14 +143,14 @@ def _mi_from_counts_cpu(
 
 @njit(nogil=True, cache=True)
 def _mi_columns_from_counts_cpu(
-    counts_flat: np.ndarray,    # (total_size,) int64 -- flat per-column joint histograms
-    col_offsets: np.ndarray,    # (K,) int64 -- start offset of column k
-    nbins_arr: np.ndarray,      # (K,) int64
+    counts_flat: np.ndarray,  # (total_size,) int64 -- flat per-column joint histograms
+    col_offsets: np.ndarray,  # (K,) int64 -- start offset of column k
+    nbins_arr: np.ndarray,  # (K,) int64
     K_y: int,
-    freqs_y: np.ndarray,        # (K_y,) float64
+    freqs_y: np.ndarray,  # (K_y,) float64
     n: int,
     use_su: bool,
-    ref_mi: np.ndarray,         # (K,) float64 -- compute column k only when ref_mi[k] > 0
+    ref_mi: np.ndarray,  # (K,) float64 -- compute column k only when ref_mi[k] > 0
 ) -> np.ndarray:
     """Reduce MI for ALL K columns in ONE njit call instead of K separate Python->njit
     dispatches. Calls the SAME ``_mi_from_counts_cpu`` body per column (a compiled, not
@@ -166,7 +166,7 @@ def _mi_columns_from_counts_cpu(
             continue
         nb_k = nbins_arr[k]
         off = col_offsets[k]
-        block = counts_flat[off: off + nb_k * K_y].reshape(nb_k, K_y)
+        block = counts_flat[off : off + nb_k * K_y].reshape(nb_k, K_y)
         out[k] = _mi_from_counts_cpu(block, nb_k, freqs_y, n, use_su)
     return out
 
@@ -211,16 +211,16 @@ def _cuda_mi_from_counts_kernel_factory():
 
     @_nb_cuda.jit
     def _kernel(
-        counts_flat,   # (P*total_size,) int64 -- per-(p) per-column joint histograms
-        col_offsets,   # (K,) int64
-        nbins_col,     # (K,) int32
-        freqs_y,       # (K_y,) float64
+        counts_flat,  # (P*total_size,) int64 -- per-(p) per-column joint histograms
+        col_offsets,  # (K,) int64
+        nbins_col,  # (K,) int32
+        freqs_y,  # (K_y,) float64
         n,
         K_y,
-        ref_mi,        # (K,) float64 -- original_mi; perm columns with ref_mi<=0 are skipped (-> 0)
+        ref_mi,  # (K,) float64 -- original_mi; perm columns with ref_mi<=0 are skipped (-> 0)
         total_size,
         P,
-        out_mi,        # (P, K) float64 output
+        out_mi,  # (P, K) float64 output
     ):
         K = nbins_col.shape[0]
         tid = _nb_cuda.blockIdx.x * _nb_cuda.blockDim.x + _nb_cuda.threadIdx.x
@@ -255,7 +255,7 @@ def _cuda_mi_from_counts_kernel_factory():
 
 def _gate_from_mi(
     original_mi: np.ndarray,
-    perm_mis: list,          # list of (K,) float64 arrays, one per permutation
+    perm_mis: list,  # list of (K,) float64 arrays, one per permutation
     npermutations: int,
     min_nonzero_confidence: float,
 ) -> np.ndarray:
@@ -336,11 +336,11 @@ def _cuda_hist_kernel_factory():
 
     @_nb_cuda.jit
     def _kernel(
-        disc_2d,        # (n, K) int32
-        col_offsets,    # (K,) int64 -- start offset of column k in counts_flat
-        nbins_col,      # (K,) int32
-        y_codes,        # (n,) int32 -- the (shuffled) target codes
-        counts_flat,    # (total_size,) int64 -- output, zeroed by host
+        disc_2d,  # (n, K) int32
+        col_offsets,  # (K,) int64 -- start offset of column k in counts_flat
+        nbins_col,  # (K,) int32
+        y_codes,  # (n,) int32 -- the (shuffled) target codes
+        counts_flat,  # (total_size,) int64 -- output, zeroed by host
         n,
         K_y,
     ):

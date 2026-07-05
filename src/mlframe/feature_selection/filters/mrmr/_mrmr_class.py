@@ -3119,8 +3119,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 )
             except Exception as _exc:
                 warnings.warn(
-                    f"MRMR stability_selection_method={_stab_method!r} outer-loop "
-                    f"raised {type(_exc).__name__}: {_exc}. Falling back to classic fit.",
+                    f"MRMR stability_selection_method={_stab_method!r} outer-loop " f"raised {type(_exc).__name__}: {_exc}. Falling back to classic fit.",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -3263,9 +3262,9 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 X = self._apply_sis_screen(X, y)
         except Exception as _sis_exc:
             warnings.warn(
-                f"MRMR SIS front gate raised {type(_sis_exc).__name__}: {_sis_exc}; "
-                f"falling back to the full-width MRMR path.",
-                UserWarning, stacklevel=2,
+                f"MRMR SIS front gate raised {type(_sis_exc).__name__}: {_sis_exc}; " f"falling back to the full-width MRMR path.",
+                UserWarning,
+                stacklevel=2,
             )
 
         if isinstance(X, pd.DataFrame):
@@ -3308,8 +3307,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                     )
             except Exception as _exc:
                 warnings.warn(
-                    f"MRMR fe_auto: rule recommender raised {type(_exc).__name__}: {_exc}. "
-                    f"Proceeding with the explicitly-set fe_*_enable flags.",
+                    f"MRMR fe_auto: rule recommender raised {type(_exc).__name__}: {_exc}. " f"Proceeding with the explicitly-set fe_*_enable flags.",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -3336,9 +3334,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         )
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):
-            raise ValueError(
-                f"MRMR.mi_normalization must be 'none' or 'su'; got {_mi_norm!r}."
-            )
+            raise ValueError(f"MRMR.mi_normalization must be 'none' or 'su'; got {_mi_norm!r}.")
         _prev_su = _mi_norm == "su"
         set_su_normalization(_prev_su)
         # activate JMIM aggregator + BUR weight thread-locals.
@@ -3348,9 +3344,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         if _redundancy_agg not in (None, "jmim", "auto"):
             # A typo (e.g. 'JMIM', 'jimm') would otherwise silently fall through to plain Fleuret with no signal
             # that the requested aggregator was ignored -- fail loudly instead.
-            raise ValueError(
-                f"redundancy_aggregator must be one of None, 'jmim', 'auto'; got {_redundancy_agg!r}."
-            )
+            raise ValueError(f"redundancy_aggregator must be one of None, 'jmim', 'auto'; got {_redundancy_agg!r}.")
         if _redundancy_agg == "auto":
             # Data-dependent gate: run a cheap pre-fit synergy probe on (X, y). Route to JMIM only when the
             # data is synergistic (XOR / sign-product pairs whose joint >> marginals); else stay plain
@@ -3362,16 +3356,14 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 from .._synergy_detector import detect_synergy
                 _Xarr = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
                 _yarr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
-                _jmim_on, _syn_info = detect_synergy(
-                    _Xarr, _yarr, random_seed=int(getattr(self, "random_seed", 0) or 0)
-                )
+                _jmim_on, _syn_info = detect_synergy(_Xarr, _yarr, random_seed=int(getattr(self, "random_seed", 0) or 0))
                 self._synergy_auto_decision_ = {"jmim_engaged": bool(_jmim_on), **_syn_info}
                 logger.info("[MRMR] redundancy_aggregator='auto' -> synergy detector: %s", self._synergy_auto_decision_)
             except Exception as _exc:
                 warnings.warn(
-                    f"MRMR redundancy_aggregator='auto': synergy detector raised "
-                    f"{type(_exc).__name__}: {_exc}. Falling back to plain Fleuret.",
-                    UserWarning, stacklevel=2,
+                    f"MRMR redundancy_aggregator='auto': synergy detector raised " f"{type(_exc).__name__}: {_exc}. Falling back to plain Fleuret.",
+                    UserWarning,
+                    stacklevel=2,
                 )
                 self._synergy_auto_decision_ = {"jmim_engaged": False, "error": str(_exc)}
         else:
@@ -3428,12 +3420,8 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # the post-hoc cluster_aggregate FE-step (else double-aggregation). Save
         # and restore the original flag to keep the constructor-arg semantics
         # bit-stable across fits.
-        _orig_cluster_aggregate_enable = bool(
-            getattr(self, "cluster_aggregate_enable", True)
-        )
-        _dcd_suppress_postoc = _dcd_on and not bool(
-            getattr(self, "dcd_postoc_compose", False)
-        )
+        _orig_cluster_aggregate_enable = bool(getattr(self, "cluster_aggregate_enable", True))
+        _dcd_suppress_postoc = _dcd_on and not bool(getattr(self, "dcd_postoc_compose", False))
         if _dcd_suppress_postoc:
             self.cluster_aggregate_enable = False
         # FAST-SEARCH PROFILE (2026-06-14). Apply the fast FE-search overrides for the duration of
@@ -3518,9 +3506,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 _seed_resolved = getattr(self, "random_seed", None)
                 if _seed_resolved is None:
                     _seed_resolved = getattr(self, "random_state", None)
-                _seed_for_provenance = (
-                    int(_seed_resolved) if _seed_resolved is not None else None
-                )
+                _seed_for_provenance = int(_seed_resolved) if _seed_resolved is not None else None
                 _record_provenance(
                     getattr(self, "_provenance_sink_", None),
                     "mrmr",
@@ -3647,7 +3633,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                             else:
                                 set_fourier_detect_cap(_v)
                         elif _k.startswith("__env__"):
-                            _envk = _k[len("__env__"):]
+                            _envk = _k[len("__env__") :]
                             if _v is None:
                                 _os_restore.environ.pop(_envk, None)
                             else:
@@ -3682,8 +3668,6 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
     # ``_fit_impl`` is implemented in ``_mrmr_fit_impl.py`` and bound onto
     # this class at the bottom of this module.
 
-
-
     # ``_run_fe_step`` is implemented in ``_mrmr_fe_step.py`` and bound
     # onto this class at the bottom of this module.
 
@@ -3706,10 +3690,6 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         """
         from .._mrmr_validate_transform import transform as _t
         out = _t(self, X, y)
-        if getattr(self, "usability_aware_lists", False) and (
-            getattr(self, "support_linear_", None) or getattr(self, "support_universal_", None)
-        ):
+        if getattr(self, "usability_aware_lists", False) and (getattr(self, "support_linear_", None) or getattr(self, "support_universal_", None)):
             out = self._append_usability_union(out, X)
         return out
-
-

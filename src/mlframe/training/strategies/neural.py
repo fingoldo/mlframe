@@ -53,8 +53,7 @@ class NeuralNetStrategy(ModelPipelineStrategy):
     # (N, K) preds and (N, K) labels (F-24 commit 2d300944).
     supports_native_multi_target = True
 
-    def get_classif_objective_kwargs(self, target_type, n_classes: int,
-                                      multilabel_config=None) -> dict:
+    def get_classif_objective_kwargs(self, target_type, n_classes: int, multilabel_config=None) -> dict:
         """Per-target loss_fn dispatch for the MLP estimator.
 
         Returned dict is consumed by ``_configure_mlp_params`` (trainer.py)
@@ -212,8 +211,7 @@ class RecurrentModelStrategy(ModelPipelineStrategy):
     # would require a custom sampler that yields one query's sequences
     # per batch; non-trivial integration with RecurrentDataModule.
 
-    def get_classif_objective_kwargs(self, target_type, n_classes: int,
-                                      multilabel_config=None) -> dict:
+    def get_classif_objective_kwargs(self, target_type, n_classes: int, multilabel_config=None) -> dict:
         """Per-target task_type for ``RecurrentLightningModule``.
 
         Returns a dict with the ``task_type`` kwarg consumed by the

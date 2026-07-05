@@ -259,41 +259,25 @@ def screen_predictors(
     # to explicit ValueError. Under -O all of these stripped and bad user
     # input slipped into the MRMR loop with cryptic failure modes.
     if mrmr_relevance_algo not in ("fleuret", "pld"):
-        raise ValueError(
-            f"mrmr_relevance_algo must be 'fleuret' or 'pld'; got {mrmr_relevance_algo!r}."
-        )
+        raise ValueError(f"mrmr_relevance_algo must be 'fleuret' or 'pld'; got {mrmr_relevance_algo!r}.")
     if mrmr_redundancy_algo not in ("fleuret", "pld_max", "pld_mean"):
-        raise ValueError(
-            f"mrmr_redundancy_algo must be one of 'fleuret', 'pld_max', "
-            f"'pld_mean'; got {mrmr_redundancy_algo!r}."
-        )
+        raise ValueError(f"mrmr_redundancy_algo must be one of 'fleuret', 'pld_max', " f"'pld_mean'; got {mrmr_redundancy_algo!r}.")
 
     if len(factors_data) < 10:
-        raise ValueError(
-            f"factors_data must have at least 10 rows; got {len(factors_data)}."
-        )
+        raise ValueError(f"factors_data must have at least 10 rows; got {len(factors_data)}.")
     if targets_data is None:
         targets_data = factors_data
     else:
         if len(factors_data) != len(targets_data):
-            raise ValueError(
-                f"factors_data ({len(factors_data)} rows) and targets_data "
-                f"({len(targets_data)} rows) must have equal length."
-            )
+            raise ValueError(f"factors_data ({len(factors_data)} rows) and targets_data " f"({len(targets_data)} rows) must have equal length.")
 
     if targets_nbins is None:
         targets_nbins = factors_nbins
 
     if targets_data.shape[1] != len(targets_nbins):
-        raise ValueError(
-            f"targets_data.shape[1]={targets_data.shape[1]} must equal "
-            f"len(targets_nbins)={len(targets_nbins)}."
-        )
+        raise ValueError(f"targets_data.shape[1]={targets_data.shape[1]} must equal " f"len(targets_nbins)={len(targets_nbins)}.")
     if factors_data.shape[1] != len(factors_nbins):
-        raise ValueError(
-            f"factors_data.shape[1]={factors_data.shape[1]} must equal "
-            f"len(factors_nbins)={len(factors_nbins)}."
-        )
+        raise ValueError(f"factors_data.shape[1]={factors_data.shape[1]} must equal " f"len(factors_nbins)={len(factors_nbins)}.")
 
     # 2026-05-30 Wave 9.1 fix (loop iter 25): two bugs collapsed into one
     # input-validation block.
@@ -307,10 +291,7 @@ def screen_predictors(
         factors_names = ["F" + str(i) for i in range(factors_data.shape[1])]
     else:
         if factors_data.shape[1] != len(factors_names):
-            raise ValueError(
-                f"factors_data.shape[1]={factors_data.shape[1]} must equal "
-                f"len(factors_names)={len(factors_names)}."
-            )
+            raise ValueError(f"factors_data.shape[1]={factors_data.shape[1]} must equal " f"len(factors_names)={len(factors_names)}.")
 
     # Initialize x (factor indices to consider) with appropriate defaults
     if factors_to_use is not None:
@@ -469,9 +450,7 @@ def screen_predictors(
                 # the literal ``'auto'`` sentinel reaches make_dcd_state's
                 # calibration branch. Numeric values are float()-coerced.
                 _raw_tau = dcd_config.get("tau_cluster", 0.7)
-                _tau_arg = (
-                    _raw_tau if isinstance(_raw_tau, str) else float(_raw_tau)
-                )
+                _tau_arg = _raw_tau if isinstance(_raw_tau, str) else float(_raw_tau)
                 dcd_state = make_dcd_state(
                     X_raw=dcd_config.get("X_raw"),
                     factors_data=factors_data,
@@ -753,7 +732,7 @@ def screen_predictors(
                 # Add best candidate to the list, if criteria are met, or proceed to the next interactions_order
                 # ---------------------------------------------------------------------------------------------------------------
 
-                _abs_floor = (min_relevance_gain if interactions_order == 1 else min_relevance_gain ** (1 / (interactions_order + 1)))
+                _abs_floor = min_relevance_gain if interactions_order == 1 else min_relevance_gain ** (1 / (interactions_order + 1))
                 # 2026-05-30 Miller-Madow: subtract finite-sample bias from gain at gate. For
                 # joint candidates (k-way interactions) use product-of-bin-counts as effective
                 # cardinality. Bias = (nbins_x_eff - 1) * (nbins_y - 1) / (2*n). The same
@@ -769,9 +748,7 @@ def screen_predictors(
                 # screen filter (cells > 0.5*n) already refuses high-cardinality SINGLE
                 # columns before they're combined, so joints with all-safe components are
                 # implicitly bounded; explicit MM correction on joints is double-counting.
-                if (cardinality_bias_correction
-                        and best_candidate is not None
-                        and interactions_order == 1):
+                if cardinality_bias_correction and best_candidate is not None and interactions_order == 1:
                     _n_samples_for_mm = int(factors_data.shape[0])
                     _y_idx = int(y[0]) if hasattr(y, "__len__") else int(y)
                     _nbins_y = int(factors_nbins[_y_idx])
@@ -844,9 +821,7 @@ def screen_predictors(
                             _nb_y_fdr = int(factors_nbins[_y_idx_fdr2])
                             _cand_marg_corr -= (_nb_x_fdr - 1) * (_nb_y_fdr - 1) / (2.0 * int(factors_data.shape[0]))
                         _fdr_pass = _cand_marg_corr >= _fdr_floor_eff
-                if (_best_gain_for_gate >= _abs_floor
-                        and _best_gain_for_gate >= _rel_floor
-                        and _fdr_pass):
+                if _best_gain_for_gate >= _abs_floor and _best_gain_for_gate >= _rel_floor and _fdr_pass:
                     for var in best_candidate:
                         if var not in selected_vars:
                             selected_vars.append(var)
@@ -940,8 +915,7 @@ def screen_predictors(
             )
         else:
             logger.info(
-                "screen_predictors finished naturally (no patience trip). "
-                "Returned %d selected feature(s).",
+                "screen_predictors finished naturally (no patience trip). " "Returned %d selected feature(s).",
                 len(selected_vars),
             )
 

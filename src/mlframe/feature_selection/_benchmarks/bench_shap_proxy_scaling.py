@@ -48,8 +48,7 @@ _STAGE_ORDER = (
 )
 
 
-def make_wide(n_features: int, *, n_rows: int = 4000, n_informative: int = 8, n_redundant: int = 12,
-              snr: float = 5.0, seed: int = 0):
+def make_wide(n_features: int, *, n_rows: int = 4000, n_informative: int = 8, n_redundant: int = 12, snr: float = 5.0, seed: int = 0):
     """Wide regime dataset: a few informatives + correlated redundant copies + the rest noise.
 
     Recall caveat at width>=5000 / n_rows<=2000 (iter23): the dropped-informative set is
@@ -63,8 +62,8 @@ def make_wide(n_features: int, *, n_rows: int = 4000, n_informative: int = 8, n_
 
     n_noise = max(0, n_features - n_informative - n_redundant)
     X, y, roles = make_regime_dataset(
-        n_samples=n_rows, n_informative=n_informative, n_redundant=n_redundant,
-        redundancy_rho=0.9, n_noise=n_noise, snr=snr, task="binary", seed=seed)
+        n_samples=n_rows, n_informative=n_informative, n_redundant=n_redundant, redundancy_rho=0.9, n_noise=n_noise, snr=snr, task="binary", seed=seed
+    )
     return X, y, roles
 
 
@@ -80,8 +79,7 @@ def _build_selector(seed: int = 0):
         random_state=seed, verbose=False)
 
 
-def bench_width_single(n_features: int, *, n_rows: int, seed: int, snr: float = 5.0
-                       ) -> tuple[float, dict, object, dict]:
+def bench_width_single(n_features: int, *, n_rows: int, seed: int, snr: float = 5.0) -> tuple[float, dict, object, dict]:
     """Run one full fit at a given (width, seed); return (total_seconds, stage_timings,
     fitted_selector, roles)."""
     X, y, roles = make_wide(n_features, n_rows=n_rows, snr=snr, seed=seed)
@@ -109,8 +107,7 @@ def _agg(values: list[float]) -> dict[str, float]:
     return {"mean": mean, "std": std, "min": min(values), "max": max(values)}
 
 
-def bench_width_multi_seed(n_features: int, *, n_rows: int, n_seeds: int, snr: float = 5.0
-                           ) -> dict:
+def bench_width_multi_seed(n_features: int, *, n_rows: int, n_seeds: int, snr: float = 5.0) -> dict:
     """Run ``n_seeds`` full fits at the given width; return aggregate dict with mean/std/min/max
     of recall + total wall, plus per-seed timings + the cross-seed mean of each stage timing."""
     recalls: list[float] = []
@@ -128,12 +125,10 @@ def bench_width_multi_seed(n_features: int, *, n_rows: int, n_seeds: int, snr: f
         for s in _STAGE_ORDER:
             if s in timings:
                 per_stage[s].append(timings[s])
-        per_seed.append({"seed": seed, "wall": total, "recall": recall,
-                         "recovered": rec, "n_informative": n_inf,
-                         "n_selected": len(sel.selected_features_)})
-        print(f"[width={n_features} seed={seed}] done in {total:.2f}s, "
-              f"recall={recall:.3f} ({rec}/{n_inf}), elapsed={time.perf_counter()-t0:.2f}s",
-              flush=True)
+        per_seed.append({"seed": seed, "wall": total, "recall": recall, "recovered": rec, "n_informative": n_inf, "n_selected": len(sel.selected_features_)})
+        print(
+            f"[width={n_features} seed={seed}] done in {total:.2f}s, " f"recall={recall:.3f} ({rec}/{n_inf}), elapsed={time.perf_counter()-t0:.2f}s", flush=True
+        )
     stage_means: dict[str, float] = {s: (sum(v) / len(v)) if v else 0.0 for s, v in per_stage.items()}
     return {
         "width": n_features,
@@ -214,15 +209,13 @@ def main() -> None:
     # watchdog; full 1k/5k/10k sweep is opt-in via --widths.
     ap.add_argument("--widths", default="3000,5000")
     ap.add_argument("--rows", type=int, default=4000)
-    ap.add_argument("--n_seeds", type=int, default=3,
-                    help="number of seeds (0..n_seeds-1) to aggregate at each width")
+    ap.add_argument("--n_seeds", type=int, default=3, help="number of seeds (0..n_seeds-1) to aggregate at each width")
     ap.add_argument("--snr", type=float, default=5.0)
     ap.add_argument("--profile", action="store_true")
     args = ap.parse_args()
     widths = [int(w) for w in args.widths.split(",") if w.strip()]
 
-    print(f"=== ShapProxiedFS width-scaling bench "
-          f"(n_rows={args.rows}, n_seeds={args.n_seeds}, snr={args.snr}) ===", flush=True)
+    print(f"=== ShapProxiedFS width-scaling bench " f"(n_rows={args.rows}, n_seeds={args.n_seeds}, snr={args.snr}) ===", flush=True)
     results: list[dict] = []
     for w in widths:
         print(f"\n--- width={w}: running {args.n_seeds} seeds ---", flush=True)

@@ -40,8 +40,7 @@ warnings.filterwarnings("ignore")
 
 
 def _rfecv_full(Xtr, ytr):
-    sel = RFECV(LogisticRegression(max_iter=500), step=0.1, cv=3,
-                min_features_to_select=2, n_jobs=1)
+    sel = RFECV(LogisticRegression(max_iter=500), step=0.1, cv=3, min_features_to_select=2, n_jobs=1)
     sel.fit(Xtr, ytr)
     return np.where(sel.support_)[0]
 
@@ -50,8 +49,7 @@ def _rfecv_reduced(Xtr, ytr, corr_threshold=0.9):
     cid = cluster_features_by_correlation(Xtr, threshold=corr_threshold, method="pearson")
     medoids = _cluster_medoids(Xtr, cid, method="pearson")
     Xm = Xtr.iloc[:, medoids]
-    sel = RFECV(LogisticRegression(max_iter=500), step=0.1, cv=3,
-                min_features_to_select=2, n_jobs=1)
+    sel = RFECV(LogisticRegression(max_iter=500), step=0.1, cv=3, min_features_to_select=2, n_jobs=1)
     sel.fit(Xm, ytr)
     sel_clusters = {int(cid[medoids[i]]) for i in np.where(sel.support_)[0]}
     # expand=True: keep ALL members of any selected cluster.
@@ -67,8 +65,7 @@ def _auc(Xtr, ytr, Xte, yte, cols):
 
 
 def _run(name, X, y, seed=0):
-    X = pd.DataFrame(StandardScaler().fit_transform(np.asarray(X, float)),
-                     columns=[f"f{i}" for i in range(np.asarray(X).shape[1])])
+    X = pd.DataFrame(StandardScaler().fit_transform(np.asarray(X, float)), columns=[f"f{i}" for i in range(np.asarray(X).shape[1])])
     y = pd.Series(np.asarray(y).astype(int)).reset_index(drop=True)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.35, random_state=seed, stratify=y)
     Xtr, Xte = Xtr.reset_index(drop=True), Xte.reset_index(drop=True)

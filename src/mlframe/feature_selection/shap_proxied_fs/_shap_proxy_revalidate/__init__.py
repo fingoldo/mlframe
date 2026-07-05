@@ -141,9 +141,7 @@ def proxy_trust_guard(
         import warnings
         if fidelity_floor != 0.5:
             # Both supplied -- ambiguous; refuse rather than silently picking one.
-            raise ValueError(
-                "proxy_trust_guard: pass either `fidelity_floor` (new name) or `spearman_floor` "
-                "(deprecated alias), not both.")
+            raise ValueError("proxy_trust_guard: pass either `fidelity_floor` (new name) or `spearman_floor` " "(deprecated alias), not both.")
         warnings.warn(
             "`spearman_floor` is deprecated since iter18; use `fidelity_floor` (same semantics). "
             "The kwarg name was inherited from the iter15 raw-Spearman gate but the gate has been "
@@ -221,8 +219,7 @@ def proxy_trust_guard(
         gate_metric_name = "proxy_fidelity_score"
         gate_value = fidelity
     else:
-        raise ValueError(
-            f"trustworthy_metric must be 'proxy_fidelity_score' or 'spearman', got {trustworthy_metric!r}")
+        raise ValueError(f"trustworthy_metric must be 'proxy_fidelity_score' or 'spearman', got {trustworthy_metric!r}")
     trustworthy = np.isfinite(gate_value) and gate_value >= fidelity_floor
     report = dict(n_anchors=int(len(proxy_losses)), spearman=sp, kendall=kt,
                   recall_at_k=recall, k=int(k),

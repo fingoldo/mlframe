@@ -37,7 +37,6 @@ if _PYDANTIC_AVAILABLE:
 
         model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
-
     class SearchConfig(_RFECVBaseConfig):
         """MBH surrogate + acquisition + convergence + init-design knobs.
 
@@ -80,7 +79,6 @@ if _PYDANTIC_AVAILABLE:
             if v not in ("auto", "midpoint"):
                 raise ValueError(f"dichotomic_step must be 'auto' or 'midpoint'; got {v!r}")
             return v
-
 
     class FIConfig(_RFECVBaseConfig):
         """Feature-importance aggregation + voting + scale-correction knobs.
@@ -155,11 +153,8 @@ if _PYDANTIC_AVAILABLE:
         @classmethod
         def _ck_rule(cls, v: str) -> str:
             if v not in ("auto", "argmax", "one_se_min", "one_se_max", "plateau"):
-                raise ValueError(
-                    f"n_features_selection_rule must be 'auto' / 'argmax' / 'one_se_min' / 'one_se_max' / 'plateau'; got {v!r}"
-                )
+                raise ValueError(f"n_features_selection_rule must be 'auto' / 'argmax' / 'one_se_min' / 'one_se_max' / 'plateau'; got {v!r}")
             return v
-
 
     class RobustnessConfig(_RFECVBaseConfig):
         """Input validation + leakage + edge-case-hardening knobs.
@@ -200,7 +195,6 @@ if _PYDANTIC_AVAILABLE:
             if v not in ("warn", "exclude", "raise"):
                 raise ValueError(f"leakage_action must be 'warn' / 'exclude' / 'raise'; got {v!r}")
             return v
-
 
 else:
     # Pydantic missing in some constrained environments (e.g. micro-Python images).

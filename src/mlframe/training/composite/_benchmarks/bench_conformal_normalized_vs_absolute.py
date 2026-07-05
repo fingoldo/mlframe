@@ -75,7 +75,7 @@ def _make_scenario(name, n, rng):
     if name == "linear_scale":
         sigma = 0.2 + 3.0 * x
     elif name == "quadratic_scale":
-        sigma = 0.2 + 5.0 * x ** 2
+        sigma = 0.2 + 5.0 * x**2
     elif name == "step_scale":
         sigma = np.where(x > 0.5, 4.0, 0.4)
     elif name == "u_shape_scale":
@@ -93,8 +93,7 @@ def _make_scenario(name, n, rng):
 
 
 def run(alpha=0.1, n_cal=2000, n_eval=4000, seeds=(0, 1, 2, 3, 4)):
-    scenarios = ["linear_scale", "quadratic_scale", "step_scale",
-                 "u_shape_scale", "exp_scale", "homoscedastic"]
+    scenarios = ["linear_scale", "quadratic_scale", "step_scale", "u_shape_scale", "exp_scale", "homoscedastic"]
     target = 1.0 - alpha
     rows = []
     for sc in scenarios:
@@ -138,8 +137,7 @@ def main():
     het = [r for r in rows if r["scenario"] != "homoscedastic"]
     wins = sum(r["norm_wins"] for r in rows)
     het_wins = sum(r["norm_wins"] for r in het)
-    print(f"{'scenario':16} {'seed':>4} {'marg_a':>7} {'marg_n':>7} "
-          f"{'w_abs':>7} {'w_norm':>7} {'cg_abs':>7} {'cg_nrm':>7} win")
+    print(f"{'scenario':16} {'seed':>4} {'marg_a':>7} {'marg_n':>7} " f"{'w_abs':>7} {'w_norm':>7} {'cg_abs':>7} {'cg_nrm':>7} win")
     for r in rows:
         print(f"{r['scenario']:16} {r['seed']:>4} {r['marg_abs']:>7} {r['marg_norm']:>7} "
               f"{r['width_abs']:>7} {r['width_norm']:>7} {r['condgap_abs']:>7} "
@@ -149,8 +147,7 @@ def main():
     avg_cg_a = np.mean([r["condgap_abs"] for r in het])
     avg_cg_n = np.mean([r["condgap_norm"] for r in het])
     print(f"avg conditional-coverage gap (het): abs={avg_cg_a:.4f} norm={avg_cg_n:.4f}")
-    out = os.path.join(os.path.dirname(__file__), "_results",
-                       "conformal_normalized_vs_absolute.json")
+    out = os.path.join(os.path.dirname(__file__), "_results", "conformal_normalized_vs_absolute.json")
     with open(out, "w") as f:
         json.dump(dict(rows=rows, het_wins=het_wins, het_total=len(het),
                        avg_condgap_abs=float(avg_cg_a),

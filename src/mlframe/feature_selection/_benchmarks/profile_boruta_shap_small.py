@@ -162,9 +162,7 @@ def main() -> None:
     for name, cfg in SCENES.items():
         res = run_scene(name, cfg, out_dir)
         goldens[name] = res["golden"]
-    (out_dir / "boruta_shap_small_golden.json").write_text(
-        json.dumps(goldens, indent=2, sort_keys=True), encoding="utf-8"
-    )
+    (out_dir / "boruta_shap_small_golden.json").write_text(json.dumps(goldens, indent=2, sort_keys=True), encoding="utf-8")
     print(f"\n  goldens -> {out_dir / 'boruta_shap_small_golden.json'}")
 
 

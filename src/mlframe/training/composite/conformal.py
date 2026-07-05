@@ -93,9 +93,7 @@ def _conformal_internal_split(n_cal: int, time_ordering=None) -> tuple[np.ndarra
     else:
         key = np.asarray(time_ordering).ravel()
         if key.shape[0] != n_cal:
-            raise ValueError(
-                f"time_ordering has {key.shape[0]} entries but {n_cal} calibration rows were expected"
-            )
+            raise ValueError(f"time_ordering has {key.shape[0]} entries but {n_cal} calibration rows were expected")
         order = np.argsort(key, kind="mergesort")  # stable: ties keep input order
     return order[:half], order[half:]
 
@@ -188,18 +186,14 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized", time_
     """
     if not hasattr(self, "estimator_"):
         from sklearn.exceptions import NotFittedError
-        raise NotFittedError(
-            "CompositeTargetEstimator.calibrate_conformal called before fit."
-        )
+
+        raise NotFittedError("CompositeTargetEstimator.calibrate_conformal called before fit.")
     if score not in ("normalized", "absolute"):
         raise ValueError(f"calibrate_conformal: score must be 'normalized' or 'absolute', got {score!r}")
     y_true = np.asarray(y_cal, dtype=np.float64).reshape(-1)
     y_pred = np.asarray(self.predict(X_cal), dtype=np.float64).reshape(-1)
     if y_pred.shape[0] != y_true.shape[0]:
-        raise ValueError(
-            "calibrate_conformal: predict produced "
-            f"{y_pred.shape[0]} rows but y_cal has {y_true.shape[0]}"
-        )
+        raise ValueError("calibrate_conformal: predict produced " f"{y_pred.shape[0]} rows but y_cal has {y_true.shape[0]}")
     residuals = y_true - y_pred
     alphas = [alpha] if np.isscalar(alpha) else list(alpha)
     if not hasattr(self, "_conformal_q_") or self._conformal_q_ is None:
@@ -388,9 +382,7 @@ def _normalize_groups(groups, n: int) -> np.ndarray:
         g = np.asarray(groups)
     g = g.reshape(-1)
     if g.shape[0] != n:
-        raise ValueError(
-            f"groups has {g.shape[0]} entries but {n} rows were expected"
-        )
+        raise ValueError(f"groups has {g.shape[0]} entries but {n} rows were expected")
     return g
 
 
@@ -452,16 +444,12 @@ def calibrate_conformal_mondrian(self, X_cal, y_cal, groups_cal, alpha=0.1):
     """
     if not hasattr(self, "estimator_"):
         from sklearn.exceptions import NotFittedError
-        raise NotFittedError(
-            "CompositeTargetEstimator.calibrate_conformal_mondrian called before fit."
-        )
+
+        raise NotFittedError("CompositeTargetEstimator.calibrate_conformal_mondrian called before fit.")
     y_true = np.asarray(y_cal, dtype=np.float64).reshape(-1)
     y_pred = np.asarray(self.predict(X_cal), dtype=np.float64).reshape(-1)
     if y_pred.shape[0] != y_true.shape[0]:
-        raise ValueError(
-            "calibrate_conformal_mondrian: predict produced "
-            f"{y_pred.shape[0]} rows but y_cal has {y_true.shape[0]}"
-        )
+        raise ValueError("calibrate_conformal_mondrian: predict produced " f"{y_pred.shape[0]} rows but y_cal has {y_true.shape[0]}")
     residuals = y_true - y_pred
     g = _normalize_groups(groups_cal, residuals.shape[0])
     alphas = [alpha] if np.isscalar(alpha) else list(alpha)
@@ -490,9 +478,9 @@ def calibrate_conformal_mondrian(self, X_cal, y_cal, groups_cal, alpha=0.1):
         global_r = conformal_quantile(residuals, af)
         per_group: dict = {None: global_r}
         certified_radii: list = []  # own radii of groups that certified on their own rows
-        uncertified: set = set()    # seen labels too small to certify -> OOD fallback at predict
+        uncertified: set = set()  # seen labels too small to certify -> OOD fallback at predict
         for j in range(uniq.shape[0]):
-            r_g = res_by_group[starts[j]:stops[j]]
+            r_g = res_by_group[starts[j] : stops[j]]
             own = conformal_quantile(r_g, af)
             if np.isfinite(own):
                 per_group[uniq[j]] = float(own)
@@ -615,8 +603,7 @@ def predict_interval_mondrian(self, X, groups, alpha=0.1, return_ood=False):
     ood_flags = ood_per_uniq[codes]
     if missing:
         warnings.warn(
-            "predict_interval_mondrian: groups not seen at calibration fell back to the "
-            f"OOD-adaptive global radius: {sorted(map(str, missing))}",
+            "predict_interval_mondrian: groups not seen at calibration fell back to the " f"OOD-adaptive global radius: {sorted(map(str, missing))}",
             stacklevel=2,
         )
     _record_mondrian_ood(self, key, ood_flags)
@@ -667,10 +654,7 @@ def weighted_conformal_quantile(
     r = np.abs(np.asarray(residuals, dtype=np.float64).reshape(-1))
     w = np.asarray(weights, dtype=np.float64).reshape(-1)
     if w.shape[0] != r.shape[0]:
-        raise ValueError(
-            f"weighted_conformal_quantile: {w.shape[0]} weights for "
-            f"{r.shape[0]} residuals"
-        )
+        raise ValueError(f"weighted_conformal_quantile: {w.shape[0]} weights for " f"{r.shape[0]} residuals")
     if not (0.0 < alpha < 1.0):
         raise ValueError(f"conformal alpha must be in (0, 1), got {alpha!r}")
     finite = np.isfinite(r) & np.isfinite(w)
@@ -711,9 +695,7 @@ def _resolve_weights(weights, X_cal, n: int) -> np.ndarray:
         w = w.to_numpy()
     w = np.asarray(w, dtype=np.float64).reshape(-1)
     if w.shape[0] != n:
-        raise ValueError(
-            f"weights resolved to {w.shape[0]} entries but {n} rows were expected"
-        )
+        raise ValueError(f"weights resolved to {w.shape[0]} entries but {n} rows were expected")
     return w
 
 
@@ -737,16 +719,12 @@ def calibrate_conformal_weighted(self, X_cal, y_cal, alpha=0.1, weights=None):
     """
     if not hasattr(self, "estimator_"):
         from sklearn.exceptions import NotFittedError
-        raise NotFittedError(
-            "CompositeTargetEstimator.calibrate_conformal_weighted called before fit."
-        )
+
+        raise NotFittedError("CompositeTargetEstimator.calibrate_conformal_weighted called before fit.")
     y_true = np.asarray(y_cal, dtype=np.float64).reshape(-1)
     y_pred = np.asarray(self.predict(X_cal), dtype=np.float64).reshape(-1)
     if y_pred.shape[0] != y_true.shape[0]:
-        raise ValueError(
-            "calibrate_conformal_weighted: predict produced "
-            f"{y_pred.shape[0]} rows but y_cal has {y_true.shape[0]}"
-        )
+        raise ValueError("calibrate_conformal_weighted: predict produced " f"{y_pred.shape[0]} rows but y_cal has {y_true.shape[0]}")
     residuals = y_true - y_pred
     n = residuals.shape[0]
     if weights is None:

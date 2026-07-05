@@ -20,7 +20,6 @@ through as the discovery ``cv_splitter`` (see ``forward_stepwise``) or used to
 carve the conformal/OOF holdout (held-out rows ONLY, never train rows).
 """
 
-
 from __future__ import annotations
 
 from typing import Any, Iterator
@@ -154,10 +153,7 @@ class PurgedTimeSeriesSplit:
         else:
             first = n - self.n_splits * test_size
             if first < 1:
-                raise ValueError(
-                    f"test_size={test_size} too large for n={n}, n_splits={self.n_splits} "
-                    f"(would leave no train rows in the first fold)."
-                )
+                raise ValueError(f"test_size={test_size} too large for n={n}, n_splits={self.n_splits} " f"(would leave no train rows in the first fold).")
             test_starts = [first + i * test_size for i in range(self.n_splits)]
 
         for test_start in test_starts:
@@ -247,7 +243,5 @@ def purged_oof_holdout(
     train_stop = max(holdout_start - int(purge) - emb, 0)
     train_idx = indices[:train_stop]
     if train_idx.size == 0:
-        raise ValueError(
-            f"No train rows left: n={n}, holdout_frac={holdout_frac}, purge={purge}, embargo={embargo}."
-        )
+        raise ValueError(f"No train rows left: n={n}, holdout_frac={holdout_frac}, purge={purge}, embargo={embargo}.")
     return train_idx, holdout_idx

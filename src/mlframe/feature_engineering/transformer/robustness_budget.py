@@ -30,13 +30,11 @@ def _fit_baseline(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int):
     except ImportError as exc:
         raise ImportError("robustness_budget requires lightgbm") from exc
     if task == "binary":
-        m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
-                               random_state=int(seed), verbose=-1, n_jobs=-1)
+        m = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m.fit(Xt, y_t.astype(np.int32))
         return m, True
     else:
-        m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1,
-                              random_state=int(seed), verbose=-1, n_jobs=-1)
+        m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m.fit(Xt, y_t)
         return m, False
 

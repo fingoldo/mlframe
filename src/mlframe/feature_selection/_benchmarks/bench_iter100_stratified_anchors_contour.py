@@ -28,12 +28,11 @@ import subprocess
 import sys
 import time
 
-
 WIDTHS = (2000, 4000, 6000, 10000)
 COND = (
     # name, n_redundant, rho
     ("sparse", 0, 0.0),
-    ("dense",  20, 0.85),
+    ("dense", 20, 0.85),
 )
 MODES = (True, False)
 
@@ -44,7 +43,7 @@ SEED = 0
 PER_FIT_TIMEOUT_S = 300
 
 
-WORKER_SRC = '''\
+WORKER_SRC = """\
 from __future__ import annotations
 import json, os, sys, time, warnings
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -99,7 +98,7 @@ with open(out_path, "w") as f:
         recall_at_k=trust.get("recall_at_k"),
         proxy_fidelity_score=trust.get("proxy_fidelity_score"),
     ), f)
-'''
+"""
 
 
 def _write_worker(worker_path: str) -> None:
@@ -109,16 +108,12 @@ def _write_worker(worker_path: str) -> None:
 
 def run_cell(worker_path, width, cond_name, n_red, rho, stratified, out_root):
     fit_out = os.path.join(out_root, f"iter100_cell_{width}_{cond_name}_{int(stratified)}.json")
-    cmd = [sys.executable, worker_path,
-           str(width), str(n_red), str(rho),
-           str(N_ROWS), str(N_INF), str(SNR), str(SEED),
-           "1" if stratified else "0", fit_out]
+    cmd = [sys.executable, worker_path, str(width), str(n_red), str(rho), str(N_ROWS), str(N_INF), str(SNR), str(SEED), "1" if stratified else "0", fit_out]
     label = f"w={width} cond={cond_name} stratified={stratified}"
     print(f"[iter100][{label}] starting...", flush=True)
     t0 = time.perf_counter()
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=PER_FIT_TIMEOUT_S, check=False)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=PER_FIT_TIMEOUT_S, check=False)
         elapsed = time.perf_counter() - t0
         if proc.returncode != 0:
             return dict(width=width, cond=cond_name, n_red=n_red, rho=rho,
@@ -132,12 +127,10 @@ def run_cell(worker_path, width, cond_name, n_red, rho, stratified, out_root):
             print(f"[iter100][{label}] OK total={r['total_s']:.1f}s sp={r['spearman']:.4f} "
                   f"fid={r['proxy_fidelity_score']:.4f} rec={r['recovery']}/{r['n_inf']}", flush=True)
             return r
-        return dict(width=width, cond=cond_name, n_red=n_red, rho=rho,
-                    stratified=bool(stratified), error="no_output", elapsed_outer=elapsed)
+        return dict(width=width, cond=cond_name, n_red=n_red, rho=rho, stratified=bool(stratified), error="no_output", elapsed_outer=elapsed)
     except subprocess.TimeoutExpired:
         elapsed = time.perf_counter() - t0
-        return dict(width=width, cond=cond_name, n_red=n_red, rho=rho,
-                    stratified=bool(stratified), error="timeout", elapsed_outer=elapsed)
+        return dict(width=width, cond=cond_name, n_red=n_red, rho=rho, stratified=bool(stratified), error="timeout", elapsed_outer=elapsed)
 
 
 def main():

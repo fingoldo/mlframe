@@ -84,8 +84,7 @@ def main():
                 rendered.append(f"{'*'+c:>10s}")
             else:
                 rendered.append(f"{c:>10s}")
-        print(f"  {regime:22s} {baseline:10.3f} " + " ".join(rendered)
-              + f"   ({np.mean(times):.1f}s avg)")
+        print(f"  {regime:22s} {baseline:10.3f} " + " ".join(rendered) + f"   ({np.mean(times):.1f}s avg)")
 
     print("\n  * = winning basis (highest engineered MI)")
 

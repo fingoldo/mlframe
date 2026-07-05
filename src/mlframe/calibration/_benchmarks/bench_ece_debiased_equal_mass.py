@@ -160,8 +160,7 @@ def _run_one_n(n: int, seeds, nbins_grid, calib_scenarios, miscal_scenarios):
             print(f"  {sc:10s} nbins={nb:2d}  width ECE={np.mean(w_vals):.4f}  mass ECE={np.mean(m_vals):.4f}")
 
     print("=" * 100)
-    print(f"VERDICT(n={n}): equal-mass wins {total_eqmass_wins}/{total_cells} calibrated cells "
-          f"({100*total_eqmass_wins/total_cells:.0f}%)")
+    print(f"VERDICT(n={n}): equal-mass wins {total_eqmass_wins}/{total_cells} calibrated cells " f"({100*total_eqmass_wins/total_cells:.0f}%)")
     return total_eqmass_wins, total_cells
 
 
@@ -176,8 +175,7 @@ def main():
         print()
     print("#" * 100)
     for n, (w, t) in summary.items():
-        print(f"n={n:5d}: equal-mass per-cell wins {w}/{t} ({100*w/t:.0f}%)  -> "
-              f"{'flip' if w / t > 0.66 else 'NO majority (REJECT)'}")
+        print(f"n={n:5d}: equal-mass per-cell wins {w}/{t} ({100*w/t:.0f}%)  -> " f"{'flip' if w / t > 0.66 else 'NO majority (REJECT)'}")
 
 
 if __name__ == "__main__":

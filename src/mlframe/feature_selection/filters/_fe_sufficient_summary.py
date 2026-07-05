@@ -160,13 +160,13 @@ class SufficientSummaryVerdict:
     reached: bool = False
     reason: str = ""
     residual_entropy_frac: float = float("nan")  # H(r)/H(y)
-    max_raw_mi: float = float("nan")             # max_j MI(r; x_j)
-    maxt_floor: float = float("nan")             # the permutation-null ceiling
+    max_raw_mi: float = float("nan")  # max_j MI(r; x_j)
+    maxt_floor: float = float("nan")  # the permutation-null ceiling
     n_selected: int = 0
     n_raw_tested: int = 0
-    blocking_raw: int = -1                        # cols-index of the raw that blocked the stop (or -1)
+    blocking_raw: int = -1  # cols-index of the raw that blocked the stop (or -1)
     per_raw_mi: dict = field(default_factory=dict)  # {cols_index: MI(r; x_j)}
-    residual: "np.ndarray | None" = None          # continuous r = y - E_hat[y|selected]; surfaced so the FE
+    residual: "np.ndarray | None" = None  # continuous r = y - E_hat[y|selected]; surfaced so the FE
     # loop can RE-TARGET the next step on the residual when a raw still carries residual structure
     # (reached=False AND blocking_raw>=0): on r the captured dominant term is removed, so a weak secondary
     # half (e.g. log(c)*sin(d) when a**2/b dominates Var(y)) clears the prevalence gate relative to r.
@@ -382,8 +382,7 @@ def sufficient_summary_reached(
     # large residual, so we never stop there even if all raws sit at the null.
     if v.residual_entropy_frac > float(residual_entropy_frac):
         v.reason = (
-            f"residual still carries {v.residual_entropy_frac:.3f} of Var(y) "
-            f"(1 - R^2 > guard {float(residual_entropy_frac):.3f}); not a sufficient summary"
+            f"residual still carries {v.residual_entropy_frac:.3f} of Var(y) " f"(1 - R^2 > guard {float(residual_entropy_frac):.3f}); not a sufficient summary"
         )
         if verbose:
             logger.info("MRMR sufficient-summary: %s -> continue FE.", v.reason)
@@ -454,10 +453,7 @@ def sufficient_summary_reached(
         # A raw still carries leftover information about the residual -> a future
         # engineered candidate (a function of that raw) COULD still help -> do NOT stop.
         v.blocking_raw = int(blocking)
-        v.reason = (
-            f"raw col {blocking} still carries MI(r;x)={max_mi:.4f} > maxT floor "
-            f"{floor:.4f}; residual is not pure noise w.r.t. the observables"
-        )
+        v.reason = f"raw col {blocking} still carries MI(r;x)={max_mi:.4f} > maxT floor " f"{floor:.4f}; residual is not pure noise w.r.t. the observables"
         if verbose:
             logger.info("MRMR sufficient-summary: %s -> continue FE.", v.reason)
         return v

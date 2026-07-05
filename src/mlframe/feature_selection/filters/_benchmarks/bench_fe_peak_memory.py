@@ -36,7 +36,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 def _make_case(n: int, n_noise: int, seed: int) -> tuple[pd.DataFrame, pd.Series]:
     rng = np.random.default_rng(seed)
     a, b, c, d, e, f = (rng.uniform(1.0, 5.0, n) for _ in range(6))
-    y = a ** 2 / b + f / 5.0 + 3.0 * np.log(c) * np.sin(d)
+    y = a**2 / b + f / 5.0 + 3.0 * np.log(c) * np.sin(d)
     cols = {"a": a, "b": b, "c": c, "d": d, "e": e}
     for j in range(n_noise):
         cols[f"n{j}"] = rng.normal(0.0, 1.0, n)

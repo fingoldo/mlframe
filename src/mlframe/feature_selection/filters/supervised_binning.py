@@ -110,11 +110,9 @@ def mdlp_bin_edges(
 
     splits: list[float] = []
     if backend == "njit":
-        _mdlp_recurse_njit(x_sorted, y_sorted, splits, depth=0,
-                           min_split_size=int(min_split_size), max_depth=int(max_depth))
+        _mdlp_recurse_njit(x_sorted, y_sorted, splits, depth=0, min_split_size=int(min_split_size), max_depth=int(max_depth))
     else:
-        _mdlp_recurse(x_sorted, y_sorted, splits, depth=0,
-                      min_split_size=int(min_split_size), max_depth=int(max_depth))
+        _mdlp_recurse(x_sorted, y_sorted, splits, depth=0, min_split_size=int(min_split_size), max_depth=int(max_depth))
     splits.sort()
     edges = np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])
     return edges
@@ -150,8 +148,7 @@ def _entropy_from_counts_njit(counts: np.ndarray, n: int) -> float:
 
 
 @njit(nogil=True, cache=True)
-def _mdlp_best_split_njit(x_sorted: np.ndarray, y_sorted: np.ndarray,
-                          n_classes: int, min_split_size: int):
+def _mdlp_best_split_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, n_classes: int, min_split_size: int):
     """Find Fayyad-Irani best split on already-sorted (x, y).
 
     Single forward pass over class-boundary candidates using running label
@@ -205,23 +202,20 @@ def _mdlp_best_split_njit(x_sorted: np.ndarray, y_sorted: np.ndarray,
 
 
 @njit(nogil=True, cache=True)
-def _mdlp_pass_threshold_njit(best_gain: float, h_full: float, n: int,
-                               n_classes_full: int, n_classes_left: int,
-                               n_classes_right: int, h_left: float,
-                               h_right: float) -> bool:
+def _mdlp_pass_threshold_njit(
+    best_gain: float, h_full: float, n: int, n_classes_full: int, n_classes_left: int, n_classes_right: int, h_left: float, h_right: float
+) -> bool:
     """Fayyad-Irani 1993 MDL acceptance test.
 
     Returns True iff the split's information gain exceeds the MDL threshold.
     """
     if n <= 1:
         return False
-    delta_arg = (3.0 ** n_classes_full) - 2.0
+    delta_arg = (3.0**n_classes_full) - 2.0
     if delta_arg <= 0.0:
         return False
     log2 = math.log(2.0)
-    delta = (math.log(delta_arg) / log2) - (
-        n_classes_full * h_full - n_classes_left * h_left - n_classes_right * h_right
-    ) / log2
+    delta = (math.log(delta_arg) / log2) - (n_classes_full * h_full - n_classes_left * h_left - n_classes_right * h_right) / log2
     threshold = (math.log(float(n - 1)) / log2 + delta) / n
     return (best_gain / log2) > threshold
 
@@ -259,9 +253,7 @@ def _mdlp_recurse_njit(
         y_compact = np.searchsorted(present, y).astype(np.int64)
     else:
         y_compact = y
-    best_idx, best_gain, h_full, n_l, n_r = _mdlp_best_split_njit(
-        x, y_compact, int(n_classes_full), int(min_split_size)
-    )
+    best_idx, best_gain, h_full, n_l, n_r = _mdlp_best_split_njit(x, y_compact, int(n_classes_full), int(min_split_size))
     if best_idx < 0 or best_gain <= 0.0:
         return
     best_split = 0.5 * (x[best_idx] + x[best_idx + 1])
@@ -283,17 +275,11 @@ def _mdlp_recurse_njit(
     n_classes_right = int(np.count_nonzero(counts_right_dense))
     h_left = float(_entropy_from_counts_njit(counts_left_dense, int(n_l)))
     h_right = float(_entropy_from_counts_njit(counts_right_dense, int(n_r)))
-    if not _mdlp_pass_threshold_njit(
-        float(best_gain), float(h_full), int(n),
-        int(n_classes_full), int(n_classes_left), int(n_classes_right),
-        h_left, h_right
-    ):
+    if not _mdlp_pass_threshold_njit(float(best_gain), float(h_full), int(n), int(n_classes_full), int(n_classes_left), int(n_classes_right), h_left, h_right):
         return
     splits.append(float(best_split))
-    _mdlp_recurse_njit(x[:left_mask_idx], y_compact[:left_mask_idx], splits,
-                      depth + 1, min_split_size, max_depth, counts_left_dense)
-    _mdlp_recurse_njit(x[left_mask_idx:], y_compact[left_mask_idx:], splits,
-                      depth + 1, min_split_size, max_depth, counts_right_dense)
+    _mdlp_recurse_njit(x[:left_mask_idx], y_compact[:left_mask_idx], splits, depth + 1, min_split_size, max_depth, counts_left_dense)
+    _mdlp_recurse_njit(x[left_mask_idx:], y_compact[left_mask_idx:], splits, depth + 1, min_split_size, max_depth, counts_right_dense)
 
 
 # =============================================================================
@@ -351,23 +337,16 @@ def _mdlp_recurse(
     n_classes_full = len(np.unique(y))
     n_classes_left = len(np.unique(y[best_left_idx]))
     n_classes_right = len(np.unique(y[~best_left_idx]))
-    delta = (
-        np.log2(3 ** n_classes_full - 2)
-        - (
-            n_classes_full * h_full
-            - n_classes_left * _entropy_from_labels(y[best_left_idx])
-            - n_classes_right * _entropy_from_labels(y[~best_left_idx])
-        ) / np.log(2.0)
-    )
+    delta = np.log2(3**n_classes_full - 2) - (
+        n_classes_full * h_full - n_classes_left * _entropy_from_labels(y[best_left_idx]) - n_classes_right * _entropy_from_labels(y[~best_left_idx])
+    ) / np.log(2.0)
     threshold = (np.log2(n - 1) + delta) / n
     if best_gain / np.log(2.0) <= threshold:
         return  # MDL says stop
 
     splits.append(float(best_split))
-    _mdlp_recurse(x[best_left_idx], y[best_left_idx], splits, depth + 1,
-                  min_split_size, max_depth)
-    _mdlp_recurse(x[~best_left_idx], y[~best_left_idx], splits, depth + 1,
-                  min_split_size, max_depth)
+    _mdlp_recurse(x[best_left_idx], y[best_left_idx], splits, depth + 1, min_split_size, max_depth)
+    _mdlp_recurse(x[~best_left_idx], y[~best_left_idx], splits, depth + 1, min_split_size, max_depth)
 
 
 def optimal_bin_edges(
@@ -397,10 +376,7 @@ def optimal_bin_edges(
     try:
         from optbinning import OptimalBinning
     except ImportError as e:
-        raise ImportError(
-            "optimal_bin_edges requires the `optbinning` package. "
-            "Install via `pip install optbinning`."
-        ) from e
+        raise ImportError("optimal_bin_edges requires the `optbinning` package. " "Install via `pip install optbinning`.") from e
 
     x = np.asarray(x).ravel()
     y = np.asarray(y).ravel()

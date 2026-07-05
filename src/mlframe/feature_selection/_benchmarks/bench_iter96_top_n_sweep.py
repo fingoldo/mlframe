@@ -29,8 +29,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-C3 = dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
-          redundancy_rho=0.8, snr=8.0, seed=0)
+C3 = dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0)
 
 
 def _make_dataset(cfg):
@@ -79,8 +78,7 @@ def run_one(value, cfg, X, y, roles):
     ranked = rv.get("ranked", []) or []
     chosen_honest_loss = ranked[0].get("honest_loss") if ranked else None
     # n_models_run: max across ranked candidates (adaptive early-stop applies per-candidate).
-    n_models_run_vals = [int(r.get("ucb", {}).get("n_models_run", 0))
-                         for r in ranked if isinstance(r.get("ucb"), dict)]
+    n_models_run_vals = [int(r.get("ucb", {}).get("n_models_run", 0)) for r in ranked if isinstance(r.get("ucb"), dict)]
     n_models_run_max = max(n_models_run_vals) if n_models_run_vals else None
     n_models_run_sum = sum(n_models_run_vals) if n_models_run_vals else None
     chosen = tuple(sorted(sel.selected_features_))
@@ -117,8 +115,7 @@ def main():
         results.append(r)
 
     print("\n=== iter96 top_n sweep ===")
-    print(f"{'value':>6} {'reval_wall':>11} {'e2e':>8} {'recall':>8} {'chosen_loss':>14} "
-          f"{'n_sel':>6} {'n_eval':>7} {'mdl_sum':>8}")
+    print(f"{'value':>6} {'reval_wall':>11} {'e2e':>8} {'recall':>8} {'chosen_loss':>14} " f"{'n_sel':>6} {'n_eval':>7} {'mdl_sum':>8}")
     for r in results:
         loss_str = f"{r['chosen_honest_loss']:.6f}" if r['chosen_honest_loss'] is not None else "n/a"
         rv_str = f"{r['reval_wall']:.3f}" if r['reval_wall'] is not None else "n/a"
@@ -129,23 +126,23 @@ def main():
     base = results[0]
     print("\n=== chosen-subset comparison vs baseline value=20 ===")
     for r in results:
-        ident = "IDENTICAL" if r['chosen'] == base['chosen'] else "DIFFER"
-        jac = len(set(r['chosen']) & set(base['chosen'])) / max(1, len(set(r['chosen']) | set(base['chosen'])))
-        symdiff = set(base['chosen']) ^ set(r['chosen'])
+        ident = "IDENTICAL" if r["chosen"] == base["chosen"] else "DIFFER"
+        jac = len(set(r["chosen"]) & set(base["chosen"])) / max(1, len(set(r["chosen"]) | set(base["chosen"])))
+        symdiff = set(base["chosen"]) ^ set(r["chosen"])
         print(f"  value={r['value']:>3}: {ident}  jaccard={jac:.3f}  symdiff={sorted(symdiff)}")
 
-    base_loss = base['chosen_honest_loss']
+    base_loss = base["chosen_honest_loss"]
     if base_loss is not None:
         print("\n=== chosen-subset honest_loss delta vs baseline ===")
         for r in results:
-            loss = r['chosen_honest_loss']
+            loss = r["chosen_honest_loss"]
             if loss is None:
                 print(f"  value={r['value']:>3}: chosen_loss=n/a")
                 continue
             delta = (loss - base_loss) / abs(base_loss) if base_loss else 0.0
             print(f"  value={r['value']:>3}: chosen_loss={loss:.6f}  delta={delta*100:+.2f}%")
 
-    print("\nbaseline (value=20) chosen:", sorted(base['chosen']))
+    print("\nbaseline (value=20) chosen:", sorted(base["chosen"]))
 
 
 if __name__ == "__main__":

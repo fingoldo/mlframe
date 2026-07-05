@@ -75,9 +75,7 @@ def _any_core_tolerates_nan(self) -> bool:
     Conservative on the multi-estimator path: if any one core would crash on NaN, we impute for all of
     them (a single shared working frame feeds every fold fit).
     """
-    estimators = list(self.estimators) if getattr(self, "estimators", None) else (
-        [self.estimator] if getattr(self, "estimator", None) is not None else []
-    )
+    estimators = list(self.estimators) if getattr(self, "estimators", None) else ([self.estimator] if getattr(self, "estimator", None) is not None else [])
     if not estimators:
         return False
     return all(_estimator_tolerates_nan(e) for e in estimators)
@@ -92,9 +90,7 @@ def apply_nan_in_X_policy(self, X: Union[pd.DataFrame, np.ndarray]):
     """
     policy = getattr(self, "nan_in_X_policy", "impute")
     if policy not in ("impute", "raise"):
-        raise ValueError(
-            f"nan_in_X_policy must be 'impute' or 'raise'; got {policy!r}."
-        )
+        raise ValueError(f"nan_in_X_policy must be 'impute' or 'raise'; got {policy!r}.")
 
     verbose = getattr(self, "verbose", 0)
 
@@ -130,10 +126,7 @@ def apply_nan_in_X_policy(self, X: Union[pd.DataFrame, np.ndarray]):
     # policy == "impute"
     if _any_core_tolerates_nan(self):
         if verbose:
-            logger.info(
-                "RFECV: X has NaN but the core estimator natively tolerates it; passing NaN through "
-                "(no imputation)."
-            )
+            logger.info("RFECV: X has NaN but the core estimator natively tolerates it; passing NaN through " "(no imputation).")
         return X
 
     indicator_cols = tuple(getattr(self, "nan_indicator_cols", ()) or ())
@@ -165,18 +158,15 @@ def apply_nan_in_X_policy(self, X: Union[pd.DataFrame, np.ndarray]):
 
         if verbose:
             logger.info(
-                "RFECV nan_in_X_policy='impute': median-imputed %d column(s) with NaN "
-                "(core estimator does not tolerate NaN).", len(nan_cols),
+                "RFECV nan_in_X_policy='impute': median-imputed %d column(s) with NaN " "(core estimator does not tolerate NaN).",
+                len(nan_cols),
             )
         return X
 
     # ndarray path
     arr = np.array(X, dtype=float, copy=True)
     if indicator_cols and verbose:
-        logger.warning(
-            "RFECV nan_in_X_policy: nan_indicator_cols requires a named DataFrame; "
-            "ignoring indicators for ndarray X."
-        )
+        logger.warning("RFECV nan_in_X_policy: nan_indicator_cols requires a named DataFrame; " "ignoring indicators for ndarray X.")
     for j in range(arr.shape[1]):
         col = arr[:, j]
         mask = np.isnan(col)

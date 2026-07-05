@@ -94,9 +94,7 @@ class FeaturesAndTargetsExtractor:
         # Record source-column -> [derived column names] for any datetime decomposition the FTE does in ``add_features``. The suite reads this in ``_phase_fit_pipeline`` to skip re-decomposing columns FTE already handled (otherwise the suite's second ``create_date_features`` call would emit duplicate ``{ts}_year`` / ``{ts}_month`` cols on top of FTE's). Default-empty so base FTEs (no add_features override) don't trigger the skip.
         self.ftextractor_emitted_columns: Dict[str, List[str]] = {}
 
-    def add_features(
-        self, df: Union[pd.DataFrame, pl.DataFrame]
-    ) -> Union[pd.DataFrame, pl.DataFrame]:
+    def add_features(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Union[pd.DataFrame, pl.DataFrame]:
         """Add engineered features to the DataFrame.
 
         Override in subclasses to add custom features.
@@ -133,9 +131,7 @@ class FeaturesAndTargetsExtractor:
         info = get_dataframe_info(df)
         logger.info("Raw data:\n%s", info)
 
-    def show_processed_data(
-        self, df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict
-    ) -> None:
+    def show_processed_data(self, df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict) -> None:
         """Display information about processed data and targets."""
         logger.info("Processed data:")
         showcase_features_and_targets(df, target_by_type)
@@ -154,9 +150,7 @@ class FeaturesAndTargetsExtractor:
         """
         return {}
 
-    def get_sequences(
-        self, df: Union[pd.DataFrame, pl.DataFrame]
-    ) -> Optional[List[np.ndarray]]:
+    def get_sequences(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Optional[List[np.ndarray]]:
         """Extract sequences from DataFrame for recurrent models.
 
         Uses sequence_columns and sequence_group_column parameters configured
@@ -188,9 +182,7 @@ class FeaturesAndTargetsExtractor:
             group_column=self.sequence_group_column,
         )
 
-    def get_sample_weights(
-        self, df: Union[pd.DataFrame, pl.DataFrame], timestamps: Optional[pd.Series] = None
-    ) -> Dict[str, np.ndarray]:
+    def get_sample_weights(self, df: Union[pd.DataFrame, pl.DataFrame], timestamps: Optional[pd.Series] = None) -> Dict[str, np.ndarray]:
         """Compute sample weights.
 
         Override in subclasses for custom weight schemes.
@@ -205,9 +197,7 @@ class FeaturesAndTargetsExtractor:
         """
         return {}
 
-    def transform(
-        self, df: Union[pd.DataFrame, pl.DataFrame]
-    ) -> Tuple[
+    def transform(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Tuple[
         Union[pd.DataFrame, pl.DataFrame],  # df
         Dict[str, Dict[str, Any]],  # target_by_type
         Optional[Union[pd.Series, pl.Series]],  # group_ids_raw
@@ -278,11 +268,7 @@ class FeaturesAndTargetsExtractor:
         group_ids = None
         if self.group_field is not None and self.group_field in df.columns:
             group_ids_raw = df[self.group_field]
-            group_ids_raw_np = (
-                group_ids_raw.to_numpy()
-                if isinstance(group_ids_raw, pl.Series)
-                else group_ids_raw.values
-            )
+            group_ids_raw_np = group_ids_raw.to_numpy() if isinstance(group_ids_raw, pl.Series) else group_ids_raw.values
             # pd.factorize handles None/NaN and mixed types; -1 codes map to a "__null__" sentinel
             codes, _ = pd.factorize(group_ids_raw_np)
             group_ids = codes
@@ -316,7 +302,6 @@ class FeaturesAndTargetsExtractor:
 
 
 from ._extractors_simple import SimpleFeaturesAndTargetsExtractor  # noqa: E402, F401
-
 
 __all__ = [
     # Helper functions

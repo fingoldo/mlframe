@@ -47,8 +47,7 @@ def main():
 
     t_old = _best(old)
     t_new = _best(lambda: _copula_mi_batch(X, y))
-    print(f"n={n} p={p}: OLD(re-rank y/col) {t_old*1e3:.2f}ms -> "
-          f"NEW(hoist) {t_new*1e3:.2f}ms ({t_old/t_new:.2f}x) identity OK")
+    print(f"n={n} p={p}: OLD(re-rank y/col) {t_old*1e3:.2f}ms -> " f"NEW(hoist) {t_new*1e3:.2f}ms ({t_old/t_new:.2f}x) identity OK")
 
 
 if __name__ == "__main__":

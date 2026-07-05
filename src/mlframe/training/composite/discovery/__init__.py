@@ -1,6 +1,5 @@
 """CompositeTargetDiscovery: main entry-point class that auto-finds the best (base, transform) pairs for a regression target. Orchestrates: base candidate ranking via residualised-MI, transform screening over the registry, optional tiny-model rerank, multi-base forward-stepwise auto-promotion, validation gating, and CompositeProvenance generation. composite.py re-exports CompositeTargetDiscovery for full back-compat."""
 
-
 from __future__ import annotations
 
 import hashlib
@@ -134,9 +133,7 @@ class CompositeTargetDiscovery:
             from ...configs import CompositeTargetDiscoveryConfig
             config = CompositeTargetDiscoveryConfig(**config)
         self.config = config
-        self._patterns_compiled: list[re.Pattern] = [
-            re.compile(p) for p in config.forbidden_base_patterns
-        ]
+        self._patterns_compiled: list[re.Pattern] = [re.compile(p) for p in config.forbidden_base_patterns]
 
     def __getstate__(self) -> dict[str, Any]:
         # fit() pins the (potentially 100+ GB) source frame on ``_df_ref`` and a
@@ -192,10 +189,7 @@ class CompositeTargetDiscovery:
                 # (domain_check gates on y, forward ignores base).
                 base_full = None
             elif extra:
-                base_full = np.column_stack(
-                    [_extract_column_array(df, c)
-                     for c in (spec.base_column, *extra)]
-                )
+                base_full = np.column_stack([_extract_column_array(df, c) for c in (spec.base_column, *extra)])
             else:
                 base_full = _extract_column_array(df, spec.base_column)
             valid = transform.domain_check(y_full, base_full)
@@ -320,9 +314,7 @@ class CompositeTargetDiscovery:
                 if _group_labels_train is not None:
                     _run_train_idx = _subsample_groups(train_idx, _group_labels_train, _frac, _run_rng)
                 else:
-                    _run_train_idx = np.sort(
-                        _run_rng.choice(train_idx, size=_sub_n, replace=False)
-                    )
+                    _run_train_idx = np.sort(_run_rng.choice(train_idx, size=_sub_n, replace=False))
             else:
                 _run_train_idx = train_idx
             try:
@@ -429,10 +421,7 @@ class CompositeTargetDiscovery:
         -- NOT the in-screen ``mi_gain`` -- for generalisation claims; the in-screen
         gain is the optimistically-biased winner's-curse selection score.
         """
-        return {
-            getattr(s, "name", ""): getattr(s, "honest_holdout_gain", None)
-            for s in getattr(self, "specs_", [])
-        }
+        return {getattr(s, "name", ""): getattr(s, "honest_holdout_gain", None) for s in getattr(self, "specs_", [])}
 
     @property
     def raw_y_baseline_rmse_(self) -> float:
@@ -491,14 +480,13 @@ class CompositeTargetDiscovery:
         if len(kept) != len(explicit):
             dropped = sorted(set(explicit) - set(kept))
             logger.warning(
-                "[CompositeTargetDiscovery] explicit base_candidates dropped "
-                "by filters (forbidden/constant/non-numeric/leak-corr): %s", dropped,
+                "[CompositeTargetDiscovery] explicit base_candidates dropped " "by filters (forbidden/constant/non-numeric/leak-corr): %s",
+                dropped,
             )
         return kept
 
     # ``_auto_base`` is implemented in ``_composite_discovery_auto_base.py``
     # and bound onto this class at the bottom of this module.
-
 
     # ``_tiny_model_rerank`` is implemented in ``_composite_discovery_tiny_rerank.py``
     # and bound onto this class at the bottom of this module.

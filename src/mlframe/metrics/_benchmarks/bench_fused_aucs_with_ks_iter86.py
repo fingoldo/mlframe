@@ -16,8 +16,8 @@ def aucs_with_ks(y_true, y_score, desc):
     prev_recall=0.0; pr=0.0; ks=0.0
     inv_pos=1.0/total_pos; inv_neg=1.0/total_neg
     for i in range(n):
-        idx=desc[i]
-        yt=y_true[idx]
+        idx = desc[i]
+        yt = y_true[idx]
         tps += yt
         fps += 1-yt
         if i==n-1 or y_score[desc[i+1]]!=y_score[idx]:
@@ -37,14 +37,14 @@ def aucs_with_ks(y_true, y_score, desc):
 from mlframe.metrics._core_auc_brier import _argsort_desc_for_metrics, fast_numba_aucs
 from mlframe.metrics.classification._classification_extras import ks_statistic
 
-rng=np.random.default_rng(1)
+rng = np.random.default_rng(1)
 for n in (1000, 50000, 1_000_000):
-    yp=rng.beta(2,5,n)
-    yt=(rng.random(n)<yp).astype(np.float64)
-    desc=_argsort_desc_for_metrics(yp)
-    roc,pr,ks=aucs_with_ks(yt,yp,np.ascontiguousarray(desc))
-    roc0,pr0=fast_numba_aucs(yt,yp,desc)
-    ks0=ks_statistic(yt.astype(np.int64),yp,desc_order=desc)
+    yp = rng.beta(2, 5, n)
+    yt = (rng.random(n) < yp).astype(np.float64)
+    desc = _argsort_desc_for_metrics(yp)
+    roc, pr, ks = aucs_with_ks(yt, yp, np.ascontiguousarray(desc))
+    roc0, pr0 = fast_numba_aucs(yt, yp, desc)
+    ks0 = ks_statistic(yt.astype(np.int64), yp, desc_order=desc)
     print(f"n={n}: dROC={abs(roc-roc0):.2e} dPR={abs(pr-pr0):.2e} dKS={abs(ks-ks0):.2e}")
 
 # tied/discrete check

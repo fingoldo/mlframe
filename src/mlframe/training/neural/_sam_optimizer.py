@@ -88,10 +88,7 @@ class SAM(Optimizer):
         adaptive: bool = False,
     ) -> None:
         if not isinstance(base_optimizer, Optimizer):
-            raise TypeError(
-                f"base_optimizer must be torch.optim.Optimizer; got "
-                f"{type(base_optimizer).__name__}"
-            )
+            raise TypeError(f"base_optimizer must be torch.optim.Optimizer; got " f"{type(base_optimizer).__name__}")
         if rho <= 0:
             raise ValueError(f"rho must be > 0; got {rho}")
         self.base_optimizer = base_optimizer
@@ -213,9 +210,7 @@ class SAM(Optimizer):
         """
         if closure is None:
             raise RuntimeError(
-                "SAM.step() requires a closure that re-runs loss + backward; "
-                "got closure=None. Use first_step() / second_step() for "
-                "explicit control."
+                "SAM.step() requires a closure that re-runs loss + backward; " "got closure=None. Use first_step() / second_step() for " "explicit control."
             )
         # First pass: closure was already called (Lightning's contract).
         # Use the existing grads for the ascent perturbation.

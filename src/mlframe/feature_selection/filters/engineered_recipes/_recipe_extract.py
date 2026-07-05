@@ -34,10 +34,7 @@ def _extract_column(X: Any, name: str) -> np.ndarray:
     if isinstance(X, np.ndarray):
         if X.dtype.names is not None:
             return X[name]
-        raise KeyError(
-            f"Cannot resolve column '{name}' on a plain 2-D ndarray. "
-            "Pass a pandas / polars frame or a structured array."
-        )
+        raise KeyError(f"Cannot resolve column '{name}' on a plain 2-D ndarray. " "Pass a pandas / polars frame or a structured array.")
     raise TypeError(f"Unsupported X type for engineered-recipe replay: {type(X)!r}")
 
 
@@ -148,9 +145,7 @@ def _coerce_to_int_with_nan_handling(
     # transform reproduces the EXACT codes (category-order for Categorical,
     # first-appearance order for object via pd.factorize). Numeric columns skip
     # this branch (cat_code_map is empty / None for them).
-    if cat_code_map and not (
-        np.issubdtype(vals.dtype, np.floating) or np.issubdtype(vals.dtype, np.integer)
-    ):
+    if cat_code_map and not (np.issubdtype(vals.dtype, np.floating) or np.issubdtype(vals.dtype, np.integer)):
         # NaN cells route to the dedicated NaN code (``categorize_dataset`` shifts NaN -> 0 when the
         # training column had any NaN); absent that key (training column was NaN-free) a transform-time
         # NaN is genuinely unseen and resolves via ``unknown_strategy``.

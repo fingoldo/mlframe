@@ -45,7 +45,7 @@ def _pair_sources_from_engineered_name(name: str, raw_names):
     star_positions = [i for i, ch in enumerate(name) if ch == "*"]
     for sp in star_positions:
         left = name[:sp]
-        right = name[sp + 1:]
+        right = name[sp + 1 :]
         if left not in raw_set:
             continue
         # right = "{col_j}__{suffix}"; longest raw prefix is col_j.
@@ -223,7 +223,7 @@ def _pair_device_col_specs(eng_columns, raw_cols, *, nbins: int):
             return None
         _head = col_i + "*" + col_j
         if name.startswith(_head + "__"):
-            suffix = name[len(_head) + 2:]
+            suffix = name[len(_head) + 2 :]
         elif "__" in name:
             suffix = name.split("__", 1)[1]
         else:
@@ -274,11 +274,7 @@ def score_pair_cross_basis_by_mi_uplift(
     baseline_mi_j)`` -- the cross-basis term must beat the BETTER individual
     leg, not just the worse one, to count as genuine interaction signal.
     """
-    y_arr = (
-        np.asarray(y).astype(np.int64)
-        if not np.issubdtype(np.asarray(y).dtype, np.integer)
-        else np.asarray(y, dtype=np.int64)
-    )
+    y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
     raw_cols = list(raw_X.columns)
     if engineered_X.empty:
         return pd.DataFrame(columns=[
@@ -439,11 +435,7 @@ def hybrid_orth_mi_pair_fe(
     if len(seed_sources) < 2 or int(top_pair_count) <= 0:
         return X_aug_uni, uni_scores, pd.DataFrame(columns=cross_scores_empty_cols)
 
-    pairs = [
-        (seed_sources[i], seed_sources[j])
-        for i in range(len(seed_sources))
-        for j in range(i + 1, len(seed_sources))
-    ]
+    pairs = [(seed_sources[i], seed_sources[j]) for i in range(len(seed_sources)) for j in range(i + 1, len(seed_sources))]
     pair_eng = generate_pair_cross_basis_features(
         X, pairs, max_degree=pair_max_degree, basis=basis,
     )
@@ -496,10 +488,7 @@ def hybrid_orth_mi_pair_fe(
     else:
         eng_noise_floor = 0.0
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
-    qualified = cross_scores[
-        (cross_scores["uplift"] >= float(pair_min_uplift))
-        & (cross_scores["engineered_mi"] >= abs_floor)
-    ]
+    qualified = cross_scores[(cross_scores["uplift"] >= float(pair_min_uplift)) & (cross_scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_pair_count))
     keep_pair = list(winners["engineered_col"])
     if keep_pair:
@@ -562,7 +551,7 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             # suffix = everything after "{col_i}*{col_j}__" (NOT first "__", which mis-splits
             # one-hot sources like "city__NY*age__He2_He3").
             _head = col_i + "*" + col_j
-            suffix = name[len(_head) + 2:] if name.startswith(_head + "__") else name.split("__", 1)[1]
+            suffix = name[len(_head) + 2 :] if name.startswith(_head + "__") else name.split("__", 1)[1]
             # parse "{code_a}{deg_a}_{code_b}{deg_b}"
             try:
                 left, right = suffix.split("_", 1)
@@ -575,7 +564,7 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             def _parse_code_deg(s: str):
                 for code in ("LL", "He", "T", "L"):
                     if s.startswith(code):
-                        rest = s[len(code):]
+                        rest = s[len(code) :]
                         if rest.isdigit():
                             return code_to_basis[code], int(rest)
                 return None, None
@@ -583,8 +572,8 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             basis_b, deg_b = _parse_code_deg(right)
             if basis_a is None or basis_b is None:
                 logger.warning(
-                    "hybrid_orth_mi_pair_fe_with_recipes: cannot parse code/deg "
-                    "from %r; skipping recipe.", name,
+                    "hybrid_orth_mi_pair_fe_with_recipes: cannot parse code/deg " "from %r; skipping recipe.",
+                    name,
                 )
                 continue
             # For a cross-basis pair the generator emits a single basis code
@@ -626,20 +615,20 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             # univariate: "{col}__{code}{degree}"
             from . import _source_from_engineered_name as _src_of
             src = _src_of(name, _raw_src_cols)
-            suffix = name[len(src) + 2:] if name.startswith(src + "__") else name.split("__", 1)[1]
+            suffix = name[len(src) + 2 :] if name.startswith(src + "__") else name.split("__", 1)[1]
             chosen_basis = None
             chosen_degree = None
             for code in ("LL", "He", "T", "L"):
                 if suffix.startswith(code):
-                    rest = suffix[len(code):]
+                    rest = suffix[len(code) :]
                     if rest.isdigit():
                         chosen_basis = code_to_basis[code]
                         chosen_degree = int(rest)
                         break
             if chosen_basis is None or chosen_degree is None:
                 logger.warning(
-                    "hybrid_orth_mi_pair_fe_with_recipes: cannot parse basis/"
-                    "degree from %r; skipping recipe.", name,
+                    "hybrid_orth_mi_pair_fe_with_recipes: cannot parse basis/" "degree from %r; skipping recipe.",
+                    name,
                 )
                 continue
             # BUG2 FIX (2026-06-12): freeze the fit-time preprocess params.

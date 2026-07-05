@@ -134,7 +134,7 @@ def compute_prediction_band_attention_features(
             band_pred_mean[b] = float(p_band.mean())
 
         diffs = Xq_s[:, None, :] - band_centroids[None, :, :]
-        sq = (diffs ** 2).sum(axis=-1)
+        sq = (diffs**2).sum(axis=-1)
         scores = -sq
         weights = _softmax(scores, temp=temp)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)

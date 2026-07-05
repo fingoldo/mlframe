@@ -52,10 +52,7 @@ class BenchResult:
     runtime_s: float
 
 
-def make_xor_collinear_dataset(n: int = 4000, n_collinear: int = 10,
-                                n_pure_noise: int = 10,
-                                noise_level: float = 0.1,
-                                seed: int = 0) -> tuple:
+def make_xor_collinear_dataset(n: int = 4000, n_collinear: int = 10, n_pure_noise: int = 10, noise_level: float = 0.1, seed: int = 0) -> tuple:
     """Synthesise the agent B test bed.
 
     Returns:
@@ -68,7 +65,7 @@ def make_xor_collinear_dataset(n: int = 4000, n_collinear: int = 10,
     rng = np.random.default_rng(int(seed))
     x_a = rng.integers(0, 2, n).astype(np.float64)
     x_b = rng.integers(0, 2, n).astype(np.float64)
-    y_clean = (x_a.astype(np.int64) ^ x_b.astype(np.int64))
+    y_clean = x_a.astype(np.int64) ^ x_b.astype(np.int64)
     # Tiny label flip so the binning has resolution.
     flip = rng.random(n) < noise_level * 0.05
     y = np.where(flip, 1 - y_clean, y_clean).astype(np.int64)
@@ -141,15 +138,13 @@ def main():
     )
     results.append(r5)
 
-    print(f"{'method':<35} {'rt_s':>7} {'n_sel':>6} {'x_a kept':>10}"
-          f" {'x_b kept':>10}")
+    print(f"{'method':<35} {'rt_s':>7} {'n_sel':>6} {'x_a kept':>10}" f" {'x_b kept':>10}")
     print("-" * 78)
     for r in results:
         kept_a = "yes" if "x_a" in r.selected else "no"
         kept_b = "yes" if "x_b" in r.selected else "no"
         marker = "  <- BOTH kept!" if (kept_a == "yes" and kept_b == "yes") else ""
-        print(f"{r.method:<35} {r.runtime_s:>7.2f} {r.n_features:>6}"
-              f" {kept_a:>10} {kept_b:>10}{marker}")
+        print(f"{r.method:<35} {r.runtime_s:>7.2f} {r.n_features:>6}" f" {kept_a:>10} {kept_b:>10}{marker}")
 
     print()
     print("Detailed selections (top-10):")

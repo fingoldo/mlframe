@@ -65,7 +65,7 @@ def best_of(fn, *args, n=7):
 
 
 if __name__ == "__main__":
-    for (n, d) in [(2000, 30), (5000, 50), (20000, 80)]:
+    for n, d in [(2000, 30), (5000, 50), (20000, 80)]:
         rng = np.random.default_rng(0)
         X = rng.standard_normal((n, d)).astype(np.float32)
         model = _LinModel(d, 1)

@@ -56,7 +56,7 @@ def _fourier_col_gpu(cp, xg, m: dict):
         z = (u - lo) / span
     else:
         p = int(m.get("power", 1))
-        xp = xg if p == 1 else xg ** p
+        xp = xg if p == 1 else xg**p
         z = (xp - lo) / span
     ang = (2.0 * math.pi * float(m["freq"])) * z
     return cp.sin(ang) if m.get("kind") == "sin" else cp.cos(ang)

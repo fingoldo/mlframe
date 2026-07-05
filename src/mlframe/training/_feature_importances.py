@@ -103,10 +103,7 @@ def _permutation_feature_importances(
     # target -- once per ensemble flavour).
     _fail = (lambda: (None, None)) if return_std else (lambda: None)
     if model is None:
-        logger.debug(
-            "permutation_importance skipped: model is None (ensemble "
-            "aggregator without sklearn-style estimator surface)."
-        )
+        logger.debug("permutation_importance skipped: model is None (ensemble " "aggregator without sklearn-style estimator surface).")
         return _fail()
     try:
         from sklearn.inspection import permutation_importance
@@ -287,13 +284,13 @@ def _cuda_batched_permutation_importance(
                     for r in range(n_repeats):
                         offset = (slot * n_repeats + r) * n
                         perm = torch.as_tensor(rng.permutation(n), dtype=torch.long, device=device)
-                        batched[offset:offset + n, j] = X_t[perm, j]
+                        batched[offset : offset + n, j] = X_t[perm, j]
                 preds = net(batched).reshape(-1).cpu().numpy().astype(np.float64)
                 for slot, j in enumerate(range(chunk_start, chunk_end)):
                     scores = np.empty(n_repeats, dtype=np.float64)
                     for r in range(n_repeats):
                         offset = (slot * n_repeats + r) * n
-                        scores[r] = fast_r2_score(y_arr, preds[offset:offset + n])
+                        scores[r] = fast_r2_score(y_arr, preds[offset : offset + n])
                     importances[j] = baseline_score - scores.mean()
                     # baseline_score is constant, so the per-repeat importance dispersion is just std(scores).
                     importances_std[j] = float(scores.std())
@@ -598,9 +595,7 @@ def get_model_feature_importances(
                 y_arr = None
             if y_arr is not None and y_arr.ndim == 2 and y_arr.shape[1] >= len(children):
                 for j in needs_perm:
-                    child_fi = _permutation_feature_importances(
-                        children[j], X, y_arr[:, j]
-                    )
+                    child_fi = _permutation_feature_importances(children[j], X, y_arr[:, j])
                     if child_fi is not None:
                         per_child[j] = np.asarray(child_fi)
         # Drop any child whose permutation also failed (None placeholder).
@@ -641,11 +636,8 @@ def get_model_feature_importances(
             if feature_importances is None and nn_fi_method == "auto" and y is not None:
                 # Captum unavailable -> try CUDA-batched permutation when
                 # n_features justifies the warmup amortisation.
-                _n_feats = (
-                    X.shape[1] if hasattr(X, "shape") and len(X.shape) == 2 else None
-                )
-                if (net is not None and _n_feats is not None
-                        and _n_feats >= _CUDA_PERM_MIN_FEATURES):
+                _n_feats = X.shape[1] if hasattr(X, "shape") and len(X.shape) == 2 else None
+                if net is not None and _n_feats is not None and _n_feats >= _CUDA_PERM_MIN_FEATURES:
                     feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)
                 if feature_importances is None:
                     feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True)
@@ -744,4 +736,3 @@ def plot_model_feature_importances(
             logger.warning("Could not plot feature importances. Maybe data shape changed within a pipeline?", exc_info=True)
 
         return feature_importances
-

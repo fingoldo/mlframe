@@ -111,9 +111,7 @@ def make_train_test_split(
     if trainset_aging_limit is not None and not (0 < trainset_aging_limit < 1.0):
         raise ValueError(f"trainset_aging_limit must be in (0, 1), got {trainset_aging_limit}")
     if val_placement not in ("forward", "backward"):
-        raise ValueError(
-            f"val_placement must be 'forward' or 'backward', got {val_placement!r}"
-        )
+        raise ValueError(f"val_placement must be 'forward' or 'backward', got {val_placement!r}")
 
     # 2026-04-27 Session 7 batch 7: normalise ``timestamps`` to pd.Series
     # at function entry. Several downstream branches use ``timestamps.iloc``
@@ -137,8 +135,7 @@ def make_train_test_split(
         except Exception:
             _n_groups = -1
         logger.info(
-            "Group-aware splitting: ENABLED (n_groups=%d). "
-            "Each group stays within ONE split (no per-row leakage).",
+            "Group-aware splitting: ENABLED (n_groups=%d). " "Each group stays within ONE split (no per-row leakage).",
             _n_groups,
         )
         logger.warning(
@@ -171,12 +168,7 @@ def make_train_test_split(
         _effective_val_placement = "forward"
 
     # Implied-temporal-layout INFO: when caller supplied timestamps AND default val_placement="forward" (a quiet default that assumes iid-friendly target), surface the resulting val/train/test ranges + the val->train gap + estimated train->prod gap so the time-series user can see at a glance how their split lays out. Cheap one-time log; never auto-flips the default.
-    if (
-        timestamps is not None
-        and val_placement == "forward"
-        and _effective_val_placement == "forward"
-        and val_size > 0
-    ):
+    if timestamps is not None and val_placement == "forward" and _effective_val_placement == "forward" and val_size > 0:
         try:
             _ts = pd.to_datetime(timestamps, errors="coerce")
             _n_nat = int(pd.isna(_ts).sum())
@@ -228,11 +220,7 @@ def make_train_test_split(
             _group_clause = f"; groups (n_groups={_ng}) still kept whole per split"
         else:
             _group_clause = ""
-        _reason = (
-            "no timestamps_column"
-            if timestamps is None
-            else f"val_size={val_size}"
-        )
+        _reason = "no timestamps_column" if timestamps is None else f"val_size={val_size}"
         if val_placement == "backward":
             logger.warning(
                 "val_placement=%r requested but downgraded to %r (%s)%s. "
@@ -449,7 +437,7 @@ def make_train_test_split(
         # Only for the fully-sequential path: shuffled / partial-sequential
         # portions intentionally interleave timestamps, so a tie split there is
         # by request, not a bug.
-        _fully_sequential = (n_test_shuf == 0 and n_val_shuf == 0)
+        _fully_sequential = n_test_shuf == 0 and n_val_shuf == 0
         if _fully_sequential and len(train_idx):
             _ts_vals = timestamps.values
             if _effective_val_placement == "backward":
@@ -464,7 +452,7 @@ def make_train_test_split(
 
         # Apply aging limit
         if trainset_aging_limit:
-            train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)):]
+            train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
 
         # Build detail strings (same NaT-on-empty guard as above; also
         # numeric-ts safe via the inline ``_fmt_ts`` fallback).
@@ -536,9 +524,7 @@ def make_train_test_split(
                         # Per-class group counts: StratifiedGroupKFold needs each
                         # class spread over enough groups to place it in every fold.
                         _grp_arr = np.asarray(groups)
-                        _min_groups_per_class = min(
-                            int(np.unique(_grp_arr[_derived_ids == _c]).shape[0]) for _c in _du
-                        ) if len(_du) else 0
+                        _min_groups_per_class = min(int(np.unique(_grp_arr[_derived_ids == _c]).shape[0]) for _c in _du) if len(_du) else 0
                         if 2 <= len(_du) <= 200 and _min_groups_per_class >= 2:
                             stratify_y = _derived_ids
                             _derived_ok = True
@@ -554,9 +540,9 @@ def make_train_test_split(
                             )
                     except Exception as _derive_err:
                         logger.warning(
-                            "make_train_test_split: derived-label fallback for multilabel+groups "
-                            "failed (%s: %s); dropping stratification.",
-                            type(_derive_err).__name__, _derive_err,
+                            "make_train_test_split: derived-label fallback for multilabel+groups " "failed (%s: %s); dropping stratification.",
+                            type(_derive_err).__name__,
+                            _derive_err,
                         )
                     if not _derived_ok:
                         logger.warning(
@@ -572,23 +558,14 @@ def make_train_test_split(
                         stratify_y = None
 
         if stratify_y is not None and timestamps is not None:
-            logger.warning(
-                "stratify_y provided but timestamps active -- stratification "
-                "ignored (stratification is ill-defined for time-based splits)."
-            )
+            logger.warning("stratify_y provided but timestamps active -- stratification " "ignored (stratification is ill-defined for time-based splits).")
             _stratify_active = None
         elif stratify_y is not None:
             _stratify_active = np.asarray(stratify_y)
             if _stratify_active.shape[0] != len(df):
-                raise ValueError(
-                    f"stratify_y length {_stratify_active.shape[0]} does not "
-                    f"match df length {len(df)}"
-                )
+                raise ValueError(f"stratify_y length {_stratify_active.shape[0]} does not " f"match df length {len(df)}")
             if _stratify_active.ndim not in (1, 2):
-                raise ValueError(
-                    f"stratify_y must be 1-D (single-label) or 2-D (multilabel), "
-                    f"got shape {_stratify_active.shape}"
-                )
+                raise ValueError(f"stratify_y must be 1-D (single-label) or 2-D (multilabel), " f"got shape {_stratify_active.shape}")
         else:
             _stratify_active = None
 
@@ -598,15 +575,9 @@ def make_train_test_split(
         if groups is not None:
             _groups_arr = np.asarray(groups)
             if _groups_arr.shape[0] != len(df):
-                raise ValueError(
-                    f"groups length {_groups_arr.shape[0]} does not match "
-                    f"df length {len(df)}"
-                )
+                raise ValueError(f"groups length {_groups_arr.shape[0]} does not match " f"df length {len(df)}")
             if _groups_arr.ndim != 1:
-                raise ValueError(
-                    f"groups must be 1-D (one query-id per row), got shape "
-                    f"{_groups_arr.shape}"
-                )
+                raise ValueError(f"groups must be 1-D (one query-id per row), got shape " f"{_groups_arr.shape}")
 
         # Multilabel single greedy 3-way pass replaces two full O(n*K*iters) carves (no groups).
         _ml_3way_done = _use_multilabel_3way(_groups_arr, _stratify_active, test_size, val_size)
@@ -683,9 +654,7 @@ def make_train_test_split(
                     n_splits=1, test_size=val_size, random_state=sklearn_seed,
                 )
                 _train_groups = _groups_arr[train_idx]
-                _train_local_train, _train_local_val = next(
-                    gss_val.split(train_idx, groups=_train_groups)
-                )
+                _train_local_train, _train_local_val = next(gss_val.split(train_idx, groups=_train_groups))
                 # gss returns positions into train_idx, not into all_idx.
                 val_idx = train_idx[_train_local_val]
                 train_idx = train_idx[_train_local_train]
@@ -705,7 +674,7 @@ def make_train_test_split(
             val_idx = np.array([], dtype=np.intp)
 
         if trainset_aging_limit:
-            train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)):]
+            train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
 
         train_details, val_details, test_details = "", "", ""
 
@@ -766,17 +735,11 @@ def make_train_test_split(
                 # which strips bare asserts - a partition bug would then
                 # silently corrupt the split rather than fail loud.
                 if (_new_train_mask & _new_val_mask).any():
-                    raise RuntimeError(
-                        "Group-spanning cutoff resolution: train and val masks overlap after promote"
-                    )
+                    raise RuntimeError("Group-spanning cutoff resolution: train and val masks overlap after promote")
                 if (_new_train_mask & _new_test_mask).any():
-                    raise RuntimeError(
-                        "Group-spanning cutoff resolution: train and test masks overlap after promote"
-                    )
+                    raise RuntimeError("Group-spanning cutoff resolution: train and test masks overlap after promote")
                 if (_new_val_mask & _new_test_mask).any():
-                    raise RuntimeError(
-                        "Group-spanning cutoff resolution: val and test masks overlap after promote"
-                    )
+                    raise RuntimeError("Group-spanning cutoff resolution: val and test masks overlap after promote")
 
                 n_reassigned = int(_to_val_mask.sum() + _to_test_mask.sum())
                 train_idx = np.flatnonzero(_new_train_mask).astype(np.intp)

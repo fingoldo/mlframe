@@ -28,21 +28,21 @@ def bed_gated_skew(seed, n=6000, p=20):
     """a,b SHIFTED so median(a)~=3 (far from 0). y depends on (a>median_a)*b."""
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, p))
-    X[:, 0] = X[:, 0] + 3.0     # shift operand a: median ~ 3, NOT 0
+    X[:, 0] = X[:, 0] + 3.0  # shift operand a: median ~ 3, NOT 0
     a, b = X[:, 0], X[:, 1]
     z = (a > np.median(a)).astype(float) * b
-    y = (rng.random(n) < 1/(1+np.exp(-1.8*z))).astype(np.int64)
+    y = (rng.random(n) < 1 / (1 + np.exp(-1.8 * z))).astype(np.int64)
     return X, y
 
 
 def bed_thr_and_skew(seed, n=6000, p=20):
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, p))
-    X[:, 0] = np.exp(0.7 * X[:, 0])      # lognormal: median ~1, threshold-0 useless
-    X[:, 1] = X[:, 1] + 2.0              # shifted: median ~2
+    X[:, 0] = np.exp(0.7 * X[:, 0])  # lognormal: median ~1, threshold-0 useless
+    X[:, 1] = X[:, 1] + 2.0  # shifted: median ~2
     a, b = X[:, 0], X[:, 1]
     z = ((a > np.median(a)) & (b > np.median(b))).astype(float)
-    y = (rng.random(n) < 1/(1+np.exp(-2.6*(z-0.25)))).astype(np.int64)
+    y = (rng.random(n) < 1 / (1 + np.exp(-2.6 * (z - 0.25)))).astype(np.int64)
     return X, y
 
 
@@ -55,7 +55,7 @@ def eng(Xtr, Xte, kind):
     if kind == "thr_and0": return (atr>0).astype(float)*(btr>0).astype(float), (ate>0).astype(float)*(bte>0).astype(float)
     if kind == "thr_and_med":
         ma, mb = np.median(atr), np.median(btr)
-        return (atr>ma).astype(float)*(btr>mb).astype(float), (ate>ma).astype(float)*(bte>mb).astype(float)
+        return (atr > ma).astype(float) * (btr > mb).astype(float), (ate > ma).astype(float) * (bte > mb).astype(float)
     raise ValueError(kind)
 
 
@@ -92,10 +92,8 @@ def run(name, mk, kinds):
 
 def main():
     print(f"have_lgbm={_HAVE_LGBM} seeds={SEEDS}")
-    run("gated_skew y=(a>med_a)*b, median_a~3", bed_gated_skew,
-        ["product", "gated0", "gated_med"])
-    run("thr_and_skew y=AND, a~lognormal b~shift", bed_thr_and_skew,
-        ["product", "thr_and0", "thr_and_med"])
+    run("gated_skew y=(a>med_a)*b, median_a~3", bed_gated_skew, ["product", "gated0", "gated_med"])
+    run("thr_and_skew y=AND, a~lognormal b~shift", bed_thr_and_skew, ["product", "thr_and0", "thr_and_med"])
 
 
 if __name__ == "__main__":

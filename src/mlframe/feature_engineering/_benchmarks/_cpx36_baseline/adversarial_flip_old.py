@@ -73,14 +73,12 @@ def compute_adversarial_flip_features(
         d = Xt_s.shape[1]
         feat_std = Xt_s.std(axis=0) + 1e-6
         if task == "binary":
-            model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
-                                       random_state=int(fold_seed), verbose=-1, n_jobs=-1)
+            model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1)
             model.fit(Xt_s, y_t.astype(np.int32))
             pred_orig = model.predict_proba(Xq_s)[:, 1].astype(np.float32)
             orig_class = (pred_orig > 0.5).astype(np.float32)
         else:
-            model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1,
-                                      random_state=int(fold_seed), verbose=-1, n_jobs=-1)
+            model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1)
             model.fit(Xt_s, y_t)
             pred_orig = model.predict(Xq_s).astype(np.float32)
             train_pred = model.predict(Xt_s).astype(np.float32)

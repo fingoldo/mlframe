@@ -87,8 +87,7 @@ def _before_after() -> list[dict]:
         X, y = frame_sig(p, n)
         rt = min(_one(ref.cheap_modular_scan, X, y) for _ in range(REPEATS))
         nt = min(_one(cheap_modular_scan, X, y) for _ in range(REPEATS))
-        rows.append({"p": p, "n": n, "ref_s": round(rt, 4), "new_s": round(nt, 4),
-                     "speedup": round(rt / nt, 3), "saved_s": round(rt - nt, 4)})
+        rows.append({"p": p, "n": n, "ref_s": round(rt, 4), "new_s": round(nt, 4), "speedup": round(rt / nt, 3), "saved_s": round(rt - nt, 4)})
         print(f"  before/after p={p:3d} n={n:6d}  ref={rt:.4f}s  new={nt:.4f}s  speedup={rt / nt:.2f}x  saved={rt - nt:+.4f}s")
     return rows
 

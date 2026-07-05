@@ -61,14 +61,14 @@ def _chk(msg: str):
 # (round-3 fallback), gisette (5000-feat wide stress test), plus several more real ones. sklearn breast_cancer is the
 # guaranteed-offline fallback so the bench always produces at least one real comparison.
 OPENML_SETS = [
-    ("madelon",       dict(name="madelon", version=1)),
+    ("madelon", dict(name="madelon", version=1)),
     ("gina_agnostic", dict(name="gina_agnostic", version=1)),
-    ("gisette",       dict(name="gisette", version=1)),
-    ("scene",         dict(name="scene", version=1)),
-    ("Bioresponse",   dict(name="Bioresponse", version=1)),
-    ("hill-valley",   dict(name="hill-valley", version=1)),
-    ("isolet",        dict(name="isolet", version=1)),
-    ("arcene",        dict(name="arcene", version=1)),
+    ("gisette", dict(name="gisette", version=1)),
+    ("scene", dict(name="scene", version=1)),
+    ("Bioresponse", dict(name="Bioresponse", version=1)),
+    ("hill-valley", dict(name="hill-valley", version=1)),
+    ("isolet", dict(name="isolet", version=1)),
+    ("arcene", dict(name="arcene", version=1)),
 ]
 
 
@@ -188,14 +188,14 @@ def _fs():
 # All our Feature Selectors x every dataset. RFECV uses the permutation-importance path (the heavier, more
 # discriminating variant); boruta/shap use the fs_selectors defaults. Order roughly cheap -> expensive.
 STRATEGIES = {
-    "all":       lambda: None,                                  # no selection (do-nothing baseline)
-    "mrmr_fe":   make_mrmr_fe,                                  # MRMR + FE (batched discretize + MI + GPU)
-    "mrmr_tree": make_mrmr_tree,                                # MRMRTreeRescued rescue win
-    "hybrid":    lambda: HybridSelector(vote=1, use_fe=True),   # the shipped hybrid (all members)
-    "rfecv":     lambda: _fs_sel_adapter(lambda: _fs().RFECVSel("lgbm_perm")),  # numpy-mirror estimator path
-    "boruta":    lambda: _fs_sel_adapter(lambda: _fs().BorutaSel()),            # memoized binom_test
-    "shap":      lambda: _fs_sel_adapter(lambda: _fs().ShapSel()),              # ShapProxiedFS
-    "relieff":   lambda: _fs_sel_adapter(lambda: _fs().ReliefFSel()),           # skrebate ReliefF (positive-weight cut)
+    "all": lambda: None,  # no selection (do-nothing baseline)
+    "mrmr_fe": make_mrmr_fe,  # MRMR + FE (batched discretize + MI + GPU)
+    "mrmr_tree": make_mrmr_tree,  # MRMRTreeRescued rescue win
+    "hybrid": lambda: HybridSelector(vote=1, use_fe=True),  # the shipped hybrid (all members)
+    "rfecv": lambda: _fs_sel_adapter(lambda: _fs().RFECVSel("lgbm_perm")),  # numpy-mirror estimator path
+    "boruta": lambda: _fs_sel_adapter(lambda: _fs().BorutaSel()),  # memoized binom_test
+    "shap": lambda: _fs_sel_adapter(lambda: _fs().ShapSel()),  # ShapProxiedFS
+    "relieff": lambda: _fs_sel_adapter(lambda: _fs().ReliefFSel()),  # skrebate ReliefF (positive-weight cut)
 }
 
 
@@ -229,12 +229,10 @@ def eval_strategy(nm, mk, Xtr, Xte, ytr, yte):
     Ztr, Zte = Ztr[common], Zte[common]
     a = downstream(Ztr, Zte, ytr, yte)
     am = round(float(np.nanmean(list(a.values()))), 4)
-    return dict(strategy=nm, n=int(Ztr.shape[1]), fit_s=round(time.time() - t0, 1),
-                auc_mean=am, auc_prod=_prod_weighted(a), **a)
+    return dict(strategy=nm, n=int(Ztr.shape[1]), fit_s=round(time.time() - t0, 1), auc_mean=am, auc_prod=_prod_weighted(a), **a)
 
 
-_OOM_MARKERS = ("unable to allocate", "out of memory", "memoryerror", "paging file",
-                "bad allocation", "model format", "cannot allocate")
+_OOM_MARKERS = ("unable to allocate", "out of memory", "memoryerror", "paging file", "bad allocation", "model format", "cannot allocate")
 
 
 def _is_oom(exc) -> bool:
@@ -325,8 +323,8 @@ def write_results(df):
         deltas.append(dict(dataset=ds, hy_fe=d_hy_fe, tr_fe=d_tr_fe, hy_all=d_hy_all))
         def f(v):
             return "" if (v != v) else f"{v:.4f}"
-        lines.append(f"| {ds} | {f(a_all)} | {f(a_fe)} | {f(a_hy)} | {f(a_tr)} | "
-                     f"{f(d_hy_fe):>+} | {f(d_tr_fe):>+} | {f(d_hy_all):>+} |")
+
+        lines.append(f"| {ds} | {f(a_all)} | {f(a_fe)} | {f(a_hy)} | {f(a_tr)} | " f"{f(d_hy_fe):>+} | {f(d_tr_fe):>+} | {f(d_hy_all):>+} |")
 
     # verdicts
     dd = pd.DataFrame(deltas)

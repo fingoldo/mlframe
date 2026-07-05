@@ -41,7 +41,7 @@ def _old_weights(q_proj, k_proj, topk_ids, softmax_temp):
 
 def _new_weights(q_proj, k_proj, topk_ids, softmax_temp):
     n_queries, k_count = topk_ids.shape
-    gathered = k_proj[topk_ids]                                  # (n_queries, k, head_dim)
+    gathered = k_proj[topk_ids]  # (n_queries, k, head_dim)
     logits = np.einsum("qkd,qd->qk", gathered, q_proj) / softmax_temp
     m = logits.max(axis=1, keepdims=True)
     finite_m = np.isfinite(m[:, 0])

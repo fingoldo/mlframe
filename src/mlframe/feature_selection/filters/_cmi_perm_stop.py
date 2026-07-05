@@ -29,8 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 @njit(nogil=True, cache=True)
-def _cmi_plugin_njit(x: np.ndarray, y: np.ndarray, z_comp: np.ndarray,
-                      K_x: int, K_y: int, K_z: int) -> float:
+def _cmi_plugin_njit(x: np.ndarray, y: np.ndarray, z_comp: np.ndarray, K_x: int, K_y: int, K_z: int) -> float:
     """Plug-in I(X; Y | Z) where Z is a composite integer code."""
     n = x.shape[0]
     if n <= 0:
@@ -54,8 +53,7 @@ def _cmi_plugin_njit(x: np.ndarray, y: np.ndarray, z_comp: np.ndarray,
         for j in range(K_y):
             for k in range(K_z):
                 v = joint[i, j, k]
-                if v <= 0.0 or Pxz[i, k] <= 0.0 or Pyz[j, k] <= 0.0 \
-                        or Pz[k] <= 0.0:
+                if v <= 0.0 or Pxz[i, k] <= 0.0 or Pyz[j, k] <= 0.0 or Pz[k] <= 0.0:
                     continue
                 p_xyz = v / n_f
                 p_z = Pz[k] / n_f

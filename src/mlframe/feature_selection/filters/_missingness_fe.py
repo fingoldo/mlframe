@@ -184,15 +184,11 @@ def missing_indicator_fit(
         raise ValueError("missing_indicator_fit: X is empty")
     missing = [c for c in cols if c not in X.columns]
     if missing:
-        raise ValueError(
-            f"missing_indicator_fit: columns missing from X: {missing}"
-        )
+        raise ValueError(f"missing_indicator_fit: columns missing from X: {missing}")
     encoded_cols: dict[str, np.ndarray] = {}
     recipes: dict[str, dict] = {}
     for col in cols:
-        encoded_cols[engineered_name_missing_indicator(col)] = (
-            X[col].isna().to_numpy().astype(np.int8, copy=False)
-        )
+        encoded_cols[engineered_name_missing_indicator(col)] = X[col].isna().to_numpy().astype(np.int8, copy=False)
         recipes[col] = {}
     enc_df = pd.DataFrame(encoded_cols, index=X.index)
     return enc_df, recipes
@@ -204,14 +200,9 @@ def apply_missing_indicator(
     """Replay per-column missingness indicator. No fit state needed; the
     recipe argument is kept for parity with other encoders."""
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_missing_indicator: X_test must be a DataFrame; "
-            f"got {type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_missing_indicator: X_test must be a DataFrame; " f"got {type(X_test).__name__}")
     if col not in X_test.columns:
-        raise KeyError(
-            f"apply_missing_indicator: column {col!r} missing from X_test"
-        )
+        raise KeyError(f"apply_missing_indicator: column {col!r} missing from X_test")
     return X_test[col].isna().to_numpy().astype(np.int8, copy=False)
 
 
@@ -237,9 +228,7 @@ def missingness_count_fit(
         raise ValueError("missingness_count_fit: X is empty")
     missing = [c for c in cols if c not in X.columns]
     if missing:
-        raise ValueError(
-            f"missingness_count_fit: columns missing from X: {missing}"
-        )
+        raise ValueError(f"missingness_count_fit: columns missing from X: {missing}")
     if not cols:
         # Degenerate but allowed; returns all-zero column.
         counts = np.zeros(len(X), dtype=np.int32)
@@ -257,10 +246,7 @@ def apply_missingness_count(
     that doesn't exist at test time is a schema bug, not an
     informative missing value."""
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_missingness_count: X_test must be a DataFrame; "
-            f"got {type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_missingness_count: X_test must be a DataFrame; " f"got {type(X_test).__name__}")
     cols = tuple(recipe.get("cols", ()))
     if not cols:
         return np.zeros(len(X_test), dtype=np.int32)
@@ -325,9 +311,7 @@ def missingness_pattern_fit(
         raise ValueError(f"top_k must be >= 1; got {top_k}")
     missing = [c for c in cols if c not in X.columns]
     if missing:
-        raise ValueError(
-            f"missingness_pattern_fit: columns missing from X: {missing}"
-        )
+        raise ValueError(f"missingness_pattern_fit: columns missing from X: {missing}")
     cols_t = tuple(str(c) for c in cols)
     n = len(X)
     if not cols_t:
@@ -348,9 +332,7 @@ def missingness_pattern_fit(
     # determinism across platforms.
     order = np.lexsort((uniq, -counts))
     top_signatures = uniq[order][: int(top_k)]
-    pattern_to_label: dict[int, int] = {
-        int(sig): i for i, sig in enumerate(top_signatures)
-    }
+    pattern_to_label: dict[int, int] = {int(sig): i for i, sig in enumerate(top_signatures)}
     other_label = int(top_k)
     # Replay-time label assignment vectorisation: build a mapping array
     # for fast lookup at fit-time labelling.
@@ -370,10 +352,7 @@ def apply_missingness_pattern(
 ) -> np.ndarray:
     """Replay per-row pattern label. Unseen patterns -> ``other_label``."""
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_missingness_pattern: X_test must be a DataFrame; "
-            f"got {type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_missingness_pattern: X_test must be a DataFrame; " f"got {type(X_test).__name__}")
     cols = tuple(recipe.get("cols", ()))
     other_label = int(recipe.get("other_label", 0))
     pattern_to_label = dict(recipe.get("pattern_to_label", {}))
@@ -502,10 +481,7 @@ def missingness_count_with_recipes(
 
 def _apply_missing_indicator_recipe(recipe, X) -> np.ndarray:
     if len(recipe.src_names) != 1:
-        raise ValueError(
-            f"missing_indicator recipe '{recipe.name}' must have exactly 1 "
-            f"src_name; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"missing_indicator recipe '{recipe.name}' must have exactly 1 " f"src_name; got {len(recipe.src_names)}")
     src = recipe.src_names[0]
     # The apply helper accepts a DataFrame; coerce other X shapes here so
     # the dispatcher's contract (pandas / polars / structured) matches the
@@ -525,10 +501,7 @@ def _apply_missing_indicator_recipe(recipe, X) -> np.ndarray:
         return apply_missing_indicator(
             pd.DataFrame({src: X[src]}), src, dict(recipe.extra),
         )
-    raise TypeError(
-        f"missing_indicator recipe '{recipe.name}': cannot extract column "
-        f"{src!r} from X of type {type(X).__name__}"
-    )
+    raise TypeError(f"missing_indicator recipe '{recipe.name}': cannot extract column " f"{src!r} from X of type {type(X).__name__}")
 
 
 def _coerce_X_to_pandas_with_cols(X, cols, recipe_name) -> pd.DataFrame:
@@ -551,10 +524,7 @@ def _coerce_X_to_pandas_with_cols(X, cols, recipe_name) -> pd.DataFrame:
             if c in X.dtype.names:
                 data[c] = X[c]
         return pd.DataFrame(data)
-    raise TypeError(
-        f"recipe '{recipe_name}': cannot extract columns from X of type "
-        f"{type(X).__name__}"
-    )
+    raise TypeError(f"recipe '{recipe_name}': cannot extract columns from X of type " f"{type(X).__name__}")
 
 
 def _apply_missingness_count_recipe(recipe, X) -> np.ndarray:

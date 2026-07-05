@@ -43,8 +43,7 @@ def run_bed(name, X, y, seed=0):
     def emit(tag, Ztr, Zte, t0):
         a = downstream_frugal(Ztr, Zte, ytr, yte)
         am = round(float(np.nanmean(list(a.values()))), 4)
-        rows.append(dict(bed=name, variant=tag, n=int(Ztr.shape[1]),
-                         fit_s=round(time.time() - t0, 1), auc_mean=am, **a))
+        rows.append(dict(bed=name, variant=tag, n=int(Ztr.shape[1]), fit_s=round(time.time() - t0, 1), auc_mean=am, **a))
         print(f"  {tag:24s} n={int(Ztr.shape[1]):3d} {rows[-1]['fit_s']:6.1f}s mean={am} {a}", flush=True)
 
     # 24 pairs so product12x2 has a same-class-but-more-pairs control
@@ -65,24 +64,21 @@ def run_bed(name, X, y, seed=0):
     n_rich = rich12_tr.shape[1]
 
     # capacity control: same #cols as ALLrich, pure gaussian noise
-    noise_tr = pd.DataFrame(rng.standard_normal((Btr.shape[0], n_rich)),
-                            columns=[f"noi_{i}" for i in range(n_rich)], index=Btr.index)
-    noise_te = pd.DataFrame(rng.standard_normal((Bte.shape[0], n_rich)),
-                            columns=[f"noi_{i}" for i in range(n_rich)], index=Bte.index)
+    noise_tr = pd.DataFrame(rng.standard_normal((Btr.shape[0], n_rich)), columns=[f"noi_{i}" for i in range(n_rich)], index=Btr.index)
+    noise_te = pd.DataFrame(rng.standard_normal((Bte.shape[0], n_rich)), columns=[f"noi_{i}" for i in range(n_rich)], index=Bte.index)
 
-    t0 = time.time(); emit("base_raw25", Btr, Bte, t0)
-    t0 = time.time(); emit("+product12",
-                           pd.concat([Btr, prod12_tr], axis=1), pd.concat([Bte, prod12_te], axis=1), t0)
-    t0 = time.time(); emit("+product24_morepairs",
-                           pd.concat([Btr, prod24_tr], axis=1), pd.concat([Bte, prod24_te], axis=1), t0)
-    t0 = time.time(); emit("+product12+noise_cap",
-                           pd.concat([Btr, prod12_tr, noise_tr], axis=1),
-                           pd.concat([Bte, prod12_te, noise_te], axis=1), t0)
-    t0 = time.time(); emit("+ALLrich",
-                           pd.concat([Btr, rich12_tr], axis=1), pd.concat([Bte, rich12_te], axis=1), t0)
-    t0 = time.time(); emit("+product12+ALLrich",
-                           pd.concat([Btr, prod12_tr, rich12_tr], axis=1),
-                           pd.concat([Bte, prod12_te, rich12_te], axis=1), t0)
+    t0 = time.time()
+    emit("base_raw25", Btr, Bte, t0)
+    t0 = time.time()
+    emit("+product12", pd.concat([Btr, prod12_tr], axis=1), pd.concat([Bte, prod12_te], axis=1), t0)
+    t0 = time.time()
+    emit("+product24_morepairs", pd.concat([Btr, prod24_tr], axis=1), pd.concat([Bte, prod24_te], axis=1), t0)
+    t0 = time.time()
+    emit("+product12+noise_cap", pd.concat([Btr, prod12_tr, noise_tr], axis=1), pd.concat([Bte, prod12_te, noise_te], axis=1), t0)
+    t0 = time.time()
+    emit("+ALLrich", pd.concat([Btr, rich12_tr], axis=1), pd.concat([Bte, rich12_te], axis=1), t0)
+    t0 = time.time()
+    emit("+product12+ALLrich", pd.concat([Btr, prod12_tr, rich12_tr], axis=1), pd.concat([Bte, prod12_te, rich12_te], axis=1), t0)
     _checkpoint(f"[ckpt] CONTROL {name} done")
     return rows
 

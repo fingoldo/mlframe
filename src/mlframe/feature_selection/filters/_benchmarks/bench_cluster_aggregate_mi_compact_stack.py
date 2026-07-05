@@ -59,9 +59,7 @@ def new_score(data, binned, nbins, target, qnb, dtype=np.int32) -> float:
     n_t = tcols.shape[0]
     y_new = np.arange(n_t, dtype=np.int64)
     x_new = np.array([n_t], dtype=np.int64)
-    compact_nbins = np.concatenate(
-        [np.asarray(nbins)[tcols], [int(qnb)]]
-    ).astype(np.int64)
+    compact_nbins = np.concatenate([np.asarray(nbins)[tcols], [int(qnb)]]).astype(np.int64)
     return float(mi(compact, x_new, y_new, compact_nbins, dtype=dtype))
 
 
@@ -85,8 +83,7 @@ def bench(n, n_features, nbins_val=10, n_methods=9, iters=30):
     run(old_score); run(new_score)  # warm
     to = run(old_score)
     tn = run(new_score)
-    print(f"n={n:>7} feats={n_features:>4} methods={n_methods}: "
-          f"OLD {to*1e3:8.3f}ms  NEW {tn*1e3:8.3f}ms  speedup {to/tn:5.2f}x  (mi={o:.6f})")
+    print(f"n={n:>7} feats={n_features:>4} methods={n_methods}: " f"OLD {to*1e3:8.3f}ms  NEW {tn*1e3:8.3f}ms  speedup {to/tn:5.2f}x  (mi={o:.6f})")
 
 
 if __name__ == "__main__":

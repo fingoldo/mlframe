@@ -38,8 +38,7 @@ def shallow_tree_signals(X, y, n_estimators=80, max_depth=3, top_pairs=12):
     gets a count weighted by the tree's total split gain. Pairs the tree branches on together are the
     interactions it is exploiting -- a supervised operand proposer blind to marginal MI.
     """
-    m = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, num_leaves=2 ** max_depth,
-                           learning_rate=0.1, n_jobs=-1, verbose=-1, random_state=0)
+    m = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, num_leaves=2**max_depth, learning_rate=0.1, n_jobs=-1, verbose=-1, random_state=0)
     m.fit(X, y)
     cols = list(X.columns)
     imp = pd.Series(m.feature_importances_, index=cols).sort_values(ascending=False)
@@ -62,7 +61,7 @@ def engineer_products(X, pairs):
     new = {}
     for i, (a, b) in enumerate(pairs):
         if a in X.columns and b in X.columns:
-            new[f"prod_{i}"] = (X[a].values * X[b].values)
+            new[f"prod_{i}"] = X[a].values * X[b].values
     if not new:
         return X.copy()
     return pd.concat([X, pd.DataFrame(new, index=X.index)], axis=1)

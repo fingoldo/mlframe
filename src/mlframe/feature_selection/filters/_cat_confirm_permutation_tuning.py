@@ -69,8 +69,7 @@ def _make_perm_kernel_inputs(dims: dict):
     classes_y = rng.integers(0, _PERM_SWEEP_K_Y, size=n).astype(np.int64)
     freqs_y = np.bincount(classes_y, minlength=_PERM_SWEEP_K_Y).astype(np.float64) / max(1, n)
     ii_obs = 0.0  # count all perms -> identical work on all backends, equiv-comparable
-    return (classes_pair, freqs_pair, classes_x1, freqs_x1, classes_x2, freqs_x2,
-            classes_y, freqs_y, ii_obs, n_perms)
+    return (classes_pair, freqs_pair, classes_x1, freqs_x1, classes_x2, freqs_x2, classes_y, freqs_y, ii_obs, n_perms)
 
 
 def _run_perm_kernel_sweep() -> list:

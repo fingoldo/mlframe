@@ -43,8 +43,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
     if len(recipe.src_names) != 2 or len(recipe.unary_names) != 2:
         raise ValueError(
-            f"unary_binary recipe '{recipe.name}' must have exactly 2 src_names "
-            f"and 2 unary_names; got {len(recipe.src_names)} / {len(recipe.unary_names)}"
+            f"unary_binary recipe '{recipe.name}' must have exactly 2 src_names " f"and 2 unary_names; got {len(recipe.src_names)} / {len(recipe.unary_names)}"
         )
     # Lazy import to avoid circular dependency (feature_engineering -> mrmr via _internals).
     from ..feature_engineering import create_unary_transformations, create_binary_transformations
@@ -70,19 +69,11 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _u in _PSEUDO or _u.startswith("poly_")
 
     if not _is_pseudo(u_a) and u_a not in unary_funcs:
-        raise KeyError(
-            f"Unary function '{u_a}' not in '{recipe.unary_preset}' preset. "
-            f"Replay requires the same preset that was active at fit time."
-        )
+        raise KeyError(f"Unary function '{u_a}' not in '{recipe.unary_preset}' preset. " f"Replay requires the same preset that was active at fit time.")
     if not _is_pseudo(u_b) and u_b not in unary_funcs:
-        raise KeyError(
-            f"Unary function '{u_b}' not in '{recipe.unary_preset}' preset."
-        )
+        raise KeyError(f"Unary function '{u_b}' not in '{recipe.unary_preset}' preset.")
     if recipe.binary_name not in binary_funcs:
-        raise KeyError(
-            f"Binary function '{recipe.binary_name}' not in "
-            f"'{recipe.binary_preset}' preset."
-        )
+        raise KeyError(f"Binary function '{recipe.binary_name}' not in " f"'{recipe.binary_preset}' preset.")
 
     # NESTED-ENGINEERED PARENTS (2026-06-08): when an operand is itself an engineered
     # column (a higher-order composite), its values are NOT in ``X`` at transform time
@@ -144,8 +135,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             if uname == "log" and _skey in recipe.extra:
                 _shift = float(recipe.extra[_skey])
                 with np.errstate(divide="ignore", invalid="ignore"):
-                    return np.log(np.asarray(vals, dtype=np.float64) + _shift) if _shift != 0.0 \
-                        else np.log(np.asarray(vals, dtype=np.float64))
+                    return np.log(np.asarray(vals, dtype=np.float64) + _shift) if _shift != 0.0 else np.log(np.asarray(vals, dtype=np.float64))
             return unary_funcs[uname](vals)
         # Reconstruct the pre-warp spec from the flat ``extra`` fields and replay
         # it closed-form (no y) so the warped operand is bit-identical to fit.

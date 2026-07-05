@@ -129,7 +129,7 @@ def score_pair_combos_table_resident(
         qs = np.linspace(0.0, 1.0, int(nbins) + 1)
         d_qs = cp.asarray(qs, dtype=cp.float64)
         d_y = cp.asarray(np.ascontiguousarray(y_codes, dtype=np.int64))
-        ky_w = int(d_y.max()) + 1 if n else 1   # y-cardinality (histogram width) for the fused MM kernel
+        ky_w = int(d_y.max()) + 1 if n else 1  # y-cardinality (histogram width) for the fused MM kernel
         # SYNC-FREE fused bin+hist+MM-MI (2026-06-26): the resident table's per-flush scoring used
         # _gpu_quantile_bin_codes + _gpu_marginal_mi, whose per-ROW cp.bincount + .max() device->host sync
         # (~one per combo column) made the whole resident table a 0.5x LOSS on a 6-SM card. The fused
@@ -188,7 +188,7 @@ def score_pair_combos_table_resident(
             for c0 in range(0, nc, combo_chunk):
                 c1 = min(c0 + combo_chunk, nc)
                 kk = c1 - c0
-                cand = cp.empty((n, kk), dtype=cp.float64)          # (n, kk) row-major
+                cand = cp.empty((n, kk), dtype=cp.float64)  # (n, kk) row-major
                 total = n * kk
                 fused_gen(((total + threads - 1) // threads,), (threads,),
                           (ua_stack, ub_stack, ua_idx_d[c0:c1], ub_idx_d[c0:c1], bop_d[c0:c1],
@@ -197,7 +197,7 @@ def score_pair_combos_table_resident(
                 # which allocated a full (n,kk) ``cand*cand`` temp and ran two reduction passes. Measured 200k/178:
                 # 9.98ms vs 13.80ms (-3.8ms/chunk) and the std<=1e-9 sentinel mask (``> 1e-18``) is BIT-IDENTICAL
                 # (verified ((cand*cand).mean-mean^2 > 1e-18) == (cp.var > 1e-18) over the full block).
-                live_d = cand.var(axis=0) > 1e-18                   # device std<=1e-9 mask; D2H deferred (see below)
+                live_d = cand.var(axis=0) > 1e-18  # device std<=1e-9 mask; D2H deferred (see below)
                 wrote_resident = False
                 try:
                     interior = _radix_select_interior_edges(cand, int(nbins))
@@ -211,10 +211,10 @@ def score_pair_combos_table_resident(
                         wrote_resident = True
                 except Exception:
                     wrote_resident = False
-                if not wrote_resident:                              # per-row sync fallback (bit-faithful)
+                if not wrote_resident:  # per-row sync fallback (bit-faithful)
                     codes, kx = _gpu_quantile_bin_codes(cp.ascontiguousarray(cand.T), d_qs)
                     mi_h = cp.asnumpy(_gpu_marginal_mi(codes, kx, d_y, h_y, k_y, n))
-                    mi_table_d[base + c0:base + c1] = cp.asarray(np.where(cp.asnumpy(live_d), mi_h, -1.0))
+                    mi_table_d[base + c0 : base + c1] = cp.asarray(np.where(cp.asnumpy(live_d), mi_h, -1.0))
                 del cand
             del d_x1, d_x2, ua_stack, ub_stack
         # ONE D2H for the WHOLE table (was ~96/call, 17340/fit): all chunk MI accumulated resident above.

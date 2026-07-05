@@ -52,7 +52,7 @@ def run() -> None:
         ("p/n small (<0.05)", [(500, 5), (1000, 10), (2000, 5)]),
     ]:
         pe_all, ae_all, adj_win, plain_win, cells = [], [], 0, 0, 0
-        for (n, p) in combos:
+        for n, p in combos:
             for seed in range(7):
                 y, yp = _fit(n, p, seed)
                 pe = abs(_r2(y, yp) - TRUE_R2)

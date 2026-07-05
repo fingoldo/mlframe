@@ -183,7 +183,7 @@ def summarise(results, baseline=0.1, alternatives=(0.15, 0.2)):
     for alt in alternatives:
         wins = ties = losses = 0
         deltas = []
-        for (s, r, sd) in cells:
+        for s, r, sd in cells:
             base = results[(s, r, sd, baseline)]
             cand = results[(s, r, sd, alt)]
             # AUROC higher is better; RMSE lower is better.
@@ -209,7 +209,7 @@ def main():
     summary, cells = summarise(results)
     print(f"\nval_size early-stopping bench: {len(cells)} scenario+seed cells (5 scenarios x 3 seeds x 2 task types)\n")
     print(f"{'scenario':<16}{'task':<6}{'seed':<5}{'vs=0.10':>10}{'vs=0.15':>10}{'vs=0.20':>10}")
-    for (s, r, sd) in cells:
+    for s, r, sd in cells:
         task = "reg" if r else "clf"
         v10 = results[(s, r, sd, 0.1)]
         v15 = results[(s, r, sd, 0.15)]

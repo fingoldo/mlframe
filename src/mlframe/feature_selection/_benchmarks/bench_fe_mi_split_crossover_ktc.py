@@ -27,8 +27,7 @@ def main() -> None:
         if r["n_samples_max"] is None:
             print(f"  catch-all -> {r['backend_choice']}")
             continue
-        print(f"  n<={r['n_samples_max']:>9} k<={r['k_max']:>4} -> {r['backend_choice']:>6} "
-              f"(single={r['single_ms']} split={r['split_ms']} ms)")
+        print(f"  n<={r['n_samples_max']:>9} k<={r['k_max']:>4} -> {r['backend_choice']:>6} " f"(single={r['single_ms']} split={r['split_ms']} ms)")
 
 
 if __name__ == "__main__":

@@ -104,7 +104,7 @@ def graph_spectral_features(
     evA = np.linalg.eigvalsh(A)
     spectral_radius = float(evA[-1])
     graph_energy = float(np.abs(evA).sum())
-    n_triangles = float(np.round((evA ** 3).sum() / 6.0))  # tr(A^3)/6 (unweighted count; rounded for FP noise)
+    n_triangles = float(np.round((evA**3).sum() / 6.0))  # tr(A^3)/6 (unweighted count; rounded for FP noise)
 
     L = np.diag(deg) - A
     evL = np.linalg.eigvalsh(L)

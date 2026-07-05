@@ -64,9 +64,7 @@ def _silverman_bandwidth(n: int, sigma: float) -> float:
     return float(sigma * (n ** (-1.0 / 6.0)))
 
 
-def _mise_optimal_bandwidth(zx: np.ndarray, zy: np.ndarray, *,
-                              n_grid: int = 12, h_min_factor: float = 0.2,
-                              h_max_factor: float = 1.5) -> float:
+def _mise_optimal_bandwidth(zx: np.ndarray, zy: np.ndarray, *, n_grid: int = 12, h_min_factor: float = 0.2, h_max_factor: float = 1.5) -> float:
     """Cross-validated MISE-optimal bandwidth via leave-one-out plug-in.
 
     Per Purkayastha-Song 2024 sec. 3 the MISE-optimal h minimises:
@@ -87,9 +85,7 @@ def _mise_optimal_bandwidth(zx: np.ndarray, zy: np.ndarray, *,
     h_grid = np.linspace(h_sil * h_min_factor, h_sil * h_max_factor, n_grid)
     # Approximate LOO log-likelihood by computing pairwise-distance-based
     # density at each sample.
-    sample_pairs_sq = (
-        (zx[:, None] - zx[None, :]) ** 2 + (zy[:, None] - zy[None, :]) ** 2
-    )  # (N, N)
+    sample_pairs_sq = (zx[:, None] - zx[None, :]) ** 2 + (zy[:, None] - zy[None, :]) ** 2  # (N, N)
     np.fill_diagonal(sample_pairs_sq, np.inf)  # exclude self
     # Hoist the per-row logsumexp shift out of the h-grid loop. The kernel
     # ``log_k[i,j] = -0.5*sp[i,j]/h^2 - C(h)`` is strictly DECREASING in
@@ -147,11 +143,7 @@ def _fft_conv_2d(samples: np.ndarray, kernel: np.ndarray) -> np.ndarray:
 # =============================================================================
 
 
-def fastmi(x: np.ndarray, y: np.ndarray, *,
-           grid_size: int = 128,
-           bandwidth: str = "mise",
-           grid_pad_sigma: float = 4.0,
-           prefer_gpu: bool = False) -> float:
+def fastmi(x: np.ndarray, y: np.ndarray, *, grid_size: int = 128, bandwidth: str = "mise", grid_pad_sigma: float = 4.0, prefer_gpu: bool = False) -> float:
     """fastMI mutual information estimator (Purkayastha-Song 2024).
 
     Args:
@@ -239,7 +231,7 @@ def fastmi(x: np.ndarray, y: np.ndarray, *,
     # different (n-, M-, h-dependent) bias scales, so even an INDEPENDENT pair returned a nonzero offset and a
     # known-MI pair was systematically off. Integrate the marginal entropies from the SAME KDE density grid (its
     # row/column sums) so the grid + bandwidth bias enters all three terms identically and cancels in the sum.
-    p_zx = p.sum(axis=1) * dx          # marginal density of Z_x on the grid
+    p_zx = p.sum(axis=1) * dx  # marginal density of Z_x on the grid
     p_zy = p.sum(axis=0) * dx
     p_zx = np.maximum(p_zx, 1e-15)
     p_zy = np.maximum(p_zy, 1e-15)

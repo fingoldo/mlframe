@@ -33,9 +33,9 @@ def _cv_score(estimator, X, y, classification):
         return float("nan")
 
 
-def dataset_diagnostics(X, y, *, classification, max_rows=2000, max_rows_corr=5000,
-                        max_corr_features=400, n_estimators=100, random_state=0,
-                        inner_n_jobs_cap=False):
+def dataset_diagnostics(
+    X, y, *, classification, max_rows=2000, max_rows_corr=5000, max_corr_features=400, n_estimators=100, random_state=0, inner_n_jobs_cap=False
+):
     """Cheap statistics that gate ShapProxiedFS's full pipeline. See module docstring.
 
     ``max_rows`` (iter25, lowered 5000 -> 2000): row subsample for the cheap booster probes. The
@@ -144,8 +144,7 @@ def dataset_diagnostics(X, y, *, classification, max_rows=2000, max_rows_corr=50
     # iter4 ``n_cores // outer`` cap as 8-9% e2e slower (per-stage table in ``_shap_proxy_explain``).
     # ``inner_n_jobs_cap=True`` restores legacy ``n_cores // 2`` for HW where the cap helps.
     inner = max(1, n_cores // 2) if inner_n_jobs_cap else -1
-    common = dict(n_estimators=int(n_estimators), learning_rate=0.1, n_jobs=inner,
-                  random_state=random_state, tree_method="hist")
+    common = dict(n_estimators=int(n_estimators), learning_rate=0.1, n_jobs=inner, random_state=random_state, tree_method="hist")
     # iter27 cap-the-ranker: deep max_depth 4 -> 3. The deep probe is RANKING-ONLY (we read the
     # additive_ratio gate, not deployed predictions); a depth-3 booster still captures all 2-way
     # and most 3-way interactions so the additive-vs-deep ratio's gate-trip points at the 0.6
@@ -164,9 +163,7 @@ def dataset_diagnostics(X, y, *, classification, max_rows=2000, max_rows_corr=50
     if n_cores >= 2:
         from joblib import Parallel, delayed
 
-        deep_score, stump_score = Parallel(n_jobs=2, prefer="threads")(
-            delayed(_cv_score)(est, Xs, ys, classification) for est in (deep, stump)
-        )
+        deep_score, stump_score = Parallel(n_jobs=2, prefer="threads")(delayed(_cv_score)(est, Xs, ys, classification) for est in (deep, stump))
     else:
         deep_score = _cv_score(deep, Xs, ys, classification)
         stump_score = _cv_score(stump, Xs, ys, classification)
@@ -206,8 +203,7 @@ def preflight(
         reasons.append(f"full-model fit barely beats trivial ({d['full_model_fit']:.3f}); the proxy can "
                        f"only be as good as the model it explains -> prefer a different selector.")
     if np.isfinite(d["additive_ratio"]) and d["additive_ratio"] < additive_ratio_floor:
-        reasons.append(f"interaction-heavy (additive/deep ratio {d['additive_ratio']:.2f} < "
-                       f"{additive_ratio_floor}); the main-effect proxy will struggle.")
+        reasons.append(f"interaction-heavy (additive/deep ratio {d['additive_ratio']:.2f} < " f"{additive_ratio_floor}); the main-effect proxy will struggle.")
         suggestions.append("enable interaction_aware=True")
         if rec != "fallback":
             rec = "caution"
@@ -223,7 +219,6 @@ def preflight(
         if rec == "run":
             rec = "caution"
     if rec == "run" and not reasons:
-        reasons.append(f"additive ratio {d['additive_ratio']:.2f}, fit {d['full_model_fit']:.3f}, "
-                       f"max|corr| {d['max_abs_corr']:.2f} -- favourable regime.")
+        reasons.append(f"additive ratio {d['additive_ratio']:.2f}, fit {d['full_model_fit']:.3f}, " f"max|corr| {d['max_abs_corr']:.2f} -- favourable regime.")
 
     return dict(recommendation=rec, diagnostics=d, reasons=reasons, suggestions=sorted(set(suggestions)))

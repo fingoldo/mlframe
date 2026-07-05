@@ -171,5 +171,5 @@ def _check_within_group_ordering(group_ids: np.ndarray, n_check: int = 1024) -> 
     consec_pairs = group_ids[::step]
     if consec_pairs.size < 2:
         return False
-    same_group = (consec_pairs[:-1] == consec_pairs[1:])
+    same_group = consec_pairs[:-1] == consec_pairs[1:]
     return float(np.mean(same_group)) > 0.5

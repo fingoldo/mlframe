@@ -150,9 +150,9 @@ def _silence_tiny_model_output(family: str | None = None):
                     _lgb_logger.setLevel(_silence_tiny_state.lgb_prev_level)
 
 
-def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
-                      learning_rate: float, random_state: int,
-                      deterministic: bool = False, inner_n_jobs: int = -1) -> Any:
+def _build_tiny_model(
+    family: str, *, n_estimators: int, num_leaves: int, learning_rate: float, random_state: int, deterministic: bool = False, inner_n_jobs: int = -1
+) -> Any:
     """Lazy-build a tiny regressor for the requested family. Lazy
     imports keep the discovery module light when those libraries
     aren't installed.
@@ -246,14 +246,13 @@ def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
         # a screening proxy for "would a downstream linear model find
         # this composite useful". Ridge is deterministic by construction;
         # the random_state kwarg accepted for call-signature uniformity.
-        return Pipeline([
-            ("imp", SimpleImputer(strategy="mean")),
-            ("ridge", Ridge(alpha=1.0, random_state=random_state)),
-        ])
-    raise ValueError(
-        f"_build_tiny_model: unknown family '{family}'. "
-        "Supported: lightgbm, xgboost, catboost, linear / ridge."
-    )
+        return Pipeline(
+            [
+                ("imp", SimpleImputer(strategy="mean")),
+                ("ridge", Ridge(alpha=1.0, random_state=random_state)),
+            ]
+        )
+    raise ValueError(f"_build_tiny_model: unknown family '{family}'. " "Supported: lightgbm, xgboost, catboost, linear / ridge.")
 
 
 def _tiny_cv_rmse_raw_y(
@@ -331,9 +330,9 @@ def _tiny_cv_rmse_raw_y(
                     "group(s) survive the finite mask (< cv_folds=%d); falling "
                     "back to %s split. Group separation is NOT enforced for the "
                     "raw-y baseline -- reduce cv_folds or supply more groups.",
-                    _n_groups, cv_folds,
-                    "TimeSeriesSplit" if (cv_splitter is None and time_aware)
-                    else "shuffled KFold",
+                    _n_groups,
+                    cv_folds,
+                    "TimeSeriesSplit" if (cv_splitter is None and time_aware) else "shuffled KFold",
                 )
                 groups_clean = None
     if cv_splitter is not None:
@@ -414,10 +413,7 @@ def _tiny_cv_rmse_raw_y(
             # refitting the (bin_var-independent) raw-y model and folds. Store
             # the RAW y_hat (the exact array _per_bin_rmse receives in-loop) so
             # the derived per-bin is bit-identical, not the float64-cast copy.
-            fold_pred = (
-                (y_clean[val_fold].copy(), y_hat, np.asarray(val_fold))
-                if return_fold_preds else None
-            )
+            fold_pred = (y_clean[val_fold].copy(), y_hat, np.asarray(val_fold)) if return_fold_preds else None
             return rmse, per_bin, fold_pred
         except Exception as _e:
             # Failed fold reported as NaN -> np.nanmean over surviving folds
@@ -433,11 +429,7 @@ def _tiny_cv_rmse_raw_y(
             )
             return float("nan"), None, None
 
-    splits = (
-        _precomputed_splits
-        if _precomputed_splits is not None
-        else list(kf.split(x_clean))
-    )
+    splits = _precomputed_splits if _precomputed_splits is not None else list(kf.split(x_clean))
     # Outer silence wrap: the lightgbm-logger level bump (and its whole-tree _clear_cache) happens ONCE here instead of once per fold via the reentrancy guard in _silence_tiny_model_output.
     with _silence_tiny_model_output(family):
         if n_jobs > 1 and len(splits) > 1:
@@ -469,10 +461,7 @@ def _tiny_cv_rmse_raw_y(
     # Per-fold val truth/prediction records (only populated when the caller
     # asked for them); the per-bin baseline for any bin_var is derivable from
     # these without a refit, since the raw-y model never sees bin_var.
-    fold_preds = (
-        [fp for _, _, fp in fold_results if fp is not None]
-        if return_fold_preds else None
-    )
+    fold_preds = [fp for _, _, fp in fold_results if fp is not None] if return_fold_preds else None
     fold_rmses = [r for r, _, _ in fold_results if math.isfinite(r)]
     if not fold_rmses:
         _nan_pb = np.full(n_bins, float("nan"))
@@ -558,9 +547,7 @@ def _tiny_cv_rmse_y_scale_multiseed(
     # (per_seed length 1) -- this avoids N identical fits on the dominant rerank
     # phase AND avoids pseudo-replicating a single measurement into a falsely-
     # powered Wilcoxon (the gate then correctly skips on n=1).
-    _seed_invariant = bool(kwargs.get("time_aware", False)) or (
-        kwargs.get("groups", None) is not None
-    )
+    _seed_invariant = bool(kwargs.get("time_aware", False)) or (kwargs.get("groups", None) is not None)
     _effective_repeats = 1 if _seed_invariant else n_seed_repeats
     if _effective_repeats <= 1:
         kwargs["random_state"] = base_random_state
@@ -626,9 +613,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
     the fixed-length NaN-padded per-seed contract)."""
     # Seed-invariant splitters (TimeSeriesSplit / GroupKFold) collapse to one
     # honest measurement -- see _tiny_cv_rmse_y_scale_multiseed.
-    _seed_invariant = bool(kwargs.get("time_aware", False)) or (
-        kwargs.get("groups", None) is not None
-    )
+    _seed_invariant = bool(kwargs.get("time_aware", False)) or (kwargs.get("groups", None) is not None)
     _effective_repeats = 1 if _seed_invariant else n_seed_repeats
     if _effective_repeats <= 1:
         kwargs["random_state"] = base_random_state
@@ -679,7 +664,6 @@ def _tiny_cv_rmse_raw_y_multiseed(
     if return_per_seed:
         return median_rmse, seed_arr
     return median_rmse
-
 
 
 # per-bin RMSE + y-scale tiny-CV helpers carved to _screening_tiny_perbin.py (1k-LOC ceiling).

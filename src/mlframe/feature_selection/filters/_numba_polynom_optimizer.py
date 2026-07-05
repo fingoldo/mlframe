@@ -54,7 +54,6 @@ from .hermite_fe import (
 from ._hermite_fe_mi import _plugin_mi_classif_njit, _plugin_mi_regression_njit
 from .hermite_fe import _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -228,11 +227,11 @@ def _eval_batch_candidates_njit(
     n_bins: int, l2_penalty: float, direction_only: bool,
     discrete_target: bool,
     # output scratch (caller-allocated to avoid per-iter alloc):
-    cols_scratch: np.ndarray,        # (n, B*K)
-    col_valid_scratch: np.ndarray,   # (B*K,) bool
-    out_scores: np.ndarray,          # (B,)
-    out_raws: np.ndarray,            # (B,)
-    out_bfs: np.ndarray,             # (B,)
+    cols_scratch: np.ndarray,  # (n, B*K)
+    col_valid_scratch: np.ndarray,  # (B*K,) bool
+    out_scores: np.ndarray,  # (B,)
+    out_raws: np.ndarray,  # (B,)
+    out_bfs: np.ndarray,  # (B,)
 ) -> None:
     """Evaluate B candidates in ONE batched MI call. Replaces the
     per-candidate ``_plugin_mi_classif_njit`` call pattern -- batch MI
@@ -532,10 +531,7 @@ def _bf_names_to_ids(bf_names: Sequence[str]) -> np.ndarray:
     out = np.empty(len(bf_names), dtype=np.int64)
     for i, name in enumerate(bf_names):
         if name not in _BF_NAME_TO_ID:
-            raise ValueError(
-                f"bf_name={name!r} not supported by numba_kernel; expected one of "
-                f"{list(_BF_NAME_TO_ID.keys())}."
-            )
+            raise ValueError(f"bf_name={name!r} not supported by numba_kernel; expected one of " f"{list(_BF_NAME_TO_ID.keys())}.")
         out[i] = _BF_NAME_TO_ID[name]
     return out
 
@@ -566,10 +562,7 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
     elif "lagval" in fn_name:
         basis = "laguerre"
     else:
-        raise ValueError(
-            f"Could not infer basis from eval_func={fn_name!r}; "
-            f"numba_kernel supports polynomial bases only (no factory bases)."
-        )
+        raise ValueError(f"Could not infer basis from eval_func={fn_name!r}; " f"numba_kernel supports polynomial bases only (no factory bases).")
     basis_id = _basis_name_to_id(basis)
     bf_ids = _bf_names_to_ids(eval_kwargs["bf_names"])
 
@@ -581,10 +574,7 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
     y_njit = eval_kwargs["y_njit"]
     if y_njit is None:
         # KSG path not supported here; require plugin MI.
-        raise ValueError(
-            "numba_kernel requires mi_estimator='plugin'; y_njit was None "
-            "(ksg path)."
-        )
+        raise ValueError("numba_kernel requires mi_estimator='plugin'; y_njit was None " "(ksg path).")
     y_arr = np.ascontiguousarray(y_njit, dtype=np.int64) if discrete_target else np.ascontiguousarray(y_njit, dtype=np.float64)
     n_bins = int(eval_kwargs["plugin_n_bins"])
     l2_penalty = float(eval_kwargs["l2_penalty"]) if not direction_only else 0.0
@@ -607,9 +597,9 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
         warm_b = np.zeros((n_warm, cb_size), dtype=np.float64)
         for i, s in enumerate(warm_start_seeds):
             s_arr = np.asarray(s, dtype=np.float64)
-            warm_a[i, :min(ca_size, s_arr.shape[0])] = s_arr[:min(ca_size, s_arr.shape[0])]
+            warm_a[i, : min(ca_size, s_arr.shape[0])] = s_arr[: min(ca_size, s_arr.shape[0])]
             if s_arr.shape[0] > ca_size:
-                warm_b[i, :min(cb_size, s_arr.shape[0] - ca_size)] = s_arr[ca_size:ca_size + cb_size]
+                warm_b[i, : min(cb_size, s_arr.shape[0] - ca_size)] = s_arr[ca_size : ca_size + cb_size]
     else:
         n_warm = 0
         warm_a = np.zeros((1, ca_size), dtype=np.float64)
@@ -704,9 +694,9 @@ def optimize_all_pairs_numba_kernel(
         warm_b = np.zeros((n_warm, cb_size), dtype=np.float64)
         for i, s in enumerate(warm_start_seeds):
             s_arr = np.asarray(s, dtype=np.float64)
-            warm_a[i, :min(ca_size, s_arr.shape[0])] = s_arr[:min(ca_size, s_arr.shape[0])]
+            warm_a[i, : min(ca_size, s_arr.shape[0])] = s_arr[: min(ca_size, s_arr.shape[0])]
             if s_arr.shape[0] > ca_size:
-                warm_b[i, :min(cb_size, s_arr.shape[0] - ca_size)] = s_arr[ca_size:ca_size + cb_size]
+                warm_b[i, : min(cb_size, s_arr.shape[0] - ca_size)] = s_arr[ca_size : ca_size + cb_size]
     else:
         n_warm = 0
         warm_a = np.zeros((1, ca_size), dtype=np.float64)

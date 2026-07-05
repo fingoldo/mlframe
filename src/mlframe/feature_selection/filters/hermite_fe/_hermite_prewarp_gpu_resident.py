@@ -152,8 +152,7 @@ def _als_sweep_gpu(cp, Ba, Bb, yc, iters):
     return np.ascontiguousarray(ca_h, dtype=np.float64), np.ascontiguousarray(cb_h, dtype=np.float64)
 
 
-def warm_start_als_seed_gpu(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
-                            *, iters: int = 3) -> tuple:
+def warm_start_als_seed_gpu(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray, *, iters: int = 3) -> tuple:
     """GPU-resident rank-1 ALS warm start from PREBUILT host design matrices.
 
     Legacy entry retained for callers that already hold ``B_a``/``B_b`` (the
@@ -187,9 +186,7 @@ def warm_start_als_seed_gpu(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
         return None, None
 
 
-def warm_start_als_seed_gpu_from_z(z_a: np.ndarray, z_b: np.ndarray, y: np.ndarray,
-                                   *, basis: str, max_degree: int,
-                                   iters: int = 3) -> tuple:
+def warm_start_als_seed_gpu_from_z(z_a: np.ndarray, z_b: np.ndarray, y: np.ndarray, *, basis: str, max_degree: int, iters: int = 3) -> tuple:
     """GPU-resident rank-1 ALS warm start with a DEVICE-BORN design (H2D collapse).
 
     Identical math / return contract to :func:`warm_start_als_seed_gpu` and to the

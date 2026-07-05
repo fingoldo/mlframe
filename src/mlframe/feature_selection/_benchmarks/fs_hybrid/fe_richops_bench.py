@@ -43,7 +43,7 @@ N_JOBS = 4  # machine under concurrent load
 def _fit_params(Xtr, pairs):
     """Per-pair train-only parameters: thresholds (0 and train-median) for each operand, used by ops."""
     p = {}
-    for (a, b) in pairs:
+    for a, b in pairs:
         va, vb = Xtr[a].values, Xtr[b].values
         p[(a, b)] = dict(
             med_a=float(np.median(va)), med_b=float(np.median(vb)),
@@ -62,25 +62,25 @@ def _apply_op(op, X, pairs, params):
             continue
         va, vb = X[a].values.astype(float), X[b].values.astype(float)
         pr = params[(a, b)]
-        if op == "product":                         # baseline: a*b
+        if op == "product":  # baseline: a*b
             col = va * vb
-        elif op == "gated0":                        # (a>0)*b   gated interaction, threshold 0
+        elif op == "gated0":  # (a>0)*b   gated interaction, threshold 0
             col = (va > 0.0).astype(float) * vb
-        elif op == "gated_med":                     # (a>median_a)*b  gated interaction, train median
+        elif op == "gated_med":  # (a>median_a)*b  gated interaction, train median
             col = (va > pr["med_a"]).astype(float) * vb
-        elif op == "proximity":                     # |a-b| < train-median(|a-b|)  -> proximity indicator
+        elif op == "proximity":  # |a-b| < train-median(|a-b|)  -> proximity indicator
             col = (np.abs(va - vb) < pr["med_absdiff"]).astype(float)
-        elif op == "absdiff":                        # |a-b|  (continuous proximity, no threshold)
+        elif op == "absdiff":  # |a-b|  (continuous proximity, no threshold)
             col = np.abs(va - vb)
-        elif op == "ratio":                          # a / (|b| + 1)   standardized ratio
+        elif op == "ratio":  # a / (|b| + 1)   standardized ratio
             col = va / (np.abs(vb) + 1.0)
-        elif op == "ratio_eps":                      # a / (|b| + eps) std ratio, small eps (clipped)
+        elif op == "ratio_eps":  # a / (|b| + eps) std ratio, small eps (clipped)
             col = np.clip(va / (np.abs(vb) + EPS), -1e6, 1e6)
-        elif op == "signed":                         # sign(a) * |b|   signed magnitude
+        elif op == "signed":  # sign(a) * |b|   signed magnitude
             col = np.sign(va) * np.abs(vb)
-        elif op == "thr_and":                        # (a>0) & (b>0)   threshold-AND (logical)
+        elif op == "thr_and":  # (a>0) & (b>0)   threshold-AND (logical)
             col = ((va > 0.0) & (vb > 0.0)).astype(float)
-        elif op == "thr_and_med":                    # (a>med_a) & (b>med_b)
+        elif op == "thr_and_med":  # (a>med_a) & (b>med_b)
             col = ((va > pr["med_a"]) & (vb > pr["med_b"])).astype(float)
         else:
             raise ValueError(op)
@@ -89,8 +89,7 @@ def _apply_op(op, X, pairs, params):
 
 
 # operator classes to evaluate as FE on real data (each appended to the raw frame)
-REAL_OPS = ["product", "gated0", "gated_med", "proximity", "absdiff",
-            "ratio", "signed", "thr_and", "thr_and_med"]
+REAL_OPS = ["product", "gated0", "gated_med", "proximity", "absdiff", "ratio", "signed", "thr_and", "thr_and_med"]
 
 
 # ------------------------------------------------------------------ downstream (frugal lgbm)
@@ -103,12 +102,9 @@ def downstream_frugal(Xtr, Xte, ytr, yte):
     from sklearn.metrics import roc_auc_score
     import lightgbm as lgb
     o = {}
-    o["lgbm"] = roc_auc_score(yte, lgb.LGBMClassifier(n_estimators=200, n_jobs=N_JOBS, verbose=-1,
-                                                      random_state=0).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
-    o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)
-                                                  ).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
-    o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)
-                                                ).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
+    o["lgbm"] = roc_auc_score(yte, lgb.LGBMClassifier(n_estimators=200, n_jobs=N_JOBS, verbose=-1, random_state=0).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
+    o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
+    o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
     return {k: round(float(v), 4) for k, v in o.items()}
 
 
@@ -128,20 +124,20 @@ def make_designed(kind, n=6000, seed=0, n_noise=20):
     rng = np.random.default_rng(seed)
     a = rng.standard_normal(n)
     b = rng.standard_normal(n)
-    if kind == "gated":            # y depends on (a>0)*b -- a PRODUCT of an indicator and b
+    if kind == "gated":  # y depends on (a>0)*b -- a PRODUCT of an indicator and b
         s = (a > 0).astype(float) * b
-    elif kind == "proximity":      # y depends on |a-b| being small
-        s = -np.abs(a - b)         # closer -> higher logit
-    elif kind == "ratio":          # y depends on a/(|b|+1) -- |b| acts as a denominator, NOT linear
+    elif kind == "proximity":  # y depends on |a-b| being small
+        s = -np.abs(a - b)  # closer -> higher logit
+    elif kind == "ratio":  # y depends on a/(|b|+1) -- |b| acts as a denominator, NOT linear
         s = a / (np.abs(b) + 1.0)
-    elif kind == "signed":         # y depends on sign(a)*|b|
+    elif kind == "signed":  # y depends on sign(a)*|b|
         s = np.sign(a) * np.abs(b)
-    elif kind == "thr_and":        # y depends on (a>0)&(b>0)
+    elif kind == "thr_and":  # y depends on (a>0)&(b>0)
         s = ((a > 0) & (b > 0)).astype(float)
     else:
         raise ValueError(kind)
     s = (s - s.mean()) / (s.std() + EPS)
-    logit = 2.2 * s                # strong, but Bayes < 1 (noise added)
+    logit = 2.2 * s  # strong, but Bayes < 1 (noise added)
     y = (rng.random(n) < 1.0 / (1.0 + np.exp(-logit))).astype(int)
     cols = {"a": a, "b": b}
     for i in range(n_noise):
@@ -155,8 +151,7 @@ def run_designed():
     print("\n########## PART 1: DESIGNED BEDS (non-product interactions) ##########", flush=True)
     _checkpoint("[ckpt] PART1 designed beds start")
     # which operator class is the "right" one for each bed (for reading the table)
-    right_op = {"gated": "gated0", "proximity": "proximity/absdiff", "ratio": "ratio",
-                "signed": "signed", "thr_and": "thr_and"}
+    right_op = {"gated": "gated0", "proximity": "proximity/absdiff", "ratio": "ratio", "signed": "signed", "thr_and": "thr_and"}
     rows = []
     pairs = [("a", "b")]
     for kind in ["gated", "proximity", "ratio", "signed", "thr_and"]:
@@ -179,8 +174,7 @@ def run_designed():
                 Zte = pd.concat([Xte, ete], axis=1)
             a = downstream_frugal(Ztr, Zte, ytr, yte)
             am = round(float(np.nanmean(list(a.values()))), 4)
-            rows.append(dict(bed=f"designed_{kind}", variant=tag, n=int(Ztr.shape[1]),
-                             fit_s=round(time.time() - t0, 1), auc_mean=am, **a))
+            rows.append(dict(bed=f"designed_{kind}", variant=tag, n=int(Ztr.shape[1]), fit_s=round(time.time() - t0, 1), auc_mean=am, **a))
             print(f"  {tag:14s} n={int(Ztr.shape[1]):3d} {rows[-1]['fit_s']:5.1f}s mean={am} {a}", flush=True)
     _checkpoint("[ckpt] PART1 done")
     return rows
@@ -196,8 +190,7 @@ def run_real_bed(name, X, y, seed=0, top_pairs=12):
     def emit(tag, Ztr, Zte, t0):
         a = downstream_frugal(Ztr, Zte, ytr, yte)
         am = round(float(np.nanmean(list(a.values()))), 4)
-        rows.append(dict(bed=name, variant=tag, n=int(Ztr.shape[1]),
-                         fit_s=round(time.time() - t0, 1), auc_mean=am, **a))
+        rows.append(dict(bed=name, variant=tag, n=int(Ztr.shape[1]), fit_s=round(time.time() - t0, 1), auc_mean=am, **a))
         print(f"  {tag:22s} n={int(Ztr.shape[1]):3d} {rows[-1]['fit_s']:6.1f}s mean={am} {a}", flush=True)
 
     # all-raw baseline
@@ -219,7 +212,7 @@ def run_real_bed(name, X, y, seed=0, top_pairs=12):
 
     for op in REAL_OPS:
         t0 = time.time()
-        etr = _apply_op(op, Xtr, pairs, params)   # operands come from FULL frame, appended to base
+        etr = _apply_op(op, Xtr, pairs, params)  # operands come from FULL frame, appended to base
         ete = _apply_op(op, Xte, pairs, params)
         Ztr = pd.concat([Btr, etr], axis=1)
         Zte = pd.concat([Bte, ete], axis=1)
@@ -268,11 +261,9 @@ def main():
             if metric == "logit":
                 recovered = best_rich > 0.80
                 prod_fails = prod < 0.70
-                v = "CONFIRMS" if (recovered and prod_fails) else (
-                    "operator-helps" if best_rich - prod > 0.03 else "no-gain")
+                v = "CONFIRMS" if (recovered and prod_fails) else ("operator-helps" if best_rich - prod > 0.03 else "no-gain")
                 tag = f"  -> {v} [rich>0.80={recovered}, prod<0.70={prod_fails}]"
-            print(f"  {kind:10s} [{metric:8s}] raw={raw:.4f} product={prod:.4f} "
-                  f"best_rich={best_rich:.4f}({best_rich_op}){tag}")
+            print(f"  {kind:10s} [{metric:8s}] raw={raw:.4f} product={prod:.4f} " f"best_rich={best_rich:.4f}({best_rich_op}){tag}")
 
     # ---- PART 2 verdict: do rich ops ADD over products-only on real data?
     print("\n=================== PART 2 VERDICT (real: add over products?) ===================")
@@ -283,8 +274,7 @@ def main():
             prod = float(b.get("tree_top25+product", float("nan")))
             base = float(b.get("tree_top25_raw", float("nan")))
             allraw = float(b.get("all_raw", float("nan")))
-            rich_ops = {op: float(b[f"tree_top25+{op}"]) for op in REAL_OPS
-                        if op != "product" and f"tree_top25+{op}" in b.index}
+            rich_ops = {op: float(b[f"tree_top25+{op}"]) for op in REAL_OPS if op != "product" and f"tree_top25+{op}" in b.index}
             allrich = float(b.get("tree_top25+ALLrich", float("nan")))
             best_rich_op = max(rich_ops, key=rich_ops.get)
             best_rich = rich_ops[best_rich_op]

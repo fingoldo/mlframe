@@ -15,7 +15,6 @@ from typing import Any
 
 import numpy as np
 
-
 # bench-attempt-rejected (2026-06-28): fit-amortised reuse of the joint-histogram atomicAdd count buffers in
 # joint_counts_gpu (227 calls/fit, ~22M int64) and _batched_joint_counts2 (15 calls, up to ~320M int64) -- one
 # grow-to-max int64 buffer per site, .fill(0) the live [:M] slice instead of cp.zeros (alloc+memset) -- to kill
@@ -155,8 +154,7 @@ def _get_rows_ent_nnz_split_kernels(cp):
     global _ROWS_ENT_NNZ_SPLIT_KERNELS
     if _ROWS_ENT_NNZ_SPLIT_KERNELS is None:
         mod = cp.RawModule(code=_ROWS_ENT_NNZ_SRC)
-        _ROWS_ENT_NNZ_SPLIT_KERNELS = (mod.get_function("rows_ent_nnz_i32_split"),
-                                       mod.get_function("rows_ent_nnz_finish"))
+        _ROWS_ENT_NNZ_SPLIT_KERNELS = (mod.get_function("rows_ent_nnz_i32_split"), mod.get_function("rows_ent_nnz_finish"))
     return _ROWS_ENT_NNZ_SPLIT_KERNELS
 
 
@@ -192,16 +190,14 @@ def _rows_entropy_and_k(counts, inv_n):
             _split, _finish = _get_rows_ent_nnz_split_kernels(cp)
             part_h = cp.empty(K * S, dtype=cp.float64)
             part_k = cp.empty(K * S, dtype=cp.float64)
-            _split((K, S), (threads,),
-                   (c, float(inv_n), np.int32(K), np.int64(M), np.int32(S), part_h, part_k))
+            _split((K, S), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), np.int32(S), part_h, part_k))
             _finish(((K + 255) // 256,), (256,), (part_h, part_k, np.int32(K), np.int32(S), out_h, out_k))
             return out_h, out_k
         _ker((K,), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), out_h, out_k))
         return out_h, out_k
     except Exception:  # noqa: BLE001
         if _XLOGX_ROWS_EK is None:
-            _XLOGX_ROWS_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o",
-                                                  "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_rows_ek")
+            _XLOGX_ROWS_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o", "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_rows_ek")
         h = -_XLOGX_ROWS_EK(counts, float(inv_n)).sum(axis=1)
         k = cp.sum(counts > 0, axis=1)
         return h, k
@@ -317,9 +313,7 @@ def _get_joint_hist_kernels():
     if _JOINT_HIST_KERNELS is None:
         import cupy as cp
         mod = cp.RawModule(code=_JOINT_HIST_SRC)
-        _JOINT_HIST_KERNELS = (mod.get_function("joint_hist1"),
-                               mod.get_function("joint_hist2"),
-                               mod.get_function("joint_hist3"))
+        _JOINT_HIST_KERNELS = (mod.get_function("joint_hist1"), mod.get_function("joint_hist2"), mod.get_function("joint_hist3"))
     return _JOINT_HIST_KERNELS
 
 
@@ -455,10 +449,9 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
         out_h = cp.empty(K, dtype=cp.float64)
         out_k = cp.empty(K, dtype=cp.int64)
         threads = 256
-        ker((K,), (threads,),
-            (Xc, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M),
-             float(inv_n), out_h, out_k),
-            shared_mem=M * 4)
+        ker(
+            (K,), (threads,), (Xc, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), out_h, out_k), shared_mem=M * 4
+        )
         return out_h, out_k
     except Exception:  # noqa: BLE001
         import logging
@@ -508,7 +501,7 @@ def _ent_nnz_1d(c, inv_n):
         if _ENT_NNZ_1D_KERNEL is None:
             _ENT_NNZ_1D_KERNEL = cp.RawKernel(_ENT_NNZ_1D_SRC, "ent_nnz_1d")
         M = int(c.size)
-        out = cp.zeros(2, dtype=cp.float64)             # cudaMemsetAsync, not a cuLaunchKernel
+        out = cp.zeros(2, dtype=cp.float64)  # cudaMemsetAsync, not a cuLaunchKernel
         threads = 256
         blocks = min(1024, max(1, (M + threads - 1) // threads))
         _ENT_NNZ_1D_KERNEL((blocks,), (threads,), (c, float(inv_n), np.int64(M), out))
@@ -540,8 +533,7 @@ def joint_counts_gpu(codes: Any, cards: Any) -> Any:
     elif len(codes) == 2:
         h2((blocks,), (threads,), (codes[0], codes[1], np.int32(int(cards[1])), np.int64(n), counts))
     else:
-        h3((blocks,), (threads,), (codes[0], codes[1], codes[2],
-                                   np.int32(int(cards[1])), np.int32(int(cards[2])), np.int64(n), counts))
+        h3((blocks,), (threads,), (codes[0], codes[1], codes[2], np.int32(int(cards[1])), np.int32(int(cards[2])), np.int64(n), counts))
     return counts
 
 
@@ -612,9 +604,7 @@ def _get_joint_entropy_kernels():
     if _JOINT_ENTROPY_KERNELS is None:
         import cupy as cp
         mod = cp.RawModule(code=_JOINT_ENTROPY_SRC)
-        _JOINT_ENTROPY_KERNELS = (mod.get_function("joint_entropy1"),
-                                  mod.get_function("joint_entropy2"),
-                                  mod.get_function("joint_entropy3"))
+        _JOINT_ENTROPY_KERNELS = (mod.get_function("joint_entropy1"), mod.get_function("joint_entropy2"), mod.get_function("joint_entropy3"))
         try:
             _JOINT_ENTROPY_SH_LIMIT = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
         except Exception:
@@ -643,8 +633,7 @@ def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]
             if len(codes) == 1:
                 kers[0]((1,), (256,), (codes[0], np.int64(n), np.int32(M), float(inv_n), out), shared_mem=shmem)
             elif len(codes) == 2:
-                kers[1]((1,), (256,), (codes[0], codes[1], np.int32(int(cards[1])), np.int64(n),
-                                       np.int32(M), float(inv_n), out), shared_mem=shmem)
+                kers[1]((1,), (256,), (codes[0], codes[1], np.int32(int(cards[1])), np.int64(n), np.int32(M), float(inv_n), out), shared_mem=shmem)
             else:
                 kers[2]((1,), (256,), (codes[0], codes[1], codes[2], np.int32(int(cards[1])),
                                        np.int32(int(cards[2])), np.int64(n), np.int32(M), float(inv_n), out),
@@ -722,8 +711,7 @@ def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int
         _CMI_JOINT_ENTROPIES_KERNEL((4,), (256,), (dx, dy, dz, np.int32(int(Kx)), np.int32(int(ky)),
                                     np.int32(int(kz)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
         hk = cp.asnumpy(out)
-        return ((float(hk[0]), int(round(hk[1]))), (float(hk[2]), int(round(hk[3]))),
-                (float(hk[4]), int(round(hk[5]))), (float(hk[6]), int(round(hk[7]))))
+        return ((float(hk[0]), int(round(hk[1]))), (float(hk[2]), int(round(hk[3]))), (float(hk[4]), int(round(hk[5]))), (float(hk[6]), int(round(hk[7]))))
     except Exception:  # noqa: BLE001
         return None
 
@@ -788,11 +776,9 @@ def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) 
             _MARGINAL_MI_ENTROPIES_KERNEL = cp.RawKernel(_MARGINAL_MI_ENTROPIES_SRC, "marginal_mi_entropies")
         n = int(dx.size)
         out = cp.zeros(6, dtype=cp.float64)
-        _MARGINAL_MI_ENTROPIES_KERNEL((3,), (256,), (dx, dy, np.int32(int(Kx)), np.int32(int(ky)),
-                                      np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
+        _MARGINAL_MI_ENTROPIES_KERNEL((3,), (256,), (dx, dy, np.int32(int(Kx)), np.int32(int(ky)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
         hk = cp.asnumpy(out)
-        return ((float(hk[0]), int(round(hk[1]))), (float(hk[2]), int(round(hk[3]))),
-                (float(hk[4]), int(round(hk[5]))))
+        return ((float(hk[0]), int(round(hk[1]))), (float(hk[2]), int(round(hk[3]))), (float(hk[4]), int(round(hk[5]))))
     except Exception:  # noqa: BLE001
         return None
 
@@ -848,9 +834,7 @@ def _get_joint_nnz_kernels():
     if _JOINT_NNZ_KERNELS is None:
         import cupy as cp
         mod = cp.RawModule(code=_JOINT_HIST_SRC)
-        _JOINT_NNZ_KERNELS = (mod.get_function("joint_hist_nnz1"),
-                              mod.get_function("joint_hist_nnz2"),
-                              mod.get_function("joint_hist_nnz3"))
+        _JOINT_NNZ_KERNELS = (mod.get_function("joint_hist_nnz1"), mod.get_function("joint_hist_nnz2"), mod.get_function("joint_hist_nnz3"))
     return _JOINT_NNZ_KERNELS
 
 
@@ -865,8 +849,8 @@ def joint_nnz_gpu(codes: Any, cards: Any) -> int:
     M = 1
     for kc in cards:
         M *= int(kc)
-    counts = cp.zeros(int(max(M, 1)), dtype=cp.int64)        # cudaMemsetAsync, not a cuLaunchKernel
-    nnz = cp.zeros(1, dtype=cp.uint64)                       # cudaMemsetAsync, not a cuLaunchKernel
+    counts = cp.zeros(int(max(M, 1)), dtype=cp.int64)  # cudaMemsetAsync, not a cuLaunchKernel
+    nnz = cp.zeros(1, dtype=cp.uint64)  # cudaMemsetAsync, not a cuLaunchKernel
     threads = 256
     blocks = (n + threads - 1) // threads
     h1, h2, h3 = _get_joint_nnz_kernels()
@@ -875,6 +859,5 @@ def joint_nnz_gpu(codes: Any, cards: Any) -> int:
     elif len(codes) == 2:
         h2((blocks,), (threads,), (codes[0], codes[1], np.int32(int(cards[1])), np.int64(n), counts, nnz))
     else:
-        h3((blocks,), (threads,), (codes[0], codes[1], codes[2],
-                                   np.int32(int(cards[1])), np.int32(int(cards[2])), np.int64(n), counts, nnz))
+        h3((blocks,), (threads,), (codes[0], codes[1], codes[2], np.int32(int(cards[1])), np.int32(int(cards[2])), np.int64(n), counts, nnz))
     return int(nnz.get()[0])

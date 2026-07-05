@@ -64,7 +64,7 @@ def main():
         X = rng.standard_normal((n, p))
         # induce some correlated blocks
         for b in range(0, p, 10):
-            X[:, b + 1:b + 5] = X[:, b:b + 1] + 0.01 * rng.standard_normal((n, min(4, p - b - 1)))
+            X[:, b + 1 : b + 5] = X[:, b : b + 1] + 0.01 * rng.standard_normal((n, min(4, p - b - 1)))
         Z = (X - X.mean(0)) / (X.std(0) + 1e-12)
         C = np.abs(Z.T @ Z / n)
         num_ok = np.ones(p, dtype=bool)

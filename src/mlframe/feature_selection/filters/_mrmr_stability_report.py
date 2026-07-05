@@ -108,15 +108,12 @@ def selection_stability_report(
     """
     state = getattr(self, "_stability_replay_state_", None)
     if not state:
-        msg = (
-            "selection_stability_report: no replay state stored (the fit was degenerate "
-            "or pre-dates this accessor); nothing to report."
-        )
+        msg = "selection_stability_report: no replay state stored (the fit was degenerate " "or pre-dates this accessor); nothing to report."
         if verbose:
             logger.info(msg)
         return msg if as_text else {}
 
-    cand_codes: np.ndarray = state["cand_codes"]          # (n_rows, n_cand) int bins
+    cand_codes: np.ndarray = state["cand_codes"]  # (n_rows, n_cand) int bins
     y_codes: np.ndarray = np.asarray(state["y_codes"]).ravel()
     cand_names: list = list(state["cand_names"])
     selected_mask: np.ndarray = np.asarray(state["selected_mask"], dtype=bool)
@@ -142,7 +139,7 @@ def selection_stability_report(
             for c in range(n_cand):
                 rel[c] = _marginal_mi_codes(cand_codes[idx, c], y_b)
             # Mirror the in-fit relevance ranking: top-n_selected by relevance MI.
-            top = np.argpartition(rel, n_cand - n_selected)[n_cand - n_selected:]
+            top = np.argpartition(rel, n_cand - n_selected)[n_cand - n_selected :]
             sel_counts[top] += 1
         freq = {cand_names[c]: float(sel_counts[c]) / float(K) for c in range(n_cand)}
 
@@ -229,8 +226,7 @@ def _format_report(result: dict, *, quorum: float) -> str:
     lines: list = []
     K = result["n_boot"]
     lines.append(
-        f"MRMR selection-stability report  (K={K} bootstrap replays, "
-        f"{result['n_selected']}/{result['n_candidates']} selected, quorum={quorum:.2f})"
+        f"MRMR selection-stability report  (K={K} bootstrap replays, " f"{result['n_selected']}/{result['n_candidates']} selected, quorum={quorum:.2f})"
     )
     lines.append("-" * 72)
     lines.append(f"{'feature':<40}{'sel.freq':>10}  {'point':>6}  conf")
@@ -242,9 +238,7 @@ def _format_report(result: dict, *, quorum: float) -> str:
     if result["recipe_survival_frequency"]:
         lines.append("-" * 72)
         lines.append("engineered recipe survival-frequency (held-out uplift gate):")
-        for nm, fr in sorted(
-            result["recipe_survival_frequency"].items(), key=lambda kv: -kv[1]
-        ):
+        for nm, fr in sorted(result["recipe_survival_frequency"].items(), key=lambda kv: -kv[1]):
             conf = "HIGH" if fr >= max(quorum, 0.7) else ("low" if fr < 0.3 else "mid")
             lines.append(f"  {str(nm)[:50]:<52}{fr:>8.2f}  {conf}")
     lines.append("-" * 72)

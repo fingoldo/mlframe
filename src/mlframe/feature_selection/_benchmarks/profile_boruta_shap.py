@@ -112,9 +112,7 @@ def main() -> None:
           f"hits_sum={sum(golden['hits']):.0f}")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "boruta_shap_golden.json").write_text(
-        json.dumps(golden, indent=2, sort_keys=True), encoding="utf-8"
-    )
+    (out_dir / "boruta_shap_golden.json").write_text(json.dumps(golden, indent=2, sort_keys=True), encoding="utf-8")
     print(f"  golden -> {out_dir / 'boruta_shap_golden.json'}")
 
     # 2) profiled wall -> measure cProfile overhead + hotspots.

@@ -48,10 +48,7 @@ def validate_custom_transformer(transformer: Any) -> None:
             f"Pass a sklearn TransformerMixin or compatible Pipeline."
         )
     if not hasattr(transformer, "transform") or not callable(getattr(transformer, "transform", None)):
-        raise TypeError(
-            f"CustomParams.transformer must implement .transform(); got "
-            f"{type(transformer).__name__} with no callable transform."
-        )
+        raise TypeError(f"CustomParams.transformer must implement .transform(); got " f"{type(transformer).__name__} with no callable transform.")
 
 
 class CustomHandler:
@@ -119,9 +116,8 @@ class CustomHandler:
         if not self._fitted:
             # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
             from sklearn.exceptions import NotFittedError as _NFE
-            raise _NFE(
-                f"CustomHandler({self.column!r}) not fitted -- call .fit(train_df) first"
-            )
+
+            raise _NFE(f"CustomHandler({self.column!r}) not fitted -- call .fit(train_df) first")
         column_data = self._extract_column(df)
         return self.params.transformer.transform(column_data)
 

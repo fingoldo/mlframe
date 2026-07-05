@@ -322,10 +322,10 @@ def pooled_permutation_null_gain_floor(
     # relabelling shuffle, so it is fixed here.
     ky_eff = int(py.shape[0])
 
-    scaled_codes = []   # x_codes * nbins_y  (so joint = scaled + y_perm)
-    joint_card = []     # nbins_x * nbins_y
-    h_x = []            # marginal entropy of each candidate
-    mm_bias = []        # Miller-Madow bias subtracted from each candidate's MI
+    scaled_codes = []  # x_codes * nbins_y  (so joint = scaled + y_perm)
+    joint_card = []  # nbins_x * nbins_y
+    h_x = []  # marginal entropy of each candidate
+    mm_bias = []  # Miller-Madow bias subtracted from each candidate's MI
     for c in candidate_indices:
         ci = int(c)
         if ci == y_idx:

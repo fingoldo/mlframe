@@ -15,10 +15,7 @@ import pandas as pd
 def cv_results_df_(self) -> "pd.DataFrame":
     """Return cv_results_ as a pd.DataFrame for tabular operations (sort_values, query, plot, to_csv). Built lazily on access; raises if fit() has not run."""
     if not hasattr(self, "cv_results_") or "nfeatures" not in self.cv_results_:
-        raise ValueError(
-            "cv_results_df_ requires fit() to have been called and "
-            "cv_results_ to be populated."
-        )
+        raise ValueError("cv_results_df_ requires fit() to have been called and " "cv_results_ to be populated.")
     return pd.DataFrame(self.cv_results_)
 
 
@@ -71,11 +68,7 @@ def selection_stability_(self, metric: str = "jaccard") -> float:
             return max(0.0, ki)
         raise ValueError(f"Unknown stability metric: {metric!r}")
 
-    pairs = [
-        _pair_stability(per_fold_top[i], per_fold_top[j])
-        for i in range(len(per_fold_top))
-        for j in range(i + 1, len(per_fold_top))
-    ]
+    pairs = [_pair_stability(per_fold_top[i], per_fold_top[j]) for i in range(len(per_fold_top)) for j in range(i + 1, len(per_fold_top))]
     return float(np.mean(pairs)) if pairs else float("nan")
 
 
@@ -261,8 +254,7 @@ def pareto_knee_(self, metric: str = "jaccard") -> int:
     return int(front[int(np.argmin(dist))]["n"])
 
 
-def n_features_bootstrap_ci_(self, n_bootstrap: int = 200, ci: float = 0.9,
-                              random_state: Union[int, None] = None) -> tuple:
+def n_features_bootstrap_ci_(self, n_bootstrap: int = 200, ci: float = 0.9, random_state: Union[int, None] = None) -> tuple:
     """Parametric bootstrap CI on the optimal n_features_.
 
     Draws B bootstrap replicates of the cv_results_ score curve by sampling each (mean, std) pair as Normal(mean, std), recomputes

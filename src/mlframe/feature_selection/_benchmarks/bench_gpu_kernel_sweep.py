@@ -227,8 +227,8 @@ def main() -> None:
     n_samples_grid: Iterable[int] = (100_000, 500_000, 1_000_000, 5_000_000)
     # (nbins_x, nbins_y) -> joint_size = nbins_x * nbins_y.
     nbins_grid: Iterable[tuple[int, int]] = (
-        (2, 3),    # joint_size = 6,    typical binary classification with 2-bin x
-        (5, 5),    # joint_size = 25,   default MRMR nbins=5
+        (2, 3),  # joint_size = 6,    typical binary classification with 2-bin x
+        (5, 5),  # joint_size = 25,   default MRMR nbins=5
         (10, 10),  # joint_size = 100,  high-cardinality MRMR
         (20, 20),  # joint_size = 400,  very wide histograms
     )
@@ -246,8 +246,7 @@ def main() -> None:
                 nbins_x=nbx, nbins_y=nby, seed=11, n_iters=5,
             )
         except Exception as e:
-            print(f"  [{done}/{total}] FAIL n={n_samples:_} bs={block_size} "
-                  f"nbins=({nbx}, {nby}): {type(e).__name__}: {e}")
+            print(f"  [{done}/{total}] FAIL n={n_samples:_} bs={block_size} " f"nbins=({nbx}, {nby}): {type(e).__name__}: {e}")
             continue
         rows.append(row)
         print(

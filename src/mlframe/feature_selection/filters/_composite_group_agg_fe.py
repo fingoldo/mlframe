@@ -110,15 +110,11 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
             arr = ser.to_numpy()
             try:
                 uniq, inv = np.unique(arr, return_inverse=True)
-                toks = np.array(
-                    [canonical_group_token(u) for u in uniq], dtype=object
-                )
+                toks = np.array([canonical_group_token(u) for u in uniq], dtype=object)
                 parts.append(toks[np.asarray(inv).reshape(-1)])
             except (TypeError, ValueError):
                 # Unorderable mixed-type object array: per-value canonical.
-                parts.append(
-                    ser.astype(object).map(canonical_group_token).to_numpy()
-                )
+                parts.append(ser.astype(object).map(canonical_group_token).to_numpy())
         else:
             arr = ser.to_numpy()
             if arr.dtype.kind == "f":
@@ -130,9 +126,7 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
                 toks = np.array([canonical_group_token(u) for u in uniq], dtype=object)
                 parts.append(toks[np.asarray(inv).reshape(-1)])
             else:
-                parts.append(ser.astype(object).map(
-                    lambda v: "" if v is None else canonical_group_token(v)
-                ).to_numpy())
+                parts.append(ser.astype(object).map(lambda v: "" if v is None else canonical_group_token(v)).to_numpy())
     if not parts:
         return np.empty(len(X), dtype=object)
     # \x1f = ASCII unit separator; vanishingly unlikely inside real labels.
@@ -176,9 +170,7 @@ def _global_value_for_stat(x: np.ndarray, stat: str) -> float:
 def _agg_func_for_stat(stat: str):
     if stat in ("mean", "std", "min", "max", "median", "skew", "nunique", "count"):
         return stat
-    raise ValueError(
-        f"composite_group_agg: unknown stat {stat!r}; valid: {_VALID_STATS}"
-    )
+    raise ValueError(f"composite_group_agg: unknown stat {stat!r}; valid: {_VALID_STATS}")
 
 
 def _unique_inverse(keys: np.ndarray):
@@ -255,10 +247,7 @@ def generate_composite_group_agg_features(
     refused (Layer 29 guard): it emits no columns.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"generate_composite_group_agg_features: X must be a pandas "
-            f"DataFrame; got {type(X).__name__}"
-        )
+        raise TypeError(f"generate_composite_group_agg_features: X must be a pandas " f"DataFrame; got {type(X).__name__}")
     stats = [s for s in stats if s in _VALID_STATS]
     encoded: dict[str, np.ndarray] = {}
     raw_recipes: dict[str, dict] = {}
@@ -292,11 +281,7 @@ def generate_composite_group_agg_features(
             )
             continue
 
-        cur_num_cols = [
-            c for c in num_cols
-            if c in X.columns and c not in set(group_cols)
-            and pd.api.types.is_numeric_dtype(X[c])
-        ]
+        cur_num_cols = [c for c in num_cols if c in X.columns and c not in set(group_cols) and pd.api.types.is_numeric_dtype(X[c])]
         # De-duplicate the composite keys ONCE per key-set; reused by every
         # num_col / stat / residual broadcast below (the np.unique argsort was
         # the dominant cProfile hotspot before this hoist).
@@ -308,10 +293,7 @@ def generate_composite_group_agg_features(
             mean_series = grouped.mean()
             std_series = grouped.std(ddof=1)
             lookup_mean = {str(k): float(v) for k, v in mean_series.items()}
-            lookup_std = {
-                str(k): (float(v) if np.isfinite(v) else 0.0)
-                for k, v in std_series.items()
-            }
+            lookup_std = {str(k): (float(v) if np.isfinite(v) else 0.0) for k, v in std_series.items()}
             global_mean = _global_value_for_stat(x, "mean")
             global_std = _global_value_for_stat(x, "std")
 
@@ -326,10 +308,7 @@ def generate_composite_group_agg_features(
                     agg_series = std_series
                 else:
                     agg_series = grouped.agg(_agg_func_for_stat(stat))
-                lookup = {
-                    str(k): (float(v) if np.isfinite(v) else 0.0)
-                    for k, v in agg_series.items()
-                }
+                lookup = {str(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
                 global_value = _global_value_for_stat(x, stat)
                 broadcast = _broadcast_lookup(
                     keys, lookup, global_value,
@@ -410,19 +389,13 @@ def apply_composite_group_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     reading only ``X_test``. ``op`` selects the variant (``broadcast`` /
     ``z_within`` / ``ratio``)."""
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_composite_group_agg: X_test must be a DataFrame; got "
-            f"{type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_composite_group_agg: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     group_cols = list(recipe["group_cols"])
     num_col = recipe["num_col"]
     op = recipe.get("op", "broadcast")
     missing = [c for c in group_cols if c not in X_test.columns]
     if missing or num_col not in X_test.columns:
-        raise KeyError(
-            f"apply_composite_group_agg: missing column(s) {missing or num_col!r} "
-            f"from X_test"
-        )
+        raise KeyError(f"apply_composite_group_agg: missing column(s) {missing or num_col!r} " f"from X_test")
     keys = build_composite_keys(X_test, group_cols)
     x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
 
@@ -464,10 +437,7 @@ def _coerce_X_for_composite_agg(X, group_cols, num_col, recipe_name: str) -> pd.
         cols = {c: X[c] for c in group_cols}
         cols[num_col] = X[num_col]
         return pd.DataFrame(cols)
-    raise TypeError(
-        f"recipe '{recipe_name}': cannot extract {group_cols}/{num_col!r} "
-        f"from X of type {type(X).__name__}"
-    )
+    raise TypeError(f"recipe '{recipe_name}': cannot extract {group_cols}/{num_col!r} " f"from X of type {type(X).__name__}")
 
 
 def _apply_composite_group_agg_recipe(recipe, X) -> np.ndarray:
@@ -512,10 +482,7 @@ def composite_group_agg_with_recipes(
         return X.copy(), [], []
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
-    recipes = [
-        build_composite_group_agg_recipe(name=name, **raw_recipes[name])
-        for name in appended
-    ]
+    recipes = [build_composite_group_agg_recipe(name=name, **raw_recipes[name]) for name in appended]
     return X_aug, appended, recipes
 
 
@@ -582,11 +549,7 @@ def auto_detect_key_sets(
     """Enumerate composite key candidates: all r-combinations (2..max_arity) of
     the detected single group columns whose composite cardinality clears the
     L29 guard. Returns ordered tuples, lowest-cardinality first."""
-    cols = (
-        list(detected_group_cols)
-        if detected_group_cols is not None
-        else _auto_detect_group_cols(X)
-    )
+    cols = list(detected_group_cols) if detected_group_cols is not None else _auto_detect_group_cols(X)
     cols = [c for c in cols if c in X.columns]
     n_rows = len(X)
     cand: list[tuple[tuple[str, ...], int]] = []
@@ -630,18 +593,13 @@ def hybrid_composite_group_agg_fe(
     from ._grouped_agg_fe import score_grouped_agg_by_cmi_uplift
 
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"hybrid_composite_group_agg_fe: X must be a pandas DataFrame; got "
-            f"{type(X).__name__}"
-        )
+        raise TypeError(f"hybrid_composite_group_agg_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if group_col_sets is None or len(group_col_sets) == 0:
         group_col_sets = auto_detect_key_sets(
             X, max_arity=max_arity, max_card_frac=max_card_frac,
         )
     else:
-        group_col_sets = [
-            tuple(c for c in gset if c in X.columns) for gset in group_col_sets
-        ]
+        group_col_sets = [tuple(c for c in gset if c in X.columns) for gset in group_col_sets]
         group_col_sets = [gset for gset in group_col_sets if len(gset) >= 2]
     if not group_col_sets:
         return X.copy(), [], [], pd.DataFrame()
@@ -665,9 +623,7 @@ def hybrid_composite_group_agg_fe(
     scores = score_grouped_agg_by_cmi_uplift(
         X, enc_df, y, base_cols, n_bins=n_bins, eng_to_source=eng_to_source,
     )
-    keep = scores[
-        (scores["cmi"] >= float(min_cmi)) & (scores["uplift"] >= float(min_uplift))
-    ]
+    keep = scores[(scores["cmi"] >= float(min_cmi)) & (scores["uplift"] >= float(min_uplift))]
     winners = list(keep["engineered_col"].head(int(top_k)))
     if not winners:
         return X.copy(), [], [], scores
@@ -675,8 +631,5 @@ def hybrid_composite_group_agg_fe(
     from .engineered_recipes import build_composite_group_agg_recipe
 
     X_aug = pd.concat([X, enc_df[winners]], axis=1)
-    recipes = [
-        build_composite_group_agg_recipe(name=name, **raw_recipes[name])
-        for name in winners
-    ]
+    recipes = [build_composite_group_agg_recipe(name=name, **raw_recipes[name]) for name in winners]
     return X_aug, winners, recipes, scores

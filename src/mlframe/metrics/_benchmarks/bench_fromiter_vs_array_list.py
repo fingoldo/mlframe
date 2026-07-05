@@ -65,10 +65,7 @@ def main() -> None:
         # Fewer iterations at large sizes to keep total bench time bounded.
         n_iter = 10_000 if size <= 100 else (1000 if size <= 1000 else (100 if size <= 10_000 else 30))
         out = _bench(size, n_iter=n_iter)
-        print(
-            f"{size:8d} {out['old_us']:>13.2f}us {out['new_us']:>11.2f}us "
-            f"{out['speedup']:>8.2f}x"
-        )
+        print(f"{size:8d} {out['old_us']:>13.2f}us {out['new_us']:>11.2f}us " f"{out['speedup']:>8.2f}x")
 
 
 if __name__ == "__main__":

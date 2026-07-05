@@ -20,7 +20,6 @@ from .._enums import OptimumSearch, VotesAggregation
 from .._helpers import get_next_features_subset, store_averaged_cv_scores
 from ._fit_fold import _eval_fold_body
 
-
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
@@ -238,9 +237,7 @@ def run_outer_loop_iteration(
     if n_jobs_effective > 1 and len(_fold_args) > 1:
         from joblib import Parallel, delayed
         # prefer="threads": sklearn / CB / LGB / XGB all release GIL during fit, so threads give true parallelism without the serialisation cost of multiprocessing. require="sharedmem" HARDENS the design -- under loky the closure-state mutations would happen in worker process copies and the main-process state silently stays empty -> ``final_score = nan`` with no exception; require= makes joblib RAISE if it can't satisfy threading, surfacing the misconfiguration loud.
-        Parallel(n_jobs=n_jobs_effective, prefer="threads", require="sharedmem")(
-            delayed(_fold_runner)(*a) for a in _fold_args
-        )
+        Parallel(n_jobs=n_jobs_effective, prefer="threads", require="sharedmem")(delayed(_fold_runner)(*a) for a in _fold_args)
     else:
         if verbose:
             from pyutilz.system import tqdmu
@@ -267,8 +264,7 @@ def run_outer_loop_iteration(
         # steering the optimizer toward small N. The dummy stays in
         # cv_results_ for reporting but does NOT influence acquisition.
         # Opt-in old behaviour via self.submit_dummy_to_optimizer=True.
-        if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic \
-                and getattr(self, "submit_dummy_to_optimizer", False):
+        if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic and getattr(self, "submit_dummy_to_optimizer", False):
             state.Optimizer.submit_evaluations(candidates=[0], evaluations=[final_score], durations=[None])
 
     scores_mean, scores_std, final_score, was_stored = store_averaged_cv_scores(
@@ -310,9 +306,7 @@ def run_outer_loop_iteration(
         elif _target_name == "final_score":
             _target_value = final_score
         else:
-            raise ValueError(
-                f"optimizer_target must be 'mean' or 'final_score'; got {_target_name!r}"
-            )
+            raise ValueError(f"optimizer_target must be 'mean' or 'final_score'; got {_target_name!r}")
         state.Optimizer.submit_evaluations(candidates=[len(current_features)], evaluations=[_target_value], durations=[None])
 
         if verbose:

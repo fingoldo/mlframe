@@ -36,7 +36,7 @@ def _make_circle(n=2000, seed=42, r=1.0):
     rng = np.random.default_rng(seed)
     x1 = rng.normal(size=n)
     x2 = rng.normal(size=n)
-    y = ((x1 ** 2 + x2 ** 2) > r ** 2).astype(np.int64)
+    y = ((x1**2 + x2**2) > r**2).astype(np.int64)
     return x1, x2, y
 
 
@@ -44,7 +44,7 @@ def _make_saddle(n=2000, seed=42):
     rng = np.random.default_rng(seed)
     x1 = rng.normal(size=n)
     x2 = rng.normal(size=n)
-    y = (np.sign(x1 ** 2 - x2 ** 2) > 0).astype(np.int64)
+    y = (np.sign(x1**2 - x2**2) > 0).astype(np.int64)
     return x1, x2, y
 
 
@@ -53,7 +53,7 @@ def _make_polynomial(n=2000, seed=42):
     rng = np.random.default_rng(seed)
     x1 = rng.normal(size=n)
     x2 = rng.normal(size=n)
-    score = x1 ** 2 - 2 * x1 * x2 + 0.5 * x2 ** 3
+    score = x1**2 - 2 * x1 * x2 + 0.5 * x2**3
     y = (score > np.median(score)).astype(np.int64)
     return x1, x2, y
 
@@ -83,7 +83,7 @@ def _make_monotonic(n=2000, seed=42):
     rng = np.random.default_rng(seed)
     x1 = rng.normal(size=n)
     x2 = rng.normal(size=n)
-    score = np.log(1 + x1 ** 2) - x2 + 0.3 * rng.normal(size=n)
+    score = np.log(1 + x1**2) - x2 + 0.3 * rng.normal(size=n)
     y = (score > np.median(score)).astype(np.int64)
     return x1, x2, y
 
@@ -191,8 +191,7 @@ _REGIMES = {
 def _ksg_baseline_pair(x1, x2, y) -> float:
     """KSG MI of (x1, x2) joint with discrete y."""
     Xn = np.column_stack([x1, x2])
-    return float(mutual_info_classif(Xn, y, n_neighbors=3, random_state=42,
-                                      discrete_features=False).max())
+    return float(mutual_info_classif(Xn, y, n_neighbors=3, random_state=42, discrete_features=False).max())
 
 
 def _legacy_hermite(x1, x2, y, n_iters=2, n_trials_per_iter=100):
@@ -255,10 +254,8 @@ def _legacy_hermite(x1, x2, y, n_iters=2, n_trials_per_iter=100):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=2000)
-    parser.add_argument("--n-trials", type=int, default=200,
-                        help="trials for improved Hermite (per degree)")
-    parser.add_argument("--regime", default="all",
-                        help="comma-separated subset of: " + ",".join(_REGIMES))
+    parser.add_argument("--n-trials", type=int, default=200, help="trials for improved Hermite (per degree)")
+    parser.add_argument("--regime", default="all", help="comma-separated subset of: " + ",".join(_REGIMES))
     args = parser.parse_args()
 
     regimes = list(_REGIMES) if args.regime == "all" else args.regime.split(",")
@@ -298,10 +295,7 @@ def main():
 
         improved_mi = res.mi if res is not None else 0.0
         uplift = improved_mi / max(baseline, 1e-12)
-        print(
-            f"  {regime_name:12s}  {baseline:10.4f}  {legacy or 0:10.4f}  "
-            f"{improved_mi:10.4f}  {uplift:7.2f}x  {t_imp:7.2f}s"
-        )
+        print(f"  {regime_name:12s}  {baseline:10.4f}  {legacy or 0:10.4f}  " f"{improved_mi:10.4f}  {uplift:7.2f}x  {t_imp:7.2f}s")
         if res is not None:
             print(
                 f"    improved best: degree={res.degree_a}, bf={res.bin_func_name}, "

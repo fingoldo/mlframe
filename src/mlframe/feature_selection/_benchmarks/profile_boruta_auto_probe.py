@@ -38,8 +38,7 @@ warnings.filterwarnings("ignore")
 def main():
     from mlframe.feature_selection.boruta_shap._auto_dispatch import resolve_auto_importance_measure
 
-    X, y = make_classification(n_samples=2000, n_features=60, n_informative=4, n_redundant=0,
-                               shuffle=False, random_state=0)
+    X, y = make_classification(n_samples=2000, n_features=60, n_informative=4, n_redundant=0, shuffle=False, random_state=0)
     X = pd.DataFrame(X, columns=[f"f{i}" for i in range(60)])
     y = pd.Series(y)
 

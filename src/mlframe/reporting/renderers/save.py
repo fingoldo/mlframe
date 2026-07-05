@@ -56,9 +56,7 @@ def get_render_failure_stats() -> "Dict[str, int]":
     Mirrors ``plotly.get_kaleido_oneshot_stats``; the suite-end summary surfaces this so silently-dropped
     diagnostics are visible. Cleared via ``reset_render_failure_stats``.
     """
-    return {"total": _RENDER_FAILURE_COUNT,
-            "timeouts": _RENDER_TIMEOUT_COUNT,
-            "exceptions": _RENDER_EXCEPTION_COUNT}
+    return {"total": _RENDER_FAILURE_COUNT, "timeouts": _RENDER_TIMEOUT_COUNT, "exceptions": _RENDER_EXCEPTION_COUNT}
 
 
 def reset_render_failure_stats() -> None:
@@ -131,10 +129,7 @@ def set_inline_display_mode(mode):
     ``ReportingConfig.plot_inline_display``.
     """
     if mode not in (None, True, False):
-        raise ValueError(
-            f"set_inline_display_mode(mode={mode!r}): expected True, "
-            "False, or None"
-        )
+        raise ValueError(f"set_inline_display_mode(mode={mode!r}): expected True, " "False, or None")
     if mode is None:
         _INLINE_OVERRIDE.value = _UNSET
     else:
@@ -206,9 +201,7 @@ def render_and_save(
     if interactive is None:
         interactive = _detect_interactive_session()
 
-    multi_output = (len(output.backends) > 1) or any(
-        len(fmts) > 1 for _, fmts in output.backends
-    )
+    multi_output = (len(output.backends) > 1) or any(len(fmts) > 1 for _, fmts in output.backends)
     handles: Dict[str, Any] = {}
 
     # Parallelize render+save across backends: each builds its OWN renderer
@@ -238,10 +231,7 @@ def render_and_save(
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeout
         # max_workers = backend count; each task = one render+save pipeline.
         with ThreadPoolExecutor(max_workers=len(output.backends)) as _ex:
-            _futures = [
-                _ex.submit(_do_backend, backend, fmts)
-                for backend, fmts in output.backends
-            ]
+            _futures = [_ex.submit(_do_backend, backend, fmts) for backend, fmts in output.backends]
             _results = []
             for f in _futures:
                 try:
@@ -255,8 +245,8 @@ def render_and_save(
                 except Exception:
                     _record_render_failure(timed_out=False)
                     logger.warning(
-                        "render_and_save: backend future failed; one render output dropped. "
-                        "See get_render_failure_stats().", exc_info=True,
+                        "render_and_save: backend future failed; one render output dropped. " "See get_render_failure_stats().",
+                        exc_info=True,
                     )
     else:
         # Single-backend path: skip the thread pool overhead.

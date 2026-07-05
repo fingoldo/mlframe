@@ -149,8 +149,7 @@ def compute_interaction_tensor(model_template, X, y, *, classification, rng=None
     elif backend == "treeshap_numba":
         use_numba = True
     elif backend == "auto":
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import (
-            is_supported_lightgbm, is_supported_xgboost)
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import is_supported_lightgbm, is_supported_xgboost
 
         base_est = _unwrap_estimator(est)
         supported = is_supported_xgboost(base_est) or is_supported_lightgbm(base_est)
@@ -160,8 +159,7 @@ def compute_interaction_tensor(model_template, X, y, *, classification, rng=None
             # Prefer the GPU interaction kernel on a CUDA box once the tensor is large enough that the
             # per-sample tree*cond-feat work amortises the upload + local-mem spill.
             try:
-                from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu import (
-                    gpu_interactions_available)
+                from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu import gpu_interactions_available
 
                 if gpu_interactions_available() and X.shape[0] * P * P >= _interaction_gpu_min_cells():
                     use_gpu = True
@@ -395,9 +393,9 @@ def su_synergy_screen(
     rng = np.random.default_rng(0) if rng is None else rng
     cols = list(X.columns)
     if len(cols) < 2:
-        return [], dict(gate=float("inf"), n_screened_cols=len(cols), n_pairs=0,
-                        best_synergy=float("nan"), n_kept=0, null_quantile=float("nan"),
-                        null_std=float("nan"))
+        return [], dict(
+            gate=float("inf"), n_screened_cols=len(cols), n_pairs=0, best_synergy=float("nan"), n_kept=0, null_quantile=float("nan"), null_std=float("nan")
+        )
 
     yb = _su_target_bin(np.asarray(y), n_bins)
     y_cls, y_freq = _su_marginals(yb)
@@ -565,8 +563,8 @@ def sparse_interaction_candidates(
     # ONE in-sample model on the augmented frame (a ranking refinement; honest re-validation downstream
     # stays OOF-disjoint and retrains only on the ORIGINAL operand columns).
     phi_aug, base_aug, y_aug = compute_shap_matrix(
-        model_template, aug, np.asarray(y), classification=classification,
-        out_of_fold=False, n_splits=2, n_models=1, rng=rng, n_jobs=1)
+        model_template, aug, np.asarray(y), classification=classification, out_of_fold=False, n_splits=2, n_models=1, rng=rng, n_jobs=1
+    )
 
     P = phi_aug.shape[1]
     max_card_eff = P if max_card is None else min(max_card, P)
@@ -582,11 +580,8 @@ def sparse_interaction_candidates(
         metric = None
     if P <= 18:
         cands = brute_force_top_n(
-            phi_aug, base_aug, y_aug, classification=classification, metric=metric,
-            min_card=min_card, max_card=max_card_eff, top_n=top_n,
-            parallel=(P >= 14))
+            phi_aug, base_aug, y_aug, classification=classification, metric=metric, min_card=min_card, max_card=max_card_eff, top_n=top_n, parallel=(P >= 14)
+        )
     else:
-        cands = H.greedy_forward(
-            phi_aug, base_aug, y_aug, classification=classification, metric=metric,
-            max_card=max_card_eff, top_n=top_n)
+        cands = H.greedy_forward(phi_aug, base_aug, y_aug, classification=classification, metric=metric, max_card=max_card_eff, top_n=top_n)
     return cands, product_to_operands

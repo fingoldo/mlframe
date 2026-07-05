@@ -142,13 +142,13 @@ def _cuda_kernel_factory():
 
     @_nb_cuda.jit
     def _kernel(
-        factors_data,   # (n_samples, n_features) int32
-        pair_a,         # (n_pairs,) int64
-        pair_b,         # (n_pairs,) int64
-        nbins,          # (n_features,) int32
-        classes_y,      # (n_samples,) int32
-        freqs_y,        # (n_classes_y,) float64
-        mi_out,         # (n_pairs,) float64
+        factors_data,  # (n_samples, n_features) int32
+        pair_a,  # (n_pairs,) int64
+        pair_b,  # (n_pairs,) int64
+        nbins,  # (n_features,) int32
+        classes_y,  # (n_samples,) int32
+        freqs_y,  # (n_classes_y,) float64
+        mi_out,  # (n_pairs,) float64
         n_samples,
         n_classes_y,
     ):
@@ -266,8 +266,7 @@ def batch_pair_mi_cuda(
     n_classes_y = int(freqs_y.shape[0])
     if n_classes_y > MAX_Y_BINS_CUDA:
         raise ValueError(
-            f"n_classes_y={n_classes_y} exceeds CUDA shared-memory budget "
-            f"MAX_Y_BINS_CUDA={MAX_Y_BINS_CUDA}; use the CPU kernel instead",
+            f"n_classes_y={n_classes_y} exceeds CUDA shared-memory budget " f"MAX_Y_BINS_CUDA={MAX_Y_BINS_CUDA}; use the CPU kernel instead",
         )
     # Joint-card + min-cardinality guard: check the largest and smallest pair.
     max_joint = 0
@@ -277,8 +276,7 @@ def batch_pair_mi_cuda(
         nb_b = int(nbins[b])
         if nb_a < 1 or nb_b < 1:
             raise ValueError(
-                f"degenerate pair ({int(a)}, {int(b)}): nbins=({nb_a}, {nb_b}); "
-                f"at least one column has zero cardinality (skip the pair host-side)",
+                f"degenerate pair ({int(a)}, {int(b)}): nbins=({nb_a}, {nb_b}); " f"at least one column has zero cardinality (skip the pair host-side)",
             )
         if min_nb is None or min(nb_a, nb_b) < min_nb:
             min_nb = min(nb_a, nb_b)
@@ -299,15 +297,13 @@ def batch_pair_mi_cuda(
         cy_min = int(classes_y.min())
         if cy_max >= n_classes_y or cy_min < 0:
             raise ValueError(
-                f"classes_y values must be in [0, n_classes_y={n_classes_y}); "
-                f"got [min={cy_min}, max={cy_max}]",
+                f"classes_y values must be in [0, n_classes_y={n_classes_y}); " f"got [min={cy_min}, max={cy_max}]",
             )
     if factors_data.size > 0:
         fd_min = int(factors_data.min())
         if fd_min < 0:
             raise ValueError(
-                f"factors_data must be non-negative; got min={fd_min} "
-                f"(merge_vars output should be >= 0 by contract)",
+                f"factors_data must be non-negative; got min={fd_min} " f"(merge_vars output should be >= 0 by contract)",
             )
 
     n_samples = int(factors_data.shape[0])
@@ -476,9 +472,7 @@ from numba import njit as _njit
 
 # getattr fallback: under NUMBA_DISABLE_JIT=1 the kernel is a plain function (no
 # .py_func) and njit is a pass-through, so serial == the same callable.
-batch_pair_mi_njit_serial = _njit(nogil=True, cache=True)(
-    getattr(batch_pair_mi_njit_prange, "py_func", batch_pair_mi_njit_prange)
-)
+batch_pair_mi_njit_serial = _njit(nogil=True, cache=True)(getattr(batch_pair_mi_njit_prange, "py_func", batch_pair_mi_njit_prange))
 
 
 def _make_batch_pair_mi_inputs(dims: dict):

@@ -38,8 +38,7 @@ from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
 
 SEEDS = [0, 1, 2]
-RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_results",
-                       "round5_innovate_cooccur_clusterrep.json")
+RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_results", "round5_innovate_cooccur_clusterrep.json")
 
 
 # ------------------------------------------------------------------ synthetic beds
@@ -101,8 +100,7 @@ def honest_auc(Xtr, ytr, Xte, yte, sel, seed):
     feats = [c for c in sel if c in Xtr.columns]
     if not feats:
         return 0.5
-    m = lgb.LGBMClassifier(n_estimators=300, num_leaves=31, learning_rate=0.05, n_jobs=-1,
-                           verbose=-1, random_state=seed)
+    m = lgb.LGBMClassifier(n_estimators=300, num_leaves=31, learning_rate=0.05, n_jobs=-1, verbose=-1, random_state=seed)
     m.fit(Xtr[feats], ytr)
     return float(roc_auc_score(yte, m.predict_proba(Xte[feats])[:, 1]))
 
@@ -119,7 +117,7 @@ def run():
     rows = []
     for scen, gen in SCENARIOS.items():
         knob = "cooccur_weight" if scen in COOCCUR_BEDS else "cluster_rep"
-        old_v, new_v = (("count", "gain") if knob == "cooccur_weight" else ("first", "sum_fi"))
+        old_v, new_v = ("count", "gain") if knob == "cooccur_weight" else ("first", "sum_fi")
         for seed in SEEDS:
             X, y = gen(n, seed)
             Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.35, random_state=seed, stratify=y)

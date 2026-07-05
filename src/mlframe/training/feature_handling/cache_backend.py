@@ -101,9 +101,7 @@ class LocalDiskBackend:
         # the sidecar path so concurrent writers from sibling processes
         # observe the same critical section.
         self._lru_mem_lock = threading.Lock()
-        self._lru_cross_proc_lock_path = os.path.join(
-            self._locks_dir, ".lru.lock"
-        )
+        self._lru_cross_proc_lock_path = os.path.join(self._locks_dir, ".lru.lock")
 
     # ---- path helpers ------------------------------------------------
 
@@ -253,11 +251,7 @@ class LocalDiskBackend:
         if self.max_entries is None and self.max_size_mb is None:
             return 0
         lru = self._load_lru()
-        if (
-            self.max_size_mb is None
-            and self.max_entries is not None
-            and len(lru) <= self.max_entries
-        ):
+        if self.max_size_mb is None and self.max_entries is not None and len(lru) <= self.max_entries:
             return 0
         # Collect every on-disk entry; pre-cap legacy keys default to
         # timestamp 0 so they evict first.
@@ -279,10 +273,7 @@ class LocalDiskBackend:
 
         n = len(entries)
         total = sum(s for _, _, s in entries)
-        max_bytes = (
-            int(self.max_size_mb * 1024 * 1024)
-            if self.max_size_mb is not None else None
-        )
+        max_bytes = int(self.max_size_mb * 1024 * 1024) if self.max_size_mb is not None else None
 
         removed = 0
         for key, _ts, size in entries:
@@ -324,5 +315,3 @@ class LocalDiskBackend:
 # import time because that would require constructing the backend with
 # a real path. The runtime_checkable Protocol is sufficient for tests
 # to pin the contract.
-
-

@@ -149,10 +149,7 @@ def generate_grouped_quantile_features(
     X -- no ``y`` reference is captured, so transform() is leakage-free.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"generate_grouped_quantile_features: X must be a pandas DataFrame; "
-            f"got {type(X).__name__}"
-        )
+        raise TypeError(f"generate_grouped_quantile_features: X must be a pandas DataFrame; " f"got {type(X).__name__}")
     group_cols = [c for c in group_cols if c in X.columns]
     quantiles = tuple(float(q) for q in quantiles if 0.0 <= float(q) <= 1.0)
     encoded: dict[str, np.ndarray] = {}
@@ -162,23 +159,13 @@ def generate_grouped_quantile_features(
 
     for group_col in group_cols:
         g_keys = group_key_strings(X[group_col])
-        cur_num_cols = [
-            c for c in num_cols
-            if c in X.columns and c != group_col
-            and pd.api.types.is_numeric_dtype(X[c])
-        ]
+        cur_num_cols = [c for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c])]
         for num_col in cur_num_cols:
             x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
             finite_all = x[np.isfinite(x)]
             global_sorted = np.sort(finite_all) if finite_all.size else np.array([], dtype=np.float64)
-            global_iqr = (
-                float(np.quantile(finite_all, 0.75) - np.quantile(finite_all, 0.25))
-                if finite_all.size else 0.0
-            )
-            global_p90p10 = (
-                float(np.quantile(finite_all, 0.90) - np.quantile(finite_all, 0.10))
-                if finite_all.size else 0.0
-            )
+            global_iqr = float(np.quantile(finite_all, 0.75) - np.quantile(finite_all, 0.25)) if finite_all.size else 0.0
+            global_p90p10 = float(np.quantile(finite_all, 0.90) - np.quantile(finite_all, 0.10)) if finite_all.size else 0.0
 
             # Per-group sorted-value arrays (str-keyed) for the CDF position.
             group_sorted: dict[str, list] = {}
@@ -271,18 +258,12 @@ def apply_grouped_quantile(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     broadcast). Unseen groups fall back to the pooled global edges.
     """
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_grouped_quantile: X_test must be a DataFrame; got "
-            f"{type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_grouped_quantile: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     group_col = recipe["group_col"]
     num_col = recipe["num_col"]
     op = recipe.get("op", "pct_rank")
     if group_col not in X_test.columns or num_col not in X_test.columns:
-        raise KeyError(
-            f"apply_grouped_quantile: missing column(s) {group_col!r}/"
-            f"{num_col!r} from X_test"
-        )
+        raise KeyError(f"apply_grouped_quantile: missing column(s) {group_col!r}/" f"{num_col!r} from X_test")
     g_keys = group_key_strings(X_test[group_col])
     x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
 
@@ -371,10 +352,7 @@ def generate_target_aware_group_bins(
     refit edges so test replay is a pure function of X.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"generate_target_aware_group_bins: X must be a pandas DataFrame; "
-            f"got {type(X).__name__}"
-        )
+        raise TypeError(f"generate_target_aware_group_bins: X must be a pandas DataFrame; " f"got {type(X).__name__}")
     group_cols = [c for c in group_cols if c in X.columns]
     y_arr = np.asarray(y)
     if y_arr.dtype.kind in "fc":
@@ -401,21 +379,13 @@ def generate_target_aware_group_bins(
 
     for group_col in group_cols:
         g_keys = group_key_strings(X[group_col])
-        cur_num_cols = [
-            c for c in num_cols
-            if c in X.columns and c != group_col
-            and pd.api.types.is_numeric_dtype(X[c])
-        ]
+        cur_num_cols = [c for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c])]
         # Precompute the row indices per group key once.
-        group_rows: dict[str, np.ndarray] = {
-            str(gv): idx.to_numpy()
-            for gv, idx in pd.Series(np.arange(n)).groupby(g_keys, sort=False)
-        }
+        group_rows: dict[str, np.ndarray] = {str(gv): idx.to_numpy() for gv, idx in pd.Series(np.arange(n)).groupby(g_keys, sort=False)}
         for num_col in cur_num_cols:
             x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
             finite_all = x[np.isfinite(x)]
-            global_edges = _fit_group_edges(finite_all, y_arr[np.isfinite(x)], n_bins) \
-                if finite_all.size else np.array([], dtype=np.float64)
+            global_edges = _fit_group_edges(finite_all, y_arr[np.isfinite(x)], n_bins) if finite_all.size else np.array([], dtype=np.float64)
 
             # ---- OOF bin assignment for leak-safe MI scoring ----
             # bench-attempt-FUTURE (2026-06-23): capping the n_folds x n_groups MDLP refits below
@@ -440,8 +410,7 @@ def generate_target_aware_group_bins(
                 # points that then bin it -- a y-leak into the OOF MI score that can float a pure-noise tiny-group bin
                 # above the gate. The persisted recipe below still uses all-rows edges (serving is out-of-sample).
                 _tr_finite = train_mask & np.isfinite(x)
-                fold_global_edges = _fit_group_edges(x[_tr_finite], y_arr[_tr_finite], n_bins) \
-                    if _tr_finite.any() else global_edges
+                fold_global_edges = _fit_group_edges(x[_tr_finite], y_arr[_tr_finite], n_bins) if _tr_finite.any() else global_edges
                 for key, rows in group_rows.items():
                     tr = rows[train_mask[rows]]
                     te = rows[test_mask[rows]]
@@ -483,17 +452,11 @@ def apply_target_aware_group_bin(X_test: pd.DataFrame, recipe: dict) -> np.ndarr
     its group's stored edges; unseen groups use the pooled global edges.
     """
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_target_aware_group_bin: X_test must be a DataFrame; got "
-            f"{type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_target_aware_group_bin: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     group_col = recipe["group_col"]
     num_col = recipe["num_col"]
     if group_col not in X_test.columns or num_col not in X_test.columns:
-        raise KeyError(
-            f"apply_target_aware_group_bin: missing column(s) {group_col!r}/"
-            f"{num_col!r} from X_test"
-        )
+        raise KeyError(f"apply_target_aware_group_bin: missing column(s) {group_col!r}/" f"{num_col!r} from X_test")
     g_keys = group_key_strings(X_test[group_col])
     x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
     group_edges = recipe["group_edges"]
@@ -533,10 +496,7 @@ def _coerce_X(X, group_col: str, num_col: str, recipe_name: str) -> pd.DataFrame
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
         return pd.DataFrame({group_col: X[group_col], num_col: X[num_col]})
-    raise TypeError(
-        f"recipe '{recipe_name}': cannot extract {group_col!r}/{num_col!r} "
-        f"from X of type {type(X).__name__}"
-    )
+    raise TypeError(f"recipe '{recipe_name}': cannot extract {group_col!r}/{num_col!r} " f"from X of type {type(X).__name__}")
 
 
 def _apply_grouped_quantile_recipe(recipe, X) -> np.ndarray:
@@ -603,9 +563,7 @@ def score_grouped_quantile_by_mi_uplift(
     from ._adaptive_nbins import _plug_in_mi
 
     if eng_X.shape[1] == 0:
-        return pd.DataFrame(
-            columns=["engineered_col", "source_col", "mi", "source_mi", "uplift"]
-        )
+        return pd.DataFrame(columns=["engineered_col", "source_col", "mi", "source_mi", "uplift"])
     y_arr = np.asarray(y)
     if not np.issubdtype(y_arr.dtype, np.integer):
         if y_arr.dtype.kind in "fc" and int(np.unique(y_arr).size) > 32:
@@ -683,8 +641,8 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
         return [name for name, _info in cands[:max_cols]]
     except Exception as _e:
         logger.debug(
-            "grouped_quantile auto-detect: detector import failed (%s); using "
-            "fallback cardinality scan.", _e,
+            "grouped_quantile auto-detect: detector import failed (%s); using " "fallback cardinality scan.",
+            _e,
         )
         out: list[str] = []
         n = len(X)
@@ -759,10 +717,7 @@ def hybrid_grouped_quantile_fe(
     replay is leakage-free.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"hybrid_grouped_quantile_fe: X must be a pandas DataFrame; got "
-            f"{type(X).__name__}"
-        )
+        raise TypeError(f"hybrid_grouped_quantile_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if group_cols is None or len(group_cols) == 0:
         group_cols = _auto_detect_group_cols(X)
     else:
@@ -794,9 +749,7 @@ def hybrid_grouped_quantile_fe(
     scores = score_grouped_quantile_by_mi_uplift(
         X, enc_df, y, n_bins=n_bins_mi, eng_to_source=eng_to_source,
     )
-    keep = scores[
-        (scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift))
-    ]
+    keep = scores[(scores["mi"] >= float(min_mi)) & (scores["uplift"] >= float(min_uplift))]
     winners = list(keep["engineered_col"].head(int(top_k)))
     if not winners:
         return X.copy(), [], [], scores

@@ -32,7 +32,6 @@ from scipy import stats
 
 from mlframe.evaluation.bootstrap import bootstrap_metric
 
-
 _AUC_SEP = 2.66  # two unit-variance Gaussians separated by sep -> true AUC = Phi(sep/sqrt2) ~ 0.97
 
 
@@ -77,8 +76,7 @@ def _pearson(x: np.ndarray, y: np.ndarray) -> float:
     return float(np.corrcoef(x, y)[0, 1])
 
 
-def run_scenario(name: str, draw, metric_fn, true_value: float, seed: int,
-                 n_sample: int, n_trials: int = 600, n_bootstrap: int = 800) -> dict:
+def run_scenario(name: str, draw, metric_fn, true_value: float, seed: int, n_sample: int, n_trials: int = 600, n_bootstrap: int = 800) -> dict:
     rng = np.random.default_rng(seed)
     hits = {"percentile": 0, "bca": 0}
     widths = {"percentile": 0.0, "bca": 0.0}
@@ -87,10 +85,10 @@ def run_scenario(name: str, draw, metric_fn, true_value: float, seed: int,
         a, b = draw(rng, n_sample)
         # One resample loop per method but SAME per-trial draw, so the comparison is paired.
         try:
-            r_pct = bootstrap_metric(a, b, metric_fn=metric_fn, n_bootstrap=n_bootstrap,
-                                     alpha=0.05, random_state=int(rng.integers(0, 2**31)), method="percentile")
-            r_bca = bootstrap_metric(a, b, metric_fn=metric_fn, n_bootstrap=n_bootstrap,
-                                     alpha=0.05, random_state=int(rng.integers(0, 2**31)), method="bca")
+            r_pct = bootstrap_metric(
+                a, b, metric_fn=metric_fn, n_bootstrap=n_bootstrap, alpha=0.05, random_state=int(rng.integers(0, 2**31)), method="percentile"
+            )
+            r_bca = bootstrap_metric(a, b, metric_fn=metric_fn, n_bootstrap=n_bootstrap, alpha=0.05, random_state=int(rng.integers(0, 2**31)), method="bca")
         except Exception:
             continue
         valid += 1
@@ -104,8 +102,7 @@ def run_scenario(name: str, draw, metric_fn, true_value: float, seed: int,
     w = {m: widths[m] / valid for m in widths}
     gap = {m: abs(cov[m] - 0.95) for m in cov}
     winner = "bca" if gap["bca"] < gap["percentile"] else "percentile"
-    return {"scenario": name, "seed": seed, "true": true_value, "valid": valid,
-            "coverage": cov, "miscov_gap": gap, "mean_width": w, "winner": winner}
+    return {"scenario": name, "seed": seed, "true": true_value, "valid": valid, "coverage": cov, "miscov_gap": gap, "mean_width": w, "winner": winner}
 
 
 def main() -> None:

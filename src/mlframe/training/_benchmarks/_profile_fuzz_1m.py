@@ -134,10 +134,7 @@ def _make_synthetic_frame(
     add_constant_col = rng.random() < 0.30
     add_correlated_col = rng.random() < 0.30
 
-    cols = {
-        f"x{i}": rng.normal(size=n_rows).astype("float32")
-        for i in range(6)
-    }
+    cols = {f"x{i}": rng.normal(size=n_rows).astype("float32") for i in range(6)}
     if add_constant_col:
         # A constant column - exercise remove_constant_columns. Using a
         # single value forces both min==max and (with eq_missing) the
@@ -178,12 +175,7 @@ def _make_synthetic_frame(
         cols["emb"] = [rng.normal(size=8).astype("float32") for _ in range(n_rows)]
 
     if target_type == "regression":
-        y = (
-            2.0 * cols["x0"]
-            - 1.5 * cols["x1"]
-            + 0.5 * cols["x2"] * cols["x3"]
-            + rng.normal(0, 0.5, n_rows).astype("float32")
-        )
+        y = 2.0 * cols["x0"] - 1.5 * cols["x1"] + 0.5 * cols["x2"] * cols["x3"] + rng.normal(0, 0.5, n_rows).astype("float32")
         cols["y"] = y.astype("float32")
     elif target_type == "binary_classification":
         logit = 1.5 * cols["x0"] - 0.8 * cols["x1"] + 0.3 * cols["x2"]
@@ -200,11 +192,7 @@ def _make_synthetic_frame(
     elif target_type == "multilabel_classification":
         K = 4
         for k in range(K):
-            logit = (
-                rng.uniform(-1, 1) * cols["x0"]
-                + rng.uniform(-1, 1) * cols["x1"]
-                + rng.normal(0, 0.3, n_rows)
-            )
+            logit = rng.uniform(-1, 1) * cols["x0"] + rng.uniform(-1, 1) * cols["x1"] + rng.normal(0, 0.3, n_rows)
             prob = 1.0 / (1.0 + np.exp(-logit))
             cols[f"y_{k}"] = (rng.uniform(0, 1, n_rows) < prob).astype("int32")
     else:
@@ -228,14 +216,9 @@ def _make_synthetic_frame(
     # injected at the lines above, which propagates into y2 and trips the
     # production NaN-target guard at process_model. Observed many times
     # (iter-77/81/108/136/137/140); see commit log.
-    for _name, _kind in (extra_targets or []):
+    for _name, _kind in extra_targets or []:
         if _kind == "reg":
-            _y2 = (
-                1.2 * cols["x1"]
-                - 0.7 * cols["x0"]
-                + 0.4 * cols["x3"]
-                + rng.normal(0, 0.5, n_rows).astype("float32")
-            )
+            _y2 = 1.2 * cols["x1"] - 0.7 * cols["x0"] + 0.4 * cols["x3"] + rng.normal(0, 0.5, n_rows).astype("float32")
             cols[_name] = _y2.astype("float32")
         elif _kind == "bin":
             _logit = -1.0 * cols["x1"] + 0.5 * cols["x3"] + 0.3 * cols["x0"]
@@ -249,7 +232,7 @@ def _make_synthetic_frame(
         # weighting needs a comparable (numeric/datetime) sequence; a plain int64 second
         # count is the simplest form the polars + pandas paths both accept.
         _start = int(1_700_000_000)  # Nov 2023 epoch baseline
-        cols["ts"] = (_start + np.arange(n_rows, dtype=np.int64))
+        cols["ts"] = _start + np.arange(n_rows, dtype=np.int64)
 
     if use_polars:
         try:
@@ -260,9 +243,7 @@ def _make_synthetic_frame(
             for _k, _v in cols.items():
                 if isinstance(_v, list) and _v and hasattr(_v[0], "shape"):
                     # Embedding column: list-of-ndarray -> pl.List(Float32)
-                    pl_cols[_k] = pl.Series(
-                        name=_k, values=_v, dtype=pl.List(pl.Float32)
-                    )
+                    pl_cols[_k] = pl.Series(name=_k, values=_v, dtype=pl.List(pl.Float32))
                 elif isinstance(_v, np.ndarray) and _v.dtype == object:
                     # String column (cat or text)
                     pl_cols[_k] = pl.Series(name=_k, values=_v.tolist(), dtype=pl.String)
@@ -294,11 +275,9 @@ def _build_composite_discovery_config_for_1m_inline(*, enabled: bool, transforms
     if transforms_mode == "unary_only":
         _transforms = ["cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y"]
     elif transforms_mode == "chain_only":
-        _transforms = ["chain_linres_cbrt", "chain_linres_yj",
-                       "chain_monres_cbrt", "chain_monres_yj"]
+        _transforms = ["chain_linres_cbrt", "chain_linres_yj", "chain_monres_cbrt", "chain_monres_yj"]
     elif transforms_mode == "legacy":
-        _transforms = ["diff", "ratio", "logratio", "linear_residual",
-                       "quantile_residual", "monotonic_residual"]
+        _transforms = ["diff", "ratio", "logratio", "linear_residual", "quantile_residual", "monotonic_residual"]
     else:  # "all"
         _transforms = None  # library default (all 14)
     _kw: dict = {
@@ -313,17 +292,11 @@ def _build_composite_discovery_config_for_1m_inline(*, enabled: bool, transforms
     return CompositeTargetDiscoveryConfig(**_kw)
 
 
-
-
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--n-rows", type=int, default=1_000_000)
-    p.add_argument("--target", default="all",
-                   choices=("all", "regression", "binary_classification",
-                            "multiclass_classification"))
-    p.add_argument("--models", default="cb",
-                   help="Comma-separated model list (cb,xgb,lgb,linear). "
-                        "Default 'cb' to bound per-combo wall time.")
+    p.add_argument("--target", default="all", choices=("all", "regression", "binary_classification", "multiclass_classification"))
+    p.add_argument("--models", default="cb", help="Comma-separated model list (cb,xgb,lgb,linear). " "Default 'cb' to bound per-combo wall time.")
     p.add_argument("--top", type=int, default=30)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--save-charts", action="store_true",
@@ -344,15 +317,14 @@ def main():
 
     models = tuple(m.strip() for m in args.models.split(",") if m.strip())
 
-    targets: list[str] = (
-        ["regression", "binary_classification", "multiclass_classification"]
-        if args.target == "all" else [args.target]
-    )
+    targets: list[str] = ["regression", "binary_classification", "multiclass_classification"] if args.target == "all" else [args.target]
 
-    print(f"# 1M-row e2e profile (n_rows={args.n_rows:_}, models={models}, "
-          f"save_charts={args.save_charts}, "
-          f"profile_predict={not args.no_predict}, "
-          f"profile_save={not args.no_save})")
+    print(
+        f"# 1M-row e2e profile (n_rows={args.n_rows:_}, models={models}, "
+        f"save_charts={args.save_charts}, "
+        f"profile_predict={not args.no_predict}, "
+        f"profile_save={not args.no_save})"
+    )
     summary: list[tuple] = []
     for tt in targets:
         label = f"{tt} x {','.join(models)}"
@@ -401,22 +373,10 @@ def main():
     ) in summary:
         _mb = b_save / (1024.0 * 1024.0)
         _pred_str = f"predict={t_pred:>6.1f}s" if t_pred > 0 else "predict=---   "
-        _save_str = (
-            f"save={t_save:>5.2f}s ({n_save}m,{_mb:.1f}MB)"
-            if t_save > 0 else "save=---           "
-        )
-        _load_str = (
-            f"load={t_load:>5.2f}s ({n_load}m)"
-            if t_load > 0 else "load=---       "
-        )
-        _pl_str = (
-            f"predict_loaded={t_pred_loaded:>5.2f}s parity={parity}"
-            if t_pred_loaded > 0 else f"predict_loaded=---   parity={parity}"
-        )
-        print(
-            f"  {label:<55} train={t_train:>7.1f}s  {_pred_str}  {_save_str}  "
-            f"{_load_str}  {_pl_str}  {status}"
-        )
+        _save_str = f"save={t_save:>5.2f}s ({n_save}m,{_mb:.1f}MB)" if t_save > 0 else "save=---           "
+        _load_str = f"load={t_load:>5.2f}s ({n_load}m)" if t_load > 0 else "load=---       "
+        _pl_str = f"predict_loaded={t_pred_loaded:>5.2f}s parity={parity}" if t_pred_loaded > 0 else f"predict_loaded=---   parity={parity}"
+        print(f"  {label:<55} train={t_train:>7.1f}s  {_pred_str}  {_save_str}  " f"{_load_str}  {_pl_str}  {status}")
 
 
 if __name__ == "__main__":

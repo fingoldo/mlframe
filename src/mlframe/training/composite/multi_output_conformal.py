@@ -72,16 +72,10 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1):
     if not hasattr(self, "estimators_"):
         from sklearn.exceptions import NotFittedError
 
-        raise NotFittedError(
-            "CompositeMultiOutputEstimator.calibrate_conformal called before fit."
-        )
+        raise NotFittedError("CompositeMultiOutputEstimator.calibrate_conformal called before fit.")
     y2d = self._to_2d_targets(y_cal)
     if y2d.shape[1] != self.n_outputs_:
-        raise ValueError(
-            "calibrate_conformal: y_cal has "
-            f"{y2d.shape[1]} columns but the estimator was fit on "
-            f"{self.n_outputs_}."
-        )
+        raise ValueError("calibrate_conformal: y_cal has " f"{y2d.shape[1]} columns but the estimator was fit on " f"{self.n_outputs_}.")
     alphas = [alpha] if np.isscalar(alpha) else list(alpha)
     for k, est in enumerate(self.estimators_):
         if est is None:
@@ -110,9 +104,7 @@ def predict_interval(self, X, alpha=0.1) -> Tuple[np.ndarray, np.ndarray]:
     if not hasattr(self, "estimators_"):
         from sklearn.exceptions import NotFittedError
 
-        raise NotFittedError(
-            "CompositeMultiOutputEstimator.predict_interval called before fit."
-        )
+        raise NotFittedError("CompositeMultiOutputEstimator.predict_interval called before fit.")
     key = round(float(alpha), 6)
     calibrated = getattr(self, "_mo_conformal_alphas_", None) or set()
     if key not in calibrated:

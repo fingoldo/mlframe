@@ -87,7 +87,7 @@ def _make_rbf_bump(n=2000, seed=42):
     rng = np.random.default_rng(seed)
     x_a = rng.normal(loc=1.0, scale=1.5, size=n)
     x_b = rng.normal(size=n)
-    y = (np.exp(-(x_a - 1.0) ** 2) > 0.5).astype(np.int64)
+    y = (np.exp(-((x_a - 1.0) ** 2)) > 0.5).astype(np.int64)
     return x_a, x_b, y
 
 
@@ -111,7 +111,7 @@ def _make_radial(n=2000, seed=42):
     rng = np.random.default_rng(seed)
     x_a = rng.normal(size=n)
     x_b = rng.normal(size=n)
-    y = (x_a ** 2 + x_b ** 2 > 1.0).astype(np.int64)
+    y = (x_a**2 + x_b**2 > 1.0).astype(np.int64)
     return x_a, x_b, y
 
 
@@ -136,7 +136,7 @@ def _make_poly_3(n=2000, seed=42):
     rng = np.random.default_rng(seed)
     x_a = rng.normal(size=n)
     x_b = rng.normal(size=n)
-    score = 0.7 * x_a ** 2 - 0.5 * x_b ** 2 + 0.3 * x_a * x_b
+    score = 0.7 * x_a**2 - 0.5 * x_b**2 + 0.3 * x_a * x_b
     y = (score > np.median(score)).astype(np.int64)
     return x_a, x_b, y
 
@@ -160,16 +160,16 @@ def _make_triplet(n=2000, seed=42):
 
 
 PAIR_SCENARIOS = {
-    "periodic_a (sin(2pi x_a))":      _make_periodic_a,
-    "threshold ((x_a>.5)&(x_b>-.3))":  _make_threshold,
-    "rbf_bump (exp(-(x_a-1)^2)>.5)":  _make_rbf_bump,
-    "ratio_pole (x_a/(x_b+.5)>1)":   _make_ratio_pole,
-    "multiplicative (XOR)":           _make_multiplicative,
-    "radial (x_a^2+x_b^2>1)":         _make_radial,
-    "angular (atan2>.5)":             _make_angular,
-    "log_mult (log(x_a)+log(x_b))":   _make_log_mult,
-    "poly_3 (0.7a^2-0.5b^2+0.3ab)":   _make_poly_3,
-    "log_separable":                   _make_log_separable,
+    "periodic_a (sin(2pi x_a))": _make_periodic_a,
+    "threshold ((x_a>.5)&(x_b>-.3))": _make_threshold,
+    "rbf_bump (exp(-(x_a-1)^2)>.5)": _make_rbf_bump,
+    "ratio_pole (x_a/(x_b+.5)>1)": _make_ratio_pole,
+    "multiplicative (XOR)": _make_multiplicative,
+    "radial (x_a^2+x_b^2>1)": _make_radial,
+    "angular (atan2>.5)": _make_angular,
+    "log_mult (log(x_a)+log(x_b))": _make_log_mult,
+    "poly_3 (0.7a^2-0.5b^2+0.3ab)": _make_poly_3,
+    "log_separable": _make_log_separable,
 }
 
 
@@ -177,8 +177,7 @@ def _run_polynomial_panel(x_a, x_b, y, *, n_trials=30):
     """Score each of the 8 bases on the same target. Returns
     ``{basis: mi}``."""
     scores = {}
-    for basis in ["hermite", "legendre", "chebyshev", "laguerre",
-                   "fourier", "rbf", "sigmoid", "pade"]:
+    for basis in ["hermite", "legendre", "chebyshev", "laguerre", "fourier", "rbf", "sigmoid", "pade"]:
         try:
             res = optimise_hermite_pair(
                 x_a, x_b, y,
@@ -189,8 +188,7 @@ def _run_polynomial_panel(x_a, x_b, y, *, n_trials=30):
                 optimizer="cma",
                 warm_start=True,
             )
-            scores[basis] = (res.mi if res else 0.0,
-                              res.bin_func_name if res else "-")
+            scores[basis] = (res.mi if res else 0.0, res.bin_func_name if res else "-")
         except Exception:
             scores[basis] = (0.0, "ERR")
     return scores
@@ -212,8 +210,7 @@ def main():
         x_a, x_b, y = mk(n=args.n)
         # 1. All bases via CMA + warm-start.
         basis_scores = _run_polynomial_panel(x_a, x_b, y, n_trials=args.n_trials)
-        best_basis, (best_basis_mi, best_basis_bf) = max(
-            basis_scores.items(), key=lambda kv: kv[1][0])
+        best_basis, (best_basis_mi, best_basis_bf) = max(basis_scores.items(), key=lambda kv: kv[1][0])
         # 2. Best trivial pair feature.
         trivial = best_trivial_pair(x_a, x_b, y, discrete_target=True)
         if trivial is not None:
@@ -247,17 +244,14 @@ def main():
     print(f"    best unary x_a: {name_a:>15s}  mi={mi_a:.4f}  (identity mi={_mi_1d(x_a, y, discrete_target=True):.4f})")
     print(f"    best unary x_b: {name_b:>15s}  mi={mi_b:.4f}  (identity mi={_mi_1d(x_b, y, discrete_target=True):.4f})")
     # After unary transform, run pair-FE.
-    res_post = optimise_hermite_pair(x_a_t, x_b_t, y, n_trials=args.n_trials,
-                                      max_degree=3, basis="chebyshev",
-                                      baseline_uplift_threshold=0.0,
-                                      use_trivial_baseline=False)
-    res_pre = optimise_hermite_pair(x_a, x_b, y, n_trials=args.n_trials,
-                                     max_degree=3, basis="chebyshev",
-                                     baseline_uplift_threshold=0.0,
-                                     use_trivial_baseline=False)
+    res_post = optimise_hermite_pair(
+        x_a_t, x_b_t, y, n_trials=args.n_trials, max_degree=3, basis="chebyshev", baseline_uplift_threshold=0.0, use_trivial_baseline=False
+    )
+    res_pre = optimise_hermite_pair(
+        x_a, x_b, y, n_trials=args.n_trials, max_degree=3, basis="chebyshev", baseline_uplift_threshold=0.0, use_trivial_baseline=False
+    )
     print(f"    pair-FE WITHOUT unary: mi={res_pre.mi:.4f}")
-    print(f"    pair-FE WITH unary:    mi={res_post.mi:.4f}  "
-          f"(uplift x{res_post.mi/max(res_pre.mi, 1e-9):.2f})")
+    print(f"    pair-FE WITH unary:    mi={res_post.mi:.4f}  " f"(uplift x{res_post.mi/max(res_pre.mi, 1e-9):.2f})")
 
     # Triplet demo (Phase D1)
     print("\n  --- Phase D1: triplet (3-way) interactions ---")
@@ -265,12 +259,10 @@ def main():
     x_a, x_b, x_c, y = _make_triplet(n=args.n)
     pair_best = best_trivial_pair(x_a, x_b, y, discrete_target=True)
     pair_mi = pair_best[2] if pair_best else 0.0
-    triplet_scores = score_triplet_baselines(x_a, x_b, x_c, y,
-                                                discrete_target=True)
+    triplet_scores = score_triplet_baselines(x_a, x_b, x_c, y, discrete_target=True)
     triplet_top = list(triplet_scores.items())[0]
     print(f"    best PAIR trivial:    {pair_best[0] if pair_best else '-':>12s}  mi={pair_mi:.4f}")
-    print(f"    best TRIPLET trivial: {triplet_top[0]:>12s}  mi={triplet_top[1]:.4f}  "
-          f"(uplift x{triplet_top[1]/max(pair_mi, 1e-9):.2f})")
+    print(f"    best TRIPLET trivial: {triplet_top[0]:>12s}  mi={triplet_top[1]:.4f}  " f"(uplift x{triplet_top[1]/max(pair_mi, 1e-9):.2f})")
     # Show top-3
     print(f"    top-3 triplets:")
     for k, v in list(triplet_scores.items())[:3]:
@@ -282,9 +274,7 @@ def main():
     for opt in ["optuna", "cma"]:
         t0 = time.perf_counter()
         for basis in ["hermite", "chebyshev"]:
-            optimise_hermite_pair(x_a, x_b, y, n_trials=40, max_degree=4,
-                                   basis=basis, baseline_uplift_threshold=0.0,
-                                   use_trivial_baseline=False, optimizer=opt)
+            optimise_hermite_pair(x_a, x_b, y, n_trials=40, max_degree=4, basis=basis, baseline_uplift_threshold=0.0, use_trivial_baseline=False, optimizer=opt)
         dt = time.perf_counter() - t0
         print(f"    {opt:>10s} 2 bases x degree 4: {dt:6.2f}s")
 
@@ -293,15 +283,14 @@ def main():
     rng = np.random.default_rng(0)
     examples = [
         ("standard normal", rng.normal(size=2000)),
-        ("uniform [-1,1]",   rng.uniform(-1, 1, 2000)),
-        ("lognormal",        rng.lognormal(size=2000)),
-        ("exponential",      rng.exponential(size=2000)),
-        ("heavy-tail t",     rng.standard_t(df=2, size=2000)),
+        ("uniform [-1,1]", rng.uniform(-1, 1, 2000)),
+        ("lognormal", rng.lognormal(size=2000)),
+        ("exponential", rng.exponential(size=2000)),
+        ("heavy-tail t", rng.standard_t(df=2, size=2000)),
     ]
     for name, x in examples:
         suggested = basis_route_by_moments(x)
-        print(f"    {name:>20s}: skew={float(np.mean(((x-x.mean())/x.std())**3)):+.2f}  "
-              f"-> {suggested}")
+        print(f"    {name:>20s}: skew={float(np.mean(((x-x.mean())/x.std())**3)):+.2f}  " f"-> {suggested}")
 
     # Symmetry detection demo (Phase B2)
     print("\n  --- Phase B2: pair symmetry detection ---")

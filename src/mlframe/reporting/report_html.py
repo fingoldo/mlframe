@@ -59,9 +59,7 @@ def _coerce_entry(entry) -> ChartEntry:
         png = entry[2] if len(entry) > 2 else None
         frag = entry[3] if len(entry) > 3 else None
         return ChartEntry(section=section, label=label, png_path=png, plotly_html_fragment=frag)
-    raise TypeError(
-        f"chart entry must be a ChartEntry, dict, or (section, label, png[, fragment]) tuple; got {type(entry).__name__}"
-    )
+    raise TypeError(f"chart entry must be a ChartEntry, dict, or (section, label, png[, fragment]) tuple; got {type(entry).__name__}")
 
 
 def _slug(text: str, used: Dict[str, int]) -> str:
@@ -192,16 +190,9 @@ def build_combined_report(
         for anchor, e, err in by_section[sec]:
             label = e.label if e else "(malformed)"
             nav_parts.append(f'<a class="child" href="#{anchor}">{html.escape(label)}</a>')
-            body = (
-                f'<div class="missing">{html.escape(err)}</div>'
-                if e is None
-                else _render_entry_body(e, out_dir, inline_png_max_bytes)
-            )
+            body = f'<div class="missing">{html.escape(err)}</div>' if e is None else _render_entry_body(e, out_dir, inline_png_max_bytes)
             cap = f'<p class="cap">{html.escape(e.caption)}</p>' if (e and e.caption) else ""
-            panel_parts.append(
-                f'<section class="panel" id="{anchor}">'
-                f"<h3>{html.escape(label)}</h3>{cap}{body}</section>"
-            )
+            panel_parts.append(f'<section class="panel" id="{anchor}">' f"<h3>{html.escape(label)}</h3>{cap}{body}</section>")
 
         desc = descriptions.get(sec, "")
         desc_html = f'<p class="secdesc">{html.escape(desc)}</p>' if desc else ""
@@ -214,10 +205,7 @@ def build_combined_report(
 
     sub_html = f'<div class="sub">{html.escape(subtitle)}</div>' if subtitle else ""
     if section_order:
-        body_html = (
-            f'<div class="layout"><nav>{"".join(nav_parts)}</nav>'
-            f'<main>{"".join(main_parts)}</main></div>'
-        )
+        body_html = f'<div class="layout"><nav>{"".join(nav_parts)}</nav>' f'<main>{"".join(main_parts)}</main></div>'
     else:
         body_html = '<p class="empty">No charts to display.</p>'
 

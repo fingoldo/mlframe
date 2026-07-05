@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 __all__ = [
     "add_ohlcv_ratios_rlags",
     "add_fast_rolling_stats",
@@ -34,9 +33,7 @@ logger = logging.getLogger(__name__)
 
 # Default values placed at module scope so they're not rebuilt per call. None-defaults inside
 # function bodies use these; we never mutate them.
-_DEFAULT_OHLCV_FIELDS: Dict[str, str] = dict(
-    qty="qty", open="open", high="high", low="low", close="close", volume="volume"
-)
+_DEFAULT_OHLCV_FIELDS: Dict[str, str] = dict(qty="qty", open="open", high="high", low="low", close="close", volume="volume")
 _DEFAULT_TA_OHLCV_FIELDS: Dict[str, str] = dict(open="open", high="high", low="low", close="close", volume="volume")
 _DEFAULT_MARKET_ACTION_PREFIXES: Tuple[str, ...] = ("",)
 _DEFAULT_LAGS: Tuple[int, ...] = (1,)
@@ -91,14 +88,10 @@ def add_ohlcv_ratios_rlags(
     # explicitly rather than let the polars expression succeed silently.
     for _lag in lags:
         if _lag <= 0:
-            raise ValueError(
-                f"add_ohlcv_ratios_rlags: lag must be > 0, got {_lag} (negative/zero causes look-ahead leakage)"
-            )
+            raise ValueError(f"add_ohlcv_ratios_rlags: lag must be > 0, got {_lag} (negative/zero causes look-ahead leakage)")
     for _lag in crossbar_ratios_lags:
         if _lag <= 0:
-            raise ValueError(
-                f"add_ohlcv_ratios_rlags: crossbar_ratios_lag must be > 0, got {_lag} (negative/zero causes look-ahead leakage)"
-            )
+            raise ValueError(f"add_ohlcv_ratios_rlags: crossbar_ratios_lag must be > 0, got {_lag} (negative/zero causes look-ahead leakage)")
     if market_action_prefixes is None:
         market_action_prefixes = list(_DEFAULT_MARKET_ACTION_PREFIXES)
     if ohlcv_fields_mapping is None:
@@ -200,11 +193,7 @@ def add_fast_rolling_stats(
             exprs.extend(
                 [
                     pllib.clean_numeric(
-                        (
-                            all_num_cols
-                            / _group_if_needed(getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column)
-                            - 1
-                        ),
+                        (all_num_cols / _group_if_needed(getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column) - 1),
                         nans_filler=nans_filler,
                     ).name.suffix(f"_r{short_name}{window}")
                     for window in rolling_windows
@@ -213,9 +202,7 @@ def add_fast_rolling_stats(
         else:
             exprs.extend(
                 [
-                    _group_if_needed(
-                        getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column
-                    ).name.suffix(f"_{short_name}{window}")
+                    _group_if_needed(getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column).name.suffix(f"_{short_name}{window}")
                     for window in rolling_windows
                 ]
             )
@@ -368,9 +355,7 @@ def add_ohlcv_ta_indicators(
 
         ta_expressions.extend(
             [
-                apply_ta_indicator(
-                    getattr(close.ta, func)(), func=func, window="", ticker_column=ticker_column, unnests=unnests, prefix=prefix
-                )
+                apply_ta_indicator(getattr(close.ta, func)(), func=func, window="", ticker_column=ticker_column, unnests=unnests, prefix=prefix)
                 for func in _CYCLIC_TA_INDICATORS
             ]
         )
@@ -537,9 +522,7 @@ def add_ohlcv_ta_indicators(
             ta_expressions.extend(
                 [
                     apply_ta_indicator(
-                        getattr(close.ta, func)(
-                            fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod
-                        ),
+                        getattr(close.ta, func)(fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod),
                         func=func,
                         window=0,
                         fastperiod=fastperiod,
@@ -592,14 +575,10 @@ def create_ohlcv_wholemarket_features(
     if exclude_fields:
         all_num_cols = all_num_cols - cs.by_name(exclude_fields)
 
-    wcols = pllib.add_weighted_aggregates(
-        columns_selector=all_num_cols, weighting_columns=weighting_columns, fpref="wm_"
-    )
+    wcols = pllib.add_weighted_aggregates(columns_selector=all_num_cols, weighting_columns=weighting_columns, fpref="wm_")
 
     res = ohlcv.group_by(timestamp_column).agg(
-        [pl.len().alias("wm_size")]
-        + [getattr(all_num_cols, func)().name.suffix(f"_wm_{func}") for func in numaggs]
-        + wcols
+        [pl.len().alias("wm_size")] + [getattr(all_num_cols, func)().name.suffix(f"_wm_{func}") for func in numaggs] + wcols
     )
     # cs.float() (not cs.numeric()) - clean_numeric returns Float64 via pl.when/otherwise, which
     # would promote integer timestamp columns to f64 and break downstream joins where the
@@ -627,8 +606,7 @@ def merge_perticker_and_wholemarket_features(
                 rankings.append(
                     pllib.clean_numeric(  # market-constant column → wm_max==wm_min → division by zero yields inf/NaN
                         (pl.col(col) - pl.col(f"{col}_wm_min")) / (pl.col(f"{col}_wm_max") - pl.col(f"{col}_wm_min"))
-                    )
-                    .alias(f"{col}_wm_rnk")
+                    ).alias(f"{col}_wm_rnk")
                 )
 
     joined = perticker_features.join(wholemarket_features, on=timestamp_column, how="left").sort(timestamp_column)

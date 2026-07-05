@@ -105,7 +105,7 @@ def _fit_prewarp_and_gate_med(
         # Deterministic stride split (no RNG): every 3rd row -> validation (~33%).
         _pw_cv_ok = _pw_min_val_corr > 0.0 and _pw_n >= 60
         if _pw_cv_ok:
-            _val_mask = (np.arange(_pw_n) % 3 == 0)
+            _val_mask = np.arange(_pw_n) % 3 == 0
             _tr_mask = ~_val_mask
             _y_tr = _prewarp_y_eff[_tr_mask]
             _y_val = _prewarp_y_eff[_val_mask] - float(np.mean(_prewarp_y_eff[_val_mask]))
@@ -321,10 +321,7 @@ def _build_operand_table(
                             # residency-aware: VRAM-resident input skips H2D, which flips the
                             # numpy/cupy crossover (measured), so pass where ``vals`` lives.
                             _want_gpu = unary_elementwise_backend_choice(int(vals.size), array_location(vals)) == "cupy"
-                            if (
-                                _want_gpu
-                                and tr_name in gpu_compatible_unary_names()
-                            ):
+                            if _want_gpu and tr_name in gpu_compatible_unary_names():
                                 try:
                                     from pyutilz.core.pythonlib import is_cuda_available
                                     if is_cuda_available():
@@ -351,16 +348,10 @@ def _build_operand_table(
                         # before reaching FE), calling them inside the error-log formatter itself raises -- masking the real transformation error and aborting MRMR
                         # entirely. Compute numeric-only diagnostics conditionally.
                         if np.issubdtype(vals.dtype, np.floating):
-                            _diag = (
-                                f", isnan={np.isnan(vals).sum()}, "
-                                f"isinf={np.isinf(vals).sum()}, nanmin={np.nanmin(vals)}"
-                            )
+                            _diag = f", isnan={np.isnan(vals).sum()}, " f"isinf={np.isinf(vals).sum()}, nanmin={np.nanmin(vals)}"
                         else:
                             _diag = f", dtype={vals.dtype} (numeric diagnostics skipped)"
-                        logger.error(
-                            f"Error when performing {tr_name} on array {vals[:5]}, "
-                            f"var={cols[var]}: {str(e)}{_diag}"
-                        )
+                        logger.error(f"Error when performing {tr_name} on array {vals[:5]}, " f"var={cols[var]}: {str(e)}{_diag}")
                     else:
                         vars_transformations[key] = i
                         if _operand_col_specs is not None:
@@ -369,11 +360,7 @@ def _build_operand_table(
                             # from the resident raw + its stored spec via _gpu_apply_prewarp (no host-column
                             # H2D); the builder falls back to the host copy for any unported basis. gate_med /
                             # hermite-poly remain host-copied (raw_vals=None) -> not yet ported.
-                            _is_plain = (
-                                tr_name != _PREWARP_UNARY
-                                and tr_name != _GATE_MED_UNARY
-                                and "poly_" not in tr_name
-                            )
+                            _is_plain = tr_name != _PREWARP_UNARY and tr_name != _GATE_MED_UNARY and "poly_" not in tr_name
                             _payload = None
                             _raw_for_spec = vals if _is_plain else None
                             if tr_name == _PREWARP_UNARY:
@@ -404,9 +391,9 @@ def _build_operand_table(
             register_prebuilt_operand_table(transformed_vars, _dev_tv)
             if verbose:
                 logger.info(
-                    "check_prospective_fe_pairs: GPU-resident operand table built "
-                    "(%d GPU-built columns, %d host-copied; materialise H2D skipped).",
-                    _n_gpu, _n_cpu,
+                    "check_prospective_fe_pairs: GPU-resident operand table built " "(%d GPU-built columns, %d host-copied; materialise H2D skipped).",
+                    _n_gpu,
+                    _n_cpu,
                 )
         except Exception:
             logger.debug("GPU-resident operand-table build failed; falling back to host H2D.", exc_info=True)

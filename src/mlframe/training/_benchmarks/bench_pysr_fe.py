@@ -50,12 +50,7 @@ def _make_synth(n: int = 5000, seed: int = 42) -> tuple[pd.DataFrame, np.ndarray
     """y = 3*sin(x1) + log(|x2|+1) - 0.5*x3**2 + N(0, 0.3) on 8 features."""
     rng = np.random.default_rng(seed)
     x = rng.standard_normal((n, 8)).astype(np.float32)
-    y = (
-        3.0 * np.sin(x[:, 1])
-        + np.log(np.abs(x[:, 2]) + 1.0)
-        - 0.5 * x[:, 3] ** 2
-        + 0.3 * rng.standard_normal(n)
-    ).astype(np.float32)
+    y = (3.0 * np.sin(x[:, 1]) + np.log(np.abs(x[:, 2]) + 1.0) - 0.5 * x[:, 3] ** 2 + 0.3 * rng.standard_normal(n)).astype(np.float32)
     df = pd.DataFrame(x, columns=[f"x{i}" for i in range(8)])
     return df, y
 
@@ -173,8 +168,7 @@ def main() -> int:
 
     # Julia warm-up so the first measured run doesn't pay the ~30-60s precompile penalty.
     print("Warming up Julia (~30-60s on cold cache)...", file=sys.stderr)
-    _run_one(df_train.head(500), y_train[:500], df_holdout.head(100), y_holdout[:100],
-             "minimal", legacy=False, label="warmup")
+    _run_one(df_train.head(500), y_train[:500], df_holdout.head(100), y_holdout[:100], "minimal", legacy=False, label="warmup")
 
     print("Running configurations...", file=sys.stderr)
     rows: List[Dict[str, Any]] = []
@@ -195,10 +189,7 @@ def main() -> int:
         "|---|---:|---:|---:|---|",
     ]
     for r in rows:
-        md_lines.append(
-            f"| {r['label']} | {r['wall_s']:.1f} | {r['rmse']:.4f} | {r.get('form_score', '-')} | "
-            f"{r.get('eq', r.get('error', ''))} |"
-        )
+        md_lines.append(f"| {r['label']} | {r['wall_s']:.1f} | {r['rmse']:.4f} | {r.get('form_score', '-')} | " f"{r.get('eq', r.get('error', ''))} |")
     md = "\n".join(md_lines)
     print(md)
 

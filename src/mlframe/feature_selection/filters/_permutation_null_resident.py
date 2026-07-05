@@ -49,12 +49,12 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
     if nperm == 0 or ncand == 0:
         return np.zeros(nperm, dtype=np.float64)
 
-    d_scaled = cp.asarray(scaled_flat)                      # (ncand*n,) int (>=0 joint base codes)
-    d_yperms = cp.asarray(y_perms)                          # (nperm, n) int (>=0 class codes)
-    d_off = cp.asarray(offsets, dtype=cp.int64)             # (ncand+1,) int64 flat segment offsets
-    jc_host = np.asarray(joint_card, dtype=np.int64)        # (ncand,) per-candidate joint cardinality (host)
-    d_hx = cp.asarray(h_x, dtype=cp.float64)               # (ncand,) marginal H(x)
-    d_mm = cp.asarray(mm_bias, dtype=cp.float64)           # (ncand,) Miller-Madow bias
+    d_scaled = cp.asarray(scaled_flat)  # (ncand*n,) int (>=0 joint base codes)
+    d_yperms = cp.asarray(y_perms)  # (nperm, n) int (>=0 class codes)
+    d_off = cp.asarray(offsets, dtype=cp.int64)  # (ncand+1,) int64 flat segment offsets
+    jc_host = np.asarray(joint_card, dtype=np.int64)  # (ncand,) per-candidate joint cardinality (host)
+    d_hx = cp.asarray(h_x, dtype=cp.float64)  # (ncand,) marginal H(x)
+    d_mm = cp.asarray(mm_bias, dtype=cp.float64)  # (ncand,) Miller-Madow bias
     h_y = float(h_y)
     inv_n = float(inv_n)
 
@@ -76,7 +76,7 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
         # (offsets[j] = j*n in the order-1 caller, but read via offsets to stay faithful to any layout).
         starts = d_off[c0:c1]
         row_idx = starts[:, None] + cp.arange(n, dtype=cp.int64)[None, :]
-        x_codes = d_scaled[row_idx].astype(cp.int64)        # (cc, n)
+        x_codes = d_scaled[row_idx].astype(cp.int64)  # (cc, n)
         d_hx_c = d_hx[c0:c1][:, None]
         d_mm_c = d_mm[c0:c1][:, None]
 
@@ -84,15 +84,14 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
         for p0 in range(0, nperm, perm_chunk):
             p1 = min(p0 + perm_chunk, nperm)
             pb = p1 - p0
-            yp = d_yperms[p0:p1]                            # (pb, n)
+            yp = d_yperms[p0:p1]  # (pb, n)
             # Joint flat index for the batched bincount: ((cand_local*pb + perm_local)*max_jc) + (x+y_perm).
             # Padding cells (code >= jc[cand]) cannot occur: x in [0, nbins_x*nbins_y) and y in [0, nbins_y)
             # so x+y < jc by construction; padding to max_jc only leaves trailing zero-count cells per (cand,
             # perm) slab, which contribute 0 to the entropy exactly like the njit ``if c>0`` short-circuit.
-            joint = (x_codes[:, None, :] + yp[None, :, :]).astype(cp.int64)      # (cc, pb, n)
-            base = (cp.arange(cc, dtype=cp.int64)[:, None] * pb
-                    + cp.arange(pb, dtype=cp.int64)[None, :]) * max_jc           # (cc, pb)
-            flat = (base[:, :, None] + joint).ravel()                            # (cc*pb*n,)
+            joint = (x_codes[:, None, :] + yp[None, :, :]).astype(cp.int64)  # (cc, pb, n)
+            base = (cp.arange(cc, dtype=cp.int64)[:, None] * pb + cp.arange(pb, dtype=cp.int64)[None, :]) * max_jc  # (cc, pb)
+            flat = (base[:, :, None] + joint).ravel()  # (cc*pb*n,)
             # COALESCE (2026-06-24): cp.bincount internally pulls the input max (+ a sizing scalar) to host on
             # EVERY call -- 2 tiny per-(cand,perm)-tile D2H scalar pulls that, summed over the floor's tile loop,
             # are the canonical-fit's dominant tiny-D2H source (~2400 of ~2810 sub-4KB .get()s, F2 100k). The
@@ -109,9 +108,9 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
             # where + log + where + sum chain. Same float64 plug-in entropy -> selection-equivalent.
             from ._fe_batched_mi import _rows_entropy_and_k
 
-            h_xy_flat, _ = _rows_entropy_and_k(counts_i.reshape(cc * pb, max_jc), inv_n)   # (cc*pb,)
-            h_xy = h_xy_flat.reshape(cc, pb)                                     # (cc, pb)
-            mi = (d_hx_c + h_y) - h_xy - d_mm_c                                  # (cc, pb)
+            h_xy_flat, _ = _rows_entropy_and_k(counts_i.reshape(cc * pb, max_jc), inv_n)  # (cc*pb,)
+            h_xy = h_xy_flat.reshape(cc, pb)  # (cc, pb)
+            mi = (d_hx_c + h_y) - h_xy - d_mm_c  # (cc, pb)
             d_best[p0:p1] = cp.maximum(d_best[p0:p1], cp.max(mi, axis=0))
             del joint, flat, counts_i, h_xy_flat, h_xy, mi
 
@@ -139,9 +138,9 @@ def gen_target_shuffles_cupy(y_codes: np.ndarray, nperm: int, dtype: object, ran
         _rng = cp.random.default_rng(seed)
         d_y = cp.asarray(np.ascontiguousarray(y_codes).astype(dtype, copy=False))  # one tiny (n,) upload
         keys = _rng.random((nperm, n), dtype=cp.float32)  # (nperm, n) i.i.d. sort keys, on device
-        order = cp.argsort(keys, axis=1)                  # per-row permutation indices
+        order = cp.argsort(keys, axis=1)  # per-row permutation indices
         del keys
-        out = d_y[order]                                  # (nperm, n) gathered shuffles, on device
+        out = d_y[order]  # (nperm, n) gathered shuffles, on device
         del order
         return out
     except Exception:

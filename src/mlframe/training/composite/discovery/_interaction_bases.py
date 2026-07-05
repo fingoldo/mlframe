@@ -141,21 +141,20 @@ def score_interaction_pairs(
         add_mi = max(mi_a, mi_b)
         mi_z = _mi_pair_bin(z, y, nbins=nbins)
         gain = mi_z - add_mi
-        qualifies = (
-            gain >= min_synergy_gain
-            and mi_z >= max(min_margin_ratio * add_mi, 1e-12)
+        qualifies = gain >= min_synergy_gain and mi_z >= max(min_margin_ratio * add_mi, 1e-12)
+        results.append(
+            {
+                "synth_name": synth_name,
+                "parents": (name_a, name_b),
+                "op": meta.get("op"),
+                "mi_z": mi_z,
+                "mi_a": mi_a,
+                "mi_b": mi_b,
+                "add_mi": add_mi,
+                "gain": gain,
+                "qualifies": bool(qualifies),
+            }
         )
-        results.append({
-            "synth_name": synth_name,
-            "parents": (name_a, name_b),
-            "op": meta.get("op"),
-            "mi_z": mi_z,
-            "mi_a": mi_a,
-            "mi_b": mi_b,
-            "add_mi": add_mi,
-            "gain": gain,
-            "qualifies": bool(qualifies),
-        })
     results.sort(key=lambda r: -r["gain"])
     return results
 
@@ -220,14 +219,10 @@ def discover_interaction_bases(
         out[name] = synth_all[name]
         kept_records.append(rec)
     if out:
-        preview = ", ".join(
-            f"{r['synth_name']}(mi_z={r['mi_z']:.3f} vs add={r['add_mi']:.3f}, "
-            f"gain={r['gain']:.3f})"
-            for r in kept_records
-        )
+        preview = ", ".join(f"{r['synth_name']}(mi_z={r['mi_z']:.3f} vs add={r['add_mi']:.3f}, " f"gain={r['gain']:.3f})" for r in kept_records)
         logger.info(
-            "[CompositeTargetDiscovery] interaction-base discovery surfaced "
-            "%d synthetic pair(s): %s",
-            len(out), preview,
+            "[CompositeTargetDiscovery] interaction-base discovery surfaced " "%d synthetic pair(s): %s",
+            len(out),
+            preview,
         )
     return out, kept_records

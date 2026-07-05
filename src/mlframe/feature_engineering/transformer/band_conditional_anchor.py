@@ -136,7 +136,7 @@ def compute_band_conditional_anchor_features(
 
         # Per-query softmax over all anchors.
         diffs = Xq_s[:, None, :] - all_anchors[None, :, :]  # (n_q, n_anchors_total, d)
-        sq = (diffs ** 2).sum(axis=-1)
+        sq = (diffs**2).sum(axis=-1)
         scores = -sq
         weights = _softmax(scores, temp=temp)  # (n_q, n_anchors_total)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)

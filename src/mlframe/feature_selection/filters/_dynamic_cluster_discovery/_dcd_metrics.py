@@ -19,10 +19,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def pair_su(state: DCDState, a: int, b: int,
-            entropy_cache: Optional[dict] = None,
-            factors_data=None, factors_nbins=None,
-            dtype=np.int32) -> float:
+def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = None, factors_data=None, factors_nbins=None, dtype=np.int32) -> float:
     """Cached symmetric-uncertainty between columns ``a`` and ``b``.
 
     Returns SU(X_a, X_b) in [0, 1] under ``distance='su'`` (default). For
@@ -263,9 +260,8 @@ def pair_su(state: DCDState, a: int, b: int,
     state.cache_evict_lru()
     return float(su)
 
-def pair_vi(state: DCDState, a: int, b: int,
-            factors_data=None, factors_nbins=None,
-            dtype=np.int32) -> float:
+
+def pair_vi(state: DCDState, a: int, b: int, factors_data=None, factors_nbins=None, dtype=np.int32) -> float:
     """Variation-of-Information distance between columns ``a`` and ``b``
     in nats: ``VI(X_a, X_b) = H(X_a) + H(X_b) - 2 I(X_a; X_b)``.
 
@@ -340,8 +336,8 @@ def should_be_pruned(state: DCDState, candidate) -> bool:
             return False
     return True
 
-def _binarize_aggregate(values: np.ndarray, *, method: str, n_bins: int,
-                         dtype) -> np.ndarray:
+
+def _binarize_aggregate(values: np.ndarray, *, method: str, n_bins: int, dtype) -> np.ndarray:
     """Discretise a continuous aggregate to integer bin codes matching the
     MRMR quantization style. Conservative fallback: uniform binning when
     quantile produces degenerate edges."""
@@ -363,12 +359,10 @@ def _binarize_aggregate(values: np.ndarray, *, method: str, n_bins: int,
             mn, mx = float(finite.min()), float(finite.max())
             if mx <= mn:
                 return np.zeros(values.shape, dtype=dtype)
-            binned = np.clip(((values - mn) / (mx - mn) * n_bins).astype(np.int64),
-                             0, n_bins - 1)
+            binned = np.clip(((values - mn) / (mx - mn) * n_bins).astype(np.int64), 0, n_bins - 1)
     else:
         mn, mx = float(finite.min()), float(finite.max())
         if mx <= mn:
             return np.zeros(values.shape, dtype=dtype)
-        binned = np.clip(((values - mn) / (mx - mn) * n_bins).astype(np.int64),
-                         0, n_bins - 1)
+        binned = np.clip(((values - mn) / (mx - mn) * n_bins).astype(np.int64), 0, n_bins - 1)
     return binned.astype(dtype)

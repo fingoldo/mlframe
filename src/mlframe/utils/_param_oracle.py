@@ -253,8 +253,7 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
     if dtype_kind == "O":
         # Object/categorical: only cheap structural stats.
         try:
-            card = float(np.mean([len(np.unique(arr2d[:, j].astype(str)))
-                                  for j in range(arr2d.shape[1])]))
+            card = float(np.mean([len(np.unique(arr2d[:, j].astype(str))) for j in range(arr2d.shape[1])]))
         except Exception:
             card = 0.0
         return {
@@ -279,13 +278,13 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
     safe_cnt = np.where(n_finite > 0, n_finite, 1)
     col_mean = a0.sum(axis=0) / safe_cnt
     dev = np.where(finite_mask, a - col_mean, 0.0)
-    var = (dev ** 2).sum(axis=0) / safe_cnt
+    var = (dev**2).sum(axis=0) / safe_cnt
     sd = np.sqrt(var)
     valid = (n_finite >= 3) & (sd > 1e-12)
     sd_safe = np.where(sd > 1e-12, sd, 1.0)
     z = dev / sd_safe
-    skew_per_col = (z ** 3).sum(axis=0) / safe_cnt
-    kurt_per_col = (z ** 4).sum(axis=0) / safe_cnt - 3.0  # excess kurtosis
+    skew_per_col = (z**3).sum(axis=0) / safe_cnt
+    kurt_per_col = (z**4).sum(axis=0) / safe_cnt - 3.0  # excess kurtosis
     if valid.any():
         mean_abs_skew = float(np.mean(np.abs(skew_per_col[valid])))
         mean_kurtosis = float(np.mean(kurt_per_col[valid]))
@@ -383,7 +382,6 @@ from ._param_oracle_store import (  # noqa: F401,E402
     _stable_json,
     stable_json,
 )
-
 
 # ---------------------------------------------------------------------------
 # ParamOracle
@@ -488,9 +486,9 @@ class ParamOracle:
 
     # ----- recording -----
 
-    def record(self, fp_dict: Mapping[str, Any], params: Mapping[str, Any],
-               objective: Mapping[str, float], ts: Optional[str] = None,
-               fn_name: str = "<anon>") -> None:
+    def record(
+        self, fp_dict: Mapping[str, Any], params: Mapping[str, Any], objective: Mapping[str, float], ts: Optional[str] = None, fn_name: str = "<anon>"
+    ) -> None:
         """Append one observation. ``ts`` is accepted as a parameter so
         callers can pin a deterministic timestamp; defaults to wall clock."""
         if ts is None:
@@ -615,9 +613,7 @@ class ParamOracle:
         """Build a ParamOracle and seed it with ``kernel_name``'s KTC region
         table as cold-start observations. Read-only w.r.t. the kernel cache.
         Convenience wrapper over :meth:`read_ktc_regions`."""
-        oracle = cls(store_path, param_space=param_space,
-                     minimize=oracle_kwargs.pop("minimize", objective_metric),
-                     **oracle_kwargs)
+        oracle = cls(store_path, param_space=param_space, minimize=oracle_kwargs.pop("minimize", objective_metric), **oracle_kwargs)
         oracle.read_ktc_regions(
             kernel_name, param_field=param_field, axis=axis, fp_dim=fp_dim,
             objective_metric=objective_metric, objective_field=objective_field,
@@ -641,8 +637,7 @@ class ParamOracle:
         Never raises; cold store -> caller default.
         """
         default = self._caller_default()
-        rows = [r for r in self.store.read_rows()
-                if r.get("fn_name") == fn_name and r.get("host") == self.host]
+        rows = [r for r in self.store.read_rows() if r.get("fn_name") == fn_name and r.get("host") == self.host]
         if not rows:
             return default
 
@@ -693,14 +688,11 @@ class ParamOracle:
                 continue
             tie = obj.get("elapsed_s")
             tie = float(tie) if isinstance(tie, (int, float)) and not isinstance(tie, bool) else float("inf")
-            if best_score is None or self._better(score, best_score) or (
-                score == best_score and tie < (best_tie if best_tie is not None else float("inf"))
-            ):
+            if best_score is None or self._better(score, best_score) or (score == best_score and tie < (best_tie if best_tie is not None else float("inf"))):
                 best_row, best_score, best_tie = r, score, tie
         return best_row
 
-    def _knn_recommend(self, rows: Sequence[dict], target_bucket: Mapping[str, Any],
-                       k: int = 3) -> Optional[dict]:
+    def _knn_recommend(self, rows: Sequence[dict], target_bucket: Mapping[str, Any], k: int = 3) -> Optional[dict]:
         """Recommend via nearest buckets in continuous fingerprint space.
 
         Restricts neighbours to those sharing the categorical ``dtype_kind``
@@ -737,8 +729,7 @@ class ParamOracle:
 
     # ----- the sweep / call machinery -----
 
-    def benchmark(self, fn: Callable, args: Sequence[Any] = (), kwargs: Optional[Mapping[str, Any]] = None,
-                  ts: Optional[str] = None) -> dict:
+    def benchmark(self, fn: Callable, args: Sequence[Any] = (), kwargs: Optional[Mapping[str, Any]] = None, ts: Optional[str] = None) -> dict:
         """Run EVERY param combo of ``fn(*args, **kwargs, **combo)``, timing
         and memory-profiling each, and record an observation per combo.
         Returns ``{param_combo_tuple: objective_dict}`` for inspection.
@@ -753,8 +744,7 @@ class ParamOracle:
             results[_combo_key(combo)] = obj
         return results
 
-    def _run_one(self, fn: Callable, args: Sequence[Any], kwargs: Mapping[str, Any],
-                 combo: Mapping[str, Any]) -> tuple[dict, Any]:
+    def _run_one(self, fn: Callable, args: Sequence[Any], kwargs: Mapping[str, Any], combo: Mapping[str, Any]) -> tuple[dict, Any]:
         call_kwargs = dict(kwargs)
         call_kwargs.update(combo)
         rss_before = _rss_mb()

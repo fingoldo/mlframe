@@ -114,11 +114,8 @@ def _build_cross_target_ensemble_for_target(
     # MULTI_TARGET_REGRESSION path. The general CT_ENSEMBLE flow below assumes 1-D y per component (sklearn metrics + honest-OOF blender solve a 1-D regression at the component level). For (N, K) MTR targets we build a per-column mean ensemble: stack each component's (N, K) predictions across a "component" axis, then average across components for a single (N, K) output. Equal-weight is the floor; per-column honest-OOF blended weights can swap in without changing the public deployable model interface.
     try:
         from mlframe.training import TargetTypes
-        _is_mtr = (
-            str(_tt_e) == str(TargetTypes.MULTI_TARGET_REGRESSION)
-            or (hasattr(_tt_e, "is_multi_target_regression")
-                and _tt_e.is_multi_target_regression)
-        )
+
+        _is_mtr = str(_tt_e) == str(TargetTypes.MULTI_TARGET_REGRESSION) or (hasattr(_tt_e, "is_multi_target_regression") and _tt_e.is_multi_target_regression)
     except Exception:
         _is_mtr = False
 
@@ -129,8 +126,7 @@ def _build_cross_target_ensemble_for_target(
         # train-K-fold OOF stack on the TRAIN rows and inject them. Falls back to equal-mean if OOF fails.
         _fit_y_full = (target_by_type or {}).get(_tt_e, {}).get(_orig_tname)
         _oof_weights = None
-        if (filtered_train_df is not None and _fit_y_full is not None
-                and filtered_train_idx is not None):
+        if filtered_train_df is not None and _fit_y_full is not None and filtered_train_idx is not None:
             try:
                 _y_arr_mtr = np.asarray(_fit_y_full)[filtered_train_idx]
                 # Build the same component shims the equal-mean path uses, then OOF-fit NNLS over them.
@@ -141,9 +137,7 @@ def _build_cross_target_ensemble_for_target(
                     if not hasattr(_minner, "predict"):
                         continue
                     _mpp = getattr(_mentry, "pre_pipeline", None)
-                    _mtr_components.append(
-                        PrePipelinePredictShim(_minner, _mpp, f"raw#{_mi}")
-                    )
+                    _mtr_components.append(PrePipelinePredictShim(_minner, _mpp, f"raw#{_mi}"))
                 if len(_mtr_components) >= 2:
                     from ._phase_composite_post_xt_mtr_oof import compute_mtr_oof_nnls_weights
                     _oof_random_state = int(getattr(
@@ -184,28 +178,25 @@ def _build_cross_target_ensemble_for_target(
             continue
         _pp = getattr(_entry, "pre_pipeline", None)
         _name = f"raw#{_i}"
-        _components.append(
-            PrePipelinePredictShim(_inner, _pp, _name)
-        )
+        _components.append(PrePipelinePredictShim(_inner, _pp, _name))
         _component_names.append(_name)
     # Inject lag_predict dummy baseline as a free component for the cross-target ensemble pool. On strongly auto-regressive targets (lag1_corr ~0.999 within groups) the dumbest ``y_hat = lag_target_value`` baseline often beats every trained model on RMSE; honest-OOF gate naturally selects it when it dominates. NO trainable parameters; cost is one column read.
     try:
-        _dbl_for_target = (
-            metadata.get("dummy_baselines", {})
-            .get(str(_tt_e), {})
-            .get(str(_orig_tname), {})
-        )
+        _dbl_for_target = metadata.get("dummy_baselines", {}).get(str(_tt_e), {}).get(str(_orig_tname), {})
         _dbl_extras = _dbl_for_target.get("extras", {})
-        _lag_meta = _dbl_extras.get("lag_predict") if isinstance(
-            _dbl_extras, dict,
-        ) else None
+        _lag_meta = (
+            _dbl_extras.get("lag_predict")
+            if isinstance(
+                _dbl_extras,
+                dict,
+            )
+            else None
+        )
         if _lag_meta is not None:
             _lag_col = _lag_meta.get("feature_used")
             if _lag_col:
                 _lag_model = _LagPredictDeployableModel(_lag_col)
-                _components.append(
-                    PrePipelinePredictShim(_lag_model, None, "lag_predict")
-                )
+                _components.append(PrePipelinePredictShim(_lag_model, None, "lag_predict"))
                 _component_names.append("lag_predict")
                 logger.info(
                     "[CompositeCrossTargetEnsemble] target='%s' "
@@ -216,14 +207,12 @@ def _build_cross_target_ensemble_for_target(
                 )
     except Exception as _lag_inj_err:
         logger.debug(
-            "[CompositeCrossTargetEnsemble] lag_predict injection "
-            "failed for target='%s' (non-fatal): %s",
-            _orig_tname, _lag_inj_err,
+            "[CompositeCrossTargetEnsemble] lag_predict injection " "failed for target='%s' (non-fatal): %s",
+            _orig_tname,
+            _lag_inj_err,
         )
     for _spec in _spec_list:
-        _composite_entries = (models or {}).get(_tt_e, {}).get(
-            _spec["name"], []
-        ) or []
+        _composite_entries = (models or {}).get(_tt_e, {}).get(_spec["name"], []) or []
         for _i, _entry in enumerate(_composite_entries):
             _inner = getattr(_entry, "model", None) or _entry
             if not hasattr(_inner, "predict"):
@@ -231,15 +220,13 @@ def _build_cross_target_ensemble_for_target(
             # CTE wrappers handle the transform; pre_pipeline (if any) is outer frame-prep applied via the same shim.
             _pp = getattr(_entry, "pre_pipeline", None)
             _name = f"{_spec['name']}#{_i}"
-            _components.append(
-                PrePipelinePredictShim(_inner, _pp, _name)
-            )
+            _components.append(PrePipelinePredictShim(_inner, _pp, _name))
             _component_names.append(_name)
     if len(_components) < 2:
         logger.info(
-            "[CompositeCrossTargetEnsemble] target='%s': only %d "
-            "component(s); ensemble skipped.",
-            _orig_tname, len(_components),
+            "[CompositeCrossTargetEnsemble] target='%s': only %d " "component(s); ensemble skipped.",
+            _orig_tname,
+            len(_components),
         )
         return
     # Score components on the train slice in y-scale (same rows wrappers were fitted on).
@@ -309,8 +296,7 @@ def _build_cross_target_ensemble_for_target(
         _rmse_arr = _compute_train_rmse_proxy()
         if not np.isfinite(_rmse_arr).any():
             logger.warning(
-                "[CompositeCrossTargetEnsemble] target='%s': no "
-                "component scored on train; ensemble skipped.",
+                "[CompositeCrossTargetEnsemble] target='%s': no " "component scored on train; ensemble skipped.",
                 _orig_tname,
             )
             return
@@ -319,10 +305,9 @@ def _build_cross_target_ensemble_for_target(
         _oof_components, _oof_names, _rmse_arr = _drop_unscored_from_pool(_rmse_arr)
         if len(_oof_components) < 2:
             logger.info(
-                "[CompositeCrossTargetEnsemble] target='%s': only %d "
-                "component(s) scored on train after dropping failed "
-                "predicts; ensemble skipped.",
-                _orig_tname, len(_oof_components),
+                "[CompositeCrossTargetEnsemble] target='%s': only %d " "component(s) scored on train after dropping failed " "predicts; ensemble skipped.",
+                _orig_tname,
+                len(_oof_components),
             )
             return
     _oof_y_full = _y_full_for_rmse
@@ -340,9 +325,7 @@ def _build_cross_target_ensemble_for_target(
                 train_idx, val_idx, test_idx,
                 n_total=len(_oof_y_full),
             )
-            _extra_for_oof = tuple(
-                _spec_for_oof.get("extra_base_columns") or ()
-            )
+            _extra_for_oof = tuple(_spec_for_oof.get("extra_base_columns") or ())
             if _extra_for_oof:
                 _b_cols = [_b_primary]
                 for _eb_oof in _extra_for_oof:
@@ -381,8 +364,8 @@ def _build_cross_target_ensemble_for_target(
             else:
                 _comp_name = _name.split("#", 1)[0]
                 _matching = next(
-                    (s for s in _spec_list
-                     if s["name"] == _comp_name), None,
+                    (s for s in _spec_list if s["name"] == _comp_name),
+                    None,
                 )
                 _component_specs.append(_matching)
         # Thread ctx.timestamps + per-target sample_weight + group_ids (full-data-indexed) so the honest OOF split becomes time-aware / weighted / group-aware. All three are subset by filtered_train_idx to the train rows the components were fitted on.
@@ -429,14 +412,10 @@ def _build_cross_target_ensemble_for_target(
             )
         elif _oof_source == "external_val":
             try:
-                _ext_y_arr = (
-                    np.asarray(_oof_y_full)[filtered_val_idx]
-                )
+                _ext_y_arr = np.asarray(_oof_y_full)[filtered_val_idx]
             except (TypeError, IndexError):
                 _ext_y_arr = None
-            if (filtered_val_df is not None
-                    and _ext_y_arr is not None
-                    and len(_ext_y_arr) > 0):
+            if filtered_val_df is not None and _ext_y_arr is not None and len(_ext_y_arr) > 0:
                 _ext_X = filtered_val_df
                 _ext_y = _ext_y_arr
                 _ext_base_per_spec = _base_val_per_spec or None
@@ -450,18 +429,14 @@ def _build_cross_target_ensemble_for_target(
                 )
             else:
                 logger.info(
-                    "[CompositeCrossTargetEnsemble] target='%s' "
-                    "external_val OOF requested but val unavailable; "
-                    "falling back to train_tail.",
+                    "[CompositeCrossTargetEnsemble] target='%s' " "external_val OOF requested but val unavailable; " "falling back to train_tail.",
                     _orig_tname,
                 )
         _group_ids_for_oof = None
         _ctx_groups = getattr(ctx, "group_ids", None) if ctx is not None else None
         if _ctx_groups is not None:
             try:
-                _group_ids_for_oof = (
-                    np.asarray(_ctx_groups)[filtered_train_idx]
-                )
+                _group_ids_for_oof = np.asarray(_ctx_groups)[filtered_train_idx]
             except (TypeError, IndexError):
                 _group_ids_for_oof = None
 
@@ -479,14 +454,9 @@ def _build_cross_target_ensemble_for_target(
         # runs after OOF on the honest refit RMSE, so this is a
         # speed-up only; correctness contract unchanged.
         _PRESCREEN_SAFETY = 1.5  # leaky RMSE * 1.5 must still clear floor
-        if (_ext_X is not None and _ext_y is not None
-                and len(_components) >= 4):
+        if _ext_X is not None and _ext_y is not None and len(_components) >= 4:
             try:
-                _raw_dbl_pre = (
-                    metadata.get("dummy_baselines", {})
-                    .get(str(_tt_e), {})
-                    .get(str(_orig_tname), {})
-                )
+                _raw_dbl_pre = metadata.get("dummy_baselines", {}).get(str(_tt_e), {}).get(str(_orig_tname), {})
                 _data_pre = _raw_dbl_pre.get("data", {}) if isinstance(_raw_dbl_pre, dict) else {}
                 _strongest_pre = _raw_dbl_pre.get("strongest") if isinstance(_raw_dbl_pre, dict) else None
                 _pm_pre = _raw_dbl_pre.get("primary_metric") if isinstance(_raw_dbl_pre, dict) else None
@@ -511,12 +481,9 @@ def _build_cross_target_ensemble_for_target(
                                 continue
                             _r = _p[_finite] - _ext_y_arr_np[_finite]
                             _leaky_rmse = float(np.sqrt(np.mean(_r * _r)))
-                            if (_leaky_rmse / _PRESCREEN_SAFETY
-                                    > _dummy_floor_for_prescreen):
+                            if _leaky_rmse / _PRESCREEN_SAFETY > _dummy_floor_for_prescreen:
                                 _keep_mask.append(False)
-                                _dropped_pre.append(
-                                    f"{_name}(leakyRMSE={_leaky_rmse:.4g})"
-                                )
+                                _dropped_pre.append(f"{_name}(leakyRMSE={_leaky_rmse:.4g})")
                             else:
                                 _keep_mask.append(True)
                         except Exception:
@@ -540,9 +507,8 @@ def _build_cross_target_ensemble_for_target(
                         _component_specs = [_component_specs[i] for i in _kept]
             except Exception as _prescreen_err:
                 logger.warning(
-                    "[CompositeCrossTargetEnsemble] OOF pre-screen "
-                    "failed (non-fatal): %s. Continuing with full OOF "
-                    "refit.", _prescreen_err,
+                    "[CompositeCrossTargetEnsemble] OOF pre-screen " "failed (non-fatal): %s. Continuing with full OOF " "refit.",
+                    _prescreen_err,
                 )
 
         # Bound the OOF weight-estimation refits to a train subsample (group-aware: keep whole groups).
@@ -574,30 +540,28 @@ def _build_cross_target_ensemble_for_target(
                 _orig_tname, _n_oof_rows, int(_sub_pos.size), _oof_cap,
             )
         try:
-            _oof_pred_matrix, _oof_y_holdout, _surviving = (
-                compute_oof_holdout_predictions(
-                    component_models=_components,
-                    component_names=_component_names,
-                    component_specs=_component_specs,
-                    train_X=_oof_train_X,
-                    y_train_full=_oof_y_arr,
-                    base_train_full_per_spec=_oof_base_per_spec,
-                    holdout_frac=_oof_frac,
-                    random_state=_oof_rs,
-                    time_ordering=_time_ordering,
-                    kfold=_kfold_for_oof,
-                    sample_weight=_sw_for_oof,
-                    external_holdout_X=_ext_X,
-                    external_holdout_y=_ext_y,
-                    external_holdout_base_per_spec=_ext_base_per_spec,
-                    group_ids=_oof_groups_arg,
-                )
+            _oof_pred_matrix, _oof_y_holdout, _surviving = compute_oof_holdout_predictions(
+                component_models=_components,
+                component_names=_component_names,
+                component_specs=_component_specs,
+                train_X=_oof_train_X,
+                y_train_full=_oof_y_arr,
+                base_train_full_per_spec=_oof_base_per_spec,
+                holdout_frac=_oof_frac,
+                random_state=_oof_rs,
+                time_ordering=_time_ordering,
+                kfold=_kfold_for_oof,
+                sample_weight=_sw_for_oof,
+                external_holdout_X=_ext_X,
+                external_holdout_y=_ext_y,
+                external_holdout_base_per_spec=_ext_base_per_spec,
+                group_ids=_oof_groups_arg,
             )
         except Exception as _oof_err:
             logger.warning(
-                "[CompositeCrossTargetEnsemble] OOF computation failed "
-                "for target='%s': %s. Falling back to train-RMSE proxy.",
-                _orig_tname, _oof_err,
+                "[CompositeCrossTargetEnsemble] OOF computation failed " "for target='%s': %s. Falling back to train-RMSE proxy.",
+                _orig_tname,
+                _oof_err,
             )
             _oof_pred_matrix, _oof_y_holdout, _surviving = (
                 None, None, [],
@@ -605,10 +569,7 @@ def _build_cross_target_ensemble_for_target(
         if _oof_pred_matrix is not None and _oof_pred_matrix.shape[1] > 0:
             # Re-align to the surviving set returned by the OOF helper.
             _surviving_set = set(_surviving)
-            _oof_components = [
-                c for c, n in zip(_components, _component_names)
-                if n in _surviving_set
-            ]
+            _oof_components = [c for c, n in zip(_components, _component_names) if n in _surviving_set]
             _oof_names = list(_surviving)
             # Vectorised per-column RMSE: mask non-finite to 0 in a sum-and-divide pass; all-non-finite columns land as NaN (one pass, K cols).
             _diff_mat = _oof_pred_matrix - _oof_y_holdout[:, None]
@@ -624,9 +585,8 @@ def _build_cross_target_ensemble_for_target(
             _rmse_arr = _compute_train_rmse_proxy()
             if not np.isfinite(_rmse_arr).any():
                 logger.warning(
-                    "[CompositeCrossTargetEnsemble] target='%s': honest OOF "
-                    "produced no matrix and no component scored on train; "
-                    "ensemble skipped.", _orig_tname,
+                    "[CompositeCrossTargetEnsemble] target='%s': honest OOF " "produced no matrix and no component scored on train; " "ensemble skipped.",
+                    _orig_tname,
                 )
                 return
             # Drop any component whose train-predict failed (NaN proxy). No OOF
@@ -635,19 +595,18 @@ def _build_cross_target_ensemble_for_target(
             _oof_components, _oof_names, _rmse_arr = _drop_unscored_from_pool(_rmse_arr)
             if len(_oof_components) < 2:
                 logger.info(
-                    "[CompositeCrossTargetEnsemble] target='%s': only %d "
-                    "component(s) scored on train after dropping failed "
-                    "predicts; ensemble skipped.",
-                    _orig_tname, len(_oof_components),
+                    "[CompositeCrossTargetEnsemble] target='%s': only %d " "component(s) scored on train after dropping failed " "predicts; ensemble skipped.",
+                    _orig_tname,
+                    len(_oof_components),
                 )
                 return
             _oof_rmses = _rmse_arr
         if _oof_pred_matrix is not None and _oof_pred_matrix.shape[1] > 0:
             logger.info(
-                "[CompositeCrossTargetEnsemble] target='%s' using "
-                "honest OOF holdout (frac=%.2f, n=%d) for ensemble "
-                "weights / stacking.",
-                _orig_tname, _oof_frac, len(_oof_y_holdout),
+                "[CompositeCrossTargetEnsemble] target='%s' using " "honest OOF holdout (frac=%.2f, n=%d) for ensemble " "weights / stacking.",
+                _orig_tname,
+                _oof_frac,
+                len(_oof_y_holdout),
             )
             # Dummy-floor gate: drop any component whose honest-OOF RMSE exceeds the raw target's strongest-dummy RMSE by more than the configured tolerance. A trained model that loses to a parameter-free dummy on the honest holdout cannot improve the ensemble; keeping it dilutes NNLS weights and harms test performance.
             # The dummy's primary_metric value is compared directly against component OOF RMSEs, so the floor is unit-consistent only while the regression primary is RMSE (currently the only option).
@@ -665,11 +624,7 @@ def _build_cross_target_ensemble_for_target(
                     and len(_oof_rmses) > 0):
                 _dummy_floor_rmse = None
                 try:
-                    _raw_dbl = (
-                        metadata.get("dummy_baselines", {})
-                        .get(str(_tt_e), {})
-                        .get(str(_orig_tname), {})
-                    )
+                    _raw_dbl = metadata.get("dummy_baselines", {}).get(str(_tt_e), {}).get(str(_orig_tname), {})
                     _data = _raw_dbl.get("data", {}) if isinstance(_raw_dbl, dict) else {}
                     _strongest = _raw_dbl.get("strongest") if isinstance(_raw_dbl, dict) else None
                     _pm = _raw_dbl.get("primary_metric") if isinstance(_raw_dbl, dict) else None
@@ -680,23 +635,11 @@ def _build_cross_target_ensemble_for_target(
                 except (KeyError, TypeError, ValueError):
                     _dummy_floor_rmse = None
                 if _dummy_floor_rmse is not None:
-                    _keep_idx = [
-                        _i for _i in range(len(_oof_rmses))
-                        if np.isfinite(_oof_rmses[_i])
-                        and _oof_rmses[_i] <= _dummy_floor_rmse
-                    ]
-                    _dropped_idx = [
-                        _i for _i in range(len(_oof_rmses))
-                        if _i not in set(_keep_idx)
-                    ]
+                    _keep_idx = [_i for _i in range(len(_oof_rmses)) if np.isfinite(_oof_rmses[_i]) and _oof_rmses[_i] <= _dummy_floor_rmse]
+                    _dropped_idx = [_i for _i in range(len(_oof_rmses)) if _i not in set(_keep_idx)]
                     if _dropped_idx and len(_keep_idx) >= 1:
-                        _dropped_names = [
-                            f"{_oof_names[_i]}(OOF={_oof_rmses[_i]:.4g})"
-                            for _i in _dropped_idx
-                        ]
-                        _floor_base = (
-                            _dummy_floor_rmse / (1.0 + _dummy_floor_tol)
-                        )
+                        _dropped_names = [f"{_oof_names[_i]}(OOF={_oof_rmses[_i]:.4g})" for _i in _dropped_idx]
+                        _floor_base = _dummy_floor_rmse / (1.0 + _dummy_floor_tol)
                         logger.warning(
                             "[CompositeCrossTargetEnsemble] target='%s' "
                             "dummy-floor gate fired: dropping %d/%d "
@@ -708,12 +651,8 @@ def _build_cross_target_ensemble_for_target(
                             _floor_base, _dummy_floor_tol,
                             _dummy_floor_rmse, _dropped_names,
                         )
-                        _oof_components = [
-                            _oof_components[_i] for _i in _keep_idx
-                        ]
-                        _oof_names = [
-                            _oof_names[_i] for _i in _keep_idx
-                        ]
+                        _oof_components = [_oof_components[_i] for _i in _keep_idx]
+                        _oof_names = [_oof_names[_i] for _i in _keep_idx]
                         _oof_rmses = _oof_rmses[_keep_idx]
                         _oof_pred_matrix = _oof_pred_matrix[:, _keep_idx]
                     elif not _keep_idx:
@@ -792,41 +731,30 @@ def _build_cross_target_ensemble_for_target(
                             _gate_preds, _y_for_stack, min_weight=_gate_min,
                         )
                         if 2 <= len(_survivors) < len(_oof_names):
-                            _keep_mask = np.array([
-                                n in set(_survivors) for n in _oof_names
-                            ], dtype=bool)
+                            _keep_mask = np.array([n in set(_survivors) for n in _oof_names], dtype=bool)
                             _pred_matrix = _pred_matrix[:, _keep_mask]
                             # Keep _oof_pred_matrix aligned with the pruned weights so the OOF gate + AR(1) failsafe below still match column-for-column (mirrors the dedup block).
                             _oof_pred_matrix = _oof_pred_matrix[:, _keep_mask]
-                            _oof_components = [
-                                c for c, k in zip(_oof_components, _keep_mask) if k
-                            ]
-                            _oof_names = [
-                                n for n, k in zip(_oof_names, _keep_mask) if k
-                            ]
+                            _oof_components = [c for c, k in zip(_oof_components, _keep_mask) if k]
+                            _oof_names = [n for n, k in zip(_oof_names, _keep_mask) if k]
                             _oof_rmses = _oof_rmses[_keep_mask]
                             logger.info(
-                                "[CompositeCrossTargetEnsemble] target='%s' "
-                                "stacking_aware_gate kept %d of %d components "
-                                "(min_weight=%.3f).",
-                                _orig_tname, len(_survivors),
-                                len(_gate_w), _gate_min,
+                                "[CompositeCrossTargetEnsemble] target='%s' " "stacking_aware_gate kept %d of %d components " "(min_weight=%.3f).",
+                                _orig_tname,
+                                len(_survivors),
+                                len(_gate_w),
+                                _gate_min,
                             )
                     except Exception as _gate_err:
                         logger.warning(
-                            "[CompositeCrossTargetEnsemble] stacking_aware_gate "
-                            "failed for target='%s': %s. Proceeding with full set.",
-                            _orig_tname, _gate_err,
+                            "[CompositeCrossTargetEnsemble] stacking_aware_gate " "failed for target='%s': %s. Proceeding with full set.",
+                            _orig_tname,
+                            _gate_err,
                         )
             else:
-                _y_for_stack = (
-                    np.asarray(_oof_y_full)[filtered_train_idx]
-                    if _oof_y_full is not None else None
-                )
+                _y_for_stack = np.asarray(_oof_y_full)[filtered_train_idx] if _oof_y_full is not None else None
                 if _y_for_stack is None:
-                    raise RuntimeError(
-                        "stacking requires train target alignment"
-                    )
+                    raise RuntimeError("stacking requires train target alignment")
                 # Preallocate (n_rows, K) to skip np.column_stack's per-entry copy doubling peak RAM.
                 _frame_key2 = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
                 _n_rows = int(len(_y_for_stack))
@@ -854,11 +782,7 @@ def _build_cross_target_ensemble_for_target(
             # which discards every below-median component and dilutes against a meaningless baseline).
             _baseline_oof_rmse = None
             try:
-                _raw_dbl_base = (
-                    metadata.get("dummy_baselines", {})
-                    .get(str(_tt_e), {})
-                    .get(str(_orig_tname), {})
-                )
+                _raw_dbl_base = metadata.get("dummy_baselines", {}).get(str(_tt_e), {}).get(str(_orig_tname), {})
                 if isinstance(_raw_dbl_base, dict):
                     _data_base = _raw_dbl_base.get("data", {}) or {}
                     _strongest_base = _raw_dbl_base.get("strongest")
@@ -871,10 +795,7 @@ def _build_cross_target_ensemble_for_target(
                 if "lag_predict" in _oof_names:
                     _lp_b = float(_oof_rmses[_oof_names.index("lag_predict")])
                     if np.isfinite(_lp_b):
-                        _baseline_oof_rmse = (
-                            _lp_b if _baseline_oof_rmse is None
-                            else max(_baseline_oof_rmse, _lp_b)
-                        )
+                        _baseline_oof_rmse = _lp_b if _baseline_oof_rmse is None else max(_baseline_oof_rmse, _lp_b)
             except (KeyError, TypeError, ValueError):
                 _baseline_oof_rmse = None
             _ensemble = _CrossEns.from_train_metrics(
@@ -884,9 +805,7 @@ def _build_cross_target_ensemble_for_target(
                 baseline_oof_rmse=_baseline_oof_rmse,
             )
         # OOF validation gate: fall back to best single if ensemble holdout RMSE > best-single holdout RMSE.
-        if (_oof_pred_matrix is not None
-                and _oof_pred_matrix.shape[1] > 0
-                and isinstance(_ensemble, _CrossEns)):
+        if _oof_pred_matrix is not None and _oof_pred_matrix.shape[1] > 0 and isinstance(_ensemble, _CrossEns):
             try:
                 # Gate==deploy: combine the OOF-holdout component preds with the SAME rule predict() uses, so
                 # the gate scores the exact predictor that ships. Non-convex stacks (linear_stack / nnls_stack)
@@ -896,24 +815,20 @@ def _build_cross_target_ensemble_for_target(
                 # a stacker degenerated and fell back to a convex mean inside the ensemble class.
                 _w_full = np.asarray(_ensemble.weights, dtype=np.float64)
                 if not getattr(_ensemble, "is_convex", True):
-                    _intercept = float(getattr(
-                        _ensemble, "_linear_stack_intercept", 0.0,
-                    ))
-                    _ens_holdout = (
-                        (_oof_pred_matrix * _w_full[None, :]).sum(axis=1)
-                        + _intercept
+                    _intercept = float(
+                        getattr(
+                            _ensemble,
+                            "_linear_stack_intercept",
+                            0.0,
+                        )
                     )
+                    _ens_holdout = (_oof_pred_matrix * _w_full[None, :]).sum(axis=1) + _intercept
                 else:
                     _w_sum = float(_w_full.sum())
-                    _w_norm = (
-                        _w_full / _w_sum if _w_sum > 0
-                        else np.full_like(_w_full, 1.0 / len(_w_full))
-                    )
-                    _ens_holdout = (
-                        _oof_pred_matrix * _w_norm[None, :]
-                    ).sum(axis=1)
+                    _w_norm = _w_full / _w_sum if _w_sum > 0 else np.full_like(_w_full, 1.0 / len(_w_full))
+                    _ens_holdout = (_oof_pred_matrix * _w_norm[None, :]).sum(axis=1)
                 _ens_diff = _ens_holdout - _oof_y_holdout
-                _ens_rmse = float(np.sqrt(np.mean(_ens_diff ** 2)))
+                _ens_rmse = float(np.sqrt(np.mean(_ens_diff**2)))
                 _best_single_rmse = float(np.nanmin(_oof_rmses))
                 # AR(1) failsafe: when lag_predict's OOF RMSE ties the best trained component, prefer zero-param lag. But
                 # the OOF RMSE is a group-K-fold estimate that UNDERESTIMATES the full-data model (each fold trains on
@@ -963,8 +878,7 @@ def _build_cross_target_ensemble_for_target(
                         _yv2 = (np.asarray(_oof_y_full)[filtered_val_idx].astype(np.float64)
                                 if (_oof_y_full is not None and filtered_val_idx is not None) else None)
                         _ctx_g2 = getattr(ctx, "group_ids", None) if ctx is not None else None
-                        _gids_val2 = (np.asarray(_ctx_g2)[filtered_val_idx]
-                                      if (_ctx_g2 is not None and filtered_val_idx is not None) else None)
+                        _gids_val2 = np.asarray(_ctx_g2)[filtered_val_idx] if (_ctx_g2 is not None and filtered_val_idx is not None) else None
                         _deployed = build_volatility_lag_router(
                             _deployed, _oof_components[_oof_names.index("lag_predict")],
                             _gids_val2, filtered_val_df, _yv2,
@@ -976,14 +890,10 @@ def _build_cross_target_ensemble_for_target(
                         logger.info("[CompositeCrossTargetEnsemble] target='%s' volatility-lag routing skipped (%s).", _orig_tname, _vr_err)
                     _ensemble = _deployed
                     _lag_failsafe_taken = True
-                elif (_lag_failsafe_tol > 0
-                        and "lag_predict" in _oof_names
-                        and np.isfinite(_best_single_rmse)):
+                elif _lag_failsafe_tol > 0 and "lag_predict" in _oof_names and np.isfinite(_best_single_rmse):
                     _lp_idx = _oof_names.index("lag_predict")
                     _lp_rmse = float(_oof_rmses[_lp_idx])
-                    if (np.isfinite(_lp_rmse)
-                            and _lp_rmse <= (1.0 + _lag_failsafe_tol)
-                            * _best_single_rmse):
+                    if np.isfinite(_lp_rmse) and _lp_rmse <= (1.0 + _lag_failsafe_tol) * _best_single_rmse:
                         logger.warning(
                             "[CompositeCrossTargetEnsemble] target='%s' "
                             "AR1 failsafe fired: lag_predict OOF "
@@ -997,8 +907,7 @@ def _build_cross_target_ensemble_for_target(
                         )
                         _ensemble = _oof_components[_lp_idx]
                         _lag_failsafe_taken = True
-                if (not _lag_failsafe_taken
-                        and _ens_rmse > _best_single_rmse):
+                if not _lag_failsafe_taken and _ens_rmse > _best_single_rmse:
                     _best_idx = int(np.nanargmin(_oof_rmses))
                     logger.warning(
                         "[CompositeCrossTargetEnsemble] target='%s' "
@@ -1011,8 +920,8 @@ def _build_cross_target_ensemble_for_target(
                     _ensemble = _oof_components[_best_idx]
             except Exception as _gate_err:
                 logger.info(
-                    "[CompositeCrossTargetEnsemble] OOF gate check "
-                    "skipped (%s); ensemble retained.", _gate_err,
+                    "[CompositeCrossTargetEnsemble] OOF gate check " "skipped (%s); ensemble retained.",
+                    _gate_err,
                 )
         # Opt-in post-hoc output recalibration. Fit a monotone map on the SAME OOF holdout surface
         # the weights were derived from (blend the OOF component matrix with the frozen weights, then
@@ -1038,9 +947,9 @@ def _build_cross_target_ensemble_for_target(
                     method=_calib_method,
                 )
                 logger.info(
-                    "[CompositeCrossTargetEnsemble] target='%s' fitted output calibrator "
-                    "(method=%s, attached=%s) on %d OOF rows.",
-                    _orig_tname, _calib_method,
+                    "[CompositeCrossTargetEnsemble] target='%s' fitted output calibrator " "(method=%s, attached=%s) on %d OOF rows.",
+                    _orig_tname,
+                    _calib_method,
                     getattr(_ensemble, "_output_calibrator", None) is not None,
                     int(_oof_pred_matrix.shape[0]),
                 )
@@ -1060,11 +969,8 @@ def _build_cross_target_ensemble_for_target(
         composite_target_discovery_config,
         "max_inference_components", None,
     )
-    if (_max_components is not None and _max_components > 0
-            and isinstance(_ensemble, _CrossEns)):
-        _ensemble = _ensemble.cap_inference_components(
-            int(_max_components)
-        )
+    if _max_components is not None and _max_components > 0 and isinstance(_ensemble, _CrossEns):
+        _ensemble = _ensemble.cap_inference_components(int(_max_components))
     # SimpleNamespace shim for downstream iterators expecting .model/.columns; columns=None since each component knows its own.
     _ens_entry = SimpleNamespace(
         model=_ensemble,
@@ -1076,18 +982,13 @@ def _build_cross_target_ensemble_for_target(
     _ens_key = f"_CT_ENSEMBLE__{_orig_tname}"
     _by_name = models.setdefault(_tt_e, {})
     _by_name[_ens_key] = [_ens_entry]
-    metadata.setdefault("composite_target_ensemble", {}) \
-        .setdefault(str(_tt_e), {})[_orig_tname] = (
-        _ensemble.export_metadata()
-        if hasattr(_ensemble, "export_metadata")
-        else {"strategy": "single_best_fallback"}
+    metadata.setdefault("composite_target_ensemble", {}).setdefault(str(_tt_e), {})[_orig_tname] = (
+        _ensemble.export_metadata() if hasattr(_ensemble, "export_metadata") else {"strategy": "single_best_fallback"}
     )
     # Stamp the chosen ensemble flavour into metadata["ensembles_chosen"] so the predict path can replay the right combine for the cross-target slot (predict-path parity).
     _ce_actual_strategy = getattr(_ensemble, "strategy", None) or _ce_strategy
     # Sub-key per ensemble family: cross-target ensembles live under ``ensembles_chosen["cross_target"]``; simple per-target ensembles are stamped by _phase_train_one_target under ``ensembles_chosen["simple"]``.
-    metadata.setdefault("ensembles_chosen", {}) \
-        .setdefault("cross_target", {}) \
-        .setdefault(str(_tt_e), {})[_ens_key] = str(_ce_actual_strategy)
+    metadata.setdefault("ensembles_chosen", {}).setdefault("cross_target", {}).setdefault(str(_tt_e), {})[_ens_key] = str(_ce_actual_strategy)
     logger.info(
         "[CompositeCrossTargetEnsemble] target='%s' built strategy='%s' "
         "over %d component(s); stored at models[%s][%s].",
@@ -1101,10 +1002,7 @@ def _build_cross_target_ensemble_for_target(
         _ens_orig_y = target_by_type.get(_tt_e, {}).get(_orig_tname)
         if _ens_orig_y is not None:
             _ens_y_arr = np.asarray(_ens_orig_y)
-            _ens_model_name = (
-                f"CT_ENSEMBLE[{_ce_strategy}] {target_name} "
-                f"{model_name} {_orig_tname}"
-            )
+            _ens_model_name = f"CT_ENSEMBLE[{_ce_strategy}] {target_name} " f"{model_name} {_orig_tname}"
             # ``or []`` on a pandas Index raises ``The truth value of a Index is ambiguous``; explicit None+len check keeps both pandas Index and plain lists safe.
             _cols_attr = getattr(filtered_train_df, "columns", None)
             _ens_columns = list(_cols_attr) if _cols_attr is not None and len(_cols_attr) > 0 else []
@@ -1159,10 +1057,9 @@ def _build_cross_target_ensemble_for_target(
                             f"{_split_name}_MAE": float(fast_mean_absolute_error(_y_arr, _ens_arr)),
                             "model_name": f"CT_ENSEMBLE[{_ce_strategy}]",
                         }
-                        metadata.setdefault("cross_target_ensemble_metrics", {}) \
-                            .setdefault(str(_tt_e), {}) \
-                            .setdefault(_orig_tname, {}) \
-                            .update(_ens_scalar_metrics)
+                        metadata.setdefault("cross_target_ensemble_metrics", {}).setdefault(str(_tt_e), {}).setdefault(_orig_tname, {}).update(
+                            _ens_scalar_metrics
+                        )
                     except Exception as _metric_err:
                         logger.debug(
                             "Could not stamp CT_ENSEMBLE %s metrics for target='%s': %s",
@@ -1170,9 +1067,7 @@ def _build_cross_target_ensemble_for_target(
                         )
                     _common_split = dict(_ens_common)
                     if plot_file:
-                        _common_split["plot_file"] = (
-                            f"{plot_file}_ct_ensemble_{_orig_tname}_{_split_name}"
-                        )
+                        _common_split["plot_file"] = f"{plot_file}_ct_ensemble_{_orig_tname}_{_split_name}"
                     report_model_perf(
                         targets=_y_split,
                         preds=_ens_preds, probs=None,

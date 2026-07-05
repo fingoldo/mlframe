@@ -61,13 +61,12 @@ def bench_e2_append_vs_concat(n: int = 50_000, k0: int = 220, n_pairs: int = 40,
     assert np.array_equal(old(), new()), "E2: result mismatch"
     t_old = _best_of(old, 20)
     t_new = _best_of(new, 20)
-    return {"lever": "E2_append_vs_concat", "n": n, "k0": k0, "n_pairs": n_pairs,
-            "old_ms": t_old * 1e3, "new_ms": t_new * 1e3, "speedup": t_old / t_new}
+    return {"lever": "E2_append_vs_concat", "n": n, "k0": k0, "n_pairs": n_pairs, "old_ms": t_old * 1e3, "new_ms": t_new * 1e3, "speedup": t_old / t_new}
 
 
 def bench_e7_combinations_vs_triu(p: int = 1500):
     """E7: tuple-list + fromiter vs triu_indices over the id array (exhaustive-branch shape)."""
-    ids_set = set(int(x) for x in np.random.default_rng(1).permutation(p)[: p])
+    ids_set = set(int(x) for x in np.random.default_rng(1).permutation(p)[:p])
 
     def old():
         pairs = list(combinations(ids_set, 2))
@@ -89,8 +88,7 @@ def bench_e7_combinations_vs_triu(p: int = 1500):
     t_old = _best_of(lambda: old(), 5)
     t_new = _best_of(lambda: new(), 5)
     n_pairs = p * (p - 1) // 2
-    return {"lever": "E7_combinations_vs_triu", "p": p, "n_pairs": n_pairs,
-            "old_ms": t_old * 1e3, "new_ms": t_new * 1e3, "speedup": t_old / t_new}
+    return {"lever": "E7_combinations_vs_triu", "p": p, "n_pairs": n_pairs, "old_ms": t_old * 1e3, "new_ms": t_new * 1e3, "speedup": t_old / t_new}
 
 
 def bench_e8_tonumeric_vs_asarray(n: int = 20_000, p: int = 120, nan_frac: float = 0.02):
@@ -113,8 +111,7 @@ def bench_e8_tonumeric_vs_asarray(n: int = 20_000, p: int = 120, nan_frac: float
     assert np.array_equal(old(), new()), "E8: result mismatch"
     t_old = _best_of(old, 10)
     t_new = _best_of(new, 10)
-    return {"lever": "E8_tonumeric_vs_asarray", "n": n, "p": p,
-            "old_ms": t_old * 1e3, "new_ms": t_new * 1e3, "speedup": t_old / t_new}
+    return {"lever": "E8_tonumeric_vs_asarray", "n": n, "p": p, "old_ms": t_old * 1e3, "new_ms": t_new * 1e3, "speedup": t_old / t_new}
 
 
 def bench_e1e6_copy_cost(n: int = 50_000, p: int = 220):

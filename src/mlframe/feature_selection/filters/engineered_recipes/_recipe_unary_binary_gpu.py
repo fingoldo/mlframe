@@ -32,7 +32,6 @@ import numpy as np
 from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _extract_column
 
-
 # Closed-form unary names whose cupy form is byte-faithful to the numpy registry
 # (``create_unary_transformations``). EXCLUDES the pseudo-unaries (prewarp /
 # gate_med, handled closed-form on CPU from fit-time state) and the scipy.special

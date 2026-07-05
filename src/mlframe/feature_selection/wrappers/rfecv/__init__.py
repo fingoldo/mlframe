@@ -463,23 +463,15 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         # max_refits=0 would be silently ignored by ``if max_refits and ...`` (0 is falsy). Reject explicitly.
         if max_refits is not None and max_refits < 1:
-            raise ValueError(
-                f"max_refits must be >= 1 (or None for unlimited); got {max_refits}. "
-                f"To run zero iterations, just don't call fit()."
-            )
+            raise ValueError(f"max_refits must be >= 1 (or None for unlimited); got {max_refits}. " f"To run zero iterations, just don't call fit().")
 
         # cv=1 is degenerate (no train/test split possible).
         if isinstance(cv, int) and cv < 2:
-            raise ValueError(
-                f"cv must be >= 2 (or a CV splitter object); got cv={cv}. "
-                f"k-fold CV requires at least 2 splits."
-            )
+            raise ValueError(f"cv must be >= 2 (or a CV splitter object); got cv={cv}. " f"k-fold CV requires at least 2 splits.")
 
         if stability_selection:
             if not (0.0 < stability_threshold <= 1.0):
-                raise ValueError(
-                    f"stability_threshold must be in (0, 1]; got {stability_threshold}."
-                )
+                raise ValueError(f"stability_threshold must be in (0, 1]; got {stability_threshold}.")
             if stability_n_bootstrap < 10 and verbose:
                 logger.warning(
                     "RFECV: stability_n_bootstrap=%d is below the recommended "
@@ -488,85 +480,56 @@ class RFECV(BaseEstimator, TransformerMixin):
                     stability_n_bootstrap,
                 )
             if stability_n_bootstrap < 1:
-                raise ValueError(
-                    f"stability_n_bootstrap must be >= 1; got {stability_n_bootstrap}."
-                )
+                raise ValueError(f"stability_n_bootstrap must be >= 1; got {stability_n_bootstrap}.")
 
         if feature_groups:
             for _gname, _gmembers in feature_groups.items():
                 if not _gmembers:
                     if verbose:
                         logger.warning(
-                            "RFECV: feature_groups[%r] is empty; this group "
-                            "will have no effect on selection.", _gname,
+                            "RFECV: feature_groups[%r] is empty; this group " "will have no effect on selection.",
+                            _gname,
                         )
 
         if nan_in_X_policy not in ("impute", "raise"):
-            raise ValueError(
-                f"nan_in_X_policy must be 'impute' or 'raise'; got {nan_in_X_policy!r}."
-            )
+            raise ValueError(f"nan_in_X_policy must be 'impute' or 'raise'; got {nan_in_X_policy!r}.")
 
         if leakage_action not in ("warn", "exclude", "raise"):
-            raise ValueError(
-                f"leakage_action must be 'warn', 'exclude', or 'raise'; "
-                f"got {leakage_action!r}."
-            )
+            raise ValueError(f"leakage_action must be 'warn', 'exclude', or 'raise'; " f"got {leakage_action!r}.")
 
         if n_features_selection_rule not in ("auto", "argmax", "one_se_min", "one_se_max", "plateau"):
             raise ValueError(
-                f"n_features_selection_rule must be 'auto', 'argmax', "
-                f"'one_se_min', 'one_se_max', or 'plateau'; got {n_features_selection_rule!r}."
+                f"n_features_selection_rule must be 'auto', 'argmax', " f"'one_se_min', 'one_se_max', or 'plateau'; got {n_features_selection_rule!r}."
             )
 
         if fi_missing_policy not in ("worst", "median", "skip"):
-            raise ValueError(
-                f"fi_missing_policy must be 'worst', 'median', or 'skip'; "
-                f"got {fi_missing_policy!r}."
-            )
+            raise ValueError(f"fi_missing_policy must be 'worst', 'median', or 'skip'; " f"got {fi_missing_policy!r}.")
 
         if multioutput_strategy not in (None, "union", "intersect"):
-            raise ValueError(
-                f"multioutput_strategy must be None, 'union', or 'intersect'; got {multioutput_strategy!r}."
-            )
+            raise ValueError(f"multioutput_strategy must be None, 'union', or 'intersect'; got {multioutput_strategy!r}.")
         if importance_agg not in ("legacy", "dispatched"):
-            raise ValueError(
-                f"importance_agg must be 'legacy' or 'dispatched'; got {importance_agg!r}."
-            )
+            raise ValueError(f"importance_agg must be 'legacy' or 'dispatched'; got {importance_agg!r}.")
 
         if elimination_rule not in ("importance", "stability"):
-            raise ValueError(
-                f"elimination_rule must be 'importance' or 'stability'; got {elimination_rule!r}."
-            )
+            raise ValueError(f"elimination_rule must be 'importance' or 'stability'; got {elimination_rule!r}.")
 
         if optimizer_target not in ("mean", "final_score"):
-            raise ValueError(
-                f"optimizer_target must be 'mean' or 'final_score'; got {optimizer_target!r}."
-            )
+            raise ValueError(f"optimizer_target must be 'mean' or 'final_score'; got {optimizer_target!r}.")
 
         if not (0.0 <= dichotomic_epsilon <= 1.0):
-            raise ValueError(
-                f"dichotomic_epsilon must be in [0, 1]; got {dichotomic_epsilon}."
-            )
+            raise ValueError(f"dichotomic_epsilon must be in [0, 1]; got {dichotomic_epsilon}.")
 
         if dichotomic_step not in ("auto", "midpoint"):
-            raise ValueError(
-                f"dichotomic_step must be 'auto' or 'midpoint'; got {dichotomic_step!r}."
-            )
+            raise ValueError(f"dichotomic_step must be 'auto' or 'midpoint'; got {dichotomic_step!r}.")
 
         if not (0.0 <= fi_decay_rate < 1.0):
-            raise ValueError(
-                f"fi_decay_rate must be in [0, 1); got {fi_decay_rate}."
-            )
+            raise ValueError(f"fi_decay_rate must be in [0, 1); got {fi_decay_rate}.")
 
         if multiclass_coef_aggregation not in ("max", "sum"):
-            raise ValueError(
-                f"multiclass_coef_aggregation must be 'max' or 'sum'; got {multiclass_coef_aggregation!r}."
-            )
+            raise ValueError(f"multiclass_coef_aggregation must be 'max' or 'sum'; got {multiclass_coef_aggregation!r}.")
 
         if coef_scale_source not in ("train", "test", "none"):
-            raise ValueError(
-                f"coef_scale_source must be 'train', 'test', or 'none'; got {coef_scale_source!r}."
-            )
+            raise ValueError(f"coef_scale_source must be 'train', 'test', or 'none'; got {coef_scale_source!r}.")
 
         # E9 (Wave 4, 2026-05-28): assert all entries in ``estimators=`` share the
         # same type-family (classifier vs regressor). Mixing silently picks the
@@ -767,9 +730,6 @@ class RFECV(BaseEstimator, TransformerMixin):
             return None
         return state
 
-
-
-
     def get_feature_names_out(self, input_features=None):
         """sklearn-1.x transformer protocol. Returns the names of the selected features as an ndarray of str, matching what ``transform``
         produces as columns. Compatible with sklearn Pipelines that call this method for downstream feature naming
@@ -845,10 +805,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         # successful transform and lets downstream pipelines run on the wrong column set.
         if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
             from sklearn.exceptions import NotFittedError
-            raise NotFittedError(
-                "This RFECV instance is not fitted yet. Call 'fit' before "
-                "using 'transform'."
-            )
+
+            raise NotFittedError("This RFECV instance is not fitted yet. Call 'fit' before " "using 'transform'.")
         support = self.support_
         if len(support) == 0:
             # Empty DataFrame/array with same rows but no columns: feature selection found no useful features.

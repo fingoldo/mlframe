@@ -53,7 +53,7 @@ except ImportError:
 @dataclass(frozen=True)
 class Problem:
     name: str
-    task: str           # "classification" | "regression"
+    task: str  # "classification" | "regression"
     n: int
     p: int
     informative: int
@@ -85,12 +85,12 @@ class Problem:
 
 
 PROBLEMS: list[Problem] = [
-    Problem("clf_easy_small",       "classification", n=400, p=20,  informative=4,  redundant=0,  class_sep=2.0),
-    Problem("clf_redundant",        "classification", n=400, p=25,  informative=5,  redundant=10, class_sep=1.5),
-    Problem("clf_noisy_wide",       "classification", n=300, p=60,  informative=5,  redundant=0,  class_sep=1.5),
-    Problem("clf_hard",             "classification", n=600, p=30,  informative=8,  redundant=4,  class_sep=1.0),
-    Problem("reg_easy",             "regression",     n=400, p=20,  informative=5,  noise=0.5),
-    Problem("reg_correlated_noisy", "regression",     n=300, p=25,  informative=4,  noise=2.0),
+    Problem("clf_easy_small", "classification", n=400, p=20, informative=4, redundant=0, class_sep=2.0),
+    Problem("clf_redundant", "classification", n=400, p=25, informative=5, redundant=10, class_sep=1.5),
+    Problem("clf_noisy_wide", "classification", n=300, p=60, informative=5, redundant=0, class_sep=1.5),
+    Problem("clf_hard", "classification", n=600, p=30, informative=8, redundant=4, class_sep=1.0),
+    Problem("reg_easy", "regression", n=400, p=20, informative=5, noise=0.5),
+    Problem("reg_correlated_noisy", "regression", n=300, p=25, informative=4, noise=2.0),
 ]
 
 
@@ -101,7 +101,7 @@ PROBLEMS: list[Problem] = [
 class RunResult:
     problem: str
     estimator: str
-    selector: str          # "ours" | "sklearn"
+    selector: str  # "ours" | "sklearn"
     seed: int
     n_features_total: int
     n_features_selected: int
@@ -118,12 +118,12 @@ def estimator_factories(problem: Problem) -> dict[str, Callable[[], object]]:
     facs: dict[str, Callable[[], object]] = {}
     if problem.task == "classification":
         facs["logreg"] = lambda: LogisticRegression(max_iter=500, random_state=0)
-        facs["rf"]     = lambda: RandomForestClassifier(n_estimators=50, random_state=0, n_jobs=1)
+        facs["rf"] = lambda: RandomForestClassifier(n_estimators=50, random_state=0, n_jobs=1)
         if HAS_CATBOOST:
             facs["cb"] = lambda: CatBoostClassifier(iterations=80, depth=4, verbose=0, random_seed=0, allow_writing_files=False)
     else:
         facs["ridge"] = lambda: Ridge(random_state=0)
-        facs["rf"]    = lambda: RandomForestRegressor(n_estimators=50, random_state=0, n_jobs=1)
+        facs["rf"] = lambda: RandomForestRegressor(n_estimators=50, random_state=0, n_jobs=1)
         if HAS_CATBOOST:
             facs["cb"] = lambda: CatBoostRegressor(iterations=80, depth=4, verbose=0, random_seed=0, allow_writing_files=False)
     return facs
@@ -258,10 +258,7 @@ def main(seeds: tuple[int, ...] = (0, 1, 2), out_dir: Optional[Path] = None) -> 
             # Jaccard stability across the 3 seeds for each selector
             for selector_name, runs in [("ours", ours_results), ("sklearn", sk_results)]:
                 supports = [set(r.selected_idx) for r in runs]
-                pairwise_jaccard = [
-                    jaccard(supports[i], supports[j])
-                    for i in range(len(supports)) for j in range(i + 1, len(supports))
-                ]
+                pairwise_jaccard = [jaccard(supports[i], supports[j]) for i in range(len(supports)) for j in range(i + 1, len(supports))]
                 stability = float(np.mean(pairwise_jaccard)) if pairwise_jaccard else 1.0
                 for r in runs:
                     rec = asdict(r)

@@ -71,9 +71,7 @@ class _PredictAccelMixin:
         # LSTM/GRU/RNN are explicitly anti-compile.
         _recurrent_types = (torch.nn.LSTM, torch.nn.GRU, torch.nn.RNN)
         try:
-            _has_recurrent = any(
-                isinstance(m, _recurrent_types) for m in self.network.modules()
-            )
+            _has_recurrent = any(isinstance(m, _recurrent_types) for m in self.network.modules())
         except Exception:
             _has_recurrent = False
         if _has_recurrent:
@@ -91,9 +89,7 @@ class _PredictAccelMixin:
                 import torch._logging as _tlog
                 _tlog.set_logs(graph_breaks=True, recompiles=True)
                 logger.info(
-                    "MLFRAME_TORCH_COMPILE_DEBUG=1: enabled torch._logging "
-                    "graph_breaks + recompiles. Re-run with --no-cov + capture "
-                    "STDERR to inspect."
+                    "MLFRAME_TORCH_COMPILE_DEBUG=1: enabled torch._logging " "graph_breaks + recompiles. Re-run with --no-cov + capture " "STDERR to inspect."
                 )
             except Exception as _dbg_err:
                 logger.debug("torch._logging.set_logs failed: %s", _dbg_err)
@@ -183,9 +179,7 @@ class _PredictAccelMixin:
             except Exception as _comp_err:
                 self._compile_predict_failed = True
                 logger.warning(
-                    "torch.compile(reduce-overhead) setup failed "
-                    "(%s); falling back to eager predict + CUDA-graph "
-                    "path (if env-gated).",
+                    "torch.compile(reduce-overhead) setup failed " "(%s); falling back to eager predict + CUDA-graph " "path (if env-gated).",
                     _comp_err,
                 )
                 return None
@@ -195,8 +189,7 @@ class _PredictAccelMixin:
             self._compile_predict_failed = True
             self._compiled_predict_fn = None
             logger.warning(
-                "compiled predict forward failed at execution "
-                "(%s); permanently falling back to eager + CUDA-graph path.",
+                "compiled predict forward failed at execution " "(%s); permanently falling back to eager + CUDA-graph path.",
                 _exec_err,
             )
             return None
@@ -305,9 +298,9 @@ class _PredictAccelMixin:
                 return _static_out.clone()
             except Exception as _replay_err:
                 logger.warning(
-                    "CUDA-graph replay failed for shape=%s (%s); "
-                    "evicting cache entry + falling back to eager.",
-                    tuple(x.shape), _replay_err,
+                    "CUDA-graph replay failed for shape=%s (%s); " "evicting cache entry + falling back to eager.",
+                    tuple(x.shape),
+                    _replay_err,
                 )
                 self._cuda_graph_predict_cache.pop(_key, None)
                 return self(x)
@@ -358,9 +351,9 @@ class _PredictAccelMixin:
         except Exception as _graph_err:
             self._cuda_graph_predict_cache[_key] = False
             logger.warning(
-                "CUDA-graph capture failed for predict shape=%s "
-                "(%s); falling back to eager forward for this shape.",
-                tuple(x.shape), _graph_err,
+                "CUDA-graph capture failed for predict shape=%s " "(%s); falling back to eager forward for this shape.",
+                tuple(x.shape),
+                _graph_err,
             )
             return self(x)
 

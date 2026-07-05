@@ -20,7 +20,6 @@ from mlframe.metrics.core import compute_probabilistic_multiclass_error, fast_me
 
 from .._helpers import _detect_multithreaded
 
-
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 

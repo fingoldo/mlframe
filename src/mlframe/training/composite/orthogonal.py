@@ -81,9 +81,7 @@ def _extract_base(X: Any, base_column: str) -> np.ndarray:
     # pandas
     if hasattr(X, "columns"):
         if base_column not in X.columns:
-            raise KeyError(
-                f"OrthogonalizedCompositeEstimator: base column '{base_column}' missing from X."
-            )
+            raise KeyError(f"OrthogonalizedCompositeEstimator: base column '{base_column}' missing from X.")
         return np.asarray(X[base_column], dtype=np.float64).ravel()
     raise TypeError("OrthogonalizedCompositeEstimator requires a pandas/polars DataFrame X with named columns.")
 
@@ -229,10 +227,7 @@ class OrthogonalizedCompositeEstimator(BaseEstimator, RegressorMixin):
         # construction of the residuals, but center again defensively for finite-sample drift).
         denom = float(base_tilde @ base_tilde)
         if denom < _DENOM_FLOOR:
-            logger.warning(
-                "OrthogonalizedCompositeEstimator: residualized base is near-degenerate "
-                "(base almost fully explained by X); base_coef_ set to 0."
-            )
+            logger.warning("OrthogonalizedCompositeEstimator: residualized base is near-degenerate " "(base almost fully explained by X); base_coef_ set to 0.")
             self.base_coef_ = 0.0
         else:
             self.base_coef_ = float((base_tilde @ y_tilde) / denom)

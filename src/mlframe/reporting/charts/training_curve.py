@@ -144,9 +144,7 @@ def compose_training_curve_figure(
         )
 
     order = list(metrics) if metrics is not None else list(norm.keys())
-    panels: List[PanelSpec] = [
-        _metric_panel(m, norm[m], es_iteration) for m in order if m in norm
-    ]
+    panels: List[PanelSpec] = [_metric_panel(m, norm[m], es_iteration) for m in order if m in norm]
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)
     n_cols = max_cols if n_rows > 1 else len(panels)

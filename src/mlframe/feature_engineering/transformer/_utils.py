@@ -282,6 +282,6 @@ def require_seed(seed: object) -> int:
     if not isinstance(seed, (int, np.integer)) or isinstance(seed, bool):
         raise TypeError(f"seed must be an int, got {type(seed).__name__}. Do not derive seeds from input data (e.g. hash(X.shape)) — that leaks data into the projection matrices.")
     seed_int = int(seed)
-    if seed_int < 0 or seed_int >= 2 ** 32:
+    if seed_int < 0 or seed_int >= 2**32:
         raise ValueError(f"seed must be in [0, 2**32); got {seed_int}.")
     return seed_int

@@ -79,7 +79,7 @@ def _build_mrmr(variant: str, seed: int):
     from mlframe.feature_selection.filters import MRMR
 
     base = dict(
-        fe_max_steps=0,            # raw-index-only support_ so precision/recall vs the known driver set stays exact
+        fe_max_steps=0,  # raw-index-only support_ so precision/recall vs the known driver set stays exact
         interactions_max_order=1,
         full_npermutations=3,
         baseline_npermutations=2,
@@ -135,10 +135,7 @@ def run_campaign(smoke: bool) -> None:
         p_values = (150, 300) if os.environ.get("FULL_P_SWEEP") else (300,)
         seeds, scenarios = list(range(15)), SCENARIOS
 
-    cells = [
-        (v, s, n, p, seed)
-        for v in VARIANTS for s in scenarios for n in n_values for p in p_values for seed in seeds
-    ]
+    cells = [(v, s, n, p, seed) for v in VARIANTS for s in scenarios for n in n_values for p in p_values for seed in seeds]
     done = _load_done(path)
     total = len(cells)
     print(f"[campaign2] mode={'smoke' if smoke else 'full'} total_cells={total} already_done={len(done)} -> {path.name}", flush=True)

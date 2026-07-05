@@ -68,15 +68,11 @@ def run(combinations=None, trials: int = 7) -> None:
     print("| n_rows | n_cols | (a) baseline 3x | (b) cached 3-split | (c) cached 3-hit same key | speedup b/a | speedup c/a |")
     print("|--------|--------|------------------|--------------------|---------------------------|-------------|-------------|")
     for n, k in combinations:
-        df = pd.DataFrame(
-            {f"f{i}": rng.standard_normal(n).astype(np.float64) for i in range(k)}
-        )
+        df = pd.DataFrame({f"f{i}": rng.standard_normal(n).astype(np.float64) for i in range(k)})
         a = _baseline(df, trials)
         b = _cached(df, trials)
         c = _cached_warm(df, trials)
-        print(
-            f"| {n} | {k} | {a:.3f} | {b:.3f} | {c:.3f} | {a/b:.2f}x | {a/c:.2f}x |"
-        )
+        print(f"| {n} | {k} | {a:.3f} | {b:.3f} | {c:.3f} | {a/b:.2f}x | {a/c:.2f}x |")
 
 
 if __name__ == "__main__":

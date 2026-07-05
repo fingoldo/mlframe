@@ -42,7 +42,7 @@ def _make_synth(seed: int, n: int = 3000):
     f1 = rng.normal(size=n)
     f2 = rng.normal(size=n)
     z = 0.9 * f1 + 0.7 * f2 + 0.25 * rng.normal(size=n)
-    y = 2.0 * base + z ** 3
+    y = 2.0 * base + z**3
     x_matrix = np.column_stack([f1, f2])
     return y, base, x_matrix
 

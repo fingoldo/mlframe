@@ -79,10 +79,7 @@ def _quadruplet_eng_col_name(
     dict, not the name (the name uses leg-1's basis code for stability).
     """
     code = _BASIS_CODE.get(basis, basis)
-    return (
-        f"{col_i}*{col_j}*{col_k}*{col_l}__"
-        f"{code}{deg_a}_{code}{deg_b}_{code}{deg_c}_{code}{deg_d}"
-    )
+    return f"{col_i}*{col_j}*{col_k}*{col_l}__" f"{code}{deg_a}_{code}{deg_b}_{code}{deg_c}_{code}{deg_d}"
 
 
 def generate_quadruplet_cross_basis_features(
@@ -138,12 +135,7 @@ def generate_quadruplet_cross_basis_features(
         # Skip degenerate quadruplets where any two legs alias the same column.
         if len(legs_set) != 4:
             continue
-        if (
-            col_i not in X.columns
-            or col_j not in X.columns
-            or col_k not in X.columns
-            or col_l not in X.columns
-        ):
+        if col_i not in X.columns or col_j not in X.columns or col_k not in X.columns or col_l not in X.columns:
             logger.warning(
                 "generate_quadruplet_cross_basis_features: missing column in "
                 "(%r,%r,%r,%r); skipping",
@@ -172,12 +164,7 @@ def generate_quadruplet_cross_basis_features(
         basis_j = basis_route_by_moments(x_j) if basis == "auto" else basis
         basis_k = basis_route_by_moments(x_k) if basis == "auto" else basis
         basis_l = basis_route_by_moments(x_l) if basis == "auto" else basis
-        if (
-            basis_i not in _POLY_BASES
-            or basis_j not in _POLY_BASES
-            or basis_k not in _POLY_BASES
-            or basis_l not in _POLY_BASES
-        ):
+        if basis_i not in _POLY_BASES or basis_j not in _POLY_BASES or basis_k not in _POLY_BASES or basis_l not in _POLY_BASES:
             logger.warning(
                 "generate_quadruplet_cross_basis_features: unknown basis "
                 "%r/%r/%r/%r for quadruplet (%r,%r,%r,%r); skipping",
@@ -284,11 +271,7 @@ def score_quadruplet_cross_basis_by_mi_uplift(
     """
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
-    y_arr = (
-        np.asarray(y).astype(np.int64)
-        if not np.issubdtype(np.asarray(y).dtype, np.integer)
-        else np.asarray(y, dtype=np.int64)
-    )
+    y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
     raw_cols = list(raw_X.columns)
     if engineered_X.empty:
         return pd.DataFrame(columns=_QUADRUPLET_SCORE_EMPTY_COLS)
@@ -422,20 +405,13 @@ def hybrid_orth_mi_quadruplet_fe(
     # top-k cut would drop signal legs. When the caller explicitly
     # passes ``cols``, respect that order; only fall back to raw-MI
     # ranking when ``cols=None`` AND input width > seed_k.
-    raw_cols_all = [
-        c for c in (cols or X.columns)
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    raw_cols_all = [c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     seed_sources: list[str] = []
     if len(raw_cols_all) >= 4:
         if cols is not None:
             seed_sources = list(raw_cols_all[: int(top_quadruplet_seed_k)])
         else:
-            y_arr = (
-                np.asarray(y).astype(np.int64)
-                if not np.issubdtype(np.asarray(y).dtype, np.integer)
-                else np.asarray(y, dtype=np.int64)
-            )
+            y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
             raw_X_all = X[raw_cols_all]
             from ._fe_usability_signal import _crit_np_dtype
             _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
@@ -469,39 +445,25 @@ def hybrid_orth_mi_quadruplet_fe(
     # Two-gate selection mirrors Layer 22 / 56. Quadruplet candidate
     # counts are larger (O(seed_k^4 * deg^4)) so the Bonferroni-scaled
     # sigma threshold is correspondingly stricter.
-    max_raw_baseline = (
-        float(quad_scores["baseline_mi"].max()) if not quad_scores.empty else 0.0
-    )
+    max_raw_baseline = float(quad_scores["baseline_mi"].max()) if not quad_scores.empty else 0.0
     if not uni_scores.empty:
         max_raw_baseline = max(max_raw_baseline, float(uni_scores["baseline_mi"].max()))
-    max_quad_engineered = (
-        float(quad_scores["engineered_mi"].max()) if not quad_scores.empty else 0.0
-    )
+    max_quad_engineered = float(quad_scores["engineered_mi"].max()) if not quad_scores.empty else 0.0
     legacy_floor = float(quadruplet_min_abs_mi_frac) * max(
-        max_raw_baseline, max_quad_engineered,
+        max_raw_baseline,
+        max_quad_engineered,
     )
-    _baselines = (
-        quad_scores["baseline_mi"].to_numpy()
-        if not quad_scores.empty
-        else np.array([])
-    )
+    _baselines = quad_scores["baseline_mi"].to_numpy() if not quad_scores.empty else np.array([])
     n_cands = int(_baselines.size)
     sigma_thresh = max(
         5.0,
         float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
     )
     noise_floor = _noise_aware_floor(_baselines, sigma_thresh)
-    _eng_mis = (
-        quad_scores["engineered_mi"].to_numpy()
-        if not quad_scores.empty
-        else np.array([])
-    )
+    _eng_mis = quad_scores["engineered_mi"].to_numpy() if not quad_scores.empty else np.array([])
     eng_noise_floor = _noise_aware_floor(_eng_mis, sigma_thresh)
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
-    qualified = quad_scores[
-        (quad_scores["uplift"] >= float(quadruplet_min_uplift))
-        & (quad_scores["engineered_mi"] >= abs_floor)
-    ]
+    qualified = quad_scores[(quad_scores["uplift"] >= float(quadruplet_min_uplift)) & (quad_scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_quadruplet_count))
     keep_quad = list(winners["engineered_col"])
     if keep_quad:
@@ -559,7 +521,7 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
     def _parse_code_deg(s: str):
         for code in ("LL", "He", "T", "L"):
             if s.startswith(code):
-                rest = s[len(code):]
+                rest = s[len(code) :]
                 if rest.isdigit():
                     return code_to_basis[code], int(rest)
         return None, None
@@ -575,27 +537,24 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
                 parts = suffix.split("_")
             except (ValueError, IndexError):
                 logger.warning(
-                    "hybrid_orth_mi_quadruplet_fe_with_recipes: cannot parse "
-                    "suffix in %r; skipping recipe.", name,
+                    "hybrid_orth_mi_quadruplet_fe_with_recipes: cannot parse " "suffix in %r; skipping recipe.",
+                    name,
                 )
                 continue
             if len(parts) != 4:
                 logger.warning(
-                    "hybrid_orth_mi_quadruplet_fe_with_recipes: expected 4 deg "
-                    "parts in %r; skipping recipe.", name,
+                    "hybrid_orth_mi_quadruplet_fe_with_recipes: expected 4 deg " "parts in %r; skipping recipe.",
+                    name,
                 )
                 continue
             basis_a, deg_a = _parse_code_deg(parts[0])
             basis_b, deg_b = _parse_code_deg(parts[1])
             basis_c, deg_c = _parse_code_deg(parts[2])
             basis_d, deg_d = _parse_code_deg(parts[3])
-            if (
-                basis_a is None or basis_b is None
-                or basis_c is None or basis_d is None
-            ):
+            if basis_a is None or basis_b is None or basis_c is None or basis_d is None:
                 logger.warning(
-                    "hybrid_orth_mi_quadruplet_fe_with_recipes: cannot parse "
-                    "code/deg from %r; skipping recipe.", name,
+                    "hybrid_orth_mi_quadruplet_fe_with_recipes: cannot parse " "code/deg from %r; skipping recipe.",
+                    name,
                 )
                 continue
             col_i, col_j, col_k, col_l = legs
@@ -640,8 +599,8 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
             chosen_basis, chosen_degree = _parse_code_deg(suffix)
             if chosen_basis is None or chosen_degree is None:
                 logger.warning(
-                    "hybrid_orth_mi_quadruplet_fe_with_recipes: cannot parse "
-                    "basis/degree from %r; skipping recipe.", name,
+                    "hybrid_orth_mi_quadruplet_fe_with_recipes: cannot parse " "basis/degree from %r; skipping recipe.",
+                    name,
                 )
                 continue
             # REPLAY-FIDELITY FIX (2026-06-13): freeze the fit-time basis-preprocess params.

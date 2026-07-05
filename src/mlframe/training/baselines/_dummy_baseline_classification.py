@@ -167,10 +167,7 @@ def _compute_classification_baselines(
                 val_probs[label] = val_pg_2d
                 test_probs[label] = test_pg_2d
                 extras["per_group"] = {"cat_col": cat_col, **pg_diag}
-                if (
-                    pg_diag["val_coverage_pct"] < config.per_group_min_val_coverage_pct
-                    or pg_diag["test_coverage_pct"] < config.per_group_min_val_coverage_pct
-                ):
+                if pg_diag["val_coverage_pct"] < config.per_group_min_val_coverage_pct or pg_diag["test_coverage_pct"] < config.per_group_min_val_coverage_pct:
                     extras.setdefault("strongest_pick_excluded", []).append(label)
             except Exception as e:
                 logger.info(

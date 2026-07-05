@@ -85,15 +85,9 @@ def fix_quantile_crossing(
     if mode == "none":
         return preds_NK
     if preds_NK.ndim != 2:
-        raise ValueError(
-            f"fix_quantile_crossing expects 2-D preds_NK; "
-            f"got shape {preds_NK.shape}"
-        )
+        raise ValueError(f"fix_quantile_crossing expects 2-D preds_NK; " f"got shape {preds_NK.shape}")
     if preds_NK.shape[1] != len(alphas):
-        raise ValueError(
-            f"preds_NK.shape[1]={preds_NK.shape[1]} != "
-            f"len(alphas)={len(alphas)}"
-        )
+        raise ValueError(f"preds_NK.shape[1]={preds_NK.shape[1]} != " f"len(alphas)={len(alphas)}")
 
     if mode == "sort":
         # np.sort along the alpha-axis is the dominant production fix
@@ -124,10 +118,7 @@ def fix_quantile_crossing(
         _is_mono = np.all(np.diff(preds64, axis=1) >= 0, axis=1)
         return _isotonic_rows_pava(preds64, _is_mono, out)
 
-    raise ValueError(
-        f"fix_quantile_crossing mode must be sort/isotonic/none; "
-        f"got {mode!r}"
-    )
+    raise ValueError(f"fix_quantile_crossing mode must be sort/isotonic/none; " f"got {mode!r}")
 
 
 __all__ = ["fix_quantile_crossing"]

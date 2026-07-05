@@ -101,8 +101,7 @@ _DATASETS = {
 _BASES = ["hermite", "legendre", "chebyshev", "laguerre"]
 
 
-def _select_top_pairs(X_train, y_train, k, discrete_target,
-                       max_candidates_pairs=60, n_subsample_for_mi=1500):
+def _select_top_pairs(X_train, y_train, k, discrete_target, max_candidates_pairs=60, n_subsample_for_mi=1500):
     """Rank candidate (i, j) pairs by joint KSG MI with y on the train
     fold. Cap candidates to ``C(top_features_by_single_mi, 2)`` to avoid
     quadratic blowup on wide datasets. Subsample to bound per-pair MI
@@ -119,8 +118,7 @@ def _select_top_pairs(X_train, y_train, k, discrete_target,
         Xs, ys = X_train, y_train
     if n_features > 12:
         # Pre-rank by single-feature MI, take top-12 by MI, then form pairs.
-        single_mi = mi_func(Xs, ys, n_neighbors=3, random_state=42,
-                            discrete_features=False)
+        single_mi = mi_func(Xs, ys, n_neighbors=3, random_state=42, discrete_features=False)
         top_idx = np.argsort(single_mi)[::-1][:12]
         pairs = list(combinations(sorted(top_idx.tolist()), 2))
     else:
@@ -133,16 +131,13 @@ def _select_top_pairs(X_train, y_train, k, discrete_target,
         # Avoid constant columns (e.g. centered+scaled diabetes 'sex').
         if np.std(Xij[:, 0]) < 1e-12 or np.std(Xij[:, 1]) < 1e-12:
             continue
-        mi = mi_func(Xij, ys, n_neighbors=3, random_state=42,
-                     discrete_features=False)
+        mi = mi_func(Xij, ys, n_neighbors=3, random_state=42, discrete_features=False)
         scores.append((i, j, float(mi.max())))
     scores.sort(key=lambda x: -x[2])
     return scores[:k]
 
 
-def _engineer_columns(X_train, y_train, X_val, top_pairs, basis,
-                       discrete_target, n_trials, max_degree=3,
-                       n_subsample_for_fe=1500):
+def _engineer_columns(X_train, y_train, X_val, top_pairs, basis, discrete_target, n_trials, max_degree=3, n_subsample_for_fe=1500):
     """Fit polynomial-pair FE on (X_train, y_train), apply to X_val.
     Returns (eng_train, eng_val) -- engineered columns only (no original
     features). Empty arrays of shape (n, 0) if no pair beats baseline.
@@ -201,11 +196,11 @@ def _build_model(discrete_target, model_kind):
     if model_kind == "gbdt":
         if discrete_target:
             from sklearn.ensemble import HistGradientBoostingClassifier
-            return HistGradientBoostingClassifier(random_state=42, max_iter=200,
-                                                    early_stopping=False)
+
+            return HistGradientBoostingClassifier(random_state=42, max_iter=200, early_stopping=False)
         from sklearn.ensemble import HistGradientBoostingRegressor
-        return HistGradientBoostingRegressor(random_state=42, max_iter=200,
-                                              early_stopping=False)
+
+        return HistGradientBoostingRegressor(random_state=42, max_iter=200, early_stopping=False)
     elif model_kind == "linear":
         from sklearn.pipeline import make_pipeline
         from sklearn.preprocessing import StandardScaler
@@ -213,8 +208,7 @@ def _build_model(discrete_target, model_kind):
             from sklearn.linear_model import LogisticRegression
             return make_pipeline(
                 StandardScaler(),
-                LogisticRegression(random_state=42, max_iter=2000, C=1.0,
-                                    multi_class="auto"),
+                LogisticRegression(random_state=42, max_iter=2000, C=1.0, multi_class="auto"),
             )
         from sklearn.linear_model import Ridge
         return make_pipeline(StandardScaler(), Ridge(alpha=1.0, random_state=42))
@@ -236,8 +230,7 @@ def _fit_and_score(X_tr, y_tr, X_va, y_va, discrete_target, model_kind="gbdt"):
             if y_proba.shape[1] == 2:
                 auc = float(roc_auc_score(y_va, y_proba[:, 1]))
             else:
-                auc = float(roc_auc_score(y_va, y_proba, multi_class="ovr",
-                                           average="macro"))
+                auc = float(roc_auc_score(y_va, y_proba, multi_class="ovr", average="macro"))
         except Exception:
             auc = float("nan")
         return dict(acc=acc, log_loss=ll, auc=auc)
@@ -248,13 +241,10 @@ def _fit_and_score(X_tr, y_tr, X_va, y_va, discrete_target, model_kind="gbdt"):
     return dict(mae=mae, rmse=rmse, r2=r2)
 
 
-def _eval_dataset(name, X, y, discrete_target, *,
-                   n_splits, top_k, n_trials, max_degree, verbose,
-                   model_kind="gbdt"):
+def _eval_dataset(name, X, y, discrete_target, *, n_splits, top_k, n_trials, max_degree, verbose, model_kind="gbdt"):
     from sklearn.model_selection import KFold, StratifiedKFold
-    cv = (StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
-          if discrete_target
-          else KFold(n_splits=n_splits, shuffle=True, random_state=42))
+
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42) if discrete_target else KFold(n_splits=n_splits, shuffle=True, random_state=42)
     methods = ["baseline"] + _BASES + ["ensemble"]
     results = {m: [] for m in methods}
     pair_log = []  # for diagnostics
@@ -264,8 +254,7 @@ def _eval_dataset(name, X, y, discrete_target, *,
         if verbose:
             print(f"  [{name}] fold {fold + 1}/{n_splits}: train={len(tr_idx)}, val={len(va_idx)}", flush=True)
         # Top-K pair selection on train fold only (no leakage)
-        top_pairs = _select_top_pairs(X_tr_raw, y_tr, k=top_k,
-                                       discrete_target=discrete_target)
+        top_pairs = _select_top_pairs(X_tr_raw, y_tr, k=top_k, discrete_target=discrete_target)
         pair_log.append([(i, j) for i, j, _ in top_pairs])
         # Engineer per-basis FE columns (cache once per fold)
         eng_per_basis = {}
@@ -275,22 +264,19 @@ def _eval_dataset(name, X, y, discrete_target, *,
                 discrete_target, n_trials, max_degree=max_degree,
             )
         # Score baseline + each basis + ensemble
-        results["baseline"].append(_fit_and_score(X_tr_raw, y_tr, X_va_raw, y_va,
-                                                    discrete_target, model_kind))
+        results["baseline"].append(_fit_and_score(X_tr_raw, y_tr, X_va_raw, y_va, discrete_target, model_kind))
         for basis in _BASES:
             eng_tr, eng_va = eng_per_basis[basis]
             X_tr_aug = np.column_stack([X_tr_raw, eng_tr]) if eng_tr.size else X_tr_raw
             X_va_aug = np.column_stack([X_va_raw, eng_va]) if eng_va.size else X_va_raw
-            results[basis].append(_fit_and_score(X_tr_aug, y_tr, X_va_aug, y_va,
-                                                   discrete_target, model_kind))
+            results[basis].append(_fit_and_score(X_tr_aug, y_tr, X_va_aug, y_va, discrete_target, model_kind))
         # Ensemble: concat engineered cols across all 4 bases
         all_eng_tr = [eng_per_basis[b][0] for b in _BASES if eng_per_basis[b][0].size]
         all_eng_va = [eng_per_basis[b][1] for b in _BASES if eng_per_basis[b][1].size]
         if all_eng_tr:
             X_tr_ens = np.column_stack([X_tr_raw] + all_eng_tr)
             X_va_ens = np.column_stack([X_va_raw] + all_eng_va)
-            results["ensemble"].append(_fit_and_score(X_tr_ens, y_tr, X_va_ens, y_va,
-                                                        discrete_target, model_kind))
+            results["ensemble"].append(_fit_and_score(X_tr_ens, y_tr, X_va_ens, y_va, discrete_target, model_kind))
         else:
             results["ensemble"].append(results["baseline"][-1])
     return results, pair_log
@@ -298,8 +284,7 @@ def _eval_dataset(name, X, y, discrete_target, *,
 
 def _aggregate(results, discrete_target):
     """Return per-method (mean, std) for each metric."""
-    metric_keys = (["acc", "log_loss", "auc"] if discrete_target
-                   else ["mae", "rmse", "r2"])
+    metric_keys = ["acc", "log_loss", "auc"] if discrete_target else ["mae", "rmse", "r2"]
     agg = {}
     for method, fold_dicts in results.items():
         agg[method] = {}
@@ -336,13 +321,10 @@ def _print_table(name, agg, metric_keys, baseline_ref):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--datasets", default="all",
-                        help="comma-separated subset of: " + ",".join(_DATASETS))
+    parser.add_argument("--datasets", default="all", help="comma-separated subset of: " + ",".join(_DATASETS))
     parser.add_argument("--n-splits", type=int, default=5)
-    parser.add_argument("--top-k", type=int, default=3,
-                        help="number of feature pairs to engineer per fold")
-    parser.add_argument("--n-trials", type=int, default=40,
-                        help="optuna trials per (pair, basis, degree)")
+    parser.add_argument("--top-k", type=int, default=3, help="number of feature pairs to engineer per fold")
+    parser.add_argument("--n-trials", type=int, default=40, help="optuna trials per (pair, basis, degree)")
     parser.add_argument("--max-degree", type=int, default=3)
     parser.add_argument("--model", choices=["gbdt", "linear"], default="gbdt",
                         help="downstream model: gbdt (HistGradientBoosting) "
@@ -352,12 +334,10 @@ def main():
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
-    datasets = (list(_DATASETS) if args.datasets == "all"
-                else args.datasets.split(","))
+    datasets = list(_DATASETS) if args.datasets == "all" else args.datasets.split(",")
 
     print(f"\n=== Polynomial-pair FE -- ML metrics bench ===")
-    print(f"  model={args.model}, n_splits={args.n_splits}, top_k={args.top_k}, "
-          f"n_trials={args.n_trials}, max_degree={args.max_degree}")
+    print(f"  model={args.model}, n_splits={args.n_splits}, top_k={args.top_k}, " f"n_trials={args.n_trials}, max_degree={args.max_degree}")
     print(f"  datasets: {', '.join(datasets)}\n")
 
     overall_t0 = time.perf_counter()
@@ -369,9 +349,7 @@ def main():
         t0 = time.perf_counter()
         X, y, discrete_target, name = _DATASETS[d_name]()
         if not args.quiet:
-            print(f"\n  Loading {name}: X={X.shape}, "
-                  f"target={'classification' if discrete_target else 'regression'}",
-                  flush=True)
+            print(f"\n  Loading {name}: X={X.shape}, " f"target={'classification' if discrete_target else 'regression'}", flush=True)
         results, pair_log = _eval_dataset(
             name, X, y, discrete_target,
             n_splits=args.n_splits, top_k=args.top_k,
@@ -405,8 +383,7 @@ def main():
             delta = (best_v - base_v) / abs(base_v) * 100
         else:
             delta = (base_v - best_v) / abs(base_v) * 100
-        print(f"  {name:>15s}  {primary:>10s}  {base_v:>14.4f}  {best_m:>14s}  "
-              f"{best_v:>14.4f}  {delta:>+13.2f}%")
+        print(f"  {name:>15s}  {primary:>10s}  {base_v:>14.4f}  {best_m:>14s}  " f"{best_v:>14.4f}  {delta:>+13.2f}%")
 
 
 if __name__ == "__main__":

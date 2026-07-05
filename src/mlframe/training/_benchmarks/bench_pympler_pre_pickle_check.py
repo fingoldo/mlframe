@@ -102,10 +102,7 @@ def main():
             if os.path.exists(fp):
                 os.remove(fp)
 
-        print(
-            f"{n:>10d} {est_mb:>11.1f} {asizeof_ms:>11.1f} {naive_ms:>10.1f} "
-            f"{lean_ms:>10.1f} {naive_size_mb:>14.1f} {lean_size_mb:>13.2f}"
-        )
+        print(f"{n:>10d} {est_mb:>11.1f} {asizeof_ms:>11.1f} {naive_ms:>10.1f} " f"{lean_ms:>10.1f} {naive_size_mb:>14.1f} {lean_size_mb:>13.2f}")
 
     print()
     print("# Interpretation:")

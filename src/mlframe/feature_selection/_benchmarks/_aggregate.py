@@ -43,10 +43,7 @@ def _check_versions(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     if bef and aft:
         for lib in ("numpy", "numba", "cupy", "sklearn"):
             if bef["versions"].get(lib) != aft["versions"].get(lib):
-                warnings.append(
-                    f"version mismatch on '{lib}': before={bef['versions'].get(lib)} "
-                    f"after={aft['versions'].get(lib)}"
-                )
+                warnings.append(f"version mismatch on '{lib}': before={bef['versions'].get(lib)} " f"after={aft['versions'].get(lib)}")
         if bef.get("cpu_model") != aft.get("cpu_model"):
             warnings.append(f"CPU model differs: {bef['cpu_model']} vs {aft['cpu_model']}")
     return warnings
@@ -121,10 +118,7 @@ def main() -> int:
         if d["wall_speedup"] < args.regression_threshold:
             has_regression = True
         sup_marker = "yes" if d["support_changed"] else "no"
-        print(
-            f"| {name} | {d['before_wall_s']:.3f} | {d['after_wall_s']:.3f} | "
-            f"{sp_marker}{d['wall_speedup']:.2f} | {d['mem_ratio']:.2f} | {sup_marker} |"
-        )
+        print(f"| {name} | {d['before_wall_s']:.3f} | {d['after_wall_s']:.3f} | " f"{sp_marker}{d['wall_speedup']:.2f} | {d['mem_ratio']:.2f} | {sup_marker} |")
 
     if args.out:
         args.out.write_text(

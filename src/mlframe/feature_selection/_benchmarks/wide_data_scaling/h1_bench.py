@@ -76,7 +76,7 @@ for p in PS:
                 cuda_times.append(time.perf_counter() - t0)
                 # sanity check vs cpu on first seed
                 if seed == 0 and not np.allclose(mi_cpu, mi_cuda, atol=1e-6):
-                    ck("WARN p=%d cuda mismatch max=%g" % (p, np.abs(mi_cpu-mi_cuda).max()))
+                    ck("WARN p=%d cuda mismatch max=%g" % (p, np.abs(mi_cpu - mi_cuda).max()))
             except Exception as e:
                 cuda_err = repr(e)[:120]
                 ck("p=%d CUDA fail: %s" % (p, cuda_err))
@@ -93,29 +93,27 @@ for p in PS:
     cuda_s = np.median(cuda_times) if cuda_times else None
     cupy_s = np.median(cupy_times) if cupy_times else None
     results.append((p, npairs, cpu_s, cuda_s, cupy_s, mem_codes_mb, cuda_err, cupy_err))
-    ck("p=%d pairs=%d cpu=%.3fs cuda=%s cupy=%s codes=%.1fMB" % (
-        p, npairs, cpu_s,
-        ("%.3fs" % cuda_s) if cuda_s else cuda_err or "skip",
-        ("%.3fs" % cupy_s) if cupy_s else (cupy_err or "skip"),
-        mem_codes_mb))
+    ck(
+        "p=%d pairs=%d cpu=%.3fs cuda=%s cupy=%s codes=%.1fMB"
+        % (p, npairs, cpu_s, ("%.3fs" % cuda_s) if cuda_s else cuda_err or "skip", ("%.3fs" % cupy_s) if cupy_s else (cupy_err or "skip"), mem_codes_mb)
+    )
 
 # Fit O(p^2) curve on CPU pairs/sec to extrapolate
 ck("=== H1 RESULTS ===")
-print("%-7s %-12s %-10s %-12s %-12s %-10s" % ("p","pairs","cpu_s","cuda_s","cpu_pps","cuda_pps"))
-for (p, npairs, cpu_s, cuda_s, cupy_s, mem, ce, pe) in results:
+print("%-7s %-12s %-10s %-12s %-12s %-10s" % ("p", "pairs", "cpu_s", "cuda_s", "cpu_pps", "cuda_pps"))
+for p, npairs, cpu_s, cuda_s, cupy_s, mem, ce, pe in results:
     cpu_pps = npairs / cpu_s if cpu_s else 0
     cuda_pps = npairs / cuda_s if cuda_s else 0
-    print("%-7d %-12d %-10.3f %-12s %-12.3e %-10s" % (
-        p, npairs, cpu_s,
-        ("%.3f" % cuda_s) if cuda_s else "n/a",
-        cpu_pps,
-        ("%.3e" % cuda_pps) if cuda_pps else "n/a"))
+    print(
+        "%-7d %-12d %-10.3f %-12s %-12.3e %-10s"
+        % (p, npairs, cpu_s, ("%.3f" % cuda_s) if cuda_s else "n/a", cpu_pps, ("%.3e" % cuda_pps) if cuda_pps else "n/a")
+    )
 
 # Extrapolation from largest completed CPU point (cost = k * pairs * n; constant pairs/sec)
-done = [(p,npairs,cpu_s,cuda_s) for (p,npairs,cpu_s,cuda_s,cs,m,ce,pe) in results]
+done = [(p, npairs, cpu_s, cuda_s) for (p, npairs, cpu_s, cuda_s, cs, m, ce, pe) in results]
 # Use the largest p that completed for both
-cpu_pps_all = [npairs/cpu_s for (p,npairs,cpu_s,cuda_s) in done if cpu_s]
-cuda_pps_all = [npairs/cuda_s for (p,npairs,cpu_s,cuda_s) in done if cuda_s]
+cpu_pps_all = [npairs / cpu_s for (p, npairs, cpu_s, cuda_s) in done if cpu_s]
+cuda_pps_all = [npairs / cuda_s for (p, npairs, cpu_s, cuda_s) in done if cuda_s]
 cpu_pps_ref = np.median(cpu_pps_all)
 ck("CPU median throughput: %.3e pairs/sec" % cpu_pps_ref)
 if cuda_pps_all:

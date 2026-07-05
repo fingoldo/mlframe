@@ -62,12 +62,12 @@ def _free_ram_bytes() -> int:
 
         return int(psutil.virtual_memory().available)
     except Exception:
-        return 2 * 1024 ** 3  # 2 GB conservative fallback
+        return 2 * 1024**3  # 2 GB conservative fallback
 
 
 def _ram_bucket(free_bytes: int) -> int:
     """Coarse log2 bucket so the cache key is stable across small RAM jitter."""
-    gb = max(1, int(free_bytes // (1024 ** 3)))
+    gb = max(1, int(free_bytes // (1024**3)))
     return int(gb.bit_length())  # 1->1, 2-3->2, 4-7->3, 8-15->4, ...
 
 
@@ -250,11 +250,11 @@ def sis_screen(
     # does its OWN y-encoding internally, so it keeps the raw y_arr.)
     y_mi = np.asarray(y_arr)
     if y_mi.dtype.kind in "USO" or y_mi.dtype == bool:
-        _, y_mi = np.unique(y_mi, return_inverse=True)             # nominal labels -> codes
+        _, y_mi = np.unique(y_mi, return_inverse=True)  # nominal labels -> codes
     elif y_mi.dtype.kind in "fc" or np.unique(y_mi).size > max(nbins, 2):
         yf = np.nan_to_num(y_mi.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
         edges = np.quantile(yf, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
-        y_mi = np.searchsorted(edges, yf).astype(np.int64)         # continuous/high-card -> quantile bins
+        y_mi = np.searchsorted(edges, yf).astype(np.int64)  # continuous/high-card -> quantile bins
     y_mi = np.ascontiguousarray(y_mi)
     # CAVEAT (continuous target): the MI channel scores against this quantile-binned ``y_mi`` while ``second_moment_propensity`` keeps the RAW continuous ``y_arr`` and takes
     # the moment path (|corr(x^2,y)|+|corr(x,y^2)|). The two channels therefore use slightly DIFFERENT y representations -- they are not on a strictly comparable y-grid. This
@@ -321,8 +321,7 @@ def sis_screen(
             # membership (a selection change). The gather is over the SMALL (n x m) survivor sub-matrix
             # (m = post-screen survivors, a few thousand), never the full p-wide frame, and only when
             # ``dedup_corr_thr`` is set; ``corr_clusters`` requires a DataFrame (it reads ``.columns``).
-            surv_df = pd.DataFrame(np.asarray(Xarr[:, survivors], dtype=np.float64),
-                                   columns=[str(int(s)) for s in survivors])
+            surv_df = pd.DataFrame(np.asarray(Xarr[:, survivors], dtype=np.float64), columns=[str(int(s)) for s in survivors])
             _, members = corr_clusters(surv_df, thr=float(dedup_corr_thr))
             pos = {str(int(s)): i for i, s in enumerate(survivors)}
             keep = []
@@ -337,8 +336,7 @@ def sis_screen(
                             int(deduped.size), float(dedup_corr_thr))
                 survivors = deduped
         except Exception as exc:  # correctness over the optimisation -- keep the full survivor set on any failure
-            logger.warning("sis_screen: redundancy dedup skipped (%s: %s); keeping all %d survivors",
-                           type(exc).__name__, exc, n_pre_dedup)
+            logger.warning("sis_screen: redundancy dedup skipped (%s: %s); keeping all %d survivors", type(exc).__name__, exc, n_pre_dedup)
 
     if return_scores:
         return survivors, {"fused": fused, "mi": mi, "propensity": prop, "chunk_width": chunk_width}

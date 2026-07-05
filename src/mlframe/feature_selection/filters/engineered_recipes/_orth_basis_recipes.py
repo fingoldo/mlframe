@@ -64,8 +64,8 @@ def _apply_orth_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
     # downstream MRMR will deselect on the next refit.
     import logging as _lg_pretrans
     _lg_pretrans.getLogger(__name__).warning(
-        "_apply_orth_pre_transform: unknown pre_transform %r; falling back "
-        "to identity.", pre_transform,
+        "_apply_orth_pre_transform: unknown pre_transform %r; falling back " "to identity.",
+        pre_transform,
     )
     return x
 
@@ -146,16 +146,10 @@ def _apply_orth_univariate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     """
     from . import _extract_column
     if len(recipe.src_names) != 1:
-        raise ValueError(
-            f"orth_univariate recipe '{recipe.name}' must have exactly 1 "
-            f"src_names; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"orth_univariate recipe '{recipe.name}' must have exactly 1 " f"src_names; got {len(recipe.src_names)}")
     for key in ("basis", "degree"):
         if key not in recipe.extra:
-            raise KeyError(
-                f"orth_univariate recipe '{recipe.name}' missing '{key}' "
-                f"in extra. Re-fit MRMR to regenerate."
-            )
+            raise KeyError(f"orth_univariate recipe '{recipe.name}' missing '{key}' " f"in extra. Re-fit MRMR to regenerate.")
     src_name = recipe.src_names[0]
     basis = str(recipe.extra["basis"])
     degree = int(recipe.extra["degree"])
@@ -181,16 +175,10 @@ def _apply_orth_pair_cross(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     """
     from . import _extract_column
     if len(recipe.src_names) != 2:
-        raise ValueError(
-            f"orth_pair_cross recipe '{recipe.name}' must have exactly 2 "
-            f"src_names; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"orth_pair_cross recipe '{recipe.name}' must have exactly 2 " f"src_names; got {len(recipe.src_names)}")
     for key in ("basis_i", "basis_j", "deg_a", "deg_b"):
         if key not in recipe.extra:
-            raise KeyError(
-                f"orth_pair_cross recipe '{recipe.name}' missing '{key}' "
-                f"in extra. Re-fit MRMR to regenerate."
-            )
+            raise KeyError(f"orth_pair_cross recipe '{recipe.name}' missing '{key}' " f"in extra. Re-fit MRMR to regenerate.")
     name_i, name_j = recipe.src_names
     basis_i = str(recipe.extra["basis_i"])
     basis_j = str(recipe.extra["basis_j"])
@@ -347,10 +335,7 @@ def build_orth_cluster_basis_recipe(
     """
     from . import EngineeredRecipe
     if len(members) < 2:
-        raise ValueError(
-            f"build_orth_cluster_basis_recipe: ``members`` must have >=2 "
-            f"entries (cluster, not singleton); got {len(members)}."
-        )
+        raise ValueError(f"build_orth_cluster_basis_recipe: ``members`` must have >=2 " f"entries (cluster, not singleton); got {len(members)}.")
     extra = {
         "basis": str(basis),
         "degree": int(degree),
@@ -470,16 +455,10 @@ def _apply_orth_spline(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     """
     from . import _extract_column
     if len(recipe.src_names) != 1:
-        raise ValueError(
-            f"orth_spline recipe '{recipe.name}' must have exactly 1 "
-            f"src_names; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"orth_spline recipe '{recipe.name}' must have exactly 1 " f"src_names; got {len(recipe.src_names)}")
     for key in ("knots", "idx", "lo", "hi"):
         if key not in recipe.extra:
-            raise KeyError(
-                f"orth_spline recipe '{recipe.name}' missing '{key}' "
-                f"in extra. Re-fit MRMR to regenerate."
-            )
+            raise KeyError(f"orth_spline recipe '{recipe.name}' missing '{key}' " f"in extra. Re-fit MRMR to regenerate.")
     name = recipe.src_names[0]
     knots = np.asarray(recipe.extra["knots"], dtype=np.float64)
     idx = int(recipe.extra["idx"])
@@ -501,16 +480,10 @@ def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     """
     from . import _extract_column
     if len(recipe.src_names) != 1:
-        raise ValueError(
-            f"orth_fourier recipe '{recipe.name}' must have exactly 1 "
-            f"src_names; got {len(recipe.src_names)}"
-        )
+        raise ValueError(f"orth_fourier recipe '{recipe.name}' must have exactly 1 " f"src_names; got {len(recipe.src_names)}")
     for key in ("kind", "freq", "lo", "span"):
         if key not in recipe.extra:
-            raise KeyError(
-                f"orth_fourier recipe '{recipe.name}' missing '{key}' "
-                f"in extra. Re-fit MRMR to regenerate."
-            )
+            raise KeyError(f"orth_fourier recipe '{recipe.name}' missing '{key}' " f"in extra. Re-fit MRMR to regenerate.")
     name = recipe.src_names[0]
     kind = str(recipe.extra["kind"])
     freq = float(recipe.extra["freq"])
@@ -533,10 +506,7 @@ def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         mean = recipe.extra.get("mean")
         std = recipe.extra.get("std")
         if mean is None or std is None:
-            raise KeyError(
-                f"orth_fourier recipe '{recipe.name}' arg='quadratic' missing "
-                f"'mean'/'std'. Re-fit MRMR to regenerate."
-            )
+            raise KeyError(f"orth_fourier recipe '{recipe.name}' arg='quadratic' missing " f"'mean'/'std'. Re-fit MRMR to regenerate.")
         zs = (vals - float(mean)) / max(float(std), 1e-12)
         u = np.sign(zs) * (zs * zs)
         z = (u - lo) / span
@@ -605,10 +575,7 @@ def build_orth_fourier_recipe(
     if arg not in ("linear", "quadratic"):
         raise ValueError(f"orth_fourier arg must be 'linear' or 'quadratic'; got {arg!r}")
     if arg == "quadratic" and (mean is None or std is None):
-        raise ValueError(
-            "orth_fourier arg='quadratic' requires both 'mean' and 'std' "
-            "(the train-fit standardisation of the source column)."
-        )
+        raise ValueError("orth_fourier arg='quadratic' requires both 'mean' and 'std' " "(the train-fit standardisation of the source column).")
     return EngineeredRecipe(
         name=name,
         kind="orth_fourier",

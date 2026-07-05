@@ -64,7 +64,6 @@ from ._batch_mi_noise_gate_kernels import (
     _cuda_shared_mem_per_block,
 )
 
-
 # Lazy-compiled kernel caches (the factories above build on first use; the public
 # functions assign into these via ``global``).
 _CUDA_MI_KERNEL: "object | None" = None
@@ -287,7 +286,7 @@ def batch_mi_with_noise_gate_cupy(
         # per-(row, r, k) global index, then offset each row into its own
         # ``total_size`` slot so a SINGLE bincount fills all rows of the tile at once:
         #   slot = row*total_size + (base[r,k] + y[row,r])
-        d_idx = (d_base_3d + d_y_tile).reshape(rows, n * K)              # (rows, n*K) idx_dtype
+        d_idx = (d_base_3d + d_y_tile).reshape(rows, n * K)  # (rows, n*K) idx_dtype
         # The row-spanning flat index reaches ``rows*total_size``; widen to int64 ONLY when that exceeds
         # int32 (else stay int32, halving the largest buffer too). idx_dtype already covers d_idx itself.
         flat_dtype = cp.int32 if (int(rows) * total_size) <= _INT32_MAX else cp.int64
@@ -316,9 +315,7 @@ def batch_mi_with_noise_gate_cupy(
     # reduction batched into one njit call per row (bit-identical, kills dispatch overhead).
     _col_off = offsets[:K]
     _all_pos = np.ones(K, dtype=np.float64)
-    original_mi = _mi_columns_from_counts_cpu(
-        np.ascontiguousarray(counts_all[0]), _col_off, nbins_arr, K_y, freqs_y, n, use_su, _all_pos
-    )
+    original_mi = _mi_columns_from_counts_cpu(np.ascontiguousarray(counts_all[0]), _col_off, nbins_arr, K_y, freqs_y, n, use_su, _all_pos)
 
     if nperm <= 0:
         return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
@@ -331,9 +328,7 @@ def batch_mi_with_noise_gate_cupy(
     # full-reduction + _gate_from_mi. Re-evaluate only under high-npermutations workloads.
     perm_mis = []
     for i in range(nperm):
-        mp = _mi_columns_from_counts_cpu(
-            np.ascontiguousarray(counts_all[i + 1]), _col_off, nbins_arr, K_y, freqs_y, n, use_su, original_mi
-        )
+        mp = _mi_columns_from_counts_cpu(np.ascontiguousarray(counts_all[i + 1]), _col_off, nbins_arr, K_y, freqs_y, n, use_su, original_mi)
         perm_mis.append(mp)
 
     return _gate_from_mi(original_mi, perm_mis, nperm, min_nonzero_confidence)
@@ -464,8 +459,7 @@ def batch_mi_with_noise_gate_cuda_resident(
             _ky = int(freqs_y.shape[0])
             if _cy_min < 0 or _cy_max >= _ky:
                 raise ValueError(
-                    "batch_mi_with_noise_gate_cuda_resident classes_y out of range "
-                    "(min=%d, max=%d) for K_y=%d (illegal address)." % (_cy_min, _cy_max, _ky)
+                    "batch_mi_with_noise_gate_cuda_resident classes_y out of range " "(min=%d, max=%d) for K_y=%d (illegal address)." % (_cy_min, _cy_max, _ky)
                 )
     # Lever C (2026-06-23): HW-aware + KTC-tuned threads/block for the batched-hist launch (default 128 left
     # the SM ~1/16 occupied; the row-loop parallelises across threads). When the caller did not pin a count
@@ -523,7 +517,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     _max_hist = int(nbins_arr.max()) * K_y if K > 0 else 0
     _sh_bytes = _max_hist * 4
     _sh_budget = _cuda_shared_mem_per_block()
-    _use_shared = (_CUDA_HIST_KERNEL_BATCHED_SHARED is not None and _sh_budget > 0 and 0 < _sh_bytes <= int(_sh_budget * 0.75))
+    _use_shared = _CUDA_HIST_KERNEL_BATCHED_SHARED is not None and _sh_budget > 0 and 0 < _sh_bytes <= int(_sh_budget * 0.75)
 
     # COLUMN-MAJOR coalesced disc (2026-06-23): the shared-mem hist kernel is LOAD-bound (CUDA-event
     # decomposition: per-row shared atomics ~3% of the kernel, ~12 GB/s << ~96 GB/s read peak), throttled
@@ -773,7 +767,7 @@ def _run_batch_mi_noise_gate_sweep() -> list:
         import psutil
         free = int(psutil.virtual_memory().available)
     except Exception:
-        free = 4 * 1024 ** 3
+        free = 4 * 1024**3
     budget = int(free * 0.4)
     max_n = max(n_rows) if n_rows else 1
     fitting = [k for k in n_cols if max_n * int(k) * 8 * 3 <= budget]

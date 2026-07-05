@@ -122,12 +122,9 @@ def main():
     # Diagnostic: SU scale for within-group vs bridge-to-group pairs (seed 0).
     fd0, fn0, truth0 = _make(2000, 0)
     S0 = _su_matrix(fd0, fn0, 2000)
-    wi = [S0[i, j] for i in range(len(truth0)) for j in range(i + 1, len(truth0))
-          if truth0[i] >= 0 and truth0[i] == truth0[j]]
-    br = [S0[i, j] for i in range(len(truth0)) for j in range(i + 1, len(truth0))
-          if (truth0[i] < 0) ^ (truth0[j] < 0)]
-    print(f"SU within-group mean={np.mean(wi):.3f} | bridge-edge mean={np.mean(br):.3f} "
-          f"(want within > tau > or ~ bridge so CC chains via bridges)")
+    wi = [S0[i, j] for i in range(len(truth0)) for j in range(i + 1, len(truth0)) if truth0[i] >= 0 and truth0[i] == truth0[j]]
+    br = [S0[i, j] for i in range(len(truth0)) for j in range(i + 1, len(truth0)) if (truth0[i] < 0) ^ (truth0[j] < 0)]
+    print(f"SU within-group mean={np.mean(wi):.3f} | bridge-edge mean={np.mean(br):.3f} " f"(want within > tau > or ~ bridge so CC chains via bridges)")
     print(f"{'tau':>5} | {'CC ARI':>7} {'CC k':>5} | {'mod ARI':>7} {'mod k':>5}  (planted k=3)")
     for tau in (0.25, 0.3, 0.35, 0.4):
         cc_aris, mod_aris, cc_k, mod_k = [], [], [], []
@@ -141,10 +138,8 @@ def main():
             mod_aris.append(adjusted_rand_score(truth[mask], mod[mask]))
             cc_k.append(len(set(cc[mask].tolist())))
             mod_k.append(len(set(mod[mask].tolist())))
-        print(f"{tau:>5} | {np.mean(cc_aris):>7.3f} {np.mean(cc_k):>5.1f} | "
-              f"{np.mean(mod_aris):>7.3f} {np.mean(mod_k):>5.1f}")
-    print("WIN for modularity iff it keeps ARI~1 / k~3 at a tau where CC chains "
-          "(ARI down / k<3).")
+        print(f"{tau:>5} | {np.mean(cc_aris):>7.3f} {np.mean(cc_k):>5.1f} | " f"{np.mean(mod_aris):>7.3f} {np.mean(mod_k):>5.1f}")
+    print("WIN for modularity iff it keeps ARI~1 / k~3 at a tau where CC chains " "(ARI down / k<3).")
 
 
 if __name__ == "__main__":

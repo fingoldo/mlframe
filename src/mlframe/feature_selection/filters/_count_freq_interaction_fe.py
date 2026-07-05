@@ -115,9 +115,7 @@ def count_encode_fit(
         raise ValueError("count_encode_fit: X is empty")
     missing = [c for c in cat_cols if c not in X.columns]
     if missing:
-        raise ValueError(
-            f"count_encode_fit: columns missing from X: {missing}"
-        )
+        raise ValueError(f"count_encode_fit: columns missing from X: {missing}")
     encoded_cols: dict[str, np.ndarray] = {}
     recipes: dict[str, dict] = {}
     for col in cat_cols:
@@ -152,9 +150,7 @@ def frequency_encode_fit(
         raise ValueError("frequency_encode_fit: X is empty")
     missing = [c for c in cat_cols if c not in X.columns]
     if missing:
-        raise ValueError(
-            f"frequency_encode_fit: columns missing from X: {missing}"
-        )
+        raise ValueError(f"frequency_encode_fit: columns missing from X: {missing}")
     n = len(X)
     encoded_cols: dict[str, np.ndarray] = {}
     recipes: dict[str, dict] = {}
@@ -180,14 +176,9 @@ def apply_count_encoding(
     which is itself a category in the lookup if seen at fit; otherwise
     falls back to default."""
     if "lookup" not in recipe:
-        raise KeyError(
-            f"apply_count_encoding: recipe for col {col!r} is missing 'lookup'."
-        )
+        raise KeyError(f"apply_count_encoding: recipe for col {col!r} is missing 'lookup'.")
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_count_encoding: X_test must be a DataFrame; "
-            f"got {type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_count_encoding: X_test must be a DataFrame; " f"got {type(X_test).__name__}")
     cats = np.asarray(_column_to_str(X_test[col]))
     lookup: dict = recipe["lookup"]
     default: int = int(recipe.get("default", 0))
@@ -211,14 +202,9 @@ def apply_frequency_encoding(
     """Replay frequency encoding from the stored lookup. Unseen categories
     map to ``recipe['default']`` (default 0.0)."""
     if "lookup" not in recipe:
-        raise KeyError(
-            f"apply_frequency_encoding: recipe for col {col!r} is missing 'lookup'."
-        )
+        raise KeyError(f"apply_frequency_encoding: recipe for col {col!r} is missing 'lookup'.")
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_frequency_encoding: X_test must be a DataFrame; "
-            f"got {type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_frequency_encoding: X_test must be a DataFrame; " f"got {type(X_test).__name__}")
     cats = np.asarray(_column_to_str(X_test[col]))
     lookup: dict = recipe["lookup"]
     default: float = float(recipe.get("default", 0.0))
@@ -300,20 +286,13 @@ def cat_num_interaction_fit(
     if len(X) == 0:
         raise ValueError("cat_num_interaction_fit: X is empty")
     if len(y) != len(X):
-        raise ValueError(
-            f"cat_num_interaction_fit: len(y)={len(y)} != len(X)={len(X)}"
-        )
+        raise ValueError(f"cat_num_interaction_fit: len(y)={len(y)} != len(X)={len(X)}")
     for c in (cat_col, num_col):
         if c not in X.columns:
-            raise ValueError(
-                f"cat_num_interaction_fit: column {c!r} missing from X"
-            )
+            raise ValueError(f"cat_num_interaction_fit: column {c!r} missing from X")
     num_vals = X[num_col].to_numpy()
     if not np.issubdtype(num_vals.dtype, np.number):
-        raise ValueError(
-            f"cat_num_interaction_fit: num_col {num_col!r} is not numeric "
-            f"(dtype={num_vals.dtype!r})"
-        )
+        raise ValueError(f"cat_num_interaction_fit: num_col {num_col!r} is not numeric " f"(dtype={num_vals.dtype!r})")
     num_vals = num_vals.astype(np.float64, copy=False)
     n = len(X)
 
@@ -395,21 +374,13 @@ def apply_cat_num_residual(
     """
     for key in ("lookup", "global_mean"):
         if key not in recipe:
-            raise KeyError(
-                f"apply_cat_num_residual: recipe missing {key!r}"
-            )
+            raise KeyError(f"apply_cat_num_residual: recipe missing {key!r}")
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_cat_num_residual: X_test must be a DataFrame; "
-            f"got {type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_cat_num_residual: X_test must be a DataFrame; " f"got {type(X_test).__name__}")
     cats = _column_to_str(X_test[cat_col])
     num_vals = X_test[num_col].to_numpy()
     if not np.issubdtype(num_vals.dtype, np.number):
-        raise TypeError(
-            f"apply_cat_num_residual: num_col {num_col!r} must be numeric "
-            f"(dtype={num_vals.dtype!r})"
-        )
+        raise TypeError(f"apply_cat_num_residual: num_col {num_col!r} must be numeric " f"(dtype={num_vals.dtype!r})")
     num_vals = num_vals.astype(np.float64, copy=False)
     lookup: dict = recipe["lookup"]
     global_mean = float(recipe["global_mean"])
@@ -553,11 +524,7 @@ def cat_num_interaction_with_recipes(
     cat_cols = [c for c in cat_cols if c in X.columns]
     # ``X[c]`` is a DataFrame (no ``.dtype``) when ``c`` is a duplicated column name; skip such ambiguous columns
     # (a single numeric dtype can't be determined) instead of raising AttributeError and losing the whole FE pass.
-    num_cols = [
-        c for c in num_cols
-        if c in X.columns and getattr(X[c], "ndim", 2) == 1
-        and np.issubdtype(X[c].dtype, np.number)
-    ]
+    num_cols = [c for c in num_cols if c in X.columns and getattr(X[c], "ndim", 2) == 1 and np.issubdtype(X[c].dtype, np.number)]
     if not cat_cols or not num_cols:
         return X.copy(), [], []
     appended: list[str] = []

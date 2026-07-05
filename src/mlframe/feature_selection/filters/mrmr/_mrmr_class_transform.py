@@ -38,10 +38,8 @@ class _MRMRTransformMixin:
         """
         if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
             from sklearn.exceptions import NotFittedError
-            raise NotFittedError(
-                "This MRMR instance is not fitted yet. Call 'fit' before "
-                "using 'get_feature_names_out'."
-            )
+
+            raise NotFittedError("This MRMR instance is not fitted yet. Call 'fit' before " "using 'get_feature_names_out'.")
         # Resolve effective fit-time feature names. If ``input_features`` was
         # provided, validate against the saved ``feature_names_in_`` (sklearn
         # column-drift protocol) - but only when fit saw real names. The
@@ -68,26 +66,15 @@ class _MRMRTransformMixin:
             if synthesized is None:
                 import re as _re
                 _placeholder = _re.compile(r"^feature_\d+$")
-                synthesized = all(
-                    _placeholder.match(str(n)) is not None for n in saved
-                )
+                synthesized = all(_placeholder.match(str(n)) is not None for n in saved)
             if not synthesized:
-                if (len(in_names) != len(saved)
-                        or not np.array_equal(in_names, saved)):
-                    raise ValueError(
-                        f"input_features is not equal to feature_names_in_. "
-                        f"Got {list(in_names)[:8]}, expected "
-                        f"{list(saved)[:8]}."
-                    )
+                if len(in_names) != len(saved) or not np.array_equal(in_names, saved):
+                    raise ValueError(f"input_features is not equal to feature_names_in_. " f"Got {list(in_names)[:8]}, expected " f"{list(saved)[:8]}.")
                 fni = saved
             else:
                 # ndarray-fit case: caller's names take precedence.
                 if len(in_names) != len(saved):
-                    raise ValueError(
-                        f"input_features length ({len(in_names)}) does not "
-                        f"match the number of features seen at fit "
-                        f"({len(saved)})."
-                    )
+                    raise ValueError(f"input_features length ({len(in_names)}) does not " f"match the number of features seen at fit " f"({len(saved)}).")
                 fni = in_names
         else:
             fni = np.asarray(self.feature_names_in_, dtype=object)
@@ -99,8 +86,7 @@ class _MRMRTransformMixin:
         # the payload, so this is a strict no-op (the list comprehension keeps all recipes).
         from ..engineered_recipes._recipe_name_simplify import simplified_recipe_names
         _adv_recipes = [
-            r for r in getattr(self, "_engineered_recipes_", [])
-            if r.extra.get("chain_lookups") is not None or not r.extra.get("requires_refit_for_replay")
+            r for r in getattr(self, "_engineered_recipes_", []) if r.extra.get("chain_lookups") is not None or not r.extra.get("requires_refit_for_replay")
         ]
         # Value-preserving DISPLAY canonicalisation (e.g. abs(div(sqr(a),neg(b))) -> abs(div(sqr(a),b)));
         # transform() names its engineered columns through the SAME helper so widths/names stay in sync.
@@ -142,7 +128,7 @@ class _MRMRTransformMixin:
         seen = set(map(str, base_names))
         extra = []
         for attr in ("support_linear_", "support_universal_"):
-            for cand in (getattr(self, attr, None) or []):
+            for cand in getattr(self, attr, None) or []:
                 if cand.name not in seen:
                     seen.add(cand.name)
                     extra.append(cand)
@@ -227,8 +213,7 @@ class _MRMRTransformMixin:
         candidates = getattr(self, attr, None)
         if candidates is None:
             raise AttributeError(
-                f"{attr} is not available: fit MRMR with usability_aware_lists=True and a continuous "
-                f"target to populate it (the '{which}' usability list)."
+                f"{attr} is not available: fit MRMR with usability_aware_lists=True and a continuous " f"target to populate it (the '{which}' usability list)."
             )
         from .._usability_lists import materialize_usability_features
         return materialize_usability_features(candidates, X)

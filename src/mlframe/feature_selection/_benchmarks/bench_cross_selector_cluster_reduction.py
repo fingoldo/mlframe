@@ -85,10 +85,8 @@ def main():
               f"REDUCED t={red_t[-1]:.1f}s auc={red_a[-1]:.4f} k={red_k[-1]} "
               f"(medoids={len(medoids)})")
     print("---")
-    print(f"mean wall-clock: full={np.mean(full_t):.1f}s  reduced={np.mean(red_t):.1f}s  "
-          f"speedup={np.mean(full_t)/max(np.mean(red_t),1e-9):.2f}x")
-    print(f"mean OOS AUC:    full={np.mean(full_a):.4f}  reduced={np.mean(red_a):.4f}  "
-          f"delta={np.mean(red_a)-np.mean(full_a):+.4f}")
+    print(f"mean wall-clock: full={np.mean(full_t):.1f}s  reduced={np.mean(red_t):.1f}s  " f"speedup={np.mean(full_t)/max(np.mean(red_t),1e-9):.2f}x")
+    print(f"mean OOS AUC:    full={np.mean(full_a):.4f}  reduced={np.mean(red_a):.4f}  " f"delta={np.mean(red_a)-np.mean(full_a):+.4f}")
 
 
 if __name__ == "__main__":

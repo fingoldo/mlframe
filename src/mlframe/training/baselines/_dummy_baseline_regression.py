@@ -90,11 +90,7 @@ def _compute_regression_baselines(
     # value per row.
     for _lag_suffix in ("_prev", "_lag_1", "_lag1", "_lag"):
         _lag_col = f"{target_name}{_lag_suffix}"
-        _col_in_train = (
-            hasattr(train_X, "columns") and _lag_col in train_X.columns
-        ) or (
-            hasattr(train_X, "schema") and _lag_col in train_X.schema
-        )
+        _col_in_train = (hasattr(train_X, "columns") and _lag_col in train_X.columns) or (hasattr(train_X, "schema") and _lag_col in train_X.schema)
         if not _col_in_train:
             continue
         try:
@@ -141,10 +137,7 @@ def _compute_regression_baselines(
             test_preds[label] = test_pg
             extras["per_group"] = {"cat_col": cat_col, **pg_diag}
             # Coverage gate: exclude from strongest-pick if low
-            if (
-                pg_diag["val_coverage_pct"] < config.per_group_min_val_coverage_pct
-                or pg_diag["test_coverage_pct"] < config.per_group_min_val_coverage_pct
-            ):
+            if pg_diag["val_coverage_pct"] < config.per_group_min_val_coverage_pct or pg_diag["test_coverage_pct"] < config.per_group_min_val_coverage_pct:
                 extras.setdefault("strongest_pick_excluded", []).append(label)
                 logger.info(
                     "[dummy-baselines] target='%s' per_group_mean coverage low "
@@ -164,20 +157,11 @@ def _compute_regression_baselines(
         )
 
     # --- TS baselines (prediction rules) ---
-    if (
-        timestamps_train is not None
-        and timestamps_val is not None
-        and timestamps_test is not None
-    ):
+    if timestamps_train is not None and timestamps_val is not None and timestamps_test is not None:
         ts_train = _normalize_timestamps(timestamps_train)
         ts_val = _normalize_timestamps(timestamps_val)
         ts_test = _normalize_timestamps(timestamps_test)
-        if (
-            ts_train is not None
-            and ts_val is not None
-            and ts_test is not None
-            and _is_temporally_monotonic(ts_train, ts_val, ts_test)
-        ):
+        if ts_train is not None and ts_val is not None and ts_test is not None and _is_temporally_monotonic(ts_train, ts_val, ts_test):
             periods, ts_diag = _resolve_ts_periods(
                 train_y, ts_train, config.ts_extra_periods,
             )
@@ -246,12 +230,9 @@ def _compute_regression_baselines(
                     target_name, e,
                 )
         else:
-            extras["ts_skip_reason"] = (
-                "interleaved split -- TS baselines skipped; for TS-naive use val_placement='forward'"
-            )
+            extras["ts_skip_reason"] = "interleaved split -- TS baselines skipped; for TS-naive use val_placement='forward'"
             logger.info(
-                "[dummy-baselines] target='%s' timestamps present but split is interleaved "
-                "(monotonic check failed) -- TS baselines skipped",
+                "[dummy-baselines] target='%s' timestamps present but split is interleaved " "(monotonic check failed) -- TS baselines skipped",
                 target_name,
             )
 

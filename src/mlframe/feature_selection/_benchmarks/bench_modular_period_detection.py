@@ -127,8 +127,7 @@ def _run_scenario(name, gen, is_tp):
         scan_dt = time.perf_counter() - t1
 
         fired = len(hits) > 0
-        rec = {"seed": s, "fired": fired, "wall_s": round(dt, 4),
-               "cheap_scan_s": round(scan_dt, 4), "n_hits": len(hits)}
+        rec = {"seed": s, "fired": fired, "wall_s": round(dt, 4), "cheap_scan_s": round(scan_dt, 4), "n_hits": len(hits)}
         if hits:
             top = hits[0]
             rec.update({"detected_modulus": top["modulus"], "detected_op": top["op"],
@@ -137,9 +136,7 @@ def _run_scenario(name, gen, is_tp):
                         "mi_lift": round(top["margin"], 4)})
         if is_tp and truth is not None:
             rec["true_modulus"] = truth["modulus"]
-            rec["modulus_correct"] = bool(
-                hits and (hits[0]["modulus"] == truth["modulus"]
-                          or hits[0]["modulus"] % truth["modulus"] == 0))
+            rec["modulus_correct"] = bool(hits and (hits[0]["modulus"] == truth["modulus"] or hits[0]["modulus"] % truth["modulus"] == 0))
         per_seed.append(rec)
 
     fire_rate = float(np.mean([r["fired"] for r in per_seed]))
@@ -171,8 +168,7 @@ def main():
         "control_false_positive_rate": round(fp_rate, 4),
         "mean_tp_mi_lift": round(float(np.mean(tp_lifts)), 4) if tp_lifts else None,
         "modulus_accuracy": round(mod_acc, 4),
-        "mean_detect_wall_s": round(float(np.mean(
-            [r["mean_wall_s"] for r in results["tp"] + results["control"]])), 4),
+        "mean_detect_wall_s": round(float(np.mean([r["mean_wall_s"] for r in results["tp"] + results["control"]])), 4),
     }
     results["summary"] = summary
 
@@ -184,8 +180,7 @@ def main():
     print(json.dumps(summary, indent=2))
     print("\nTP scenarios:")
     for r in results["tp"]:
-        print(f"  {r['scenario']:28s} fire={r['fire_rate']:.2f} lift={r['mean_mi_lift']} "
-              f"mod_acc={r['modulus_accuracy']:.2f} wall={r['mean_wall_s']}s")
+        print(f"  {r['scenario']:28s} fire={r['fire_rate']:.2f} lift={r['mean_mi_lift']} " f"mod_acc={r['modulus_accuracy']:.2f} wall={r['mean_wall_s']}s")
     print("Control scenarios:")
     for r in results["control"]:
         print(f"  {r['scenario']:28s} fire={r['fire_rate']:.2f} wall={r['mean_wall_s']}s")

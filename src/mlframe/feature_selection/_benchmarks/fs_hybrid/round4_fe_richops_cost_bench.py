@@ -92,8 +92,7 @@ def downstream_auc(Xtr, ytr, Xte, yte):
     lr.fit(Xtr_s, ytr)
     out["logit"] = roc_auc_score(yte, lr.predict_proba(Xte_s)[:, 1])
     if _HAVE_LGBM:
-        gb = LGBMClassifier(n_estimators=150, num_leaves=31, n_jobs=N_JOBS,
-                            verbose=-1, random_state=42)
+        gb = LGBMClassifier(n_estimators=150, num_leaves=31, n_jobs=N_JOBS, verbose=-1, random_state=42)
         gb.fit(Xtr, ytr)
         out["lgbm"] = roc_auc_score(yte, gb.predict_proba(Xte)[:, 1])
     out["mean"] = float(np.mean(list(out.values())))
@@ -132,8 +131,7 @@ def run_bed(name, X, y, preset):
     Xtr_a = np.asarray(Xtr_t, dtype=np.float64)
     Xte_a = np.asarray(Xte_t, dtype=np.float64)
     aucs = downstream_auc(Xtr_a, ytr, Xte_a, yte)
-    return {"preset": preset, "fit_t": fit_t, "n_sel": n_sel,
-            "n_eng": n_eng, **{f"auc_{k}": v for k, v in aucs.items()}}
+    return {"preset": preset, "fit_t": fit_t, "n_sel": n_sel, "n_eng": n_eng, **{f"auc_{k}": v for k, v in aucs.items()}}
 
 
 def main():
@@ -143,8 +141,7 @@ def main():
         "nonprod": make_nonprod(),
     }
     print(f"have_lgbm={_HAVE_LGBM} n_jobs={N_JOBS}")
-    print(f"{'bed':<12} {'preset':<8} {'fit_s':>7} {'n_sel':>5} {'n_eng':>5} "
-          f"{'auc_logit':>9} {'auc_lgbm':>9} {'auc_mean':>9}")
+    print(f"{'bed':<12} {'preset':<8} {'fit_s':>7} {'n_sel':>5} {'n_eng':>5} " f"{'auc_logit':>9} {'auc_lgbm':>9} {'auc_mean':>9}")
     rows = []
     for bed_name, (X, y) in beds.items():
         print(f"# bed={bed_name} n={X.shape[0]} p={X.shape[1]} prevalence={y.mean():.3f}")

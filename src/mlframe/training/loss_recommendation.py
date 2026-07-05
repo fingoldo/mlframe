@@ -31,7 +31,6 @@ from typing import Any, Dict
 
 import numpy as np
 
-
 _EXCESS_KURT_HEAVY: float = 1.5
 """Threshold above which Gaussian assumptions break and a robust loss
 (Huber by default; L1 reachable via ``prefer_l1_above_kurt``) wins.
@@ -142,9 +141,7 @@ def recommend_boosting_regression_loss(
     if target_quantile is not None:
         alpha = float(target_quantile)
         if not (0.0 < alpha < 1.0):
-            raise ValueError(
-                f"target_quantile must be in (0, 1); got {alpha}"
-            )
+            raise ValueError(f"target_quantile must be in (0, 1); got {alpha}")
         return {
             "cb": f"Quantile:alpha={alpha:.3f}",
             "lgb": "quantile",
@@ -153,10 +150,7 @@ def recommend_boosting_regression_loss(
             "xgb": "reg:quantileerror",
             "xgb_extra_params": {"quantile_alpha": alpha},
             "quantile_alpha": alpha,
-            "rationale": (
-                f"target_quantile={alpha:.3f} -- asymmetric-cost regression, "
-                f"using quantile loss with alpha={alpha:.3f}."
-            ),
+            "rationale": (f"target_quantile={alpha:.3f} -- asymmetric-cost regression, " f"using quantile loss with alpha={alpha:.3f}."),
             "excess_kurt": excess_kurt,
             "n_finite": n_finite,
         }
@@ -236,10 +230,7 @@ def recommend_boosting_regression_loss(
             "cb_extra_params": cb_extra,
             "rationale": (
                 f"excess_kurt={excess_kurt:.2f} > {_EXCESS_KURT_HEAVY}"
-                + (
-                    f" (extreme tails, > {_EXCESS_KURT_EXTREME})"
-                    if _extreme else ""
-                )
+                + (f" (extreme tails, > {_EXCESS_KURT_EXTREME})" if _extreme else "")
                 + " -- Huber bounded-influence loss keeps the "
                 f"gradient informative on small residuals while "
                 f"attenuating outlier influence. XGB huber_slope="

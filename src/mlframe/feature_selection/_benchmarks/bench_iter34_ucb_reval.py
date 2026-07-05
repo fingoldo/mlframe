@@ -25,14 +25,10 @@ warnings.filterwarnings("ignore")
 
 
 CONFIGS = {
-    "C2": dict(width=10000, n_rows=5000, n_informative=20, n_redundant=0,
-               redundancy_rho=0.8, snr=8.0, seed=0),
-    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
-               redundancy_rho=0.8, snr=8.0, seed=0),
-    "C4": dict(width=20000, n_rows=10000, n_informative=20, n_redundant=20,
-               redundancy_rho=0.8, snr=8.0, seed=0),
-    "C4_small": dict(width=20000, n_rows=5000, n_informative=20, n_redundant=20,
-                     redundancy_rho=0.8, snr=8.0, seed=0),
+    "C2": dict(width=10000, n_rows=5000, n_informative=20, n_redundant=0, redundancy_rho=0.8, snr=8.0, seed=0),
+    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0),
+    "C4": dict(width=20000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0),
+    "C4_small": dict(width=20000, n_rows=5000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0),
 }
 
 
@@ -109,8 +105,7 @@ def run_one(name, cfg, *, ucb_enabled, per_config_cap_s=120.0):
 
 
 def print_stage_table(timings, total):
-    order = ("prefilter", "clustering", "oof_shap", "prescreen", "search",
-             "trust_guard", "revalidation", "importance_ablation", "within_cluster_refine")
+    order = ("prefilter", "clustering", "oof_shap", "prescreen", "search", "trust_guard", "revalidation", "importance_ablation", "within_cluster_refine")
     print(f"  total={total:.2f}s  stages:")
     for k in order:
         v = timings.get(k)
@@ -120,8 +115,7 @@ def print_stage_table(timings, total):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--configs", default="C2,C3",
-                    help="Comma-separated config names (subset of C2,C3,C4,C4_small).")
+    ap.add_argument("--configs", default="C2,C3", help="Comma-separated config names (subset of C2,C3,C4,C4_small).")
     ap.add_argument("--per_config_cap_s", type=float, default=120.0)
     args = ap.parse_args(argv)
 
@@ -145,8 +139,7 @@ def main(argv=None):
     print("\n" + "=" * 90)
     print("ITER34 SUMMARY")
     print("=" * 90)
-    print(f"{'cfg':<8} {'label':<10} {'e2e':>8} {'reval':>8} {'recall':>8} "
-          f"{'subset':>7} {'trust':>6} {'n_eval/n_tot':>14} {'slack':>10}")
+    print(f"{'cfg':<8} {'label':<10} {'e2e':>8} {'reval':>8} {'recall':>8} " f"{'subset':>7} {'trust':>6} {'n_eval/n_tot':>14} {'slack':>10}")
     for name in requested:
         for r in results[name]:
             t = r["stage_timings"].get("revalidation", 0.0)

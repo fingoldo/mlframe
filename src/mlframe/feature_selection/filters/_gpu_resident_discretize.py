@@ -19,7 +19,6 @@ import numpy as np
 # select parent, so this top import resolves during the partial-init import chain -- same pattern as the parent).
 from ._gpu_resident_fe import _quantile_levels_dev
 
-
 # FUSED PER-COLUMN BINNING (2026-06-20, nvprof-driven). The per-column ``for j in range(K): out[:,j] =
 # cp.searchsorted(edges[:,j], col, 'right')`` loop fired K separate searchsorted launches PLUS K int64->
 # int32 cast-copies (searchsorted returns int64, ``out`` is int32). nvprof on the n=100k/300k binning path:

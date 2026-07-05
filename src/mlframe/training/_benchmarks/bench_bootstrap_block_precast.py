@@ -54,10 +54,7 @@ def main(n=20000, n_bootstrap=1000, reps=12):
 
     co = bootstrap_metrics(y, p, mf_old, n_bootstrap=n_bootstrap, alpha=0.05, stratify=y, random_state=42)
     cn = bootstrap_metrics(yf, pf, mf_new, n_bootstrap=n_bootstrap, alpha=0.05, stratify=y, random_state=42)
-    identical = all(
-        co[m]["point"] == cn[m]["point"] and co[m]["lo"] == cn[m]["lo"] and co[m]["hi"] == cn[m]["hi"]
-        for m in mf_old
-    )
+    identical = all(co[m]["point"] == cn[m]["point"] and co[m]["lo"] == cn[m]["lo"] and co[m]["hi"] == cn[m]["hi"] for m in mf_old)
 
     t = time.perf_counter()
     for _ in range(reps):

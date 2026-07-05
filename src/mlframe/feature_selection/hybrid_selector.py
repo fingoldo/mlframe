@@ -53,10 +53,10 @@ def _as_pandas_view(X):
 # leak-free pure functions of X (no y, no fit) so they replay exactly at transform time. ratio uses +1 eps; outputs
 # are nan/inf-sanitised. Each op-column is synergy-gated independently (kept only if more informative than both operands).
 _TREE_OPS = {
-    "mul":  lambda a, b: a * b,
+    "mul": lambda a, b: a * b,
     "absd": lambda a, b: np.abs(a - b),
     "sign": lambda a, b: np.sign(a) * np.abs(b),
-    "rat":  lambda a, b: a / (np.abs(b) + 1.0),
+    "rat": lambda a, b: a / (np.abs(b) + 1.0),
 }
 
 
@@ -100,7 +100,7 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
         C = np.nan_to_num(np.corrcoef(X.values, rowvar=False))
         if C.ndim == 0:  # single column (defensive; p==1 already returned above)
             return [cols[0]], {cols[0]: [cols[0]]}
-        A = np.abs(C) >= thr                      # adjacency once (vectorized), replaces the per-pair Python compare
+        A = np.abs(C) >= thr  # adjacency once (vectorized), replaces the per-pair Python compare
         reps, members, assigned = [], {}, np.zeros(p, dtype=bool)
         for i in range(p):
             if assigned[i]:
@@ -136,7 +136,7 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
     for start in range(0, p, bs):
         stop = min(start + bs, p)
         # slab[r, j] = corr(col start+r, col j); only used for the upper triangle (j > rep index) below.
-        slab = np.nan_to_num((Z[:, start:stop].T @ Z) / denom)   # (bs x p) transient, never p x p
+        slab = np.nan_to_num((Z[:, start:stop].T @ Z) / denom)  # (bs x p) transient, never p x p
         adj = np.abs(slab) >= thr
         for r in range(stop - start):
             i = start + r
@@ -145,7 +145,7 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
             assigned[i] = True
             reps.append(cols[i]); ms = [cols[i]]
             if nz[i]:
-                cand = np.flatnonzero(adj[r, i + 1:]) + (i + 1)   # ascending j>i preserved (identical to full path)
+                cand = np.flatnonzero(adj[r, i + 1 :]) + (i + 1)  # ascending j>i preserved (identical to full path)
                 for j in cand:
                     if not assigned[j]:
                         assigned[j] = True; ms.append(cols[j])
@@ -389,7 +389,7 @@ class HybridSelector:
             floor = max(float(np.median([fi.get(c, 0.0) for c in raw_cols])) if raw_cols else 0.0, 1e-12)
             return [nm for nm in prods if fi.get(nm, 0.0) >= floor]
         if gate == "relevant_median":
-            rfis = [fi.get(c, 0.0) for c in relevant if c not in set(prods)]   # bar = survivors, excluding products
+            rfis = [fi.get(c, 0.0) for c in relevant if c not in set(prods)]  # bar = survivors, excluding products
             floor = max(float(np.median(rfis)) if rfis else 0.0, 1e-12)
             return [nm for nm in prods if fi.get(nm, 0.0) >= floor]
         # default "synergy": a product earns its place only if it is more informative than BOTH operands alone
@@ -554,7 +554,7 @@ class HybridSelector:
                 )
         # STAGE 0 -- MRMR FIRST (it engineers the shared FE columns), then build the augmented frame X_aug once;
         # every downstream shared artifact + member then operates on raw+engineered features.
-        self.mrmr_selected_, self.artifacts_ = (self._run_mrmr(X, y) if self.use_mrmr else ([], None))
+        self.mrmr_selected_, self.artifacts_ = self._run_mrmr(X, y) if self.use_mrmr else ([], None)
         if not self.use_mrmr:
             self._mrmr_member, self._eng_names, self._eng_rename = None, [], {}
         # tree signals on RAW X (importance ranking + co-occurrence product pairs). The candidate product columns are
@@ -564,10 +564,10 @@ class HybridSelector:
         # interaction-heavy data the true products clear synergy/FI; on FE-saturated data the redundant raw products do
         # not, so they are dropped and MRMR's engineered transforms win unchallenged -- no dilution of that regime).
         self._tree_signals(X, y)
-        X_aug = self._augment(X)                       # all candidate products present, for honest FI scoring
-        fi_full = self._shared_perm_fi(X_aug, y)       # the single (expensive) shared FI pass
+        X_aug = self._augment(X)  # all candidate products present, for honest FI scoring
+        fi_full = self._shared_perm_fi(X_aug, y)  # the single (expensive) shared FI pass
         if self.use_tree_member and getattr(self, "_tree_prod_names_", None):
-            self.fi_ = fi_full                          # _admit_tree_products reads self.fi_
+            self.fi_ = fi_full  # _admit_tree_products reads self.fi_
             raw_cols = list(X.columns)
             survivor_proxy = [c for c in raw_cols if fi_full.get(c, 0.0) > 0.0] or raw_cols  # bar for relevant_median
             admitted = set(self._admit_tree_products(survivor_proxy, raw_cols))
@@ -595,7 +595,7 @@ class HybridSelector:
         cluster_cols = [c for c in cols if self.fi_.get(c, 0.0) > 0.0 or c in mrmr_set_pre or c in engineered]
         cap = getattr(self, "hybrid_corr_max_features", None)
         if len(cluster_cols) < 2 or not self.prescreen:
-            cluster_cols = cols                    # too few survivors / prescreen off -> cluster the full frame
+            cluster_cols = cols  # too few survivors / prescreen off -> cluster the full frame
         elif cap is not None and len(cluster_cols) > cap:
             # survivor set still over the cap: keep the engineered + MRMR cols (must survive) and top-FI raw fill.
             must = [c for c in cluster_cols if c in engineered or c in mrmr_set_pre]
@@ -604,7 +604,7 @@ class HybridSelector:
             # depending on the input order -- otherwise two equal-FI columns at the cap boundary could be kept
             # or dropped non-reproducibly across runs / platforms.
             rest = sorted(rest, key=lambda c: (-self.fi_.get(c, 0.0), c))[: max(cap - len(must), 0)]
-            cluster_cols = [c for c in cols if c in set(must) | set(rest)]   # preserve original column order
+            cluster_cols = [c for c in cols if c in set(must) | set(rest)]  # preserve original column order
         self._cluster_cols_ = cluster_cols
         X_cluster = X_aug[cluster_cols] if len(cluster_cols) != len(cols) else X_aug
         self.reps_, self.members_ = corr_clusters(X_cluster, self.corr_thr)
@@ -656,8 +656,8 @@ class HybridSelector:
             tree_votes = [c for c in self._tree_ranked_[: self.tree_top_k] if c in relevant]
             tree_votes += [nm for nm in getattr(self, "_tree_prod_names_", []) if nm in cols]
             tree_votes = [c for c in dict.fromkeys(tree_votes) if c in cols]
-            if tree_votes:                          # only register the member when it actually votes (dormant under
-                member_sel["tree"] = tree_votes     # use_fe=False + tree_top_k=0 -> no key, keeps the raw-only contract)
+            if tree_votes:  # only register the member when it actually votes (dormant under
+                member_sel["tree"] = tree_votes  # use_fe=False + tree_top_k=0 -> no key, keeps the raw-only contract)
         self.member_selections_ = member_sel
 
         # STAGE 3 -- cluster-aware vote over the shared clusters (pure, deterministic; extracted for unit testing)
@@ -701,9 +701,9 @@ class HybridSelector:
         floor = float(np.median(consensus_fis)) if (self.fi_guard and consensus_fis) else float("-inf")
         chosen = []
         for r, s in support.items():
-            if s >= max(self.vote, 2):           # consensus -> always keep
+            if s >= max(self.vote, 2):  # consensus -> always keep
                 chosen.append(r)
-            elif s >= self.vote and _rep_fi(r) >= floor:   # single-member -> must clear the credibility floor
+            elif s >= self.vote and _rep_fi(r) >= floor:  # single-member -> must clear the credibility floor
                 chosen.append(r)
         if not chosen:  # guard/vote too strict for this dataset -> fall back to any-member union of clusters
             chosen = list(cluster_votes.keys())
@@ -723,7 +723,7 @@ class HybridSelector:
         then ADD the clusters MRMR missed that >= ``vote`` of the OTHER members (shap/boruta) confirm. selected is a
         superset of mrmr_selected, so AUC >= mrmr_fe by construction; the other members only add complementary recall."""
         mrmr_sel = [c for c in member_sel.get("mrmr", []) if c in cols]
-        selected = list(dict.fromkeys(mrmr_sel))                 # FE substrate kept verbatim (engineered preserved)
+        selected = list(dict.fromkeys(mrmr_sel))  # FE substrate kept verbatim (engineered preserved)
         anchored_clusters = {self.cluster_of_.get(c) for c in mrmr_sel}
         others = [m for m in member_sel if m != "mrmr"]
         votes = defaultdict(set)
@@ -733,7 +733,7 @@ class HybridSelector:
                 if r is not None and r not in anchored_clusters:
                     votes[r].add(m)
         for r, voters in votes.items():
-            if len(voters) >= self.vote:                          # add only clusters the other members confirm
+            if len(voters) >= self.vote:  # add only clusters the other members confirm
                 ms = [m for m in self.members_[r] if m in cols]
                 if not ms:
                     continue

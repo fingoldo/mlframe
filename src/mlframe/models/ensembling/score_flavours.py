@@ -118,10 +118,7 @@ def apply_diversity_drop(
                 _drop_tag = max(_m1, _m2)
             _to_drop_tags.add(_drop_tag)
         if _to_drop_tags:
-            _kept_pairs = [
-                (i, m) for i, m in enumerate(level_models_and_predictions)
-                if _ensemble_member_tags[i] not in _to_drop_tags
-            ]
+            _kept_pairs = [(i, m) for i, m in enumerate(level_models_and_predictions) if _ensemble_member_tags[i] not in _to_drop_tags]
             if len(_kept_pairs) >= 1:
                 level_models_and_predictions = [m for _, m in _kept_pairs]
                 _kept_indices = [i for i, _ in _kept_pairs]

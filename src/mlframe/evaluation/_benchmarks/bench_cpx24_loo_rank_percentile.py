@@ -124,7 +124,7 @@ def bench_percentile(n):
 
     o = old()
     nw = new()
-    ident = (o == nw)
+    ident = o == nw
     close = np.allclose(o, nw, rtol=0, atol=1e-12)
     t_old = _best_of(old, 5, repeats=7)
     t_new = _best_of(new, 5, repeats=7)
@@ -135,8 +135,7 @@ if __name__ == "__main__":
     print("=== (1) LOO delete vs mask-flip (per full-loop, sec) ===")
     for n in (500, 1000, 2000, 5000):
         t_old, t_new, ident = bench_loo(n)
-        print(f"  n={n:6d}  old={t_old*1e3:9.3f}ms  new={t_new*1e3:9.3f}ms  "
-              f"speedup={t_old/t_new:5.2f}x  identical={ident}")
+        print(f"  n={n:6d}  old={t_old*1e3:9.3f}ms  new={t_new*1e3:9.3f}ms  " f"speedup={t_old/t_new:5.2f}x  identical={ident}")
 
     print("\n=== (2) rankdata x3 (per call, sec); 3 rankings over DIFFERENT arrays ===")
     for npos, nneg in ((500, 500), (5000, 5000), (1000, 50000)):
@@ -148,5 +147,4 @@ if __name__ == "__main__":
     print("\n=== (3) percentile double-sort vs single-sort (per call) ===")
     for n in (1000, 2000, 5000, 10000):
         t_old, t_new, ident, close, o, nw = bench_percentile(n)
-        print(f"  n={n:6d}  old={t_old*1e6:9.2f}us  new={t_new*1e6:9.2f}us  "
-              f"speedup={t_old/t_new:5.2f}x  exact_eq={ident}  atol1e-12={close}")
+        print(f"  n={n:6d}  old={t_old*1e6:9.2f}us  new={t_new*1e6:9.2f}us  " f"speedup={t_old/t_new:5.2f}x  exact_eq={ident}  atol1e-12={close}")

@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from scipy.stats import spearmanr
@@ -37,9 +36,7 @@ def spearman_exp(lb, num_repeats, exp_range, top_k=7):
                     replace=False,
                 )
                 for idx in nan_idxs_prod:
-                    table_nan.iloc[
-                        idx % table_nan.shape[0], idx // table_nan.shape[0]
-                    ] = np.nan
+                    table_nan.iloc[idx % table_nan.shape[0], idx // table_nan.shape[0]] = np.nan
 
                 noised_lb = Leaderboard(table_nan, weights=lb.weights.to_dict())
                 tables.append(table_nan)
@@ -49,7 +46,7 @@ def spearman_exp(lb, num_repeats, exp_range, top_k=7):
                             "mean": {"mean_type": ["arithmetic"]},
                             "minimax": {"score_type": ["winning_votes"]},
                             "copeland": {"slice_type": ["difference"]},
-                            "optimality_gap": {"gamma": [95]}
+                            "optimality_gap": {"gamma": [95]},
                         }
                     )
                 )
@@ -73,15 +70,9 @@ def spearman_exp(lb, num_repeats, exp_range, top_k=7):
                     methods = cur_rankings[col].apply(lambda x: x.split(":")[1].strip())
 
                     topk_methods = methods.values[:top_k]
-                    norm_rank = pd.Series(
-                        index=methods.values, data=scores.values
-                    ).reindex(tables[0].index)
+                    norm_rank = pd.Series(index=methods.values, data=scores.values).reindex(tables[0].index)
 
-                    corrs[col].append(
-                        spearmanr(
-                            etalon[col].loc[topk_methods], norm_rank.loc[topk_methods]
-                        )[0]
-                    )
+                    corrs[col].append(spearmanr(etalon[col].loc[topk_methods], norm_rank.loc[topk_methods])[0])
 
             res_corrs.append(corrs)
 

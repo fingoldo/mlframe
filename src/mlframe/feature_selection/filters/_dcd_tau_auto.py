@@ -30,7 +30,6 @@ from typing import Optional
 
 import numpy as np
 
-
 # Sentinel used for the legacy 0.7 default. The kernel_tuning_cache route
 # only fires when the caller's constructor value is the dev-machine default.
 _DCD_DEFAULT_TAU = 0.7
@@ -130,7 +129,7 @@ def _detect_valley_between_modes(scores: np.ndarray) -> Optional[float]:
         if abs(p2_bin - p1[0]) < 3:
             continue
         bin_lo, bin_hi = (p1[0], p2_bin) if p1[0] < p2_bin else (p2_bin, p1[0])
-        valley_slice = counts[bin_lo + 1: bin_hi]
+        valley_slice = counts[bin_lo + 1 : bin_hi]
         if valley_slice.size == 0:
             continue
         valley_offset = int(np.argmin(valley_slice))

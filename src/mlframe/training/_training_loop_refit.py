@@ -299,13 +299,9 @@ def _maybe_refit_on_collapsed_predictions(
     _orig_snapshot = dict(_net_params)
     _ladder: list[tuple[str, dict]] = []
     if not _net_params.get("use_batchnorm", False):
-        _ladder.append(("enable_batchnorm",
-                        {"use_batchnorm": True}))
-    _ladder.append(("shrink_to_1_layer",
-                    {"use_batchnorm": True, "nlayers": 1}))
-    _ladder.append(("bump_dropout",
-                    {"use_batchnorm": True, "nlayers": 1,
-                     "dropout_prob": 0.15}))
+        _ladder.append(("enable_batchnorm", {"use_batchnorm": True}))
+    _ladder.append(("shrink_to_1_layer", {"use_batchnorm": True, "nlayers": 1}))
+    _ladder.append(("bump_dropout", {"use_batchnorm": True, "nlayers": 1, "dropout_prob": 0.15}))
 
     for _step_idx, (_step_name, _patch) in enumerate(_ladder, start=1):
         _candidate_params = dict(_orig_snapshot)
@@ -329,8 +325,7 @@ def _maybe_refit_on_collapsed_predictions(
             model_obj.fit(train_df, train_target, **fit_params)
             _preds2 = np.asarray(model.predict(train_df)).reshape(-1)
             _preds2_fin = _preds2[np.isfinite(_preds2)]
-            _ratio2 = (float(_preds2_fin.std()) / _y_std
-                       if _preds2_fin.size >= 10 else 0.0)
+            _ratio2 = float(_preds2_fin.std()) / _y_std if _preds2_fin.size >= 10 else 0.0
         except Exception as _refit_err:
             logger_.warning(
                 "[pred-collapse] %s ladder step %d (%s) refit raised: "

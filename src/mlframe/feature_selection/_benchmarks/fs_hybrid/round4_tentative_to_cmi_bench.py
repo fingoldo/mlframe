@@ -148,10 +148,8 @@ def run_bed(name, X, y, truth, weak_key, seed=0):
         rec_rel = sum(1 for c in sel if c in relevant)
         rec_weak = block_recall(sel, weak)
         n_noise = sum(1 for c in sel if c in noise)
-        rows.append(dict(bed=name, variant=tag, n=len(sel), weak_recall=rec_weak,
-                         rel_recall=rec_rel, n_noise=n_noise, auc=auc))
-        print(f"  [{tag:20s}] n={len(sel):3d} weak={rec_weak}/{len(weak)} rel={rec_rel} "
-              f"noise={n_noise} auc={auc}", flush=True)
+        rows.append(dict(bed=name, variant=tag, n=len(sel), weak_recall=rec_weak, rel_recall=rec_rel, n_noise=n_noise, auc=auc))
+        print(f"  [{tag:20s}] n={len(sel):3d} weak={rec_weak}/{len(weak)} rel={rec_rel} " f"noise={n_noise} auc={auc}", flush=True)
         ck(f"A2-7 {name} {tag} weak={rec_weak}/{len(weak)} noise={n_noise} auc={auc}")
     return rows
 

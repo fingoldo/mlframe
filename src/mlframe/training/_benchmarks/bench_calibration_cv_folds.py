@@ -47,24 +47,19 @@ def _make_scenario(name: str, seed: int):
     poorly-calibrated by construction so calibration has work to do."""
     rng = seed
     if name == "balanced_mid":
-        X, y = make_classification(n_samples=2400, n_features=20, n_informative=8, n_redundant=4,
-                                   weights=[0.5, 0.5], class_sep=0.8, random_state=rng)
+        X, y = make_classification(n_samples=2400, n_features=20, n_informative=8, n_redundant=4, weights=[0.5, 0.5], class_sep=0.8, random_state=rng)
         base = GradientBoostingClassifier(n_estimators=60, max_depth=3, random_state=rng)
     elif name == "imbalanced_15pct":
-        X, y = make_classification(n_samples=2800, n_features=25, n_informative=10, n_redundant=5,
-                                   weights=[0.85, 0.15], class_sep=0.9, random_state=rng)
+        X, y = make_classification(n_samples=2800, n_features=25, n_informative=10, n_redundant=5, weights=[0.85, 0.15], class_sep=0.9, random_state=rng)
         base = GradientBoostingClassifier(n_estimators=80, max_depth=3, random_state=rng)
     elif name == "small_n":
-        X, y = make_classification(n_samples=900, n_features=15, n_informative=6, n_redundant=3,
-                                   weights=[0.6, 0.4], class_sep=0.7, random_state=rng)
+        X, y = make_classification(n_samples=900, n_features=15, n_informative=6, n_redundant=3, weights=[0.6, 0.4], class_sep=0.7, random_state=rng)
         base = GradientBoostingClassifier(n_estimators=50, max_depth=3, random_state=rng)
     elif name == "high_dim_noisy":
-        X, y = make_classification(n_samples=2000, n_features=60, n_informative=12, n_redundant=10,
-                                   weights=[0.5, 0.5], class_sep=0.5, random_state=rng)
+        X, y = make_classification(n_samples=2000, n_features=60, n_informative=12, n_redundant=10, weights=[0.5, 0.5], class_sep=0.5, random_state=rng)
         base = GradientBoostingClassifier(n_estimators=70, max_depth=4, random_state=rng)
     elif name == "logreg_overconfident":
-        X, y = make_classification(n_samples=2200, n_features=30, n_informative=10, n_redundant=8,
-                                   weights=[0.7, 0.3], class_sep=0.6, random_state=rng)
+        X, y = make_classification(n_samples=2200, n_features=30, n_informative=10, n_redundant=8, weights=[0.7, 0.3], class_sep=0.6, random_state=rng)
         base = LogisticRegression(C=50.0, max_iter=400, random_state=rng)
     else:
         raise ValueError(name)
@@ -72,8 +67,7 @@ def _make_scenario(name: str, seed: int):
 
 
 def _eval_fold_count(X, y, base, k, seed):
-    X_fit, X_test, y_fit, y_test = train_test_split(
-        X, y, test_size=0.3, stratify=y, random_state=seed)
+    X_fit, X_test, y_fit, y_test = train_test_split(X, y, test_size=0.3, stratify=y, random_state=seed)
     inner_cv = StratifiedKFold(n_splits=k, shuffle=True, random_state=seed)
     clf = CalibratedClassifierCV(clone(base), cv=inner_cv, method="isotonic")
     clf.fit(X_fit, y_fit)
@@ -127,8 +121,7 @@ def main():
 
     out_dir = Path(__file__).parent / "_results"
     out_dir.mkdir(exist_ok=True)
-    (out_dir / "calibration_cv_folds.json").write_text(
-        json.dumps({"summary": summary, "rows": rows}, indent=2), encoding="utf-8")
+    (out_dir / "calibration_cv_folds.json").write_text(json.dumps({"summary": summary, "rows": rows}, indent=2), encoding="utf-8")
     return summary
 
 

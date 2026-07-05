@@ -226,8 +226,7 @@ def _microbench() -> dict[str, Any]:
     # 3) calibration block: pick_best_calibrator (500-resample + ece).
     from mlframe.calibration.policy import pick_best_calibrator
     t0 = time.perf_counter()
-    pick_best_calibrator(probs=None, y=None, oof_probs=np.column_stack([1 - p, p]),
-                         oof_y=y, n_bootstrap=500, random_state=0, emit_plot=False)
+    pick_best_calibrator(probs=None, y=None, oof_probs=np.column_stack([1 - p, p]), oof_y=y, n_bootstrap=500, random_state=0, emit_plot=False)
     out["pick_best_calibrator_500_n200k_wall_s"] = round(time.perf_counter() - t0, 4)
 
     # 4) categorical PSI drift on mid-card string cols.

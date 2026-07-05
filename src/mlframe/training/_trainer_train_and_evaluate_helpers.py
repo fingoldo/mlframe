@@ -29,9 +29,7 @@ def _run_val_split_metrics(_val_cfg, metrics, has_test, common_metrics_params):
     )
 
 
-def _run_test_split_metrics(
-    _run_test, metrics, test_df, test_target, test_idx, test_preds, test_probs, test_details, common_metrics_params
-):
+def _run_test_split_metrics(_run_test, metrics, test_df, test_target, test_idx, test_preds, test_probs, test_details, common_metrics_params):
     """Compute the test-split metrics. No-op (None) when the test split is not being run."""
     if not _run_test:
         return None

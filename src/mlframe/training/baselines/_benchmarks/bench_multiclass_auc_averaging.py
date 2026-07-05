@@ -72,7 +72,7 @@ def run():
     results = {"macro": {"B_wins": 0, "total": 0}, "weighted": {"B_wins": 0, "total": 0}}
     detail = []
 
-    for (n, k, mf) in scenarios:
+    for n, k, mf in scenarios:
         for s in seeds:
             rng = np.random.default_rng(1000 + s)
             y = _make_data(rng, n, k, mf)
@@ -104,10 +104,7 @@ def run():
         "honest_metric": "rank-correctness: how often the minority-strong model B is scored >= the majority-strong model A",
         "results": results,
         "detail": detail,
-        "verdict": (
-            "KEEP macro" if results["macro"]["B_win_rate"] > results["weighted"]["B_win_rate"]
-            else "FLIP to weighted"
-        ),
+        "verdict": ("KEEP macro" if results["macro"]["B_win_rate"] > results["weighted"]["B_win_rate"] else "FLIP to weighted"),
     }
 
     res_dir = Path(__file__).parent / "_results"

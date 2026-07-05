@@ -34,8 +34,7 @@ _NBINS_AXIS: tuple[tuple[int, int], ...] = ((5, 5), (10, 10), (20, 20))
 _BLOCK_SIZE_AXIS = (256, 512, 1024)
 
 
-def _measure_one(kernel, grid_x: int, block_size: int, args: tuple,
-                 n_iters: int, shared_mem_bytes: int) -> float:
+def _measure_one(kernel, grid_x: int, block_size: int, args: tuple, n_iters: int, shared_mem_bytes: int) -> float:
     """Min-of-N wall in ms after one warm-up call."""
     import cupy as cp
     if shared_mem_bytes > 0:
@@ -53,8 +52,6 @@ def _measure_one(kernel, grid_x: int, block_size: int, args: tuple,
         cp.cuda.runtime.deviceSynchronize()
         best = min(best, (time.perf_counter() - t0) * 1000.0)
     return best
-
-
 
 
 def _measure_single_region(
@@ -92,8 +89,7 @@ def _measure_single_region(
     d_x = cp.asarray(classes_x)
     d_y_perms = cp.asarray(classes_y.reshape(1, -1).copy())
     d_out = cp.zeros((1, nbx * nby), dtype=cp.int32)
-    args = (d_x, d_y_perms, d_out,
-            np.int32(n_samples), np.int32(nbx), np.int32(nby))
+    args = (d_x, d_y_perms, d_out, np.int32(n_samples), np.int32(nbx), np.int32(nby))
 
     best_wall = float("inf")
     best_choice = None
@@ -101,19 +97,15 @@ def _measure_single_region(
         for bs in _BLOCK_SIZE_AXIS:
             d_out[:] = 0
             grid_x = (n_samples + bs - 1) // bs
-            kernel = (_gpu_mod.compute_joint_hist_batched_shared_cuda
-                      if variant == "shared"
-                      else _gpu_mod.compute_joint_hist_batched_cuda)
+            kernel = _gpu_mod.compute_joint_hist_batched_shared_cuda if variant == "shared" else _gpu_mod.compute_joint_hist_batched_cuda
             smem = nbx * nby * 4 if variant == "shared" else 0
             try:
-                wall = _measure_one(kernel, grid_x, bs, args, n_iters=n_iters,
-                                    shared_mem_bytes=smem)
+                wall = _measure_one(kernel, grid_x, bs, args, n_iters=n_iters, shared_mem_bytes=smem)
             except Exception:
                 continue
             if wall < best_wall:
                 best_wall = wall
-                best_choice = {"kernel_variant": variant, "block_size": bs,
-                               "wall_ms": round(wall, 4)}
+                best_choice = {"kernel_variant": variant, "block_size": bs, "wall_ms": round(wall, 4)}
     if best_choice is None:
         return None
     return {
@@ -141,16 +133,6 @@ def _shared_cache():
         get_kernel_tuning_cache,
     )
     return get_kernel_tuning_cache()
-
-
-
-
-
-
-
-
-
-
 
 
 # ============================================================================
@@ -191,13 +173,9 @@ def _cuda_available_or_skip(kernel_name: str) -> bool:
 # ----------------------------------------------------------------------------
 
 
-
-
 # ----------------------------------------------------------------------------
 # 2. joint_hist_multi_pair -- block_size keyed by (n_rows, n_pairs)
 # ----------------------------------------------------------------------------
-
-
 
 
 # ----------------------------------------------------------------------------
@@ -205,13 +183,9 @@ def _cuda_available_or_skip(kernel_name: str) -> bool:
 # ----------------------------------------------------------------------------
 
 
-
-
 # ----------------------------------------------------------------------------
 # 4. cat_fe_perm_kernel -- crossover_n keyed by (n_samples, n_perms)
 # ----------------------------------------------------------------------------
-
-
 
 
 # ----------------------------------------------------------------------------
@@ -219,20 +193,14 @@ def _cuda_available_or_skip(kernel_name: str) -> bool:
 # ----------------------------------------------------------------------------
 
 
-
-
 # ----------------------------------------------------------------------------
 # 6. unary_elementwise -- min_cells keyed by n_samples
 # ----------------------------------------------------------------------------
 
 
-
-
 # ----------------------------------------------------------------------------
 # 7. rff_matmul -- work_threshold keyed by work (= n * d)
 # ----------------------------------------------------------------------------
-
-
 
 
 # ----------------------------------------------------------------------------
@@ -256,15 +224,9 @@ def _hnswlib_importable() -> bool:
     return r.returncode == 0
 
 
-
-
-
-
 # ----------------------------------------------------------------------------
 # 9. discretize_2d_array -- min_cells keyed by arr_size
 # ----------------------------------------------------------------------------
-
-
 
 
 __all__ = [

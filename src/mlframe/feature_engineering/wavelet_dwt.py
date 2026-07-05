@@ -378,14 +378,9 @@ def wavedec_batched(
         level arrays.
     """
     if not _HAS_NUMBA:
-        raise ImportError(
-            "wavedec_batched requires numba; install it or fall back "
-            "to a loop over wavedec()."
-        )
+        raise ImportError("wavedec_batched requires numba; install it or fall back " "to a loop over wavedec().")
     if signals.ndim != 2:
-        raise ValueError(
-            f"signals must be 2-D (N, T), got shape {signals.shape}"
-        )
+        raise ValueError(f"signals must be 2-D (N, T), got shape {signals.shape}")
     lo, hi, _, _ = get_wavelet_filters(wavelet)
     sig = np.ascontiguousarray(signals, dtype=np.float64)
     N, T = sig.shape

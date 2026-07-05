@@ -94,8 +94,7 @@ def main():
             co /= B
             cons_labels = _cc(co, 0.5)  # co-cluster >= 50% of bootstraps
             cons.append(adjusted_rand_score(truth, cons_labels))
-        print(f"noise={noise}: single-shot ARI={np.mean(ss):.3f}  consensus ARI={np.mean(cons):.3f}  "
-              f"delta={np.mean(cons)-np.mean(ss):+.3f}")
+        print(f"noise={noise}: single-shot ARI={np.mean(ss):.3f}  consensus ARI={np.mean(cons):.3f}  " f"delta={np.mean(cons)-np.mean(ss):+.3f}")
     print("WIN for consensus iff ARI materially higher where single-shot is unstable.")
 
 

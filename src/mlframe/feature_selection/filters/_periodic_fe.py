@@ -189,10 +189,7 @@ def apply_modular(x: np.ndarray, period: float, op: str) -> np.ndarray:
 
 def _numeric_cols(X: pd.DataFrame, cols: Optional[Sequence[str]]) -> list[str]:
     candidates = list(cols) if cols is not None else list(X.columns)
-    return [
-        c for c in candidates
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    return [c for c in candidates if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
 
 
 def generate_modular_features(
@@ -262,7 +259,7 @@ def _parse_modular_name(name: str):
     for op, frag in (("sin", "modsin"), ("cos", "modcos"), ("mod", "mod")):
         prefix = frag + "_"
         if suffix.startswith(prefix):
-            tok = suffix[len(prefix):]
+            tok = suffix[len(prefix) :]
             try:
                 period = float(tok.replace("m", "-").replace("p", "."))
             except ValueError:
@@ -332,13 +329,8 @@ def hybrid_modular_fe(
         noise_floor = med + 3.5 * 1.4826 * mad
     else:
         noise_floor = 2.0 * float(base_lcb.max()) if base_lcb.size else 0.0
-    qualified = scores[
-        (scores["uplift_mean"] >= float(min_uplift_lcb))
-        & (scores["engineered_mi_lcb"] >= noise_floor)
-    ]
-    winners = qualified.sort_values(
-        "engineered_mi_lcb", ascending=False
-    ).head(int(top_k))
+    qualified = scores[(scores["uplift_mean"] >= float(min_uplift_lcb)) & (scores["engineered_mi_lcb"] >= noise_floor)]
+    winners = qualified.sort_values("engineered_mi_lcb", ascending=False).head(int(top_k))
     keep = list(winners["engineered_col"])
     X_aug = pd.concat([X, eng[keep]], axis=1) if keep else X.copy()
     return X_aug, scores
@@ -376,8 +368,8 @@ def hybrid_modular_fe_with_recipes(
         parsed = _parse_modular_name(name)
         if parsed is None:
             logger.warning(
-                "hybrid_modular_fe_with_recipes: cannot parse op/period from "
-                "column name %r; skipping recipe build.", name,
+                "hybrid_modular_fe_with_recipes: cannot parse op/period from " "column name %r; skipping recipe build.",
+                name,
             )
             continue
         op, src, period = parsed

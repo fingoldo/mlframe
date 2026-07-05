@@ -105,9 +105,7 @@ def _fused_nunique_modes_quantiles(arr: np.ndarray, q: np.ndarray, quantile_meth
     (``_fused_nunique_modes_quantiles_kernel``) to drop the per-row numpy-temporary churn.
     """
     s = np.sort(arr)
-    nuniques, modes_min, modes_max, modes_mean, modes_qty, quantiles = _fused_nunique_modes_quantiles_kernel(
-        s, q, max_modes
-    )
+    nuniques, modes_min, modes_max, modes_mean, modes_qty, quantiles = _fused_nunique_modes_quantiles_kernel(s, q, max_modes)
     res = (nuniques, modes_min, modes_max, modes_mean, modes_qty)
     res = res + tuple(quantiles)
     res = res + tuple(compute_ncrossings(arr=arr, marks=quantiles))
@@ -130,13 +128,7 @@ def compute_nunique_modes_quantiles_numpy(
     # np.unique collapses all NaN into a single entry while a sort keeps each NaN distinct -> the fast path would change
     # nunique/modes. Quantiles carry a ~1e-16 ULP delta vs np.nanquantile (FP order in the linear-interp), far below any
     # selection-altering threshold; nunique/modes/ncrossings are exactly identical.
-    _fused_ok = (
-        return_unsorted_stats
-        and arr.ndim == 1
-        and quantile_method == "median_unbiased"
-        and arr.size >= 2
-        and not np.isnan(arr).any()
-    )
+    _fused_ok = return_unsorted_stats and arr.ndim == 1 and quantile_method == "median_unbiased" and arr.size >= 2 and not np.isnan(arr).any()
     if _fused_ok:
         return _fused_nunique_modes_quantiles(arr, np.asarray(q, dtype=np.float64), quantile_method, max_modes)
 

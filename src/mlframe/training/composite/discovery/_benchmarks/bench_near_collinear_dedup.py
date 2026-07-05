@@ -93,10 +93,7 @@ def main() -> None:
     t_nb = _time(_numba, fm, _REPS)
     speedup = t_np / t_nb if t_nb > 0 else float("inf")
 
-    print(
-        f"near-collinear dedup bench  n={_N} B={_B} thr={_THR} "
-        f"kept={int(ref.sum())}/{_B} reps={_REPS} py={sys.version.split()[0]}"
-    )
+    print(f"near-collinear dedup bench  n={_N} B={_B} thr={_THR} " f"kept={int(ref.sum())}/{_B} reps={_REPS} py={sys.version.split()[0]}")
     print(f"  bit-identical mask: {identical}")
     print(f"  numpy reference: {t_np * 1e3:8.3f} ms")
     print(f"  numba kernel:    {t_nb * 1e3:8.3f} ms  ({speedup:.2f}x)")

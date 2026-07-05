@@ -20,11 +20,9 @@ p = np.clip(0.15 + 0.5 * y + rng0.standard_normal(N) * 0.25, 1e-6, 1 - 1e-6)
 
 
 def _build(seed):
-    mf = {"brier": lambda yy, pp: float(fast_brier_score_loss(yy, pp)),
-          "log_loss": lambda yy, pp: float(fast_log_loss(yy, pp))}
+    mf = {"brier": lambda yy, pp: float(fast_brier_score_loss(yy, pp)), "log_loss": lambda yy, pp: float(fast_log_loss(yy, pp))}
     mfi = {"roc_auc": make_bootstrap_auc_resampler(y, p)}
-    return dict(y_true=y, y_pred=p, metric_fns=mf, metric_fns_idx=mfi, n_bootstrap=R,
-                stratify=y, random_state=seed, method="bca")
+    return dict(y_true=y, y_pred=p, metric_fns=mf, metric_fns_idx=mfi, n_bootstrap=R, stratify=y, random_state=seed, method="bca")
 
 
 def _ci(res):

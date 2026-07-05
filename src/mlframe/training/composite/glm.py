@@ -125,8 +125,7 @@ def _default_inner(family: str, tweedie_power: float):
         import lightgbm as lgb
     except Exception as exc:  # pragma: no cover - exercised only without lightgbm
         raise ImportError(
-            "CompositeGLMEstimator default inner requires lightgbm. Install it "
-            "(`pip install lightgbm`) or pass an explicit base_estimator."
+            "CompositeGLMEstimator default inner requires lightgbm. Install it " "(`pip install lightgbm`) or pass an explicit base_estimator."
         ) from exc
     objective = _FAMILY_OBJECTIVE[family]
     kw: dict[str, Any] = dict(n_estimators=300, objective=objective, verbose=-1)
@@ -238,21 +237,12 @@ class CompositeGLMEstimator(BaseEstimator, RegressorMixin):
     # -- sklearn API ------------------------------------------------------------
     def fit(self, X: Any, y: Any, sample_weight=None) -> "CompositeGLMEstimator":
         if self.family not in _FAMILY_OBJECTIVE:
-            raise ValueError(
-                f"CompositeGLMEstimator: unknown family {self.family!r}; "
-                f"choose one of {sorted(_FAMILY_OBJECTIVE)}."
-            )
+            raise ValueError(f"CompositeGLMEstimator: unknown family {self.family!r}; " f"choose one of {sorted(_FAMILY_OBJECTIVE)}.")
         if self.family == "tweedie" and not (1.0 < float(self.tweedie_power) < 2.0):
-            raise ValueError(
-                "CompositeGLMEstimator: tweedie_power must be strictly between 1 and 2; "
-                f"got {self.tweedie_power!r}."
-            )
+            raise ValueError("CompositeGLMEstimator: tweedie_power must be strictly between 1 and 2; " f"got {self.tweedie_power!r}.")
         y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
         if np.any(y_arr < 0):
-            raise ValueError(
-                f"CompositeGLMEstimator: family {self.family!r} targets must be "
-                "non-negative (count / positive); found negative y."
-            )
+            raise ValueError(f"CompositeGLMEstimator: family {self.family!r} targets must be " "non-negative (count / positive); found negative y.")
         if self.family == "gamma" and np.any(y_arr <= 0):
             raise ValueError(
                 "CompositeGLMEstimator: family 'gamma' targets must be strictly "
@@ -265,11 +255,7 @@ class CompositeGLMEstimator(BaseEstimator, RegressorMixin):
             X_inner = self._drop_mean_column(X)
             self.base_mean_estimator_ = None
         else:
-            self.base_mean_estimator_ = clone(
-                self.base_mean_estimator
-                if self.base_mean_estimator is not None
-                else self._default_base_mean_estimator()
-            )
+            self.base_mean_estimator_ = clone(self.base_mean_estimator if self.base_mean_estimator is not None else self._default_base_mean_estimator())
             if sample_weight is not None:
                 self.base_mean_estimator_.fit(X, y_arr, sample_weight=sample_weight)
             else:

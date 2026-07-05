@@ -1,6 +1,5 @@
 """CompositeSpec dataclass: frozen description of one discovered composite target. Extracted into its own module so both composite.py (re-exporter) and composite_discovery.py can import it without circular dependency. No peer dependencies inside the composite_* family."""
 
-
 from __future__ import annotations
 
 from dataclasses import dataclass

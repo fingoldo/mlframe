@@ -59,8 +59,7 @@ def main(n=2000, n_bootstrap=500, reps=20):
     policy._bootstrap_ece_with_indices = orig
 
     identical = out_new["chosen"] == out_old["chosen"] and all(
-        out_new["alternatives"][k]["ece_ci"] == out_old["alternatives"][k]["ece_ci"]
-        for k in out_new["alternatives"]
+        out_new["alternatives"][k]["ece_ci"] == out_old["alternatives"][k]["ece_ci"] for k in out_new["alternatives"]
     )
     print(f"n={n} n_bootstrap={n_bootstrap} reps={reps}")
     print(f"old={old_ms:.2f}ms new={new_ms:.2f}ms speedup={old_ms / new_ms:.2f}x")

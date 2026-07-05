@@ -13,7 +13,6 @@ import numba
 
 from .._numba_params import NUMBA_NJIT_PARAMS
 
-
 # ============================================================================
 # Tweedie / Poisson / Gamma deviances (Tier 2)
 # ============================================================================
@@ -104,10 +103,10 @@ def _tweedie_deviance_general_kernel(
         # max(y, 0)^(2-p): yt >= 0 here, so use yt directly.
         if yt == 0.0:
             term_y = 0.0  # 0^(2-p) for 1<p<2: power > 0 -> 0; for p>2: power <0 -> inf, but
-                          # sklearn special-cases this to 0 (sup-zero discontinuity).
+            # sklearn special-cases this to 0 (sup-zero discontinuity).
         else:
-            term_y = (yt ** e2) * c_y
-        yp_pow1 = yp ** e1
+            term_y = (yt**e2) * c_y
+        yp_pow1 = yp**e1
         term_yp = yt * yp_pow1 * c_yp
         term_p = (yp_pow1 * yp) * c_p
         s += 2.0 * (term_y - term_yp + term_p)
@@ -199,10 +198,7 @@ def fast_tweedie_deviance(
     if power == 2.0:
         return fast_gamma_deviance(y_true, y_pred)
     if power < 1.0:
-        raise ValueError(
-            f"Tweedie power must be 0 or >= 1 (Pregibon 1984); got power={power}. "
-            "Use power=0 for Normal (MSE) or power in [1, inf) for GLM."
-        )
+        raise ValueError(f"Tweedie power must be 0 or >= 1 (Pregibon 1984); got power={power}. " "Use power=0 for Normal (MSE) or power in [1, inf) for GLM.")
     val, invalid = _tweedie_deviance_general_kernel(yt, yp, float(power))
     _maybe_warn_tweedie(f"fast_tweedie_deviance(power={power})", invalid, yt.shape[0])
     return float(val)

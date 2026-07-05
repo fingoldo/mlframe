@@ -16,8 +16,7 @@ from sklearn.base import BaseEstimator, RegressorMixin
 _HAS_TF = importlib.util.find_spec("tensorflow") is not None
 
 _INSTALL_MSG = (
-    "Install tensorflow and scikeras for Keras compatibility; "
-    "or use mlframe.training.neural.flat.generate_mlp for the PyTorch Lightning equivalent."
+    "Install tensorflow and scikeras for Keras compatibility; " "or use mlframe.training.neural.flat.generate_mlp for the PyTorch Lightning equivalent."
 )
 
 

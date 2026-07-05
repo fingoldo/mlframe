@@ -189,9 +189,9 @@ def run_confidence_analysis(
                 # trail exists when CB Pool crashes later.
                 import logging as _logging
                 _logging.getLogger(__name__).debug(
-                    "_eval_helpers: polars schema lookup failed for col=%r "
-                    "(%s); col will NOT be auto-dropped from confidence "
-                    "analysis.", _c, _e_dt,
+                    "_eval_helpers: polars schema lookup failed for col=%r " "(%s); col will NOT be auto-dropped from confidence " "analysis.",
+                    _c,
+                    _e_dt,
                 )
                 continue
             _dt_name = str(_dt)

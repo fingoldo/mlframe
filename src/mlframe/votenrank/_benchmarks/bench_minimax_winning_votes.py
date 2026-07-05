@@ -17,14 +17,10 @@ def _old_minimax(ranks, weights, models):
     out = []
     for model in models:
         models_scores = ((ranks < ranks.loc[model]) * weights).sum(axis=1)
-        does_win = ((ranks < ranks.loc[model]) * weights).sum(axis=1) > (
-            (ranks > ranks.loc[model]) * weights
-        ).sum(axis=1)
+        does_win = ((ranks < ranks.loc[model]) * weights).sum(axis=1) > ((ranks > ranks.loc[model]) * weights).sum(axis=1)
         models_scores = models_scores * does_win
         out.append(models_scores.drop(model).max())
-    return (-pd.Series(data=out, index=pd.Series(models, name="Name"))).sort_values(
-        ascending=False
-    )
+    return (-pd.Series(data=out, index=pd.Series(models, name="Name"))).sort_values(ascending=False)
 
 
 def _new_minimax(ranks, weights, models):
@@ -35,9 +31,7 @@ def _new_minimax(ranks, weights, models):
         greater = ((ranks > row) * weights).sum(axis=1)
         models_scores = less * (less > greater)
         out.append(models_scores.drop(model).max())
-    return (-pd.Series(data=out, index=pd.Series(models, name="Name"))).sort_values(
-        ascending=False
-    )
+    return (-pd.Series(data=out, index=pd.Series(models, name="Name"))).sort_values(ascending=False)
 
 
 def _make(n_models, n_tasks, seed=0):
@@ -69,10 +63,7 @@ def bench(n_models, n_tasks, reps=20):
 
     old = t(_old_minimax)
     new = t(_new_minimax)
-    print(
-        f"n_models={n_models} n_tasks={n_tasks}: OLD={old*1e3:.3f}ms NEW={new*1e3:.3f}ms "
-        f"speedup={old/new:.3f}x identity=OK"
-    )
+    print(f"n_models={n_models} n_tasks={n_tasks}: OLD={old*1e3:.3f}ms NEW={new*1e3:.3f}ms " f"speedup={old/new:.3f}x identity=OK")
 
 
 if __name__ == "__main__":

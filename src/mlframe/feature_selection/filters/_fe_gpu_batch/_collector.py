@@ -50,6 +50,6 @@ def collect_and_score(matrices: Sequence[Any], y_codes: np.ndarray, nbins: int =
         if s == 0:
             out.append(np.zeros(0, dtype=np.float64))
         else:
-            out.append(mi[off:off + s])
+            out.append(mi[off : off + s])
             off += s
     return out

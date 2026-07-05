@@ -180,9 +180,7 @@ def _per_bin_mean_std(
     # floor or with a (near-)constant x_i fall back to the global std.
     with np.errstate(invalid="ignore", divide="ignore"):
         bin_std = np.sqrt(np.where(bin_cnt > 0.0, bin_css / np.maximum(bin_cnt, 1.0), 0.0))
-    usable = (bin_cnt >= float(_DISPERSION_MIN_BIN_ROWS)) & (
-        bin_std >= _DISPERSION_SIGMA_FLOOR
-    )
+    usable = (bin_cnt >= float(_DISPERSION_MIN_BIN_ROWS)) & (bin_std >= _DISPERSION_SIGMA_FLOOR)
     bin_std = np.where(usable, bin_std, global_std)
     return (
         bin_mean.astype(np.float64),
@@ -278,19 +276,13 @@ def generate_conditional_dispersion_features(
     leak-safe).
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"generate_conditional_dispersion_features: X must be a pandas "
-            f"DataFrame; got {type(X).__name__}"
-        )
+        raise TypeError(f"generate_conditional_dispersion_features: X must be a pandas " f"DataFrame; got {type(X).__name__}")
     if len(X) == 0:
         raise ValueError("generate_conditional_dispersion_features: X is empty")
     kinds = [k for k in kinds if k in _DISPERSION_KINDS]
     if not kinds:
         kinds = ["absz", "z2"]
-    num_cols = [
-        c for c in num_cols
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    num_cols = [c for c in num_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     encoded: dict[str, np.ndarray] = {}
     raw_recipes: dict[str, dict] = {}
     if len(num_cols) < 2:
@@ -337,17 +329,11 @@ def apply_conditional_dispersion(X_test: pd.DataFrame, recipe: dict) -> np.ndarr
     """Replay one conditional-dispersion column from the stored x_j edges +
     per-bin ``(mu_hat, sigma_hat)``. NaN ``x_i`` rows emit 0.0. Reads only X."""
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_conditional_dispersion: X_test must be a DataFrame; got "
-            f"{type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_conditional_dispersion: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     x_i = recipe["x_i"]
     x_j = recipe["x_j"]
     if x_i not in X_test.columns or x_j not in X_test.columns:
-        raise KeyError(
-            f"apply_conditional_dispersion: missing column(s) {x_i!r}/{x_j!r} "
-            f"from X_test"
-        )
+        raise KeyError(f"apply_conditional_dispersion: missing column(s) {x_i!r}/{x_j!r} " f"from X_test")
     edges = np.asarray(recipe["edges"], dtype=np.float64)
     bin_mean = np.asarray(recipe["bin_mean"], dtype=np.float64)
     bin_std = np.asarray(recipe["bin_std"], dtype=np.float64)
@@ -372,10 +358,7 @@ def build_conditional_dispersion_recipe(
     from .engineered_recipes import EngineeredRecipe
 
     if kind not in _DISPERSION_KINDS:
-        raise ValueError(
-            f"build_conditional_dispersion_recipe: kind must be one of "
-            f"{_DISPERSION_KINDS}; got {kind!r}"
-        )
+        raise ValueError(f"build_conditional_dispersion_recipe: kind must be one of " f"{_DISPERSION_KINDS}; got {kind!r}")
     return EngineeredRecipe(
         name=name,
         kind="conditional_dispersion",
@@ -403,19 +386,14 @@ def _apply_conditional_dispersion_recipe(recipe, X) -> np.ndarray:
         try:
             import polars as _pl
             if isinstance(X, _pl.DataFrame):
-                X_view = pd.DataFrame(
-                    {x_i: X[x_i].to_numpy(), x_j: X[x_j].to_numpy()}
-                )
+                X_view = pd.DataFrame({x_i: X[x_i].to_numpy(), x_j: X[x_j].to_numpy()})
             else:
                 raise TypeError
         except (ImportError, TypeError):
             if isinstance(X, np.ndarray) and X.dtype.names is not None:
                 X_view = pd.DataFrame({x_i: X[x_i], x_j: X[x_j]})
             else:
-                raise TypeError(
-                    f"conditional_dispersion recipe '{recipe.name}': cannot "
-                    f"extract {x_i!r}/{x_j!r} from X of type {type(X).__name__}."
-                )
+                raise TypeError(f"conditional_dispersion recipe '{recipe.name}': cannot " f"extract {x_i!r}/{x_j!r} from X of type {type(X).__name__}.")
     return apply_conditional_dispersion(
         X_view,
         {
@@ -496,7 +474,7 @@ def _dual_uplift_filter(
             sib_recipes = {}
         from ._extra_fe_families import engineered_name_conditional_residual
         sib_names = {}
-        for (xi, xj) in pairs:
+        for xi, xj in pairs:
             if xi is None or xj is None:
                 continue
             sn = engineered_name_conditional_residual(xi, xj)
@@ -530,7 +508,7 @@ def _dual_uplift_filter(
                 if fe_gpu_device_born_dual_uplift_enabled():
                     sib_specs = []
                     _ok = True
-                    for (xi, xj) in sib_pairs:
+                    for xi, xj in sib_pairs:
                         sn = sib_names[(xi, xj)]
                         r = sib_recipes.get(sn) if isinstance(sib_recipes, dict) else None
                         if not r or "x_i" not in r or "x_j" not in r or "edges" not in r or "bin_mean" not in r:
@@ -545,9 +523,7 @@ def _dual_uplift_filter(
             except Exception:
                 smi = None
             if smi is None:
-                sib_abs = np.abs(
-                    enc_b[list(sib_names.values())].to_numpy(dtype=np.float64)
-                )
+                sib_abs = np.abs(enc_b[list(sib_names.values())].to_numpy(dtype=np.float64))
                 smi = np.asarray(_mi_classif_batch(sib_abs, y_bin, nbins=n_bins), dtype=np.float64)
             sib_mi = {pair: float(smi[j]) for j, pair in enumerate(sib_pairs)}
 
@@ -591,17 +567,11 @@ def hybrid_conditional_dispersion_fe(
     only by the column-ranking + MI gate; recipes carry no ``y`` -> leak-safe.
     """
     if not isinstance(X, pd.DataFrame):
-        raise TypeError(
-            f"hybrid_conditional_dispersion_fe: X must be a pandas DataFrame; "
-            f"got {type(X).__name__}"
-        )
+        raise TypeError(f"hybrid_conditional_dispersion_fe: X must be a pandas DataFrame; " f"got {type(X).__name__}")
     if num_cols is None or len(num_cols) == 0:
         num_cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
     else:
-        num_cols = [
-            c for c in num_cols
-            if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-        ]
+        num_cols = [c for c in num_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if len(num_cols) < 2:
         return X.copy(), [], [], pd.DataFrame()
 

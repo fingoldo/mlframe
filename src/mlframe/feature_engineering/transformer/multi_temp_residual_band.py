@@ -129,7 +129,7 @@ def compute_multi_temp_residual_band_features(
             band_y_std[b] = float(y_band.std()) + 1e-9
 
         diffs = Xq_s[:, None, :] - band_centroids[None, :, :]
-        sq = (diffs ** 2).sum(axis=-1)
+        sq = (diffs**2).sum(axis=-1)
         scores = -sq
         n_q = Xq_s.shape[0]
         out_blocks = np.zeros((n_q, n_temps * features_per_temp), dtype=np.float32)

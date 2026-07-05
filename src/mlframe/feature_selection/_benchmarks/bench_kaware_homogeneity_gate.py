@@ -29,7 +29,7 @@ def _var_ratio(M):
     Z = (M - M.mean(0)) / np.where(M.std(0) > 0, M.std(0), 1.0)
     Zc = Z - Z.mean(0)
     sv = np.linalg.svd(Zc, full_matrices=False, compute_uv=False)
-    return float(sv[0] ** 2 / max(np.sum(sv ** 2), 1e-12))
+    return float(sv[0] ** 2 / max(np.sum(sv**2), 1e-12))
 
 
 def _horn_cut(n, k, seed, reps=200, pct=95):
@@ -42,8 +42,7 @@ def main():
     n = 2000
     tau = 0.6
     print(f"n={n}  flat homogeneity_tau={tau}")
-    print(f"{'k':>3} | {'1factor vr':>10} {'2factor vr':>10} | {'Horn cut':>9} | "
-          f"{'flat verdict (2f)':>17} {'Horn verdict (2f)':>17}")
+    print(f"{'k':>3} | {'1factor vr':>10} {'2factor vr':>10} | {'Horn cut':>9} | " f"{'flat verdict (2f)':>17} {'Horn verdict (2f)':>17}")
     for k in (3, 4, 5, 6, 8, 12):
         vr1, vr2 = [], []
         for seed in range(12):
@@ -64,10 +63,8 @@ def main():
         horn = _horn_cut(n, k, seed=k)
         flat_2f = "ACCEPT(bad)" if vr2m >= tau else "reject(ok)"
         horn_2f = "ACCEPT(bad)" if vr2m >= horn else "reject(ok)"
-        print(f"{k:>3} | {vr1m:>10.3f} {vr2m:>10.3f} | {horn:>9.3f} | "
-              f"{flat_2f:>17} {horn_2f:>17}")
-    print("\nWIN for Horn iff it says reject(ok) on 2-factor where flat says "
-          "ACCEPT(bad); NO win if both agree.")
+        print(f"{k:>3} | {vr1m:>10.3f} {vr2m:>10.3f} | {horn:>9.3f} | " f"{flat_2f:>17} {horn_2f:>17}")
+    print("\nWIN for Horn iff it says reject(ok) on 2-factor where flat says " "ACCEPT(bad); NO win if both agree.")
 
 
 if __name__ == "__main__":

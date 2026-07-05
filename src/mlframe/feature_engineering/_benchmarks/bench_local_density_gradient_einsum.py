@@ -29,17 +29,17 @@ EPS = 1e-9
 
 def _old(neighbor_X, Xq_s, neighbor_log_density, log_density_query, neighbor_y):
     diffs = neighbor_X - Xq_s[:, None, :]
-    dists = np.sqrt((diffs ** 2).sum(axis=-1)) + EPS
+    dists = np.sqrt((diffs**2).sum(axis=-1)) + EPS
     unit_dirs = diffs / dists[:, :, None]
     log_dens_diff = (neighbor_log_density - log_density_query[:, None]).astype(np.float32)
     weight = (log_dens_diff / dists).astype(np.float32)
     gradient = (weight[:, :, None] * unit_dirs).mean(axis=1)
-    gradient_norm = np.sqrt((gradient ** 2).sum(axis=-1)).astype(np.float32) + EPS
+    gradient_norm = np.sqrt((gradient**2).sum(axis=-1)).astype(np.float32) + EPS
     y_query_pseudo = neighbor_y.mean(axis=1)
     y_diff = (neighbor_y - y_query_pseudo[:, None]).astype(np.float32)
     y_gradient_weight = (y_diff / dists).astype(np.float32)
     y_gradient = (y_gradient_weight[:, :, None] * unit_dirs).mean(axis=1)
-    y_gradient_norm = np.sqrt((y_gradient ** 2).sum(axis=-1)) + EPS
+    y_gradient_norm = np.sqrt((y_gradient**2).sum(axis=-1)) + EPS
     dot = (gradient * y_gradient).sum(axis=-1)
     alignment = (dot / (gradient_norm * y_gradient_norm)).astype(np.float32)
     return gradient_norm, alignment
@@ -47,18 +47,18 @@ def _old(neighbor_X, Xq_s, neighbor_log_density, log_density_query, neighbor_y):
 
 def _new(neighbor_X, Xq_s, neighbor_log_density, log_density_query, neighbor_y):
     diffs = neighbor_X - Xq_s[:, None, :]
-    dists = np.sqrt((diffs ** 2).sum(axis=-1)) + EPS
+    dists = np.sqrt((diffs**2).sum(axis=-1)) + EPS
     unit_dirs = diffs / dists[:, :, None]
     k = unit_dirs.shape[1]
     log_dens_diff = (neighbor_log_density - log_density_query[:, None]).astype(np.float32)
     weight = (log_dens_diff / dists).astype(np.float32)
     gradient = (np.einsum("qk,qkd->qd", weight, unit_dirs, optimize=False) / k).astype(np.float32)
-    gradient_norm = np.sqrt((gradient ** 2).sum(axis=-1)).astype(np.float32) + EPS
+    gradient_norm = np.sqrt((gradient**2).sum(axis=-1)).astype(np.float32) + EPS
     y_query_pseudo = neighbor_y.mean(axis=1)
     y_diff = (neighbor_y - y_query_pseudo[:, None]).astype(np.float32)
     y_gradient_weight = (y_diff / dists).astype(np.float32)
     y_gradient = (np.einsum("qk,qkd->qd", y_gradient_weight, unit_dirs, optimize=False) / k).astype(np.float32)
-    y_gradient_norm = np.sqrt((y_gradient ** 2).sum(axis=-1)) + EPS
+    y_gradient_norm = np.sqrt((y_gradient**2).sum(axis=-1)) + EPS
     dot = (gradient * y_gradient).sum(axis=-1)
     alignment = (dot / (gradient_norm * y_gradient_norm)).astype(np.float32)
     return gradient_norm, alignment

@@ -69,8 +69,7 @@ try:
         return sums, counts
 
     @numba.njit(parallel=True, cache=True, fastmath=False)
-    def _batched_pair_sum_count(codes_t: np.ndarray, err: np.ndarray, f0_arr: np.ndarray,
-                                f1_arr: np.ndarray, stride0_arr: np.ndarray, max_cells: int):
+    def _batched_pair_sum_count(codes_t: np.ndarray, err: np.ndarray, f0_arr: np.ndarray, f1_arr: np.ndarray, stride0_arr: np.ndarray, max_cells: int):
         # One parallel pass over ALL feature pairs (the dominant slice-finder regime: thousands of pairs, each an
         # independent O(n) reduction that the serial loop ran one-at-a-time on a single core -> "CPU not loaded").
         # ``codes_t`` is the transposed (p, n) C-contiguous code matrix so ``codes_t[f]`` is a contiguous row -> the
@@ -120,7 +119,7 @@ DEFAULT_MAX_COMBOS: int = 5_000
 DEFAULT_THREE_WAY_TOP_FEATURES: int = 6
 # Cap on the transient transposed code-matrix copy used to batch the pair search across cores. Above it, fall back to
 # the serial per-pair path rather than risk doubling RAM on a huge diagnostic sample (the code matrix is int64 n x p).
-_SLICE_TRANSPOSE_MAX_BYTES: int = 4 * 1024 ** 3
+_SLICE_TRANSPOSE_MAX_BYTES: int = 4 * 1024**3
 
 
 @dataclass(frozen=True)
@@ -265,12 +264,9 @@ def find_weak_slices(
 
     capped: List[str] = []
     if n == 0 or p == 0:
-        empty = pd.DataFrame(columns=["features", "bounds", "mean_error", "support",
-                                       "support_fraction", "error_ratio", "score"])
-        bar = BarPanelSpec(categories=("(no data)",), values=np.array([0.0]),
-                           title=title + " (no usable data)", orientation="horizontal")
-        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=(8.0, 5.0)),
-                                 empty, global_error, ((), "", float("nan"), 0), ())
+        empty = pd.DataFrame(columns=["features", "bounds", "mean_error", "support", "support_fraction", "error_ratio", "score"])
+        bar = BarPanelSpec(categories=("(no data)",), values=np.array([0.0]), title=title + " (no usable data)", orientation="horizontal")
+        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=(8.0, 5.0)), empty, global_error, ((), "", float("nan"), 0), ())
 
     codes, all_edges = _bin_matrix(mat, nbins)
     nbins_per = [max(1, all_edges[j].size - 1) for j in range(p)]
@@ -292,7 +288,7 @@ def find_weak_slices(
         room = max_combos - len(combos)
         if len(triples) > room:
             capped.append(f"3-way enumeration truncated to {max(room, 0)} of {len(triples)} triples")
-            triples = triples[:max(room, 0)]
+            triples = triples[: max(room, 0)]
         combos.extend(triples)
 
     # Batch the arity-2 pair aggregations (the dominant ~thousands of combos) into one prange-parallel pass; singles
@@ -365,8 +361,7 @@ def find_weak_slices(
                            orientation="horizontal")
         for msg in capped:
             logger.info("slice_finder cap: %s", msg)
-        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=(8.0, 5.0)),
-                                 empty, global_error, ((), "", float("nan"), 0), tuple(capped))
+        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=(8.0, 5.0)), empty, global_error, ((), "", float("nan"), 0), tuple(capped))
 
     # Display order is worst-ERROR-first: rank the surfaced slices by mean error descending (stable mergesort so equal
     # errors keep their score-built order), then take the top_k. The candidate pool itself is still built by the
@@ -379,10 +374,7 @@ def find_weak_slices(
     def _bounds_for(i: int) -> str:
         combo_i = rec_combo[i]
         bins_i = rec_bins[i]
-        return " & ".join(
-            f"{names[combo_i[k]]} {_bin_label(all_edges[combo_i[k]], int(bins_i[k]))}"
-            for k in range(len(combo_i))
-        )
+        return " & ".join(f"{names[combo_i[k]]} {_bin_label(all_edges[combo_i[k]], int(bins_i[k]))}" for k in range(len(combo_i)))
 
     rec_features = {i: _features_for(i) for i in order}
     rec_bounds = {i: _bounds_for(i) for i in order}
@@ -402,10 +394,7 @@ def find_weak_slices(
         logger.info("slice_finder cap: %s", msg)
 
     # Horizontal bars, worst on top: bar length = mean error, annotated label carries the support fraction + ratio.
-    cats = tuple(
-        f"{table['bounds'].iloc[i]}  (n={int(table['support'].iloc[i]):_}, {table['error_ratio'].iloc[i]:.2g}x)"
-        for i in range(len(table))
-    )
+    cats = tuple(f"{table['bounds'].iloc[i]}  (n={int(table['support'].iloc[i]):_}, {table['error_ratio'].iloc[i]:.2g}x)" for i in range(len(table)))
     vals = table["mean_error"].to_numpy()
     # ``table`` is already worst-first; the renderer inverts the y-axis for horizontal bars so the first category
     # lands on TOP, so the worst slice reads at the top to match the "worst-on-top" title (no pre-reverse here).
@@ -421,8 +410,7 @@ def find_weak_slices(
     )
     fig = FigureSpec(suptitle="", panels=((bar,),), figsize=(10.0, max(5.0, 0.5 * len(table) + 2.0)))
     top_row = table.iloc[0]
-    worst_slice = (tuple(top_row["features"]), str(top_row["bounds"]),
-                   float(top_row["mean_error"]), int(top_row["support"]))
+    worst_slice = (tuple(top_row["features"]), str(top_row["bounds"]), float(top_row["mean_error"]), int(top_row["support"]))
     return SliceFinderResult(fig, table, global_error, worst_slice, tuple(capped))
 
 

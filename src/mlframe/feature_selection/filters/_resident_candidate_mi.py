@@ -109,9 +109,9 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
         out = cp.empty((n, k), dtype=cp.float64)
         total = n * k
         threads = 256
-        _get_build_opcands_kernel(cp)(((total + threads - 1) // threads,), (threads,),
-                                      (M, pi, pj, np.int64(n), np.int32(m), np.int32(npairs),
-                                       np.int32(has_sum), np.int32(k), out))
+        _get_build_opcands_kernel(cp)(
+            ((total + threads - 1) // threads,), (threads,), (M, pi, pj, np.int64(n), np.int32(m), np.int32(npairs), np.int32(has_sum), np.int32(k), out)
+        )
         return out
     except Exception:
         cands = list(cols_arr_gpu)
@@ -219,7 +219,7 @@ def gate_grid_mi_resident(
         if not specs:
             return np.zeros(0, dtype=np.float64)
         blocks = []  # device (n, k_combo) matrices, built op-for-op like the host tau-grid
-        for (mode, ctup, cols, taus) in specs:
+        for mode, ctup, cols, taus in specs:
             taus_g = cp.asarray(np.ascontiguousarray(np.asarray(taus, dtype=np.float64)))  # (k,)
             if mode == "mask":
                 cv, av = cols

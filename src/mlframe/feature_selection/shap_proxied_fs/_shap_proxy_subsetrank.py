@@ -216,8 +216,7 @@ def brute_force_top_n_dispatch(
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gpu import brute_force_top_n_gpu, gpu_available
 
             if backend == "gpu" or gpu_available():
-                return brute_force_top_n_gpu(phi, base, y, classification=classification, metric=metric,
-                                             min_card=min_card, max_card=max_card, top_n=top_n)
+                return brute_force_top_n_gpu(phi, base, y, classification=classification, metric=metric, min_card=min_card, max_card=max_card, top_n=top_n)
             if not _fallback_logged:
                 logger.warning("ShapProxiedFS subset-rank: GPU requested but no CUDA device; using CPU kernel.")
                 _fallback_logged = True
@@ -226,5 +225,4 @@ def brute_force_top_n_dispatch(
                 logger.warning("ShapProxiedFS subset-rank: GPU backend unavailable (%s); using CPU kernel.", exc)
                 _fallback_logged = True
 
-    return brute_force_top_n(phi, base, y, classification=classification, metric=metric,
-                             min_card=min_card, max_card=max_card, top_n=top_n, parallel=parallel)
+    return brute_force_top_n(phi, base, y, classification=classification, metric=metric, min_card=min_card, max_card=max_card, top_n=top_n, parallel=parallel)

@@ -59,8 +59,7 @@ def _maybe_resume_from_checkpoint(self, *, signature, verbose, state: Dict[str, 
     elif _state is not None:
         if verbose:
             logger.info(
-                "RFECV: checkpoint at %s does not match current "
-                "(X, y, columns) signature; starting from scratch.",
+                "RFECV: checkpoint at %s does not match current " "(X, y, columns) signature; starting from scratch.",
                 self.checkpoint_path,
             )
     return state

@@ -191,8 +191,7 @@ def _lattice_grid_mi(a: np.ndarray, b: np.ndarray, y: np.ndarray, ops: Sequence[
     return np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=np.float64)
 
 
-def _perm_null_hi(feat: np.ndarray, y: np.ndarray, nbins: int,
-                  n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
+def _perm_null_hi(feat: np.ndarray, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
     """Upper band (mean + z*std) of the pre-computed feature's MI under y permutation -- the noise reference the
     feature MI must clear. The feature is fixed; only y is shuffled (cheap, n_perm small)."""
     rng = np.random.default_rng(seed)
@@ -203,8 +202,7 @@ def _perm_null_hi(feat: np.ndarray, y: np.ndarray, nbins: int,
     return float(vals.mean() + z * vals.std())
 
 
-def _responded(feat_mi: float, operand_floor: float, null_hi: float,
-               min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
+def _responded(feat_mi: float, operand_floor: float, null_hi: float, min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
     """Gate: the engineered column's MI must clear BOTH the better operand's raw MI (by ``min_margin``) AND the permutation-null upper band by
     an absolute ``null_margin`` (not just ``> null_hi`` -- guards the cardinality-inflation false positive on a few-class y; see ``_MIN_NULL_MARGIN``).
     Mirrors ``_pairwise_modular_fe._responded`` (operand_floor plays the baseline role)."""
@@ -219,7 +217,7 @@ class LatticeHit:
     cols: tuple[str, str]
     feat_mi: float
     operand_floor: float  # max raw MI of the two operands = the best a non-lattice op could already recover
-    null_hi: float        # permutation-null upper band on the engineered-column MI
+    null_hi: float  # permutation-null upper band on the engineered-column MI
 
     @property
     def margin_over_operands(self) -> float:

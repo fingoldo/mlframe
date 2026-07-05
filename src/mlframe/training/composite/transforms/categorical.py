@@ -92,16 +92,10 @@ def _target_encoding_residual_fit(
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     groups = np.asarray(groups).reshape(-1)
     if len(groups) != len(y_f):
-        raise ValueError(
-            f"target_encoding_residual: groups has {len(groups)} rows but y "
-            f"has {len(y_f)} rows."
-        )
+        raise ValueError(f"target_encoding_residual: groups has {len(groups)} rows but y " f"has {len(y_f)} rows.")
     a = float(smoothing)
     if not np.isfinite(a) or a < 0.0:
-        raise ValueError(
-            f"target_encoding_residual: smoothing must be a finite non-negative "
-            f"float, got {smoothing!r}."
-        )
+        raise ValueError(f"target_encoding_residual: smoothing must be a finite non-negative " f"float, got {smoothing!r}.")
     global_mean = float(np.mean(y_f)) if len(y_f) > 0 else 0.0
 
     # Group-wise sum + count in one pass via np.unique inverse-index scatter-add.
@@ -114,9 +108,8 @@ def _target_encoding_residual_fit(
     # silently miss every category and collapse to the global mean (see
     # _canonical_group_key). ``str`` alone made ``1`` and ``1.0`` distinct keys.
     from . import _canonical_group_key
-    encoding: dict[str, float] = {
-        _canonical_group_key(g): float(v) for g, v in zip(unique_groups, smoothed)
-    }
+
+    encoding: dict[str, float] = {_canonical_group_key(g): float(v) for g, v in zip(unique_groups, smoothed)}
     return {
         "global_mean": global_mean,
         "encoding": encoding,
@@ -163,9 +156,7 @@ def _target_encoding_residual_forward(
 ) -> np.ndarray:
     """T = y - smoothed_category_mean(cat)."""
     if groups is None:
-        raise ValueError(
-            "target_encoding_residual.forward: groups kwarg is required."
-        )
+        raise ValueError("target_encoding_residual.forward: groups kwarg is required.")
     enc = _category_encoding_lookup(groups, params)
     return np.asarray(y, dtype=np.float64).reshape(-1) - enc
 
@@ -176,9 +167,7 @@ def _target_encoding_residual_inverse(
 ) -> np.ndarray:
     """y_hat = T_hat + smoothed_category_mean(cat). Unseen cats -> global mean."""
     if groups is None:
-        raise ValueError(
-            "target_encoding_residual.inverse: groups kwarg is required."
-        )
+        raise ValueError("target_encoding_residual.inverse: groups kwarg is required.")
     enc = _category_encoding_lookup(groups, params)
     return np.asarray(t_hat, dtype=np.float64).reshape(-1) + enc
 

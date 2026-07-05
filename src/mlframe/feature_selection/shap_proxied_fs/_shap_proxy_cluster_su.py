@@ -47,8 +47,7 @@ def _resolve_parallel_min_features(default: int = 50) -> int:
     try:
         from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
-        value = kernel_tuning_cache.get(
-            "mlframe.shap_proxied_fs.cluster_su.parallel_min_features", default=default)
+        value = kernel_tuning_cache.get("mlframe.shap_proxied_fs.cluster_su.parallel_min_features", default=default)
         return int(value)
     except Exception:
         return default
@@ -65,8 +64,7 @@ def _resolve_gpu_min_features(default: int = 500) -> int:
     try:
         from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
-        value = kernel_tuning_cache.get(
-            "mlframe.shap_proxied_fs.cluster_su.gpu_min_features", default=default)
+        value = kernel_tuning_cache.get("mlframe.shap_proxied_fs.cluster_su.gpu_min_features", default=default)
         return int(value)
     except Exception:
         return default
@@ -236,8 +234,8 @@ def _pairwise_su_edges_gpu(
         # mi = sum_{a,b} joint_p * log(joint_p / (px_i_a * px_j_b)) over a, b
         # We need px_outer[i_local, j, a, b] = px[i_global, a] * px[j, b].
         px_i = px_dev[i_start:i_end][:, None, :, None]  # (chunk, 1, mb, 1)
-        px_j = px_dev[None, :, None, :]                  # (1, f, 1, mb)
-        px_outer = px_i * px_j                            # (chunk, f, mb, mb)
+        px_j = px_dev[None, :, None, :]  # (1, f, 1, mb)
+        px_outer = px_i * px_j  # (chunk, f, mb, mb)
 
         # log-ratio only where joint_p > 0 AND px_outer > 0; zero elsewhere
         eps = cp.float64(1e-300)
@@ -246,17 +244,17 @@ def _pairwise_su_edges_gpu(
         log_ratio = cp.where(joint_p > 0.0, cp.log(ratio), cp.float64(0.0))
         mi = (joint_p * log_ratio).sum(axis=(2, 3))  # (chunk, f)
 
-        h_i_chunk = h_dev[i_start:i_end][:, None]       # (chunk, 1)
-        denom = h_i_chunk + h_dev[None, :]               # (chunk, f)
+        h_i_chunk = h_dev[i_start:i_end][:, None]  # (chunk, 1)
+        denom = h_i_chunk + h_dev[None, :]  # (chunk, f)
         # denom == 0 happens iff BOTH columns have entropy 0 (both constant). For those
         # pairs ``constant_mask`` already excludes them below.
         safe_denom = cp.where(denom > 1e-12, denom, cp.float64(1.0))
         su = cp.where(denom > 1e-12, 2.0 * mi / safe_denom, cp.float64(0.0))
 
         # Mask: upper triangle only AND not constant on either side.
-        i_idx = cp.arange(i_start, i_end)[:, None]       # (chunk, 1)
-        j_idx = cp.arange(n_features)[None, :]            # (1, f)
-        upper = j_idx > i_idx                             # (chunk, f)
+        i_idx = cp.arange(i_start, i_end)[:, None]  # (chunk, 1)
+        j_idx = cp.arange(n_features)[None, :]  # (1, f)
+        upper = j_idx > i_idx  # (chunk, f)
         not_const = (~constant_dev[i_start:i_end])[:, None] & (~constant_dev[None, :])
 
         passes = (su >= cp.float64(threshold)) & upper & not_const
@@ -515,7 +513,7 @@ def _pack_bins_for_kernel(
         nb = int(freqs_i.shape[0])
         nbins[i] = nb
         freqs_offsets[i] = offset
-        freqs_packed[offset:offset + nb] = freqs_i
+        freqs_packed[offset : offset + nb] = freqs_i
         offset += nb
         constant_mask[i] = nb <= 1
         h = 0.0
@@ -724,9 +722,7 @@ def cluster_correlated_features_su(
     from mlframe.feature_selection.filters.info_theory import compute_su_from_classes
 
     if not isinstance(bins, dict):
-        raise TypeError(
-            f"cluster_correlated_features_su: expected bins dict, got {type(bins).__name__}"
-        )
+        raise TypeError(f"cluster_correlated_features_su: expected bins dict, got {type(bins).__name__}")
     names, arrays = _resolve_columns(bins, feature_names)
     f = len(names)
     if f == 0:
@@ -749,10 +745,7 @@ def cluster_correlated_features_su(
         # _column_marginal + _pack_bins_for_kernel chain (both Python-level O(f) loops).
         nbins_hints: list[int] | None
         if nbins_per_feature is not None:
-            nbins_hints = [
-                int(nbins_per_feature[name]) if name in nbins_per_feature else 0
-                for name in names
-            ]
+            nbins_hints = [int(nbins_per_feature[name]) if name in nbins_per_feature else 0 for name in names]
         else:
             nbins_hints = None
         packed = _setup_su_kernel_inputs(arrays, nbins_hints)
@@ -802,8 +795,7 @@ def cluster_correlated_features_su(
             ei_arr, ej_arr = np.where(flags == 1)
             if ei_arr.size > edge_cap:
                 raise MemoryError(
-                    f"ShapProxiedFS SU clustering: >{edge_cap} edges at "
-                    f"threshold={threshold}. Raise cluster_su_threshold to merge fewer features."
+                    f"ShapProxiedFS SU clustering: >{edge_cap} edges at " f"threshold={threshold}. Raise cluster_su_threshold to merge fewer features."
                 )
             ei = ei_arr.astype(np.int64, copy=False)
             ej = ej_arr.astype(np.int64, copy=False)
@@ -839,8 +831,7 @@ def cluster_correlated_features_su(
                 total += 1
                 if total > edge_cap:
                     raise MemoryError(
-                        f"ShapProxiedFS SU clustering: >{edge_cap} edges at "
-                        f"threshold={threshold}. Raise cluster_su_threshold to merge fewer features."
+                        f"ShapProxiedFS SU clustering: >{edge_cap} edges at " f"threshold={threshold}. Raise cluster_su_threshold to merge fewer features."
                     )
     if not ei_parts:
         ei = np.empty(0, dtype=np.int64)

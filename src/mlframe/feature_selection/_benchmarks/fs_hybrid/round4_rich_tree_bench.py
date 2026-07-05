@@ -20,10 +20,10 @@ from hard_synth import make_hard_dataset
 from hybrid_selector import HybridSelector
 
 _OPS = {
-    "mul":  lambda a, b: a * b,
+    "mul": lambda a, b: a * b,
     "absd": lambda a, b: np.abs(a - b),
     "sign": lambda a, b: np.sign(a) * np.abs(b),
-    "rat":  lambda a, b: a / (np.abs(b) + 1.0),
+    "rat": lambda a, b: a / (np.abs(b) + 1.0),
 }
 
 
@@ -36,7 +36,7 @@ class RichTreeHybrid(HybridSelector):
         self.rich_ops = tuple(rich_ops)
 
     def _tree_signals(self, X, y):
-        super()._tree_signals(X, y)          # ranking + base a*b pairs/names (FE-gated)
+        super()._tree_signals(X, y)  # ranking + base a*b pairs/names (FE-gated)
         base_pairs = list(getattr(self, "_tree_prod_pairs_", []))
         self._tree_op_ = {}
         pairs, names = [], []
@@ -50,7 +50,7 @@ class RichTreeHybrid(HybridSelector):
         # build MRMR eng cols via the base path with tree products temporarily disabled, then add rich-op cols
         saved_pairs, saved_names = self._tree_prod_pairs_, self._tree_prod_names_
         self._tree_prod_pairs_, self._tree_prod_names_ = [], []
-        base = super()._augment(X)            # [raw | MRMR eng]
+        base = super()._augment(X)  # [raw | MRMR eng]
         self._tree_prod_pairs_, self._tree_prod_names_ = saved_pairs, saved_names
         cols = {}
         for nm in self._tree_prod_names_:
@@ -88,11 +88,11 @@ def main():
     allrows += run("synth", Xs, ys)
     df = pd.DataFrame(allrows)
     print("\n=== mean over seeds ===")
-    print(df.groupby(["bed","variant"]).agg(auc=("auc_mean","mean"), std=("auc_mean","std"), n=("n","mean")).round(4).to_string())
+    print(df.groupby(["bed", "variant"]).agg(auc=("auc_mean", "mean"), std=("auc_mean", "std"), n=("n", "mean")).round(4).to_string())
     print("\n=== verdict ===")
     for bed in df.bed.unique():
-        b0 = df[(df.bed==bed)&(df.variant=="baseline")]["auc_mean"].mean()
-        b1 = df[(df.bed==bed)&(df.variant=="richtree")]["auc_mean"].mean()
+        b0 = df[(df.bed == bed) & (df.variant == "baseline")]["auc_mean"].mean()
+        b1 = df[(df.bed == bed) & (df.variant == "richtree")]["auc_mean"].mean()
         print(f"  {bed:12s} richtree {round(b1,4)} vs baseline {round(b0,4)}  d={round(b1-b0,4):+}")
     df.to_csv("D:/Temp/round4_rich_tree_rows.csv", index=False)
 

@@ -86,9 +86,7 @@ def main() -> None:
                 speedup = 1.0
             else:
                 speedup = baseline / wall if wall > 0 else float("inf")
-            print(
-                f"{label:<20} {nw:>8} {wall:>10.3f} {bps:>12.1f} {speedup:>9.2f}x"
-            )
+            print(f"{label:<20} {nw:>8} {wall:>10.3f} {bps:>12.1f} {speedup:>9.2f}x")
         print()
 
 

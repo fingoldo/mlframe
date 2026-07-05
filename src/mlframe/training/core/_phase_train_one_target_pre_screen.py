@@ -30,11 +30,7 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
     re-fire the screen on every target.
     """
     _fs_cfg = ctx.feature_selection_config
-    if not (
-        _fs_cfg is not None
-        and getattr(_fs_cfg, "pre_screen_unsupervised", False)
-        and not ctx._pre_screen_done
-    ):
+    if not (_fs_cfg is not None and getattr(_fs_cfg, "pre_screen_unsupervised", False) and not ctx._pre_screen_done):
         return
     try:
         # Canonical home is ``mlframe.feature_selection.pre_screen`` (not under ``.filters``).
@@ -100,8 +96,8 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
         # Do NOT use ``ctx.train_df_polars or ctx.train_df_pd``: bool(pl.DataFrame) raises a TypeError
         # (ambiguous truthiness) which the outer except swallows, silently skipping the pre-screen on
         # polars-only inputs and latching ``_pre_screen_done``. Explicit ``is not None`` avoids that.
-        _train_for_screen = ctx.filtered_train_df if ctx.filtered_train_df is not None else (
-            ctx.train_df_polars if ctx.train_df_polars is not None else ctx.train_df_pd
+        _train_for_screen = (
+            ctx.filtered_train_df if ctx.filtered_train_df is not None else (ctx.train_df_polars if ctx.train_df_polars is not None else ctx.train_df_pd)
         )
         _drops = compute_unsupervised_drops(
             _train_for_screen,

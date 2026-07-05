@@ -63,7 +63,7 @@ def _build_knn_graph(X: np.ndarray, k_graph: int, sigma: Optional[float] = None)
         # Median of the k-th NN distance — Belkin-Niyogi heuristic.
         sigma = float(np.median(dists[:, -1])) + 1e-9
 
-    weights = np.exp(-(dists ** 2) / (2 * sigma ** 2)).astype(np.float32)
+    weights = np.exp(-(dists**2) / (2 * sigma**2)).astype(np.float32)
     # Build (N, N) sparse — symmetrise.
     rows = np.repeat(np.arange(n, dtype=np.int64), k_graph)
     cols = ids.ravel().astype(np.int64)
@@ -102,7 +102,7 @@ def _eigvecs_from_graph(W: sp.csr_matrix, n_eigvecs: int) -> tuple[np.ndarray, n
     eigvals_A = eigvals_A[order]
     eigvecs_A = eigvecs_A[:, order]
     # Skip the trivial constant eigvec (corresponds to eigval ~ 1 of A).
-    return eigvals_A[1:n_eigvecs + 1].astype(np.float32), eigvecs_A[:, 1:n_eigvecs + 1].astype(np.float32), d_inv_sqrt
+    return eigvals_A[1 : n_eigvecs + 1].astype(np.float32), eigvecs_A[:, 1 : n_eigvecs + 1].astype(np.float32), d_inv_sqrt
 
 
 def _nystrom_extend(X_train: np.ndarray, X_query: np.ndarray, eigvals: np.ndarray, eigvecs_normalised: np.ndarray, d_inv_sqrt: np.ndarray, k_graph: int, sigma: Optional[float] = None) -> np.ndarray:
@@ -118,7 +118,7 @@ def _nystrom_extend(X_train: np.ndarray, X_query: np.ndarray, eigvals: np.ndarra
     dists, ids = nn.kneighbors(X_query)
     if sigma is None or sigma <= 0:
         sigma = float(np.median(dists[:, -1])) + 1e-9
-    affinity = np.exp(-(dists ** 2) / (2 * sigma ** 2)).astype(np.float32)  # (n_q, k_graph)
+    affinity = np.exp(-(dists**2) / (2 * sigma**2)).astype(np.float32)  # (n_q, k_graph)
     d_q = affinity.sum(axis=1) + 1e-9
     d_q_inv_sqrt = 1.0 / np.sqrt(d_q)
 

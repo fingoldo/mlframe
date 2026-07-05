@@ -89,7 +89,7 @@ def _content_hash(host: Any) -> int:
         b = host.view(_np.uint8).reshape(-1)
         nwords = b.shape[0] // 8
         words = b[: nwords * 8].view(_np.uint64)
-        tail = b[nwords * 8:]
+        tail = b[nwords * 8 :]
         return int(_njit_content_hash(words, tail))
     return hash(host.tobytes())
 
@@ -149,12 +149,12 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
     sig = (host.shape, host.dtype.str, _content_hash(host))
     g = _FE_RESIDENT_OPERANDS.get(sig)
     if g is not None:
-        _FE_RESIDENT_OPERANDS.move_to_end(sig)        # LRU: this content is hot
+        _FE_RESIDENT_OPERANDS.move_to_end(sig)  # LRU: this content is hot
         return g
     g = cp.asarray(host)
     _FE_RESIDENT_OPERANDS[sig] = g
     if len(_FE_RESIDENT_OPERANDS) > _MAX_ENTRIES:
-        _FE_RESIDENT_OPERANDS.popitem(last=False)     # evict ONLY the coldest entry, never the whole table
+        _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
     return g
 
 
@@ -186,8 +186,7 @@ def assemble_resident_matrix(host, names, fallback_key, *, dtype=None):
     _n, _k = host.shape
     if (not _disabled()) and names is not None and len(names) == _k and _k >= 1:
         try:
-            cols = [resident_operand(np.ascontiguousarray(host[:, j]), ("xbasis_op", names[j]), dtype=dtype)
-                    for j in range(_k)]
+            cols = [resident_operand(np.ascontiguousarray(host[:, j]), ("xbasis_op", names[j]), dtype=dtype) for j in range(_k)]
             return cp.stack(cols, axis=1) if _k > 1 else cols[0][:, None]
         except Exception:
             pass
@@ -263,16 +262,16 @@ def resident_qbin_codes(a: Any, nbins: int, dtype: Any, compute_fn: Any) -> Any:
     sig = (host.shape, host.dtype.str, _content_hash(host), int(nbins), str(dtype))
     dev = _FE_RESIDENT_QBIN_CODES.get(sig)
     if dev is not None:
-        _FE_RESIDENT_QBIN_CODES.move_to_end(sig)      # LRU: this content is hot
-        return dev.astype(cp.int64)                   # widen the narrow store to the int64 the kernels index
+        _FE_RESIDENT_QBIN_CODES.move_to_end(sig)  # LRU: this content is hot
+        return dev.astype(cp.int64)  # widen the narrow store to the int64 the kernels index
     xd = resident_operand(host, "qbin_x", dtype=dtype)
-    codes = compute_fn(cp, xd, int(nbins))            # sync-free binner, resident int64 codes
+    codes = compute_fn(cp, xd, int(nbins))  # sync-free binner, resident int64 codes
     # Store narrow: codes are 0..nbins-1 (a few dozen bins), int16 holds them exactly (int64 escape only if some
     # binner ever emits a value outside int16, keeping the store bit-identical either way).
     narrow = codes.astype(cp.int16) if (int(nbins) <= 32767) else codes
     _FE_RESIDENT_QBIN_CODES[sig] = narrow
     if len(_FE_RESIDENT_QBIN_CODES) > _MAX_QBIN_CODE_ENTRIES:
-        _FE_RESIDENT_QBIN_CODES.popitem(last=False)   # evict ONLY the coldest entry, never the whole table
+        _FE_RESIDENT_QBIN_CODES.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
     return codes
 
 

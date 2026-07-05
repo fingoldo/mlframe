@@ -46,8 +46,4 @@ def __dir__():
     import importlib
     _q = importlib.import_module("mlframe.calibration.quality")
     _p = importlib.import_module("mlframe.calibration.probabilities")
-    return sorted(
-        set(globals().keys())
-        | {n for n in dir(_q) if not n.startswith("_")}
-        | {n for n in dir(_p) if not n.startswith("_")}
-    )
+    return sorted(set(globals().keys()) | {n for n in dir(_q) if not n.startswith("_")} | {n for n in dir(_p) if not n.startswith("_")})

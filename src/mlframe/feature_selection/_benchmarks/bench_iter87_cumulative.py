@@ -36,7 +36,7 @@ REGIMES = {
 PER_CONFIG_TIMEOUT_S = 240
 
 
-WORKER = r'''
+WORKER = r"""
 import json, os, sys, time, warnings
 warnings.filterwarnings("ignore")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -100,7 +100,7 @@ print("__RESULT__" + json.dumps({
     "chosen": chosen[:40],
     "honest_loss_refine": honest_loss,
 }))
-'''
+"""
 
 
 def _run_subprocess(python_exe: str, pythonpath: str, regime: dict, cache_dir: str | None, warm: bool):
@@ -137,7 +137,7 @@ def _run_subprocess(python_exe: str, pythonpath: str, regime: dict, cache_dir: s
     for line in proc.stdout.splitlines():
         if line.startswith("__RESULT__"):
             try:
-                payload = json.loads(line[len("__RESULT__"):])
+                payload = json.loads(line[len("__RESULT__") :])
             except Exception:
                 pass
     if payload is None:

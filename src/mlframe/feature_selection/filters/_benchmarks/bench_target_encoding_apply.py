@@ -21,9 +21,7 @@ REL = "src/mlframe/feature_selection/filters/_target_encoding_fe.py"
 
 
 def _load_old_module() -> types.ModuleType:
-    src = subprocess.run(
-        ["git", "show", f"HEAD:{REL}"], cwd=REPO, capture_output=True, text=True, check=True
-    ).stdout
+    src = subprocess.run(["git", "show", f"HEAD:{REL}"], cwd=REPO, capture_output=True, text=True, check=True).stdout
     from mlframe.feature_selection.filters import _internals  # noqa: F401
 
     pkg_name = "_te_old_pkg"

@@ -87,7 +87,6 @@ def _digit_extract_njit(arr: np.ndarray, scale: float) -> np.ndarray:
     return out
 
 
-
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -153,15 +152,12 @@ def apply_digit_extract(x: np.ndarray, digit_position: int) -> np.ndarray:
     # Fused single-pass njit: floor(x*10^k) mod 10, NaN/inf -> 0 (matches the
     # nan_to_num scrubbing the rest of the FE pipeline applies). ~12x over the
     # numpy mul->floor->mod->nan_to_num 4-pass.
-    return _digit_extract_njit(arr, 10.0 ** k)
+    return _digit_extract_njit(arr, 10.0**k)
 
 
 def _numeric_cols(X: pd.DataFrame, cols: Optional[Sequence[str]]) -> list[str]:
     candidates = list(cols) if cols is not None else list(X.columns)
-    return [
-        c for c in candidates
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    return [c for c in candidates if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
 
 
 def generate_rounding_features(
@@ -243,14 +239,14 @@ def _parse_engineered_name(name: str):
         return None
     src, suffix = name.split("__", 1)
     if suffix.startswith(ROUNDING_PREFIX + "_"):
-        tok = suffix[len(ROUNDING_PREFIX) + 1:]
+        tok = suffix[len(ROUNDING_PREFIX) + 1 :]
         try:
             prec = float(tok.replace("m", "-").replace("p", "."))
         except ValueError:
             return None
         return ("numeric_rounding", src, prec)
     if suffix.startswith(DIGIT_PREFIX + "_"):
-        tok = suffix[len(DIGIT_PREFIX) + 1:]
+        tok = suffix[len(DIGIT_PREFIX) + 1 :]
         if not tok.lstrip("-").isdigit():
             return None
         return ("digit_extract", src, int(tok))
@@ -347,18 +343,13 @@ def hybrid_numeric_decompose_fe(
     # ``uplift_mean`` stays a faithful "engineered beats raw on average"
     # gate; the LCB stability guarantee is fully carried by the absolute
     # engineered_mi_lcb noise floor.
-    qualified = scores[
-        (scores["uplift_mean"] >= float(min_uplift_lcb))
-        & (scores["engineered_mi_lcb"] >= noise_floor)
-    ]
+    qualified = scores[(scores["uplift_mean"] >= float(min_uplift_lcb)) & (scores["engineered_mi_lcb"] >= noise_floor)]
     # Rank survivors by the STABLE absolute metric (engineered_mi_lcb), not
     # uplift_lcb: when several decompositions of the same near-zero-MI source
     # qualify, the uplift ratio's LCB ordering is dominated by denominator
     # noise (see the gate comment above). engineered_mi_lcb gives a faithful
     # "strongest genuine signal first" cut for the top-K.
-    winners = qualified.sort_values(
-        "engineered_mi_lcb", ascending=False
-    ).head(int(top_k))
+    winners = qualified.sort_values("engineered_mi_lcb", ascending=False).head(int(top_k))
     keep = list(winners["engineered_col"])
     X_aug = pd.concat([X, eng[keep]], axis=1) if keep else X.copy()
     return X_aug, scores
@@ -403,8 +394,8 @@ def hybrid_numeric_decompose_fe_with_recipes(
         parsed = _parse_engineered_name(name)
         if parsed is None:
             logger.warning(
-                "hybrid_numeric_decompose_fe_with_recipes: cannot parse "
-                "kind/param from column name %r; skipping recipe build.", name,
+                "hybrid_numeric_decompose_fe_with_recipes: cannot parse " "kind/param from column name %r; skipping recipe build.",
+                name,
             )
             continue
         kind, src, param = parsed

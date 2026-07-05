@@ -19,7 +19,6 @@ import os
 
 import numpy as np
 
-
 # RANK-EXACT SORT-FREE QUANTILE EDGES via RADIX-SELECT (roadmap #2, 2026-06-20). cp.percentile bins each
 # column with a FULL O(n log n) sort (profiled n=100k/79s: the cp.percentile SORT in this function = 12.9s,
 # the #1 production GPU cost) but it only needs the nbins-1 INTERIOR quantile EDGES -- i.e. the ~2*(nbins-1)
@@ -306,7 +305,7 @@ _RADIX_SELECT_F32_BSEARCH_KERNEL = None  # module-level singleton (lazy-compiled
 _RADIX_SELECT_F64_KERNEL = None  # module-level singletons (lazy-compiled; never on an instance -> pickle-safe)
 _RADIX_SELECT_F32_KERNEL = None
 _RADIX_SELECT_THREADS = 512  # historical default + KTC fallback (see _gpu_resident_radix_ktc / Lever B)
-_RADIX_SELECT_MAXR = 64      # must match MAXR in the kernel sources
+_RADIX_SELECT_MAXR = 64  # must match MAXR in the kernel sources
 # STATIC __shared__ footprint of the radix-select kernels, in bytes (the host shared-mem gate must subtract
 # this from the device per-block limit before testing the DYNAMIC histogram ``shmem = R*256*4`` -- otherwise
 # dynamic+static can exceed the limit and cuLaunchKernel returns CUDA_ERROR_INVALID_VALUE). Worst case is the
@@ -412,7 +411,7 @@ def _transpose_to_cm(cand_gpu):
     if cand_gpu.dtype == cp.float32 and cand_gpu.flags.c_contiguous:
         _ker, _dt = _get_transpose_f32_kernel(), cp.float32
     elif cand_gpu.dtype == cp.float64 and cand_gpu.flags.c_contiguous:
-        _ker, _dt = _get_transpose_f64_kernel(), cp.float64   # f64 twin: kills the 0.5 GB/s .T-copy fallback
+        _ker, _dt = _get_transpose_f64_kernel(), cp.float64  # f64 twin: kills the 0.5 GB/s .T-copy fallback
     else:
         return cp.ascontiguousarray(cand_gpu.T)
     try:
@@ -438,12 +437,11 @@ def _transpose_cm_to_rm(cm_gpu):
     if cm_gpu.dtype != cp.float32 or not cm_gpu.flags.c_contiguous:
         return cp.ascontiguousarray(cm_gpu.T)
     try:
-        out = cp.empty((nc, Kr), dtype=cp.float32)             # (n, K)
+        out = cp.empty((nc, Kr), dtype=cp.float32)  # (n, K)
         # The kernel treats the input as (n_rows=Kr, K_cols=nc); grid.x spans the K_cols (=nc), grid.y the
         # n_rows (=Kr) -- mirror _transpose_to_cm's ((K+31)//32, (n+31)//32) with n:=Kr, K:=nc.
         grid = ((nc + 31) // 32, int((Kr + 31) // 32))
-        _get_transpose_f32_kernel()((grid[0], grid[1]), (32, 32),
-                                    (cm_gpu, out, np.int64(Kr), np.int32(nc)))
+        _get_transpose_f32_kernel()((grid[0], grid[1]), (32, 32), (cm_gpu, out, np.int64(Kr), np.int32(nc)))
         return out
     except Exception:
         import logging
@@ -477,7 +475,7 @@ void transpose_i8(const signed char* __restrict__ in, signed char* __restrict__ 
 }
 """
 _TRANSPOSE_I16_SRC = _TRANSPOSE_I8_SRC.replace("signed char", "short").replace("transpose_i8", "transpose_i16")
-_TRANSPOSE_I8_KERNEL = None   # module-level singletons (lazy-compiled; pickle-safe)
+_TRANSPOSE_I8_KERNEL = None  # module-level singletons (lazy-compiled; pickle-safe)
 _TRANSPOSE_I16_KERNEL = None
 
 
@@ -508,8 +506,7 @@ def transpose_codes_to_cm(disc_gpu: object) -> object:
     try:
         out = cp.empty((K, n), dtype=disc_gpu.dtype)
         grid = ((K + 31) // 32, int((n + 31) // 32))
-        _get_transpose_int_kernel(itemsize)((grid[0], grid[1]), (32, 32),
-                                            (disc_gpu, out, np.int64(n), np.int32(K)))
+        _get_transpose_int_kernel(itemsize)((grid[0], grid[1]), (32, 32), (disc_gpu, out, np.int64(n), np.int32(K)))
         return out
     except Exception:
         import logging
@@ -664,8 +661,7 @@ def _get_radix_select_interp_f64_kernel():
     if os.environ.get("MLFRAME_RADIX_F64_V2", "1").strip().lower() in ("1", "true", "on", "yes"):
         if _RADIX_SELECT_INTERP_F64_V2_KERNEL is None:
             try:
-                _RADIX_SELECT_INTERP_F64_V2_KERNEL = cp.RawKernel(
-                    _RADIX_SELECT_INTERP_F64_V2_SRC, "radix_select_interp_f64_v2")
+                _RADIX_SELECT_INTERP_F64_V2_KERNEL = cp.RawKernel(_RADIX_SELECT_INTERP_F64_V2_SRC, "radix_select_interp_f64_v2")
             except Exception:
                 import logging
                 logging.getLogger(__name__).debug("f64 v2 fused kernel compile failed; original", exc_info=True)
@@ -685,8 +681,7 @@ def _get_radix_select_f32_v3_kernel():
     global _RADIX_SELECT_F32_V3_KERNEL
     import cupy as cp
     if _RADIX_SELECT_F32_V3_KERNEL is None:
-        _RADIX_SELECT_F32_V3_KERNEL = cp.RawKernel(
-            _RADIX_SELECT_F32_V3_SRC, "radix_select_f32_v3")
+        _RADIX_SELECT_F32_V3_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_V3_SRC, "radix_select_f32_v3")
     return _RADIX_SELECT_F32_V3_KERNEL
 
 
@@ -697,8 +692,7 @@ def _get_radix_select_f32_bsearch_kernel():
     global _RADIX_SELECT_F32_BSEARCH_KERNEL
     import cupy as cp
     if _RADIX_SELECT_F32_BSEARCH_KERNEL is None:
-        _RADIX_SELECT_F32_BSEARCH_KERNEL = cp.RawKernel(
-            _RADIX_SELECT_F32_BSEARCH_SRC, "radix_select_f32_bsearch")
+        _RADIX_SELECT_F32_BSEARCH_KERNEL = cp.RawKernel(_RADIX_SELECT_F32_BSEARCH_SRC, "radix_select_f32_bsearch")
     return _RADIX_SELECT_F32_BSEARCH_KERNEL
 
 
@@ -818,11 +812,11 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
     _ik = (int(n), int(nbins))
     if _ik not in _RADIX_INTERP_CACHE:
         # cupy 'linear' positions for the nbins-1 interior quantiles (q in (0,1)), float64 throughout.
-        qfr = np.linspace(0.0, 100.0, int(nbins) + 1)[1:-1] / 100.0   # (nbins-1,) fractions
+        qfr = np.linspace(0.0, 100.0, int(nbins) + 1)[1:-1] / 100.0  # (nbins-1,) fractions
         idx = qfr * (n - 1)
         bel = np.floor(idx).astype(np.int64)
         abv = np.minimum(bel + 1, n - 1)
-        uniq = np.unique(np.concatenate([bel, abv]))                   # the order-statistic ranks to extract
+        uniq = np.unique(np.concatenate([bel, abv]))  # the order-statistic ranks to extract
         R = int(uniq.size)
         # shared-mem budget: R*256 uint32 histogram (host gate vs the device's per-block shared limit). The gate
         # must reserve the kernels' STATIC __shared__ footprint too -- dynamic ``shmem`` ALONE near the limit, plus
@@ -834,7 +828,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
         except Exception:
             sh_limit = 48 * 1024
         if R > _RADIX_SELECT_MAXR or shmem > sh_limit - _RADIX_STATIC_SHARED_BYTES:
-            _RADIX_INTERP_CACHE[_ik] = None                           # radix path inapplicable for this (n, nbins)
+            _RADIX_INTERP_CACHE[_ik] = None  # radix path inapplicable for this (n, nbins)
         else:
             # cupy 'linear' interp gather indices + weight (bi/ai/w) -- needed BEFORE the kernel for the fused f64
             # path, which interpolates in-kernel.
@@ -842,11 +836,11 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
             pos = {int(r): i for i, r in enumerate(uniq)}
             bi = cp.asarray(np.asarray([pos[int(b)] for b in bel], dtype=np.int64))
             ai = cp.asarray(np.asarray([pos[int(a)] for a in abv], dtype=np.int64))
-            w = cp.asarray(np.ascontiguousarray(idx - bel))           # float64 weight_above = idx - floor(idx)
+            w = cp.asarray(np.ascontiguousarray(idx - bel))  # float64 weight_above = idx - floor(idx)
             _RADIX_INTERP_CACHE[_ik] = (bi, ai, w, ranks_g, int(R), int(shmem))
     _ic = _RADIX_INTERP_CACHE[_ik]
     if _ic is None:
-        return None                                                   # cached: radix inapplicable -> cp.percentile
+        return None  # cached: radix inapplicable -> cp.percentile
     bi, ai, w, ranks_g, R, shmem = _ic
     # COLUMN-MAJOR input (nvprof-driven, 2026-06-20): one block/column previously read data[i*K+col] from
     # the (n,K) row-major buffer -> stride-K, gld_efficiency 12.5% (1/8 coalesced) on the dominant n-loop
@@ -855,11 +849,9 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
     # bit-identical order statistics. (The bin_codes step still uses the original (n,K) cand_gpu.)
     # Reuse the materialise kernel's pre-transpose (K, n) cm buffer when handed in (launch-fusion: skip the
     # rm->cm transpose that exactly inverts materialise's cm->rm). Validate shape/contiguity/dtype; else transpose.
-    if (cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous
-            and cm_hint.dtype == cand_gpu.dtype):
+    if cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous and cm_hint.dtype == cand_gpu.dtype:
         data_cm = cm_hint
-    elif (cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous
-          and cm_hint.dtype == cp.float32 and cand_gpu.dtype == cp.float64):
+    elif cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous and cm_hint.dtype == cp.float32 and cand_gpu.dtype == cp.float64:
         # STRICT-f64 fusion recovery (2026-07-02, nsys-driven): under MLFRAME_FE_GPU_BINNING_DTYPE=float64 the
         # discretize sibling upcasts the f32 materialise output to f64 (cand_gpu.astype(f64)) BEFORE calling in,
         # so the f32 cm_hint's dtype no longer equals cand_gpu's and the launch-fusion above was SILENTLY
@@ -872,8 +864,8 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
         # codes), restoring the intended fusion and dropping the transpose_f64 kernel on this path.
         data_cm = cm_hint.astype(cp.float64)
     else:
-        data_cm = _transpose_to_cm(cand_gpu)   # (K, n) C-order = column-major (coalesced tiled-transpose kernel)
-    threads = _resolve_radix_threads(n)    # Lever B: per-host KTC-tuned block size (bit-identical edges)
+        data_cm = _transpose_to_cm(cand_gpu)  # (K, n) C-order = column-major (coalesced tiled-transpose kernel)
+    threads = _resolve_radix_threads(n)  # Lever B: per-host KTC-tuned block size (bit-identical edges)
     ne_rows = int(bi.shape[0])
     if not is_f32:
         # FUSED select+interp (launch-reduction): the f64 radix select keeps its R order statistics in shared
@@ -892,8 +884,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
     # Lever C: dispatch the f32 path to the binary-search window-match variant where the per-host KTC selects
     # it (bit-identical order statistics, less warp divergence; base linear-scan = fallback). f64 unchanged.
     ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(is_f32)
-    ker((K,), (threads,),
-        (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
+    ker((K,), (threads,), (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
     # FUSED interpolation (launch-reduction, 2026-06-25): the two fancy-index gathers + diff + cp.where
     # linear-interp collapse into ONE RawKernel that reads the two order-statistic rows from ``osv`` and writes
     # the (nbins-1, K) interior edges directly. Bit-identical to the cupy 'linear' interp (same f64 formula).
@@ -902,9 +893,8 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None):
     _ker_interp = _get_radix_interp_kernel()
     _threads = 256
     _total = ne_rows * K
-    _ker_interp(((_total + _threads - 1) // _threads,), (_threads,),
-                (osv64, bi, ai, cp.ascontiguousarray(w), np.int32(K), np.int32(ne_rows), edges))
-    return edges                          # (nbins-1, K) float64
+    _ker_interp(((_total + _threads - 1) // _threads,), (_threads,), (osv64, bi, ai, cp.ascontiguousarray(w), np.int32(K), np.int32(ne_rows), edges))
+    return edges  # (nbins-1, K) float64
 
 
 def _radix_quantiles(cand_gpu, q_fracs):
@@ -928,7 +918,7 @@ def _radix_quantiles(cand_gpu, q_fracs):
     idx = qfr * (n - 1)
     bel = np.floor(idx).astype(np.int64)
     abv = np.minimum(bel + 1, n - 1)
-    uniq = np.unique(np.concatenate([bel, abv]))                    # order-statistic ranks to extract
+    uniq = np.unique(np.concatenate([bel, abv]))  # order-statistic ranks to extract
     R = int(uniq.size)
     if R > _RADIX_SELECT_MAXR:
         return None
@@ -943,35 +933,34 @@ def _radix_quantiles(cand_gpu, q_fracs):
     if shmem > sh_limit - _RADIX_STATIC_SHARED_BYTES:
         return None
     ranks_g = cp.asarray(uniq, dtype=cp.int64)
-    data_cm = _transpose_to_cm(cand_gpu)                            # (K, n) coalesced (same as edges path)
+    data_cm = _transpose_to_cm(cand_gpu)  # (K, n) coalesced (same as edges path)
     threads = _resolve_radix_threads(n)
     pos = {int(r): i for i, r in enumerate(uniq)}
     bi = cp.asarray(np.asarray([pos[int(b)] for b in bel], dtype=np.int64))
     ai = cp.asarray(np.asarray([pos[int(a)] for a in abv], dtype=np.int64))
-    w = cp.ascontiguousarray(cp.asarray(idx - bel))                 # float64 weight_above
+    w = cp.ascontiguousarray(cp.asarray(idx - bel))  # float64 weight_above
     nq = int(qfr.size)
     out = cp.empty((nq, K), dtype=cp.float64)
     if not is_f32:
         # FUSED select+interp (launch-reduction): the f64 radix select keeps its order statistics in shared
         # memory and emits the nq interior quantiles directly -- ONE launch, no osv global, no separate interp.
         try:
-            _get_radix_select_interp_f64_kernel()((K,), (threads,),
-                (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), bi, ai, w, np.int32(nq), out),
-                shared_mem=shmem)
+            _get_radix_select_interp_f64_kernel()(
+                (K,), (threads,), (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), bi, ai, w, np.int32(nq), out), shared_mem=shmem
+            )
             return out
         except Exception:
             import logging
             logging.getLogger(__name__).debug("fused f64 radix_quantiles failed; two-kernel path", exc_info=True)
     osv = cp.empty((R, K), dtype=cand_gpu.dtype)
     ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(is_f32)
-    ker((K,), (threads,),
-        (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
+    ker((K,), (threads,), (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
     osv64 = osv if osv.dtype == cp.float64 else osv.astype(cp.float64)
     _ker = _get_radix_interp_kernel()
     t = 256
     total = nq * K
     _ker(((total + t - 1) // t,), (t,), (osv64, bi, ai, w, np.int32(K), np.int32(nq), out))
-    return out                             # (len(q_fracs), K) float64
+    return out  # (len(q_fracs), K) float64
 
 
 # --- Carve re-exports (sibling pattern): the fused-binning / resident-discretize block ->

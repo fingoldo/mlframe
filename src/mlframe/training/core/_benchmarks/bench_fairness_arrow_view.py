@@ -118,10 +118,7 @@ def main() -> None:
             "bit_identical": ident,
         }
         results.append(row)
-        print(
-            f"n={n:>9} cols=3: view={row['view_ms']:>8.3f}ms "
-            f"copy={row['copy_ms']:>8.3f}ms  speedup={speedup:.2f}x identical={ident}"
-        )
+        print(f"n={n:>9} cols=3: view={row['view_ms']:>8.3f}ms " f"copy={row['copy_ms']:>8.3f}ms  speedup={speedup:.2f}x identical={ident}")
 
     speeds = [r["copy_over_view_speedup"] for r in results]
     out = {

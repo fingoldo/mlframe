@@ -63,14 +63,12 @@ def compute_counterfactual_substitution_features(
             Xq_s = Xq
         d = Xt_s.shape[1]
         if task == "binary":
-            model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
-                                       random_state=int(fold_seed), verbose=-1, n_jobs=-1)
+            model = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1)
             model.fit(Xt_s, y_t.astype(np.int32))
             pred_orig = model.predict_proba(Xq_s)[:, 1].astype(np.float32)
             global_medians = np.median(Xt_s, axis=0).astype(np.float32)
         else:
-            model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1,
-                                      random_state=int(fold_seed), verbose=-1, n_jobs=-1)
+            model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1)
             model.fit(Xt_s, y_t)
             pred_orig = model.predict(Xq_s).astype(np.float32)
             global_medians = np.median(Xt_s, axis=0).astype(np.float32)
@@ -89,7 +87,7 @@ def compute_counterfactual_substitution_features(
         abs_deltas = np.abs(deltas)
         max_abs_delta = abs_deltas.max(axis=1).astype(np.float32)
         signed_sum = deltas.sum(axis=1).astype(np.float32)
-        l2_norm = np.sqrt((deltas ** 2).sum(axis=1)).astype(np.float32) + 1e-9
+        l2_norm = np.sqrt((deltas**2).sum(axis=1)).astype(np.float32) + 1e-9
         k_eff = min(top_k, d)
         top_k_abs_mean = np.sort(abs_deltas, axis=1)[:, -k_eff:].mean(axis=1).astype(np.float32)
         argmax_feature = abs_deltas.argmax(axis=1).astype(np.float32)

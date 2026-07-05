@@ -168,9 +168,7 @@ def analyze_target_distribution(
         diagnostics["n_modal_peaks"] = float(n_peaks)
         diagnostics["modal_peak_separation_stds"] = float(max_sep)
         if is_mm:
-            pathologies.append(
-                f"multi_modal_target(peaks={n_peaks}, max_sep={max_sep:.2f} stds)"
-            )
+            pathologies.append(f"multi_modal_target(peaks={n_peaks}, max_sep={max_sep:.2f} stds)")
 
         # Strong AR. Global lag-1 autocorr is meaningful when row order encodes
         # time across the whole dataset. For group-ordered data (rows ordered
@@ -240,9 +238,7 @@ def analyze_target_distribution(
                 ratio = _within_between_group_variance_ratio(y_for_stats, gids[finite] if finite.size == y.size else gids)
                 diagnostics["within_between_group_var_ratio"] = ratio
                 if math.isfinite(ratio) and ratio < _CLUSTERED_TARGET_VARIANCE_RATIO:
-                    pathologies.append(
-                        f"clustered_target(within/between_std_ratio={ratio:.3f})"
-                    )
+                    pathologies.append(f"clustered_target(within/between_std_ratio={ratio:.3f})")
                     # Recommend group-aware splitting; the suite already supports this via
                     # ``group_column`` in the split config, so we just surface the hint.
                     knob_overrides.setdefault("split_config", {})["prefer_group_aware"] = True
@@ -300,9 +296,7 @@ def analyze_target_distribution(
         rare_classes = [int(c) for c, k in zip(classes, counts) if int(k) < _RARE_CLASS_MIN_N]
         diagnostics["n_rare_classes"] = float(len(rare_classes))
         if rare_classes:
-            pathologies.append(
-                f"rare_classes(n={len(rare_classes)}, min_n_threshold={_RARE_CLASS_MIN_N})"
-            )
+            pathologies.append(f"rare_classes(n={len(rare_classes)}, min_n_threshold={_RARE_CLASS_MIN_N})")
 
     return TargetDistributionReport(
         target_type=ttype, n_samples=n,

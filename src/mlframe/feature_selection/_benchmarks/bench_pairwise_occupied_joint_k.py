@@ -91,5 +91,4 @@ if __name__ == "__main__":
         ident = bool(np.array_equal(old, new))
         t_old = best_of(_old_pairwise_occupied_joint_k, d, pa, pb, nb, reps=3)
         t_new = best_of(_new_pairwise_occupied_joint_k, d, pa, pb, nb, reps=5)
-        print(f"{str((n,p,card)):>22} {len(pa):>7} {t_old*1e3:>10.2f} {t_new*1e3:>10.2f} "
-              f"{t_old/t_new:>7.2f}x {ident}")
+        print(f"{str((n,p,card)):>22} {len(pa):>7} {t_old*1e3:>10.2f} {t_new*1e3:>10.2f} " f"{t_old/t_new:>7.2f}x {ident}")

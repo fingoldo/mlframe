@@ -126,9 +126,9 @@ def retain_usable_pure_forms(
                 if vals.shape[0] != len(X):
                     return False
                 vals = np.nan_to_num(vals, nan=0.0, posinf=0.0, neginf=0.0)
-                pos = (_y_codes == 1).astype(np.float64) if _clf_classes.size == 2 else \
-                    (_y_codes == int(np.argmax(np.bincount(_y_codes)))).astype(np.float64)
-                u = vals - vals.mean(); v = pos - pos.mean()
+                pos = (_y_codes == 1).astype(np.float64) if _clf_classes.size == 2 else (_y_codes == int(np.argmax(np.bincount(_y_codes)))).astype(np.float64)
+                u = vals - vals.mean()
+                v = pos - pos.mean()
                 du, dv = float(np.sqrt((u * u).sum())), float(np.sqrt((v * v).sum()))
                 if du <= 1e-12 or dv <= 1e-12:
                     return False
@@ -176,7 +176,7 @@ def retain_usable_pure_forms(
 
         def _raw_operands(recipe) -> set:
             toks = set()
-            for s in (getattr(recipe, "src_names", ()) or ()):
+            for s in getattr(recipe, "src_names", ()) or ():
                 for t in _OPERAND_TOKEN_RE.split(str(s)):
                     if t in _raw_base_set:
                         toks.add(t)
@@ -329,8 +329,7 @@ def retain_usable_pure_forms(
             # nonlinearities (a**3 + sqrt(d)) is reconstructed here with ~0 residual, while a genuine
             # NON-separable joint form (a**2/b is a ratio, log(c)*sin(d) a product) is not.
             xs = (x - x.mean()) / (x.std() + 1e-12)
-            cols = [xs, xs * xs, xs * xs * xs, np.sign(xs) * np.sqrt(np.abs(xs)),
-                    np.sign(xs) * np.log1p(np.abs(xs)), 1.0 / (np.abs(xs) + 1.0)]
+            cols = [xs, xs * xs, xs * xs * xs, np.sign(xs) * np.sqrt(np.abs(xs)), np.sign(xs) * np.log1p(np.abs(xs)), 1.0 / (np.abs(xs) + 1.0)]
             return cols
 
         # min_resid_frac / min_resid_corr are exposed as tunable kwargs (default 0.10 / 0.08). bench-attempt-rejected (qual-23, 2026-06-18): lowering
@@ -432,10 +431,8 @@ def retain_usable_pure_forms(
             if fe_gpu_strict_resident_enabled is not None and fe_gpu_strict_resident_enabled():
                 try:
                     from ._fe_pure_form_retention_gpu_resident import adds_nonlinear_value_batch_gpu_resident
-                    _pair_cands = [
-                        c for c in pool
-                        if getattr(c, "recipe", None) is not None and len(set(getattr(c, "src", ()) or ())) == 2
-                    ]
+
+                    _pair_cands = [c for c in pool if getattr(c, "recipe", None) is not None and len(set(getattr(c, "src", ()) or ())) == 2]
                     if _pair_cands:
                         _form_vals = [getattr(c, "values", None) for c in _pair_cands]
                         _src_pairs = [tuple(getattr(c, "src", ()) or ()) for c in _pair_cands]

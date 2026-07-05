@@ -96,7 +96,7 @@ def _ivap_envelope(w: np.ndarray, ysum: np.ndarray, aug: float) -> np.ndarray:
     hull (built once, right-to-left), so the kernel is near-linear, replacing the prior
     ``O(grid)`` sklearn refits.
     """
-    Wc = np.concatenate(([0.0], np.cumsum(w)))     # length g+1, corner X coords
+    Wc = np.concatenate(([0.0], np.cumsum(w)))  # length g+1, corner X coords
     Yc = np.concatenate(([0.0], np.cumsum(ysum)))  # corner Y coords
     return _ivap_saddle_njit(Wc, Yc, float(aug))
 
@@ -163,8 +163,7 @@ def _binary_pos_scores(self, X) -> np.ndarray:
         pos = proba[:, 1]
     else:
         raise ValueError(
-            "Venn-Abers calibration is binary-only; predict_proba returned "
-            f"{proba.shape[1]} columns. Use a one-vs-rest wrapper for multiclass."
+            "Venn-Abers calibration is binary-only; predict_proba returned " f"{proba.shape[1]} columns. Use a one-vs-rest wrapper for multiclass."
         )
     return np.clip(pos, 0.0, 1.0)
 
@@ -186,21 +185,14 @@ def calibrate_venn_abers(self, X_cal, y_cal):
         raise NotFittedError("CompositeClassificationEstimator.calibrate_venn_abers called before fit.")
     classes = np.asarray(self.classes_)
     if classes.size != 2:
-        raise ValueError(
-            f"Venn-Abers calibration is binary-only; fitted classes_={list(classes)} "
-            "has cardinality != 2."
-        )
+        raise ValueError(f"Venn-Abers calibration is binary-only; fitted classes_={list(classes)} " "has cardinality != 2.")
     s = _binary_pos_scores(self, X_cal)
     y_true = np.asarray(y_cal).reshape(-1)
     if s.shape[0] != y_true.shape[0]:
-        raise ValueError(
-            f"calibrate_venn_abers: predict_proba produced {s.shape[0]} rows but y_cal has {y_true.shape[0]}"
-        )
+        raise ValueError(f"calibrate_venn_abers: predict_proba produced {s.shape[0]} rows but y_cal has {y_true.shape[0]}")
     y_enc = np.searchsorted(classes, y_true)
     if (y_enc < 0).any() or (y_enc >= 2).any() or not np.all(classes[np.clip(y_enc, 0, 1)] == y_true):
-        raise ValueError(
-            f"calibrate_venn_abers: y_cal contains labels unseen at fit; fitted classes_={list(classes)}"
-        )
+        raise ValueError(f"calibrate_venn_abers: y_cal contains labels unseen at fit; fitted classes_={list(classes)}")
     order = np.argsort(s, kind="stable")
     s_sorted = s[order]
     y_sorted = y_enc[order].astype(np.float64)
@@ -233,10 +225,7 @@ def _lookup_interval(self, scores: np.ndarray):
     """
     va = getattr(self, "_venn_abers_", None)
     if not va:
-        raise RuntimeError(
-            "predict_proba_interval / venn-abers predict_proba called before "
-            "calibrate_venn_abers(X_cal, y_cal) on a held-out set."
-        )
+        raise RuntimeError("predict_proba_interval / venn-abers predict_proba called before " "calibrate_venn_abers(X_cal, y_cal) on a held-out set.")
     grid = va["grid"]
     s = np.clip(np.asarray(scores, dtype=np.float64).reshape(-1), 0.0, 1.0)
     # nearest grid index on the right-continuous step (idx of last grid point <= s).

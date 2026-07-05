@@ -34,7 +34,6 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
     for automatic discovery via MI-gain ranking.
     """
 
-
     @field_validator("screening", mode="before")
     @classmethod
     def _normalise_screening(cls, v: str) -> str:
@@ -59,9 +58,7 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
         v_lower = str(v).lower()
         valid = {"random", "stratified_quantile"}
         if v_lower not in valid:
-            raise ValueError(
-                f"mi_sample_strategy must be one of {valid}, got '{v}'"
-            )
+            raise ValueError(f"mi_sample_strategy must be one of {valid}, got '{v}'")
         return v_lower
 
     @field_validator("tiny_screening_models", mode="before")
@@ -70,9 +67,7 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
         v_lower = str(v).lower()
         valid = {"single_lgbm", "per_family"}
         if v_lower not in valid:
-            raise ValueError(
-                f"tiny_screening_models must be one of {valid}, got '{v}'"
-            )
+            raise ValueError(f"tiny_screening_models must be one of {valid}, got '{v}'")
         return v_lower
 
     @field_validator("tiny_consensus", mode="before")
@@ -498,9 +493,7 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
         v_lower = str(v).lower()
         valid = {"off", "mean", "oof_weighted", "linear_stack", "nnls_stack"}
         if v_lower not in valid:
-            raise ValueError(
-                f"cross_target_ensemble_strategy must be one of {valid}, got '{v}'"
-            )
+            raise ValueError(f"cross_target_ensemble_strategy must be one of {valid}, got '{v}'")
         return v_lower
 
     @field_validator("oof_holdout_source", mode="before")
@@ -509,9 +502,7 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
         v_lower = str(v).lower()
         valid = {"kfold", "external_val", "train_tail"}
         if v_lower not in valid:
-            raise ValueError(
-                f"oof_holdout_source must be one of {valid}, got '{v}'"
-            )
+            raise ValueError(f"oof_holdout_source must be one of {valid}, got '{v}'")
         return v_lower
 
     @field_validator("fail_on_no_gain", mode="before")
@@ -535,8 +526,7 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
         # multi_output_tree, K-head MLP).
         valid = {"per_target", "skip", "multi_target_regression"}
         if v_lower not in valid:
-            raise ValueError(
-                f"multilabel_strategy must be one of {valid}, got '{v}'")
+            raise ValueError(f"multilabel_strategy must be one of {valid}, got '{v}'")
         return v_lower
 
     @model_validator(mode="after")
@@ -569,4 +559,3 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
                 stacklevel=2,
             )
         return self
-

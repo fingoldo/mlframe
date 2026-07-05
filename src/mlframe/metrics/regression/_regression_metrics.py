@@ -295,9 +295,7 @@ def _aggregate_multioutput(values: np.ndarray, multioutput) -> Union[float, np.n
         return values
     if multioutput == "uniform_average":
         return float(values.mean())
-    raise ValueError(
-        f"multioutput must be 'raw_values', 'uniform_average', or an array; got {multioutput!r}"
-    )
+    raise ValueError(f"multioutput must be 'raw_values', 'uniform_average', or an array; got {multioutput!r}")
 
 
 def _to_2d(arr: np.ndarray) -> np.ndarray:

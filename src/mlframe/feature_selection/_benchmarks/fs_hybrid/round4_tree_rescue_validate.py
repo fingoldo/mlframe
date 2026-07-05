@@ -45,8 +45,7 @@ def main():
 
     df = pd.DataFrame(rows)
     print("\n=== mean +/- std over seeds ===")
-    agg = df.groupby("variant").agg(auc_mean=("auc_mean", "mean"), auc_std=("auc_mean", "std"),
-                                    n=("n", "mean"), fit_s=("fit_s", "mean")).round(4)
+    agg = df.groupby("variant").agg(auc_mean=("auc_mean", "mean"), auc_std=("auc_mean", "std"), n=("n", "mean"), fit_s=("fit_s", "mean")).round(4)
     agg = agg.sort_values("auc_mean", ascending=False)
     print(agg.to_string())
     mr = float(agg.loc["mrmr_fe", "auc_mean"]); hy = float(agg.loc["hybrid", "auc_mean"])

@@ -160,8 +160,7 @@ def _results_path():
 def _flush(results, decision=None):
     import json
 
-    payload = {"baseline_auto": AUTO_ES,
-               "cells": {f"{s}|{r}|{sd}|{es}": v for (s, r, sd, es), v in results.items()}}
+    payload = {"baseline_auto": AUTO_ES, "cells": {f"{s}|{r}|{sd}|{es}": v for (s, r, sd, es), v in results.items()}}
     if decision is not None:
         payload["decision"] = decision
         payload["summary"] = {str(k): v for k, v in summarise(results)[0].items()}
@@ -188,7 +187,7 @@ def summarise(results, baseline=AUTO_ES, alternatives=(100, 50)):
     for alt in alternatives:
         wins = ties = losses = 0
         deltas = []
-        for (s, r, sd) in cells:
+        for s, r, sd in cells:
             base = results[(s, r, sd, baseline)]
             cand = results[(s, r, sd, alt)]
             delta = (cand - base) if not r else (base - cand)  # signed so >0 means alt better
@@ -211,7 +210,7 @@ def main():
     summary, cells = summarise(results)
     print(f"\nearly_stopping_rounds rule bench: {len(cells)} cells (5 scenarios x 3 seeds x 2 task types); baseline auto={AUTO_ES}\n")
     print(f"{'scenario':<16}{'task':<6}{'seed':<5}{'auto':>10}{'es=100':>10}{'es=50':>10}")
-    for (s, r, sd) in cells:
+    for s, r, sd in cells:
         task = "reg" if r else "clf"
         print(f"{s:<16}{task:<6}{sd:<5}{results[(s, r, sd, AUTO_ES)]:>10.4f}{results[(s, r, sd, 100)]:>10.4f}{results[(s, r, sd, 50)]:>10.4f}")
     print(f"\n=== Win/tie/loss vs baseline auto={AUTO_ES} (honest holdout; higher AUROC / lower RMSE = better) ===")

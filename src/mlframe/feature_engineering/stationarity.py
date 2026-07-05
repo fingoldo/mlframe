@@ -334,7 +334,7 @@ def local_linear_detrend(
         wins = sliding_window_view(seg_f, window_K)
         y_mean = wins.mean(axis=1)
         # b = Σ(t - t_mean)(y - y_mean) / Σ(t - t_mean)^2
-        t_dev = (t - t_mean)
+        t_dev = t - t_mean
         cov = ((wins - y_mean[:, None]) * t_dev[None, :]).sum(axis=1)
         b = cov / t_var
         a = y_mean - b * t_mean
@@ -343,8 +343,8 @@ def local_linear_detrend(
         y_actual_last = wins[:, -1]
         resid_out = np.full(m, np.nan, dtype=np.float64)
         slope_out = np.full(m, np.nan, dtype=np.float64)
-        resid_out[window_K - 1:] = y_actual_last - y_pred_last
-        slope_out[window_K - 1:] = b
+        resid_out[window_K - 1 :] = y_actual_last - y_pred_last
+        slope_out[window_K - 1 :] = b
         return resid_out, slope_out
 
     if group_ids is None:

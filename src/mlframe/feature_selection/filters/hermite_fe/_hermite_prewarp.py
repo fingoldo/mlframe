@@ -47,14 +47,11 @@ def _canonical_seeds(basis: str, degree: int) -> list:
     return seeds
 
 
-
-
-def _l2_normalize_pair(coef_a: np.ndarray, coef_b: np.ndarray,
-                        target_norm: float = 1.0) -> tuple:
+def _l2_normalize_pair(coef_a: np.ndarray, coef_b: np.ndarray, target_norm: float = 1.0) -> tuple:
     """Project (c_a, c_b) jointly to the L2 sphere (or other target_norm). Used in direction_only search to remove
     the scaling ridge that confuses TPE/CMA on XOR-like targets where MI is invariant to overall scaling
     (bf=mul) or equivariant (bf=add/sub)."""
-    norm = float(np.sqrt(np.sum(coef_a ** 2) + np.sum(coef_b ** 2)))
+    norm = float(np.sqrt(np.sum(coef_a**2) + np.sum(coef_b**2)))
     if norm < 1e-12:
         return coef_a, coef_b
     scale = target_norm / norm
@@ -75,9 +72,7 @@ def _l2_normalize_pair(coef_a: np.ndarray, coef_b: np.ndarray,
 _L2_PENALTY_SATURATION_DEFAULT = 1.0
 
 
-def _l2_penalty_value(coef_a: np.ndarray, coef_b: np.ndarray,
-                       l2_penalty: float,
-                       l2_penalty_saturation: float = _L2_PENALTY_SATURATION_DEFAULT) -> float:
+def _l2_penalty_value(coef_a: np.ndarray, coef_b: np.ndarray, l2_penalty: float, l2_penalty_saturation: float = _L2_PENALTY_SATURATION_DEFAULT) -> float:
     """Coefficient-magnitude penalty subtracted from the raw MI objective.
 
     Two regimes, selected by ``l2_penalty_saturation``:
@@ -100,7 +95,7 @@ def _l2_penalty_value(coef_a: np.ndarray, coef_b: np.ndarray,
     """
     if l2_penalty <= 0.0:
         return 0.0
-    s = float(np.sum(coef_a ** 2) + np.sum(coef_b ** 2))
+    s = float(np.sum(coef_a**2) + np.sum(coef_b**2))
     if l2_penalty_saturation and l2_penalty_saturation > 0.0:
         return l2_penalty * (s / (s + l2_penalty_saturation))
     return l2_penalty * s
@@ -204,8 +199,7 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
                 # coeffs). Falls back to the prebuilt-matrix upload when z/basis are not supplied
                 # (other callers that already hold B_a/B_b).
                 if z_a is not None and z_b is not None and basis is not None:
-                    return warm_start_als_seed_gpu_from_z(
-                        z_a, z_b, y, basis=str(basis), max_degree=(B_a.shape[1] - 1), iters=iters)
+                    return warm_start_als_seed_gpu_from_z(z_a, z_b, y, basis=str(basis), max_degree=(B_a.shape[1] - 1), iters=iters)
                 return warm_start_als_seed_gpu(B_a, B_b, y, iters=iters)
             except tuple(_dev_errs):
                 pass  # genuine cupy/device/linalg fault -> CPU normal-eq path (byte-identical default); logic bugs propagate
@@ -274,14 +268,6 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
         return np.ascontiguousarray(ca, dtype=np.float64), np.ascontiguousarray(cb, dtype=np.float64)
     except (np.linalg.LinAlgError, ValueError):
         return None, None
-
-
-
-
-
-
-
-
 
 
 def fit_operand_prewarp(
@@ -388,8 +374,7 @@ def fit_pair_prewarp_als(
     xa = np.ascontiguousarray(np.asarray(x_a, dtype=np.float64))
     xb = np.ascontiguousarray(np.asarray(x_b, dtype=np.float64))
     yf = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
-    if (xa.size == 0 or float(np.std(xa)) < 1e-12 or float(np.std(xb)) < 1e-12
-            or float(np.std(yf)) < 1e-12):
+    if xa.size == 0 or float(np.std(xa)) < 1e-12 or float(np.std(xb)) < 1e-12 or float(np.std(yf)) < 1e-12:
         return None, None
     deg = max(1, int(max_degree))
     za, pa = bi["fit"](xa)
@@ -407,16 +392,13 @@ def fit_pair_prewarp_als(
         # standardised columns built ONCE above; pass them + basis so the resident
         # GPU branch rebuilds Ba/Bb on device (the ~374MB matrix upload collapses to
         # the two tiny (n,) columns). The CPU path uses the host Ba/Bb built above.
-        coef_a, coef_b = warm_start_als_seed(
-            Ba, Bb, yf, iters=3, x_a=xa, x_b=xb, z_a=za, z_b=zb, basis=basis)
+        coef_a, coef_b = warm_start_als_seed(Ba, Bb, yf, iters=3, x_a=xa, x_b=xb, z_a=za, z_b=zb, basis=basis)
     except (np.linalg.LinAlgError, ValueError):
         return None, None
     if coef_a is None or coef_b is None:
         return None, None
-    spec_a = {"basis": str(basis), "degree": int(deg),
-              "coef": np.ascontiguousarray(coef_a, dtype=np.float64), "preprocess": dict(pa)}
-    spec_b = {"basis": str(basis), "degree": int(deg),
-              "coef": np.ascontiguousarray(coef_b, dtype=np.float64), "preprocess": dict(pb)}
+    spec_a = {"basis": str(basis), "degree": int(deg), "coef": np.ascontiguousarray(coef_a, dtype=np.float64), "preprocess": dict(pa)}
+    spec_b = {"basis": str(basis), "degree": int(deg), "coef": np.ascontiguousarray(coef_b, dtype=np.float64), "preprocess": dict(pb)}
     return spec_a, spec_b
 
 
@@ -463,13 +445,8 @@ def apply_operand_prewarp(x: np.ndarray, spec: dict) -> np.ndarray:
     return np.asarray(out, dtype=np.float64).reshape(-1)
 
 
-def _ksg_mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool,
-               n_neighbors: int = 3) -> float:
+def _ksg_mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool, n_neighbors: int = 3) -> float:
     """KSG MI of 1-D x with target -- used as the optimisation objective."""
     if discrete_target:
-        return float(mutual_info_classif(x.reshape(-1, 1), y,
-                                          n_neighbors=n_neighbors, random_state=42,
-                                          discrete_features=False)[0])
-    return float(mutual_info_regression(x.reshape(-1, 1), y,
-                                         n_neighbors=n_neighbors, random_state=42,
-                                         discrete_features=False)[0])
+        return float(mutual_info_classif(x.reshape(-1, 1), y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)[0])
+    return float(mutual_info_regression(x.reshape(-1, 1), y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)[0])

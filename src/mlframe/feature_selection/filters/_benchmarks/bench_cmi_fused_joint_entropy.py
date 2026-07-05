@@ -23,8 +23,8 @@ from mlframe.feature_selection.filters import _mi_greedy_cmi_fe as m
 
 def _bench(n=1_000_000, nbins=10, z_card=200, ncand=40, trials=7, seed=0):
     rng = np.random.default_rng(seed)
-    y = rng.integers(0, 6, n).astype(np.int64)            # target classes
-    z = rng.integers(0, z_card, n).astype(np.int64)       # conditioning support codes
+    y = rng.integers(0, 6, n).astype(np.int64)  # target classes
+    z = rng.integers(0, z_card, n).astype(np.int64)  # conditioning support codes
     cands = [rng.integers(0, nbins, n).astype(np.int64) for _ in range(ncand)]
     yi, zi, h_yz, h_z, k_yz, k_z, nf = m.precompute_cmi_yz_terms(y, z)
     yzd, _ = m._renumber_joint(yi, zi)

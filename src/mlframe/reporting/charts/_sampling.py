@@ -128,7 +128,7 @@ def subsample_preserving_extremes(
         # NaN would sort to the top of argpartition; demote it below every real value (inf stays a legit extreme).
         ev[np.isnan(ev)] = -np.inf
         k = min(int(k_extremes), n)
-        forced.extend(np.argpartition(ev, n - k)[n - k:].tolist())
+        forced.extend(np.argpartition(ev, n - k)[n - k :].tolist())
 
     forced_idx = np.unique(np.asarray(forced, dtype=np.int64)) if forced else np.empty(0, dtype=np.int64)
     budget = sample_size - len(forced_idx)

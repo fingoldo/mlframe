@@ -27,7 +27,6 @@ from ._training_runtime_configs import FeatureImportanceConfig
 # opt-in learning-curve config here introduces no cycle.
 from .diagnostics import LearningCurveConfig
 
-
 # Title-metrics token grammar - mirrors metrics.TITLE_METRIC_TOKENS but kept
 # duplicated here to avoid importing from metrics.py at config-class
 # definition time (import-cost concern, plus configs is a foundational
@@ -193,8 +192,7 @@ class ReportingConfig(BaseConfig):
     ltr_panels: str = "NDCG_K NDCG_DIST NDCG_BY_QSIZE LIFT MRR_DIST SCORE_BY_REL"
     # Kept in lockstep with the composer's ``DEFAULT_QUANTILE_PANELS`` so QUANTILE_RELIABILITY / PINBALL_DECOMP / QUANTILE_CROSSING render on a default suite run (the suite passes this string to the dispatcher, not the composer default). FAN_CHART overlays the nested forecast-uncertainty bands over the horizon.
     quantile_panels: str = (
-        "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST "
-        "QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING FAN_CHART"
+        "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST " "QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING FAN_CHART"
     )
     # Regression report panels rendered by ``compose_regression_figure``; all-by-default. WORM (de-trended residual QQ) + RESID_ACF (residual autocorrelation, Bartlett band) surface tail-misfit and serial dependence the scatter/hist hide.
     regression_panels: str = "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE WORM RESID_ACF"
@@ -311,17 +309,12 @@ class ReportingConfig(BaseConfig):
         toks = [t.strip().upper() for t in v.split() if t.strip()]
         unknown = [t for t in toks if t not in _REPORTING_ALLOWED_TITLE_TOKENS]
         if unknown:
-            raise ValueError(
-                f"Unknown title-metrics tokens {unknown}. "
-                f"Allowed: {sorted(_REPORTING_ALLOWED_TITLE_TOKENS)}"
-            )
+            raise ValueError(f"Unknown title-metrics tokens {unknown}. " f"Allowed: {sorted(_REPORTING_ALLOWED_TITLE_TOKENS)}")
         if len(toks) != len(set(toks)):
             dupes = sorted({t for t in toks if toks.count(t) > 1})
             raise ValueError(f"Duplicate title-metrics tokens: {dupes}")
         if "BR" in toks and "BR_DECOMP" in toks:
-            raise ValueError(
-                "BR and BR_DECOMP are mutually exclusive in title_metrics_template"
-            )
+            raise ValueError("BR and BR_DECOMP are mutually exclusive in title_metrics_template")
         return v
 
     @field_validator("plot_outputs")
@@ -368,15 +361,10 @@ class ReportingConfig(BaseConfig):
         toks = [t.strip().upper() for t in v.split() if t.strip()]
         unknown = [t for t in toks if t not in allowed]
         if unknown:
-            raise ValueError(
-                f"Unknown {target_key} panel tokens {unknown}. "
-                f"Allowed: {sorted(allowed)}"
-            )
+            raise ValueError(f"Unknown {target_key} panel tokens {unknown}. " f"Allowed: {sorted(allowed)}")
         if len(toks) != len(set(toks)):
             dupes = sorted({t for t in toks if toks.count(t) > 1})
-            raise ValueError(
-                f"Duplicate {target_key} panel tokens: {dupes}"
-            )
+            raise ValueError(f"Duplicate {target_key} panel tokens: {dupes}")
         return v
 
     @field_validator("feature_importance_config", mode="before")
@@ -566,5 +554,3 @@ class FairnessConfig(BaseConfig):
     enabled: bool = False
     protected_attributes: Optional[List[str]] = None
     fairness_metrics: Optional[List[str]] = None
-
-

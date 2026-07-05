@@ -92,9 +92,9 @@ def _zipf_card_probs(min_card, max_card, alpha):
     return w / total
 
 
-def _sample_anchor_subsets(n_features, n_anchors, rng, min_card=1, max_card=None, *,
-                           weights=None, uniform_tail_frac=0.2, cardinality_dist="uniform",
-                           zipf_alpha=1.0):
+def _sample_anchor_subsets(
+    n_features, n_anchors, rng, min_card=1, max_card=None, *, weights=None, uniform_tail_frac=0.2, cardinality_dist="uniform", zipf_alpha=1.0
+):
     """Sample distinct anchor subsets of varying cardinality.
 
     ``cardinality_dist`` controls how each anchor's column count ``k`` is drawn over
@@ -147,8 +147,7 @@ def _sample_anchor_subsets(n_features, n_anchors, rng, min_card=1, max_card=None
     # behaviour is preserved (same RNG state -> same anchor list).
     card_mode = str(cardinality_dist).lower()
     if card_mode not in ("zipf", "uniform"):
-        raise ValueError(
-            f"_sample_anchor_subsets: cardinality_dist must be 'zipf' or 'uniform', got {cardinality_dist!r}")
+        raise ValueError(f"_sample_anchor_subsets: cardinality_dist must be 'zipf' or 'uniform', got {cardinality_dist!r}")
     if card_mode == "zipf":
         card_values = np.arange(int(min_card), int(max_card) + 1, dtype=np.int64)
         card_probs = _zipf_card_probs(min_card, max_card, zipf_alpha)

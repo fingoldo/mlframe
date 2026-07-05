@@ -115,9 +115,7 @@ def _restore_cached_marginal_mis(
 # ============================================================================
 
 
-def resolve_max_combined_nbins(
-    cfg: CatFEConfig, n_samples: int, hard_cap: int = 10_000_000
-) -> int:
+def resolve_max_combined_nbins(cfg: CatFEConfig, n_samples: int, hard_cap: int = 10_000_000) -> int:
     """Resolve ``cfg.max_combined_nbins`` to a concrete int.
 
     ``None`` -> Paninski-derived data-aware ceiling: ``max(4, int(n * 0.05 / 3) + 1)``. Empirically this keeps per-cell observation count above ~3 at the sample sizes
@@ -134,9 +132,7 @@ def resolve_max_combined_nbins(
     return min(resolved, hard_cap)
 
 
-def resolve_min_interaction_information(
-    cfg: CatFEConfig, n_samples: int
-) -> float:
+def resolve_min_interaction_information(cfg: CatFEConfig, n_samples: int) -> float:
     """Resolve ``cfg.min_interaction_information`` to a concrete float.
 
     ``None`` -> ``-3 / sqrt(n)`` -- small-negative absorbs finite-sample noise around the synergy boundary so that pure k-way XOR (where all 2-way IIs are 0 in
@@ -252,9 +248,9 @@ def _marginal_screen_njit(
 @njit(parallel=True, cache=True)
 def _pair_search_kernel_njit(
     factors_data: np.ndarray,
-    pairs_a: np.ndarray,        # (n_pairs,) int -- left column index
-    pairs_b: np.ndarray,        # (n_pairs,) int -- right column index
-    marginal_mi: np.ndarray,    # (n_cols_in_data,) -- I(X_i; Y) for ALL cols
+    pairs_a: np.ndarray,  # (n_pairs,) int -- left column index
+    pairs_b: np.ndarray,  # (n_pairs,) int -- right column index
+    marginal_mi: np.ndarray,  # (n_cols_in_data,) -- I(X_i; Y) for ALL cols
     nbins: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
@@ -367,7 +363,6 @@ from ._cat_kway_materialize import (  # noqa: E402,F401
     _greedy_expand_one_seed, _build_kway_chained_lookup, _materialize_kway,
     _select_top_k_pairs, _build_factorize_lookup, _materialize_pairs,
 )
-
 
 # ============================================================================
 # Orchestrator

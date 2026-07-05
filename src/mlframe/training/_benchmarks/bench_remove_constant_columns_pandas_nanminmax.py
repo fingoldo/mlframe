@@ -31,9 +31,9 @@ def _make_df(n: int = 200_000, ncols: int = 200) -> pd.DataFrame:
     data = {}
     for i in range(ncols):
         if i % 10 == 0:
-            data[f"c{i}"] = np.full(n, 3.0)        # constant
+            data[f"c{i}"] = np.full(n, 3.0)  # constant
         elif i % 10 == 1:
-            data[f"c{i}"] = np.full(n, np.nan)     # all-NaN
+            data[f"c{i}"] = np.full(n, np.nan)  # all-NaN
         else:
             data[f"c{i}"] = rng.standard_normal(n)  # varying
     return pd.DataFrame(data)

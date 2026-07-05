@@ -219,8 +219,7 @@ def _composite_rmse_for_base(
     return _rmse(y_hold[finite], y_hat[finite])
 
 
-def _verdict(*, raw_rmse, lag_rmse, best_composite_rmse, best_base, floor_rmse, headroom, decision, reason,
-             margin, n_fit, n_hold, lag1_ar) -> dict:
+def _verdict(*, raw_rmse, lag_rmse, best_composite_rmse, best_base, floor_rmse, headroom, decision, reason, margin, n_fit, n_hold, lag1_ar) -> dict:
     return {
         "raw_rmse": float(raw_rmse),
         "lag_rmse": float(lag_rmse),
@@ -315,16 +314,13 @@ def measure_achievable_ceiling(
     x_fit, used_cols = _numeric_feature_matrix(df, feature_cols, target_col, rows_fit)
     x_hold, _ = _numeric_feature_matrix(df, feature_cols, target_col, rows_hold)
     if x_fit is None or x_hold is None or x_fit.shape[1] == 0:
-        return _proceed("no numeric feature columns to fit a raw baseline", lag1_ar=lag1_ar,
-                        n_fit=fit_pos.size, n_hold=hold_pos.size)
+        return _proceed("no numeric feature columns to fit a raw baseline", lag1_ar=lag1_ar, n_fit=fit_pos.size, n_hold=hold_pos.size)
 
     def _model_factory():
         try:
-            return _build_tiny_model("lgb", n_estimators=n_estimators, num_leaves=num_leaves,
-                                     learning_rate=learning_rate, random_state=int(random_state))
+            return _build_tiny_model("lgb", n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate, random_state=int(random_state))
         except Exception:  # noqa: BLE001 -- lightgbm unavailable -> Ridge proxy (always present via sklearn)
-            return _build_tiny_model("linear", n_estimators=n_estimators, num_leaves=num_leaves,
-                                     learning_rate=learning_rate, random_state=int(random_state))
+            return _build_tiny_model("linear", n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate, random_state=int(random_state))
 
     # (a) raw-y tiny-model baseline.
     try:
@@ -333,11 +329,9 @@ def measure_achievable_ceiling(
         raw_rmse = _rmse(y_hold, np.asarray(raw_model.predict(x_hold), dtype=np.float64))
     except Exception as exc:  # noqa: BLE001 -- cannot measure the raw baseline -> no confident floor -> proceed
         logger.debug("[achievable_ceiling] raw baseline fit failed: %s", exc)
-        return _proceed(f"raw baseline fit failed ({exc})", lag1_ar=lag1_ar,
-                        n_fit=fit_pos.size, n_hold=hold_pos.size)
+        return _proceed(f"raw baseline fit failed ({exc})", lag1_ar=lag1_ar, n_fit=fit_pos.size, n_hold=hold_pos.size)
     if not np.isfinite(raw_rmse):
-        return _proceed("raw baseline RMSE non-finite", lag1_ar=lag1_ar,
-                        n_fit=fit_pos.size, n_hold=hold_pos.size)
+        return _proceed("raw baseline RMSE non-finite", lag1_ar=lag1_ar, n_fit=fit_pos.size, n_hold=hold_pos.size)
 
     # (b) AR failsafe (lag_predict) RMSE on the SAME holdout rows.
     lag_rmse = float("nan")
@@ -382,12 +376,11 @@ def measure_achievable_ceiling(
                   n_fit=fit_pos.size, n_hold=hold_pos.size, lag1_ar=lag1_ar)
 
     if not np.isfinite(floor_rmse):
-        return _verdict(headroom=float("nan"), decision="proceed",
-                        reason="no measurable floor (raw + lag both non-finite)", **common)
+        return _verdict(headroom=float("nan"), decision="proceed", reason="no measurable floor (raw + lag both non-finite)", **common)
     if not np.isfinite(best_composite_rmse):
-        return _verdict(headroom=float("nan"), decision="proceed",
-                        reason="optimistic composite ceiling unmeasurable (all candidate bases collapsed / absent)",
-                        **common)
+        return _verdict(
+            headroom=float("nan"), decision="proceed", reason="optimistic composite ceiling unmeasurable (all candidate bases collapsed / absent)", **common
+        )
 
     headroom = (floor_rmse - best_composite_rmse) / floor_rmse if floor_rmse > 0 else float("nan")
     if np.isfinite(headroom) and headroom >= margin:

@@ -317,8 +317,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
             pos = {str(c): i for i, c in enumerate(columns)}
             return np.array([pos[str(c)] for c in accepted if str(c) in pos], dtype=np.int64)
         raise AttributeError(
-            f"{type(inner).__name__} exposes no support_/get_support()/accepted; "
-            f"GroupAwareMRMR cannot map its selection back to clusters."
+            f"{type(inner).__name__} exposes no support_/get_support()/accepted; " f"GroupAwareMRMR cannot map its selection back to clusters."
         )
 
     @staticmethod
@@ -422,9 +421,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
             inner.fit(X, y, **fit_params)
             self.estimator_ = inner
             self.support_ = self._prune_rank_deficient(X, self._inner_support_indices(inner, list(X.columns)))
-            self.selected_clusters_ = sorted(
-                set(int(self.cluster_assignments_[i]) for i in self.support_)
-            )
+            self.selected_clusters_ = sorted(set(int(self.cluster_assignments_[i]) for i in self.support_))
             self.n_features_ = len(self.support_)
             self.n_features_in_ = n_feat
             if is_df:
@@ -449,15 +446,10 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         self.selected_clusters_ = sorted(set(int(medoid_cluster_ids[int(i)]) for i in sel_idx))
 
         if self.expand:
-            _sup = np.array(sorted([
-                idx for idx in range(X.shape[1])
-                if self.cluster_assignments_[idx] in self.selected_clusters_
-            ]), dtype=np.int64)
+            _sup = np.array(sorted([idx for idx in range(X.shape[1]) if self.cluster_assignments_[idx] in self.selected_clusters_]), dtype=np.int64)
         else:
             # Just the medoids of selected clusters.
-            _sup = np.array(sorted([
-                self.cluster_medoid_indices_[c] for c in self.selected_clusters_
-            ]), dtype=np.int64)
+            _sup = np.array(sorted([self.cluster_medoid_indices_[c] for c in self.selected_clusters_]), dtype=np.int64)
         # Prune any exact linear-combination column from the final selection so the wrapper never emits a singular design matrix (e.g. x3=2*x1-x2).
         self.support_ = self._prune_rank_deficient(X, _sup)
 
@@ -536,7 +528,4 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         inner = self.__dict__.get("estimator_")
         if inner is not None and hasattr(inner, name):
             return getattr(inner, name)
-        raise AttributeError(
-            f"{type(self).__name__!r} object (and its inner estimator) has no "
-            f"attribute {name!r}"
-        )
+        raise AttributeError(f"{type(self).__name__!r} object (and its inner estimator) has no " f"attribute {name!r}")

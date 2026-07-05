@@ -101,7 +101,4 @@ class GroupTimeSeriesSplit:
                 yield train_idx, test_idx
 
     def __repr__(self) -> str:
-        return (
-            f"GroupTimeSeriesSplit(n_splits={self.n_splits}, "
-            f"max_train_groups={self.max_train_groups}, gap={self.gap})"
-        )
+        return f"GroupTimeSeriesSplit(n_splits={self.n_splits}, " f"max_train_groups={self.max_train_groups}, gap={self.gap})"

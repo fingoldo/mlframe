@@ -618,8 +618,7 @@ def matthews_corrcoef_multiclass(
     yt = np.asarray(y_true).astype(np.int64, copy=False)
     yp = np.asarray(y_pred).astype(np.int64, copy=False)
     if n_classes is None:
-        K = int(max(int(yt.max()) if yt.size > 0 else 0,
-                    int(yp.max()) if yp.size > 0 else 0) + 1)
+        K = int(max(int(yt.max()) if yt.size > 0 else 0, int(yp.max()) if yp.size > 0 else 0) + 1)
     else:
         K = int(n_classes)
     if K < 2:
@@ -736,7 +735,6 @@ def ranked_probability_score(
 # reuse + amortising 4 numba dispatch overheads into 1. All fused-block
 # returns are bit-identical to the separate calls except for fp ordering
 # jitter in the parallel-accumulator paths (max |diff| < 1e-13 at N=5M).
-
 
 
 # binary/multiclass confusion+probability block kernels carved to _classification_extras_blocks.py (1k-LOC ceiling).

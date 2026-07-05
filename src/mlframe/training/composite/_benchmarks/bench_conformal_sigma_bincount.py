@@ -122,5 +122,4 @@ if __name__ == "__main__":
         ident = bool(np.array_equal(ro, rn)) and (mo == mn)
         t_o = _timeit(_mondrian_old, (g, per_group, global_r, n), reps=3)
         t_n = _timeit(_mondrian_new, (g, per_group, global_r, n), reps=3)
-        print(f"mondrian n={n:>11,d}        OLD={t_o*1e3:8.3f}ms  NEW={t_n*1e3:8.3f}ms  "
-              f"speedup={t_o/t_n:5.2f}x  identical={ident}")
+        print(f"mondrian n={n:>11,d}        OLD={t_o*1e3:8.3f}ms  NEW={t_n*1e3:8.3f}ms  " f"speedup={t_o/t_n:5.2f}x  identical={ident}")

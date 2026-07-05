@@ -64,10 +64,7 @@ def mi_direct_gpu_batched_pairs(
     # an opaque InvalidConfiguration. Validate host-side with a clear
     # error so callers know to chunk.
     if n_pairs > 65535:
-        raise ValueError(
-            f"mi_direct_gpu_batched_pairs: n_pairs={n_pairs} exceeds CUDA "
-            f"gridDim.y limit of 65535; chunk the call host-side."
-        )
+        raise ValueError(f"mi_direct_gpu_batched_pairs: n_pairs={n_pairs} exceeds CUDA " f"gridDim.y limit of 65535; chunk the call host-side.")
 
     # A5 fix (Critic 1): validate factors_data values are within their
     # declared bin range. Out-of-range values produce a ``merged`` index
@@ -90,10 +87,7 @@ def mi_direct_gpu_batched_pairs(
                 f"the pair's joint slice."
             )
         if _col.size and int(_col.min()) < 0:
-            raise ValueError(
-                f"mi_direct_gpu_batched_pairs: factors_data[:, {_c_int}] "
-                f"contains negative values; factor codes must be >= 0."
-            )
+            raise ValueError(f"mi_direct_gpu_batched_pairs: factors_data[:, {_c_int}] " f"contains negative values; factor codes must be >= 0.")
 
     # Per-pair joint cardinalities ((nbins_a * nbins_b) cells for the MERGED dim) plus prefix-sum offsets. Each pair's joint table has shape (merged_size, nbins_y),
     # flattened row-major.
@@ -172,9 +166,7 @@ def mi_direct_gpu_batched_pairs(
     except Exception:
         # No probe available -> fall back to the pre-2026-05-20 default.
         _SHARED_MULTI_PAIR_MAX = 4096
-    use_shared_multi_pair = (
-        max_joint_size_y > 0 and max_joint_size_y <= _SHARED_MULTI_PAIR_MAX
-    )
+    use_shared_multi_pair = max_joint_size_y > 0 and max_joint_size_y <= _SHARED_MULTI_PAIR_MAX
 
     # SINGLE kernel launch processes all pairs via 3D grid (rows along X, pairs along Y); per-pair launch overhead amortised to zero.
     if use_shared_multi_pair:
@@ -208,9 +200,7 @@ def mi_direct_gpu_batched_pairs(
     for k in range(n_pairs):
         off = int(joint_offsets[k])
         merged_size = int(pair_merged_sizes[k])
-        joint_2d = joint_counts_host[off : off + merged_size * nbins_y].reshape(
-            merged_size, nbins_y
-        )
+        joint_2d = joint_counts_host[off : off + merged_size * nbins_y].reshape(merged_size, nbins_y)
         marg_m = joint_2d.sum(axis=1)
         marg_y = joint_2d.sum(axis=0)
         # MI in nats
@@ -230,4 +220,3 @@ def mi_direct_gpu_batched_pairs(
                 mi += jf * np.log(jc * n_total / (mm * my))
         joint_mi_out[k] = mi
     return joint_mi_out
-

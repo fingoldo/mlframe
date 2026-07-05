@@ -44,15 +44,15 @@ ACCURACY_SUBOPTIMAL: list[_Caveat] = [
         "leave it True (default); opt out only for byte-identical legacy replay",
     ),
     _Caveat(
-        "dcd_enable", _eq(False),
-        "disables denoised cluster-aggregate (DCD) -- redundant near-duplicate column clusters are no "
-        "longer collapsed into a denoised representative",
+        "dcd_enable",
+        _eq(False),
+        "disables denoised cluster-aggregate (DCD) -- redundant near-duplicate column clusters are no " "longer collapsed into a denoised representative",
         "leave it True (default)",
     ),
     _Caveat(
-        "fe_accuracy_gate", _eq(False),
-        "disables the FE accuracy gate -- engineered candidates that do not clear an honest "
-        "relevance/usability bar can enter the selection",
+        "fe_accuracy_gate",
+        _eq(False),
+        "disables the FE accuracy gate -- engineered candidates that do not clear an honest " "relevance/usability bar can enter the selection",
         "leave it True (default)",
     ),
     _Caveat(
@@ -78,15 +78,15 @@ ACCURACY_SUBOPTIMAL: list[_Caveat] = [
         "use the default 5.0 (sample-size-aware confirmation)",
     ),
     _Caveat(
-        "min_features_fallback", _eq(0),
-        "removes the never-empty floor -- a fit whose gates reject every candidate returns an EMPTY "
-        "support_ instead of the single strongest column",
+        "min_features_fallback",
+        _eq(0),
+        "removes the never-empty floor -- a fit whose gates reject every candidate returns an EMPTY " "support_ instead of the single strongest column",
         "use the default 1 (or higher) so support_ is never empty",
     ),
     _Caveat(
-        "quantization_nbins", lambda v: isinstance(v, int) and v < 5,
-        "very coarse discretisation -- the plug-in MI estimator loses resolution and both relevance and "
-        "redundancy are estimated poorly",
+        "quantization_nbins",
+        lambda v: isinstance(v, int) and v < 5,
+        "very coarse discretisation -- the plug-in MI estimator loses resolution and both relevance and " "redundancy are estimated poorly",
         "use >= 8 (default 10) unless n is tiny",
     ),
 ]
@@ -111,16 +111,13 @@ def warn_accuracy_suboptimal_params(estimator: Any) -> None:
     estimator._accuracy_caveats_warned_ = True
     if not triggered:
         return
-    lines = [
-        f"  * {c.attr}={val!r}: {c.cost}. Better: {c.restore}."
-        for c, val in triggered
-    ]
+    lines = [f"  * {c.attr}={val!r}: {c.cost}. Better: {c.restore}." for c, val in triggered]
     warnings.warn(
         "MRMR.fit: %d parameter value(s) are valid but known to DEGRADE selection accuracy:\n%s\n"
         "(These are intentional only for byte-identical legacy replay / ablation / speed; otherwise "
-        "prefer the defaults. Silence by restoring the defaults above.)"
-        % (len(triggered), "\n".join(lines)),
-        UserWarning, stacklevel=3,
+        "prefer the defaults. Silence by restoring the defaults above.)" % (len(triggered), "\n".join(lines)),
+        UserWarning,
+        stacklevel=3,
     )
 
 

@@ -78,8 +78,7 @@ def compute_trust_score_oof_features(
             pos_correct = correct_mask & (y_t > 0.5)
             neg_correct = correct_mask & (y_t <= 0.5)
         else:
-            m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1,
-                                  random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
+            m = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t)
             preds = m.predict(Xt_s).astype(np.float32)
             abs_resid = np.abs(y_t - preds)
             mad = float(np.median(abs_resid)) + 1e-6

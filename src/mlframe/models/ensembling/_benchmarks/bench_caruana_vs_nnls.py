@@ -100,8 +100,7 @@ def main(n: int = 4000, seeds: int = 25) -> None:
               f"| dAUC={d_auc.mean():+.4f}+-{d_auc.std():.4f} dLogLoss={d_ll.mean():+.4f} win={wins}/{seeds}")
     da = np.array(overall_auc_delta)
     dll = np.array(overall_ll_delta)
-    print(f"\nOVERALL: mean dAUC(caruana-nnls)={da.mean():+.5f}  median={np.median(da):+.5f}  "
-          f"scenario AUC win-rates={[round(w, 2) for w in overall_win]}")
+    print(f"\nOVERALL: mean dAUC(caruana-nnls)={da.mean():+.5f}  median={np.median(da):+.5f}  " f"scenario AUC win-rates={[round(w, 2) for w in overall_win]}")
     print(f"         mean dLogLoss(caruana-nnls)={dll.mean():+.5f}  (positive = caruana WORSE calibrated)")
     # Flip the default ONLY on a majority AUC win AND no calibration regression -- caruana optimizes ranking (AUC)
     # directly, so it can improve AUC while degrading log-loss; mlframe's ensemble consumes calibrated probs and many

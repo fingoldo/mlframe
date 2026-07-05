@@ -228,7 +228,7 @@ def _parse_binary_name(name: str) -> Optional[tuple[str, str, str]]:
         idx = inner.find(token)
         if idx >= 0:
             col_i = inner[:idx]
-            col_j = inner[idx + len(token):]
+            col_j = inner[idx + len(token) :]
             return tname, col_i, col_j
     return None
 
@@ -427,11 +427,7 @@ def _greedy_score_and_select(
             "baseline_mi", "engineered_mi", "uplift",
         ]), []
 
-    y_arr = (
-        np.asarray(y).astype(np.int64)
-        if not np.issubdtype(np.asarray(y).dtype, np.integer)
-        else np.asarray(y, dtype=np.int64)
-    )
+    y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
     raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
     raw_mi_map = dict(zip(list(raw_X.columns), raw_mi.tolist()))
     eng_mi = mi_classif_batch_chunked(engineered, y_arr, nbins=nbins)
@@ -488,20 +484,14 @@ def _greedy_score_and_select(
     else:
         noise_floor = 0.0
     abs_floor = max(legacy_floor, noise_floor)
-    qualified = scores[
-        (scores["uplift"] >= float(min_uplift))
-        & (scores["engineered_mi"] >= abs_floor)
-    ]
+    qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     # W6 abs-MAD floor instrumentation (pure-record; no decision change):
     # record every candidate that CLEARED the uplift gate but missed the
     # absolute floor -- the ``marginal_uplift_floor`` gate kill the session
     # previously had to diagnose by hand. Selection is byte-identical with or
     # without the sink.
     if reject_sink is not None and not scores.empty:
-        _killed = scores[
-            (scores["uplift"] >= float(min_uplift))
-            & (scores["engineered_mi"] < abs_floor)
-        ]
+        _killed = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] < abs_floor)]
         for _row in _killed.itertuples(index=False):
             try:
                 reject_sink(
@@ -556,10 +546,7 @@ def greedy_mi_fe_construct(
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
     # 1. Seed pool.
-    candidates_pool = [
-        c for c in (cols or X.columns)
-        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
-    ]
+    candidates_pool = [c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if not candidates_pool:
         return X.copy(), pd.DataFrame(columns=[
             "engineered_col", "transform", "source_cols",
@@ -666,8 +653,7 @@ def greedy_mi_fe_construct_with_recipes(
             ))
         else:
             logger.warning(
-                "greedy_mi_fe_construct_with_recipes: cannot parse engineered "
-                "column %r back to (transform, source); skipping recipe.",
+                "greedy_mi_fe_construct_with_recipes: cannot parse engineered " "column %r back to (transform, source); skipping recipe.",
                 name,
             )
     return X_aug, scores, recipes
@@ -693,22 +679,15 @@ def apply_mi_greedy_transform(
         fn = UNARY_TRANSFORMS.get(transform) or TRIG_BOUNDED_TRANSFORMS.get(transform)
         if fn is None:
             raise KeyError(
-                f"apply_mi_greedy_transform: unknown unary transform "
-                f"{transform!r}; known: {sorted(UNARY_TRANSFORMS) + sorted(TRIG_BOUNDED_TRANSFORMS)}"
+                f"apply_mi_greedy_transform: unknown unary transform " f"{transform!r}; known: {sorted(UNARY_TRANSFORMS) + sorted(TRIG_BOUNDED_TRANSFORMS)}"
             )
         out = fn(src_values[0])
     elif len(src_values) == 2:
         fn_b = BINARY_TRANSFORMS.get(transform)
         if fn_b is None:
-            raise KeyError(
-                f"apply_mi_greedy_transform: unknown binary transform "
-                f"{transform!r}; known: {sorted(BINARY_TRANSFORMS)}"
-            )
+            raise KeyError(f"apply_mi_greedy_transform: unknown binary transform " f"{transform!r}; known: {sorted(BINARY_TRANSFORMS)}")
         out = fn_b(src_values[0], src_values[1])
     else:
-        raise ValueError(
-            f"apply_mi_greedy_transform: src_values length {len(src_values)} "
-            f"unsupported (only unary / binary registered)."
-        )
+        raise ValueError(f"apply_mi_greedy_transform: src_values length {len(src_values)} " f"unsupported (only unary / binary registered).")
     out = np.asarray(out, dtype=np.float64)
     return np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)

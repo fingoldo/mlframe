@@ -77,9 +77,9 @@ def compute_local_curvature_features(
         diag_mask = iu == ju
         ones_col = np.ones((k_eff, 1), dtype=np.float32)
         for q in range(n_q):
-            nbr_X = Xt_s[idx[q]]              # (k_eff, d)
+            nbr_X = Xt_s[idx[q]]  # (k_eff, d)
             nbr_y = y_t[idx[q]].astype(np.float32)
-            dx = nbr_X - Xq_s[q]              # (k_eff, d)
+            dx = nbr_X - Xq_s[q]  # (k_eff, d)
             # Linear basis: [1, dx_1, dx_2, ..., dx_d]
             A_lin = np.concatenate([ones_col, dx], axis=1)
             try:
@@ -87,14 +87,14 @@ def compute_local_curvature_features(
                 pred_lin = A_lin @ coef_lin
                 resid_lin = float(np.sum((nbr_y - pred_lin) ** 2))
                 # Quadratic basis: [linear basis, dx_i * dx_j for i <= j]
-                quad = dx[:, iu] * dx[:, ju]          # (k_eff, d*(d+1)/2)
+                quad = dx[:, iu] * dx[:, ju]  # (k_eff, d*(d+1)/2)
                 A_quad = np.concatenate([A_lin, quad], axis=1)
                 coef_quad, _, _, _ = np.linalg.lstsq(A_quad, nbr_y, rcond=None)
                 pred_quad = A_quad @ coef_quad
                 resid_quad = float(np.sum((nbr_y - pred_quad) ** 2))
                 # Build H from quad coefficients
                 # Quad coefs index: linear has 1 + d coefs; then quad coefs in order (i, j) for i <= j
-                quad_coefs = coef_quad[1 + d:]
+                quad_coefs = coef_quad[1 + d :]
                 # Off-diagonal entries get the raw coef on both sides; diagonal
                 # entries get 2*coef (second derivative = 2*a_ii for the x_i^2 coef).
                 H = np.zeros((d, d), dtype=np.float32)
@@ -102,7 +102,7 @@ def compute_local_curvature_features(
                 H[ju, iu] = quad_coefs
                 H[iu[diag_mask], ju[diag_mask]] = 2.0 * quad_coefs[diag_mask]
                 trace_H = float(np.trace(H))
-                frob_H = float(np.sqrt(np.sum(H ** 2)))
+                frob_H = float(np.sqrt(np.sum(H**2)))
                 # Predict at query point (dx = 0): value is the intercept of linear/quadratic.
                 lin_val = float(coef_lin[0])
                 quad_val = float(coef_quad[0])

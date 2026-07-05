@@ -37,8 +37,7 @@ def _bench():
     W = 200
     mp = cp.get_default_memory_pool()
 
-    print(f"{'L':>7} {'old_ms':>9} {'new_ms':>9} {'speedup':>8} "
-          f"{'oldMB':>8} {'newMB':>8} {'memx':>6} {'|dGPU-dGPU|':>12} {'|dGPU-dCPU|':>12}")
+    print(f"{'L':>7} {'old_ms':>9} {'new_ms':>9} {'speedup':>8} " f"{'oldMB':>8} {'newMB':>8} {'memx':>6} {'|dGPU-dGPU|':>12} {'|dGPU-dCPU|':>12}")
     for L in (1000, 5000, 10000):
         x = rng.standard_normal(L).astype(np.float32)
         y = rng.standard_normal(L).astype(np.float32)

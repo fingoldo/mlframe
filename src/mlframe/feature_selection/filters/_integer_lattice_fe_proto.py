@@ -109,8 +109,7 @@ def scan_integer_lattice_pairs(
                 if mi <= null_hi:
                     continue
                 hits.append(
-                    dict(op=op, a=col_names[a_idx], b=col_names[b_idx], mi=float(mi),
-                         operand_floor=float(operand_floor), null_hi=float(null_hi)),
+                    dict(op=op, a=col_names[a_idx], b=col_names[b_idx], mi=float(mi), operand_floor=float(operand_floor), null_hi=float(null_hi)),
                 )
     hits.sort(key=lambda h: h["mi"], reverse=True)
     return hits

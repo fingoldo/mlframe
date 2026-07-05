@@ -90,13 +90,10 @@ def main() -> None:
     print("| seed | rmse_full | rmse_dedup | dropped | dedup_wins |")
     print("|---|---|---|---|---|")
     for r in rows:
-        print(f"| {r['seed']} | {r['rmse_full']:.4f} | {r['rmse_dedup']:.4f} | "
-              f"{r['n_dropped']} | {r['dedup_wins']} |")
-    print(f"\nmean rmse_full={mean_full:.4f}  mean rmse_dedup={mean_dedup:.4f}  "
-          f"dedup wins {wins}/{len(seeds)} seeds")
+        print(f"| {r['seed']} | {r['rmse_full']:.4f} | {r['rmse_dedup']:.4f} | " f"{r['n_dropped']} | {r['dedup_wins']} |")
+    print(f"\nmean rmse_full={mean_full:.4f}  mean rmse_dedup={mean_dedup:.4f}  " f"dedup wins {wins}/{len(seeds)} seeds")
     verdict = "ON" if wins > len(seeds) / 2 else "OFF"
-    print(f"DECISION: default ct_ensemble_dedup_enabled = {verdict} "
-          f"(majority-of-seeds rule).")
+    print(f"DECISION: default ct_ensemble_dedup_enabled = {verdict} " f"(majority-of-seeds rule).")
 
     out = {
         "bench": "ct_ensemble_residual_dedup",

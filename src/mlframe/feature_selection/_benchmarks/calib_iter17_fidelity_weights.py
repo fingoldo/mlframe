@@ -29,12 +29,10 @@ REGIMES = [
     # the needle here: smaller n_samples shrinks the SHAP signal, larger n_noise grows the prefilter
     # haystack, lower SNR puts the proxy under genuine stress, and distinct random_state per regime
     # so anchor sets don't collide on the same default rng.
-
     # Calibrated for MAXIMUM regime spread on recovery + recall. The first pass at width 400 had
     # everything pinned near-ceiling; the second had ONE failure regime dominating both correlations.
     # We add graduated difficulty: easy / medium-redundancy / medium-noise / hard-interaction / hard-
     # interaction-with-XOR so the regression of recovery on each metric has real degrees of freedom.
-
     # 1. Additive high-SNR: marginal signal dominates, the easy regime.
     dict(name="additive_highSNR",
          kwargs=dict(n_samples=2000, n_informative=8, n_redundant=0, n_noise=400,
@@ -60,10 +58,7 @@ REGIMES = [
                      task="regression", seed=4),
          random_state=4),
     # 5. Noise-heavy at low SNR: large haystack stresses prefilter + trust guard.
-    dict(name="noise_heavy",
-         kwargs=dict(n_samples=1500, n_informative=8, n_redundant=0, n_noise=1200,
-                     snr=2.0, task="regression", seed=3),
-         random_state=3),
+    dict(name="noise_heavy", kwargs=dict(n_samples=1500, n_informative=8, n_redundant=0, n_noise=1200, snr=2.0, task="regression", seed=3), random_state=3),
 ]
 
 
@@ -102,13 +97,10 @@ def run_one(regime: dict, time_budget_s: float = 90.0) -> dict:
     selected = set(fs.selected_features_)
     recovery = len(informatives & selected)
     selected_n = len(selected)
-    _hb(f"regime {name}: spearman={sp:.4f} recall@k={rc:.4f} "
-        f"recovery={recovery}/{len(informatives)} (|S|={selected_n}) elapsed={elapsed:.1f}s")
+    _hb(f"regime {name}: spearman={sp:.4f} recall@k={rc:.4f} " f"recovery={recovery}/{len(informatives)} (|S|={selected_n}) elapsed={elapsed:.1f}s")
     if elapsed > time_budget_s:
-        _hb(f"  WARNING: regime {name} exceeded soft budget {time_budget_s:.0f}s "
-            f"(actual {elapsed:.1f}s); consider narrower kwargs")
-    return dict(name=name, spearman=sp, recall_at_k=rc, recovery=recovery,
-                n_informative=len(informatives), selected_n=selected_n, elapsed=elapsed)
+        _hb(f"  WARNING: regime {name} exceeded soft budget {time_budget_s:.0f}s " f"(actual {elapsed:.1f}s); consider narrower kwargs")
+    return dict(name=name, spearman=sp, recall_at_k=rc, recovery=recovery, n_informative=len(informatives), selected_n=selected_n, elapsed=elapsed)
 
 
 def main():
@@ -119,8 +111,7 @@ def main():
         _hb(f"  cumulative wall: {time.time() - overall_t0:.1f}s")
 
     print("\nper-regime table:", flush=True)
-    print(f"{'regime':<20} {'spearman':>10} {'recall@k':>10} "
-          f"{'recovery':>10} {'sel|S|':>8} {'sec':>7}", flush=True)
+    print(f"{'regime':<20} {'spearman':>10} {'recall@k':>10} " f"{'recovery':>10} {'sel|S|':>8} {'sec':>7}", flush=True)
     for r in rows:
         print(f"{r['name']:<20} {r['spearman']:>10.4f} {r['recall_at_k']:>10.4f} "
               f"{r['recovery']:>5}/{r['n_informative']:<4} {r['selected_n']:>8} "
@@ -178,8 +169,7 @@ def main():
         print(f"\nraw weights (corr-proportional): ({w_sp:.3f}, {w_rc:.3f})", flush=True)
         print(f"PROPOSED default fidelity_weights = ({proposed[0]:.2f}, {proposed[1]:.2f})", flush=True)
 
-    return dict(rows=rows, corr_spearman_recovery=corr_sp, corr_recall_recovery=corr_rc,
-                proposed=proposed, inconclusive=inconclusive)
+    return dict(rows=rows, corr_spearman_recovery=corr_sp, corr_recall_recovery=corr_rc, proposed=proposed, inconclusive=inconclusive)
 
 
 if __name__ == "__main__":

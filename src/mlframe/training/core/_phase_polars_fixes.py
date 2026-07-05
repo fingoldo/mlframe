@@ -171,8 +171,7 @@ def apply_polars_categorical_fixes(
     # Tracks the per-column train+val union built below; Step 4 below reuses these domains when
     # casting raw Utf8 columns to Enum so the cast does not poison the global string cache (P0-B2).
     _enum_domains_built: Dict[str, List[str]] = {}
-    if (train_df_polars is not None and cat_features
-            and align_polars_categorical_dicts):
+    if train_df_polars is not None and cat_features and align_polars_categorical_dicts:
         aligned_cols: list = []
         skipped_cols: list = []
         _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)
@@ -187,11 +186,7 @@ def apply_polars_categorical_fixes(
             if col not in train_df_polars.columns:
                 continue
             dt = train_df_polars.schema[col]
-            is_cat_like = (
-                dt == pl.Categorical
-                or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
-                or dt in _string_types
-            )
+            is_cat_like = dt == pl.Categorical or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum)) or dt in _string_types
             if not is_cat_like:
                 continue
             _eligible_cols.append(col)
@@ -204,18 +199,14 @@ def apply_polars_categorical_fixes(
         _val_unique_lists = None
         if _need_scan_cols:
             try:
-                _tr_unique_lists = train_df_polars.lazy().select([
-                    pl.col(c).drop_nulls().unique().implode().alias(c) for c in _need_scan_cols
-                ]).collect()
+                _tr_unique_lists = train_df_polars.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in _need_scan_cols]).collect()
             except Exception as _e:
                 logger.warning(
                     "  Batched train-side unique collect failed (%s); falling back to per-col scan.", _e,
                 )
             if val_df_polars is not None:
                 try:
-                    _val_unique_lists = val_df_polars.lazy().select([
-                        pl.col(c).drop_nulls().unique().implode().alias(c) for c in _need_scan_cols
-                    ]).collect()
+                    _val_unique_lists = val_df_polars.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in _need_scan_cols]).collect()
                 except Exception as _e:
                     logger.warning(
                         "  Batched val-side unique collect failed (%s); falling back to per-col scan.", _e,
@@ -231,9 +222,7 @@ def apply_polars_categorical_fixes(
         _test_nulls_pre: dict[str, int] = {}
         if verbose and test_df_polars is not None and _eligible_cols:
             try:
-                _pre_df = test_df_polars.lazy().select([
-                    pl.col(c).null_count().alias(c) for c in _eligible_cols if c in test_df_polars.columns
-                ]).collect()
+                _pre_df = test_df_polars.lazy().select([pl.col(c).null_count().alias(c) for c in _eligible_cols if c in test_df_polars.columns]).collect()
                 _test_nulls_pre = {c: int(_pre_df[c][0]) for c in _pre_df.columns}
             except Exception:
                 _test_nulls_pre = {}
@@ -284,9 +273,9 @@ def apply_polars_categorical_fixes(
                 aligned_cols.append((col, len(union_sorted)))
             except Exception as _e:
                 logger.warning(
-                    "  Failed to align category dict for %s: %s. "
-                    "XGB/CB may crash on val-DMatrix if val has unseen categories.",
-                    col, _e,
+                    "  Failed to align category dict for %s: %s. " "XGB/CB may crash on val-DMatrix if val has unseen categories.",
+                    col,
+                    _e,
                 )
         # Apply all aligned casts in one with_columns per frame.
         if _train_cast_exprs:
@@ -297,9 +286,7 @@ def apply_polars_categorical_fixes(
             test_df_polars = test_df_polars.with_columns([_e for _, _e in _test_cast_exprs])
             if verbose:
                 try:
-                    _post_df = test_df_polars.lazy().select([
-                        pl.col(c).null_count().alias(c) for c, _ in _test_cast_exprs
-                    ]).collect()
+                    _post_df = test_df_polars.lazy().select([pl.col(c).null_count().alias(c) for c, _ in _test_cast_exprs]).collect()
                     for c, _ in _test_cast_exprs:
                         _post = int(_post_df[c][0])
                         _pre = _test_nulls_pre.get(c, 0)

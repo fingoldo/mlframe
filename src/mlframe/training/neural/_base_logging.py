@@ -12,7 +12,6 @@ from typing import Callable
 from pydantic import BaseModel
 from sklearn.metrics import root_mean_squared_error
 
-
 logger = logging.getLogger(__name__)
 
 

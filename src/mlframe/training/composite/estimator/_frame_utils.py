@@ -36,9 +36,7 @@ def _subset_rows(X: Any, mask: np.ndarray) -> Any:
         return X.loc[mask].reset_index(drop=True)
     if isinstance(X, np.ndarray):
         return X[mask]
-    raise TypeError(
-        f"CompositeTargetEstimator: unsupported X type {type(X).__name__} for row subsetting."
-    )
+    raise TypeError(f"CompositeTargetEstimator: unsupported X type {type(X).__name__} for row subsetting.")
 
 
 def _drop_columns(X: Any, columns: Sequence[str]) -> Any:
@@ -86,7 +84,7 @@ def _drop_columns(X: Any, columns: Sequence[str]) -> Any:
                 _sz = int(X.memory_usage(index=False, deep=False).sum())
             except Exception:
                 _sz = 0
-            if _sz > 2 * 1024 ** 3:
+            if _sz > 2 * 1024**3:
                 logger.warning(
                     "CompositeTargetEstimator: dropping group_column '%s' "
                     "copies a %.1f GB pandas frame (Copy-on-Write is off). "
@@ -114,7 +112,4 @@ def _count_feature_columns(X: Any) -> int:
         return len(X.columns)
     if isinstance(X, np.ndarray):
         return 1 if X.ndim == 1 else int(X.shape[1])
-    raise TypeError(
-        f"CompositeTargetEstimator: cannot count feature columns of X type "
-        f"{type(X).__name__} to validate monotone_constraints length."
-    )
+    raise TypeError(f"CompositeTargetEstimator: cannot count feature columns of X type " f"{type(X).__name__} to validate monotone_constraints length.")

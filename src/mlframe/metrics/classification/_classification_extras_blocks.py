@@ -369,5 +369,3 @@ def fast_multiclass_confusion_metrics_block(
         "per_class_f1": f1,
         "_confusion_matrix": C,
     }
-
-

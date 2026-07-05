@@ -58,7 +58,7 @@ def survivor_fe(Xtr, ytr, survivors, fi_rank, k=8):
         col = (Xtr[a] * Xtr[b]).rename(name)
         aug = pd.concat([Xtr[survivors], col], axis=1)
         sc = cross_val_score(lgb.LGBMClassifier(n_estimators=120, verbose=-1), aug, ytr, cv=3, scoring="roc_auc")
-        if sc.mean() > base_mu + base_se:   # > 1 SE improvement
+        if sc.mean() > base_mu + base_se:  # > 1 SE improvement
             products[name] = (a, b, round(sc.mean() - base_mu, 4))
     return products
 

@@ -10,7 +10,6 @@ import numba
 from numba import njit
 from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 
-
 # Wave 87 (2026-05-21): scoped numba/discretization warnings suppressor.
 # Replaces the prior module-level filter mutation which silently poisoned
 # the process-global filter for every importer.

@@ -109,7 +109,7 @@ def _make_members(rng, n, k, n_members, diversity, miscal, balance, wrong_frac=0
         p = np.exp(logits - logits.max(axis=1, keepdims=True))
         p /= p.sum(axis=1, keepdims=True)
         if miscal != 1.0:
-            p = p ** miscal
+            p = p**miscal
             p /= p.sum(axis=1, keepdims=True)
         members.append(p)
     return y, np.stack(members, axis=0)
@@ -158,8 +158,7 @@ def run():
             a, g = r[m]["arith"], r[m]["geom"]
             tag = "ARITH" if a <= g else "GEOM"
             print(f"   {m:<6} arith={a:.4f}  geom={g:.4f}  winner={tag}  delta={(g - a):+.4f}")
-    print("\n=== per-cell win counts (lower is better; #seeds*#scen = "
-          f"{len(SEEDS) * len(SCENARIOS)} cells) ===")
+    print("\n=== per-cell win counts (lower is better; #seeds*#scen = " f"{len(SEEDS) * len(SCENARIOS)} cells) ===")
     for m in ("NLL", "Brier", "ECE"):
         print(f"   {m:<6} arith_wins={wins[m]['arith']:>3}  geom_wins={wins[m]['geom']:>3}")
     return results, wins

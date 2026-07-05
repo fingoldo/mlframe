@@ -48,8 +48,7 @@ def _build_phi_and_unit_f(X: pd.DataFrame, y: np.ndarray, *, top_cols: int = 400
 def _split(X: pd.DataFrame, y: np.ndarray, frac: float = 0.7):
     n = len(y)
     cut = int(n * frac)
-    return (X.iloc[:cut].reset_index(drop=True), y[:cut],
-            X.iloc[cut:].reset_index(drop=True), y[cut:])
+    return (X.iloc[:cut].reset_index(drop=True), y[:cut], X.iloc[cut:].reset_index(drop=True), y[cut:])
 
 
 def main(n_samples: int = 3000, n_informative: int = 12, n_features: int = 6000, n_anchors: int = 30):
@@ -66,18 +65,15 @@ def main(n_samples: int = 3000, n_informative: int = 12, n_features: int = 6000,
     phi, base, keep_idx, unit_f = _build_phi_and_unit_f(X, y, top_cols=400)
     X_use = X.iloc[:, keep_idx].reset_index(drop=True)
     # Recovery: how many of the planted informatives survive the prefilter?
-    informative_in_cohort = sum(
-        1 for c in informative_names if c in set(X_use.columns)
-    )
+    informative_in_cohort = sum(1 for c in informative_names if c in set(X_use.columns))
     _heartbeat(f"cohort {len(keep_idx)} cols; recovery {informative_in_cohort}/{len(informative_names)}")
 
     Xs, ys, Xh, yh = _split(X_use, y, frac=0.7)
-    phi_s = phi[:len(ys)]
-    base_s = base[:len(ys)]
+    phi_s = phi[: len(ys)]
+    base_s = base[: len(ys)]
 
     template = RandomForestRegressor(n_estimators=40, max_depth=8, n_jobs=-1, random_state=0)
-    common = dict(classification=False, metric="rmse", n_anchors=n_anchors,
-                  min_card=1, max_card=20, n_jobs=-1)
+    common = dict(classification=False, metric="rmse", n_anchors=n_anchors, min_card=1, max_card=20, n_jobs=-1)
 
     def _run(label: str, **kwargs):
         _heartbeat(f"running variant: {label}")
@@ -89,8 +85,7 @@ def main(n_samples: int = 3000, n_informative: int = 12, n_features: int = 6000,
         rc = rep["recall_at_k"]
         fid = rep["proxy_fidelity_score"]
         _heartbeat(f"  {label}: spearman={sp:.4f} recall@k={rc:.4f} composite={fid:.4f} ({elapsed:.1f}s)")
-        return dict(variant=label, spearman=sp, recall_at_k=rc, composite=fid,
-                    trustworthy=rep["trustworthy"], seconds=elapsed)
+        return dict(variant=label, spearman=sp, recall_at_k=rc, composite=fid, trustworthy=rep["trustworthy"], seconds=elapsed)
 
     results = []
     # Baseline: uniform-uniform (legacy default).
@@ -101,8 +96,7 @@ def main(n_samples: int = 3000, n_informative: int = 12, n_features: int = 6000,
     for alpha in (0.25, 0.5, 1.0):
         results.append(_run(f"uniform / zipf alpha={alpha}", cardinality_dist="zipf", zipf_alpha=alpha))
     # Combined: F-stratified + Zipf alpha=0.25 (the iter15 sweet spot under composite).
-    results.append(_run("F-stratified / zipf alpha=0.25",
-                        unit_f_scores=unit_f, cardinality_dist="zipf", zipf_alpha=0.25))
+    results.append(_run("F-stratified / zipf alpha=0.25", unit_f_scores=unit_f, cardinality_dist="zipf", zipf_alpha=0.25))
 
     print("\nresults table:", flush=True)
     print(f"{'variant':<36} {'spearman':>10} {'recall@k':>10} {'composite':>10} {'gate':>6}", flush=True)

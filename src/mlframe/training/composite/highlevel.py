@@ -141,10 +141,7 @@ def _resolve_train_idx(df: Any, train_idx: Any) -> np.ndarray:
     if arr.dtype == bool:
         return np.flatnonzero(arr)
     if not np.issubdtype(arr.dtype, np.integer):
-        raise TypeError(
-            "train_idx must be integer positions or a boolean mask, got dtype "
-            f"{arr.dtype!r}"
-        )
+        raise TypeError("train_idx must be integer positions or a boolean mask, got dtype " f"{arr.dtype!r}")
     return arr
 
 
@@ -278,9 +275,7 @@ def discover_and_wrap(
 
     # ---- 2. discover -------------------------------------------------------
     discovery = CompositeTargetDiscovery(config)
-    holdout_pos = (
-        None if holdout_idx is None else _resolve_train_idx(df, holdout_idx)
-    )
+    holdout_pos = None if holdout_idx is None else _resolve_train_idx(df, holdout_idx)
     # Pass the held-out rows as test_idx so discovery's leakage guard asserts
     # train/holdout disjointness for us (raises early on overlap).
     discovery.fit(
@@ -301,9 +296,8 @@ def discover_and_wrap(
 
     if not specs:
         logger.warning(
-            "[discover_and_wrap] discovery found no spec for target=%r; "
-            "returning estimator=None (see report_markdown for the rejection "
-            "trail).", target_col,
+            "[discover_and_wrap] discovery found no spec for target=%r; " "returning estimator=None (see report_markdown for the rejection " "trail).",
+            target_col,
         )
         return DiscoverAndWrapResult(
             estimator=None, spec=None, config=config,
@@ -316,10 +310,7 @@ def discover_and_wrap(
 
     # ---- 4. build + fit wrapper on train rows ------------------------------
     inner = base_estimator if base_estimator is not None else _default_inner_estimator()
-    base_columns = tuple(
-        c for c in (spec.base_column, *(getattr(spec, "extra_base_columns", ()) or ()))
-        if c
-    )
+    base_columns = tuple(c for c in (spec.base_column, *(getattr(spec, "extra_base_columns", ()) or ())) if c)
     estimator = CompositeTargetEstimator(
         base_estimator=inner,
         transform_name=spec.transform_name,
@@ -349,14 +340,11 @@ def discover_and_wrap(
                 cal_alpha = float(conformal_alpha)
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning(
-                    "[discover_and_wrap] conformal calibration failed: %s; "
-                    "estimator returned without an interval.", exc,
+                    "[discover_and_wrap] conformal calibration failed: %s; " "estimator returned without an interval.",
+                    exc,
                 )
         else:
-            logger.info(
-                "[discover_and_wrap] calibrate_conformal requested but no "
-                "disjoint held-out rows available; skipping calibration."
-            )
+            logger.info("[discover_and_wrap] calibrate_conformal requested but no " "disjoint held-out rows available; skipping calibration.")
 
     return DiscoverAndWrapResult(
         estimator=estimator, spec=spec, config=config,

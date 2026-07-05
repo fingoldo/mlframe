@@ -9,7 +9,6 @@ from typing import Any, Sequence
 
 import numpy as np
 
-
 logger = logging.getLogger("mlframe.models.ensembling")
 
 
@@ -75,12 +74,7 @@ def _validate_score_ensemble_inputs(
             )
 
     _first = level_models_and_predictions[0]
-    if (
-        getattr(_first, "oof_probs", None) is not None
-        or _first.val_probs is not None
-        or _first.test_probs is not None
-        or _first.train_probs is not None
-    ):
+    if getattr(_first, "oof_probs", None) is not None or _first.val_probs is not None or _first.test_probs is not None or _first.train_probs is not None:
         is_regression = False
     else:
         is_regression = True
@@ -91,9 +85,7 @@ def _validate_score_ensemble_inputs(
         _pre = list(ensembling_methods)
         ensembling_methods = [m for m in ensembling_methods if m != "rrf"]
         if verbose and len(ensembling_methods) != len(_pre):
-            logger.info(
-                "[ensemble] target_type=REGRESSION: skipping rrf candidate (rank-fusion only meaningful on classifier probabilities)."
-            )
+            logger.info("[ensemble] target_type=REGRESSION: skipping rrf candidate (rank-fusion only meaningful on classifier probabilities).")
 
     # Multi-level stacking requires OOF predictions on EVERY member: the level-2 (and deeper) meta-learner consumes
     # level-1 ensemble outputs as features, and if any member contributes an in-sample ``train_preds`` row instead of
@@ -104,10 +96,7 @@ def _validate_score_ensemble_inputs(
     # any attribute on access, so ``is None`` would never fire on a real-world stub.
     if max_ensembling_level > 1:
         _oof_attr = "oof_probs" if not is_regression else "oof_preds"
-        _missing_oof = [
-            i for i, m in enumerate(level_models_and_predictions)
-            if not isinstance(getattr(m, _oof_attr, None), np.ndarray)
-        ]
+        _missing_oof = [i for i, m in enumerate(level_models_and_predictions) if not isinstance(getattr(m, _oof_attr, None), np.ndarray)]
         if _missing_oof:
             raise ValueError(
                 f"score_ensemble(max_ensembling_level={max_ensembling_level}) requires {_oof_attr} on every member; "

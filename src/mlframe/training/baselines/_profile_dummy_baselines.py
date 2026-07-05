@@ -66,8 +66,8 @@ def _make_regression(n_train: int, n_val: int, n_test: int, *, ts: bool = True, 
         "cat_lo": cat,
     })
     train_X = X.iloc[:n_train].reset_index(drop=True)
-    val_X = X.iloc[n_train:n_train + n_val].reset_index(drop=True)
-    test_X = X.iloc[n_train + n_val:].reset_index(drop=True)
+    val_X = X.iloc[n_train : n_train + n_val].reset_index(drop=True)
+    test_X = X.iloc[n_train + n_val :].reset_index(drop=True)
     if ts:
         # hourly cadence so n=O(1e6) fits inside int64 ns range from 2000.
         ts_all = pd.date_range("2000-01-01", periods=n, freq="h")
@@ -76,8 +76,8 @@ def _make_regression(n_train: int, n_val: int, n_test: int, *, ts: bool = True, 
             "train_y": y[:n_train], "val_y": y[n_train:n_train + n_val], "test_y": y[n_train + n_val:],
             "train_X": train_X, "val_X": val_X, "test_X": test_X,
             "timestamps_train": ts_all[:n_train],
-            "timestamps_val": ts_all[n_train:n_train + n_val],
-            "timestamps_test": ts_all[n_train + n_val:],
+            "timestamps_val": ts_all[n_train : n_train + n_val],
+            "timestamps_test": ts_all[n_train + n_val :],
             "cat_features": ["cat_lo"],
         }
     return {
@@ -162,8 +162,7 @@ def _profile_call(args_dict: dict, label: str, top_n: int = 30) -> tuple[float, 
     ps = pstats.Stats(profiler, stream=s).sort_stats("cumulative")
     ps.print_stats(top_n)
     print(f"\n=== {label} (wall {elapsed:.2f}s) ===")
-    print(f"strongest={rep.strongest} primary={rep.primary_metric} "
-          f"n_baselines={len(rep.table)}")
+    print(f"strongest={rep.strongest} primary={rep.primary_metric} " f"n_baselines={len(rep.table)}")
     return elapsed, s.getvalue()
 
 

@@ -38,9 +38,7 @@ def _run_ablation(
     from .diagnostics import AblationEntry, _delta_pct
 
     if raw_fi.size == 0 or raw_fi.sum() == 0:
-        logger.info(
-            "BaselineDiagnostics: feature_importances_ all-zero; ablation skipped."
-        )
+        logger.info("BaselineDiagnostics: feature_importances_ all-zero; ablation skipped.")
         return []
 
     top_k = max(1, min(self.config.ablation_top_k, len(feature_cols)))
@@ -68,8 +66,7 @@ def _run_ablation(
     # ablation verdict. Binning is only ~3% of fit wall anyway (cProfile inflated
     # init_from_np2d ~10x). See _benchmarks/bench_ablation_shared_dataset.py +
     # test_ablation_shared_dataset_rejected.py.
-    def _one_drop(rank: int, idx: int, feat: str,
-                  kept: list[str], cat_kept: list[str]):
+    def _one_drop(rank: int, idx: int, feat: str, kept: list[str], cat_kept: list[str]):
         X_drop = X.loc[:, kept]
         try:
             metric_drop, _ = self._fit_quick_and_score(
@@ -98,10 +95,7 @@ def _run_ablation(
             results = Parallel(
                 n_jobs=min(len(per_feature_work), 8),
                 backend="threading",  # numpy data shared, no pickle cost
-            )(
-                delayed(_one_drop)(rank, idx, feat, kept, cat_kept)
-                for (rank, idx, feat, kept, cat_kept) in per_feature_work
-            )
+            )(delayed(_one_drop)(rank, idx, feat, kept, cat_kept) for (rank, idx, feat, kept, cat_kept) in per_feature_work)
         except ImportError:
             results = [_one_drop(*args) for args in per_feature_work]
     else:

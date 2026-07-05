@@ -104,8 +104,8 @@ def main():
     cell_auc = {sm: [] for sm in CANDIDATES}
     cell_mse = {sm: [] for sm in CANDIDATES}
     cell_ll = {sm: [] for sm in CANDIDATES}
-    wins = {sm: 0 for sm in CANDIDATES}       # by AUC
-    wins_ll = {sm: 0 for sm in CANDIDATES}    # by log-loss (calibration)
+    wins = {sm: 0 for sm in CANDIDATES}  # by AUC
+    wins_ll = {sm: 0 for sm in CANDIDATES}  # by log-loss (calibration)
 
     for kind in SCENARIOS:
         for seed in SEEDS:
@@ -115,9 +115,7 @@ def main():
             best_sm, best_auc = None, -1.0
             best_sm_ll, best_ll = None, np.inf
             for sm in CANDIDATES:
-                enc = LeakageSafeEncoder(
-                    method="target_mean", smoothing=sm, cv=5, random_state=seed
-                )
+                enc = LeakageSafeEncoder(method="target_mean", smoothing=sm, cv=5, random_state=seed)
                 enc.fit(cats[tr], y[tr])
                 pred = enc.transform(cats[te])
                 yte = y[te]
@@ -141,13 +139,10 @@ def main():
             wins_ll[best_sm_ll] += 1
 
     print("=== held-out target-mean encoding: smoothing sweep ===")
-    print(f"{'smoothing':>10} {'mean_AUC':>10} {'mean_LogLoss':>13} "
-          f"{'mean_MSEpost':>13} {'AUCwins':>8} {'LLwins':>8}")
+    print(f"{'smoothing':>10} {'mean_AUC':>10} {'mean_LogLoss':>13} " f"{'mean_MSEpost':>13} {'AUCwins':>8} {'LLwins':>8}")
     for sm in CANDIDATES:
         print(
-            f"{sm:>10.1f} {np.mean(cell_auc[sm]):>10.4f} "
-            f"{np.mean(cell_ll[sm]):>13.4f} {np.mean(cell_mse[sm]):>13.5f} "
-            f"{wins[sm]:>8d} {wins_ll[sm]:>8d}"
+            f"{sm:>10.1f} {np.mean(cell_auc[sm]):>10.4f} " f"{np.mean(cell_ll[sm]):>13.4f} {np.mean(cell_mse[sm]):>13.5f} " f"{wins[sm]:>8d} {wins_ll[sm]:>8d}"
         )
     n_cells = len(SCENARIOS) * len(SEEDS)
     best_by_auc = max(CANDIDATES, key=lambda s: np.mean(cell_auc[s]))
@@ -163,9 +158,7 @@ def main():
     auc_better = sum(a > b for a, b in zip(cell_auc[chal], cell_auc[inc]))
     mse_better = sum(a < b for a, b in zip(cell_mse[chal], cell_mse[inc]))
     print(f"\nH2H sm={chal} vs incumbent sm={inc} (per-cell, n={n_cells}):")
-    print(f"  log-loss better: {ll_better}/{n_cells}   "
-          f"AUC better: {auc_better}/{n_cells}   "
-          f"MSE-post better: {mse_better}/{n_cells}")
+    print(f"  log-loss better: {ll_better}/{n_cells}   " f"AUC better: {auc_better}/{n_cells}   " f"MSE-post better: {mse_better}/{n_cells}")
 
 
 if __name__ == "__main__":

@@ -208,10 +208,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                         targets[target_name] = (col_data <= thresh_val).cast(pl.Int8)
 
                 # Process exact values
-                if (
-                    self.classification_exact_values
-                    and col in self.classification_exact_values
-                ):
+                if self.classification_exact_values and col in self.classification_exact_values:
                     exact_val = self.classification_exact_values[col]
                     # Wave 29 P1 fix (2026-05-20): pre-fix accepted only
                     # ``list``; ``classification_exact_values={"col": (1,2,3)}``
@@ -296,9 +293,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
 
         return target_by_type
 
-    def get_sample_weights(
-        self, df: Union[pd.DataFrame, pl.DataFrame], timestamps: Optional[pd.Series] = None
-    ) -> Dict[str, np.ndarray]:
+    def get_sample_weights(self, df: Union[pd.DataFrame, pl.DataFrame], timestamps: Optional[pd.Series] = None) -> Dict[str, np.ndarray]:
         """Return sample weights based on configured weighting options.
 
         Args:

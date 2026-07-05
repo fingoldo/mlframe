@@ -58,8 +58,7 @@ def _su(fd, a, b, fn, n, *, mm: bool):
 def main():
     tau = 0.7
     print(f"tau={tau}  (SU > tau => the pair is CLUSTERED/pruned)")
-    print(f"{'n':>6} {'card':>5} | {'redundant raw':>13} {'redundant mm':>12} | "
-          f"{'indep raw':>10} {'indep mm':>9}")
+    print(f"{'n':>6} {'card':>5} | {'redundant raw':>13} {'redundant mm':>12} | " f"{'indep raw':>10} {'indep mm':>9}")
     for n in (1500, 5000):
         for card in (4, 10, 16):
             red_raw = red_mm = ind_raw = ind_mm = 0.0
@@ -79,10 +78,9 @@ def main():
             red_raw /= reps; red_mm /= reps; ind_raw /= reps; ind_mm /= reps
             def mark(v):
                 return f"{v:.3f}{'*' if v > tau else ' '}"
-            print(f"{n:>6} {card:>5} | {mark(red_raw):>13} {mark(red_mm):>12} | "
-                  f"{mark(ind_raw):>10} {mark(ind_mm):>9}   (* = clustered)")
-    print("\nWANT: redundant stays >tau (clustered) under BOTH; independent "
-          "high-card should be >tau under raw (false cluster) but <tau under MM.")
+
+            print(f"{n:>6} {card:>5} | {mark(red_raw):>13} {mark(red_mm):>12} | " f"{mark(ind_raw):>10} {mark(ind_mm):>9}   (* = clustered)")
+    print("\nWANT: redundant stays >tau (clustered) under BOTH; independent " "high-card should be >tau under raw (false cluster) but <tau under MM.")
 
 
 if __name__ == "__main__":

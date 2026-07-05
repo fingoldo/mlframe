@@ -31,8 +31,7 @@ def main():
 
     def new():
         yi, zi, h_yz, h_z, k_yz, k_z, nn = precompute_cmi_yz_terms(y, z)
-        return [cmi_from_binned_fixed_yz(c, yi, zi, h_yz, h_z, k_yz, k_z, nn)
-                for c in cands]
+        return [cmi_from_binned_fixed_yz(c, yi, zi, h_yz, h_z, k_yz, k_z, nn) for c in cands]
 
     old(); new()
     assert np.array_equal(np.asarray(old()), np.asarray(new())), "identity"
@@ -45,8 +44,7 @@ def main():
 
     t_old = _best(old)
     t_new = _best(new)
-    print(f"per-step scan {ncand} cands n={n}: OLD {t_old*1e3:.2f}ms -> "
-          f"NEW {t_new*1e3:.2f}ms ({t_old/t_new:.2f}x) identity OK")
+    print(f"per-step scan {ncand} cands n={n}: OLD {t_old*1e3:.2f}ms -> " f"NEW {t_new*1e3:.2f}ms ({t_old/t_new:.2f}x) identity OK")
 
 
 if __name__ == "__main__":

@@ -19,7 +19,6 @@ from sklearn.model_selection import (
 logger = logging.getLogger(__name__)
 
 
-
 def _sffs_swap_pass(
     self, X, y, estimator, cv, scoring,
     best_nfeatures: int, best_score_ref: float,

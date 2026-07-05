@@ -87,9 +87,9 @@ logger = logging.getLogger(__name__)
 _OPTIN_KEEP_FRAC_BY_POOL: tuple[tuple[int, float], ...] = (
     # (min_pairs_in_pool, keep_frac) -- the recommended OPT-IN aggressive fractions; first
     # matching row from the TOP wins. Surfaced for callers / the offline sweep, NOT the default.
-    (40, 0.34),   # large pool: signal concentrated at top, keep ~1/3
-    (16, 0.50),   # moderate pool: single halving
-    (0, 1.00),    # small pool: keep everything (no meaningful screen)
+    (40, 0.34),  # large pool: signal concentrated at top, keep ~1/3
+    (16, 0.50),  # moderate pool: single halving
+    (0, 1.00),  # small pool: keep everything (no meaningful screen)
 )
 
 # Relative pair_mi floor: ALWAYS keep a pair whose pair_mi >= REL_FLOOR * max_pair_mi,
@@ -145,7 +145,7 @@ def _dispatch_keep_frac(n_rows: int, n_pairs: int, *, run_auto_tune: bool = Fals
             "fe_rung_keep_frac",
             dims={"n_rows": int(n_rows), "n_pairs": int(n_pairs)},
             tuner=(lambda: None),  # no online sweep: correctness is floor-guaranteed, the
-                                   # fraction only trades speed; populated offline if desired.
+            # fraction only trades speed; populated offline if desired.
             axes=["n_rows", "n_pairs"],
             fallback={"keep_frac": fallback},
             code_version="rung_v1",
@@ -185,8 +185,7 @@ def apply_rung_schedule(
     ``min_pairs`` pairs, ``keep_frac >= 1.0``, or the pool has no positive pair_mi.
     """
     n_in = len(prospective_pairs)
-    info = {"applied": False, "n_in": n_in, "n_kept": n_in,
-            "keep_frac": 1.0, "rel_floor": rel_floor}
+    info = {"applied": False, "n_in": n_in, "n_kept": n_in, "keep_frac": 1.0, "rel_floor": rel_floor}
     if n_in < int(min_pairs):
         return prospective_pairs, info
 

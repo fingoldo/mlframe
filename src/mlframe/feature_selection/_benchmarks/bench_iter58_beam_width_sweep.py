@@ -26,11 +26,9 @@ warnings.filterwarnings("ignore")
 
 
 CONFIGS = {
-    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
-               redundancy_rho=0.8, snr=8.0, seed=0),
+    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0),
     # Hard regime: low SNR + no redundants. Iter56 saw the larger absolute recall gain here.
-    "C3_hard": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=0,
-                    redundancy_rho=0.8, snr=2.0, seed=0),
+    "C3_hard": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=0, redundancy_rho=0.8, snr=2.0, seed=0),
 }
 
 WIDTHS = (22, 28, 32, 40)
@@ -76,8 +74,7 @@ def run_one(name: str, cfg: dict, brute_force_max_features: int, X, y, roles):
     stage_timings = dict(sel._stage_timings)
     report = dict(sel.shap_proxy_report_)
 
-    ranked = report.get("revalidation", {}).get("ranked", []) if isinstance(
-        report.get("revalidation"), dict) else []
+    ranked = report.get("revalidation", {}).get("ranked", []) if isinstance(report.get("revalidation"), dict) else []
     chosen_loss = None
     if ranked:
         chosen_loss = ranked[0].get("honest_loss", ranked[0].get("honest_loss_capped"))
@@ -96,9 +93,7 @@ def run_one(name: str, cfg: dict, brute_force_max_features: int, X, y, roles):
 
 def _print_summary(name: str, results: list[dict]):
     print(f"\n=== [{name}] sweep summary ===", flush=True)
-    header = (
-        f"  {'cap':>4} {'e2e_s':>8} {'search_s':>9} {'recall':>9} "
-        f"{'n_sel':>5} {'honest_loss':>12} {'brier_vs_rand':>14}")
+    header = f"  {'cap':>4} {'e2e_s':>8} {'search_s':>9} {'recall':>9} " f"{'n_sel':>5} {'honest_loss':>12} {'brier_vs_rand':>14}"
     print(header, flush=True)
     base = results[0]
     for r in results:
@@ -106,10 +101,7 @@ def _print_summary(name: str, results: list[dict]):
         hl = "-" if r["chosen_honest_loss"] is None else f"{r['chosen_honest_loss']:.6f}"
         bv = "-" if r["brier_vs_random"] is None else f"{r['brier_vs_random']:.4f}"
         sw = "-" if r["search_wall"] is None else f"{r['search_wall']:.2f}"
-        print(
-            f"  {r['cap']:>4} {r['total']:>8.2f} {sw:>9} {rec_str:>9} "
-            f"{r['n_selected']:>5} {hl:>12} {bv:>14}",
-            flush=True)
+        print(f"  {r['cap']:>4} {r['total']:>8.2f} {sw:>9} {rec_str:>9} " f"{r['n_selected']:>5} {hl:>12} {bv:>14}", flush=True)
     print(f"  (deltas vs cap{base['cap']} baseline)", flush=True)
     for r in results[1:]:
         d_e2e = (r["total"] - base["total"]) / base["total"] * 100
@@ -119,18 +111,13 @@ def _print_summary(name: str, results: list[dict]):
         else:
             d_search_str = "-"
         d_recall = r["recall"][0] - base["recall"][0]
-        print(
-            f"  cap{r['cap']}: e2e {d_e2e:+.1f}% search {d_search_str} "
-            f"recall {d_recall:+d}",
-            flush=True)
+        print(f"  cap{r['cap']}: e2e {d_e2e:+.1f}% search {d_search_str} " f"recall {d_recall:+d}", flush=True)
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--configs", default="C3,C3_hard",
-                    help="Comma-separated config names (subset of C3, C3_hard).")
-    ap.add_argument("--widths", default=",".join(str(w) for w in WIDTHS),
-                    help="Comma-separated brute_force_max_features values to sweep.")
+    ap.add_argument("--configs", default="C3,C3_hard", help="Comma-separated config names (subset of C3, C3_hard).")
+    ap.add_argument("--widths", default=",".join(str(w) for w in WIDTHS), help="Comma-separated brute_force_max_features values to sweep.")
     ap.add_argument("--out_file", default=None)
     args = ap.parse_args(argv)
 
@@ -162,9 +149,7 @@ def main(argv=None):
     # numba compile that the later configs see cached, badly skewing the cross-cap delta.
     print("\n[warmup] tiny fit to amortise JIT compile across the sweep...", flush=True)
     t_warm = time.perf_counter()
-    _warm_X, _warm_y, _warm_roles = _make_dataset(
-        dict(width=200, n_rows=400, n_informative=10, n_redundant=5,
-             redundancy_rho=0.5, snr=4.0, seed=0))
+    _warm_X, _warm_y, _warm_roles = _make_dataset(dict(width=200, n_rows=400, n_informative=10, n_redundant=5, redundancy_rho=0.5, snr=4.0, seed=0))
     _warm_sel = _build_selector(seed=0, brute_force_max_features=22)
     _warm_sel.fit(_warm_X, _warm_y)
     print(f"[warmup] done in {time.perf_counter()-t_warm:.1f}s", flush=True)
@@ -174,14 +159,12 @@ def main(argv=None):
         print(f"\n[{name}] cfg={cfg}", flush=True)
         t_data = time.perf_counter()
         X, y, roles = _make_dataset(cfg)
-        print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s",
-              flush=True)
+        print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
         results = []
         for cap in widths:
             t_one = time.perf_counter()
             r = run_one(name, cfg, brute_force_max_features=cap, X=X, y=y, roles=roles)
-            print(f"  [{name}/cap{cap}] done in {time.perf_counter()-t_one:.1f}s "
-                  f"(e2e={r['total']:.2f}s, recall={r['recall']})", flush=True)
+            print(f"  [{name}/cap{cap}] done in {time.perf_counter()-t_one:.1f}s " f"(e2e={r['total']:.2f}s, recall={r['recall']})", flush=True)
             results.append(r)
         overall[name] = results
         _print_summary(name, results)

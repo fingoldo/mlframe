@@ -44,10 +44,7 @@ def _apply_monotone_constraints(self: Any, estimator: Any, n_features: int) -> N
         )
     bad = [c for c in constraints if c not in (-1, 0, 1)]
     if bad:
-        raise ValueError(
-            f"CompositeTargetEstimator: monotone_constraints entries must each be "
-            f"-1, 0, or +1; got disallowed values {sorted(set(bad))}."
-        )
+        raise ValueError(f"CompositeTargetEstimator: monotone_constraints entries must each be " f"-1, 0, or +1; got disallowed values {sorted(set(bad))}.")
     try:
         estimator.set_params(monotone_constraints=constraints)
     except ValueError as err:

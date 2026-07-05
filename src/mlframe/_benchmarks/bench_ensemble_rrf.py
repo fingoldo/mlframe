@@ -161,10 +161,7 @@ def main() -> None:
         out_nb = _rrf_aggregate_njit(preds_arr, k)
         equiv = _equivalence_check(out_np, out_nb, label=f"M={M} N={N} K={K}")
         winner = "njit" if speedup > 1.05 else ("numpy" if speedup < 0.95 else "tie")
-        print(
-            f"{M:>3} {N:>10_} {K:>3} | {np_min*1000:>16.2f} {nb_min*1000:>16.2f} "
-            f"{speedup:>8.2f}x | {winner}"
-        )
+        print(f"{M:>3} {N:>10_} {K:>3} | {np_min*1000:>16.2f} {nb_min*1000:>16.2f} " f"{speedup:>8.2f}x | {winner}")
         print(equiv)
 
     print()

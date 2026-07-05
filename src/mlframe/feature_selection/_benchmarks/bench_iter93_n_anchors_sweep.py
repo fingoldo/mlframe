@@ -25,8 +25,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-C3 = dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
-          redundancy_rho=0.8, snr=8.0, seed=0)
+C3 = dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0)
 
 
 def _make_dataset(cfg):
@@ -107,11 +106,11 @@ def main():
     base = results[0]
     print("\n=== chosen-subset comparison vs baseline n_anchors=30 ===")
     for r in results:
-        ident = "IDENTICAL" if r['chosen'] == base['chosen'] else "DIFFER"
-        jac = len(set(r['chosen']) & set(base['chosen'])) / max(1, len(set(r['chosen']) | set(base['chosen'])))
-        symdiff = set(base['chosen']) ^ set(r['chosen'])
+        ident = "IDENTICAL" if r["chosen"] == base["chosen"] else "DIFFER"
+        jac = len(set(r["chosen"]) & set(base["chosen"])) / max(1, len(set(r["chosen"]) | set(base["chosen"])))
+        symdiff = set(base["chosen"]) ^ set(r["chosen"])
         print(f"  n_anchors={r['n_anchors']:>3}: {ident}  jaccard={jac:.3f}  symdiff={sorted(symdiff)}")
-    print("\nbaseline (n_anchors=30) chosen:", sorted(base['chosen']))
+    print("\nbaseline (n_anchors=30) chosen:", sorted(base["chosen"]))
 
 
 if __name__ == "__main__":

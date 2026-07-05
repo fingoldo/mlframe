@@ -386,8 +386,7 @@ def build_calibration_spec(
     # bin-population histogram would reduce over an empty array. Emit an honest placeholder instead.
     finite_bin = np.isfinite(freqs_predicted) & np.isfinite(freqs_true)
     if freqs_predicted.size == 0 or not finite_bin.any():
-        ann = AnnotationPanelSpec(text=(plot_title + "\n" if plot_title else "") + "calibration unavailable: no finite bins",
-                                  title=plot_title or "Calibration")
+        ann = AnnotationPanelSpec(text=(plot_title + "\n" if plot_title else "") + "calibration unavailable: no finite bins", title=plot_title or "Calibration")
         return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
 
     if len(freqs_predicted) > 1:
@@ -396,15 +395,8 @@ def build_calibration_spec(
         bar_width = 0.05
 
     inline_labels: Optional[Tuple[Tuple[float, float, str], ...]] = None
-    if (
-        show_inline_population_labels
-        and len(hits) > 0
-        and len(freqs_predicted) <= INLINE_LABEL_MAX_BINS
-    ):
-        inline_labels = tuple(
-            (float(x), float(y), _format_population(float(h)))
-            for x, y, h in zip(freqs_predicted, freqs_true, hits)
-        )
+    if show_inline_population_labels and len(hits) > 0 and len(freqs_predicted) <= INLINE_LABEL_MAX_BINS:
+        inline_labels = tuple((float(x), float(y), _format_population(float(h))) for x, y, h in zip(freqs_predicted, freqs_true, hits))
 
     point_size = _bubble_point_size(hits)
 
@@ -475,7 +467,7 @@ def build_calibration_spec(
         )
 
     hist = HistogramPanelSpec(
-        values=hits,            # heights = bin populations
+        values=hits,  # heights = bin populations
         bin_centers=freqs_predicted,
         bin_width=bar_width,
         bar_colors=hits.astype(np.float64),

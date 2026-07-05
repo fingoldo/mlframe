@@ -260,13 +260,11 @@ def _resid_hist_panel(
         resid = resid[rng.choice(resid.size, size=sample_size, replace=False)]
     n_bins = max(20, min(80, int(math.sqrt(resid.size)) if resid.size > 0 else 20))
     if audit is not None:
-        suggested = (audit.suggested_loss.split("(")[0].strip()
-                     if getattr(audit, "suggested_loss", None) else "")
+        suggested = audit.suggested_loss.split("(")[0].strip() if getattr(audit, "suggested_loss", None) else ""
         hyp_line = f"hypothesis: {audit.hypothesis}"
         if suggested:
             hyp_line += f" (suggested: {suggested})"
-        title = (f"Residuals (skew={audit.skew:+.2f}, excess_kurt={audit.excess_kurt:+.2f})"
-                 + ("\n" + hyp_line if hyp_line else ""))
+        title = f"Residuals (skew={audit.skew:+.2f}, excess_kurt={audit.excess_kurt:+.2f})" + ("\n" + hyp_line if hyp_line else "")
         overlay = (audit.mean, audit.std) if audit.std > 0 else None
     else:
         title = "Residuals"
@@ -300,9 +298,9 @@ def _resid_vs_pred_panel(
     resid = yt - yp
     n = resid.size
     if n == 0:
-        return LinePanelSpec(x=np.array([0.0]), y=np.array([0.0]),
-                             title="Residuals vs predicted (no finite data)",
-                             xlabel="Predicted (y_hat)", ylabel="Residual")
+        return LinePanelSpec(
+            x=np.array([0.0]), y=np.array([0.0]), title="Residuals vs predicted (no finite data)", xlabel="Predicted (y_hat)", ylabel="Residual"
+        )
 
     lo, hi = float(yp.min()), float(yp.max())
     if hi <= lo:
@@ -339,7 +337,7 @@ def _resid_vs_pred_panel(
 
     het_marker = ""
     if audit is not None and math.isfinite(getattr(audit, "hetero_spearman", float("nan"))):
-        het_marker = ("(!) heteroscedastic" if audit.hetero_significant else "homoscedastic")
+        het_marker = "(!) heteroscedastic" if audit.hetero_significant else "homoscedastic"
         het_marker = f" ({het_marker}; spearman(|resid|,y_hat)={audit.hetero_spearman:+.3f})"
     # Zero-reference line: a flat residual=0 series so the operator sees deviation of the running median from 0.
     zero = np.zeros_like(centers)
@@ -496,10 +494,7 @@ def _worm_panel(
         x=zt,
         y=(detrended, zero),
         series_labels=("de-trended QQ (sample - theoretical)", "normal (zero)"),
-        title=(
-            f"Worm plot -- are residuals Gaussian? {_shape}\n"
-            f"({_frac_out:.0%} of points outside 95% CI; n={n:,}, plotted {zt.size:,})"
-        ),
+        title=(f"Worm plot -- are residuals Gaussian? {_shape}\n" f"({_frac_out:.0%} of points outside 95% CI; n={n:,}, plotted {zt.size:,})"),
         xlabel="Theoretical normal quantile",
         ylabel="Sample quantile - theoretical (standardised)",
         line_styles=("lines+markers", "--"),
@@ -544,10 +539,7 @@ def _resid_acf_panel(
     return BarPanelSpec(
         categories=cats,
         values=acf_lags.astype(np.float64),
-        title=(
-            f"Residual ACF (n={n_used:,}; {sig} of {acf_lags.size} lags beyond "
-            f"+-{band:.3f} Bartlett band => serial structure)"
-        ),
+        title=(f"Residual ACF (n={n_used:,}; {sig} of {acf_lags.size} lags beyond " f"+-{band:.3f} Bartlett band => serial structure)"),
         xlabel="Lag",
         ylabel="Autocorrelation",
         colors=("steelblue",),
@@ -598,10 +590,7 @@ def compose_regression_figure(
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(
-            f"Unknown regression panel tokens {unknown}. "
-            f"Allowed: {sorted(ALLOWED_REGRESSION_PANEL_TOKENS)}"
-        )
+        raise ValueError(f"Unknown regression panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_REGRESSION_PANEL_TOKENS)}")
 
     # Fold the Spearman/heteroscedasticity line into the scatter title so the diagnostic stays visible on the headline panel.
     scatter_title = metrics_str

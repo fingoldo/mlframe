@@ -72,8 +72,7 @@ def bench(n_q, n_t, d, h=1.5, reps=5):
 
     t_old = best(_kde_broadcast)
     t_new = best(_kde_gemm)
-    print(f"n_q={n_q} n_t={n_t} d={d}: OLD={t_old*1e3:.2f}ms NEW={t_new*1e3:.2f}ms "
-          f"speedup={t_old/t_new:.2f}x max_abs={max_abs:.2e} max_rel={max_rel:.2e}")
+    print(f"n_q={n_q} n_t={n_t} d={d}: OLD={t_old*1e3:.2f}ms NEW={t_new*1e3:.2f}ms " f"speedup={t_old/t_new:.2f}x max_abs={max_abs:.2e} max_rel={max_rel:.2e}")
 
 
 if __name__ == "__main__":

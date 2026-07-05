@@ -80,8 +80,7 @@ def _knuth_best_M(a_sorted: np.ndarray, a_min: float, a_max: float, M_max: int) 
     return best_M
 
 
-def _knuth_bin_edges(a: np.ndarray, edge_type: str = "quantile",
-                     m_max_cap: int = 64) -> np.ndarray:
+def _knuth_bin_edges(a: np.ndarray, edge_type: str = "quantile", m_max_cap: int = 64) -> np.ndarray:
     """Knuth's optimal-bin-count rule (Knuth 2006). Returns bin edges at the M*
     that maximises the log-posterior over M in [1, min(sqrt(N)*4, m_max_cap)].
 
@@ -201,9 +200,7 @@ def _bayesian_blocks_midpoints(t_sorted: np.ndarray) -> np.ndarray:
     return edges
 
 
-def _bayesian_blocks_bin_edges(a: np.ndarray, p0: float = 0.05,
-                                edge_placement: str = "start",
-                                subsample_threshold: int = 0) -> np.ndarray:
+def _bayesian_blocks_bin_edges(a: np.ndarray, p0: float = 0.05, edge_placement: str = "start", subsample_threshold: int = 0) -> np.ndarray:
     """Scargle (2013) Bayesian Blocks bin edges.
 
     Args:
@@ -243,7 +240,7 @@ def _bayesian_blocks_bin_edges(a: np.ndarray, p0: float = 0.05,
     # (a natural "no false alarms" choice) would make math.log raise a domain error, so validate the public knob.
     if not (0.0 < p0 < 1.0):
         raise ValueError(f"_bayesian_blocks_bin_edges: p0 (false-alarm probability) must be in (0, 1); got {p0}.")
-    ncp_prior = 4.0 - math.log(73.53 * p0 * (N ** -0.478))
+    ncp_prior = 4.0 - math.log(73.53 * p0 * (N**-0.478))
     cp_idx = _bayesian_blocks_inner(a_sorted_dp, ncp_prior)
     # Build edges from change-point indices.
     if edge_placement == "midpoint":
@@ -307,8 +304,7 @@ def edges(arr, quantiles):
 
 
 @njit(cache=True)
-def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform",
-                       min_value: float = None, max_value: float = None):
+def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform", min_value: float = None, max_value: float = None):
     """Numba-jitted binning-edge calculator. Used by ``discretize_2d_array`` (itself ``@njit(parallel=True)`` and cannot dispatch to object-mode helpers).
 
     Outside an njit context (single-column path via ``discretize_array``) prefer the inlined raw-numpy version -- ``np.percentile`` beats numba's njit

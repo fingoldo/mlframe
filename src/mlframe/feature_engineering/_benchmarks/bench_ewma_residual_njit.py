@@ -64,8 +64,7 @@ def main():
 
         t_old = _bench(lambda: [_old_ewma_single(x, hl) for hl in hl_list])
         t_new = _bench(lambda: ewma_residual(x, half_life=hl_list))
-        print(f"n={n:>9} OLD={t_old*1e3:9.3f}ms NEW={t_new*1e3:9.3f}ms "
-              f"speedup={t_old/t_new:5.2f}x identical={ident} max_abs={max_abs:.2e}")
+        print(f"n={n:>9} OLD={t_old*1e3:9.3f}ms NEW={t_new*1e3:9.3f}ms " f"speedup={t_old/t_new:5.2f}x identical={ident} max_abs={max_abs:.2e}")
 
 
 if __name__ == "__main__":

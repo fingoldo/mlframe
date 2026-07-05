@@ -1,6 +1,5 @@
 """Disk-backed discovery cache: content-hash signature + key composer + DiscoveryCache class. Used by R&D workflows that re-run discovery with the same data + varying config; cache hits skip the expensive MI permutation null + Wilcoxon + tiny-model rerank phases. Pure stdlib + numpy + pandas; no composite-internal deps."""
 
-
 from __future__ import annotations
 
 import hashlib
@@ -191,13 +190,10 @@ def _row_order_fingerprint(df: Any, n_edge: int = 8) -> str:
             # ``hash_pandas_object`` is the content-based, row-order-sensitive
             # pandas analogue of polars ``hash_rows`` (uint64 per row).
             from pandas.util import hash_pandas_object
-            head_bytes = np.ascontiguousarray(
-                hash_pandas_object(df.head(n_take), index=False).to_numpy()
-            ).tobytes()
+
+            head_bytes = np.ascontiguousarray(hash_pandas_object(df.head(n_take), index=False).to_numpy()).tobytes()
             n_tail = min(len(df), n_edge)
-            tail_bytes = np.ascontiguousarray(
-                hash_pandas_object(df.tail(n_tail), index=False).to_numpy()
-            ).tobytes()
+            tail_bytes = np.ascontiguousarray(hash_pandas_object(df.tail(n_tail), index=False).to_numpy()).tobytes()
             payload = head_bytes + b"|" + tail_bytes
             return hashlib.blake2b(payload, digest_size=8).hexdigest()
         else:
@@ -287,11 +283,7 @@ def data_signature(
             # columns without going through the lossy str-uniques path.
             try:
                 # ``null=0`` instead of an ``nuniq`` full ``np.unique`` sort: numpy int/bool dtypes hold no NaN so the null count is structurally zero (mirrors the polars int digest; drops the per-int-column O(n log n) sort -- one-time on-disk cache invalidation).
-                return (
-                    f"intmin={int(np.min(arr))};"
-                    f"intmax={int(np.max(arr))};"
-                    f"null=0"
-                ).encode("utf-8")
+                return (f"intmin={int(np.min(arr))};" f"intmax={int(np.max(arr))};" f"null=0").encode("utf-8")
             except Exception:
                 return b"int_opaque"
         if kind == "f":
@@ -303,21 +295,13 @@ def data_signature(
                 mn_v, mx_v, n_null = _col_stats_float_numba_kernel(arr)
                 if not np.isfinite(mn_v):
                     return f"all_null:{int(n_null)}".encode("utf-8")
-                return (
-                    f"min={float(mn_v):.12g};"
-                    f"max={float(mx_v):.12g};"
-                    f"null={int(n_null)}"
-                ).encode("utf-8")
+                return (f"min={float(mn_v):.12g};" f"max={float(mx_v):.12g};" f"null={int(n_null)}").encode("utf-8")
             isnan = ~np.isfinite(arr)
             n_null = int(isnan.sum())
             finite = arr[~isnan]
             if finite.size == 0:
                 return f"all_null:{n_null}".encode("utf-8")
-            return (
-                f"min={float(np.min(finite)):.12g};"
-                f"max={float(np.max(finite)):.12g};"
-                f"null={n_null}"
-            ).encode("utf-8")
+            return (f"min={float(np.min(finite)):.12g};" f"max={float(np.max(finite)):.12g};" f"null={n_null}").encode("utf-8")
         # Generic numeric fallback (datetime / timedelta / complex via float coerce).
         try:
             arr_f = arr.astype(np.float64, copy=False)
@@ -326,20 +310,13 @@ def data_signature(
             finite = arr_f[~isnan]
             if finite.size == 0:
                 return f"all_null:{n_null}".encode("utf-8")
-            return (
-                f"fmin={float(np.min(finite)):.12g};"
-                f"fmax={float(np.max(finite)):.12g};"
-                f"null={n_null}"
-            ).encode("utf-8")
+            return (f"fmin={float(np.min(finite)):.12g};" f"fmax={float(np.max(finite)):.12g};" f"null={n_null}").encode("utf-8")
         except (TypeError, ValueError):
             pass
         # Object / string dtype: hash a fingerprint of distinct values.
         try:
             u = np.unique(arr.astype(str, copy=False))
-            return (
-                f"uniq={int(u.size)};first={u[0] if u.size else ''};"
-                f"last={u[-1] if u.size else ''}"
-            ).encode("utf-8")
+            return (f"uniq={int(u.size)};first={u[0] if u.size else ''};" f"last={u[-1] if u.size else ''}").encode("utf-8")
         except Exception:
             return b"opaque"
 
@@ -425,16 +402,12 @@ def data_signature(
                         if mn is None or mx is None:
                             h.update(f"all_null:{nc}".encode("utf-8"))
                         else:
-                            h.update(
-                                f"min={float(mn):.12g};max={float(mx):.12g};null={nc}".encode("utf-8")
-                            )
+                            h.update(f"min={float(mn):.12g};max={float(mx):.12g};null={nc}".encode("utf-8"))
                     else:
                         if mn is None or mx is None:
                             h.update(f"all_null:{nc}".encode("utf-8"))
                         else:
-                            h.update(
-                                f"intmin={int(mn)};intmax={int(mx)};null={nc}".encode("utf-8")
-                            )
+                            h.update(f"intmin={int(mn)};intmax={int(mx)};null={nc}".encode("utf-8"))
                     # Sample bytes via gather (O(sample_n) materialisation only).
                     sampled = df.get_column(c).gather(sample_idx).to_numpy()
                     h.update(np.ascontiguousarray(sampled).tobytes())
@@ -520,10 +493,7 @@ def compute_config_signature_v1(
         elif hasattr(config, "dict"):
             payload["config"] = config.dict()
         else:
-            payload["config"] = (
-                {str(k): str(v) for k, v in sorted(getattr(config, "__dict__", {}).items())}
-                or repr(config)
-            )
+            payload["config"] = {str(k): str(v) for k, v in sorted(getattr(config, "__dict__", {}).items())} or repr(config)
     except Exception as _e:
         payload["config_repr"] = repr(config)
         payload["config_dump_error"] = str(_e)

@@ -195,9 +195,7 @@ def fingerprint_signal(
     X_num = X[num_cols].copy()
     # x_unique_avg: mean column-cardinality (capped at n to avoid weird
     # values on object cols that snuck through dtype check).
-    x_unique_avg = float(np.mean([
-        min(int(X_num[c].nunique(dropna=True)), n) for c in num_cols
-    ]))
+    x_unique_avg = float(np.mean([min(int(X_num[c].nunique(dropna=True)), n) for c in num_cols]))
 
     # mean_abs_pearson: |corr(X[c], y)| averaged across numeric columns.
     # When y is constant or all-NaN we fall back to 0.0.
@@ -401,12 +399,7 @@ def predict_best_scorer(fp: dict) -> str:
     #     routed to plug_in rather than CMIM.).
     # Heavy-tail (Rule 2) and Pearson-blind (Rule 3) take precedence
     # because those fixtures have a more specific scorer dispatch.
-    if (
-        uy < 15
-        and inter_x < 0.6
-        and n_src >= 5
-        and pears < 0.20
-    ):
+    if uy < 15 and inter_x < 0.6 and n_src >= 5 and pears < 0.20:
         return "cmim"
     # Rule 5: continuous y, no heavy tail -> KSG.
     if uy >= 20:
@@ -573,10 +566,7 @@ def _dispatch_scorer(
             top_k=top_k, min_uplift=min_uplift,
             min_abs_mi_frac=min_abs_mi_frac, n_bins=10,
         )
-    raise ValueError(
-        f"Unknown scorer {scorer!r}; expected one of "
-        f"{META_SCORER_NAMES + ('tc',)} (tc only via force_scorer)."
-    )
+    raise ValueError(f"Unknown scorer {scorer!r}; expected one of " f"{META_SCORER_NAMES + ('tc',)} (tc only via force_scorer).")
 
 
 def hybrid_orth_mi_meta_fe(

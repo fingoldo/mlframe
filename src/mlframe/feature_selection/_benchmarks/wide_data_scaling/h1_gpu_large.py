@@ -16,11 +16,11 @@ def make(p, seed=0):
     X = rng.standard_normal((N, p))
     codes = np.empty((N, p), dtype=np.int32)
     for j in range(p):
-        q = np.quantile(X[:, j], np.linspace(0,1,NBINS+1)[1:-1])
+        q = np.quantile(X[:, j], np.linspace(0, 1, NBINS + 1)[1:-1])
         codes[:, j] = np.searchsorted(q, X[:, j])
-    y = ((codes[:,0]>=NBINS//2)^(codes[:,1]>=NBINS//2)).astype(np.int32)
+    y = ((codes[:, 0] >= NBINS // 2) ^ (codes[:, 1] >= NBINS // 2)).astype(np.int32)
     nbins = np.full(p, NBINS, dtype=np.int32)
-    fy = np.bincount(y, minlength=2).astype(np.float64)/N
+    fy = np.bincount(y, minlength=2).astype(np.float64) / N
     return codes, nbins, y, fy
 
 # warmup
@@ -46,6 +46,6 @@ for p in (5000, 10000):
             p,npairs,dt,npairs/dt,codes_mb,idx_mb,out_mb,free0/1e6,total/1e6))
         ck("  planted-pair MI(0,1)=%.4f rank=%d/%d"%(mi[0], int((mi>mi[0]).sum()), npairs))
     except Exception as e:
-        ck("p=%d CUDA FAIL: %r | host codes=%.0fMB idx=%.0fMB out=%.0fMB"%(p,e,codes_mb,idx_mb,out_mb))
-    del codes,a,b
+        ck("p=%d CUDA FAIL: %r | host codes=%.0fMB idx=%.0fMB out=%.0fMB" % (p, e, codes_mb, idx_mb, out_mb))
+    del codes, a, b
 ck("H1 GPU-large done")

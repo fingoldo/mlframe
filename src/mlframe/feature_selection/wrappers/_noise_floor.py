@@ -69,8 +69,8 @@ def noise_floor_plateau(n_grid: Sequence[int], real_curve: np.ndarray, perm_curv
         # Vectorize the inner j-loop: the noise envelope for ALL larger j is one column-wise percentile over the perm
         # axis (np.percentile along axis 0 == the scalar version applied per column), replacing ~G scalar percentile
         # dispatches per i with a single call. Bit-identical (same draws, same pct, same default linear interpolation).
-        rg_all = real_curve[i + 1:] - real_curve[i]
-        env_all = np.percentile(perm_curves[:, i + 1:] - perm_curves[:, i:i + 1], pct, axis=0)
+        rg_all = real_curve[i + 1 :] - real_curve[i]
+        env_all = np.percentile(perm_curves[:, i + 1 :] - perm_curves[:, i : i + 1], pct, axis=0)
         excess = rg_all - env_all
         k = int(np.argmax(excess))
         best_excess = float(excess[k])
@@ -200,5 +200,4 @@ def select_features_noise_floor(estimator_factory: Callable, X, y, ranking: Sequ
             "degenerates to an extreme order statistic); use >=%d (>=50 recommended) for a low-variance envelope.",
             n_perm, pct, max(min_perm, 50),
         )
-    return dict(selected=ranking[:n_star], n_star=int(n_star), n_grid=n_grid,
-                real_curve=real_curve, perm_mean=perm_mean)
+    return dict(selected=ranking[:n_star], n_star=int(n_star), n_grid=n_grid, real_curve=real_curve, perm_mean=perm_mean)

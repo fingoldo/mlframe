@@ -27,7 +27,7 @@ def _synth(n, k, seed=0):
     rng = np.random.default_rng(seed)
     # float32 columns with a few informative ones (so MI ranking is non-degenerate); mirrors densified numeric FE input.
     X = rng.standard_normal((n, k)).astype(np.float32)
-    y = (X[:, 0] * 1.5 + X[:, 7] * X[:, 11] + rng.standard_normal(n) * 0.3)
+    y = X[:, 0] * 1.5 + X[:, 7] * X[:, 11] + rng.standard_normal(n) * 0.3
     y = np.digitize(y, np.quantile(y, np.linspace(0, 1, 11)[1:-1])).astype(np.int64)
     return X, y
 

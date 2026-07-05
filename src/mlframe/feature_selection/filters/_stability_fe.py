@@ -44,7 +44,6 @@ import pandas as pd
 
 from sklearn.base import BaseEstimator, TransformerMixin
 
-
 # Canonical bookkeeping list. Order matters for ``source_mechanism`` tie
 # breaking and for the column order in the returned DataFrame.
 FE_ATTR_NAMES: tuple[str, ...] = (
@@ -94,9 +93,7 @@ def _bootstrap_indices(n: int, sample_fraction: float, rng: np.random.Generator)
     set. ``sample_fraction=0.75`` follows the paper's default.
     """
     if not (0.0 < sample_fraction <= 1.0):
-        raise ValueError(
-            f"sample_fraction must be in (0, 1]; got {sample_fraction!r}"
-        )
+        raise ValueError(f"sample_fraction must be in (0, 1]; got {sample_fraction!r}")
     if sample_fraction == 1.0:
         return np.arange(n, dtype=np.int64)
     size = max(int(np.floor(n * sample_fraction)), 2)
@@ -112,10 +109,7 @@ def _coerce_pandas(X, y) -> tuple[pd.DataFrame, pd.Series]:
         X = pd.DataFrame(X)
     if isinstance(y, pd.DataFrame):
         if y.shape[1] != 1:
-            raise ValueError(
-                f"y must be 1-D (Series / ndarray / single-col frame); "
-                f"got DataFrame with shape {y.shape}"
-            )
+            raise ValueError(f"y must be 1-D (Series / ndarray / single-col frame); " f"got DataFrame with shape {y.shape}")
         y = y.iloc[:, 0]
     if not isinstance(y, pd.Series):
         y = pd.Series(np.asarray(y), name="y")
@@ -168,9 +162,7 @@ def _aggregate_frequencies(
     at frequency = 1.0.
     """
     if not per_boot:
-        return pd.DataFrame(
-            columns=["engineered_name", "selection_frequency", "source_mechanism"]
-        )
+        return pd.DataFrame(columns=["engineered_name", "selection_frequency", "source_mechanism"])
     n_boot = len(per_boot)
     counts: dict[str, int] = {}
     mech_choice: dict[str, str] = {}
@@ -244,13 +236,9 @@ def stability_select_fe(
     if base_mrmr_params is None:
         base_mrmr_params = {}
     if not (0.0 <= support_threshold <= 1.0):
-        raise ValueError(
-            f"support_threshold must be in [0, 1]; got {support_threshold!r}"
-        )
+        raise ValueError(f"support_threshold must be in [0, 1]; got {support_threshold!r}")
     if n_bootstraps < 1:
-        raise ValueError(
-            f"n_bootstraps must be >= 1; got {n_bootstraps!r}"
-        )
+        raise ValueError(f"n_bootstraps must be >= 1; got {n_bootstraps!r}")
 
     X, y = _coerce_pandas(X, y)
     rng = np.random.default_rng(random_state)
@@ -262,9 +250,7 @@ def stability_select_fe(
         rng=rng,
     )
     freq_df = _aggregate_frequencies(per_boot)
-    stable = sorted(
-        freq_df.loc[freq_df["selection_frequency"] >= support_threshold, "engineered_name"].tolist()
-    )
+    stable = sorted(freq_df.loc[freq_df["selection_frequency"] >= support_threshold, "engineered_name"].tolist())
     return {
         "frequencies": freq_df,
         "stable_set": stable,
@@ -340,10 +326,7 @@ class StabilityFESelector(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         if not hasattr(self, "full_mrmr_"):
-            raise RuntimeError(
-                "StabilityFESelector.transform called before fit; "
-                "no full_mrmr_ recipes are available."
-            )
+            raise RuntimeError("StabilityFESelector.transform called before fit; " "no full_mrmr_ recipes are available.")
         out = self.full_mrmr_.transform(X)
         # Stable set may name engineered columns the full MRMR did not
         # surface (e.g. a bootstrap-only borderline candidate). Keep the

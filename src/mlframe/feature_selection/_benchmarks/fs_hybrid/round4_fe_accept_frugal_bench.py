@@ -46,9 +46,9 @@ from round3_realdata_bench import load_real, downstream
 from synth import make_dataset
 from hard_synth import make_hard_dataset
 
-NJ = 2                          # n_jobs cap under heavy concurrent load
+NJ = 2  # n_jobs cap under heavy concurrent load
 PROGRESS = "D:/Temp/fe_accept_progress.txt"
-GREEDY_FLOOR = 0.0015           # held-out AUC gain floor to accept another product
+GREEDY_FLOOR = 0.0015  # held-out AUC gain floor to accept another product
 TOPK = (5, 10)
 
 
@@ -64,8 +64,7 @@ def shallow_tree_signals(X, y, n_estimators=120, max_depth=3, top_pairs=30, seed
     GENEROUS top_pairs (30) so acceptance rules have a real candidate pool to prune (the whole point: if
     keep-all of a generous pool dilutes, a good acceptance rule should recover by pruning).
     """
-    m = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, num_leaves=2 ** max_depth,
-                           learning_rate=0.1, n_jobs=NJ, verbose=-1, random_state=seed)
+    m = lgb.LGBMClassifier(n_estimators=n_estimators, max_depth=max_depth, num_leaves=2**max_depth, learning_rate=0.1, n_jobs=NJ, verbose=-1, random_state=seed)
     m.fit(X, y)
     cols = list(X.columns)
     imp = pd.Series(m.feature_importances_, index=cols).sort_values(ascending=False)
@@ -144,8 +143,7 @@ def resid_mi_rank(base_mat, prod_dict, y, seed=0):
     """Rank products by MI with the OOF residual of a cheap model on the raw base set (A3-6)."""
     if not prod_dict:
         return []
-    m = lgb.LGBMClassifier(n_estimators=120, num_leaves=31, learning_rate=0.05,
-                           n_jobs=NJ, verbose=-1, random_state=seed)
+    m = lgb.LGBMClassifier(n_estimators=120, num_leaves=31, learning_rate=0.05, n_jobs=NJ, verbose=-1, random_state=seed)
     p_oof = cross_val_predict(m, base_mat, y, cv=4, method="predict_proba", n_jobs=1)[:, 1]
     resid = y.astype(float) - p_oof
     rbin = (resid > np.median(resid)).astype(int)
@@ -236,8 +234,7 @@ def verdict(df):
         ka = b[b.variant == "keep_all"]["auc_mean"].mean()
         ka_np = b[b.variant == "keep_all"]["n_prod"].mean()
         bo = b[b.variant == "base_only"]["auc_mean"].mean()
-        lines.append(f"  {bed:14s} base_only={round(bo,4)} keep_all={round(ka,4)} (prod={ka_np:.0f}, "
-                     f"FE lift {round(ka-bo,4):+})")
+        lines.append(f"  {bed:14s} base_only={round(bo,4)} keep_all={round(ka,4)} (prod={ka_np:.0f}, " f"FE lift {round(ka-bo,4):+})")
         for v in ["holdout_greedy", "resid_mi_top5", "resid_mi_top10", "rawy_mi_top5", "rawy_mi_top10"]:
             sub = b[b.variant == v]
             if len(sub):

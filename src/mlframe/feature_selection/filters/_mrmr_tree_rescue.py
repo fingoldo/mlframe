@@ -136,13 +136,15 @@ class MRMRTreeRescued(MRMR):
             existing = {int(i) for i in np.asarray(self.support_, dtype=np.int64)}
             added = [i for i in order if i not in existing]
             if added:
-                self.support_ = np.concatenate(
-                    [np.asarray(self.support_, dtype=np.int64), np.asarray(added, dtype=np.int64)]
-                )
+                self.support_ = np.concatenate([np.asarray(self.support_, dtype=np.int64), np.asarray(added, dtype=np.int64)])
                 self.n_features_ = int(self.support_.size)
-                logger.info("[MRMR] tree-rescue: under-selected (%d of %d raw) -> added %d shallow-GBM "
-                            "importance feature(s) [%s]", len(existing), int(self.n_features_in_), len(added),
-                            ", ".join(str(cols[i]) for i in added[:8]) if cols else str(added[:8]))
+                logger.info(
+                    "[MRMR] tree-rescue: under-selected (%d of %d raw) -> added %d shallow-GBM " "importance feature(s) [%s]",
+                    len(existing),
+                    int(self.n_features_in_),
+                    len(added),
+                    ", ".join(str(cols[i]) for i in added[:8]) if cols else str(added[:8]),
+                )
         except Exception as e:  # never let the rescue break a successful MRMR fit
             warnings.warn(f"MRMRTreeRescued: tree-rescue degraded ({type(e).__name__}: {e}); selection unchanged")
 

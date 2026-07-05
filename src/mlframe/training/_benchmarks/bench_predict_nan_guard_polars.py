@@ -27,7 +27,6 @@ import polars as pl
 
 from mlframe.training._predict_guards import _apply_nan_guard
 
-
 RESULTS_DIR = Path(__file__).parent / "_results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 

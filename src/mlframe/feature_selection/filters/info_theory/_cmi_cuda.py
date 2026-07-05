@@ -249,8 +249,7 @@ def _entropy_from_counts_axis(counts_3d, axes, n):
     # cuLaunchKernel driver API -> genuine count reduction, not a counter shift.
     global _XLOGX_EK
     if _XLOGX_EK is None:
-        _XLOGX_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o",
-                                         "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_ek")
+        _XLOGX_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o", "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_ek")
     contrib = _XLOGX_EK(marg, 1.0 / float(n))
     return -contrib.sum(axis=1)
 
@@ -372,8 +371,7 @@ def conditional_mi_batched_cuda(
     kern(
         (p,),
         (block_size,),
-        (Xc_g, y_g, z_g, joint, np.int32(n), np.int32(p),
-         np.int32(nbins_x), np.int32(nbins_y), np.int32(nbins_z)),
+        (Xc_g, y_g, z_g, joint, np.int32(n), np.int32(p), np.int32(nbins_x), np.int32(nbins_y), np.int32(nbins_z)),
         shared_mem=joint_size * 4,
     )
 
@@ -458,10 +456,9 @@ def _cmi_one_fixed_yz(factors_data, xi, zi, classes_yz, nclasses_yz, ent_yz, ent
     _, freqs_xz, _ = merge_vars(factors_data, xz, None, factors_nbins, dtype=dtype)
     ent_xz = entropy(freqs_xz)
     scratch = classes_yz.copy()
-    xarr = np.empty(1, dtype=np.int64); xarr[0] = xi
-    _, freqs_xyz, _ = merge_vars(
-        factors_data, xarr, None, factors_nbins,
-        current_nclasses=nclasses_yz, final_classes=scratch, dtype=dtype)
+    xarr = np.empty(1, dtype=np.int64)
+    xarr[0] = xi
+    _, freqs_xyz, _ = merge_vars(factors_data, xarr, None, factors_nbins, current_nclasses=nclasses_yz, final_classes=scratch, dtype=dtype)
     ent_xyz = entropy(freqs_xyz)
     r = ent_xz + ent_yz - ent_z - ent_xyz
     return r if r > 0.0 else 0.0
@@ -541,8 +538,7 @@ def reset_cmi_gpu_circuit_breaker() -> None:
     _CMI_GPU_FAILED = False
 
 
-def _cmi_cuda_shmem_fits(joint_size: int, nbins_x: int = 0, nbins_y: int = 0, nbins_z: int = 0,
-                         cc_smem_bytes: int = 48 * 1024) -> bool:
+def _cmi_cuda_shmem_fits(joint_size: int, nbins_x: int = 0, nbins_y: int = 0, nbins_z: int = 0, cc_smem_bytes: int = 48 * 1024) -> bool:
     """Do BOTH batched-CMI kernels' shared-memory requests fit the per-block limit (cc 6.x = 48 KB)?
 
     Kernel 1 (joint histogram) needs ``joint_size * 4`` bytes. Kernel 2 (``cmi_from_joint``) needs

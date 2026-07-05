@@ -36,13 +36,9 @@ def main(argv: list[str] | None = None) -> int:
     sp_show.add_argument("kernel", help="Kernel name (e.g. joint_hist_2d)")
 
     # explain: show cached regions
-    sp_explain = subparsers.add_parser(
-        "explain", help="Show cached regions and decisions"
-    )
+    sp_explain = subparsers.add_parser("explain", help="Show cached regions and decisions")
     sp_explain.add_argument("kernel", help="Kernel name")
-    sp_explain.add_argument(
-        "--dims", help="Limit output to specific dims (e.g. n=1000)"
-    )
+    sp_explain.add_argument("--dims", help="Limit output to specific dims (e.g. n=1000)")
 
     # refresh: tune one spec
     sp_refresh = subparsers.add_parser("refresh", help="Tune one spec")

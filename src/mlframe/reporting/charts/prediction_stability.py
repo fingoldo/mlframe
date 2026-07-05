@@ -85,8 +85,7 @@ def compute_prediction_stability(
     if n_members < 2 or n_rows == 0:
         zeros = np.zeros(n_rows, dtype=np.float64)
         emean = np.nanmean(mat, axis=1) if n_rows and n_members else zeros
-        return PredictionStabilityResult(zeros, zeros.copy(), np.asarray(emean, dtype=np.float64),
-                                         0.0, 1.0, int(n_rows), int(n_members))
+        return PredictionStabilityResult(zeros, zeros.copy(), np.asarray(emean, dtype=np.float64), 0.0, 1.0, int(n_rows), int(n_members))
 
     has_nan = bool(np.isnan(mat).any())
     with np.errstate(invalid="ignore"):
@@ -271,7 +270,7 @@ def compose_prediction_stability_figure(
     if res.n_members < 2:
         ann = AnnotationPanelSpec(
             text=f"{suptitle}\n\nNeed >=2 ensemble members to measure disagreement "
-                 f"(got n_members={res.n_members}).\nNo per-row spread is defined for a single member.",
+            f"(got n_members={res.n_members}).\nNo per-row spread is defined for a single member.",
             title=suptitle,
         )
         return FigureSpec(suptitle=suptitle, panels=((ann,),), figsize=(8.0, 3.5))

@@ -46,8 +46,7 @@ def bench_split(n=50_000, k=6, reps=3):
         _stratified_split_3way(idx, 0.2, 0.2, y, 42)
     new_ms = (time.perf_counter() - t) / reps * 1000
 
-    print(f"[lead1] n={n} K={k}: OLD {old_ms:.1f}ms -> NEW {new_ms:.1f}ms "
-          f"({old_ms / new_ms:.2f}x, {old_ms - new_ms:.0f}ms saved)")
+    print(f"[lead1] n={n} K={k}: OLD {old_ms:.1f}ms -> NEW {new_ms:.1f}ms " f"({old_ms / new_ms:.2f}x, {old_ms - new_ms:.0f}ms saved)")
 
 
 def bench_cb_plot(n=4000, iters=80, reps=3):
@@ -69,8 +68,7 @@ def bench_cb_plot(n=4000, iters=80, reps=3):
     fit(False)  # warm
     tp = min(fit(True) for _ in range(reps)) * 1000
     tf = min(fit(False) for _ in range(reps)) * 1000
-    print(f"[lead2] n={n} iters={iters}: plot=True {tp:.0f}ms -> "
-          f"plot=False {tf:.0f}ms ({tp - tf:.0f}ms saved)")
+    print(f"[lead2] n={n} iters={iters}: plot=True {tp:.0f}ms -> " f"plot=False {tf:.0f}ms ({tp - tf:.0f}ms saved)")
 
 
 if __name__ == "__main__":

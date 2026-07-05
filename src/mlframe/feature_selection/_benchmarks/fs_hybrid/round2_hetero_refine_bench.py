@@ -49,11 +49,11 @@ def main():
     rows = []
     # R2b-3 threshold/percentile grid + R2b-8 permutation panel importance. Default panel (tree/linear/distance).
     VARIANTS = {
-        "boruta_ref":       None,
-        "hetero_vt0.5":     dict(vote_threshold=0.5, percentile=100.0),
-        "hetero_vt0.34":    dict(vote_threshold=0.34, percentile=100.0),   # R2b-3 permissive (>=1 of 3)
-        "hetero_pct95":     dict(vote_threshold=0.5, percentile=95.0),     # R2b-3 looser shadow bar
-        "hetero_vt0.34p95": dict(vote_threshold=0.34, percentile=95.0),    # R2b-3 most permissive
+        "boruta_ref": None,
+        "hetero_vt0.5": dict(vote_threshold=0.5, percentile=100.0),
+        "hetero_vt0.34": dict(vote_threshold=0.34, percentile=100.0),  # R2b-3 permissive (>=1 of 3)
+        "hetero_pct95": dict(vote_threshold=0.5, percentile=95.0),  # R2b-3 looser shadow bar
+        "hetero_vt0.34p95": dict(vote_threshold=0.34, percentile=95.0),  # R2b-3 most permissive
     }
     for sc in SCENARIOS:
         for sd in SEEDS:

@@ -40,7 +40,6 @@ from typing import Callable, Dict, List
 
 import numpy as np
 
-
 # =============================================================================
 # Synthetic data
 # =============================================================================
@@ -168,20 +167,15 @@ class StressFold:
     error_msg: str = ""
 
 
-def _measure_truth(distribution: str, signal_kind: str, n_truth: int = 200_000,
-                   seed: int = 0) -> float:
+def _measure_truth(distribution: str, signal_kind: str, n_truth: int = 200_000, seed: int = 0) -> float:
     """MC truth via Mixed-KSG on N=200k."""
     from mlframe.feature_selection.filters._ksg import mixed_ksg_mi
     x, y = _gen_data(distribution, signal_kind, n_truth, seed=seed)
     return float(mixed_ksg_mi(x, y, k=5))
 
 
-def run_stress_bench(N: int = 1_000_000,
-                      distributions=None, signal_kinds=None,
-                      estimators=None, seed: int = 0,
-                      verbose: int = 1) -> Dict:
-    distributions = distributions or ["gaussian", "lognormal", "heavy_tail_t",
-                                       "discrete_low_card"]
+def run_stress_bench(N: int = 1_000_000, distributions=None, signal_kinds=None, estimators=None, seed: int = 0, verbose: int = 1) -> Dict:
+    distributions = distributions or ["gaussian", "lognormal", "heavy_tail_t", "discrete_low_card"]
     signal_kinds = signal_kinds or ["no_signal", "linear", "threshold", "xor"]
     estimators = estimators or ESTIMATORS
     rng = np.random.default_rng(int(seed))
@@ -239,14 +233,11 @@ def print_summary(results_dicts: List[Dict]) -> None:
     by_est: Dict[str, List[Dict]] = {}
     for r in results_dicts:
         by_est.setdefault(r["estimator"], []).append(r)
-    print(f"{'estimator':<20} {'mean_abs_err':>14} {'mean_rt_s':>11} "
-          f"{'max_rt_s':>10} {'peak_ram_MB':>13} {'n_fail':>8}")
+    print(f"{'estimator':<20} {'mean_abs_err':>14} {'mean_rt_s':>11} " f"{'max_rt_s':>10} {'peak_ram_MB':>13} {'n_fail':>8}")
     print("-" * 110)
-    for est, rs in sorted(by_est.items(),
-                            key=lambda kv: np.mean([abs(r["mi_val"] - r["truth"])
-                                                     for r in kv[1]
-                                                     if not r["error_msg"]
-                                                     and np.isfinite(r["mi_val"])])):
+    for est, rs in sorted(
+        by_est.items(), key=lambda kv: np.mean([abs(r["mi_val"] - r["truth"]) for r in kv[1] if not r["error_msg"] and np.isfinite(r["mi_val"])])
+    ):
         ok = [r for r in rs if not r["error_msg"] and np.isfinite(r["mi_val"])]
         if not ok:
             print(f"{est:<20} {'-':>14} {'-':>11} {'-':>10} {'-':>13} {len(rs):>8}")
@@ -255,16 +246,14 @@ def print_summary(results_dicts: List[Dict]) -> None:
         rts = [r["runtime_s"] for r in ok]
         peaks = [r["peak_ram_mb"] for r in ok]
         n_fail = len(rs) - len(ok)
-        print(f"{est:<20} {np.mean(abs_errs):>14.4f} {np.mean(rts):>11.2f} "
-              f"{max(rts):>10.2f} {max(peaks):>13.0f} {n_fail:>8}")
+        print(f"{est:<20} {np.mean(abs_errs):>14.4f} {np.mean(rts):>11.2f} " f"{max(rts):>10.2f} {max(peaks):>13.0f} {n_fail:>8}")
 
 
 def main():
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=1_000_000)
-    ap.add_argument("--quick", action="store_true",
-                    help="run on N=100k instead of 1M (development check)")
+    ap.add_argument("--quick", action="store_true", help="run on N=100k instead of 1M (development check)")
     args = ap.parse_args()
     N = 100_000 if args.quick else args.n
     out = run_stress_bench(N=N, verbose=1)

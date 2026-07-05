@@ -28,7 +28,6 @@ import time
 import numpy as np
 import pandas as pd
 
-
 _SIZES: tuple[tuple[int, int], ...] = (
     (200_000, 12),
     (500_000, 20),

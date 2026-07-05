@@ -32,11 +32,9 @@ warnings.filterwarnings("ignore")
 
 CONFIGS = {
     # Default regime: brute force is the dispatched optimizer once prefilter narrows to <=28 cols.
-    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
-               redundancy_rho=0.8, snr=8.0, seed=0),
+    "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20, redundancy_rho=0.8, snr=8.0, seed=0),
     # Hard regime: noisy SHAP ranking, no redundants. Weak informatives may rank in 23..28.
-    "C3_hard": dict(width=10000, n_rows=5000, n_informative=20, n_redundant=0,
-                    redundancy_rho=0.8, snr=2.0, seed=0),
+    "C3_hard": dict(width=10000, n_rows=5000, n_informative=20, n_redundant=0, redundancy_rho=0.8, snr=2.0, seed=0),
 }
 
 
@@ -80,8 +78,7 @@ def run_one(name: str, cfg: dict, brute_force_max_features: int, X, y, roles):
     stage_timings = dict(sel._stage_timings)
     report = dict(sel.shap_proxy_report_)
 
-    ranked = report.get("revalidation", {}).get("ranked", []) if isinstance(
-        report.get("revalidation"), dict) else []
+    ranked = report.get("revalidation", {}).get("ranked", []) if isinstance(report.get("revalidation"), dict) else []
     chosen_loss = None
     if ranked:
         chosen_loss = ranked[0].get("honest_loss", ranked[0].get("honest_loss_capped"))
@@ -97,8 +94,7 @@ def run_one(name: str, cfg: dict, brute_force_max_features: int, X, y, roles):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--configs", default="C3,C3_hard",
-                    help="Comma-separated config names (subset of C3, C3_hard).")
+    ap.add_argument("--configs", default="C3,C3_hard", help="Comma-separated config names (subset of C3, C3_hard).")
     ap.add_argument("--out_file", default=None)
     args = ap.parse_args(argv)
 
@@ -129,8 +125,7 @@ def main(argv=None):
         print(f"\n[{name}] cfg={cfg}", flush=True)
         t_data = time.perf_counter()
         X, y, roles = _make_dataset(cfg)
-        print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s",
-              flush=True)
+        print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
         # Run cap22 (legacy) first so JIT warmup is amortised against the slower path. The lever
         # only changes the search stage; all other stages share warmed kernels across runs.
         r22 = run_one(name, cfg, brute_force_max_features=22, X=X, y=y, roles=roles)
@@ -141,19 +136,15 @@ def main(argv=None):
         d_search = None
         if r22["search_wall"] and r28["search_wall"]:
             d_search = (r28["search_wall"] - r22["search_wall"]) / r22["search_wall"]
-        print(f"\n  [{name}] e2e: cap22={r22['total']:.2f}s  cap28={r28['total']:.2f}s  "
-              f"delta={d_e2e*100:+.1f}% (positive = lever is slower)", flush=True)
+        print(f"\n  [{name}] e2e: cap22={r22['total']:.2f}s  cap28={r28['total']:.2f}s  " f"delta={d_e2e*100:+.1f}% (positive = lever is slower)", flush=True)
         if d_search is not None:
-            print(f"  [{name}] search wall: cap22={r22['search_wall']:.2f}s  "
-                  f"cap28={r28['search_wall']:.2f}s  delta={d_search*100:+.1f}%", flush=True)
+            print(f"  [{name}] search wall: cap22={r22['search_wall']:.2f}s  " f"cap28={r28['search_wall']:.2f}s  delta={d_search*100:+.1f}%", flush=True)
         print(f"  [{name}] recall: cap22={r22['recall']}  cap28={r28['recall']}", flush=True)
-        print(f"  [{name}] n_selected: cap22={r22['n_selected']}  cap28={r28['n_selected']}",
-              flush=True)
+        print(f"  [{name}] n_selected: cap22={r22['n_selected']}  cap28={r28['n_selected']}", flush=True)
         subset_equal = r22["chosen_subset"] == r28["chosen_subset"]
         print(f"  [{name}] chosen_subset_equal={subset_equal}", flush=True)
         if r22["chosen_honest_loss"] is not None and r28["chosen_honest_loss"] is not None:
-            print(f"  [{name}] chosen_honest_loss: cap22={r22['chosen_honest_loss']:.6f}  "
-                  f"cap28={r28['chosen_honest_loss']:.6f}", flush=True)
+            print(f"  [{name}] chosen_honest_loss: cap22={r22['chosen_honest_loss']:.6f}  " f"cap28={r28['chosen_honest_loss']:.6f}", flush=True)
 
     return overall
 

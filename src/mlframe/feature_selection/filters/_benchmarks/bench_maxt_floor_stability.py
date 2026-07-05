@@ -27,9 +27,7 @@ def floor_std_over_seeds(n: int, p: int, nb: int, k: int, n_seeds: int) -> tuple
     data, nbins, cand, y_idx = _make_noise_pool(n, p, nb, seed=12345)
     floors = np.empty(n_seeds)
     for s in range(n_seeds):
-        floors[s] = pooled_permutation_null_gain_floor(
-            data, nbins, cand, y_idx, n_permutations=k, quantile=0.95, random_seed=1000 + s
-        )
+        floors[s] = pooled_permutation_null_gain_floor(data, nbins, cand, y_idx, n_permutations=k, quantile=0.95, random_seed=1000 + s)
     return float(floors.mean()), float(floors.std(ddof=1))
 
 

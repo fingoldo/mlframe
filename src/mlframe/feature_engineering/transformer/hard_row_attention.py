@@ -127,13 +127,13 @@ def compute_hard_row_attention_features(
         else:
             top_idx = np.lexsort((np.arange(len(abs_residuals)), -abs_residuals))[:n_hard]
 
-        anchors_X = Xt_s[top_idx]                  # (n_hard, d)
+        anchors_X = Xt_s[top_idx]  # (n_hard, d)
         anchors_y = y_t[top_idx].astype(np.float32)
         anchors_abs_resid = abs_residuals[top_idx]
         anchors_signed_resid = signed_residuals[top_idx]
 
         diffs = Xq_s[:, None, :] - anchors_X[None, :, :]  # (n_q, n_hard, d)
-        sq = (diffs ** 2).sum(axis=-1)
+        sq = (diffs**2).sum(axis=-1)
         scores = -sq
         weights = _softmax(scores, temp=temp)  # (n_q, n_hard)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)

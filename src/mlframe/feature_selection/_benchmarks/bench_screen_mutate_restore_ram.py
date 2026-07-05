@@ -23,7 +23,7 @@ import pandas as pd
 def _make_data(n=3000, p=24, seed=0):
     rng = np.random.default_rng(seed)
     X = rng.integers(0, 4, size=(n, p)).astype(np.float64)
-    y = ((X[:, 0] > 1).astype(int) ^ (X[:, 1] > 1).astype(int))
+    y = (X[:, 0] > 1).astype(int) ^ (X[:, 1] > 1).astype(int)
     y = y ^ (X[:, 5] > 2).astype(int)
     # a marginally-informative column to create borderline candidates that a null-draw change could flip
     flip = rng.random(n) < 0.35
@@ -55,10 +55,10 @@ def _fit_support(seed, n, p, n_jobs):
 def run_grid():
     configs = []
     for seed in (0, 1, 2, 3, 4):
-        for (n, p) in ((3000, 24), (2000, 18)):
-            configs.append((seed, n, p, 1))   # serial confirm path
+        for n, p in ((3000, 24), (2000, 18)):
+            configs.append((seed, n, p, 1))  # serial confirm path
     for seed in (0, 1):
-        configs.append((seed, 3000, 24, 2))    # parallel confirm path
+        configs.append((seed, 3000, 24, 2))  # parallel confirm path
     for seed, n, p, nj in configs:
         try:
             support, wall = _fit_support(seed, n, p, nj)

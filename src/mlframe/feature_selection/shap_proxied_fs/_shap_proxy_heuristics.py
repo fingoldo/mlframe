@@ -130,8 +130,7 @@ class _Evaluator:
             self.n_evals += 1
         return val, margin
 
-    def loss_from_parent(self, parent_key: tuple[int, ...], parent_margin: np.ndarray,
-                        new_j: int) -> tuple[float, tuple[int, ...], np.ndarray]:
+    def loss_from_parent(self, parent_key: tuple[int, ...], parent_margin: np.ndarray, new_j: int) -> tuple[float, tuple[int, ...], np.ndarray]:
         """Score ``parent_key + {new_j}`` reusing ``parent_margin``; insertion keeps key sorted.
 
         Returns (loss, child_key, child_margin). ``child_margin`` is cached so the next
@@ -158,8 +157,7 @@ class _Evaluator:
             self.n_evals += 1
         return val, child_key, child_margin
 
-    def loss_from_parent_drop(self, parent_key: tuple[int, ...], parent_margin: np.ndarray,
-                              drop_j: int) -> tuple[float, tuple[int, ...], np.ndarray]:
+    def loss_from_parent_drop(self, parent_key: tuple[int, ...], parent_margin: np.ndarray, drop_j: int) -> tuple[float, tuple[int, ...], np.ndarray]:
         """Score ``parent_key - {drop_j}`` reusing ``parent_margin``; ``drop_j`` MUST be in parent.
 
         One O(n) vector subtract instead of recomputing the full ``phi[:, idx].sum`` reduction.
@@ -174,7 +172,7 @@ class _Evaluator:
             else:
                 hi = mid
         # parent_key[lo] == drop_j by precondition
-        child_key = parent_key[:lo] + parent_key[lo + 1:]
+        child_key = parent_key[:lo] + parent_key[lo + 1 :]
         cached_loss = self.cache.get(child_key)
         cached_margin = self.margin_cache.get(child_key)
         if cached_loss is not None and cached_margin is not None:
@@ -191,8 +189,7 @@ class _Evaluator:
             self.n_evals += 1
         return val, child_key, child_margin
 
-    def loss_from_parent_swap(self, parent_key: tuple[int, ...], parent_margin: np.ndarray,
-                              out_j: int, in_j: int) -> tuple[float, tuple[int, ...], np.ndarray]:
+    def loss_from_parent_swap(self, parent_key: tuple[int, ...], parent_margin: np.ndarray, out_j: int, in_j: int) -> tuple[float, tuple[int, ...], np.ndarray]:
         """Score ``parent_key - {out_j} + {in_j}`` reusing ``parent_margin`` in a single O(n) pass.
 
         ``out_j`` MUST be in parent; ``in_j`` MUST NOT. Fused vector op avoids the intermediate
@@ -206,7 +203,7 @@ class _Evaluator:
                 lo = mid + 1
             else:
                 hi = mid
-        without_out = parent_key[:lo] + parent_key[lo + 1:]
+        without_out = parent_key[:lo] + parent_key[lo + 1 :]
         lo, hi = 0, len(without_out)
         while lo < hi:
             mid = (lo + hi) >> 1
@@ -392,8 +389,7 @@ def multistart_local(phi, base, y, *, classification, metric=None, n_starts=10, 
     return ev.top_n(top_n)
 
 
-def genetic(phi, base, y, *, classification, metric=None, pop_size=40, n_generations=30,
-            mutation_rate=0.1, elitism=4, rng=None, max_card=None, top_n=30):
+def genetic(phi, base, y, *, classification, metric=None, pop_size=40, n_generations=30, mutation_rate=0.1, elitism=4, rng=None, max_card=None, top_n=30):
     phi, base, y, metric = _prep(phi, base, y, classification, metric)
     f = phi.shape[1]
     max_card = f if max_card is None else min(max_card, f)
@@ -429,8 +425,7 @@ def genetic(phi, base, y, *, classification, metric=None, pop_size=40, n_generat
     return ev.top_n(top_n)
 
 
-def simulated_annealing(phi, base, y, *, classification, metric=None, n_iter=2000, t0=1.0,
-                        cooling=0.995, rng=None, max_card=None, top_n=30):
+def simulated_annealing(phi, base, y, *, classification, metric=None, n_iter=2000, t0=1.0, cooling=0.995, rng=None, max_card=None, top_n=30):
     """Metropolis bit-flips with geometric cooling.
 
     Maintains ``(cur_key, cur_margin)``; each bit-flip is either an add (+phi[:, j]) or a
