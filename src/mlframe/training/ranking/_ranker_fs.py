@@ -280,26 +280,28 @@ def group_aware_mrmr_select(
         return []  # nothing carries within-query signal -> select nothing (caller keeps all)
 
     selected: list = [int(eligible[np.argmax(rel[eligible])])]
-    remaining = [i for i in range(n) if i != selected[0]]
     # Incremental redundancy: ``red_sum[i] = sum(red[i, s] for s in selected)`` maintained vectorised (one
     # ``red_sum += red[:, best_i]`` per selection) instead of recomputing ``np.mean([red[i, s] for s in
     # selected])`` -- a Python list-comp -- for every candidate every iteration. Same summation order (selection
-    # order) so ``red_sum[i] / len(selected)`` is bit-identical to the per-iteration mean. O(n*cap) vs O(n^2*cap).
+    # order) so ``red_sum[i] / len(selected)`` is bit-identical to the per-iteration mean. The per-candidate
+    # argmax scan is also vectorised: score every remaining candidate in one ``rel - w*(red_sum/_ns)`` pass and
+    # ``np.argmax`` (below-floor / already-selected masked to -inf) instead of a Python ``for i in remaining``
+    # loop -- bit-identical (np.argmax returns the FIRST max, matching the strict ``>`` first-wins tie-break),
+    # O(n) numpy vs O(n) Python per iteration (measured 3.8-6.9x on the greedy loop at 200-1500 features).
+    below_floor = rel <= eff_floor
+    alive = np.ones(n, dtype=bool)
+    alive[selected[0]] = False
     red_sum = red[:, selected[0]].astype(np.float64, copy=True)
-    while remaining and len(selected) < cap:
+    while len(selected) < cap and alive.any():
         _ns = len(selected)
-        best_i, best_score = None, -np.inf
-        for i in remaining:
-            if rel[i] <= eff_floor:
-                continue
-            redundancy = red_sum[i] / _ns
-            score = rel[i] - redundancy_weight * redundancy
-            if score > best_score:
-                best_score, best_i = score, i
-        if best_i is None or best_score <= 0.0:
+        scores = rel - redundancy_weight * (red_sum / _ns)
+        scores[below_floor] = -np.inf
+        scores[~alive] = -np.inf
+        best_i = int(np.argmax(scores))
+        if scores[best_i] <= 0.0:
             break
         selected.append(best_i)
-        remaining.remove(best_i)
+        alive[best_i] = False
         red_sum += red[:, best_i]
     chosen = [cols[i] for i in selected]
     if verbose:

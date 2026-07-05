@@ -193,6 +193,31 @@ def test_group_aware_mrmr_incremental_redundancy_matches_mean_reference():
             red_sum += red[:, best_i]
         return selected
 
+    def _vec_greedy(rel, red, eff_floor, cap, w=1.0):
+        # Mirror of the shipped vectorised greedy loop: score all remaining candidates in one
+        # rel - w*(red_sum/ns) pass + np.argmax (below-floor / selected masked to -inf).
+        eligible = np.where(rel > eff_floor)[0]
+        if eligible.size == 0:
+            return []
+        n = len(rel)
+        selected = [int(eligible[np.argmax(rel[eligible])])]
+        below_floor = rel <= eff_floor
+        alive = np.ones(n, dtype=bool)
+        alive[selected[0]] = False
+        red_sum = red[:, selected[0]].astype(np.float64, copy=True)
+        while len(selected) < cap and alive.any():
+            ns = len(selected)
+            scores = rel - w * (red_sum / ns)
+            scores[below_floor] = -np.inf
+            scores[~alive] = -np.inf
+            best_i = int(np.argmax(scores))
+            if scores[best_i] <= 0.0:
+                break
+            selected.append(best_i)
+            alive[best_i] = False
+            red_sum += red[:, best_i]
+        return selected
+
     rng = np.random.default_rng(3)
     for _ in range(200):
         nf = int(rng.integers(4, 40))
@@ -202,4 +227,6 @@ def test_group_aware_mrmr_incremental_redundancy_matches_mean_reference():
         np.fill_diagonal(red, 0.0)
         eff_floor = 0.2 * float(rel.max())
         cap = int(rng.integers(2, nf))
-        assert _ref_greedy(rel, red, eff_floor, cap) == _inc_greedy(rel, red, eff_floor, cap)
+        ref = _ref_greedy(rel, red, eff_floor, cap)
+        assert ref == _inc_greedy(rel, red, eff_floor, cap)
+        assert ref == _vec_greedy(rel, red, eff_floor, cap), "vectorised greedy diverges from mean reference"
