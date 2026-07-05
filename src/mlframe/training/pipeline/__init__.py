@@ -607,7 +607,7 @@ def create_polarsds_pipeline(
         return None
 
     if verbose:
-        logger.info(f"Creating Polars-ds pipeline...")
+        logger.info("Creating Polars-ds pipeline...")
 
     excluded = set(exclude_from_encoding or ())
 
@@ -660,14 +660,27 @@ def create_polarsds_pipeline(
             # A column with NO finite value (all-NULL / all-NaN degenerate column, e.g. the fuzz axis'
             # ``num_null``) has no statistic to impute from -- polars-ds computes ``median``/``mean`` as
             # None and ``fill_null(None)`` raises "must specify either a fill value or strategy". Exclude
-            # such columns from the impute step; they stay null and are handled downstream (CB tolerates
-            # NaN; the constant-column dropper removes them).
+            # such columns from the strategy-based impute step below.
             def _has_finite_value(_name: str) -> bool:
                 _s = train_df.get_column(_name)
                 if train_df.schema[_name].is_float():
                     return _s.drop_nulls().drop_nans().len() > 0
                 return _s.drop_nulls().len() > 0
             _impute_targets = [c for c in _imputable_cols if _has_finite_value(c)]
+            # An excluded (all-NULL/all-NaN) column must NOT be left null on the assumption that a
+            # downstream "constant-column dropper" removes it -- that dropper is the user-controlled
+            # ``remove_constant_columns_cfg`` flag (default True, but a real user CAN set it False to
+            # keep a fixed column layout across train/val/test), so a null column previously survived
+            # all the way to strict NaN-intolerant models (PytorchLightningEstimator's own guard
+            # correctly refuses NaN input rather than silently producing all-NaN predictions -- fuzz
+            # surfaced this on models=[linear,mlp] + recurrent_model=lstm + remove_constant_columns=False,
+            # 2026-07-06). Fill with 0.0, mirroring the ``SimpleImputer(keep_empty_features=True)``
+            # convention already used for the sklearn imputer path (``_setup_helpers.py`` /
+            # ``_predict_guards.py``): the column stays FINITE (uninformative, not missing) regardless
+            # of whether the constant-column dropper is enabled.
+            _all_null_targets = [c for c in _imputable_cols if c not in _impute_targets]
+            if _all_null_targets:
+                bp = bp.with_columns(*[pl.col(c).fill_null(0.0) for c in _all_null_targets])
             if config.imputer_strategy == "mode":
                 _mode_exprs = []
                 for _c in _impute_targets:

@@ -613,6 +613,7 @@ def _custom_pre_pipelines_for_combo(combo: FuzzCombo):
         or combo.embedding_col_count > 0
         or combo.inject_inf_nan
         or combo.inject_degenerate_cols
+        or combo.inject_all_nan_col  # separate 100%-NaN column axis -- PCA rejects it too
     )
     if combo.custom_prep == "pca2" and not pca_incompatible:
         try:
@@ -736,7 +737,15 @@ def _preprocessing_for_combo(combo: FuzzCombo):
                 remove_constant_columns=combo.remove_constant_columns_cfg,
                 category_encoder=ce.CatBoostEncoder(),
                 scaler=StandardScaler(),
-                imputer=SimpleImputer(strategy="mean"),
+                # keep_empty_features=True: an inject_all_nan_col column must survive imputation as a
+                # zero-filled column, not stay null/NaN (sklearn's default drops or leaves an all-NaN
+                # column unfilled -- mean-of-nothing is NaN). Explicitly constructing this SimpleImputer
+                # bypasses _get_pipeline_components' own safe default (which only applies when
+                # preprocessing_config.imputer is None), so it must carry the same flag itself. Fuzz
+                # surfaced this on models=[linear,mlp] + cat_feature_count>0 + inject_all_nan_col +
+                # remove_constant_columns=False -- the NaN reached PytorchLightningEstimator's strict
+                # guard (2026-07-06).
+                imputer=SimpleImputer(strategy="mean", keep_empty_features=True),
             )
         except ImportError:
             pass

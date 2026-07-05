@@ -803,6 +803,7 @@ class FuzzCombo:
             or self.embedding_col_count > 0
             or self.inject_inf_nan          # injects np.nan → PCA rejects
             or self.inject_degenerate_cols  # adds all-null column → PCA rejects
+            or self.inject_all_nan_col      # separate 100%-NaN column axis → PCA rejects too
         )
         custom_prep = self.custom_prep if not pca_incompatible else None
         use_ensembles = self.use_ensembles

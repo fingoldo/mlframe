@@ -934,3 +934,28 @@ def test_sensor_fuzz_recurrent_model_x_recency_only_weights(tmp_path):
         assert any(token in msg for token in ("weight", "recurrent", "lstm", "recency", "config", "sequence")), (
             f"recurrent x recency-only must raise a CLEAR diagnostic, got obscure: {exc!r}"
         )
+
+
+def test_pca2_custom_prep_canonicalises_off_when_inject_all_nan_col():
+    """``custom_prep='pca2'`` attaches an IncrementalPCA custom_pre_pipeline step, which sklearn's
+    IncrementalPCA cannot consume when the frame has a 100%-NaN column. The ``pca_incompatible`` gate
+    (both in ``FuzzCombo.canonical_key`` and ``_custom_pre_pipelines_for_combo``) already excluded
+    ``inject_inf_nan`` and ``inject_degenerate_cols`` for exactly this reason but missed the SEPARATE
+    ``inject_all_nan_col`` axis, so a combo sampling both ``custom_prep='pca2'`` and
+    ``inject_all_nan_col=True`` still got IncrementalPCA attached -- surfaced by fuzzing (2026-07-06).
+    """
+    import dataclasses
+    from tests.training._fuzz_combo import enumerate_combos
+    from tests.training._fuzz_suite_helpers import _custom_pre_pipelines_for_combo
+
+    combos = enumerate_combos(target=20, master_seed=7)
+    base = combos[0]
+    combo = dataclasses.replace(
+        base, custom_prep="pca2", inject_all_nan_col=True,
+        cat_feature_count=0, text_col_count=0, embedding_col_count=0,
+        inject_inf_nan=False, inject_degenerate_cols=False,
+    )
+    assert _custom_pre_pipelines_for_combo(combo) is None, (
+        "inject_all_nan_col must disable the pca2 custom_pre_pipeline (IncrementalPCA can't handle "
+        "an all-NaN column), same as inject_inf_nan / inject_degenerate_cols already do"
+    )

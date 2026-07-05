@@ -340,3 +340,47 @@ class TestFloatNanImputed:
         assert abs(fills["mean"] - fills["median"]) > 0.1, (
             "mean and median imputation produced identical fills on a skewed column"
         )
+
+
+# =====================================================================
+# 11. All-NULL / all-NaN column must NOT survive the impute step as NULL
+# =====================================================================
+
+class TestAllNullColumnFilledNotSurvived:
+    """A column with NO finite value (e.g. the fuzz ``inject_all_nan_col`` axis) has no mean/median to
+    impute from, so ``_impute_targets`` correctly excludes it from ``Blueprint.impute``. But leaving it
+    NULL forever relied on an UNENFORCED assumption ("a downstream constant-column dropper removes it"):
+    that dropper is the user-controlled ``remove_constant_columns`` flag, which a real config can set
+    False (e.g. to keep a fixed column layout across train/val/test). With it off, an all-NULL column
+    survived every preprocessing stage and reached a NaN-intolerant model's own strict guard
+    (PytorchLightningEstimator raising ``ValueError: X contains N NaN``) -- surfaced by fuzzing
+    models=[linear,mlp] + recurrent_model=lstm + remove_constant_columns=False, 2026-07-06.
+    """
+
+    def _frame_with_all_null_col(self):
+        rng = np.random.default_rng(0)
+        n = 100
+        return pl.DataFrame({
+            "f0": rng.standard_normal(n).astype(np.float32),
+            "f_all_null": pl.Series([None] * n, dtype=pl.Float32),
+        })
+
+    def test_all_null_column_filled_finite_not_left_null(self):
+        df = self._frame_with_all_null_col()
+        cfg = PreprocessingBackendConfig(imputer_strategy="mean", **_scaler_off())
+        pipe = create_polarsds_pipeline(df, cfg, verbose=0)
+        assert pipe is not None
+        out = pipe.transform(df)
+        assert out["f_all_null"].null_count() == 0, (
+            "all-NULL column must be filled to a finite value, not left NULL relying on the "
+            "constant-column dropper (which may be disabled)"
+        )
+        assert out["f0"].null_count() == 0
+
+    def test_all_null_column_filled_zero(self):
+        """Mirrors the ``SimpleImputer(keep_empty_features=True)`` convention used for the sklearn
+        imputer path (a feature with no observed values gets statistic 0, not NaN)."""
+        df = self._frame_with_all_null_col()
+        cfg = PreprocessingBackendConfig(imputer_strategy="mean", **_scaler_off())
+        out = create_polarsds_pipeline(df, cfg, verbose=0).transform(df)
+        assert (out["f_all_null"].to_numpy() == 0.0).all()
