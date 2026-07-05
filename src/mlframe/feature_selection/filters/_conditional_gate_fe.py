@@ -744,6 +744,10 @@ def cheap_conditional_gate_scan(
             baseline = _baseline(bkey)
             if (best_mi - baseline) >= _MIN_MARGIN:
                 # Recompute just the best column on host for the cheap permutation null (one column, not the grid).
+                # bench-attempt-rejected (2026-07-05): slicing the best column out of the already-built ``big``
+                # (`np.ascontiguousarray(big[:, bstart+best_j])`) measured 0.3x (SLOWER, 0.692ms vs 0.214ms/spec @100k)
+                # -- ``big`` is row-major so a single column is strided and copies cache-unfriendly, while the fused
+                # njit single-tau rebuild is contiguous + parallel. The rebuild is cheaper than the slice; kept.
                 best_col = _build_feats(mode, operands, np.asarray([taus[best_j]], dtype=np.float64))[:, 0]
                 # The best-tau column is fit-constant across the 12-perm null: upload it ONCE and thread the
                 # resident handle so it never re-crosses H2D at the :318 MI upload site (host array unchanged when
