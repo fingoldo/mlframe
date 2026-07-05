@@ -45,7 +45,8 @@ from typing import Any, Optional
 import numpy as np
 from numba import njit, prange
 
-from ._entropy_kernels import conditional_mi
+from ._entropy_kernels import conditional_mi, entropy
+from ._class_encoding import merge_vars
 
 logger = logging.getLogger(__name__)
 
@@ -404,12 +405,91 @@ def _cpu_cmi_loop_parallel(factors_data, cand_indices, y, z, factors_nbins, var_
     return out
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# Y,Z-ENTROPY HOIST (2026-07): in an MRMR greedy round Y (target) and Z (just-selected feature) are FIXED across the
+# WHOLE candidate pool, yet ``conditional_mi`` rebuilds H(Z), the (Y,Z) joint melt (``classes_yz``) and H(Y,Z) on EVERY
+# candidate -- its existing ``entropy_z``/``entropy_yz`` params cannot remove that work because the H(X,Y,Z) term is
+# built by melting X on top of ``classes_yz`` (needed per candidate). This pair of kernels computes the fixed (Y,Z)/Z
+# terms + ``classes_yz`` ONCE per call and reuses a per-candidate COPY of ``classes_yz`` for the H(X,Y,Z) melt, so each
+# candidate does only the two X-dependent melts (X,Z and X-on-YZ) instead of all four. BIT-IDENTICAL by construction:
+# same merge order (unpack_and_sort), same ``entropy`` reduction -- verified maxabsdiff EXACTLY 0.0 in
+# ``_benchmarks/bench_cmi_yz_hoist.py`` and ``tests/.../test_cpu_cmi_loop_yz_hoist_identity.py``. Measured 1.60-1.74x
+# (serial AND prange, n=1e6, nb=10/16, p=10..300) -- this path is the dominant wellbore main-process hotspot (the GPU
+# CMI cascade routes all redundancy through it). Mirrors the already-shipped ``_mi_greedy_cmi_fe.cmi_from_binned_fixed_yz``
+# hoist for the binned-values FE path; this applies the SAME win to the merge_vars ``conditional_mi`` path.
+
+
+@njit(cache=True)
+def _cmi_yz_fixed_terms(factors_data, y, z, factors_nbins, dtype):
+    """H(Z), the (Y,Z) merged dense classes, H(Y,Z) and nclasses_yz -- the per-round CONSTANTS. Melt order matches
+    ``conditional_mi``: Z alone for H(Z); ``unpack_and_sort(y, z)`` for the (Y,Z) joint."""
+    _, freqs_z, _ = merge_vars(factors_data, z, None, factors_nbins, dtype=dtype)
+    ent_z = entropy(freqs_z)
+    yi = y[0]; zi = z[0]
+    yz = np.empty(2, dtype=np.int64)
+    if zi <= yi:
+        yz[0] = zi; yz[1] = yi
+    else:
+        yz[0] = yi; yz[1] = zi
+    classes_yz, freqs_yz, nclasses_yz = merge_vars(factors_data, yz, None, factors_nbins, dtype=dtype)
+    return ent_z, classes_yz, entropy(freqs_yz), nclasses_yz
+
+
+@njit(cache=True)
+def _cmi_one_fixed_yz(factors_data, xi, zi, classes_yz, nclasses_yz, ent_yz, ent_z, factors_nbins, dtype):
+    """I(X_i; Y | Z) reusing the fixed (Y,Z)/Z terms: only the X-dependent (X,Z) and (X-on-YZ) melts run. The
+    (X,Y,Z) melt writes into a PRIVATE copy of ``classes_yz`` so the shared array is never mutated (prange-safe)."""
+    xz = np.empty(2, dtype=np.int64)
+    if xi <= zi:
+        xz[0] = xi; xz[1] = zi
+    else:
+        xz[0] = zi; xz[1] = xi
+    _, freqs_xz, _ = merge_vars(factors_data, xz, None, factors_nbins, dtype=dtype)
+    ent_xz = entropy(freqs_xz)
+    scratch = classes_yz.copy()
+    xarr = np.empty(1, dtype=np.int64); xarr[0] = xi
+    _, freqs_xyz, _ = merge_vars(
+        factors_data, xarr, None, factors_nbins,
+        current_nclasses=nclasses_yz, final_classes=scratch, dtype=dtype)
+    ent_xyz = entropy(freqs_xyz)
+    r = ent_xz + ent_yz - ent_z - ent_xyz
+    return r if r > 0.0 else 0.0
+
+
+@njit(parallel=True, cache=True)
+def _cpu_cmi_loop_hoisted_parallel(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int32) -> np.ndarray:
+    """prange CMI with the Y,Z terms hoisted out of the per-candidate loop. Bit-identical to
+    ``_cpu_cmi_loop_parallel`` (maxdiff 0.0), 1.6-1.7x faster (two melts per candidate instead of four)."""
+    p = len(cand_indices)
+    out = np.empty(p, dtype=np.float64)
+    ent_z, classes_yz, ent_yz, nclasses_yz = _cmi_yz_fixed_terms(factors_data, y, z, factors_nbins, dtype)
+    zi = z[0]
+    for i in prange(p):
+        out[i] = _cmi_one_fixed_yz(factors_data, cand_indices[i], zi, classes_yz, nclasses_yz, ent_yz, ent_z, factors_nbins, dtype)
+    return out
+
+
+@njit(cache=True)
+def _cpu_cmi_loop_hoisted_serial(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int32) -> np.ndarray:
+    """Serial (tiny-pool) CMI with the Y,Z terms hoisted. Bit-identical to the serial ``conditional_mi`` loop."""
+    p = len(cand_indices)
+    out = np.empty(p, dtype=np.float64)
+    ent_z, classes_yz, ent_yz, nclasses_yz = _cmi_yz_fixed_terms(factors_data, y, z, factors_nbins, dtype)
+    zi = z[0]
+    for i in range(p):
+        out[i] = _cmi_one_fixed_yz(factors_data, cand_indices[i], zi, classes_yz, nclasses_yz, ent_yz, ent_z, factors_nbins, dtype)
+    return out
+
+
 def _cpu_cmi_loop(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int32) -> np.ndarray:
     """Exact CPU CMI over each candidate column index -> (p,) float64. Parallel (prange) across cores once the
     candidate pool clears ``_CMI_PARALLEL_MIN_CANDS``; exact serial for a tiny pool (thread-spawn not worth it).
 
     ``cand_indices`` is a (p,) array of column indices into ``factors_data``; ``y`` / ``z`` are 1-element column-index
     arrays (target / selected-feature). Was a SERIAL Python loop -- the 1-core CMI-screen bottleneck on the greedy path.
+
+    Routes through the Y,Z-entropy hoist by default (1.6-1.7x, bit-identical); MLFRAME_CMI_YZ_HOIST=0 restores the
+    un-hoisted ``conditional_mi`` recompute path for the A/B (bench_cmi_yz_hoist.py). Both branches are exact.
     """
     cand_indices = np.asarray(cand_indices, dtype=np.int64)
     p = len(cand_indices)
@@ -419,6 +499,14 @@ def _cpu_cmi_loop(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int3
     z = np.asarray(z, dtype=np.int64)
     factors_nbins = np.asarray(factors_nbins)
     _vin = np.empty(0, dtype=np.int64)  # var_is_nominal placeholder (unused inside conditional_mi)
+
+    import os as _os
+    if _os.environ.get("MLFRAME_CMI_YZ_HOIST", "1").strip().lower() not in ("0", "false", "off", "no"):
+        if p >= _CMI_PARALLEL_MIN_CANDS:
+            return _cpu_cmi_loop_hoisted_parallel(factors_data, cand_indices, y, z, factors_nbins, dtype)
+        return _cpu_cmi_loop_hoisted_serial(factors_data, cand_indices, y, z, factors_nbins, dtype)
+
+    # bench-attempt-baseline (MLFRAME_CMI_YZ_HOIST=0): un-hoisted recompute path kept for the A/B (REJECTED!=DELETED).
     if p >= _CMI_PARALLEL_MIN_CANDS:
         return _cpu_cmi_loop_parallel(factors_data, cand_indices, y, z, factors_nbins, _vin)
     out = np.empty(p, dtype=np.float64)
@@ -427,7 +515,39 @@ def _cpu_cmi_loop(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int3
     return out
 
 
-def _should_use_cuda(n: int, p: int, joint_size: int) -> bool:  # noqa: C901
+# CIRCUIT BREAKER (2026-07): a cudaErrorLaunchFailure / illegal-address is an EXECUTION fault that POISONS the CUDA
+# context -- every SUBSEQUENT launch on that context then fails identically. In the wellbore run the first fault
+# cascaded into 1515 futile GPU retries (each logged + each paying the host-side setup before failing) before falling
+# to CPU. Once ANY GPU CMI launch faults we trip this flag and route ALL further CMI to the (now-hoisted) CPU path for
+# the rest of the process -- no re-attempt on a dead context. Cheap, correct, and kills the retry spam. Reset only via
+# reset_cmi_gpu_circuit_breaker() (tests). NOT a substitute for preventing the fault; a resilience backstop.
+_CMI_GPU_FAILED = False
+
+
+def reset_cmi_gpu_circuit_breaker() -> None:
+    """Re-arm the GPU CMI path (tests / after a fresh CUDA context)."""
+    global _CMI_GPU_FAILED
+    _CMI_GPU_FAILED = False
+
+
+def _cmi_cuda_shmem_fits(joint_size: int, nbins_x: int = 0, nbins_y: int = 0, nbins_z: int = 0,
+                         cc_smem_bytes: int = 48 * 1024) -> bool:
+    """Do BOTH batched-CMI kernels' shared-memory requests fit the per-block limit (cc 6.x = 48 KB)?
+
+    Kernel 1 (joint histogram) needs ``joint_size * 4`` bytes. Kernel 2 (``cmi_from_joint``) needs
+    ``256*8 + (nbx*nbz + nby*nbz + nbz)*4`` -- which can EXCEED kernel 1 when an axis is degenerate (e.g. ``nby=1``
+    makes ``nbx*nbz == joint_size``, so kernel 2 = ``joint_size*4 + 2048 + 8*nbz``). Guarding only kernel 1 let that
+    over-request launch-fail. When the individual nbins are unknown (default 0) only kernel 1 is checked (legacy)."""
+    if joint_size * 4 > cc_smem_bytes:
+        return False
+    if nbins_x and nbins_y and nbins_z:
+        k2 = 256 * 8 + (nbins_x * nbins_z + nbins_y * nbins_z + nbins_z) * 4
+        if k2 > cc_smem_bytes:
+            return False
+    return True
+
+
+def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y: int = 0, nbins_z: int = 0) -> bool:  # noqa: C901
     """Size/HW gate. Routes to CUDA at large (n, p) where the batched launch wins; CPU otherwise.
 
     Integrates with the FS kernel_tuning_cache singleton (pyutilz). On cache hit the decision is the
@@ -435,6 +555,8 @@ def _should_use_cuda(n: int, p: int, joint_size: int) -> bool:  # noqa: C901
     the hot path -- the fallback is the documented bootstrap heuristic only). VRAM guard: the joint
     buffer is ``p * joint_size * 4`` bytes; reject if it would exceed a conservative slice.
     """
+    if _CMI_GPU_FAILED:  # context poisoned by a prior launch fault -> never re-attempt the GPU this process.
+        return False
     if not cupy_available():
         return False
     # VRAM guard (GTX 1050 Ti = 4 GB): the dominant device buffer is the candidate matrix Xc
@@ -452,8 +574,8 @@ def _should_use_cuda(n: int, p: int, joint_size: int) -> bool:  # noqa: C901
         pass
     if bytes_needed > cap:
         return False
-    # Shared-mem guard: cc 6.x has 48 KB/block -> joint_size*4 must fit.
-    if joint_size * 4 > 48 * 1024:
+    # Shared-mem guard: cc 6.x has 48 KB/block and BOTH kernels must fit (see _cmi_cuda_shmem_fits).
+    if not _cmi_cuda_shmem_fits(joint_size, nbins_x, nbins_y, nbins_z):
         return False
 
     # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, diagnostic, default OFF): force CUDA past the KTC crossover /
@@ -532,7 +654,7 @@ def conditional_mi_batched_dispatch(
     nbins_z = int(factors_nbins[z_index])
     joint_size = nbins_x * nbins_y * nbins_z
 
-    use_cuda = force == "cuda" or (force is None and _should_use_cuda(n, p, joint_size))
+    use_cuda = force == "cuda" or (force is None and _should_use_cuda(n, p, joint_size, nbins_x, nbins_y, nbins_z))
     if force == "cpu":
         use_cuda = False
 
@@ -557,7 +679,11 @@ def conditional_mi_batched_dispatch(
             z_g = _resident_upload(z, (_fid, "z", int(z_index), int(nbins_z)))
             return conditional_mi_batched_cuda(Xc, y, z, nbins_x, nbins_y, nbins_z, y_g=y_g, z_g=z_g)
         except Exception as _exc:  # noqa: BLE001 - any GPU failure -> exact CPU fallback
-            logger.warning("cmi_cuda: GPU path failed (%s); falling back to CPU", _exc)
+            # Trip the process-level circuit breaker: a launch fault poisons the CUDA context, so every subsequent
+            # GPU CMI would fault identically (the wellbore 1515-retry cascade). Route all further CMI to CPU.
+            global _CMI_GPU_FAILED
+            _CMI_GPU_FAILED = True
+            logger.warning("cmi_cuda: GPU path failed (%s); circuit breaker tripped -> CPU for the rest of the process", _exc)
 
     return _cpu_cmi_loop(factors_data, cand_indices, np.asarray([y_index]), np.asarray([z_index]), factors_nbins, dtype=dtype)
 
