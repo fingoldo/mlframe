@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Set, Tuple
 
 import numpy as np
 from joblib import Parallel, delayed
+from joblib._parallel_backends import LokyBackend
 
 from ._joblib_safe import run_in_big_stack_thread
 from .discretization import discretize_array
@@ -45,6 +46,31 @@ logger = logging.getLogger(__name__)
 # cheap trivial baseline already saturated the joint-MI ceiling; the serial
 # reduce counts these for the summary log and treats them as no-injection.
 _POLY_CHEAP_SKIP = "__poly_cheap_skip__"
+
+
+def _poly_worker_disable_cuda():  # pragma: no cover - runs in a loky child process
+    """loky worker initializer: force the pair-search workers CPU-ONLY.
+
+    Runs once per freshly-spawned loky worker BEFORE the first task unpickles
+    ``mlframe`` (and thus before any ``cupy`` import), so the worker sees NO CUDA
+    device and every ``polyeval_dispatch`` / GPU-FE path in it takes the njit CPU
+    branch -- i.e. NO ~250 MB cupy CUDA context is created per worker.
+
+    Why this matters (2026-07-05 wellbore diag, 4 GB GTX 1050 Ti): with the
+    per-pair search fanned out to 16 loky workers, each worker was importing cupy
+    and grabbing its own ~200-250 MB CUDA context (~3.3 GB total). On a 4 GB card
+    those 16 contexts nearly fill VRAM; the workers then block on GPU allocations,
+    the joblib parent sleep-polls in ``_retrieve`` at ~1 core, and the pair search
+    STALLS for ~2h (should be seconds-to-minutes). The per-pair work is CMA-ES /
+    Optuna sampling (GIL-bound -> genuinely wants processes) + njit polyeval (CPU);
+    16-way process-parallel GPU polyeval on a small card is counterproductive
+    (contexts don't fit). Killing GPU per worker fixes BOTH the idle-CPU (16 real
+    CPU workers now) and the VRAM fill (no worker contexts). The parent keeps its
+    own GPU context for other phases -- only the workers go CPU-only.
+    """
+    import os
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 
 from ._fe_family_timing import fe_timed
@@ -390,9 +416,25 @@ def run_polynom_pair_fe(
         # sampler-side parallelism because Optuna's TPE/Random sampler
         # between trials is the actual bottleneck (~50% of per-trial time
         # in prod, holds GIL, can only be split across processes).
-        _poly_pair_results = Parallel(
-            n_jobs=_polynom_n_jobs, backend="loky",
+        #
+        # ``initializer=_poly_worker_disable_cuda`` forces every loky worker
+        # CPU-ONLY (CUDA_VISIBLE_DEVICES="") so it does NOT grab its own ~250 MB
+        # cupy CUDA context -- 16 worker contexts filled a 4 GB card and stalled
+        # the search ~2h (see _poly_worker_disable_cuda docstring, 2026-07-05).
+        # We build a ``LokyBackend`` instance instead of passing ``backend="loky"``
+        # + kwargs to ``Parallel`` because in joblib 1.5.x the ``initializer`` (and
+        # even ``inner_max_num_threads``) are ONLY honoured when set on the backend
+        # object; passed straight to ``Parallel(...)`` they are silently dropped.
+        # The differing initializer also forces loky to spawn a FRESH pool rather
+        # than reuse a warm (possibly GPU-holding) one from an earlier phase.
+        # Memmapping of large ``X_ndarr`` is preserved (LokyBackend still uses the
+        # memmapping executor), so this does not copy X per task.
+        _loky_cpu_backend = LokyBackend(
             inner_max_num_threads=1,
+            initializer=_poly_worker_disable_cuda,
+        )
+        _poly_pair_results = Parallel(
+            n_jobs=_polynom_n_jobs, backend=_loky_cpu_backend,
             verbose=10 if verbose else 0,
         )(delayed(_eval_one_pair)(rv, X_ndarr, classes_y) for rv in _pair_keys)
     else:
