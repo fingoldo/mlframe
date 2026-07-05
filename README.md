@@ -36,6 +36,8 @@ scikit-learn, pyarrow, joblib, tqdm, pydantic, numba). Heavier stacks ship as
 optional extras:
 
 ```bash
+pip install mlframe[all,dev]                     # full install (recommended)
+
 pip install -e "./mlframe[boosting]"             # catboost + lightgbm + xgboost
 pip install -e "./mlframe[calibration]"          # shap + venn-abers + netcal + betacal + pycalib
 pip install -e "./mlframe[neural]"               # torch + lightning + captum + transformers
@@ -49,12 +51,9 @@ pip install -e "./mlframe[db]"                   # sqlalchemy + psycopg2 + duckd
 pip install -e "./mlframe[signal]"               # antropy + astropy + pywavelets + ruptures
 pip install -e "./mlframe[unsupervised]"         # hdbscan + umap-learn
 pip install -e "./mlframe[stats]"                # statsmodels
-pip install -e "./mlframe[gpu]"                  # cupy + gpu-info (match your CUDA build)
-pip install -e "./mlframe[transformer]"          # transformer-style FE, numba-only CPU path
-pip install -e "./mlframe[transformer_ann]"      # adds hnswlib for approximate-NN at N >= 500k
-pip install -e "./mlframe[transformer_gpu]"      # adds cupy-cuda12x for the GPU stages
-pip install -e "./mlframe[transformer_full]"     # transformer + ann + gpu
-pip install -e "./mlframe[all]"                  # runtime extras EXCEPT the CUDA-build-specific gpu / transformer_gpu / transformer_full (install those explicitly on a CUDA host)
+pip install -e "./mlframe[gpu,transformer_gpu]"  # cupy + gpu-info + cupy-cuda12x for the GPU stages (match your CUDA build)
+pip install -e "./mlframe[transformer,transformer_ann]"  # transformer-style FE (numba-only CPU path) + hnswlib for approximate-NN at N >= 500k
+pip install -e "./mlframe[all]"                  # runtime extras EXCEPT the CUDA-build-specific gpu / transformer_gpu (install those explicitly on a CUDA host)
 pip install -e "./mlframe[dev]"                  # pytest + coverage + ruff + black + mypy + bandit + pre-commit
 ```
 
@@ -62,11 +61,12 @@ Requires Python 3.9 or newer; tested on 3.9 through 3.14. The full core stack
 (numpy, numba/llvmlite, polars, scikit-learn, pyarrow, pydantic) ships `cp314`
 wheels and the numba JIT kernels compile and run on 3.14.
 
-For a development checkout, add the dev extras and the pre-commit hooks:
+For development:
 
 ```bash
-pip install -e "./mlframe[boosting,calibration,viz,dev]"
+git clone https://github.com/fingoldo/mlframe.git
 cd mlframe
+pip install -e ".[all,dev]"
 pre-commit install
 pytest
 ```
@@ -516,8 +516,7 @@ Pull requests are welcome. Code style is `black` + `ruff` with a line length of 
 Every new feature ships with a unit test, a quantitative business-value test, a
 representative `@pytest.mark.fast` subset, and a `cProfile` hotspot check. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the full development workflow, test bar, and
-the fuzz / combo test philosophy. By participating you agree to abide by our
-[Code of Conduct](CODE_OF_CONDUCT.md).
+the fuzz / combo test philosophy.
 
 ## License
 
