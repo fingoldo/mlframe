@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from os.path import exists
 from timeit import default_timer as timer
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -447,7 +447,7 @@ def run_outer_loop_iteration(
 
     if self.special_feature_indices is not None:
         if verbose:
-            logger.info(f"Quitting as special_feature_indices were checked.")
+            logger.info("Quitting as special_feature_indices were checked.")
         return IterationOutcome.BREAK
 
     return IterationOutcome.CONTINUE

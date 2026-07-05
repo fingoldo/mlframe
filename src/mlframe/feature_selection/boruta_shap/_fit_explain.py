@@ -5,17 +5,9 @@ Methods are bound onto the ``BorutaShap`` class in the package ``__init__`` so `
 
 from __future__ import annotations
 
-from sklearn.utils import check_random_state, check_X_y
-from sklearn.base import TransformerMixin, BaseEstimator
 from mlframe.utils.misc import get_pipeline_last_element
 from pyutilz.system import tqdmu
 
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, IsolationForest
-from statsmodels.stats.multitest import multipletests
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.cluster import KMeans
-from scipy.sparse import issparse
 try:
     from scipy.stats import binomtest as _binomtest
 
@@ -24,16 +16,9 @@ try:
         return _binomtest(int(x), n=int(n), p=p, alternative=alternative).pvalue
 except ImportError:  # SciPy < 1.7 fallback
     from scipy.stats import binom_test  # type: ignore
-from scipy.stats import ks_2samp
-import matplotlib.pyplot as plt
-import random
 import pandas as pd
 import numpy as np
-from numpy.random import choice
-import seaborn as sns
 import shap
-import os
-import re
 
 try:
     import polars as pl

@@ -348,7 +348,6 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     ndigits = self.report_ndigits
 
     start_time = timer()
-    ran_out_of_time = False
     if max_runtime_mins:
         if verbose:
             logger.info("max_runtime_mins=%.2f", max_runtime_mins)

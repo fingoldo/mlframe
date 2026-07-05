@@ -568,7 +568,6 @@ def sparse_interaction_candidates(
         model_template, aug, np.asarray(y), classification=classification,
         out_of_fold=False, n_splits=2, n_models=1, rng=rng, n_jobs=1)
 
-    metric_r = resolve_metric(classification, metric)
     P = phi_aug.shape[1]
     max_card_eff = P if max_card is None else min(max_card, P)
     # Bound the additive search the same way the main optimiser does: brute force at small widths,

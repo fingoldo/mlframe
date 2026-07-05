@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 import numpy as np, pandas as pd
 import polars as pl, polars.selectors as cs
 
-import psutil
 import textwrap
 from timeit import default_timer as timer
 from collections import defaultdict
@@ -33,7 +32,7 @@ from mlframe.feature_selection.mi import grok_compute_mutual_information, chatgp
 # machinery the modern filters/mrmr path uses. Reused here rather than reimplemented so the legacy
 # ``estimate_features_relevancy`` selection driver is calibrated to a nominal significance level with a
 # genuine multiple-comparison (Benjamini-Hochberg) correction instead of ad-hoc raw-MI exceedances.
-from mlframe.feature_selection.filters import analytic_mi_null, analytic_mi_null_batch
+from mlframe.feature_selection.filters import analytic_mi_null_batch
 
 
 def _occupied_bins(codes: np.ndarray) -> int:

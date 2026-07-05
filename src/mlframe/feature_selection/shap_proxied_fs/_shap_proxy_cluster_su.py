@@ -186,7 +186,6 @@ def _pairwise_su_edges_gpu(
     inv_n = cp.float64(1.0 / n_samples) if n_samples > 0 else cp.float64(0.0)
 
     bins_dev = cp.asarray(bins_packed, dtype=cp.int32)
-    nbins_dev = cp.asarray(nbins, dtype=cp.int64)
     h_dev = cp.asarray(h_marginals, dtype=cp.float64)
     constant_dev = cp.asarray(constant_mask, dtype=cp.bool_)
 
@@ -220,7 +219,6 @@ def _pairwise_su_edges_gpu(
     # the SU row for all j > i_start.
     for i_start in range(0, n_features, pair_chunk_size):
         i_end = min(i_start + pair_chunk_size, n_features)
-        chunk_size = i_end - i_start
 
         # joint[i_local, j, a, b] = sum_s onehot[i_global, a, s] * onehot[j, b, s]
         # 2026-06-03 (audit shap-proxy-clustering-3): einsum in float32. The joint

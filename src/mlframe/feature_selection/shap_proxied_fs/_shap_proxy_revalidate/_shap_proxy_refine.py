@@ -848,7 +848,6 @@ def within_cluster_refine(
             evaluated_losses: dict[int, float] = {}  # local-idx -> honest loss
             best_loss_round = float("inf")
             best_local_idx = -1
-            stopped_early = False
             pos = 0
             n_trials = len(order_local)
             # ``slack`` calibrates importance -> honest_loss residual on a per-round basis. With <2
@@ -893,7 +892,6 @@ def within_cluster_refine(
                 if _ucb_stop_remaining_cannot_win(
                     best_loss_round, remaining_importance, slack_used, parsimony_tol=0.0,
                 ):
-                    stopped_early = True
                     break
             # Accept the leader if within tol; otherwise round terminates.
             if best_local_idx < 0 or best_loss_round > cur_threshold:

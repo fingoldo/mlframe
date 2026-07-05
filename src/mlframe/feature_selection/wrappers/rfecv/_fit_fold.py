@@ -11,7 +11,6 @@ import inspect
 import logging
 import threading
 from contextlib import nullcontext
-from typing import Any
 
 import numpy as np
 import pandas as pd

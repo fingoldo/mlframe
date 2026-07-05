@@ -102,8 +102,6 @@ def get_signed_linear_coef(
     Multiclass collapse keeps the sign of the dominant-magnitude class
     ('max' -> coef of the argmax-|coef| class; 'sum' -> signed sum across classes).
     """
-    from operator import attrgetter
-
     m = model
     for _ in range(8):
         if hasattr(m, "_final_estimator") and m._final_estimator is not m:

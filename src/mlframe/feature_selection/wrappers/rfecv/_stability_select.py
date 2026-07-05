@@ -7,15 +7,12 @@ call sites resolve unchanged.
 """
 from __future__ import annotations
 
-import copy
 import logging
 
 import numpy as np
 import pandas as pd
 
 from sklearn.base import clone
-
-from pyutilz.system import tqdmu
 
 from .._enums import VotesAggregation
 from .._helpers import (

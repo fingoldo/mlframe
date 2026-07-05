@@ -24,7 +24,6 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import (
     coalition_margin_T,
     proxy_loss,
     resolve_metric,
-    score_margin,
     score_margin_auto,
 )
 
