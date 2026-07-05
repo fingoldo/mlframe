@@ -435,9 +435,8 @@ def check_prospective_fe_pairs(
                 # ``classes_y`` is the discrete target the MI sweep scores against). is_clf=True is correct
                 # because ``classes_y`` is always discrete codes here (a continuous y is binned upstream).
                 from .._fe_subsample import stratified_subsample_idx
-                _sample_idx = stratified_subsample_idx(
-                    _rng_sub, np.asarray(classes_y), int(subsample_n), is_clf=True
-                )
+
+                _sample_idx = stratified_subsample_idx(_rng_sub, np.asarray(classes_y), int(subsample_n), is_clf=True)
             else:
                 _sample_idx = np.sort(_rng_sub.choice(_full_n_rows, size=int(subsample_n), replace=False))
         if isinstance(_X_full, pd.DataFrame):
@@ -461,7 +460,7 @@ def check_prospective_fe_pairs(
             _counts = np.bincount(classes_y.astype(np.int64))
             _total = _counts.sum()
             if _total > 0:
-                freqs_y = (_counts.astype(np.float64) / float(_total))
+                freqs_y = _counts.astype(np.float64) / float(_total)
         # else: leave the caller-supplied freqs_y; mi_direct handles its own
         # validation and would crash anyway on a non-integer class table.
         if verbose:
@@ -564,7 +563,7 @@ def check_prospective_fe_pairs(
         return None
 
     # Per-operand learned pre-warp + median-gate fit (carved to _pairs_setup.py).
-    (_prewarp_active, _prewarp_spec_by_var, _gate_med_active, _gate_med_median_by_var) = _fit_prewarp_and_gate_med(
+    _prewarp_active, _prewarp_spec_by_var, _gate_med_active, _gate_med_median_by_var = _fit_prewarp_and_gate_med(
         prospective_pairs=prospective_pairs,
         prewarp_enable=prewarp_enable,
         prewarp_y=prewarp_y,
@@ -599,8 +598,7 @@ def check_prospective_fe_pairs(
 
     if verbose >= 2:
         logger.info(
-            "Creating a pool of %d unary transformations for feature engineering "
-            "(legacy upper bound was %d).",
+            "Creating a pool of %d unary transformations for feature engineering " "(legacy upper bound was %d).",
             len(unique_keys),
             len(prospective_pairs) * len(unary_transformations) * 2,
         )
@@ -631,8 +629,7 @@ def check_prospective_fe_pairs(
     for (raw_vars_pair, _), _ in prospective_pairs.items():
         combs = list(
             combinations(
-                [(raw_vars_pair[0], k) for k in _unary_names_eff]
-                + [(raw_vars_pair[1], k) for k in _unary_names_eff],
+                [(raw_vars_pair[0], k) for k in _unary_names_eff] + [(raw_vars_pair[1], k) for k in _unary_names_eff],
                 2,
             )
         )
@@ -767,10 +764,7 @@ def check_prospective_fe_pairs(
     _corr_y_cont = None
     _corr_y_cont_finite = None  # cached np.isfinite(_corr_y_cont); _corr_y_cont is never mutated after assignment
     try:
-        _cyc_src = (
-            usability_y_continuous if usability_y_continuous is not None
-            else (prewarp_y_continuous if prewarp_y_continuous is not None else classes_y)
-        )
+        _cyc_src = usability_y_continuous if usability_y_continuous is not None else (prewarp_y_continuous if prewarp_y_continuous is not None else classes_y)
         _cyc = np.asarray(_cyc_src, dtype=np.float64).ravel()
         if _use_subsample and _cyc.shape[0] == _full_n_rows:
             _cyc = _cyc[_sample_idx]
@@ -924,7 +918,7 @@ def check_prospective_fe_pairs(
         "resolved_cols": {},
     }
     _chunk_buffer = None
-    _pair_to_chunk: dict = {}   # raw_vars_pair -> chunk index
+    _pair_to_chunk: dict = {}  # raw_vars_pair -> chunk index
     _fe_chunks: list = []
     _pair_valid_combs: dict = {}
     if _chunk_global_batch:
@@ -988,8 +982,7 @@ def check_prospective_fe_pairs(
                 _chunk_state["pipeline_ex"] = ThreadPoolExecutor(max_workers=1)
                 _chunk_state["pipeline_futures"] = {}
                 if verbose:
-                    logger.info("check_prospective_fe_pairs: chunk pipeline active (%d chunks, double buffer).",
-                                len(_fe_chunks))
+                    logger.info("check_prospective_fe_pairs: chunk pipeline active (%d chunks, double buffer).", len(_fe_chunks))
             except Exception:
                 logger.debug("chunk pipeline setup failed; synchronous chunk path", exc_info=True)
                 _chunk_state.pop("pipeline_buffers", None)
@@ -1008,11 +1001,11 @@ def check_prospective_fe_pairs(
     for (
         raw_vars_pair,
         pair_mi,
-    ), _uplift in (pair_pbar := tqdmu(
-        prospective_pairs.items(), desc="pair", leave=False, disable=not verbose
-    )):  # better to start considering form the most prospective pairs with highest mis ratio!
+    ), _uplift in (
+        pair_pbar := tqdmu(prospective_pairs.items(), desc="pair", leave=False, disable=not verbose)
+    ):  # better to start considering form the most prospective pairs with highest mis ratio!
 
-        (_pair_res_entry, best_config, best_mi) = _score_one_pair(
+        _pair_res_entry, best_config, best_mi = _score_one_pair(
             raw_vars_pair=raw_vars_pair,
             pair_mi=pair_mi,
             chunk_state=_chunk_state,

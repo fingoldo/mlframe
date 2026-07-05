@@ -19,8 +19,6 @@ from pyutilz.numbalib import (
     set_numba_random_seed,
 )
 
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -115,8 +113,6 @@ class ScreenState:
     n_iterations: int = 0
     n_confirmed_candidates: int = 0
     n_evaluate_gain_stopped_early: int = 0
-
-
 
 
 def postprocess_candidates(
