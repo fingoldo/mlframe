@@ -17,11 +17,13 @@ import os
 from itertools import combinations
 
 import numpy as np
-from joblib import delayed
+from joblib import Parallel, delayed
+from joblib._parallel_backends import LokyBackend
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 from .._mrmr_fe_step_helpers import compute_pair_maxt_floor
+from .._joblib_safe import disable_cuda_in_worker
 
 
 def compute_pair_mis_and_floor(
@@ -46,7 +48,6 @@ def compute_pair_mis_and_floor(
         _MRMR_BATCH_PRECOMPUTE_MAX_K,
         _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS,
         compute_pairs_mis,
-        parallel_run,
         tqdmu,
     )
 
@@ -233,27 +234,58 @@ def compute_pair_mis_and_floor(
         )
     else:
         chunk_size = max(1, n_pairs // (n_jobs * prefetch_factor))
-        dicts = parallel_run(
-            [
-                delayed(compute_pairs_mis)(
-                    all_pairs=chunk,
-                    data=data,
-                    target_indices=target_indices,
-                    nbins=nbins,
-                    classes_y=classes_y,
-                    classes_y_safe=classes_y_safe,
-                    freqs_y=freqs_y,
-                    fe_min_nonzero_confidence=fe_min_nonzero_confidence,
-                    fe_npermutations=fe_npermutations,
-                    cached_confident_MIs=cached_confident_MIs,
-                    cached_MIs=cached_MIs,
-                    fe_min_pair_mi=fe_min_pair_mi,
-                    fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
-                )
-                for chunk in _lazy_chunks(combinations(numeric_vars_to_consider, 2), chunk_size)
-            ],
+        # BACKEND FIX (2026-07-06, wellbore diag): the per-chunk ``compute_pairs_mis``
+        # body is GIL-bound CPU work -- it calls ``mi_direct`` per pair (joint plug-in
+        # MI + the analytic/permutation null over ``fe_npermutations`` shuffles), all in
+        # Python/numpy/njit-with-the-GIL-held-at-the-dispatch-boundary. Under the wellbore's
+        # ``parallel_kwargs={'backend':'threading'}`` the whole chunk list serialised onto
+        # ONE core (py-spy: MainThread stuck in joblib ``_retrieve`` sleep-poll at ~1.1
+        # cores for ~42 min); GPU util was 0% because at the ~30k prospective-pair
+        # subsample the dense-cell ANALYTIC MI null (n>=25k) is taken -- pure CPU, no CUDA.
+        #
+        # Route to a loky PROCESS pool for real multi-core parallelism, with every worker
+        # forced CPU-ONLY via ``initializer=disable_cuda_in_worker`` (CUDA_VISIBLE_DEVICES="")
+        # so no worker grabs a ~250 MB cupy context -- mirroring the ``run_polynom_pair_fe``
+        # loky-CPU-only fix (commit 0476d8aa). This is selection-equivalent: ``compute_pairs_mis``
+        # caches only the DETERMINISTIC ``original_mi`` (the confidence is discarded), and at
+        # this n the analytic null path is CUDA-independent, so CPU-only workers compute the
+        # identical pair-MI dict the threading/serial baseline does.
+        #
+        # We build a ``LokyBackend`` INSTANCE (not ``backend="loky"``) because in joblib 1.5.x
+        # ``initializer`` / ``inner_max_num_threads`` are honoured ONLY when set on the backend
+        # object -- passed to ``Parallel(...)`` directly they are silently dropped. Calling
+        # ``joblib.Parallel`` here (not ``parallel_run``) because ``parallel_run`` does
+        # ``"dask" in backend`` which raises on a backend instance. Memmapping of the large
+        # ``data`` array is preserved (LokyBackend forwards to the memmapping executor).
+        # ``inner_max_num_threads=1`` stops N worker processes each spawning N numba/BLAS
+        # threads and oversubscribing the box.
+        _extra_kwargs = {k: v for k, v in parallel_kwargs.items() if k != "backend"}
+        _loky_cpu_backend = LokyBackend(
+            inner_max_num_threads=1,
+            initializer=disable_cuda_in_worker,
+        )
+        dicts = Parallel(
             n_jobs=n_jobs,
-            **parallel_kwargs,
+            backend=_loky_cpu_backend,
+            verbose=10 if verbose else 0,
+            **_extra_kwargs,
+        )(
+            delayed(compute_pairs_mis)(
+                all_pairs=chunk,
+                data=data,
+                target_indices=target_indices,
+                nbins=nbins,
+                classes_y=classes_y,
+                classes_y_safe=classes_y_safe,
+                freqs_y=freqs_y,
+                fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                fe_npermutations=fe_npermutations,
+                cached_confident_MIs=cached_confident_MIs,
+                cached_MIs=cached_MIs,
+                fe_min_pair_mi=fe_min_pair_mi,
+                fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
+            )
+            for chunk in _lazy_chunks(combinations(numeric_vars_to_consider, 2), chunk_size)
         )
         for next_dict in dicts:
             cached_MIs.update(next_dict)

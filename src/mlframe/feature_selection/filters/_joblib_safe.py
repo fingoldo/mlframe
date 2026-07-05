@@ -36,6 +36,30 @@ _BIG_STACK_BYTES = 8 * 1024 * 1024
 _NEEDS_BIG_STACK = sys.platform.startswith("win")
 
 
+def disable_cuda_in_worker():  # pragma: no cover - runs in a loky child process
+    """loky worker initializer: force the worker process CPU-ONLY.
+
+    Runs once per freshly-spawned loky worker BEFORE the first task unpickles
+    ``mlframe`` (and thus before any ``cupy`` import), so the worker sees NO CUDA
+    device and every GPU-FE / permutation path in it takes the njit CPU branch --
+    i.e. NO ~250 MB cupy CUDA context is created per worker.
+
+    Why this matters (2026-07-05 wellbore diag, 4 GB GTX 1050 Ti): when a phase
+    fans work out to N loky workers, each worker that imports cupy grabs its own
+    ~200-250 MB CUDA context; on a small card N such contexts fill VRAM and the
+    workers then block on GPU allocations while the joblib parent sleep-polls in
+    ``_retrieve`` at ~1 core. Killing the GPU per worker keeps every worker on the
+    CPU kernels (real process parallelism across all cores) and leaves the card
+    free. The parent keeps its own GPU context for other phases -- only the
+    workers go CPU-only.
+
+    Shared by the polynom-pair FE loky pool and the FE pair-MI scoring loky pool.
+    """
+    import os
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+
 def run_in_big_stack_thread(
     func: Callable[..., Any],
     *args: Any,
