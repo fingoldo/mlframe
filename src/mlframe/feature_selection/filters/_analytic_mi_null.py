@@ -232,6 +232,7 @@ def analytic_batch_noise_gate(
     n_rows: int,
     min_nonzero_confidence: float,
     bx_per_col: "np.ndarray | None" = None,
+    by: "int | None" = None,
 ) -> np.ndarray:
     """Analytic large-n form of the batched FE-candidate permutation noise gate.
 
@@ -255,7 +256,10 @@ def analytic_batch_noise_gate(
         raise ValueError("analytic_batch_noise_gate requires disc_2d or bx_per_col")
     fe_mi = observed.copy()
     alpha_reject = 1.0 - float(min_nonzero_confidence)  # reject when analytic p >= this
-    by = int(np.unique(np.asarray(classes_y)).size)     # occupied y categories
+    # Occupied y-category count. When the caller already has it (the dispatcher's ``np.count_nonzero(freqs_y)``,
+    # O(nbins)), take it -- avoids an O(n log n) ``np.unique`` over all n target rows recomputed on EVERY
+    # per-pair-batch dispatch (thousands of calls, classes_y fit-invariant).
+    by = int(by) if by is not None else int(np.unique(np.asarray(classes_y)).size)
     # Per-column occupied-bin counts in one O(n*K) njit pass (was O(K * n log n): a np.unique sort per
     # column just to count distinct codes). Bit-identical for non-negative bin codes -- see _occupied_bins_per_col.
     # ``bx_per_col`` may be PRECOMPUTED by the caller (the device-resident FE pair-MI path counts occupied bins ON

@@ -78,3 +78,24 @@ def test_gate_output_identical_to_np_unique_path():
 
     got = analytic_batch_noise_gate(disc, observed, y, n, min_nonzero_confidence=0.95)
     assert np.array_equal(got, ref)
+
+
+@pytest.mark.parametrize("ncls", [2, 3, 5])
+def test_analytic_gate_by_arg_matches_np_unique_derivation(ncls):
+    """The dispatcher passes ``by`` (its already-computed ``np.count_nonzero(freqs_y)``) so the gate
+    skips an O(n log n) ``np.unique(classes_y)`` re-sort on every per-pair-batch call. Passing ``by``
+    must be BYTE-IDENTICAL to the internal np.unique derivation, and ``count_nonzero(freqs_y)`` must
+    equal ``np.unique(classes_y).size`` (both count the occupied y-categories).
+    """
+    rng = np.random.default_rng(100 + ncls)
+    n, K, nbins = 6000, 30, 8
+    y = rng.integers(0, ncls, size=n).astype(np.int64)
+    freqs_y = np.bincount(y, minlength=ncls).astype(np.float64) / n
+    assert int(np.count_nonzero(freqs_y)) == int(np.unique(y).size)
+    disc = rng.integers(0, nbins, size=(n, K)).astype(np.int32)
+    observed = np.abs(rng.standard_normal(K)) * 0.01
+    got_default = analytic_batch_noise_gate(disc, observed, y, n, min_nonzero_confidence=0.95)
+    got_by = analytic_batch_noise_gate(
+        disc, observed, y, n, min_nonzero_confidence=0.95, by=int(np.count_nonzero(freqs_y))
+    )
+    assert np.array_equal(got_default, got_by)

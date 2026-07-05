@@ -132,7 +132,7 @@ def _dispatch_batch_mi_with_noise_gate(
                     classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 2 else np.int16,
                 )
                 return analytic_batch_noise_gate(
-                    disc_2d, _observed, classes_y, int(n), float(min_nonzero_confidence),
+                    disc_2d, _observed, classes_y, int(n), float(min_nonzero_confidence), by=_by_occ,
                 )
             except Exception as _an_exc:  # any failure -> fall through to the permutation path
                 _module_logger.debug(
