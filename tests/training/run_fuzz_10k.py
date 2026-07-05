@@ -138,7 +138,7 @@ def _run_one_seed(seed: int, per_seed_timeout_s: int) -> tuple[int, str]:
     env["PYTHONUNBUFFERED"] = "1"
     cmd = [
         sys.executable, "-m", "pytest",
-        "tests/training/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite",
+        "tests/training/fuzz/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite",
         # --run-fuzz is REQUIRED: conftest.pytest_collection_modifyitems skips all fuzz-marked
         # tests without it (a no-op run otherwise -- 0 combos generated). Do NOT add --fast/-m:
         # the fuzz test is slow_only, which --fast mode deselects.
@@ -272,7 +272,7 @@ def _run_one_combo(seed: int, short_id: str, per_combo_timeout_s: int) -> tuple[
     env["PYTHONFAULTHANDLER"] = "1"
     cmd = [
         sys.executable, "-m", "pytest",
-        "tests/training/test_fuzz_suite.py",
+        "tests/training/fuzz/test_fuzz_suite.py",
         "-k", short_id,
         "--run-fuzz",
         "--no-cov", "-s", "-p", "no:randomly", "-p", "no:cacheprovider",
@@ -480,7 +480,12 @@ def main() -> int:
     ap.add_argument("--per-combo-timeout-s", type=int, default=180,
                     help="(isolate mode) hard wall-timeout per combo; on expiry the whole process tree "
                          "is killed and the combo is logged as outcome=timeout (default 180)")
+    ap.add_argument("--force-n-rows", type=int, default=None,
+                    help="set MLFRAME_FUZZ_FORCE_N_ROWS in the child env: overrides every combo's n_rows "
+                         "(bug-hunt mode, keeps MRMR/BorutaShap/ensembles ON -- see test_fuzz_suite.py)")
     args = ap.parse_args()
+    if args.force_n_rows:
+        os.environ["MLFRAME_FUZZ_FORCE_N_ROWS"] = str(int(args.force_n_rows))
 
     if args.isolate_combos:
         return _run_isolate(args)
