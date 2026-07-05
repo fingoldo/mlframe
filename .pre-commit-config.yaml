@@ -93,13 +93,14 @@ repos:
     hooks:
       - id: ruff
         name: "ruff (real bugs block)"
-        # --select F,E9 = pyflakes + syntax. CLI --select bypasses the pyproject
-        # ignore list, so re-apply the taste-ignores explicitly: F401 (unused
-        # import), F403/F405 (intentional star-imports in __init__), F541
-        # (empty f-string), F841 (unused var) are taste -> warn-only, not block.
-        # Genuine bugs still block: F811 (redefinition), F821 (undefined name),
-        # F822 (undefined export), F5xx (format), F6xx (comparison), E9 (syntax).
-        entry: python -m ruff check --select F,E9 --ignore F401,F403,F405,F541,F841
+        # --select F,E9 = pyflakes + syntax, blocking. Previously re-applied a
+        # taste-ignore (F401/F403/F405/F541/F841) via CLI --ignore, which let
+        # unused-import / star-import / empty-fstring / unused-var slip past
+        # pre-commit while CI's ``ruff check . --select F,E9`` (no ignore) still
+        # caught them -- a real config drift that let genuine lint debt land on
+        # master between the two gates disagreeing. Both gates now run the
+        # identical command.
+        entry: python -m ruff check --select F,E9
         language: system
         types: [python]
         stages: [pre-commit]

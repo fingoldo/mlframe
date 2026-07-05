@@ -195,7 +195,13 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Run ruff
+      # Blocking gate: pyflakes + syntax errors, mirroring the pre-commit
+      # "ruff (real bugs block)" hook exactly (same select, no ignore) so a
+      # commit that passes locally cannot fail this check and vice versa.
+      - name: Ruff (real bugs - blocking)
+        run: uvx ruff check . --select F,E9
+
+      - name: Run ruff (full - advisory)
         run: uvx ruff check src/mlframe
         continue-on-error: true
 
