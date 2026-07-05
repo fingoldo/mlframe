@@ -9,19 +9,11 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, Optional
 
 import numpy as np
-from numba import njit, prange
 
 from .cat_fe_state import CatFEConfig, CatFEState
 from .engineered_recipes import EngineeredRecipe
-from .info_theory import (
-    compute_mi_from_classes,
-    entropy,
-    entropy_miller_madow,
-    merge_vars,
-)
 
 logger = logging.getLogger(__name__)
 

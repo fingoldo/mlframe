@@ -13,10 +13,9 @@ What lives here:
 """
 from __future__ import annotations
 
-import math
 
 import numpy as np
-from numba import njit, prange
+from numba import njit
 
 from .cat_fe_state import CatFEConfig
 from .engineered_recipes import EngineeredRecipe
@@ -383,7 +382,6 @@ def _build_factorize_lookup(
     - ``n_uniq_effective``: ``n_uniq`` + 1 if ``sentinel`` and any unseen cells, else ``n_uniq``.
     """
     n_samples = factors_data.shape[0]
-    expected_size = int(nbins_a) * int(nbins_b)
     # Single-pass njit scatter (no length-n int64 temporaries). Reads the two
     # columns directly and writes ``lookup[a + b*nbins_a] = post_prune_class`` in
     # row order -- last-write-wins on duplicate codes, EXACTLY as the prior numpy

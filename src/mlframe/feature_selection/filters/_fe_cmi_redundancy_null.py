@@ -89,7 +89,7 @@ def _conditional_perm_null(
     # point estimate are directly comparable, and the memory stays bounded by n
     # (no dense (K_x, K_y, K_z) contingency allocation when the frozen support's
     # joint cardinality climbs into the thousands).
-    from ._mi_greedy_cmi_fe import _cmi_from_binned, _cmi_gpu_enabled, _entropy_from_classes, _renumber_joint, cmi_from_binned_fixed_yz, precompute_cmi_yz_terms, precompute_marginal_y_terms, marginal_mi_binned_fixed_y
+    from ._mi_greedy_cmi_fe import _cmi_gpu_enabled, _entropy_from_classes, _renumber_joint, cmi_from_binned_fixed_yz, precompute_cmi_yz_terms, precompute_marginal_y_terms, marginal_mi_binned_fixed_y
 
     # ``cand_bin`` may be an ALREADY-RESIDENT cupy int64 code (device-born binning) OR a host int64 array. Keep
     # the resident handle ``cand_dev`` so the GPU-resident perm-null branch below consumes it WITHOUT a re-upload

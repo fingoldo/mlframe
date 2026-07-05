@@ -155,7 +155,6 @@ def to_feature_matrix(X, *, dtype: Any = np.float32) -> FeatureMatrix:
     separate int code plane; numeric data is cast to ``dtype`` (default float32)."""
     framework = _detect_framework(X)
     if framework == "pyarrow":
-        import pandas as pd  # pyarrow Table -> pandas is the cheapest correct bridge for P0
         X = X.to_pandas()
         framework = "pyarrow"  # remember the SOURCE so we route back to pyarrow on the way out
 
@@ -215,7 +214,6 @@ def to_feature_matrix(X, *, dtype: Any = np.float32) -> FeatureMatrix:
 def from_feature_matrix(fm: FeatureMatrix):
     """Reconstruct the source-framework object from a :class:`FeatureMatrix`, restoring categorical
     labels and original missingness. Routes back to the framework that produced ``fm``."""
-    n = fm.n_rows
     data: dict[str, np.ndarray] = {}
     col_objs: dict[str, Any] = {}
     for j, name in enumerate(fm.columns):

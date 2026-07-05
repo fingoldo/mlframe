@@ -27,11 +27,7 @@ from ._internals import NMAX_NONPARALLEL_ITERS
 # ``state >> np.uint64(..)`` arithmetic) without a function call in the signature default.
 _DEFAULT_BASE_SEED = np.uint64(0)
 from .info_theory import (
-    compute_mi_from_classes, merge_vars, mi_or_su_from_classes,
-    # 2026-05-28: njit-callable dispatcher used inside permutation kernels;
-    # branches on a bool param so the SU mode propagates without re-reading
-    # the Python-level thread-local from inside @njit.
-    compute_relevance_score, use_su_normalization, use_mi_miller_madow,
+    merge_vars, compute_relevance_score, use_su_normalization, use_mi_miller_madow,
 )
 
 logger = logging.getLogger(__name__)

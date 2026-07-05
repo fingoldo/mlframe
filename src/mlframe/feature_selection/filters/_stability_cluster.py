@@ -27,8 +27,7 @@ accept dict-style config:
 from __future__ import annotations
 
 import logging
-import math
-from typing import Callable, Dict, List, Optional
+from typing import Callable
 
 import numpy as np
 

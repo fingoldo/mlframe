@@ -685,7 +685,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
     if X.ndim == 1:
         X = X[:, None]
     X = cp.ascontiguousarray(X)   # batched joint-hist kernels read X[row*K+col] (C-order (n,K)); no-op if already
-    n, K = int(X.shape[0]), int(X.shape[1])
+    n = int(X.shape[0])
     # y is FIT-CONSTANT: when host, route through the resident-operand cache so it uploads ONCE per fit (keyed
     # on role + shape + content fingerprint) instead of one H2D per candidate batch; when already resident
     # (caller kept a born-on-device y), use as-is (no copy).

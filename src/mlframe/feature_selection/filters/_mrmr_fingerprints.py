@@ -22,16 +22,12 @@ time -- only at runtime.
 """
 from __future__ import annotations
 
-import copy
 import hashlib
 import logging
-import warnings
-from collections import OrderedDict
 from itertools import islice
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 
 # astropy is imported lazily on first histogram() call: the top-level
 # ``import astropy`` costs ~0.6s and this fingerprints module is on the
@@ -66,78 +62,10 @@ def histogram(a, bins="auto", **kwargs):
     return np.histogram(a, bins=bins, **kwargs)
 
 
-from numpy.polynomial.hermite import hermval
-from scipy import special as sp
-from scipy.stats import mode
 
-from catboost import CatBoostClassifier
 
-from pyutilz.numbalib import (
-    generate_combinations_recursive_njit,
-    python_dict_2_numba_dict,
-    set_numba_random_seed,
-)
-from pyutilz.parallel import mem_map_array, parallel_run, split_list_into_chunks
-from pyutilz.pythonlib import (
-    get_parent_func_args,
-    sort_dict_by_value,
-    store_params_in_object,
-)
-from pyutilz.system import tqdmu
 
-from mlframe.core.arrays import arrayMinMax
-from mlframe.feature_selection.wrappers import RFECV
-from mlframe.metrics.core import compute_probabilistic_multiclass_error
-from mlframe.utils.misc import set_random_seed
 
-from ._internals import (
-    ENSURE_ARROW_DF_SUPPORT,
-    GPU_MAX_BLOCK_SIZE,
-    LARGE_CONST,
-    MAX_CONFIRMATION_CAND_NBINS,
-    MAX_ITERATIONS_TO_TRACK,
-    MAX_JOBLIB_NBYTES,
-    NMAX_NONPARALLEL_ITERS,
-    sanitize,
-)
-from ._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
-from .discretization import (
-    categorize_dataset,
-    discretize_array,
-)
-from .feature_engineering import (
-    UNIFIED_FE_SUBSAMPLE_N,
-    check_prospective_fe_pairs,
-    compute_pairs_mis,
-    create_binary_transformations,
-    create_unary_transformations,
-    get_existing_feature_name,
-    get_new_feature_name,
-)
-from .gpu import init_kernels, mi_direct_gpu
-from .info_theory import (
-    compute_mi_from_classes,
-    conditional_mi,
-    entropy,
-    merge_vars,
-    mi,
-)
-from .permutation import distribute_permutations, mi_direct, parallel_mi
-from .evaluation import (
-    evaluate_candidate,
-    evaluate_candidates,
-    evaluate_gain,
-    find_best_partial_gain,
-    get_candidate_name,
-    handle_best_candidate,
-    should_skip_candidate,
-)
-from .fleuret import (
-    get_fleuret_criteria_confidence,
-    get_fleuret_criteria_confidence_parallel,
-    parallel_fleuret,
-)
-from .screen import postprocess_candidates, screen_predictors
 
 logger = logging.getLogger(__name__)
 

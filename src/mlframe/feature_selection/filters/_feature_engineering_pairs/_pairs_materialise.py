@@ -78,7 +78,6 @@ def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
     nested-parallel hazard."""
     n = tv.shape[0]
     K = op_codes.shape[0]
-    eps = np.float32(1e-9)
     one = np.float32(1.0)
     zero = np.float32(0.0)
     for k in range(K):
@@ -147,7 +146,6 @@ def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
     """
     n = tv.shape[0]
     K = op_codes.shape[0]
-    eps = np.float32(1e-9)
     one = np.float32(1.0)
     zero = np.float32(0.0)
     for k in prange(K):

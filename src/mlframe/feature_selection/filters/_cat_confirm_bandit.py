@@ -11,7 +11,6 @@ import logging
 import math
 
 import numpy as np
-from numba import njit, prange
 
 from .cat_fe_state import CatFEConfig
 from .info_theory import merge_vars

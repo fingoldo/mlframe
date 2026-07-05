@@ -31,7 +31,6 @@ from __future__ import annotations
 import logging
 import math
 import os
-from typing import Optional
 
 import numpy as np
 from numba import njit

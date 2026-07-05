@@ -23,7 +23,7 @@ knob (planned for the MRMR.__init__ wiring step).
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, Optional, Sequence
 
 import numpy as np
 

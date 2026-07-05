@@ -14,7 +14,6 @@ inclusion frequency as a numpy float vector for downstream stability plots.
 from __future__ import annotations
 
 import logging
-from typing import Sequence
 
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin, clone

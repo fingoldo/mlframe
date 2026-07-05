@@ -14,6 +14,7 @@ from ._pairs_materialise import (
     _narrow_code_dtype,
     _njit_binary_op_codes,
 )
+from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO  # noqa: F401 -- re-exported via package __init__
 
 
 # NOTE: the authoritative ``_FE_BUFFER_RAM_BUDGET_RATIO`` (and the RAM-budget block comment
@@ -23,7 +24,6 @@ from ._pairs_materialise import (
 # ``_fe_effective_buffer_budget_bytes`` (the same authoritative ratio). The duplicate is removed; we
 # re-export the authoritative constant so the package ``__init__`` surface (and any historical import)
 # still resolves a single source of truth.
-from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO
 
 logger = logging.getLogger(__name__)
 

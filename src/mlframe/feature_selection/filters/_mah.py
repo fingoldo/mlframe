@@ -45,7 +45,6 @@ Implementation notes (per README.md optimization methodology):
 from __future__ import annotations
 
 import math
-from typing import Optional
 
 import numpy as np
 from numba import njit

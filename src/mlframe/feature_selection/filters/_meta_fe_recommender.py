@@ -32,7 +32,7 @@ arrays never do.
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional
 
 from mlframe.utils import (
     ParamOracle,
@@ -243,7 +243,6 @@ def _is_monotone(vals) -> bool:
 
 
 def _skew_kurt(x):
-    import numpy as np
     n = x.size
     if n < 3:
         return 0.0, 0.0

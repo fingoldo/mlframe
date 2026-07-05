@@ -16,10 +16,8 @@ What lives here:
 from __future__ import annotations
 
 import logging
-import math
 
 import numpy as np
-from numba import njit
 
 from .cat_fe_state import CatFEConfig
 from .info_theory import compute_mi_from_classes, merge_vars

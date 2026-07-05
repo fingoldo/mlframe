@@ -12,7 +12,6 @@ stays in the source framework (polars ``hstack`` / pandas ``concat``), so a 100+
 """
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import numpy as np

@@ -187,7 +187,6 @@ def _quantile_bin_gpu_resident(a: np.ndarray, nbins: int):
     host ``_quantile_bin`` path (which yields a host int64 array the existing content-keyed cache then uploads).
     NEVER frees the cupy memory pool. Selection-equivalent to the host binning (documented in ``_quantile_bin``)."""
     try:
-        import cupy as cp
 
         from ._fe_resident_operands import resident_qbin_codes
         # Fully sync-free: codes stay RESIDENT, no cp.unique / size D2H (the whole point of the resident path).
@@ -1155,7 +1154,6 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     label-invariant). Raises on any cupy error so the caller falls back to the host path."""
     import cupy as cp
 
-    from ._fe_batched_mi import joint_counts_gpu
 
     # RESIDENT-INPUT fast path (device-born candidate-code foundation): a caller may hand ALREADY-RESIDENT int64
     # candidate codes (device-binned once, e.g. the CMI-redundancy gate) -> use them as-is so they never re-cross

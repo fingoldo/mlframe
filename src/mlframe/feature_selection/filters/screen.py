@@ -10,67 +10,16 @@ postprocess = filter weak / duplicates from the confirmed set.
 """
 from __future__ import annotations
 
-import gc
 import logging
-import math
-import os
-import time
-from collections import defaultdict
 from dataclasses import dataclass, field
-from itertools import combinations
-from os.path import exists
-from timeit import default_timer as timer
-from typing import Sequence
 
-import numba
 import numpy as np
-from joblib import Parallel, delayed
-from joblib.externals.loky import set_loky_pickler
-from numba import njit
-from numba.core import types
 
 from pyutilz.numbalib import (
-    generate_combinations_recursive_njit,
-    python_dict_2_numba_dict,
     set_numba_random_seed,
 )
-from pyutilz.parallel import split_list_into_chunks
-from pyutilz.pythonlib import sort_dict_by_value
-from pyutilz.system import tqdmu
 
-from mlframe.utils.misc import set_random_seed
 
-from ._internals import (
-    LARGE_CONST,
-    MAX_CONFIRMATION_CAND_NBINS,
-    MAX_ITERATIONS_TO_TRACK,
-    MAX_JOBLIB_NBYTES,
-    NMAX_NONPARALLEL_ITERS,
-    sanitize,
-)
-from ._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
-from .evaluation import (
-    evaluate_candidate,
-    evaluate_candidates,
-    evaluate_gain,
-    find_best_partial_gain,
-    get_candidate_name,
-    handle_best_candidate,
-    should_skip_candidate,
-)
-from .fleuret import (
-    get_fleuret_criteria_confidence,
-    get_fleuret_criteria_confidence_parallel,
-    parallel_fleuret,
-)
-from .gpu import mi_direct_gpu
-from .info_theory import (
-    compute_mi_from_classes,
-    conditional_mi,
-    entropy,
-    merge_vars,
-)
-from .permutation import distribute_permutations, mi_direct
 
 logger = logging.getLogger(__name__)
 
@@ -213,21 +162,6 @@ def postprocess_candidates(
 
 
 # Re-exports for backwards compatibility (discretisation helpers live in their own module).
-from .discretization import (
-    create_redundant_continuous_factor,
-    categorize_1d_array,
-    digitize,
-    edges,
-    quantize_dig,
-    quantize_search,
-    discretize_uniform,
-    discretize_array,
-    _discretize_array_impl,
-    discretize_2d_array,
-    get_binning_edges,
-    discretize_sklearn,
-    categorize_dataset,
-)
 
 
 # ----------------------------------------------------------------------

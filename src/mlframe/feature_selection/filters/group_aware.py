@@ -19,7 +19,6 @@ correlation when the operator does not know the structure upfront.
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Sequence
 
 import numpy as np
 import pandas as pd

@@ -8,8 +8,6 @@ from .decoder import Decoder
 from .query import Query_Gen_transformer
 from .gauss_mild import GaussConv
 from .util import mutual_information
-import torch.nn.functional as F
-import numpy as np
 #from .query import Query_Gen
 
 class infonet(nn.Module):

@@ -5,18 +5,13 @@
 from __future__ import annotations
 
 import logging
-import math
 import os
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 if TYPE_CHECKING:
     from .hermite_fe import HermiteResult
-from numpy.polynomial.hermite_e import hermeval
-from numpy.polynomial.legendre import legval
-from numpy.polynomial.chebyshev import chebval
-from numpy.polynomial.laguerre import lagval
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")

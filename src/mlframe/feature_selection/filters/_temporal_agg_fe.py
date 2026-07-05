@@ -45,7 +45,7 @@ time-series targets, and prefer rolling windows / a bounded lag set over unbound
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Sequence
 
 import numba
 import numpy as np

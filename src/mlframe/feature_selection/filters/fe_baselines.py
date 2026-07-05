@@ -16,7 +16,6 @@ Use as the FE baseline instead of (or in addition to) the ``MI(x_a, x_b)`` joint
 from __future__ import annotations
 
 import warnings
-from typing import Optional
 
 import numpy as np
 

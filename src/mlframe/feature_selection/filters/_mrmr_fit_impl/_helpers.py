@@ -13,24 +13,11 @@ live in the parent and are imported lazily inside this body to avoid the
 """
 from __future__ import annotations
 
-import copy
-import gc
-import hashlib
 import logging
-import math
-import os
-import textwrap
-import time
-import warnings
-from collections import OrderedDict, defaultdict
-from itertools import combinations, islice
-from timeit import default_timer as timer
-from typing import Any, Sequence, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
-from joblib import Parallel, delayed
-from sklearn.metrics import make_scorer
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 

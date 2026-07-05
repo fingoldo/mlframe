@@ -14,7 +14,7 @@ Collapses to a single entry when one (or zero) device is visible, so the multi-G
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 
 import numpy as np
 

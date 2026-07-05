@@ -112,7 +112,7 @@ def score_pair_combos_table_resident(
         if gpu_globally_disabled():
             return None
         from ._usability_njit_pool import (
-            _gpu_apply_unary, _gpu_apply_binary, _gpu_quantile_bin_codes, _gpu_marginal_mi,
+            _gpu_apply_unary, _gpu_quantile_bin_codes, _gpu_marginal_mi,
         )
 
         npairs = len(operands)

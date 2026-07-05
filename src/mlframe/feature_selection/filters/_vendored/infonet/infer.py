@@ -1,6 +1,5 @@
 import torch
 import yaml
-import matplotlib.pyplot as plt
 import numpy as np
 from model.decoder import Decoder
 from model.encoder import Encoder

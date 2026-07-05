@@ -49,7 +49,7 @@ cap is generous (50k) so realistic fits keep the full ledger.
 from __future__ import annotations
 
 import logging as _logging
-from typing import Any, Iterable, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd

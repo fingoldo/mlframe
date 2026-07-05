@@ -13,12 +13,9 @@ referenced here is already on the parent at the time this sibling loads.
 from __future__ import annotations
 
 import logging
-import warnings
-from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import OrdinalEncoder
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 

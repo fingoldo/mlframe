@@ -899,7 +899,7 @@ def gpu_pairs_fe_mi(cand: np.ndarray, quantization_nbins: int, classes_y: np.nda
     + per-column occupied-bin df) yields the same kept + ranked columns. Moves BOTH the binning and the
     observed-MI entropy -- the dominant large-n per-pair cost -- onto the GPU, and the (n,K) codes stay
     resident (never D2H'd for the gate). Any failure returns None (-> CPU)."""
-    n, K = int(cand.shape[0]), int(cand.shape[1])
+    n = int(cand.shape[0])
     if bool(use_su) or int(npermutations) <= 0:
         return None  # SU has no chi2 analytic form; npermutations<=0 is already the cheap CPU path
     try:

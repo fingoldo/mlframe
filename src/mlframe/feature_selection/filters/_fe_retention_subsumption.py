@@ -26,7 +26,7 @@ Pure (no live framework state captured) so a fitted MRMR stays picklable.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Sequence
 
 import numpy as np
 

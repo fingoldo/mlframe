@@ -405,7 +405,6 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,
     from .hermite_fe import _CUDA_AVAILABLE, _plugin_mi_classif_cuda
     from ._gpu_policy import gpu_globally_disabled
     forced = os.environ.get("MLFRAME_MI_BACKEND", "")
-    n = x.shape[0]
     if forced == "njit":
         return float(_plugin_mi_classif_njit(x, y, n_bins))
     if forced == "cuda":

@@ -28,7 +28,6 @@ Confounders", *J. R. Statist. Soc. B* 82(1):175-197.
 """
 from __future__ import annotations
 
-import math
 
 import numpy as np
 

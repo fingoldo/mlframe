@@ -11,9 +11,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections import defaultdict
-from itertools import combinations
-from timeit import default_timer as timer
 from typing import Sequence
 
 import numpy as np
@@ -21,8 +18,6 @@ import pandas as pd
 from numpy.polynomial.hermite import hermval
 from scipy import special as sp
 
-from pyutilz.pythonlib import sort_dict_by_value
-from pyutilz.system import tqdmu
 
 
 # Wave 27 P1 (2026-05-20): ``check_prospective_fe_pairs`` is dispatched via
@@ -436,7 +431,7 @@ UNARY_INPUT_CONSTRAINTS: dict[str, str] = {
 }
 
 from ._internals import njit_functions_dict, smart_log
-from .discretization import discretize_array, discretize_2d_quantile_batch
+from .discretization import discretize_array, discretize_2d_quantile_batch  # noqa: F401 -- re-exported (see _feature_engineering_pairs/_pairs_core.py)
 from .permutation import mi_direct
 
 logger = logging.getLogger(__name__)

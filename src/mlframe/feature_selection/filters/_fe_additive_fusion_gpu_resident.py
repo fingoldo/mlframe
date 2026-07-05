@@ -280,9 +280,9 @@ def propose_additive_fusions_gpu(
             _mi_add = float(_cmi_from_binned(_bcodes[0], y_dense_sc, None))  # resident codes -> no re-upload
             _mi_sub = float(_cmi_from_binned(_bcodes[1], y_dense_sc, None))
             if _mi_sub > _mi_add + _floor_margin * _strong["floor"]:
-                _binary, fused_dev, fvb_dev, fused_mi = "sub", _fsub, _bcodes[1], _mi_sub
+                _binary, _, fvb_dev, fused_mi = "sub", _fsub, _bcodes[1], _mi_sub
             else:
-                _binary, fused_dev, fvb_dev, fused_mi = "add", _fadd, _bcodes[0], _mi_add
+                _binary, _, fvb_dev, fused_mi = "add", _fadd, _bcodes[0], _mi_add
             # ``_cmi_from_binned`` scored above from the RESIDENT codes; the raw-subsumption probe below is a
             # CPU-interface helper, so pull the CHOSEN fused codes back ONCE -- a per-ACCEPTED-pair probe-input
             # D2H, not a binning D2H (binning stayed resident). Bounded by the number of admitted fusions.

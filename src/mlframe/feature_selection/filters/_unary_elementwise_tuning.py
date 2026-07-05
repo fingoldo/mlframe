@@ -21,7 +21,6 @@ all are bandwidth-bound maps with the same breakeven.
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 
 import numpy as np
 

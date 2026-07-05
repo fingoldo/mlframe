@@ -32,8 +32,6 @@ fastest-default-routed by ``fe_gbm_seeder_enable`` + the ``(n, p)`` cost gate be
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
-from itertools import combinations
 from typing import Sequence
 
 import numpy as np

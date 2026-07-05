@@ -7,7 +7,6 @@ Both utilities sit on top of ``optimise_hermite_pair``:
 """
 from __future__ import annotations
 
-from typing import Optional
 
 import numpy as np
 
@@ -83,7 +82,7 @@ def compose_pair_fe(
         top_idx = [j for j, _ in single_mi[: 2 * top_k_per_round]]
         if len(top_idx) < 2:
             if verbose:
-                print(f"  [compose] not enough features with MI>0; stopping")
+                print("  [compose] not enough features with MI>0; stopping")
             break
         # Pair candidates.
         pairs = list(combinations(top_idx, 2))

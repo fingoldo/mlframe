@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Optional, Union
+from typing import Optional
 
 import numpy as np
 from numba import njit
@@ -347,7 +347,7 @@ def edges_optimal_joint(
             val_mask = ~train_mask
             if train_mask.sum() < M or val_mask.sum() < 4:
                 continue
-            train_x, train_y = x[train_mask], y[train_mask]
+            train_x = x[train_mask]
             val_x, val_y = x[val_mask], y[val_mask]
             edges = _edges_from_quantiles(train_x, M) if base == "quantile" \
                 else _edges_from_uniform(train_x, M)

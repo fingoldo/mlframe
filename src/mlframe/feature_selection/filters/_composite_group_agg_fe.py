@@ -292,9 +292,6 @@ def generate_composite_group_agg_features(
             )
             continue
 
-        key_label = composite_key_label(group_cols)
-        # A synthetic single group column lets us reuse pandas groupby.
-        grp_series = pd.Series(keys, index=X.index)
         cur_num_cols = [
             c for c in num_cols
             if c in X.columns and c not in set(group_cols)
