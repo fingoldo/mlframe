@@ -233,21 +233,30 @@ def _mdlp_recurse_njit(
     depth: int,
     min_split_size: int,
     max_depth: int,
+    counts_parent: "np.ndarray | None" = None,
 ) -> None:
     """njit-backed MDLP recursion. Same semantics as ``_mdlp_recurse``; just
     routes the hot loop through ``_mdlp_best_split_njit`` + entropy njit kernels.
+
+    ``counts_parent``: the dense bincount of THIS subset the parent already built for its MDL test
+    (``None`` at the root). The present class labels are its non-zero bins, so at every deeper node the
+    class set + count come from ``np.flatnonzero`` (O(K)) instead of an ``np.unique`` re-sort of the
+    O(m) subset -- bit-identical (``flatnonzero(bincount) == np.unique`` for the parent-compacted labels).
     """
     n = len(x)
     if n < 2 * min_split_size or depth >= max_depth:
         return
-    # Quick purity check using bincount.
-    uniq_y = np.unique(y)
-    n_classes_full = uniq_y.size
+    # Class labels present in this subset (root: sort-unique y; deeper: the parent's bincount non-zeros).
+    if counts_parent is None:
+        present = np.unique(y)
+    else:
+        present = np.flatnonzero(counts_parent)
+    n_classes_full = present.size
     if n_classes_full <= 1:
         return
     # Map y to dense [0, K) for the njit kernel.
-    if uniq_y[0] != 0 or uniq_y[-1] != n_classes_full - 1:
-        y_compact = np.searchsorted(uniq_y, y).astype(np.int64)
+    if present[0] != 0 or present[-1] != n_classes_full - 1:
+        y_compact = np.searchsorted(present, y).astype(np.int64)
     else:
         y_compact = y
     best_idx, best_gain, h_full, n_l, n_r = _mdlp_best_split_njit(
@@ -278,9 +287,9 @@ def _mdlp_recurse_njit(
         return
     splits.append(float(best_split))
     _mdlp_recurse_njit(x[:left_mask_idx], y_compact[:left_mask_idx], splits,
-                      depth + 1, min_split_size, max_depth)
+                      depth + 1, min_split_size, max_depth, counts_left_dense)
     _mdlp_recurse_njit(x[left_mask_idx:], y_compact[left_mask_idx:], splits,
-                      depth + 1, min_split_size, max_depth)
+                      depth + 1, min_split_size, max_depth, counts_right_dense)
 
 
 # =============================================================================
