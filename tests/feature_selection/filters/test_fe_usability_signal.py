@@ -30,9 +30,13 @@ def test_abs_pearson_subsample_matches_fulln_within_margin():
     for _ in range(8):
         y = rng.normal(size=n)
         v = 0.4 * y + rng.normal(size=n)  # a real, moderate correlation
-        got = m.abs_pearson(y, v)         # subsampled (default cap 250k)
+        got = m.abs_pearson(y, v)         # subsampled (default cap _ABS_PEARSON_MAX_ROWS, now 30k)
         exp = _full_abs_pearson(y, v)     # full-n
-        assert abs(got - exp) < 5e-3, f"subsample corr {got:.4f} vs full {exp:.4f}"
+        # Contract is SELECTION-equivalence, not a tight absolute match: every consumer compares |corr| against
+        # WIDE margins (min_corr 0.6; tail-concentration gap ~0.99 vs ~0.06). At the 30k cap (lowered from 250k to
+        # match UNIFIED_FE_SUBSAMPLE_N) a 30k-of-1M estimate of a ~0.37 corr lands within ~1e-2 worst-of-8 -- still
+        # ~70x below the 0.6 gate, so no keep/reject decision can flip. The old 5e-3 pin assumed the 250k cap.
+        assert abs(got - exp) < 2e-2, f"subsample corr {got:.4f} vs full {exp:.4f}"
 
 
 def test_abs_pearson_preserves_outlier_inflated_corr():

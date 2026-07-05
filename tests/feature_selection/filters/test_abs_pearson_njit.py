@@ -45,3 +45,33 @@ def test_abs_pearson_perfect_and_sign():
     n = 1000
     y = np.linspace(-2, 2, n)
     assert abs(abs_pearson(y, -3.0 * y + 1.0) - 1.0) <= 1e-12  # |corr| == 1, sign folded
+
+
+def test_abs_pearson_drops_nonfinite_rows_exactly():
+    """Regression guard for the branchless + reassoc-fastmath kernel (2026-07, ~2.5x): the fastmath set MUST keep
+    ``nnan``/``ninf`` so NaN/inf rows are dropped EXACTLY. A tempting full ``fastmath=True`` lets LLVM assume
+    no-NaN and drop the ``isfinite`` test, silently admitting the poisoned rows and collapsing |corr| toward 0 --
+    a selection-BREAKING ~1e-2 error. This test FAILS on that unsafe variant (got ~0 while ref >= 0.9) and passes
+    on both the pre-fix fastmath=False kernel and the shipped safe-fastmath one (they drop the rows identically)."""
+    rng = np.random.default_rng(3)
+    n = 20000
+    y = rng.standard_normal(n)
+    v = 0.9 * y + 0.1 * rng.standard_normal(n)  # strong true corr on the finite rows
+    bad = rng.choice(n, int(n * 0.3), replace=False)  # poison 30% of v with NaN / inf
+    v[bad[0::2]] = np.nan
+    v[bad[1::2]] = np.inf
+    ref = _numpy_ref(y, v)  # numpy masked reference: drops the poisoned rows
+    got = abs_pearson(y, v)
+    assert ref >= 0.9, ref  # sanity: the surviving finite rows carry the strong signal
+    assert abs(ref - got) <= 1e-9, (ref, got)  # exact row-drop; a no-NaN fastmath would return ~0 here
+
+
+def test_abs_pearson_reassoc_delta_is_selection_safe():
+    """The reassoc-fastmath reduction reorders the sums, so the result differs from a strict left-to-right numpy
+    reference by at most a few ULP (~1e-13) -- far below every usability gate margin (min_corr 0.6; the
+    tail-concentration gap is ~0.99 vs ~0.06). Pins that the divergence stays in the selection-safe band."""
+    rng = np.random.default_rng(7)
+    for n in (600, 5000, 30000):
+        y = rng.standard_normal(n).astype(np.float32)
+        v = (0.4 * y + 0.9 * rng.standard_normal(n).astype(np.float32)).astype(np.float32)
+        assert abs(_numpy_ref(y.astype(np.float64), v.astype(np.float64)) - abs_pearson(y, v)) <= 1e-12, n

@@ -21,7 +21,7 @@ import numba
 import numpy as np
 
 
-@numba.njit(cache=True, fastmath=False)
+@numba.njit(cache=True, fastmath={"reassoc", "contract", "arcp", "afn", "nsz"})
 def _abs_pearson_njit(y, v):
     """One-pass ``|Pearson corr|`` over jointly-finite rows: accumulate sums/sum-sq/cross in a single walk, no
     isfinite-mask + boolean-index copies + two np.std + a mean temp. FP-equivalent to the numpy form to ~1e-15
@@ -29,14 +29,29 @@ def _abs_pearson_njit(y, v):
 
     Accepts f32 OR f64 arrays: each value is promoted to float64 BEFORE the squares/products, so the arithmetic (and the
     result) is bit-identical whatever the input dtype -- letting the caller pass an f32 array WITHOUT a full-length f64
-    copy, while the sum-of-squares still runs in f64 (no catastrophic cancellation on a large-mean column)."""
+    copy, while the sum-of-squares still runs in f64 (no catastrophic cancellation on a large-mean column).
+
+    Perf (2026-07): BRANCHLESS + REASSOC-fastmath accumulation -> 2.1-2.5x over the plain-branch fastmath=False form at
+    n=600..30000 (bench ``_benchmarks/bench_abs_pearson_fastmath.py``). The per-row ``if isfinite: accumulate`` control
+    flow blocked SIMD vectorisation; replacing it with a select (``av = a if finite else 0.0``; a non-finite row
+    contributes 0 to every sum and 0 to ``n``) removes the branch so the reduction vectorises, and the ``reassoc``
+    fastmath flag lets LLVM tree-reduce the sums. The NaN-drop semantics are PRESERVED EXACTLY (a NaN/inf operand
+    zeroes its own row's contribution and is excluded from ``n`` -- verified vs the numpy masked-pearson reference on
+    NaN-injected data), because ``nnan``/``ninf`` are DELIBERATELY EXCLUDED from the fastmath set: a full
+    ``fastmath=True`` here would let LLVM assume no-NaN and drop the ``isfinite`` test, silently admitting the NaN rows
+    the ratio forms produce and CORRUPTING the |corr| (a selection-BREAKING ~1e-2 error, not the ~1e-16 reassoc ULP
+    delta this safe set gives). Result diverges from the old order by <=~1e-16 (single ULP), selection-equivalent under
+    the wide usability thresholds (min_corr 0.6; tail-concentration gap ~0.99 vs ~0.06)."""
     n = 0
     sa = 0.0; sv = 0.0; saa = 0.0; svv = 0.0; sav = 0.0
     for i in range(y.shape[0]):
         a = np.float64(y[i]); b = np.float64(v[i])
-        if np.isfinite(a) and np.isfinite(b):
-            n += 1
-            sa += a; sv += b; saa += a * a; svv += b * b; sav += a * b
+        finite = np.isfinite(a) and np.isfinite(b)
+        # Branchless: a non-finite row contributes 0 to every accumulator and 0 to ``n`` (exact row-drop, SIMD-friendly).
+        av = a if finite else 0.0
+        bv = b if finite else 0.0
+        n += finite
+        sa += av; sv += bv; saa += av * av; svv += bv * bv; sav += av * bv
     if n < 2:
         return 0.0
     inv = 1.0 / n
