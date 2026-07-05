@@ -266,6 +266,10 @@ def _mdlp_recurse_njit(
         return
     best_split = 0.5 * (x[best_idx] + x[best_idx + 1])
     # Compute left/right entropies for the MDL test (njit recompute is cheap).
+    # bench-attempt-rejected (2026-07-05): fusing counts_left/right + h_l/h_r OUT of _mdlp_best_split_njit
+    # (snapshot at the winning boundary, return them) to skip these np.bincount x2 + entropy x2 measured
+    # 0.81x SLOWER -- the per-best-update counts.copy() (O(K), fires on every gain improvement in the scan)
+    # + returning two njit arrays cost more than the two vectorised-C bincounts they remove. Kept.
     left_mask_idx = best_idx + 1  # x[:left_mask_idx] is left, x[left_mask_idx:] is right
     y_left = y_compact[:left_mask_idx]
     y_right = y_compact[left_mask_idx:]
