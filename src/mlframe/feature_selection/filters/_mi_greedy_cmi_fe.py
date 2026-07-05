@@ -643,6 +643,76 @@ def _entropy_from_classes_njit(classes: np.ndarray) -> tuple:
     return H, k
 
 
+@njit(cache=True)
+def _joint_entropy_two_dense_njit(a: np.ndarray, b: np.ndarray) -> tuple:
+    """Fused densify+entropy of the JOINT of two non-negative int class arrays in ONE walk.
+
+    The CMI callers renumber a joint (``xz`` / ``xyz`` / ``xy``) ONLY to hand the dense-id array to
+    :func:`_entropy_from_classes`, then discard the labels -- the classic "caller uses only part of the
+    kernel output" waste (see CLAUDE.md). This fuses the two: index a flat ``seen`` buffer by
+    ``a[i]*stride+b[i]`` (the ``_renumber_two_dense_njit`` array-counting trick) but, instead of writing a
+    length-n relabel array + a second ``bincount`` pass, it accumulates the per-class COUNT inline and
+    reduces the plug-in entropy over the occupied cells at the end -- O(n + k), no length-n ``inv`` array,
+    no second data pass, no separate entropy call.
+
+    Returns ``(H, k)`` -- plug-in entropy (natural log) + occupied-cell count, bit-identical to
+    ``_entropy_from_classes(_renumber_joint(a, b)[0])`` (both are functions of the joint COUNT multiset,
+    which is label-permutation-invariant; only the fp summation ORDER can differ ~1e-15). ``k == -1``
+    signals an unsupported case (negative ids or a cartesian span over the cap) -> caller falls back to the
+    generic renumber+entropy path."""
+    n = a.shape[0]
+    if n == 0:
+        return 0.0, 0
+    amax = a[0]; amin = a[0]; bmax = b[0]; bmin = b[0]
+    for i in range(1, n):
+        av = a[i]; bv = b[i]
+        if av > amax: amax = av
+        if av < amin: amin = av
+        if bv > bmax: bmax = bv
+        if bv < bmin: bmin = bv
+    if amin < 0 or bmin < 0:
+        return 0.0, -1
+    stride = bmax + 1
+    span = (amax + 1) * stride
+    if span < 0 or span >= _FAC_ARRAY_CAP:
+        return 0.0, -1
+    seen = np.full(span, -1, dtype=np.int64)
+    counts = np.empty(n, dtype=np.int64)   # count per dense id (<= n distinct); no length-n label array
+    nc = 0
+    for i in range(n):
+        k = a[i] * stride + b[i]
+        s = seen[k]
+        if s >= 0:
+            counts[s] += 1
+        else:
+            seen[k] = nc
+            counts[nc] = 1
+            nc += 1
+    H = 0.0
+    inv_n = 1.0 / n
+    for j in range(nc):
+        c = counts[j]
+        p = c * inv_n
+        H -= p * math.log(p)
+    return H, nc
+
+
+def _joint_entropy_two(a: np.ndarray, b: np.ndarray) -> tuple[float, int]:
+    """Plug-in entropy ``(H, k)`` of the joint of two int class arrays, fusing the densify+entropy so the
+    dense-id labels are never materialised (see :func:`_joint_entropy_two_dense_njit`). Bit-identical to
+    ``_entropy_from_classes(_renumber_joint(a, b)[0])`` (to ~1e-9 fp reduction order). Falls back to the
+    generic renumber+entropy on the unsupported case (negative ids / cartesian span over the cap)."""
+    a_i = np.ascontiguousarray(a, dtype=np.int64).ravel()
+    b_i = np.ascontiguousarray(b, dtype=np.int64).ravel()
+    if a_i.size == 0:
+        return 0.0, 0
+    H, k = _joint_entropy_two_dense_njit(a_i, b_i)
+    if k >= 0:
+        return float(H), int(k)
+    joint, _ = _renumber_joint(a_i, b_i)
+    return _entropy_from_classes(joint)
+
+
 def _entropy_from_classes(classes: np.ndarray) -> tuple[float, int]:
     """``H = -sum p_i log p_i`` from an integer class array (natural log).
 
@@ -697,8 +767,7 @@ def _cmi_from_binned(
     if z_joint is None or z_joint.size == 0:
         h_x, k_x = _entropy_from_classes(x_i)
         h_y, k_y = _entropy_from_classes(y_i)
-        xy, _ = _renumber_joint(x_i, y_i)
-        h_xy, k_xy = _entropy_from_classes(xy)
+        h_xy, k_xy = _joint_entropy_two(x_i, y_i)   # fused densify+entropy; xy labels discarded
         mi_plugin = h_x + h_y - h_xy
         # Plug-in MLE entropy underestimates the true entropy by
         # ``(K-1)/(2n)`` (Miller 1955). MI = H(X) + H(Y) - H(XY)
@@ -710,13 +779,14 @@ def _cmi_from_binned(
         mi = max(0.0, mi_plugin - mi_bias)
         return (mi, None) if return_cards else mi
     z_i = np.ascontiguousarray(z_joint, dtype=np.int64)
-    xz, _ = _renumber_joint(x_i, z_i)
-    yz, _ = _renumber_joint(y_i, z_i)
-    xyz, _ = _renumber_joint(x_i, y_i, z_i)
+    # Fused densify+entropy for the joints (labels feed only the entropy). yz is materialised DENSE once
+    # and reused for H(X,Y,Z): partition(x, part(y,z)) == partition(x,y,z) -> identical counts -> the
+    # 3-column renumber(x,y,z) collapses to a 2-array densify against yz_dense.
+    yz_dense, _ = _renumber_joint(y_i, z_i)
     h_z, k_z = _entropy_from_classes(z_i)
-    h_xz, k_xz = _entropy_from_classes(xz)
-    h_yz, k_yz = _entropy_from_classes(yz)
-    h_xyz, k_xyz = _entropy_from_classes(xyz)
+    h_xz, k_xz = _joint_entropy_two(x_i, z_i)
+    h_yz, k_yz = _entropy_from_classes(yz_dense)
+    h_xyz, k_xyz = _joint_entropy_two(x_i, yz_dense)
     cmi_plugin = h_xz + h_yz - h_z - h_xyz
     # Plug-in CMI = H(XZ) + H(YZ) - H(Z) - H(XYZ). Each plug-in entropy
     # is biased low by (K-1)/(2n). The CMI bias from combining them
@@ -760,8 +830,7 @@ def marginal_mi_binned_fixed_y(
     x_i = np.ascontiguousarray(x_binned, dtype=np.int64)
     n = float(max(1, x_i.size))
     h_x, k_x = _entropy_from_classes(x_i)
-    xy, _ = _renumber_joint(x_i, y_i)
-    h_xy, k_xy = _entropy_from_classes(xy)
+    h_xy, k_xy = _joint_entropy_two(x_i, y_i)   # fused densify+entropy; xy labels discarded
     mi_plugin = h_x + h_y - h_xy
     mi_bias = (k_x + k_y - k_xy - 1) / (2.0 * n)
     return max(0.0, mi_plugin - mi_bias)
@@ -802,11 +871,20 @@ def cmi_from_binned_fixed_yz(
     k_yz: int,
     k_z: int,
     n: float,
+    yz_i: Optional[np.ndarray] = None,
 ) -> float:
     """``CMI(X; Y | Z)`` for a fresh ``x`` reusing the y/z-invariant terms from
     :func:`precompute_cmi_yz_terms`. Computes only the x-dependent ``xz`` / ``xyz``
     renumberings + their entropies; bit-identical to :func:`_cmi_from_binned` on
-    the same inputs (it is the same arithmetic with the y/z block factored out)."""
+    the same inputs (it is the same arithmetic with the y/z block factored out).
+
+    ``yz_i`` (optional): the round-fixed DENSE ``(y,z)`` joint codes from
+    :func:`precompute_cmi_yz_terms` (its ``yz_dense`` return). When supplied, the
+    x-dependent ``H(X,Y,Z)`` is taken as the joint entropy of ``(x, yz_i)`` -- a
+    TWO-array densify (partition of ``x`` with the fixed ``(y,z)`` partition ==
+    partition of ``(x,y,z)``, identical counts -> identical entropy) instead of the
+    3-column ``renumber(x,y,z)`` factorize (1 factorize + 2 combine walks -> 1 fused
+    walk). ``None`` (external callers) keeps the exact 3-column path."""
     # GPU route (2026-06-25): the xz / xyz joint ENTROPIES are partition statistics -- cp.unique(flat_key,
     # return_counts) densifies on the device (sort+unique, value-order labels) and the counts give the SAME
     # partition -> the SAME entropy -> the SAME CMI (only fp reduction order differs ~1e-15; selection
@@ -819,10 +897,15 @@ def cmi_from_binned_fixed_yz(
         except Exception:
             pass
     x_i = np.ascontiguousarray(x, dtype=np.int64).ravel()
-    xz, _ = _renumber_joint(x_i, z_i)
-    xyz, _ = _renumber_joint(x_i, y_i, z_i)
-    h_xz, k_xz = _entropy_from_classes(xz)
-    h_xyz, k_xyz = _entropy_from_classes(xyz)
+    # Fused densify+entropy: xz / xyz labels are consumed ONLY by the entropy, so build the joint histogram
+    # inline and skip the length-n relabel array + the second bincount pass (see _joint_entropy_two).
+    h_xz, k_xz = _joint_entropy_two(x_i, z_i)
+    if yz_i is not None:
+        # 2-array densify against the round-fixed (y,z) partition == partition(x,y,z) -> identical counts.
+        h_xyz, k_xyz = _joint_entropy_two(x_i, yz_i)
+    else:
+        xyz, _ = _renumber_joint(x_i, y_i, z_i)
+        h_xyz, k_xyz = _entropy_from_classes(xyz)
     cmi_plugin = h_xz + h_yz - h_z - h_xyz
     cmi_bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
     return max(0.0, cmi_plugin - cmi_bias)
@@ -1461,9 +1544,14 @@ def greedy_cmi_fe_construct(
         # arithmetic, x-block only). Marginal (empty-Z) step keeps the original
         # path since the hoist helpers assume a present Z.
         _have_z = z_joint is not None and z_joint.size > 0
+        _yz_dense = None
         if _have_z:
             _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n = precompute_cmi_yz_terms(
                 y_bin, z_joint)
+            # Round-fixed dense (y,z) joint codes: reused per-candidate so H(X,Y,Z) is a 2-array
+            # densify against this partition instead of a fresh 3-column renumber(x,y,z). One extra
+            # renumber per STEP (not per candidate); the winner-fold below rebuilds z each step anyway.
+            _yz_dense, _ = _renumber_joint(_y_i, _z_i)
         # The fingerprint-skip set is fixed for this step -> the candidates to score are
         # ``_scan`` (a list over ``remaining`` preserving its iteration order). y_bin / z_joint are fixed
         # across them, so score ALL their CMI in ONE batched_cmi_gpu workload and take the first-max argmax
@@ -1499,7 +1587,7 @@ def greedy_cmi_fe_construct(
             for name in _scan:
                 if _have_z:
                     cmi = cmi_from_binned_fixed_yz(
-                        cand_bins[name], _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n)
+                        cand_bins[name], _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n, yz_i=_yz_dense)
                 else:
                     cmi = _cmi_from_binned(cand_bins[name], y_bin, z_joint)
                 if cmi > best_cmi:
