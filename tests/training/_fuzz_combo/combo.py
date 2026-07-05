@@ -1252,22 +1252,30 @@ class FuzzCombo:
                 if (self.use_boruta_shap_cfg and self.boruta_early_stop_tentative_cfg)
                 else 0.15
             ),
-            # 2026-06-03 FS-coverage audit -- RFECV.__init__ knobs only
-            # meaningful when an RFECV selector is in the pre-pipeline chain
-            # (rfecv_estimator_cfg is not None); collapse to RFECV signature
-            # defaults otherwise.
-            (self.rfecv_votes_aggregation_cfg if self.rfecv_estimator_cfg is not None else "Borda"),
-            (self.rfecv_search_method_cfg if self.rfecv_estimator_cfg is not None else "ModelBasedHeuristic"),
-            # RFECV first-class lever fields meaningful only when an RFECV selector is in the chain; collapse to dataclass defaults otherwise.
-            (self.rfecv_enable_permutation_importance_cfg if self.rfecv_estimator_cfg is not None else False),
-            (self.rfecv_prescreen_cfg if self.rfecv_estimator_cfg is not None else None),
-            (self.rfecv_swap_top_k_cfg if self.rfecv_estimator_cfg is not None else None),
+            # 2026-06-03 FS-coverage audit -- RFECV.__init__ knobs only meaningful when an RFECV selector is
+            # ACTUALLY in the pre-pipeline chain -- i.e. ``_canonical_rfecv_estimator()`` resolves non-None, not
+            # merely ``rfecv_estimator_cfg is not None``. The raw field can be set while the resolved estimator
+            # is still None (base model not in ``self.models``, ``n_rows>1000``, multilabel target, or non-balanced
+            # binary imbalance -- see ``_canonical_rfecv_estimator``), in which case ``rfecv_models=None`` at the
+            # suite call site. Gating on the raw field left these lever axes NON-canonicalised in that gap: a
+            # non-default ``rfecv_n_features_selection_rule_cfg`` / ``rfecv_stability_selection_cfg`` /
+            # ``rfecv_enable_permutation_importance_cfg`` / ``rfecv_prescreen_cfg`` / ``rfecv_swap_top_k_cfg``
+            # folds into ``FeatureSelectionConfig.rfecv_kwargs`` (the D-surface lever merge) even though
+            # ``rfecv_models`` is empty, tripping ``rfecv_kwargs supplied but rfecv_models is None/empty`` --
+            # a real ``ValidationError`` fuzz surfaced (2026-07-05), not a semantically-meaningful axis value.
+            (self.rfecv_votes_aggregation_cfg if self._canonical_rfecv_estimator() is not None else "Borda"),
+            (self.rfecv_search_method_cfg if self._canonical_rfecv_estimator() is not None else "ModelBasedHeuristic"),
+            (self.rfecv_n_features_selection_rule_cfg if self._canonical_rfecv_estimator() is not None else "auto"),
+            (self.rfecv_stability_selection_cfg if self._canonical_rfecv_estimator() is not None else False),
+            (self.rfecv_enable_permutation_importance_cfg if self._canonical_rfecv_estimator() is not None else False),
+            (self.rfecv_prescreen_cfg if self._canonical_rfecv_estimator() is not None else None),
+            (self.rfecv_swap_top_k_cfg if self._canonical_rfecv_estimator() is not None else None),
             # P1-8: use_sample_weights_in_fs only meaningful when any FS is
             # enabled (MRMR / RFECV / Boruta) AND weights schema includes
             # something non-uniform (otherwise FS receives all-1s weights
             # and the branch is a no-op).
             (self.use_sample_weights_in_fs_cfg if (
-                (self.use_mrmr_fs or self.rfecv_estimator_cfg is not None
+                (self.use_mrmr_fs or self._canonical_rfecv_estimator() is not None
                  or self.use_boruta_shap_cfg)
                 and any(s != "uniform" for s in self.weight_schemas)
             ) else False),
@@ -1284,12 +1292,12 @@ class FuzzCombo:
             # is active AND there's an ensembling path that could benefit
             # from non-deduped pipelines.
             (self.skip_identity_equivalent_pre_pipelines_cfg if (
-                self.use_mrmr_fs or self.rfecv_estimator_cfg is not None
+                self.use_mrmr_fs or self._canonical_rfecv_estimator() is not None
                 or self.use_boruta_shap_cfg
             ) else True),
             # P2-18a/b: RFECV thresholds only meaningful when RFECV is on.
-            (self.rfecv_leakage_corr_threshold_cfg if self.rfecv_estimator_cfg is not None else 0.95),
-            (self.rfecv_mbh_adaptive_threshold_cfg if self.rfecv_estimator_cfg is not None else 30),
+            (self.rfecv_leakage_corr_threshold_cfg if self._canonical_rfecv_estimator() is not None else 0.95),
+            (self.rfecv_mbh_adaptive_threshold_cfg if self._canonical_rfecv_estimator() is not None else 30),
             # 2026-05-22 iter162 nested-config canons.
             # FHC sub-configs only meaningful when enable_feature_handling_config_cfg=True.
             (self.fhc_cache_eviction_strategy_cfg if self.enable_feature_handling_config_cfg else "size_weighted"),
@@ -1432,13 +1440,13 @@ class FuzzCombo:
             # FS pre-screen only meaningful when MRMR / RFECV / Boruta active.
             (
                 self.fs_pre_screen_unsupervised_cfg
-                if (self.use_mrmr_fs or self.rfecv_estimator_cfg is not None
+                if (self.use_mrmr_fs or self._canonical_rfecv_estimator() is not None
                     or self.use_boruta_shap_cfg)
                 else True
             ),
             (
                 self.fs_pre_screen_variance_threshold_cfg
-                if (self.use_mrmr_fs or self.rfecv_estimator_cfg is not None
+                if (self.use_mrmr_fs or self._canonical_rfecv_estimator() is not None
                     or self.use_boruta_shap_cfg)
                 else 0.0
             ),
@@ -1735,7 +1743,7 @@ class FuzzCombo:
             # exactly so the two siblings collapse on the SAME condition.
             (
                 self.fs_pre_screen_null_fraction_threshold_cfg
-                if (self.use_mrmr_fs or self.rfecv_estimator_cfg is not None
+                if (self.use_mrmr_fs or self._canonical_rfecv_estimator() is not None
                     or self.use_boruta_shap_cfg)
                 else 0.99
             ),

@@ -134,12 +134,29 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     wiring on every combo in seconds instead of minutes. Quality / metric
     assertions are NOT meaningful in this mode -- it's a smoke test only.
 
+    ``MLFRAME_FUZZ_FORCE_N_ROWS`` (bug-hunt mode) -- when set to a positive
+    int, overrides ONLY ``n_rows`` via ``dataclasses.replace``. ``FuzzCombo``
+    is frozen with no eager canonicalisation at construction -- n_rows-gated
+    rules (rare-imbalance clamp, ocsvm gate, RFECV/recurrent-model gates,
+    viz-rendering tier) are all COMPUTED LIVE off ``self.n_rows`` inside
+    ``canonical_key()`` / property methods, so they stay consistent for the
+    new size automatically; nothing needs to be "re-run". Unlike perf-mode,
+    every subsystem (MRMR, BorutaShap, ensembles, diagnostics) stays ON:
+    this is for exhaustive bug-hunting at a fixed fast row count, not a
+    wiring smoke test. Applied AFTER perf-mode (so perf-mode's n_rows wins
+    if both are set) and BEFORE ``xfail_reason`` so n_rows-gated xfail rules
+    see the forced size.
+
     Default (env unset): full combo runs unchanged.
     """
     import os as _os
     if _os.environ.get("MLFRAME_FUZZ_PERF_MODE", "").lower() in ("1", "yes", "true", "on"):
         from tests.training._fuzz_combo import apply_perf_mode
         combo = apply_perf_mode(combo)
+    _forced_n_rows = _os.environ.get("MLFRAME_FUZZ_FORCE_N_ROWS", "")
+    if _forced_n_rows.isdigit() and int(_forced_n_rows) > 0:
+        import dataclasses as _dataclasses
+        combo = _dataclasses.replace(combo, n_rows=int(_forced_n_rows))
     _skip_if_deps_missing(combo.models)
 
     # Apply xfail automatically for known bugs. pytest's runtime-xfail marker
@@ -438,6 +455,13 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             _suite_kwargs["feature_handling_config"] = _fhc
         if _precomputed is not None:
             _suite_kwargs["precomputed"] = _precomputed
+        # RFECV lever kwargs (n_features_selection_rule / stability_selection / enable_permutation_importance /
+        # prescreen / swap_top_k) fold into FeatureSelectionConfig.rfecv_kwargs regardless of their value, so a
+        # non-default sampled lever with RFECV resolved OFF (rfecv_models=None) trips "rfecv_kwargs supplied but
+        # rfecv_models is None/empty" -- canonical_key dedups on the RESOLVED estimator but does not rewrite the
+        # raw combo field, so gate the actual kwargs passed here on the SAME resolved predicate that gates
+        # rfecv_models below (real ValidationError fuzz surfaced, 2026-07-05).
+        _rfecv_on = combo._canonical_rfecv_estimator() is not None
         trained, _meta = train_mlframe_models_suite(
             **_suite_kwargs,
             hyperparams_config=_config_for_models(
@@ -488,7 +512,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 # because the field expects List[str].
                 rfecv_models=(
                     [combo._canonical_rfecv_estimator()]
-                    if combo._canonical_rfecv_estimator() is not None
+                    if _rfecv_on
                     else None
                 ),
                 custom_pre_pipelines=custom_pre or {},
@@ -509,8 +533,8 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 # 2026-05-22 iter170 deep FS knobs (defensive).
                 **_safe_cfg_kwargs(
                     FeatureSelectionConfig,
-                    rfecv_n_features_selection_rule=combo.rfecv_n_features_selection_rule_cfg,
-                    rfecv_stability_selection=combo.rfecv_stability_selection_cfg,
+                    rfecv_n_features_selection_rule=(combo.rfecv_n_features_selection_rule_cfg if _rfecv_on else None),
+                    rfecv_stability_selection=(combo.rfecv_stability_selection_cfg if _rfecv_on else False),
                     rfecv_leakage_action=combo.rfecv_leakage_action_cfg,
                     # 2026-05-28 pre_screen_null_fraction_threshold axis -- the
                     # null-fraction sibling of the existing variance threshold
@@ -530,10 +554,12 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     pre_screen_unsupervised=combo.fs_pre_screen_unsupervised_cfg,
                     pre_screen_variance_threshold=combo.fs_pre_screen_variance_threshold_cfg,
                     # RFECV first-class lever fields (D-surface). canonical_key collapses each to the dataclass default
-                    # unless an RFECV selector is in the chain, so they never split dedup buckets when RFECV is off.
-                    rfecv_enable_permutation_importance=combo.rfecv_enable_permutation_importance_cfg,
-                    rfecv_prescreen=combo.rfecv_prescreen_cfg,
-                    rfecv_swap_top_k=combo.rfecv_swap_top_k_cfg,
+                    # unless an RFECV selector is in the chain, so they never split dedup buckets when RFECV is off --
+                    # but that's DEDUP identity only, not the value passed here, so gate on ``_rfecv_on`` too (else a
+                    # non-default sample folds into rfecv_kwargs with rfecv_models=None and raises).
+                    rfecv_enable_permutation_importance=(combo.rfecv_enable_permutation_importance_cfg if _rfecv_on else False),
+                    rfecv_prescreen=(combo.rfecv_prescreen_cfg if _rfecv_on else None),
+                    rfecv_swap_top_k=(combo.rfecv_swap_top_k_cfg if _rfecv_on else None),
                 ),
             ),
             # Chart rendering is OFF by default (the ~150-combo × ~5-fig run compounds to >2 GB and historically blew up pytest's traceback

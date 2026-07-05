@@ -334,6 +334,16 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         idx = np.asarray(sorted(int(i) for i in support_idx), dtype=np.int64)
         if idx.size < 2:
             return idx
+        # A categorical/string/object column (e.g. raw cat features still un-encoded at this wrapper stage,
+        # or a weird-content sentinel like the literal string "null") can't be "a linear combination" of
+        # other columns, so the rank test doesn't apply to it -- restrict to the numeric-dtype subset and
+        # always keep the rest untouched, mirroring the existing non-finite early-exit below.
+        numeric_mask = np.asarray([pd.api.types.is_numeric_dtype(t) for t in X.dtypes.iloc[idx]])
+        if not numeric_mask.all():
+            non_numeric_idx = idx[~numeric_mask]
+            numeric_idx = idx[numeric_mask]
+            kept_numeric = GroupAwareMRMR._prune_rank_deficient(X, numeric_idx)
+            return np.sort(np.concatenate([kept_numeric, non_numeric_idx]))
         block = X.iloc[:, idx].to_numpy(dtype=float)
         finite = np.all(np.isfinite(block), axis=0)
         if not finite.all():

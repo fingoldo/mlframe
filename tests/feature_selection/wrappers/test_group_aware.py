@@ -400,3 +400,34 @@ def test_su_redundancy_lowcard_codes_searchsorted_equals_dict_map():
         old = np.array([lookup.get(v, len(lookup)) for v in col], dtype=np.int64)
         new = np.searchsorted(uniq, col).astype(np.int64)
         assert np.array_equal(old, new)
+
+
+def test_prune_rank_deficient_skips_non_numeric_columns():
+    """_prune_rank_deficient did ``X.iloc[:, idx].to_numpy(dtype=float)`` unconditionally, so any
+    non-numeric column reaching GroupAwareMRMR (e.g. a raw categorical/object column, or a fuzz
+    "weird_cat_content" sentinel like the literal string "null") raised
+    ``ValueError: could not convert string to float`` instead of being left untouched -- surfaced by
+    the bug-hunt fuzz suite (2026-07-05, RFECV group-aware wrapper on an un-encoded categorical column).
+    The rank-deficiency check is only meaningful for numeric columns; a non-numeric column can never be
+    "a linear combination" of others, so it must survive unpruned exactly like the existing NaN/inf guard.
+    """
+    rng = np.random.default_rng(3)
+    n = 200
+    x1 = rng.standard_normal(n)
+    x2 = rng.standard_normal(n)
+    x3 = 2 * x1 - x2  # exact linear dependency -- must still be pruned
+    x4 = rng.standard_normal(n)
+    cat = np.array(["null" if i % 7 == 0 else "a" for i in range(n)])
+    df = pd.DataFrame({"x1": x1, "x2": x2, "x3": x3, "x4": x4, "cat": cat})
+
+    kept = GroupAwareMRMR._prune_rank_deficient(df, [0, 1, 2, 3, 4])
+    kept_names = [df.columns[i] for i in kept]
+
+    assert "cat" in kept_names, "non-numeric column must survive untouched, not crash"
+    assert "x3" not in kept_names, "exact linear dependency must still be pruned despite the cat column"
+    assert set(kept_names) == {"x1", "x2", "x4", "cat"}
+
+    # Regression: the numeric-only path (no categorical column present) must be UNCHANGED.
+    numeric_only = df[["x1", "x2", "x3", "x4"]]
+    kept_numeric = GroupAwareMRMR._prune_rank_deficient(numeric_only, [0, 1, 2, 3])
+    assert [numeric_only.columns[i] for i in kept_numeric] == ["x1", "x2", "x4"]
