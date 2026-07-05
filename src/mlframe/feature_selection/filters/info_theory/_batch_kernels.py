@@ -160,8 +160,12 @@ def batch_pair_mi_perm_batched(
             c = int(factors_data[i, a]) * nb_b + int(factors_data[i, b])
             cls_x[i] = c
             freqs_x_int[c] += 1
+        # Hoist the (joint_card x k_y) histogram alloc out of the K-loop: allocate ONCE per pair and
+        # zero-and-reuse across the K shuffles (was K*n_pairs allocs -> n_pairs). ~1.03x, bit-identical
+        # (max|d|=0). The scatter itself stays memory-bandwidth-bound -- see bench_pair_maxt_kernel_hoist.py.
+        joint_counts = np.empty((joint_card, n_classes_y), dtype=np.int64)
         for k in range(K):
-            joint_counts = np.zeros((joint_card, n_classes_y), dtype=np.int64)
+            joint_counts[:, :] = 0
             for i in range(n):
                 joint_counts[cls_x[i], int(y_perms[k, i])] += 1
             total = 0.0

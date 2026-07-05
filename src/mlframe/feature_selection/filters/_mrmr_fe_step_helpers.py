@@ -428,6 +428,7 @@ def compute_pair_maxt_floor(
                 from ._permutation_null_pair_resident import (
                     pair_maxt_perm_null_gpu_enabled,
                     pooled_pair_permutation_null_joint_mi_floor_cupy,
+                    trip_pair_maxt_gpu_circuit_breaker,
                 )
 
                 if pair_maxt_perm_null_gpu_enabled(int(data.shape[0]), len(_maxt_pa)):
@@ -445,6 +446,19 @@ def compute_pair_maxt_floor(
                         random_seed=getattr(self, "random_seed", None),
                     )
             except Exception:
+                # A silent bare fallback here made a ~1h CPU floor invisible (the resident cupy path faults
+                # on WDDM-TDR / cudaErrorLaunchFailure on a 4 GB GTX 1050 Ti). WARN once and TRIP the process
+                # circuit breaker so every later pair-maxT floor skips the poisoned GPU context immediately
+                # and goes straight to the exact CPU njit floor below (no futile per-call re-fault).
+                logger.warning(
+                    "MRMR FE: resident-GPU order-2 maxT permutation-null floor faulted; tripping the GPU "
+                    "circuit breaker and falling back to the CPU njit floor for the rest of this process.",
+                    exc_info=True,
+                )
+                try:
+                    trip_pair_maxt_gpu_circuit_breaker()
+                except Exception:
+                    pass
                 _pair_maxt_floor = None
             if _pair_maxt_floor is None:
                 _pair_maxt_floor = pooled_pair_permutation_null_joint_mi_floor(

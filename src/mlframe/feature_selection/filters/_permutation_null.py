@@ -35,10 +35,42 @@ order 1 cannot prune genuine synergy.
 from __future__ import annotations
 
 import logging
+import os
 
 import numba
 import numpy as np
 from numba import prange
+
+
+def _default_pair_maxt_max_rows() -> int:
+    """HALF the unified screen subsample (``UNIFIED_FE_SUBSAMPLE_N`` // 2 = 15000 at the 30k default).
+
+    Derived from the ONE screen-subsample constant rather than a standalone literal, so the two stay in lockstep
+    if the unified default is retuned. The maxT floor is a COARSE q=0.95-quantile of the per-shuffle MAX joint-MI,
+    dominated by the finite-sample plug-in bias ~ (k-1)(ky-1)/2n, so half the rows the relevance screen uses give a
+    selection-identical floor at ~1.8x (bench IDENTICAL at cap>=10k; 5k was too aggressive). Lazy import avoids a
+    circular dep; 30000 is the bootstrap fallback matching feature_engineering.UNIFIED_FE_SUBSAMPLE_N."""
+    try:
+        from .feature_engineering import UNIFIED_FE_SUBSAMPLE_N
+    except Exception:
+        UNIFIED_FE_SUBSAMPLE_N = 30_000
+    return int(UNIFIED_FE_SUBSAMPLE_N) // 2
+
+
+def _pair_maxt_max_rows() -> int:
+    """Row cap for the order-2 maxT floor compute (see ``pooled_pair_permutation_null_joint_mi_floor``).
+
+    Defaults to ``_default_pair_maxt_max_rows()`` (half the unified screen subsample). Override via
+    ``MLFRAME_FE_PAIR_MAXT_MAX_ROWS`` (0 disables the cap -> exact full-n floor). Invalid / negative -> default.
+    """
+    raw = os.environ.get("MLFRAME_FE_PAIR_MAXT_MAX_ROWS", "").strip()
+    if not raw:
+        return _default_pair_maxt_max_rows()
+    try:
+        v = int(raw)
+    except ValueError:
+        return _default_pair_maxt_max_rows()
+    return v if v >= 0 else _default_pair_maxt_max_rows()
 
 
 @numba.njit(cache=True, parallel=True)
@@ -498,6 +530,27 @@ def pooled_pair_permutation_null_joint_mi_floor(
     k_y = int(np.asarray(freqs_y).shape[0])
     if k_y < 2:
         return 0.0
+
+    # ROW-SUBSAMPLE the floor compute (noise-floor-cap regime, 2026-07-05). The floor is a q=0.95
+    # QUANTILE of the per-shuffle MAX joint-MI over the O(p^2) pool -- a COARSE noise threshold, not a
+    # precise per-pair statistic. Its dominant term is the finite-sample plug-in MI bias ~ (k_joint-1)
+    # (k_y-1)/2n, so subsampling rows raises the floor slightly (more CONSERVATIVE: it rejects the same
+    # noise pairs and MORE), while the SURVIVORS' observed pair_mi is still scored at the FULL screen n
+    # by the caller. Selection holds because genuine synergy pairs sit far above the (still-small) floor
+    # even at the cap; validated selection-IDENTICAL at cap>=10k (bench_pair_maxt_floor_subsample.py:
+    # full-30k floor=0.0177 540ms vs cap-15k 0.0366 1.83x IDENTICAL, cap-10k 2.41x IDENTICAL). Gated on
+    # the detectable safe condition n>cap; env-tunable MLFRAME_FE_PAIR_MAXT_MAX_ROWS (default 15000, set
+    # 0 to disable). Contiguous head-view => zero-copy (the screen matrix is already a random subsample).
+    # When mm_debias is on, the caller subtracts the IDENTICAL per-pair MM bias (computed at FULL n) from
+    # the observed pair_mi at the gate, so the floor's internal bias must stay on the full-n scale too --
+    # skip the cap in that mode to preserve the consistent-debias-on-both-sides contract.
+    _max_rows = 0 if mm_debias else _pair_maxt_max_rows()
+    if 0 < _max_rows < n:
+        factors_data = factors_data[:_max_rows]
+        classes_y = np.asarray(classes_y)[:_max_rows]
+        n = _max_rows
+        # freqs_y must match the subsample scale (per-shuffle MI normalises by this y-marginal).
+        freqs_y = np.bincount(np.asarray(classes_y).astype(np.int64), minlength=k_y).astype(np.float64) / n
 
     # Reuse the exact batched plug-in joint-MI estimator the FE pair screen scores ``pair_mi`` with (CPU njit
     # prange -- deterministic, GPU-independent), so the per-shuffle max is on the same scale as the gated value.

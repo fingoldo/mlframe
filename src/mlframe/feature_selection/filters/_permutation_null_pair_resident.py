@@ -195,6 +195,26 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         return None
 
 
+# Process-level circuit breaker (mirrors info_theory._cmi_cuda._CMI_GPU_FAILED). A WDDM-TDR
+# cudaErrorLaunchFailure on a small/weak card (GTX 1050 Ti = 4 GB) POISONS the CUDA context, so every
+# subsequent resident-floor attempt this process re-faults and silently falls back to the ~1h CPU floor.
+# Trip the breaker on the FIRST fault so later calls skip the GPU immediately (no futile re-attempt spam)
+# and go straight to the CPU njit floor. Reset only via reset_pair_maxt_gpu_circuit_breaker() (tests).
+_PAIR_MAXT_GPU_FAILED = False
+
+
+def trip_pair_maxt_gpu_circuit_breaker() -> None:
+    """Mark the resident pair-maxT GPU path dead for the rest of the process (called on a launch fault)."""
+    global _PAIR_MAXT_GPU_FAILED
+    _PAIR_MAXT_GPU_FAILED = True
+
+
+def reset_pair_maxt_gpu_circuit_breaker() -> None:
+    """Re-arm the resident pair-maxT GPU path (tests / after a fresh CUDA context)."""
+    global _PAIR_MAXT_GPU_FAILED
+    _PAIR_MAXT_GPU_FAILED = False
+
+
 def pair_maxt_perm_null_gpu_enabled(n: int, n_pairs: int) -> bool:
     """Whether the resident-GPU order-2 maxT permutation-null floor engages for this (n, n_pairs).
 
@@ -214,6 +234,8 @@ def pair_maxt_perm_null_gpu_enabled(n: int, n_pairs: int) -> bool:
     Returns ``False`` (caller stays on the exact CPU njit floor) on the opt-out, non-STRICT, or any failure."""
     if os.environ.get("MLFRAME_FE_PAIR_MAXT_PERM_NULL_GPU", "1").strip().lower() not in ("1", "true", "on", "yes"):
         return False
+    if _PAIR_MAXT_GPU_FAILED:  # context poisoned by a prior launch fault -> never re-attempt the GPU this process.
+        return False
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
 
@@ -225,4 +247,6 @@ def pair_maxt_perm_null_gpu_enabled(n: int, n_pairs: int) -> bool:
 __all__ = [
     "pooled_pair_permutation_null_joint_mi_floor_cupy",
     "pair_maxt_perm_null_gpu_enabled",
+    "trip_pair_maxt_gpu_circuit_breaker",
+    "reset_pair_maxt_gpu_circuit_breaker",
 ]
