@@ -62,11 +62,6 @@ def histogram(a, bins="auto", **kwargs):
     return np.histogram(a, bins=bins, **kwargs)
 
 
-
-
-
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -115,11 +110,11 @@ def _canonicalise_dtype_str(dt) -> str:
     """
     s = str(dt).strip().lower()
     if s.startswith("int"):
-        return "i" + s[len("int"):]
+        return "i" + s[len("int") :]
     if s.startswith("uint"):
-        return "u" + s[len("uint"):]
+        return "u" + s[len("uint") :]
     if s.startswith("float"):
-        return "f" + s[len("float"):]
+        return "f" + s[len("float") :]
     if s in ("boolean", "bool"):
         return "b"
     if s in ("utf8", "string", "object", "str"):
@@ -178,10 +173,7 @@ def _mrmr_compute_x_fingerprint(X) -> str:
         # requires resolving its schema" PerformanceWarnings (one per
         # X.columns / X.schema[c] access). For eager polars.DataFrame
         # and pandas these attribute accesses are O(1) and warn-free.
-        _is_lazy_polars = (
-            hasattr(X, "collect_schema")
-            and type(X).__name__ == "LazyFrame"
-        )
+        _is_lazy_polars = hasattr(X, "collect_schema") and type(X).__name__ == "LazyFrame"
         if _is_lazy_polars:
             _resolved_schema = X.collect_schema()
             cols = tuple(sorted(str(c) for c in _resolved_schema.names()))
@@ -198,26 +190,17 @@ def _mrmr_compute_x_fingerprint(X) -> str:
         # polars correctly.
         if _is_lazy_polars:
             try:
-                dtypes_repr = tuple(
-                    (str(c), _canonicalise_dtype_str(_resolved_schema[c]))
-                    for c in _resolved_schema.names()
-                )
+                dtypes_repr = tuple((str(c), _canonicalise_dtype_str(_resolved_schema[c])) for c in _resolved_schema.names())
             except Exception:
                 dtypes_repr = ()
         elif hasattr(X, "schema") and hasattr(X, "columns"):
             try:
-                dtypes_repr = tuple(
-                    (str(c), _canonicalise_dtype_str(X.schema[c]))
-                    for c in X.columns
-                )
+                dtypes_repr = tuple((str(c), _canonicalise_dtype_str(X.schema[c])) for c in X.columns)
             except Exception:
                 dtypes_repr = ()
         elif hasattr(X, "dtypes") and hasattr(X, "columns"):
             try:
-                dtypes_repr = tuple(
-                    (str(c), _canonicalise_dtype_str(X.dtypes[c]))
-                    for c in X.columns
-                )
+                dtypes_repr = tuple((str(c), _canonicalise_dtype_str(X.dtypes[c])) for c in X.columns)
             except Exception:
                 dtypes_repr = ()
         else:
@@ -280,9 +263,7 @@ def _hashable_params_signature(params: dict) -> tuple:
             # cheapest exact fingerprint and works for all numpy versions.
             if isinstance(v, np.ndarray):
                 try:
-                    items.append(
-                        (k, (v.tobytes(), v.shape, str(v.dtype)))
-                    )
+                    items.append((k, (v.tobytes(), v.shape, str(v.dtype))))
                     continue
                 except Exception:
                     pass
@@ -543,10 +524,7 @@ def _replay_fitted_state(target: MRMR, source: MRMR) -> int:
                 import inspect
                 # Use target.__class__ instead of the (TYPE_CHECKING-only) ``MRMR``
                 # symbol; both source and target are MRMR instances at runtime.
-                _MRMR_INIT_PARAM_NAMES = frozenset(
-                    p for p in inspect.signature(target.__class__.__init__).parameters
-                    if p != "self"
-                )
+                _MRMR_INIT_PARAM_NAMES = frozenset(p for p in inspect.signature(target.__class__.__init__).parameters if p != "self")
     # ``MRMR._FIT_CACHE[key]`` stores the LIVE first-fitted instance, so the cached source's fitted attributes are the canonical copy every future
     # replay reads. Any mutable fitted attribute that is merely shallow-assigned onto a replayed target is then SHARED with the cache entry, so an
     # in-place mutation by any caller of the replayed instance silently corrupts the source and all later replays. The safe contract: deep-copy
@@ -605,4 +583,3 @@ def _lazy_chunks(iterable, chunk_size: int):
         if not chunk:
             break
         yield chunk
-
