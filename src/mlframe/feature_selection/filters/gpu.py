@@ -483,6 +483,23 @@ def mi_direct_gpu_batched(
     nbins_x = len(freqs_x)
     nbins_y = len(freqs_y)
 
+    # ABSOLUTE cushion guard (2026-07-05): decline the GPU entirely on a near-full / SHARED card BEFORE the
+    # relative half-free batch cap below (which is computed only after the cupy pool may have already eaten the
+    # device). On a cushion violation route to the exact CPU MI path (selection-equivalent, prefer_gpu=False so
+    # it does not recurse back onto the GPU) instead of launching a kernel that would fault. Pure ADD -- tightens.
+    try:
+        from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
+        _cushion_ok = fe_gpu_has_vram_cushion(n * 4)
+    except Exception:  # noqa: BLE001  -- cushion module unavailable: leave existing guards in charge
+        _cushion_ok = True
+    if not _cushion_ok:
+        from .permutation import mi_direct
+        return mi_direct(
+            factors_data, x=x, y=y, factors_nbins=factors_nbins,
+            npermutations=npermutations, dtype=dtype,
+            classes_y=classes_y, freqs_y=freqs_y,
+            min_nonzero_confidence=min_nonzero_confidence, prefer_gpu=False,
+        )
     # OOM guard: cap batch_size to half of available free GPU memory.
     free_bytes, _ = cp.cuda.runtime.memGetInfo()
     bytes_per_perm = n * 4  # int32 permutation row
@@ -698,6 +715,22 @@ def mi_direct_gpu_batched_streamed(
     n = len(classes_x)
     nbins_x = len(freqs_x)
     nbins_y = len(freqs_y)
+
+    # ABSOLUTE cushion guard (2026-07-05): as in mi_direct_gpu_batched, decline the GPU on a near-full / shared
+    # card BEFORE the relative half-free cap and route to the exact CPU MI path (selection-equivalent). Pure ADD.
+    try:
+        from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
+        _cushion_ok = fe_gpu_has_vram_cushion(n * 4)
+    except Exception:  # noqa: BLE001
+        _cushion_ok = True
+    if not _cushion_ok:
+        from .permutation import mi_direct
+        return mi_direct(
+            factors_data, x=x, y=y, factors_nbins=factors_nbins,
+            npermutations=npermutations, dtype=dtype,
+            classes_y=classes_y, freqs_y=freqs_y,
+            min_nonzero_confidence=min_nonzero_confidence, prefer_gpu=False,
+        )
 
     free_bytes, _ = cp.cuda.runtime.memGetInfo()
     bytes_per_perm = n * 4

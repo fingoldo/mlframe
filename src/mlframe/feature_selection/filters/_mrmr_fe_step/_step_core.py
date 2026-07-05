@@ -119,6 +119,16 @@ def _run_fe_step(
     ``(data, cols, nbins, X, selected_vars, n_recommended_features)``. ``n_recommended_features == 0`` signals
     the outer loop to stop. Private; external callers should use ``MRMR.fit()`` or ``MRMR.fit_transform()``.
     """
+    # VRAM POOL CAP (2026-07-05): setup counterpart to the ``_free_gpu_fe_mempool`` teardown below. Cap MRMR's
+    # OWN cupy default pool to ``MLFRAME_FE_GPU_POOL_FRACTION`` (default 0.6) of total VRAM ONCE per process at the
+    # FE-step entry, so the pool cannot grow unbounded and eat a shared 4 GB card (starving the next launch / other
+    # processes). Idempotent + best-effort (no-op without cupy); on exhaustion cupy raises OutOfMemoryError which
+    # the GPU-FE try/excepts catch -> graceful CPU. Cheap: the once-flag short-circuits every call after the first.
+    try:
+        from .._fe_gpu_vram import ensure_fe_gpu_pool_limit as _ensure_fe_gpu_pool_limit
+        _ensure_fe_gpu_pool_limit()
+    except Exception:  # noqa: BLE001
+        pass
     # SEPARATE KTC-free GPU-RESIDENT FE step (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT, default
     # OFF). When the resident path is enabled it takes over the WHOLE FE step (operands uploaded once per
     # device, all compute on GPU kernels, no bulk D2H). Phase 0: the entry is a stub that raises

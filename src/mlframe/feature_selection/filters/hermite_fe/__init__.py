@@ -275,12 +275,21 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
     except Exception:
         return []
     needed = int(n) * 8 * 4 + (64 << 20)
+    # ABSOLUTE cushion guard (2026-07-05): the ``free >= needed`` test below is RELATIVE to this column's size
+    # and passes even when the card is nearly full (the pool already ate it) -- letting the next launch fault on
+    # a shared card. ADD an absolute free-VRAM floor (default >=1 GB free) per device so a near-full device is
+    # dropped from the cascade -> empty list -> CPU. Pure ADD -- tightens, never loosens; permissive without it.
+    try:
+        from .._fe_gpu_vram import fe_gpu_has_vram_cushion as _cushion
+    except Exception:  # noqa: BLE001
+        _cushion = None
     fits = []
     for d in range(ndev):
         try:
             with cp.cuda.Device(d):
                 free, _total = cp.cuda.runtime.memGetInfo()
-            if free >= needed:
+                _cush_ok = _cushion(needed) if _cushion is not None else True
+            if free >= needed and _cush_ok:
                 fits.append((free, d))
         except Exception:
             continue

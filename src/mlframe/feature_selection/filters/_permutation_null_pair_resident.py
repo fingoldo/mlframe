@@ -236,6 +236,16 @@ def pair_maxt_perm_null_gpu_enabled(n: int, n_pairs: int) -> bool:
         return False
     if _PAIR_MAXT_GPU_FAILED:  # context poisoned by a prior launch fault -> never re-attempt the GPU this process.
         return False
+    # ABSOLUTE cushion guard (2026-07-05): even under STRICT, decline the resident GPU floor on a near-full /
+    # SHARED card so its (n, n_pairs) device buffers do not fault the next launch -> the caller keeps the exact
+    # CPU njit floor. Deliberately checked BEFORE the STRICT gate: a cushion violation is REAL OOM risk (unlike a
+    # conservative size threshold STRICT may legitimately force past). Permissive without cupy. Pure ADD.
+    try:
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+        if not fe_gpu_has_vram_cushion(int(n) * max(int(n_pairs), 1) * 8):
+            return False
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
 

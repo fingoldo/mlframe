@@ -905,6 +905,17 @@ def dispatch_batch_mi_with_noise_gate_gpu(
     n = int(disc_2d.shape[0])
     K = int(disc_2d.shape[1])
 
+    # ABSOLUTE cushion guard (2026-07-05): on a near-full / SHARED card return None so the caller runs the CPU
+    # kernel, BEFORE the per-tile relative ``free_b * 0.35`` budget below (computed only after the pool may have
+    # already eaten the device). The dominant device buffer is the (rows, n*K) int index array; estimate one
+    # y-row's worth as the cushion's bytes_needed. Pure ADD -- tightens, never loosens; permissive without cupy.
+    try:
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+        if not fe_gpu_has_vram_cushion(n * max(K, 1) * 8):
+            return None
+    except Exception:  # noqa: BLE001
+        pass
+
     if force_backend is not None:
         fb = force_backend.lower()
         if fb == "cupy" and _CUPY_AVAIL:

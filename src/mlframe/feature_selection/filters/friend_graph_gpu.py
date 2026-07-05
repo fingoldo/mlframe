@@ -696,6 +696,17 @@ def dispatch_friend_graph_stats(
     if k < 2 or n == 0:
         return None
 
+    # ABSOLUTE cushion guard (2026-07-05): on a near-full / SHARED card return None so the caller runs its CPU
+    # edge pass, BEFORE the per-tile relative ``free_b * 0.35`` budget inside the cupy backend. The dominant
+    # device buffer is the (rows, n) pair-index array; estimate one pair-row as the cushion's bytes_needed.
+    # Pure ADD -- tightens, never loosens; permissive without cupy.
+    try:
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+        if not fe_gpu_has_vram_cushion(n * 8):
+            return None
+    except Exception:  # noqa: BLE001
+        pass
+
     if force_backend is not None:
         fb = force_backend.lower()
         if fb == "cupy" and _CUPY_AVAIL:

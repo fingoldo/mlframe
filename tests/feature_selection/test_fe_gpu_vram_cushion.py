@@ -1,0 +1,180 @@
+"""Unit + regression tests for the FE/MRMR GPU VRAM absolute-cushion guard (``_fe_gpu_vram``).
+
+Runs WITHOUT a real free GPU: ``cp.cuda.runtime.memGetInfo`` is monkeypatched so the free/total VRAM
+is fully controlled, and the cupy-absent path is simulated by making ``import cupy`` raise. So these
+tests are deterministic on any host (GPU present or not, contended or idle).
+"""
+from __future__ import annotations
+
+import builtins
+import importlib
+import sys
+
+import pytest
+
+MOD = "mlframe.feature_selection.filters._fe_gpu_vram"
+
+MB = 1024 * 1024
+GB = 1024 * MB
+
+
+@pytest.fixture()
+def vram():
+    """Fresh import of the cushion module with the once-per-process pool flag re-armed each test."""
+    m = importlib.import_module(MOD)
+    m._reset_fe_gpu_pool_limit_flag()
+    yield m
+    m._reset_fe_gpu_pool_limit_flag()
+
+
+def _patch_meminfo(monkeypatch, free_b: int, total_b: int = 4 * GB):
+    """Force cupy's memGetInfo to report a chosen (free, total) so the cushion runs without a real GPU."""
+    import cupy as cp
+
+    monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", lambda: (int(free_b), int(total_b)))
+
+
+def test_declines_when_free_below_cushion(monkeypatch, vram):
+    """free < 1 GB cushion -> False (route CPU). The core near-full-card regression."""
+    pytest.importorskip("cupy")
+    _patch_meminfo(monkeypatch, free_b=322 * MB, total_b=4 * GB)  # the observed live wellbore condition
+    assert vram.fe_gpu_has_vram_cushion(0) is False
+    assert vram.fe_gpu_has_vram_cushion(10 * MB) is False
+
+
+def test_allows_when_free_minus_needed_meets_cushion(monkeypatch, vram):
+    """free - bytes_needed >= cushion -> True (GPU allowed)."""
+    pytest.importorskip("cupy")
+    _patch_meminfo(monkeypatch, free_b=3 * GB, total_b=4 * GB)
+    assert vram.fe_gpu_has_vram_cushion(0) is True
+    assert vram.fe_gpu_has_vram_cushion(1 * GB) is True  # 3 - 1 = 2 GB >= 1 GB cushion
+
+
+def test_declines_when_needed_pushes_below_cushion(monkeypatch, vram):
+    """Enough free, but bytes_needed eats the cushion -> False."""
+    pytest.importorskip("cupy")
+    _patch_meminfo(monkeypatch, free_b=1500 * MB, total_b=4 * GB)  # 1.5 GB free
+    assert vram.fe_gpu_has_vram_cushion(0) is True  # 1.5 GB >= 1 GB
+    assert vram.fe_gpu_has_vram_cushion(1 * GB) is False  # 1.5 - 1.0 = 0.5 GB < 1 GB cushion
+
+
+def test_env_override_min_free_mb(monkeypatch, vram):
+    """MLFRAME_FE_GPU_MIN_FREE_MB tightens/loosens the absolute floor."""
+    pytest.importorskip("cupy")
+    _patch_meminfo(monkeypatch, free_b=1500 * MB, total_b=8 * GB)  # big card so tiny-fraction doesn't clamp
+    monkeypatch.setenv("MLFRAME_FE_GPU_MIN_FREE_MB", "2048")  # require 2 GB
+    assert vram.fe_gpu_has_vram_cushion(0) is False  # 1.5 GB < 2 GB
+    monkeypatch.setenv("MLFRAME_FE_GPU_MIN_FREE_MB", "512")  # require 0.5 GB
+    assert vram.fe_gpu_has_vram_cushion(0) is True  # 1.5 GB >= 0.5 GB
+
+
+def test_tiny_card_fraction_clamps_cushion(monkeypatch, vram):
+    """On a hypothetical tiny card the cushion is min(abs floor, 50% of total), never > half the card."""
+    pytest.importorskip("cupy")
+    # total 1 GB -> tiny cushion = min(1 GB, 0.5 GB) = 0.5 GB; 0.6 GB free passes despite < 1 GB abs floor.
+    _patch_meminfo(monkeypatch, free_b=600 * MB, total_b=1 * GB)
+    assert vram.fe_gpu_has_vram_cushion(0) is True
+    # 4 GB card keeps the FULL 1 GB floor (clamp does not bite): 0.9 GB free -> declined.
+    _patch_meminfo(monkeypatch, free_b=900 * MB, total_b=4 * GB)
+    assert vram.fe_gpu_has_vram_cushion(0) is False
+
+
+def test_permissive_when_cupy_import_fails(monkeypatch, vram):
+    """No cupy (non-GPU host) -> permissive True so those hosts are entirely unaffected."""
+    real_import = builtins.__import__
+
+    def _fake_import(name, *a, **k):
+        if name == "cupy" or name.startswith("cupy."):
+            raise ImportError("simulated: cupy unavailable")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+    assert vram.fe_gpu_has_vram_cushion(0) is True
+    assert vram.fe_gpu_has_vram_cushion(10 * GB) is True
+
+
+def test_permissive_when_memgetinfo_raises(monkeypatch, vram):
+    """A probe error must not block the GPU -> permissive True."""
+    pytest.importorskip("cupy")
+    import cupy as cp
+
+    def _boom():
+        raise RuntimeError("simulated memGetInfo failure")
+
+    monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", _boom)
+    assert vram.fe_gpu_has_vram_cushion(0) is True
+
+
+def test_ensure_pool_limit_idempotent(monkeypatch, vram):
+    """set_limit is called exactly ONCE per process (idempotent once-flag), with fraction= kwarg."""
+    pytest.importorskip("cupy")
+    import cupy as cp
+
+    calls = []
+
+    class _FakePool:
+        def set_limit(self, size=None, fraction=None):
+            calls.append((size, fraction))
+
+    monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FakePool())
+    _patch_meminfo(monkeypatch, free_b=3 * GB, total_b=4 * GB)
+
+    assert vram.ensure_fe_gpu_pool_limit() is True
+    assert vram.ensure_fe_gpu_pool_limit() is False  # second call is a no-op
+    assert vram.ensure_fe_gpu_pool_limit() is False
+    assert len(calls) == 1
+    assert calls[0][0] is None and calls[0][1] == pytest.approx(0.6)  # fraction=0.6 default, size unused
+
+
+def test_ensure_pool_limit_env_fraction(monkeypatch, vram):
+    """MLFRAME_FE_GPU_POOL_FRACTION overrides the cap fraction."""
+    pytest.importorskip("cupy")
+    import cupy as cp
+
+    calls = []
+
+    class _FakePool:
+        def set_limit(self, size=None, fraction=None):
+            calls.append(fraction)
+
+    monkeypatch.setattr(cp, "get_default_memory_pool", lambda: _FakePool())
+    _patch_meminfo(monkeypatch, free_b=3 * GB, total_b=4 * GB)
+    monkeypatch.setenv("MLFRAME_FE_GPU_POOL_FRACTION", "0.4")
+    assert vram.ensure_fe_gpu_pool_limit() is True
+    assert calls == [pytest.approx(0.4)]
+
+
+def test_ensure_pool_limit_noop_without_cupy(monkeypatch, vram):
+    """No cupy -> ensure returns False (nothing to cap), never raises."""
+    real_import = builtins.__import__
+
+    def _fake_import(name, *a, **k):
+        if name == "cupy" or name.startswith("cupy."):
+            raise ImportError("simulated: cupy unavailable")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+    assert vram.ensure_fe_gpu_pool_limit() is False
+
+
+def test_regression_guard_declines_gpu_at_low_free(monkeypatch, vram):
+    """Regression: a real guard (the _cmi_cuda batched-CMI gate) must decline the GPU on a near-full card.
+
+    Pins the wired cushion end-to-end: with free VRAM below the cushion, ``_should_use_cuda`` returns False
+    (routes CPU) EVEN for a shape that otherwise passes the size/shared-mem gates. Verifies the cushion is not
+    bypassable by MLFRAME_FE_GPU_STRICT (checked before the STRICT override)."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters.info_theory import _cmi_cuda
+
+    # Re-arm any prior GPU-failed poison so the gate is reachable.
+    if hasattr(_cmi_cuda, "reset_cmi_gpu_circuit_breaker"):
+        try:
+            _cmi_cuda.reset_cmi_gpu_circuit_breaker()
+        except Exception:
+            pass
+    monkeypatch.setattr(_cmi_cuda, "cupy_available", lambda: True)
+    _patch_meminfo(monkeypatch, free_b=322 * MB, total_b=4 * GB)  # near-full shared card
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")  # STRICT must NOT bypass the cushion
+
+    # A modest shape whose working set easily fits the RELATIVE cap but the card is near-full.
+    assert _cmi_cuda._should_use_cuda(n=50_000, p=8, joint_size=64, nbins_x=4, nbins_y=4, nbins_z=4) is False

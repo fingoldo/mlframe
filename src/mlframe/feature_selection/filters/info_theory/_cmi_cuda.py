@@ -585,6 +585,15 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
         pass
     if bytes_needed > cap:
         return False
+    # ABSOLUTE cushion guard (2026-07-05): the relative cap above is computed only AFTER the cupy pool may
+    # have already eaten the card; on a near-full / SHARED 4 GB card that lets the next launch fault. Require
+    # an ABSOLUTE free-VRAM floor (default >=1 GB) BEFORE touching the GPU. Pure ADD -- tightens, never loosens.
+    try:
+        from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
+        if not fe_gpu_has_vram_cushion(bytes_needed):
+            return False
+    except Exception:  # noqa: BLE001  -- cushion module unavailable: leave the existing gates in charge
+        pass
     # Shared-mem guard: cc 6.x has 48 KB/block and BOTH kernels must fit (see _cmi_cuda_shmem_fits).
     if not _cmi_cuda_shmem_fits(joint_size, nbins_x, nbins_y, nbins_z):
         return False
