@@ -53,7 +53,6 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
     d_yperms = cp.asarray(y_perms)                          # (nperm, n) int (>=0 class codes)
     d_off = cp.asarray(offsets, dtype=cp.int64)             # (ncand+1,) int64 flat segment offsets
     jc_host = np.asarray(joint_card, dtype=np.int64)        # (ncand,) per-candidate joint cardinality (host)
-    d_jc = cp.asarray(jc_host)                              # device twin (kept for any device-side use)
     d_hx = cp.asarray(h_x, dtype=cp.float64)               # (ncand,) marginal H(x)
     d_mm = cp.asarray(mm_bias, dtype=cp.float64)           # (ncand,) Miller-Madow bias
     h_y = float(h_y)
@@ -69,8 +68,7 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
         c1 = min(c0 + cand_chunk, ncand)
         cc = c1 - c0
         # max_jc drives host-side shape/arange sizing, so read it from the HOST joint_card slice -- a device
-        # ``cp.max(...).item()`` here was a tiny per-chunk D2H scalar pull (latency, not bandwidth). The host
-        # ``jc_host`` is the exact same values uploaded into ``d_jc`` -> identical max, zero round-trip.
+        # ``cp.max(...).item()`` here was a tiny per-chunk D2H scalar pull (latency, not bandwidth).
         max_jc = int(jc_host[c0:c1].max()) if c1 > c0 else 0
         if max_jc <= 0:
             continue

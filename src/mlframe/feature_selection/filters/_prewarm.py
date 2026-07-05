@@ -370,7 +370,7 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
     _t0 = time.perf_counter()
 
     try:
-        import cupy as cp
+        import cupy as cp  # noqa: F401 -- import doubles as the cupy-installed probe
         from pyutilz.core.pythonlib import is_cuda_available
         if not is_cuda_available():
             if verbose:

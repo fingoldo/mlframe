@@ -513,7 +513,6 @@ def _gpu_quantile_bin_codes(V, qs):
     cp = _cp
     m, n = V.shape
     srt = cp.sort(V, axis=1)                      # (m, n) ascending -- matches np.sort
-    nq = qs.shape[0]
     pos = qs * (n - 1)                            # virtual indices, (nq,)
     lo = cp.floor(pos).astype(cp.int64)           # (nq,)
     hi = cp.where(lo < n - 1, lo + 1, lo)
@@ -581,7 +580,6 @@ def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
     cp = _cp
     nc = int(ua_arr.shape[0])
     n = int(x1.shape[0])
-    nbins = int(qs.shape[0]) - 1
     out = np.empty(nc, dtype=np.float64)
     if nc == 0:
         return out

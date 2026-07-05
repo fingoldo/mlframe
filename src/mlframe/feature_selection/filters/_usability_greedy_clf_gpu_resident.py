@@ -176,7 +176,6 @@ def usability_greedy_clf_gpu_resident(
         va_masks = [folds_dev == fo for fo in range(nf)]
         # host fold masks (for cheap unique-class checks without a per-fold D2H of codes)
         tr_masks_h = [folds_host != fo for fo in range(nf)]
-        va_masks_h = [folds_host == fo for fo in range(nf)]
 
         # Majority class for the multiclass shortlist residual; positive class is class 1 for binary
         # (mirrors the CPU path: binary indicator 1{y==1}, multiclass indicator 1{y==argmax bincount}).
@@ -184,8 +183,6 @@ def usability_greedy_clf_gpu_resident(
         maj = int(np.argmax(_bincount))
         pos_cls = 1 if n_classes == 2 else maj
         pos_dev = (yenc_dev == pos_cls).astype(cp.float64)
-
-        labels_dev = cp.arange(n_classes)
 
         # ---------- resident logistic fits (strictly-convex L2 Newton; the unique sklearn optimum) ----------
         def _standardize(Xtr, Xother):

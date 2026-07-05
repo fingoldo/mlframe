@@ -226,8 +226,6 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
     import cupy as cp
 
     df = cp.asarray(np.asarray(feat, dtype=np.float64).ravel())
-    n = int(df.size)
-    inv_n = 1.0 / float(n)
     if discrete:
         from ._fe_batched_mi import binned_mi_from_codes_gpu
         fb = (df - df.min()).astype(cp.int64)
