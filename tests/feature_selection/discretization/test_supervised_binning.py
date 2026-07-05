@@ -271,3 +271,28 @@ def test_biz_mdlp_recovers_decision_boundary():
     assert any(0.25 <= s <= 0.35 for s in inner), (
         f"No split within [0.25, 0.35] of the true boundary 0.3; got splits {inner.tolist()}"
     )
+
+
+@pytest.mark.parametrize("K", [2, 3, 4, 5])
+def test_mdlp_njit_backend_matches_python_backend_multiclass(K):
+    """The njit recursion derives per-side class counts (which feed the MDL threshold) from
+    ``np.count_nonzero`` of the bincount it already builds, instead of a separate ``np.unique``
+    sort of the subset. The resulting edges must stay byte-identical to the untouched pure-Python
+    ``backend='python'`` reference (which still uses np.unique) on a multiclass signal where the
+    left/right subsets carry differing class counts -- the exact path that class count governs.
+    """
+    rng = np.random.default_rng(20260705 + K)
+    n = 8000
+    x = np.sort(rng.standard_normal(n)).astype(np.float64)
+    # y = region label with 15% noise so left/right subsets have distinct, differing class counts.
+    edges_true = np.quantile(x, np.linspace(0, 1, K + 1))[1:-1]
+    y_clean = np.searchsorted(edges_true, x)
+    noisy = rng.uniform(size=n) < 0.15
+    y = np.where(noisy, rng.integers(0, K, n), y_clean).astype(np.int64)
+
+    e_njit = mdlp_bin_edges(x, y, backend="njit")
+    e_py = mdlp_bin_edges(x, y, backend="python")
+    np.testing.assert_array_equal(
+        e_njit, e_py,
+        err_msg=f"njit backend edges diverge from python reference at K={K} (class-count derivation bug)",
+    )

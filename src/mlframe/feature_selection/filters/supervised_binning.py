@@ -260,12 +260,14 @@ def _mdlp_recurse_njit(
     left_mask_idx = best_idx + 1  # x[:left_mask_idx] is left, x[left_mask_idx:] is right
     y_left = y_compact[:left_mask_idx]
     y_right = y_compact[left_mask_idx:]
-    uniq_left = np.unique(y_left)
-    uniq_right = np.unique(y_right)
-    n_classes_left = uniq_left.size
-    n_classes_right = uniq_right.size
     counts_left_dense = np.bincount(y_left, minlength=int(n_classes_full)).astype(np.int64)
     counts_right_dense = np.bincount(y_right, minlength=int(n_classes_full)).astype(np.int64)
+    # Distinct-class count == number of non-zero bins in the bincount just built, so derive it from
+    # ``counts`` (an O(n_classes) scan, K ~ 2-20) instead of a separate ``np.unique`` sort of the
+    # O(m) subset per recursion node. Bit-identical: y is compacted to dense [0, K) so every present
+    # class occupies exactly one bin.
+    n_classes_left = int(np.count_nonzero(counts_left_dense))
+    n_classes_right = int(np.count_nonzero(counts_right_dense))
     h_left = float(_entropy_from_counts_njit(counts_left_dense, int(n_l)))
     h_right = float(_entropy_from_counts_njit(counts_right_dense, int(n_r)))
     if not _mdlp_pass_threshold_njit(
