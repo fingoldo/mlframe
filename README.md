@@ -397,6 +397,17 @@ is configured through `ReportingConfig`. Full reference:
 | Quantile | `RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING FAN_CHART` (`quantile_panels`) |
 | Regression | `SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE WORM RESID_ACF` (`regression_panels`) |
 
+A sample of the rendered panels (full gallery: [docs/gallery](docs/gallery/index.md), regenerated with `python scripts/render_gallery.py`):
+
+| | |
+| --- | --- |
+| Binary classification (`ROC PR SCORE_DIST KS THRESHOLD GAIN PIT`) | Regression (scatter, residuals, error-by-decile, worm, ACF) |
+| ![binary_full](docs/gallery/binary/binary_full.png) | ![regression_full](docs/gallery/regression/regression_full.png) |
+| PSI drift heatmap (feature × time) | Calibration reliability (Venn-Abers / isotonic / Platt / beta) |
+| ![psi_heatmap](docs/gallery/drift/psi_heatmap.png) | ![calibration_reliability](docs/gallery/binary/calibration_reliability.png) |
+| SHAP beeswarm | Model comparison across metrics |
+| ![shap_beeswarm](docs/gallery/shap_panels/shap_shap_beeswarm.png) | ![model_comparison](docs/gallery/model_comparison/model_comparison.png) |
+
 **New diagnostics this brings.** Binary classification gained the full curve set
 it previously lacked (ROC / PR / score-distribution / KS / threshold-sweep /
 cumulative-gain / PIT). Beyond the per-task panels the suite also renders, when
