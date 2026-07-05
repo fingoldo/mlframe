@@ -139,7 +139,13 @@ def _get_shared_fe_subsample_idx(self, y_continuous, n_full):
         self._fe_shared_subsample_idx = idx
         self._fe_shared_subsample_n = n
         return idx
-    except Exception:
+    except Exception as exc:
+        # A silent None here leaves ``_fe_shared_subsample_idx`` unset, so EVERY FE/MI consumer that reads
+        # it (the order-1 screen relevance sweep, the CMI redundancy loop, the FE pair/polynom search)
+        # runs at FULL n -- a ~33x cost blow-up at n~1M that only shows up as "slow" in a profile. Log at
+        # WARNING so a resolver failure is diagnosable; still fall back to full-n (best-effort), never
+        # silently.
+        logger.warning("_get_shared_fe_subsample_idx failed; FE screen will run at FULL n (no subsample): %r", exc, exc_info=True)
         return None
 
 

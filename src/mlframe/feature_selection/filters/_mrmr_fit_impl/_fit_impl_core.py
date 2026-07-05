@@ -6417,7 +6417,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         try:
             from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
             _screen_shared_idx = _get_shared_fe_subsample_idx(self, np.asarray(data[:, int(target_indices[0])]), int(len(data)))
-        except Exception:
+        except Exception as _sub_exc:
+            # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
+            logger.warning("mrmr: shared FE subsample resolution failed; screening at FULL n: %r", _sub_exc, exc_info=True)
             _screen_shared_idx = None
         selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y, _dcd_state = (
             screen_predictors(

@@ -11,7 +11,13 @@ history.
 
 ## [Unreleased]
 
+### Fixed
+
+- MRMR FE screen-subsample: the classification stratified subsampler could return ~n rows (one per class) for a very high-cardinality / near-continuous target, silently defeating the 30k screen subsample and running the MI/CMI screen at full n (~33x slower at n~1M). It now falls back to a uniform draw of the requested size when the per-class floor cannot fit the budget; genuine low-cardinality classification still stratifies (rare classes preserved). The bare `except` fallbacks that make the whole screen silently run at full n now log a WARNING so the regression is diagnosable instead of an invisible slowdown.
+
 ### Changed
+
+- MRMR CPU conditional-MI redundancy loop: the serial-vs-parallel threshold `_CMI_PARALLEL_MIN_CANDS` lowered 32 -> 8 (override `MLFRAME_CMI_PARALLEL_MIN_CANDS`). At the default 30k screen-subsample size the `prange` loop beats the serial loop 2.4-7.8x for every candidate count `p>=4`, so small candidate pools no longer run single-core. Both branches are exact CMI (selection-equivalent).
 
 - MRMR GPU-resident FE (`MLFRAME_FE_GPU_STRICT`) now has an AUTO size-gated default: on fits at/above `MLFRAME_FE_GPU_STRICT_AUTO_MIN_N` rows (default 100 000, the production regime) with a usable CUDA device, STRICT engages automatically (~2.5x faster FE and measured selection-equivalent to the CPU path at that scale). Below the threshold, or with no GPU, the exact CPU path runs unchanged (byte-identical legacy). Set `MLFRAME_FE_GPU_STRICT=0` to pin the CPU path at any n, or `=1` to force STRICT. The small-n divergence that keeps STRICT gated below the threshold is finite-sample MI-estimation variance (features with near-tied relevance), which fades as n grows — verified converged across scenarios by ~50k; the 100k default sits comfortably above that.
 

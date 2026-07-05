@@ -51,7 +51,18 @@ from ._class_encoding import merge_vars
 logger = logging.getLogger(__name__)
 
 # Below this many candidates the njit-parallel CMI loop's thread-spawn overhead is not worth it -> exact serial path.
-_CMI_PARALLEL_MIN_CANDS = 32
+# Lowered 32 -> 8 (2026-07): at the default 30k SCREEN-SUBSAMPLE size (the typical per-candidate CMI shape once the
+# Q1 screen subsample engages) prange beats the serial loop 2.4-7.8x for EVERY p>=4, and p>=8 wins universally
+# (1.7-8.6x) across n=1k..30k -- each candidate's exact conditional_mi on ~30k rows dwarfs the ~50us thread spawn.
+# The old 32 floor kept small candidate pools (the wellbore's serial single-core / ~44%-CPU window) on ONE core.
+# 8 captures nearly all the win while keeping the tiniest pools (p<8, sub-ms, where spawn variance matters at very
+# small n) serial. Both branches are exact CMI (selection-equivalent); the threshold only trades cores for spawn.
+# Bench: info_theory/_benchmarks/bench_cmi_parallel_threshold.py. Override via MLFRAME_CMI_PARALLEL_MIN_CANDS.
+import os as _os_thr
+try:
+    _CMI_PARALLEL_MIN_CANDS = int(_os_thr.environ.get("MLFRAME_CMI_PARALLEL_MIN_CANDS", "8"))
+except (TypeError, ValueError):
+    _CMI_PARALLEL_MIN_CANDS = 8
 
 # Module-level kernel singleton (pickle-safe: never stored on instances).
 _cmi_joint_hist_cuda = None  # type: ignore[assignment]

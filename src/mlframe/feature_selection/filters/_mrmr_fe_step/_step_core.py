@@ -469,7 +469,9 @@ def _run_fe_step(
         try:
             from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
             _shared_fe_idx = _get_shared_fe_subsample_idx(self, np.asarray(classes_y), int(getattr(X, "shape", [len(X)])[0]))
-        except Exception:
+        except Exception as _sub_exc:
+            # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
+            logger.warning("mrmr: shared FE subsample resolution failed in FE step; running at FULL n: %r", _sub_exc, exc_info=True)
             _shared_fe_idx = None
         # Capture cols width before the polynom block so we can promote the
         # polynom-injected engineered column indices into ``selected_vars``
@@ -654,7 +656,9 @@ def _run_fe_step(
         try:
             from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
             _shared_fe_idx = _get_shared_fe_subsample_idx(self, np.asarray(classes_y), int(getattr(X, "shape", [len(X)])[0]))
-        except Exception:
+        except Exception as _sub_exc:
+            # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
+            logger.warning("mrmr: shared FE subsample resolution failed in FE step; running at FULL n: %r", _sub_exc, exc_info=True)
             _shared_fe_idx = None
         try:
             from .._feature_engineering_pairs._pairs_core import _fe_gpu_discretize_enabled as _fe_gpu_disc_gate

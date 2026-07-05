@@ -17,7 +17,11 @@ degrades gracefully (single class / constant y / size>=n) back to a uniform / fu
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+_logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 try:
     from numba import njit
@@ -234,6 +238,17 @@ def stratified_subsample_idx(rng, y, size: int, *, is_clf: bool) -> np.ndarray:
             n_classes = classes.shape[0]
             if n_classes <= 1:
                 return _uniform()
+            # HIGH-CARDINALITY GUARD: the per-class ``min(2, count)`` floor guarantees a rare class is
+            # never wholly dropped, but when the label is (near-)continuous / very high cardinality the
+            # floors alone SUM TO ~n -- the "subsample" then returns ~n rows and silently DEFEATS the
+            # screen subsample (a 998327-row "30k" draw returned 998327 rows in the wellbore-shape repro).
+            # When the floored minimum cannot fit the budget, stratification is meaningless: fall back to a
+            # plain uniform draw of exactly ``size`` rows (a target with more distinct labels than the row
+            # budget is effectively continuous). ``inv`` is already computed, so the floor sum is O(n) cheap.
+            _cnts = np.bincount(inv.astype(np.int64, copy=False), minlength=n_classes)
+            _floor_total = int(np.minimum(_cnts, 2).sum())
+            if _floor_total > size:
+                return _uniform()
             if _HAVE_NUMBA:
                 codes = np.ascontiguousarray(inv.astype(np.int64))
                 idx = _strat_clf_kernel(codes, int(n_classes), size, int(n), _derive_seed(rng))
@@ -335,7 +350,12 @@ def resolve_shared_fe_subsample_idx(y: np.ndarray, n_rows: int, size: int, *, is
         if stratify:
             return stratified_subsample_idx(rng, np.asarray(y), size, is_clf=is_clf)
         return np.sort(rng.choice(n, size=size, replace=False)).astype(np.int64, copy=False)
-    except Exception:
+    except Exception as exc:
+        # A silent None here makes every downstream FE/MI consumer run at FULL n -- a ~33x cost blow-up at
+        # n~1M that is invisible in a profile (it just looks slow). Log at WARNING so a failure in the
+        # (group-aware / stratified) resolve is diagnosable instead of a mystery full-n screen. Still fall
+        # back (best-effort optimisation), but never silently.
+        _logger.warning("resolve_shared_fe_subsample_idx failed; FE screen will run at FULL n (no subsample): %r", exc, exc_info=True)
         return None
 
 
