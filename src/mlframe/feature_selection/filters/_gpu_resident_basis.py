@@ -934,7 +934,7 @@ def gpu_pairs_fe_mi(cand: np.ndarray, quantization_nbins: int, classes_y: np.nda
         # The analytic keep/reject is cheap CPU post-processing on the (K,) observed MI + the device-counted
         # occupied-bin df (disc_2d unused -- bx_per_col is supplied), identical to the host gate's decision.
         return analytic_batch_noise_gate(None, observed, yc, n,
-                                         float(min_nonzero_confidence), bx_per_col=bx)
+                                         float(min_nonzero_confidence), bx_per_col=bx, by=by)
     except Exception:
         # Surface the cause (don't silently degrade to CPU forever): a real logic/shape/numeric bug in
         # the GPU path would otherwise be invisible -- the exact "GPU never helped" failure mode.
