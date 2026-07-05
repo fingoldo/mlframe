@@ -89,7 +89,7 @@ def _conditional_perm_null(
     # point estimate are directly comparable, and the memory stays bounded by n
     # (no dense (K_x, K_y, K_z) contingency allocation when the frozen support's
     # joint cardinality climbs into the thousands).
-    from ._mi_greedy_cmi_fe import _cmi_from_binned, _cmi_gpu_enabled, _entropy_from_classes, _renumber_joint, cmi_from_binned_fixed_yz, precompute_cmi_yz_terms
+    from ._mi_greedy_cmi_fe import _cmi_from_binned, _cmi_gpu_enabled, _entropy_from_classes, _renumber_joint, cmi_from_binned_fixed_yz, precompute_cmi_yz_terms, precompute_marginal_y_terms, marginal_mi_binned_fixed_y
 
     # ``cand_bin`` may be an ALREADY-RESIDENT cupy int64 code (device-born binning) OR a host int64 array. Keep
     # the resident handle ``cand_dev`` so the GPU-resident perm-null branch below consumes it WITHOUT a re-upload
@@ -278,10 +278,16 @@ def _conditional_perm_null(
                 return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
             except Exception:
                 pass
+        # y is FIXED across all marginal shuffles, so H(Y) and its occupied-cell count k_y are
+        # invariant -- hoist the y-only block ONCE (precompute_marginal_y_terms) and reuse it per
+        # perm via marginal_mi_binned_fixed_y, instead of re-binning y + recomputing H(Y) inside
+        # every _cmi_from_binned(x_perm, y, None) call. Bit-identical (same plug-in entropies +
+        # Miller-Madow bias, only the redundant per-perm H(Y) recompute + y int64 cast removed).
+        y_i_m, h_y_m, k_y_m = precompute_marginal_y_terms(y)
         nulls = np.empty(nperm, dtype=np.float64)
         for i in range(nperm):
             x_perm = _xh[rng.permutation(_xh.size)]
-            nulls[i] = float(_cmi_from_binned(x_perm, y, None))
+            nulls[i] = float(marginal_mi_binned_fixed_y(x_perm, y_i_m, h_y_m, k_y_m))
         return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
 
     z = np.ascontiguousarray(z_support, dtype=np.int64).ravel()
@@ -396,6 +402,13 @@ def _conditional_perm_null(
             pass  # any cupy error -> exact per-perm CPU loop below
     _xh = _host_x()
     x_sorted = _xh[order]
+    # bench-attempt-rejected (2026-07-05): dropping the per-perm ``np.empty_like`` + scatter
+    # ``x_perm[order] = x_sorted[within]`` by pre-permuting ``y_i``/``z_i`` by ``order`` once and
+    # passing ``x_sorted[within]`` directly (histogram is row-order invariant) measured only
+    # 1.01-1.07x (bench_perm_null_row_order_hoist.py) AND was NOT bit-identical -- reordering the
+    # rows changes _renumber_joint's first-appearance cell labelling, so the entropy sum reduces in
+    # a different order (~1e-13 drift). Not worth trading bit-identity for a win that vanishes to
+    # 1.01x at n=30k (the njit CMI + argsort dominate, not the alloc/scatter).
     nulls = np.empty(_nperm, dtype=np.float64)
     for i in range(_nperm):
         keys = rng.random(n_size)
