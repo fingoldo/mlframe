@@ -47,7 +47,7 @@ def main():
         K_x, K_y = 16, 10
         xb = rng.integers(0, K_x, n).astype(np.int64)
         yb = rng.integers(0, K_y, n).astype(np.int64)
-        assert np.array_equal(_loop_2d(xb, yb, K_x, K_y), _vec_2d(xb, yb, K_x, K_y))
+        assert np.array_equal(_loop_2d(xb, yb, K_x, K_y), _vec_2d(xb, yb, K_x, K_y))  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
         to = _best(_loop_2d, xb, yb, K_x, K_y); tv = _best(_vec_2d, xb, yb, K_x, K_y)
         print(f"2D n={n} K={K_x}x{K_y}: LOOP {to*1e3:.2f}ms -> bincount {tv*1e3:.3f}ms ({to/tv:.0f}x) identity OK")
 
@@ -55,7 +55,7 @@ def main():
         x1 = rng.integers(0, K1, n).astype(np.int64)
         x2 = rng.integers(0, K2, n).astype(np.int64)
         y = rng.integers(0, K3, n).astype(np.int64)
-        assert np.array_equal(_loop_3d(x1, x2, y, K1, K2, K3), _vec_3d(x1, x2, y, K1, K2, K3))
+        assert np.array_equal(_loop_3d(x1, x2, y, K1, K2, K3), _vec_3d(x1, x2, y, K1, K2, K3))  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
         to = _best(_loop_3d, x1, x2, y, K1, K2, K3); tv = _best(_vec_3d, x1, x2, y, K1, K2, K3)
         print(f"3D n={n} K={K1}x{K2}x{K3}: LOOP {to*1e3:.2f}ms -> bincount {tv*1e3:.3f}ms ({to/tv:.0f}x) identity OK")
 

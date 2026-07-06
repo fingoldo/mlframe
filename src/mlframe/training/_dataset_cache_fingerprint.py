@@ -80,7 +80,7 @@ def _canonicalise_row(row_values: Any) -> tuple:
             if isinstance(v, float) and v != v:
                 out.append("__nan__")
                 continue
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
         # numpy scalars: extract Python value to drop dtype carriage.
         if hasattr(v, "item") and callable(v.item):

@@ -46,7 +46,7 @@ def _zeropower_via_newtonschulz5(G: torch.Tensor, steps: int = 5) -> torch.Tenso
     practical orthogonality on FP32 / BF16. Uses BF16 internally for
     GEMM speed; final result is cast back to G's dtype.
     """
-    assert G.ndim == 2, f"Newton-Schulz requires 2D input; got shape {tuple(G.shape)}"
+    assert G.ndim == 2, f"Newton-Schulz requires 2D input; got shape {tuple(G.shape)}"  # nosec B101 - internal invariant check in src/mlframe/training/neural, not reachable with untrusted input
     a, b, c = (3.4445, -4.7750, 2.0315)
     X = G.to(torch.bfloat16) if G.is_cuda else G.to(torch.float32)
     # Iterate on the smaller-dim side (faster), then transpose back.

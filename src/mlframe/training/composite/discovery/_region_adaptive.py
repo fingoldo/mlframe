@@ -182,7 +182,7 @@ def _oof_score_transform(
         try:
             params = tr.fit(y[trn], base[trn])
             t_te = tr.forward(y[te], base[te], params)
-        except Exception:
+        except Exception:  # nosec B112 - best-effort path
             continue
         if not np.all(np.isfinite(t_te)):
             continue

@@ -474,41 +474,41 @@ def report_regression_model_perf(
             pass
 
         def _render_regression_token(token: str) -> str:
-            if token == "MAE":
+            if token == "MAE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return f"MAE={_fmt(MAE, report_ndigits)}"
-            if token == "RMSE":
+            if token == "RMSE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return f"RMSE={_fmt(RMSE, report_ndigits)}"
-            if token == "MaxError":
+            if token == "MaxError":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return f"MaxError={_fmt(MaxError, report_ndigits)}"
-            if token == "R2":
+            if token == "R2":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return f"R2={_fmt(R2, report_ndigits)}"
-            if token == "MBE":
+            if token == "MBE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_MBE) else f"MBE={_fmt(_ext_MBE, report_ndigits)}"
-            if token == "MAPE_mean":
+            if token == "MAPE_mean":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_MAPE_mean) else f"MAPE={_ext_MAPE_mean * 100:.{max(0, report_ndigits-1)}f}%"
-            if token == "SMAPE":
+            if token == "SMAPE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_SMAPE) else f"SMAPE={_ext_SMAPE * 50:.{max(0, report_ndigits-1)}f}%"
-            if token == "wMAPE":
+            if token == "wMAPE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_wMAPE) else f"wMAPE={_ext_wMAPE * 100:.{max(0, report_ndigits-1)}f}%"
-            if token == "CV_RMSE":
+            if token == "CV_RMSE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_CV_RMSE) else f"CV_RMSE={_ext_CV_RMSE * 100:.{max(0, report_ndigits-1)}f}%"
-            if token == "Pearson":
+            if token == "Pearson":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_Pearson) else f"Pearson={_fmt(_ext_Pearson, report_ndigits)}"
-            if token == "Spearman":
+            if token == "Spearman":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_Spearman) else f"Spearman={_fmt(_ext_Spearman, report_ndigits)}"
-            if token == "Kendall":
+            if token == "Kendall":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_Kendall) else f"Kendall={_fmt(_ext_Kendall, report_ndigits)}"
-            if token == "ExplainedVariance":
+            if token == "ExplainedVariance":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_EV) else f"EV={_fmt(_ext_EV, report_ndigits)}"
-            if token == "NSE":
+            if token == "NSE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_NSE) else f"NSE={_fmt(_ext_NSE, report_ndigits)}"
-            if token == "RMSLE":
+            if token == "RMSLE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_RMSLE) else f"RMSLE={_fmt(_ext_RMSLE, report_ndigits)}"
-            if token == "MdAPE":
+            if token == "MdAPE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_MdAPE) else f"MdAPE={_ext_MdAPE * 100:.{max(0, report_ndigits-1)}f}%"
-            if token == "ConcordanceIndex":
+            if token == "ConcordanceIndex":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_Cindex) else f"C-idx={_fmt(_ext_Cindex, report_ndigits)}"
-            if token == "Huber":
+            if token == "Huber":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 return "" if not np.isfinite(_ext_Huber) else f"Huber={_fmt(_ext_Huber, report_ndigits)}"
             return ""
 

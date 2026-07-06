@@ -270,7 +270,7 @@ def render_and_save(
             try:
                 import matplotlib.pyplot as plt
                 plt.close(fig)
-            except Exception:
+            except Exception:  # nosec B110 - optional dependency import guard
                 pass
 
     return handles if keep_handles else None

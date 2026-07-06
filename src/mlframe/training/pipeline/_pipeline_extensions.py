@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import os
 from timeit import default_timer as timer
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with list args only, no shell=True
 
 import pandas as pd
 import polars as pl

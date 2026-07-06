@@ -51,7 +51,7 @@ def _chk(msg: str):
     try:
         with open(PROGRESS, "a", encoding="ascii", errors="replace") as f:
             f.write(line + "\n")
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
 
 
@@ -359,7 +359,7 @@ def main():
     for p in (PROGRESS, RESULTS):
         try:
             os.makedirs(os.path.dirname(p), exist_ok=True)
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
     with open(PROGRESS, "w", encoding="ascii"):
         pass

@@ -345,7 +345,8 @@ def _model_probs_are_posthoc_calibrated(model) -> bool:
     try:
         if hasattr(model, "steps") and model.steps:
             candidates.append(model.steps[-1][1])
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _calibration_models.py:348: %s", e)
         pass
     for obj in candidates:
         if isinstance(obj, (CalibratedClassifierCV, _PostHocCalibratedModel, _PostHocMultiCalibratedModel)):

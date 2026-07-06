@@ -400,7 +400,7 @@ def _warm_collinear_kernel() -> None:
         _keep_mask_kernel_allfinite(warm, _mean, _var, 0.99, _BORDERLINE_BAND)
         _block_gather_kernel(np.arange(4, dtype=np.int64), np.arange(2, dtype=np.int64), 2)
         _block_gather_kernel(np.arange(4, dtype=np.float32), np.arange(2, dtype=np.int64), 2)
-    except Exception:  # pragma: no cover - warming is best-effort.
+    except Exception:  # pragma: no cover - warming is best-effort.  # nosec B110 - best-effort/optional path, no module logger
         pass
 
 

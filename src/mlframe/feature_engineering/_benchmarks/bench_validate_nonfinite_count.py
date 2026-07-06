@@ -33,7 +33,7 @@ def main() -> None:
         # inject a few non-finite to exercise the count path
         X[3, 4] = np.nan
         X[7, 1] = np.inf
-        assert _old(X) == _count_nonfinite_cells(X) == 2
+        assert _old(X) == _count_nonfinite_cells(X) == 2  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
         res = {}
         for f, nm in [(_old, "old"), (_count_nonfinite_cells, "njit")]:
             ts = []

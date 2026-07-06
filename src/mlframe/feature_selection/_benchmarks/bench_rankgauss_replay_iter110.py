@@ -44,8 +44,8 @@ def main() -> None:
     x_tied = rng.integers(0, 1000, n_test).astype(np.float64)
     fit_tied = np.sort(rng.integers(0, 1000, n_fit).astype(np.float64))
 
-    assert np.array_equal(_avg_rank_two_sweep(fit_sorted, x_cont), _avg_tie_rank(fit_sorted, x_cont)), "continuous diverged"
-    assert np.array_equal(_avg_rank_two_sweep(fit_tied, x_tied), _avg_tie_rank(fit_tied, x_tied)), "tied diverged"
+    assert np.array_equal(_avg_rank_two_sweep(fit_sorted, x_cont), _avg_tie_rank(fit_sorted, x_cont)), "continuous diverged"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
+    assert np.array_equal(_avg_rank_two_sweep(fit_tied, x_tied), _avg_tie_rank(fit_tied, x_tied)), "tied diverged"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
     print("identity: continuous OK, tied OK")
 
     for name, fn in (("old_two_sweep", _avg_rank_two_sweep), ("new_one_sweep", _avg_tie_rank)):

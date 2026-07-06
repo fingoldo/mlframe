@@ -37,7 +37,7 @@ def main():
         arr = np.ascontiguousarray(rng.standard_normal((n_rows, n_cols)).astype(np.float32))
         ref = discretize_2d_quantile_batch(arr, n_bins=nb, dtype=np.int8, parallel=True)
         fast = discretize_2d_quantile_batch(arr, n_bins=nb, dtype=np.int8, parallel=True, assume_finite=True)
-        assert np.array_equal(ref, fast), f"NOT bit-identical at {n_rows}x{n_cols}"
+        assert np.array_equal(ref, fast), f"NOT bit-identical at {n_rows}x{n_cols}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
         iters = max(20, int(3e6 / arr.size))
         t_def = _bench(lambda: discretize_2d_quantile_batch(arr, n_bins=nb, dtype=np.int8, parallel=True), iters)
         t_fast = _bench(lambda: discretize_2d_quantile_batch(arr, n_bins=nb, dtype=np.int8, parallel=True, assume_finite=True), iters)

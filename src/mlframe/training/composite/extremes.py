@@ -273,7 +273,8 @@ class TailCompositeEstimator(BaseEstimator, RegressorMixin):
         if names is not None:
             try:
                 self.feature_names_in_ = list(names)
-            except Exception:  # pragma: no cover
+            except Exception as e:  # pragma: no cover
+                logger.debug("swallowed exception in extremes.py: %s", e)
                 pass
         cols = getattr(X, "columns", None)
         if cols is not None:

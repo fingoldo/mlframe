@@ -235,7 +235,8 @@ def _kernel_tuning_cache_lookup_tau(factors_data, factors_nbins, fallback: float
         )
         if entry is not None and "tau_cluster" in entry:
             return float(entry["tau_cluster"])
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in __init__.py:238: %s", e)
         pass
     return float(fallback)
 

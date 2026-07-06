@@ -49,7 +49,7 @@ def main():
     for maxd in (5, 8, 12):
         ca = _count_distinct_rounded_all(frac, maxd, 0.0, 1.0)
         for d in range(1, maxd + 1):
-            assert per(frac, d, 0.0, 1.0) == ca[d - 1]
+            assert per(frac, d, 0.0, 1.0) == ca[d - 1]  # nosec B101 - internal invariant check in src/mlframe/preprocessing/_benchmarks, not reachable with untrusted input
     print("identity OK")
 
     def bench_old(maxd):

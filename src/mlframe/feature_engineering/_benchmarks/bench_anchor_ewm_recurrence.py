@@ -14,7 +14,7 @@ Run:
 from __future__ import annotations
 
 import importlib.util
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import sys
 import tempfile
 import time
@@ -28,7 +28,7 @@ ANCHOR_REL = "src/mlframe/feature_engineering/anchor.py"
 
 def _load_baseline_module():
     """Materialise HEAD:anchor.py as an importable module (real prior code)."""
-    src = subprocess.check_output(["git", "show", f"HEAD:{ANCHOR_REL}"], cwd=REPO, text=True)
+    src = subprocess.check_output(["git", "show", f"HEAD:{ANCHOR_REL}"], cwd=REPO, text=True)  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
     tmpdir = Path(tempfile.mkdtemp(prefix="anchor_baseline_"))
     # The module does `from .grouped import iter_group_segments`; rewrite to absolute.
     src = src.replace("from .grouped import", "from mlframe.feature_engineering.grouped import")
@@ -83,7 +83,7 @@ def main():
             d = np.nanmax(np.abs(a[m] - b[m])) if m.any() else 0.0
             max_abs = max(max_abs, 0.0 if np.isnan(d) else d)
             # NaN positions must match exactly
-            assert np.array_equal(np.isnan(a), np.isnan(b)), f"NaN mask mismatch {kk}"
+            assert np.array_equal(np.isnan(a), np.isnan(b)), f"NaN mask mismatch {kk}"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
 
         print(f"n={n:>7}  OLD={t_old*1e3:8.2f}ms  NEW={t_new*1e3:8.2f}ms  " f"speedup={t_old/t_new:5.2f}x  max_abs_diff={max_abs:.2e}")
 

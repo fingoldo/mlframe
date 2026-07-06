@@ -684,7 +684,8 @@ def _phase_auto_detect_feature_types(
                     continue
                 try:
                     _col_frames[_label] = np.asarray(_view[_col])
-                except Exception:
+                except Exception as e:
+                    logger.debug("swallowed exception in _phase_helpers_fit_split.py: %s", e)
                     continue
             if _col_frames:
                 dropped_high_card_data[_col] = _col_frames
@@ -741,7 +742,8 @@ def _phase_auto_detect_feature_types(
                     _val_only = [v for v in _u_val if v not in _train_set]
                     if _val_only:
                         _val_only_diag[_c] = (len(_val_only), _val_only[:5])
-                except Exception:
+                except Exception as e:
+                    logger.debug("swallowed exception in _phase_helpers_fit_split.py: %s", e)
                     pass
             if _val_only_diag:
                 # INFO-level. Per Wave 72 contract this widening is intentional (val=ES detector must not silently null-cast); the log only surfaces what was previously invisible.

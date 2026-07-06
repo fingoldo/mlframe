@@ -233,9 +233,9 @@ _SETSTATE_LEGACY_DEFAULTS = {
     # byte-equivalence.
     "fe_local_mi_gate": True,  # default-flip (corrective gate, see __init__)
     "fe_local_mi_gate_top_k": 20,
-    "fe_unified_second_pass_gate": False,
-    "fe_unified_second_pass_max_keep": None,
-    "fe_unified_second_pass_min_gain": 0.005,
+    "fe_unified_second_pass_gate": False,  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+    "fe_unified_second_pass_max_keep": None,  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+    "fe_unified_second_pass_min_gain": 0.005,  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
     # partial_fit / streaming refit.
     # Legacy pickles default OFF (decay 0, threshold 100, no window);
     # fitted-state buffers default to None until partial_fit is called.

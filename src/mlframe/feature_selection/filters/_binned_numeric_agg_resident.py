@@ -415,7 +415,8 @@ def local_mi_gate_binagg_resident(
                         threshold=float(floor),
                         reason="unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor",
                     )
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _binned_numeric_agg_resident.py:418: %s", e)
                     pass
     scored.sort(key=lambda t: t[1], reverse=True)
     if top_k is not None and int(top_k) > 0:

@@ -78,7 +78,8 @@ def _maybe_get_or_build_cb_pool(
         if train_target is not None and hasattr(train_target, "__len__") and len(train_target) == 0:
             logger.warning("[cb-pool-reuse] empty train_target -- skipping Pool reuse " "(would set zero-length label); deferring to sklearn fallback.")
             return None
-    except Exception:
+    except Exception as e:
+        logger.debug("swallowed exception in _cb_pool_build.py: %s", e)
         pass
 
     # Filter cat/text/embedding features to only those actually present

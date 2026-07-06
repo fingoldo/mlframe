@@ -247,7 +247,8 @@ def _default_tiny_model():
             n_estimators=60, num_leaves=15, learning_rate=0.1,
             n_jobs=1, verbose=-1,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _eval_waic.py:250: %s", e)
         pass
     try:
         from sklearn.ensemble import HistGradientBoostingRegressor

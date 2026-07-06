@@ -73,7 +73,7 @@ def _bench():
         d_cpu = float(_dtai.distance(x.astype(np.float64), y.astype(np.float64), window=W)) if _HAS_DTAI else float("nan")
         gap_gpu = abs(d_old - d_new)
         gap_cpu = abs(d_new - d_cpu)
-        assert p_old == p_new, f"path mismatch at L={L}"
+        assert p_old == p_new, f"path mismatch at L={L}"  # nosec B101 - internal invariant check in src/mlframe/signal/_benchmarks, not reachable with untrusted input
         print(f"{L:>7} {old_ms:>9.1f} {new_ms:>9.1f} {old_ms/new_ms:>7.2f}x "
               f"{old_mb:>8.1f} {new_mb:>8.1f} {old_mb/max(new_mb,1e-9):>5.1f}x "
               f"{gap_gpu:>12.2e} {gap_cpu:>12.2e}")

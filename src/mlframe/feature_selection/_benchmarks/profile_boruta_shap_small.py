@@ -128,7 +128,7 @@ def run_scene(name: str, cfg: dict, out_dir: Path) -> dict:
     bs2.fit(X, y)
     pr.disable()
     golden2 = extract_golden(bs2)
-    assert golden2 == golden, f"{name}: profiled run diverged from plain run (non-determinism!)"
+    assert golden2 == golden, f"{name}: profiled run diverged from plain run (non-determinism!)"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
 
     out_dir.mkdir(parents=True, exist_ok=True)
     pr.dump_stats(str(out_dir / f"boruta_shap_small_{name}.prof"))

@@ -55,5 +55,5 @@ def maybe_boost_mi_strata_for_heavy_tail(self, y_train: np.ndarray) -> None:
             "[CompositeTargetDiscovery] heavy-tail y detected (skew=%.2f, kurt=%.2f); boosted mi_n_strata %d -> %d.",
             skew, kurt, cur_n_strata, boost,
         )
-    except Exception:
+    except Exception:  # nosec B110 - optional/best-effort path, rationale documented
         pass  # leave at user-configured value.

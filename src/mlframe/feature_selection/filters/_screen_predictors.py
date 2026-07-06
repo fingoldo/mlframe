@@ -383,7 +383,7 @@ def screen_predictors(
             try:
                 import cupy as cp
                 cp.random.seed(random_seed)
-            except Exception:
+            except Exception:  # nosec B110 - non-trivial body
                 # CuPy absent -> CPU fallback below. Also tolerate the legacy global cuRAND host generator
                 # failing to init (CURAND_STATUS_INITIALIZATION_FAILED on some driver/lib combos): seeding
                 # it is best-effort reproducibility and the GPU kernels use the modern Generator API anyway,
@@ -952,7 +952,8 @@ def screen_predictors(
         if _numba_restore_seed is not None:
             try:
                 set_numba_random_seed(int(_numba_restore_seed))
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _screen_predictors.py:955: %s", e)
                 pass
         if _cp_restore_seed is not None:
             # 2026-05-30 Wave 9.1 fix (loop iter 25): mirror the
@@ -962,5 +963,5 @@ def screen_predictors(
             try:
                 import cupy as cp
                 cp.random.seed(int(_cp_restore_seed))
-            except Exception:
+            except Exception:  # nosec B110 - optional dependency import guard
                 pass

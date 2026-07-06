@@ -70,7 +70,7 @@ def _bench(shape: tuple, n_repeats: int = 5) -> dict:
         c, d = _vectorised_np(arr, median_preds)
     t_np = (time.perf_counter() - t0) * 1000 / n_repeats
 
-    assert np.allclose(a, c) and np.allclose(b, d)
+    assert np.allclose(a, c) and np.allclose(b, d)  # nosec B101 - internal invariant check in src/mlframe/training/_benchmarks, not reachable with untrusted input
 
     # numba (best-effort)
     try:
@@ -82,7 +82,7 @@ def _bench(shape: tuple, n_repeats: int = 5) -> dict:
             for _ in range(n_repeats):
                 e, f = _per_member_mae_std_njit(arr, median_preds)
             t_numba = (time.perf_counter() - t0) * 1000 / n_repeats
-            assert np.allclose(a, e, atol=1e-9) and np.allclose(b, f, atol=1e-9)
+            assert np.allclose(a, e, atol=1e-9) and np.allclose(b, f, atol=1e-9)  # nosec B101 - internal invariant check in src/mlframe/training/_benchmarks, not reachable with untrusted input
         else:
             t_numba = float("nan")
     except Exception:

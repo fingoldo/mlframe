@@ -577,7 +577,8 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
 
         free_b, _total = cp.cuda.runtime.memGetInfo()
         cap = min(cap, int(free_b * 0.5))
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.debug("swallowed exception in _cmi_cuda.py: %s", e)
         pass
     if bytes_needed > cap:
         return False
@@ -588,7 +589,8 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
         from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
         if not fe_gpu_has_vram_cushion(bytes_needed):
             return False
-    except Exception:  # noqa: BLE001  -- cushion module unavailable: leave the existing gates in charge
+    except Exception as e:  # noqa: BLE001  -- cushion module unavailable: leave the existing gates in charge
+        logger.debug("swallowed exception in _cmi_cuda.py: %s", e)
         pass
     # Shared-mem guard: cc 6.x has 48 KB/block and BOTH kernels must fit (see _cmi_cuda_shmem_fits).
     if not _cmi_cuda_shmem_fits(joint_size, nbins_x, nbins_y, nbins_z):
@@ -601,7 +603,8 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
         from mlframe.feature_selection.filters._fe_gpu_strict import fe_gpu_strict_enabled
         if fe_gpu_strict_enabled():
             return True
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.debug("swallowed exception in _cmi_cuda.py: %s", e)
         pass
 
     try:

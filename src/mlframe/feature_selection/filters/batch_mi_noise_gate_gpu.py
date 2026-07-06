@@ -907,7 +907,7 @@ def dispatch_batch_mi_with_noise_gate_gpu(
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
         if not fe_gpu_has_vram_cushion(n * max(K, 1) * 8):
             return None
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001  # nosec B110 - best-effort/optional path, no module logger
         pass
 
     if force_backend is not None:
@@ -932,7 +932,8 @@ def dispatch_batch_mi_with_noise_gate_gpu(
                 disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
                 npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
             ), "cupy"
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            log.debug("suppressed in batch_mi_noise_gate_gpu.py:935: %s", e)
             pass
     if choice == "cuda" and _CUDA_AVAIL:
         try:
@@ -961,7 +962,8 @@ try:
         salt=_BMING_SALT,
         cli_label="batch_mi_noise_gate",
     )
-except Exception:
+except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+    log.debug("suppressed in batch_mi_noise_gate_gpu.py:964: %s", e)
     pass
 
 

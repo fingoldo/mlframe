@@ -216,7 +216,7 @@ def emit_per_model_composite_y_scale_test(
             if hasattr(entry, "model"):
                 try:
                     entry.model = _wrapper
-                except Exception:
+                except Exception:  # nosec B110 - non-trivial body
                     # Read-only attribute -- skip the in-place mutation; the
                     # end-of-target pass will rebuild the wrapper.
                     pass
@@ -260,7 +260,8 @@ def emit_per_model_composite_y_scale_test(
         # Mark the entry so the end-of-target wrap pass skips re-emitting the identical test-split chart (same _yscale_{composite} path -> overwrite + duplicate predict).
         try:
             entry._yscale_chart_emitted = True
-        except Exception:
+        except Exception as e:
+            logger.debug("swallowed exception in _phase_composite_wrapping.py: %s", e)
             pass
     except Exception as _err:
         logger.warning(

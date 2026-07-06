@@ -60,14 +60,14 @@ def _free_gpu_fe_mempool() -> bool:
     try:
         from ..info_theory._cmi_cuda import clear_cmi_resident_cache
         clear_cmi_resident_cache()
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     # FE operand resident cache: drop the fit-constant operand device copies (y / z / base columns) so their
     # device arrays carry no live reference -> free_all_blocks below can reclaim them (a fit-scoped cache).
     try:
         from .._fe_resident_operands import clear_fe_resident_operands
         clear_fe_resident_operands()
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     try:
         import cupy as _cp
@@ -127,7 +127,8 @@ def _run_fe_step(
     try:
         from .._fe_gpu_vram import ensure_fe_gpu_pool_limit as _ensure_fe_gpu_pool_limit
         _ensure_fe_gpu_pool_limit()
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.debug("swallowed exception in _step_core.py: %s", e)
         pass
     # SEPARATE KTC-free GPU-RESIDENT FE step (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT, default
     # OFF). When the resident path is enabled it takes over the WHOLE FE step (operands uploaded once per

@@ -274,7 +274,8 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
                 _cush_ok = _cushion(needed) if _cushion is not None else True
             if free >= needed and _cush_ok:
                 fits.append((free, d))
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in __init__.py:277: %s", e)
             continue
     fits.sort(reverse=True)  # most-free first
     return [d for _free, d in fits]

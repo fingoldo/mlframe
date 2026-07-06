@@ -307,7 +307,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
             from ._fe_gpu_batch._devices import crit_float_dtype
             if crit_float_dtype() == cp.float32:
                 X_gpu = X_gpu.astype(cp.float32)
-        except Exception:
+        except Exception:  # nosec B110 - optional dependency import guard
             pass
     if y_gpu.dtype != cp.int64:
         y_gpu = y_gpu.astype(cp.int64)

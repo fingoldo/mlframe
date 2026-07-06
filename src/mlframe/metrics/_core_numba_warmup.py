@@ -150,7 +150,8 @@ def _prewarm_numba_cache_body():
                 logger.debug("_kick_cpu_count: prefetch failed", exc_info=True)
 
         threading.Thread(target=_kick_cpu_count, daemon=True).start()
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _core_numba_warmup.py:153: %s", e)
         pass
 
     # iter199 (2026-05-23): pre-warm polars group_by + agg path. c0042 binary
@@ -177,7 +178,8 @@ def _prewarm_numba_cache_body():
         )
         # Also warm the join path (used in _per_group_predict_polars._predict):
         _ = _warm_df.select("cat").join(_warm_df, on="cat", how="left")
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _core_numba_warmup.py:180: %s", e)
         pass
 
     # Numba compiles for each dtype separately.
@@ -235,7 +237,8 @@ def _prewarm_numba_cache_body():
         _ = fast_aucs_per_group_optimized(y_true=_yt_bool, y_score=_yp_f64, group_ids=None, return_order=True, return_ks=True)
         _ = fast_log_loss(_yt_bool, _yp_f64)
         _ = fast_ice_only(_yt_bool, _yp_f64, nbins=10, use_weights=True)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _core_numba_warmup.py:238: %s", e)
         pass
 
     # iter192 (2026-05-23): also prewarm fast_aucs_per_group_optimized with
@@ -251,7 +254,8 @@ def _prewarm_numba_cache_body():
         # Short array -> dispatches to _fast_brier_score_loss_seq, distinct
         # numba signature per dtype combo.
         _ = fast_brier_score_loss(_yt_bool, _yp_f64)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _core_numba_warmup.py:254: %s", e)
         pass
 
     # iter198 (2026-05-23) bench-attempt-rejected: tried prewarming
@@ -267,7 +271,8 @@ def _prewarm_numba_cache_body():
     _ypi = np.array([0, 1, 0, 0, 1, 1], dtype=np.int64)
     try:
         _ = format_classification_report(_yti, _ypi, nclasses=2)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _core_numba_warmup.py:270: %s", e)
         pass
 
     logits_binary = np.array([-1.0, 0.0, 1.0, 2.0, -0.5, 0.5, 1.5, -1.5, 0.25, -0.25], dtype=np.float64)
@@ -326,7 +331,7 @@ def _prewarm_numba_cache_body():
         _ = _fast_r2_score_weighted_seq(_reg_y, _reg_p, _reg_w)
         _ = _fast_r2_score_weighted_par(_reg_y, _reg_p, _reg_w)
         _ = _fast_r2_variance_seq(_reg_y)
-    except Exception:
+    except Exception:  # nosec B110 - non-trivial body
         # Non-fatal: a bad cache or numba-runtime hiccup; the seq path still works.
         pass
 
@@ -348,7 +353,7 @@ def _prewarm_numba_cache_body():
         yt_packed = np.array([0b011, 0b101, 0b110, 0b001], dtype=np.uint64)
         yp_packed = np.array([0b110, 0b101, 0b100, 0b011], dtype=np.uint64)
         _ = _fast_jaccard_bitmap_seq(yt_packed, yp_packed, 3)
-    except Exception:
+    except Exception:  # nosec B110 - non-trivial body
         # Catches the numba-internal ``AssertionError`` raised from
         # ``parfor.py:3886`` lookup() as well as any compile / runtime fault
         # in the sequential helpers. AssertionError inherits from Exception
@@ -369,21 +374,22 @@ def _prewarm_numba_cache_body():
             _yt_nk4_pw, _yp_nk4_pw, _di_nk4_pw, 10, True,
             3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _core_numba_warmup.py:372: %s", e)
         pass
 
     # Warm feature_selection numba kernels. Without this, the first MRMR.fit call pays ~60s of cumulative JIT compile. Lazy import keeps this module's import cost unchanged.
     try:
         from mlframe.feature_selection.filters import prewarm_fs_numba_cache
         prewarm_fs_numba_cache()
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
 
     # Warm dummy_baselines kernels. The suite already calls `_warmup_numba_kernels` early in `train_mlframe_models_suite`, but that lands inside the suite wall-time; warming here shifts cost out of the user-visible timer.
     try:
         from mlframe.training.baselines import _warmup_numba_kernels
         _warmup_numba_kernels()
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
 
     # Prewarm-import the heavy neural-net stack. `mlframe.lightninglib` / `mlframe.training.neural` pulls in PyTorch Lightning, which is a ~275s cold-import on Windows. The cost otherwise lands inside the suite call because the import is deferred until `mlp` is in the model list. Triggered ONLY when lightning is already discoverable; otherwise the import attempt itself would be a 5-10s ModuleNotFoundError walk through sys.path.
@@ -426,17 +432,17 @@ def _prewarm_numba_cache_body():
             if _ilu.find_spec("lightning") is not None:
                 try:
                     import lightning.fabric  # noqa: F401
-                except Exception:
+                except Exception:  # nosec B110 - optional dependency import guard
                     pass
                 try:
                     import mlframe.lightninglib  # noqa: F401
-                except Exception:
+                except Exception:  # nosec B110 - optional dependency import guard
                     pass
             # `pytorch_lightning` is a separate package from `lightning` (legacy alias kept for back-compat); cold import is ~500s on Windows for the currently-pinned version.
             if _ilu.find_spec("pytorch_lightning") is not None:
                 try:
                     import pytorch_lightning  # noqa: F401
-                except Exception:
+                except Exception:  # nosec B110 - optional dependency import guard
                     pass
             # `shap` cold import is ~228s on Windows (includes `shap.utils.transformers` walking the local transformers registry). The suite imports shap inside trainer.py when use_shap=True.
             if _ilu.find_spec("shap") is not None:
@@ -445,13 +451,13 @@ def _prewarm_numba_cache_body():
                     import shap.utils.transformers  # noqa: F401
                     # Match the runtime monkeypatch so prewarm leaves shap in the state the suite expects.
                     shap.utils.transformers.is_transformers_lm = lambda model: False
-                except Exception:
+                except Exception:  # nosec B110 - optional dependency import guard
                     pass
             try:
                 import mlframe.training.neural  # noqa: F401
-            except Exception:
+            except Exception:  # nosec B110 - optional dependency import guard
                 pass
-        except Exception:
+        except Exception:  # nosec B110 - optional dependency import guard
             pass
 
     # Warm cupy GPU AUC kernels. `compute_batch_aucs` dispatches to `gpu_multiple_roc_auc_scores` / `gpu_multiple_pr_auc_scores` when N>=100k AND M>=5. cupy compiles CUDA kernels via NVRTC on first call (~128s per fresh process). No-op when cupy isn't installed.
@@ -475,7 +481,8 @@ def _prewarm_numba_cache_body():
             # `gpu_multiple_rmse_scores` has separate cupy kernels for the 2-D fallback and the 1-D fastpath; each path's first call compiles a fresh NVRTC kernel.
             _yt_rmse = _yp_gpu[:, 0]
             _ = gpu_multiple_rmse_scores(_yt_rmse, _yp_gpu)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _core_numba_warmup.py:478: %s", e)
             pass
 
     # Warm `ranking_metrics._summary_batched_kernel` (parallel njit). On LTR combos `compute_ranking_summary` is called once per dummy baseline; the first call eats the entire JIT-compile budget. Compile with the canonical dtype combo used by `compute_ranking_summary` itself.
@@ -486,5 +493,6 @@ def _prewarm_numba_cache_body():
         _gs_rank = np.array([0, 3, 6], dtype=np.int64)
         _ks_rank = np.array([1, 5, 10], dtype=np.int64)
         _ = _summary_batched_kernel(_yt_rank, _ys_rank, _gs_rank, _ks_rank)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _core_numba_warmup.py:489: %s", e)
         pass

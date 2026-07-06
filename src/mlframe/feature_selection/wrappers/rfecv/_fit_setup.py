@@ -53,7 +53,8 @@ def filter_cat_features_by_dtype(
                     [c for c in cat_features if c not in _consumable],
                 )
             return _consumable
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _fit_setup.py:56: %s", e)
         pass
     return cat_features
 

@@ -135,7 +135,7 @@ def _probe_cuda_is_usable() -> bool:
         # so a downstream caller isn't surprised by a half-poisoned context.
         try:
             torch.cuda.empty_cache()
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
     _CUDA_PROBE_CACHE["usable"] = ok
     return ok

@@ -151,7 +151,8 @@ def _pick_per_group_categorical(
             continue
         try:
             n_unique = df[col].nunique(dropna=False)
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _dummy_baseline_compute.py:154: %s", e)
             continue
         if 2 <= n_unique <= cap:
             candidates.append((n_unique, col))

@@ -230,7 +230,7 @@ def _legacy_hermite(x1, x2, y, n_iters=2, n_trials_per_iter=100):
             for bf in bin_funcs.values():
                 try:
                     combined = bf(h_a, h_b)
-                except Exception:
+                except Exception:  # nosec B112 - best-effort path
                     continue
                 if not np.all(np.isfinite(combined)):
                     continue

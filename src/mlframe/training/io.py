@@ -32,7 +32,7 @@ import warnings
 from types import SimpleNamespace
 from typing import Callable, Optional, Dict, Any
 
-import dill
+import dill  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 import zstandard as zstd
 
 logger = logging.getLogger(__name__)

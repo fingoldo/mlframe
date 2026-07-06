@@ -67,7 +67,7 @@ def main():
         for f in freqs[:3]:
             a = _power_centered(z, yc, y_ss, f)
             b = _power_centered_njit(z, yc, y_ss, f)
-            assert abs(a - b) < 1e-10, (n, f, a, b)
+            assert abs(a - b) < 1e-10, (n, f, a, b)  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_benchmarks, not reachable with untrusted input
 
         reps = 3000
         t0 = time.perf_counter()

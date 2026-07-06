@@ -100,11 +100,11 @@ def adds_nonlinear_value_batch_gpu_resident(
     _dev_errs = [np.linalg.LinAlgError]
     try:
         _dev_errs.append(cp.cuda.runtime.CUDARuntimeError)
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     try:
         _dev_errs.append(cp.cuda.memory.OutOfMemoryError)
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     # FIX4 (2026-06-28): the direct cp.linalg.lstsq below raises cuSOLVER/cuBLAS errors that subclass
     # plain RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling back to
@@ -118,14 +118,14 @@ def adds_nonlinear_value_batch_gpu_resident(
         _e = getattr(_cublas, "CUBLASError", None)
         if _e is not None:
             _dev_errs.append(_e)
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     _DEV_ERRS = tuple(_dev_errs)
     try:
         from ._gpu_policy import gpu_globally_disabled
         if gpu_globally_disabled():
             return None
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
 
     try:

@@ -90,7 +90,8 @@ def coerce_timestamps_for_audit(
                     "coerce_timestamps_for_audit: %d timestamp value(s) were unparseable " "and coerced to NaT (silently dropped from the temporal audit).",
                     _n_nat,
                 )
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _target_temporal_audit_coerce.py:93: %s", e)
             pass
         _had_tz = getattr(_coerced.dtype, "tz", None) is not None
         if _had_tz:

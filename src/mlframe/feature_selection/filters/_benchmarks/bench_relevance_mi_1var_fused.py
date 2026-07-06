@@ -61,8 +61,8 @@ def main():
         mi_new, bx_new = _relevance_mi_1var_fused(fd, 0, nb_x, cy, fy)
         maxdiff = abs(mi_old - mi_new)
         bx_ok = bx_old == bx_new
-        assert maxdiff == 0.0, f"MI not bit-identical at n={n}: {mi_old} vs {mi_new} (diff {maxdiff})"
-        assert bx_ok, f"bx mismatch at n={n}: {bx_old} vs {bx_new}"
+        assert maxdiff == 0.0, f"MI not bit-identical at n={n}: {mi_old} vs {mi_new} (diff {maxdiff})"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+        assert bx_ok, f"bx mismatch at n={n}: {bx_old} vs {bx_new}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 
         N, REP = 11, 20
         old_t, new_t = [], []

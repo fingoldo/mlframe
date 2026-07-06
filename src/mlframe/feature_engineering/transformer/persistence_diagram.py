@@ -96,7 +96,7 @@ def compute_persistence_diagram_features(
                 out[q, 2] = total_pers
                 out[q, 3] = mean_birth
                 out[q, 4] = mean_death
-            except Exception:
+            except Exception:  # nosec B110 - optional/best-effort path, rationale documented
                 pass  # leave zeros
         return out
 

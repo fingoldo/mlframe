@@ -38,7 +38,7 @@ def bestof(fn, est, n=20000):
 
 def main():
     est = RandomForestClassifier()
-    assert old_check(est) == new_check(est)
+    assert old_check(est) == new_check(est)  # nosec B101 - internal invariant check in src/mlframe/feature_selection/wrappers/rfecv/_benchmarks, not reachable with untrusted input
     o = bestof(old_check, est)
     nv = bestof(new_check, est)
     print(f"old (inspect.signature/call) {o*1e6:7.3f}us  new (lru_cache) {nv*1e6:7.3f}us  speedup {o/nv:.1f}x")

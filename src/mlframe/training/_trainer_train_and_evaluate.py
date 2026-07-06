@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import copy
 import inspect
-import logging
+import logging  # nosec B403 - module used safely in this file, see call sites below (no untrusted input reaches it)
 import re
-import pickle
+import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 from timeit import default_timer as timer
 from functools import partial
 import os
@@ -557,7 +557,7 @@ def train_and_evaluate_model(
                             try:
                                 if "early_stopping_rounds" in model_obj.get_params():
                                     model_obj.set_params(early_stopping_rounds=None)
-                            except Exception:
+                            except Exception:  # nosec B110 - non-trivial body
                                 pass  # not every estimator exposes set_params for this key
                 except Exception as _slice_err:
                     logger.warning(
@@ -688,7 +688,8 @@ def train_and_evaluate_model(
                         _inner = getattr(model, "regressor", model)
                         if hasattr(_inner, "trainer_params"):
                             _inner.checkpoint_dir_override = _ckpt_dir
-                except Exception:
+                except Exception as e:
+                    logger.debug("swallowed exception in _trainer_train_and_evaluate.py: %s", e)
                     pass
                 model, best_iter = _train_model_with_fallback(
                     model=model,

@@ -3827,7 +3827,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
             if raws_linearly_explain_y(X, y, seed=int(getattr(self, "random_seed", 0) or 0)):
                 _discrete_fe_master = False
-        except Exception:
+        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
             pass  # gate is an optimisation; on any failure keep the operators (correct path)
 
     # Shared class-MI target binning for the four discrete-structural FE operators (pairwise-modular / integer-lattice / row-argmax / conditional-gate).
@@ -5373,7 +5373,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _t_name = cols[int(_ti)]
             try:
                 _t_raw = np.asarray(_x_for_cat[_t_name].to_numpy() if hasattr(_x_for_cat[_t_name], "to_numpy") else _x_for_cat[_t_name])
-            except Exception:
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _fit_impl_core.py:5376: %s", e)
                 continue
             if _t_raw.dtype.kind not in "fiub" or _t_raw.ndim != 1:
                 continue
@@ -5419,7 +5420,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _store_dt = None
             if _store_dt is not None and data.dtype.itemsize > np.dtype(_store_dt).itemsize:
                 data = data.astype(_store_dt, copy=False)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _fit_impl_core.py:5422: %s", e)
             pass
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -5597,7 +5599,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 continue
             try:
                 _num_raw_values[_ci] = np.asarray(_extract_col_for_num(X, cols[_ci]))
-            except Exception:
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _fit_impl_core.py:5600: %s", e)
                 continue
     _cat_fe_pool_size = len(categorical_vars) + (len(_num_raw_values) if _num_raw_values else 0)
     if cat_fe_cfg.enable and _cat_fe_pool_size >= 2:
@@ -5677,7 +5680,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # ``extra`` is a read-only MappingProxyType on a frozen recipe; ``with_extra`` returns a fresh copy carrying the maps.
                     try:
                         cat_fe_state.recipes[_ri] = r.with_extra(cat_code_maps=_maps_for_recipe)
-                    except Exception:
+                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                        logger.debug("suppressed in _fit_impl_core.py:5680: %s", e)
                         pass
         # Cat-FE recipes feed the same engineered_recipes dict numeric FE uses; the fit-end splitter copies
         # any recipe whose engineered name appears in selected_vars_names into ``self._engineered_recipes_``.
@@ -5933,7 +5937,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     data = _dcd_state.factors_data
                     cols = list(_dcd_state.cols)
                     nbins = np.asarray(_dcd_state.factors_nbins, dtype=np.int64)
-            except Exception:
+            except Exception:  # nosec B110 - non-trivial body
                 # Best-effort -- if DCDState is malformed, fall through.
                 pass
 
@@ -7246,7 +7250,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             and int(np.unique(_pcr_yv).size) > max(20, 2 * int(np.unique(_pcr_y).size))):
                         _pcr_nb = int(min(max(10, int(np.unique(_pcr_y).size)), max(2, int(data.shape[0]) // 50)))
                         _pcr_y = np.ascontiguousarray(_pcr_qbin(_pcr_yv.astype(np.float64), nbins=_pcr_nb)).astype(np.int64)
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _fit_impl_core.py:7249: %s", e)
                     pass
                 _pcr_eng_cont = _eng_continuous_snapshot
                 from .._fe_raw_redundancy_drop import _TOKEN_SPLIT as _pcr_gtok
@@ -8751,7 +8756,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             _vals = np.nan_to_num(_vals, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
                             if _vals.shape[0] == _n_rows_post:
                                 _post_eng_cont[_enm] = _vals
-                        except Exception:
+                        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                            logger.debug("suppressed in _fit_impl_core.py:8754: %s", e)
                             continue
                     if _enm not in _post_cols and _enm in _post_eng_cont:
                         _post_extra_cols.append(_post_qbin(np.asarray(_post_eng_cont[_enm], dtype=np.float64), nbins=10))
@@ -9039,7 +9045,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         self._engineered_recipes_ = _recipes[:_eng_keep]
                     self.n_features_ = int(self.support_.size) + min(_eng_keep, len(_recipes))
                     self.uaed_elbow_ = int(elbow)
-        except Exception:
+        except Exception:  # nosec B110 - non-trivial body
             # UAED is best-effort post-fit; don't break fit() on internal hiccup.
             pass
     # Transient FE-escalation fitting target: full-n array, fit-time only.
@@ -9062,7 +9068,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 self.mrmr_gains_ = _g[:_nf_final]
             else:
                 self.mrmr_gains_ = np.concatenate([_g, np.zeros(_nf_final - _g.shape[0], dtype=np.float64)])
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _fit_impl_core.py:9065: %s", e)
         pass
 
     # SUPPORT_NONLINEAR_ ALIAS RE-SYNC. ``support_nonlinear_`` is set right after the FIRST support_

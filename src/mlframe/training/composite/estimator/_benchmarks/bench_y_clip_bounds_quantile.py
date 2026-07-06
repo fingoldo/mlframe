@@ -43,4 +43,4 @@ if __name__ == "__main__":
     print(f"one-call: {t_one:.1f} us/call")
     print(f"speedup : {t_two / t_one:.2f}x")
     print(f"maxdiff : {maxdiff}")
-    assert maxdiff == 0.0, "single-quantile must be bit-identical to two calls"
+    assert maxdiff == 0.0, "single-quantile must be bit-identical to two calls"  # nosec B101 - internal invariant check in src/mlframe/training/composite/estimator/_benchmarks, not reachable with untrusted input

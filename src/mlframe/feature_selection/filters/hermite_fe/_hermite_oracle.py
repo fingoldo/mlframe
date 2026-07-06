@@ -89,7 +89,7 @@ def get_polyeval_oracle():
             fixed_fp={"p": 1, "dtype_kind": "f"},
             fn_name=_POLYEVAL_ORACLE_FN_NAME,
         )
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     _polyeval_oracle_singleton = oracle
     return _polyeval_oracle_singleton

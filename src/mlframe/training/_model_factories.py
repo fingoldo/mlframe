@@ -190,7 +190,8 @@ def _patch_dataset_constructors_with_logging() -> None:
                 rows = int(shp[0])
                 cols = int(shp[1]) if len(shp) > 1 else -1
                 return (rows, cols)
-        except Exception:
+        except Exception as e:
+            logger.debug("swallowed exception in _model_factories.py: %s", e)
             pass
         try:
             return (len(payload), -1)
@@ -227,7 +228,8 @@ def _patch_dataset_constructors_with_logging() -> None:
                 if ("composite" in mod or "screening" in mod or "baseline_diagnostics" in mod):
                     return True
                 frame = frame.f_back
-        except Exception:
+        except Exception as e:
+            logger.debug("swallowed exception in _model_factories.py: %s", e)
             pass
         return False
 

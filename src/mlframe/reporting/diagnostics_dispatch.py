@@ -79,7 +79,7 @@ def _save_figure(fig, plot_outputs: str, base_path: str) -> bool:
             import matplotlib.pyplot as plt
 
             plt.close(fig)
-        except Exception:
+        except Exception:  # nosec B110 - optional dependency import guard
             pass
 
 

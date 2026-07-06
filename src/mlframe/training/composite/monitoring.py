@@ -199,7 +199,8 @@ class CompositeDriftMonitor:
         if resolver is not None:
             try:
                 return tuple(resolver())
-            except Exception:  # pragma: no cover - defensive
+            except Exception as e:  # pragma: no cover - defensive
+                logger.debug("swallowed exception in monitoring.py: %s", e)
                 pass
         bc = getattr(self.estimator, "base_columns", None)
         if bc:

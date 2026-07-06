@@ -116,7 +116,8 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
                 n_rows=int(_train_for_screen.shape[0]) if hasattr(_train_for_screen, "shape") else None,
                 extra={"n_dropped": len(_drops)},
             )
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _phase_train_one_target_pre_screen.py:119: %s", e)
             pass
         if _drops:
             # Atomic across all train/val/test mirrors: compute every dropped frame into a staging dict

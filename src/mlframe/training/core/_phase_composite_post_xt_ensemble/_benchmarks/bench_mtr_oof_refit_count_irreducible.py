@@ -101,8 +101,8 @@ def main() -> None:
     print(f"  in-sample ensemble RMSE   (LEAKED, optimistic): {insample_rmse:.4f}")
     leak_ratio = honest_rmse / insample_rmse if insample_rmse > 0 else float("inf")
     print(f"  in-sample RMSE is {leak_ratio:.2f}x LOWER -> the 'cheaper' path is optimistically biased (leak).")
-    assert honest_fits == kfold * n_comp, "honest OOF must be exactly K*n_comp refits"
-    assert insample_rmse < honest_rmse, "in-sample stack must look optimistic (proves the leak it would introduce)"
+    assert honest_fits == kfold * n_comp, "honest OOF must be exactly K*n_comp refits"  # nosec B101 - internal invariant check in src/mlframe/training/core/_phase_composite_post_xt_ensemble/_benchmarks, not reachable with untrusted input
+    assert insample_rmse < honest_rmse, "in-sample stack must look optimistic (proves the leak it would introduce)"  # nosec B101 - internal invariant check in src/mlframe/training/core/_phase_composite_post_xt_ensemble/_benchmarks, not reachable with untrusted input
     print(
         "\nVerdict (DOC -- by-design, not a hotspot): K*n_comp is the MINIMUM refit count for a leak-free OOF. "
         "Reducing to n_comp (fit-once-predict-all) re-uses each model on rows it trained on -> the OOF cells become "

@@ -162,7 +162,8 @@ def _treeshap_numba_min_features() -> int:
             entry = ktc.lookup("shap_proxy_treeshap")
             if isinstance(entry, dict) and entry.get("numba_min_features"):
                 return int(entry["numba_min_features"])
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _shap_proxy_explain.py:165: %s", e)
         pass
     return _TREESHAP_NUMBA_MIN_FEATURES
 
@@ -200,7 +201,7 @@ def _pick_backend(explainer_base, X: pd.DataFrame, backend: str) -> str:
 
         if gpu_treeshap_available() and X.shape[0] * X.shape[1] >= 1_000_000:
             return "treeshap_gpu"
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     return "treeshap_numba"
 

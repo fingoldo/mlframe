@@ -57,14 +57,15 @@ def _estimator_tolerates_nan(estimator) -> bool:
 
         if isinstance(estimator, Pipeline) and estimator.steps:
             estimator = estimator.steps[-1][1]
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     try:
         tags = estimator.__sklearn_tags__()
         allow = getattr(getattr(tags, "input_tags", None), "allow_nan", None)
         if allow is True:
             return True
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _nan_policy.py:67: %s", e)
         pass
     return type(estimator).__name__ in _NATIVE_NAN_ESTIMATOR_NAMES
 

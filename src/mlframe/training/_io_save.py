@@ -19,7 +19,7 @@ import logging
 from types import SimpleNamespace
 from typing import Optional, Dict, Any
 
-import dill
+import dill  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 import zstandard as zstd
 
 logger = logging.getLogger("mlframe.training.io")
@@ -268,7 +268,7 @@ def save_mlframe_model(
         # whole bundle lives briefly in RAM at ~payload-size; the dill
         # path is rare so this is a small extra alloc for the typical
         # pickle-fast path.
-        import pickle as _pickle
+        import pickle as _pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
         try:
             _payload_bytes = _pickle.dumps(_payload, protocol=_pickle.HIGHEST_PROTOCOL)
         except (TypeError, AttributeError, _pickle.PicklingError) as _pickle_err:

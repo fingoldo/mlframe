@@ -106,7 +106,7 @@ def _fe_gpu_discretize_enabled(n_rows: int, n_cands: int) -> bool:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
         if fe_gpu_strict_enabled():
             return True
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     try:  # auto: per-host crossover from kernel_tuning_cache (measurement-backed fallback)
         from .._gpu_resident_fe import fe_gpu_pairs_mi_backend_choice
@@ -149,7 +149,7 @@ def _fe_gpu_binning_enabled(n_rows: int, n_cands: int) -> bool:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
         if fe_gpu_strict_enabled():
             return True
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     try:  # auto: per-host binning crossover from kernel_tuning_cache (measurement-backed fallback)
         from .._gpu_resident_fe import fe_gpu_binning_backend_choice

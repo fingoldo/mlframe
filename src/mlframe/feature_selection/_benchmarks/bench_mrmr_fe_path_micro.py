@@ -58,7 +58,7 @@ def bench_e2_append_vs_concat(n: int = 50_000, k0: int = 220, n_pairs: int = 40,
             data = np.concatenate([data, *acc], axis=1)
         return data
 
-    assert np.array_equal(old(), new()), "E2: result mismatch"
+    assert np.array_equal(old(), new()), "E2: result mismatch"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
     t_old = _best_of(old, 20)
     t_new = _best_of(new, 20)
     return {"lever": "E2_append_vs_concat", "n": n, "k0": k0, "n_pairs": n_pairs, "old_ms": t_old * 1e3, "new_ms": t_new * 1e3, "speedup": t_old / t_new}
@@ -82,9 +82,9 @@ def bench_e7_combinations_vs_triu(p: int = 1500):
 
     a_o, b_o, pairs_o = old()
     a_n, b_n, ids_n, ia_n, ib_n = new()
-    assert np.array_equal(a_o, a_n) and np.array_equal(b_o, b_n), "E7: id-array mismatch"
+    assert np.array_equal(a_o, a_n) and np.array_equal(b_o, b_n), "E7: id-array mismatch"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
     pairs_n = [(ids_n[ia_n[i]], ids_n[ib_n[i]]) for i in range(ia_n.shape[0])]
-    assert pairs_o == pairs_n, "E7: pair-sequence mismatch"
+    assert pairs_o == pairs_n, "E7: pair-sequence mismatch"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
     t_old = _best_of(lambda: old(), 5)
     t_new = _best_of(lambda: new(), 5)
     n_pairs = p * (p - 1) // 2
@@ -108,7 +108,7 @@ def bench_e8_tonumeric_vs_asarray(n: int = 20_000, p: int = 120, nan_frac: float
             a[np.isnan(a)] = 0.0
         return a
 
-    assert np.array_equal(old(), new()), "E8: result mismatch"
+    assert np.array_equal(old(), new()), "E8: result mismatch"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
     t_old = _best_of(old, 10)
     t_new = _best_of(new, 10)
     return {"lever": "E8_tonumeric_vs_asarray", "n": n, "p": p, "old_ms": t_old * 1e3, "new_ms": t_new * 1e3, "speedup": t_old / t_new}

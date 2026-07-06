@@ -273,7 +273,8 @@ def _conditional_perm_null(
                 # null CMI vector reduced on-device -> stays resident, one D2H for (floor, mean)
                 nulls_dev = batched_cmi_gpu(Xp, y, None, return_device=True)
                 return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _fe_cmi_redundancy_null.py:276: %s", e)
                 pass
         # y is FIXED across all marginal shuffles, so H(Y) and its occupied-cell count k_y are
         # invariant -- hoist the y-only block ONCE (precompute_marginal_y_terms) and reuse it per
@@ -395,7 +396,7 @@ def _conditional_perm_null(
             from ._fe_cmi_perm_null_gpu import _floor_mean_from_nulls_dev
             nulls_dev = batched_cmi_gpu(Xp_d, y_i, z_i, return_device=True)   # stays resident
             return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
-        except Exception:
+        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
             pass  # any cupy error -> exact per-perm CPU loop below
     _xh = _host_x()
     x_sorted = _xh[order]

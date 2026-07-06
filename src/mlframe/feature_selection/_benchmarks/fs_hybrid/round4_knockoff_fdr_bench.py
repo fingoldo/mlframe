@@ -39,7 +39,7 @@ def main():
     t0 = time.time(); emit("all", list(Xtr.columns), t0)
 
     # 1) RFECV -> its (over-selected) support (cached: the fit is ~220s, deterministic at random_state=0)
-    import pickle
+    import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
     cache = "D:/Temp/rfecv_madelon_support.pkl"
     t0 = time.time()
     if os.path.exists(cache):

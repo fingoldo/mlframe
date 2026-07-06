@@ -40,21 +40,21 @@ def inner_raw_margin(
         import lightgbm as lgb
         if isinstance(model, getattr(lgb, lgbm_attr)):
             out = model.predict(X, raw_score=True)
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     if out is None:
         try:
             import xgboost as xgb
             if isinstance(model, getattr(xgb, xgb_attr)):
                 out = model.predict(X, output_margin=True)
-        except Exception:
+        except Exception:  # nosec B110 - optional dependency import guard
             pass
     if out is None:
         try:
             import catboost as cb
             if isinstance(model, getattr(cb, catboost_attr)):
                 out = model.predict(X, prediction_type="RawFormulaVal")
-        except Exception:
+        except Exception:  # nosec B110 - optional dependency import guard
             pass
     if out is None:
         raise NotImplementedError(

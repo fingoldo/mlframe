@@ -576,7 +576,7 @@ def dispatch_batch_pair_mi(
     if choice == "cupy" and _CUPY_AVAIL:
         try:
             return batch_pair_mi_cupy(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cupy"
-        except Exception:
+        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
             pass  # fall through
 
     if choice == "cuda" and _CUDA_AVAIL:

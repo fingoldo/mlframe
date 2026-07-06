@@ -114,11 +114,11 @@ def render_title_metric_token(
     is unchanged.
     """
     pct_digits = max(0, ndigits - 1)
-    if token == "ICE":
+    if token == "ICE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         return f"ICE={ice:.{ndigits}f}"
-    if token == "BR":
+    if token == "BR":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         return f"BR={brier_loss * 100:.{pct_digits}f}%"
-    if token == "BR_DECOMP":
+    if token == "BR_DECOMP":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         # 2026-04-27 Session 7 batch 8 (user feedback): compact form
         # of the Brier decomposition. The math is BR = REL - RES + UNC
         # (Murphy 1973), so the most informative compact rendering is
@@ -134,32 +134,32 @@ def render_title_metric_token(
             f"+U{brier_uncertainty * 100:.{pct_digits}f}%"
             f"-RS{brier_resolution * 100:.{pct_digits}f}%)"
         )
-    if token == "ECE":
+    if token == "ECE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         return f"ECE={ece * 100:.{pct_digits}f}%"
-    if token == "CMAEW":
+    if token == "CMAEW":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         return (
             f"CMAE{'W' if use_weights else ''}="
             f"{calibration_mae * 100:.{pct_digits}f}%"
             f"±{calibration_std * 100:.{pct_digits}f}%"
         )
-    if token == "COV":
+    if token == "COV":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         # log10(nbins) decides COV's decimal precision; matches pre-template behaviour.
         cov_prec = max(0, int(np.log10(max(nbins, 1))))
         return f"COV={calibration_coverage * 100:.{cov_prec}f}%"
-    if token == "LL":
+    if token == "LL":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         if ll is None:
             return ""
         return f"LL={ll:.{ndigits}f}"
-    if token == "DENS":
+    if token == "DENS":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         return f"DENS=[{max_hits:_};{min_hits:_}]"
-    if token == "ROC_AUC":
+    if token == "ROC_AUC":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         suffix = ""
         if mean_group_roc_auc is not None and not np.isnan(mean_group_roc_auc):
             suffix = f"[{mean_group_roc_auc:.{ndigits}f}]"
         if np.isnan(roc_auc):
             return f"ROC AUC=N/A{suffix}"
         return f"ROC AUC={roc_auc:.{ndigits}f}{suffix}"
-    if token == "PR_AUC":
+    if token == "PR_AUC":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         suffix = ""
         if mean_group_pr_auc is not None and not np.isnan(mean_group_pr_auc):
             suffix = f"[{mean_group_pr_auc:.{ndigits}f}]"
@@ -171,15 +171,15 @@ def render_title_metric_token(
             f"{base}, PR={precision * 100:.{pct_digits}f}%,"
             f"RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
         )
-    if token == "KS":
+    if token == "KS":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         if np.isnan(ks):
             return "KS=N/A"
         return f"KS={ks:.{ndigits}f}"
-    if token == "MCC":
+    if token == "MCC":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         if np.isnan(mcc):
             return "MCC=N/A"
         return f"MCC={mcc:.{ndigits}f}"
-    if token == "BSS":
+    if token == "BSS":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         # Brier Skill Score - negative means worse than marginal baseline.
         # Keep the sign in the title (it's information, not noise).
         if np.isnan(bss):

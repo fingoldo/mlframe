@@ -301,7 +301,8 @@ def _cuda_batched_permutation_importance(
         try:
             net.to("cpu")
             torch.cuda.empty_cache()
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _feature_importances.py:304: %s", e)
             pass
     if return_std:
         return importances, importances_std

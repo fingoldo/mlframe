@@ -122,7 +122,7 @@ def _resolve_adaptive_n_anchors(
         params = kernel_tuning_cache.get("mlframe.shap_proxied_fs.adaptive_n_anchors_params", default=None)
         if params:
             c, lo, hi = float(params[0]), int(params[1]), int(params[2])
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     p = max(1, int(n_search_cols))
     n = int(round(float(c) * float(np.sqrt(p))))
@@ -220,7 +220,7 @@ def _resolve_adaptive_prescreen_thresholds():
         cached = kernel_tuning_cache.get("mlframe.shap_proxied_fs.adaptive_prescreen_stability_thresholds", default=None)
         if cached:
             raw = cached
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     pairs = [(float(s), int(d)) for s, d in raw]
     pairs.sort(key=lambda p: -p[0])

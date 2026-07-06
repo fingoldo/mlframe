@@ -37,7 +37,8 @@ def _pandas_view_cache_bytes(cache) -> int:
     for _v in cache.values():
         try:
             total += int(_v.memory_usage(deep=False).sum())
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _phase_train_one_target_polars_fastpath.py:40: %s", e)
             pass
     return total
 

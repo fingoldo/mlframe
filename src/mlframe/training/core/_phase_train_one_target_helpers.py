@@ -91,7 +91,8 @@ def _build_feature_selection_report(
             try:
                 _kept_set = set(kept_columns)
                 _report["reason_per_feature"] = {str(c): ("kept" if c in _kept_set else "dropped") for c in _all_in}
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _phase_train_one_target_helpers.py:94: %s", e)
                 pass
     elif _kind == "RFECV":
         # ``feature_importances_`` is a dict keyed by "<nfeatures>_<fold>". Each value is a per-fold
@@ -138,7 +139,8 @@ def _build_feature_selection_report(
                     _report["reason_per_feature"] = {
                         str(c): (f"kept@rank={_rank_arr[i]}" if c in _kept_set else f"dropped@rank={_rank_arr[i]}") for i, c in enumerate(_all_in)
                     }
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _phase_train_one_target_helpers.py:141: %s", e)
             pass
     elif _kind == "BorutaShap":
         # ``history_x`` columns map 1:1 to ``all_columns``; the per-feature score is the mean
@@ -171,7 +173,8 @@ def _build_feature_selection_report(
                     else:
                         _reasons[_cs] = "unknown"
                 _report["reason_per_feature"] = _reasons
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _phase_train_one_target_helpers.py:174: %s", e)
             pass
 
     # Registry-driven per-selector extraction (architecture: consume FeatureSelectorSpec.report_extract).
@@ -189,7 +192,8 @@ def _build_feature_selection_report(
                     for _k in ("scores", "reason_per_feature"):
                         if _report.get(_k) is None and _frag.get(_k) is not None:
                             _report[_k] = _frag[_k]
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _phase_train_one_target_helpers.py:192: %s", e)
             pass
 
     # Friend-graph post-analysis summary (MRMR only; absent on other selectors). Compact,
@@ -199,7 +203,8 @@ def _build_feature_selection_report(
         _fg = getattr(selector, "friend_graph_", None)
         if _fg is not None and hasattr(_fg, "to_meta"):
             _report["friend_graph"] = _fg.to_meta()
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _phase_train_one_target_helpers.py:202: %s", e)
         pass
 
     # Clustered-feature aggregation summary (MRMR only). Lists each denoised aggregate built from a
@@ -209,7 +214,8 @@ def _build_feature_selection_report(
         _ca = getattr(selector, "cluster_aggregate_", None)
         if _ca:
             _report["cluster_aggregate"] = _ca
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _phase_train_one_target_helpers.py:212: %s", e)
         pass
 
     return _report

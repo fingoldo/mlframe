@@ -197,7 +197,8 @@ def _score_proxy(model: Any, carrier: Any, n: int) -> Optional[np.ndarray]:
             continue
         try:
             out = np.asarray(fn(carrier))
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in shap_panels.py:200: %s", e)
             continue
         if out.ndim == 2:
             out = out[:, -1] if out.shape[1] >= 2 else out.ravel()
@@ -379,7 +380,8 @@ def _close_figs(figs: List[Any]) -> None:
         for fig in figs:
             try:
                 plt.close(fig)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in shap_panels.py:382: %s", e)
                 pass
 
 
@@ -434,7 +436,8 @@ def _dependence_grid_figs(
         fig.suptitle("SHAP dependence -- feature value vs SHAP (auto-interpreted)", fontsize=10)
         try:
             fig.tight_layout(rect=(0, 0, 1, 0.97))
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in shap_panels.py:437: %s", e)
             pass
         figs.append(fig)
     return figs

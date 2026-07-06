@@ -60,7 +60,7 @@ def main():
     # identity on a small slice + on the full data
     o_small = _old_apply(cats[:10000], num_vals[:10000], lookup, gm)
     nw_small = _new_apply(cats[:10000], num_vals[:10000], lookup, gm)
-    assert np.array_equal(o_small, nw_small, equal_nan=True), "small-slice mismatch"
+    assert np.array_equal(o_small, nw_small, equal_nan=True), "small-slice mismatch"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
 
     # warm new path
     _new_apply(cats[:1000], num_vals[:1000], lookup, gm)
@@ -69,7 +69,7 @@ def main():
     for _ in range(3):
         t = time.perf_counter(); o = _old_apply(cats, num_vals, lookup, gm); best_old = min(best_old, time.perf_counter() - t)
         t = time.perf_counter(); nw = _new_apply(cats, num_vals, lookup, gm); best_new = min(best_new, time.perf_counter() - t)
-    assert np.array_equal(o, nw, equal_nan=True), "full-data mismatch"
+    assert np.array_equal(o, nw, equal_nan=True), "full-data mismatch"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
     print(f"n={n} n_cats={n_cats}")
     print(f"OLD per-row loop:      {best_old*1000:9.1f} ms")
     print(f"NEW factorize-gather:  {best_new*1000:9.1f} ms")

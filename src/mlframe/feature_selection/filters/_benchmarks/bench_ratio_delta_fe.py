@@ -15,7 +15,7 @@ module. Warm + median-of-N. Run:
 
 import importlib.util
 import os
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import sys
 import time
 import types
@@ -35,7 +35,7 @@ def _load_old_module() -> types.ModuleType:
     The module imports ``from ._internals import group_key_strings``; we shim a
     package so the relative import resolves against the live _internals.
     """
-    src = subprocess.run(["git", "show", f"HEAD:{REL}"], cwd=REPO, capture_output=True, text=True, check=True).stdout
+    src = subprocess.run(["git", "show", f"HEAD:{REL}"], cwd=REPO, capture_output=True, text=True, check=True).stdout  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
     from mlframe.feature_selection.filters import _internals
 
     pkg_name = "_rd_old_pkg"
@@ -68,13 +68,13 @@ def bench_pairwise(old_mod, new_mod, p=40, n=100_000, seed=0):
 
     old_df, old_acc = old_mod.pairwise_ratio_features(X, cols)
     new_df, new_acc = new_mod.pairwise_ratio_features(X, cols)
-    assert old_acc == new_acc, "ratio accepted pairs differ"
-    assert np.array_equal(old_df.to_numpy(), new_df.to_numpy()), "ratio values differ"
+    assert old_acc == new_acc, "ratio accepted pairs differ"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+    assert np.array_equal(old_df.to_numpy(), new_df.to_numpy()), "ratio values differ"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 
     old_lr, old_lacc = old_mod.pairwise_log_ratio_features(X, cols)
     new_lr, new_lacc = new_mod.pairwise_log_ratio_features(X, cols)
-    assert old_lacc == new_lacc, "log_ratio accepted pairs differ"
-    assert np.array_equal(old_lr.to_numpy(), new_lr.to_numpy()), "log_ratio values differ"
+    assert old_lacc == new_lacc, "log_ratio accepted pairs differ"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+    assert np.array_equal(old_lr.to_numpy(), new_lr.to_numpy()), "log_ratio values differ"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 
     t_old = _median_time(lambda: old_mod.pairwise_ratio_features(X, cols))
     t_new = _median_time(lambda: new_mod.pairwise_ratio_features(X, cols))
@@ -95,7 +95,7 @@ def bench_grouped(old_mod, new_mod, n=200_000, n_groups=500, n_num=4, seed=0):
 
     old_df, old_rec = old_mod.grouped_delta_features(X, "grp", num_cols)
     new_df, new_rec = new_mod.grouped_delta_features(X, "grp", num_cols)
-    assert np.array_equal(old_df.to_numpy(), new_df.to_numpy()), "grouped_delta features differ"
+    assert np.array_equal(old_df.to_numpy(), new_df.to_numpy()), "grouped_delta features differ"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 
     # apply path: build X_test with some unseen groups to exercise global fallback.
     g2 = rng.integers(0, n_groups + 50, size=n)
@@ -107,7 +107,7 @@ def bench_grouped(old_mod, new_mod, n=200_000, n_groups=500, n_num=4, seed=0):
     rec = new_rec[name_z]
     old_app = old_mod.apply_grouped_delta(X_test, rec)
     new_app = new_mod.apply_grouped_delta(X_test, rec)
-    assert np.array_equal(old_app, new_app), "apply_grouped_delta differs"
+    assert np.array_equal(old_app, new_app), "apply_grouped_delta differs"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 
     t_old = _median_time(lambda: old_mod.grouped_delta_features(X, "grp", num_cols))
     t_new = _median_time(lambda: new_mod.grouped_delta_features(X, "grp", num_cols))

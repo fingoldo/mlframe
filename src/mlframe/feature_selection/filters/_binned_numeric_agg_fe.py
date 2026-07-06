@@ -332,7 +332,8 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
             pb = pj.sum(axis=0, keepdims=True)
             term = cp.where(pj > 0, pj * cp.log(pj / (pa * pb)), 0.0)
             return float(cp.nansum(term))
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _binned_numeric_agg_fe.py:335: %s", e)
         pass
     edges = quantile_edges(cv, nbins)
     if edges.size == 0:
@@ -584,7 +585,8 @@ def binned_numeric_agg_with_recipes(
                         threshold=max(float(min_cmi_gain), float(null_ceiling)),
                         reason="binagg CMI about y given its sources does not clear the permutation-null ceiling",
                     )
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _binned_numeric_agg_fe.py:587: %s", e)
                     pass
         feat_df = feat_df[kept_cols]
         if feat_df.shape[1] == 0:

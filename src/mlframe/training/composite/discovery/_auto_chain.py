@@ -199,7 +199,8 @@ def reregister_auto_chain_transforms(transform_names: Iterable[str] | None) -> l
                         _TRANSFORMS_REGISTRY.setdefault(nm, build_chain_transform(res, un))
                         register_chain_provenance(nm, res, un)
                         done.append(nm)
-                    except Exception:  # noqa: BLE001 -- a malformed cached name must not abort replay
+                    except Exception as e:  # noqa: BLE001 -- a malformed cached name must not abort replay
+                        logger.debug("swallowed exception in _auto_chain.py: %s", e)
                         pass
                 break
     return done

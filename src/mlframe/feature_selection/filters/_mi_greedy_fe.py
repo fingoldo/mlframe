@@ -503,7 +503,8 @@ def _greedy_score_and_select(
                     threshold=float(abs_floor),
                     reason="mi_greedy abs-MAD floor: engineered_mi below med+k*MAD noise floor",
                 )
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _mi_greedy_fe.py:506: %s", e)
                 pass
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])

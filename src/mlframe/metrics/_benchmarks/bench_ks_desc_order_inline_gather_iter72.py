@@ -37,7 +37,7 @@ def bench(n, reps=200, trials=30):
 
     v_old = old_path(yt, ys, desc_order)
     v_new = new_path(yt, ys, desc_order)
-    assert v_old == v_new, f"NOT bit-identical: old={v_old!r} new={v_new!r}"
+    assert v_old == v_new, f"NOT bit-identical: old={v_old!r} new={v_new!r}"  # nosec B101 - internal invariant check in src/mlframe/metrics/_benchmarks, not reachable with untrusted input
 
     def best(fn):
         out = []
@@ -74,7 +74,7 @@ def bench_standalone(n, reps=100, trials=25):
 
     ex._KS_INLINE_ORDERED_MIN_N = 10**18; v_old = run()
     ex._KS_INLINE_ORDERED_MIN_N = 150_000; v_new = run()
-    assert v_old == v_new, (v_old, v_new)
+    assert v_old == v_new, (v_old, v_new)  # nosec B101 - internal invariant check in src/mlframe/metrics/_benchmarks, not reachable with untrusted input
 
     def best():
         out = []

@@ -52,7 +52,7 @@ def _interaction_numba_min_features() -> int:
             entry = ktc.lookup("shap_proxy_treeshap")
             if isinstance(entry, dict) and entry.get("interaction_numba_min_features"):
                 return int(entry["interaction_numba_min_features"])
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     return _INTERACTION_NUMBA_MIN_FEATURES
 
@@ -67,7 +67,7 @@ def _interaction_gpu_min_cells() -> int:
             entry = ktc.lookup("shap_proxy_treeshap")
             if isinstance(entry, dict) and entry.get("interaction_gpu_min_cells"):
                 return int(entry["interaction_gpu_min_cells"])
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     return _INTERACTION_GPU_MIN_CELLS
 
@@ -163,7 +163,7 @@ def compute_interaction_tensor(model_template, X, y, *, classification, rng=None
 
                 if gpu_interactions_available() and X.shape[0] * P * P >= _interaction_gpu_min_cells():
                     use_gpu = True
-            except Exception:
+            except Exception:  # nosec B110 - optional dependency import guard
                 pass
 
     if use_gpu:
@@ -171,7 +171,7 @@ def compute_interaction_tensor(model_template, X, y, *, classification, rng=None
             out = _interaction_tensor_gpu(est, X, classification=classification)
             if out is not None:
                 return out
-        except Exception:
+        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
             pass  # device/cupy/cap hiccup -> numba then shap (never lose the result)
         out = _interaction_tensor_numba(est, X, classification=classification)
         if out is not None:

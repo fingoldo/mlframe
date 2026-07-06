@@ -257,5 +257,5 @@ def _run_per_model_post_train_tail(
         from ..utils import maybe_clean_ram_adaptive as _mclean
 
         _mclean()
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass

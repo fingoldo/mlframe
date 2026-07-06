@@ -47,7 +47,7 @@ def test_gate_synergy_admits_only_superadditive_products():
     fi = {"a": 0.1, "b": 0.1, "c": 0.4, "d": 0.3, "tprod_0": 0.9, "tprod_1": 0.05}
     raw = ["a", "b", "c", "d"]
     admitted = _gate("synergy", fi, [("a", "b"), ("c", "d")], raw + ["tprod_0", "tprod_1"], raw)
-    assert admitted == {"tprod_0"}
+    assert admitted == {"tprod_0"}  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
 
 
 def test_gate_raw_median_is_looser_than_synergy_on_noise_heavy_frame():
@@ -56,8 +56,8 @@ def test_gate_raw_median_is_looser_than_synergy_on_noise_heavy_frame():
     fi.update({f"n{i}": 0.0 for i in range(20)})
     raw = ["a", "b"] + [f"n{i}" for i in range(20)]
     rel = raw + ["tprod_0"]
-    assert _gate("raw_median", fi, [("a", "b")], rel, raw) == {"tprod_0"}  # loose: admitted
-    assert _gate("synergy", fi, [("a", "b")], rel, raw) == set()  # synergy: rejected (0.02 < 0.5)
+    assert _gate("raw_median", fi, [("a", "b")], rel, raw) == {"tprod_0"}  # loose: admitted  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
+    assert _gate("synergy", fi, [("a", "b")], rel, raw) == set()  # synergy: rejected (0.02 < 0.5)  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
 
 
 def test_gate_relevant_median_uses_survivor_bar_not_raw():
@@ -65,13 +65,13 @@ def test_gate_relevant_median_uses_survivor_bar_not_raw():
     fi = {"a": 0.5, "b": 0.5, "tprod_0": 0.3}
     fi.update({f"n{i}": 0.0 for i in range(10)})
     raw = ["a", "b"] + [f"n{i}" for i in range(10)]
-    assert _gate("relevant_median", fi, [("a", "b")], ["a", "b", "tprod_0"], raw) == set()
-    assert _gate("raw_median", fi, [("a", "b")], ["a", "b", "tprod_0"], raw) == {"tprod_0"}
+    assert _gate("relevant_median", fi, [("a", "b")], ["a", "b", "tprod_0"], raw) == set()  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
+    assert _gate("raw_median", fi, [("a", "b")], ["a", "b", "tprod_0"], raw) == {"tprod_0"}  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
 
 
 def test_gate_empty_when_no_products():
     h = HybridSelector(); h.fi_ = {}; h._tree_prod_pairs_ = []; h._tree_prod_names_ = []
-    assert h._admit_tree_products(["a"], ["a"]) == []
+    assert h._admit_tree_products(["a"], ["a"]) == []  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
 
 
 # ----------------------------------------------------------------- tree signals + augment + pickle
@@ -80,10 +80,10 @@ def test_tree_signals_finds_interaction_pair():
     h = HybridSelector(use_tree_member=True, tree_cooccur_pairs=12)
     h.random_state = 0
     h._tree_signals(X, y)
-    assert h._tree_ranked_, "tree should rank some features"
-    assert {"a", "b"}.issubset(set(h._tree_ranked_[:6])), "the interaction operands should rank high"
+    assert h._tree_ranked_, "tree should rank some features"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
+    assert {"a", "b"}.issubset(set(h._tree_ranked_[:6])), "the interaction operands should rank high"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
     flat = {frozenset(p) for p in h._tree_prod_pairs_}
-    assert frozenset({"a", "b"}) in flat, "the true a*b pair should be among co-occurrence pairs"
+    assert frozenset({"a", "b"}) in flat, "the true a*b pair should be among co-occurrence pairs"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
 
 
 def test_augment_replays_tree_ops_leakage_free():
@@ -93,7 +93,7 @@ def test_augment_replays_tree_ops_leakage_free():
     # tree op columns present in the augmented frame (named t{op}_N: tmul_/tabsd_/tsign_/trat_)
     aug = h._augment(X)
     tcols = [c for c in aug.columns if any(c.startswith(f"t{op}_") for op in _TREE_OPS)]
-    assert tcols, "augmented frame should carry tree co-occurrence op columns"
+    assert tcols, "augmented frame should carry tree co-occurrence op columns"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
     # replay on a fresh slice equals the exact op of raw[a], raw[b] (pure function of X, no leakage)
     for nm in h._tree_prod_names_:
         if nm in aug.columns:
@@ -110,23 +110,23 @@ def test_tree_signals_expands_rich_ops():
     h.random_state = 0
     h._tree_signals(X, y)
     ops_seen = {h._tree_op_[nm][2] for nm in h._tree_prod_names_}
-    assert ops_seen == {"mul", "absd", "sign", "rat"}, f"all rich ops should be engineered, got {ops_seen}"
+    assert ops_seen == {"mul", "absd", "sign", "rat"}, f"all rich ops should be engineered, got {ops_seen}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
     h2 = HybridSelector(use_tree_member=True, tree_rich_ops=("mul",)); h2.random_state = 0
     h2._tree_signals(X, y)
-    assert {h2._tree_op_[nm][2] for nm in h2._tree_prod_names_} == {"mul"}
+    assert {h2._tree_op_[nm][2] for nm in h2._tree_prod_names_} == {"mul"}  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
 
 
 def test_pickle_keeps_tree_attrs_drops_transient():
-    import pickle
+    import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
     X, y = _interaction_frame()
     h = HybridSelector(use_tree_member=True).fit(X, y)
     h2 = pickle.loads(pickle.dumps(h))  # nosec B301 - round-trips a same-process object, no external input
-    assert h2._tree_prod_pairs_ == h._tree_prod_pairs_  # needed to replay tree op cols at transform
-    assert h2._tree_prod_names_ == h._tree_prod_names_
-    assert h2._tree_op_ == h._tree_op_  # the (a,b,op) spec per column
-    assert not hasattr(h2, "_Xaug_") and not hasattr(h2, "_y_")  # transient training data dropped
+    assert h2._tree_prod_pairs_ == h._tree_prod_pairs_  # needed to replay tree op cols at transform  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
+    assert h2._tree_prod_names_ == h._tree_prod_names_  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
+    assert h2._tree_op_ == h._tree_op_  # the (a,b,op) spec per column  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
+    assert not hasattr(h2, "_Xaug_") and not hasattr(h2, "_y_")  # transient training data dropped  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
     # transform still works after roundtrip
-    assert list(h2.transform(X.iloc[:10]).columns) == list(h.transform(X.iloc[:10]).columns)
+    assert list(h2.transform(X.iloc[:10]).columns) == list(h.transform(X.iloc[:10]).columns)  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
 
 
 # ----------------------------------------------------------------- biz_value: quantitative win on interaction data
@@ -153,13 +153,13 @@ def test_bizvalue_tree_member_lifts_interaction_auc():
     a_on = auc(HybridSelector(vote=1, use_fe=True, use_tree_member=True, random_state=1))
     # The pure-interaction a*b is invisible to a LINEAR model unless the product is engineered; in the wide regime
     # only the tree member supplies it, so off-AUC is near chance for logit and on-AUC recovers it -- a clear lift.
-    assert a_on >= a_off + 0.03, f"tree member should lift linear-downstream AUC on wide interaction data: {a_off:.3f} -> {a_on:.3f}"
+    assert a_on >= a_off + 0.03, f"tree member should lift linear-downstream AUC on wide interaction data: {a_off:.3f} -> {a_on:.3f}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
 
 
 # ----------------------------------------------------------------- mrmr_synergy_cap (default-raise of MRMR's bootstrap cap)
 def test_mrmr_synergy_cap_default_is_250():
     import inspect
-    assert inspect.signature(HybridSelector.__init__).parameters["mrmr_synergy_cap"].default == 250
+    assert inspect.signature(HybridSelector.__init__).parameters["mrmr_synergy_cap"].default == 250  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
 
 
 def test_mrmr_synergy_cap_does_not_regress_on_wide_interaction_frame():
@@ -179,7 +179,7 @@ def test_mrmr_synergy_cap_does_not_regress_on_wide_interaction_frame():
         return roc_auc_score(yte, m.predict_proba(Zte)[:, 1])
 
     a60, a250 = auc(60), auc(250)
-    assert a250 >= a60 - 0.01, f"raising mrmr_synergy_cap must not regress on a wide interaction frame: cap60={a60:.3f} cap250={a250:.3f}"
+    assert a250 >= a60 - 0.01, f"raising mrmr_synergy_cap must not regress on a wide interaction frame: cap60={a60:.3f} cap250={a250:.3f}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
 
 
 if __name__ == "__main__":

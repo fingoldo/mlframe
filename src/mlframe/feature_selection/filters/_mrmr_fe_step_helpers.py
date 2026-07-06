@@ -446,7 +446,8 @@ def compute_pair_maxt_floor(
                 )
                 try:
                     trip_pair_maxt_gpu_circuit_breaker()
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _mrmr_fe_step_helpers.py:449: %s", e)
                     pass
                 _pair_maxt_floor = None
             if _pair_maxt_floor is None:

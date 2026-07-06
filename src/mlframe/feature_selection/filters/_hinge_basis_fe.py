@@ -286,7 +286,8 @@ def _detect_hinge_breakpoints(
             )
             if _dev is not None:
                 return _dev
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _hinge_basis_fe.py:289: %s", e)
         pass
     finite = np.isfinite(x) & np.isfinite(y)
     if not finite.all():

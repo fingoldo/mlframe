@@ -733,6 +733,7 @@ class ModelPipelineStrategy(ABC):
         # refuses to configure; swallow and continue.
         try:
             pipeline = pipeline.set_output(transform="pandas")
-        except Exception:
+        except Exception as e:
+            logger.debug("swallowed exception in base.py: %s", e)
             pass
         return pipeline

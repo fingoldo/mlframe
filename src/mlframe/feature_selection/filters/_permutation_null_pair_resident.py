@@ -244,7 +244,7 @@ def pair_maxt_perm_null_gpu_enabled(n: int, n_pairs: int) -> bool:
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
         if not fe_gpu_has_vram_cushion(int(n) * max(int(n_pairs), 1) * 8):
             return False
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001  # nosec B110 - best-effort/optional path, no module logger
         pass
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled

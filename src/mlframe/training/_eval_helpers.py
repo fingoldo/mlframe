@@ -144,7 +144,8 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
             df = df.copy(deep=False)
             try:
                 setattr(df, flag, True)
-            except Exception:
+            except Exception as e:
+                logger.debug("swallowed exception in _eval_helpers.py: %s", e)
                 pass
         return df
 

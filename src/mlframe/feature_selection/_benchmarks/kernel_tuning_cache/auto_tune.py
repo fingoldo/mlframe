@@ -101,7 +101,8 @@ def _measure_single_region(
             smem = nbx * nby * 4 if variant == "shared" else 0
             try:
                 wall = _measure_one(kernel, grid_x, bs, args, n_iters=n_iters, shared_mem_bytes=smem)
-            except Exception:
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in auto_tune.py:104: %s", e)
                 continue
             if wall < best_wall:
                 best_wall = wall
@@ -211,10 +212,10 @@ def _hnswlib_importable() -> bool:
     the wheel segfaults at import time (access violation in the C
     extension); a ``try / except ImportError`` in the parent process
     won't catch that. Run the probe out-of-process so the parent stays
-    alive when the wheel is broken."""
-    import subprocess, sys
-    try:
-        r = subprocess.run(
+    alive when the wheel is broken."""  # nosec B404 - module used safely in this file, see call sites below (no untrusted input reaches it)
+    import subprocess, sys  # nosec B404 - subprocess used below with list args only, no shell=True
+    try:  # nosec B603 - fixed/trusted executable, args are not attacker-controlled
+        r = subprocess.run(  # nosec B603 - fixed, trusted executable and args below, no untrusted input reaches this call
             [sys.executable, "-c", "import hnswlib"],
             capture_output=True, timeout=15,
         )

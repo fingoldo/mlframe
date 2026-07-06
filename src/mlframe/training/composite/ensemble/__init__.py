@@ -146,7 +146,8 @@ def detect_gpu_in_use(mlframe_models: Sequence[str]) -> list[str]:
                             detected.append("xgboost")
                     except ImportError:
                         detected.append("xgboost")
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in __init__.py:149: %s", e)
                 pass
         except ImportError:
             pass
@@ -155,7 +156,7 @@ def detect_gpu_in_use(mlframe_models: Sequence[str]) -> list[str]:
             from catboost.utils import get_gpu_device_count
             if get_gpu_device_count() > 0:
                 detected.append("catboost")
-        except Exception:
+        except Exception:  # nosec B110 - optional dependency import guard
             pass
     return detected
 

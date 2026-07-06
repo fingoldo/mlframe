@@ -47,7 +47,7 @@ def _build_selector(seed: int, *, shap_prefilter_enabled: bool):
             sig = inspect.signature(_S.__init__)
             if "shap_prefilter_enabled" in sig.parameters:
                 kwargs["shap_prefilter_enabled"] = False
-        except Exception:
+        except Exception:  # nosec B110 - optional dependency import guard
             pass
     return ShapProxiedFS(**kwargs)
 

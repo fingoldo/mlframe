@@ -166,7 +166,7 @@ def detect_synergy(
     try:
         from pyutilz.system import kernel_tuning_cache  # noqa: F401
         null_mult = float(_lookup_null_mult())
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     # floor the null scale so a perfectly-clean permuted null (excess==0) still needs a non-trivial real excess.
     eps = 1e-4
@@ -194,7 +194,7 @@ def _lookup_null_mult() -> float:
             val = getter(_TUNING_KEY)
             if val is not None:
                 return float(val)
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     return _DEFAULT_NULL_MULT
 

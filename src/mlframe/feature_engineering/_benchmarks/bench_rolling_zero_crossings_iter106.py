@@ -50,7 +50,7 @@ def main():
         old = _old_zero_crossings(values[:200000], group_ids[:200000], window_K=K, center=center)
         new = ws.rolling_zero_crossings(values[:200000], group_ids[:200000], window_K=K, center=center)
         fin = ~np.isnan(old)
-        assert np.array_equal(old[fin], new[fin]), f"identity FAIL center={center}"
+        assert np.array_equal(old[fin], new[fin]), f"identity FAIL center={center}"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
         print(f"identity OK center={center}")
 
     # warm new kernel at full size

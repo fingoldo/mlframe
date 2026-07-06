@@ -826,7 +826,7 @@ def get_pandas_view_of_polars_df(
             # paired with a stale pandas view from a prior different df. Key co-validates id()+shape+columns (see the read site).
             _PD_VIEW_LAST_CACHE["result"] = pandas_df
             _PD_VIEW_LAST_CACHE["id_key"] = (id(df), sh if sh is not None else (None,), _cols)
-        except Exception:
+        except Exception:  # nosec B110 - non-trivial body
             # Memo population is best-effort; never fail the conversion
             # because of a cache-write hiccup.
             pass

@@ -67,10 +67,10 @@ def main():
         t_np = _bench(lambda a: np.isnan(a).any(), arr, iters)
         t_nb = _bench(lambda a: _any_nan_2d(a), arr, iters)
         t_pa = _bench(lambda a: _any_nan_2d_par(a), arr, iters)
-        assert bool(np.isnan(arr).any()) is False and bool(_any_nan_2d_par(arr)) is False
+        assert bool(np.isnan(arr).any()) is False and bool(_any_nan_2d_par(arr)) is False  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
         arr2 = arr.copy()
         arr2[n_rows // 2, n_cols // 2] = np.nan
-        assert bool(np.isnan(arr2).any()) is True and bool(_any_nan_2d_par(arr2)) is True
+        assert bool(np.isnan(arr2).any()) is True and bool(_any_nan_2d_par(arr2)) is True  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
         print(f"{n_rows}x{n_cols:5d} f32: numpy={t_np:8.2f}us  njit={t_nb:9.2f}us  njit_par={t_pa:8.2f}us  par_speedup={t_np/t_pa:5.2f}x")
 
 

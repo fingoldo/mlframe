@@ -45,7 +45,7 @@ def _make_bundle(kind: str):
 
 def main():
     from pympler import asizeof as _pa
-    import pickle as _pickle
+    import pickle as _pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 
     for kind in ("shallow_bigarray", "deep_rf"):
         bundle = _make_bundle(kind)

@@ -231,7 +231,8 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
             _r = best_existing_op_mi_resident(arrs, names, yi, nbins, y_min=_ym, n_classes=_nc, rank_binning=_gate_rank)
             if _r is not None:
                 return _r
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _conditional_gate_fe.py:234: %s", e)
         pass
     cols_arr = [np.asarray(arrs[c], dtype=np.float64) for c in names]
     cands = list(cols_arr)

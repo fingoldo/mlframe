@@ -642,7 +642,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         Windows (Python >=3.3), so a crash mid-write cannot corrupt the prior checkpoint.
         """
         import os
-        import pickle
+        import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
         import tempfile
 
         path = self.checkpoint_path
@@ -688,7 +688,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         On any pickle error (truncated file, missing class, etc.) log a warning and return None so the caller starts fresh.
         """
         import os
-        import pickle
+        import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 
         path = self.checkpoint_path
         if not path:

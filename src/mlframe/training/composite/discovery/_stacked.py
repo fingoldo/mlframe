@@ -411,7 +411,8 @@ def fit_stacked_on_residual(
     for spec in pass2_specs:
         try:
             object.__setattr__(spec, "discovered_on_residual", True)
-        except Exception:
+        except Exception as e:
+            logger.debug("swallowed exception in _stacked.py: %s", e)
             pass
 
     existing_names = {s.name for s in pass1_specs}

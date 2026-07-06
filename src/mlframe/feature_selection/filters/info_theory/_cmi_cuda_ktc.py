@@ -45,7 +45,7 @@ def cmi_use_cuda(n: int, p: int) -> bool | None:
         from mlframe.feature_selection.filters._fe_gpu_strict import fe_gpu_strict_enabled
         if fe_gpu_strict_enabled():
             return True
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     if _CMI_SPEC is None:
         return None

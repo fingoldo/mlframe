@@ -373,7 +373,8 @@ def reset_cache() -> None:
         if _kt._CACHE_SINGLETON not in (None, False):
             try:
                 _kt._CACHE_SINGLETON.reset()
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in dispatch.py:376: %s", e)
                 pass
         _kt._CACHE_SINGLETON = None
 

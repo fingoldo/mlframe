@@ -264,8 +264,8 @@ class MBHOptimizer:
         # RNG discipline — seed-threadable randomness
         # ----------------------------------------------------------------------------------------------------------------------------
 
-        self._rng = np.random.default_rng(random_state)
-        self._stdlib_rng = _stdlib_random.Random(int(self._rng.integers(0, 2**32 - 1)))
+        self._rng = np.random.default_rng(random_state)  # nosec B311 - non-cryptographic sampling/jitter, not a security-sensitive use
+        self._stdlib_rng = _stdlib_random.Random(int(self._rng.integers(0, 2**32 - 1)))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Inits
@@ -653,7 +653,7 @@ class MBHOptimizer:
             if start_ts:
                 try:
                     del self.suggested_candidates[next_candidate]
-                except Exception as e:
+                except Exception as e:  # nosec B110 - narrow except type
                     pass
 
             if next_duration is None and start_ts:
@@ -977,7 +977,7 @@ def plot_search_state(
     try:
         plt.show(block=False)
         plt.pause(0.001)
-    except Exception:
+    except Exception:  # nosec B110 - non-trivial body
         # Headless / Agg backend: show is a no-op, pause may not work
         # without a backend. Failure here must NEVER block training.
         pass

@@ -154,8 +154,8 @@ def main():
     scales = np.array([10, 20, 40, 80, 160])
 
     # identity
-    assert OLD_dfa_alpha(x) == NEW_dfa_alpha(x), "dfa_alpha diverged"
-    assert OLD_dfa_alpha2(x) == NEW_dfa_alpha2(x), "dfa_alpha2_quadratic diverged"
+    assert OLD_dfa_alpha(x) == NEW_dfa_alpha(x), "dfa_alpha diverged"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
+    assert OLD_dfa_alpha2(x) == NEW_dfa_alpha2(x), "dfa_alpha2_quadratic diverged"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
     print("identity: dfa_alpha OK, dfa_alpha2_quadratic OK (exact ==)")
 
     for name, old, new in (

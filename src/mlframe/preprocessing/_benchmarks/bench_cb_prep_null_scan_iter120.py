@@ -79,7 +79,7 @@ def main():
     # identity
     o = [str(e) for e in old_numeric_loop(df, [], [])]
     n = [str(e) for e in new_numeric_loop(df, [], [])]
-    assert o == n, (o, n)
+    assert o == n, (o, n)  # nosec B101 - internal invariant check in src/mlframe/preprocessing/_benchmarks, not reachable with untrusted input
     o_min, o_med = bestof(old_numeric_loop, df)
     n_min, n_med = bestof(new_numeric_loop, df)
     print(f"OLD  min={o_min*1e3:.2f}ms med={o_med*1e3:.2f}ms")

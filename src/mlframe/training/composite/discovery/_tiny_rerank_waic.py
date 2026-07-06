@@ -72,7 +72,8 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
         base_screen, x_mat = cached
         try:
             transform = get_transform(spec.transform_name)
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _tiny_rerank_waic.py:75: %s", e)
             continue
         bb = np.asarray(base_screen, dtype=np.float64).ravel()
         valid = np.isfinite(yb) & np.isfinite(bb)
@@ -80,7 +81,8 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
             continue
         try:
             target = np.asarray(transform.forward(yb[valid], bb[valid], spec.fitted_params), dtype=np.float64).ravel()
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _tiny_rerank_waic.py:83: %s", e)
             continue
         xv = np.asarray(x_mat, dtype=np.float64)[valid]
         fin = np.isfinite(target)

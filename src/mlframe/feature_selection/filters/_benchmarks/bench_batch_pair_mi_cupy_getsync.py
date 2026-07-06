@@ -15,7 +15,7 @@ Run: PYTHONPATH=src python -m mlframe.feature_selection.filters._benchmarks.benc
 from __future__ import annotations
 
 import importlib.util
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import sys
 import tempfile
 import time
@@ -33,7 +33,7 @@ def _load_old_module():
         root = root.parent
         if (root / ".git").exists() or (root / "src").exists():
             break
-    src = subprocess.check_output(["git", "-C", str(root), "show", f"HEAD:{repo_path}"], text=True)
+    src = subprocess.check_output(["git", "-C", str(root), "show", f"HEAD:{repo_path}"], text=True)  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
     tmp = Path(tempfile.mkdtemp()) / "batch_pair_mi_gpu_OLD.py"
     tmp.write_text(src, encoding="utf-8")
     # the file uses only relative-free imports at module top for the cupy path we call; import it standalone

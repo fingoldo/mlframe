@@ -28,7 +28,7 @@ import zstandard as zstd
 
 def _make_compressed_bundle_bytes(n_floats: int, level: int = 4) -> bytes:
     """Produce a realistic zstd-compressed bundle byte blob of roughly model-bundle shape."""
-    import pickle
+    import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
     payload = {
         "arr": np.random.default_rng(0).standard_normal(n_floats).astype(np.float32),
         "meta": {"k": list(range(2000))},
@@ -79,7 +79,7 @@ def _frame_equivalence_probe() -> None:
        but it must wrap the fd inside ``atomic_write_bytes`` where ``threads=-1`` hands the descriptor to a
        background flush thread and the post-write ``f.flush()/os.fsync(fileno())`` durability invariant lives.
     """
-    import pickle
+    import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
     payload = {"arr": np.random.default_rng(0).standard_normal(500_000).astype(np.float32), "meta": list(range(3000))}
     raw = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
     ship = _stream_writer_bytes(raw)

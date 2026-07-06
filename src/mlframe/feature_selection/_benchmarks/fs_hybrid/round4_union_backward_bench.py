@@ -23,7 +23,7 @@ Memory-frugal under heavy concurrent load: all LightGBM / RFECV / permutation n_
 n_estimators, RFECV max_refits capped low (the union is small so few refits are needed). madelon cached to disk.
 """
 from __future__ import annotations
-import os, sys, time, pickle
+import os, sys, time, pickle  # nosec B403 - module used safely in this file, see call sites below (no untrusted input reaches it)
 os.environ.setdefault("TQDM_DISABLE", "1")
 # cap thread oversubscription from the many native-threaded estimators running concurrently with sibling agents
 for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
@@ -48,7 +48,7 @@ def log(msg: str):
     try:
         with open(PROGRESS, "a", encoding="ascii", errors="replace") as fh:
             fh.write(line + "\n")
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
 
 

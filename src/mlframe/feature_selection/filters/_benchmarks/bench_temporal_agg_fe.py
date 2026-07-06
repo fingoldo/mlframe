@@ -18,7 +18,7 @@ Run:
 from __future__ import annotations
 
 import importlib.util
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import sys
 import tempfile
 import time
@@ -35,7 +35,7 @@ REL = "src/mlframe/feature_selection/filters/_temporal_agg_fe.py"
 
 def _load_baseline():
     """Load the prior (HEAD) version of the target as an isolated module."""
-    src = subprocess.check_output(["git", "show", f"HEAD:{REL}"], cwd=str(REPO)).decode("utf-8")
+    src = subprocess.check_output(["git", "show", f"HEAD:{REL}"], cwd=str(REPO)).decode("utf-8")  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
     tmp = Path(tempfile.gettempdir()) / "_temporal_agg_fe_baseline.py"
     tmp.write_text(src, encoding="utf-8")
     spec = importlib.util.spec_from_file_location("_temporal_agg_fe_baseline", tmp)
@@ -85,7 +85,7 @@ def main():
         t_old, (enc_old, rec_old) = best_of(lambda: base.generate_expanding_agg_features(df, ent_cols, val_cols, tcol, stats=stats))
         t_new, (enc_new, rec_new) = best_of(lambda: new.generate_expanding_agg_features(df, ent_cols, val_cols, tcol, stats=stats))
         # identity: fit-side encoded columns must be exact-equal
-        assert list(enc_old.columns) == list(enc_new.columns)
+        assert list(enc_old.columns) == list(enc_new.columns)  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
         for c in enc_old.columns:
             np.testing.assert_array_equal(enc_old[c].to_numpy(), enc_new[c].to_numpy())
 
@@ -109,7 +109,7 @@ def main():
                 idr = "EXACT"
             else:
                 md = float(np.max(np.abs(r_o - r_n)))
-                assert md <= tol, f"{nm}: max abs diff {md} > {tol}"
+                assert md <= tol, f"{nm}: max abs diff {md} > {tol}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
                 idr = f"~{md:.1e}"
             print(f"[xform {nm:22s} n={n_rows}] OLD {t_o*1e3:8.2f}ms  NEW {t_n*1e3:8.2f}ms  " f"speedup {t_o/t_n:6.2f}x  (identity {idr})")
         print()

@@ -113,7 +113,7 @@ def apply_loky_cpu_count_override() -> None:
         _count = _os.cpu_count() or 1
         _loky_ctx._count_physical_cores = lambda: (_count, _count)
         _loky_override_applied = True
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
 
 

@@ -14,7 +14,7 @@ import hashlib
 import json
 import logging
 import os
-import pickle
+import pickle  # nosec B403 - module used safely in this file, see call sites below (no untrusted input reaches it)
 import re
 import tempfile
 import time
@@ -252,7 +252,8 @@ class DiscoveryCache:
         # Best-effort flush so a cache GC'd without an explicit close() still persists access order.
         try:
             self.close()
-        except Exception:
+        except Exception as e:
+            logger.debug("swallowed exception in cache_store.py: %s", e)
             pass
 
     def _touch_lru(self, key: str) -> None:
@@ -358,7 +359,8 @@ class DiscoveryCache:
         # an LRU file failure doesn't break the read path.
         try:
             self._touch_lru(self._safe_key(key))
-        except Exception:
+        except Exception as e:
+            logger.debug("swallowed exception in cache_store.py: %s", e)
             pass
         return value
 
@@ -622,7 +624,8 @@ class DiscoveryCache:
             if lru.pop(_safe, None) is not None:
                 self._lru_dirty = True
                 self._flush_lru()
-        except Exception:
+        except Exception as e:
+            logger.debug("swallowed exception in cache_store.py: %s", e)
             pass
         return True
 

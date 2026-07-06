@@ -42,7 +42,7 @@ def auto_precision(user_precision: str) -> str:
             cc = torch.cuda.get_device_capability()
             if cc >= (8, 0):
                 return "bf16-mixed"
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     return user_precision
 

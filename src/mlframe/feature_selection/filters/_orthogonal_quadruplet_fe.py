@@ -570,7 +570,8 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
                     basis_b = basis_route_by_moments(x_j)
                     basis_c = basis_route_by_moments(x_k)
                     basis_d = basis_route_by_moments(x_l)
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _orthogonal_quadruplet_fe.py:573: %s", e)
                     pass
             # REPLAY-FIDELITY FIX (2026-06-13): freeze each leg's fit-time basis-preprocess params so
             # transform() replays the basis axis byte-exactly (no slice-vs-full refit drift). Guarded.
@@ -580,7 +581,8 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
                 _, _pp_b = _evaluate_basis_column(x_j, basis_b, deg_b, return_params=True)
                 _, _pp_c = _evaluate_basis_column(x_k, basis_c, deg_c, return_params=True)
                 _, _pp_d = _evaluate_basis_column(x_l, basis_d, deg_d, return_params=True)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _orthogonal_quadruplet_fe.py:583: %s", e)
                 pass
             recipes.append(build_orth_quadruplet_cross_recipe(
                 name=name,
@@ -609,7 +611,7 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
                 from ._fe_usability_signal import _crit_np_dtype
                 _x_u = X[src].to_numpy(dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
                 _, _pp_u = _evaluate_basis_column(_x_u, chosen_basis, chosen_degree, return_params=True)
-            except Exception:
+            except Exception:  # nosec B110 - optional dependency import guard
                 pass
             recipes.append(build_orth_univariate_recipe(
                 name=name, src_name=src,

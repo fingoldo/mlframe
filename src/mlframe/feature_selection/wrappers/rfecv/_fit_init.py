@@ -123,7 +123,8 @@ def _init_fit_state(
                 _col = X.get_column(_dt_cols[0])
                 if _col.is_sorted(descending=False) and _col.null_count() == 0:
                     _polars_time_series_hint = True
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _fit_init.py:126: %s", e)
             pass
         # ``self_destruct=True`` releases the polars buffers in-place; safe only when RFECV owns the frame. The suite-side _apply_pre_pipeline_transforms passes cloned per-target subsets so the
         # safe path is the historical default, but ad-hoc / notebook callers who pass their own polars frame would silently lose data. Gate on the ``_mlframe_owned_frame_`` marker (set by suite

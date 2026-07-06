@@ -501,7 +501,8 @@ def select_optimal_nfeatures_(
             try:
                 plt.show(block=False)
                 plt.pause(0.001)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _stability_select.py:504: %s", e)
                 pass
 
     self.n_features_ = best_top_n

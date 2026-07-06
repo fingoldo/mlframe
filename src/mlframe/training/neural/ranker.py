@@ -629,7 +629,8 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         if module is not None:
             try:
                 module.cpu()
-            except Exception:
+            except Exception as e:
+                logger.debug("swallowed exception in ranker.py: %s", e)
                 pass
         return state
 

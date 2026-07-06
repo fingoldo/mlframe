@@ -287,7 +287,8 @@ def materialise_and_finalise_fe_candidates(
             for _nm0, _vm0 in _cmi_cands_local.items():
                 try:
                     _name_marg[_nm0] = float(_vm0[1])
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _step_score.py:290: %s", e)
                     pass
         _clean_forms = [(_bare_tokens(_nm), _name_marg.get(_nm, 0.0)) for _nm in _all_names if not _gate_cols_in(_nm)]
 

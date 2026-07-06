@@ -133,7 +133,7 @@ class ResidentFEState:
                     self._y_cont.pop(d, None)
         try:
             cp.get_default_memory_pool().free_all_blocks()
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
 
     # device handles must never be pickled (mirrors the module-level resident-cache convention).

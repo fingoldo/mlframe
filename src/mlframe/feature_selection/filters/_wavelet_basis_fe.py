@@ -247,7 +247,8 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
                 e = _radix_select_interior_edges(v.reshape(-1, 1), nbins)
                 if e is not None:
                     return e.ravel()
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _wavelet_basis_fe.py:250: %s", e)
             pass
         return cp.quantile(v, cp.linspace(0.0, 1.0, nbins + 1)[1:-1])
 
@@ -298,7 +299,8 @@ def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10, y_codes: Option
     if _binnedmi_gpu_enabled():
         try:
             return _binned_mi_cupy(feat, y, int(nbins), y_codes, discrete=discrete)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _wavelet_basis_fe.py:301: %s", e)
             pass
     # Feature is a Haar leg taking values in {-1, 0, +1} -> use those as classes
     # directly (3 cells); avoids quantile-binning a ternary column.
@@ -492,7 +494,7 @@ def _select_wavelet_legs(
         try:
             from ._wavelet_basis_fe_batched import select_wavelet_legs_batched
             return select_wavelet_legs_batched(x, y, lo, span, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma)
-        except Exception:
+        except Exception:  # nosec B110 - optional dependency import guard
             pass
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y).ravel()

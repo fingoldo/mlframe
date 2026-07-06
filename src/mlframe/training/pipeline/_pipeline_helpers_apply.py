@@ -350,7 +350,8 @@ def _apply_pre_pipeline_transforms(
                             "FS selector %s retained %d of %d features (dropped %d)",
                             _selector_label, _kept, _input_n, max(_input_n - _kept, 0),
                         )
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _pipeline_helpers_apply.py:353: %s", e)
                     pass
                 if verbose:
                     log_ram_usage()
@@ -430,7 +431,7 @@ def _apply_pre_pipeline_transforms(
                         break
             try:
                 pre_pipeline._mlframe_identity_equivalent = _cols_same and not _has_value_transforms
-            except Exception:
+            except Exception:  # nosec B110 - optional/best-effort path, rationale documented
                 pass  # non-writable pre_pipeline (e.g. tuple), safe to ignore
 
         # Validate the pre_pipeline output against what the model expects.

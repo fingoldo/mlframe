@@ -31,7 +31,7 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
 import json
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with list args only, no shell=True
 import sys
 import time
 
@@ -119,7 +119,7 @@ def run_cell(worker_path, width, n_rows, stratified, out_root):
     print(f"[iter101][{label}] starting...", flush=True)
     t0 = time.perf_counter()
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=PER_FIT_TIMEOUT_S, check=False)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=PER_FIT_TIMEOUT_S, check=False)  # nosec B603 - fixed, trusted executable and args below, no untrusted input reaches this call
         elapsed = time.perf_counter() - t0
         if proc.returncode != 0:
             return dict(width=width, n_red=N_RED, rho=RHO, n_rows=n_rows,

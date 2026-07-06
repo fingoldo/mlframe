@@ -454,7 +454,7 @@ class ParamOracle:
         self.epsilon = float(epsilon)
         self.min_observations = int(min_observations)
         self.host = _host_key()
-        self.rng = rng or random.Random()
+        self.rng = rng or random.Random()  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
 
     # ----- param-space enumeration -----
 

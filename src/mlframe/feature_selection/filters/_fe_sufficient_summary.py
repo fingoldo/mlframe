@@ -514,12 +514,14 @@ def check_sufficient_summary_for_mrmr(
                 try:
                     sel_cont[nm] = np.asarray(X[nm].values, dtype=np.float64).reshape(-1)
                     continue
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _fe_sufficient_summary.py:517: %s", e)
                     pass
             if nm in eng_cont:
                 try:
                     sel_cont[nm] = np.asarray(eng_cont[nm], dtype=np.float64).reshape(-1)
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _fe_sufficient_summary.py:522: %s", e)
                     pass
 
         # ONE shared subsample reused across the fit (2026-06-25): the maxT residual floor below was

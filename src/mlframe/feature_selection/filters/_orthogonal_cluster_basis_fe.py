@@ -553,7 +553,8 @@ def generate_cluster_basis_features(
                         threshold=float(abs_floor),
                         reason="cluster-basis abs-MAD floor: engineered_mi below med+k*MAD noise floor",
                     )
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _orthogonal_cluster_basis_fe.py:556: %s", e)
                     pass
             continue
         survivors.append({

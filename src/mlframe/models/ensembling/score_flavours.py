@@ -437,7 +437,8 @@ def apply_quality_gate_kn(
                 # don't silently lose the new short label -- prepend it so log lines show the
                 # surviving members instead of advertising the original full member list.
                 ensemble_name = f"{_re_label} {ensemble_name}".rstrip() if ensemble_name else _re_label
-        except Exception:  # pragma: no cover -- defensive
+        except Exception as e:  # pragma: no cover -- defensive
+            logger.debug("swallowed exception in score_flavours.py: %s", e)
             pass
         # Disable the embedded per-flavor filter -- members are already
         # gated, so re-running it would just reprint the same exclusion

@@ -591,9 +591,9 @@ def explain(self):
         _n_train = int(self.X.shape[0])
         _n_basis = int(self.X_boruta.shape[0]) if not self.sample else int(basis.shape[0])
         if not self.sample:
-            assert _n_basis == _n_train, (
+            assert _n_basis == _n_train, (  # nosec B101 - internal invariant check in src/mlframe/feature_selection/boruta_shap, not reachable with untrusted input
                 f"BorutaShap: SHAP background row count ({_n_basis}) != train row count ({_n_train}); " f"val/test rows must not leak into the explainer basis."
-            )
+            )  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
         logger.info(
             "BorutaShap: SHAP TreeExplainer fitted on train background (n_train=%d, n_basis=%d, sampled=%s)",
             _n_train, _n_basis, bool(self.sample),

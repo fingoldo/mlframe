@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import sys
 import tempfile
 import time
@@ -37,7 +37,7 @@ def _load_old_module() -> types.ModuleType:
     """
     rel = "src/mlframe/feature_engineering/ensemble_features.py"
     repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
-    old_src = subprocess.check_output(["git", "-C", repo, "show", f"HEAD:{rel}"], text=True)
+    old_src = subprocess.check_output(["git", "-C", repo, "show", f"HEAD:{rel}"], text=True)  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
     fd, path = tempfile.mkstemp(suffix="_ensemble_features_old.py")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(old_src)

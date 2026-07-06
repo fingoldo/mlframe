@@ -266,7 +266,8 @@ def rescore_specs_on_holdout(
                 valid_fitted = np.asarray(_dcf(y_h, base_arg, params), dtype=bool)
                 if valid_fitted.shape == valid.shape:
                     valid = valid & valid_fitted
-            except Exception:  # noqa: BLE001 -- treat as no refinement
+            except Exception as e:  # noqa: BLE001 -- treat as no refinement
+                logger.debug("swallowed exception in _honest_holdout.py: %s", e)
                 pass
         n_valid = int(valid.sum())
         if n_valid < 50:

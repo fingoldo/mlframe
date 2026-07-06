@@ -1039,7 +1039,8 @@ def _score_one_pair(
                         _cv = _resolve_col(_cfg[2])
                         if _cv is not None:
                             _use_map[_cfg] = _safe_abs_corr(_cv)
-                    except Exception:
+                    except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                        logger.debug("suppressed in _pairs_score.py:1042: %s", e)
                         continue
                 _best_single_corr = max(
                     _safe_abs_corr(_tc_x0), _safe_abs_corr(_tc_x1),
@@ -1185,7 +1186,8 @@ def _score_one_pair(
             rejection_records.append(_rej_rec)
             if rejection_ledger_out is not None:
                 rejection_ledger_out.append(_rej_rec)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _pairs_score.py:1188: %s", e)
             pass
 
     if _passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept:  # Best transformation is good enough

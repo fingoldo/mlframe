@@ -201,7 +201,8 @@ def _iter_columns(X):
         for c in X.columns:
             try:
                 out.append((str(c), np.asarray(X[c].to_numpy())))
-            except Exception:
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _meta_fe_recommender.py:204: %s", e)
                 continue
         return out
     # polars
@@ -210,7 +211,8 @@ def _iter_columns(X):
         for c in X.columns:
             try:
                 out.append((str(c), np.asarray(X.get_column(c).to_numpy())))
-            except Exception:
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _meta_fe_recommender.py:213: %s", e)
                 continue
         return out
     # numpy / array-like

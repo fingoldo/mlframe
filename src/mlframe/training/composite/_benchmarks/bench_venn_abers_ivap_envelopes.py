@@ -12,7 +12,7 @@ Run: python src/mlframe/training/composite/_benchmarks/bench_venn_abers_ivap_env
 """
 from __future__ import annotations
 
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import time
 
 import numpy as np
@@ -20,7 +20,7 @@ import numpy as np
 
 def _load_head_baseline():
     """The REAL prior ``_isotonic_envelopes`` (sklearn-refit loop) from git HEAD."""
-    src = subprocess.run(
+    src = subprocess.run(  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
         ["git", "show", "HEAD:src/mlframe/training/composite/venn_abers.py"],
         capture_output=True, text=True,
     ).stdout
@@ -55,7 +55,7 @@ def main():
         t_new = best
 
         print(f"{n:>6} {t_old*1e3:>10.1f} {t_new*1e3:>9.3f} {t_old/t_new:>8.1f}x {d0:>11.2e} {d1:>11.2e}")
-        assert d0 < 1e-9 and d1 < 1e-9, "IVAP envelope must match the sklearn refit within ~1e-9"
+        assert d0 < 1e-9 and d1 < 1e-9, "IVAP envelope must match the sklearn refit within ~1e-9"  # nosec B101 - internal invariant check in src/mlframe/training/composite/_benchmarks, not reachable with untrusted input
 
 
 if __name__ == "__main__":

@@ -240,7 +240,7 @@ def _batched_quantiles(cp, M, q_fracs):
         out = _radix_quantiles(M, q_fracs)
         if out is not None:
             return out
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001  # nosec B110 - best-effort/optional path, no module logger
         pass
     return cp.percentile(M, cp.asarray([float(q) * 100.0 for q in q_fracs]), axis=0)
 
@@ -682,7 +682,7 @@ def _gpu_basis_preprocess_batched(cp, M, basis, *, robust):
     if basis in _BASIS_PREPROCESS_CODE:
         try:
             return _gpu_basis_preprocess_robust_fused(cp, M, basis) if robust else _gpu_basis_preprocess_nonrobust_fused(cp, M, basis)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
             pass  # fall through to the exact cupy chain below
     if basis == "hermite":  # z-score
         if robust:

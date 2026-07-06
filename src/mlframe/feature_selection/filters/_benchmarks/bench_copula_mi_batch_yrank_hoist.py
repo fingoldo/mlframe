@@ -37,7 +37,7 @@ def main():
 
     old()
     _copula_mi_batch(X, y)  # warm current impl
-    assert np.allclose(old(), _copula_mi_batch(X, y))
+    assert np.allclose(old(), _copula_mi_batch(X, y))  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 
     def _best(fn, reps=7):
         t = []

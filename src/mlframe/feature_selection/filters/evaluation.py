@@ -158,7 +158,7 @@ def should_skip_candidate(
             target = X if interactions_order > 1 else int(cand_idx)
             if _should_be_pruned(dcd_state, target):
                 return True, nexisting
-        except Exception:
+        except Exception:  # nosec B110 - non-trivial body
             # DCD is best-effort; never break candidate evaluation.
             pass
 

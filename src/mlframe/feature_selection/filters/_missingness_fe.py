@@ -142,7 +142,8 @@ def auto_detect_missing_cols(
     for col in X.columns:
         try:
             nan_rate = float(X[col].isna().sum()) / float(n)
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _missingness_fe.py:145: %s", e)
             continue
         if min_nan_rate <= nan_rate <= max_nan_rate:
             candidates.append(col)

@@ -89,7 +89,7 @@ def run_scenario(name: str, draw, metric_fn, true_value: float, seed: int, n_sam
                 a, b, metric_fn=metric_fn, n_bootstrap=n_bootstrap, alpha=0.05, random_state=int(rng.integers(0, 2**31)), method="percentile"
             )
             r_bca = bootstrap_metric(a, b, metric_fn=metric_fn, n_bootstrap=n_bootstrap, alpha=0.05, random_state=int(rng.integers(0, 2**31)), method="bca")
-        except Exception:
+        except Exception:  # nosec B112 - best-effort path
             continue
         valid += 1
         if r_pct["lo"] <= true_value <= r_pct["hi"]:

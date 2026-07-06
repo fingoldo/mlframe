@@ -453,7 +453,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
             from . import evaluation as _ev_obs
 
             _ev_obs._JMIM_CACHE_STATS.append({"size": len(cached_jmim_MIs), "hits": int(jmim_hit_counter[0])})
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
 
     return best_gain, best_candidate, run_out_of_time
@@ -525,7 +525,8 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     _analytic_n = analytic_null_enabled() and int(factors_data.shape[0]) >= analytic_null_min_n()
                     if _gpu_off or _analytic_n:
                         _confirm_use_gpu = False
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _confirm_predictor.py:528: %s", e)
                     pass
             if _confirm_use_gpu:
                 bootstrapped_gain, confidence = mi_direct_gpu(

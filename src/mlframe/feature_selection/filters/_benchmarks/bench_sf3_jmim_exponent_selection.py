@@ -17,7 +17,7 @@ arm (whichever the env var selects) and prints per-seed selected sets + recall. 
 import os
 import sys
 import json
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with list args only, no shell=True
 
 import numpy as np
 
@@ -75,7 +75,7 @@ def _drive_both():
         env = dict(env_base)
         env["MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY"] = val
         env["_SF3_ARM_SEEDS"] = json.dumps(seeds)
-        proc = subprocess.run([sys.executable, "-m",
+        proc = subprocess.run([sys.executable, "-m",  # nosec B603 - fixed, trusted executable and args below, no untrusted input reaches this call
                                "mlframe.feature_selection.filters._benchmarks.bench_sf3_jmim_exponent_selection",
                                "--arm"], env=env, capture_output=True, text=True)
         line = [ln for ln in proc.stdout.splitlines() if ln.startswith("ARM_RESULT ")]

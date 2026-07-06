@@ -182,7 +182,8 @@ def run_composite_moe_and_value_report(
                     if filtered_train_df is not None:
                         try:
                             _lag_model.fit(filtered_train_df)
-                        except Exception:
+                        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                            logger.debug("suppressed in _phase_composite_post_moe.py:185: %s", e)
                             pass
                     _lag_sel = np.asarray(_lag_model.predict(filtered_val_df), dtype=np.float64).reshape(-1)
             except Exception as _pred_err:

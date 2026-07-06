@@ -142,7 +142,7 @@ def _argsort_desc_for_metrics(y_score: np.ndarray) -> np.ndarray:
         try:
             import cupy as cp
             return cp.asnumpy(cp.argsort(cp.asarray(y_score))[::-1])
-        except Exception:
+        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
             pass  # GPU OOM / transient device error -> exact CPU fallback
     if n >= _PAR_BUCKET_ARGSORT_MIN_N:
         return _argsort_desc_par_bucket(y_score)

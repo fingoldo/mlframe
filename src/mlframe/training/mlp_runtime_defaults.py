@@ -342,7 +342,7 @@ def _probe_available_memory_bytes(
             free_bytes, _total_bytes = torch.cuda.mem_get_info(int(device_id))
             _PROBE_MEM_CACHE = int(free_bytes)
             return _PROBE_MEM_CACHE
-        except Exception:
+        except Exception:  # nosec B110 - optional dependency import guard
             pass
     # CPU mode (or CUDA probe failed): use psutil if available, else None.
     try:

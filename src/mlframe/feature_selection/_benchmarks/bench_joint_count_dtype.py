@@ -99,7 +99,7 @@ def main():
         mi32 = _mi_int32_accumulator(cx, fx, cy, fy)
         identical = mi64 == mi32
         print(f"  n={n:>9} K_x={kx:>2} K_y={ky:>2}  mi64={mi64:.15g}  mi32={mi32:.15g}  " f"bit-identical={identical}")
-        assert identical, f"int64 vs int32 MI diverged at n={n}: {mi64!r} != {mi32!r}"
+        assert identical, f"int64 vs int32 MI diverged at n={n}: {mi64!r} != {mi32!r}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
 
     print("\n=== wall (best-of-%d, warm) ===" % repeats)
     for n, kx, ky in shapes:

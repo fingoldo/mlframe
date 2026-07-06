@@ -233,7 +233,7 @@ def setup_configuration(
         try:
             from ..baselines import _warmup_numba_kernels
             _warmup_numba_kernels()
-        except Exception:
+        except Exception:  # nosec B110 - optional dependency import guard
             pass
     _step_done("_warmup_numba_kernels (JIT prewarm)")
 

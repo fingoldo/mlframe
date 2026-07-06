@@ -334,7 +334,8 @@ def auto_detect_cat_pair_cols(
             continue
         try:
             card = int(s.nunique(dropna=True))
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _cat_pair_fe.py:337: %s", e)
             continue
         if min_card <= card <= max_card:
             out.append(str(col))

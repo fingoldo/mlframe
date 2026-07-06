@@ -156,7 +156,7 @@ def _score_margin_parallel_min_rows() -> int:
             entry = ktc.lookup("shap_proxy_score_margin")
             if isinstance(entry, dict) and entry.get("parallel_min_rows"):
                 val = int(entry["parallel_min_rows"])
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     _score_margin_parallel_min_rows_cache = val
     return val

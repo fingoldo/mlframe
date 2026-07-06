@@ -55,11 +55,11 @@ def _before_after() -> list[dict]:
     The optimized scan (1) batches the residue grid into one multi-column MI call per effective-nbins group and (2) skips
     the 12-permutation null for combiners that cannot clear the baseline margin -- both bit-identical to the reference
     responded-set. This section records the measured speedup; numbers feed the regression test floor."""
-    import subprocess
+    import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
     import sys
     import types
 
-    ref_src = subprocess.run(
+    ref_src = subprocess.run(  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
         ["git", "show", "HEAD:src/mlframe/feature_selection/filters/_pairwise_modular_fe.py"],
         capture_output=True, text=True, cwd=str(Path(__file__).resolve().parents[3]),
     ).stdout

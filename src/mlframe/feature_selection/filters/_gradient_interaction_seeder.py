@@ -104,7 +104,8 @@ def _resolve_grad_threshold(name: str, default):
         # The cache is keyed by kernel-name + hw fingerprint; a missing entry returns the default.
         # We deliberately do not WRITE here (the seeder is opt-in / off the hot path); a future
         # tuner sweep can populate the winning thresholds per host.
-    except Exception:  # cache unavailable on this host -> measured default
+    except Exception as e:  # cache unavailable on this host -> measured default
+        logger.debug("swallowed exception in _gradient_interaction_seeder.py: %s", e)
         pass
     return default
 

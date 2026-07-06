@@ -52,8 +52,8 @@ def main() -> None:
         qb = rng.integers(0, 9, n_query) * 100 + rng.integers(0, 9, n_query)
         out_old, uc_old = _old(tb, qb)
         out_new, uc_new = _new(tb, qb)
-        assert np.array_equal(out_old, out_new), "combo counts diverged"
-        assert uc_old == uc_new, (uc_old, uc_new)
+        assert np.array_equal(out_old, out_new), "combo counts diverged"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
+        assert uc_old == uc_new, (uc_old, uc_new)  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
         b_old = _best_of(_old, tb, qb)
         b_new = _best_of(_new, tb, qb)
         print(f"n_train={n_train} n_query={n_query}: OLD {b_old * 1000:.2f}ms  " f"NEW {b_new * 1000:.2f}ms  speedup {b_old / b_new:.1f}x  identical=True")

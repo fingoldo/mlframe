@@ -7,7 +7,7 @@ Run: python -m mlframe.reporting._benchmarks._e2e_slice_finder_ab_iter71
 """
 import importlib.util
 import os
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import sys
 import tempfile
 import time
@@ -24,7 +24,7 @@ def _load_old():
         repo = os.path.dirname(repo)
         if os.path.isdir(os.path.join(repo, ".git")) or os.path.isfile(os.path.join(repo, "pyproject.toml")):
             break
-    src = subprocess.check_output(["git", "show", "HEAD:src/mlframe/reporting/charts/slice_finder.py"], cwd=repo)
+    src = subprocess.check_output(["git", "show", "HEAD:src/mlframe/reporting/charts/slice_finder.py"], cwd=repo)  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
     path = os.path.join(tempfile.gettempdir(), "_old_slice_finder_iter71.py")
     with open(path, "wb") as f:
         f.write(src)
@@ -50,8 +50,8 @@ def main():
     ro = OLD.find_weak_slices(X, y_true, y_pred, **kw)
     sn = rn.table["score"].to_numpy()
     so = ro.table["score"].to_numpy()
-    assert np.array_equal(sn, so), "scores diverged between layouts!"
-    assert rn.table["bounds"].tolist() == ro.table["bounds"].tolist()
+    assert np.array_equal(sn, so), "scores diverged between layouts!"  # nosec B101 - internal invariant check in src/mlframe/reporting/_benchmarks, not reachable with untrusted input
+    assert rn.table["bounds"].tolist() == ro.table["bounds"].tolist()  # nosec B101 - internal invariant check in src/mlframe/reporting/_benchmarks, not reachable with untrusted input
     print(f"IDENTITY: bit-identical table ({len(sn)} rows), global_error {rn.global_error!r} == {ro.global_error!r}")
 
     N = 11

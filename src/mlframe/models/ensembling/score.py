@@ -421,7 +421,7 @@ def score_ensemble(
             # loky pickles kwargs across worker boundaries; closure-captured metrics/lambdas
             # blow up in workers. Pre-check so we can fall back to sequential with a clear warning.
             try:
-                import pickle
+                import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 
                 pickle.dumps((custom_ice_metric, custom_rice_metric, kwargs))
             except (pickle.PicklingError, AttributeError, TypeError) as exc:

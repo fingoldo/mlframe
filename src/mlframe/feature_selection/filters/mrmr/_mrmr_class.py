@@ -3571,41 +3571,48 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             _su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0 = _toggles_snapshot
             try:
                 set_su_normalization(_su0)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _mrmr_class.py:3574: %s", e)
                 pass
             try:
                 set_jmim_aggregator(_jmim0)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _mrmr_class.py:3578: %s", e)
                 pass
             try:
                 set_bur_lambda(_bur0)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _mrmr_class.py:3582: %s", e)
                 pass
             try:
                 set_mi_miller_madow(_mm0)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _mrmr_class.py:3586: %s", e)
                 pass
             try:
                 from ..info_theory._state_and_dispatch import set_group_mi as _sg_restore
                 _sg_restore(None)
-            except Exception:
+            except Exception:  # nosec B110 - optional dependency import guard
                 pass
             try:
                 set_relaxmrmr_alpha(_relax0)
                 set_pid_synergy_bonus(_pid0)
                 set_cmi_perm_stop(_cmi0[0], _cmi0[1], _cmi0[2])
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _mrmr_class.py:3597: %s", e)
                 pass
             # reset DCD thread-local and restore
             # cluster_aggregate_enable to its constructor value (Critic2 fix:
             # missing reset in v1 plan).
             try:
                 _set_dcd_active(False)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _mrmr_class.py:3604: %s", e)
                 pass
             try:
                 self.cluster_aggregate_enable = _orig_cluster_aggregate_enable
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _mrmr_class.py:3608: %s", e)
                 pass
             # Restore the lazily-reconciled ctor aliases so ``get_params`` / ``clone`` see the unmodified
             # user-supplied values (sklearn round-trip contract). ``_UNSET`` => never overridden.
@@ -3620,7 +3627,8 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 for _k, _v in _default_screen_saved.items():
                     try:
                         setattr(self, _k, _v)
-                    except Exception:
+                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                        logger.debug("suppressed in _mrmr_class.py:3623: %s", e)
                         pass
             if _fast_search_saved:
                 import os as _os_restore
@@ -3640,14 +3648,16 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                                 _os_restore.environ[_envk] = _v
                         else:
                             setattr(self, _k, _v)
-                    except Exception:
+                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                        logger.debug("suppressed in _mrmr_class.py:3643: %s", e)
                         pass
             # restore any fe_*_enable flags fe_auto flipped ON, so the
             # constructor-arg semantics are stable across fits / clone / pickle.
             try:
                 for _flag, _orig in _fe_auto_restore.items():
                     setattr(self, _flag, _orig)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _mrmr_class.py:3650: %s", e)
                 pass
             frame = getattr(self, "_pandas_frame_for_target_cleanup", None)
             names = getattr(self, "_target_names_for_cleanup", None)
@@ -3660,7 +3670,8 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                         # silences the conservative SettingWithCopy heuristic on a possibly-viewed frame, no copy.
                         with pd.option_context("mode.chained_assignment", None):
                             frame.drop(columns=present, inplace=True)
-                    except Exception:
+                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                        logger.debug("suppressed in _mrmr_class.py:3663: %s", e)
                         pass
             self._pandas_frame_for_target_cleanup = None
             self._target_names_for_cleanup = None

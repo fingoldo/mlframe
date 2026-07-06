@@ -103,7 +103,7 @@ def _row_select(frame: Any, row_idx: np.ndarray) -> Any:
     if _is_polars_df(frame):
         # Match the row-selection idiom used elsewhere in mlframe (composite_ensemble.py:616-620):
         # boolean mask via pl.Series keeps Enum / Categorical dtypes intact.
-        assert _pl is not None
+        assert _pl is not None  # nosec B101 - internal invariant check in src/mlframe/training/slicing, not reachable with untrusted input
         mask = np.zeros(frame.height, dtype=bool)
         mask[row_idx] = True
         return frame.filter(_pl.Series(mask))

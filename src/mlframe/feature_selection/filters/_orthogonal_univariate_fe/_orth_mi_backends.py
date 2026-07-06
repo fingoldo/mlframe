@@ -299,7 +299,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
         _dev_errs.append(getattr(_cusolver_e, "CUSOLVERError", None))
         from cupy_backends.cuda.libs import cublas as _cublas_e  # type: ignore
         _dev_errs.append(getattr(_cublas_e, "CUBLASError", None))
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     _DEV_ERRS = tuple(e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException))
     try:
@@ -378,7 +378,8 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
             X = _cp_fb.asnumpy(X)
         if isinstance(y, _cp_fb.ndarray):
             y = _cp_fb.asnumpy(y)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _orth_mi_backends.py:381: %s", e)
         pass
     if _MI_BACKEND == "numba":
         return _mi_classif_batch_numba(X, y, nbins=nbins)

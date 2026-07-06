@@ -500,12 +500,13 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
     if _l87_detect is not None:
         try:
             return _l87_detect(X, max_cols=max_cols)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _composite_group_agg_fe.py:503: %s", e)
             pass
     try:
         from ._grouped_agg_fe import _auto_detect_group_cols as _l87_detect2
         return _l87_detect2(X, max_cols=max_cols)
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     out: list[str] = []
     n = len(X)

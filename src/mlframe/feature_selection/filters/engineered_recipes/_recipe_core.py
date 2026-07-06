@@ -176,7 +176,7 @@ class EngineeredRecipe:
                 if _v.flags.owndata and _v.flags.writeable:
                     try:
                         _v.flags.writeable = False
-                    except Exception:
+                    except Exception:  # nosec B110 - best-effort path
                         pass
         # Wrap in read-only proxy. ``MappingProxyType`` returns
         # ``TypeError`` on any ``extra['x'] = ...`` style write.

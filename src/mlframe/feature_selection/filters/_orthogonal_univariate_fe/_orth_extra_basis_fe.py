@@ -502,7 +502,7 @@ def _detect_fourier_freqs_for_col(
                 _dev_errs.append(getattr(_cusolver, "CUSOLVERError", None))
                 from cupy_backends.cuda.libs import cublas as _cublas  # type: ignore
                 _dev_errs.append(getattr(_cublas, "CUBLASError", None))
-            except Exception:
+            except Exception:  # nosec B110 - optional dependency import guard
                 pass
             _dev_errs = [e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException)]
             try:
@@ -577,7 +577,8 @@ def _detect_fourier_freqs_for_col(
             _poly_coef, *_ = np.linalg.lstsq(_V_tr, y_tr, rcond=None)
         y_tr = y_tr - _V_tr @ _poly_coef
         y_va = y_va - np.vander(z_va, 4) @ _poly_coef
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _orth_extra_basis_fe.py:580: %s", e)
         pass
     if float(np.std(y_tr)) < 1e-9 or float(np.std(y_va)) < 1e-9:
         return []

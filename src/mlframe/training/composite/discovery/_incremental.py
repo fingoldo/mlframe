@@ -149,7 +149,8 @@ def _rescore_spec_gain(
             vf = np.asarray(_dcf(y, base, spec.fitted_params), dtype=bool)
             if vf.shape == valid.shape:
                 valid = valid & vf
-        except Exception:  # noqa: BLE001 -- treat as no refinement
+        except Exception as e:  # noqa: BLE001 -- treat as no refinement
+            logger.debug("swallowed exception in _incremental.py: %s", e)
             pass
     if int(valid.sum()) < 50:
         return float("nan")

@@ -321,7 +321,8 @@ def plot_feature_importance(
                 for _fig in figs:
                     try:
                         plt.close(_fig)
-                    except Exception:
+                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                        logger.debug("suppressed in importance.py:324: %s", e)
                         pass
         # Close ALL figs (top + bottom) unless inside an IPython /
         # Jupyter kernel where the inline display has ALREADY captured

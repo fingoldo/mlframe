@@ -68,7 +68,7 @@ def _default_pair(
             iu = np.triu_indices(mat.shape[0], k=1)
             best = int(np.argmax(mat[iu]))
             return label(int(iu[0][best])), label(int(iu[1][best]))
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
 
     imp = getattr(model, "feature_importances_", None)

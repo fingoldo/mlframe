@@ -188,7 +188,7 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
                 _dev_errs.append(getattr(_cusolver, "CUSOLVERError", None))
                 from cupy_backends.cuda.libs import cublas as _cublas  # type: ignore
                 _dev_errs.append(getattr(_cublas, "CUBLASError", None))
-            except Exception:
+            except Exception:  # nosec B110 - optional dependency import guard
                 pass
             _dev_errs = [e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException)]
             try:

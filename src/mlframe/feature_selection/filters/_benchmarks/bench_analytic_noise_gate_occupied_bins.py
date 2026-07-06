@@ -51,7 +51,7 @@ def main():
         disc = rng.integers(0, nbins, size=(n, K)).astype(np.int16)
         old = _old_counts(disc)
         new = _new_counts(disc)
-        assert np.array_equal(old, new), f"MISMATCH n={n} K={K}: {old} vs {new}"
+        assert np.array_equal(old, new), f"MISMATCH n={n} K={K}: {old} vs {new}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
         t_old = _best_of(_old_counts, disc)
         t_new = _best_of(_new_counts, disc)
         print(f"n={n:>7} K={K:>3} nbins={nbins:>2} | OLD {t_old*1e3:8.3f} ms | "

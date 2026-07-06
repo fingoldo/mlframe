@@ -64,7 +64,7 @@ def _preserve_global_numpy_rng_state(seed: int | None):
                 import cupy as _cp  # local import to avoid hard dep
                 _cp.random.seed(seed)
                 _cp_module = _cp
-            except Exception:
+            except Exception:  # nosec B110 - non-trivial body
                 # CuPy absent, or the legacy global cuRAND host generator fails to init
                 # (CURAND_STATUS_INITIALIZATION_FAILED on some driver/lib combos). Best-effort seeding only --
                 # GPU kernels use the modern Generator API; a seed failure must not break the screen.
@@ -75,12 +75,14 @@ def _preserve_global_numpy_rng_state(seed: int | None):
         if seed is not None:
             try:
                 set_numba_random_seed(int(_numba_restore_seed))
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in screen.py:78: %s", e)
                 pass
             if _cp_module is not None:
                 try:
                     _cp_module.random.seed(int(_cp_restore_seed))
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in screen.py:83: %s", e)
                     pass
 
 

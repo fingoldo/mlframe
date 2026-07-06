@@ -160,7 +160,8 @@ class MatplotlibRenderer:
             if _eng is not None:
                 try:
                     _eng.set(rect=(0.0, _band, 1.0, 1.0))
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in matplotlib.py:163: %s", e)
                     pass
             fig.text(0.5, _band * 0.5, _cap, ha="center", va="center", fontsize=7, color="0.35")
         return fig
@@ -647,10 +648,10 @@ class MatplotlibRenderer:
             color = cols[i % len(cols)]
             label = labels[i] if i < len(labels) else None
             target = ax2 if (ax2 is not None and sec[i]) else ax
-            xi = _xi(i)
-            if token == "markers":
-                target.plot(xi, y, linestyle="none", marker="o", markersize=4, color=color, label=label)
-            elif token == "lines+markers":
+            xi = _xi(i)  # nosec B105 - not a credential -- config/format token label or sentinel string constant
+            if token == "markers":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+                target.plot(xi, y, linestyle="none", marker="o", markersize=4, color=color, label=label)  # nosec B105 - not a credential -- config/format token label or sentinel string constant
+            elif token == "lines+markers":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 target.plot(xi, y, linestyle="-", marker="o", markersize=4, color=color, label=label)
             else:
                 target.plot(xi, y, token, color=color, label=label)

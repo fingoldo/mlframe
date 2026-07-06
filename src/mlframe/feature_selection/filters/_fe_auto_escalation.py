@@ -251,7 +251,8 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
                     if coef is None or not np.all(np.isfinite(coef)):
                         continue
                     single_best = max(single_best, _heldout_corr(B_va @ np.ascontiguousarray(coef, dtype=np.float64)))
-                except Exception:
+                except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _fe_auto_escalation.py:254: %s", e)
                     continue
 
     best_corr = -1.0
@@ -273,7 +274,8 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
             if coef_a is None or coef_b is None:
                 continue
             c = _heldout_corr((Ba_va @ np.ascontiguousarray(coef_a, dtype=np.float64)) * (Bb_va @ np.ascontiguousarray(coef_b, dtype=np.float64)))
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _fe_auto_escalation.py:276: %s", e)
             continue
         if c > best_corr:
             best_corr = c
@@ -521,7 +523,8 @@ def find_underdelivering_pairs(
             leftover_self = max(0.0, float(_cmi_from_binned(cap_fine, y_dense, best_codes)))
             if leftover > self_ratio * leftover_self:
                 out.append((pair, pair_mi))
-        except Exception:  # pragma: no cover - trigger must never break the FE step
+        except Exception as e:  # pragma: no cover - trigger must never break the FE step
+            logger.debug("swallowed exception in _fe_auto_escalation.py: %s", e)
             continue
     return out
 
@@ -649,7 +652,8 @@ def run_fe_auto_escalation(
     for pair, pair_mi in failed_pairs:
         try:
             na, nb = cols[pair[0]], cols[pair[1]]
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _fe_auto_escalation.py:652: %s", e)
             continue
         if na in raw_names and nb in raw_names:
             eligible.append((pair, float(pair_mi), na, nb))

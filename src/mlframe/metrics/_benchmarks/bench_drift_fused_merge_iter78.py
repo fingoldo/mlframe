@@ -41,7 +41,7 @@ def main():
         a = rng.random(n); b = rng.random(n) + 0.1
         wasserstein_1d(a, b); ks_distribution_distance(a, b)
         for name, new_f, old_f in (("W1", wasserstein_1d, _old_w1), ("KS", ks_distribution_distance, _old_ks)):
-            assert abs(new_f(a, b) - old_f(a, b)) < 1e-10
+            assert abs(new_f(a, b) - old_f(a, b)) < 1e-10  # nosec B101 - internal invariant check in src/mlframe/metrics/_benchmarks, not reachable with untrusted input
             t = time.perf_counter()
             for _ in range(30):
                 old_f(a, b)

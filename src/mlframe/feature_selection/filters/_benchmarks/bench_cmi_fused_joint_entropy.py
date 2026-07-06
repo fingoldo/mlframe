@@ -43,7 +43,7 @@ def _bench(n=1_000_000, nbins=10, z_card=200, ncand=40, trials=7, seed=0):
 
     # warm (numba JIT + cache)
     a = run_old(); b = run_new()
-    assert abs(a - b) < 1e-6, (a, b)
+    assert abs(a - b) < 1e-6, (a, b)  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 
     old_t, new_t, wins = [], [], 0
     for _ in range(trials):

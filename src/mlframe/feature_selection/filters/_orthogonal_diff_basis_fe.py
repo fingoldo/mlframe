@@ -589,7 +589,8 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
             if not _fb.all():
                 _vb = np.where(_fb, _vb, float(np.nanmean(_vb[_fb])) if _fb.any() else 0.0)
             _, _pp_d = _evaluate_basis_column(_va - _vb, _basis_d, _degree_d, return_params=True)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _orthogonal_diff_basis_fe.py:592: %s", e)
             pass
         recipes.append(build_orth_diff_basis_recipe(
             name=name,

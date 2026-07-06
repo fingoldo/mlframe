@@ -245,7 +245,7 @@ def _calibrate_tau_auto(
         for a, b in pairs:
             try:
                 s = pair_su(cal_state, a, b)
-            except Exception:
+            except Exception:  # nosec B112 - best-effort path
                 continue
             if np.isfinite(s):
                 su_scores.append(float(s))

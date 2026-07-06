@@ -239,7 +239,7 @@ def njit_functions_dict(
                     dict_[key] = cached
                 else:
                     dict_[key] = njit(func)
-            except Exception:
+            except Exception:  # nosec B110 - best-effort path
                 pass
 
 

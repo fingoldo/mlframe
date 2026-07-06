@@ -194,7 +194,7 @@ def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None =
         metadata_dir = join(ctx.data_dir, ctx.models_dir, slugify(ctx.target_name), slugify(ctx.model_name))
         metadata_file = join(metadata_dir, "metadata.pkl.zst")
         from mlframe.training.io import atomic_write_bytes
-        import pickle as _pickle
+        import pickle as _pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
         # Probe zstandard FIRST so the optional-dep choice is decoupled from IO failure handling.
         # Previously a missing zstandard was caught alongside genuine atomic_write_bytes IO errors,
         # which made it confusing whether the fallback fired because of missing dep or disk error.

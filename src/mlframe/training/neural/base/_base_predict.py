@@ -214,7 +214,7 @@ class _PredictMixin:
             self._last_predict_accelerator = trainer_params.get(
                 "accelerator", "auto",
             )
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
 
         # Unconditional eval() switch - cheap idempotent op, removes the spurious
@@ -292,7 +292,7 @@ class _PredictMixin:
                     self.model.to("cpu")
                     if hasattr(self.model, "_orig_mod"):
                         self.model._orig_mod.to("cpu")
-                except Exception:
+                except Exception:  # nosec B110 - optional/best-effort path, rationale documented
                     pass  # best-effort: model may already be on CPU
                 # Reset CUDA state best-effort. ``empty_cache`` is a no-op
                 # when CUDA isn't initialised; ``synchronize`` only fires
@@ -303,17 +303,17 @@ class _PredictMixin:
                     if torch.cuda.is_available():
                         try:
                             torch.cuda.synchronize()
-                        except Exception:
+                        except Exception:  # nosec B110 - best-effort path
                             pass
                         try:
                             torch.cuda.empty_cache()
-                        except Exception:
+                        except Exception:  # nosec B110 - best-effort path
                             pass
                         try:
                             torch.cuda.ipc_collect()
-                        except Exception:
+                        except Exception:  # nosec B110 - best-effort path
                             pass
-                except Exception:
+                except Exception:  # nosec B110 - best-effort path
                     pass
                 _cpu_params = {
                     "accelerator": "cpu",
@@ -360,7 +360,7 @@ class _PredictMixin:
                         # torch.cuda.is_available is the load-bearing piece.
                         os.environ["CUDA_VISIBLE_DEVICES"] = ""
                         torch.cuda.is_available = lambda: False
-                    except Exception:
+                    except Exception:  # nosec B110 - best-effort path
                         pass
                     # iter420 (2026-05-27): explicitly move self.model
                     # parameters to CPU BEFORE the retry. Hiding CUDA at

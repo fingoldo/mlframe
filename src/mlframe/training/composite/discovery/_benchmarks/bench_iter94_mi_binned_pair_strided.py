@@ -59,7 +59,7 @@ def _bench_one(n, F, nbins, reps):
 
     s_old = loop(_wrapper_old)
     s_new = loop(_mi_from_binned_pair)
-    assert abs(s_old - s_new) == 0.0, (n, F, nbins, s_old, s_new)
+    assert abs(s_old - s_new) == 0.0, (n, F, nbins, s_old, s_new)  # nosec B101 - internal invariant check in src/mlframe/training/composite/discovery/_benchmarks, not reachable with untrusted input
     told, tnew = [], []
     for _ in range(reps):
         t0 = time.perf_counter(); loop(_wrapper_old); told.append(time.perf_counter() - t0)

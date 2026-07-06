@@ -188,7 +188,7 @@ def assemble_resident_matrix(host, names, fallback_key, *, dtype=None):
         try:
             cols = [resident_operand(np.ascontiguousarray(host[:, j]), ("xbasis_op", names[j]), dtype=dtype) for j in range(_k)]
             return cp.stack(cols, axis=1) if _k > 1 else cols[0][:, None]
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
     g = resident_operand(host, fallback_key, dtype=dtype)
     return g[:, None] if g.ndim == 1 else g

@@ -76,7 +76,7 @@ def main():
     X = rng.standard_normal((500, 30)).astype(np.float32)
     a = _old(X, 5000, 5, 1)
     b = _new(X, 5000, 5, 1)
-    assert np.array_equal(a, b), "not bit-identical"
+    assert np.array_equal(a, b), "not bit-identical"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
     old = _best(_old, X, 5000, 5, 1)
     new = _best(_new, X, 5000, 5, 1)
     print(f"OLD={old*1000:.2f}ms  NEW={new*1000:.2f}ms  speedup={old/new:.2f}x  bit-identical=True")

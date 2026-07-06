@@ -56,7 +56,7 @@ def main(n: int = 10_000_000):
 
     for name, arr in [("int500", xi), ("float+nan", xf)]:
         s = pd.Series(arr)
-        assert np.array_equal(OLD(s).astype(str), NEW(s).astype(str)), f"identity FAIL {name}"
+        assert np.array_equal(OLD(s).astype(str), NEW(s).astype(str)), f"identity FAIL {name}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
         to = _best(OLD, s)
         tn = _best(NEW, s)
         print(f"_column_to_str {name}: OLD {to:.3f}s NEW {tn:.3f}s speedup {to/tn:.1f}x  (identical)")

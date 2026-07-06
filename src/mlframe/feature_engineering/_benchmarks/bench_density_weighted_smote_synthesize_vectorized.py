@@ -79,7 +79,7 @@ def main():
     rng = np.random.default_rng(0)
     X = rng.standard_normal((500, 30)).astype(np.float32)
     for seed in (1, 2, 7):
-        assert np.array_equal(_old(X, 5000, 5, seed), _new(X, 5000, 5, seed)), f"not bit-identical seed={seed}"
+        assert np.array_equal(_old(X, 5000, 5, seed), _new(X, 5000, 5, seed)), f"not bit-identical seed={seed}"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
     old = _best(_old, X, 5000, 5, 1)
     new = _best(_new, X, 5000, 5, 1)
     print(f"OLD={old*1000:.2f}ms  NEW={new*1000:.2f}ms  speedup={old/new:.2f}x  bit-identical=True")

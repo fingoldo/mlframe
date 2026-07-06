@@ -29,7 +29,6 @@ from pyutilz import db
 import random as _stdlib_random
 import pandas as pd, numpy as np
 from catboost import CatBoostRegressor
-from sklearn.dummy import DummyRegressor
 from sklearn.model_selection import cross_validate
 from sklearn.model_selection import KFold
 
@@ -74,7 +73,6 @@ def value_by_key(dct: dict, key, expected_value) -> bool:
 
 
 def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_values_or=None, allow_if_values_or=None, allow_if_values_and=None):
-    n = 0
     if drop_if_rules:
         for rule in drop_if_rules:
             for condition in rule.get("conditions", []):
@@ -362,7 +360,6 @@ def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv
             min_score=min_score, random_state=random_state, early_stopping_rounds=50,
         )
 
-        y_min, y_max = y.min(), y.max()
         trained_models[cache_key] = [fitted_model, len(trials), scoring, expected_score, model_columns]
 
     return fitted_model, model_columns, y
@@ -440,7 +437,7 @@ def create_ctr_params(GPU_ENABLED: bool = False, params: Optional[dict] = None, 
         params = {}
     if stdlib_rng is None:
         _rng_tmp = np.random.default_rng(random_state)
-        stdlib_rng = _stdlib_random.Random(int(_rng_tmp.integers(0, 2**32 - 1)))
+        stdlib_rng = _stdlib_random.Random(int(_rng_tmp.integers(0, 2**32 - 1)))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
     res = []
     for main_type in (
         "Borders Buckets BinarizedTargetMeanValue Counter".split() if not GPU_ENABLED else "Borders Buckets FeatureFreq FloatTargetMeanValue".split()
@@ -476,7 +473,7 @@ class ParamsOptimizer:
     def __init__(self, random_state: Union[int, np.random.Generator, None] = None):
         # ,db_name:str=None,db_host:str=None,db_port:int=None,db_username:str=None,db_pwd:str=None,db_schema:str="public"
         self._rng = np.random.default_rng(random_state)
-        self._stdlib_rng = _stdlib_random.Random(int(self._rng.integers(0, 2**32 - 1)))
+        self._stdlib_rng = _stdlib_random.Random(int(self._rng.integers(0, 2**32 - 1)))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
         self._random_state = random_state
         # (removed a dead ``if False:`` db.connect_to_db block that referenced
         # commented-out constructor params db_name/db_host/...; it never executed

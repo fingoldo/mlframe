@@ -217,7 +217,8 @@ class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
 
             if isinstance(X, pl.DataFrame):
                 return X.drop(self.base_column)
-        except Exception:  # pragma: no cover - polars optional
+        except Exception as e:  # pragma: no cover - polars optional
+            logger.debug("swallowed exception in survival.py: %s", e)
             pass
         import pandas as pd
 
@@ -311,7 +312,8 @@ class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
 
             if isinstance(X, pl.DataFrame):
                 return X.filter(pl.Series(mask))
-        except Exception:  # pragma: no cover
+        except Exception as e:  # pragma: no cover
+            logger.debug("swallowed exception in survival.py: %s", e)
             pass
         import pandas as pd
 
@@ -326,7 +328,8 @@ class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
 
             if isinstance(X, pl.DataFrame):
                 return X.to_numpy().astype(np.float64, copy=False)
-        except Exception:  # pragma: no cover
+        except Exception as e:  # pragma: no cover
+            logger.debug("swallowed exception in survival.py: %s", e)
             pass
         import pandas as pd
 

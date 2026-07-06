@@ -310,7 +310,8 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
             try:
                 sup = np.asarray(inner.get_support())
                 return np.where(sup)[0] if sup.dtype == bool else sup.astype(np.int64)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in group_aware.py:313: %s", e)
                 pass
         accepted = getattr(inner, "accepted", None)  # BorutaShap: kept col names
         if accepted is not None:

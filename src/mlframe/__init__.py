@@ -114,7 +114,8 @@ def _autoconfigure_cuda_home() -> None:
                     "GPU kernels are enabled; set MLFRAME_NO_CUDA_AUTOCONFIG=1 to skip.", cuda_nvcc,
                 )
                 return
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logging.getLogger(__name__).debug("suppressed in __init__.py:117: %s", e)
         pass
 
 

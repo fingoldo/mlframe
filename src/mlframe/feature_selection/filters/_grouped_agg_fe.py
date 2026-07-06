@@ -424,7 +424,8 @@ def score_grouped_agg_by_cmi_uplift(
         if y_arr.dtype.kind in "fc" and int(np.unique(y_arr).size) > 32:
             try:
                 y_arr = pd.qcut(y_arr, q=10, labels=False, duplicates="drop").to_numpy()
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _grouped_agg_fe.py:427: %s", e)
                 pass
         _, y_arr = np.unique(y_arr, return_inverse=True)
     y_bin = y_arr.astype(np.int64)

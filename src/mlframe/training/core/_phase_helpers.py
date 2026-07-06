@@ -598,7 +598,8 @@ def _phase_pandas_conversion_and_cat_prep(
                 val_df_size_bytes_cached = float(
                     val_df_pd.memory_usage(deep=False, index=False).sum()
                 )
-        except Exception:
+        except Exception as e:
+            logger.debug("swallowed exception in _phase_helpers.py: %s", e)
             pass
         if verbose:
             _memsize_elapsed = timer() - _t0_memsize

@@ -111,7 +111,8 @@ def _numeric_feature_matrix(df: Any, feature_cols: Sequence[str], target_col: st
             continue
         try:
             arr = _extract_column_array(df, c, rows=rows).astype(np.float64, copy=False)
-        except Exception:  # noqa: BLE001 -- a single unreadable column must not abort the precheck
+        except Exception as e:  # noqa: BLE001 -- a single unreadable column must not abort the precheck
+            logger.debug("swallowed exception in _achievable_ceiling.py: %s", e)
             continue
         if arr.shape[0] != rows.shape[0]:
             continue
@@ -176,7 +177,8 @@ def _pick_base_candidates(df: Any, feature_cols: Sequence[str], target_col: str,
             continue
         try:
             col = _extract_column_array(df, c, rows=rows_sub).astype(np.float64, copy=False)
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            logger.debug("swallowed exception in _achievable_ceiling.py: %s", e)
             continue
         if col.shape != y_sub.shape:
             continue
@@ -355,7 +357,8 @@ def measure_achievable_ceiling(
         try:
             base_fit = _extract_column_array(df, bcol, rows=rows_fit).astype(np.float64, copy=False)
             base_hold = _extract_column_array(df, bcol, rows=rows_hold).astype(np.float64, copy=False)
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            logger.debug("swallowed exception in _achievable_ceiling.py: %s", e)
             continue
         if base_fit.shape != y_fit.shape or base_hold.shape != y_hold.shape:
             continue

@@ -146,7 +146,8 @@ def _evaluation(estimator: Any, X: Any, y: Any) -> dict[str, Any]:
         for alpha in sorted(q.keys()):
             try:
                 lo, hi = estimator.predict_interval(X, alpha=alpha)
-            except Exception:  # pragma: no cover - level uncalibrated mid-iter
+            except Exception as e:  # pragma: no cover - level uncalibrated mid-iter
+                logger.debug("swallowed exception in model_card.py: %s", e)
                 continue
             lo = np.asarray(lo, dtype=np.float64).reshape(-1)
             hi = np.asarray(hi, dtype=np.float64).reshape(-1)

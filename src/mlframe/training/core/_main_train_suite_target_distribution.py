@@ -67,7 +67,8 @@ def _maybe_auto_drop_after_feature_analyzer(
                 _a = str(entry.get("a") if isinstance(entry, dict) else entry[0])
                 _b = str(entry.get("b") if isinstance(entry, dict) else entry[1])
                 _c = float(entry.get("corr") if isinstance(entry, dict) else entry[2])
-            except Exception:
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _main_train_suite_target_distribution.py:70: %s", e)
                 continue
             if abs(_c) >= _dup_threshold:
                 # Drop the alphabetically-larger; if either is already in
@@ -229,7 +230,8 @@ def _run_target_distribution_analyzer(
                                 _diffs = np.diff(_sample.astype(np.float64))
                                 if np.all(_diffs >= 0) or np.all(_diffs <= 0):
                                     _verified_hits.append(_orig_col)
-                        except Exception:
+                        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                            logger.debug("suppressed in _main_train_suite_target_distribution.py:232: %s", e)
                             pass
                     if _verified_hits:
                         _has_time = True
@@ -246,7 +248,8 @@ def _run_target_distribution_analyzer(
                             "(per-group AR via group_ids still fires if applicable).",
                             sorted(_hit_lower),
                         )
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _main_train_suite_target_distribution.py:249: %s", e)
                     pass
             _td_report = analyze_target_distribution(
                 _y_train,
@@ -281,7 +284,8 @@ def _run_target_distribution_analyzer(
                     n_rows=int(_td_report.n_samples),
                     extra={"target_type": _td_report.target_type, "n_pathologies": len(_td_report.pathologies)},
                 )
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _main_train_suite_target_distribution.py:284: %s", e)
                 pass
             # Maintain a per-knob "hyperparams_used" provenance dict so downstream consumers (model factories, audit
             # reports) can distinguish analyzer-injected knobs from caller-supplied defaults. User overrides take
@@ -303,7 +307,8 @@ def _run_target_distribution_analyzer(
                             _slot_store[_knob_name] = {"value": _user_slot[_knob_name.split(".")[0]], "source": "user"}
                         else:
                             _slot_store[_knob_name] = dict(_stamp)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _main_train_suite_target_distribution.py:306: %s", e)
                 pass
             # Gap-fill merge into hyperparams_config. The config can be a
             # pydantic ModelHyperparamsConfig (dump+rebuild) or a dict (merge
@@ -330,7 +335,8 @@ def _run_target_distribution_analyzer(
                                 # fall back to model_copy(update={...}).
                                 try:
                                     hyperparams_config = hyperparams_config.model_copy(update={_slot: _hp_merged.get(_slot)})
-                                except Exception:
+                                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                                    logger.debug("suppressed in _main_train_suite_target_distribution.py:333: %s", e)
                                     pass
                 # Reflect any mutation back onto ctx so downstream phases see
                 # the merged config instead of the caller's original.
@@ -395,7 +401,8 @@ def _run_target_distribution_analyzer(
                                 if hasattr(ctx, _slot):
                                     try:
                                         setattr(ctx, _slot, locals()[_slot])
-                                    except Exception:
+                                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                                        logger.debug("suppressed in _main_train_suite_target_distribution.py:398: %s", e)
                                         pass
                     except Exception as _drop_err:
                         logger.warning(

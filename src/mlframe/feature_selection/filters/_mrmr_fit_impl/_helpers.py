@@ -178,14 +178,16 @@ def _mrmr_instance_state_size_bytes(instance: Any) -> int:
                     else:
                         try:
                             total += int(np.asarray(_vv).nbytes)
-                        except Exception:
+                        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                            logger.debug("suppressed in _helpers.py:181: %s", e)
                             pass
             elif isinstance(_v, (list, tuple)):
                 for _item in _v:
                     _inb = getattr(_item, "nbytes", None)
                     if isinstance(_inb, int):
                         total += _inb
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _helpers.py:188: %s", e)
             continue
     return total
 

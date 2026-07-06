@@ -265,7 +265,8 @@ def _hashable_params_signature(params: dict) -> tuple:
                 try:
                     items.append((k, (v.tobytes(), v.shape, str(v.dtype))))
                     continue
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _mrmr_fingerprints.py:268: %s", e)
                     pass
             try:
                 items.append((k, repr(v)))
@@ -398,7 +399,8 @@ def _target_name_signature(y) -> tuple:
         name = getattr(y, "name", None)
         if name is not None:
             return (str(name),)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _mrmr_fingerprints.py:401: %s", e)
         pass
     return ()
 
@@ -467,7 +469,8 @@ def _full_x_content_hash(X) -> str:
         if hasattr(X, "columns"):
             try:
                 h.update(",".join(str(c) for c in X.columns).encode())
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _mrmr_fingerprints.py:470: %s", e)
                 pass
         result = h.hexdigest()
         # Guard the single-slot memo write with the same lock the sibling identity cache uses; the publish-hash-before-key ordering is the
@@ -550,7 +553,8 @@ def _replay_fitted_state(target: MRMR, source: MRMR) -> int:
                 if v.flags.owndata and v.flags.writeable:
                     try:
                         v.flags.writeable = False
-                    except Exception:
+                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                        logger.debug("suppressed in _mrmr_fingerprints.py:553: %s", e)
                         pass
                 target.__dict__[k] = v
         elif isinstance(v, _IMMUTABLE_SCALAR_TYPES):

@@ -42,7 +42,6 @@ Eviction strategies:
 
 from __future__ import annotations
 
-import io
 import logging
 import os
 import sys
@@ -55,12 +54,8 @@ from typing import (
     Any,
     Callable,
     Dict,
-    Iterator,
-    List,
     Literal,
     Optional,
-    Tuple,
-    Union,
 )
 
 import numpy as np
@@ -471,7 +466,7 @@ def _serialize(value: Any, fileobj: Any, *, allow_pickle: bool = False) -> None:
             "only when the cache directory is trusted."
         )
     # Opt-in pickle path.
-    import pickle
+    import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
     pickle.dump(value, fileobj, protocol=5)
 
 

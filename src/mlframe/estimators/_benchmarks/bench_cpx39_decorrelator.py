@@ -6,7 +6,7 @@ OLD side is loaded via ``git show HEAD:...`` so we A/B two real artifacts, not a
 Warm + best-of-N; identity gate on the dropped-columns set across several seeds / correlation structures.
 """
 
-import os, sys, time, subprocess, types
+import os, sys, time, subprocess, types  # nosec B404 - subprocess used below with fixed list args, no shell=True
 
 import numpy as np, pandas as pd
 
@@ -26,7 +26,7 @@ def _make_data(n=5000, p=200, n_corr_pairs=40, seed=0):
 
 def _old_fit_factory():
     """Load HEAD's MyDecorrelator.fit body as a standalone function."""
-    src = subprocess.check_output(["git", "show", "HEAD:src/mlframe/estimators/custom.py"], cwd=REPO).decode("utf-8")
+    src = subprocess.check_output(["git", "show", "HEAD:src/mlframe/estimators/custom.py"], cwd=REPO).decode("utf-8")  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
     # Extract the class and build it in an isolated namespace.
     ns = {"pd": pd, "np": np}
     # pull just the fit logic to avoid importing sklearn base; replicate old loop directly:

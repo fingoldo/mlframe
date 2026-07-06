@@ -473,14 +473,16 @@ def _first_group_column(df, names, max_card: int = 50):
     for c in names or []:
         try:
             col = df[c]
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _diagnostics_dispatch_extra.py:476: %s", e)
             continue
         dt = getattr(col, "dtype", None)
         if str(dt) == "category":
             try:
                 if 2 <= len(col.cat.categories) <= max_card:
                     return c
-            except Exception:
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _diagnostics_dispatch_extra.py:483: %s", e)
                 continue
         elif dt == object or str(dt).startswith("string"):
             try:
@@ -488,7 +490,8 @@ def _first_group_column(df, names, max_card: int = 50):
                 nun = int(head.nunique(dropna=True)) if hasattr(head, "nunique") else 0
                 if 2 <= nun <= max_card:
                     return c
-            except Exception:
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _diagnostics_dispatch_extra.py:491: %s", e)
                 continue
     return None
 

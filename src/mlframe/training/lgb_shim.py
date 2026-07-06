@@ -533,7 +533,7 @@ class _DatasetReuseMixin:
                 assert isinstance(pair, tuple) and len(pair) in (2, 3), (
                     f"lgb_shim: normalized eval_set item {i} is {type(pair).__name__} "
                     f"len {len(pair) if hasattr(pair, '__len__') else '?'}; expected a 2/3-tuple."
-                )
+                )  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
                 pair_seq = pair
                 X_val, y_val_raw = pair_seq[0], pair_seq[1]
                 # Same Arrow split-blocks bridge as train X: keeps Categorical dtype intact, avoids the ``__array__`` numpy fallthrough.
@@ -552,7 +552,8 @@ class _DatasetReuseMixin:
                         try:
                             if X_val[_c].dtype != _dt:
                                 _realign[_c] = X_val[_c].astype(_dt)
-                        except Exception:
+                        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                            logger.debug("suppressed in lgb_shim.py:555: %s", e)
                             pass
                     if _realign:
                         X_val = X_val.assign(**_realign)
@@ -770,7 +771,8 @@ class _DatasetReuseMixin:
             try:
                 if X[_c].dtype != _dt:
                     _realign[_c] = X[_c].astype(_dt)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in lgb_shim.py:773: %s", e)
                 pass
         return X.assign(**_realign) if _realign else X
 

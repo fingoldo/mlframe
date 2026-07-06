@@ -768,7 +768,7 @@ def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_co
         if _CUPY_AVAIL and not gpu_globally_disabled():
             try:
                 return _pair_combo_mi_cupy(*args)
-            except Exception:
+            except Exception:  # nosec B110 - optional/best-effort path, rationale documented
                 pass  # fall through to CPU
         # cupy missing / disabled / device error -> CPU. Re-resolve serial-vs-parallel for the CPU twin.
         choice = _usability_fallback_choice(n_rows, nc)

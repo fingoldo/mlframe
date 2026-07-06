@@ -30,7 +30,7 @@ MEASURED VERDICT (2026-06-04) -> SHIP (as a post-hoc CV-curve cut). Full numbers
     per-N cut ordering. fit_rfecv_full/global_ranking below are retained but unused (the degenerate RFECV path).
 """
 from __future__ import annotations
-import os, sys, time, pickle
+import os, sys, time, pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd

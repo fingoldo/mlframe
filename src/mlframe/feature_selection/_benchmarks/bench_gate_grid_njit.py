@@ -81,8 +81,8 @@ def main():
         taus = np.quantile(cv, _TAUS)
         _build_mask_grid_njit_par(cv, av, taus)
         _build_select_grid_njit_par(cv, av, bv, taus)
-        assert np.array_equal(_build_mask_grid_njit_par(cv, av, taus), _numpy_mask(cv, av, taus))
-        assert np.array_equal(_build_select_grid_njit_par(cv, av, bv, taus), _numpy_select(cv, av, bv, taus))
+        assert np.array_equal(_build_mask_grid_njit_par(cv, av, taus), _numpy_mask(cv, av, taus))  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
+        assert np.array_equal(_build_select_grid_njit_par(cv, av, bv, taus), _numpy_select(cv, av, bv, taus))  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
         mn = _bench(_numpy_mask, (cv, av, taus))
         mj = _bench(_build_mask_grid_njit_par, (cv, av, taus))
         sn = _bench(_numpy_select, (cv, av, bv, taus))

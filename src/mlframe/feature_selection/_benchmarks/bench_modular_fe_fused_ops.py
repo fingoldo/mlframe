@@ -62,7 +62,7 @@ def main():
         # identity
         a = _old_generate(X, periods)
         b = generate_modular_features(X, periods=periods)
-        assert list(a.columns) == list(b.columns)
+        assert list(a.columns) == list(b.columns)  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
         max_abs = float(np.nanmax(np.abs(a.to_numpy() - b.to_numpy())))
         exact = bool(np.array_equal(a.to_numpy(), b.to_numpy(), equal_nan=True))
 

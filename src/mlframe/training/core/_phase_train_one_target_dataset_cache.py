@@ -323,7 +323,7 @@ def _release_ctx_polars_frames(
     try:
         from mlframe.training.utils import clear_pandas_view_cache
         clear_pandas_view_cache()
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     new_baseline = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason=reason)
     # Only emit the lingering-refs warning when the expected reclaim is large enough for the

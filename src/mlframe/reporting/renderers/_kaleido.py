@@ -113,7 +113,8 @@ def _restart_kaleido_server() -> bool:
     if _KALEIDO_SERVER_STARTED:
         try:
             kaleido.stop_sync_server(silence_warnings=True)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _kaleido.py:116: %s", e)
             pass
         _KALEIDO_SERVER_STARTED = False
     started = _ensure_kaleido_server_started()
@@ -146,7 +147,7 @@ def _ensure_kaleido_server_started() -> bool:
         def _stop():
             try:
                 kaleido.stop_sync_server(silence_warnings=True)
-            except Exception:
+            except Exception:  # nosec B110 - optional dependency import guard
                 pass
         atexit.register(_stop)
         return True
@@ -245,7 +246,8 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
             # through to the HTML fallback via the burned-or-hung gate below.
             try:
                 _restart_kaleido_server()
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _kaleido.py:248: %s", e)
                 pass
         else:
             return  # success

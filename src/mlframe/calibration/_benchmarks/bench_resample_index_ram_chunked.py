@@ -83,7 +83,7 @@ def main() -> None:
     identical = bool(np.array_equal(s_full, s_chunk))
     print(f"  wall full={t_full*1e3:.1f} ms   chunked={t_chunk*1e3:.1f} ms")
     print(f"  per-resample ECE samples BIT-IDENTICAL (full vs chunked, same rng order): {identical}")
-    assert identical, "chunked stream must preserve the single-rng draw order -> bit-identical samples"
+    assert identical, "chunked stream must preserve the single-rng draw order -> bit-identical samples"  # nosec B101 - internal invariant check in src/mlframe/calibration/_benchmarks, not reachable with untrusted input
     print(
         "\nVerdict (DOC -- document the ceiling, do NOT chunk by default): the matrix is a ONE-TIME shared (read-only) "
         "alloc, not a per-candidate copy, and the per-candidate path already streams it row-by-row. Chunking caps "

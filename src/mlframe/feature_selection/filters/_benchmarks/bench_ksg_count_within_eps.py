@@ -47,7 +47,7 @@ def main():
         eps = np.abs(rng.standard_normal(n)) * 0.1 + 0.01
         old = _old_count_within_eps(x, eps)
         new = _count_within_eps(x, eps)
-        assert np.array_equal(old, new), f"identity mismatch at n={n}"
+        assert np.array_equal(old, new), f"identity mismatch at n={n}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
         t_old = _best(_old_count_within_eps, x, eps)
         t_new = _best(_count_within_eps, x, eps)
         print(f"n={n}: OLD {t_old*1e3:.2f}ms -> NEW {t_new*1e3:.2f}ms " f"({t_old/t_new:.1f}x) identity OK")

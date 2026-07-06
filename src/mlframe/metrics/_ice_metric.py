@@ -480,7 +480,8 @@ def _install_catboost_sklearn_clone_patch() -> None:
                 pass
             try:
                 new.set_params(eval_metric=eval_metric)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _ice_metric.py:483: %s", e)
                 pass
         return new
 

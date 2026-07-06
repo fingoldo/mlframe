@@ -34,7 +34,7 @@ def _disable_kernel_tuning_sweep():
         _M.KernelTuningCache.get_or_tune = _no_sweep
         _inmem = _M.KernelTuningCache(in_memory=True)
         _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _inmem)
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
 # NOTE: do NOT call _disable_kernel_tuning_sweep() at import -- discover_tuners imports this module and an
 # import-time monkeypatch of get_or_tune breaks ``refresh-all``. It is invoked under __main__ below.

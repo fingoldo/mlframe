@@ -231,7 +231,7 @@ def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: f
             )
             if _dev is not None:
                 return _dev
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
 
     from ._wavelet_basis_fe import (

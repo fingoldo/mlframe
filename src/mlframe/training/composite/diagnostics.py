@@ -149,7 +149,8 @@ def plot_target_distribution(
                     va="top", ha="left",
                     fontsize=8, family="monospace",
                     bbox={"facecolor": "white", "alpha": 0.7, "edgecolor": "gray"})
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in diagnostics.py:152: %s", e)
             pass
     fig.tight_layout()
     return fig

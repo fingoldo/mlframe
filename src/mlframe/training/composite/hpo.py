@@ -493,7 +493,7 @@ def _search_random(
     budget, it falls back to ``n_trials`` seeded random draws. Either way it runs
     exactly ``n_trials`` evaluations, a faithful drop-in for the Optuna path.
     """
-    rng = random.Random(random_state)
+    rng = random.Random(random_state)  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
     best_score = float("inf")
     best_transform = transform_candidates[0]
     best_params: Dict[str, Any] = {}

@@ -47,7 +47,7 @@ def _estimator_fit_accepts_sample_weight(estimator: Any) -> bool:
     if _sk_has_fit_parameter is not None:
         try:
             return bool(_sk_has_fit_parameter(estimator, "sample_weight"))
-        except Exception:  # pragma: no cover - defensive; fall through
+        except Exception:  # pragma: no cover - defensive; fall through  # nosec B110 - best-effort/optional path, no module logger
             pass
     fit_fn = getattr(estimator, "fit", None)
     if fit_fn is None:

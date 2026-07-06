@@ -34,7 +34,8 @@ def _cuda_demote_errors():
         compile_exc = getattr(cp.cuda, "compiler", None)
         if compile_exc is not None and hasattr(compile_exc, "CompileException"):
             excs = excs + (compile_exc.CompileException,)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _shap_proxy_treeshap_gpu.py:37: %s", e)
         pass
     return excs
 

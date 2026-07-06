@@ -106,9 +106,11 @@ def _choose_chunk_width(n_rows: int, p: int, free_bytes: int) -> int:
                 axes=["n_bucket", "ram_bucket"],
                 regions=[{"n_bucket": n_bucket, "ram_bucket": ram_bucket, "chunk_width": fb}],
             )
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _mrmr_sis_screen.py:109: %s", e)
             pass
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _mrmr_sis_screen.py:111: %s", e)
         pass
     return fb
 

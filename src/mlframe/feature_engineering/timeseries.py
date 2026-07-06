@@ -24,8 +24,8 @@ from typing import Any, Callable, Dict, List, Optional, Pattern, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
-import psutil
 import pywt
+import psutil
 from numba import njit
 
 from mlframe.core.ewma import ewma_numba
@@ -190,7 +190,7 @@ from ._timeseries_emit import (  # noqa: F401, E402
 )
 
 
-def create_aggregated_features(
+def create_aggregated_features(  # nosec B107 - default is a separator/label token, not a credential
     window_df: pd.DataFrame,
     row_features: list,
     create_features_names: bool,
@@ -451,7 +451,7 @@ def create_aggregated_features(
                     checked_subsets=checked_subsets + [subset_var],
                     subset_token=subset_token,
                     nested_subsets=nested_subsets,
-                )
+                )  # nosec B107 - default value is a plain separator/label string, not a credential
 
 
 def compute_splitting_stats(

@@ -200,7 +200,7 @@ def _persist_pipeline_disk_cache() -> None:
             with open(tmp_path, "w", encoding="utf-8") as fh:
                 _json.dump(payload, fh)
         os.replace(tmp_path, path)
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
 
 

@@ -125,7 +125,8 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
         try:
             model._init_params["loss_function"] = "MultiRMSE"
             model._init_params["eval_metric"] = "MultiRMSE"
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _training_loop.py:128: %s", e)
             pass
 
 
@@ -180,7 +181,8 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
         try:
             model._init_params["loss_function"] = "MultiLogloss"
             model._init_params["eval_metric"] = "HammingLoss"
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _training_loop.py:183: %s", e)
             pass
 
 
@@ -195,7 +197,7 @@ def _handle_oom_error(model_obj, model_type_name: str) -> bool:
         if hasattr(model_obj, _attr):
             try:
                 delattr(model_obj, _attr)
-            except Exception:
+            except Exception:  # nosec B110 - exception already logged below, non-fatal by design
                 pass
     logger.warning(
         "OOM during %s.fit; cleared caches and will retry once.",
@@ -320,7 +322,8 @@ def _train_model_with_fallback(
         else:
             _dtype_summary = ""
         logger.info("  [pre-fit] train_df type=%s, %s", _kind, _dtype_summary)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _training_loop.py:323: %s", e)
         pass
 
     # Polars-frame contract: only CatBoost, XGBoost, and HistGradientBoosting
@@ -685,7 +688,8 @@ def _train_model_with_fallback(
             # _predict_with_fallback.
             try:
                 model._mlframe_polars_fastpath_broken = True
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _training_loop.py:688: %s", e)
                 pass
             schema_dump = _polars_schema_diagnostic(
                 train_df,

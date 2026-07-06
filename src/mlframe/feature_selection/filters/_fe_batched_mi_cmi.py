@@ -640,7 +640,7 @@ def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]
                         shared_mem=shmem)
             hk = cp.asnumpy(out)
             return float(-hk[0]), int(round(hk[1]))
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # nosec B110 - best-effort/optional path, no module logger
             pass
     return _ent_nnz_1d(joint_counts_gpu(codes, cards), inv_n)
 

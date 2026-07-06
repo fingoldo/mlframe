@@ -46,7 +46,7 @@ def _laplacian_smallest_eigenvectors(n_nodes: int, edges, k: int = 3):
             vals, vecs = eigsh(csr_matrix(L), k=min(kk, n_nodes - 1), which="SA")  # k smallest-algebraic (L is PSD)
             order = np.argsort(vals)
             return vals[order], vecs[:, order]
-        except Exception:  # SciPy absent or ARPACK non-convergence -> dense fallback keeps the layout available
+        except Exception:  # SciPy absent or ARPACK non-convergence -> dense fallback keeps the layout available  # nosec B110 - best-effort/optional path, no module logger
             pass
     vals, vecs = np.linalg.eigh(L)
     return vals[:kk], vecs[:, :kk]

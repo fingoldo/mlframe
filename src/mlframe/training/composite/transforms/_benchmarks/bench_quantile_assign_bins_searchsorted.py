@@ -111,12 +111,12 @@ def main():
         a = _reference_searchsorted(base, edges)
         b = _assign_njit_wrap(base, edges)
         c = _assign_par_wrap(base, edges)
-        assert np.array_equal(a, b), f"MISMATCH bin n={n}: {(a != b).sum()} diff"
-        assert np.array_equal(a, c), f"MISMATCH par n={n}: {(a != c).sum()} diff"
+        assert np.array_equal(a, b), f"MISMATCH bin n={n}: {(a != b).sum()} diff"  # nosec B101 - internal invariant check in src/mlframe/training/composite/transforms/_benchmarks, not reachable with untrusted input
+        assert np.array_equal(a, c), f"MISMATCH par n={n}: {(a != c).sum()} diff"  # nosec B101 - internal invariant check in src/mlframe/training/composite/transforms/_benchmarks, not reachable with untrusted input
 
         # adversarial identity: NaN / +-inf / out-of-range
         adv = np.array([np.nan, np.inf, -np.inf, 1e300, -1e300, 0.0], dtype=np.float64)
-        assert np.array_equal(_reference_searchsorted(adv, edges), _assign_par_wrap(adv, edges)), "MISMATCH adversarial"
+        assert np.array_equal(_reference_searchsorted(adv, edges), _assign_par_wrap(adv, edges)), "MISMATCH adversarial"  # nosec B101 - internal invariant check in src/mlframe/training/composite/transforms/_benchmarks, not reachable with untrusted input
 
         old = _best(lambda: _reference_searchsorted(base, edges), 100)
         new = _best(lambda: _assign_njit_wrap(base, edges), 100)

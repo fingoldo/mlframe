@@ -92,7 +92,8 @@ def _validate_cached_model_schema(
                 if raw is not None:
                     saved_names = list(raw)
                     break
-            except Exception:
+            except Exception as e:
+                logger.debug("swallowed exception in train_eval.py: %s", e)
                 continue
     if saved_names is None and hasattr(m, "get_booster"):
         try:
@@ -497,7 +498,7 @@ def process_model(
                 ):
                     try:
                         model_obj._mlframe_polars_fastpath_broken = True
-                    except Exception:
+                    except Exception:  # nosec B110 - non-trivial body
                         # CB Python class is permissive about attributes,
                         # but slot-restricted forks could refuse -- degrade
                         # to "pay one extra retry" rather than fail.

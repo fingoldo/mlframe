@@ -143,7 +143,7 @@ def pair_su_batch(
                         fd, pair_buf[:1], None, fn_arr, dtype=dtype,
                     )
                     ec[int(col_idx)] = float(entropy(freqs_c))
-            except Exception:
+            except Exception:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
                 # Defensive: if the warmup hits an unexpected shape
                 # (caller-supplied fd with wrong dtype, etc), drop the
                 # warmup and let pair_su handle each pair fresh. The

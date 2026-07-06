@@ -632,6 +632,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
             "step": "rfecv", "source": "train_only", "n_rows": _n_rows_done,
             "cv_folds": int(_cv_n_done) if _cv_n_done is not None else None,
         }
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _fit.py:635: %s", e)
         pass
     return self

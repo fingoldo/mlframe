@@ -55,7 +55,7 @@ def main() -> None:
         names = [cols[(i * step) % n_cols] for i in range(n_names)]
 
         # Warm both (build any caches / JIT-free here, just steady-state Python).
-        assert _old_lookup(cols, names) == _new_lookup(cols, names), "lookups must be bit-identical"
+        assert _old_lookup(cols, names) == _new_lookup(cols, names), "lookups must be bit-identical"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
 
         old_ms = _best_of(_old_lookup, cols, names) * 1e3
         new_ms = _best_of(_new_lookup, cols, names) * 1e3

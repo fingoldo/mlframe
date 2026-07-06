@@ -286,7 +286,8 @@ def _eval_fold_body(
                     if _tp is not None and hasattr(_fitted, "set_params"):
                         try:
                             _fitted.set_params(text_processing=_tp)
-                        except Exception:
+                        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                            logger.debug("suppressed in _fit_fold.py:289: %s", e)
                             pass
 
         _model_type_name = type(_fitted).__name__

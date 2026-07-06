@@ -48,7 +48,8 @@ def _model_fit_accepts_sample_weight(model: Any) -> bool:
     if _sk_has_fit_parameter is not None:
         try:
             return bool(_sk_has_fit_parameter(model, "sample_weight"))
-        except Exception:  # pragma: no cover - defensive; fall through
+        except Exception as e:  # pragma: no cover - defensive; fall through
+            logger.debug("swallowed exception in post_shim.py: %s", e)
             pass
     fit_fn = getattr(model, "fit", None)
     if fit_fn is None:

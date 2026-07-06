@@ -109,7 +109,8 @@ def run_collapse_sensor(
                 _above_hi = (_pred_max - float(y_train_max)) / float(y_train_std)
                 if _below_lo > 3.0 or _above_hi > 3.0:
                     _collapse_train_envelope = True
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _sensors.py:112: %s", e)
                 pass
         if not (_collapse_std or _collapse_extrapolation or _collapse_mean_shift or _collapse_train_envelope):
             return

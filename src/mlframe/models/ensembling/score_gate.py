@@ -316,7 +316,8 @@ def catastrophic_drop_k2(
                         )
                     else:
                         ensemble_name = f"{_re_label} {ensemble_name}".rstrip() if ensemble_name else _re_label
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in score_gate.py:319: %s", e)
                     pass
                 # Drop into single-member short-circuit: with K=1 surviving, there's no ensemble to score. Return the sentinel-only dict exactly as the upstream "single_member" branch does. Operators see "_reason: k2_catastrophic_dropout" in the result and can choose to keep just the surviving member.
                 res["_reason"] = "k2_catastrophic_dropout"

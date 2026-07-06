@@ -60,7 +60,7 @@ def main():
         a = bestof(new_a, bins, ub)
         b = bestof(new_b, bins, ub)
         # identity of counts
-        assert old(bins, ub) == new_a(bins, ub) == new_b(bins, ub)
+        assert old(bins, ub) == new_a(bins, ub) == new_b(bins, ub)  # nosec B101 - internal invariant check in src/mlframe/metrics/_benchmarks, not reachable with untrusted input
         print(f"N={N:7d} B={B:4d}  OLD {o*1e3:8.3f}ms  A {a*1e3:8.3f}ms ({o/a:.2f}x)  B {b*1e3:8.3f}ms ({o/b:.2f}x)")
 
 

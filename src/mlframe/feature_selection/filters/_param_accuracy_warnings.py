@@ -106,7 +106,7 @@ def warn_accuracy_suboptimal_params(estimator: Any) -> None:
             val = getattr(estimator, c.attr)
             if c.is_bad(val):
                 triggered.append((c, val))
-        except Exception:
+        except Exception:  # nosec B112 - best-effort path
             continue
     estimator._accuracy_caveats_warned_ = True
     if not triggered:

@@ -153,7 +153,8 @@ def _maybe_wrap_for_2d_target(model, train_target):
                 patch["early_stopping_rounds"] = None
             if patch:
                 model.set_params(**patch)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _training_loop_objectives.py:156: %s", e)
             pass
         return MultiOutputClassifier(model, n_jobs=1)
     except ImportError as _import_err:

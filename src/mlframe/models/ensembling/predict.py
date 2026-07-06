@@ -15,7 +15,6 @@ threads through ``_WelfordAccumulator`` so we never materialise the full
 from __future__ import annotations
 
 import logging
-import math
 from typing import Optional
 
 import numpy as np
@@ -28,7 +27,6 @@ from .base import (
     _WelfordAccumulator,
     _per_member_mae_std,
     combine_probs,
-    rrf_ensemble,
 )
 
 # Share the parent's logger name so caplog filters in the test suite
@@ -416,7 +414,6 @@ def ensemble_probabilistic_predictions_streaming(
                 primary_acc.push(np.log(np.clip(p, 1e-300, None)))
 
     # Finalize per method
-    M = primary_acc.n
     mean_of_t = primary_acc.mean  # (N, K) in transformed space
     if ensemble_method == "arithm":
         ensembled_predictions = mean_of_t
@@ -439,10 +436,10 @@ def ensemble_probabilistic_predictions_streaming(
         if verbose:
             logger.info("%s non-finite values replaced with arithmetic mean", n_replaced)
         # Wave 78 (2026-05-21): shape-contract assert as defensive forward-compat.
-        assert ensembled_predictions.shape == arith_mean.shape, (
+        assert ensembled_predictions.shape == arith_mean.shape, (  # nosec B101 - internal invariant check in src/mlframe/models/ensembling, not reachable with untrusted input
             f"streaming ensemble combine: shape mismatch ensembled={ensembled_predictions.shape} "
             f"vs raw_acc.mean={arith_mean.shape}"
-        )
+        )  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
         ensembled_predictions = np.where(non_finite_mask, arith_mean, ensembled_predictions)
 
     if ensure_prob_limits:

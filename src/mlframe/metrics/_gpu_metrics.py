@@ -89,7 +89,7 @@ def is_gpu_metrics_available() -> bool:
         _ = cp.asarray([1.0], dtype=cp.float32).sum().item()
         _GPU_AVAILABLE = True
         return True
-    except Exception:
+    except Exception:  # nosec B110 - best-effort/optional path, no module logger
         pass
     _GPU_AVAILABLE = False
     return False
@@ -105,7 +105,7 @@ def _is_numba_cuda_available() -> bool:
         if cuda.is_available():
             _NUMBA_CUDA_AVAILABLE = True
             return True
-    except Exception:
+    except Exception:  # nosec B110 - best-effort/optional path, no module logger
         pass
     _NUMBA_CUDA_AVAILABLE = False
     return False

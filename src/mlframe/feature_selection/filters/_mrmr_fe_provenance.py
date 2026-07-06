@@ -289,7 +289,8 @@ def _origin_from_rosters(name: str, mrmr_self: Any) -> str:
             # returning a broadcast result on some dtypes.
             if name in list(roster):
                 return label
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logging.getLogger(__name__).debug("suppressed in _mrmr_fe_provenance.py:292: %s", e)
             continue
     # DCD aggregate fallback: cluster_members_ is keyed by the engineered
     # aggregate name when DCD compose ran.
@@ -323,7 +324,8 @@ def _greedy_rank_for_name(name: str, predictors: Iterable[Any]) -> int:
             _en = entry.get("name")
             if _en is not None and simplify_fe_name(str(_en)) == _target:
                 return idx
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logging.getLogger(__name__).debug("suppressed in _mrmr_fe_provenance.py:326: %s", e)
             continue
     return -1
 
@@ -355,7 +357,8 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
             for idx in np.asarray(support).tolist():
                 if 0 <= int(idx) < len(feature_names_in):
                     _append(feature_names_in[int(idx)])
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logging.getLogger(__name__).debug("suppressed in _mrmr_fe_provenance.py:358: %s", e)
             pass
     # NAME-SYNC with get_feature_names_out (2026-06-20). ``get_feature_names_out`` advertises
     # engineered columns through ``simplified_recipe_names`` (value-preserving DISPLAY canonicalisation,
@@ -379,7 +382,8 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
         try:
             for nm in list(roster):
                 _append(nm)
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logging.getLogger(__name__).debug("suppressed in _mrmr_fe_provenance.py:382: %s", e)
             continue
     # Audit-trail completion: append every engineered column the FE stages PRODUCED but the screen / gate / dedup dropped. These carry no greedy rank (rank -1, NaN gain) but DO carry their origin so the
     # ledger reflects the full set of mechanisms that fired, not just the survivors.

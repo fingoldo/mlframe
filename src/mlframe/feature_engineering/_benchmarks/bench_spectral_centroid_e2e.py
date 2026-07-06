@@ -6,7 +6,7 @@ Confirms the full-function wall improves and output is identical to ~1e-9.
 Run: CUDA_VISIBLE_DEVICES="" python bench_spectral_centroid_e2e.py
 """
 import importlib.util
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import sys
 import tempfile
 import time
@@ -20,7 +20,7 @@ SPECTRAL_REL = "mlframe/feature_engineering/spectral.py"
 
 
 def _load_old_module():
-    src = subprocess.run(
+    src = subprocess.run(  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
         ["git", "show", f"HEAD:src/{SPECTRAL_REL}"],
         cwd=PKG_ROOT.parent, capture_output=True, text=True, check=True,
     ).stdout

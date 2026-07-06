@@ -69,7 +69,7 @@ def bench(n, n_features, nbins_val=10, n_methods=9, iters=30):
     # identity
     o = old_score(data, binned, nbins, target, qnb)
     nw = new_score(data, binned, nbins, target, qnb)
-    assert o == nw, f"identity FAIL: {o} vs {nw} (diff {abs(o - nw)})"
+    assert o == nw, f"identity FAIL: {o} vs {nw} (diff {abs(o - nw)})"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 
     def run(fn):
         best = float("inf")

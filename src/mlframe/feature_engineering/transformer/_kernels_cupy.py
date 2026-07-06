@@ -226,7 +226,7 @@ def rff_matmul_cupy(
     import cupy as cp
     n, d = X.shape
     m = W.shape[1]
-    assert out.shape == (n, 2 * m), f"out must have shape (N, 2*m); got {out.shape} vs ({n}, {2 * m})"
+    assert out.shape == (n, 2 * m), f"out must have shape (N, 2*m); got {out.shape} vs ({n}, {2 * m})"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/transformer, not reachable with untrusted input
 
     # One-shot upload of W and b - they're tiny (a few MB at most) and reused across all batches.
     W_dev = cp.asarray(W)
@@ -298,7 +298,6 @@ def row_attention_stage4_cupy(
 
     n_queries, head_dim = q_proj.shape
     k = topk_ids.shape[1]
-    n_train = k_proj.shape[0]
 
     q_dev = cp.asarray(q_proj, dtype=cp.float32)
     k_dev = k_proj_device if k_proj_device is not None else cp.asarray(k_proj, dtype=cp.float32)

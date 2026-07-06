@@ -68,7 +68,7 @@ def _extract_selected(selector: Any, feature_names: Sequence[str]) -> list[str]:
             out = list(np.asarray(gfno(), dtype=object))
             if out:
                 return [str(c) for c in out]
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
 
     # 2) explicit name list

@@ -400,7 +400,7 @@ def _pin_device_if_needed() -> None:
         import cupy as cp
         if cp.cuda.Device().id != _BEST_DEVICE_ID:
             cp.cuda.Device(_BEST_DEVICE_ID).use()
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
 
 
@@ -995,7 +995,8 @@ def mi_direct_gpu(
                 _ktc_entry = _ktc.lookup("joint_hist_single_perm", n_samples=int(n))
                 if _ktc_entry is not None and "block_size" in _ktc_entry:
                     block_size = int(_ktc_entry["block_size"])
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in gpu.py:998: %s", e)
                 pass
         grid_size = math.ceil(n / block_size)
 

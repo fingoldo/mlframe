@@ -21,7 +21,7 @@ def main():
         Xt[Xt < 0.01] = np.nan
         a = _nanminmax_cols(Xt)
         b = _nanminmax_cols_serial(Xt)
-        assert np.allclose(a[0], b[0], equal_nan=True) and np.allclose(a[1], b[1], equal_nan=True)
+        assert np.allclose(a[0], b[0], equal_nan=True) and np.allclose(a[1], b[1], equal_nan=True)  # nosec B101 - internal invariant check in src/mlframe/preprocessing/_benchmarks, not reachable with untrusted input
     print("identity OK")
 
     def bench(f, X, r=200):

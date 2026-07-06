@@ -837,7 +837,8 @@ def finalize_suite(ctx: TrainingContext) -> dict:
                 _selected_features_union.update(_cols)
                 try:
                     _entry.selected_features_ = list(_cols)
-                except Exception:
+                except Exception as e:
+                    logger.debug("swallowed exception in _phase_finalize.py: %s", e)
                     pass
     if fairness_reports:
         ctx.metadata["fairness_report"] = fairness_reports
@@ -931,7 +932,8 @@ def finalize_suite(ctx: TrainingContext) -> dict:
                 if _root_wall > 0:
                     _share_str = ", ".join(f"{p}={tot/_root_wall*100:.1f}%" for p, tot, _ in _snap[:8])
                     logger.info("[wall-share] top: %s", _share_str)
-        except Exception:
+        except Exception as e:
+            logger.debug("swallowed exception in _phase_finalize.py: %s", e)
             pass
 
         # Surface cumulative kaleido oneshot cost; per-call warning is suppressed (idempotent).
@@ -953,7 +955,8 @@ def finalize_suite(ctx: TrainingContext) -> dict:
                     (_kal_wall / _kal_n) * 1000,
                 )
             reset_kaleido_oneshot_stats()
-        except Exception:
+        except Exception as e:
+            logger.debug("swallowed exception in _phase_finalize.py: %s", e)
             pass
 
     # Selected-features surfacing populated during the combined walk above.

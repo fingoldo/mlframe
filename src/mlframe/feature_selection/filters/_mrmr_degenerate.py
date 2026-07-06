@@ -54,7 +54,7 @@ def _column_arrays(X):
             for i, name in enumerate(cols):
                 yield name, arr[:, i]
             return
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
     arr = np.asarray(X)
     if arr.ndim == 1:

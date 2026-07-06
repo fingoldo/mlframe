@@ -21,7 +21,7 @@ import logging
 import os
 import platform
 import shutil
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import sys
 import tempfile
 import time
@@ -47,7 +47,7 @@ RESULTS_DIR = Path(__file__).parent / "_results"
 
 def _git_sha() -> str:
     try:
-        out = subprocess.check_output(
+        out = subprocess.check_output(  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=Path(__file__).resolve().parents[3],
             stderr=subprocess.DEVNULL,

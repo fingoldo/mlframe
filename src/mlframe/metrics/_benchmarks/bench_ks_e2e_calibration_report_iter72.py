@@ -35,7 +35,7 @@ def set_gate(on):
 set_gate(False); res_old = call()
 set_gate(True);  res_new = call()
 scal_old = tuple(res_old[:15]); scal_new = tuple(res_new[:15])
-assert scal_old == scal_new, f"metrics differ:\n old={scal_old}\n new={scal_new}"
+assert scal_old == scal_new, f"metrics differ:\n old={scal_old}\n new={scal_new}"  # nosec B101 - internal invariant check in src/mlframe/metrics/_benchmarks, not reachable with untrusted input
 print(f"identity OK: ks(old)={res_old[10]!r} == ks(new)={res_new[10]!r}; full 15-scalar tuple ==")
 
 # Warm both arms.

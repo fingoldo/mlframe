@@ -541,7 +541,7 @@ def is_supported_xgboost(estimator) -> bool:
         n_class = int(cfg["learner"]["learner_model_param"].get("num_class", "0"))
         if n_class > 2:
             return False
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     return True
 

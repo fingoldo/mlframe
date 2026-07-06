@@ -144,7 +144,8 @@ def mi_direct_gpu_batched_pairs(
             )
             if _entry is not None and "block_size" in _entry:
                 block_size = int(_entry["block_size"])
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _gpu_pairs.py:147: %s", e)
             pass
     grid_x = (n_rows + block_size - 1) // block_size
 

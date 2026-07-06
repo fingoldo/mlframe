@@ -12,7 +12,7 @@ Run:  CUDA_VISIBLE_DEVICES not set (parent keeps GPU), from repo root:
   PYTHONPATH=src python src/mlframe/feature_selection/filters/_benchmarks/bench_polynom_pair_loky_cpu_only.py
 """
 
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import threading
 import time
 
@@ -24,7 +24,7 @@ from mlframe.feature_selection.filters import polynom_pair_fe as ppf
 
 def _vram_used_mib():
     try:
-        out = subprocess.check_output(
+        out = subprocess.check_output(  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
             ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
             text=True,
         )

@@ -77,7 +77,7 @@ def main() -> None:
     try:
         import psutil
         base_mb = psutil.Process().memory_info().rss / 1e6
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
 
     poller = _RSSPoller()

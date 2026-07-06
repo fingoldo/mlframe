@@ -67,7 +67,7 @@ def bench():
         old = decode_old(cell_ids, strides)
         new = decode_new(cell_ids, strides)
         ok = np.array_equal(np.asarray(old, dtype=np.int64), new)
-        assert ok, f"identity FAIL {label}"
+        assert ok, f"identity FAIL {label}"  # nosec B101 - internal invariant check in src/mlframe/reporting/charts/_benchmarks, not reachable with untrusted input
 
         # We bench per-combo batches (decode is called once per combo with that combo's cell_ids).
         # Simulate by splitting total into batches matching the config.

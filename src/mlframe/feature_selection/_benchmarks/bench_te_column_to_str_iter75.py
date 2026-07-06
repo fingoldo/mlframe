@@ -53,8 +53,8 @@ def _identity():
     cases.append(pd.Series(np.array([None] * 1000, dtype=object)))
     for i, c in enumerate(cases):
         o, n = OLD(c), NEW(c)
-        assert o.shape == n.shape, (i, o.shape, n.shape)
-        assert np.array_equal(o.astype(str), n.astype(str)), f"case {i} MISMATCH\n{o[:20]}\n{n[:20]}"
+        assert o.shape == n.shape, (i, o.shape, n.shape)  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
+        assert np.array_equal(o.astype(str), n.astype(str)), f"case {i} MISMATCH\n{o[:20]}\n{n[:20]}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
     print("IDENTITY: all 6 cases bit-identical (incl bool-gated-out, all-nan)")
 
 

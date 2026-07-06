@@ -166,7 +166,8 @@ def _gpu_min_subsets() -> int:
             entry = ktc.lookup("shap_proxy_subsetrank")
             if isinstance(entry, dict) and entry.get("gpu_min_subsets"):
                 return int(entry["gpu_min_subsets"])
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _shap_proxy_subsetrank.py:169: %s", e)
         pass
     return _DEFAULT_GPU_MIN_SUBSETS
 

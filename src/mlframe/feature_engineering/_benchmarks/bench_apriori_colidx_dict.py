@@ -68,7 +68,7 @@ def main():
         # identity gate
         old = _old_resolve(col_names, itemsets)
         new = _new_resolve(col_names, itemsets)
-        assert old == new, "index resolution diverged!"
+        assert old == new, "index resolution diverged!"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
         # warm
         _best_of(_old_resolve, (col_names, itemsets), n=2)
         _best_of(_new_resolve, (col_names, itemsets), n=2)

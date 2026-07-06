@@ -544,7 +544,7 @@ def _run_suite_profiled(
     _save_root: Optional[Path] = None
     if profile_save and status.startswith("OK") and trained_models is not None and any(trained_models.values()):
         import tempfile
-        import pickle as _pickle
+        import pickle as _pickle  # nosec B403 - module used safely in this file, see call sites below (no untrusted input reaches it)
         import zstandard as _zstd
         from pyutilz.strings import slugify as _slugify
         from mlframe.training.io import save_mlframe_model
@@ -589,7 +589,7 @@ def _run_suite_profiled(
                     if isinstance(_tt_key, str):
                         _sttt[_slugify(str(_tt_key).lower())] = _tt_key
                 _meta_for_save["slug_to_original_target_type"] = _sttt
-            except Exception:
+            except Exception:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
                 # Best-effort -- if metadata is non-dict for some exotic
                 # reason, fall through and save as-is.
                 pass
@@ -612,7 +612,7 @@ def _run_suite_profiled(
                             _PdsPipeline.from_json(_pl_pipeline.to_json())
                             _meta_for_save = dict(_meta_for_save)
                             _meta_for_save["pipeline"] = _PolarsDsPipelineJsonProxy(_pl_pipeline)
-                        except Exception:
+                        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
                             pass  # roundtrip failed; ship as plain pickle
                 except ImportError:
                     pass  # polars-ds unavailable; nothing to wrap
@@ -836,7 +836,7 @@ def _run_suite_profiled(
         try:
             import shutil as _shutil
             _shutil.rmtree(_save_tmpdir_obj, ignore_errors=True)
-        except Exception:
+        except Exception:  # nosec B110 - optional dependency import guard
             pass
 
     return (

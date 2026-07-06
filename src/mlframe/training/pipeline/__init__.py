@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import os
 from timeit import default_timer as timer
-import subprocess
+import subprocess  # nosec B404 - module used safely in this file, see call sites below (no untrusted input reaches it)
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,8 @@ def _maybe_set_pysr_thread_env() -> None:
         if "JULIA_NUM_THREADS" not in os.environ:
             _ncpu = os.cpu_count() or 4
             os.environ["JULIA_NUM_THREADS"] = str(max(2, _ncpu // 2))
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in __init__.py:44: %s", e)
         pass
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------

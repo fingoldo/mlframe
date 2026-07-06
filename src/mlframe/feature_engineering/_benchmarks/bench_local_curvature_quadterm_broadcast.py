@@ -70,8 +70,8 @@ def main():
     for t in range(50):
         a1, h1 = _old_inner(DX[t], QC[t], k, d)
         a2, h2 = _new_inner(DX[t], QC[t], k, d, iu, ju, diag_mask, ones_col)
-        assert np.array_equal(a1, a2), "A_quad mismatch"
-        assert np.array_equal(h1, h2), "H mismatch"
+        assert np.array_equal(a1, a2), "A_quad mismatch"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
+        assert np.array_equal(h1, h2), "H mismatch"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
     print("identity OK (A_quad + H bit-identical over 50 rows)")
 
     def bench_old(reps=7):
@@ -96,7 +96,7 @@ def main():
     print(f"inner construction isolated: old={o:.4f}s new={n:.4f}s  ({o / n:.2f}x)")
 
     # full end-to-end A/B against the real prior code via git show
-    import subprocess
+    import subprocess  # nosec B404 - subprocess used below with list args only, no shell=True
     import sys
     import importlib
 

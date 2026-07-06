@@ -635,7 +635,8 @@ def _lookup_ewma_backend(K: int, N: int) -> str:
                 bc = str(choice.get("backend_choice", "")).strip().lower()
                 if bc in ("njit", "njit_par"):
                     return bc
-    except Exception:
+    except Exception as e:
+        logger.debug("swallowed exception in nonlinear.py: %s", e)
         pass
     if K >= _EWMA_PAR_MIN_K and N >= _EWMA_PAR_MIN_N:
         return "njit_par"
@@ -656,7 +657,8 @@ def _lookup_frac_diff_inv_backend(K: int, N: int) -> str:
                 bc = str(choice.get("backend_choice", "")).strip().lower()
                 if bc in ("njit", "njit_par"):
                     return bc
-    except Exception:
+    except Exception as e:
+        logger.debug("swallowed exception in nonlinear.py: %s", e)
         pass
     if K >= _FRAC_DIFF_INV_PAR_MIN_K and N >= _FRAC_DIFF_INV_PAR_MIN_N:
         return "njit_par"

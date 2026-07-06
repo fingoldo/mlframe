@@ -854,7 +854,8 @@ def drop_redundant_raw_operands(
                             "given %s -- nonlinear child is not a linear equivalent)",
                             rname, excess, [cols[e] for e in consumers],
                         )
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _fe_raw_redundancy_drop.py:857: %s", e)
                 pass
         # TAIL-CONCENTRATION CONTINUOUS-SUBSUMPTION DROP (2026-07-03). The binned-CMI keep legs above KEEP a
         # raw whose conditional excess given its engineered children does NOT collapse -- but under heavy
@@ -906,7 +907,8 @@ def drop_redundant_raw_operands(
                                 "survivor's |corr(y)|=%.3f -- binned CMI kept it on phantom tail signal): %s",
                                 rname, _r_rank, _r_lin, _s_lin, [cols[e] for e in consumers],
                             )
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _fe_raw_redundancy_drop.py:909: %s", e)
                 pass
         if keep:
             if verbose:
@@ -986,7 +988,8 @@ def drop_redundant_raw_operands(
                             drop_names, _r_kept, _r_rawonly, _r_rawonly - _r_kept, _RAW_DROP_NO_HARM_EPS,
                         )
                     return sel, []
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _fe_raw_redundancy_drop.py:989: %s", e)
             pass
 
     kept = [i for i in sel if i not in drop_idx_set]

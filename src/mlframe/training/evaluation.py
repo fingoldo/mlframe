@@ -406,7 +406,8 @@ def post_calibrate_model(
             source="oof" if calib_probs is not None else "calib",
             n_rows=_n_calib_fit,
         )
-    except Exception:
+    except Exception as e:
+        logger.debug("swallowed exception in evaluation.py: %s", e)
         pass
 
     # CalibrationConfig.policy_auto_pick: run pick_best_calibrator on the OOF source so the metrics dict carries the auto-pick verdict (chosen method + ECE CI) alongside the legacy meta-model output. Enabled by default; opt-out via configs.calibration.policy_auto_pick = False.

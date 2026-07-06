@@ -220,7 +220,8 @@ def _paired_bootstrap_vs_runner_up(
             try:
                 v1 = fn(y_ref[idx], p1[idx])
                 v2 = fn(y_ref[idx], p2[idx])
-            except Exception:
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _dummy_bootstrap.py:223: %s", e)
                 continue
             if not (np.isfinite(v1) and np.isfinite(v2)):
                 continue

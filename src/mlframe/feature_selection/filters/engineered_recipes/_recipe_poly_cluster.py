@@ -126,7 +126,7 @@ def build_cluster_aggregate_recipe(
     # Build-time guard: _extra_equal compares values shallowly (np.array_equal / !=), so nested
     # lists/dicts of arrays would break __eq__/pickle round-trip. Keep extra flat.
     for k, v in extra.items():
-        assert isinstance(v, (np.ndarray, str, int, float, bool)), f"cluster_aggregate extra[{k!r}] must be flat ndarray/scalar/str, got {type(v)}"
+        assert isinstance(v, (np.ndarray, str, int, float, bool)), f"cluster_aggregate extra[{k!r}] must be flat ndarray/scalar/str, got {type(v)}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/engineered_recipes, not reachable with untrusted input
     return EngineeredRecipe(name=name, kind="cluster_aggregate", src_names=tuple(src_names), quantization=quantization, extra=extra)
 
 

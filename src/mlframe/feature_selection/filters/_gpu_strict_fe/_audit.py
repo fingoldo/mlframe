@@ -61,7 +61,7 @@ def residency_audit() -> Iterator[ResidencyReport]:
         try:
             if isinstance(obj, np.ndarray):
                 rep.h2d.append(int(obj.nbytes))
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
         return _orig_asarray(obj, *a, **k)
 
@@ -70,14 +70,14 @@ def residency_audit() -> Iterator[ResidencyReport]:
             nb = int(getattr(obj, "nbytes", 0))
             if nb:
                 rep.d2h.append(nb)
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
         return _orig_asnumpy(obj, *a, **k)
 
     def _get(self, *a, **k):
         try:
             rep.d2h.append(int(self.nbytes))
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
         return _orig_get(self, *a, **k)
 
@@ -85,7 +85,7 @@ def residency_audit() -> Iterator[ResidencyReport]:
     cp.asnumpy = _asnumpy
     try:
         cp.ndarray.get = _get  # may be read-only on some cupy builds; guarded
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     try:
         yield rep
@@ -94,5 +94,5 @@ def residency_audit() -> Iterator[ResidencyReport]:
         cp.asnumpy = _orig_asnumpy
         try:
             cp.ndarray.get = _orig_get
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass

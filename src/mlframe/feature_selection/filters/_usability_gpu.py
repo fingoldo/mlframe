@@ -60,7 +60,7 @@ def fe_gpu_usability_enabled() -> bool:
         from ._gpu_policy import gpu_globally_disabled
         if gpu_globally_disabled():
             return False
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     return True
 

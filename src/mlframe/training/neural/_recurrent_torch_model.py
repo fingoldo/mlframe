@@ -419,11 +419,11 @@ class RecurrentTorchModel(L.LightningModule):
             # Unchanged unidirectional path: gather the whole channel block
             # at position length-1.
             last_indices_full = last_indices.expand(-1, 1, total_channels)
-            return rnn_out.gather(1, last_indices_full).squeeze(1)
+            return rnn_out.gather(1, last_indices_full).squeeze(1)  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
 
         # Bidirectional: split into fwd / bwd halves, gather each at the
         # semantically correct position, then re-concatenate.
-        assert total_channels % 2 == 0, (
+        assert total_channels % 2 == 0, (  # nosec B101 - internal invariant check in src/mlframe/training/neural, not reachable with untrusted input
             f"bidirectional rnn_out must have even channel count; got {total_channels}"
         )
         hidden_size = total_channels // 2
@@ -644,7 +644,8 @@ class RecurrentTorchModel(L.LightningModule):
         try:
             if self.trainer is not None:
                 precision = str(self.trainer.precision)
-        except Exception:
+        except Exception as e:
+            logger.debug("swallowed exception in _recurrent_torch_model.py: %s", e)
             pass
         # F-44 fused-AdamW + grad clipping under ANY mixed precision is
         # broken by Lightning's AMP plugin (not just 16-mixed): the plugin

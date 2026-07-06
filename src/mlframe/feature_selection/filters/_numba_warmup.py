@@ -51,6 +51,6 @@ def warmup_typed_dict() -> None:
         if "a,b" in d:
             d["a,b"] = d["a,b"] + 0.5
         del d["c,d|e,f"]
-    except Exception:
+    except Exception:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
         # Best-effort only; a warm-up failure must never affect a real fit.
         pass

@@ -55,7 +55,7 @@ def _abscorr(u: np.ndarray, v: np.ndarray) -> float:
         try:
             from ._usability_gpu import gpu_abscorr
             return gpu_abscorr(u, v)
-        except Exception:
+        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
             pass  # fall back to the exact CPU path
     u = _f64(u); v = _f64(v)  # precision for the heavy-tail correlation
     if u.size == 0 or float(np.std(u)) < 1e-12 or float(np.std(v)) < 1e-12:
@@ -348,7 +348,7 @@ def build_usability_candidate_pool(
                     tb = unary[ub](x2); _tb_cache[ib] = tb
                 try:
                     val = _scrub(binary[bn](ta, tb), feature_dtype)
-                except Exception:
+                except Exception:  # nosec B112 - best-effort path
                     continue
                 if any(_abscorr(val, k.values) > diversity_corr for k in _njit_kept):
                     continue
@@ -362,20 +362,20 @@ def build_usability_candidate_pool(
             for _ua in unary:
                 try:
                     ta_by_ua[_ua] = unary[_ua](x1)
-                except Exception:
+                except Exception:  # nosec B110 - best-effort path
                     pass
             tb_by_ub: dict = {}
             for _ub in unary:
                 try:
                     tb_by_ub[_ub] = unary[_ub](x2)
-                except Exception:
+                except Exception:  # nosec B110 - best-effort path
                     pass
             for ua, ta in ta_by_ua.items():
                 for ub, tb in tb_by_ub.items():
                     for bn, bf in binary.items():
                         try:
                             val = _scrub(bf(ta, tb), feature_dtype)
-                        except Exception:
+                        except Exception:  # nosec B112 - best-effort path
                             continue
                         if float(np.std(val)) <= 1e-9:
                             continue
@@ -408,7 +408,7 @@ def build_usability_candidate_pool(
                     quantization_dtype=quantization_dtype,
                     fit_values_for_edges=_f64(c.values),  # edges need float64 precision
                 )
-            except Exception:
+            except Exception:  # nosec B112 - optional/best-effort path, rationale documented
                 continue  # recipe could not even be built -> not replayable, drop.
             # Verify the replay ONCE per distinct op-combo (see cache note above); trust verified combos
             # for later candidates. A recipe whose replay RAISES or MISMATCHES on its first sighting
@@ -472,7 +472,7 @@ def usability_greedy(
             )
             if _res is not None:
                 return _res
-    except Exception:
+    except Exception:  # nosec B110 - optional/best-effort path, rationale documented
         pass  # any import/device error -> the exact CPU greedy below
     from sklearn.linear_model import LinearRegression, LogisticRegression
     from sklearn.preprocessing import StandardScaler
@@ -540,7 +540,7 @@ def usability_greedy(
             if _k_fit < _k_eff:
                 K = max(1, _k_fit)
                 shortlist = min(int(shortlist), max(int(K), 1))
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
 
     rng = np.random.default_rng(int(seed))

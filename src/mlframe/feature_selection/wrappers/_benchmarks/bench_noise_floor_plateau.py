@@ -85,8 +85,8 @@ def main():
         # identity check
         o = _old_plateau(n_grid, real, perm)
         n = noise_floor_plateau(n_grid, real, perm)
-        assert o[0] == n[0] and o[1] == n[1]
-        assert np.array_equal(o[2], n[2]) and np.allclose(o[3], n[3], rtol=0, atol=0), "identity broken"
+        assert o[0] == n[0] and o[1] == n[1]  # nosec B101 - internal invariant check in src/mlframe/feature_selection/wrappers/_benchmarks, not reachable with untrusted input
+        assert np.array_equal(o[2], n[2]) and np.allclose(o[3], n[3], rtol=0, atol=0), "identity broken"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/wrappers/_benchmarks, not reachable with untrusted input
 
         t_old = _bench(_old_plateau, (n_grid, real, perm))
         t_new = _bench(noise_floor_plateau, (n_grid, real, perm))

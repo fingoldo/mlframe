@@ -187,7 +187,8 @@ def auto_detect_te_cols(
         # nunique() with dropna=True is fast (Cython on pandas).
         try:
             card = int(X[col].nunique(dropna=True))
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _target_encoding_fe.py:190: %s", e)
             continue
         if min_card <= card <= max_card:
             candidates.append(col)

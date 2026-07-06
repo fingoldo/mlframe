@@ -386,7 +386,8 @@ def _process_single_ensemble_method(
             # train_and_evaluate_model returns (entry_namespace, train_df, val_df, test_df); stamp the namespace.
             _entry_ns = next_ens_results[0] if isinstance(next_ens_results, tuple) else next_ens_results
             _entry_ns.member_test_preds = np.column_stack([c[:_w] for c in _cols])
-    except Exception:
+    except Exception as e:
+        logger.debug("swallowed exception in process_method.py: %s", e)
         pass
 
     conf_results = None

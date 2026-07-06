@@ -38,7 +38,7 @@ def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed:
         cp.random.seed(seed)
     except (ImportError, ModuleNotFoundError):
         pass
-    except Exception:
+    except Exception:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
         # cupy installed but CUDA backend unusable on this host -- e.g.
         # ``CURAND_STATUS_INITIALIZATION_FAILED`` when libcurand can't be
         # opened (missing CUDA libs, GPU contention, container without
@@ -106,7 +106,7 @@ def _restore_caller_frame_columns(X, original_cols):
     if added:
         try:
             X.drop(columns=added, inplace=True)
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
 
 

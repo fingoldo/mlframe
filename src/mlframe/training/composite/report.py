@@ -197,7 +197,7 @@ def _interval_coverage(estimator: Any, X: Any, y: Any, facts: dict[str, Any]) ->
                     "mean_width": float(np.mean(hi - lo)),
                     "n": int(y_true.shape[0]),
                 })
-            except Exception:
+            except Exception:  # nosec B112 - best-effort path
                 continue
     return out or None
 

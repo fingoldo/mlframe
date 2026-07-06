@@ -100,7 +100,8 @@ def _prefilter_tuning() -> dict:
             entry = ktc.lookup("shap_proxy_prefilter")
             if isinstance(entry, dict):
                 return entry
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _shap_proxy_prefilter.py:103: %s", e)
         pass
     return {}
 

@@ -267,7 +267,8 @@ class PlotlyRenderer:
     def show(self, fig: Any) -> None:
         try:
             fig.show()
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in plotly.py:270: %s", e)
             pass
 
     # ------------------------------------------------------------------
@@ -728,10 +729,10 @@ class PlotlyRenderer:
             )
 
         for i, y in enumerate(ys):
-            token = styles[i % len(styles)]
-            if token == "markers":
-                mode, dash = "markers", "solid"
-            elif token == "lines+markers":
+            token = styles[i % len(styles)]  # nosec B105 - not a credential -- config/format token label or sentinel string constant
+            if token == "markers":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+                mode, dash = "markers", "solid"  # nosec B105 - not a credential -- config/format token label or sentinel string constant
+            elif token == "lines+markers":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
                 mode, dash = "lines+markers", "solid"
             else:
                 mode, dash = "lines", _STYLE_MAP.get(token, "solid")

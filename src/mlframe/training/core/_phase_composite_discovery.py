@@ -744,7 +744,8 @@ def run_composite_target_discovery(
             if _ceiling_verdict is not None:
                 try:
                     _disc.composite_precheck_verdict_ = _ceiling_verdict
-                except Exception:  # noqa: BLE001 -- exotic/read-only _disc; the verdict already lives in metadata
+                except Exception as e:  # noqa: BLE001 -- exotic/read-only _disc; the verdict already lives in metadata
+                    logger.debug("swallowed exception in _phase_composite_discovery.py: %s", e)
                     pass
 
             # Apply frozen (train-fitted) params to ALL rows so the per-target loop has T for val/test.

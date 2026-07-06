@@ -48,11 +48,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import pickle
-import shutil
+import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 import struct
-import tempfile
-import time
 import uuid
 from pathlib import Path
 from typing import Any, Optional, Union

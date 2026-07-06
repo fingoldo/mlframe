@@ -150,7 +150,8 @@ def _set_inner_objective(model: Any, family: str, tweedie_power: float) -> None:
             if family == "tweedie":
                 params["tweedie_variance_power"] = float(tweedie_power)
             model.set_params(**params)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in glm.py:153: %s", e)
         pass
 
 

@@ -52,7 +52,7 @@ def oof_r2(X, y, recipes, raw_cols, seed):
             v = np.nan_to_num(np.asarray(apply_recipe(r, X), float).ravel())
             if v.shape[0] == len(X):
                 cols.append(v)
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
     if not cols:
         return float("nan")

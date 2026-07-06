@@ -22,7 +22,7 @@ uses n_jobs=-1 internally (unavoidable). Fitted hybrid outputs are CACHED to dis
 reruns skip the expensive (esp. madelon ~50-90s) fits.
 """
 from __future__ import annotations
-import os, sys, time, pickle, hashlib
+import os, sys, time, pickle, hashlib  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd

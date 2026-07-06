@@ -38,7 +38,7 @@ def main():
     err = np.ascontiguousarray(err)
     codes_c, _edges = _bin_matrix(mat, 4)  # current: C-order
     codes_f = np.asfortranarray(codes_c)  # proposed: F-order
-    assert codes_c.flags["C_CONTIGUOUS"] and codes_f.flags["F_CONTIGUOUS"]
+    assert codes_c.flags["C_CONTIGUOUS"] and codes_f.flags["F_CONTIGUOUS"]  # nosec B101 - internal invariant check in src/mlframe/reporting/_benchmarks, not reachable with untrusted input
     rng = np.random.default_rng(1)
     allpairs = [(int(a), int(b)) for a in range(p) for b in range(a + 1, p)]
     pairs = [allpairs[i] for i in rng.choice(len(allpairs), size=n_pairs, replace=False)]
@@ -49,7 +49,7 @@ def main():
     # Identity gate.
     rc, rf = _run(codes_c, err, pairs), _run(codes_f, err, pairs)
     for (sc, cc), (sf, cf) in zip(rc, rf):
-        assert np.array_equal(sc, sf) and np.array_equal(cc, cf), "layout changed output!"
+        assert np.array_equal(sc, sf) and np.array_equal(cc, cf), "layout changed output!"  # nosec B101 - internal invariant check in src/mlframe/reporting/_benchmarks, not reachable with untrusted input
     print("IDENTITY: bit-identical sums+counts across all", len(pairs), "pairs")
 
     N = 30

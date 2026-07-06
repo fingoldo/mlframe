@@ -220,7 +220,7 @@ def _dispatch_batch_mi_with_noise_gate(
         from .._fe_gpu_strict import fe_gpu_strict_enabled
         if fe_gpu_strict_enabled():
             backend = "gpu"
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
 
     # GPU region: route to the bit-identical GPU twin. Any failure (cupy/cuda

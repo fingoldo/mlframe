@@ -155,7 +155,8 @@ def _select_swap_method_auto(
                     np.array([1], dtype=np.int64), _nbins_arr,
                 ))
                 scores[method].append(_mi_val)
-            except Exception:
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _dcd_swap.py:158: %s", e)
                 continue
 
     # Reduce per-method per-fold lists to mean OOF MI; tie-break by candidate
@@ -782,7 +783,8 @@ def commit_swap(
                             )
                             _edges = np.nanpercentile(_cont, _q_arr)
                             _quant["edges"] = _edges.tolist()
-                    except Exception:
+                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                        logger.debug("suppressed in _dcd_swap.py:785: %s", e)
                         pass
                 engineered_recipe = build_cluster_aggregate_recipe(
                     name=str(decision.aggregate_name),

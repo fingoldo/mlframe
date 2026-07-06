@@ -119,8 +119,8 @@ def main() -> None:
     prof_text, golden_prof = run_once_profiled(out_dir)
     # cProfile run does not print its own wall; recompute via a quick second plain pass not needed --
     # overhead is shown by comparing the profiled cumtime header in the table to the plain wall above.
-    assert golden_prof["accepted"] == golden["accepted"], "profiled run diverged from plain run (non-determinism!)"
-    assert golden_prof["hits"] == golden["hits"], "profiled run hit vector diverged (non-determinism!)"
+    assert golden_prof["accepted"] == golden["accepted"], "profiled run diverged from plain run (non-determinism!)"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
+    assert golden_prof["hits"] == golden["hits"], "profiled run hit vector diverged (non-determinism!)"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
     print("\n[cProfile top hotspots, sorted tottime]")
     print(prof_text)
 

@@ -26,7 +26,7 @@ import scipy.stats
 
 try:
     import numba  # noqa: F401
-except Exception:
+except Exception:  # nosec B110 - optional dependency import guard
     pass
 sys.modules.setdefault("cupy", None)
 

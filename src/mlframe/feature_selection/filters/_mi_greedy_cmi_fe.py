@@ -758,7 +758,8 @@ def _cmi_from_binned(
     if _cmi_gpu_enabled():
         try:
             return _cmi_from_binned_cupy(x, y, z_joint, return_cards=return_cards, kx=kx, kz=kz)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _mi_greedy_cmi_fe.py:761: %s", e)
             pass
     x_i = np.ascontiguousarray(x, dtype=np.int64)
     y_i = np.ascontiguousarray(y, dtype=np.int64)
@@ -893,7 +894,8 @@ def cmi_from_binned_fixed_yz(
     if _cmi_gpu_enabled():
         try:
             return _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _mi_greedy_cmi_fe.py:896: %s", e)
             pass
     x_i = np.ascontiguousarray(x, dtype=np.int64).ravel()
     # Fused densify+entropy: xz / xyz labels are consumed ONLY by the entropy, so build the joint histogram
@@ -1310,7 +1312,7 @@ def score_candidates_by_cmi(
                     X_codes[:, j] = _quantile_bin(X_float[:, j], nbins=nbins)
                 cmis = batched_cmi_gpu(X_codes, y_bin, z_joint, codes_trusted=True)  # host equi-freq binner -> 0-based
             return pd.Series({c: float(cmis[j]) for j, c in enumerate(cand_cols)}, dtype=np.float64)
-        except Exception:
+        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
             pass  # any cupy error -> exact CPU loop below
     out = {}
     for c in cand_cols:
@@ -1494,7 +1496,8 @@ def greedy_cmi_fe_construct(
                 _zc = z_joint if (z_joint is not None and z_joint.size > 0) else None
                 _cmis = np.asarray(batched_cmi_gpu(_Xs, y_shuf, _zc), dtype=np.float64)
                 return float(np.quantile(_cmis, 0.95))
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _mi_greedy_cmi_fe.py:1497: %s", e)
             pass
         cmis_shuf = []
         for nm in sample_names:

@@ -110,7 +110,7 @@ def usability_greedy_gpu_resident(
         from ._gpu_policy import gpu_globally_disabled
         if gpu_globally_disabled():
             return None
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
 
     try:
@@ -145,7 +145,7 @@ def usability_greedy_gpu_resident(
                 if _k_fit < _k_eff:
                     K = max(1, _k_fit)
                     shortlist = min(int(shortlist), max(int(K), 1))
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
 
         # Balanced ``arange % k`` partition, seeded + shuffled IDENTICALLY to the CPU path (host RNG -> the

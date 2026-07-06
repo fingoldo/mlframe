@@ -49,7 +49,7 @@ def main():
         for c in cols:
             a = _detect_heavy_tail(c)
             b = _detect_heavy_tail_njit(c)
-            assert a == b, f"MISMATCH n={n}: numpy={a} njit={b}"
+            assert a == b, f"MISMATCH n={n}: numpy={a} njit={b}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/hermite_fe/_benchmarks, not reachable with untrusted input
         # warm njit
         for c in cols:
             _detect_heavy_tail_njit(c)

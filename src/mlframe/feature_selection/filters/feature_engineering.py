@@ -127,7 +127,8 @@ def _fe_hoist_headroom_overhead() -> float:
                 _v = float(tuned.get("overhead", 0.0) or 0.0)
                 if _v > 0.0:
                     val = _v
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in feature_engineering.py:130: %s", e)
         pass
     env = os.environ.get("MLFRAME_FE_HOIST_HEADROOM_OVERHEAD")
     if env is not None:
@@ -517,7 +518,8 @@ def compute_pairs_mis(
                 _pf["top_pair"] = f"({_top_pair[0]},{_top_pair[1]})={_top_pair_mi:.4f}"
             try:
                 _bar.set_postfix(_pf, refresh=False)
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in feature_engineering.py:520: %s", e)
                 pass
 
     return cached_MIs

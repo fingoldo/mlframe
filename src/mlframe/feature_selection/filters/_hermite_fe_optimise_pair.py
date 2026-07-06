@@ -308,7 +308,8 @@ def optimise_hermite_pair(
                 for k, bf in enumerate(bf_call):
                     try:
                         combined = bf(h_a, h_b)
-                    except Exception:
+                    except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                        logger.debug("suppressed in _hermite_fe_optimise_pair.py:311: %s", e)
                         continue
                     if npall(isfinite(combined)):
                         cols.append(combined)
@@ -551,7 +552,8 @@ def optimise_hermite_pair(
                     params.update({f"b_{i}": float(ws[ca_size + i]) for i in range(cb_size)})
                     try:
                         study.enqueue_trial(params)
-                    except Exception:
+                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                        logger.debug("suppressed in _hermite_fe_optimise_pair.py:554: %s", e)
                         pass
             if early_stop_no_improve and early_stop_no_improve < n_trials:
                 stop_state = {"best": -np.inf, "since_improve": 0}

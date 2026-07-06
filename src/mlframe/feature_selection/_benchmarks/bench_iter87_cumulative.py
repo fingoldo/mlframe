@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 - module used safely in this file, see call sites below (no untrusted input reaches it)
 import sys
 import tempfile
 import time
@@ -113,7 +113,7 @@ def _run_subprocess(python_exe: str, pythonpath: str, regime: dict, cache_dir: s
 
     t0 = time.perf_counter()
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # nosec B603 - fixed/trusted executable, args are not attacker-controlled
             [python_exe, "-c", WORKER, json.dumps(regime), cache_dir or "", "warm" if warm else "cold"],
             env=env,
             capture_output=True,
@@ -138,7 +138,7 @@ def _run_subprocess(python_exe: str, pythonpath: str, regime: dict, cache_dir: s
         if line.startswith("__RESULT__"):
             try:
                 payload = json.loads(line[len("__RESULT__") :])
-            except Exception:
+            except Exception:  # nosec B110 - best-effort path
                 pass
     if payload is None:
         return {

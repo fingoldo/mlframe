@@ -873,7 +873,7 @@ def _fused_generate_block(ua_cm, ub_cm, combos_block, *, column_major: bool = Fa
 
     # Pin the operand-plane row count to the unary set: the kernel does NO bounds check on ua_idx, so a
     # silent row/index drift would be an out-of-bounds device read. Assert it can't.
-    assert ua_cm.shape[0] == len(_MINIMAL_UNARY) == ub_cm.shape[0], (ua_cm.shape, ub_cm.shape)
+    assert ua_cm.shape[0] == len(_MINIMAL_UNARY) == ub_cm.shape[0], (ua_cm.shape, ub_cm.shape)  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters, not reachable with untrusted input
     n = int(ua_cm.shape[1])
     K = len(combos_block)
     # combos_block is always a slice of the module constant _COMBOS, so the int32 index trio depends only on

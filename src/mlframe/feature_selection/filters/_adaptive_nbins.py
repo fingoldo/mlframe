@@ -750,7 +750,8 @@ def per_feature_edges(
             if _key is not None and edges is not None:
                 try:
                     _cache.put(_key, edges)
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _adaptive_nbins.py:753: %s", e)
                     pass
 
     return edges_list

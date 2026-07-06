@@ -34,7 +34,7 @@ def main():
         return [cmi_from_binned_fixed_yz(c, yi, zi, h_yz, h_z, k_yz, k_z, nn) for c in cands]
 
     old(); new()
-    assert np.array_equal(np.asarray(old()), np.asarray(new())), "identity"
+    assert np.array_equal(np.asarray(old()), np.asarray(new())), "identity"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 
     def _best(fn, reps=7):
         t = []

@@ -35,7 +35,8 @@ def _process_mem_mb() -> tuple[float, float, float]:
             vms = float(getattr(full, "vms", rss * 1024**2))
             shared = float(getattr(full, "shared", 0.0))
             commit = (vms - shared) / 1024**2
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed in _fit_ram.py:38: %s", e)
         pass
     return rss, uss, commit
 

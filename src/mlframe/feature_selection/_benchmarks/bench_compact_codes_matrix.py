@@ -34,7 +34,7 @@ def _bench(n_rows: int = 200_000, n_cols: int = 400, n_bins: int = 10, cap: int 
         s = time.perf_counter()
         narrow = downcast(data)
         t.append(time.perf_counter() - s)
-    assert np.array_equal(narrow.astype(np.int64), data.astype(np.int64))
+    assert np.array_equal(narrow.astype(np.int64), data.astype(np.int64))  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
 
     # High-cardinality categorical block for the cap timing (300 distinct codes -> folds to cap).
     hc = rng.integers(0, 300, size=(n_rows, 40)).astype(np.float64)

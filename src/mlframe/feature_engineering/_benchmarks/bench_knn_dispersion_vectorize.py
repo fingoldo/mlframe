@@ -14,7 +14,7 @@ Run:
 from __future__ import annotations
 
 import importlib.util
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import tempfile
 import time
 from pathlib import Path
@@ -26,7 +26,7 @@ SPATIAL_REL = "src/mlframe/feature_engineering/spatial.py"
 
 
 def _load_baseline_module():
-    src = subprocess.check_output(["git", "show", f"HEAD:{SPATIAL_REL}"], cwd=REPO, text=True)
+    src = subprocess.check_output(["git", "show", f"HEAD:{SPATIAL_REL}"], cwd=REPO, text=True)  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
     tmpdir = Path(tempfile.mkdtemp(prefix="spatial_baseline_"))
     p = tmpdir / "spatial_baseline.py"
     p.write_text(src, encoding="utf-8")
@@ -56,7 +56,7 @@ def _cmp(r_old, r_new):
     max_abs = 0.0
     for kk in r_old:
         a, b = np.asarray(r_old[kk], float), np.asarray(r_new[kk], float)
-        assert np.array_equal(np.isnan(a), np.isnan(b)), f"NaN mask mismatch {kk}"
+        assert np.array_equal(np.isnan(a), np.isnan(b)), f"NaN mask mismatch {kk}"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
         m = np.isfinite(a)
         if m.any():
             d = np.max(np.abs(a[m] - b[m]))

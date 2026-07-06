@@ -198,7 +198,7 @@ def _warm_corr_kernel() -> None:
         warm[:, 1] = np.arange(4.0)[::-1]
         y_dev = np.arange(4.0) - 1.5
         _abs_corr_all_kernel(warm, y_dev, float(np.dot(y_dev, y_dev)), _BORDERLINE_BAND)
-    except Exception:  # pragma: no cover - warming is best-effort.
+    except Exception:  # pragma: no cover - warming is best-effort.  # nosec B110 - best-effort/optional path, no module logger
         pass
 
 

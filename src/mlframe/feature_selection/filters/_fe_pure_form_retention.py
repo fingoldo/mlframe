@@ -252,7 +252,7 @@ def retain_usable_pure_forms(
                 _r2 = float(_mp(_SS(), _LR()).fit(_Xg, _yg).score(_Xg, _yg))
                 if _r2 >= 0.92:
                     return []  # raws already fit y linearly -- no trapped nonlinear interaction to recover
-        except Exception:
+        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
             pass  # gate is an optimisation; on any failure fall through to the (correct) full path
 
         # Scope wide frames: keep the highest-variance base operands so the O(pairs) pool stays bounded

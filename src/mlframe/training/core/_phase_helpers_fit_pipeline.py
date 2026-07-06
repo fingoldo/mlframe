@@ -461,7 +461,8 @@ def _phase_fit_pipeline(
                 _diag = "n/a"
                 try:
                     _diag = f"keys={list(target_by_type.keys()) if hasattr(target_by_type, 'keys') else type(target_by_type).__name__}"
-                except Exception:
+                except Exception as e:
+                    logger.debug("swallowed exception in _phase_helpers_fit_pipeline.py: %s", e)
                     pass
                 logger.warning(
                     "Could not extract y_train for PySR FE: %s: %s (target_by_type %s)",
@@ -565,7 +566,8 @@ def _phase_fit_pipeline(
             n_rows=int(train_df.shape[0]) if hasattr(train_df, "shape") else None,
             extra={"n_features_out": int(train_df.shape[1]) if hasattr(train_df, "shape") and len(train_df.shape) > 1 else None},
         )
-    except Exception:
+    except Exception as e:
+        logger.debug("swallowed exception in _phase_helpers_fit_pipeline.py: %s", e)
         pass
     _post_cols = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else list(train_df.columns)
     # SKEW-COL-ORDER: write the explicit "post_pipeline_columns" name AND the legacy "columns" alias. ``_post_cols`` is already a freshly built list; reuse

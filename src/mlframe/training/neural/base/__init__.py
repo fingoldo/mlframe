@@ -112,11 +112,12 @@ try:
                 continue
             try:
                 _mod._load_external_callbacks = _load_external_callbacks_cached
-            except Exception:
+            except Exception:  # nosec B110 - non-trivial body
                 # Frozen / immutable module objects: skip silently.
                 pass
         _lf_registry._mlframe_callback_cache_installed = True
-except Exception:
+except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+    logger.debug("suppressed in __init__.py:119: %s", e)
     pass
 
 

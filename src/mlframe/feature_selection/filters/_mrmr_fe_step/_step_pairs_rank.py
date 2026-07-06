@@ -171,7 +171,7 @@ def score_prospective_pairs(
                                 float(fe_min_pair_mi_prevalence), _relaxed_bar,
                             )
                         fe_min_pair_mi_prevalence = _relaxed_bar
-    except Exception:
+    except Exception:  # nosec B110 - optional/best-effort path, rationale documented
         pass  # any failure keeps the strict prevalence bar (byte-identical)
     for raw_vars_pair, pair_mi in sort_dict_by_value(cached_MIs).items():
         if len(raw_vars_pair) == 2:
@@ -292,7 +292,7 @@ def score_prospective_pairs(
                             )
                             if _cmi_obs > _cfloor and (_cmi_obs - _cnull_mean) >= _cfloor:
                                 _prev_thresh = fe_min_pair_mi_prevalence
-                        except Exception:
+                        except Exception:  # nosec B110 - optional/best-effort path, rationale documented
                             pass  # keep the strict 1.5 bar on any failure
                 # ORDER-2 maxT floor (computed once above) applied IN ADDITION to the
                 # per-pair prevalence gate: the pair's JOINT MI must clear the pool's

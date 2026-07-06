@@ -239,7 +239,8 @@ def basis_route_by_signal(
                         v = polyeval_dispatch(basis, _zc, _coef)
                     else:
                         v = _evaluate_basis_column(x, basis, int(d), aux_for_fit=aux_for_fit)
-                except Exception:
+                except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in __init__.py:242: %s", e)
                     continue
                 v = np.asarray(v, dtype=np.float64)
                 if v.size != yv.size or not np.all(np.isfinite(v)) or float(np.std(v)) < 1e-12:

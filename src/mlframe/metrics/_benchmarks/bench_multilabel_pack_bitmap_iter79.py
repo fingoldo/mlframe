@@ -51,7 +51,7 @@ def main() -> None:
         ref = _pack_for_bitmap_numpy(arr)
         seq = _pack_for_bitmap_kernel_seq(arr)
         par = _pack_for_bitmap_kernel_par(arr)
-        assert np.array_equal(ref, seq) and np.array_equal(ref, par), f"K={k} not bit-identical"
+        assert np.array_equal(ref, seq) and np.array_equal(ref, par), f"K={k} not bit-identical"  # nosec B101 - internal invariant check in src/mlframe/metrics/_benchmarks, not reachable with untrusted input
         t_old = _best(_pack_for_bitmap_numpy, arr)
         t_seq = _best(_pack_for_bitmap_kernel_seq, arr)
         t_par = _best(_pack_for_bitmap_kernel_par, arr)

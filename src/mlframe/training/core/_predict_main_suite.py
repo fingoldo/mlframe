@@ -143,7 +143,7 @@ def predict_mlframe_models_suite(
         # tampered .pkl.zst is rejected before the loads(); legacy bundles without sidecar still
         # load through the trusted-path + version-envelope gates.
         from mlframe.utils.safe_pickle import verify_sidecar as _vsidecar
-        import pickle as _pickle
+        import pickle as _pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
         import zstandard as _zstd
         if not _vsidecar(metadata_file, allow_unverified=True):
             raise RuntimeError(

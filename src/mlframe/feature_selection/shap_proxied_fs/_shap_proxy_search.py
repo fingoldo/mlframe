@@ -267,7 +267,7 @@ def _resolve_brute_force_n_chunks() -> int:
             entry = ktc.lookup("shap_proxy_brute_force")
             if isinstance(entry, dict) and entry.get("n_chunks"):
                 val = int(entry["n_chunks"])
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     _brute_force_n_chunks_cache = val
     return val

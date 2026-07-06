@@ -96,14 +96,14 @@ def sanitize_frame_columns(df):
 
         if isinstance(df, _pd.DataFrame):
             return df.rename(columns=mapping)
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
     try:
         return df.rename(mapping)  # polars.DataFrame
     except Exception:
         try:
             df.columns = [mapping.get(c, mapping.get(str(c), c)) for c in cols_list]
-        except Exception:
+        except Exception:  # nosec B110 - best-effort path
             pass
         return df
 

@@ -702,7 +702,8 @@ def dispatch_friend_graph_stats(
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
         if not fe_gpu_has_vram_cushion(n * 8):
             return None
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.debug("swallowed exception in friend_graph_gpu.py: %s", e)
         pass
 
     if force_backend is not None:
@@ -744,7 +745,8 @@ try:
         salt=_FG_SALT,
         cli_label="friend_graph_build",
     )
-except Exception:
+except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+    logger.debug("suppressed in friend_graph_gpu.py:747: %s", e)
     pass
 
 

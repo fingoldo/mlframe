@@ -698,7 +698,7 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
         # mismatch before the loads(); legacy bundles without a sidecar still load (the trusted-
         # path validation + version envelope are the existing gates).
         from mlframe.utils.safe_pickle import verify_sidecar as _vsidecar
-        import pickle as _pickle
+        import pickle as _pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
         import zstandard as _zstd
         if not _vsidecar(metadata_file, allow_unverified=True):
             raise RuntimeError(

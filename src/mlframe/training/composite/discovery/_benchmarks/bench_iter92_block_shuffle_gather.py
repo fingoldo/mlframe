@@ -45,7 +45,7 @@ def _bench_one(m: int) -> None:
         # Identity across seeds (incl. trailing short block).
         for s in range(8):
             perm = np.random.default_rng(s).permutation(n_blocks)
-            assert np.array_equal(_legacy(arr, perm, block_len), block_shuffle_gather(arr, perm, block_len))
+            assert np.array_equal(_legacy(arr, perm, block_len), block_shuffle_gather(arr, perm, block_len))  # nosec B101 - internal invariant check in src/mlframe/training/composite/discovery/_benchmarks, not reachable with untrusted input
         rng = np.random.default_rng(1)
         for _ in range(3):
             block_shuffle_gather(arr, rng.permutation(n_blocks), block_len)

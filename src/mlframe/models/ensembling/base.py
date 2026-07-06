@@ -218,7 +218,8 @@ def _stacked_corrcoef(M: np.ndarray) -> np.ndarray:
             M_gpu = _cp.asarray(M)
             corr_gpu = _cp.corrcoef(M_gpu)
             return _cp.asnumpy(corr_gpu)
-        except Exception:  # pragma: no cover -- defensive
+        except Exception as e:  # pragma: no cover -- defensive
+            logger.debug("swallowed exception in base.py: %s", e)
             pass
     return np.corrcoef(M)
 
@@ -758,7 +759,7 @@ def combine_probs(
         # ensemble output if a future flavour returns a different reduce shape.
         assert combined.shape == _arith.shape, (
             f"ensemble combine: shape mismatch combined={combined.shape} vs arith fallback={_arith.shape}"
-        )
+        )  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
         combined = np.where(non_finite_mask, _arith, combined)
 
     if ensure_prob_limits:

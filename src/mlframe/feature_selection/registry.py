@@ -186,7 +186,7 @@ def _report_extract_shap_proxied_fs(selector, kept) -> dict:
         _all = getattr(selector, "feature_names_in_", None)
         if _all is not None and _sel:
             out["reason_per_feature"] = {str(c): ("selected" if str(c) in _sel else "dropped") for c in _all}
-    except Exception:
+    except Exception:  # nosec B110 - best-effort path
         pass
     return out
 

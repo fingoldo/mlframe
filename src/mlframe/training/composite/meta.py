@@ -60,7 +60,7 @@ def _row_subset(X: Any, idx: np.ndarray) -> Any:
     if hasattr(X, "to_numpy") and hasattr(X, "columns") and not isinstance(X, np.ndarray):
         try:
             return X[idx.tolist()]
-        except Exception:  # pragma: no cover - fallback for exotic frames
+        except Exception:  # pragma: no cover - fallback for exotic frames  # nosec B110 - best-effort/optional path, no module logger
             pass
     return np.asarray(X)[idx]
 

@@ -16,7 +16,7 @@ Run:
 """
 
 import os
-import subprocess
+import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import sys
 import time
 import types
@@ -30,7 +30,7 @@ REL = "src/mlframe/feature_selection/filters/_conditional_permutation.py"
 
 
 def _load_old_module() -> types.ModuleType:
-    src = subprocess.run(["git", "show", f"HEAD:{REL}"], cwd=REPO, capture_output=True, text=True, check=True).stdout
+    src = subprocess.run(["git", "show", f"HEAD:{REL}"], cwd=REPO, capture_output=True, text=True, check=True).stdout  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
     from mlframe.feature_selection.filters import _cmi_perm_stop  # noqa: F401
 
     pkg_name = "_cpt_old_pkg"
@@ -63,7 +63,7 @@ def bench(old_mod, new_mod, n=20_000, nbx=8, nby=8, nbz=10, B=200, seed=0):
 
     old_res = old_mod.conditional_permutation_test(x, y, z, nbx, nby, nbz, n_permutations=B, seed=7)
     new_res = new_mod.conditional_permutation_test(x, y, z, nbx, nby, nbz, n_permutations=B, seed=7)
-    assert old_res == new_res, f"identity FAILED: {old_res} != {new_res}"
+    assert old_res == new_res, f"identity FAILED: {old_res} != {new_res}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
 
     t_old = _median_time(lambda: old_mod.conditional_permutation_test(x, y, z, nbx, nby, nbz, n_permutations=B, seed=7))
     t_new = _median_time(lambda: new_mod.conditional_permutation_test(x, y, z, nbx, nby, nbz, n_permutations=B, seed=7))

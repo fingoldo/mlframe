@@ -76,7 +76,8 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             classes_x=classes_pair, freqs_x=freqs_pair,
             classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:79: %s", e)
         pass
     try:
         _ = _count_nfailed_joint_indep_prange(
@@ -84,31 +85,36 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             classes_x2, freqs_x2, classes_y, freqs_y,
             0.0, 2, 7, dtype,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:87: %s", e)
         pass
     try:
         _ = _shuffle_and_compute_three_mis(
             classes_pair, freqs_pair, classes_x1, freqs_x1,
             classes_x2, freqs_x2, classes_y_safe.copy(), freqs_y, 0, dtype,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:94: %s", e)
         pass
 
     # Conditional permutation shuffles.
     try:
         _conditional_shuffle_within_strata(classes_y_safe.copy(), classes_y, K_y, 0)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:100: %s", e)
         pass
     try:
         _full_conditional_shuffle_ipf(
             classes_y_safe.copy(), classes_x1, classes_y, K_x, K_y, 0,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:106: %s", e)
         pass
     try:
         groups = rng.integers(0, 4, n).astype(np.int32)
         _group_aware_shuffle(classes_y_safe.copy(), groups, 4, 0)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:111: %s", e)
         pass
 
     # Marginal + pair-search MI kernels (entry points for cat-FE search).
@@ -119,7 +125,8 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
         _ = _marginal_screen_njit(
             factors_data, candidate_idxs, nbins, classes_y, freqs_y, dtype,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:122: %s", e)
         pass
     pairs_a = np.array([0], dtype=np.int64)
     pairs_b = np.array([1], dtype=np.int64)
@@ -128,7 +135,8 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             factors_data, pairs_a, pairs_b, marginal_mi, nbins,
             classes_y, freqs_y, dtype,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:131: %s", e)
         pass
     try:
         weights = np.ones(n, dtype=np.float64)
@@ -136,7 +144,8 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             factors_data, pairs_a, pairs_b, marginal_mi, nbins,
             classes_y, weights, dtype,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:139: %s", e)
         pass
 
     # Info-theory primitives. ``screen_predictors`` calls ``merge_vars`` / ``entropy`` / ``mi`` / ``conditional_mi`` / ``entropy_miller_madow`` for every
@@ -154,23 +163,27 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             factors_data=_factors, vars_indices=_idx2, var_is_nominal=None,
             factors_nbins=_nbins_4, dtype=dtype,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:157: %s", e)
         pass
     try:
         _f10 = np.array([0.5, 0.3, 0.2], dtype=np.float64)
         _ = entropy(freqs=_f10)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:162: %s", e)
         pass
     try:
         _f10 = np.array([0.5, 0.3, 0.2], dtype=np.float64)
         _ = entropy_miller_madow(freqs=_f10, n_samples=10)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:167: %s", e)
         pass
     try:
         _idxx = np.array([0], dtype=np.int64)
         _idxy = np.array([1], dtype=np.int64)
         _ = mi(_factors, _idxx, _idxy, _nbins_4, False, dtype)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:173: %s", e)
         pass
     try:
         _idxz = np.array([2], dtype=np.int64)
@@ -179,19 +192,23 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             _factors, _idxx, _idxy, _idxz, _var_is_nom, _nbins_4,
             -1.0, -1.0, -1.0, -1.0, None, False, False, dtype,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:182: %s", e)
         pass
     try:
         _ = arr2str(_idx2)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:186: %s", e)
         pass
     try:
         _ = count_cand_nbins(_idx2, _nbins_4)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:190: %s", e)
         pass
     try:
         _ = unpack_and_sort(_idxx, _idxy)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:194: %s", e)
         pass
 
     # Screening permutation kernels. ``mi_direct`` calls one of these per candidate during MRMR screening; first call on a fresh process eats the entire ~17s
@@ -203,7 +220,8 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             npermutations=2, original_mi=0.0,
             base_seed=np.uint64(7), dtype=dtype,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:206: %s", e)
         pass
     try:
         _ = parallel_mi(
@@ -211,7 +229,8 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             classes_y=classes_y, freqs_y=freqs_y,
             npermutations=2, original_mi=0.0, max_failed=10, dtype=dtype,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:214: %s", e)
         pass
     # Null-mean-accumulating prange twin -- the kernel ``mi_direct(return_null_mean=True)`` runs for the MRMR relevance debiasing. Separate njit signature => separate compile.
     try:
@@ -221,13 +240,15 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             npermutations=2, original_mi=0.0,
             base_seed=np.uint64(7), dtype=dtype,
         )
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:224: %s", e)
         pass
     # Prewarm ``shuffle_arr`` -- the njit wrapper around ``np.random.shuffle`` used in ``mi_direct``'s sequential fallback path (n_workers=1).
     try:
         _test = classes_y.copy()
         shuffle_arr(_test)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:230: %s", e)
         pass
     # Prewarm ``shuffle_arr_lcg`` -- inline-LCG Fisher-Yates added in iter126;
     # mi_direct's seq path now uses this instead of shuffle_arr for the 6x
@@ -236,7 +257,7 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
         from .permutation import shuffle_arr_lcg
         _test_lcg = classes_y.copy()
         shuffle_arr_lcg(_test_lcg, np.uint64(42))
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
 
     # Discretisation kernels. Cover the dominant production dtype combos: int8 (default + cat-FE path) and int16 (categorize_dataset default for the screening
@@ -256,14 +277,16 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
                     arr=_arr, n_bins=4, method="quantile", min_ncats=50,
                     min_values=None, max_values=None, dtype=_disc_dtype,
                 )
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                _log.debug("suppressed in _prewarm.py:259: %s", e)
                 pass
         try:
             _ = discretize_array(
                 arr=cont[:, 0], n_bins=4, method="quantile",
                 min_value=None, max_value=None, dtype=_disc_dtype,
             )
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            _log.debug("suppressed in _prewarm.py:266: %s", e)
             pass
     # Prewarm the inner-loop kernels directly. ``_discretize_array_impl``, ``quantize_search``, ``quantize_dig``, ``discretize_uniform`` each compile on first
     # call from inside the prange body; prewarming the outer ``discretize_2d_array`` only triggers them via the parallel-fanout at runtime, which numba may not
@@ -280,27 +303,32 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
                     arr=_arr1d, n_bins=4, method="quantile",
                     min_value=None, max_value=None, dtype=_disc_dtype,
                 )
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                _log.debug("suppressed in _prewarm.py:283: %s", e)
                 pass
             try:
                 _ = discretize_uniform(
                     arr=_arr1d, n_bins=4, min_value=None, max_value=None,
                     dtype=_disc_dtype,
                 )
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                _log.debug("suppressed in _prewarm.py:290: %s", e)
                 pass
         _bins = np.linspace(_arr1d.min(), _arr1d.max(), 5)
         try:
             _ = quantize_search(_arr1d, _bins)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            _log.debug("suppressed in _prewarm.py:295: %s", e)
             pass
         try:
             _ = quantize_dig(_arr1d, _bins)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            _log.debug("suppressed in _prewarm.py:299: %s", e)
             pass
         try:
             _ = digitize(_arr1d, _bins, dtype=np.int32)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            _log.debug("suppressed in _prewarm.py:303: %s", e)
             pass
         # get_binning_edges with both "quantile" and "uniform" method branches -- numba compiles each branch separately because the unicode_type narrows under the if/elif.
         for _method in ("quantile", "uniform"):
@@ -309,7 +337,8 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
                     arr=_arr1d, n_bins=4, method=_method,
                     min_value=None, max_value=None,
                 )
-            except Exception:
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                _log.debug("suppressed in _prewarm.py:312: %s", e)
                 pass
     except ImportError:
         pass
@@ -322,14 +351,14 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
         _warm_cls = np.array([0, 1, 1, 2, 0], dtype=np.int64)
         _ = _entropy_from_classes_njit(_warm_cls)
         _ = _factorize_dense_njit(_warm_cls)
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
 
     # Layer-90 numeric-decompose digit-extract kernel.
     try:
         from ._numeric_decompose_fe import _digit_extract_njit
         _ = _digit_extract_njit(np.array([1.23, -4.56, np.nan], dtype=np.float64), 100.0)
-    except Exception:
+    except Exception:  # nosec B110 - optional dependency import guard
         pass
 
     # Layer-95 periodic/modular kernel (warm all three op codes).
@@ -339,7 +368,8 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
         for _oc in (0, 1, 2):
             _ = _modular_njit(_warm_mod, 7.0, _oc)
         _ = _modular_all_ops_njit(_warm_mod, 7.0)
-    except Exception:
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        _log.debug("suppressed in _prewarm.py:342: %s", e)
         pass
 
     _wall = time.perf_counter() - _t0

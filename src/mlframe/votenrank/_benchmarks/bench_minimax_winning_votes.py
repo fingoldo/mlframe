@@ -51,7 +51,7 @@ def bench(n_models, n_tasks, reps=20):
     # identity
     a = _old_minimax(ranks, weights, models)
     b = _new_minimax(ranks, weights, models)
-    assert a.equals(b), "identity FAILED"
+    assert a.equals(b), "identity FAILED"  # nosec B101 - internal invariant check in src/mlframe/votenrank/_benchmarks, not reachable with untrusted input
 
     def t(fn):
         best = float("inf")

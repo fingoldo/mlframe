@@ -64,7 +64,8 @@ def _coerce_label_for_cb_pool(target):
         if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
             try:
                 arr = np.stack([np.asarray(c) for c in arr], axis=0)
-            except Exception:
+            except Exception as e:
+                logger.debug("swallowed exception in _cb_pool.py: %s", e)
                 pass
     if arr.dtype.kind in ("i", "u", "b", "f") and arr.dtype != np.float32:
         arr = arr.astype(np.float32) if _label_float32_is_lossless(arr) else arr.astype(np.float64)
@@ -396,7 +397,8 @@ def _predict_with_fallback(
                             if isinstance(_orig.dtype, pd.CategoricalDtype):
                                 X[_c] = X[_c].astype("category")
                     X._mlframe_filled = True
-        except Exception:
+        except Exception as e:
+            logger.debug("swallowed exception in _cb_pool.py: %s", e)
             pass
 
     # ── 1. LGBM Polars → pandas auto-convert ──────────────────────────

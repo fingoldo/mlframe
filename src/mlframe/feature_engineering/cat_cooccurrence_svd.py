@@ -49,7 +49,7 @@ __all__ = [
     "cat_cooccurrence_svd_with_recipes",
 ]
 
-_NAN_TOKEN = "__nan__"
+_NAN_TOKEN = "__nan__"  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
 
 
 def engineered_name_cooccur_svd(src_col: str, other_col: str, component: int) -> str:

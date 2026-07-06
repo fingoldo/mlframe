@@ -589,7 +589,8 @@ def hybrid_orth_mi_pair_fe_with_recipes(
                     x_j = X[col_j].to_numpy(dtype=_dt)
                     basis_a = basis_route_by_moments(x_i)
                     basis_b = basis_route_by_moments(x_j)
-                except Exception:
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed in _orth_pair_cross_fe.py:592: %s", e)
                     pass
             # BUG2 FIX (2026-06-12): freeze each operand's fit-time preprocess
             # params from the FULL fit column so replay is byte-exact on a slice.

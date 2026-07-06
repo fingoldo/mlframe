@@ -156,7 +156,7 @@ def _divergence(X, folds, y) -> dict:
         b_contg = np.ascontiguousarray(b_reset)  # force contiguity of the kept-path block
         layouts["reset_contiguous"] = bool(b_reset.flags["C_CONTIGUOUS"])
         layouts["noreset_contiguous"] = bool(b_nores.flags["C_CONTIGUOUS"])
-        assert np.array_equal(b_reset, b_nores), "slice contents must be identical; only layout differs"
+        assert np.array_equal(b_reset, b_nores), "slice contents must be identical; only layout differs"  # nosec B101 - internal invariant check in src/mlframe/training/core/_phase_composite_post_xt_ensemble/_benchmarks, not reachable with untrusted input
         p_reset = b_reset @ beta
         p_nores = b_nores @ beta
         p_contg = b_contg @ beta

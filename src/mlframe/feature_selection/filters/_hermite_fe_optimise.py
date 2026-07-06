@@ -116,7 +116,8 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     for k, bf in enumerate(bf_callables):
         try:
             combined = bf(h_a, h_b)
-        except Exception:
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _hermite_fe_optimise.py:119: %s", e)
             continue
         if np.all(np.isfinite(combined)):
             cols.append(combined)
@@ -231,7 +232,8 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
             try:
                 with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
                     combined = bf(h_a, h_b)
-            except Exception:
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed in _hermite_fe_optimise.py:234: %s", e)
                 continue
             if np.all(np.isfinite(combined)):
                 all_cols.append(np.ascontiguousarray(combined, dtype=np.float64))

@@ -40,7 +40,7 @@ def main() -> None:
         idx_use = np.arange(K)
         a = _old(corr_used, idx_use, K, K)
         b = _new(corr_used, idx_use, K, K)
-        assert np.array_equal(a, b, equal_nan=True), f"identity broken at K={K}"
+        assert np.array_equal(a, b, equal_nan=True), f"identity broken at K={K}"  # nosec B101 - internal invariant check in src/mlframe/models/ensembling/_benchmarks, not reachable with untrusted input
         best_old = best_new = float("inf")
         for _ in range(7):
             t = time.perf_counter()

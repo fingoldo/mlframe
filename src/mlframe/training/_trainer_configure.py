@@ -11,7 +11,7 @@ import copy
 import inspect
 import logging
 import re
-import pickle
+import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 from timeit import default_timer as timer
 from functools import partial
 import os
@@ -535,7 +535,7 @@ def configure_training_params(
         # CB 1.2.x's ``_set_features_order_data_polars_categorical_column`` has dispatch gaps on our nullable-Categorical / Enum schema, so opting CB into pandas at predict time bypasses the doomed retry on success and costs nothing on failure. Set on the base instance so ``clone()`` carries the param-equivalent state forward; for the attr to survive clone we also re-assert it inside ``train_eval.py:process_model``'s clone call.
         try:
             _cb_model._mlframe_polars_fastpath_broken = True
-        except Exception:
+        except Exception:  # nosec B110 - non-trivial body
             # CB Python class is permissive about attributes; slot-only forks could refuse - degrade to "pay first-call retry".
             pass
         cb_params = dict(
@@ -567,7 +567,8 @@ def configure_training_params(
         if _patch:
             try:
                 estimator.set_params(**_patch)
-            except Exception:
+            except Exception as e:
+                logger.debug("swallowed exception in _trainer_configure.py: %s", e)
                 pass
         return strategy_cls().wrap_multilabel(
             estimator,

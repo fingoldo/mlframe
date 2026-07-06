@@ -6,11 +6,11 @@ raws = [f"x{i}" for i in range(40)]
 raw_name_set = set(raws)
 warps = ["He3", "Le2", "Ch4"]
 def mk_eng():
-    ops = random.choice(["add","mul","div","sub"])
-    a = random.choice(raws); b = random.choice(raws)
-    if random.random()<0.3: a = a + "__" + random.choice(warps)
-    if random.random()<0.3: b = b + "__" + random.choice(warps)
-    inner = f"{random.choice(['sqr','abs','log','sin','neg'])}({a})"
+    ops = random.choice(["add","mul","div","sub"])  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+    a = random.choice(raws); b = random.choice(raws)  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+    if random.random()<0.3: a = a + "__" + random.choice(warps)  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+    if random.random()<0.3: b = b + "__" + random.choice(warps)  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+    inner = f"{random.choice(['sqr','abs','log','sin','neg'])}({a})"  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
     return f"{ops}({inner},{b})"
 
 N = 4000
@@ -53,8 +53,8 @@ def new():
 
 # identity
 o = old(); nw = new()
-assert o[1] == nw[1], "signal parent sets differ"
-assert o[0] == nw[0]
+assert o[1] == nw[1], "signal parent sets differ"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
+assert o[0] == nw[0]  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
 print("identity OK")
 
 def bench(f, reps=200):

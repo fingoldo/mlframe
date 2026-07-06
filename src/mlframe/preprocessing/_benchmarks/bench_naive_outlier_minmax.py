@@ -17,8 +17,8 @@ def main():
         X = rng.standard_normal((10_000_000, d)).astype(np.float64)
         X[rng.integers(0, X.shape[0], 1000), 0] = np.nan
         mn, mx = _nanminmax_cols(X)  # warm
-        assert np.array_equal(mn, np.nanmin(X, axis=0)), "min mismatch"
-        assert np.array_equal(mx, np.nanmax(X, axis=0)), "max mismatch"
+        assert np.array_equal(mn, np.nanmin(X, axis=0)), "min mismatch"  # nosec B101 - internal invariant check in src/mlframe/preprocessing/_benchmarks, not reachable with untrusted input
+        assert np.array_equal(mx, np.nanmax(X, axis=0)), "max mismatch"  # nosec B101 - internal invariant check in src/mlframe/preprocessing/_benchmarks, not reachable with untrusted input
         old, new = [], []
         for _ in range(7):
             t = time.perf_counter(); np.nanmin(X, axis=0); np.nanmax(X, axis=0); old.append(time.perf_counter() - t)

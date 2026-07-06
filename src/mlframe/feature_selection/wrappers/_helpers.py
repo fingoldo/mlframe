@@ -55,7 +55,8 @@ def _pin_threads_to_one(estimator: object) -> None:
     if pinned:
         try:
             estimator.set_params(**pinned)
-        except Exception:
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed in _helpers.py:58: %s", e)
             pass
 
 
@@ -241,8 +242,8 @@ def get_next_features_subset(
         # use the threaded seeded rng (np.random.default_rng); module-global random is unseeded -> not reproducible.
         if rng is not None and hasattr(rng, "integers"):
             next_nfeatures_to_check = int(remaining[int(rng.integers(0, len(remaining)))])
-        else:
-            next_nfeatures_to_check = random.choice(remaining)
+        else:  # nosec B311 - non-cryptographic sampling/jitter, not a security-sensitive use
+            next_nfeatures_to_check = random.choice(remaining)  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
     elif top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
         next_nfeatures_to_check = Optimizer.suggest_candidate()
     elif top_predictors_search_method == OptimumSearch.ExhaustiveDichotomic:

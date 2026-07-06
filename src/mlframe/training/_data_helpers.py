@@ -321,7 +321,8 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
                 if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
                     try:
                         arr_np = np.stack([np.asarray(c) for c in arr_np], axis=0)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("swallowed exception in _data_helpers.py: %s", e)
                         pass
             if arr_np.ndim > 1:
                 # Multilabel / multiclass-prob: per-column unique check.
@@ -356,7 +357,7 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
                     )
         except ValueError:
             raise
-        except Exception:
+        except Exception:  # nosec B110 - non-trivial body
             # np.unique/asarray edge cases on object dtype etc -- let the
             # downstream backend surface its own error.
             pass
