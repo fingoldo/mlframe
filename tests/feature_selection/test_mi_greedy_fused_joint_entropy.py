@@ -73,3 +73,69 @@ def test_cmi_from_binned_conditional_matches_marginal_reduction():
     y = rng.integers(0, 6, n).astype(np.int64)
     mi_indep = m._cmi_from_binned(x, y, None)
     assert 0.0 <= mi_indep < 0.02
+
+
+@pytest.mark.parametrize("n", [2000, 30_000])
+def test_precompute_cmi_yz_terms_hyz_matches_renumber_plus_entropy(n):
+    # Fix 3: precompute_cmi_yz_terms now fuses H(Y,Z) via _joint_entropy_two instead of
+    # _renumber_joint + _entropy_from_classes (which allocated the length-n relabel array only to
+    # discard it). The returned (h_yz, k_yz) must stay bit-identical to the reference renumber+entropy.
+    rng = np.random.default_rng(n)
+    y = rng.integers(0, 5, n).astype(np.int64)
+    z = rng.integers(0, 25, n).astype(np.int64)
+    _, _, h_yz, h_z, k_yz, k_z, nf = m.precompute_cmi_yz_terms(y, z)
+    H_ref, k_ref = _ref_joint_entropy(y, z)
+    hz_ref, kz_ref = m._entropy_from_classes(np.ascontiguousarray(z, np.int64))
+    assert k_yz == k_ref
+    assert h_yz == pytest.approx(H_ref, abs=1e-9)
+    assert (k_z, h_z) == pytest.approx((kz_ref, hz_ref), abs=1e-9)
+    assert nf == float(n)
+
+
+def test_greedy_construct_no_redundant_cmi_from_binned_calls():
+    # Fails pre-fix: BEFORE the hoist, the step-0 marginal main scan scored every candidate via
+    # ``_cmi_from_binned(cand, y, None)`` and ``_noise_floor_for_current_z`` scored 24 sampled candidates
+    # per step via ``_cmi_from_binned`` -- so the module-level ``_cmi_from_binned`` was called O(n_candidates)
+    # times, each redundantly recomputing the y/z-invariant ``_renumber_joint`` / ``_entropy_from_classes``
+    # block. AFTER the hoist both callers route through ``marginal_mi_binned_fixed_y`` /
+    # ``cmi_from_binned_fixed_yz`` (invariant block computed once per step), so ``_cmi_from_binned`` is no
+    # longer called from the greedy loop at all. This asserts the redundant-call path is gone.
+    import os as _os
+
+    import pandas as pd
+
+    saved = {k: _os.environ.get(k) for k in ("MLFRAME_CMI_GPU", "MLFRAME_FE_GPU_STRICT")}
+    _os.environ["MLFRAME_CMI_GPU"] = "0"
+    _os.environ.pop("MLFRAME_FE_GPU_STRICT", None)
+
+    rng = np.random.default_rng(11)
+    n = 4000
+    a, b, c, d = (rng.random(n) for _ in range(4))
+    score = (a * a) - 1.0 + 0.7 * np.sin(d * 3.0) - 0.5 * b
+    y = (score > np.median(score)).astype(np.int64)
+    X = pd.DataFrame({"a": a, "b": b, "c": c, "d": d})
+
+    calls = {"n": 0}
+    orig = m._cmi_from_binned
+
+    def _counting(*args, **kwargs):
+        calls["n"] += 1
+        return orig(*args, **kwargs)
+
+    m._cmi_from_binned = _counting
+    try:
+        X_aug, scores = m.greedy_cmi_fe_construct(
+            X, y, nbins=10, seed_cols_count=4, top_k=5, min_cmi_gain=0.0,
+        )
+    finally:
+        m._cmi_from_binned = orig
+        for k, v in saved.items():
+            if v is None:
+                _os.environ.pop(k, None)
+            else:
+                _os.environ[k] = v
+
+    # The greedy loop (main scan + noise floor) must not call _cmi_from_binned anymore.
+    assert calls["n"] == 0, f"_cmi_from_binned still called {calls['n']}x from the greedy loop"
+    # And the construct still selects something (compound target has recoverable signal).
+    assert len(scores) >= 1

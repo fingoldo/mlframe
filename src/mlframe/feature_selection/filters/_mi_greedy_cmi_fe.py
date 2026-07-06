@@ -856,9 +856,11 @@ def precompute_cmi_yz_terms(
     y_i = np.ascontiguousarray(y, dtype=np.int64).ravel()
     z_i = np.ascontiguousarray(z_joint, dtype=np.int64).ravel()
     n = float(max(1, y_i.size))
-    yz, _ = _renumber_joint(y_i, z_i)
+    # H(Y,Z): the (y,z) dense labels are consumed ONLY by this entropy here, so fuse the densify+entropy
+    # (``_joint_entropy_two``) instead of materialising the length-n relabel via ``_renumber_joint`` and
+    # discarding it. Bit-identical (both are functions of the (y,z) count multiset; ~1e-15 fp order only).
     h_z, k_z = _entropy_from_classes(z_i)
-    h_yz, k_yz = _entropy_from_classes(yz)
+    h_yz, k_yz = _joint_entropy_two(y_i, z_i)
     return y_i, z_i, h_yz, h_z, k_yz, k_z, n
 
 
@@ -1499,9 +1501,25 @@ def greedy_cmi_fe_construct(
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed in _mi_greedy_cmi_fe.py:1497: %s", e)
             pass
+        # Hoist the y/z-invariant CMI block out of the sampled-candidate scan: y_shuf and z_joint are FIXED
+        # across the 24 samples, so the plain per-sample ``_cmi_from_binned`` recomputed-and-discarded
+        # ``renumber(y_shuf, z)`` + ``H(Z)`` + ``H(Y,Z)`` (or ``H(Y)`` on the marginal path) 24 times per step
+        # -- pure wasted _renumber_joint / _entropy_from_classes work. Precompute the invariant block once and
+        # score each sample via the x-only fixed helper. Bit-identical to the plain path (same MM plug-in CMI;
+        # only fp reduction order can differ ~1e-15), and the floor is the order-independent 0.95 quantile.
+        _zc = z_joint if (z_joint is not None and z_joint.size > 0) else None
         cmis_shuf = []
-        for nm in sample_names:
-            cmis_shuf.append(_cmi_from_binned(cand_bins[nm], y_shuf, z_joint))
+        if _zc is None:
+            _yt = precompute_marginal_y_terms(y_shuf)
+            for nm in sample_names:
+                cmis_shuf.append(marginal_mi_binned_fixed_y(cand_bins[nm], *_yt))
+        else:
+            _yi, _zi, _hyz, _hz, _kyz, _kz, _nf = precompute_cmi_yz_terms(y_shuf, _zc)
+            _yzd, _ = _renumber_joint(_yi, _zi)  # round-fixed (y,z) dense codes reused per sampled candidate
+            for nm in sample_names:
+                cmis_shuf.append(
+                    cmi_from_binned_fixed_yz(cand_bins[nm], _yi, _zi, _hyz, _hz, _kyz, _kz, _nf, yz_i=_yzd)
+                )
         if not cmis_shuf:
             return 0.0
         return float(np.quantile(np.asarray(cmis_shuf), 0.95))
@@ -1532,6 +1550,14 @@ def greedy_cmi_fe_construct(
         # path since the hoist helpers assume a present Z.
         _have_z = z_joint is not None and z_joint.size > 0
         _yz_dense = None
+        _y_marg = None
+        if not _have_z:
+            # Marginal step (empty Z, i.e. step 0 scanning the full candidate pool): H(Y) and the y int64
+            # cast are invariant across every candidate, yet the plain ``_cmi_from_binned`` marginal path
+            # recomputed ``_entropy_from_classes(y_bin)`` per candidate. Hoist the y-only block once and score
+            # via ``marginal_mi_binned_fixed_y`` (bit-identical). Halves the _entropy_from_classes call volume
+            # of the (largest) marginal scan -- only the genuine per-candidate H(X) + H(X,Y) remain.
+            _y_marg = precompute_marginal_y_terms(y_bin)
         if _have_z:
             _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n = precompute_cmi_yz_terms(y_bin, z_joint)
             # Round-fixed dense (y,z) joint codes: reused per-candidate so H(X,Y,Z) is a 2-array
@@ -1574,7 +1600,7 @@ def greedy_cmi_fe_construct(
                 if _have_z:
                     cmi = cmi_from_binned_fixed_yz(cand_bins[name], _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n, yz_i=_yz_dense)
                 else:
-                    cmi = _cmi_from_binned(cand_bins[name], y_bin, z_joint)
+                    cmi = marginal_mi_binned_fixed_y(cand_bins[name], *_y_marg)
                 if cmi > best_cmi:
                     best_cmi = cmi
                     best_name = name
