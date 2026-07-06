@@ -538,416 +538,415 @@ def _run_fe_step(
     # block so the standard pipeline always runs after the Hermite block;
     # users get the unary/binary FE they asked for via
     # ``fe_unary_preset='medium'`` regardless of whether Hermite ran.
-    if True:
-        original_cols = {i: self.feature_names_in_.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
-        if verbose >= 1:
-            logger.info("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
+    original_cols = {i: self.feature_names_in_.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
+    if verbose >= 1:
+        logger.info("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
 
-        # PER-OPERAND PRE-WARP (2026-06-02): read the opt-in flag + knobs off the
-        # MRMR instance (getattr keeps _run_fe_step's signature stable, mirroring
-        # ``fe_check_pairs_subsample_n``). When enabled, the discretised target
-        # (``classes_y`` -- the SAME codes the MI sweep scores against) is handed
-        # to ``check_prospective_fe_pairs`` so it can fit a learned 1-D pre-warp
-        # per operand; ``_prewarp_specs`` collects the fitted coeffs (by cols-space
-        # var index) for leak-safe recipe construction. Default OFF.
-        _prewarp_enable = bool(getattr(self, "fe_pair_prewarp_enable", False))
-        # CONTINUOUS ALS RECONSTRUCTION TARGET (2026-06-11): the raw continuous y
-        # stashed by ``_fit_impl`` so the rank-1 ALS warp reconstructs against the
-        # faithful continuous target instead of the coarse target-rebin-guard codes.
-        # Aligned to the FE-step row count (full-n; ``check_prospective_fe_pairs``
-        # handles any internal subsample). None -> ALS falls back to ``classes_y``.
-        _prewarp_y_cont = None
-        if _prewarp_enable:
-            _pwc = getattr(self, "_fe_prewarp_y_continuous_", None)
-            if _pwc is not None and len(_pwc) == len(classes_y):
-                _prewarp_y_cont = _pwc
-        # LINEAR-USABILITY GUARD TARGET (2026-06-17): the leader tie-break + noise-wrap |corr|
-        # guard must score against CONTINUOUS y regardless of prewarp -- the binned ``classes_y``
-        # fallback INVERTS linear usability on heavy-tailed targets (picks ``a/sqrt(b)`` over
-        # ``a**2/b``). Threaded unconditionally; None for classification/non-numeric y (correct
-        # ``classes_y`` fallback inside ``check_prospective_fe_pairs``).
-        _usab_y_cont = None
-        _uyc = getattr(self, "_fe_prewarp_y_continuous_", None)
-        if _uyc is not None and len(_uyc) == len(classes_y):
-            _usab_y_cont = _uyc
-        _prewarp_basis = str(getattr(self, "fe_pair_prewarp_basis", "chebyshev"))
-        _prewarp_max_degree = int(getattr(self, "fe_pair_prewarp_max_degree", 4))
-        _prewarp_uplift = float(getattr(self, "fe_pair_prewarp_uplift_threshold", 1.20))
-        _prewarp_min_val_corr = float(getattr(self, "fe_pair_prewarp_min_val_corr", 0.08))
-        # PREWARP-SPEC PERSISTENCE (2026-06-08 fix). ``_mrmr_fe_step`` is re-entered
-        # once per FE-bearing MRMR iteration, and each call's ``check_prospective_fe_pairs``
-        # fits prewarp specs ONLY for the operands of THIS iteration's prospective pairs
-        # (a var whose pair isn't prospective this round is not re-fit). But the recipe
-        # build below runs per iteration over ``this_pair_features`` and can construct a
-        # recipe whose operand used the ``prewarp`` pseudo-unary in an EARLIER iteration --
-        # if ``_prewarp_specs`` were a fresh per-call dict, that operand's coeffs would be
-        # absent and the recipe would be built with ``prewarp_a/b=None``, producing a
-        # recipe that names ``prewarp`` but lacks ``prewarp_*_coef`` in ``extra`` -> a
-        # KeyError at transform()-time replay (observed: ``sub(prewarp(informative_3),
-        # prewarp(noise_5))`` with informative_3's spec missing). Back the local dict with
-        # a SELF-LEVEL accumulator (mirrors ``self._engineered_continuous_``) so every
-        # spec fit in any prior iteration stays available for recipe construction. Seeded
-        # from the accumulator and written back after each call; specs are keyed by
-        # cols-space var index, which is stable across iterations (no cat reorder mid-fit).
-        _prewarp_specs: dict = getattr(self, "_prewarp_specs_accum_", None)
-        if _prewarp_specs is None:
-            _prewarp_specs = {}
-            self._prewarp_specs_accum_ = _prewarp_specs
+    # PER-OPERAND PRE-WARP (2026-06-02): read the opt-in flag + knobs off the
+    # MRMR instance (getattr keeps _run_fe_step's signature stable, mirroring
+    # ``fe_check_pairs_subsample_n``). When enabled, the discretised target
+    # (``classes_y`` -- the SAME codes the MI sweep scores against) is handed
+    # to ``check_prospective_fe_pairs`` so it can fit a learned 1-D pre-warp
+    # per operand; ``_prewarp_specs`` collects the fitted coeffs (by cols-space
+    # var index) for leak-safe recipe construction. Default OFF.
+    _prewarp_enable = bool(getattr(self, "fe_pair_prewarp_enable", False))
+    # CONTINUOUS ALS RECONSTRUCTION TARGET (2026-06-11): the raw continuous y
+    # stashed by ``_fit_impl`` so the rank-1 ALS warp reconstructs against the
+    # faithful continuous target instead of the coarse target-rebin-guard codes.
+    # Aligned to the FE-step row count (full-n; ``check_prospective_fe_pairs``
+    # handles any internal subsample). None -> ALS falls back to ``classes_y``.
+    _prewarp_y_cont = None
+    if _prewarp_enable:
+        _pwc = getattr(self, "_fe_prewarp_y_continuous_", None)
+        if _pwc is not None and len(_pwc) == len(classes_y):
+            _prewarp_y_cont = _pwc
+    # LINEAR-USABILITY GUARD TARGET (2026-06-17): the leader tie-break + noise-wrap |corr|
+    # guard must score against CONTINUOUS y regardless of prewarp -- the binned ``classes_y``
+    # fallback INVERTS linear usability on heavy-tailed targets (picks ``a/sqrt(b)`` over
+    # ``a**2/b``). Threaded unconditionally; None for classification/non-numeric y (correct
+    # ``classes_y`` fallback inside ``check_prospective_fe_pairs``).
+    _usab_y_cont = None
+    _uyc = getattr(self, "_fe_prewarp_y_continuous_", None)
+    if _uyc is not None and len(_uyc) == len(classes_y):
+        _usab_y_cont = _uyc
+    _prewarp_basis = str(getattr(self, "fe_pair_prewarp_basis", "chebyshev"))
+    _prewarp_max_degree = int(getattr(self, "fe_pair_prewarp_max_degree", 4))
+    _prewarp_uplift = float(getattr(self, "fe_pair_prewarp_uplift_threshold", 1.20))
+    _prewarp_min_val_corr = float(getattr(self, "fe_pair_prewarp_min_val_corr", 0.08))
+    # PREWARP-SPEC PERSISTENCE (2026-06-08 fix). ``_mrmr_fe_step`` is re-entered
+    # once per FE-bearing MRMR iteration, and each call's ``check_prospective_fe_pairs``
+    # fits prewarp specs ONLY for the operands of THIS iteration's prospective pairs
+    # (a var whose pair isn't prospective this round is not re-fit). But the recipe
+    # build below runs per iteration over ``this_pair_features`` and can construct a
+    # recipe whose operand used the ``prewarp`` pseudo-unary in an EARLIER iteration --
+    # if ``_prewarp_specs`` were a fresh per-call dict, that operand's coeffs would be
+    # absent and the recipe would be built with ``prewarp_a/b=None``, producing a
+    # recipe that names ``prewarp`` but lacks ``prewarp_*_coef`` in ``extra`` -> a
+    # KeyError at transform()-time replay (observed: ``sub(prewarp(informative_3),
+    # prewarp(noise_5))`` with informative_3's spec missing). Back the local dict with
+    # a SELF-LEVEL accumulator (mirrors ``self._engineered_continuous_``) so every
+    # spec fit in any prior iteration stays available for recipe construction. Seeded
+    # from the accumulator and written back after each call; specs are keyed by
+    # cols-space var index, which is stable across iterations (no cat reorder mid-fit).
+    _prewarp_specs: dict = getattr(self, "_prewarp_specs_accum_", None)
+    if _prewarp_specs is None:
+        _prewarp_specs = {}
+        self._prewarp_specs_accum_ = _prewarp_specs
 
-        # PER-OPERAND MEDIAN GATE (2026-06-04): opt-in flag off the MRMR instance
-        # (getattr keeps the signature stable, mirroring the prewarp wiring). When
-        # enabled, ``check_prospective_fe_pairs`` fits one TRAIN median per operand
-        # and exposes a ``gate_med`` pseudo-unary; ``_gate_med_specs`` collects the
-        # fitted medians (by cols-space var index) for leak-safe recipe
-        # construction. Default OFF -> byte-identical legacy path. Same cross-iteration
-        # persistence as the prewarp specs above (a gate_med operand selected in an
-        # earlier iteration must keep its median available for recipe replay).
-        _gate_med_enable = bool(getattr(self, "fe_gate_med_enable", False))
-        # MULTI-CANDIDATE DIVERSE EMISSION (2026-06-12): per pair, emit up to this many
-        # DISTINCT engineered forms (MI is rank-blind to linear usability, so a single
-        # MI-winner can be tree-friendly-but-linearly-useless while a lower-MI form is the
-        # linearly-usable one; both should survive for the downstream model to choose).
-        _multi_emit_max = int(getattr(self, "fe_multi_emit_max_per_pair", 1))
-        _multi_emit_floor = float(getattr(self, "fe_multi_emit_mi_floor", 0.5))
-        _multi_emit_div_corr = float(getattr(self, "fe_multi_emit_diversity_corr", 0.90))
-        _gate_med_specs: dict = getattr(self, "_gate_med_specs_accum_", None)
-        if _gate_med_specs is None:
-            _gate_med_specs = {}
-            self._gate_med_specs_accum_ = _gate_med_specs
+    # PER-OPERAND MEDIAN GATE (2026-06-04): opt-in flag off the MRMR instance
+    # (getattr keeps the signature stable, mirroring the prewarp wiring). When
+    # enabled, ``check_prospective_fe_pairs`` fits one TRAIN median per operand
+    # and exposes a ``gate_med`` pseudo-unary; ``_gate_med_specs`` collects the
+    # fitted medians (by cols-space var index) for leak-safe recipe
+    # construction. Default OFF -> byte-identical legacy path. Same cross-iteration
+    # persistence as the prewarp specs above (a gate_med operand selected in an
+    # earlier iteration must keep its median available for recipe replay).
+    _gate_med_enable = bool(getattr(self, "fe_gate_med_enable", False))
+    # MULTI-CANDIDATE DIVERSE EMISSION (2026-06-12): per pair, emit up to this many
+    # DISTINCT engineered forms (MI is rank-blind to linear usability, so a single
+    # MI-winner can be tree-friendly-but-linearly-useless while a lower-MI form is the
+    # linearly-usable one; both should survive for the downstream model to choose).
+    _multi_emit_max = int(getattr(self, "fe_multi_emit_max_per_pair", 1))
+    _multi_emit_floor = float(getattr(self, "fe_multi_emit_mi_floor", 0.5))
+    _multi_emit_div_corr = float(getattr(self, "fe_multi_emit_diversity_corr", 0.90))
+    _gate_med_specs: dict = getattr(self, "_gate_med_specs_accum_", None)
+    if _gate_med_specs is None:
+        _gate_med_specs = {}
+        self._gate_med_specs_accum_ = _gate_med_specs
 
-        # SERIAL-vs-JOBLIB DISPATCH (2026-06-08 narrow+tall fix). The ``else`` branch
-        # spreads the prospective PAIRS across ``n_jobs`` joblib ``backend="threading"``
-        # workers, each running the SERIAL (no-prange) FE kernels (a numba prange would
-        # nest inside the threading layer and deadlock -- see ``_fe_use_parallel_kernels``).
-        #
-        # BACKEND BENCH (2026-06-19, n=8000 p=150 FE pair-search, 3-rep medians, peak RSS incl children):
-        #   joblib-threading 8.98s/1599MB  <  serial 10.75s/1321MB  <  cf-ThreadPool 10.22s/1898MB
-        #   joblib-loky 39.1s/2948MB (3.9x slower, +1.7GB frame copies); multiprocessing/ProcessPool OOM-cascade.
-        # => the current joblib backend="threading" is the MEASURED-FASTEST option (~16% over serial, the njit MI
-        # kernels release the GIL enough to win despite the Python orchestration); process backends are a
-        # non-starter (frame deep-copy memory + Windows spawn cascade). Do NOT serial-ize or switch to processes.
-        # (A single-run measurement misleadingly showed serial ahead; the 3-rep median is authoritative.)
-        # That is the right lever ONLY when there are enough pairs to actually fill the
-        # worker pool. In the NARROW+TALL regime (few features -> 1-2 prospective pairs,
-        # but n large) the joblib path span only 1-2 jobs over 16 threads (14 idle) AND
-        # each job is pinned to a single-core serial kernel -> ~1-2 of 16 cores busy, the
-        # measured 56s-per-pair / fully-idle-HW pathology. The serial-main-thread path
-        # instead runs the WHOLE candidate sweep on the main thread where a numba prange
-        # is safe, so the materialise / searchsorted / MI kernels dispatch to their
-        # BYTE-IDENTICAL ``parallel=True`` column-prange twins and spread each pair's K
-        # candidates across ALL cores. So route to it whenever there are FEWER pairs than
-        # workers (joblib-over-pairs cannot saturate the pool): selection is unchanged
-        # (same ``check_prospective_fe_pairs`` over the same pairs; only kernel
-        # parallelism + chunk-merge differ, both byte-identical). The pair-count crossover
-        # subsumes the old fixed ``len(X) < 50000`` row gate -- a tall narrow frame now
-        # takes the all-cores path it always should have.
-        _fe_serial_min_pairs_per_worker = max(2, int(n_jobs) if n_jobs and n_jobs > 0 else 1)
-        # GPU-FE SERIALIZE (2026-06-20): when the per-pair candidate materialise/binning runs on the
-        # GPU, the single device is the bottleneck resource -- spreading the pair-chunks across joblib
-        # ``backend="threading"`` workers does NOT parallelize the GPU work, it just makes every worker
-        # CONTEND for the one device while the joblib parent burns the wait in its ``_retrieve`` sleep-
-        # poll. Measured (canonical n=100k FE fit): default multi-worker = 105s of which ~84s is
-        # ``time.sleep`` in joblib ``_retrieve``; the serial-main-thread path (no joblib, prange kernels,
-        # GPU work issued from one thread) = 63s. So route to the serial path whenever the GPU discretize
-        # path is active, exactly as we already do when there are fewer pairs than workers. The threading
-        # win the ``else`` branch was tuned for is the CPU-njit-MI regime (small n, GPU gate OFF), which
-        # this predicate leaves untouched. Selection is unchanged (same check_prospective_fe_pairs over
-        # the same pairs; only the kernel parallelism + chunk-merge differ, both byte-identical).
-        # Ensure the ONE shared FE subsample draw is bound on the pair-search path too (the polynom
-        # block above that first resolves it may be skipped when the smart-polynom search is off). The
-        # helper caches on the instance keyed by n, so this is idempotent -- same cached draw, no re-draw.
-        try:
-            from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
-            _shared_fe_idx = _get_shared_fe_subsample_idx(self, np.asarray(classes_y), int(getattr(X, "shape", [len(X)])[0]))
-        except Exception as _sub_exc:
-            # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
-            logger.warning("mrmr: shared FE subsample resolution failed in FE step; running at FULL n: %r", _sub_exc, exc_info=True)
-            _shared_fe_idx = None
-        try:
-            from .._feature_engineering_pairs._pairs_core import _fe_gpu_discretize_enabled as _fe_gpu_disc_gate
-            # Representative candidate-count for the gate's n*K crossover (a pair generates dozens-to-
-            # hundreds of unary/binary candidates); the auto gate is CUDA-presence-gated internally.
-            _gpu_fe_active = bool(_fe_gpu_disc_gate(int(getattr(X, "shape", [0])[0] or 0), 256))
-        except Exception:
-            _gpu_fe_active = False
-        if _gpu_fe_active or len(prospective_pairs) < _fe_serial_min_pairs_per_worker:
-            prospective_additions = check_prospective_fe_pairs(
-                prospective_pairs,
-                X,
-                unary_transformations,
-                binary_transformations,
-                classes_y,
-                classes_y_safe,
-                freqs_y,
-                num_fs_steps,
-                cols,
-                original_cols,
-                fe_max_steps,
-                fe_npermutations,
-                fe_max_pair_features,
-                fe_print_best_mis_only,
-                fe_min_nonzero_confidence,
-                fe_min_engineered_mi_prevalence,
-                fe_good_to_best_feature_mi_threshold,
-                fe_max_external_validation_factors,
-                numeric_vars_to_consider,
-                self.quantization_nbins,
-                self.quantization_method,
-                self.quantization_dtype,
-                times_spent,
-                verbose,
-                subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                fe_subsample_stratify=_fe_subsample_stratify,
-                shared_subsample_idx=_shared_fe_idx,
-                prewarp_enable=_prewarp_enable,
-                prewarp_y=classes_y if _prewarp_enable else None,
-                prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,
-                usability_y_continuous=_usab_y_cont,
-                prewarp_basis=_prewarp_basis,
-                prewarp_max_degree=_prewarp_max_degree,
-                prewarp_uplift_threshold=_prewarp_uplift,
-                prewarp_min_val_corr=_prewarp_min_val_corr,
-                prewarp_specs_out=_prewarp_specs,
-                fe_gate_med_enable=_gate_med_enable,
-                fe_multi_emit_max_per_pair=_multi_emit_max,
-                fe_multi_emit_mi_floor=_multi_emit_floor,
-                fe_multi_emit_diversity_corr=_multi_emit_div_corr,
-                fe_pair_usability_admission_enable=bool(getattr(self, "fe_pair_usability_admission_enable", True)),
-                fe_pair_usability_admission_min_corr=float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6)),
-                fe_pair_usability_admission_pairness_margin=float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05)),
-                gate_med_specs_out=_gate_med_specs,
-                # OPT-A (2026-06-07): THIS is the serial-main-thread branch -- the whole FE
-                # search runs here with NO joblib threads (the ``else`` below is the
-                # ``len(X) >= 50000`` joblib ``backend="threading"`` path). On this branch a
-                # numba prange does not nest inside Python threads, so the FE materialise /
-                # searchsorted kernels may dispatch to their byte-identical ``parallel=True``
-                # column-prange twins (gated further by the per-host crossover). The joblib
-                # path below leaves ``serial_main_thread`` at its default False -> serial kernels.
-                serial_main_thread=True,
-                # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): resolve engineered operands by
-                # name so (eng_i, eng_j) composites materialise. Off when the cap is 0 (raw-only
-                # pool); the pool already excludes them in that case. ``engineered_operand_values``
-                # supplies the CONTINUOUS engineered values so the composite is built on them
-                # rather than the lossy bin codes.
-                allow_engineered_operands=(_eng_cap != 0),
-                engineered_operand_values=getattr(self, "_engineered_continuous_", None),
-                # MM-DEBIAS (2026-06-09, backlog #1 + #4): debias the joint-prevalence
-                # ratio gate (see check_prospective_fe_pairs). Co-updated with the maxT
-                # floor below (IRON RULE). Default-on; ``fe_mm_debias_prevalence=False``
-                # byte-reproduces pre-2026-06-09 fits.
-                fe_mm_debias_prevalence=bool(getattr(self, "fe_mm_debias_prevalence", False)),
-            )
-        else:
+    # SERIAL-vs-JOBLIB DISPATCH (2026-06-08 narrow+tall fix). The ``else`` branch
+    # spreads the prospective PAIRS across ``n_jobs`` joblib ``backend="threading"``
+    # workers, each running the SERIAL (no-prange) FE kernels (a numba prange would
+    # nest inside the threading layer and deadlock -- see ``_fe_use_parallel_kernels``).
+    #
+    # BACKEND BENCH (2026-06-19, n=8000 p=150 FE pair-search, 3-rep medians, peak RSS incl children):
+    #   joblib-threading 8.98s/1599MB  <  serial 10.75s/1321MB  <  cf-ThreadPool 10.22s/1898MB
+    #   joblib-loky 39.1s/2948MB (3.9x slower, +1.7GB frame copies); multiprocessing/ProcessPool OOM-cascade.
+    # => the current joblib backend="threading" is the MEASURED-FASTEST option (~16% over serial, the njit MI
+    # kernels release the GIL enough to win despite the Python orchestration); process backends are a
+    # non-starter (frame deep-copy memory + Windows spawn cascade). Do NOT serial-ize or switch to processes.
+    # (A single-run measurement misleadingly showed serial ahead; the 3-rep median is authoritative.)
+    # That is the right lever ONLY when there are enough pairs to actually fill the
+    # worker pool. In the NARROW+TALL regime (few features -> 1-2 prospective pairs,
+    # but n large) the joblib path span only 1-2 jobs over 16 threads (14 idle) AND
+    # each job is pinned to a single-core serial kernel -> ~1-2 of 16 cores busy, the
+    # measured 56s-per-pair / fully-idle-HW pathology. The serial-main-thread path
+    # instead runs the WHOLE candidate sweep on the main thread where a numba prange
+    # is safe, so the materialise / searchsorted / MI kernels dispatch to their
+    # BYTE-IDENTICAL ``parallel=True`` column-prange twins and spread each pair's K
+    # candidates across ALL cores. So route to it whenever there are FEWER pairs than
+    # workers (joblib-over-pairs cannot saturate the pool): selection is unchanged
+    # (same ``check_prospective_fe_pairs`` over the same pairs; only kernel
+    # parallelism + chunk-merge differ, both byte-identical). The pair-count crossover
+    # subsumes the old fixed ``len(X) < 50000`` row gate -- a tall narrow frame now
+    # takes the all-cores path it always should have.
+    _fe_serial_min_pairs_per_worker = max(2, int(n_jobs) if n_jobs and n_jobs > 0 else 1)
+    # GPU-FE SERIALIZE (2026-06-20): when the per-pair candidate materialise/binning runs on the
+    # GPU, the single device is the bottleneck resource -- spreading the pair-chunks across joblib
+    # ``backend="threading"`` workers does NOT parallelize the GPU work, it just makes every worker
+    # CONTEND for the one device while the joblib parent burns the wait in its ``_retrieve`` sleep-
+    # poll. Measured (canonical n=100k FE fit): default multi-worker = 105s of which ~84s is
+    # ``time.sleep`` in joblib ``_retrieve``; the serial-main-thread path (no joblib, prange kernels,
+    # GPU work issued from one thread) = 63s. So route to the serial path whenever the GPU discretize
+    # path is active, exactly as we already do when there are fewer pairs than workers. The threading
+    # win the ``else`` branch was tuned for is the CPU-njit-MI regime (small n, GPU gate OFF), which
+    # this predicate leaves untouched. Selection is unchanged (same check_prospective_fe_pairs over
+    # the same pairs; only the kernel parallelism + chunk-merge differ, both byte-identical).
+    # Ensure the ONE shared FE subsample draw is bound on the pair-search path too (the polynom
+    # block above that first resolves it may be skipped when the smart-polynom search is off). The
+    # helper caches on the instance keyed by n, so this is idempotent -- same cached draw, no re-draw.
+    try:
+        from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
+        _shared_fe_idx = _get_shared_fe_subsample_idx(self, np.asarray(classes_y), int(getattr(X, "shape", [len(X)])[0]))
+    except Exception as _sub_exc:
+        # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
+        logger.warning("mrmr: shared FE subsample resolution failed in FE step; running at FULL n: %r", _sub_exc, exc_info=True)
+        _shared_fe_idx = None
+    try:
+        from .._feature_engineering_pairs._pairs_core import _fe_gpu_discretize_enabled as _fe_gpu_disc_gate
+        # Representative candidate-count for the gate's n*K crossover (a pair generates dozens-to-
+        # hundreds of unary/binary candidates); the auto gate is CUDA-presence-gated internally.
+        _gpu_fe_active = bool(_fe_gpu_disc_gate(int(getattr(X, "shape", [0])[0] or 0), 256))
+    except Exception:
+        _gpu_fe_active = False
+    if _gpu_fe_active or len(prospective_pairs) < _fe_serial_min_pairs_per_worker:
+        prospective_additions = check_prospective_fe_pairs(
+            prospective_pairs,
+            X,
+            unary_transformations,
+            binary_transformations,
+            classes_y,
+            classes_y_safe,
+            freqs_y,
+            num_fs_steps,
+            cols,
+            original_cols,
+            fe_max_steps,
+            fe_npermutations,
+            fe_max_pair_features,
+            fe_print_best_mis_only,
+            fe_min_nonzero_confidence,
+            fe_min_engineered_mi_prevalence,
+            fe_good_to_best_feature_mi_threshold,
+            fe_max_external_validation_factors,
+            numeric_vars_to_consider,
+            self.quantization_nbins,
+            self.quantization_method,
+            self.quantization_dtype,
+            times_spent,
+            verbose,
+            subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+            subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+            fe_subsample_stratify=_fe_subsample_stratify,
+            shared_subsample_idx=_shared_fe_idx,
+            prewarp_enable=_prewarp_enable,
+            prewarp_y=classes_y if _prewarp_enable else None,
+            prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,
+            usability_y_continuous=_usab_y_cont,
+            prewarp_basis=_prewarp_basis,
+            prewarp_max_degree=_prewarp_max_degree,
+            prewarp_uplift_threshold=_prewarp_uplift,
+            prewarp_min_val_corr=_prewarp_min_val_corr,
+            prewarp_specs_out=_prewarp_specs,
+            fe_gate_med_enable=_gate_med_enable,
+            fe_multi_emit_max_per_pair=_multi_emit_max,
+            fe_multi_emit_mi_floor=_multi_emit_floor,
+            fe_multi_emit_diversity_corr=_multi_emit_div_corr,
+            fe_pair_usability_admission_enable=bool(getattr(self, "fe_pair_usability_admission_enable", True)),
+            fe_pair_usability_admission_min_corr=float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6)),
+            fe_pair_usability_admission_pairness_margin=float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05)),
+            gate_med_specs_out=_gate_med_specs,
+            # OPT-A (2026-06-07): THIS is the serial-main-thread branch -- the whole FE
+            # search runs here with NO joblib threads (the ``else`` below is the
+            # ``len(X) >= 50000`` joblib ``backend="threading"`` path). On this branch a
+            # numba prange does not nest inside Python threads, so the FE materialise /
+            # searchsorted kernels may dispatch to their byte-identical ``parallel=True``
+            # column-prange twins (gated further by the per-host crossover). The joblib
+            # path below leaves ``serial_main_thread`` at its default False -> serial kernels.
+            serial_main_thread=True,
+            # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): resolve engineered operands by
+            # name so (eng_i, eng_j) composites materialise. Off when the cap is 0 (raw-only
+            # pool); the pool already excludes them in that case. ``engineered_operand_values``
+            # supplies the CONTINUOUS engineered values so the composite is built on them
+            # rather than the lossy bin codes.
+            allow_engineered_operands=(_eng_cap != 0),
+            engineered_operand_values=getattr(self, "_engineered_continuous_", None),
+            # MM-DEBIAS (2026-06-09, backlog #1 + #4): debias the joint-prevalence
+            # ratio gate (see check_prospective_fe_pairs). Co-updated with the maxT
+            # floor below (IRON RULE). Default-on; ``fe_mm_debias_prevalence=False``
+            # byte-reproduces pre-2026-06-09 fits.
+            fe_mm_debias_prevalence=bool(getattr(self, "fe_mm_debias_prevalence", False)),
+        )
+    else:
 
-            prospective_additions = {}
-            desired_nitems = max(1, len(prospective_pairs) // (n_jobs * prefetch_factor))
+        prospective_additions = {}
+        desired_nitems = max(1, len(prospective_pairs) // (n_jobs * prefetch_factor))
 
-            jobs_list = []
+        jobs_list = []
 
-            nitems = 0
-            cur_dict = {}
-            for key, value in prospective_pairs.items():
-                nitems += 1
-                cur_dict[key] = value
-                if nitems >= desired_nitems:
-                    jobs_list.append(cur_dict)
-                    nitems = 0
-                    cur_dict = {}
-            if cur_dict:
+        nitems = 0
+        cur_dict = {}
+        for key, value in prospective_pairs.items():
+            nitems += 1
+            cur_dict[key] = value
+            if nitems >= desired_nitems:
                 jobs_list.append(cur_dict)
+                nitems = 0
+                cur_dict = {}
+        if cur_dict:
+            jobs_list.append(cur_dict)
 
-            if verbose:
-                logger.info(
-                    "Using %d items per thread for checking %d prospective_pairs with gain>%.2f.",
-                    desired_nitems, len(prospective_pairs), fe_min_pair_mi_prevalence,
-                )
-
-            dicts = parallel_run(
-                [
-                    delayed(check_prospective_fe_pairs)(
-                        chunk,
-                        X,
-                        unary_transformations,
-                        binary_transformations,
-                        classes_y,
-                        classes_y_safe,
-                        freqs_y,
-                        num_fs_steps,
-                        cols,
-                        original_cols,
-                        fe_max_steps,
-                        fe_npermutations,
-                        fe_max_pair_features,
-                        fe_print_best_mis_only,
-                        fe_min_nonzero_confidence,
-                        fe_min_engineered_mi_prevalence,
-                        fe_good_to_best_feature_mi_threshold,
-                        fe_max_external_validation_factors,
-                        numeric_vars_to_consider,
-                        self.quantization_nbins,
-                        self.quantization_method,
-                        self.quantization_dtype,
-                        times_spent,
-                        verbose,
-                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                        subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                        fe_subsample_stratify=_fe_subsample_stratify,
-                        shared_subsample_idx=_shared_fe_idx,
-                        prewarp_enable=_prewarp_enable,
-                        prewarp_y=classes_y if _prewarp_enable else None,
-                        prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,
-                        usability_y_continuous=_usab_y_cont,
-                        prewarp_basis=_prewarp_basis,
-                        prewarp_max_degree=_prewarp_max_degree,
-                        prewarp_uplift_threshold=_prewarp_uplift,
-                        prewarp_min_val_corr=_prewarp_min_val_corr,
-                        prewarp_specs_out=None,  # loky: recovered from result dict below
-                        fe_gate_med_enable=_gate_med_enable,
-                        fe_multi_emit_max_per_pair=_multi_emit_max,
-                        fe_multi_emit_mi_floor=_multi_emit_floor,
-                        fe_multi_emit_diversity_corr=_multi_emit_div_corr,
-                        fe_pair_usability_admission_enable=bool(getattr(self, "fe_pair_usability_admission_enable", True)),
-                        fe_pair_usability_admission_min_corr=float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6)),
-                        fe_pair_usability_admission_pairness_margin=float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05)),
-                        gate_med_specs_out=None,  # loky: recovered from result dict below
-                        # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): see the serial branch above.
-                        allow_engineered_operands=(_eng_cap != 0),
-                        engineered_operand_values=getattr(self, "_engineered_continuous_", None),
-                        # MM-DEBIAS (2026-06-09, backlog #1 + #4): see the serial branch above.
-                        fe_mm_debias_prevalence=bool(getattr(self, "fe_mm_debias_prevalence", False)),
-                        # LARGE-N PEAK-MEMORY FIX (2026-06-08): joblib ``backend="threading"``
-                        # runs up to ``n_jobs`` of these CONCURRENTLY in the shared address space,
-                        # each allocating its own candidate/chunk/disc/MI buffers; divide the
-                        # per-call RAM budget by the worker count so N threads don't collectively
-                        # blow past 0.4*available and OOM a worker.
-                        concurrent_workers=int(n_jobs) if n_jobs and n_jobs > 0 else 1,
-                        # OPT-A n_jobs=1 EXTENSION (2026-06-20). This ``else`` branch is the joblib
-                        # path, but joblib ``Parallel(n_jobs=1)`` runs every ``delayed`` chunk
-                        # SEQUENTIALLY in the CALLING thread (joblib's SequentialBackend short-circuit
-                        # -- no worker thread is spawned, regardless of the requested backend), so
-                        # there is NO Python-threading nest a numba prange could deadlock. Mark the
-                        # call serial-main-thread when n_jobs<=1 so the FE materialise / searchsorted /
-                        # discretise kernels may dispatch to their BYTE-IDENTICAL ``parallel=True``
-                        # column-prange twins (gated further by the per-host kernel_tuning crossover) --
-                        # the canonical n=100k/n_jobs=1 fit (>=2 pairs -> this branch, but 1 joblib
-                        # worker) otherwise ran the serial nogil kernels with every other core idle.
-                        # Selection is unchanged (the twins are verified maxdiff 0). For n_jobs>1 the
-                        # backend genuinely spawns threads -> stays False (serial nogil, no nesting).
-                        serial_main_thread=(n_jobs is None or int(n_jobs) <= 1),
-                    )
-                    for chunk in jobs_list
-                ],
-                # max_nbytes=0,
-                n_jobs=n_jobs,
-                **parallel_kwargs,
+        if verbose:
+            logger.info(
+                "Using %d items per thread for checking %d prospective_pairs with gain>%.2f.",
+                desired_nitems, len(prospective_pairs), fe_min_pair_mi_prevalence,
             )
-            # PREWARP/GATE-MED SPEC-MERGE FIX (2026-06-08). Each chunk's result dict
-            # carries its OWN fitted-spec payload under the SAME reserved key
-            # (``_PREWARP_SPECS_RESULT_KEY`` / ``_GATE_MED_SPECS_RESULT_KEY``). A bare
-            # ``prospective_additions.update(next_dict)`` lets each chunk's reserved-key
-            # entry CLOBBER the previous chunk's -- only the LAST chunk's specs survive,
-            # so an operand whose ``prewarp`` warp was fit in an EARLIER chunk loses its
-            # coeffs. The recipe builder below then constructs a recipe that names
-            # ``prewarp`` but has no ``prewarp_*_coef`` in ``extra`` -> a KeyError at
-            # transform()-time replay (observed with n_jobs=1, which still chunks the
-            # pairs into multiple sequential ``parallel_run`` jobs: e.g.
-            # ``sub(prewarp(informative_3),prewarp(noise_5))`` with informative_3's spec
-            # dropped). Fix: MERGE each chunk's reserved spec payload into the
-            # accumulators DURING the merge loop, before ``update`` overwrites the key.
-            from .._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _FE_REJECTION_RESULT_KEY
-            for next_dict in dicts:
-                _pw_chunk = next_dict.pop(_PREWARP_SPECS_RESULT_KEY, None)
-                if _pw_chunk:
-                    _prewarp_specs.update(_pw_chunk)
-                _gm_chunk = next_dict.pop(_GATE_MED_SPECS_RESULT_KEY, None)
-                if _gm_chunk:
-                    _gate_med_specs.update(_gm_chunk)
-                # REJECTION LEDGER (additive): drain each chunk's per-pair-gate drops.
-                _rej_chunk = next_dict.pop(_FE_REJECTION_RESULT_KEY, None)
-                if _rej_chunk:
-                    for _rr in _rej_chunk:
-                        _record_fe_rejection(
-                            self, gate=_rr.get("gate", "engineered_mi_prevalence"),
-                            candidate=_rr.get("candidate"), operands=_rr.get("operands"),
-                            operator=_rr.get("operator"),
-                            observed=_rr.get("observed", float("nan")),
-                            threshold=_rr.get("threshold", float("nan")),
-                            reason=_rr.get("reason", ""), step=int(num_fs_steps),
-                        )
-                prospective_additions.update(next_dict)
 
-        # Extract any reserved pre-warp / gate-med spec entry the SERIAL path may have
-        # left in ``prospective_additions`` (the serial branch returns a single dict that
-        # also carries the reserved key) and merge it, so the pair loop below never
-        # treats it as a ``raw_vars_pair``. The joblib branch already drained the key
-        # per-chunk above; this pop is then a harmless no-op.
-        from .._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _FE_REJECTION_RESULT_KEY
-        _pw_from_res = prospective_additions.pop(_PREWARP_SPECS_RESULT_KEY, None)
-        if _pw_from_res:
-            _prewarp_specs.update(_pw_from_res)
-        # Same recovery for the per-operand TRAIN medians (loky-parallel path).
-        _gm_from_res = prospective_additions.pop(_GATE_MED_SPECS_RESULT_KEY, None)
-        if _gm_from_res:
-            _gate_med_specs.update(_gm_from_res)
-        # REJECTION LEDGER (additive): drain the SERIAL path's per-pair-gate drops (the
-        # joblib branch already drained per-chunk above, so this pop is then a no-op).
-        _rej_from_res = prospective_additions.pop(_FE_REJECTION_RESULT_KEY, None)
-        if _rej_from_res:
-            for _rr in _rej_from_res:
-                _record_fe_rejection(
-                    self, gate=_rr.get("gate", "engineered_mi_prevalence"),
-                    candidate=_rr.get("candidate"), operands=_rr.get("operands"),
-                    operator=_rr.get("operator"),
-                    observed=_rr.get("observed", float("nan")),
-                    threshold=_rr.get("threshold", float("nan")),
-                    reason=_rr.get("reason", ""), step=int(num_fs_steps),
+        dicts = parallel_run(
+            [
+                delayed(check_prospective_fe_pairs)(
+                    chunk,
+                    X,
+                    unary_transformations,
+                    binary_transformations,
+                    classes_y,
+                    classes_y_safe,
+                    freqs_y,
+                    num_fs_steps,
+                    cols,
+                    original_cols,
+                    fe_max_steps,
+                    fe_npermutations,
+                    fe_max_pair_features,
+                    fe_print_best_mis_only,
+                    fe_min_nonzero_confidence,
+                    fe_min_engineered_mi_prevalence,
+                    fe_good_to_best_feature_mi_threshold,
+                    fe_max_external_validation_factors,
+                    numeric_vars_to_consider,
+                    self.quantization_nbins,
+                    self.quantization_method,
+                    self.quantization_dtype,
+                    times_spent,
+                    verbose,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                    fe_subsample_stratify=_fe_subsample_stratify,
+                    shared_subsample_idx=_shared_fe_idx,
+                    prewarp_enable=_prewarp_enable,
+                    prewarp_y=classes_y if _prewarp_enable else None,
+                    prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,
+                    usability_y_continuous=_usab_y_cont,
+                    prewarp_basis=_prewarp_basis,
+                    prewarp_max_degree=_prewarp_max_degree,
+                    prewarp_uplift_threshold=_prewarp_uplift,
+                    prewarp_min_val_corr=_prewarp_min_val_corr,
+                    prewarp_specs_out=None,  # loky: recovered from result dict below
+                    fe_gate_med_enable=_gate_med_enable,
+                    fe_multi_emit_max_per_pair=_multi_emit_max,
+                    fe_multi_emit_mi_floor=_multi_emit_floor,
+                    fe_multi_emit_diversity_corr=_multi_emit_div_corr,
+                    fe_pair_usability_admission_enable=bool(getattr(self, "fe_pair_usability_admission_enable", True)),
+                    fe_pair_usability_admission_min_corr=float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6)),
+                    fe_pair_usability_admission_pairness_margin=float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05)),
+                    gate_med_specs_out=None,  # loky: recovered from result dict below
+                    # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): see the serial branch above.
+                    allow_engineered_operands=(_eng_cap != 0),
+                    engineered_operand_values=getattr(self, "_engineered_continuous_", None),
+                    # MM-DEBIAS (2026-06-09, backlog #1 + #4): see the serial branch above.
+                    fe_mm_debias_prevalence=bool(getattr(self, "fe_mm_debias_prevalence", False)),
+                    # LARGE-N PEAK-MEMORY FIX (2026-06-08): joblib ``backend="threading"``
+                    # runs up to ``n_jobs`` of these CONCURRENTLY in the shared address space,
+                    # each allocating its own candidate/chunk/disc/MI buffers; divide the
+                    # per-call RAM budget by the worker count so N threads don't collectively
+                    # blow past 0.4*available and OOM a worker.
+                    concurrent_workers=int(n_jobs) if n_jobs and n_jobs > 0 else 1,
+                    # OPT-A n_jobs=1 EXTENSION (2026-06-20). This ``else`` branch is the joblib
+                    # path, but joblib ``Parallel(n_jobs=1)`` runs every ``delayed`` chunk
+                    # SEQUENTIALLY in the CALLING thread (joblib's SequentialBackend short-circuit
+                    # -- no worker thread is spawned, regardless of the requested backend), so
+                    # there is NO Python-threading nest a numba prange could deadlock. Mark the
+                    # call serial-main-thread when n_jobs<=1 so the FE materialise / searchsorted /
+                    # discretise kernels may dispatch to their BYTE-IDENTICAL ``parallel=True``
+                    # column-prange twins (gated further by the per-host kernel_tuning crossover) --
+                    # the canonical n=100k/n_jobs=1 fit (>=2 pairs -> this branch, but 1 joblib
+                    # worker) otherwise ran the serial nogil kernels with every other core idle.
+                    # Selection is unchanged (the twins are verified maxdiff 0). For n_jobs>1 the
+                    # backend genuinely spawns threads -> stays False (serial nogil, no nesting).
+                    serial_main_thread=(n_jobs is None or int(n_jobs) <= 1),
                 )
-
-        # Per-candidate scoring / quantile-discretization materialise stage (carved 2026-06-22 to
-        # _step_score.py to bring _step_core.py under the 1k-LOC ceiling). Threads the loop locals
-        # explicitly and returns the re-bound values; engineered_features / checked_pairs /
-        # engineered_recipes are mutated in place. Selection is byte-for-byte identical.
-        from ._step_score import materialise_and_finalise_fe_candidates
-        (
-            prospective_additions, data, cols, nbins, X, selected_vars, n_recommended_features,
-        ) = materialise_and_finalise_fe_candidates(
-            self,
-            prospective_additions=prospective_additions,
-            prospective_pairs=prospective_pairs,
-            _prevalence_failed_synergy=_prevalence_failed_synergy,
-            _pair_maxt_floor=_pair_maxt_floor,
-            _polynom_engineered_indices=_polynom_engineered_indices,
-            data=data, cols=cols, nbins=nbins, X=X,
-            classes_y=classes_y,
-            selected_vars=selected_vars,
-            engineered_features=engineered_features,
-            engineered_recipes=engineered_recipes,
-            checked_pairs=checked_pairs,
-            n_recommended_features=n_recommended_features,
-            num_fs_steps=num_fs_steps,
-            fe_max_steps=fe_max_steps,
-            fe_unary_preset=fe_unary_preset,
-            fe_binary_preset=fe_binary_preset,
-            _is_polars_input=_is_polars_input,
-            verbose=verbose,
-            discretize_array=discretize_array,
-            get_new_feature_name=get_new_feature_name,
-            # ND-1: the poly_<coef> hermite-coefficient subset so a poly-FE recipe can persist its coef for replay.
-            _poly_coefs={_k: _v for _k, _v in unary_transformations.items() if isinstance(_k, str) and _k.startswith("poly_")},
+                for chunk in jobs_list
+            ],
+            # max_nbytes=0,
+            n_jobs=n_jobs,
+            **parallel_kwargs,
         )
+        # PREWARP/GATE-MED SPEC-MERGE FIX (2026-06-08). Each chunk's result dict
+        # carries its OWN fitted-spec payload under the SAME reserved key
+        # (``_PREWARP_SPECS_RESULT_KEY`` / ``_GATE_MED_SPECS_RESULT_KEY``). A bare
+        # ``prospective_additions.update(next_dict)`` lets each chunk's reserved-key
+        # entry CLOBBER the previous chunk's -- only the LAST chunk's specs survive,
+        # so an operand whose ``prewarp`` warp was fit in an EARLIER chunk loses its
+        # coeffs. The recipe builder below then constructs a recipe that names
+        # ``prewarp`` but has no ``prewarp_*_coef`` in ``extra`` -> a KeyError at
+        # transform()-time replay (observed with n_jobs=1, which still chunks the
+        # pairs into multiple sequential ``parallel_run`` jobs: e.g.
+        # ``sub(prewarp(informative_3),prewarp(noise_5))`` with informative_3's spec
+        # dropped). Fix: MERGE each chunk's reserved spec payload into the
+        # accumulators DURING the merge loop, before ``update`` overwrites the key.
+        from .._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _FE_REJECTION_RESULT_KEY
+        for next_dict in dicts:
+            _pw_chunk = next_dict.pop(_PREWARP_SPECS_RESULT_KEY, None)
+            if _pw_chunk:
+                _prewarp_specs.update(_pw_chunk)
+            _gm_chunk = next_dict.pop(_GATE_MED_SPECS_RESULT_KEY, None)
+            if _gm_chunk:
+                _gate_med_specs.update(_gm_chunk)
+            # REJECTION LEDGER (additive): drain each chunk's per-pair-gate drops.
+            _rej_chunk = next_dict.pop(_FE_REJECTION_RESULT_KEY, None)
+            if _rej_chunk:
+                for _rr in _rej_chunk:
+                    _record_fe_rejection(
+                        self, gate=_rr.get("gate", "engineered_mi_prevalence"),
+                        candidate=_rr.get("candidate"), operands=_rr.get("operands"),
+                        operator=_rr.get("operator"),
+                        observed=_rr.get("observed", float("nan")),
+                        threshold=_rr.get("threshold", float("nan")),
+                        reason=_rr.get("reason", ""), step=int(num_fs_steps),
+                    )
+            prospective_additions.update(next_dict)
 
-        log_fe_summary(
-            prospective_pairs=prospective_pairs,
-            prospective_additions=prospective_additions,
-            n_recommended_features=n_recommended_features,
-            fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
-            fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
-            fe_min_nonzero_confidence=fe_min_nonzero_confidence,
-            fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
-            fe_acceptance=str(getattr(self, "fe_acceptance", "conditional_mi")),
-            verbose=verbose,
-        )
+    # Extract any reserved pre-warp / gate-med spec entry the SERIAL path may have
+    # left in ``prospective_additions`` (the serial branch returns a single dict that
+    # also carries the reserved key) and merge it, so the pair loop below never
+    # treats it as a ``raw_vars_pair``. The joblib branch already drained the key
+    # per-chunk above; this pop is then a harmless no-op.
+    from .._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _FE_REJECTION_RESULT_KEY
+    _pw_from_res = prospective_additions.pop(_PREWARP_SPECS_RESULT_KEY, None)
+    if _pw_from_res:
+        _prewarp_specs.update(_pw_from_res)
+    # Same recovery for the per-operand TRAIN medians (loky-parallel path).
+    _gm_from_res = prospective_additions.pop(_GATE_MED_SPECS_RESULT_KEY, None)
+    if _gm_from_res:
+        _gate_med_specs.update(_gm_from_res)
+    # REJECTION LEDGER (additive): drain the SERIAL path's per-pair-gate drops (the
+    # joblib branch already drained per-chunk above, so this pop is then a no-op).
+    _rej_from_res = prospective_additions.pop(_FE_REJECTION_RESULT_KEY, None)
+    if _rej_from_res:
+        for _rr in _rej_from_res:
+            _record_fe_rejection(
+                self, gate=_rr.get("gate", "engineered_mi_prevalence"),
+                candidate=_rr.get("candidate"), operands=_rr.get("operands"),
+                operator=_rr.get("operator"),
+                observed=_rr.get("observed", float("nan")),
+                threshold=_rr.get("threshold", float("nan")),
+                reason=_rr.get("reason", ""), step=int(num_fs_steps),
+            )
+
+    # Per-candidate scoring / quantile-discretization materialise stage (carved 2026-06-22 to
+    # _step_score.py to bring _step_core.py under the 1k-LOC ceiling). Threads the loop locals
+    # explicitly and returns the re-bound values; engineered_features / checked_pairs /
+    # engineered_recipes are mutated in place. Selection is byte-for-byte identical.
+    from ._step_score import materialise_and_finalise_fe_candidates
+    (
+        prospective_additions, data, cols, nbins, X, selected_vars, n_recommended_features,
+    ) = materialise_and_finalise_fe_candidates(
+        self,
+        prospective_additions=prospective_additions,
+        prospective_pairs=prospective_pairs,
+        _prevalence_failed_synergy=_prevalence_failed_synergy,
+        _pair_maxt_floor=_pair_maxt_floor,
+        _polynom_engineered_indices=_polynom_engineered_indices,
+        data=data, cols=cols, nbins=nbins, X=X,
+        classes_y=classes_y,
+        selected_vars=selected_vars,
+        engineered_features=engineered_features,
+        engineered_recipes=engineered_recipes,
+        checked_pairs=checked_pairs,
+        n_recommended_features=n_recommended_features,
+        num_fs_steps=num_fs_steps,
+        fe_max_steps=fe_max_steps,
+        fe_unary_preset=fe_unary_preset,
+        fe_binary_preset=fe_binary_preset,
+        _is_polars_input=_is_polars_input,
+        verbose=verbose,
+        discretize_array=discretize_array,
+        get_new_feature_name=get_new_feature_name,
+        # ND-1: the poly_<coef> hermite-coefficient subset so a poly-FE recipe can persist its coef for replay.
+        _poly_coefs={_k: _v for _k, _v in unary_transformations.items() if isinstance(_k, str) and _k.startswith("poly_")},
+    )
+
+    log_fe_summary(
+        prospective_pairs=prospective_pairs,
+        prospective_additions=prospective_additions,
+        n_recommended_features=n_recommended_features,
+        fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
+        fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
+        fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+        fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
+        fe_acceptance=str(getattr(self, "fe_acceptance", "conditional_mi")),
+        verbose=verbose,
+    )
 
     data, cols, nbins, X, selected_vars, n_recommended_features = run_cluster_aggregate_emission(
         self,

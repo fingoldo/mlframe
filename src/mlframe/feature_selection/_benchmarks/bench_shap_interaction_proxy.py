@@ -104,7 +104,7 @@ def honest_auc(X, y, sel_names, seed):
     return float(roc_auc_score(yte, m.predict_proba(Xte[sel_names])[:, 1]))
 
 
-def pick_from_candidates(cands, col_names, n_keep=None):
+def pick_from_candidates(cands, col_names):
     if not cands:
         return []
     loss, idx = cands[0]

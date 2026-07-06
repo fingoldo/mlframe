@@ -195,7 +195,6 @@ def compute_pareto_frontier(
     arr = np.asarray(points, dtype=float)
     if arr.ndim != 2 or arr.shape[1] != 2:
         raise ValueError(f"compute_pareto_frontier: expected (T, 2) array, got {arr.shape}")
-    n = arr.shape[0]
 
     means = arr[:, 0]
     stds = arr[:, 1]

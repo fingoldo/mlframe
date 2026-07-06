@@ -43,7 +43,6 @@ from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_c
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import (
-    max_error,
     root_mean_squared_error,
     make_scorer,
 )

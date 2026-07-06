@@ -21,7 +21,6 @@ from typing import (
     Any,
     Callable,
     Dict,
-    List,
     Protocol,
     Sequence,
     Tuple,

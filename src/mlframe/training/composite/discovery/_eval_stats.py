@@ -264,7 +264,6 @@ def apply_alpha_drift_gate(
     train_idx: np.ndarray,
     y_full: np.ndarray,
     extract_column_array: Callable,
-    linear_residual_fit: Callable,
 ) -> list:
     """Rolling-origin alpha-drift Chow test for ``linear_residual`` specs.
 

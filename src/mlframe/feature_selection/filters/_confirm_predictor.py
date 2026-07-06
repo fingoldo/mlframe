@@ -363,84 +363,80 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
                 logger.info("Time limit exhausted. Finalizing the search...")
 
     else:
-        if use_simple_mode and False:
-            # No need to check every can out of order: let's just return next best known candidate
-            best_gain, best_candidate, run_out_of_time = 1, 1, False
-        else:
-            # Batched-GPU conditional-MI cache pre-fill for the SERIAL path (default ON;
-            # env kill-switch MLFRAME_MRMR_GPU_CMI=0). Same win as the parallel wiring in
-            # _evaluate_candidates_inner: pre-populate the shared python ``cached_cond_MIs``
-            # with batched I(X; Y | Z) so the @njit evaluate_gain loop hits the cache and
-            # skips the serial scalar conditional_mi. Unlike the parallel path (which writes
-            # a per-worker numba dict to avoid a concurrent "dict changed size" race), the
-            # serial loop has NO concurrent iteration, so writing the plain python dict in
-            # place BEFORE the loop is race-free. The helper reuses the exact arr2str key
-            # format and the same size/HW dispatch + SU/JMIM/order-1 gating; bit-parity
-            # kernel => selection unchanged; any failure / non-eligible regime is a silent
-            # no-op (scalar path).
-            _prefill_cond_MIs_gpu(
-                workload=feasible_candidates,
+        # Batched-GPU conditional-MI cache pre-fill for the SERIAL path (default ON;
+        # env kill-switch MLFRAME_MRMR_GPU_CMI=0). Same win as the parallel wiring in
+        # _evaluate_candidates_inner: pre-populate the shared python ``cached_cond_MIs``
+        # with batched I(X; Y | Z) so the @njit evaluate_gain loop hits the cache and
+        # skips the serial scalar conditional_mi. Unlike the parallel path (which writes
+        # a per-worker numba dict to avoid a concurrent "dict changed size" race), the
+        # serial loop has NO concurrent iteration, so writing the plain python dict in
+        # place BEFORE the loop is race-free. The helper reuses the exact arr2str key
+        # format and the same size/HW dispatch + SU/JMIM/order-1 gating; bit-parity
+        # kernel => selection unchanged; any failure / non-eligible regime is a silent
+        # no-op (scalar path).
+        _prefill_cond_MIs_gpu(
+            workload=feasible_candidates,
+            y=y,
+            factors_data=factors_data,
+            factors_nbins=factors_nbins,
+            selected_vars=selected_vars,
+            cached_cond_MIs=cached_cond_MIs,
+            use_simple_mode=use_simple_mode,
+            mrmr_relevance_algo=mrmr_relevance_algo,
+            max_veteranes_interactions_order=max_veteranes_interactions_order,
+        )
+
+        for cand_idx, X, nexisting in feasible_candidates:
+
+            current_gain, sink_reasons = evaluate_candidate(
+                cand_idx=cand_idx,
+                X=X,
                 y=y,
+                nexisting=nexisting,
+                best_gain=best_gain,
                 factors_data=factors_data,
                 factors_nbins=factors_nbins,
-                selected_vars=selected_vars,
-                cached_cond_MIs=cached_cond_MIs,
-                use_simple_mode=use_simple_mode,
+                factors_names=factors_names,
+                classes_y=classes_y,
+                classes_y_safe=classes_y_safe,
+                freqs_y=freqs_y,
+                use_gpu=use_gpu,
+                freqs_y_safe=freqs_y_safe,
+                partial_gains=partial_gains,
+                baseline_npermutations=baseline_npermutations,
                 mrmr_relevance_algo=mrmr_relevance_algo,
+                mrmr_redundancy_algo=mrmr_redundancy_algo,
                 max_veteranes_interactions_order=max_veteranes_interactions_order,
+                expected_gains=expected_gains,
+                selected_vars=selected_vars,
+                cached_MIs=cached_MIs,
+                cached_confident_MIs=cached_confident_MIs,
+                cached_cond_MIs=cached_cond_MIs,
+                cached_jmim_MIs=cached_jmim_MIs,
+                jmim_hit_counter=jmim_hit_counter,
+                entropy_cache=entropy_cache,
+                verbose=verbose,
+                ndigits=ndigits,
+                use_simple_mode=use_simple_mode,
             )
 
-            for cand_idx, X, nexisting in feasible_candidates:
+            best_gain, best_candidate, run_out_of_time = handle_best_candidate(
+                current_gain=current_gain,
+                best_gain=best_gain,
+                X=X,
+                best_candidate=best_candidate,
+                factors_names=factors_names,
+                max_runtime_mins=max_runtime_mins,
+                start_time=start_time,
+                min_relevance_gain=min_relevance_gain,
+                verbose=verbose,
+                ndigits=ndigits,
+            )
 
-                current_gain, sink_reasons = evaluate_candidate(
-                    cand_idx=cand_idx,
-                    X=X,
-                    y=y,
-                    nexisting=nexisting,
-                    best_gain=best_gain,
-                    factors_data=factors_data,
-                    factors_nbins=factors_nbins,
-                    factors_names=factors_names,
-                    classes_y=classes_y,
-                    classes_y_safe=classes_y_safe,
-                    freqs_y=freqs_y,
-                    use_gpu=use_gpu,
-                    freqs_y_safe=freqs_y_safe,
-                    partial_gains=partial_gains,
-                    baseline_npermutations=baseline_npermutations,
-                    mrmr_relevance_algo=mrmr_relevance_algo,
-                    mrmr_redundancy_algo=mrmr_redundancy_algo,
-                    max_veteranes_interactions_order=max_veteranes_interactions_order,
-                    expected_gains=expected_gains,
-                    selected_vars=selected_vars,
-                    cached_MIs=cached_MIs,
-                    cached_confident_MIs=cached_confident_MIs,
-                    cached_cond_MIs=cached_cond_MIs,
-                    cached_jmim_MIs=cached_jmim_MIs,
-                    jmim_hit_counter=jmim_hit_counter,
-                    entropy_cache=entropy_cache,
-                    verbose=verbose,
-                    ndigits=ndigits,
-                    use_simple_mode=use_simple_mode,
-                )
-
-                best_gain, best_candidate, run_out_of_time = handle_best_candidate(
-                    current_gain=current_gain,
-                    best_gain=best_gain,
-                    X=X,
-                    best_candidate=best_candidate,
-                    factors_names=factors_names,
-                    max_runtime_mins=max_runtime_mins,
-                    start_time=start_time,
-                    min_relevance_gain=min_relevance_gain,
-                    verbose=verbose,
-                    ndigits=ndigits,
-                )
-
-                if run_out_of_time:
-                    if verbose:
-                        logger.info("Time limit exhausted. Finalizing the search...")
-                    break
+            if run_out_of_time:
+                if verbose:
+                    logger.info("Time limit exhausted. Finalizing the search...")
+                break
 
     if verbose > 2 and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
         logger.info("evaluate_candidates took %.1f sec.", timer() - eval_start)

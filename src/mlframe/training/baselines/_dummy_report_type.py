@@ -8,7 +8,7 @@ continue to resolve identity-equal.
 """
 from __future__ import annotations
 
-from typing import Any, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd

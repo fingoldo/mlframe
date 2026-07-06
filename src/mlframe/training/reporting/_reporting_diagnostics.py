@@ -202,8 +202,8 @@ def _build_learning_curve(model, df, targets, columns, target_type, lc_cfg, metr
         if isinstance(metrics, dict):
             from dataclasses import asdict, is_dataclass
 
-            metrics.setdefault("learning_curve", {})
-            metrics["learning_curve"] = asdict(result) if is_dataclass(result) else result
+            metrics.setdefault(metadata_target_name, {})
+            metrics[metadata_target_name] = asdict(result) if is_dataclass(result) else result
         return learning_curve_panel(result)
     except Exception:
         logger.exception("learning_curve diagnostic failed; continuing.")

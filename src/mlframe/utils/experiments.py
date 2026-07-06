@@ -34,6 +34,9 @@ def _validate_and_join_fields(fields: Union[str, Sequence[str]], allowed: frozen
 
 
 def create_experiment(product_id: str, variants: list) -> str:
+    """STUB / no-op. Experiment creation is not implemented; this function intentionally does nothing and
+    returns None. It exists as an extension point for a future persistence backend. Callers must not rely
+    on any experiment being created or stored."""
     # if there are active experiments currently, quit
     pass
 

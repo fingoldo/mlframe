@@ -92,7 +92,7 @@ def main():
             o = _seq_old(yt, yp, class_label, 0.5)
             v = _seq_new(yt, yp, class_label, 0.5)
             d = abs(o - v)
-            to = _best_of(lambda: None and 0, ()) if False else _best_of(_seq_old, (yt, yp, class_label, 0.5))
+            to = _best_of(_seq_old, (yt, yp, class_label, 0.5))
             tn = _best_of(_seq_new, (yt, yp, class_label, 0.5))
             print(f"{n:>10} {class_label:>3} {to*1e6:>10.2f} {tn*1e6:>10.2f} {to/tn:>8.2f}x {d:>12.2e}")
 

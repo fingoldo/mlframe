@@ -151,16 +151,16 @@ def lookup_joint_hist(n_samples: int, joint_size: int, *, run_auto_tune: bool = 
     except Exception as e:
         logger.debug("lookup_joint_hist get_or_tune failed: %s", e)
 
-    _maybe_online_relearn(n_samples, joint_size, payload)
+    _maybe_online_relearn(n_samples, joint_size)
     return payload
 
 
-def _maybe_online_relearn(n_samples: int, joint_size: int, current_choice: dict) -> None:
+def _maybe_online_relearn(n_samples: int, joint_size: int) -> None:
     """Optional online relearn: every ``_LEARN_EVERY`` calls and when the
-    env-var is enabled, time the current choice + 1 alternative and update
-    the cache if the alternative wins. Adds ~5-10 ms per re-measure call
-    (only 0.1% of total at default cadence), zero overhead at the other
-    99.9% of calls.
+    env-var is enabled, re-measure all variants for this ``(n_samples, joint_size)``
+    point via ``_measure_single_region`` and adopt the fresh winner into the cache.
+    Adds ~5-10 ms per re-measure call (only 0.1% of total at default cadence),
+    zero overhead at the other 99.9% of calls.
 
     Gated behind ``MLFRAME_KTC_ONLINE_LEARN=1`` so production fits never
     pay the re-measure cost unless explicitly opted in.

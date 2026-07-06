@@ -274,7 +274,7 @@ def build_binned_numeric_agg_recipe(name: str, info: dict):
     )
 
 
-def _auto_detect_numeric_cols(X: pd.DataFrame, max_card_group: int = 10**9) -> list:
+def _auto_detect_numeric_cols(X: pd.DataFrame) -> list:
     """RAW numeric columns eligible as group / aggregate sources (finite, non-constant)."""
     out = []
     for c in X.columns:

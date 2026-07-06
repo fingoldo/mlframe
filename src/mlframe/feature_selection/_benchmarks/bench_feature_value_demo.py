@@ -58,7 +58,6 @@ from mlframe.feature_selection.filters.hermite_fe import (
     detect_pair_symmetry,
 )
 from mlframe.feature_selection.filters.fe_baselines import (
-    score_trivial_baselines,
     best_trivial_pair,
     score_triplet_baselines,
     auto_unary_transforms,

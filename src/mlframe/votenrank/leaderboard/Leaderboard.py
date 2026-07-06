@@ -5,10 +5,9 @@ from pyutilz.system import tqdmu as tqdm
 import pandas as pd
 import numpy as np
 
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 from sklearn.model_selection import ParameterGrid
-from scipy.optimize import linprog
 
 from .settings import (
     RANKING_METHODS,

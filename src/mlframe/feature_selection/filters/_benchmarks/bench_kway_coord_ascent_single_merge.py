@@ -54,17 +54,7 @@ def _eval_old(data, nbins, classes_y, freqs_y, tup, dtype):
         factors_nbins=nbins,
         dtype=dtype,
     )
-    new_mi = (
-        compute_mi_from_classes(
-            classes_x=new_classes,
-            freqs_x=None,
-            classes_y=classes_y,
-            freqs_y=freqs_y,
-            dtype=dtype,
-        )
-        if False
-        else None
-    )
+    new_mi = None
     _, new_freqs, _ = merge_vars(
         factors_data=data,
         vars_indices=np.array(new_tuple_sorted, dtype=np.int64),

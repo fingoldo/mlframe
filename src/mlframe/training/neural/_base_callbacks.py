@@ -47,7 +47,7 @@ class AggregatingValidationCallback(Callback):
         labels = torch.concat(self.batched_labels).detach().cpu().numpy()
         predictions = torch.concat(self.batched_predictions).detach().cpu().float().numpy()
         metric_value = self.metric_fcn(y_true=labels, y_score=predictions)
-        pl_module.log(name="val_" + self.metric_name, value=metric_value, on_epoch=self.on_epoch, on_step=self.on_step, prog_bar=True)
+        pl_module.log(name="val_" + self.metric_name, value=metric_value, on_epoch=self.on_epoch, on_step=self.on_step, prog_bar=self.prog_bar)
         self.init_accumulators()
 
 

@@ -33,12 +33,10 @@ from mlframe.metrics.core import (
     fast_classification_report,
     format_classification_report,
     balanced_accuracy_binary,
-    average_precision_score,
-    fast_roc_curve,
 )
 
 from sklearn.exceptions import UndefinedMetricWarning
-from sklearn.base import is_classifier, is_regressor
+from sklearn.base import is_classifier
 from sklearn.model_selection import train_test_split
 
 try:
@@ -46,7 +44,7 @@ try:
 except (ImportError, ModuleNotFoundError):
     from sklearn.pipeline import Pipeline
 
-from IPython.display import display, Markdown, Latex
+from IPython.display import display, Markdown
 
 # `finance` is a sibling private library (not on PyPI). The
 # show_classifier_calibration helper is only used by a single optional
@@ -63,11 +61,11 @@ except ImportError:  # pragma: no cover - depends on private sibling pkg
 
 from pyutilz.system import tqdmu
 from pyutilz.pythonlib import get_human_readable_set_size
-from pyutilz.logginglib import initialize_function_log, finalize_function_log, log_loaded_rows, log_activity, log_result
+from pyutilz.logginglib import log_result
 
 from mlframe.calibration.quality import make_custom_calibration_plot
 
-from catboost import Pool, sum_models
+from catboost import Pool
 
 
 def train_test_split_from_generator(gen: object, X=None, y=None, groups=None):
@@ -341,8 +339,8 @@ def evaluate_estimators(
                             }
                             classification_report_dict["accuracy"] = float(accuracy)
 
-                            log_result(results_log, f"classification_report_dict", classification_report_dict)
-                            log_result(results_log, f"classification_report_text", classification_report_text)
+                            log_result(results_log, "classification_report_dict", classification_report_dict)
+                            log_result(results_log, "classification_report_text", classification_report_text)
 
                     if show_confusion_matrix:
 
@@ -424,8 +422,6 @@ def evaluate_grouped(
     """
     if all_cats is None:
         all_cats = {}
-
-    target_names = {k: v for k, v in sorted(all_cats.items(), key=lambda item: item[1])}
 
     def _report_dict(y_true, y_pred) -> dict:
         """output_dict-style report (per-label + 'weighted avg') via our fast kernel.

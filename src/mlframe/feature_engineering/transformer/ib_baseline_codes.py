@@ -91,7 +91,6 @@ def compute_ib_baseline_codes_features(
         tp, qp = _fit_3baselines_two(Xt_s, y_t, Xq_s, task=task, seed=fold_seed)
         # Discretize each baseline pred to 2 bits (4 levels) then combine. With 3 baselines and 2 bits each = 4^3 = 64 codes.
         # Reduce by quantile binning per baseline to 2 levels (above/below median) → 2^3 = 8 codes.
-        levels = max(2, 1 << n_bits // 3) if n_bits > 1 else 2
         bins_per_baseline = 2  # binary above/below median, 2^3 = 8 cells
         codes_train = np.zeros(Xt_s.shape[0], dtype=np.int32)
         codes_query = np.zeros(Xq_s.shape[0], dtype=np.int32)

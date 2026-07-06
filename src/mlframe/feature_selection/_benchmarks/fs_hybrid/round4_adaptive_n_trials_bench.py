@@ -76,8 +76,7 @@ def replay_decisions(history_hits, n_cols, pvalue=0.05):
         newly_rej = {i for i in range(len(hits)) if rej_pc[i] < pvalue}
         acc_cum |= newly_acc
         rej_cum |= newly_rej
-        decided = acc_cum | rej_cum
-        tent = n_cols - len(decided - (acc_cum & rej_cum)) if False else n_cols - len(acc_cum | rej_cum)
+        tent = n_cols - len(acc_cum | rej_cum)
         traj.append((set(acc_cum), set(rej_cum - acc_cum), tent))
     return traj
 

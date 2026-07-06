@@ -3,16 +3,14 @@ from __future__ import annotations
 
 import time
 
-import scipy
 from scipy import stats
 import numpy as np, pandas as pd
 from itertools import combinations
-from sklearn.utils import check_array, check_random_state
+from sklearn.utils import check_random_state
 
 from pyutilz.string import rpad
 from pyutilz.system import tqdmu
 
-from pyutilz.logging import init_logging
 import logging
 
 logger = logging.getLogger(__name__)

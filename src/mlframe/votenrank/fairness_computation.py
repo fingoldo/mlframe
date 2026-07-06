@@ -8,10 +8,9 @@ import numpy as np
 # on first use when these are None, but module-level import remains DLL-safe
 # so pytest collection of unrelated test files doesn't abort.
 try:
-    from transformers import AutoModelForMaskedLM, AutoTokenizer
+    from transformers import AutoTokenizer
     import torch
 except (ImportError, OSError):  # pragma: no cover
-    AutoModelForMaskedLM = None  # type: ignore[assignment]
     AutoTokenizer = None  # type: ignore[assignment]
     torch = None  # type: ignore[assignment]
 

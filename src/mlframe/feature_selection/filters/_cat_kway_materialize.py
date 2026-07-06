@@ -159,7 +159,6 @@ def _build_kway_chained_lookup(
     factors_data: np.ndarray,
     idx_tuple: tuple,  # k indices in sorted order
     nbins: np.ndarray,
-    classes_final: np.ndarray,  # final post-prune classes from merge_vars(...idx_tuple)
     unknown_strategy: str,
     dtype,
 ) -> tuple:
@@ -283,7 +282,6 @@ def _materialize_kway(
             factors_data=factors_data,
             idx_tuple=idx_tuple,
             nbins=nbins,
-            classes_final=classes_arr,
             unknown_strategy=unknown_strategy,
             dtype=dtype,
         )

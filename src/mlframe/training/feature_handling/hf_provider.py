@@ -427,7 +427,6 @@ class HuggingFaceProvider:
     @staticmethod
     def _pool(model_out, attention_mask, pool: str):
         """Standard pooling implementations."""
-        import torch
         last_hidden = model_out.last_hidden_state  # [B, T, H]
         if pool == "cls":
             return last_hidden[:, 0]

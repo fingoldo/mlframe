@@ -29,7 +29,6 @@ from mlframe.metrics.classification._classification_extras import (
     _ks_statistic_kernel,
     _ks_statistic_kernel_ordered,
     ks_statistic,
-    _ks_statistic_numpy,
 )
 
 

@@ -21,7 +21,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 
-import numpy as np
 import pandas as pd
 import polars as pl
 import polars.selectors as cs

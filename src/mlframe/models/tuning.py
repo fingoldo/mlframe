@@ -144,7 +144,7 @@ def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_valu
     return True
 
 
-def double_check_dist_params(cand: dict, drop_none: bool = False, rng: Optional[np.random.Generator] = None) -> dict:
+def double_check_dist_params(cand: dict, rng: Optional[np.random.Generator] = None) -> dict:
     """If some of params were not resolved by the first ParameterSampler call,
     try on a deeper level.
     """

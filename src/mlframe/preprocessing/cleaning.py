@@ -31,7 +31,6 @@ from gc import collect
 from collections import defaultdict
 
 import re
-import psutil
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype, is_datetime64_any_dtype

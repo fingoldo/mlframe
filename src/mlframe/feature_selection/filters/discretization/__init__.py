@@ -289,6 +289,10 @@ def categorize_1d_array(
 ):
     """Per-column ordinal encoder used by ad-hoc external pipelines. Inside MRMR proper we use ``categorize_dataset`` below.
 
+    ``astropy_sample_size`` is unused: the astropy-backed binning method it configured was removed (see the
+    ``strategy`` removal note below for the sibling 'uniform'/'kmeans' cleanup); kept in the signature only
+    for back-compat with external callers passing it positionally or as a keyword.
+
     Wave 50 (2026-05-20): ``nan_filler=0.0`` default mixes NaN rows with real-0 rows
     into bin-0, biasing MI estimation. New callers should pass ``nan_filler=None``
     to raise honestly on NaN input, or use a sentinel that cannot collide with real
