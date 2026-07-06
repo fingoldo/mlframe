@@ -64,6 +64,64 @@ try:
 except (TypeError, ValueError):
     _CMI_PARALLEL_MIN_CANDS = 8
 
+# F-ORDER (column-contiguous) VIEW CACHE for the CPU CMI melt.
+# ``factors_data`` is (n, nfeat) C-contiguous, so reading candidate column ``xi`` in the per-candidate
+# melt strides ``nfeat*4`` bytes -- every O(n) pass thrashes cache lines. The batched-GPU path already
+# side-steps this by transposing to (candidates, n) contiguous (line ~684); the CPU melt did not. A
+# column-contiguous (F-order) copy of the SAME matrix makes every candidate column a contiguous run:
+# the identical loop runs 2-6x faster, BIT-IDENTICAL (asfortranarray only changes physical order, so
+# ``data[r, col]`` yields the same value -> same histograms -> same CMI). See bench_cmi_layout_probe.py.
+# ``factors_data`` is a fit-constant across the greedy loop (the dispatch already caches y/z uploads on
+# ``id(factors_data)``), so the O(n*nfeat) transpose is paid ONCE per fit and reused across every round
+# and every Z. Cached by ``id`` with a WEAKREF identity guard: a recycled id (allocator reuse after the
+# original is GC'd) fails the ``ref() is factors_data`` check and rebuilds -> never returns a stale copy.
+# Gated by a byte cap (backstop against a surprise large-n alloc) + an A/B toggle (REJECTED!=DELETED).
+_FORDER_CACHE: dict = {}
+_FORDER_LOCK = threading.Lock()
+try:
+    _CMI_FORDER_MAX_MB = float(_os_thr.environ.get("MLFRAME_CMI_FORDER_MAX_MB", "4096"))
+except (TypeError, ValueError):
+    _CMI_FORDER_MAX_MB = 4096.0
+
+
+def _cmi_forder_enabled() -> bool:
+    return _os_thr.environ.get("MLFRAME_CMI_FORDER", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _cmi_forder_view(factors_data: np.ndarray) -> np.ndarray:
+    """Return a column-contiguous (F-order) copy of ``factors_data``, cached per fit.
+
+    Bit-identical to the input (same values, same shape, same column indexing) but with contiguous
+    column reads for the melt. Returns the input unchanged when already F-contiguous, when disabled,
+    when not a 2-D array, or when the copy would exceed ``MLFRAME_CMI_FORDER_MAX_MB``.
+    """
+    import weakref
+    if not _cmi_forder_enabled():
+        return factors_data
+    if getattr(factors_data, "ndim", 0) != 2 or factors_data.flags.f_contiguous:
+        return factors_data
+    if factors_data.nbytes > _CMI_FORDER_MAX_MB * (1 << 20):
+        return factors_data
+    key = id(factors_data)
+    with _FORDER_LOCK:
+        ent = _FORDER_CACHE.get(key)
+        if ent is not None and ent[0]() is factors_data:
+            return ent[1]
+        # Purge entries whose original array has been GC'd (frees their cached F-copy; also clears any
+        # recycled-id collision) before inserting the fresh one.
+        dead = [k for k, v in _FORDER_CACHE.items() if v[0]() is None]
+        for k in dead:
+            del _FORDER_CACHE[k]
+        farr = np.asfortranarray(factors_data)
+        _FORDER_CACHE[key] = (weakref.ref(factors_data), farr)
+        return farr
+
+
+def reset_cmi_forder_cache() -> None:
+    """Drop all cached F-order copies (tests / free memory between fits)."""
+    with _FORDER_LOCK:
+        _FORDER_CACHE.clear()
+
 # Module-level kernel singleton (pickle-safe: never stored on instances).
 _cmi_joint_hist_cuda = None  # type: ignore[assignment]
 _KERNEL_LOCK = threading.Lock()
@@ -511,18 +569,23 @@ def _cpu_cmi_loop(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int3
     factors_nbins = np.asarray(factors_nbins)
     _vin = np.empty(0, dtype=np.int64)  # var_is_nominal placeholder (unused inside conditional_mi)
 
+    # Column-contiguous view of the fit-constant matrix -> contiguous candidate-column reads in the
+    # melt (2-6x, bit-identical; cached once per fit). Falls through to the C-order input when disabled
+    # / oversized / already F-contiguous.
+    fd = _cmi_forder_view(factors_data)
+
     import os as _os
     if _os.environ.get("MLFRAME_CMI_YZ_HOIST", "1").strip().lower() not in ("0", "false", "off", "no"):
         if p >= _CMI_PARALLEL_MIN_CANDS:
-            return _cpu_cmi_loop_hoisted_parallel(factors_data, cand_indices, y, z, factors_nbins, dtype)
-        return _cpu_cmi_loop_hoisted_serial(factors_data, cand_indices, y, z, factors_nbins, dtype)
+            return _cpu_cmi_loop_hoisted_parallel(fd, cand_indices, y, z, factors_nbins, dtype)
+        return _cpu_cmi_loop_hoisted_serial(fd, cand_indices, y, z, factors_nbins, dtype)
 
     # bench-attempt-baseline (MLFRAME_CMI_YZ_HOIST=0): un-hoisted recompute path kept for the A/B (REJECTED!=DELETED).
     if p >= _CMI_PARALLEL_MIN_CANDS:
-        return _cpu_cmi_loop_parallel(factors_data, cand_indices, y, z, factors_nbins, _vin)
+        return _cpu_cmi_loop_parallel(fd, cand_indices, y, z, factors_nbins, _vin)
     out = np.empty(p, dtype=np.float64)
     for i in range(p):
-        out[i] = conditional_mi(factors_data, np.array([cand_indices[i]], dtype=np.int64), y, z, _vin, factors_nbins)
+        out[i] = conditional_mi(fd, np.array([cand_indices[i]], dtype=np.int64), y, z, _vin, factors_nbins)
     return out
 
 
