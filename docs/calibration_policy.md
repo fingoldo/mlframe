@@ -52,9 +52,9 @@ A reliability plot can be emitted by ``pick_best_calibrator`` when ``emit_plot=T
 
 ## Limitations
 
-- **Binary classification only** in the current implementation. Multiclass calibration is one-vs-rest in the underlying sklearn classes but the policy does not currently produce per-class CIs; pinning ``NoCal`` is the safer default for multiclass until that is wired.
-- **Requires OOF predictions**. Classifiers trained without CV (i.e. with ``train_eval_score=False`` shortcuts) cannot be calibrated by this policy — the calibrator falls back to ``NoCal`` and a WARN is logged.
-- **n<200 rows**: the bootstrap CI is wide enough that the upper-bound tiebreaker effectively always picks ``NoCal``. This is by design — there is not enough data to fit a calibrator meaningfully on tiny samples.
+- **Binary classification only** in the current implementation. Multiclass calibration is one-vs-rest in the underlying sklearn classes but the policy does not currently produce per-class CIs; skipping the auto-pick is the safer default for multiclass until that is wired.
+- **Requires OOF predictions**. Classifiers trained without CV (i.e. with ``train_eval_score=False`` shortcuts) cannot be calibrated by this policy and a WARN is logged.
+- **n<200 rows**: the bootstrap CI / held-out ECE is wide/noisy enough that candidates are barely distinguishable. This is by design — there is not enough data to fit a calibrator meaningfully on tiny samples.
 
 ## Related modules
 
@@ -66,7 +66,7 @@ A reliability plot can be emitted by ``pick_best_calibrator`` when ``emit_plot=T
 
 ## Sensors
 
-- ``tests/calibration/test_pick_best_calibrator_policy.py`` — covers the bootstrap-CI selection logic, tie-breaker behaviour, ``NoCal``/``Sigmoid``/``Isotonic`` ordering, multiclass fallback.
+- ``tests/calibration/test_pick_best_calibrator.py`` — covers the bootstrap-CI selection logic, tie-breaker behaviour, candidate ordering, multiclass fallback.
 - ``tests/evaluation/test_bootstrap.py`` — covers the generic ``bootstrap_metric`` helper that the policy delegates to.
 
 ## Commit reference

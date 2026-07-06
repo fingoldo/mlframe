@@ -162,7 +162,11 @@ failures = metadata["composite_target_failures"]["regression"]["TVT"]
 # [{"name": "...", "reason": "valid_domain_frac=0.42 < 0.7"},
 #  {"name": "...", "reason": "mi_gain=-0.04 <= eps=0.01"}, ...]
 
-# Y-scale RMSE/MAE per composite per split (NOT T-scale)
+# Y-scale RMSE/MAE per composite per split (NOT T-scale). Empty by default because
+# `skip_wrap_pass_predict=True` (default) skips the wrap-pass y-scale predict() calls
+# for speed; pass `skip_wrap_pass_predict=False` in the config above to populate this,
+# or call `mlframe.training.core._phase_composite_post.recover_composite_y_scale_metrics`
+# on demand after the fact.
 y_metrics = metadata["composite_target_y_scale_metrics"]["regression"]
 for composite_name, entries in y_metrics.items():
     for e in entries:
@@ -172,7 +176,7 @@ for composite_name, entries in y_metrics.items():
 # Cross-target ensemble: strategy + per-component weights
 ens = metadata["composite_target_ensemble"]["regression"]["TVT"]
 # {"strategy": "linear_stack",
-#  "component_names": ["raw#0", "TVT__linear_residual__TVT_prev#0"],
+#  "component_names": ["raw#0", "TVT-linres-TVT_prev#0"],
 #  "weights": [0.3, 0.7],
 #  "notes": {"intercept": 0.5, ...}}
 
