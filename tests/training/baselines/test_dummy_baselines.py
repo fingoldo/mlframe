@@ -595,6 +595,17 @@ class TestVerdictFormat:
         text = rep.format_text()
         assert "[DUMMY_BASELINES]" in text
 
+    def test_default_level_debug_promotes_full_table(self, reg_data, cfg):
+        """format_text's own docstring promises the full baseline table at
+        default_level='DEBUG'; this pins that it's actually delivered, not
+        just accepted-and-ignored."""
+        rep = compute_dummy_baselines(config=cfg, **reg_data)
+        info_text = rep.format_text(default_level="INFO")
+        debug_text = rep.format_text(default_level="DEBUG")
+        assert len(debug_text) > len(info_text)
+        for baseline_name in rep.table.index:
+            assert str(baseline_name) in debug_text
+
 
 # ---------------------------------------------------------------------
 # Suite-end summary + WARN tokens (D6)

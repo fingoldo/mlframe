@@ -61,10 +61,20 @@ typingctx
 
 # Explicitly documented "retained for back-compat, no effect" parameters (each has an
 # in-file docstring/comment saying so -- see the referenced module for the full note).
-# NOTE: `array_size` (metrics/calibration/_calibration_metrics.py) and `default_level`
-# (training/baselines/_dummy_report_type.py) are deliberately NOT whitelisted -- both
-# take real distinct data / promise DEBUG-level behavior that the body never delivers;
-# left visible in vulture's output as an open follow-up rather than silenced.
+# NOTE: `array_size` (metrics/calibration/_calibration_metrics.py), `default_level`
+# (training/baselines/_dummy_report_type.py), `iter_means`/`iter_stds`
+# (training/_cv_aggregation.py select_from_pareto), and `cpt_test`/`cpt_n_permutations`
+# (feature_selection/filters/mrmr/_mrmr_class.py -- genuinely unimplemented D10 Conditional
+# Permutation Test scaffold, confirmed via _mrmr_setstate_defaults.py having NO legacy-pickle
+# entry for these, unlike the fe_hybrid_orth_lasso/elasticnet family below) are deliberately
+# NOT whitelisted -- each takes real distinct data / promises behavior the body never
+# delivers; left visible in vulture's output as an open follow-up rather than silenced.
+fe_hybrid_orth_lasso_enable  # mrmr/_mrmr_class.py -- legacy pickle-compat only, see _mrmr_setstate_defaults.py
+fe_hybrid_orth_lasso_alpha
+fe_hybrid_orth_elasticnet_enable
+fe_hybrid_orth_elasticnet_alpha
+fe_hybrid_orth_elasticnet_l1_ratio
+fs_use_groups  # training/core/_setup_helpers_pre_pipelines.py -- grouped-CV honesty routes through mrmr_kwargs["strict_groups"] instead (see the MRMR-block comment explaining why forcing it here was rejected)
 clf_thresh  # feature_selection/filters/_fe_linear_explainability.py
 marginal_mi_a  # feature_selection/filters/_interaction_information.py
 marginal_mi_b

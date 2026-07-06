@@ -244,6 +244,11 @@ class BaselineReport(NamedTuple):
                     f" (mean_normalized_RMSE={xo['mean_normalized']:.4f})"
                 )
 
+        if str(default_level).upper() == "DEBUG" and self.table is not None and not self.table.empty:
+            lines.append(
+                f"[DUMMY_BASELINES] target='{self.target_name}' full table:\n{self.table.to_string()}"
+            )
+
         return "\n".join(lines)
 
 
