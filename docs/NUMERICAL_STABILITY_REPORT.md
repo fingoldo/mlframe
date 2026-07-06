@@ -6,7 +6,7 @@
 and numerical precision issues. Companion to the recent multi-output
 landing's Welford ensembling refactor.
 
-> Note: the numba moment kernels referenced as `numerical.py:NNN` below have since moved into the sibling `mlframe/feature_engineering/_numerical_numba.py` (re-exported from `numerical.py`). Current homes: `compute_numerical_aggregates_numba` at `_numerical_numba.py:~449`, `compute_moments_slope_mi` at `_numerical_numba.py:~596` (including the weighted-moments bug-fix site). `compute_simple_stats_numba` remains in `numerical.py`.
+> Note: the numba moment kernels referenced as `numerical.py:NNN` below have since moved into the sibling `mlframe/feature_engineering/_numerical_numba.py` (re-exported from `numerical.py`). Current homes: `compute_numerical_aggregates_numba` at `_numerical_numba.py:~48`, `compute_moments_slope_mi` at `_numerical_numba.py:~770` (including the weighted-moments bug-fix site, now at `_numerical_numba.py:~646-657`). `compute_simple_stats_numba` remains in `numerical.py:~277`.
 
 ## TL;DR
 
@@ -221,4 +221,4 @@ For features called per-row on large arrays, default to **Welford**
 
 - `mlframe/feature_engineering/_numerical_stable.py` — new reference impls
 - `tests/feature_engineering/test_numerical_stability_bench.py` — runnable benchmarks
-- `mlframe/feature_engineering/numerical.py:738-749` — bug fix
+- `mlframe/feature_engineering/_numerical_numba.py:646-657` — bug fix (moved from the original `numerical.py:738-749` location)
