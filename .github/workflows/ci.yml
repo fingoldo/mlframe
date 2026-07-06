@@ -238,6 +238,34 @@ jobs:
           name: bandit-report
           path: bandit-report.json
 
+      # Blocking: mirrors the pre-commit actionlint hook so a workflow-file bug
+      # (bad expression, duplicate key, unknown runner label, shell-syntax error
+      # in a run: block) can't reach master even via --no-verify. Custom
+      # self-hosted runner labels are allow-listed in .github/actionlint.yaml.
+      - name: Actionlint (workflow files)
+        run: uvx --from actionlint-py actionlint
+
+      # Advisory: dead-code scan. Real false-positive rate on dynamic-dispatch
+      # code (lazy-import proxies, pydantic fields, pytest fixtures) makes this
+      # unsuitable as a blocking gate; mirrors the bandit step's posture.
+      - name: Vulture dead-code scan
+        run: uvx vulture src/mlframe --min-confidence 80
+        continue-on-error: true
+
+      # Advisory: known-vulnerability scan against installed dependency versions
+      # (bandit only checks code PATTERNS, not whether a pinned dependency has a
+      # published CVE -- a different and complementary risk class).
+      - name: pip-audit dependency vulnerability scan
+        run: uvx pip-audit --desc -f json -o pip-audit-report.json || true
+        continue-on-error: true
+
+      - name: Upload pip-audit results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pip-audit-report
+          path: pip-audit-report.json
+
   build:
     name: build sdist + wheel + install smoke
     runs-on: ubuntu-latest

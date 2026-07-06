@@ -1,0 +1,5 @@
+self-hosted-runner:
+  # gpu-matrix.yml targets a self-hosted GPU box registered with this custom label
+  # (see that workflow's header comment for the one-time runner setup steps).
+  labels:
+    - gpu

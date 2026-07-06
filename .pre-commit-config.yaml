@@ -25,6 +25,29 @@ repos:
         args: ['--baseline', '.secrets.baseline']
         exclude: '\.secrets\.baseline$'
 
+  # Actionlint: lints .github/workflows/*.yml for syntax AND semantic bugs
+  # (undefined contexts, bad expressions, unknown runner labels, duplicate keys,
+  # shell-syntax errors in `run:` blocks via its bundled shellcheck integration).
+  # Added 2026-07-06 after a duplicate `continue-on-error:` key silently broke
+  # every mlframe CI run for days (advisory-only masking meant nothing caught it
+  # locally). Custom self-hosted runner labels are allow-listed in
+  # .github/actionlint.yaml.
+  - repo: https://github.com/Mateusz-Grzelinski/actionlint-py
+    rev: v1.7.12.24
+    hooks:
+      - id: actionlint
+
+  # Shellcheck: lints standalone .sh scripts (actionlint above covers embedded
+  # `run:` blocks via its own shellcheck integration, since shellcheck-py's
+  # binary is on PATH in this repo's dev environment). Added alongside actionlint
+  # after shellcheck caught a real bug: scripts/run_numba_coverage.sh had CRLF
+  # line endings (SC1017), which breaks its shebang on Linux -- no .gitattributes
+  # existed to force LF on .sh files. Fixed both.
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+
   # Ruff: lint (and lint-fix) pass mirroring CI [tool.ruff] config.
   # The repo's ruff config (line-length=160, select=E/W/F/I/N/UP/B, with the
   # documented ignore list) already lives in pyproject.toml -- the hook
@@ -129,6 +152,19 @@ repos:
       - id: bandit-warn
         name: "bandit security scan (warn-only)"
         entry: python scripts/bandit_warn.py
+        language: system
+        types: [python]
+        files: '^src/mlframe/'
+        verbose: true
+        stages: [pre-commit]
+
+  # Warn-only dead-code gate: vulture --min-confidence 80, mirroring the advisory
+  # CI step (continue-on-error). See scripts/vulture_warn.py.
+  - repo: local
+    hooks:
+      - id: vulture-warn
+        name: "vulture dead-code scan (warn-only)"
+        entry: python scripts/vulture_warn.py
         language: system
         types: [python]
         files: '^src/mlframe/'
