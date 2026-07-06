@@ -90,6 +90,8 @@ def plot_confusion_matrix(
     cmap: str = HEATMAP_CMAP,
     colorbar: bool = True,
     values_format: Optional[str] = None,
+    include_values: bool = True,
+    xticks_rotation: str = "horizontal",
     title: Optional[str] = None,
     xlabel: str = "Predicted label",
     ylabel: str = "True label",
@@ -116,6 +118,11 @@ def plot_confusion_matrix(
         Draw the colorbar (default True).
     values_format : str, optional
         Format spec for cell text; defaults to ``'d'`` for raw counts and ``'.2f'`` when normalised.
+    include_values : bool
+        Draw the per-cell numeric annotations (default True). Set False for a large K where the text
+        would be unreadable anyway -- see also the ``_CELL_TEXT_MAX`` auto-suppression above.
+    xticks_rotation : {'horizontal', 'vertical'} or float
+        Rotation of the x-axis tick labels, matching sklearn's ``ConfusionMatrixDisplay.plot`` kwarg.
     title, xlabel, ylabel : str
         Axis / figure text.
 
@@ -150,8 +157,15 @@ def plot_confusion_matrix(
     cm = matplotlib.colormaps[cmap]
     im = ax.imshow(display, cmap=cm, aspect="auto")
 
+    if xticks_rotation == "vertical":
+        _rotation, _ha = 90, "center"
+    elif xticks_rotation == "horizontal":
+        _rotation, _ha = 0, "center"
+    else:
+        _rotation, _ha = xticks_rotation, "right"
+
     ax.set_xticks(range(K))
-    ax.set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=8)
+    ax.set_xticklabels(tick_labels, rotation=_rotation, ha=_ha, fontsize=8)
     ax.set_yticks(range(K))
     ax.set_yticklabels(tick_labels, fontsize=8)
     ax.set_xlabel(xlabel)
@@ -162,7 +176,7 @@ def plot_confusion_matrix(
     # Per-cell annotations: colour each label for contrast against its own cell (auto_text_color), suppressed past
     # the readability ceiling. Raw counts print as ints even when the display matrix is normalised, matching sklearn's
     # ConfusionMatrixDisplay which annotates the (normalised) displayed value.
-    if K and display.size <= _CELL_TEXT_MAX:
+    if include_values and K and display.size <= _CELL_TEXT_MAX:
         finite = display[np.isfinite(display)]
         if finite.size:
             vmin, vmax = float(finite.min()), float(finite.max())

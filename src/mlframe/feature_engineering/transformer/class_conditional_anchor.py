@@ -76,8 +76,6 @@ def _compute_class_anchor_features(
     X_query_std: np.ndarray,
     anchors_pos: np.ndarray,
     anchors_neg: np.ndarray,
-    y_train_pos_count_per_anchor: np.ndarray,
-    y_train_neg_count_per_anchor: np.ndarray,
     softmax_temp: float,
 ) -> dict[str, np.ndarray]:
     """Compute features per query row given class-conditional anchors."""
@@ -158,8 +156,6 @@ def compute_class_conditional_anchor_attention(
         anchors_neg = _fit_kmeans(Xt_std[neg_mask], n_anchors=n_anch_neg, seed=seed + 1)
         feats = _compute_class_anchor_features(
             Xq_std, anchors_pos=anchors_pos, anchors_neg=anchors_neg,
-            y_train_pos_count_per_anchor=np.full(n_anch_pos, n_pos / n_anch_pos),
-            y_train_neg_count_per_anchor=np.full(n_anch_neg, n_neg / n_anch_neg),
             softmax_temp=softmax_temp,
         )
         cols: dict[str, np.ndarray] = {}
@@ -206,8 +202,6 @@ def compute_class_conditional_anchor_attention(
         anchors_neg = _fit_kmeans(X_tr_s[neg_mask], n_anchors=n_anch_neg, seed=int(seed) + fold_idx + 1)
         feats = _compute_class_anchor_features(
             X_va_s, anchors_pos=anchors_pos, anchors_neg=anchors_neg,
-            y_train_pos_count_per_anchor=np.ones(n_anch_pos),
-            y_train_neg_count_per_anchor=np.ones(n_anch_neg),
             softmax_temp=softmax_temp,
         )
         out_pos[val_idx] = feats["sim_pos"].astype(dtype, copy=False)

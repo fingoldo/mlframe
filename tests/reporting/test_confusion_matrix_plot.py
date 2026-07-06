@@ -114,3 +114,31 @@ def test_matrix_equivalence_string_labels_vs_sklearn():
     yp = np.array(["a", "a", "c", "b", "b", "c", "a"])
     mat, _ = confusion_matrix_counts(yt, yp)
     assert np.array_equal(mat, sk.confusion_matrix(yt, yp))
+
+
+# ---------------------------------------------------------------------------
+# include_values / xticks_rotation -- previously accepted by evaluate_estimators
+# as cfm_include_values/cfm_xticks_rotation but never wired through to this
+# plotter, so they silently did nothing.
+# ---------------------------------------------------------------------------
+
+
+def test_include_values_false_omits_cell_text():
+    yt = np.array([0, 0, 1, 1])
+    yp = np.array([0, 1, 1, 1])
+    fig, ax = plot_confusion_matrix(yt, yp, include_values=False)
+    assert len(ax.texts) == 0
+    fig2, ax2 = plot_confusion_matrix(yt, yp, include_values=True)
+    assert len(ax2.texts) > 0
+
+
+@pytest.mark.parametrize(
+    "rotation,expected_degrees",
+    [("horizontal", 0), ("vertical", 90), (30, 30)],
+)
+def test_xticks_rotation_applied(rotation, expected_degrees):
+    yt = np.array([0, 0, 1, 1])
+    yp = np.array([0, 1, 1, 1])
+    fig, ax = plot_confusion_matrix(yt, yp, xticks_rotation=rotation)
+    for label in ax.get_xticklabels():
+        assert label.get_rotation() == expected_degrees

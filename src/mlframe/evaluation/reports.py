@@ -355,6 +355,8 @@ def evaluate_estimators(
                             ax=cfm_ax,
                             values_format=cfm_values_format,
                             colorbar=cfm_colorbar,
+                            include_values=cfm_include_values,
+                            xticks_rotation=cfm_xticks_rotation,
                         )
 
                         ax_cm.grid(visible=None)

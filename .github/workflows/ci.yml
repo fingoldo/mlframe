@@ -249,7 +249,7 @@ jobs:
       # code (lazy-import proxies, pydantic fields, pytest fixtures) makes this
       # unsuitable as a blocking gate; mirrors the bandit step's posture.
       - name: Vulture dead-code scan
-        run: uvx vulture src/mlframe --min-confidence 80
+        run: uvx vulture src/mlframe scripts/vulture_whitelist.py --min-confidence 80
         continue-on-error: true
 
       # Advisory: known-vulnerability scan against installed dependency versions
