@@ -415,6 +415,8 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 text_features,
                 embedding_features,
                 train_df=_cache_key_train_df,
+                target_name=cur_target_name,
+                train_target=current_train_target,
             )
 
             # Polars fastpath substitutes original Polars DataFrames for natively-Polars consumers
