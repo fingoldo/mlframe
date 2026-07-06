@@ -151,8 +151,8 @@ from mlframe.training.composite import (
     detect_time_column_candidates, sort_df_by_time_column,
 )
 
-tcols = detect_time_column_candidates(X.assign(target=y))   # ranked time-col guesses
-df_sorted = sort_df_by_time_column(X.assign(target=y), tcols[0]) if tcols else X.assign(target=y)
+tcols = detect_time_column_candidates(X.assign(target=y))   # ranked (name, info) time-col guesses
+df_sorted = sort_df_by_time_column(X.assign(target=y), tcols[0][0]) if tcols else X.assign(target=y)
 disc.fit(
     df=df_sorted, target_col="target", feature_cols=["lag", "f1", "f2"],
     train_idx=train_idx, val_idx=val_idx,
@@ -171,14 +171,14 @@ estimator when the predict batch continues the training series.
 
 `list_transforms()` returns the full registry; `get_transform(name)` returns the
 frozen `Transform` (forward / inverse / fit / domain_check + `requires_base` /
-`requires_groups` / `recurrent` flags + the provenance formula).
+`requires_groups` / `recurrent` flags + a `description` string).
 
 ```python
 from mlframe.training.composite import list_transforms, get_transform
 
 print(sorted(list_transforms()))
 t = get_transform("linear_residual")
-print(t.requires_base, t.formula)    # provenance formula string
+print(t.requires_base, t.description)    # provenance formula string
 ```
 
 Families (non-exhaustive):
@@ -229,11 +229,39 @@ set.
 ### CQR — adaptive width (heteroscedastic)
 
 Conformalized Quantile Regression widens / narrows the band per row using the
-wrapper's quantile predictions:
+wrapper's quantile predictions. This requires an inner that exposes
+`predict_quantile(X, alpha)` (CatBoost `MultiQuantile`, LightGBM
+`quantile_alpha`, sklearn `QuantileRegressor`, or any custom quantile-capable
+wrapper) — a plain point-regressor inner such as `HistGradientBoostingRegressor`
+does not qualify and raises `NotImplementedError`:
 
 ```python
-est.calibrate_conformal_cqr(X.iloc[val_idx], y[val_idx], alpha=0.1)
-lo, hi = est.predict_interval_cqr(X, alpha=0.1)
+from scipy.stats import norm
+from sklearn.base import BaseEstimator, RegressorMixin
+
+class QuantileInner(BaseEstimator, RegressorMixin):
+    """Toy quantile-capable inner exposing predict_quantile(X, alpha)."""
+
+    def fit(self, X, y):
+        self.mu_ = HistGradientBoostingRegressor(max_iter=100).fit(X, y)
+        self.resid_std_ = np.std(y - self.mu_.predict(X))
+        return self
+
+    def predict(self, X):
+        return self.mu_.predict(X)
+
+    def predict_quantile(self, X, alpha):
+        mu = self.mu_.predict(X)
+        al = np.atleast_1d(alpha)
+        cols = [mu + self.resid_std_ * norm.ppf(a) for a in al]
+        return np.column_stack(cols) if np.size(al) > 1 else cols[0]
+
+est_q = CompositeTargetEstimator(
+    base_estimator=QuantileInner(), transform_name="diff", base_column="lag",
+)
+est_q.fit(X.iloc[train_idx], y[train_idx])
+est_q.calibrate_conformal_cqr(X.iloc[val_idx], y[val_idx], alpha=0.1)
+lo, hi = est_q.predict_interval_cqr(X, alpha=0.1)
 ```
 
 ### Mondrian — group-conditional
@@ -250,8 +278,11 @@ lo, hi = est.predict_interval_mondrian(X, groups_all, alpha=0.1)
 
 ### `predict_quantile`
 
+Also requires a `predict_quantile`-capable inner (e.g. `est_q` from the CQR
+example above — a plain-regressor `est` raises the same `NotImplementedError`):
+
 ```python
-q = est.predict_quantile(X, alpha=[0.1, 0.5, 0.9])   # (n, 3) y-scale quantiles
+q = est_q.predict_quantile(X, alpha=[0.1, 0.5, 0.9])   # (n, 3) y-scale quantiles
 ```
 
 ### `CompositeQuantileEstimator` — native pinball heads
@@ -285,7 +316,7 @@ from mlframe.training.composite import CompositeQRFEstimator
 
 qrf = CompositeQRFEstimator(transform_name="linear_residual", base_column="lag", n_estimators=200)
 qrf.fit(X, y)
-q = qrf.predict_quantile(X, alpha=[0.1, 0.5, 0.9])   # (n, 3) y-scale quantiles, all from one fit
+q = qrf.predict_quantile(X, quantiles=[0.1, 0.5, 0.9])   # (n, 3) y-scale quantiles, all from one fit
 ```
 
 ---
@@ -296,14 +327,18 @@ Models a base-margin (log-odds) residual: a base classifier supplies a margin,
 the inner learns the correction, and `predict_proba` recombines. Binary and
 multiclass; includes a `calibration_report`.
 
+The inner must expose a raw-margin hook (LightGBM `init_score=`, XGBoost
+`base_margin=`, CatBoost `baseline=`) — a plain sklearn classifier such as
+`HistGradientBoostingClassifier` has no such hook and raises `NotImplementedError`:
+
 ```python
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import HistGradientBoostingClassifier
+from lightgbm import LGBMClassifier
 from mlframe.training.composite import CompositeClassificationEstimator
 
 yc = (y > np.median(y)).astype(int)
 clf = CompositeClassificationEstimator(
-    base_estimator=HistGradientBoostingClassifier(),
+    base_estimator=LGBMClassifier(n_estimators=100, verbose=-1),
     base_margin_estimator=LogisticRegression(max_iter=500),
 )
 clf.fit(X, yc)
@@ -322,13 +357,17 @@ For multiclass the base margin is `(n, K)` (softmax is shift-invariant, so
 Log-link Poisson / Gamma / Tweedie residual over a positive base mean — counts,
 durations, insurance-style targets.
 
+The inner also needs a per-row offset hook (same LightGBM/XGBoost/CatBoost
+family as classification above) — `HistGradientBoostingRegressor` raises
+`NotImplementedError` here too:
+
 ```python
-from sklearn.ensemble import HistGradientBoostingRegressor
+from lightgbm import LGBMRegressor
 from mlframe.training.composite import CompositeGLMEstimator
 
 ycount = np.random.default_rng(1).poisson(np.exp(0.5 * X["lag"].to_numpy()))
 glm = CompositeGLMEstimator(
-    base_estimator=HistGradientBoostingRegressor(),
+    base_estimator=LGBMRegressor(n_estimators=100, verbose=-1),
     family="poisson",            # "poisson" | "gamma" | "tweedie"
     tweedie_power=1.5,
 )
@@ -370,7 +409,9 @@ preds = mo.predict(X)            # (n, 2)
 ## 8. sklearn `Pipeline` / `TransformedTargetRegressor` integration
 
 `make_composite_regressor` is a thin factory returning a ready estimator usable
-as a `Pipeline` final step or a grid-search `estimator`:
+as a `Pipeline` final step or a grid-search `estimator`. Since the wrapper needs
+`base_column` by name, upstream `Pipeline` steps must keep emitting a DataFrame
+(`.set_output(transform="pandas")`), not a raw ndarray:
 
 ```python
 from sklearn.pipeline import Pipeline
@@ -383,7 +424,7 @@ pipe = Pipeline([
         HistGradientBoostingRegressor(), transform_name="diff", base_column="lag",
         monotone_constraints=None,
     )),
-])
+]).set_output(transform="pandas")
 pipe.fit(X, y)
 pipe.predict(X)
 ```
@@ -417,31 +458,46 @@ import — no hard matplotlib dependency at import time):
 ```python
 from mlframe.training.composite import diagnostics
 
-diagnostics.plot_target_distribution(y)
-diagnostics.plot_qq(y)
-diagnostics.plot_linear_fit(X["lag"].to_numpy(), y)
-diagnostics.plot_predictions_vs_actual(y, est.predict(X))
-diagnostics.plot_reliability_diagram(yc, clf.predict_proba(X)[:, 1])
+t = y - X["lag"].to_numpy()          # the fitted T-scale target for "diff"
+diagnostics.plot_target_distribution(y, t)
+diagnostics.plot_qq(t)
+diagnostics.plot_linear_fit(y, X["lag"].to_numpy())
+diagnostics.plot_predictions_vs_actual(y, {"diff": est.predict(X)})   # {spec_name: y_hat}
+diagnostics.plot_reliability_diagram(yc, clf.predict_proba(X))        # full (n, 2) proba
 diagnostics.plot_interval_coverage(y, lo, hi)
 diagnostics.plot_interval_width_vs_x(X["lag"].to_numpy(), lo, hi)
-diagnostics.plot_mi_gain_with_ci(rows)            # discovery audit rows
-diagnostics.plot_alpha_stability(disc)
+diagnostics.plot_mi_gain_with_jitter(rows)        # discovery audit rows (jitter error bars, not a CI)
+
+# alpha stability needs a sequence of per-window fitted alphas, e.g. from rolling OLS:
+window_size = n // 5
+alpha_per_window = [
+    np.polyfit(X["lag"].to_numpy()[i * window_size:(i + 1) * window_size],
+               y[i * window_size:(i + 1) * window_size], 1)[0]
+    for i in range(5)
+]
+diagnostics.plot_alpha_stability(alpha_per_window)
 ```
 
 ---
 
 ## 10. Monotonic constraints
 
-Pass a per-feature `±1 / 0` vector; it is forwarded to the inner GBDT and
-enforced on the **T (residual) scale**. For additive-residual transforms the
-inverse adds a base-only term back, so monotonicity in T carries through to y at
-fixed base. The vector length must match the **post-drop feature count** (columns
-the inner trains on, i.e. wrapper columns minus any plumbing column dropped before
-fit).
+Pass a per-feature `±1 / 0` vector; it is forwarded to the inner GBDT's own
+monotonicity parameter and enforced on the **T (residual) scale**. For
+additive-residual transforms the inverse adds a base-only term back, so
+monotonicity in T carries through to y at fixed base. The vector length must
+match the **post-drop feature count** (columns the inner trains on, i.e.
+wrapper columns minus any plumbing column dropped before fit). The inner must
+accept a `monotone_constraints=` (LightGBM) or `monotonic_cst=` (XGBoost /
+sklearn `HistGradientBoostingRegressor`, named differently) parameter of that
+exact name — LightGBM is the natural fit here since `monotone_constraints` is
+its literal kwarg name:
 
 ```python
+from lightgbm import LGBMRegressor
+
 est_mono = CompositeTargetEstimator(
-    base_estimator=HistGradientBoostingRegressor(),
+    base_estimator=LGBMRegressor(n_estimators=100, verbose=-1),
     transform_name="diff", base_column="lag",
     monotone_constraints=[+1, 0, 0],      # f-order: lag (+), f1, f2
 )
@@ -697,8 +753,8 @@ st = CompositeOrRawStacker(base_estimator=..., transform_name="diff",
 st.fit(X, y); st.predict(X)
 ```
 
-> `CompositeQRFEstimator` is referenced in the roadmap but is **not** present in
-> the current source tree; it is intentionally omitted here until it lands.
+> `CompositeQRFEstimator` (single-fit quantile-regression forest) is covered in
+> §4 above.
 
 ## B. Uncertainty menu
 
@@ -933,7 +989,9 @@ input or residual drift.
 ```python
 from mlframe.training.composite import CompositeDriftMonitor
 mon = CompositeDriftMonitor(est, base_psi_threshold=0.25)
-report = mon.check(X_new, y_new)            # alerts + recommend_update flag
+# a clean reference batch is required the first time (the estimator itself
+# carries no stored sketch unless one was already attached at fit time)
+report = mon.monitor(X_new, y_new, reference=X_ref, y_reference=y_ref)  # alerts + recommend_update flag
 ```
 
 ### `detect_base_target_leakage` — base-is-y guard
@@ -946,7 +1004,7 @@ temporal data before trusting its MI gain.
 ```python
 from mlframe.training.composite import detect_base_target_leakage
 verdict = detect_base_target_leakage(y, base, time_ordering=ts)
-verdict["leaking"]                          # bool + the probe details
+verdict["is_leaky"]                          # bool + the probe details (score, reason)
 ```
 
 ### `PurgedTimeSeriesSplit` / `make_purged_cv` — leakage-safe CV
@@ -973,7 +1031,7 @@ shipping the full Python estimator.
 from mlframe.training.composite import export_serving_spec, load_serving_spec
 spec = export_serving_spec(est)             # json.dumps-able
 predict = load_serving_spec(spec, inner_predict=my_inner_raw_predict)
-y_hat = predict(X)
+y_hat = predict(base, X)   # base = the base column ndarray; X routed through inner_predict
 ```
 
 ### `compare_models` / `should_promote` — champion-challenger governance
