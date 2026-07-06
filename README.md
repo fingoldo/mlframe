@@ -414,6 +414,17 @@ models from an inference folder (with optional `trusted_root` path-traversal gua
 SHA-256 sidecar verification), returning `(models, X)` aligned to the required feature
 order; `get_models_raw_predictions` then evaluates each loaded model on `X`.
 
+> **What's a "sidecar"?** A tiny companion file (`<model file>.sha256`) sitting right next to a saved
+> model, holding the SHA-256 hash of that model file's bytes. Before loading a pickled model,
+> `mlframe.utils.safe_pickle.safe_load` recomputes the hash of the file on disk and compares it against
+> the sidecar — if they don't match (or the sidecar is missing), the load is refused instead of silently
+> unpickling a corrupted or unexpectedly-swapped file. Loading arbitrary pickles executes arbitrary code,
+> so this catches accidental corruption (truncated copy, crashed mid-write, wrong file dropped in the
+> folder) before it turns into a confusing runtime error or a bad prediction. **It is not a defense
+> against a malicious attacker**: anyone who can write to the model folder can rewrite the model file
+> *and* its sidecar together, and the check will pass. Use `write_sidecar(path)` any time you save a new
+> model file so `read_trained_models` / `safe_load` can verify it later.
+
 ```python
 import os, json, joblib
 import numpy as np, pandas as pd

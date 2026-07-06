@@ -14,6 +14,7 @@ deeper material in the docs root.
 | [`honest_diagnostics_guide.md`](honest_diagnostics_guide.md) | The honest-diagnostics aggregator: holdout-only verdicts, dummy-floor delta, calibration ECE, DeLong significance |
 | [`feature_handling_examples.md`](feature_handling_examples.md) | `FeatureHandlingConfig` cookbook — text / categorical / per-model handling recipes wired via `feature_handling_config=` |
 | [`composite_targets_tutorial.ipynb`](composite_targets_tutorial.ipynb) | End-to-end TVT walkthrough notebook for composite-target discovery |
+| [`sidecar_verification_guide.md`](sidecar_verification_guide.md) | What a sha256 "sidecar" file is, why saved models are loaded through one, and what it does/doesn't protect against |
 | [`MULTI_OUTPUT.md`](MULTI_OUTPUT.md) | Multilabel / multiclass classification design notes |
 | [`MULTI_TARGET_REGRESSION.md`](MULTI_TARGET_REGRESSION.md) | Multi-target (K-column) regression support matrix and integration roadmap |
 | [`SELECTION_BIAS.md`](SELECTION_BIAS.md) | PU-learning and drift-correction wrappers for biased-sampling problems |

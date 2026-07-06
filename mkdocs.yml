@@ -76,6 +76,7 @@ nav:
       - Composite targets guide: composite_targets_guide.md
       - Composite config reference: composite_config_reference.md
       - Composite targets tutorial: composite_targets_tutorial.ipynb
+      - Sidecar-verified pickle loading: sidecar_verification_guide.md
   - Topics:
       - Multi-output classification: MULTI_OUTPUT.md
       - Multi-target regression: MULTI_TARGET_REGRESSION.md
