@@ -231,20 +231,23 @@ def detect_group_column_candidates(
     for col in candidate_columns:
         try:
             arr = get_col(col)
+            # Skip all-null columns.
+            mask_finite = pd.notna(arr) if hasattr(arr, "__iter__") else None
+            if mask_finite is not None and not np.any(mask_finite):
+                continue
+            uniq, counts = np.unique(arr[mask_finite] if mask_finite is not None else arr, return_counts=True)
         except Exception as _e:
             # Same shape as detect_time_column_candidates above: silent skip
             # blinds operators to "why didn't group_col pick this?"; DEBUG
             # log keeps the trail without WARN-spamming on normal scans.
+            # Also catches ``np.unique`` raising on object columns whose values
+            # are themselves unhashable (e.g. embedding vectors stored as one
+            # ndarray per row) -- those are not valid group keys either way.
             import logging as _logging
             _logging.getLogger(__name__).debug(
                 "detect_group_column_candidates: skipping col=%r: %s", col, _e,
             )
             continue
-        # Skip all-null columns.
-        mask_finite = pd.notna(arr) if hasattr(arr, "__iter__") else None
-        if mask_finite is not None and not np.any(mask_finite):
-            continue
-        uniq, counts = np.unique(arr[mask_finite] if mask_finite is not None else arr, return_counts=True)
         n_unique = int(uniq.size)
         if n_unique < min_unique or n_unique > max_unique:
             continue
@@ -429,19 +432,20 @@ def detect_cat_columns(
     for col in candidate_columns:
         try:
             arr = get_col(col)
+            # Strip nulls so they don't count as a separate "category".
+            mask_finite = pd.notna(arr) if hasattr(arr, "__iter__") else None
+            if mask_finite is not None and not np.any(mask_finite):
+                continue
+            arr_clean = arr[mask_finite] if mask_finite is not None else arr
+            uniq, counts = np.unique(arr_clean, return_counts=True)
         except Exception as _e:
+            # Also catches ``np.unique`` raising on object columns whose values are themselves unhashable
+            # (e.g. embedding vectors stored as one ndarray per row) -- those are not valid categories either way.
             import logging as _logging
             _logging.getLogger(__name__).debug(
                 "detect_cat_columns: skipping col=%r: %s", col, _e,
             )
             continue
-
-        # Strip nulls so they don't count as a separate "category".
-        mask_finite = pd.notna(arr) if hasattr(arr, "__iter__") else None
-        if mask_finite is not None and not np.any(mask_finite):
-            continue
-        arr_clean = arr[mask_finite] if mask_finite is not None else arr
-        uniq, counts = np.unique(arr_clean, return_counts=True)
         n_unique = int(uniq.size)
         if n_unique < min_unique or n_unique > max_unique:
             continue

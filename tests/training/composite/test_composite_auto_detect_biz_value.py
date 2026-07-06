@@ -356,3 +356,35 @@ def test_cat_detect_sweet_spot_peak_is_tunable():
     assert _cat_info_bonus(200, 200.0) > _cat_info_bonus(20, 200.0)
     # ...but with the default low peak the 20-level column wins.
     assert _cat_info_bonus(20, 40.0) > _cat_info_bonus(200, 40.0)
+
+
+# ----------------------------------------------------------------------------
+# Regression: an object column holding one ndarray per row (embeddings) must
+# be SKIPPED, not crash the whole scan (fuzz c0050/c0058/c0114).
+# ----------------------------------------------------------------------------
+
+
+def _df_with_embedding_column(n: int = 200) -> pd.DataFrame:
+    rng = np.random.default_rng(0)
+    return pd.DataFrame({
+        "cat_0": rng.integers(0, 5, size=n),
+        "num_0": rng.normal(size=n),
+        "emb_0": [rng.normal(size=8) for _ in range(n)],
+    })
+
+
+def test_group_detect_skips_unhashable_embedding_column_instead_of_raising():
+    """``detect_group_column_candidates`` scans every non-numeric column as a group-key
+    candidate; an embedding column (object dtype, one ndarray per row) is not numeric so it
+    used to reach ``np.unique`` and raise ``TypeError: unhashable type: 'numpy.ndarray'``,
+    aborting the whole scan instead of just excluding that one column."""
+    df = _df_with_embedding_column()
+    out = detect_group_column_candidates(df)
+    assert all(name != "emb_0" for name, _ in out)
+
+
+def test_cat_detect_skips_unhashable_embedding_column_instead_of_raising():
+    """Same failure mode as above for ``detect_cat_columns`` (its symmetric sibling)."""
+    df = _df_with_embedding_column()
+    out = detect_cat_columns(df, max_unique=1000)
+    assert all(name != "emb_0" for name, _ in out)
