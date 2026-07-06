@@ -45,7 +45,7 @@ from typing import Any, Optional
 import numpy as np
 from numba import njit, prange
 
-from ._entropy_kernels import conditional_mi, entropy
+from ._entropy_kernels import conditional_mi, entropy, _entropy_xz_fused, _entropy_x_onto_classes
 from ._class_encoding import merge_vars
 
 logger = logging.getLogger(__name__)
@@ -446,20 +446,23 @@ def _cmi_yz_fixed_terms(factors_data, y, z, factors_nbins, dtype):
 
 @njit(cache=True)
 def _cmi_one_fixed_yz(factors_data, xi, zi, classes_yz, nclasses_yz, ent_yz, ent_z, factors_nbins, dtype):
-    """I(X_i; Y | Z) reusing the fixed (Y,Z)/Z terms: only the X-dependent (X,Z) and (X-on-YZ) melts run. The
-    (X,Y,Z) melt writes into a PRIVATE copy of ``classes_yz`` so the shared array is never mutated (prange-safe)."""
+    """I(X_i; Y | Z) reusing the fixed (Y,Z)/Z terms: only the X-dependent (X,Z) and (X-on-YZ) melts run.
+
+    Both melts use the freqs-ONLY pruned kernels ``conditional_mi`` itself already uses -- ``_entropy_xz_fused``
+    (single-pass ``joint_freqs_2var`` for the 2-var X u Z union) and ``_entropy_x_onto_classes`` (histograms X onto
+    the precomputed (Y,Z) labels ``classes_yz`` READ-ONLY, no length-n scratch copy, no discarded relabel/remap).
+    Wasted-work audit (2026-07): the prior body called full ``merge_vars`` twice, each building + remapping a
+    length-n ``final_classes`` array (and a ``classes_yz.copy()``) that this path immediately discards -- only the
+    joint freqs feed ``entropy``. Bit-identical BY CONSTRUCTION (same kernels as ``conditional_mi``, maxabsdiff
+    EXACTLY 0.0), measured 1.33-1.65x at the wellbore redundancy shape (n=30k, p=100..2000, nbins 10-16, |Z|=1).
+    Bench: ``_benchmarks/bench_cmi_pruned_melts.py``. ``classes_yz`` is never mutated -> prange-safe with no copy."""
     xz = np.empty(2, dtype=np.int64)
     if xi <= zi:
         xz[0] = xi; xz[1] = zi
     else:
         xz[0] = zi; xz[1] = xi
-    _, freqs_xz, _ = merge_vars(factors_data, xz, None, factors_nbins, dtype=dtype)
-    ent_xz = entropy(freqs_xz)
-    scratch = classes_yz.copy()
-    xarr = np.empty(1, dtype=np.int64)
-    xarr[0] = xi
-    _, freqs_xyz, _ = merge_vars(factors_data, xarr, None, factors_nbins, current_nclasses=nclasses_yz, final_classes=scratch, dtype=dtype)
-    ent_xyz = entropy(freqs_xyz)
+    ent_xz = _entropy_xz_fused(factors_data, xz, factors_nbins, dtype)
+    ent_xyz = _entropy_x_onto_classes(factors_data, xi, classes_yz, nclasses_yz, factors_nbins[xi])
     r = ent_xz + ent_yz - ent_z - ent_xyz
     return r if r > 0.0 else 0.0
 
