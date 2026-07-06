@@ -594,6 +594,23 @@ def _append_engineered(self, base_out, X, recipes):
     else:
         # ndarray / polars path: best-effort single pass (recipes that reference
         # engineered intermediates aren't expressible without a name-indexed frame).
+        # Validate each recipe's raw source columns against the input BEFORE replay --
+        # mirroring the base-feature guard above (support_/selected_cols missing check).
+        # Without this, a recipe referencing a column that upstream dropped between fit
+        # and transform (constant-col removal / imputer drop / OD filter narrowing the
+        # frame) surfaces as a raw, unhelpful ``ColumnNotFoundError``/``KeyError`` deep
+        # inside ``apply_recipe`` instead of the actionable diagnostic used elsewhere.
+        _x_cols = set(getattr(_X_for_recipes, "columns", ()) or ())
+        for r in recipes:
+            _r_missing = [s for s in (getattr(r, "src_names", ()) or ()) if s not in _x_cols]
+            if _r_missing:
+                raise RuntimeError(
+                    f"MRMR.transform: engineered recipe {r.name!r} references source "
+                    f"column(s) {_r_missing} missing from input X. The fitted recipe no "
+                    f"longer matches the input's physical columns; an upstream step "
+                    f"(constant-col removal / imputer drop / OD filter) is mutating the "
+                    f"column set BETWEEN fit and transform. Investigate."
+                )
         engineered_cols = [apply_recipe(r, _X_for_recipes) for r in recipes]
     if isinstance(base_out, pd.DataFrame):
         # ``copy=False`` would risk mutating caller's view (base_out is a view into pandas X). Build a narrow
