@@ -103,8 +103,15 @@ diagnostics, and the reporting spec. The features and targets are pulled from th
 frame by a caller-supplied extractor (see `SimpleFeaturesAndTargetsExtractor`).
 
 ```python
+import numpy as np
+import pandas as pd
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
+
+rng = np.random.default_rng(0)
+df = pd.DataFrame({"x1": rng.normal(size=500), "x2": rng.normal(size=500), "x3": rng.integers(0, 5, size=500)})
+df["y"] = df["x1"] * 2 - df["x2"] + rng.normal(scale=0.1, size=500)
+X_new = df[["x1", "x2", "x3"]].iloc[:5]
 
 fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
 
@@ -113,11 +120,12 @@ models, metadata = train_mlframe_models_suite(
     target_name="y",
     model_name="exp_quickstart",
     features_and_targets_extractor=fte,
-    mlframe_models=["cb", "lgb", "xgb", "hgb", "mlp"],
+    mlframe_models=["lgb"],
 )
 
-# `models` is keyed by target-type, then model name; each entry exposes the fitted model.
-entry = models["regression"]["lgb"][0]
+# `models` is keyed by target-type, then target name; the value is a list with one
+# entry per requested model (plus ensembles, if enabled), each exposing the fitted model.
+entry = models["regression"]["y"][0]
 y_pred = entry.model.predict(X_new)
 
 # Diagnostics live in `metadata` (per target-type, per target).
@@ -133,8 +141,16 @@ estimator, delegates `feature_importances_` / `get_booster()` / other attributes
 transparently, and pins cross-version behaviour in CI.
 
 ```python
+import numpy as np
+import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from mlframe.training.composite import CompositeTargetEstimator
+
+rng = np.random.default_rng(0)
+y_prev = rng.normal(size=300)
+X_train = pd.DataFrame({"y_prev": y_prev, "x1": rng.normal(size=300)})
+y_train = y_prev + X_train["x1"] * 0.5 + rng.normal(scale=0.1, size=300)
+X_new = X_train.iloc[:5]
 
 est = CompositeTargetEstimator(
     base_estimator=RandomForestRegressor(),
@@ -187,9 +203,16 @@ CatBoost feature importances correctly. Both are scikit-learn `fit` / `transform
 estimators; the selected columns land on the fitted estimator after `fit(X, y)`.
 
 ```python
+import numpy as np
+import pandas as pd
 from lightgbm import LGBMClassifier
 from mlframe.feature_selection.filters.mrmr import MRMR
 from mlframe.feature_selection.wrappers import RFECV
+
+# X, y are reused by every snippet below in this section.
+rng = np.random.default_rng(0)
+X = pd.DataFrame(rng.normal(size=(400, 8)), columns=[f"f{i}" for i in range(8)])
+y = (X["f0"] + X["f1"] * 0.5 + rng.normal(scale=0.2, size=400) > 0).astype(int)
 
 mrmr = MRMR(max_runtime_mins=1.0).fit(X, y)
 X_mrmr = mrmr.transform(X)
@@ -237,6 +260,7 @@ misses; it stays opt-in because the win does not generalise to additive-only bed
 before a full fit.
 
 ```python
+# reuses X, y from the MRMR / RFECV example above
 sel = ShapProxiedFS(classification=True, cluster_features=True, prefilter_top=2000,
                     interaction_aware=True, config_jitter=True, uncertainty_penalty=0.3)
 print(ShapProxiedFS.preflight(X, y, classification=True)["recommendation"])
@@ -251,6 +275,7 @@ graph is exposed on the fitted estimator and rendered through the reporting
 backends. Diagnostic by default; pruning is opt-in.
 
 ```python
+# reuses X, y from the MRMR / RFECV example above
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 sel = MRMR(build_friend_graph=True, friend_graph_prune=False).fit(X, y)
@@ -272,6 +297,7 @@ keeps the legacy path byte-identical. `MRMR.recommend_enabled_fe(X, y)` returns 
 same recommendation without running a fit.
 
 ```python
+# reuses X, y from the MRMR / RFECV example above
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 sel = MRMR(fe_auto=True).fit(X, y)
@@ -289,6 +315,7 @@ Modes: `"benchmark"` (sweep and record every combo), `"inference"` (recommend on
 `"hybrid"` (epsilon-greedy explore/exploit).
 
 ```python
+import time
 from mlframe.utils._param_oracle import ParamOracle
 
 oracle = ParamOracle(
@@ -301,8 +328,11 @@ oracle = ParamOracle(
 
 @oracle
 def my_kernel(X, variant="njit", block=128):
-    ...
-    return result
+    time.sleep(0.01)  # stand-in for the real kernel call
+    return variant, block
+
+for _ in range(5):
+    print(my_kernel(None))  # each call explores or exploits, recording elapsed_s
 ```
 
 **Time-series and financial feature engineering on Polars.** Windowed aggregation,
@@ -316,7 +346,12 @@ rows of one window into the caller-supplied `row_features` list (and, when
 lists in place and returns `None`.
 
 ```python
+import numpy as np
+import pandas as pd
 from mlframe.feature_engineering.timeseries import create_aggregated_features
+
+rng = np.random.default_rng(0)
+window_df = pd.DataFrame({"price": rng.normal(100, 5, size=20), "volume": rng.integers(100, 1000, size=20)})
 
 row_features: list = []
 features_names: list = []
@@ -330,6 +365,7 @@ create_aggregated_features(
     ratios_features=True,
     ewma_alphas=(0.1, 0.5),
 )
+print(len(row_features), features_names[:3])
 ```
 
 `create_ohlcv_wholemarket_features` builds cross-ticker market-wide aggregates
@@ -337,9 +373,22 @@ create_aggregated_features(
 Polars OHLCV frame:
 
 ```python
+import numpy as np
+import polars as pl
 from mlframe.feature_engineering.financial import create_ohlcv_wholemarket_features
 
-market = create_ohlcv_wholemarket_features(ohlcv, timestamp_column="date")
+rng = np.random.default_rng(0)
+dates = np.repeat(np.arange(np.datetime64("2024-01-01"), np.datetime64("2024-01-06")), 3)
+ohlcv = pl.DataFrame({
+    "date": dates,
+    "ticker": ["AAA", "BBB", "CCC"] * 5,
+    "close": rng.normal(100, 5, size=15),
+    "volume": rng.integers(1000, 5000, size=15),
+})
+
+# The default weighting_columns=("volume", "qty") requires both to be present; pass an
+# explicit subset when the frame only has a subset (most OHLCV feeds lack "qty").
+market = create_ohlcv_wholemarket_features(ohlcv, timestamp_column="date", weighting_columns=["volume"])
 ```
 
 **Post-hoc probability calibration.** Compare Venn-Abers, isotonic, Platt, beta, and
@@ -349,12 +398,17 @@ honest; the returned dict carries the chosen calibrator name, its fitted object,
 the per-candidate ECE scores.
 
 ```python
+import numpy as np
 from mlframe.calibration.policy import pick_best_calibrator
+
+rng = np.random.default_rng(0)
+oof_proba = np.clip(rng.normal(0.5, 0.25, size=400), 0.001, 0.999)
+y_val = (oof_proba + rng.normal(scale=0.15, size=400) > 0.5).astype(int)
 
 result = pick_best_calibrator(
     probs=None, y=None,                 # optional diagnostic-only held-out probs/labels
     oof_probs=oof_proba, oof_y=y_val,   # OOF probs/labels drive the selection
-    candidates=["isotonic", "platt", "beta", "venn_abers"],
+    candidates=["Sigmoid", "Isotonic", "Beta", "Spline"],
     n_bins=15,
 )
 print(result["chosen"], result["ece_mean"], result["alternatives"])
@@ -366,14 +420,35 @@ SHA-256 sidecar verification), returning `(models, X)` aligned to the required f
 order; `get_models_raw_predictions` then evaluates each loaded model on `X`.
 
 ```python
+import os
+import json
+import numpy as np
+import pandas as pd
+import joblib
+from sklearn.linear_model import LogisticRegression
+from mlframe.utils.safe_pickle import write_sidecar
 from mlframe.inference.predict import read_trained_models, get_models_raw_predictions
 
+# Build a minimal on-disk featureset (this is what a training run's OutputConfig
+# would populate for you): infer/<featureset>/<model>.dump(+.sha256) and features.dump.json.
+rng = np.random.default_rng(0)
+X = pd.DataFrame({"f0": rng.normal(size=200), "f1": rng.normal(size=200)})
+y = (X["f0"] + rng.normal(scale=0.2, size=200) > 0).astype(int)
+model = LogisticRegression().fit(X, y)
+
+os.makedirs("infer/my_featureset", exist_ok=True)
+joblib.dump(model, "infer/my_featureset/lgb.dump")
+write_sidecar("infer/my_featureset/lgb.dump")
+json.dump(["f0", "f1"], open("infer/my_featureset/features.dump.json", "w"))
+
+X_new = X.iloc[:5]
 models, X_aligned = read_trained_models(
     featureset="my_featureset",
     X=X_new,
     inference_folder="infer",
 )
 preds = get_models_raw_predictions(models, X_aligned, Y=None)
+print(preds)
 ```
 
 ## Visualization & Diagnostics
