@@ -103,8 +103,7 @@ diagnostics, and the reporting spec. The features and targets are pulled from th
 frame by a caller-supplied extractor (see `SimpleFeaturesAndTargetsExtractor`).
 
 ```python
-import numpy as np
-import pandas as pd
+import numpy as np, pandas as pd
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
@@ -141,8 +140,7 @@ estimator, delegates `feature_importances_` / `get_booster()` / other attributes
 transparently, and pins cross-version behaviour in CI.
 
 ```python
-import numpy as np
-import pandas as pd
+import numpy as np, pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from mlframe.training.composite import CompositeTargetEstimator
 
@@ -203,8 +201,7 @@ CatBoost feature importances correctly. Both are scikit-learn `fit` / `transform
 estimators; the selected columns land on the fitted estimator after `fit(X, y)`.
 
 ```python
-import numpy as np
-import pandas as pd
+import numpy as np, pandas as pd
 from lightgbm import LGBMClassifier
 from mlframe.feature_selection.filters.mrmr import MRMR
 from mlframe.feature_selection.wrappers import RFECV
@@ -346,8 +343,7 @@ rows of one window into the caller-supplied `row_features` list (and, when
 lists in place and returns `None`.
 
 ```python
-import numpy as np
-import pandas as pd
+import numpy as np, pandas as pd
 from mlframe.feature_engineering.timeseries import create_aggregated_features
 
 rng = np.random.default_rng(0)
@@ -373,8 +369,7 @@ print(len(row_features), features_names[:3])
 Polars OHLCV frame:
 
 ```python
-import numpy as np
-import polars as pl
+import numpy as np, polars as pl
 from mlframe.feature_engineering.financial import create_ohlcv_wholemarket_features
 
 rng = np.random.default_rng(0)
@@ -420,11 +415,8 @@ SHA-256 sidecar verification), returning `(models, X)` aligned to the required f
 order; `get_models_raw_predictions` then evaluates each loaded model on `X`.
 
 ```python
-import os
-import json
-import numpy as np
-import pandas as pd
-import joblib
+import os, json, joblib
+import numpy as np, pandas as pd
 from sklearn.linear_model import LogisticRegression
 from mlframe.utils.safe_pickle import write_sidecar
 from mlframe.inference.predict import read_trained_models, get_models_raw_predictions

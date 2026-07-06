@@ -9,7 +9,11 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Only cancel superseded PR runs. Master gets pushed to very frequently (concurrent /loop
+  # sessions), and cancel-in-progress there meant no run ever survived long enough to finish
+  # and upload coverage -- codecov stayed at 0%/null across 50 consecutive push events (42
+  # cancelled, 7 failed, 0 succeeded). Push-to-master runs must be allowed to run to completion.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
