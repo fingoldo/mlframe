@@ -1117,3 +1117,28 @@ class TestPassthroughEmptyFrameGuard:
 
         with pytest.raises(ValueError, match="something completely different"):
             _passthrough_cols_fit_transform(_raise_other, df, fit=True, target=None)
+
+
+def test_trainer_reexports_every_name_trainer_configure_imports_at_runtime():
+    """``_trainer_configure.configure_training_params`` does a LAZY ``from .trainer import (...)`` at
+    call time (to dodge the parent<->sibling import cycle the module-split left behind). Any name
+    missing from ``trainer``'s own facade imports raises ``ImportError`` only when that code path
+    actually runs -- invisible at import time / in most tests. ``MultilabelDispatchConfig`` was
+    dropped from trainer.py's re-exports in a 2026-05-13 dedup pass and stayed broken until fuzzing
+    hit a combo whose target_type reached ``configure_training_params`` (2026-07-06). Parse the exact
+    name list out of the runtime import statement and assert every one resolves from ``trainer``.
+    """
+    import ast
+    import inspect
+    import mlframe.training.trainer as trainer_mod
+    from mlframe.training import _trainer_configure
+
+    src = inspect.getsource(_trainer_configure.configure_training_params)
+    tree = ast.parse(src)
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "trainer":
+            names.extend(alias.name for alias in node.names)
+    assert names, "did not find the runtime 'from .trainer import (...)' statement -- test is stale"
+    missing = [n for n in names if not hasattr(trainer_mod, n)]
+    assert not missing, f"trainer.py is missing re-export(s) _trainer_configure needs at runtime: {missing}"
