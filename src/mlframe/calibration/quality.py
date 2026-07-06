@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from mlframe.reporting.spec import FigureSpec
@@ -31,19 +31,13 @@ import pandas as pd, numpy as np
 from matplotlib import pyplot as plt
 
 from sklearn.feature_selection import mutual_info_regression
-from properscoring import brier_score, crps_ensemble
-from sklearn.metrics import (
-    median_absolute_error,
-    explained_variance_score,
-    mean_squared_log_error,
-    mean_absolute_percentage_error,
-)  # ,mean_pinball_loss
+from properscoring import crps_ensemble
 
 # fast_brier_score_loss is the project's numba Brier, proven sklearn-equivalent by metrics tests;
 # use it over sklearn.metrics.brier_score_loss (avoids the sklearn call overhead in the calibration path).
 from mlframe.metrics.core import fast_brier_score_loss, fast_r2_score  # sklearn-equivalent, faster
 
-from scipy.stats import ks_1samp, cramervonmises, anderson, chisquare, entropy
+from scipy.stats import ks_1samp, cramervonmises, chisquare, entropy
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -70,7 +64,7 @@ def mutual_information_score(y: np.ndarray, y_preds: np.ndarray) -> float:
         # sklearn's KNN MI estimator requires n_samples > n_neighbors (=2); return NaN on a degenerate tiny
         # input instead of raising a cryptic ValueError from deep inside sklearn.
         return float("nan")
-    return mutual_info_regression(y.reshape(-1, 1), y_preds.reshape(-1, 1), n_neighbors=2)[0]
+    return float(mutual_info_regression(y.reshape(-1, 1), y_preds.reshape(-1, 1), n_neighbors=2)[0])
 
 
 def hyvarinen_score(y: np.ndarray, y_preds: np.ndarray) -> float:
@@ -94,7 +88,7 @@ def crps(y: np.ndarray, y_preds: np.ndarray) -> float:
     """Computes mean Continuous Ranked Probability Score of true binary outcomes versus predicted probabilities."""
     if np.asarray(y).shape[0] == 0:
         return float("nan")  # mean of an empty CRPS array is a silent NaN; surface it explicitly.
-    return crps_ensemble(observations=y, forecasts=y_preds).mean()
+    return float(crps_ensemble(observations=y, forecasts=y_preds).mean())
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -128,7 +122,7 @@ def make_custom_calibration_plot(
     classes: list | None = None,
     nbins: int = 100,
     competing_probs: list | None = None,
-    X: np.ndarray | None = None,
+    X: "pd.DataFrame | np.ndarray | None" = None,
     display_labels: dict | None = None,
     figsize: tuple = (15, 5),
     skip_plotting: bool = False,
@@ -143,10 +137,12 @@ def make_custom_calibration_plot(
 
     metrics = {}
     if not classes:
-        classes = range(nclasses)
+        classes = list(range(nclasses))
     else:
         nclasses = len(classes)
 
+    fig: Any
+    ax_probs: Any
     if skip_plotting:
         fig, ax_probs = None, None
     else:
@@ -182,7 +178,7 @@ def make_custom_calibration_plot(
             y_true,
             prob_pos,
             legend_label="Model Probs",
-            ax=ax_probs if nclasses == 1 else ax_probs[plot_idx],
+            ax=None if skip_plotting else (ax_probs if nclasses == 1 else ax_probs[plot_idx]),
             title=title,
             append=False,
             nbins=nbins,
@@ -195,11 +191,15 @@ def make_custom_calibration_plot(
         for competing_vars in competing_probs:
             if len(competing_vars[plot_idx]) > 0:
                 var_name = competing_vars[plot_idx]
+                if X is None:
+                    raise ValueError("make_custom_calibration_plot: competing_probs given but X is None")
                 prob_pos = X[var_name]
             else:
                 named_vars = [var for var in competing_vars if len(var) > 0]
                 if not named_vars:
                     continue  # an all-empty competing-probs group has nothing to plot -> skip (was IndexError)
+                if X is None:
+                    raise ValueError("make_custom_calibration_plot: competing_probs given but X is None")
                 prob_pos = 1.0 - X[named_vars].sum(axis=1)
                 var_name = named_vars[0]  # any of them
 
@@ -207,7 +207,13 @@ def make_custom_calibration_plot(
                 prob_pos = prob_pos.values
             var_name = "_".join(var_name.split("_")[1:])
             show_classifier_calibration(
-                y_true, prob_pos, legend_label=var_name, ax=ax_probs if nclasses == 1 else ax_probs[plot_idx], title=title, append=True, nbins=nbins
+                y_true,
+                prob_pos,
+                legend_label=var_name,
+                ax=None if skip_plotting else (ax_probs if nclasses == 1 else ax_probs[plot_idx]),
+                title=title,
+                append=True,
+                nbins=nbins,
             )
     if skip_plotting:
         plt.close(fig)
@@ -219,9 +225,9 @@ def make_custom_calibration_plot(
 # intentionally left unspecified because callers pass both int and float dtypes for y_true.
 @njit(cache=True, nogil=True, fastmath=False)
 def bin_predictions(
-    y_true: np.array,
-    y_pred: np.array,
-    indices: np.array,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    indices: np.ndarray,
     nbins: int = 20,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Equal-mass reliability binning: split rows (ordered by ``indices``) into ``nbins`` equal-population pockets.
@@ -261,10 +267,10 @@ def bin_predictions(
 
 
 def estimate_calibration_quality_binned(
-    y_true: np.array,
-    y_pred: np.array,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
     nbins: int = 20,
-    indices: np.array | None = None,
+    indices: np.ndarray | None = None,
     metrics_to_show: dict = METRICS_TO_SHOW,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     """Bin predictions into equal-mass pockets and score calibration-curve fidelity.
@@ -317,7 +323,7 @@ def show_classifier_calibration(
     alpha: float = 0.40,
     show_table: bool = False,
     nintervals: int = 1,
-    ax: object = None,
+    ax: Any = None,
     marker_size: int = 15,
     metrics_digits: int = 4,
     connected: bool = True,
@@ -347,7 +353,7 @@ def show_classifier_calibration(
     # Initialised before the loop so the show_table / empty-all_performances return branches
     # below never read an unbound name when nintervals == 0 (the loop body never runs).
     all_performances: list = []
-    data: list = []
+    data: np.ndarray = np.empty((0, 4))
     performances: dict = {}
     for i in range(nintervals):
         if i == nintervals - 1:
@@ -359,7 +365,7 @@ def show_classifier_calibration(
             x, y, data, performances = estimate_calibration_quality_binned(
                 y_true[l:r], y_pred[l:r], nbins=nbins, indices=indices, metrics_to_show=metrics_to_show
             )
-        except (ValueError, ZeroDivisionError, IndexError) as e:
+        except (ValueError, ZeroDivisionError, IndexError):
             # Expected data-shape / empty-interval failures from binning: log and abort this call, returning None.
             # Narrowed from a bare ``except Exception`` so genuinely unexpected errors (bugs, KeyboardInterrupt,
             # programming errors) propagate instead of being silently swallowed into a None return.
@@ -522,13 +528,13 @@ def kolmogorov_smirnov_statistic(pit_values: np.ndarray) -> float:
     """Calculate the KS statistic for PIT values."""
 
     statistic, _ = ks_1samp(pit_values, uniform_cdf, alternative="two-sided")
-    return statistic
+    return float(statistic)
 
 
 def cramer_von_mises_statistic(pit_values: np.ndarray) -> float:
     """Calculate the Cramér-von Mises statistic for PIT values."""
     result = cramervonmises(pit_values, uniform_cdf)
-    return result.statistic
+    return float(result.statistic)
 
 
 @njit(cache=True, nogil=True, fastmath=True)
@@ -596,8 +602,8 @@ def anderson_darling_statistic(pit_values: np.ndarray) -> float:
         return float("nan")
     sorted_pit = np.sort(np.asarray(pit_values, dtype=np.float64))
     if n >= _AD_PARALLEL_THRESHOLD:
-        return _anderson_darling_kernel_parallel(sorted_pit, n)
-    return _anderson_darling_kernel(sorted_pit, n)
+        return float(_anderson_darling_kernel_parallel(sorted_pit, n))
+    return float(_anderson_darling_kernel(sorted_pit, n))
 
 
 def chi_square_statistic(pit_values: np.ndarray, bins: int = 10) -> float:
@@ -619,7 +625,7 @@ def chi_square_statistic(pit_values: np.ndarray, bins: int = 10) -> float:
     observed, bin_edges = np.histogram(pit_values, bins=bins, range=(0, 1))
     expected = np.ones_like(observed) * len(pit_values) / bins
     chi2_stat, _ = chisquare(f_obs=observed, f_exp=expected)
-    return chi2_stat
+    return float(chi2_stat)
 
 
 def entropy_calibration_index(pit_values: np.ndarray, bins: int = 10, miller_madow: bool = True) -> float:
@@ -646,13 +652,13 @@ def entropy_calibration_index(pit_values: np.ndarray, bins: int = 10, miller_mad
     # genuinely-calibrated (near-uniform) input, driving eci negative below its
     # perfect-calibration floor of 0, which is meaningless for a "calibration index".
     # Clamp at 0 (mirrors how _drift.py clamps MM-corrected KL/JS divergences).
-    return max(eci, 0.0)
+    return float(max(eci, 0.0))
 
 
 def mean_squared_deviation(pit_values: np.ndarray) -> float:
     """Calculate the Mean Squared Deviation (MSD) from the uniform mean (0.5)."""
     msd = np.mean((pit_values - 0.5) ** 2)
-    return msd
+    return float(msd)
 
 
 def weighted_pit_deviation(pit_values: np.ndarray) -> float:
@@ -661,4 +667,4 @@ def weighted_pit_deviation(pit_values: np.ndarray) -> float:
     # dominating the mean. 1e-10 produced weights up to ~1e10 which wrecked numerical stability.
     weights = 1.0 / np.clip(pit_values * (1.0 - pit_values), 1e-6, None)
     wpd = np.mean(weights * (pit_values - 0.5) ** 2)
-    return wpd
+    return float(wpd)

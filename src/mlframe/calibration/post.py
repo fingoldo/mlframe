@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 # No direct references to mlframe.config names remain in this module. If you
 # need one, import it explicitly rather than reintroducing the wildcard.
 
@@ -47,7 +47,7 @@ from mlframe.models.ensembling import ensemble_probabilistic_predictions
 from sklearn import config_context
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-import polars as pl, pandas as pd, numpy as np
+import pandas as pd, numpy as np
 
 from pyutilz.system import tqdmu
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
@@ -62,7 +62,7 @@ from sklearn.calibration import CalibratedClassifierCV
 
 try:
     from dirichletcal.calib.fulldirichlet import FullDirichletCalibrator
-except Exception as e:
+except Exception:
     FullDirichletCalibrator = None
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -70,11 +70,11 @@ except Exception as e:
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-def _try_import_class(module_path: str, class_name: str):
+def _try_import_class(module_path: str, class_name: str) -> Optional[type]:
     """Import ``class_name`` from ``module_path``, or None when the optional dep is missing."""
     try:
         module = __import__(module_path, fromlist=[class_name])
-        return getattr(module, class_name)
+        return getattr(module, class_name)  # type: ignore[no-any-return]
     except ImportError:
         return None
 
@@ -101,16 +101,21 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
     always returning a 2D ``(n_samples, 2)`` matrix.
     """
 
+    calibrator: object
+    fit_method_name: str
+    transform_method_name: str
+    _resolved_transform_method_name: str
+
     def __init__(
         self,
         calibrator: object,
         fit_method_name: str = "fit",
         transform_method_name: str = "transform",
-    ):
+    ) -> None:
         store_params_in_object(obj=self, params=get_parent_func_args())
 
     @staticmethod
-    def _calibrator_needs_2d_probs(calibrator) -> bool:
+    def _calibrator_needs_2d_probs(calibrator: object) -> bool:
         """Returns True if the wrapped calibrator expects a 2D (n_samples, n_classes) prob matrix.
 
         Replaces substring-matching on the class name with isinstance checks against the
@@ -129,13 +134,13 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         return isinstance(calibrator, tuple(needs_2d_types)) if needs_2d_types else False
 
     @staticmethod
-    def _is_venn_abers(calibrator) -> bool:
+    def _is_venn_abers(calibrator: object) -> bool:
         """isinstance check against VennAbersCalibrator so subclasses dispatch correctly
         (substring matching on the class name routed subclasses to the wrong branch)."""
         _VA = _try_import_class("venn_abers", "VennAbersCalibrator")
         return _VA is not None and isinstance(calibrator, _VA)
 
-    def _transform_probs(self, probs) -> np.ndarray:
+    def _transform_probs(self, probs: np.ndarray) -> np.ndarray:
         if probs.ndim == 2 and not self._calibrator_needs_2d_probs(self.calibrator):
             probs = probs[:, 1]
         return probs
@@ -144,7 +149,7 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         self,
         calib_probs: np.ndarray,
         calib_target: np.ndarray,
-    ):
+    ) -> "BinaryPostCalibrator":
 
         # sklearn ClassifierMixin tooling (CalibratedClassifierCV, cross_val_predict, check_is_fitted) expects
         # ``classes_`` and ``n_features_in_`` after fit. We set them from the raw inputs BEFORE the prob reshape so a
@@ -171,7 +176,7 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
 
         return self
 
-    def postcalibrate_probs(self, probs) -> np.ndarray:
+    def postcalibrate_probs(self, probs: np.ndarray) -> np.ndarray:
 
         probs = self._transform_probs(probs)
         if not self._is_venn_abers(self.calibrator):
@@ -179,10 +184,11 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
             transform_name = getattr(self, "_resolved_transform_method_name", self.transform_method_name)
             calibrated_probs = getattr(self.calibrator, transform_name)(probs)
         else:
-            calibrated_probs = self.calibrator.predict_proba(p_cal=self.p_cal, y_cal=self.y_cal, p_test=probs)
+            calibrated_probs = getattr(self.calibrator, "predict_proba")(p_cal=self.p_cal, y_cal=self.y_cal, p_test=probs)
 
+        calibrated_probs = np.asarray(calibrated_probs)
         if calibrated_probs.ndim == 2 and (
-            hasattr(self.calibrator, "method") and self.calibrator.method in ["momentum", "variational", "mcmc"]
+            hasattr(self.calibrator, "method") and getattr(self.calibrator, "method") in ["momentum", "variational", "mcmc"]
         ):  # mcmc methods of netcal
             calibrated_probs = calibrated_probs.mean(axis=0)
         if calibrated_probs.ndim == 1:
@@ -191,9 +197,9 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
             calibrated_probs = np.clip(calibrated_probs, 0.0, 1.0)
             calibrated_probs = np.vstack([1 - calibrated_probs, calibrated_probs]).T
 
-        return calibrated_probs
+        return np.asarray(calibrated_probs)
 
-    def predict_proba(self, probs) -> np.ndarray:
+    def predict_proba(self, probs: np.ndarray) -> np.ndarray:
         """sklearn-style alias for :meth:`postcalibrate_probs` so ClassifierMixin tooling (which calls
         ``predict_proba``) routes to the calibrated 2D probability matrix."""
         return self.postcalibrate_probs(probs)
@@ -227,11 +233,11 @@ class NamedCalibrator:
 
 
 def named_calibrator(
-    calibrator_obj,
+    calibrator_obj: object,
     name: Optional[str] = None,
     param_str: Optional[str] = "",
     lib: Optional[str] = None,
-    **postcal_kwargs,
+    **postcal_kwargs: Any,
 ) -> NamedCalibrator:
     """Wrap a raw calibrator object into a ``NamedCalibrator`` (with a ``BinaryPostCalibrator`` adapter).
 
@@ -246,7 +252,7 @@ def named_calibrator(
     )
 
 
-def should_run(name: str, include: list[str] = None, skip: list[str] = None) -> bool:
+def should_run(name: str, include: Optional[list[str]] = None, skip: Optional[list[str]] = None) -> bool:
     """Return whether a calibrator ``name`` passes the include/skip regex filters.
 
     ``True`` only when ``name`` matches at least one ``include`` pattern (or ``include`` is empty)
@@ -259,7 +265,7 @@ def should_run(name: str, include: list[str] = None, skip: list[str] = None) -> 
     return True
 
 
-def get_postcalibrators(calib_target, num_bins: int) -> list:
+def get_postcalibrators(calib_target: np.ndarray, num_bins: int) -> list[NamedCalibrator]:
     """Build the zoo of candidate ``NamedCalibrator`` instances across all supported calibration libraries.
 
     Instantiates sklearn, ml_insights, verified_calibration, betacal, venn-abers, netcal (binning +
@@ -343,15 +349,15 @@ def compare_postcalibrators(
     columns: list,
     calib_probs: np.ndarray,
     calib_target: np.ndarray,
-    oos_probs: np.ndarray,
-    oos_target: np.ndarray,
+    oos_probs: Optional[np.ndarray],
+    oos_target: Optional[np.ndarray],
     num_bins: int = 15,
     calib_type: str = "test",
     plot_file: str = "",
-    report_params: dict = None,
-    include_patterns: list = None,
-    skip_patterns: list = None,  # r"BetaCalibration\[variant=ab\]"
-) -> tuple:
+    report_params: Optional[dict] = None,
+    include_patterns: Optional[list] = None,
+    skip_patterns: Optional[list] = None,  # r"BetaCalibration\[variant=ab\]"
+) -> tuple[Optional[pd.DataFrame], dict]:
     """Given calibration and OOS probabilities and true targets,
     fits a number of calibrator models  on the calib set and computes ML metrics on the OOS set.
     returns a pandas dataframe of ML metrics by calibrator name.
@@ -371,7 +377,7 @@ def compare_postcalibrators(
     if report_params is None:
         report_params = {"report_ndigits": 4, "calib_report_ndigits": 4, "print_report": False}
 
-    metrics = {"oos": {}}
+    metrics: dict[str, Any] = {"oos": {}}
     fit_calibrators = {}
 
     if oos_probs is not None:
@@ -447,22 +453,23 @@ def compare_postcalibrators(
         metrics[calibrator_name]["fitting_time"] = fitting_time
         metrics[calibrator_name]["predicting_time"] = predicting_time
 
+    metrics_df: Optional[pd.DataFrame]
     if oos_probs is None:
-        metrics = None
+        metrics_df = None
     else:
-        metrics = pd.DataFrame(metrics).T
+        metrics_df = pd.DataFrame(metrics).T
         # Column `1` holds the second element of the tuple returned by report_model_perf
         # (a dict of per-metric scores); we flatten it into wide-form columns and drop the
         # feature_importances column which isn't useful for calibrator comparison.
         PERF_DICT_COL = 1
-        metrics = (
-            metrics.drop(columns=[PERF_DICT_COL])
-            .join(metrics[PERF_DICT_COL].apply(pd.Series))
+        metrics_df = (
+            metrics_df.drop(columns=[PERF_DICT_COL])
+            .join(metrics_df[PERF_DICT_COL].apply(pd.Series))
             .drop(columns=["feature_importances"])
             .sort_values("ice")
         )
 
-    return metrics, fit_calibrators
+    return metrics_df, fit_calibrators
 
 
 def train_postcalibrators(
@@ -471,10 +478,10 @@ def train_postcalibrators(
     models_dir: str,
     target_name: str,
     featureset_name: str,
-    task_type=TargetTypes.BINARY_CLASSIFICATION,
-    include_patterns=None,
-    max_mae: float = None,
-    max_std: float = None,
+    task_type: Any = TargetTypes.BINARY_CLASSIFICATION,
+    include_patterns: Optional[list] = None,
+    max_mae: Optional[float] = None,
+    max_std: Optional[float] = None,
     ensembling_method: Optional[str] = None,
     ensure_prob_limits: bool = True,
     uncertainty_quantile: float = 0.0,
@@ -484,7 +491,7 @@ def train_postcalibrators(
     calib_probs_per_model: Optional[Sequence[np.ndarray]] = None,
     calib_target: Optional[np.ndarray] = None,
     metadata: Optional[dict] = None,
-):
+) -> dict:
     """Fit postcalibrators on a DISJOINT calibration split.
 
     Calibrators MUST be fit on a calibration split that is disjoint from BOTH the training set
@@ -596,12 +603,12 @@ def train_postcalibrators(
     ensembled_calib_predictions, _uncertainty, _confident_calib_indices = ensemble_probabilistic_predictions(
         *_calib_arrays,
         ensemble_method=_resolved_method,
-        max_mae=max_mae,
-        max_std=max_std,
+        max_mae=max_mae if max_mae is not None else 0.0,
+        max_std=max_std if max_std is not None else 0.0,
         ensure_prob_limits=ensure_prob_limits,
         uncertainty_quantile=uncertainty_quantile,
         normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
-        verbose=verbose,
+        verbose=bool(verbose),
     )
 
     first_model = list(models.values())[0]

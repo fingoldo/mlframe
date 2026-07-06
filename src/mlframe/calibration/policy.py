@@ -71,8 +71,8 @@ try:
     _HAS_NUMBA = True
 except Exception:  # pragma: no cover  -- numba is a hard dep, keep guard for static analysers
     _HAS_NUMBA = False
-    def _njit(*args, **kwargs):  # type: ignore
-        def _decorator(fn):
+    def _njit(*args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:  # type: ignore
+        def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
             return fn
         return _decorator
 
@@ -220,7 +220,7 @@ def _normalize_binary_labels(y: np.ndarray) -> np.ndarray:
     if uniq[0] == 0 and uniq[1] == 1:
         return arr.astype(np.int64, copy=False)
     hi = uniq.max()
-    return (arr == hi).astype(np.int64)
+    return np.asarray((arr == hi).astype(np.int64))
 
 
 def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE_NBINS) -> float:
@@ -273,7 +273,7 @@ def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE
         if p_pred.size == 0 or y_true.size != p_pred.size:
             return float("nan")
         y_norm = _normalize_binary_labels(y_true)
-        return _ece_score_numba_serial(y_norm, p_pred, int(n_bins))
+        return float(_ece_score_numba_serial(y_norm, p_pred, int(n_bins)))
     p = np.asarray(p_pred, dtype=np.float64)
     if p.ndim == 2 and p.shape[1] >= 2:
         p = p[:, 1]
@@ -289,7 +289,7 @@ def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE
     y = np.ascontiguousarray(_normalize_binary_labels(y_true))
     if y.size != p.size:
         return float("nan")
-    return _ece_score_numba_serial(y, p, int(n_bins))
+    return float(_ece_score_numba_serial(y, p, int(n_bins)))
 
 
 def _fit_calibrator(name: str, calib_p: np.ndarray, calib_y: np.ndarray) -> Optional[Callable[[np.ndarray], np.ndarray]]:
@@ -313,7 +313,7 @@ def _fit_calibrator(name: str, calib_p: np.ndarray, calib_y: np.ndarray) -> Opti
                 q = np.asarray(probs, dtype=np.float64)
                 if q.ndim == 2 and q.shape[1] >= 2:
                     q = q[:, 1]
-                return clf.predict_proba(q.reshape(-1, 1))[:, 1]
+                return np.asarray(clf.predict_proba(q.reshape(-1, 1))[:, 1])
             return _apply_sigmoid
         if name == "Isotonic":
             from sklearn.isotonic import IsotonicRegression
@@ -323,7 +323,7 @@ def _fit_calibrator(name: str, calib_p: np.ndarray, calib_y: np.ndarray) -> Opti
                 q = np.asarray(probs, dtype=np.float64)
                 if q.ndim == 2 and q.shape[1] >= 2:
                     q = q[:, 1]
-                return iso.predict(q.ravel())
+                return np.asarray(iso.predict(q.ravel()))
             return _apply_iso
         if name == "Beta":
             try:

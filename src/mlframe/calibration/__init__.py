@@ -21,8 +21,10 @@ working at the cost of a one-time deferred import.
 
 from __future__ import annotations
 
+from typing import Any
 
-def __getattr__(name: str):
+
+def __getattr__(name: str) -> Any:
     if name.startswith("_"):
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     # ``importlib.import_module`` bypasses ``_handle_fromlist``'s package-
@@ -42,7 +44,7 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def __dir__():
+def __dir__() -> list[str]:
     import importlib
     _q = importlib.import_module("mlframe.calibration.quality")
     _p = importlib.import_module("mlframe.calibration.probabilities")

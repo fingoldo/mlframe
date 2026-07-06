@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 import numpy as np
 from numba import njit
 from scipy.stats import rankdata
@@ -102,13 +104,15 @@ def generate_probs_from_outcomes(
     bin_offsets = (rng.random(size=nbins) - 0.5) * bins_std
     # One length-n uniform draw sliced per chunk (same consumption order as the old per-chunk draws).
     noise = rng.random(size=n) if n else np.empty(0, dtype=np.float64)
-    return _generate_probs_from_outcomes_kernel(outcomes, indices, bin_offsets, noise, int(chunk_size), float(scale), int(nbins), float(flip_percent))
+    return np.asarray(_generate_probs_from_outcomes_kernel(outcomes, indices, bin_offsets, noise, int(chunk_size), float(scale), int(nbins), float(flip_percent)))
 
 
 from scipy.special import logit, expit
 
 
-def generate_similar_probs_logit_space(predicted_probs, true_outcomes, noise_scale=0.05, random_state=None):
+def generate_similar_probs_logit_space(
+    predicted_probs: np.ndarray, true_outcomes: np.ndarray, noise_scale: float = 0.05, random_state: Optional[int] = None
+) -> np.ndarray:
     """
     Perturb probabilities by applying noise in logit space (log-odds),
     then converting back to probability space.
@@ -131,10 +135,12 @@ def generate_similar_probs_logit_space(predicted_probs, true_outcomes, noise_sca
     # Convert back to probability space using the sigmoid function
     similar_probs = expit(perturbed_logit)
 
-    return similar_probs
+    return np.asarray(similar_probs)
 
 
-def generate_similar_probs_random_walk(predicted_probs, true_outcomes, step_size=0.05, n_steps=1, random_state=None):
+def generate_similar_probs_random_walk(
+    predicted_probs: np.ndarray, true_outcomes: np.ndarray, step_size: float = 0.05, n_steps: int = 1, random_state: Optional[int] = None
+) -> np.ndarray:
     """
     Generates perturbed probabilities using a small random walk.
 
@@ -158,10 +164,12 @@ def generate_similar_probs_random_walk(predicted_probs, true_outcomes, step_size
         # Ensure probabilities stay within [0, 1]
         similar_probs = np.clip(similar_probs, 0, 1)
 
-    return similar_probs
+    return np.asarray(similar_probs)
 
 
-def generate_similar_probs(predicted_probs, true_outcomes, noise_scale=0.05, n_iterations=100, random_state=None):
+def generate_similar_probs(
+    predicted_probs: np.ndarray, true_outcomes: np.ndarray, noise_scale: float = 0.05, n_iterations: int = 100, random_state: Optional[int] = None
+) -> Optional[np.ndarray]:
     """
     Generates a random ndarray of similar probabilities that has approximately the same
     Brier Score and ROC AUC as the input predicted_probs.
@@ -215,7 +223,9 @@ def generate_similar_probs(predicted_probs, true_outcomes, noise_scale=0.05, n_i
     return similar_probs if similar_probs is not None else best_probs
 
 
-def generate_similar_probs_by_ranking(predicted_probs, true_outcomes, n_bins: int = 10, noise_scale: float = 0.001, random_state=None):
+def generate_similar_probs_by_ranking(
+    predicted_probs: np.ndarray, true_outcomes: np.ndarray, n_bins: int = 10, noise_scale: float = 0.001, random_state: Optional[int] = None
+) -> np.ndarray:
     """
     Generates a new set of probabilities by shuffling within ranked bins,
     preserving the ranking and maintaining Brier Score and ROC AUC.
@@ -262,4 +272,4 @@ def generate_similar_probs_by_ranking(predicted_probs, true_outcomes, n_bins: in
         # Ensure probabilities are still between 0 and 1
         similar_probs = np.clip(similar_probs, 0, 1)
 
-    return similar_probs
+    return np.asarray(similar_probs)

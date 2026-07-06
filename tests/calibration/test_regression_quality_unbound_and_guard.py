@@ -64,3 +64,26 @@ def test_competing_probs_single_class_does_not_index_crash():
         skip_plotting=True,
     )
     assert isinstance(metrics, dict)
+
+
+def test_multiclass_skip_plotting_does_not_index_none_ax_probs():
+    # Bug: `ax=ax_probs if nclasses == 1 else ax_probs[plot_idx]` evaluated the indexing
+    # expression eagerly regardless of `skip_plotting`. With skip_plotting=True and nclasses > 1,
+    # ax_probs is None (the plotting branch is skipped entirely), so `ax_probs[plot_idx]` raised
+    # TypeError: 'NoneType' object is not subscriptable, even though ax is never used downstream
+    # when skip_plotting=True. Fixed by short-circuiting to None when skip_plotting.
+    rng = np.random.default_rng(0)
+    n = 300
+    nclasses = 3
+    probs = rng.dirichlet(np.ones(nclasses), size=n)
+    y = rng.integers(0, nclasses, size=n)
+
+    fig, metrics = quality.make_custom_calibration_plot(
+        y,
+        probs,
+        nclasses=nclasses,
+        nbins=5,
+        skip_plotting=True,
+    )
+    assert isinstance(metrics, dict)
+    assert len(metrics) == nclasses

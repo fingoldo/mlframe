@@ -560,11 +560,18 @@ exclude = "(legacy|benchmarks|profiling)/"
 module = "tests.*"
 ignore_errors = true
 
-# Strict-mode beachhead: mlframe.calibration is the smallest subpackage (4 files, ~1.3 kLOC total)
+# Strict-mode beachhead: mlframe.calibration is the smallest subpackage (5 files, ~1.3 kLOC total)
 # with a stable public surface, low optional-dep churn (only ``post.py`` pulls heavy deps and gates
 # them lazily), and tight scope (probability calibration metrics + post-hoc calibrators). Adopting
 # strict mode here first surfaces type drift on the smallest blast radius; expansion to other
 # subpackages should follow only after this one has been clean for one release.
+# Re-verified clean 2026-07-06: a prior "clean" claim here had gone stale (drifted to ~90 real
+# errors across all 5 files with no CI enforcement to catch it -- see the CI mypy step in
+# .github/workflows/ci.yml). Fixed all of them (missing/incomplete annotations, implicit-Optional
+# defaults, Any-returns needing an explicit np.asarray/float cast) without weakening this override,
+# plus one genuine bug the annotation pass surfaced: quality.make_custom_calibration_plot indexed
+# `ax_probs[plot_idx]` even when skip_plotting=True (ax_probs is None then) -- TypeError. See
+# tests/calibration/test_regression_quality_unbound_and_guard.py for the regression test.
 [[tool.mypy.overrides]]
 module = "mlframe.calibration.*"
 disallow_untyped_defs = true

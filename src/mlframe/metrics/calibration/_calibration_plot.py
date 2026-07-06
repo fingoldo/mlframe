@@ -16,12 +16,10 @@ What lives here:
 from __future__ import annotations
 
 import logging
-import math
 import os
 import sys
-import warnings
 from math import floor
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Optional
 
 import numpy as np
 import numba
