@@ -11,6 +11,14 @@ on:
     branches: [master]
   workflow_dispatch:
 
+# Without this, every push queues an independent run that's never superseded --
+# on a repo with this much push frequency (concurrent /loop sessions) the queue
+# grows unboundedly and starves the runner pool for every other workflow (2026-07-06).
+# Only the LATEST push's docs matter, so cancel superseded ones.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
