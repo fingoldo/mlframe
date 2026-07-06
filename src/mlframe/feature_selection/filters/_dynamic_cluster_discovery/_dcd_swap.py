@@ -422,66 +422,18 @@ def evaluate_swap_candidate(
     # the aggregate path -- the member branch must not be a side door
     # that bypasses the same check.
     def _run_member_null(member_idx: int, member_rel: float, B_: int) -> float:
-        if B_ <= 0:
-            return 0.0
-        # MUTATE-AND-RESTORE (CLAUDE.md memory rule): only ``member_idx`` is shuffled per draw, so shuffle it IN
-        # ``state.factors_data`` and restore the original column in ``finally`` -- instead of copying the WHOLE
-        # (n, K) factors_data every call just to permute one column (a peak-RAM doubling on wide/large frames).
-        # mi / conditional_mi read ``member_idx`` (=shuffled) + ``z`` (=unchanged) + target, so the null draws --
-        # and the p-value -- are byte-identical to the prior copy path. ``member_col_orig`` is captured BEFORE the
-        # try so the ``finally`` restore is always safe.
-        member_col_orig = state.factors_data[:, member_idx].copy()
-        try:
-            rng_m = np.random.default_rng(int(getattr(state, "_perm_seed", 0)) + int(anchor) * 7919 + int(member_idx))
-            state._perm_seed = int(getattr(state, "_perm_seed", 0)) + B_ + 1
-            target_arr_m = np.asarray(target, dtype=np.int64)
-            # Hoist the permutation-invariant H(Z) + H(Y,Z) out of the B-loop:
-            # only the member column is shuffled, so y and z stay byte-identical
-            # across all B draws and these two entropies are constant. Passing
-            # them via entropy_z= / entropy_yz= is bit-identical by construction
-            # (conditional_mi reuses the same values it would otherwise recompute
-            # B times). bench_dcd_swap_null_entropy_hoist.py: ~1.04-1.30x, p-value
-            # bit-identical across n/|z|.
-            _h_z_m = -1.0
-            _h_yz_m = -1.0
-            if S_minus_anchor:
-                from ..info_theory import entropy as _entropy_h, merge_vars as _merge_h
-                _z_arr_m = np.sort(np.array(S_minus_anchor, dtype=np.int64))
-                _, _fz_m, _ = _merge_h(state.factors_data, _z_arr_m, None, np.asarray(state.factors_nbins, dtype=np.int64))
-                _h_z_m = float(_entropy_h(_fz_m))
-                _yz_arr_m = np.sort(np.concatenate([target_arr_m, _z_arr_m]))
-                _, _fyz_m, _ = _merge_h(state.factors_data, _yz_arr_m, None, np.asarray(state.factors_nbins, dtype=np.int64))
-                _h_yz_m = float(_entropy_h(_fyz_m))
-            n_exceed_m = 0
-            for _ in range(B_):
-                shuffled = member_col_orig.copy()
-                rng_m.shuffle(shuffled)
-                state.factors_data[:, member_idx] = shuffled
-                if S_minus_anchor:
-                    null_rel_m = float(conditional_mi(
-                        factors_data=state.factors_data,
-                        x=np.array([member_idx], dtype=np.int64),
-                        y=target_arr_m,
-                        z=np.array(S_minus_anchor, dtype=np.int64),
-                        var_is_nominal=None,
-                        factors_nbins=state.factors_nbins,
-                        entropy_z=_h_z_m, entropy_yz=_h_yz_m,
-                        entropy_cache=None,
-                        can_use_x_cache=False, can_use_y_cache=False,
-                    ))
-                else:
-                    null_rel_m = float(mi(
-                        state.factors_data, np.array([member_idx], dtype=np.int64),
-                        target_arr_m, state.factors_nbins,
-                    ))
-                if null_rel_m >= member_rel:
-                    n_exceed_m += 1
-            return (n_exceed_m + 1) / (B_ + 1)
-        except Exception as exc:
-            logger.warning(f"DCD swap: member permutation null failed (B={B_}): {exc!r}")
-            return 1.0  # conservative: fail closed
-        finally:
-            state.factors_data[:, member_idx] = member_col_orig  # ALWAYS restore the permuted column
+        # The B-permutation null is parallelized across cores in ``_dcd_swap_null.run_member_null``:
+        # it pre-generates all B shuffles of ONLY the member column (SAME rng sequence -> bit-identical
+        # permutation multiset / p-value), then ``prange``s the per-draw conditional MI over a thread-local
+        # shuffled column against the precomputed (Z)/(Y,Z) class labelings -- NO frame copy, NO mutate-restore
+        # on the parallel path (Z and Y are read read-only from state.factors_data, the shuffled X is passed
+        # directly). Tiny B falls back to the exact serial mutate-and-restore path. H(Z)/H(Y,Z) are hoisted once
+        # (permutation-invariant); see _dcd_swap_null docstring.
+        from ._dcd_swap_null import run_member_null
+        return run_member_null(
+            state=state, member_idx=int(member_idx), member_rel=float(member_rel), B_=int(B_),
+            anchor=int(anchor), target=target, S_minus_anchor=S_minus_anchor, logger=logger,
+        )
     if not prefer_aggregate:
         # Branch B: member swap. Apply permutation null when requested
         # (B>0) -- otherwise this branch silently bypasses the check the
