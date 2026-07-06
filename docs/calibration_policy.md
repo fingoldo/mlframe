@@ -1,6 +1,6 @@
 # Calibration policy guide (AP12)
 
-Probability calibration in mlframe is governed by ``pick_best_calibrator`` (``src/mlframe/calibration/policy.py``), a small policy that selects between ``Sigmoid`` (Platt scaling), ``Isotonic`` (PAV), and ``NoCal`` (pass-through) by comparing **out-of-fold Expected Calibration Error (ECE)** with bootstrap confidence intervals.
+Probability calibration in mlframe is governed by ``pick_best_calibrator`` (``src/mlframe/calibration/policy.py``), a small policy that selects among ``Sigmoid`` (Platt scaling), ``Isotonic`` (PAV), ``Beta`` (Kull et al. 2017), and ``Spline`` calibrators (``CANDIDATE_NAMES``) by comparing **out-of-fold Expected Calibration Error (ECE)**, using an honest held-out inner-CV estimate by default.
 
 ## When this fires
 
@@ -12,27 +12,35 @@ The policy is consulted at end-of-training, after the OOF predictions for every 
 from mlframe.calibration.policy import pick_best_calibrator
 
 result = pick_best_calibrator(
-    probs, y,                 # optional diagnostic-only held-out probs/labels (not used for the decision)
-    oof_probs, oof_y,         # OOF probs/labels that drive the selection
-    candidates=None,          # default: all of NoCal / Sigmoid / Isotonic
-    n_bootstrap=...,          # bootstrap reps for the ECE CI
-    n_bins=10,                # ECE bin count (DEFAULT_ECE_NBINS)
+    None, None,                # optional diagnostic-only held-out probs/labels (not used for the decision)
+    oof_probs, oof_y,          # OOF probs/labels that drive the selection
+    candidates=None,           # default: all of CANDIDATE_NAMES = (Sigmoid, Isotonic, Beta, Spline)
+    n_bootstrap=200,           # bootstrap reps for the (reported, non-deciding) ECE CI
+    n_bins=10,                 # ECE bin count (DEFAULT_ECE_NBINS)
     random_state=0,
 )
 # -> {"chosen": <name>, "ece_mean": float, "ece_ci": (lo, hi),
-#     "alternatives": {...}, "rule": <selection-rule>, "n_oof": int, "plot_path": Optional[str]}
+#     "alternatives": {...}, "rule": <selection-rule>, "n_oof": int, "plot_path": Optional[str],
+#     "secondary_ece": Optional[float]}
 ```
 
-ECE itself is computed by ``_ece_score(y_true, p_pred, n_bins=15)`` in the same module; the full Brier reliability / resolution / uncertainty decomposition is available via ``mlframe.metrics.core.compute_ece_and_brier_decomposition``.
+ECE itself is computed by ``_ece_score(y_true, p_pred, n_bins=10)`` in the same module (``DEFAULT_ECE_NBINS=10``); the full Brier reliability / resolution / uncertainty decomposition is available via ``mlframe.metrics.core.compute_ece_and_brier_decomposition``.
 
 ## Decision rule
 
-Given OOF ``oof_y`` and ``oof_probs`` for each candidate calibrator C in ``{NoCal, Sigmoid, Isotonic}``:
+Given OOF ``oof_y`` and ``oof_probs``, for each candidate calibrator C in ``CANDIDATE_NAMES = (Sigmoid, Isotonic, Beta, Spline)``:
 
-1. Compute ``ece_C = _ece_score(oof_y, calibrated_probs_C, n_bins=15)``.
-2. Bootstrap a CI on ``ece_C``.
-3. Pick the calibrator whose **upper CI bound** is lowest. This is the conservative choice: prefer the calibrator that statistically dominates on calibration without overfitting to a single OOF realisation.
-4. Tie-breaker (overlapping CIs): prefer ``NoCal > Sigmoid > Isotonic`` (Occam — fewer learned parameters wins on ties).
+Default ``selection="inner_cv"``:
+
+1. Build ``inner_cv_splits`` (default 5) stratified inner folds of the OOF.
+2. Fit each candidate on the fold complement, score ECE on the held-out fold, and average across folds — this is the honest held-out ECE (`rank_ece`), immune to a flexible calibrator (Isotonic) interpolating its own in-sample score toward zero.
+3. Pick the candidate with the lowest held-out ECE (`rule="lowest_heldout_ece"`); refit it on the full OOF for deployment.
+
+Legacy ``selection="same_oof"`` (fits AND scores every candidate on the same OOF rows — optimistic by ~0.006 ECE and Isotonic-biased; kept only for replay/A-B):
+
+1. Compute ``ece_C = _ece_score(oof_y, calibrated_probs_C, n_bins=10)`` plus a bootstrap CI.
+2. Sort by ECE mean ascending; if the top candidate's CI does not overlap the runner-up's, pick it directly (`rule="lowest_ece_ci_separated"`).
+3. If CIs overlap, apply the Kull-2017 default rule: prefer ``Isotonic`` when ``n_oof >= 1000`` else ``Beta``, if that default is among the tied candidates (`rule="default_isotonic"` / `"default_beta"`); otherwise fall back to the lowest-mean candidate (`rule="lowest_ece_ci_overlap"`).
 
 ## Why ECE-with-CI rather than point ECE
 

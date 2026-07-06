@@ -61,7 +61,7 @@ failures = metadata.get("dummy_baselines_failures", {})
 For learning-to-rank, the same parameter is wired on `train_mlframe_ranker_suite`:
 
 ```python
-from mlframe.training.ranker_suite import train_mlframe_ranker_suite
+from mlframe.training import train_mlframe_ranker_suite
 
 train_mlframe_ranker_suite(
     df=...,
@@ -319,7 +319,7 @@ DummyBaselinesConfig(
 
     # Bootstrap CI / paired-bootstrap
     bootstrap_ci_threshold=2000,                 # CI fires only when min(n_val,n_test) < this
-    bootstrap_ci_n_resamples=1000,
+    bootstrap_ci_n_resamples=2000,               # default 2000 (not 1000)
     paired_bootstrap_n_resamples=1000,
     strongest_min_beat_runner_up_prob=0.7,       # below this → TIE annotation
 
@@ -392,11 +392,11 @@ swallowed. Block-level skip reasons:
     "schema_version": "1.0",                  # for forward-compat (D14)
     "target_type": "regression",
     "target_name": "TVT",
-    "data": {                                 # per-baseline x per-metric (NaN scrubbed to None)
+    "data": {                                 # per-baseline x per-metric (NaN scrubbed to None); shown abbreviated below -- each baseline has the same val_*/test_*/failed keys as "mean"
         "mean":               {"val_RMSE": 645.34, "val_MAE": 518.21, "test_RMSE": 646.10, "test_MAE": 518.95, "failed": False},
-        "median":             {"val_RMSE": 647.81, ...},
-        "seasonal_naive_p7":  {"val_RMSE": 497.66, ...},
-        ...
+        "median":             {"val_RMSE": 647.81, "val_MAE": 519.02, "test_RMSE": 648.55, "test_MAE": 519.80, "failed": False},
+        "seasonal_naive_p7":  {"val_RMSE": 497.66, "val_MAE": 401.12, "test_RMSE": 499.03, "test_MAE": 402.44, "failed": False},
+        # ... one entry per baseline in the per-target catalog
     },
     "strongest": "seasonal_naive_p7 (ts)",
     "primary_metric": "val_RMSE",
@@ -431,6 +431,7 @@ sweep orchestrators can trivially memoize via:
 
 ```python
 import hashlib
+import numpy as np
 
 def _baseline_inputs_hash(target_type, train_y, val_y, test_y, timestamps=None, group_ids=None):
     h = hashlib.sha256()

@@ -135,7 +135,7 @@ fhc = FeatureHandlingConfig(
     default_cat=[
         CatHandlerSpec(
             method="target_mean",
-            params=TargetEncodeParams(smoothing=20.0, cv=5, prior="mean"),
+            params=TargetEncodeParams(kind="target_mean", smoothing=20.0, cv=5, prior="mean"),
         ),
     ],
 )
@@ -168,10 +168,11 @@ print(fhc.describe(short=False))  # full sub-config dump including resolved budg
 ## 10. Custom user-supplied transformer (sklearn pipeline) for one column
 
 ```python
+import numpy as np
 from sklearn.preprocessing import RobustScaler, FunctionTransformer
 from sklearn.pipeline import Pipeline
 from mlframe.training.feature_handling import (
-    FeatureHandlingConfig, TextHandlerSpec, CustomParams,
+    FeatureHandlingConfig, TextHandlerSpec, CustomParams, ModelHandlingOverride,
 )
 
 # Power-user case: log-transform a numeric column then scale.

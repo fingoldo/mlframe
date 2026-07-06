@@ -29,7 +29,6 @@ This module surfaces the dominant feature and quantifies its contribution
 ## What it does
 
 ```python
-from mlframe.training.configs import BaselineDiagnosticsConfig
 from mlframe.training.core import train_mlframe_models_suite
 
 models, metadata = train_mlframe_models_suite(
@@ -38,14 +37,16 @@ models, metadata = train_mlframe_models_suite(
     model_name="experiment_1",
     features_and_targets_extractor=fte,
     mlframe_models=["lgb", "xgb"],
-    # default ON for regression / binary classification — opt out via:
-    baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
+    # default ON for regression / binary classification — opt out via
+    # baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False)
+    # (BaselineDiagnosticsConfig lives in mlframe.training.configs); with
+    # enabled=False, metadata["baseline_diagnostics"] is not populated at all.
 )
 
 # Read it back
 report = metadata["baseline_diagnostics"]["regression"]["TVT"]
 print(report["composite_recommendation"])      # 'high_potential' / 'marginal' / 'unlikely_to_help' / 'skipped'
-print(report["ablation"][0])                    # top dominant feature
+print(report["ablation"][0])                    # top dominant feature, e.g. {'feature': 'TVT_prev', 'metric_after_drop': ..., 'delta_pct': 672.4, 'rank': 1}
 print(report["init_score_baseline"])            # native residual baseline (or None)
 ```
 
@@ -77,7 +78,7 @@ print(report["init_score_baseline"])            # native residual baseline (or N
    independent — *not* cumulative), the model is refit on the reduced
    feature set, and Δ% is measured against the raw fit. Sign convention:
    positive Δ% always means "dropping this feature hurt performance".
-4. **`init_score` baseline** (regression only in MVP). Top-1 dominant
+4. **`init_score` baseline** (regression and binary classification). Top-1 dominant
    feature is passed as `init_score` to a fresh LightGBM. The model now
    learns only the residual. If the resulting metric is within
    `init_score_optimal_threshold_pct` of the raw fit, native residual
@@ -101,7 +102,7 @@ BaselineDiagnosticsConfig(
     quick_model_num_leaves=31,
     quick_model_learning_rate=0.05,
     init_score_top_k=1,                           # 1 = single-feature, K>1 = OLS combiner
-    init_score_apply_to_target_types=("regression",),  # binary not supported in MVP
+    init_score_apply_to_target_types=("regression", "binary_classification"),  # binary supported via a logit-space init_score
     sample_n=50_000,                              # None = use full train
     high_potential_min_dominance_pct=5.0,         # Δ% threshold for "dominant"
     init_score_optimal_threshold_pct=1.0,         # init_score within 1pct of raw -> already optimal
@@ -137,10 +138,11 @@ a single WARNING log. Skip reasons in the wild:
   default. For temporal datasets this is *not* a temporal split — set
   `sample_n=None` to use the full train, or pre-sort and use a smaller
   sample if recency matters more than statistical noise.
-- **`init_score` baseline is regression-only** in MVP. Binary
-  classification's `init_score` is a logit offset, which doesn't admit
-  a clean "use the dominant feature directly" interpretation. Future
-  work.
+- **`init_score` baseline now covers regression AND binary classification.**
+  Binary's `init_score` is a logit offset: top-K dominant features are
+  LR-combined into a probability-scale score, converted to logit, and
+  passed as LightGBM's `init_score=` so the booster learns the residual
+  logit.
 - **Multiclass / multilabel skipped**. The native residual story breaks
   down (no scalar `y - base`). Future composite-target discovery will
   decide whether to extend this.

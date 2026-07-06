@@ -67,13 +67,15 @@ from mlframe.training import make_train_test_split
 import numpy as np
 
 # Multiclass — 1-D stratify_y triggers sklearn StratifiedShuffleSplit
-y = np.array([0, 1, 2, 0, 1, 2, ...])
-train, val, test, *_ = make_train_test_split(df, stratify_y=y, test_size=0.1)
+y = np.array([0, 1, 2] * 10)
+train_idx, val_idx, test_idx, *_ = make_train_test_split(df, stratify_y=y, test_size=0.1)
 
 # Multilabel — 2-D stratify_y triggers iterstrat.MultilabelStratifiedShuffleSplit
-y_multi = np.array([[1, 0, 1], [0, 1, 1], ...])  # (N, K) binary
-train, val, test, *_ = make_train_test_split(df, stratify_y=y_multi, test_size=0.1)
+y_multi = np.array([[1, 0, 1], [0, 1, 1]] * 15)  # (N, K) binary
+train_idx, val_idx, test_idx, *_ = make_train_test_split(df, stratify_y=y_multi, test_size=0.1)
 ```
+
+`make_train_test_split` returns index arrays (`train_idx, val_idx, test_idx, train_details, val_details, test_details`, or 8 elements with `return_calib=True`) — not sliced DataFrames. Slice the frame yourself, e.g. `df.iloc[train_idx]` / `df.loc[train_idx]`.
 
 For multilabel stratification, install the optional dependency:
 ```
@@ -139,7 +141,8 @@ from mlframe.training.configs import TargetTypes
 
 # Inspect registered metrics
 print(list_registered(TargetTypes.MULTILABEL_CLASSIFICATION))
-# ['hamming_loss', 'subset_accuracy', 'jaccard_samples']
+# ['hamming_loss', 'subset_accuracy', 'jaccard_samples', 'lrap', 'coverage_error',
+#  'ranking_loss', 'one_error', 'f1_macro', 'f1_micro', 'f1_weighted', 'auc_macro', 'auc_weighted']
 
 # Register a domain-specific metric (no evaluation.py edit required)
 def my_multilabel_score(y_true, probs_NK, preds_NK):
@@ -177,25 +180,43 @@ Per-class isotonic semantics (Session 4):
 
 ## FeaturesAndTargetsExtractor for multilabel
 
-Standard FTE accepts a single `target_column`. For multilabel:
+`SimpleFeaturesAndTargetsExtractor` does not have built-in multilabel support
+(no `target_column`/`target_type` kwargs, and its `build_targets` only ever
+populates `BINARY_CLASSIFICATION` / `REGRESSION` / `LEARNING_TO_RANK`). For a
+multilabel target, subclass the base `FeaturesAndTargetsExtractor` and
+override `build_targets` to populate `TargetTypes.MULTILABEL_CLASSIFICATION`
+yourself:
 - **Polars**: target column is `pl.List(pl.Int8)` or `pl.Array(pl.Int8, K)`.
-  Auto-unpacked to `(N, K)` ndarray by FTE.
+  Stack to `(N, K)` ndarray with `np.stack(col.to_list())`.
 - **Pandas**: target column is `object` dtype with list/tuple cells.
-  Auto-stacked to `(N, K)`.
+  Stack the same way via `np.stack(df[col].tolist())`.
 - **Native 2-D ndarray**: pass as-is.
 
 ```python
+import numpy as np
 import polars as pl
+from mlframe.training import TargetTypes
+from mlframe.training.extractors import FeaturesAndTargetsExtractor
+
 df = pl.DataFrame({
     "feature_a": [1.0, 2.0, 3.0],
     "target": pl.Series([[1, 0, 1], [0, 1, 1], [1, 1, 0]], dtype=pl.List(pl.Int8)),
 })
-fte = SimpleFeaturesAndTargetsExtractor(
-    target_column="target",
-    target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
-)
+
+class MultilabelFTE(FeaturesAndTargetsExtractor):
+    def __init__(self, target_column="target", **kwargs):
+        super().__init__(**kwargs)
+        self.target_column = target_column
+
+    def build_targets(self, df):
+        col = df[self.target_column]
+        arr = np.stack(col.to_list()).astype(np.int8)
+        return {TargetTypes.MULTILABEL_CLASSIFICATION: {self.target_column: arr}}
+
+fte = MultilabelFTE(target_column="target")
 result = fte.transform(df)
-# result[1][TargetTypes.MULTILABEL_CLASSIFICATION]['target'].shape == (3, 3)
+target_by_type = result[1]  # transform() returns an 8-tuple; target_by_type is element [1]
+# target_by_type[TargetTypes.MULTILABEL_CLASSIFICATION]['target'].shape == (3, 3)
 ```
 
 ## Ensembling for multi-output
@@ -215,7 +236,7 @@ acc = _WelfordAccumulator(shape=(N, K))
 for model in models:
     acc.push(model.predict_proba(X_val))  # one (N, K) at a time
 result = acc.result()
-# {'mean': (N, K), 'std': (N, K), 'min': (N, K), 'max': (N, K), 'n': M}
+# {'mean': (N, K), 'var': (N, K), 'std': (N, K), 'min': (N, K), 'max': (N, K), 'n': M}
 ```
 
 Memory: O(N*K) regardless of M. For median/quantile aggregations,

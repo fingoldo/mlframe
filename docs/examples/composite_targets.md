@@ -148,7 +148,7 @@ Notes:
 # Discovered specs with justification numbers
 specs = metadata["composite_target_specs"]["regression"]["TVT"]
 # [
-#   {"name": "TVT__linear_residual__TVT_prev",
+#   {"name": "TVT-linres-TVT_prev",
 #    "transform_name": "linear_residual",
 #    "base_column": "TVT_prev",
 #    "fitted_params": {"alpha": 0.952, "beta": -1.5, ...},

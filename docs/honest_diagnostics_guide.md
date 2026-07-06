@@ -21,30 +21,41 @@ This mirrors the project memory rule ``feedback_ml_val_test_oof_terminology``: v
 
 ## Output shape
 
-The aggregator returns a ``dict`` of the following shape (one entry per trained estimator):
+The entry point is ``run_honest_diagnostics(ctx, models, metadata=None) -> dict``, called from the suite's ``finalize`` phase and stamped into ``metadata["honest_diagnostics"]``. It returns a single ``dict`` with four artefact blocks keyed by ``"{target_type}/{target_name}/{model_name}"`` (not one row per estimator at the top level):
 
 ```python
 {
-    "estimator_name": "lgbm__y_target_0",
-    "target": "y_target_0",
-    "metric": "RMSE",
-    "test": {"point": 11.63, "lo": 11.21, "hi": 12.08},
-    "oof":  {"point": 11.45, "lo": 11.02, "hi": 11.91},
-    "honest_gap_pct": 1.55,
-    "honest_gap_warn": False,
-    "dummy_floor": {"name": "lag_predict", "rmse": 11.58, "delta": -0.05, "warn": True},
-    "calibration": {"calibrator": "NoCal", "ece": None},  # regression -> None
-    "provenance": {
-        "splitter": "GroupKFold(n=5)",
-        "feature_selection": "MRMR(k=auto)",
-        "ensemble_flavour": "CT_ENSEMBLE_NNLS",
-        "seed": 42,
+    "ts": "2026-07-06T02:44:10+00:00",
+    "bootstrap_ci": {
+        "regression/y_target_0/lgbm": {
+            "rmse": {"point": 11.63, "ci_lo": 11.21, "ci_hi": 12.08},
+        },
+        # classification entries instead carry "roc_auc" / "brier" / "log_loss" / "ece",
+        # each as {"point": ..., "ci_lo": ..., "ci_hi": ...}; an entry with no
+        # test_target/test_probs on the model becomes {"status": "skipped", "reason": "..."}
     },
-    "delong": None,  # filled only for classification top-2 pairs
+    "drift_psi": {
+        "status": "skipped",  # or "ok" with a per-column PSI table, when ctx.train_df/val_df/test_df are set
+        "reason": "ctx.train_df is None",
+    },
+    "calibration": {
+        "regression/y_target_0/lgbm": {
+            "status": "skipped",
+            "reason": "no oof_probs on model entry",
+            "probs_posthoc_calibrated": None,
+        },
+    },
+    "provenance": {
+        "status": "ok",
+        "n_steps": 0,
+        "table": "(no provenance recorded)",
+        "raw": {},
+    },
+    "reports_dir": None,  # set when ctx.data_dir / ctx.models_dir are configured
 }
 ```
 
-The structured dict is rendered into a one-pager text table at the bottom of the standard reporting output.
+Each model entry passed in ``models`` (``{target_type: {target_name: [model_entry, ...]}}``) needs ``test_target`` + ``test_probs`` for the bootstrap block, and ``oof_probs`` for the calibration block; missing attributes degrade that block to a `"status": "skipped"` entry rather than raising.
 
 ## Configuration
 
