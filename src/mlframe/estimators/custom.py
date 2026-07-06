@@ -18,19 +18,18 @@ logger = logging.getLogger(__name__)
 import pandas as pd, numpy as np
 from scipy.ndimage import shift
 from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
-from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin, RegressorMixin, MultiOutputMixin
+from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin, RegressorMixin
 
 from numbers import Number
 
 from scipy.special import boxcox
 from sklearn.preprocessing import PowerTransformer
 
-from collections.abc import Iterable
-from sklearn.utils import _safe_indexing, check_array, check_random_state
+from sklearn.utils import check_array, check_random_state
 from sklearn.utils.validation import check_is_fitted
 from sklearn.exceptions import NotFittedError
 from sklearn.compose import TransformedTargetRegressor
-from sklearn.base import _fit_context, clone
+from sklearn.base import clone
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -551,7 +550,6 @@ def soft_winsorize(
 
     if len(idx) > 0:
         if distribution == "linear":
-            print(abs_lower_threshold - (abs_lower_threshold - target[idx]) * rel_lower_limit / rel_min_real_diff)
             target[idx] = abs_lower_threshold - (abs_lower_threshold - target[idx]) * rel_lower_limit / rel_min_real_diff
         elif distribution == "quantile":
             ordered = np.argsort(target[idx])[::-1]

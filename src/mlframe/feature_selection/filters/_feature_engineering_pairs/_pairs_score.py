@@ -608,7 +608,7 @@ def _score_one_pair(
                 if fe_mi > best_mi * 0.85:
                     if not fe_print_best_mis_only or (fe_mi == best_mi):
                         if verbose > 2:
-                            print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
+                            logger.debug("MI of transformed pair %s(%s)=%.4f, MI of the plain pair %.4f", bin_func_name, transformations_pair, fe_mi, pair_mi)
     else:
         for transformations_pair in combs:
             if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
@@ -700,7 +700,7 @@ def _score_one_pair(
                         if fe_mi > best_mi * 0.85:
                             if not fe_print_best_mis_only or (fe_mi == best_mi):
                                 if verbose > 2:
-                                    print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
+                                    logger.debug("MI of transformed pair %s(%s)=%.4f, MI of the plain pair %.4f", bin_func_name, transformations_pair, fe_mi, pair_mi)
                         i += 1
 
     # Merge this pair's per-bin_func timings into the shared accumulator in
@@ -712,7 +712,7 @@ def _score_one_pair(
                 times_spent[_bf] += _dt
 
     if verbose > 2:
-        print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
+        logger.debug("For pair %s, best config is %s with best mi= %s", raw_vars_pair, best_config, best_mi)
 
     # CLEAN-FORM DEMOTION over the per-pair MI winner (2026-06-20). The ``prewarp``
     # pseudo-unary fits a learned 1-D orthogonal-poly warp per operand; on a target whose

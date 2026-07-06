@@ -27,7 +27,7 @@ def _make_binary_focal_loss(gamma: float, alpha: float):
     except ImportError:
         _has_torchvision = False
 
-    def _focal(input, target, reduction: str = "mean"):
+    def _focal(input, target, reduction: str = "mean"):  # noqa: A002 -- matches torch.nn.functional loss-fn convention (input, target)
         # The estimator passes labels as float for the BCE-replacement
         # path (labels_dtype was set to float32). Cast defensively in case
         # a custom carrier slips a Long through.
@@ -36,7 +36,7 @@ def _make_binary_focal_loss(gamma: float, alpha: float):
         # Shape alignment: squeeze either side's (N, 1) -> (N,) so the
         # focal kernel sees matching ranks (BCE-shaped path).
         if input.dim() == 2 and input.shape[-1] == 1 and target.dim() == 1:
-            input = input.squeeze(-1)
+            input = input.squeeze(-1)  # noqa: A001
         elif target.dim() == 2 and target.shape[-1] == 1 and input.dim() == 1:
             target = target.squeeze(-1)
         if _has_torchvision:

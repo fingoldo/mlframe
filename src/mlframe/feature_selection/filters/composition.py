@@ -7,8 +7,11 @@ Both utilities sit on top of ``optimise_hermite_pair``:
 """
 from __future__ import annotations
 
+import logging
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def compose_pair_fe(
@@ -64,7 +67,7 @@ def compose_pair_fe(
 
     for r in range(n_rounds):
         if verbose:
-            print(f"  [compose] round {r + 1}/{n_rounds}, " f"current X shape = {cur_X.shape}", flush=True)
+            logger.debug("[compose] round %d/%d, current X shape = %s", r + 1, n_rounds, cur_X.shape)
         # Single-feature MI ranking on current X.
         single_mi = []
         for j in range(cur_X.shape[1]):
@@ -79,7 +82,7 @@ def compose_pair_fe(
         top_idx = [j for j, _ in single_mi[: 2 * top_k_per_round]]
         if len(top_idx) < 2:
             if verbose:
-                print("  [compose] not enough features with MI>0; stopping")
+                logger.debug("[compose] not enough features with MI>0; stopping")
             break
         # Pair candidates.
         pairs = list(combinations(top_idx, 2))
@@ -115,7 +118,7 @@ def compose_pair_fe(
                 )
             except Exception as e:
                 if verbose:
-                    print(f"    pair ({i},{j}) FE failed: {e}")
+                    logger.debug("pair (%d,%d) FE failed: %s", i, j, e)
                 continue
             if res is None:
                 continue
@@ -139,12 +142,12 @@ def compose_pair_fe(
         })
         if not new_cols:
             if verbose:
-                print(f"  [compose] round {r + 1} added no features; stopping")
+                logger.debug("[compose] round %d added no features; stopping", r + 1)
             break
         cur_X = np.column_stack([cur_X] + new_cols)
         cur_names = cur_names + new_names
         if verbose:
-            print(f"  [compose] round {r + 1} added {len(new_cols)} features: {new_names}")
+            logger.debug("[compose] round %d added %d features: %s", r + 1, len(new_cols), new_names)
 
     return {
         "X_aug": cur_X, "names": cur_names,

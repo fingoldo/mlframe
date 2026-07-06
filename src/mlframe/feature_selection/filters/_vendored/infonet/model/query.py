@@ -39,7 +39,7 @@ class Query_Gen_transformer(nn.Module):
         self.norm_k = nn.LayerNorm(self.hidden_dim)
         self.norm_v = nn.LayerNorm(self.hidden_dim)
 
-    def forward(self, input):
+    def forward(self, input):  # noqa: A002 -- vendored third-party code, matches upstream nn.Module.forward signature
 
         batch_size = input.shape[0]
         query = self.query.repeat(batch_size, 1, 1)
@@ -57,8 +57,8 @@ class Query_Gen_transformer(nn.Module):
         return attention
 
 
-def PositionalEmbedding(input):
-    input = input.squeeze()
+def PositionalEmbedding(input):  # noqa: A002 -- vendored third-party code, matches upstream naming
+    input = input.squeeze()  # noqa: A001
     batch_size = input.shape[0]
     input_dim = input.shape[1]
     positional_embedding = torch.zeros(batch_size, input_dim).to(device)
@@ -103,9 +103,9 @@ class Query_Gen_transformer_PE(nn.Module):
         self.norm_k = nn.LayerNorm(self.hidden_dim)
         self.norm_v = nn.LayerNorm(self.hidden_dim)
 
-    def forward(self, input):
+    def forward(self, input):  # noqa: A002 -- vendored third-party code, matches upstream nn.Module.forward signature
 
-        input = PositionalEmbedding(input)
+        input = PositionalEmbedding(input)  # noqa: A001
 
         X = input[:, :, 0]
         Y = input[:, :, 1]

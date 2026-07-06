@@ -762,10 +762,9 @@ def confirm_one_predictor(
                     if best_partial_gain > next_best_gain:
                         best_gain = next_best_gain
                         if verbose > 2:
-                            print(
-                                "Have no best_candidate anymore. Need to recompute partial gains. best_partial_gain of candidate",
+                            logger.debug(
+                                "Have no best_candidate anymore. Need to recompute partial gains. best_partial_gain of candidate %s was %s",
                                 get_candidate_name(candidates[best_key], factors_names=factors_names),
-                                "was",
                                 best_partial_gain,
                             )
                         break  # out of best candidates confirmation, to retry all cands evaluation

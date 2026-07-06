@@ -1,16 +1,19 @@
 
 from __future__ import annotations
 
-from typing import Any,Sequence,List,Optional,Callable
+import logging
+from typing import Any,Sequence,Optional
 import numpy as np
 from sklearn.cluster import DBSCAN
+
+logger = logging.getLogger(__name__)
 
 def list_cluster_members(labels:Sequence,true_lables:Sequence)->None:
     labels = np.asarray(labels)
     if labels.size == 0:
         return  # max([]) would raise; no clusters to list.
     for group in range(int(labels.max())+1):
-        print([true_lables[i] for i in np.where(labels==group)[0]])
+        print([true_lables[i] for i in np.where(labels==group)[0]])  # noqa: T201 -- interactive display utility, this IS the function's job
         
 def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusterizer:Optional[object]=None,dim_reducer:Optional[object]=None,
                show_plot:Optional[bool]=True,show_metrics:Optional[bool]=True,list_members:Optional[bool]=True,title:str=None):    
@@ -40,16 +43,16 @@ def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusteri
     n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
     n_noise_ = list(labels).count(-1)
 
-    print('Estimated number of clusters: %d' % n_clusters_)
-    print('Estimated number of noise points: %d' % n_noise_)
+    logger.info('Estimated number of clusters: %d', n_clusters_)
+    logger.info('Estimated number of noise points: %d', n_noise_)
     if show_metrics:
-        if len(np.unique(labels))>1:print("Silhouette Coefficient: %0.3f" % metrics.silhouette_score(X, labels))
+        if len(np.unique(labels))>1: logger.info("Silhouette Coefficient: %0.3f", metrics.silhouette_score(X, labels))
         if true_labels is not None:
-            print("Homogeneity: %0.3f" % metrics.homogeneity_score(true_labels, labels))
-            print("Completeness: %0.3f" % metrics.completeness_score(true_labels, labels))
-            print("V-measure: %0.3f" % metrics.v_measure_score(true_labels, labels))
-            print("Adjusted Rand Index: %0.3f" % metrics.adjusted_rand_score(true_labels, labels))
-            print("Adjusted Mutual Information: %0.3f" % metrics.adjusted_mutual_info_score(true_labels, labels))
+            logger.info("Homogeneity: %0.3f", metrics.homogeneity_score(true_labels, labels))
+            logger.info("Completeness: %0.3f", metrics.completeness_score(true_labels, labels))
+            logger.info("V-measure: %0.3f", metrics.v_measure_score(true_labels, labels))
+            logger.info("Adjusted Rand Index: %0.3f", metrics.adjusted_rand_score(true_labels, labels))
+            logger.info("Adjusted Mutual Information: %0.3f", metrics.adjusted_mutual_info_score(true_labels, labels))
         
 
     # #############################################################################

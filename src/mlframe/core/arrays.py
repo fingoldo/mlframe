@@ -1,10 +1,8 @@
 
 from __future__ import annotations
 
-import numba
 import numpy as np
-import pandas as pd
-from numba import cuda, njit, prange
+from numba import njit, prange
 
 ################################################################################################
 # ARRAY STATS
@@ -259,32 +257,32 @@ def arrayCountingArgSortAndUniqueValuesThreaded(array, maxval, mask=_EMPTY_INT32
     return np.array(uniqueValues, np.int32), np.array(uniqueValuesIndices, np.int32), argsorted
 
 
-def topk_by_partition(input: np.ndarray, k: int, axis: int | None = None, ascending: bool = False) -> tuple:
+def topk_by_partition(arr: np.ndarray, k: int, axis: int | None = None, ascending: bool = False) -> tuple:
     """Returns indices and values of TOP-k elements of an array.
 
-    Does NOT mutate the caller's array (previous implementation did `input *= -1` in place).
+    Does NOT mutate the caller's array (previous implementation did `arr *= -1` in place).
     """
     # Copy rather than mutate caller's array; flip sign for descending.
     if not ascending:
-        input = -input
+        arr = -arr
     else:
-        input = np.asarray(input).copy()
+        arr = np.asarray(arr).copy()
 
     # len() on multi-dim arrays gives len of first axis; use shape[axis] for per-axis cap.
-    n_along_axis = input.shape[axis] if axis is not None else input.size
+    n_along_axis = arr.shape[axis] if axis is not None else arr.size
     k = min(k, n_along_axis)
     if k <= 0:
         # Empty selection; return empty arrays with matching shape.
-        empty_ind = np.take(np.argsort(input, axis=axis), np.arange(0), axis=axis)
-        empty_val = np.take(input if ascending else -input, empty_ind, axis=axis)
+        empty_ind = np.take(np.argsort(arr, axis=axis), np.arange(0), axis=axis)
+        empty_val = np.take(arr if ascending else -arr, empty_ind, axis=axis)
         return empty_ind, empty_val
 
     # np.argpartition requires kth in [0, n-1]; clamp.
     part_kth = min(k - 1, n_along_axis - 1) if k == n_along_axis else k
-    ind = np.argpartition(input, min(part_kth, n_along_axis - 1), axis=axis)
+    ind = np.argpartition(arr, min(part_kth, n_along_axis - 1), axis=axis)
     # Slice first k along axis.
     ind = np.take(ind, np.arange(k), axis=axis)
-    vals_part = np.take_along_axis(input, ind, axis=axis) if axis is not None else input[ind]
+    vals_part = np.take_along_axis(arr, ind, axis=axis) if axis is not None else arr[ind]
 
     # sort within k elements
     ind_part = np.argsort(vals_part, axis=axis)

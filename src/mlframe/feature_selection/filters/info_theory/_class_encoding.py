@@ -62,7 +62,7 @@ def merge_vars(
         freqs = np.zeros(expected_nclasses, dtype=np.int64)
         values = factors_data[:, var_index].astype(dtype)
         if verbose:
-            print(f"var={var_index}, classes from {values.min()} to {values.max()}")
+            print(f"var={var_index}, classes from {values.min()} to {values.max()}")  # noqa: T201 -- inside @njit nopython mode, logging isn't supported here
         for sample_row, sample_class in enumerate(values):
             newclass = final_classes[sample_row] + sample_class * current_nclasses
             freqs[newclass] += 1
@@ -80,7 +80,7 @@ def merge_vars(
 
         if nzeros:
             if verbose:
-                print(
+                print(  # noqa: T201 -- inside @njit nopython mode, logging isn't supported here
                     f"skipped {nzeros} cells out of {expected_nclasses}, classes from {final_classes.min()} to {final_classes.max()}, lookup_table={lookup_table}"
                 )
 

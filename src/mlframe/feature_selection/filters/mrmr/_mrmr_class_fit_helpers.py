@@ -171,7 +171,7 @@ class _MRMRFitHelpersMixin:
             eng = [n for n in names if "(" in n]
             n_raw = len(names) - len(eng)
             n_in = getattr(self, "n_features_in_", "?")
-            print(f"\n[MRMR] selected {len(names)} feature(s) " f"({n_raw} raw + {len(eng)} engineered) from {n_in} input(s)")
+            print(f"\n[MRMR] selected {len(names)} feature(s) " f"({n_raw} raw + {len(eng)} engineered) from {n_in} input(s)")  # noqa: T201 -- deliberately print(), not logger: "the one guaranteed-visible line of truth" per this method's docstring
             prov = getattr(self, "fe_provenance_", None)
             if prov is not None and hasattr(prov, "empty") and not prov.empty:
                 disp_cols = [c for c in ("support_rank", "feature_name", "origin", "mrmr_gain") if c in prov.columns]
@@ -182,13 +182,13 @@ class _MRMRFitHelpersMixin:
                     disp = disp.sort_values("support_rank", kind="stable")
                 if "mrmr_gain" in disp.columns:
                     disp["mrmr_gain"] = disp["mrmr_gain"].map(lambda v: f"{float(v):.4f}" if pd.notna(v) else "")
-                print(disp.to_string(index=False))
+                print(disp.to_string(index=False))  # noqa: T201
             else:
-                print("  " + ", ".join(names))
+                print("  " + ", ".join(names))  # noqa: T201
             if eng:
-                print(f"[MRMR] {len(eng)} engineered feature(s) discovered: " + ", ".join(eng))
+                print(f"[MRMR] {len(eng)} engineered feature(s) discovered: " + ", ".join(eng))  # noqa: T201
             else:
-                print("[MRMR] no engineered features survived the MI-prevalence gate " "(fe_min_engineered_mi_prevalence); selection is raw-only")
+                print("[MRMR] no engineered features survived the MI-prevalence gate " "(fe_min_engineered_mi_prevalence); selection is raw-only")  # noqa: T201
         except Exception as exc:
             logger.debug("mrmr: selection-summary print failed (diagnostic only): %r", exc, exc_info=True)
 

@@ -219,6 +219,6 @@ class PeriodicLearningRateFinder(LearningRateFinder):
 
     def on_train_epoch_start(self, trainer, pl_module):
         if (trainer.current_epoch % self.period) == 0 or trainer.current_epoch == 0:
-            print(f"Finding optimal learning rate. Current rate={pl_module.learning_rate}")
+            logger.info("Finding optimal learning rate. Current rate=%s", pl_module.learning_rate)
             self.lr_find(trainer, pl_module)
-            print(f"Set learning rate to {pl_module.learning_rate}")
+            logger.info("Set learning rate to %s", pl_module.learning_rate)

@@ -17,6 +17,7 @@ so ECE/REL bin boundaries match CMAEW exactly across these kernels.
 """
 from __future__ import annotations
 
+import logging
 from math import floor
 
 import numpy as np
@@ -24,6 +25,8 @@ import numba
 
 from .._numba_params import NUMBA_NJIT_PARAMS
 from ._calibration_plot import _fast_calibration_binning_serial
+
+logger = logging.getLogger(__name__)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -425,7 +428,7 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     # Call the serial njit binning kernel directly: ``fast_calibration_binning`` is a plain-Python size dispatcher (not njit), so referencing it from inside this nopython body fails type inference. This wrapper is a one-shot small-n convenience path, so the serial kernel is the right njit-callable choice.
     freqs_predicted, freqs_true, hits = _fast_calibration_binning_serial(y_true, y_pred, nbins)
     if verbose:
-        print(freqs_predicted, freqs_true)
+        logger.debug("freqs_predicted=%s freqs_true=%s", freqs_predicted, freqs_true)
     return calibration_metrics_from_freqs(
         freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, array_size=len(y_true), use_weights=use_weights
     )

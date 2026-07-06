@@ -504,13 +504,16 @@ exclude = ["tests", "scripts", ".git", "__pycache__", "build", "dist", "legacy",
 
 [tool.ruff.lint]
 select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "N",   # pep8-naming
-    "UP",  # pyupgrade
-    "B",   # flake8-bugbear
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "DTZ",  # naive-datetime usage (real bug class: silent local/UTC ambiguity, deprecated utcnow())
+    "A",    # builtin-shadowing names
+    "T20",  # stray print() -- this project routes diagnostics through logger
 ]
 ignore = [
     "E501",   # line-length: project uses 160 chars (CLAUDE.md repeated rule), black + black-line-length above enforce visually
@@ -540,6 +543,14 @@ ignore = [
 "__init__.py" = ["F401", "F403"]
 "tests/**" = ["N801"]
 "src/mlframe/training/_profile_*.py" = ["B023"]
+# T201 (print found): CLI entry points and interactive profile/demo/showcase scripts print to
+# stdout by design -- that IS their interface, not a lint issue vs. converting to logger calls.
+"src/mlframe/system/kernel_tuning_cache/__init__.py" = ["T201"]
+"src/mlframe/**/_profile_*.py" = ["T201"]
+"src/mlframe/**/_smoke_*.py" = ["T201"]
+"src/mlframe/**/_*_showcase.py" = ["T201"]
+# Vendored third-party model code -- left at upstream shape.
+"src/mlframe/feature_selection/filters/_vendored/**" = ["T201", "A001", "A002"]
 
 # ---------------------------------------------------------------------------
 # MyPy
@@ -578,6 +589,13 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 warn_return_any = true
 no_implicit_optional = true
+
+# numba ships no py.typed marker, so mypy can't see njit/prange are real public attributes and
+# flags every `from numba import njit` as attr-defined -- not a real type error, just a stub gap.
+[[tool.mypy.overrides]]
+module = "numba"
+follow_imports = "skip"
+follow_imports_for_stubs = true
 
 # Second strict-mode beachhead: ``mlframe.utils.safe_pickle`` (162 LOC) -- shipped post-2026-05 with
 # full annotations + ``from __future__ import annotations``, public surface consumed by the four

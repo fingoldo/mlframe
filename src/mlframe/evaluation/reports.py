@@ -102,10 +102,10 @@ def get_predicted_classes(predictions: np.ndarray, thresholds: np.ndarray = None
     return probs, preds
 
 
-def regression_stats(y_test, preds, format: str = "_.8f") -> str:
+def regression_stats(y_test, preds, fmt: str = "_.8f") -> str:
     mes = []
     for func in (fast_mean_absolute_error, fast_mean_squared_error, fast_r2_score):
-        res = "{:{fmt}}".format(func(y_test, preds), fmt=format)
+        res = "{:{fmt}}".format(func(y_test, preds), fmt=fmt)
         mes += [f"{func.__name__}: {res}"]
     return ", ".join(mes)
 

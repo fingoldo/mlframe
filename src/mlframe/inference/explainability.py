@@ -193,7 +193,7 @@ def compute_shap_on_cv(
             else:
                 hard_pred = np.argmax(probs, axis=1).astype(np.int8)
             classification_report_text = format_classification_report(all_true_values, hard_pred, nclasses=nclasses, target_names=list(display_labels.values()))
-            print(classification_report_text)
+            logger.info(classification_report_text)
         show_custom_calibration_plot(
             y=all_true_values,
             probs=probs,

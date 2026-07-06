@@ -419,7 +419,6 @@ def _rank_two_stage(
     stage1_cols = _topk(scores, stage1_keep)
     stage_a_dt = time.perf_counter() - t0
     logger.info("ShapProxiedFS prefilter two_stage: stage A done in %.1fs, kept %d/%d", stage_a_dt, int(len(stage1_cols)), int(n_features))
-    print(f"ShapProxiedFS prefilter two_stage: stage A done in {stage_a_dt:.1f}s, " f"kept {len(stage1_cols)}/{n_features}", flush=True)
 
     # Stage B: fit a capped booster on the survivors only and rank by native importances.
     # Keep the survivor slice as a NAMELESS numpy array (do NOT rewrap into a named DataFrame): the
@@ -466,7 +465,6 @@ def _rank_two_stage(
     # Map back to ORIGINAL indices via stage1_cols (positional), then sort for the canonical contract.
     working_cols = np.sort(stage1_cols[local_top])
     logger.info("ShapProxiedFS prefilter two_stage: stage B done in %.1fs, kept %d/%d", stage_b_dt, int(len(working_cols)), int(len(stage1_cols)))
-    print(f"ShapProxiedFS prefilter two_stage: stage B done in {stage_b_dt:.1f}s, " f"kept {len(working_cols)}/{len(stage1_cols)}", flush=True)
     return working_cols, dict(
         method="two_stage", kept=int(len(working_cols)), of=int(n_features),
         stage1_kept=int(len(stage1_cols)), stage1_of=int(n_features),

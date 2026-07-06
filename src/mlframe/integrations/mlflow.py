@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 from typing import Tuple
 import html
 import re
-import pandas as pd, numpy as np
 from enum import Enum
 import mlflow
 
@@ -108,7 +107,7 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experimen
         
         nfailed=0
         if not run_name:
-            print("empty run name!!!")
+            logger.warning("empty run name!!!")
 
         while True:
             try:                

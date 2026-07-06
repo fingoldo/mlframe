@@ -334,4 +334,4 @@ if __name__ == "__main__":
     early_stopping_model.fit(X_train, y_train)
     y_pred = early_stopping_model.predict(X_test)
 
-    print(f"Accuracy: {accuracy_ratio(y_test, y_pred)}")
+    print(f"Accuracy: {accuracy_ratio(y_test, y_pred)}")  # noqa: T201 -- __main__ demo/smoke block, not library code

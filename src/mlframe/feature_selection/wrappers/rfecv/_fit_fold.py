@@ -129,7 +129,7 @@ def _eval_fold_body(
         X_estimator=X_estimator, col_pos=col_pos,
     )
     if verbose > 2:
-        print(f"Train set size={len(y_train):_}, train idx sum={train_index.sum():_}")
+        logger.debug("Train set size=%d, train idx sum=%d", len(y_train), train_index.sum())
 
     _filtered_fit_params: dict = {}
     # Records the early-stopping val re-split (assigned inside the block below).
@@ -152,7 +152,7 @@ def _eval_fold_body(
 
         X_train, y_train, X_val, y_val = split_into_train_test(X=X_train, y=y_train, train_index=true_train_index, test_index=val_index)
         if verbose > 2:
-            print(f"Val set size={len(y_val):_}, val idx sum={val_index.sum():_}")
+            logger.debug("Val set size=%d, val idx sum=%d", len(y_val), val_index.sum())
 
         # If the estimator type is known, craft early-stopping fit params tailored to it.
         # Index cat features against fit_features (the ACTUAL X_train/X_val column

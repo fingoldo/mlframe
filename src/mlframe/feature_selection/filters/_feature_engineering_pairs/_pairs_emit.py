@@ -15,11 +15,15 @@ Selection is byte-for-byte identical to the pre-carve in-function block.
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
 from pyutilz.pythonlib import sort_dict_by_value
 
 from ._pairs_gates import _PREWARP_UNARY, _select_single_best, mi_tie_band
+
+logger = logging.getLogger(__name__)
 
 
 def _emit_pair_features(
@@ -162,7 +166,7 @@ def _emit_pair_features(
         if len(numeric_vars_to_consider) > 2:
 
             if verbose > 2:
-                print(f"Taking {len(leading_features)} new features for a separate validation step!")
+                logger.debug("Taking %d new features for a separate validation step!", len(leading_features))
 
             # Test all candidates as-is against the rest of the approved factors (also as-is). Candidates significantly outstanding (in terms of MI with target)
             # against any other approved factor are kept.

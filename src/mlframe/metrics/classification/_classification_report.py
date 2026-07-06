@@ -17,9 +17,7 @@ What lives here:
 from __future__ import annotations
 
 import logging
-import math
-import warnings
-from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import Any, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -333,8 +331,8 @@ def fast_calibration_report(
         y_true=y_true, y_pred=y_pred, nbins=nbins, strategy=binning_strategy,
     )
     if verbose:
-        print("freqs_predicted", freqs_predicted)
-        print("freqs_true", freqs_true)
+        logger.debug("freqs_predicted=%s", freqs_predicted)
+        logger.debug("freqs_true=%s", freqs_true)
     min_hits, max_hits = (np.min(hits), np.max(hits)) if len(hits) > 0 else (0, 0)
     calibration_mae, calibration_std, calibration_coverage = calibration_metrics_from_freqs(
         freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, array_size=len(y_true), use_weights=use_weights
@@ -655,24 +653,6 @@ def _batch_per_class_ice_kernel(
         else:
             cal_mae = 1.0
             cal_std = 1.0
-
-        # Coverage: number of distinct rounded freqs_pred values / nbins.
-        # Use the same _round_prec rule as the standalone helper.
-        _round_prec = max(1, int(np.ceil(np.log10(max(nbins, 2)))))
-        # Round and count unique (numba can't use set; sort + unique-counting works).
-        if n_nonempty > 0:
-            rounded = np.empty(n_nonempty, dtype=np.float64)
-            scale = 10.0 ** _round_prec
-            for b in range(n_nonempty):
-                rounded[b] = np.round(freqs_pred[b] * scale) / scale
-            rounded = np.sort(rounded)
-            n_unique = 1
-            for b in range(1, n_nonempty):
-                if rounded[b] != rounded[b - 1]:
-                    n_unique += 1
-            cal_cov = n_unique / nbins
-        else:
-            cal_cov = 0.0
 
         # ---- ROC AUC + PR AUC (fast_numba_aucs body inline) ----
         # Walk through (y_t, y_p) in score-desc order, accumulating TP / FP / current_precision / current_recall as in
