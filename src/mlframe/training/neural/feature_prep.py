@@ -22,8 +22,18 @@ from sklearn.base import BaseEstimator, TransformerMixin
 DEFAULT_TEXT_MODEL = "intfloat/multilingual-e5-small"
 
 
-def _as_pandas(X):
-    """Neural pipeline runs on pandas; convert a polars frame defensively (the caller is expected to hand pandas)."""
+def _as_pandas(X, feature_names_in_: "list[str] | None" = None):
+    """Neural pipeline runs on pandas; convert a polars frame defensively (the caller is expected to hand pandas).
+
+    A raw ndarray reaching this step (e.g. an earlier sklearn Pipeline step eagerly materialised the frame to
+    numpy for a NaN-intolerant estimator, per the mlframe eager-conversion convention) is reconstructed into a
+    DataFrame using the column names captured at ``fit`` time (``feature_names_in_``, sklearn's own convention)
+    -- same column ORDER as at fit, which sklearn Pipeline.transform already guarantees. Surfaced by fuzzing
+    (2026-07-06): ``NeuralEmbeddingTextEncoder.transform`` needs real column names for its embedding/text lookup
+    and cannot operate on a bare ndarray with no column identity.
+    """
+    if isinstance(X, np.ndarray) and feature_names_in_ is not None:
+        return pd.DataFrame(X, columns=feature_names_in_)
     if not isinstance(X, pd.DataFrame) and hasattr(X, "to_pandas"):
         return X.to_pandas()
     return X
@@ -87,6 +97,7 @@ class NeuralEmbeddingTextEncoder(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None):
         X = _as_pandas(X)
+        self.feature_names_in_ = list(X.columns)
         cols = set(X.columns)
         self.embedding_dims_: dict = {}
         for c in self.embedding_features:
@@ -101,7 +112,7 @@ class NeuralEmbeddingTextEncoder(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
-        X = _as_pandas(X)
+        X = _as_pandas(X, feature_names_in_=getattr(self, "feature_names_in_", None))
         cols = set(X.columns)
         new_blocks: dict = {}
         for c, dim in getattr(self, "embedding_dims_", {}).items():

@@ -110,3 +110,28 @@ def test_provider_excluded_from_pickle(hf_provider):
     restored = pickle.loads(pickle.dumps(enc))  # must not try to pickle the live HF model
     assert restored.__dict__.get("_provider") is None
     assert restored.text_embedding_dim_ == enc.text_embedding_dim_
+
+
+def test_transform_reconstructs_dataframe_from_ndarray_using_fit_columns():
+    """A sklearn Pipeline step upstream of NeuralEmbeddingTextEncoder can eagerly convert the frame to a
+    raw ndarray (e.g. a NaN-intolerant estimator's own pre-pipeline) before this transformer's OWN
+    ``.transform()`` runs on val/test data -- surfaced by fuzzing (2026-07-06, models=[cb,hgb,mlp,xgb])
+    as ``AttributeError: 'numpy.ndarray' object has no attribute 'columns'``. ``.fit()`` now captures
+    ``feature_names_in_`` (sklearn's own convention) so ``.transform()`` can reconstruct a DataFrame from
+    a same-shape, same-column-order ndarray instead of crashing on the missing ``.columns`` attribute.
+    """
+    n, d = 20, 3
+    rng = np.random.default_rng(2)
+    X = pd.DataFrame({
+        "num_0": rng.normal(size=n).astype(np.float32),
+        "emb_0": [rng.normal(size=d).astype(np.float32) for _ in range(n)],
+    })
+    enc = NeuralEmbeddingTextEncoder(embedding_features=["emb_0"])
+    out_df = enc.fit_transform(X)
+
+    X_arr = X.to_numpy()  # same shape/column order as at fit time, but no column identity
+    out_arr = enc.transform(X_arr)
+    # X.to_numpy() on this mixed float+object(embedding-vector) frame upcasts everything to object dtype
+    # (numpy arrays are homogeneous); the regression is about column IDENTITY/VALUES surviving the
+    # ndarray round-trip, not dtype fidelity (a real eager-conversion ndarray is already fully numeric).
+    pd.testing.assert_frame_equal(out_arr.reset_index(drop=True), out_df.reset_index(drop=True), check_dtype=False)

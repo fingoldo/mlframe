@@ -26,9 +26,7 @@ import polars.selectors as cs
 import pandas as pd, polars as pl, numpy as np
 
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import TimeSeriesSplit
 
-from pyutilz.system import tqdmu
 import pyutilz.polarslib as pllib
 
 ########################################################################################################################################################################################################################################
@@ -112,12 +110,29 @@ def get_model_best_iter(model: object) -> int | None:
     return None
 
 
-def ensure_no_infinity(df: pd.DataFrame | pl.DataFrame, num_cols_only: bool = True) -> pd.DataFrame | pl.DataFrame | None:
+def ensure_no_infinity_np(arr: np.ndarray, nans_filler: float = 0, verbose: int = 1) -> np.ndarray:
+    """``ensure_no_infinity`` for a raw ndarray (some model pre-pipelines -- e.g. PytorchLightning's
+    torch-tensor prep -- materialise the frame to numpy BEFORE the generic pre-fit infinity check runs).
+    Mirrors ``ensure_no_infinity_pd``'s contract: replace +-inf with ``nans_filler`` IN PLACE (integer /
+    bool arrays can't hold inf, so they're a no-op) and warn once if any were found."""
+    if not np.issubdtype(arr.dtype, np.floating):
+        return arr
+    mask = np.isinf(arr)
+    if mask.any():
+        arr[mask] = nans_filler
+        if verbose:
+            logger.warning(f"ndarray contained infinity in {int(mask.sum()):_} cell(s); replaced with {nans_filler}.")
+    return arr
+
+
+def ensure_no_infinity(df: "pd.DataFrame | pl.DataFrame | np.ndarray", num_cols_only: bool = True) -> "pd.DataFrame | pl.DataFrame | np.ndarray | None":
     if isinstance(df, pd.DataFrame):
         return ensure_no_infinity_pd(df=df, num_cols_only=num_cols_only)
     elif isinstance(df, pl.DataFrame):
         return ensure_no_infinity_pl(df=df, num_cols_only=num_cols_only)
-    raise TypeError(f"ensure_no_infinity expects a pandas or polars DataFrame; got {type(df).__name__}.")
+    elif isinstance(df, np.ndarray):
+        return ensure_no_infinity_np(df)
+    raise TypeError(f"ensure_no_infinity expects a pandas or polars DataFrame or a numpy ndarray; got {type(df).__name__}.")
 
 
 def ensure_no_infinity_pl(df: pl.DataFrame, num_cols_only: bool = True, nans_filler: float = 0, verbose: int = 1) -> pl.DataFrame:
