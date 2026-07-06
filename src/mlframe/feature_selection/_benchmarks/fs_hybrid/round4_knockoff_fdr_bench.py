@@ -43,7 +43,8 @@ def main():
     cache = "D:/Temp/rfecv_madelon_support.pkl"
     t0 = time.time()
     if os.path.exists(cache):
-        support = pickle.load(open(cache, "rb")); print("  (loaded cached RFECV support)", flush=True)
+        support = pickle.load(open(cache, "rb"))  # nosec B301 - dev-only benchmark cache; local file this script itself wrote
+        print("  (loaded cached RFECV support)", flush=True)
     else:
         sel = S.RFECVSel("lgbm_perm"); sel.fit(Xtr, ytr)
         support = [c for c in sel.raw_selected_ if c in Xtr.columns]

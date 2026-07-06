@@ -120,7 +120,7 @@ def test_pickle_keeps_tree_attrs_drops_transient():
     import pickle
     X, y = _interaction_frame()
     h = HybridSelector(use_tree_member=True).fit(X, y)
-    h2 = pickle.loads(pickle.dumps(h))
+    h2 = pickle.loads(pickle.dumps(h))  # nosec B301 - round-trips a same-process object, no external input
     assert h2._tree_prod_pairs_ == h._tree_prod_pairs_  # needed to replay tree op cols at transform
     assert h2._tree_prod_names_ == h._tree_prod_names_
     assert h2._tree_op_ == h._tree_op_  # the (a,b,op) spec per column

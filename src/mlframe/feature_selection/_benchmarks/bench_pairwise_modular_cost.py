@@ -69,7 +69,7 @@ def _before_after() -> list[dict]:
     ref = types.ModuleType("_ref_pwm_bench")
     ref.__package__ = "mlframe.feature_selection.filters"
     ref.__name__ = "mlframe.feature_selection.filters._pairwise_modular_fe"
-    exec(compile(ref_src, "ref_pairwise_modular_fe.py", "exec"), ref.__dict__)
+    exec(compile(ref_src, "ref_pairwise_modular_fe.py", "exec"), ref.__dict__)  # nosec B102 - ref_src is this repo's own git-history source (git show HEAD:...), not external input
 
     def frame_sig(p, n, seed=0):
         rng = np.random.default_rng(seed)

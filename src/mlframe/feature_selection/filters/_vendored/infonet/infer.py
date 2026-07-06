@@ -45,9 +45,9 @@ def load_model(config_path, checkpoint_path):
     # checkpoint is tampered with. The checkpoint here is a pure state_dict, so the restriction is sound. torch <1.13 lacks the kwarg;
     # fall back to the legacy call there (those versions also predate the unpickler-restriction feature, so nothing safer is available).
     try:
-        state_dict = torch.load(checkpoint_path, map_location=device, weights_only=True)
+        state_dict = torch.load(checkpoint_path, map_location=device, weights_only=True)  # nosec B614 - weights_only=True restricts the unpickler to plain tensors/state-dicts
     except TypeError:
-        state_dict = torch.load(checkpoint_path, map_location=device)
+        state_dict = torch.load(checkpoint_path, map_location=device)  # nosec B614 - torch<1.13 fallback; predates weights_only, no safer option exists on those versions
     model.load_state_dict(state_dict)
     model.eval()
     return model

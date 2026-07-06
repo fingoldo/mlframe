@@ -63,7 +63,7 @@ def downstream(Xtr, Xte, ytr, yte):
 
 
 def _cache_key(bed, seed, shape):
-    h = hashlib.md5(f"{bed}|{seed}|{shape}".encode()).hexdigest()[:10]
+    h = hashlib.md5(f"{bed}|{seed}|{shape}".encode(), usedforsecurity=False).hexdigest()[:10]
     return os.path.join(CACHE_DIR, f"hybrid_{bed}_s{seed}_{h}.pkl")
 
 
@@ -75,7 +75,7 @@ def fit_hybrid_cached(bed, X, y, seed):
     key = _cache_key(bed, seed, X.shape)
     if os.path.exists(key):
         with open(key, "rb") as f:
-            return pickle.load(f)
+            return pickle.load(f)  # nosec B301 - dev-only benchmark cache; local file this script itself wrote
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=seed, stratify=y)
     t0 = time.time()
     h = HybridSelector(vote=1, use_fe=True, random_state=seed).fit(Xtr, ytr)

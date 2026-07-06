@@ -46,7 +46,7 @@ def _load_old_module() -> types.ModuleType:
     mod = types.ModuleType(pkg_name + "._ratio_delta_fe")
     mod.__package__ = pkg_name
     sys.modules[pkg_name + "._ratio_delta_fe"] = mod
-    exec(compile(src, "<HEAD:_ratio_delta_fe.py>", "exec"), mod.__dict__)
+    exec(compile(src, "<HEAD:_ratio_delta_fe.py>", "exec"), mod.__dict__)  # nosec B102 - src is this repo's own git-history source (git show HEAD:...), not external input
     return mod
 
 

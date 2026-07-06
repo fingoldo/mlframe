@@ -125,7 +125,7 @@ def get_madelon():
     if os.path.exists(MADELON_CACHE):
         try:
             with open(MADELON_CACHE, "rb") as fh:
-                X, y, nm = pickle.load(fh)
+                X, y, nm = pickle.load(fh)  # nosec B301 - dev-only benchmark cache; local file this script itself wrote
             log(f"madelon loaded from cache {MADELON_CACHE} shape={X.shape}")
             return X, y, nm
         except Exception as e:

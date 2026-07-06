@@ -25,7 +25,7 @@ def _load_head_baseline():
         capture_output=True, text=True,
     ).stdout
     ns: dict = {}
-    exec(compile(src, "venn_abers_head", "exec"), ns)
+    exec(compile(src, "venn_abers_head", "exec"), ns)  # nosec B102 - src is this repo's own git-history source (git show HEAD:...), not external input
     return ns["_isotonic_envelopes"]
 
 

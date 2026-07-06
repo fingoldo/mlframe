@@ -643,7 +643,7 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
                         UserWarning,
                         stacklevel=2,
                     )
-                    model = dill.load(zf)
+                    model = dill.load(zf)  # nosec B301 - safe=False is caller opt-in (default safe=True uses _SafeUnpickler); warned above
         if _cache_key is not None:
             _max_count_env = os.environ.get("MLFRAME_LOAD_MODEL_CACHE_MAX", "32")
             try:

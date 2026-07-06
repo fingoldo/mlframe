@@ -7,31 +7,24 @@ from __future__ import annotations
 import glob
 import logging
 import os
-import pickle as _pickle
-from collections import defaultdict
-from copy import deepcopy
 from os.path import exists, join
 
 from scipy import stats
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Optional
 
 import joblib
 import numpy as np
 import pandas as pd
 import polars as pl
-from pyutilz.strings import slugify
 
-from ..configs import TargetTypes
 from ..extractors import FeaturesAndTargetsExtractor
 from ..io import load_mlframe_model
-from ..pipeline import prepare_df_for_catboost
 from ..cb import _predict_with_fallback
-from ..utils import drop_columns_from_dataframe, get_pandas_view_of_polars_df
+from ..utils import get_pandas_view_of_polars_df
 from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,
     get_decision_threshold,
     _drop_cols_df,
-    _setup_model_directories,
     _validate_input_columns_against_metadata,
     _validate_trusted_path,
 )
@@ -158,7 +151,7 @@ def predict_mlframe_models_suite(
             )
         _dctx = _zstd.ZstdDecompressor()
         with open(metadata_file, "rb") as _f:
-            metadata = _pickle.loads(_dctx.decompress(_f.read()))  # BARE_PICKLE_OK: in-memory buffer, sidecar already verified above
+            metadata = _pickle.loads(_dctx.decompress(_f.read()))  # nosec B301 - BARE_PICKLE_OK: in-memory buffer, sidecar already verified above
     elif loader_kind == "pkl":
         from mlframe.utils.safe_pickle import safe_load as _sload
         metadata = _sload(metadata_file, allow_unverified=True)
@@ -329,7 +322,6 @@ def predict_mlframe_models_suite(
                     # UNFITTED placeholder sklearn Pipeline in pre_pipeline; calling
                     # transform on it raises NotFittedError.
                     from sklearn.utils.validation import check_is_fitted
-                    from sklearn.exceptions import NotFittedError
                     try:
                         check_is_fitted(model_obj.pre_pipeline)
                         _pp_fitted = True
