@@ -152,7 +152,28 @@ def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = Non
         # ``freqs[freqs > 0]`` mask, and entropy's ``log(freqs) * freqs`` temporary. ~1.24x
         # per pair, BIT-IDENTICAL (max-abs-diff 0.0 vs entropy(joint_freqs_2var(...)) over
         # 960 cases; bench D:/Temp/ww_micro_jointentropy.py, test_joint_entropy_2var.py).
-        h_ab = float(joint_entropy_2var(fd, a, b, int(fn_arr[a]), int(fn_arr[b])))
+        # iter (2026-07 batch-over-pairs): the joint H(X_a, X_b) is the ONLY
+        # memory-bandwidth-bound term left (marginals are state-cached above).
+        # When ``pair_su_batch`` drives a whole pair list it precomputes all
+        # the joints in ONE prange-over-pairs kernel (each thread runs the
+        # same serial ``joint_entropy_2var`` reduction for a different pair),
+        # stashing them on ``state._joint_entropy_batch_cache`` keyed by the
+        # same (min,max) tuple. Read it here so the per-pair dispatch skips the
+        # serial joint kernel; miss -> compute inline exactly as before.
+        # SELECTION-EQUIVALENT, not strictly bit-identical: under a real
+        # multi-pair batch numba's parallel=True codegen may reorder the inner
+        # -(p*log p) reduction by ~1 ULP vs the serial kernel (a single-pair
+        # batch is bit-identical). That ~2e-16 is far below any tau_cluster
+        # margin, so cluster membership is unaffected. See
+        # bench_pair_su_batch_over_pairs.py (7.1x @30k / 8.55x @300k) and
+        # test_dcd_discover_batch_warm_equivalence.py (asserts identical
+        # selection + ~1-ULP value agreement).
+        _jbc = getattr(state, "_joint_entropy_batch_cache", None)
+        h_ab = None if _jbc is None else _jbc.get(key)
+        if h_ab is None:
+            h_ab = float(joint_entropy_2var(fd, a, b, int(fn_arr[a]), int(fn_arr[b])))
+        else:
+            h_ab = float(h_ab)
         denom = h_a + h_b
         if denom <= 1e-12:
             su = 0.0

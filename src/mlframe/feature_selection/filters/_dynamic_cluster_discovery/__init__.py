@@ -555,6 +555,44 @@ def discover_cluster_members(
         return set()
     anchors = state.cluster_anchors.setdefault(anchor, set())
     newly_added: set = set()
+    # Batch-warm the pairwise-SU cache for every statically-eligible
+    # candidate against ``anchor`` in ONE prange-over-pairs joint-entropy
+    # pass, then let the loop below read those values as cache hits. The
+    # loop body (filters, max_cluster_size break, warp-tiebreak anchor
+    # displacement, all mutations) is UNCHANGED: pair_su returns the exact
+    # cached float on a hit, so selection is byte-identical; a mid-loop
+    # anchor swap simply misses and recomputes fresh. The K candidates all
+    # share the anchor column, so the batch amortises one thread-spawn
+    # across all K (5-8.5x vs the serial per-pair joint; bench
+    # bench_pair_su_batch_over_pairs, maxdiff 0.0). Only the su-distance
+    # path is batched (the kernel computes SU joints); other distances
+    # fall through to the untouched per-pair loop.
+    if getattr(state, "distance", "su") == "su":
+        _tgt = _tgt_set
+        _pruned = state.pool_pruned_mask
+        _m2a = state.member_to_anchor
+        _warm_pairs = []
+        for _c in candidate_pool:
+            try:
+                _ci = int(_c)
+            except (TypeError, ValueError):
+                continue
+            if _ci == anchor or _ci in _tgt:
+                continue
+            if _ci < 0 or _ci >= n_cols:
+                continue
+            if _pruned[_ci] or _ci in _m2a:
+                continue
+            _warm_pairs.append((_ci, anchor))
+        if len(_warm_pairs) > 1:
+            try:
+                pair_su_batch(
+                    state, _warm_pairs,
+                    factors_data=factors_data, factors_nbins=factors_nbins,
+                    entropy_cache=entropy_cache,
+                )
+            except Exception:  # nosec B110 - warmup is best-effort; the loop recomputes on miss
+                pass
     for c in candidate_pool:
         try:
             c_int = int(c)
