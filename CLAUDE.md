@@ -381,7 +381,7 @@ recovery of a**2/b, not Pearson (which over-specified the linear spelling). No b
 
 ## pyutilz hotspots are in scope — optimize them too (CRITICAL)
 
-``pyutilz`` (``D:/Upd/Programming/PythonCodeRepository/pyutilz``) is OUR
+``pyutilz`` (``C:/Users/Admin/Machine learning/pyutilz``) is OUR
 first-party library, not a third-party dependency. When a profile attributes
 a hotspot to a ``pyutilz`` function (it shows up as
 ``...\pyutilz\src\pyutilz\...\*.py:LINE`` in the cProfile output), optimize it
