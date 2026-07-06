@@ -57,11 +57,15 @@ repos:
   # files= regex is gated on a separate review per the gradual-typing
   # policy in CONTRIBUTING.md.
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.14.1
+    rev: v2.1.0
     hooks:
       - id: mypy
         files: '^src/mlframe/calibration/'
-        additional_dependencies: ['numpy', 'scipy', 'scikit-learn', 'pydantic']
+        # numpy is pinned <2.5: 2.5+'s bundled .pyi stubs use PEP 695 `type` statements,
+        # which mypy rejects under our [tool.mypy] python_version="3.10" ("Type statement
+        # is only supported in Python 3.12 and greater") -- an unpinned resolve in this
+        # isolated hook env picked up 2.5.1 while the project's real env still runs 2.3.x.
+        additional_dependencies: ['numpy<2.5', 'scipy', 'scikit-learn', 'pydantic']
 
   - repo: local
     hooks:
