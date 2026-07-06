@@ -457,6 +457,12 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     # to actually WIN on GPU here is to make FE candidates GPU-RESIDENT (eliminating the per-call H2D/D2H
     # the microbench omits) -- the larger matrix-native FE replatform, tracked separately.
     # MLFRAME_MI_BACKEND=cuda forces GPU (handled above) for a caller whose own end-to-end profile shows it.
+    # bench-rejected (2026-07-06): the 1M-wellbore .prof attributes 65.6s tottime to THIS dispatch frame, but
+    # that is cProfile mis-attribution -- numba's compiled C body of _plugin_mi_classif_batch_njit has no python
+    # frame, so its compute time rolls into this plain-python caller's tottime. Isolated wrapper routing (the
+    # 2 cached imports + 2 env reads + gpu_globally_disabled + shape) = 10.1 us/call -> 0.075% at the real
+    # ~157-call F2 count; full-vs-njit A/B aggregate -0.78% (noise). COMPUTE-FLOOR: no wrapper/wasted-work/hoist
+    # win here; see _benchmarks/bench_plugin_mi_batch_dispatch_overhead.py for the numbers.
     return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
 
 _CUDA_KERNELS: dict = {}
