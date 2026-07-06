@@ -209,6 +209,20 @@ jobs:
         run: uvx ruff check src/mlframe
         continue-on-error: true
 
+      # Blocking: mirrors the pre-commit mypy hook's strict-mode beachhead (see
+      # [tool.mypy.overrides] in pyproject.toml) so a commit that passes locally
+      # cannot silently regress once pushed -- previously mypy ran ONLY in the
+      # pre-commit hook (bypassable with --no-verify) and never in CI at all.
+      - name: MyPy (strict-mode beachhead)
+        run: >
+          uvx --with numpy --with scipy --with scikit-learn --with pydantic mypy
+          src/mlframe/system/_gpu_guard.py
+          src/mlframe/metrics/_numba_params.py
+          src/mlframe/metrics/rank_correlation.py
+          src/mlframe/metrics/_core_precision_mape.py
+          src/mlframe/utils/safe_pickle.py
+          src/mlframe/calibration
+
       - name: Run bandit security scan
         run: uvx bandit -r src/mlframe -ll -f json -o bandit-report.json
         continue-on-error: true

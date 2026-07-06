@@ -117,6 +117,20 @@ repos:
         verbose: true
         stages: [pre-commit]
 
+  # Warn-only security-lint gate: bandit -ll (medium+ severity), mirroring the
+  # advisory CI step (continue-on-error) so findings surface locally too, before
+  # only showing up later in the CI artifact. See scripts/bandit_warn.py.
+  - repo: local
+    hooks:
+      - id: bandit-warn
+        name: "bandit security scan (warn-only)"
+        entry: python scripts/bandit_warn.py
+        language: system
+        types: [python]
+        files: '^src/mlframe/'
+        verbose: true
+        stages: [pre-commit]
+
   # Optional: a "fast" alias that runs the static (non-Hypothesis) meta-
   # tests only — useful for ``pre-commit run --hook-stage=manual fast-meta``
   # in tight inner-loop work.
