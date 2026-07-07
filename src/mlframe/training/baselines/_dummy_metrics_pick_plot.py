@@ -415,6 +415,7 @@ def plot_best_dummy_baseline_overlay(
             if lo is None:
                 lo, hi = float(np.nanmin(test_y_s)), float(np.nanmax(test_y_s))
             else:
+                assert hi is not None  # paired with lo: both set together above, or both remain None
                 lo = min(lo, float(np.nanmin(test_y_s)))
                 hi = max(hi, float(np.nanmax(test_y_s)))
         if lo is not None and hi is not None:

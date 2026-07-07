@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import os
 from timeit import default_timer as timer
-from typing import Sequence
+from typing import Sequence, Tuple
 
 import numba
 import numpy as np
@@ -484,7 +484,7 @@ def evaluate_candidate(
     verbose: int = 1,
     ndigits: int = 5,
     use_simple_mode: bool = True,
-) -> None:
+) -> Tuple[float, set]:
     sink_reasons = set()
 
     # Is this candidate any good for target 1-vs-1?

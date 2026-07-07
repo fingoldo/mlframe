@@ -4616,7 +4616,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # for the trivial perfect-name-match case.
     _eng_cols_appended_raw = list(self.hybrid_orth_features_ or []) + list(self.mi_greedy_features_ or [])
     _eng_seen: set[str] = set()
-    _eng_cols_appended = [_c for _c in _eng_cols_appended_raw if not (_c in _eng_seen or _eng_seen.add(_c))]
+    _eng_cols_appended = [_c for _c in _eng_cols_appended_raw if not (_c in _eng_seen or _eng_seen.add(_c))]  # type: ignore[func-returns-value]  # intentional order-preserving-dedup idiom: set.add()'s None return is used as the falsy side of `or`
     # ADAPTIVE-FOURIER columns are NEVER pruned by the cross-stage dedup: the
     # held-out detector already validated the frequency, and a sin/cos pair at
     # one frequency is not monotone-equivalent to a fixed-grid twin, so the
@@ -4947,7 +4947,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _eng_now = [c for c in (list(self.hybrid_orth_features_ or []) + list(self.mi_greedy_features_ or [])) if c in X.columns]
             # Order-preserving unique.
             _seen_u: set[str] = set()
-            _eng_now = [c for c in _eng_now if not (c in _seen_u or _seen_u.add(c))]
+            _eng_now = [c for c in _eng_now if not (c in _seen_u or _seen_u.add(c))]  # type: ignore[func-returns-value]  # intentional order-preserving-dedup idiom: set.add()'s None return is used as the falsy side of `or`
             if len(_eng_now) >= 2:
                 from .._unified_fe_gate import unified_second_pass_gate
 

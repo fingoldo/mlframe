@@ -612,7 +612,7 @@ def _phase_auto_detect_feature_types(
     # serialised into the recipe -- ``list(set(...))`` would reorder per PYTHONHASHSEED,
     # making a fixed-random_state run non-reproducible. Keep first-seen input order.
     _seen_cat: set[str] = set()
-    raw_cat_features = [c for c in ((cat_features or []) + (cat_features_polars or []) + _post_flip_pandas_cats) if not (c in _seen_cat or _seen_cat.add(c))]
+    raw_cat_features = [c for c in ((cat_features or []) + (cat_features_polars or []) + _post_flip_pandas_cats) if not (c in _seen_cat or _seen_cat.add(c))]  # type: ignore[func-returns-value]  # intentional order-preserving-dedup idiom: set.add()'s None return is used as the falsy side of `or`
     # Honor only strictly-user-declared pl.Categorical columns as already-assigned.
     if was_polars_input:
         user_polars_cats = [c for c, dt in zip(detect_df.columns, detect_df.dtypes) if dt == pl.Categorical]

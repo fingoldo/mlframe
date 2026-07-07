@@ -142,7 +142,7 @@ def _rescore_spec_gain(
     x_arrays = [_extract_column_array(df, c, rows=idx) for c in cols]
     x_matrix = np.column_stack(x_arrays).astype(np.float64, copy=False)
 
-    valid = np.asarray(transform.domain_check(y, base), dtype=bool)
+    valid = np.asarray(transform.domain_check(y, base), dtype=bool)  # type: ignore[type-var]  # np.asarray(x, dtype=bool) is valid at runtime; numpy-stub quirk under this module's strict settings
     _dcf = getattr(transform, "domain_check_fitted", None)
     if _dcf is not None and isinstance(spec.fitted_params, dict):
         try:

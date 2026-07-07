@@ -156,7 +156,7 @@ class _MRMRTransformMixin:
     def get_support(self, indices: bool = False):
         from sklearn.utils.validation import check_is_fitted
         check_is_fitted(self)
-        mask = np.zeros(int(self.n_features_in_), dtype=bool)
+        mask = np.zeros(int(self.n_features_in_), dtype=bool)  # type: ignore[type-var]  # np.zeros(n, dtype=bool) is valid at runtime; numpy-stub quirk under this module's strict settings
         _supp = np.asarray(self.support_, dtype=np.intp)
         if _supp.size:
             mask[_supp] = True

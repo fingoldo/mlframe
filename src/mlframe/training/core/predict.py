@@ -617,7 +617,7 @@ def _run_batched(
             except ValueError:
                 merged[_key] = _parts[0]
     # input_df concatenated row-wise so consumers reading the post-extensions frame from the result still see all rows.
-    _input_parts = [b.get("input_df") for b in batch_outs if b.get("input_df") is not None]
+    _input_parts: list = [b.get("input_df") for b in batch_outs if b.get("input_df") is not None]
     if _input_parts:
         try:
             if isinstance(_input_parts[0], pl.DataFrame):

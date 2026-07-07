@@ -226,7 +226,7 @@ def regime_headroom_map(
             rr = float(np.sqrt(sse_raw[b] / W[b]))
             rc = float(np.sqrt(sse_comp[b] / W[b]))
             rl = float(np.sqrt(sse_lag[b] / W[b])) if has_lag else None
-        failsafe = rr if not has_lag else min(rr, rl)
+        failsafe = rr if not has_lag else min(rr, rl if rl is not None else rr)
         headroom = ((failsafe - rc) / failsafe) if failsafe > 0 else None
         cands = [("raw", rr), ("composite", rc)]
         if has_lag:
