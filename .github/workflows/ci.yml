@@ -176,7 +176,11 @@ jobs:
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        # (success() || failure()): a test failure in this shard (even one unrelated to coverage, e.g. a
+        # meta-test) otherwise skips this step by GitHub Actions' default "only if prior steps succeeded"
+        # rule, so codecov never sees that shard's coverage.xml and the merged report stays incomplete --
+        # observed as the badge never updating despite runs completing.
+        if: (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11') && (success() || failure())
         with:
           file: ./coverage.xml
           fail_ci_if_error: false
