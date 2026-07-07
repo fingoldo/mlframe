@@ -91,7 +91,7 @@ _PICKLE_PROTOCOL = 5
 _HASH_DIGEST_BYTES = 16
 
 
-def _hasher() -> "hashlib._Hash":
+def _hasher() -> Any:
     return hashlib.blake2b(digest_size=_HASH_DIGEST_BYTES)
 
 
@@ -121,7 +121,7 @@ def hash_array_summary(arr: np.ndarray, n_summary_rows: int = _DEFAULT_SUMMARY_R
     h.update(dtype_bytes)
     # Empty array: shape+dtype is the whole identity.
     if arr.size == 0:
-        return h.hexdigest()
+        return str(h.hexdigest())
     # Head / tail row bytes. ndim==0 cannot be sliced; hash the raw bytes.
     if arr.ndim == 0:
         h.update(arr.tobytes())
@@ -149,7 +149,7 @@ def hash_array_summary(arr: np.ndarray, n_summary_rows: int = _DEFAULT_SUMMARY_R
             dtype=np.float64,
         )
         h.update(triplet.tobytes())
-    return h.hexdigest()
+    return str(h.hexdigest())
 
 
 def hash_object(obj: Any) -> str:
@@ -163,7 +163,7 @@ def hash_object(obj: Any) -> str:
     """
     h = _hasher()
     _feed(h, obj)
-    return h.hexdigest()
+    return str(h.hexdigest())
 
 
 def _feed(h: "hashlib._Hash", obj: Any) -> None:
@@ -235,7 +235,7 @@ def compose_key(*parts: str) -> str:
         b = str(p).encode("utf-8")
         h.update(struct.pack("<Q", len(b)))
         h.update(b)
-    return h.hexdigest()
+    return str(h.hexdigest())
 
 
 class DiskCache:

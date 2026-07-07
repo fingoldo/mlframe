@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import Union
+from typing import Callable, Union
 
 import pandas as pd, numpy as np
 from sklearn.base import is_classifier, is_regressor
@@ -29,7 +29,7 @@ def get_best_dummy_score(
     y_train: Union[pd.DataFrame, np.ndarray, pd.Series],
     X_test: Union[pd.DataFrame, np.ndarray],
     y_test: Union[pd.DataFrame, np.ndarray, pd.Series],
-    scoring: object,
+    scoring: Callable,
     verbose: bool = False,
 ) -> float:
     """Given estimator type & train and test sets, finds the best respective dummy estimator"""

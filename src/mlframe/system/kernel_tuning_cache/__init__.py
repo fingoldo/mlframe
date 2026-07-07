@@ -90,7 +90,7 @@ def _find_spec(specs: dict, kernel: str):
 
 def _parse_dims(dims: str | None) -> dict:
     """Parse 'a=1,b=2' -> {'a': 1, 'b': 2} (ints where possible, else str)."""
-    out = {}
+    out: dict = {}
     for pair in (dims or "").split(","):
         if "=" not in pair:
             continue

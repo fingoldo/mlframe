@@ -164,7 +164,7 @@ def build_combined_report(
     # never crash the report -- they land in a synthetic section as a visible skipped-entry note.
     section_order: List[str] = []
     section_ids: Dict[str, str] = {}
-    by_section: Dict[str, List[Tuple[str, ChartEntry, Optional[str]]]] = {}
+    by_section: Dict[str, List[Tuple[str, Optional[ChartEntry], Optional[str]]]] = {}
     for raw in chart_entries:
         try:
             e: Optional[ChartEntry] = _coerce_entry(raw)
@@ -190,7 +190,7 @@ def build_combined_report(
         for anchor, e, err in by_section[sec]:
             label = e.label if e else "(malformed)"
             nav_parts.append(f'<a class="child" href="#{anchor}">{html.escape(label)}</a>')
-            body = f'<div class="missing">{html.escape(err)}</div>' if e is None else _render_entry_body(e, out_dir, inline_png_max_bytes)
+            body = f'<div class="missing">{html.escape(err or "unknown error")}</div>' if e is None else _render_entry_body(e, out_dir, inline_png_max_bytes)
             cap = f'<p class="cap">{html.escape(e.caption)}</p>' if (e and e.caption) else ""
             panel_parts.append(f'<section class="panel" id="{anchor}">' f"<h3>{html.escape(label)}</h3>{cap}{body}</section>")
 

@@ -71,7 +71,7 @@ class GroupTimeSeriesSplit(_BaseKFold):
         u, ind = np.unique(groups, return_index=True)
         unique_groups = u[np.argsort(ind)]
         n_groups = _num_samples(unique_groups)
-        group_dict = {}
+        group_dict: dict = {}
         for idx in range(n_samples):
             g = groups[idx]
             if g in group_dict:

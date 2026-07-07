@@ -154,7 +154,7 @@ def fit_composite_similarity(
         raise ValueError("fit_composite_similarity: require 1 <= k < n.")
     if classification is None:
         uniq = np.unique(yy)
-        classification = uniq.shape[0] <= 10 and np.all(uniq == np.round(uniq))
+        classification = bool(uniq.shape[0] <= 10 and np.all(uniq == np.round(uniq)))
     if metric is None:
         metric, greater_is_better = _default_metric(classification)
     grid = np.array([0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0] if grid is None else grid, dtype=np.float64)

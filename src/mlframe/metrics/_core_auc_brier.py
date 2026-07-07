@@ -683,7 +683,8 @@ def fast_aucs(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> tuple[float,
         y_score = y_score[:, -1]
     _check_equal_length(y_true, y_score)
     desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338: dispatcher (unstable default, MLFRAME_METRICS_STABLE_SORT=1 to opt back)
-    return fast_numba_aucs(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
+    roc_auc, pr_auc = fast_numba_aucs(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
+    return float(roc_auc), float(pr_auc)
 
 
 def average_precision_score(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:

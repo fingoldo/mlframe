@@ -298,7 +298,7 @@ def _backtrace_band(
         b = j - i + w
         if 0 <= b < band.shape[1]:
             return float(band[i, b])
-        return INF
+        return float(INF)
 
     path: List[Tuple[int, int]] = []
     i, j = n, m

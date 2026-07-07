@@ -16,6 +16,8 @@ What lives here:
 """
 from __future__ import annotations
 
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -130,7 +132,7 @@ def fast_log_loss_binary(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e
     return float(_fast_log_loss_binary_seq(y_true, y_pred, eps))
 
 
-def fast_log_loss(y_true: np.ndarray, y_pred: np.ndarray, eps: float = None) -> float:
+def fast_log_loss(y_true: np.ndarray, y_pred: np.ndarray, eps: Optional[float] = None) -> float:
     """Fast log loss using numba. Drop-in replacement for sklearn.metrics.log_loss.
 
     Args:
@@ -157,7 +159,7 @@ def fast_log_loss(y_true: np.ndarray, y_pred: np.ndarray, eps: float = None) -> 
 
     # Use dtype's epsilon for sklearn compatibility (eps="auto" behavior)
     if eps is None:
-        eps = np.finfo(y_pred.dtype).eps
+        eps = float(np.finfo(y_pred.dtype).eps)
 
     return fast_log_loss_binary(y_true, y_pred, eps)
 

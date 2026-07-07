@@ -365,7 +365,7 @@ def bucketize_fingerprint(fp: Mapping[str, Any]) -> dict:
 def _rss_mb() -> Optional[float]:
     try:
         import psutil
-        return psutil.Process().memory_info().rss / (1024.0 * 1024.0)
+        return float(psutil.Process().memory_info().rss / (1024.0 * 1024.0))
     except Exception:
         return None
 
@@ -468,7 +468,10 @@ class ParamOracle:
     # ----- objective comparison -----
 
     def _metric_name(self) -> str:
-        return self.minimize if self.minimize is not None else self.maximize
+        # __init__ guarantees exactly one of minimize/maximize is non-None (defaults minimize="elapsed_s" when both omitted).
+        metric = self.minimize if self.minimize is not None else self.maximize
+        assert metric is not None
+        return metric
 
     def _better(self, a: float, b: float) -> bool:
         """True iff objective value ``a`` is strictly better than ``b``."""
@@ -704,7 +707,7 @@ class ParamOracle:
         from collections import defaultdict
         per_bucket: dict[str, list[dict]] = defaultdict(list)
         for r in rows:
-            per_bucket[r.get("fp_bucket_json")].append(r)
+            per_bucket[r.get("fp_bucket_json") or ""].append(r)
 
         target_kind = target_bucket.get("dtype_kind")
         scored: list[tuple[float, dict]] = []

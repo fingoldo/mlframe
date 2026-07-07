@@ -76,7 +76,7 @@ def spearman_exp(lb, num_repeats, exp_range, top_k=7):
 
             res_corrs.append(corrs)
 
-    final_corrs = defaultdict(int)
+    final_corrs: dict = defaultdict(int)
     for corr in res_corrs:
         for col, vals in corr.items():
             if len(vals) > 1:

@@ -169,7 +169,7 @@ def _fast_jaccard_score_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def _popcount64(x: np.uint64) -> np.int64:
+def _popcount64(x: np.uint64) -> int:
     """Population-count for uint64 -- Hacker's Delight bit-twiddle.
 
     Numba doesn't expose ``__builtin_popcountll`` directly; this 5-instruction

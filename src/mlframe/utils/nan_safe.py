@@ -73,7 +73,7 @@ def argmax_classes_safe(
     if probs.ndim == 1:
         # Degenerate 1D case: just argmax with a finite-mask short-circuit.
         if np.all(np.isfinite(probs)):
-            return np.argmax(probs)
+            return np.asarray(np.argmax(probs))
         finite_mask = np.isfinite(probs)
         if not finite_mask.any():
             log.warning(

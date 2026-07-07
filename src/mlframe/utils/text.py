@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 def read_glove_embeddings(
     embeddings_dict: Optional[Dict[str, "Any"]] = None,
-    fpath: Optional[str] = "glove.6B.50d.txt",
+    fpath: str = "glove.6B.50d.txt",
 ) -> Dict[str, "Any"]:
     """Load GloVe vectors into a dict keyed by word.
 

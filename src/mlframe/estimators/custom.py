@@ -418,6 +418,7 @@ def create_dummy_lagged_predictions(y_true: np.ndarray, strategy: str = "constan
     if y_true.size == 0:
         raise ValueError("y_true is empty; cannot compute a median-imputed lagged prediction.")
     if strategy == "constant_lag":
+        shift_params: "int | tuple[int, int]"
         if y_true.ndim == 1:
             shift_params = lag
         elif y_true.ndim == 2:

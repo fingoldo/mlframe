@@ -11,8 +11,8 @@ try:
     from transformers import AutoTokenizer
     import torch
 except (ImportError, OSError):  # pragma: no cover
-    AutoTokenizer = None  # type: ignore[assignment]
-    torch = None  # type: ignore[assignment]
+    AutoTokenizer = None  # type: ignore[assignment,misc]
+    torch = None  # type: ignore[assignment,misc]
 
 
 def naive_masking_score(model, tokenizer, sentence):

@@ -109,7 +109,7 @@ def read_trained_models(
     dump when available.
     """
 
-    models = {}
+    models: dict = {}
     allowed = frozenset(e.lower() for e in allowed_extensions) if allowed_extensions is not None else _ALLOWED_MODEL_EXTENSIONS
 
     fpath = join(inference_folder, featureset)

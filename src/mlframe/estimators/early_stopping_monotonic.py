@@ -107,6 +107,7 @@ class MonotonicDeclineStopper:
             self.best = cur
             self.streak = 0
         else:
+            assert self.prev is not None  # always set together with self.best above
             is_strict_decline = (cur < self.prev) if self._greater_is_better else (cur > self.prev)
             if is_strict_decline:
                 self.streak += 1

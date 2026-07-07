@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import sys
+from typing import Any
 
 
-def analyze_xgboost_model(model: object, print_chunk: int = 0) -> dict:
+def analyze_xgboost_model(model: Any, print_chunk: int = 0) -> dict:
     """Summarize an XGBoost booster (n trees, n leaves, max leaves per tree, dump size).
 
     Leaf counting uses ``trees_to_dataframe()`` when available (authoritative — returns one

@@ -90,8 +90,10 @@ def _confusion_counts_binary_dispatch(y_true: np.ndarray, y_pred: np.ndarray) ->
     yt = np.ascontiguousarray(y_true).astype(np.int64, copy=False)
     yp = np.ascontiguousarray(y_pred).astype(np.int64, copy=False)
     if yt.shape[0] >= _PARALLEL_REDUCTION_THRESHOLD:
-        return _confusion_counts_binary_par(yt, yp, numba.get_num_threads())
-    return _confusion_counts_binary(yt, yp)
+        result = _confusion_counts_binary_par(yt, yp, numba.get_num_threads())
+    else:
+        result = _confusion_counts_binary(yt, yp)
+    return (int(result[0]), int(result[1]), int(result[2]), int(result[3]))
 
 
 def precision_recall_f1_from_counts(tp: int, fp: int, fn: int) -> Tuple[float, float, float]:
@@ -231,7 +233,7 @@ def _ks_statistic_numpy(y_true: np.ndarray, y_score: np.ndarray) -> float:
     return float(_ks_statistic_kernel(yt[order], ys[order]))
 
 
-def ks_statistic(y_true: np.ndarray, y_score: np.ndarray, desc_order: np.ndarray = None) -> float:
+def ks_statistic(y_true: np.ndarray, y_score: np.ndarray, desc_order: Optional[np.ndarray] = None) -> float:
     """Kolmogorov-Smirnov statistic between class-conditional score CDFs.
 
     Returns max_s |F_neg(s) - F_pos(s)| in [0, 1]. Higher is better;
