@@ -403,6 +403,8 @@ def _compute_pipeline_cache_key(
     text_features,
     embedding_features,
     train_df=None,
+    target_name=None,
+    train_target=None,
 ) -> str:
     """Build the PipelineCache lookup key for a (strategy, pre_pipeline, tier, kind, features) combo.
 
@@ -419,6 +421,16 @@ def _compute_pipeline_cache_key(
     target would be served target 1's preprocessed frame and downstream consumers would fail on
     dtype-aware checks. Pandas frames are unaffected because pandas dtype changes already perturb
     the upstream split_features pipeline.
+
+    ``target_name``/``train_target`` fold in a per-target discriminator. Every other ingredient here
+    (strategy flags, pre_pipeline name, tier, cat/text/embedding ROLE lists) is target-INDEPENDENT: two
+    different targets over the identical X schema produce the identical key without this. But a
+    target-dependent ``pre_pipeline`` (MRMR / RFECV feature selection) selects and engineers a DIFFERENT
+    column set per target -- a multi-target suite's Nth target then gets a cache HIT serving the
+    (N-1)th target's transformed frame (wrong column count/set) to a strategy whose encoder/imputer was
+    fit for the correct target, raising a downstream dimension-mismatch (e.g. CatBoostEncoder
+    "Unexpected input dimension"). ``train_target`` is hashed via the same full-content blake2b used by
+    ``_pre_pipeline_cache_key`` so distinct targets never collide even when ``target_name`` repeats.
     """
     _tier_suffix = f"_tier{feature_tier}"
     _kind_suffix = f"_kind{'pl' if supports_polars else 'pd'}"
@@ -446,8 +458,14 @@ def _compute_pipeline_cache_key(
                 _dtype_suffix = f"_dt{hashlib.blake2b(repr(_canon_pairs).encode(), digest_size=6).hexdigest()}"
         except Exception:
             _dtype_suffix = ""
+    _target_suffix = ""
+    if pre_pipeline_name and (target_name is not None or train_target is not None):
+        from ..pipeline._pipeline_cache import _full_target_content_hash
+
+        _target_hash = _full_target_content_hash(train_target) if train_target is not None else ""
+        _target_suffix = f"_tgt{hashlib.blake2b((str(target_name) + _target_hash).encode(), digest_size=8).hexdigest()}"
     if pre_pipeline_name:
-        return f"{strategy_cache_key}_{pre_pipeline_name}{_tier_suffix}{_kind_suffix}{_feats_suffix}{_dtype_suffix}"
+        return f"{strategy_cache_key}_{pre_pipeline_name}{_tier_suffix}{_kind_suffix}{_feats_suffix}{_dtype_suffix}{_target_suffix}"
     return f"{strategy_cache_key}{_tier_suffix}{_kind_suffix}{_feats_suffix}{_dtype_suffix}"
 
 
