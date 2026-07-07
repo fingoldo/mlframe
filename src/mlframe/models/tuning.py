@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 # ****************************************************************************************************************************
@@ -412,9 +411,7 @@ def justify_estimator(
             is_catboost = isinstance(est, (CatBoostRegressor,)) or "catboost" in est.__class__.__module__.lower()
             if is_catboost:
                 rng = np.random.default_rng(random_state)
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X, y, test_size=test_size, random_state=int(rng.integers(0, 2**32 - 1))
-                )
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=int(rng.integers(0, 2**32 - 1)))
                 fit_kwargs = {"eval_set": (X_test, y_test), "plot": plot, "verbose": False}
                 if early_stopping_rounds is not None:
                     fit_kwargs["early_stopping_rounds"] = early_stopping_rounds
@@ -666,14 +663,14 @@ class CatboostParamsOptimizer(ParamsOptimizer):
             "border_count": [None, randint(30, 300)],
             "model_size_reg": randint(1, 10),
             "one_hot_max_size": [None, randint(2, 300)],
-            "ctr_leaf_count_limit": [
-                None,
-                randint(10, 100),
-            ]
-            if not GPU_ENABLED
-            else [
-                None
-            ],  # The maximum number of leaves with categorical features. If the quantity exceeds the specified value a part of leaves is discarded. This option reduces the resulting model size and the amount of memory required for training. Note that the resulting quality of the model can be affected.
+            "ctr_leaf_count_limit": (
+                [
+                    None,
+                    randint(10, 100),
+                ]
+                if not GPU_ENABLED
+                else [None]
+            ),  # The maximum number of leaves with categorical features. If the quantity exceeds the specified value a part of leaves is discarded. This option reduces the resulting model size and the amount of memory required for training. Note that the resulting quality of the model can be affected.
             "random_strength": [
                 1,
                 randint(1, 5),
@@ -692,9 +689,9 @@ class CatboostParamsOptimizer(ParamsOptimizer):
             # ----------------------------------------------------------------------------------------------------------------------------
             # Cat params
             # ----------------------------------------------------------------------------------------------------------------------------
-            "sampling_unit": ["Object", "Group"]
-            if groups
-            else ["Object"],  # The sampling scheme. #No groups in dataset. Please disable sampling or use per object sampling
+            "sampling_unit": (
+                ["Object", "Group"] if groups else ["Object"]
+            ),  # The sampling scheme. #No groups in dataset. Please disable sampling or use per object sampling
             "boosting_type": [
                 None,
                 "Plain",

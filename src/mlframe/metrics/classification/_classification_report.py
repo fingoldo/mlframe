@@ -111,11 +111,7 @@ def format_classification_report(
         )
     lines.append("")
     lines.append(
-        f"{'accuracy':>{label_width}}  "
-        f"{'':>{digits + 5}} "
-        f"{'':>{digits + 5}} "
-        f"{accuracy:>{digits + 5}.{digits}f} "
-        f"{n_total:>{digits + 6}}"
+        f"{'accuracy':>{label_width}}  " f"{'':>{digits + 5}} " f"{'':>{digits + 5}} " f"{accuracy:>{digits + 5}.{digits}f} " f"{n_total:>{digits + 6}}"
     )
     lines.append(
         f"{'macro avg':>{label_width}}  "
@@ -700,11 +696,7 @@ def _batch_per_class_ice_kernel(
             pr_auc = pr_acc
 
         # ---- Combine into ICE (integral_calibration_error_from_metrics body) ----
-        base_loss = (
-            brier * brier_loss_weight
-            + cal_mae * mae_weight
-            + cal_std * std_weight
-        )
+        base_loss = brier * brier_loss_weight + cal_mae * mae_weight + cal_std * std_weight
         roc_term = 0.0 if np.isnan(roc_auc) else np.abs(roc_auc - 0.5) * roc_auc_weight
         pr_term = 0.0 if np.isnan(pr_auc) else pr_auc * pr_auc_weight
         ice = base_loss - roc_term - pr_term

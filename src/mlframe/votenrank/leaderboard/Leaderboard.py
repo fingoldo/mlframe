@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from pyutilz.system import tqdmu as tqdm
@@ -91,21 +90,15 @@ class Leaderboard:
         if self.majority_graph is not None:
             return
         wins = {
-            model: ((self.ranks.loc[model] < self.ranks) * self.weights).sum(axis=1)
-            > ((self.ranks.loc[model] > self.ranks) * self.weights).sum(axis=1)
+            model: ((self.ranks.loc[model] < self.ranks) * self.weights).sum(axis=1) > ((self.ranks.loc[model] > self.ranks) * self.weights).sum(axis=1)
             for model in self.models
         }
         ties = {
-            model: ((self.ranks.loc[model] < self.ranks) * self.weights).sum(axis=1)
-            == ((self.ranks.loc[model] > self.ranks) * self.weights).sum(axis=1)
+            model: ((self.ranks.loc[model] < self.ranks) * self.weights).sum(axis=1) == ((self.ranks.loc[model] > self.ranks) * self.weights).sum(axis=1)
             for model in self.models
         }
 
-        self.majority_graph = (
-            pd.DataFrame(wins).transpose()
-            + 0.5 * pd.DataFrame(ties).transpose()
-            + np.eye(self.n_models) * 0.5
-        )
+        self.majority_graph = pd.DataFrame(wins).transpose() + 0.5 * pd.DataFrame(ties).transpose() + np.eye(self.n_models) * 0.5
 
     def elect_all(self, use_methods: List[str] = None, drop_mean=False):
         result = []
@@ -131,13 +124,7 @@ class Leaderboard:
                 params = ParameterGrid(METHODS_SETTINGS[method])
                 for some_params in params:
                     election_result = func(**some_params)
-                    result.append(
-                        (
-                            f"Method: {method}, Params: {some_params}",
-                            election_result,
-                            len(election_result)
-                        )
-                    )
+                    result.append((f"Method: {method}, Params: {some_params}", election_result, len(election_result)))
             else:
                 election_result = func()
                 result.append((f"Method: {method}, Params: {{}}", election_result, len(election_result)))
@@ -145,15 +132,7 @@ class Leaderboard:
         final["method"].replace(PRETTY_NAMES, inplace=True)
         return final
 
-    def rank_all(
-        self,
-        task_groups=None,
-        group_weights=None,
-        insert_nan=True,
-        use_methods: List[str] = None,
-        drop_mean=False,
-        return_tie_numbers=False
-    ):
+    def rank_all(self, task_groups=None, group_weights=None, insert_nan=True, use_methods: List[str] = None, drop_mean=False, return_tie_numbers=False):
         result = []
 
         if use_methods is not None:
@@ -189,9 +168,7 @@ class Leaderboard:
                             ranking_params=some_params,
                             insert_nan=insert_nan,
                         )
-                    to_print = (
-                        ranking.apply(lambda x: f"{x:.2f}: ") + ranking.index
-                    ).to_numpy()
+                    to_print = (ranking.apply(lambda x: f"{x:.2f}: ") + ranking.index).to_numpy()
                     result[f"Method: {method}, Params: {some_params}"] = to_print
 
                     tie_numbers[f"Method: {method}, Params: {some_params}"] = ranking.shape[0] - ranking.nunique()
@@ -205,9 +182,7 @@ class Leaderboard:
                         group_weights=group_weights,
                         insert_nan=insert_nan,
                     )
-                to_print = (
-                    ranking.apply(lambda x: f"{x:.2f}: ") + ranking.index
-                ).to_numpy()
+                to_print = (ranking.apply(lambda x: f"{x:.2f}: ") + ranking.index).to_numpy()
                 result[f"Method: {method}, Params: {{}}"] = to_print
                 tie_numbers[f"Method: {method}, Params: {{}}"] = ranking.shape[0] - ranking.nunique()
 
@@ -233,10 +208,7 @@ class Leaderboard:
         # Wave 31 (2026-05-20): assert -> ValueError. SILENT-CORRECTNESS
         # bug under -O: partition violations produced wrong meta-tables.
         if set(group_set) != set(self.tasks):
-            raise ValueError(
-                f"get_meta_leaderboard: group partition tasks {set(group_set)} "
-                f"do not match self.tasks {set(self.tasks)}."
-            )
+            raise ValueError(f"get_meta_leaderboard: group partition tasks {set(group_set)} " f"do not match self.tasks {set(self.tasks)}.")
         if group_counts.max() != 1:
             raise ValueError(
                 f"get_meta_leaderboard: task assignment is not a partition "
@@ -246,9 +218,7 @@ class Leaderboard:
 
         meta_table = pd.DataFrame(index=self.table.index, columns=task_groups.keys())
         for key, tasks in task_groups.items():
-            sub_lb = Leaderboard(
-                self.table[tasks], weights=self.weights[tasks].to_dict()
-            )
+            sub_lb = Leaderboard(self.table[tasks], weights=self.weights[tasks].to_dict())
 
             func = getattr(sub_lb, f"{ranking_method}_ranking")
             ranking_params = ranking_params or {}
@@ -278,9 +248,7 @@ class Leaderboard:
         ranking_params = ranking_params or {}
         return func(**ranking_params)
 
-    def find_weights_for_condorcet(
-        self, winner_model: str, restrictions: Dict[str, List] = None
-    ):
+    def find_weights_for_condorcet(self, winner_model: str, restrictions: Dict[str, List] = None):
         edge_list = []
         for model in self.models:
             if model == winner_model:
@@ -288,9 +256,7 @@ class Leaderboard:
             else:
                 edge_list.append((model, winner_model))
 
-        return self._find_weights_for_majority_graph(
-            edge_list, restrictions=restrictions
-        )
+        return self._find_weights_for_majority_graph(edge_list, restrictions=restrictions)
 
     def split_models_by_feasibility(self, restrictions: Dict[str, List] = None):
         result = {"feasible": [], "infeasible": []}

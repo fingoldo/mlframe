@@ -128,10 +128,7 @@ def predict_mlframe_models_suite(
         metadata_file = metadata_file_legacy
         loader_kind = "joblib"
     else:
-        raise FileNotFoundError(
-            f"Metadata file not found in {models_path}; expected one of "
-            f"metadata.pkl.zst, metadata.pkl, metadata.joblib"
-        )
+        raise FileNotFoundError(f"Metadata file not found in {models_path}; expected one of " f"metadata.pkl.zst, metadata.pkl, metadata.joblib")
 
     if verbose:
         logger.info("Loading metadata from %s...", metadata_file)
@@ -146,9 +143,7 @@ def predict_mlframe_models_suite(
         import pickle as _pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
         import zstandard as _zstd
         if not _vsidecar(metadata_file, allow_unverified=True):
-            raise RuntimeError(
-                f"predict_mlframe_models_suite: sha256 sidecar mismatch on {metadata_file!r}; refusing to load."
-            )
+            raise RuntimeError(f"predict_mlframe_models_suite: sha256 sidecar mismatch on {metadata_file!r}; refusing to load.")
         _dctx = _zstd.ZstdDecompressor()
         with open(metadata_file, "rb") as _f:
             metadata = _pickle.loads(_dctx.decompress(_f.read()))  # nosec B301 - BARE_PICKLE_OK: in-memory buffer, sidecar already verified above
@@ -188,10 +183,7 @@ def predict_mlframe_models_suite(
     _all_model_files = glob.glob(join(models_path, "**", "*.dump"), recursive=True)
     if model_names:
         _name_set = set(model_names)
-        _model_files_for_native_probe = [
-            _f for _f in _all_model_files
-            if os.path.basename(_f).replace(".dump", "") in _name_set
-        ]
+        _model_files_for_native_probe = [_f for _f in _all_model_files if os.path.basename(_f).replace(".dump", "") in _name_set]
         if not _model_files_for_native_probe:
             logger.warning(
                 "predict_mlframe_models_suite: model_names=%r matched 0 of %d .dump files in %s; falling back "
@@ -335,15 +327,14 @@ def predict_mlframe_models_suite(
                             input_for_model = model_obj.pre_pipeline.transform(input_for_model)
                         except Exception as _pp_exc:
                             logger.warning(
-                                "predict_mlframe_models_suite: %s pre_pipeline.transform "
-                                "raised %s: %s. Skipping pre_pipeline.",
-                                model_name, type(_pp_exc).__name__,
+                                "predict_mlframe_models_suite: %s pre_pipeline.transform " "raised %s: %s. Skipping pre_pipeline.",
+                                model_name,
+                                type(_pp_exc).__name__,
                                 str(_pp_exc).splitlines()[0][:160],
                             )
                     elif verbose:
                         logger.debug(
-                            "predict_mlframe_models_suite: %s has unfitted "
-                            "pre_pipeline; skipping .transform.",
+                            "predict_mlframe_models_suite: %s has unfitted " "pre_pipeline; skipping .transform.",
                             model_name,
                         )
 
@@ -531,6 +522,6 @@ def predict_mlframe_models_suite(
             results["ensemble_probabilities"] = all_probs[0]
 
     if verbose:
-        logger.info("Generated predictions for %d models", len(results['predictions']))
+        logger.info("Generated predictions for %d models", len(results["predictions"]))
 
     return results

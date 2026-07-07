@@ -36,7 +36,6 @@ from pyutilz.system import ensure_dir_exists
 from .utils import log_ram_usage, filter_existing
 
 
-
 from ._data_helpers import _prepare_df_for_model
 
 logger = logging.getLogger(__name__)
@@ -222,9 +221,9 @@ def _decategorise_float_cat_columns(train_df, val_df=None, test_df=None):
             except Exception as _e_dt:
                 import logging as _logging
                 _logging.getLogger(__name__).debug(
-                    "_eval_helpers: dtype access failed for col=%r (%s) in "
-                    "de-cat helper; col not considered for de-cat.",
-                    _col, _e_dt,
+                    "_eval_helpers: dtype access failed for col=%r (%s) in " "de-cat helper; col not considered for de-cat.",
+                    _col,
+                    _e_dt,
                 )
                 continue
             if not isinstance(_dt, pd.CategoricalDtype):
@@ -238,9 +237,9 @@ def _decategorise_float_cat_columns(train_df, val_df=None, test_df=None):
                 # category values downstream.
                 import logging as _logging
                 _logging.getLogger(__name__).debug(
-                    "_eval_helpers: cat.categories.dtype access failed for "
-                    "col=%r (%s); col not considered for de-cat.",
-                    _col, _e_cat,
+                    "_eval_helpers: cat.categories.dtype access failed for " "col=%r (%s); col not considered for de-cat.",
+                    _col,
+                    _e_cat,
                 )
                 continue
             # 'f'=float, 'c'=complex. Both signal a target-encoded
@@ -292,9 +291,7 @@ def _filter_categorical_features(fit_params, train_df, val_df=None, test_df=None
 
         for split in (train_df, val_df, test_df):
             if isinstance(split, pd.DataFrame):
-                cat_columns.update(
-                    split.select_dtypes(list(PANDAS_CATEGORICAL_SELECT_DTYPES)).columns
-                )
+                cat_columns.update(split.select_dtypes(list(PANDAS_CATEGORICAL_SELECT_DTYPES)).columns)
     elif isinstance(train_df, pl.DataFrame):
         from .strategies import get_polars_cat_columns
 

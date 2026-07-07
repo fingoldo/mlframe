@@ -13,7 +13,6 @@ from typing import Any, NamedTuple
 import numpy as np
 import pandas as pd
 
-
 # ---------------------------------------------------------------------
 # Public API surface
 # ---------------------------------------------------------------------
@@ -119,10 +118,7 @@ class BaselineReport(NamedTuple):
             # before serialization (they bloat metadata.pkl and are
             # not useful at load time -- they're consumed
             # synchronously by the pre-training overlay plotter).
-            "extras": {
-                k: v for k, v in self.extras.items()
-                if k not in ("strongest_val_preds", "strongest_test_preds")
-            },
+            "extras": {k: v for k, v in self.extras.items() if k not in ("strongest_val_preds", "strongest_test_preds")},
         }
 
     def format_text(self, default_level: str = "INFO") -> str:
@@ -145,10 +141,7 @@ class BaselineReport(NamedTuple):
         )
 
         if self.strongest is None:
-            lines.append(
-                f"[DUMMY_BASELINES] target='{self.target_name}' strongest=None"
-                f" (both splits degenerate; review table manually)"
-            )
+            lines.append(f"[DUMMY_BASELINES] target='{self.target_name}' strongest=None" f" (both splits degenerate; review table manually)")
             return "\n".join(lines)
 
         # Verdict line with strongest baseline metric.
@@ -156,9 +149,7 @@ class BaselineReport(NamedTuple):
             strongest_row = self.table.loc[self.strongest]
             primary_val = strongest_row.get(self.primary_metric, float("nan"))
             # Lift vs mean / prior trivial baseline (whichever is in table).
-            trivial_name = "mean" if "mean" in self.table.index else (
-                "prior" if "prior" in self.table.index else None
-            )
+            trivial_name = "mean" if "mean" in self.table.index else ("prior" if "prior" in self.table.index else None)
             lift_str = ""
             if trivial_name is not None and trivial_name != self.strongest:
                 trivial_val = self.table.loc[trivial_name].get(self.primary_metric, float("nan"))
@@ -216,17 +207,11 @@ class BaselineReport(NamedTuple):
                     f" (n_resamples={self.extras.get('bootstrap_ci_n_resamples', 1000)})"
                 )
         except Exception as e:
-            lines.append(
-                f"[DUMMY_BASELINES] target='{self.target_name}'"
-                f" strongest={self.strongest} (verdict format failed: {e})"
-            )
+            lines.append(f"[DUMMY_BASELINES] target='{self.target_name}'" f" strongest={self.strongest} (verdict format failed: {e})")
 
         # Plot path line (when present).
         if self.plot_path:
-            lines.append(
-                f"[DUMMY_BASELINES] target='{self.target_name}'"
-                f" overlay plot saved: {self.plot_path}"
-            )
+            lines.append(f"[DUMMY_BASELINES] target='{self.target_name}'" f" overlay plot saved: {self.plot_path}")
 
         # Extras: per-output multi-output strongest-pick.
         if "per_output_strongest" in self.extras:
@@ -245,9 +230,7 @@ class BaselineReport(NamedTuple):
                 )
 
         if str(default_level).upper() == "DEBUG" and self.table is not None and not self.table.empty:
-            lines.append(
-                f"[DUMMY_BASELINES] target='{self.target_name}' full table:\n{self.table.to_string()}"
-            )
+            lines.append(f"[DUMMY_BASELINES] target='{self.target_name}' full table:\n{self.table.to_string()}")
 
         return "\n".join(lines)
 
@@ -255,5 +238,3 @@ class BaselineReport(NamedTuple):
 # ---------------------------------------------------------------------
 # Hash recipe for sweep-orchestrator memoization
 # ---------------------------------------------------------------------
-
-

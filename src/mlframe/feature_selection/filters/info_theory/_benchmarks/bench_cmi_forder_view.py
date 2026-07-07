@@ -51,10 +51,7 @@ def main():
         os.environ["MLFRAME_CMI_FORDER"] = "1"
         cm.reset_cmi_forder_cache()
         ton = best()
-        print(
-            f"n={n} p={p} nb={nb}: C-order={toff*1000:7.1f}ms  F-order={ton*1000:7.1f}ms  "
-            f"speedup={toff/ton:.2f}x  maxdiff={maxdiff:.1e}"
-        )
+        print(f"n={n} p={p} nb={nb}: C-order={toff*1000:7.1f}ms  F-order={ton*1000:7.1f}ms  " f"speedup={toff/ton:.2f}x  maxdiff={maxdiff:.1e}")
 
 
 if __name__ == "__main__":

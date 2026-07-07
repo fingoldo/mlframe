@@ -232,9 +232,7 @@ def fit_region_adaptive(
         if len(yk) < 2:
             # Empty/degenerate region: fall back to a no-op linear_residual fit.
             best_name = "linear_residual"
-            best_params = _TRANSFORMS_REGISTRY[best_name].fit(
-                yk if len(yk) else y[:2], bk if len(bk) else base[:2]
-            )
+            best_params = _TRANSFORMS_REGISTRY[best_name].fit(yk if len(yk) else y[:2], bk if len(bk) else base[:2])
             tr_names.append(best_name)
             tr_params.append(best_params)
             tr_scores.append(-np.inf)

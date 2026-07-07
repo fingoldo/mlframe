@@ -34,8 +34,6 @@ logger = logging.getLogger(__name__)
 _GPU_PROBE_LOCK = threading.RLock()
 
 
-
-
 def _maybe_get_or_build_cb_pool(
     model_type_name: str,
     model: Any,
@@ -112,26 +110,18 @@ def _maybe_get_or_build_cb_pool(
     # joint train+val codebooks; this guard reconciles the two views.
     try:
         if isinstance(train_df, pd.DataFrame):
-            _cat_dtype_cols = [
-                c for c, dt in zip(train_df.columns, train_df.dtypes)
-                if isinstance(dt, pd.CategoricalDtype)
-            ]
+            _cat_dtype_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes) if isinstance(dt, pd.CategoricalDtype)]
             # Any category-dtype column NOT already routed via text_features /
             # embedding_features must appear in cat_features - otherwise CB
             # Pool rejects it with "has dtype 'category' but is not in
             # cat_features list". Text/embedding columns are CB-supported via
             # their respective parameters, so we don't widen there.
-            _missing = [
-                c for c in _cat_dtype_cols
-                if c not in cat_features
-                and c not in text_features
-                and c not in embedding_features
-            ]
+            _missing = [c for c in _cat_dtype_cols if c not in cat_features and c not in text_features and c not in embedding_features]
             if _missing:
                 logger.info(
-                    "[cb-pool-reuse] auto-widening cat_features with %d category-dtype "
-                    "column(s) missing from explicit list: %s",
-                    len(_missing), _missing,
+                    "[cb-pool-reuse] auto-widening cat_features with %d category-dtype " "column(s) missing from explicit list: %s",
+                    len(_missing),
+                    _missing,
                 )
                 cat_features = tuple(sorted(set(cat_features) | set(_missing)))
                 fit_params["cat_features"] = list(cat_features)
@@ -143,9 +133,9 @@ def _maybe_get_or_build_cb_pool(
             _cat_dt_routed_as_text = [c for c in _cat_dtype_cols if c in text_features]
             if _cat_dt_routed_as_text:
                 logger.info(
-                    "[cb-pool-reuse] decategorising %d text-feature column(s) "
-                    "(category dtype -> object) before Pool: %s",
-                    len(_cat_dt_routed_as_text), _cat_dt_routed_as_text,
+                    "[cb-pool-reuse] decategorising %d text-feature column(s) " "(category dtype -> object) before Pool: %s",
+                    len(_cat_dt_routed_as_text),
+                    _cat_dt_routed_as_text,
                 )
                 # Shallow copy: only the text-routed columns are cast below; deep-copying a 100+ GB train frame to recast a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
                 train_df = train_df.copy(deep=False)

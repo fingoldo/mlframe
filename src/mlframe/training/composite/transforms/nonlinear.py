@@ -35,7 +35,6 @@ from . import (  # noqa: E402
     _FRAC_DIFF_DEFAULT_LAGS,
 )
 
-
 # Module-level numba kernels (JIT compile on first call); pure-Python fallback is the in-line recursion below when numba is absent.
 # Backend ladder: EWMA + frac-diff-inverse are LEFT-RECURRENT in row order (out[i] = f(out[i-1], ...)) so prange over rows is impossible; the win comes from a BATCHED kernel (K, N) parallelising across K specs while each row recurrence stays serial. CUDA RawKernel (one block per spec) tried and rejected: sequential per-thread recurrence is bandwidth-bound + host-device transfer kills it (5-100x SLOWER than njit at every size, see _benchmarks/_results/bench_ewma_frac_diff_backends_*.json). Two backends retained: single-spec njit (production) + parallel-batched njit.
 if _HAS_NUMBA:
@@ -594,8 +593,7 @@ def _ewma_anchor(params: dict[str, Any]) -> float:
         return float(params["tail_anchor"])
     return float(params["anchor"])
 def _ewma_compute(base: np.ndarray, k: int, anchor: float) -> np.ndarray:
-    """Exponentially-weighted moving average using ``alpha = 2 / (k + 1)``. Non-finite base values inherit the previous EWMA state (carry-forward), keeping the recursion well-defined on rows the upstream domain check did not yet flag. Single-spec public API; routes through :func:`_ewma_dispatch` so a future force-override or HW-tuned threshold can replace the default njit path without touching every caller. Numba kernel ~300x over pure Python on n=1M; pure-Python fallback otherwise.
-    """
+    """Exponentially-weighted moving average using ``alpha = 2 / (k + 1)``. Non-finite base values inherit the previous EWMA state (carry-forward), keeping the recursion well-defined on rows the upstream domain check did not yet flag. Single-spec public API; routes through :func:`_ewma_dispatch` so a future force-override or HW-tuned threshold can replace the default njit path without touching every caller. Numba kernel ~300x over pure Python on n=1M; pure-Python fallback otherwise."""
     base_f = np.ascontiguousarray(np.asarray(base, dtype=np.float64).reshape(-1))
     return _ewma_dispatch(base_f, float(k), float(anchor))
 
@@ -689,8 +687,7 @@ def _ewma_dispatch(base_f: np.ndarray, k_param: float, anchor: float) -> np.ndar
 def _ewma_compute_batched(
     base_batch: np.ndarray, ks: np.ndarray, anchors: np.ndarray,
 ) -> np.ndarray:
-    """Batched public API: run K independent EWMA specs on a (K, N) base matrix and return the (K, N) EWMA result. Each row carries its own ``k`` (half-life) and ``anchor`` (state-zero value). When K>=2 AND N is sufficiently large the parallel-batched njit kernel kicks in -- routed through :func:`_lookup_ewma_backend` so HW-tuned thresholds persist via kernel_tuning_cache. Bench: 2.7-3.8x over per-spec dispatch at K>=10, N>=100k; callers evaluating many EWMA specs on the same series (e.g. cross-target discovery scanning k in [3, 5, 7, 14, 21]) should batch via this entry point.
-    """
+    """Batched public API: run K independent EWMA specs on a (K, N) base matrix and return the (K, N) EWMA result. Each row carries its own ``k`` (half-life) and ``anchor`` (state-zero value). When K>=2 AND N is sufficiently large the parallel-batched njit kernel kicks in -- routed through :func:`_lookup_ewma_backend` so HW-tuned thresholds persist via kernel_tuning_cache. Bench: 2.7-3.8x over per-spec dispatch at K>=10, N>=100k; callers evaluating many EWMA specs on the same series (e.g. cross-target discovery scanning k in [3, 5, 7, 14, 21]) should batch via this entry point."""
     base_batch = np.ascontiguousarray(np.asarray(base_batch, dtype=np.float64))
     if base_batch.ndim == 1:
         base_batch = base_batch.reshape(1, -1)
@@ -698,9 +695,7 @@ def _ewma_compute_batched(
     ks_a = np.ascontiguousarray(np.asarray(ks, dtype=np.float64).reshape(-1))
     anchors_a = np.ascontiguousarray(np.asarray(anchors, dtype=np.float64).reshape(-1))
     if ks_a.size != K or anchors_a.size != K:
-        raise ValueError(
-            f"_ewma_compute_batched: ks shape {ks_a.shape} and anchors shape {anchors_a.shape} must each equal (K={K},)"
-        )
+        raise ValueError(f"_ewma_compute_batched: ks shape {ks_a.shape} and anchors shape {anchors_a.shape} must each equal (K={K},)")
     alphas = 2.0 / (ks_a + 1.0)
     if not _HAS_NUMBA:
         out = np.empty((K, N), dtype=np.float64)
@@ -858,18 +853,18 @@ def _rolling_median(arr: np.ndarray, k: int) -> np.ndarray:
             lo_i = max(_left, k_eff - 1 - _shift)
             hi_i = n - 1 - _shift
             if hi_i >= lo_i:
-                out[lo_i:hi_i + 1] = _fwd[lo_i + _shift:hi_i + _shift + 1]
+                out[lo_i : hi_i + 1] = _fwd[lo_i + _shift : hi_i + _shift + 1]
             # Boundary positions (head + tail, O(k) of them): centred window
             # truncates to the array; compute its median directly to match
             # pandas exactly (the historic constant tail-fill was wrong).
             for i in range(0, min(max(lo_i, 0), n)):
                 lo = i - _left if i - _left > 0 else 0
                 hi = i + _shift if i + _shift < n - 1 else n - 1
-                out[i] = np.median(arr_f[lo:hi + 1])
+                out[i] = np.median(arr_f[lo : hi + 1])
             for i in range(max(hi_i + 1, 0), n):
                 lo = i - _left if i - _left > 0 else 0
                 hi = i + _shift if i + _shift < n - 1 else n - 1
-                out[i] = np.median(arr_f[lo:hi + 1])
+                out[i] = np.median(arr_f[lo : hi + 1])
         except ImportError:
             out = None
     if out is None:
@@ -994,8 +989,7 @@ def _make_multi_chain_transform(
     unary_stages: list,
     description: str,
 ):
-    """Multi-stage chain: bivariate + N unary stages. ``unary_stages`` is a list of ``(fit, forward, inverse)`` tuples; each runs in order at forward, in reverse at inverse. Used to register e.g. ``chain([linres, cbrt, quantile_normal])`` for very heavy-tail residuals.
-    """
+    """Multi-stage chain: bivariate + N unary stages. ``unary_stages`` is a list of ``(fit, forward, inverse)`` tuples; each runs in order at forward, in reverse at inverse. Used to register e.g. ``chain([linres, cbrt, quantile_normal])`` for very heavy-tail residuals."""
     # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
     from . import TAG_EXTENDED, TAG_REGRESSION, Transform, _chain_multi_fit_raw, _chain_multi_forward_raw, _chain_multi_inverse_raw
 

@@ -73,9 +73,8 @@ def _validate_metadata_version_envelope(metadata: dict, models_path: str) -> Non
                 f"current mlframe."
             )
         logger.info(
-            "mlframe predict: bundle at %s has no schema_version "
-            "(legacy v1 artifact, no composite specs) -- loading with "
-            "v1 semantics.", models_path,
+            "mlframe predict: bundle at %s has no schema_version " "(legacy v1 artifact, no composite specs) -- loading with " "v1 semantics.",
+            models_path,
         )
         return
     if schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
@@ -101,8 +100,8 @@ def _validate_metadata_version_envelope(metadata: dict, models_path: str) -> Non
             live_sig = _env_sig()
         except Exception as _e_env:
             logger.debug(
-                "mlframe predict: env_signature() unavailable (%s); "
-                "skipping composite-env skew check.", _e_env,
+                "mlframe predict: env_signature() unavailable (%s); " "skipping composite-env skew check.",
+                _e_env,
             )
             return
         if live_sig != saved_sig:
@@ -155,9 +154,9 @@ def _ensure_pandas_view(df: Any, view_cache: dict) -> Any:
     return _view
 
 
-
-
-def _load_ct_ensemble_entries(models_path: str, slug_to_original_target_type: dict, slug_to_original_target_name: dict, trusted_root: str | None = None) -> dict:
+def _load_ct_ensemble_entries(
+    models_path: str, slug_to_original_target_type: dict, slug_to_original_target_name: dict, trusted_root: str | None = None
+) -> dict:
     """Scan ``models_path`` for cross-target ensemble dumps stored under ``<target_type_slug>/_CT_ENSEMBLE__<original_target>/CT_ENSEMBLE.dump`` and return a nested dict keyed ``{target_type: {_CT_ENSEMBLE__<orig>: [entry]}}`` so callers can merge it into the loaded ``models`` structure."""
     out: dict = defaultdict(lambda: defaultdict(list))
     _ct_files = glob.glob(join(models_path, "**", "_CT_ENSEMBLE__*", "*.dump"), recursive=True)
@@ -268,20 +267,13 @@ def _combine_probs(
     # For multiclass the (N,K>2) matrix is consumed as a probability simplex (argmax, log_loss, calibration,
     # reporting), so rescale each row to sum 1. Gated to MULTICLASS only: binary keeps the [:,1] semantics and
     # multilabel's per-label columns are independent (not a simplex), so neither may be renormalised.
-    _is_multiclass_tt = target_type == TargetTypes.MULTICLASS_CLASSIFICATION or str(
-        getattr(target_type, "value", target_type)
-    ) == TargetTypes.MULTICLASS_CLASSIFICATION.value
-    if (
-        _is_multiclass_tt
-        and quantile_alphas is None
-        and combined.ndim == 2
-        and combined.shape[1] > 2
-    ):
+    _is_multiclass_tt = (
+        target_type == TargetTypes.MULTICLASS_CLASSIFICATION or str(getattr(target_type, "value", target_type)) == TargetTypes.MULTICLASS_CLASSIFICATION.value
+    )
+    if _is_multiclass_tt and quantile_alphas is None and combined.ndim == 2 and combined.shape[1] > 2:
         _row = combined.sum(axis=1, keepdims=True)
         np.divide(combined, _row, out=combined, where=_row > 0)
     return combined
-
-
 
 
 def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features, enum_domains=None):
@@ -307,16 +299,8 @@ def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features, enum_
         return input_for_model
     _model_module = type(model).__module__ or ""
     _model_cls_name = type(model).__name__
-    _is_lgb = (
-        _model_module.startswith("lightgbm")
-        or _model_module.endswith("lgb_shim")
-        or "LGBM" in _model_cls_name
-    )
-    _is_xgb = (
-        _model_module.startswith("xgboost")
-        or _model_module.endswith("xgb_shim")
-        or "XGB" in _model_cls_name
-    )
+    _is_lgb = _model_module.startswith("lightgbm") or _model_module.endswith("lgb_shim") or "LGBM" in _model_cls_name
+    _is_xgb = _model_module.startswith("xgboost") or _model_module.endswith("xgb_shim") or "XGB" in _model_cls_name
     if not (_is_lgb or _is_xgb):
         return input_for_model
 
@@ -372,8 +356,6 @@ def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features, enum_
                     type(_exc).__name__,
                 )
     return input_for_model
-
-
 
 
 def _is_post_hoc_calibrated_model(model_obj: Any) -> bool:
@@ -493,8 +475,7 @@ def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name
         # known TargetType-style key sits at the top level; if so, use _ec
         # itself as the bucket so old persisted metadata still resolves.
         _looks_flat = isinstance(_ec, dict) and any(
-            (isinstance(_v, dict) and _v and all(isinstance(_kk, str) and isinstance(_vv, str) for _kk, _vv in _v.items()))
-            for _v in _ec.values()
+            (isinstance(_v, dict) and _v and all(isinstance(_kk, str) and isinstance(_vv, str) for _kk, _vv in _v.items())) for _v in _ec.values()
         )
         _bucket = _ec if _looks_flat else None
     if _bucket is not None and target_type is not None:
@@ -567,8 +548,7 @@ def _replay_suite_datetime_decomposition(df, metadata, verbose: int = 0):
         for _accessor, _dtype_name in _methods_key:
             _resolved_methods[_accessor] = _dtype_resolvers.get(_dtype_name, _np.int8)
         if verbose:
-            logger.info("Replaying datetime decomposition (%s) on %d source col(s): %s",
-                        "/".join(sorted(_resolved_methods.keys())), len(_srcs), _srcs)
+            logger.info("Replaying datetime decomposition (%s) on %d source col(s): %s", "/".join(sorted(_resolved_methods.keys())), len(_srcs), _srcs)
         df = create_date_features(df, cols=_srcs, delete_original_cols=True, methods=_resolved_methods)
     return df
 
@@ -578,7 +558,7 @@ def _slice_frame(df: Any, start: int, length: int) -> Any:
     if isinstance(df, pl.DataFrame):
         return df.slice(start, length)
     if isinstance(df, pd.DataFrame):
-        return df.iloc[start: start + length]
+        return df.iloc[start : start + length]
     raise TypeError(f"_slice_frame: unsupported type {type(df).__name__}")
 
 
@@ -649,10 +629,6 @@ def _run_batched(
     return merged
 
 
-
-
-
-
 def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tuple[dict, dict]:
     """
     Load a trained mlframe models suite from disk.
@@ -684,10 +660,7 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
         metadata_file = metadata_file_legacy
         _kind = "joblib"
     else:
-        raise FileNotFoundError(
-            f"Metadata file not found in {models_path}; expected one of "
-            f"metadata.pkl.zst, metadata.pkl, metadata.joblib"
-        )
+        raise FileNotFoundError(f"Metadata file not found in {models_path}; expected one of " f"metadata.pkl.zst, metadata.pkl, metadata.joblib")
 
     _root = trusted_root if trusted_root is not None else os.path.abspath(models_path)
     _validate_trusted_path(metadata_file, _root)
@@ -701,9 +674,7 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
         import pickle as _pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
         import zstandard as _zstd
         if not _vsidecar(metadata_file, allow_unverified=True):
-            raise RuntimeError(
-                f"predict_from_models: sha256 sidecar mismatch on {metadata_file!r}; refusing to load."
-            )
+            raise RuntimeError(f"predict_from_models: sha256 sidecar mismatch on {metadata_file!r}; refusing to load.")
         _dctx = _zstd.ZstdDecompressor()
         with open(metadata_file, "rb") as _f:
             metadata = _pickle.loads(_dctx.decompress(_f.read()))  # nosec B301 - BARE_PICKLE_OK: in-memory buffer, sidecar already verified above

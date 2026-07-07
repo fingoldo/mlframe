@@ -155,10 +155,7 @@ def ensemble_probabilistic_predictions(
     """
     # Wave 31 (2026-05-20): assert -> ValueError so -O preserves input validation.
     if ensemble_method not in SIMPLE_ENSEMBLING_METHODS and ensemble_method not in RANK_FUSION_METHODS:
-        raise ValueError(
-            f"unknown ensemble_method {ensemble_method!r}; expected one of "
-            f"{SIMPLE_ENSEMBLING_METHODS + RANK_FUSION_METHODS}"
-        )
+        raise ValueError(f"unknown ensemble_method {ensemble_method!r}; expected one of " f"{SIMPLE_ENSEMBLING_METHODS + RANK_FUSION_METHODS}")
     confident_indices = None
 
     # Filter out None preds while keeping ``precomputed_weights`` aligned with the surviving
@@ -457,5 +454,3 @@ def ensemble_probabilistic_predictions_streaming(
             uncertainty = uncertainty
 
     return ensembled_predictions, uncertainty, None
-
-

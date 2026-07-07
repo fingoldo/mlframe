@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 # *****************************************************************************************************************************************************
@@ -122,11 +121,7 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         relevant calibrator classes (imported lazily so optional deps can be missing).
         """
         # Late imports: some of these are optional (dirichletcal) or may be reshuffled upstream.
-        needs_2d_types = [
-            cls
-            for module_path, class_name in _NEEDS_2D_CALIBRATORS
-            if (cls := _try_import_class(module_path, class_name)) is not None
-        ]
+        needs_2d_types = [cls for module_path, class_name in _NEEDS_2D_CALIBRATORS if (cls := _try_import_class(module_path, class_name)) is not None]
         # "Top" calibrators (e.g. TopLabelCalibrator style) preserve 2D shape; match by class-name
         # prefix here as there is no single importable base — minimal remaining substring check.
         if type(calibrator).__name__.startswith("Top"):
@@ -298,10 +293,7 @@ def get_postcalibrators(calib_target: np.ndarray, num_bins: int) -> list[NamedCa
                 fit_method_name="train_calibration",
                 transform_method_name="calibrate",
             )
-            for _cls in (
-                getattr(verified_calibration, _name, None)
-                for _name in ("HistogramCalibrator", "PlattBinnerCalibrator", "PlattCalibrator")
-            )
+            for _cls in (getattr(verified_calibration, _name, None) for _name in ("HistogramCalibrator", "PlattBinnerCalibrator", "PlattCalibrator"))
             if _cls is not None
         ],
         *[named_calibrator(BetaCalibration(variant), lib="betacal", param_str=f"variant={variant}") for variant in ["abm", "ab", "am"]],
@@ -463,10 +455,7 @@ def compare_postcalibrators(
         # feature_importances column which isn't useful for calibrator comparison.
         PERF_DICT_COL = 1
         metrics_df = (
-            metrics_df.drop(columns=[PERF_DICT_COL])
-            .join(metrics_df[PERF_DICT_COL].apply(pd.Series))
-            .drop(columns=["feature_importances"])
-            .sort_values("ice")
+            metrics_df.drop(columns=[PERF_DICT_COL]).join(metrics_df[PERF_DICT_COL].apply(pd.Series)).drop(columns=["feature_importances"]).sort_values("ice")
         )
 
     return metrics_df, fit_calibrators
@@ -587,16 +576,10 @@ def train_postcalibrators(
         raise ValueError("train_postcalibrators: calib_probs_per_model is empty.")
     _n_calib = _calib_arrays[0].shape[0]
     if _calib_target_np.shape[0] != _n_calib:
-        raise ValueError(
-            f"train_postcalibrators: calib_target length {_calib_target_np.shape[0]} "
-            f"does not match calib_probs row count {_n_calib}."
-        )
+        raise ValueError(f"train_postcalibrators: calib_target length {_calib_target_np.shape[0]} " f"does not match calib_probs row count {_n_calib}.")
     for _i, _p in enumerate(_calib_arrays):
         if _p.shape[0] != _n_calib:
-            raise ValueError(
-                f"train_postcalibrators: calib_probs_per_model[{_i}] has {_p.shape[0]} rows; "
-                f"expected {_n_calib} aligned to calib_target."
-            )
+            raise ValueError(f"train_postcalibrators: calib_probs_per_model[{_i}] has {_p.shape[0]} rows; " f"expected {_n_calib} aligned to calib_target.")
 
     # ensemble_probabilistic_predictions returns a 3-tuple (preds, uncertainty, confident_idx).
     # Pre-fix this site unpacked into TWO names -- raising ValueError on every reachable call.

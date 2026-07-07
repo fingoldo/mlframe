@@ -165,9 +165,7 @@ def setup_configuration(
     # from it, so one source keeps them consistent). An explicit operator env
     # wins over the config default.
     _cache_frac = getattr(behavior_config, "pipeline_cache_ram_budget_fraction", None)
-    if _cache_frac is not None and not _os.environ.get(
-        "MLFRAME_PIPELINE_CACHE_RAM_FRACTION"
-    ) and not _os.environ.get("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT"):
+    if _cache_frac is not None and not _os.environ.get("MLFRAME_PIPELINE_CACHE_RAM_FRACTION") and not _os.environ.get("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT"):
         _os.environ["MLFRAME_PIPELINE_CACHE_RAM_FRACTION"] = str(float(_cache_frac))
 
     # Module-level overrides for residual_audit + inline_display.
@@ -237,14 +235,10 @@ def setup_configuration(
             pass
     _step_done("_warmup_numba_kernels (JIT prewarm)")
 
-    composite_target_discovery_config = _ensure_config(
-        composite_target_discovery_config, CompositeTargetDiscoveryConfig, {}
-    )
+    composite_target_discovery_config = _ensure_config(composite_target_discovery_config, CompositeTargetDiscoveryConfig, {})
     _step_done("_ensure_config(CompositeTargetDiscoveryConfig)")
     if _os.environ.get("MLFRAME_DISABLE_COMPOSITE", "").lower() in {"1", "true", "yes"}:
-        composite_target_discovery_config = _ensure_config(
-            {"enabled": False}, CompositeTargetDiscoveryConfig, {}
-        )
+        composite_target_discovery_config = _ensure_config({"enabled": False}, CompositeTargetDiscoveryConfig, {})
         logger.info("[CompositeTargetDiscovery] disabled by MLFRAME_DISABLE_COMPOSITE env var.")
 
     data_dir = output_config.data_dir
@@ -261,15 +255,12 @@ def setup_configuration(
         output_config.plot_file = ""
 
     if verbose:
-        _plot_dir = (
-            f"{data_dir}/{models_dir}/{model_name}" if data_dir and save_charts else "(no save)"
-        )
+        _plot_dir = f"{data_dir}/{models_dir}/{model_name}" if data_dir and save_charts else "(no save)"
         if _short_circuit_active:
             logger.info(
-                "[reporting] save_charts=%s, interactive=%s -- "
-                "cal-plot short-circuit ACTIVE: clearing plot_file so "
-                "chart rendering is skipped entirely",
-                save_charts, _is_interactive_logp,
+                "[reporting] save_charts=%s, interactive=%s -- " "cal-plot short-circuit ACTIVE: clearing plot_file so " "chart rendering is skipped entirely",
+                save_charts,
+                _is_interactive_logp,
             )
         else:
             logger.info(
@@ -361,9 +352,9 @@ def setup_configuration(
         # was renamed". Anything else (MemoryError, our own bug) should propagate so the
         # stale-Pool risk doesn't silently re-emerge as before.
         logger.warning(
-            "CB Pool cache clear skipped: %s: %s. id()-recycle across suite calls "
-            "may now feed stale binned data to CatBoost; investigate.",
-            type(_cache_clear_err).__name__, _cache_clear_err,
+            "CB Pool cache clear skipped: %s: %s. id()-recycle across suite calls " "may now feed stale binned data to CatBoost; investigate.",
+            type(_cache_clear_err).__name__,
+            _cache_clear_err,
         )
 
     if mlframe_models is None:

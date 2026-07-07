@@ -71,8 +71,7 @@ def _bench_shape(n, k, n_bins=20, seed=0, reps=7):
 
 def main():
     print("plugin_mi_classif_batch_dispatch overhead microbench (CPU njit)")
-    print(f"MLFRAME_MI_BACKEND={os.environ.get('MLFRAME_MI_BACKEND')!r} "
-          f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')!r}")
+    print(f"MLFRAME_MI_BACKEND={os.environ.get('MLFRAME_MI_BACKEND')!r} " f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')!r}")
     print()
     print(f"{'n':>8} {'k':>5} {'full_ms':>9} {'njit_ms':>9} {'wrap_us':>9} {'wrap_%':>7} {'maxdiff':>9}")
     shapes = [
@@ -81,8 +80,7 @@ def main():
     ]
     for n, k in shapes:
         t_full, t_njit, over, md = _bench_shape(n, k)
-        print(f"{n:>8} {k:>5} {t_full*1e3:>9.3f} {t_njit*1e3:>9.3f} "
-              f"{over*1e6:>9.1f} {100*over/t_full:>6.2f}% {md:>9.1e}")
+        print(f"{n:>8} {k:>5} {t_full*1e3:>9.3f} {t_njit*1e3:>9.3f} " f"{over*1e6:>9.1f} {100*over/t_full:>6.2f}% {md:>9.1e}")
 
     # Aggregate wrapper cost over a realistic call-count distribution (from
     # _orth_mi_backends note: warm F2 100k had ~157 dispatch calls; scale-agnostic
@@ -97,8 +95,7 @@ def main():
         total_over += over * cnt
         total_full += t_full * cnt
         print(f"  k={k:>4} x{cnt:>3}: wrap {over*1e6:>7.1f}us/call -> {over*cnt*1e3:>7.2f}ms")
-    print(f"  TOTAL: wrapper {total_over*1e3:.2f}ms of full {total_full*1e3:.2f}ms "
-          f"= {100*total_over/total_full:.2f}%")
+    print(f"  TOTAL: wrapper {total_over*1e3:.2f}ms of full {total_full*1e3:.2f}ms " f"= {100*total_over/total_full:.2f}%")
 
 
 if __name__ == "__main__":

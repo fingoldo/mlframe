@@ -56,9 +56,7 @@ def _entropy_col_onto_classes(x_col, nb_x, base_classes, base_nclasses, n_rows) 
 
 
 @njit(cache=True)
-def conditional_mi_col(
-    x_col, nb_x, z_classes, z_nclasses, yz_classes, yz_nclasses, entropy_z, entropy_yz
-) -> float:
+def conditional_mi_col(x_col, nb_x, z_classes, z_nclasses, yz_classes, yz_nclasses, entropy_z, entropy_yz) -> float:
     """``I(X; Y | Z)`` for a STANDALONE candidate column ``x_col`` (not a factors_data index), given the
     precomputed dense class labelings of ``Z`` and ``(Y,Z)`` and their (permutation-invariant) entropies.
 
@@ -88,18 +86,14 @@ def mi_col(x_col, nb_x, y_classes, y_nclasses, entropy_x, entropy_y) -> float:
 
 
 @njit(parallel=True, cache=True)
-def _member_null_cmi_prange(
-    shuffles, nb_x, z_classes, z_nclasses, yz_classes, yz_nclasses, entropy_z, entropy_yz, member_rel
-) -> int:
+def _member_null_cmi_prange(shuffles, nb_x, z_classes, z_nclasses, yz_classes, yz_nclasses, entropy_z, entropy_yz, member_rel) -> int:
     """prange over the ``B`` pre-generated shuffles: count draws whose conditional MI meets/exceeds the
     observed ``member_rel``. Each iteration reads its own row of ``shuffles`` and allocates its own histogram
     (thread-local), so there is no shared mutable state -- no frame copy, no mutate-restore."""
     B = shuffles.shape[0]
     exceed = np.zeros(B, dtype=np.int64)
     for b in prange(B):
-        val = conditional_mi_col(
-            shuffles[b], nb_x, z_classes, z_nclasses, yz_classes, yz_nclasses, entropy_z, entropy_yz
-        )
+        val = conditional_mi_col(shuffles[b], nb_x, z_classes, z_nclasses, yz_classes, yz_nclasses, entropy_z, entropy_yz)
         if val >= member_rel:
             exceed[b] = 1
     return int(exceed.sum())
@@ -117,9 +111,7 @@ def _member_null_mi_prange(shuffles, nb_x, y_classes, y_nclasses, entropy_x, ent
     return int(exceed.sum())
 
 
-def _run_member_null_serial(
-    *, state, member_idx, member_rel, B_, rng_m, target_arr_m, S_minus_anchor, entropy_z, entropy_yz, member_col_orig, logger
-) -> float:
+def _run_member_null_serial(*, state, member_idx, member_rel, B_, rng_m, target_arr_m, S_minus_anchor, entropy_z, entropy_yz, member_col_orig, logger) -> float:
     """Exact legacy serial mutate-and-restore path -- fallback for tiny ``B`` where prange spawn is not worth
     it. Preserves the try/except fail-closed (return 1.0) + finally-restore semantics."""
     try:
@@ -163,9 +155,7 @@ def _run_member_null_serial(
         state.factors_data[:, member_idx] = member_col_orig
 
 
-def run_member_null(
-    *, state, member_idx: int, member_rel: float, B_: int, anchor: int, target, S_minus_anchor, logger=None
-) -> float:
+def run_member_null(*, state, member_idx: int, member_rel: float, B_: int, anchor: int, target, S_minus_anchor, logger=None) -> float:
     """Member permutation-null p-value ``(n_exceed + 1) / (B + 1)``, parallelized across cores for
     production ``B`` and falling back to the exact serial mutate-restore path for tiny ``B``.
 
@@ -200,9 +190,7 @@ def run_member_null(
             entropy_yz = float(entropy(fyz))
         else:
             # No-Z: I(X;Y). H(X) is permutation-invariant (shuffle preserves the marginal) -> hoist it too.
-            _, fx, _ = merge_vars(
-                state.factors_data, np.array([member_idx], dtype=np.int64), None, fnbins
-            )
+            _, fx, _ = merge_vars(state.factors_data, np.array([member_idx], dtype=np.int64), None, fnbins)
             entropy_x = float(entropy(fx))
             y_classes, fy, y_nclasses = merge_vars(state.factors_data, np.sort(target_arr_m), None, fnbins)
             entropy_y = float(entropy(fy))

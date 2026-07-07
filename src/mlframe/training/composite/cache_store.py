@@ -5,7 +5,6 @@ composition primitives stay in the sibling ``cache.py``, which re-exports ``Disc
 and ``_discovery_cache_bytes_total`` from here so ``from ...composite.cache import DiscoveryCache``
 keeps resolving. Pure stdlib + ``mlframe.utils.safe_pickle``; no composite-internal deps."""
 
-
 from __future__ import annotations
 
 import contextlib
@@ -325,8 +324,8 @@ class DiscoveryCache:
                 "or delete the file to recompute. An oversized entry usually means an unintended "
                 "full-train ndarray got pickled into the discovery instance upstream.",
                 path,
-                _file_size / 1024 ** 3,
-                _max_bytes / 1024 ** 3,
+                _file_size / 1024**3,
+                _max_bytes / 1024**3,
             )
             return default
         # Route the load through safe_pickle so a corrupt-sidecar finding (digest mismatch from
@@ -470,18 +469,13 @@ class DiscoveryCache:
         # Enumerate every on-disk entry from the in-memory size map, defaulting unseen-in-LRU ones to
         # ts=0 (legacy / external writes evict first). Identical to the prior glob+getsize scan: the
         # size map is built from the same ``glob("*.pkl")`` once per process then kept in sync.
-        entries: List[Tuple[str, float, int]] = [
-            (stem, float(lru.get(stem, 0.0)), size) for stem, size in sizes.items()
-        ]
+        entries: List[Tuple[str, float, int]] = [(stem, float(lru.get(stem, 0.0)), size) for stem, size in sizes.items()]
         # Oldest first - that's the eviction order.
         entries.sort(key=lambda e: e[1])
 
         n = len(entries)
         total_bytes = self._total_bytes
-        max_bytes = (
-            int(self.max_size_mb * 1024 * 1024)
-            if self.max_size_mb is not None else None
-        )
+        max_bytes = int(self.max_size_mb * 1024 * 1024) if self.max_size_mb is not None else None
 
         removed = 0
         i = 0

@@ -147,7 +147,6 @@ from ._feature_importances import (  # noqa: E402,F401
 logger = logging.getLogger(__name__)
 
 
-
 def post_calibrate_model(
     original_model: Tuple[Any, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Sequence[str], Any, Dict],
     target_series: pd.Series,
@@ -252,9 +251,7 @@ def post_calibrate_model(
         _test_arr = np.asarray(test_idx).ravel()
         _overlap = np.intersect1d(_calib_arr, _test_arr, assume_unique=False)
         if _overlap.size > 0:
-            raise ValueError(
-                f"calibration must not touch test_idx rows; got {int(_overlap.size)} test rows in calibrator input"
-            )
+            raise ValueError(f"calibration must not touch test_idx rows; got {int(_overlap.size)} test rows in calibrator input")
 
     # When the user supplied a direct (calib_probs, calib_target) pair, validate it doesn't degenerate to test rows
     # via a length collision -- a common foot-gun is passing ``test_probs[:k]`` as ``calib_probs`` and assuming the
@@ -270,11 +267,7 @@ def post_calibrate_model(
     # univariate meta-model path. The multi-output branch returns the same
     # 8-element tuple shape as the binary branch but with calibrated
     # probability matrices.
-    is_multi_output = (
-        hasattr(test_probs, "shape")
-        and len(test_probs.shape) == 2
-        and test_probs.shape[1] != 2
-    )
+    is_multi_output = hasattr(test_probs, "shape") and len(test_probs.shape) == 2 and test_probs.shape[1] != 2
     if is_multi_output:
         from mlframe.training.trainer import (
             _PerClassIsotonicCalibrator, _PostHocMultiCalibratedModel,
@@ -283,9 +276,7 @@ def post_calibrate_model(
         # Infer target_type from labels: if y_true is (N, K) indicator
         # matrix -> multilabel; otherwise multiclass.
         y_test_full = target_series.iloc[test_idx].values
-        if y_test_full.ndim == 2 or (
-            hasattr(y_test_full, "dtype") and y_test_full.dtype == object
-        ):
+        if y_test_full.ndim == 2 or (hasattr(y_test_full, "dtype") and y_test_full.dtype == object):
             _target_type = TargetTypes.MULTILABEL_CLASSIFICATION
         else:
             _target_type = TargetTypes.MULTICLASS_CLASSIFICATION
@@ -391,9 +382,7 @@ def post_calibrate_model(
     # already cleared this. When (calib_probs, calib_target) were passed instead, the caller asserted independence at
     # source. Here we double-check the shape contract before letting any data hit ``meta_model.fit``.
     if _binary_fit_X.shape[0] != _binary_fit_y.shape[0]:
-        raise ValueError(
-            f"calibration X / y row counts diverge: X.shape[0]={_binary_fit_X.shape[0]} vs y.shape[0]={_binary_fit_y.shape[0]}"
-        )
+        raise ValueError(f"calibration X / y row counts diverge: X.shape[0]={_binary_fit_X.shape[0]} vs y.shape[0]={_binary_fit_y.shape[0]}")
 
     meta_model.fit(_binary_fit_X, _binary_fit_y, **fit_params)
 

@@ -73,9 +73,7 @@ def _maybe_auto_drop_after_feature_analyzer(
             if abs(_c) >= _dup_threshold:
                 # Drop the alphabetically-larger; if either is already in
                 # drop_set, skip so we don't drop both halves of the pair.
-                drop_set.add(_b if _a not in drop_set and _b not in drop_set else (
-                    _a if _b in drop_set else _b
-                ))
+                drop_set.add(_b if _a not in drop_set and _b not in drop_set else (_a if _b in drop_set else _b))
     if not drop_set:
         return train_df, val_df, test_df, []
     # Filter the drop set to columns actually present in train_df.
@@ -237,8 +235,7 @@ def _run_target_distribution_analyzer(
                         _has_time = True
                         if verbose:
                             logger.info(
-                                "[mini-HPT] auto-detected monotonic time-axis column(s) %s; "
-                                "AR detector will run on global lag-1.",
+                                "[mini-HPT] auto-detected monotonic time-axis column(s) %s; " "AR detector will run on global lag-1.",
                                 _verified_hits,
                             )
                     elif _hit_lower and verbose:
@@ -406,8 +403,7 @@ def _run_target_distribution_analyzer(
                                         pass
                     except Exception as _drop_err:
                         logger.warning(
-                            "[mini-HPT] auto-drop after feature_distribution_analyzer failed (%s); "
-                            "training continues with full column set.",
+                            "[mini-HPT] auto-drop after feature_distribution_analyzer failed (%s); " "training continues with full column set.",
                             _drop_err,
                         )
             except Exception as _fd_err:

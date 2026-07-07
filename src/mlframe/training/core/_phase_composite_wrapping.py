@@ -108,10 +108,7 @@ def _emit_yscale_composite_chart(
     # Header stats are the TEST-split mean/std (y_target is the test slice), distinct from the suite's MTTR (TRAIN-split mean) -- label them as such to avoid cross-reading drift.
     _mttr = float(np.mean(y_target))
     _mtts = float(np.std(y_target))
-    chart_model_name = (
-        f"{_inner_class} {target_name} {composite_name} "
-        f"[y-scale wrap-pass] test_mean/test_std={_mttr:.2f}/{_mtts:.2f}"
-    )
+    chart_model_name = f"{_inner_class} {target_name} {composite_name} " f"[y-scale wrap-pass] test_mean/test_std={_mttr:.2f}/{_mtts:.2f}"
     # Per-composite plot file (so the chart doesn't overwrite the
     # raw-target one and shows up as a sibling file alongside it).
     if plot_file:
@@ -185,9 +182,7 @@ def emit_per_model_composite_y_scale_test(
             _wrapper = _inner
         else:
             _extra = tuple(composite_spec.get("extra_base_columns") or ())
-            _base_columns = (
-                (composite_spec["base_column"], *_extra) if _extra else None
-            )
+            _base_columns = (composite_spec["base_column"], *_extra) if _extra else None
             _y_full_arr = np.asarray(y_full)
             # y-clip envelope MUST be train-only: this wrapper persists (the
             # end-of-target pass skips already-wrapped entries for idempotency),
@@ -236,9 +231,7 @@ def emit_per_model_composite_y_scale_test(
         _ss_tot = float(np.sum((_yt - _yt.mean()) ** 2))
         _r2 = (1.0 - float(np.sum(_diff * _diff)) / _ss_tot) if _ss_tot > 0 else float("nan")
         # Inner class name for the log line, matching raw-target reports.
-        _inner_for_label = (
-            _wrapper.estimator_ if hasattr(_wrapper, "estimator_") else _inner
-        )
+        _inner_for_label = _wrapper.estimator_ if hasattr(_wrapper, "estimator_") else _inner
         from mlframe.training.reporting import display_estimator_name
         _inner_cls = display_estimator_name(type(_inner_for_label).__name__)
         logger.info(
@@ -265,9 +258,9 @@ def emit_per_model_composite_y_scale_test(
             pass
     except Exception as _err:
         logger.warning(
-            "[CompositeTargetEstimator] per-model y-scale emit failed for "
-            "composite='%s' (non-fatal): %s",
-            composite_name, _err,
+            "[CompositeTargetEstimator] per-model y-scale emit failed for " "composite='%s' (non-fatal): %s",
+            composite_name,
+            _err,
         )
 
 
@@ -328,9 +321,9 @@ def _run_composite_target_wrapping(
                 _y_train_for_wrap = np.asarray(_y_full)[filtered_train_idx]
             except Exception as _y_err:
                 logger.warning(
-                    "[CompositeTargetEstimator] cannot align y_train for '%s': %s. "
-                    "Skipping wrap.",
-                    _composite_name, _y_err,
+                    "[CompositeTargetEstimator] cannot align y_train for '%s': %s. " "Skipping wrap.",
+                    _composite_name,
+                    _y_err,
                 )
                 continue
             if not isinstance(_entries, list):
@@ -355,9 +348,7 @@ def _run_composite_target_wrapping(
                     # falls back to (base_column,) -> predict raises
                     # "base has 1 columns but fitted alphas has K entries".
                     _extra = tuple(_spec.get("extra_base_columns") or ())
-                    _base_columns = (
-                        (_spec["base_column"], *_extra) if _extra else None
-                    )
+                    _base_columns = (_spec["base_column"], *_extra) if _extra else None
                     _wrapper = CompositeTargetEstimator.from_fitted_inner(
                         fitted_inner=_inner,
                         transform_name=_spec["transform_name"],
@@ -387,9 +378,9 @@ def _run_composite_target_wrapping(
                     _entries[_i] = _wrapper
                     _n_wrapped += 1
             logger.info(
-                "[CompositeTargetEstimator] wrapped %d model(s) for composite "
-                "target '%s'; predictions now y-scale.",
-                _n_wrapped, _composite_name,
+                "[CompositeTargetEstimator] wrapped %d model(s) for composite " "target '%s'; predictions now y-scale.",
+                _n_wrapped,
+                _composite_name,
             )
             # Compute y-scale RMSE/MAE/R2 per split so composite is comparable to raw (per-target metrics were T-scale).
             # ``skip_predict``: bypass the per-split predict + metric block; wrap step above already ran so downstream
@@ -409,8 +400,7 @@ def _run_composite_target_wrapping(
                 # 2026-05-27 bug report. Cost: one wrapper.predict(test_df)
                 # per entry (~0.1s booster, ~5s MLP). Cheap relative to the
                 # full 3-split metric block (~5-15 min).
-                if target_name is not None and test_idx is not None \
-                        and test_df_pd is not None:
+                if target_name is not None and test_idx is not None and test_df_pd is not None:
                     _y_full_chart = target_by_type.get(_tt_w, {}).get(_orig_tname)
                     if _y_full_chart is not None:
                         _y_arr_chart = np.asarray(_y_full_chart)
@@ -425,10 +415,7 @@ def _run_composite_target_wrapping(
                                     _wrap_chart.predict(test_df_pd),
                                     dtype=np.float64,
                                 ).reshape(-1)
-                                _finite_chart = (
-                                    np.isfinite(_y_pred_chart)
-                                    & np.isfinite(_y_split_chart)
-                                )
+                                _finite_chart = np.isfinite(_y_pred_chart) & np.isfinite(_y_split_chart)
                                 if _finite_chart.sum() == 0:
                                     continue
                                 _y_t = _y_split_chart[_finite_chart]
@@ -436,12 +423,8 @@ def _run_composite_target_wrapping(
                                 _diff = _y_p - _y_t.astype(np.float64)
                                 _rmse_c = float(np.sqrt(np.mean(_diff * _diff)))
                                 _mae_c = float(np.mean(np.abs(_diff)))
-                                _ss_tot_c = float(np.sum(
-                                    (_y_t - _y_t.mean()) ** 2
-                                ))
-                                _r2_c = (
-                                    1.0 - float(np.sum(_diff * _diff)) / _ss_tot_c
-                                ) if _ss_tot_c > 0 else float("nan")
+                                _ss_tot_c = float(np.sum((_y_t - _y_t.mean()) ** 2))
+                                _r2_c = (1.0 - float(np.sum(_diff * _diff)) / _ss_tot_c) if _ss_tot_c > 0 else float("nan")
                                 _emit_yscale_composite_chart(
                                     y_target=_y_t,
                                     y_pred=_y_p,
@@ -455,9 +438,9 @@ def _run_composite_target_wrapping(
                                 )
                             except Exception as _chart_err:
                                 logger.warning(
-                                    "[CompositeTargetEstimator] y-scale chart "
-                                    "emit failed for composite='%s' (non-fatal): %s",
-                                    _composite_name, _chart_err,
+                                    "[CompositeTargetEstimator] y-scale chart " "emit failed for composite='%s' (non-fatal): %s",
+                                    _composite_name,
+                                    _chart_err,
                                 )
                 continue
             _metrics_dict = metadata.setdefault(
@@ -501,10 +484,7 @@ def _run_composite_target_wrapping(
                         # Sample-log the first 3 (y_pred, y_true) pairs per split as a leakage / contract sanity check.
                         if _split_idx is not None and len(_y_split) > 0:
                             _n_dbg = min(3, len(_y_split))
-                            _pairs = ", ".join(
-                                f"({_y_pred[_i]:.3f}, {_y_split[_i]:.3f})"
-                                for _i in range(_n_dbg)
-                            )
+                            _pairs = ", ".join(f"({_y_pred[_i]:.3f}, {_y_split[_i]:.3f})" for _i in range(_n_dbg))
                             _outer_dbg = getattr(_entry, "model", None) or _entry
                             _inner_dbg = getattr(_outer_dbg, "base_estimator", None) or getattr(_outer_dbg, "estimator_", None) or _outer_dbg
                             logger.debug(
@@ -523,12 +503,8 @@ def _run_composite_target_wrapping(
                             continue
                         # Zero-variance y => R2 undefined; emit NaN rather than 0.0 to mark the degenerate case.
                         _y_finite = _y_split.astype(np.float64)[_finite]
-                        _ss_tot = float(np.sum(
-                            (_y_finite - _y_finite.mean()) ** 2
-                        ))
-                        _ss_res = float(np.sum(
-                            _diff[_finite] * _diff[_finite]
-                        ))
+                        _ss_tot = float(np.sum((_y_finite - _y_finite.mean()) ** 2))
+                        _ss_res = float(np.sum(_diff[_finite] * _diff[_finite]))
                         _r2 = (1.0 - _ss_res / _ss_tot) if _ss_tot > 0 else float("nan")
                         _rmse_wrapped = float(np.sqrt(np.mean(_diff[_finite] * _diff[_finite])))
                         _mae_wrapped = float(np.mean(np.abs(_diff[_finite])))
@@ -574,9 +550,9 @@ def _run_composite_target_wrapping(
                                 )
                             except Exception as _chart_err:
                                 logger.warning(
-                                    "[CompositeTargetEstimator] y-scale chart "
-                                    "emit failed for composite='%s' (non-fatal): %s",
-                                    _composite_name, _chart_err,
+                                    "[CompositeTargetEstimator] y-scale chart " "emit failed for composite='%s' (non-fatal): %s",
+                                    _composite_name,
+                                    _chart_err,
                                 )
                         # HIGH#4 2026-05-18: watchdog short-circuit when caller disabled it.
                         # The check below does an extra wrapper.predict + inner.predict
@@ -615,9 +591,7 @@ def _run_composite_target_wrapping(
                                 # inverse the same (n, K) matrix the wrapper uses; a 1-D pull would raise the alphas-width mismatch and
                                 # the watchdog would swallow it at DEBUG, leaving linear_residual_multi entirely uncovered.
                                 _bcs_uni = _watchdog_base_columns(_spec)
-                                if (_wi_uni is not None and _spec_t_name
-                                        and _bcs_uni
-                                        and all(_c in _split_df for _c in _bcs_uni)):
+                                if _wi_uni is not None and _spec_t_name and _bcs_uni and all(_c in _split_df for _c in _bcs_uni):
                                     _bivar_uni = get_transform(_spec_t_name)
                                     _base_uni = _watchdog_extract_base(_split_df, _bcs_uni)
                                     _t_pred_uni = np.asarray(
@@ -684,8 +658,7 @@ def _run_composite_target_wrapping(
                                                 # Multi-base specs carry a (n, K) base matrix; render the row as a bracketed K-vector,
                                                 # so the dump stays readable instead of crashing on ``%.4f`` of an array.
                                                 _base_repr = (
-                                                    "[" + ", ".join(f"{_v:.4f}" for _v in _base_arr[_i]) + "]"
-                                                    if _base_is_multi else f"{_base_arr[_i]:.4f}"
+                                                    "[" + ", ".join(f"{_v:.4f}" for _v in _base_arr[_i]) + "]" if _base_is_multi else f"{_base_arr[_i]:.4f}"
                                                 )
                                                 _dbg_rows.append(
                                                     f"y={_y_split[_i]:.4f}, "
@@ -750,9 +723,7 @@ def _run_composite_target_wrapping(
                         if not _s:
                             continue
                         _y_summary_parts.append(
-                            f"{_split_name.upper()}=RMSE_y:{_fmt(_s['RMSE'])} "
-                            f"MAE_y:{_fmt(_s['MAE'])} "
-                            f"R2_y:{_fmt(_s.get('R2', float('nan')), 4)}"
+                            f"{_split_name.upper()}=RMSE_y:{_fmt(_s['RMSE'])} " f"MAE_y:{_fmt(_s['MAE'])} " f"R2_y:{_fmt(_s.get('R2', float('nan')), 4)}"
                         )
                     if _y_summary_parts:
                         # After wrapping _entry.model IS the CompositeTargetEstimator; drill into base_estimator for the actual inner type name.
@@ -764,10 +735,9 @@ def _run_composite_target_wrapping(
                         else:
                             _mn = _strip(_mn)
                         logger.info(
-                            "[CompositeTargetEstimator] composite='%s' "
-                            "model='%s' y-scale metrics (post-inverse, "
-                            "comparable to raw): %s",
-                            _composite_name, _mn,
+                            "[CompositeTargetEstimator] composite='%s' " "model='%s' y-scale metrics (post-inverse, " "comparable to raw): %s",
+                            _composite_name,
+                            _mn,
                             " | ".join(_y_summary_parts),
                         )
     return _train_pred_cache

@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 # *****************************************************************************************************************************************************
@@ -40,11 +39,11 @@ def flatten_classification_report(cr: dict, separate_metrics=("accuracy","balanc
     res={}
     for metric in separate_metrics:
         if metric in cr:
-            res[source+metric]= cr.pop(metric)
+            res[source + metric] = cr.pop(metric)
     for class_or_avg, metrics_dict in cr.items():
-        prefix=class_or_avg if class_or_avg in ('macro avg', 'weighted avg') else 'class '+str(class_or_avg)
+        prefix = class_or_avg if class_or_avg in ("macro avg", "weighted avg") else "class " + str(class_or_avg)
         for metric, value in metrics_dict.items():
-            res[source+prefix + "_" + metric]= value
+            res[source + prefix + "_" + metric] = value
     return res
             
 def log_classification_report_to_mlflow(cr: dict, step: int,separate_metrics=("accuracy",),source:str=""):
@@ -52,11 +51,11 @@ def log_classification_report_to_mlflow(cr: dict, step: int,separate_metrics=("a
 
     for metric in separate_metrics:
         if metric in cr:
-            mlflow.log_metric(source+metric, cr.pop(metric), step=step)
+            mlflow.log_metric(source + metric, cr.pop(metric), step=step)
     for class_or_avg, metrics_dict in cr.items():
-        prefix=class_or_avg if class_or_avg in ('macro avg', 'weighted avg') else 'class '+str(class_or_avg)
+        prefix = class_or_avg if class_or_avg in ("macro avg", "weighted avg") else "class " + str(class_or_avg)
         for metric, value in metrics_dict.items():
-            mlflow.log_metric(source+prefix + "_" + metric, value, step=step)
+            mlflow.log_metric(source + prefix + "_" + metric, value, step=step)
 
 def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:int=700,height:int=450)->None:
     """Creates a html file with desired url embedded to be shown nicely in MLFlow UI."""
@@ -64,16 +63,16 @@ def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:
     safe_url = html.escape(url, quote=True)
     safe_width = int(width)
     safe_height = int(height)
-    website_embed = f'''<!DOCTYPE html>
+    website_embed = f"""<!DOCTYPE html>
     <html>
     <iframe src="{safe_url}" style='width: {safe_width}px; height: {safe_height}px' sandbox='allow-same-origin allow-scripts'>
     </iframe>
-    </html>'''
+    </html>"""
 
     if fname.lower().endswith(extension.lower()):
-        extension=""
+        extension = ""
 
-    with open(fname+extension, "w", encoding="utf-8") as f:
+    with open(fname + extension, "w", encoding="utf-8") as f:
         f.write(website_embed)
 
 def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experiment_name: str = None, experiment_id: str = None,tags:dict=None) -> Tuple[object, bool]:
@@ -87,9 +86,9 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experimen
     def _dsl_escape(s: object) -> str:
         return str(s).replace("\\", "\\\\").replace('"', '\\"')
 
-    filter_string=f'run_name = "{_dsl_escape(run_name)}"'
+    filter_string = f'run_name = "{_dsl_escape(run_name)}"'
     if parent_run_id:
-        filter_string+=f' and tag.mlflow.parentRunId = "{_dsl_escape(parent_run_id)}"'
+        filter_string += f' and tag.mlflow.parentRunId = "{_dsl_escape(parent_run_id)}"'
 
     runs = mlflow.search_runs(experiment_names=[experiment_name], filter_string=filter_string, output_format="list",)
     if runs:
@@ -98,31 +97,29 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experimen
     else:
         if experiment_name:
             mlflow.set_experiment(experiment_name=experiment_name)
-        run_tags={"mlflow.parentRunId": parent_run_id} if parent_run_id else None
+        run_tags = {"mlflow.parentRunId": parent_run_id} if parent_run_id else None
         if tags:
             if run_tags is None:
-                run_tags=tags
+                run_tags = tags
             else:
                 run_tags.update(tags)
-        
-        nfailed=0
+
+        nfailed = 0
         if not run_name:
             logger.warning("empty run name!!!")
 
         while True:
-            try:                
-                run = mlflow.start_run(
-                    run_name=run_name, experiment_id=experiment_id, tags=run_tags
-                )
+            try:
+                run = mlflow.start_run(run_name=run_name, experiment_id=experiment_id, tags=run_tags)
             except Exception as e:
-                nfailed+=1
-                if nfailed>5:
+                nfailed += 1
+                if nfailed > 5:
                     # Wave 41 (2026-05-20): preserve traceback before final-give-up return;
                     # caller sees only (None, False) otherwise.
                     logger.exception("mlflow.start_run failed after %d retries", nfailed)
-                    return None,False
+                    return None, False
                 scrubbed = _strip_userinfo(e)
-                if 'already active' in str(e):
+                if "already active" in str(e):
                     active = mlflow.active_run()
                     if active is not None:
                         logger.warning("%s active run_id=%s", scrubbed, active.info.run_id)

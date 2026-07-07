@@ -457,10 +457,7 @@ def configure_training_params(
     cb_task_type = _cb_kwargs.get("task_type")
     cb_devices = _cb_kwargs.get("devices")
     _cb_requested = models_set is None or "cb" in models_set
-    _xgb_gpu_eligible = (
-        (models_set is None or "xgb" in models_set)
-        and not prefer_cpu_for_xgboost
-    )
+    _xgb_gpu_eligible = (models_set is None or "xgb" in models_set) and not prefer_cpu_for_xgboost
     _no_gpu_model_needed = not (_cb_requested or _xgb_gpu_eligible)
     if not prefer_gpu_configs or cb_task_type == "CPU" or _no_gpu_model_needed:
         all_gpus = {}
@@ -745,11 +742,7 @@ def configure_training_params(
     lgb_fit_params = dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}
 
     lgb_rfecv = RFECV(
-        estimator=(
-            metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS))
-            if use_regression
-            else LGBMClassifier(**configs.LGB_GENERAL_PARAMS)
-        ),
+        estimator=(metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS)),
         fit_params=lgb_fit_params,
         cat_features=cat_features,
         scoring=rfecv_scoring,
@@ -760,9 +753,7 @@ def configure_training_params(
         estimator=(
             metamodel_func(XGBRegressor(**configs.XGB_GENERAL_PARAMS))
             if use_regression
-            else XGBClassifier(
-                **(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF)
-            )
+            else XGBClassifier(**(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF))
         ),
         fit_params=dict(verbose=False),
         cat_features=cat_features,

@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 # ****************************************************************************************************************************
@@ -55,8 +54,7 @@ try:
 except ImportError:  # pragma: no cover - depends on private sibling pkg
     def show_classifier_calibration(*args, **kwargs):  # type: ignore[no-redef]
         raise ImportError(
-            "show_classifier_calibration() requires the private `finance` package "
-            "(github.com/fingoldo/finance); install it from source before calling."
+            "show_classifier_calibration() requires the private `finance` package " "(github.com/fingoldo/finance); install it from source before calling."
         )
 
 from pyutilz.system import tqdmu
@@ -319,9 +317,7 @@ def evaluate_estimators(
 
                     if show_classification_report:
 
-                        classification_report_text = format_classification_report(
-                            y_test_test, preds, nclasses=nclasses, target_names=_tn
-                        )
+                        classification_report_text = format_classification_report(y_test_test, preds, nclasses=nclasses, target_names=_tn)
                         logger.info("classification report:\n%s", classification_report_text)
 
                         if results_log:

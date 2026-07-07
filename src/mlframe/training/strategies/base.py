@@ -171,8 +171,7 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
         # Route ONLY numeric columns to the inner imputer/scaler. Categoricals -- whether explicitly named OR raw object/category/string columns
         # that arrive when the suite didn't thread cat_features (requires_encoding off) -- must pass THROUGH untouched so the estimator's own
         # factorizer/embedding handles them; feeding a string column to StandardScaler raises "could not convert string to float".
-        return [c for c in X.columns
-                if c not in named and getattr(X[c], "ndim", 1) == 1 and _pd.api.types.is_numeric_dtype(X[c])]
+        return [c for c in X.columns if c not in named and getattr(X[c], "ndim", 1) == 1 and _pd.api.types.is_numeric_dtype(X[c])]
 
     def __sklearn_tags__(self):
         # Routes numerics to an imputer/scaler and passes categoricals through; NaN/Inf survive to the inner
@@ -280,9 +279,7 @@ PANDAS_CATEGORICAL_DTYPES: FrozenSet[str] = frozenset({
 # with it) but use this filtered tuple for ``select_dtypes(include=...)`` calls
 # in _nan_processing.py / _eval_helpers.py / etc.; the StringDtype is already
 # covered by the ``"string"`` entry on its own.
-PANDAS_CATEGORICAL_SELECT_DTYPES: tuple = tuple(
-    sorted(d for d in PANDAS_CATEGORICAL_DTYPES if d != "str")
-)
+PANDAS_CATEGORICAL_SELECT_DTYPES: tuple = tuple(sorted(d for d in PANDAS_CATEGORICAL_DTYPES if d != "str"))
 
 
 class ModelPipelineStrategy(ABC):
@@ -520,8 +517,7 @@ class ModelPipelineStrategy(ABC):
         flavor = flavor_map.get(type(self).__name__, "")
         return _classif_objective_kwargs(flavor, target_type, n_classes)
 
-    def wrap_multilabel(self, estimator, target_type, multilabel_config=None,
-                       n_labels: Optional[int] = None):
+    def wrap_multilabel(self, estimator, target_type, multilabel_config=None, n_labels: Optional[int] = None):
         """Multilabel dispatch: native vs wrapper vs chain ensemble.
 
         Default delegates to ``helpers._maybe_wrap_multilabel`` with the
@@ -601,7 +597,7 @@ class ModelPipelineStrategy(ABC):
                 isinstance(base_pipeline, SelectorMixin)
                 or isinstance(base_pipeline, MRMR)
                 or isinstance(base_pipeline, Pipeline)  # nested sklearn Pipeline is treated as pre-step
-                or hasattr(base_pipeline, 'get_support')  # RFECV and similar
+                or hasattr(base_pipeline, "get_support")  # RFECV and similar
             )
 
         # Whether the cat encoder must run BEFORE the feature selector: a selector whose internal estimator is numeric

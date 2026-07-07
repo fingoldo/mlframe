@@ -33,7 +33,6 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-
 # Default crossover thresholds. Tunable via ``set_gpu_thresholds(...)``.
 #
 # ``_GPU_BATCH_THRESHOLD_M = 5`` (was 1) so binary-classification single-target callers
@@ -118,8 +117,7 @@ def _require_cupy():
         return cp
     except ImportError as e:
         raise ImportError(
-            "GPU metrics require cupy. Install for your CUDA version, e.g. "
-            "`pip install cupy-cuda12x` (CUDA 12) or `cupy-cuda11x` (CUDA 11)."
+            "GPU metrics require cupy. Install for your CUDA version, e.g. " "`pip install cupy-cuda12x` (CUDA 12) or `cupy-cuda11x` (CUDA 11)."
         ) from e
 
 
@@ -338,7 +336,7 @@ def gpu_multiple_pr_auc_scores(actual, predicted):
     idx = cp.arange(1, N + 1, dtype=cp.float64)
     for j in range(M):
         col = predicted[:, j]
-        order = cp.argsort(col, kind="stable")[::-1]   # descending
+        order = cp.argsort(col, kind="stable")[::-1]  # descending
         col_sorted = col[order]
         y_sorted = actual[order]
 
@@ -452,10 +450,7 @@ def _resolve_backend(force: Optional[str], N: int, M: int, kernel_name: str = "b
     measurement-backed fallback."""
     if force == "gpu":
         if not is_gpu_metrics_available():
-            raise RuntimeError(
-                "compute_batch_*: force_backend='gpu' but no GPU is "
-                "available (cupy missing or no CUDA device)."
-            )
+            raise RuntimeError("compute_batch_*: force_backend='gpu' but no GPU is " "available (cupy missing or no CUDA device).")
         return True
     if force == "cpu":
         return False

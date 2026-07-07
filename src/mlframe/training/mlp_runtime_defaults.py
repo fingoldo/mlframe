@@ -277,7 +277,7 @@ _PREDICT_BATCH_MAX: int = 16384
 _PREDICT_BATCH_DEFAULT_FLOOR: int = 256
 _PREDICT_ACTIVATION_MULTIPLIER: int = 4
 _PREDICT_MEM_FRACTION: float = 0.25  # use 25% of free mem -- leave headroom
-_PREDICT_DTYPE_BYTES: int = 4        # float32 (cheap upper bound for tabular)
+_PREDICT_DTYPE_BYTES: int = 4  # float32 (cheap upper bound for tabular)
 # Conservative fallback when memory cannot be probed (eg neither torch.cuda
 # nor psutil available). Matches the old "Lightning legacy 64" within an
 # order of magnitude but lets typical predict still throughput.
@@ -325,8 +325,7 @@ def _probe_available_memory_bytes(
     # Cached-probe path: one stable budget per process so consecutive MLP
     # trainings in the same suite don't get wildly different batch sizes
     # from a fluctuating ``available`` reading.
-    if (_PROBE_MEM_CACHE is not None
-            and not os.environ.get("MLFRAME_FORCE_REPROBE")):
+    if _PROBE_MEM_CACHE is not None and not os.environ.get("MLFRAME_FORCE_REPROBE"):
         return _PROBE_MEM_CACHE
     if cuda_available is None:
         try:

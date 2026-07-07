@@ -120,9 +120,7 @@ def _phase_fit_pipeline(
         metadata["input_columns"] = list(_raw_cols)
 
     _strategies_for_polars_check = [get_strategy(m) for m in mlframe_models] if mlframe_models else []
-    all_models_polars_native = bool(_strategies_for_polars_check) and all(
-        s.supports_polars for s in _strategies_for_polars_check
-    )
+    all_models_polars_native = bool(_strategies_for_polars_check) and all(s.supports_polars for s in _strategies_for_polars_check)
 
     # CatBoost-specific footgun warning: when CB is in the model suite AND categorical_encoding="ordinal"
     # AND the input frame carries categorical columns (polars Categorical/Enum, or pandas category dtype),
@@ -135,10 +133,7 @@ def _phase_fit_pipeline(
     # FeatureTypesConfig doesn't carry a cat_features list (the public surface is text_features +
     # embedding_features; cat_features are auto-detected downstream).
     _has_cb, _all_models_native_cat = _detect_native_cat_models(_strategies_for_polars_check)
-    _ordinal = (
-        getattr(pipeline_config, "categorical_encoding", None) == "ordinal"
-        and not getattr(pipeline_config, "skip_categorical_encoding", False)
-    )
+    _ordinal = getattr(pipeline_config, "categorical_encoding", None) == "ordinal" and not getattr(pipeline_config, "skip_categorical_encoding", False)
     # Skip the cat-schema scan entirely when CatBoost isn't in the suite -- the only consumer of ``_declared_cats`` below is the CB+ordinal warning
     # block and the CB-native auto-flip; a non-CB suite cannot trip either branch so the pandas ``select_dtypes`` / polars schema iteration is pure waste.
     _declared_cats: list[str] = []
@@ -148,10 +143,9 @@ def _phase_fit_pipeline(
             # so dtype detection is API-stable across polars versions and survives any repr change.
             _enum_cls = getattr(pl, "Enum", None)
             _declared_cats = [
-                n for n, d in train_df.schema.items()
-                if d == pl.Categorical
-                or (_enum_cls is not None and isinstance(d, _enum_cls))
-                or d == pl.Utf8 or d == pl.String
+                n
+                for n, d in train_df.schema.items()
+                if d == pl.Categorical or (_enum_cls is not None and isinstance(d, _enum_cls)) or d == pl.Utf8 or d == pl.String
             ]
         elif hasattr(train_df, "select_dtypes"):
             try:
@@ -197,11 +191,9 @@ def _phase_fit_pipeline(
         if df_ is None:
             return []
         if isinstance(df_, pl.DataFrame):
-            return [name for name, dt in df_.schema.items()
-                    if isinstance(dt, (pl.Datetime, pl.Date))]
+            return [name for name, dt in df_.schema.items() if isinstance(dt, (pl.Datetime, pl.Date))]
         if hasattr(df_, "dtypes"):
-            return [c for c in df_.columns
-                    if pd.api.types.is_datetime64_any_dtype(df_[c])]
+            return [c for c in df_.columns if pd.api.types.is_datetime64_any_dtype(df_[c])]
         return []
 
     _dt_cols = _detect_datetime_cols(train_df)
@@ -240,10 +232,8 @@ def _phase_fit_pipeline(
         # day_of_year (1..366) needs int16 -- a flat int8 wraps day_of_year (pandas: silent mod-256; polars:
         # strict-cast crash mid-pipeline). Unmapped methods default to int16 (covers every date field bar year).
         from mlframe.feature_engineering.basic import _DEFAULT_DATE_METHODS
-        _dt_methods = {
-            m: _DEFAULT_DATE_METHODS.get(m, np.int16)
-            for m in sorted(_configured_methods)
-        }
+
+        _dt_methods = {m: _DEFAULT_DATE_METHODS.get(m, np.int16) for m in sorted(_configured_methods)}
         if verbose:
             logger.info(
                 "Decomposing %d datetime column(s) into numeric features "
@@ -305,10 +295,7 @@ def _phase_fit_pipeline(
     # Polars input already has ``train_df_polars_pre`` for this purpose.
     # Gated on ``FeatureTypesConfig.feature_types_first`` so byte-for-byte
     # legacy reproductions can disable. fix audit row FE-P1-2.
-    _feature_types_first = bool(
-        getattr(feature_types_config, "feature_types_first", True)
-        if feature_types_config is not None else True
-    )
+    _feature_types_first = bool(getattr(feature_types_config, "feature_types_first", True) if feature_types_config is not None else True)
     # Mutation-immune snapshot for the downstream auto-detect phase. A frame-level snapshot (even ``.copy(deep=False)``) shares
     # the source block-manager and leaks any in-place numpy poke (``df[col].values[i] = x``) into the snapshot, silently
     # corrupting auto-detect's view of pre-encoding dtypes / cardinality. The dict captures every datum auto-detect needs
@@ -318,10 +305,7 @@ def _phase_fit_pipeline(
     train_df_pandas_pre_meta: dict | None = None
     if _feature_types_first and (not was_polars_input) and isinstance(train_df, pd.DataFrame):
         try:
-            _text_cand_cols = [
-                c for c in train_df.columns
-                if train_df[c].dtype.kind in "OUSb" or isinstance(train_df[c].dtype, pd.CategoricalDtype)
-            ]
+            _text_cand_cols = [c for c in train_df.columns if train_df[c].dtype.kind in "OUSb" or isinstance(train_df[c].dtype, pd.CategoricalDtype)]
             _n_unique: dict[str, int] = {}
             _non_null: dict[str, int] = {}
             for _c in _text_cand_cols:
@@ -338,10 +322,7 @@ def _phase_fit_pipeline(
                         _first = next((v for v in train_df[_c].head(8) if v is not None), None)
                     except Exception:
                         _first = None
-                    if _first is not None and (
-                        hasattr(_first, "shape")
-                        or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
-                    ):
+                    if _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))):
                         _embedding_object_cols.append(_c)
             # Wave 54 (2026-05-20): pandas allows duplicate column names; the prior
             # {c: ...} comprehension silently collapsed dupes to one entry, so the
@@ -352,8 +333,7 @@ def _phase_fit_pipeline(
                 from collections import Counter as _Counter
                 _dupes = [_c for _c, _n in _Counter(_cols_list).items() if _n > 1]
                 raise ValueError(
-                    f"train_df has {len(_dupes)} duplicate column name(s) "
-                    f"({_dupes[:5]}); deduplicate before fit() to keep schema-hash honest."
+                    f"train_df has {len(_dupes)} duplicate column name(s) " f"({_dupes[:5]}); deduplicate before fit() to keep schema-hash honest."
                 )
             train_df_pandas_pre_meta = {
                 "columns": _cols_list,
@@ -389,11 +369,7 @@ def _phase_fit_pipeline(
     # discovery. Classification-only setups: PySR is regression-only, falls
     # back to None and the function logs a warning.
     _y_train_for_ext = None
-    if (
-        preprocessing_extensions is not None
-        and getattr(preprocessing_extensions, "pysr_enabled", False)
-        and target_by_type is not None
-    ):
+    if preprocessing_extensions is not None and getattr(preprocessing_extensions, "pysr_enabled", False) and target_by_type is not None:
         try:
             # target_by_type structure varies by extractor:
             #   (a) Dict[TargetTypes, Dict[str, ndarray]]  - nested
@@ -428,21 +404,16 @@ def _phase_fit_pipeline(
                     # multi-head regression doesn't silently pick the wrong head as the symbolic-FE signal.
                     if verbose:
                         logger.info(
-                            "PySR symbolic FE: multi-output regression target detected (n=%d columns); "
-                            "using first column '%s' as the supervised signal.",
-                            _y_train_for_ext.shape[1], _first_name,
+                            "PySR symbolic FE: multi-output regression target detected (n=%d columns); " "using first column '%s' as the supervised signal.",
+                            _y_train_for_ext.shape[1],
+                            _first_name,
                         )
                     _y_train_for_ext = _y_train_for_ext[:, 0]
                 # target_by_type carries the PRE-split full target; slice to train_idx
                 # so PySR's symbolic FE only sees train-set y. Without this we hit a
                 # length mismatch (e.g. full ~5M rows vs train ~4M) and PySR is silently
                 # skipped.
-                if (
-                    _y_train_for_ext is not None
-                    and train_idx is not None
-                    and hasattr(train_df, "shape")
-                    and len(_y_train_for_ext) != train_df.shape[0]
-                ):
+                if _y_train_for_ext is not None and train_idx is not None and hasattr(train_df, "shape") and len(_y_train_for_ext) != train_df.shape[0]:
                     try:
                         _idx_arr = np.asarray(train_idx)
                         if len(_idx_arr) == train_df.shape[0] and int(_idx_arr.max()) < len(_y_train_for_ext):
@@ -473,9 +444,7 @@ def _phase_fit_pipeline(
     # Snapshot the train_df_polars_pre column set so we can detect which new
     # columns the extensions produced and back-merge them into the polars-pre
     # frames. fix audit row FE-P1-3.
-    _pre_polars_columns_snapshot = (
-        list(train_df_polars_pre.columns) if isinstance(train_df_polars_pre, pl.DataFrame) else None
-    )
+    _pre_polars_columns_snapshot = list(train_df_polars_pre.columns) if isinstance(train_df_polars_pre, pl.DataFrame) else None
     # Capture PySR's equation -> column-name map so predict can replay symbolic features against the same content-hashed column names that training emitted.
     _pysr_equations_out: dict = {}
     train_df, val_df, test_df, extensions_pipeline = apply_preprocessing_extensions(
@@ -494,11 +463,7 @@ def _phase_fit_pipeline(
         # bridge for the new columns only (existing polars-pre columns are kept
         # as-is to preserve native dtypes / categorical metadata).
         try:
-            if (
-                isinstance(train_df, pd.DataFrame)
-                and _pre_polars_columns_snapshot is not None
-                and was_polars_input
-            ):
+            if isinstance(train_df, pd.DataFrame) and _pre_polars_columns_snapshot is not None and was_polars_input:
                 _new_cols = [c for c in train_df.columns if c not in set(_pre_polars_columns_snapshot)]
                 if _new_cols:
                     # Explicit (label, pandas-frame, polars-pre-frame) triples so the
@@ -576,7 +541,7 @@ def _phase_fit_pipeline(
     metadata["columns"] = _post_cols
 
     if verbose:
-        logger.info("  Pipeline done -- train: %s, cat_features: %s", _df_shape_str(train_df), cat_features or '(none)')
+        logger.info("  Pipeline done -- train: %s, cat_features: %s", _df_shape_str(train_df), cat_features or "(none)")
         if was_polars_input and cat_features_polars and list(cat_features_polars) != list(cat_features or []):
             logger.info("  Pre-pipeline Polars cat_features: %s", cat_features_polars)
         logger.info("  PHASE 3 total: %s", _elapsed_str(t0_phase3))

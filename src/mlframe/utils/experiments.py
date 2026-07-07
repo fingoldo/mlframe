@@ -1,10 +1,8 @@
-
 from __future__ import annotations
 
 
 from typing import Sequence, Union
-from pyutilz.db  import safe_execute,safe_execute_values
-
+from pyutilz.db import safe_execute, safe_execute_values
 
 # Whitelists for SQL field injection protection.
 _ALLOWED_EXPERIMENT_FIELDS = frozenset({
@@ -49,9 +47,7 @@ def get_experiments(product_name: str, fields: Union[str, Sequence[str]] = "id,n
     )
 
 
-def get_experiment_routes(
-    experiment_id: str, fields: Union[str, Sequence[str]] = "id,name,audience,type"
-) -> list:
+def get_experiment_routes(experiment_id: str, fields: Union[str, Sequence[str]] = "id,name,audience,type") -> list:
     # if there are active experiments currently, get them
     safe_fields = _validate_and_join_fields(fields, _ALLOWED_ROUTE_FIELDS)
     routes = safe_execute(
@@ -61,7 +57,7 @@ def get_experiment_routes(
     return routes
 
 def read_experiment(experiment) -> tuple:
-    experiment_id,experiment_name,experiment_started_at,experiment_finished_at, *_ = experiment
+    experiment_id, experiment_name, experiment_started_at, experiment_finished_at, *_ = experiment
 
     return experiment_id,experiment_name,experiment_started_at,experiment_finished_at
     

@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 # *****************************************************************************************************************************************************
@@ -77,11 +76,7 @@ def get_model_best_iter(model: object) -> int | None:
         if isinstance(real_model, Pipeline):
             real_model = real_model.steps[-1][1]
             continue
-        _has_iter = (
-            hasattr(real_model, "best_iteration_")
-            or hasattr(real_model, "best_iteration")
-            or hasattr(real_model, "best_epoch")
-        )
+        _has_iter = hasattr(real_model, "best_iteration_") or hasattr(real_model, "best_iteration") or hasattr(real_model, "best_epoch")
         # sklearn TransformedTargetRegressor (and _TTRWithEvalSetScaling
         # subclass) exposes the inner model via ``.regressor_`` not
         # ``.estimator_``; without this branch PytorchLightningRegressor's
@@ -189,10 +184,7 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
     # there's no work to do for them; skipping avoids the extension-dtype
     # to_numpy() pitfall above.
     inf_cols = []
-    candidate_cols = (
-        list(df.columns) if not num_cols_only
-        else [c for c in df.columns if pd.api.types.is_float_dtype(df[c].dtype)]
-    )
+    candidate_cols = list(df.columns) if not num_cols_only else [c for c in df.columns if pd.api.types.is_float_dtype(df[c].dtype)]
     if not candidate_cols:
         return df
 

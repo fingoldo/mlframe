@@ -169,10 +169,7 @@ class MatplotlibRenderer:
     def save(self, fig: Any, path: str, fmt: str) -> None:
         fmt = fmt.lower()
         if fmt not in ("png", "pdf", "svg", "jpg", "jpeg"):
-            raise ValueError(
-                f"matplotlib doesn't support format {fmt!r}; "
-                "supported: png/pdf/svg/jpg"
-            )
+            raise ValueError(f"matplotlib doesn't support format {fmt!r}; " "supported: png/pdf/svg/jpg")
         # bbox_inches="tight" + small pad guarantees suptitle, ytick labels
         # and any annotations outside the axes box land inside the saved
         # PNG. Without this the renderer crops at the figure box and long
@@ -207,8 +204,7 @@ class MatplotlibRenderer:
             fig.set_canvas(manager.canvas)
             plt.show()
         except Exception as e:
-            logger.debug("MatplotlibRenderer.show() no-op (no interactive display): %s: %s",
-                         type(e).__name__, e)
+            logger.debug("MatplotlibRenderer.show() no-op (no interactive display): %s: %s", type(e).__name__, e)
 
     # ------------------------------------------------------------------
     # Per-panel dispatch
@@ -237,8 +233,7 @@ class MatplotlibRenderer:
             raise TypeError(f"unknown panel type: {type(panel).__name__}")
 
     def _annotation(self, ax, p: AnnotationPanelSpec) -> None:
-        ax.text(0.5, 0.5, p.text, ha="center", va="center", fontsize=p.fontsize,
-                transform=ax.transAxes, wrap=True)
+        ax.text(0.5, 0.5, p.text, ha="center", va="center", fontsize=p.fontsize, transform=ax.transAxes, wrap=True)
         _set_panel_title(ax, p.title)
         ax.set_xticks([])
         ax.set_yticks([])
@@ -270,8 +265,7 @@ class MatplotlibRenderer:
         if p.y_err is not None or p.x_err is not None:
             yerr = _err_to_mpl(p.y_err)
             xerr = _err_to_mpl(p.x_err)
-            ax.errorbar(x, y, yerr=yerr, xerr=xerr, fmt="none",
-                        ecolor="gray", elinewidth=1.0, capsize=3, alpha=0.7, zorder=1)
+            ax.errorbar(x, y, yerr=yerr, xerr=xerr, fmt="none", ecolor="gray", elinewidth=1.0, capsize=3, alpha=0.7, zorder=1)
 
         kw = {"alpha": p.point_alpha, "rasterized": rasterized}
         kw["s"] = size_arr if size_arr is not None else float(p.point_size)
@@ -290,27 +284,22 @@ class MatplotlibRenderer:
             hi = hi[(hi >= 0) & (hi < len(ox))]
             if hi.size:
                 base_s = float(p.point_size) if size_arr is None else float(np.median(np.asarray(p.point_size)))
-                ax.scatter(ox[hi], oy[hi], s=base_s * 4.0, facecolors="none",
-                           edgecolors=p.highlight_color, linewidths=1.5, zorder=5,
-                           label="worst-K")
+                ax.scatter(ox[hi], oy[hi], s=base_s * 4.0, facecolors="none", edgecolors=p.highlight_color, linewidths=1.5, zorder=5, label="worst-K")
 
         if p.trend_line is not None and n > 1:
             from mlframe.reporting.renderers._trend import robust_fit_endpoints
             ends = robust_fit_endpoints(np.asarray(p.x), np.asarray(p.y), p.trend_line)
             if ends is not None:
                 (tx0, ty0), (tx1, ty1) = ends
-                ax.plot([tx0, tx1], [ty0, ty1], color="darkorange", linestyle="-",
-                        linewidth=1.6, zorder=4, label=f"robust fit ({p.trend_line})")
+                ax.plot([tx0, tx1], [ty0, ty1], color="darkorange", linestyle="-", linewidth=1.6, zorder=4, label=f"robust fit ({p.trend_line})")
 
         if p.overlay_band is not None:
             bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
-            ax.fill_between(bx, blo, bhi, color="purple", alpha=0.18, zorder=3,
-                            linewidth=0, label="curve 95% band")
+            ax.fill_between(bx, blo, bhi, color="purple", alpha=0.18, zorder=3, linewidth=0, label="curve 95% band")
 
         if p.overlay_line is not None:
             ox_grid, oy_grid, olabel = p.overlay_line
-            ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color="purple",
-                    linestyle="-", linewidth=1.8, zorder=4, label=olabel)
+            ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color="purple", linestyle="-", linewidth=1.8, zorder=4, label=olabel)
 
         if p.perfect_fit_line and n > 0:
             # Span y=x over the UNION of both axes (so it stays the diagonal even when prediction collapse makes
@@ -349,8 +338,7 @@ class MatplotlibRenderer:
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         _set_panel_title(ax, p.title)
-        if (p.legend_label or p.perfect_fit_line or p.trend_line or p.overlay_line is not None
-                or p.overlay_band is not None or p.highlight_indices is not None):
+        if p.legend_label or p.perfect_fit_line or p.trend_line or p.overlay_line is not None or p.overlay_band is not None or p.highlight_indices is not None:
             ax.legend(loc="best", fontsize=8, framealpha=0.7)
         if p.grid:
             ax.grid(True, alpha=0.3)
@@ -378,8 +366,7 @@ class MatplotlibRenderer:
                 if _h_max <= _h_min:
                     _h_max = _h_min + 1.0
                 colors_kw = {"color": cm((np.asarray(p.bar_colors) - _h_min) / (_h_max - _h_min))}
-            ax.bar(bin_centers, heights, width=width, align="center",
-                   edgecolor="white", linewidth=0.5, **colors_kw)
+            ax.bar(bin_centers, heights, width=width, align="center", edgecolor="white", linewidth=0.5, **colors_kw)
             if len(bin_centers) > 0:
                 overlay_x_lo = float(bin_centers[0] - width / 2.0)
                 overlay_x_hi = float(bin_centers[-1] + width / 2.0)
@@ -389,8 +376,7 @@ class MatplotlibRenderer:
             vals = np.asarray(p.values, dtype=float).ravel()
             vals = vals[np.isfinite(vals)]
             if vals.size:
-                ax.hist(vals, bins=p.bins, alpha=0.6, color=p.color,
-                        edgecolor="white", linewidth=0.4, density=p.density)
+                ax.hist(vals, bins=p.bins, alpha=0.6, color=p.color, edgecolor="white", linewidth=0.4, density=p.density)
             else:
                 ax.text(0.5, 0.5, "no finite values", ha="center", va="center", transform=ax.transAxes, fontsize=9)
 
@@ -401,10 +387,7 @@ class MatplotlibRenderer:
                     vals = np.asarray(p.values)
                     overlay_x_lo, overlay_x_hi = float(np.min(vals)), float(np.max(vals))
                 x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
-                normal_pdf = (
-                    1 / (sigma * np.sqrt(2 * np.pi))
-                    * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
-                )
+                normal_pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
                 label = p.overlay_label or f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
                 ax.plot(x_grid, normal_pdf, "r--", linewidth=1.4, label=label)
                 ax.legend(loc="best", fontsize=8, framealpha=0.7)
@@ -448,9 +431,7 @@ class MatplotlibRenderer:
                 for j in range(mat.shape[1]):
                     cell = float(mat[i, j])
                     text_color = auto_text_color(cell if np.isfinite(cell) else vmin, cmap_name, vmin=vmin, vmax=vmax)
-                    ax.text(j, i, format(p.cell_text[i, j], p.text_format),
-                            ha="center", va="center", fontsize=7,
-                            color=text_color)
+                    ax.text(j, i, format(p.cell_text[i, j], p.text_format), ha="center", va="center", fontsize=7, color=text_color)
         # Iso-value contour overlays at named matrix levels (PSI 0.10 / 0.25 triage lines on the drift heatmap).
         # Contour coords are the imshow cell-center grid (0..ncols-1, 0..nrows-1) so lines land between cells.
         if p.threshold_contours:
@@ -478,8 +459,7 @@ class MatplotlibRenderer:
                     def _to_idx(v: float) -> float:
                         return (float(v) - _lo) / (_hi - _lo) * (_nb - 1)
                     # y=x reference in index space (origin="lower" -> bottom-left to top-right).
-                    ax.plot([0, _nb - 1], [0, _nb - 1], color="0.4", linestyle=":",
-                            linewidth=1.0, label="y=x")
+                    ax.plot([0, _nb - 1], [0, _nb - 1], color="0.4", linestyle=":", linewidth=1.0, label="y=x")
                     ends = robust_fit_endpoints(_xv, _yv, p.trend_line)
                     if ends is not None:
                         (tx0, ty0), (tx1, ty1) = ends
@@ -508,8 +488,7 @@ class MatplotlibRenderer:
         cm = matplotlib.colormaps[cmap_name]
         K = p.matrix.shape[0]
         ax.set_axis_off()
-        gs = ax.get_subplotspec().subgridspec(
-            2, 2, width_ratios=[5, 1], height_ratios=[1, 5], wspace=0.05, hspace=0.05)
+        gs = ax.get_subplotspec().subgridspec(2, 2, width_ratios=[5, 1], height_ratios=[1, 5], wspace=0.05, hspace=0.05)
         ax_top = fig.add_subplot(gs[0, 0])
         ax_hm = fig.add_subplot(gs[1, 0])
         ax_right = fig.add_subplot(gs[1, 1])
@@ -529,8 +508,7 @@ class MatplotlibRenderer:
                 for j in range(p.matrix.shape[1]):
                     cell = float(p.matrix[i, j])
                     tc = auto_text_color(cell if np.isfinite(cell) else vmin, cmap_name, vmin=vmin, vmax=vmax)
-                    ax_hm.text(j, i, format(p.cell_text[i, j], p.text_format),
-                               ha="center", va="center", fontsize=7, color=tc)
+                    ax_hm.text(j, i, format(p.cell_text[i, j], p.text_format), ha="center", va="center", fontsize=7, color=tc)
 
         pos = np.arange(K)
         # Top bar: predicted-class volume, aligned to the heatmap columns (shared x, ticks hidden -- the heatmap owns them).
@@ -610,8 +588,7 @@ class MatplotlibRenderer:
                 )
             else:
                 ax.set_xticks(pos)
-                ax.set_xticklabels(p.categories, rotation=p.xtick_rotation,
-                                   ha="right" if p.xtick_rotation else "center", fontsize=8)
+                ax.set_xticklabels(p.categories, rotation=p.xtick_rotation, ha="right" if p.xtick_rotation else "center", fontsize=8)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         _set_panel_title(ax, p.title)
@@ -640,8 +617,7 @@ class MatplotlibRenderer:
         if p.band is not None:
             lower, upper = np.asarray(p.band[0]), np.asarray(p.band[1])
             band_color = p.band_color or cols[0]
-            ax.fill_between(_xi(0) if not xs_per_series else p.x[0], lower, upper,
-                            color=band_color, alpha=0.2, label=p.band_label, zorder=0)
+            ax.fill_between(_xi(0) if not xs_per_series else p.x[0], lower, upper, color=band_color, alpha=0.2, label=p.band_label, zorder=0)
 
         for i, y in enumerate(ys):
             token = styles[i % len(styles)]
@@ -659,24 +635,22 @@ class MatplotlibRenderer:
                 step = "post" if p.step_fill else None
                 target.fill_between(xi, p.fill_baseline, y, color=color, alpha=0.2, step=step, zorder=0)
 
-        for span in (p.vspans or ()):
+        for span in p.vspans or ():
             vx0, vx1, vcolor, valpha = span[0], span[1], span[2], span[3]
             vlabel = span[4] if len(span) > 4 else ""
             ax.axvspan(vx0, vx1, color=vcolor, alpha=valpha, zorder=0)
             if vlabel:
                 from matplotlib.patches import Patch
                 proxies.append(Patch(facecolor=vcolor, alpha=valpha, label=vlabel))
-        for vx, vcolor, vlabel in (p.vlines or ()):
-            ax.axvline(vx, color=vcolor, linestyle=":", linewidth=1.2,
-                       label=vlabel or None)
+        for vx, vcolor, vlabel in p.vlines or ():
+            ax.axvline(vx, color=vcolor, linestyle=":", linewidth=1.2, label=vlabel or None)
 
         for mx, my, mlabel, mcolor, msym in (p.point_markers or ()):
             ax.plot([mx], [my], marker=msym or "*", markersize=13, color=mcolor,
                     markeredgecolor="black", markeredgewidth=0.6, linestyle="none",
                     label=mlabel or None, zorder=6)
             if mlabel:
-                ax.annotate(mlabel, (mx, my), textcoords="offset points", xytext=(8, -10),
-                            fontsize=7, color=mcolor, zorder=6)
+                ax.annotate(mlabel, (mx, my), textcoords="offset points", xytext=(8, -10), fontsize=7, color=mcolor, zorder=6)
 
         if ax2 is not None:
             ax2.set_ylabel(p.secondary_ylabel)
@@ -693,8 +667,7 @@ class MatplotlibRenderer:
                     ax.legend(handles, leg_labels, loc="center left", bbox_to_anchor=(1.02, 0.5),
                               fontsize=7, framealpha=0.7, ncol=max(1, int(getattr(p, "legend_ncol", 1))))
                 else:
-                    ax.legend(handles, leg_labels, loc="best", fontsize=8, framealpha=0.7,
-                              ncol=max(1, int(getattr(p, "legend_ncol", 1))))
+                    ax.legend(handles, leg_labels, loc="best", fontsize=8, framealpha=0.7, ncol=max(1, int(getattr(p, "legend_ncol", 1))))
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         _set_panel_title(ax, p.title)
@@ -704,8 +677,7 @@ class MatplotlibRenderer:
             fig.autofmt_xdate()
 
     def _violin(self, ax, p: ViolinPanelSpec) -> None:
-        ax.violinplot(p.groups, showmeans=False, showextrema=False,
-                      showmedians=p.show_box)
+        ax.violinplot(p.groups, showmeans=False, showextrema=False, showmedians=p.show_box)
         ax.set_xticks(range(1, len(p.group_labels) + 1))
         ax.set_xticklabels(p.group_labels, rotation=30, ha="right", fontsize=8)
         ax.set_xlabel(p.xlabel)
@@ -721,8 +693,7 @@ class MatplotlibRenderer:
         from matplotlib.colors import Normalize
         from matplotlib.lines import Line2D
 
-        nx_pos = np.column_stack([np.asarray(p.node_x, dtype=float),
-                                  np.asarray(p.node_y, dtype=float)])
+        nx_pos = np.column_stack([np.asarray(p.node_x, dtype=float), np.asarray(p.node_y, dtype=float)])
         e_src = np.asarray(p.edge_src, dtype=np.int64)
         e_dst = np.asarray(p.edge_dst, dtype=np.int64)
         weights = np.asarray(p.edge_weight, dtype=float)
@@ -739,8 +710,7 @@ class MatplotlibRenderer:
                 lws = lo + (weights - wmin) / (wmax - wmin) * (hi - lo)
             else:
                 lws = np.full_like(weights, (lo + hi) / 2.0)
-            lc = LineCollection(segments, linewidths=lws.tolist(),
-                                colors=cmap(norm(weights)), alpha=0.8, zorder=1)
+            lc = LineCollection(segments, linewidths=lws.tolist(), colors=cmap(norm(weights)), alpha=0.8, zorder=1)
             ax.add_collection(lc)
 
             # Arrows for directed edges. Drawn per-edge (annotate has no batch
@@ -763,14 +733,12 @@ class MatplotlibRenderer:
             if p.colorbar_label:
                 cbar.set_label(p.colorbar_label)
 
-        ax.scatter(nx_pos[:, 0], nx_pos[:, 1], s=np.asarray(p.node_size, dtype=float),
-                   c=list(p.node_color), edgecolors="black", linewidths=0.5, zorder=3)
+        ax.scatter(nx_pos[:, 0], nx_pos[:, 1], s=np.asarray(p.node_size, dtype=float), c=list(p.node_color), edgecolors="black", linewidths=0.5, zorder=3)
         for (x, y), label in zip(nx_pos, p.node_label):
             ax.annotate(label, (x, y), fontsize=7, ha="center", va="center", zorder=4)
 
         if p.node_legend:
-            handles = [Line2D([0], [0], marker="o", color="w", markerfacecolor=col,
-                              markersize=8, label=lbl) for lbl, col in p.node_legend]
+            handles = [Line2D([0], [0], marker="o", color="w", markerfacecolor=col, markersize=8, label=lbl) for lbl, col in p.node_legend]
             ax.legend(handles=handles, loc="best", fontsize=8, framealpha=0.7)
 
         _set_panel_title(ax, p.title)

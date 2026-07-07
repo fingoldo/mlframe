@@ -80,11 +80,7 @@ def _hf_cache_lock_path(model_name: str, revision: Optional[str]) -> str:
     # Resolve the HF cache root. ``HF_HOME`` is the modern var;
     # ``TRANSFORMERS_CACHE`` is legacy; finally fall back to OS tmp so
     # the lock still lives somewhere even if the HF env is unset.
-    root = (
-        os.environ.get("HF_HOME")
-        or os.environ.get("TRANSFORMERS_CACHE")
-        or os.path.join(tempfile.gettempdir(), "mlframe-hf-locks")
-    )
+    root = os.environ.get("HF_HOME") or os.environ.get("TRANSFORMERS_CACHE") or os.path.join(tempfile.gettempdir(), "mlframe-hf-locks")
     sig = f"{model_name}@{revision or 'main'}"
     sig_hash = hashlib.blake2b(sig.encode("utf-8"), digest_size=12).hexdigest()
     lock_dir = os.path.join(root, ".mlframe-fhc-locks")
@@ -128,10 +124,7 @@ class HuggingFaceProvider:
         embedding_provider: EmbeddingProvider,
     ):
         if embedding_provider.kind != "huggingface":
-            raise ValueError(
-                f"HuggingFaceProvider expects kind='huggingface', got "
-                f"{embedding_provider.kind!r}"
-            )
+            raise ValueError(f"HuggingFaceProvider expects kind='huggingface', got " f"{embedding_provider.kind!r}")
         self._cfg = embedding_provider
         self._model: Optional[Any] = None
         self._tokenizer: Optional[Any] = None
@@ -151,10 +144,7 @@ class HuggingFaceProvider:
     @property
     def embedding_dim(self) -> int:
         if self._embedding_dim is None:
-            raise RuntimeError(
-                "embedding_dim not available before acquire() -- "
-                "call .acquire() first or wrap in `with acquire_provider(...)`"
-            )
+            raise RuntimeError("embedding_dim not available before acquire() -- " "call .acquire() first or wrap in `with acquire_provider(...)`")
         return self._embedding_dim
 
     def fit(self, train_texts: Sequence[str]) -> HuggingFaceProvider:
@@ -170,10 +160,7 @@ class HuggingFaceProvider:
             import torch
             from transformers import AutoModel, AutoTokenizer
         except ImportError as e:  # pragma: no cover
-            raise ImportError(
-                "HuggingFaceProvider requires `transformers` and `torch`. "
-                "Install with: pip install transformers torch"
-            ) from e
+            raise ImportError("HuggingFaceProvider requires `transformers` and `torch`. " "Install with: pip install transformers torch") from e
 
         cfg = self._cfg
         model_name = cfg.model
@@ -350,7 +337,7 @@ class HuggingFaceProvider:
         _recover_after_n_ok = 8
         consecutive_ok = 0
         while i < n:
-            batch = texts[i: i + current_batch]
+            batch = texts[i : i + current_batch]
             try:
                 with torch.no_grad():
                     enc = self._tokenizer(
@@ -366,10 +353,7 @@ class HuggingFaceProvider:
                     outputs.append(pooled.cpu().numpy())
                 i += current_batch
                 consecutive_ok += 1
-                if (
-                    current_batch < original_batch
-                    and consecutive_ok >= _recover_after_n_ok
-                ):
+                if current_batch < original_batch and consecutive_ok >= _recover_after_n_ok:
                     new_batch = min(original_batch, current_batch * 2)
                     if new_batch != current_batch:
                         logger.info(
@@ -386,8 +370,7 @@ class HuggingFaceProvider:
                         raise
                     new_batch = max(1, current_batch // 2)
                     warnings.warn(
-                        f"HuggingFaceProvider GPU OOM at batch_size={current_batch}; "
-                        f"halving to {new_batch} and retrying",
+                        f"HuggingFaceProvider GPU OOM at batch_size={current_batch}; " f"halving to {new_batch} and retrying",
                         UserWarning,
                         stacklevel=2,
                     )
@@ -441,10 +424,7 @@ class HuggingFaceProvider:
         return summed / denom
 
     def __repr__(self) -> str:
-        return (
-            f"HuggingFaceProvider(model={self._cfg.model!r}, "
-            f"is_loaded={self._is_loaded}, device={self._device!r})"
-        )
+        return f"HuggingFaceProvider(model={self._cfg.model!r}, " f"is_loaded={self._is_loaded}, device={self._device!r})"
 
 
 # ---------------------------------------------------------------------

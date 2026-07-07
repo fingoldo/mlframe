@@ -212,12 +212,7 @@ def pair_su_batch(
     # only the source of ``h_ab`` changes. Skipped for 'vi'/'auto'/
     # 'sotoca_pla' (different formulas) and when numba is unavailable.
     _joint_cache = None
-    if (
-        _HAVE_NUMBA
-        and getattr(state, "distance", "su") == "su"
-        and fd is not None
-        and fn is not None
-    ):
+    if _HAVE_NUMBA and getattr(state, "distance", "su") == "su" and fd is not None and fn is not None:
         pcache = getattr(state, "pairwise_su_cache", None)
         keys_a = []
         keys_b = []
@@ -246,10 +241,7 @@ def pair_su_batch(
                 a_arr = np.asarray(keys_a, dtype=np.int64)
                 b_arr = np.asarray(keys_b, dtype=np.int64)
                 h_ab_vals = _batch_joint_entropy_pairs(fd, a_arr, b_arr, fn_arr)
-                _joint_cache = {
-                    (int(a_arr[i]), int(b_arr[i])): float(h_ab_vals[i])
-                    for i in range(a_arr.shape[0])
-                }
+                _joint_cache = {(int(a_arr[i]), int(b_arr[i])): float(h_ab_vals[i]) for i in range(a_arr.shape[0])}
                 state._joint_entropy_batch_cache = _joint_cache
             except Exception:  # pragma: no cover - defensive: fall back to serial joints
                 _joint_cache = None

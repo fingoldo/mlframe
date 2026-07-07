@@ -96,9 +96,9 @@ def compute_ib_baseline_codes_features(
         codes_query = np.zeros(Xq_s.shape[0], dtype=np.int32)
         for b in range(3):
             median = float(np.median(tp[:, b]))
-            codes_train += (tp[:, b] > median).astype(np.int32) * (bins_per_baseline ** b)
-            codes_query += (qp[:, b] > median).astype(np.int32) * (bins_per_baseline ** b)
-        n_codes = bins_per_baseline ** 3
+            codes_train += (tp[:, b] > median).astype(np.int32) * (bins_per_baseline**b)
+            codes_query += (qp[:, b] > median).astype(np.int32) * (bins_per_baseline**b)
+        n_codes = bins_per_baseline**3
         code_y_mean = np.zeros(n_codes, dtype=np.float32)
         code_y_std = np.zeros(n_codes, dtype=np.float32)
         for c in range(n_codes):

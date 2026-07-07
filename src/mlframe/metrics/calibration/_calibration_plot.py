@@ -137,11 +137,7 @@ def render_title_metric_token(
     if token == "ECE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         return f"ECE={ece * 100:.{pct_digits}f}%"
     if token == "CMAEW":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        return (
-            f"CMAE{'W' if use_weights else ''}="
-            f"{calibration_mae * 100:.{pct_digits}f}%"
-            f"±{calibration_std * 100:.{pct_digits}f}%"
-        )
+        return f"CMAE{'W' if use_weights else ''}=" f"{calibration_mae * 100:.{pct_digits}f}%" f"±{calibration_std * 100:.{pct_digits}f}%"
     if token == "COV":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         # log10(nbins) decides COV's decimal precision; matches pre-template behaviour.
         cov_prec = max(0, int(np.log10(max(nbins, 1))))
@@ -167,10 +163,7 @@ def render_title_metric_token(
             base = f"PR AUC=N/A{suffix}"
         else:
             base = f"PR AUC={pr_auc:.{ndigits}f}{suffix}"
-        return (
-            f"{base}, PR={precision * 100:.{pct_digits}f}%,"
-            f"RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
-        )
+        return f"{base}, PR={precision * 100:.{pct_digits}f}%," f"RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
     if token == "KS":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         if np.isnan(ks):
             return "KS=N/A"
@@ -579,10 +572,7 @@ def show_calibration_plot(
     if backend not in ("plotly", "matplotlib"):
         raise ValueError(f"backend must be 'plotly' or 'matplotlib'; got {backend!r}.")
     if prob_histogram_yscale not in ("auto", "log", "linear"):
-        raise ValueError(
-            f"prob_histogram_yscale must be 'auto', 'log', or 'linear'; "
-            f"got {prob_histogram_yscale!r}."
-        )
+        raise ValueError(f"prob_histogram_yscale must be 'auto', 'log', or 'linear'; " f"got {prob_histogram_yscale!r}.")
 
     # DSL render path (single source of truth for the reliability diagram via
     # build_calibration_spec). Checked BEFORE the no-consumer short-circuit so a
@@ -779,8 +769,7 @@ def show_calibration_plot(
                 # same horizontal slice -> X-axes stay aligned via
                 # sharex (was: colorbar attached only to ax_main,
                 # making ax_hist visually wider — user feedback 2026-04-27).
-                _draw_calibration_axes(ax_main, fig, draw_xlabel=False,
-                                       cbar_ax=[ax_main, ax_hist])
+                _draw_calibration_axes(ax_main, fig, draw_xlabel=False, cbar_ax=[ax_main, ax_hist])
                 _draw_histogram_axes(ax_hist)
                 # hide top axes' x tick labels since hist below carries them via sharex
                 plt.setp(ax_main.get_xticklabels(), visible=False)
@@ -813,8 +802,7 @@ def show_calibration_plot(
             fig, (ax_main, ax_hist) = plt.subplots(**_subplots_kwargs)
             # Colorbar spans both subplots — see _draw_calibration_axes
             # docstring for why (X-axis alignment under sharex).
-            _draw_calibration_axes(ax_main, fig, draw_xlabel=False,
-                                   cbar_ax=[ax_main, ax_hist])
+            _draw_calibration_axes(ax_main, fig, draw_xlabel=False, cbar_ax=[ax_main, ax_hist])
             _draw_histogram_axes(ax_hist)
             plt.setp(ax_main.get_xticklabels(), visible=False)
             if plot_title:

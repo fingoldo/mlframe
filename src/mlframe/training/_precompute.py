@@ -136,13 +136,8 @@ def get_trainset_features_stats_polars(train_df: pl.DataFrame, max_ncats_to_trac
     # without changing semantics (implode collapses unique values into
     # a single list-typed cell per column; we then unpack via [0]).
     if cat_cols_to_fetch:
-        unique_lists = lf.select([
-            pl.col(c).unique().implode().alias(c) for c in cat_cols_to_fetch
-        ]).collect()
-        cat_vals = {
-            col: unique_lists[col][0].to_numpy()
-            for col in cat_cols_to_fetch
-        }
+        unique_lists = lf.select([pl.col(c).unique().implode().alias(c) for c in cat_cols_to_fetch]).collect()
+        cat_vals = {col: unique_lists[col][0].to_numpy() for col in cat_cols_to_fetch}
         res["cat_vals"] = cat_vals
 
     return res

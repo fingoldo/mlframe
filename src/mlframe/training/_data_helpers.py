@@ -172,10 +172,7 @@ def _subset_dataframe(
         _idx_arr = np.asarray(idx) if idx is not None and not isinstance(idx, np.ndarray) else idx
         if isinstance(_idx_arr, np.ndarray) and _idx_arr.dtype == bool:
             if _idx_arr.shape[0] != len(df):
-                raise ValueError(
-                    f"select_subset: boolean idx length {_idx_arr.shape[0]} "
-                    f"does not match dataframe length {len(df)}"
-                )
+                raise ValueError(f"select_subset: boolean idx length {_idx_arr.shape[0]} " f"does not match dataframe length {len(df)}")
         result = df.iloc[idx]
     elif isinstance(df, pl.DataFrame):
         result = df[idx]
@@ -644,8 +641,7 @@ def _setup_eval_set(
         for shard in extra_eval_sets:
             eval_list.append((shard.X, shard.y))
         if value_format == "list_of_tuples_values":
-            eval_list = [(X.values if hasattr(X, "values") else X,
-                          y.values if hasattr(y, "values") else y) for X, y in eval_list]
+            eval_list = [(X.values if hasattr(X, "values") else X, y.values if hasattr(y, "values") else y) for X, y in eval_list]
         if value_format in ("tuple", "list_of_tuples", "list_of_tuples_values"):
             fit_params[param_name] = eval_list
         elif value_format == "separate":
@@ -716,9 +712,7 @@ def _groupids_to_sizes(group_ids: Any) -> np.ndarray | None:
 # their own native ES path (booster callbacks or sklearn-style validation_fraction).
 # Models OUTSIDE this set get nothing val-driven by default; the auto-wrap helper below
 # folds them into a ``PartialFitESWrapper`` so val is no longer wasted.
-_NATIVE_ES_CATEGORIES: frozenset[str] = frozenset(
-    {"lgb", "hgb", "ngb", "cb", "xgb", "tabnet", "mlp"}
-)
+_NATIVE_ES_CATEGORIES: frozenset[str] = frozenset({"lgb", "hgb", "ngb", "cb", "xgb", "tabnet", "mlp"})
 
 # Per-model budget parameter for the dichotomic-search ES strategy when the model lacks
 # ``partial_fit``. ``None`` means no usable budget knob (e.g. plain LinearRegression which
@@ -729,7 +723,7 @@ _BUDGET_PARAM_BY_CATEGORY: dict[str, str | None] = {
     "elasticnet": "max_iter",
     "huber": "max_iter",
     "ransac": "max_trials",
-    "linear": None,         # LinearRegression/LogisticRegression closed-form -- no budget
+    "linear": None,  # LinearRegression/LogisticRegression closed-form -- no budget
 }
 
 
@@ -939,5 +933,3 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
         callbacks = [cb for cb in existing_callbacks if isinstance(cb, XGBTrainingCallback) and not isinstance(cb, XGBoostCallback)]
         callbacks.append(es_callback)
         model_obj.set_params(callbacks=callbacks)
-
-

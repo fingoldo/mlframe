@@ -129,10 +129,7 @@ def lgb_dataset_reuse_capable() -> bool:
     """
     if not _LGB_AVAILABLE:
         return False
-    return all(
-        hasattr(lgb.Dataset, attr)
-        for attr in ("set_label", "set_weight")
-    )
+    return all(hasattr(lgb.Dataset, attr) for attr in ("set_label", "set_weight"))
 
 
 # ---------------------------------------------------------------------
@@ -164,10 +161,7 @@ def _is_pair_item(obj: Any) -> bool:
     """True when ``obj`` looks like an X/y array (DataFrame / ndarray / polars / Series), i.e. one element of a bare (X, y[, w]) bundle."""
     if isinstance(obj, (str, bytes)) or isinstance(obj, (list, tuple)):
         return False
-    return bool(
-        hasattr(obj, "shape") or hasattr(obj, "columns")
-        or hasattr(obj, "iloc") or hasattr(obj, "dtypes")
-    )
+    return bool(hasattr(obj, "shape") or hasattr(obj, "columns") or hasattr(obj, "iloc") or hasattr(obj, "dtypes"))
 
 
 def normalize_eval_set(eval_set: Any) -> Optional[List[tuple]]:
@@ -381,18 +375,14 @@ class _DatasetReuseMixin:
         """Swap label on the cached training Dataset in place. Raises
         if no Dataset has been built yet (call ``.fit()`` first)."""
         if self._cached_train_dataset is None:
-            raise RuntimeError(
-                "no cached Dataset -- call .fit() first to build one"
-            )
+            raise RuntimeError("no cached Dataset -- call .fit() first to build one")
         self._cached_train_dataset.set_label(np.asarray(y))
 
     def set_weight(self, w) -> None:
         """Swap sample weights on the cached training Dataset in place.
         Raises if no Dataset has been built yet."""
         if self._cached_train_dataset is None:
-            raise RuntimeError(
-                "no cached Dataset -- call .fit() first to build one"
-            )
+            raise RuntimeError("no cached Dataset -- call .fit() first to build one")
         self._cached_train_dataset.set_weight(np.asarray(w))
 
     # ------------------------------------------------------------------
@@ -456,10 +446,7 @@ class _DatasetReuseMixin:
         # Remember the train frame's categorical-column dtypes so predict can realign incoming frames to the SAME
         # CategoricalDtype. LightGBM compares each predict frame's auto-detected cat schema against the fit-time one and
         # raises "categorical_feature do not match" when a column's category set (or its category-ness) differs.
-        self._mlframe_train_cat_dtypes = (
-            {_c: _dt for _c, _dt in X.dtypes.items() if str(_dt) == "category"}
-            if hasattr(X, "dtypes") else {}
-        )
+        self._mlframe_train_cat_dtypes = {_c: _dt for _c, _dt in X.dtypes.items() if str(_dt) == "category"} if hasattr(X, "dtypes") else {}
 
         # ---- Train Dataset: cache-or-build ---------------------------
         train_key = _signature_of(X, categorical_feature)
@@ -485,11 +472,7 @@ class _DatasetReuseMixin:
             if sample_weight is not None:
                 _w_arr = np.asarray(sample_weight)
                 if _w_arr.shape[0] != dtrain.num_data():
-                    raise ValueError(
-                        f"lgb_shim: sample_weight length "
-                        f"{_w_arr.shape[0]} != Dataset.num_data() "
-                        f"{dtrain.num_data()}"
-                    )
+                    raise ValueError(f"lgb_shim: sample_weight length " f"{_w_arr.shape[0]} != Dataset.num_data() " f"{dtrain.num_data()}")
                 dtrain.set_weight(_w_arr)
             else:
                 # When sample_weight was set previously and now None is
@@ -561,21 +544,10 @@ class _DatasetReuseMixin:
                 # Transform val labels through the encoder for classifier;
                 # regressor returns y unchanged.
                 y_val = self._transform_y_for_eval(y_val_raw)
-                w_val = w_val_inline if w_val_inline is not None else (
-                    eval_sample_weight[i]
-                    if eval_sample_weight and i < len(eval_sample_weight)
-                    else None
-                )
-                init_val = (
-                    eval_init_score[i]
-                    if eval_init_score and i < len(eval_init_score)
-                    else None
-                )
+                w_val = w_val_inline if w_val_inline is not None else (eval_sample_weight[i] if eval_sample_weight and i < len(eval_sample_weight) else None)
+                init_val = eval_init_score[i] if eval_init_score and i < len(eval_init_score) else None
                 val_key = _signature_of(X_val, categorical_feature)
-                if (
-                    self._cached_val_key == val_key
-                    and self._cached_val_dataset is not None
-                ):
+                if self._cached_val_key == val_key and self._cached_val_dataset is not None:
                     dval = self._cached_val_dataset
                     dval.set_label(np.asarray(y_val))
                     if w_val is not None:
@@ -675,9 +647,8 @@ class _DatasetReuseMixin:
             # caller already supplied one, or when disabled (None). The native best-iteration
             # rollback (EarlyStopException) keeps the global-best booster.
             from .callbacks.monotonic_decline import LGBMonotonicDeclineStop
-            if monotonic_decline_patience is not None and not any(
-                isinstance(cb, LGBMonotonicDeclineStop) for cb in train_callbacks
-            ):
+
+            if monotonic_decline_patience is not None and not any(isinstance(cb, LGBMonotonicDeclineStop) for cb in train_callbacks):
                 train_callbacks.append(LGBMonotonicDeclineStop(patience=monotonic_decline_patience))
 
         # Per-iteration full-metric-suite capture (meta-learning / HPO-from-early-observation). lgb's binned val
@@ -694,9 +665,7 @@ class _DatasetReuseMixin:
                 _tt = "multiclass_classification"
             else:
                 _tt = "binary_classification"
-            _iter_metrics_cb = LGBIterationMetricsCallback(
-                _iter_metrics_Xval, _iter_metrics_yval, _tt, stride=int(iteration_metrics_stride), n_classes=_ncls
-            )
+            _iter_metrics_cb = LGBIterationMetricsCallback(_iter_metrics_Xval, _iter_metrics_yval, _tt, stride=int(iteration_metrics_stride), n_classes=_ncls)
             train_callbacks.append(_iter_metrics_cb)
 
         booster = lgb.train(
@@ -845,7 +814,6 @@ if _LGB_AVAILABLE:
             train-time category sets (LightGBM requires matching categories at predict);
             delegates to the base LGBMClassifier.predict_proba."""
             return super().predict_proba(self._align_cats_for_predict(X), *args, **kwargs)
-
 
     class LGBMRegressorWithDatasetReuse(_DatasetReuseMixin, LGBMRegressor):
         """LGBMRegressor with cached Dataset across fits.

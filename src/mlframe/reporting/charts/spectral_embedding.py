@@ -83,9 +83,7 @@ def _resolve_node_colors(node_color, n_nodes: int) -> tuple:
     return tuple(line_color(int(c)) for c in labels)
 
 
-def spectral_embedding_panel(
-    n_nodes: int, edges, *, node_color=None, node_size=None, seed: int = 0
-) -> NetworkPanelSpec:
+def spectral_embedding_panel(n_nodes: int, edges, *, node_color=None, node_size=None, seed: int = 0) -> NetworkPanelSpec:
     """``NetworkPanelSpec`` placing nodes at :func:`spectral_layout` coordinates with edges as int src/dst arrays."""
     coords = spectral_layout(n_nodes, edges, seed=seed)
     e = np.asarray(edges, dtype=np.int64).reshape(-1, 2)

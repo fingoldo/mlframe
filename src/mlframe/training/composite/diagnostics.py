@@ -65,8 +65,7 @@ def _lazy_pyplot():
         import matplotlib
     except ImportError as exc:  # pragma: no cover - exercised only without matplotlib
         raise ImportError(
-            "matplotlib is required for mlframe composite diagnostic plots; "
-            "install it via `pip install matplotlib` (or `pip install mlframe[all]`)."
+            "matplotlib is required for mlframe composite diagnostic plots; " "install it via `pip install matplotlib` (or `pip install mlframe[all]`)."
         ) from exc
     # Only force Agg when the backend is still the unresolved auto-sentinel; calling get_backend() would itself resolve (and thus pin) a
     # backend, so we must read the raw rcParam to tell "user hasn't picked one yet" from "already configured". A user who ran
@@ -118,8 +117,7 @@ def plot_target_distribution(
             if arr.size == 0:
                 continue
             counts, _ = np.histogram(arr, bins=edges)
-            ax.bar(edges[:-1], counts / (arr.size * width), width=width, align="edge",
-                   alpha=0.5, color=color, label=f"{name} (n={arr.size})")
+            ax.bar(edges[:-1], counts / (arr.size * width), width=width, align="edge", alpha=0.5, color=color, label=f"{name} (n={arr.size})")
     ax.set_xlabel("value")
     ax.set_ylabel("density")
     ax.set_title(title)
@@ -189,8 +187,7 @@ def plot_qq(
         # Not enough data; render an empty placeholder so the caller
         # still has a Figure object to handle uniformly.
         fig, ax = plt.subplots(figsize=figsize)
-        ax.text(0.5, 0.5, f"too few finite T values (n={finite.size})",
-                ha="center", va="center", transform=ax.transAxes)
+        ax.text(0.5, 0.5, f"too few finite T values (n={finite.size})", ha="center", va="center", transform=ax.transAxes)
         ax.set_title(title)
         return fig
 
@@ -270,16 +267,13 @@ def plot_linear_fit(
     # Draw the line over the observed base range.
     if b_f.size > 0:
         x_line = np.linspace(b_f.min(), b_f.max(), 100)
-        ax.plot(x_line, alpha_use * x_line + beta_use, color="tab:red", lw=2,
-                label=f"y = {alpha_use:.3g} * base + {beta_use:.3g}")
+        ax.plot(x_line, alpha_use * x_line + beta_use, color="tab:red", lw=2, label=f"y = {alpha_use:.3g} * base + {beta_use:.3g}")
         ax.legend(loc="lower right")
     ax.set_xlabel("base")
     ax.set_ylabel("y")
     ax.set_title(title)
     text = f"R^2 = {r2:.4f}\nn = {finite.sum()}"
-    ax.text(0.02, 0.98, text, transform=ax.transAxes, va="top",
-            fontsize=10, family="monospace",
-            bbox={"facecolor": "white", "alpha": 0.7, "edgecolor": "gray"})
+    ax.text(0.02, 0.98, text, transform=ax.transAxes, va="top", fontsize=10, family="monospace", bbox={"facecolor": "white", "alpha": 0.7, "edgecolor": "gray"})
     fig.tight_layout()
     return fig
 
@@ -315,8 +309,7 @@ def plot_mi_gain_with_jitter(
     plt = _lazy_pyplot()
     if not specs:
         fig, ax = plt.subplots(figsize=figsize)
-        ax.text(0.5, 0.5, "no specs to plot", ha="center", va="center",
-                transform=ax.transAxes)
+        ax.text(0.5, 0.5, "no specs to plot", ha="center", va="center", transform=ax.transAxes)
         ax.set_title(title)
         return fig
 
@@ -340,8 +333,7 @@ def plot_mi_gain_with_jitter(
     fig, ax = plt.subplots(figsize=figsize)
     x = np.arange(n)
     bar_colors = ["tab:green" if g > 0 else "tab:red" for g in gains]
-    ax.bar(x, gains, yerr=[err_lo, err_hi], color=bar_colors, alpha=0.7,
-           capsize=4)
+    ax.bar(x, gains, yerr=[err_lo, err_hi], color=bar_colors, alpha=0.7, capsize=4)
     ax.axhline(0, color="black", lw=0.5)
     ax.set_xticks(x)
     ax.set_xticklabels(names, rotation=30, ha="right", fontsize=8)
@@ -400,24 +392,18 @@ def plot_per_fold_tiny_rmse(
     plt = _lazy_pyplot()
     if not per_fold_rmses:
         fig, ax = plt.subplots(figsize=figsize)
-        ax.text(0.5, 0.5, "no per-fold RMSE data",
-                ha="center", va="center", transform=ax.transAxes)
+        ax.text(0.5, 0.5, "no per-fold RMSE data", ha="center", va="center", transform=ax.transAxes)
         ax.set_title(title)
         return fig
     names = list(per_fold_rmses.keys())
-    data = [
-        [float(v) for v in per_fold_rmses[n] if np.isfinite(v)]
-        for n in names
-    ]
+    data = [[float(v) for v in per_fold_rmses[n] if np.isfinite(v)] for n in names]
     fig, ax = plt.subplots(figsize=figsize)
     bp = ax.boxplot(data, showfliers=True, patch_artist=True)
     for patch in bp["boxes"]:
         patch.set_facecolor("tab:blue")
         patch.set_alpha(0.6)
     if raw_baseline is not None and np.isfinite(raw_baseline):
-        ax.axhline(raw_baseline, color="black", linestyle="--",
-                   linewidth=1.0,
-                   label=f"raw-y baseline = {raw_baseline:.4f}")
+        ax.axhline(raw_baseline, color="black", linestyle="--", linewidth=1.0, label=f"raw-y baseline = {raw_baseline:.4f}")
         ax.legend(loc="best", fontsize=9)
     ax.set_ylabel("CV-RMSE on y-scale (after inverse)")
     ax.set_xticklabels(names, rotation=30, ha="right", fontsize=8)
@@ -449,20 +435,15 @@ def plot_per_family_disagreement(
     families = list(per_family_scores.keys())
     if len(families) < 2:
         fig, ax = plt.subplots(figsize=figsize)
-        ax.text(0.5, 0.5,
-                "need >= 2 families for disagreement plot",
-                ha="center", va="center", transform=ax.transAxes)
+        ax.text(0.5, 0.5, "need >= 2 families for disagreement plot", ha="center", va="center", transform=ax.transAxes)
         ax.set_title(title)
         return fig
     # Lower CV-RMSE is better -> rank ascending.
-    score_matrix = np.array(
-        [list(per_family_scores[f]) for f in families], dtype=np.float64
-    )
+    score_matrix = np.array([list(per_family_scores[f]) for f in families], dtype=np.float64)
     n_specs = score_matrix.shape[1]
     if n_specs < 2:
         fig, ax = plt.subplots(figsize=figsize)
-        ax.text(0.5, 0.5, "need >= 2 specs for disagreement plot",
-                ha="center", va="center", transform=ax.transAxes)
+        ax.text(0.5, 0.5, "need >= 2 specs for disagreement plot", ha="center", va="center", transform=ax.transAxes)
         ax.set_title(title)
         return fig
     n_fam = len(families)
@@ -489,9 +470,7 @@ def plot_per_family_disagreement(
         for j in range(n_fam):
             v = corr[i, j]
             text_color = "white" if abs(v) > 0.55 else "black"
-            ax.text(j, i, f"{v:.2f}" if np.isfinite(v) else "NA",
-                    ha="center", va="center",
-                    color=text_color, fontsize=10)
+            ax.text(j, i, f"{v:.2f}" if np.isfinite(v) else "NA", ha="center", va="center", color=text_color, fontsize=10)
     fig.colorbar(im, ax=ax, label="Spearman rank corr")
     ax.set_title(title + f" ({n_specs} specs)")
     fig.tight_layout()
@@ -520,26 +499,19 @@ def plot_alpha_stability(
     alpha_arr = np.asarray(alpha_per_window, dtype=np.float64)
     if alpha_arr.size == 0:
         fig, ax = plt.subplots(figsize=figsize)
-        ax.text(0.5, 0.5, "no alpha samples",
-                ha="center", va="center", transform=ax.transAxes)
+        ax.text(0.5, 0.5, "no alpha samples", ha="center", va="center", transform=ax.transAxes)
         ax.set_title(title)
         return fig
     if window_indices is not None and len(window_indices) != alpha_arr.size:
-        raise ValueError(
-            f"plot_alpha_stability: window_indices ({len(window_indices)}) and "
-            f"alpha_per_window ({alpha_arr.size}) must have equal length."
-        )
+        raise ValueError(f"plot_alpha_stability: window_indices ({len(window_indices)}) and " f"alpha_per_window ({alpha_arr.size}) must have equal length.")
     if window_indices is None:
         x = np.arange(alpha_arr.size)
     else:
         x = np.arange(len(window_indices))
     fig, ax = plt.subplots(figsize=figsize)
-    ax.plot(x, alpha_arr, marker="o", linewidth=1.5,
-            color="tab:blue", label="alpha per window")
+    ax.plot(x, alpha_arr, marker="o", linewidth=1.5, color="tab:blue", label="alpha per window")
     if expected_alpha is not None and np.isfinite(expected_alpha):
-        ax.axhline(expected_alpha, color="black", linestyle="--",
-                   linewidth=1.0,
-                   label=f"reference alpha = {expected_alpha:.4f}")
+        ax.axhline(expected_alpha, color="black", linestyle="--", linewidth=1.0, label=f"reference alpha = {expected_alpha:.4f}")
     if window_indices is not None:
         ax.set_xticks(x)
         ax.set_xticklabels(
@@ -586,8 +558,7 @@ def plot_predictions_vs_actual(
     n_specs = len(y_pred_per_spec)
     if n_specs == 0:
         fig, ax = plt.subplots(figsize=figsize)
-        ax.text(0.5, 0.5, "no predictions to plot",
-                ha="center", va="center", transform=ax.transAxes)
+        ax.text(0.5, 0.5, "no predictions to plot", ha="center", va="center", transform=ax.transAxes)
         ax.set_title(title)
         return fig
     rng = np.random.default_rng(random_state)
@@ -606,17 +577,13 @@ def plot_predictions_vs_actual(
     for ax, (name, y_hat) in zip(axes, y_pred_per_spec.items()):
         y_hat_arr = np.asarray(y_hat)
         if y_hat_arr.size != y_true.size:
-            ax.text(0.5, 0.5,
-                    f"size mismatch:\n{y_hat_arr.size} vs {y_true.size}",
-                    ha="center", va="center", transform=ax.transAxes)
+            ax.text(0.5, 0.5, f"size mismatch:\n{y_hat_arr.size} vs {y_true.size}", ha="center", va="center", transform=ax.transAxes)
             ax.set_title(name)
             continue
         y_hat_sample = y_hat_arr[sample_idx]
         finite = np.isfinite(y_sample) & np.isfinite(y_hat_sample)
-        ax.scatter(y_sample[finite], y_hat_sample[finite],
-                   s=4, alpha=0.4, color="tab:blue")
-        ax.plot([lo, hi], [lo, hi], color="black",
-                linestyle="--", linewidth=1.0, label="y = ŷ")
+        ax.scatter(y_sample[finite], y_hat_sample[finite], s=4, alpha=0.4, color="tab:blue")
+        ax.plot([lo, hi], [lo, hi], color="black", linestyle="--", linewidth=1.0, label="y = ŷ")
         # RMSE annotation for the rendered sample.
         diff = y_hat_sample[finite] - y_sample[finite]
         rmse = float(np.sqrt(np.mean(diff * diff))) if finite.any() else float("nan")
@@ -679,21 +646,15 @@ def plot_reliability_diagram(
     plt = _lazy_pyplot()
     if report is None:
         if y_true is None or proba is None:
-            raise ValueError(
-                "plot_reliability_diagram: pass either report=... or both "
-                "y_true=... and proba=..."
-            )
-        report = _bin_top_label_calibration(
-            y_true, proba, n_bins=n_bins, sample_n=sample_n, random_state=random_state
-        )
+            raise ValueError("plot_reliability_diagram: pass either report=... or both " "y_true=... and proba=...")
+        report = _bin_top_label_calibration(y_true, proba, n_bins=n_bins, sample_n=sample_n, random_state=random_state)
     bin_conf = np.asarray(report["bin_confidence"], dtype=np.float64)
     bin_acc = np.asarray(report["bin_accuracy"], dtype=np.float64)
     bin_cnt = np.asarray(report.get("bin_count", np.zeros(bin_conf.size)), dtype=np.float64)
     ece = float(report.get("ece", float("nan")))
 
     fig, ax = plt.subplots(figsize=figsize)
-    ax.plot([0.0, 1.0], [0.0, 1.0], color="black", linestyle="--", linewidth=1.0,
-            label="perfect calibration")
+    ax.plot([0.0, 1.0], [0.0, 1.0], color="black", linestyle="--", linewidth=1.0, label="perfect calibration")
     nb = bin_conf.size
     centers = (np.arange(nb) + 0.5) / nb
     valid = np.isfinite(bin_conf) & np.isfinite(bin_acc)
@@ -703,10 +664,8 @@ def plot_reliability_diagram(
         widths = 0.9 / nb * (bin_cnt / bin_cnt.max())
     else:
         widths = np.full(nb, 0.9 / nb)
-    ax.bar(centers[valid], bin_acc[valid], width=widths[valid], alpha=0.35,
-           color="tab:blue", label="observed accuracy")
-    ax.plot(bin_conf[valid], bin_acc[valid], marker="o", color="tab:red",
-            linewidth=1.5, label="reliability curve")
+    ax.bar(centers[valid], bin_acc[valid], width=widths[valid], alpha=0.35, color="tab:blue", label="observed accuracy")
+    ax.plot(bin_conf[valid], bin_acc[valid], marker="o", color="tab:red", linewidth=1.5, label="reliability curve")
     ax.set_xlim(0.0, 1.0)
     ax.set_ylim(0.0, 1.0)
     ax.set_xlabel("mean predicted confidence")
@@ -745,8 +704,7 @@ def _bin_top_label_calibration(
     # Map argmax column back to a label via the sorted unique labels -- the same
     # class ordering sklearn's ``classes_`` (and the estimator) uses.
     classes = np.unique(y_arr)
-    pred = classes[np.argmax(proba_arr, axis=1)] if classes.size == proba_arr.shape[1] \
-        else np.argmax(proba_arr, axis=1)
+    pred = classes[np.argmax(proba_arr, axis=1)] if classes.size == proba_arr.shape[1] else np.argmax(proba_arr, axis=1)
     correct = (pred == y_arr).astype(np.float64)
     nb = int(n_bins)
     edges = np.linspace(0.0, 1.0, nb + 1)
@@ -764,8 +722,7 @@ def _bin_top_label_calibration(
             bin_conf[b] = float(conf[sel].mean())
             bin_acc[b] = float(correct[sel].mean())
             ece += (c / m) * abs(bin_conf[b] - bin_acc[b])
-    return {"bin_confidence": bin_conf, "bin_accuracy": bin_acc,
-            "bin_count": bin_cnt, "ece": float(ece)}
+    return {"bin_confidence": bin_conf, "bin_accuracy": bin_acc, "bin_count": bin_cnt, "ece": float(ece)}
 
 
 def plot_interval_coverage(
@@ -792,10 +749,7 @@ def plot_interval_coverage(
     lo_arr = np.asarray(lower, dtype=np.float64).reshape(-1)
     hi_arr = np.asarray(upper, dtype=np.float64).reshape(-1)
     if not (y_arr.shape == lo_arr.shape == hi_arr.shape):
-        raise ValueError(
-            f"plot_interval_coverage: y_true {y_arr.shape}, lower {lo_arr.shape}, "
-            f"upper {hi_arr.shape} must share the same shape."
-        )
+        raise ValueError(f"plot_interval_coverage: y_true {y_arr.shape}, lower {lo_arr.shape}, " f"upper {hi_arr.shape} must share the same shape.")
     finite = np.isfinite(y_arr) & np.isfinite(lo_arr) & np.isfinite(hi_arr)
     y_f, lo_f, hi_f = y_arr[finite], lo_arr[finite], hi_arr[finite]
     # Honest stats on the full finite input, before any plot subsampling.
@@ -805,8 +759,7 @@ def plot_interval_coverage(
 
     fig, ax = plt.subplots(figsize=figsize)
     if y_f.size == 0:
-        ax.text(0.5, 0.5, "no finite interval rows", ha="center", va="center",
-                transform=ax.transAxes)
+        ax.text(0.5, 0.5, "no finite interval rows", ha="center", va="center", transform=ax.transAxes)
         ax.set_title(title)
         return fig
     sub = _subsample_idx(y_f.size, sample_n, random_state)
@@ -816,11 +769,9 @@ def plot_interval_coverage(
     # Two vlines calls (covered / missed) instead of per-row plotting keep the
     # render O(2) matplotlib artists even for the full 5k subsample.
     if cov_sub.any():
-        ax.vlines(x[cov_sub], lo_f[order][cov_sub], hi_f[order][cov_sub],
-                  color="tab:green", alpha=0.5, linewidth=1.0, label="covered")
+        ax.vlines(x[cov_sub], lo_f[order][cov_sub], hi_f[order][cov_sub], color="tab:green", alpha=0.5, linewidth=1.0, label="covered")
     if (~cov_sub).any():
-        ax.vlines(x[~cov_sub], lo_f[order][~cov_sub], hi_f[order][~cov_sub],
-                  color="tab:red", alpha=0.7, linewidth=1.0, label="missed")
+        ax.vlines(x[~cov_sub], lo_f[order][~cov_sub], hi_f[order][~cov_sub], color="tab:red", alpha=0.7, linewidth=1.0, label="missed")
     ax.plot(x, y_f[order], color="black", linewidth=0.8, label="y_true (sorted)")
     ax.set_xlabel("sample (sorted by y_true)")
     ax.set_ylabel("value")
@@ -862,10 +813,7 @@ def plot_interval_width_vs_x(
     lo_arr = np.asarray(lower, dtype=np.float64).reshape(-1)
     hi_arr = np.asarray(upper, dtype=np.float64).reshape(-1)
     if not (x_arr.shape == lo_arr.shape == hi_arr.shape):
-        raise ValueError(
-            f"plot_interval_width_vs_x: x {x_arr.shape}, lower {lo_arr.shape}, "
-            f"upper {hi_arr.shape} must share the same shape."
-        )
+        raise ValueError(f"plot_interval_width_vs_x: x {x_arr.shape}, lower {lo_arr.shape}, " f"upper {hi_arr.shape} must share the same shape.")
     width = hi_arr - lo_arr
     finite = np.isfinite(x_arr) & np.isfinite(width)
     x_f, w_f = x_arr[finite], width[finite]
@@ -874,14 +822,12 @@ def plot_interval_width_vs_x(
 
     fig, ax = plt.subplots(figsize=figsize)
     if w_f.size == 0:
-        ax.text(0.5, 0.5, "no finite width rows", ha="center", va="center",
-                transform=ax.transAxes)
+        ax.text(0.5, 0.5, "no finite width rows", ha="center", va="center", transform=ax.transAxes)
         ax.set_title(title)
         return fig
     sub = _subsample_idx(w_f.size, sample_n, random_state)
     ax.scatter(x_f[sub], w_f[sub], s=8, alpha=0.4, color="tab:blue", label="width")
-    ax.axhline(mean_w, color="tab:red", linestyle="--", linewidth=1.2,
-               label=f"mean width = {mean_w:.4f}")
+    ax.axhline(mean_w, color="tab:red", linestyle="--", linewidth=1.2, label=f"mean width = {mean_w:.4f}")
     ax.set_xlabel("x")
     ax.set_ylabel("interval width (upper - lower)")
     ax.set_title(title)

@@ -81,8 +81,7 @@ def run_composite_target_discovery(
         mlframe_models=mlframe_models,
         metadata=metadata,
     )
-    if not (composite_target_discovery_config.enabled
-            and TargetTypes.REGRESSION in target_by_type):
+    if not (composite_target_discovery_config.enabled and TargetTypes.REGRESSION in target_by_type):
         return target_by_type, metadata
 
     target_by_type = _defensive_copy_and_expand_multilabel_regression(
@@ -128,9 +127,7 @@ def run_composite_target_discovery(
     _td_knobs = _td_report.get("knob_overrides", {}) or {}
     _lag1_ar = _td_diag.get("lag1_autocorr_per_group")
     _split_cfg_overrides = _td_knobs.get("split_config", {}) or {}
-    _group_aware_recommended = bool(
-        _split_cfg_overrides.get("prefer_group_aware", False)
-    )
+    _group_aware_recommended = bool(_split_cfg_overrides.get("prefer_group_aware", False))
 
     # The ACTUAL production splitter is group-aware iff ``split_config.use_groups`` is set AND the suite produced ``group_ids`` (see
     # _phase_helpers_fit_split.py:288, the single place the real splitter routes through GroupShuffleSplit / StratifiedGroupKFold). This is
@@ -157,9 +154,7 @@ def run_composite_target_discovery(
     # value when the user left it at 0; unbounded zoos keep the user's value (0 = never skip). One model_copy reused for
     # every target so the shared config object is never mutated.
     _disc_cfg_base = composite_target_discovery_config
-    if (_bounded_only_zoo
-            and float(getattr(composite_target_discovery_config,
-                              "composite_skip_when_raw_dominates_ratio", 0.0)) <= 0.0):
+    if _bounded_only_zoo and float(getattr(composite_target_discovery_config, "composite_skip_when_raw_dominates_ratio", 0.0)) <= 0.0:
         try:
             _disc_cfg_base = composite_target_discovery_config.model_copy(
                 update={"composite_skip_when_raw_dominates_ratio": _RERANK_SKIP_RATIO_BOUNDED_DEFAULT},
@@ -177,9 +172,7 @@ def run_composite_target_discovery(
     _grp_arr_hoisted: np.ndarray | None = None
     _grp_filtered_slice: np.ndarray | None = None
     _grp_max_required: int = 0
-    if (group_ids is not None
-            and _group_aware_active
-            and filtered_train_idx is not None):
+    if group_ids is not None and _group_aware_active and filtered_train_idx is not None:
         try:
             _grp_arr_hoisted = np.asarray(group_ids)
             _grp_max_required = int(np.max(filtered_train_idx) + 1)
@@ -187,8 +180,7 @@ def run_composite_target_discovery(
                 _grp_filtered_slice = _grp_arr_hoisted[filtered_train_idx]
         except (TypeError, ValueError, IndexError) as _hoist_err:
             logger.debug(
-                "[CompositeTargetDiscovery] group_ids hoist failed (%s); "
-                "tiny-rerank will fall back to KFold for every target.",
+                "[CompositeTargetDiscovery] group_ids hoist failed (%s); " "tiny-rerank will fall back to KFold for every target.",
                 _hoist_err,
             )
 
@@ -276,18 +268,11 @@ def run_composite_target_discovery(
             ))
             _diag = None
             if _auto_skip or _use_hint:
-                _diag = (
-                    _existing_diags.get(str(_tt_disc), {}).get(_tname_disc)
-                )
+                _diag = _existing_diags.get(str(_tt_disc), {}).get(_tname_disc)
                 if _diag is None:
                     try:
-                        _bd_inline = BaselineDiagnostics(
-                            baseline_diagnostics_config
-                        )
-                        _y_train_for_diag = (
-                            _y_arr[filtered_train_idx]
-                            if filtered_train_idx is not None else _y_arr
-                        )
+                        _bd_inline = BaselineDiagnostics(baseline_diagnostics_config)
+                        _y_train_for_diag = _y_arr[filtered_train_idx] if filtered_train_idx is not None else _y_arr
                         _diag_report = _bd_inline.fit_and_report(
                             train_df=filtered_train_df,
                             train_target=_y_train_for_diag,
@@ -297,21 +282,18 @@ def run_composite_target_discovery(
                             cat_features=cat_features,
                         )
                         _diag = _diag_report.to_dict()
-                        metadata.setdefault("baseline_diagnostics", {}) \
-                            .setdefault(str(_tt_disc), {})[_tname_disc] = _diag
+                        metadata.setdefault("baseline_diagnostics", {}).setdefault(str(_tt_disc), {})[_tname_disc] = _diag
                     except Exception as _bd_err:
                         logger.info(
-                            "[CompositeTargetDiscovery] inline diagnostic precompute "
-                            "failed for '%s': %s; discovery proceeds without auto-skip / hint.",
-                            _tname_disc, _bd_err,
+                            "[CompositeTargetDiscovery] inline diagnostic precompute " "failed for '%s': %s; discovery proceeds without auto-skip / hint.",
+                            _tname_disc,
+                            _bd_err,
                         )
                         _diag = None
             if _auto_skip:
-                if (_diag is not None
-                        and _diag.get("composite_recommendation") == "unlikely_to_help"):
+                if _diag is not None and _diag.get("composite_recommendation") == "unlikely_to_help":
                     logger.info(
-                        "[CompositeTargetDiscovery] auto-skip target='%s': "
-                        "BaselineDiagnostics recommendation='unlikely_to_help' (reason: %s).",
+                        "[CompositeTargetDiscovery] auto-skip target='%s': " "BaselineDiagnostics recommendation='unlikely_to_help' (reason: %s).",
                         _tname_disc,
                         _diag.get("composite_recommendation_reason", "")[:120],
                     )
@@ -326,8 +308,7 @@ def run_composite_target_discovery(
             if filtered_train_idx is None:
                 # _y_arr[None] yields shape (1, n), so the row-align guard below would print a misleading "y[1] vs df[N]"; surface the real cause instead.
                 logger.warning(
-                    "[CompositeTargetDiscovery] filtered_train_idx missing; "
-                    "skipping discovery for target='%s'.",
+                    "[CompositeTargetDiscovery] filtered_train_idx missing; " "skipping discovery for target='%s'.",
                     _tname_disc,
                 )
                 metadata["composite_target_failures"].setdefault(
@@ -344,14 +325,14 @@ def run_composite_target_discovery(
                     "(y[%d] vs filtered_train_df[%d]); skipping discovery.",
                     _tname_disc, len(_y_train_aligned), len(filtered_train_df),
                 )
-                metadata["composite_target_failures"].setdefault(
-                    str(_tt_disc), {})[_tname_disc] = [{
-                        "name": _tname_disc, "kept": False, "rejected": True,
-                        "reason": (
-                            f"row-align mismatch y[{len(_y_train_aligned)}] "
-                            f"vs filtered_train_df[{len(filtered_train_df)}]"
-                        ),
-                    }]
+                metadata["composite_target_failures"].setdefault(str(_tt_disc), {})[_tname_disc] = [
+                    {
+                        "name": _tname_disc,
+                        "kept": False,
+                        "rejected": True,
+                        "reason": (f"row-align mismatch y[{len(_y_train_aligned)}] " f"vs filtered_train_df[{len(filtered_train_df)}]"),
+                    }
+                ]
                 continue
 
             # Measured achievable-ceiling precheck. On a bounded subsample it MEASURES raw-y / lag_predict / optimistic-
@@ -386,8 +367,7 @@ def run_composite_target_discovery(
                 )
                 _ceiling_verdict = None
             if _ceiling_verdict is not None:
-                metadata.setdefault("composite_precheck_verdict", {}).setdefault(
-                    str(_tt_disc), {})[_tname_disc] = _ceiling_verdict
+                metadata.setdefault("composite_precheck_verdict", {}).setdefault(str(_tt_disc), {})[_tname_disc] = _ceiling_verdict
                 if _ceiling_verdict.get("decision") == "skip":
                     metadata["composite_target_failures"].setdefault(
                         str(_tt_disc), {})[_tname_disc] = [{
@@ -413,16 +393,9 @@ def run_composite_target_discovery(
                     _ablation,
                     key=lambda e: -float(e.get("delta_pct", 0.0)),
                 )
-                _hint_cols = [
-                    e["feature"] for e in _ablation_sorted[:_hint_top_k]
-                    if e.get("feature")
-                ]
+                _hint_cols = [e["feature"] for e in _ablation_sorted[:_hint_top_k] if e.get("feature")]
                 # Strong hints get all top_k slots; weak hints fall back to half-slot cap inside discovery.
-                _hint_strengths = [
-                    float(e.get("delta_pct", 0.0))
-                    for e in _ablation_sorted[:_hint_top_k]
-                    if e.get("feature")
-                ]
+                _hint_strengths = [float(e.get("delta_pct", 0.0)) for e in _ablation_sorted[:_hint_top_k] if e.get("feature")]
                 if _hint_cols:
                     try:
                         _disc_cfg = _disc_cfg_base.model_copy(
@@ -436,9 +409,9 @@ def run_composite_target_discovery(
                         )
                     except Exception as _clone_err:
                         logger.info(
-                            "[CompositeTargetDiscovery] hint clone failed for "
-                            "target='%s' (%s); proceeding with MI-only.",
-                            _tname_disc, _clone_err,
+                            "[CompositeTargetDiscovery] hint clone failed for " "target='%s' (%s); proceeding with MI-only.",
+                            _tname_disc,
+                            _clone_err,
                         )
             else:
                 _hint_strengths = None
@@ -474,9 +447,9 @@ def run_composite_target_discovery(
                     _cached_payload = _disc_cache.get(_disc_cache_key)
                 except Exception as _cache_err:
                     logger.info(
-                        "[CompositeTargetDiscovery] cache key build failed for "
-                        "target='%s' (%s); proceeding without cache.",
-                        _tname_disc, _cache_err,
+                        "[CompositeTargetDiscovery] cache key build failed for " "target='%s' (%s); proceeding without cache.",
+                        _tname_disc,
+                        _cache_err,
                     )
                     _cached_payload = None
             else:
@@ -493,36 +466,28 @@ def run_composite_target_discovery(
                 # metadata list) would corrupt the cache entry in place. Same shape as the CB
                 # Pool id-recycle bug -- catch it BEFORE the LRU sidecar lands.
                 metadata["composite_target_specs"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = list(
-                    _cached_payload.get("specs_export") or []
-                )
+                metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = list(_cached_payload.get("specs_export") or [])
                 metadata["composite_target_failures"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = list(
-                    _cached_payload.get("failures") or []
-                )
+                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = list(_cached_payload.get("failures") or [])
                 metadata.setdefault("composite_target_filter_drops", {})
                 metadata["composite_target_filter_drops"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_filter_drops"][str(_tt_disc)][_tname_disc] = dict(
-                    _cached_payload.get("filter_drops") or {}
-                )
-                metadata.setdefault("composite_target_cache", {}) \
-                    .setdefault(str(_tt_disc), {})[_tname_disc] = {
-                        "hit": True, "key": _disc_cache_key,
-                    }
+                metadata["composite_target_filter_drops"][str(_tt_disc)][_tname_disc] = dict(_cached_payload.get("filter_drops") or {})
+                metadata.setdefault("composite_target_cache", {}).setdefault(str(_tt_disc), {})[_tname_disc] = {
+                    "hit": True,
+                    "key": _disc_cache_key,
+                }
                 logger.info(
-                    "[CompositeTargetDiscovery] cache HIT for target='%s' "
-                    "(key=%s); skipping full discovery.",
-                    _tname_disc, (_disc_cache_key or "?")[:16],
+                    "[CompositeTargetDiscovery] cache HIT for target='%s' " "(key=%s); skipping full discovery.",
+                    _tname_disc,
+                    (_disc_cache_key or "?")[:16],
                 )
                 # No specs_/_disc instance available on cache hit; the
                 # downstream forward-applier loop expects one. Reconstruct
                 # the bare-minimum CompositeSpec list from the cached export.
                 try:
                     from ..composite.spec import CompositeSpec as _Spec
-                    _cached_specs = [
-                        _Spec(**s) if isinstance(s, dict) else s
-                        for s in _cached_payload.get("specs_export", [])
-                    ]
+
+                    _cached_specs = [_Spec(**s) if isinstance(s, dict) else s for s in _cached_payload.get("specs_export", [])]
                     # Auto-discovered chain transforms (chain_<residual>_<unary>) are registered in-process by
                     # _run_auto_chain during a FRESH discovery; on a cache replay that never ran, so re-register any the
                     # cached specs reference -- otherwise get_transform / predict-time inversion raises UnknownTransformError.
@@ -609,9 +574,7 @@ def run_composite_target_discovery(
                     # must use time-respecting folds (TimeSeriesSplit) instead
                     # of shuffled K-fold -- otherwise the pass-2 bases / residual
                     # target are built from future-contaminated OOF predictions.
-                    _stacked_time_aware = bool(
-                        getattr(_disc_cfg, "time_column", None)
-                    )
+                    _stacked_time_aware = bool(getattr(_disc_cfg, "time_column", None))
                     if _use_stacked_residual:
                         _disc = _disc_instance.fit_stacked_on_residual(
                             df=_disc_df,
@@ -693,9 +656,9 @@ def run_composite_target_discovery(
                         )
                 except Exception as _disc_err:
                     logger.warning(
-                        "[CompositeTargetDiscovery] fit failed for target='%s': %s. "
-                        "Per-target training continues without composite expansion.",
-                        _tname_disc, _disc_err,
+                        "[CompositeTargetDiscovery] fit failed for target='%s': %s. " "Per-target training continues without composite expansion.",
+                        _tname_disc,
+                        _disc_err,
                     )
                     metadata["composite_target_failures"].setdefault(
                         str(_tt_disc), {})[_tname_disc] = [{
@@ -705,38 +668,34 @@ def run_composite_target_discovery(
                     continue
 
                 metadata["composite_target_specs"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = (
-                    _disc.export_specs()
-                )
+                metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = _disc.export_specs()
                 metadata["composite_target_failures"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = [
-                    r for r in _disc.report() if r.get("rejected")
-                ]
+                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = [r for r in _disc.report() if r.get("rejected")]
                 metadata.setdefault("composite_target_filter_drops", {})
                 metadata["composite_target_filter_drops"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_filter_drops"][str(_tt_disc)][
-                    _tname_disc] = _disc.filter_drops()
+                metadata["composite_target_filter_drops"][str(_tt_disc)][_tname_disc] = _disc.filter_drops()
 
                 # Populate the cache so the next call with identical inputs
                 # short-circuits.
                 if _disc_cache is not None and _disc_cache_key is not None:
                     try:
-                        _disc_cache.set(_disc_cache_key, {
-                            "specs_export": _disc.export_specs(),
-                            "failures": [
-                                r for r in _disc.report() if r.get("rejected")
-                            ],
-                            "filter_drops": _disc.filter_drops(),
-                        })
-                        metadata.setdefault("composite_target_cache", {}) \
-                            .setdefault(str(_tt_disc), {})[_tname_disc] = {
-                                "hit": False, "key": _disc_cache_key,
-                            }
+                        _disc_cache.set(
+                            _disc_cache_key,
+                            {
+                                "specs_export": _disc.export_specs(),
+                                "failures": [r for r in _disc.report() if r.get("rejected")],
+                                "filter_drops": _disc.filter_drops(),
+                            },
+                        )
+                        metadata.setdefault("composite_target_cache", {}).setdefault(str(_tt_disc), {})[_tname_disc] = {
+                            "hit": False,
+                            "key": _disc_cache_key,
+                        }
                     except Exception as _cache_err:
                         logger.info(
-                            "[CompositeTargetDiscovery] cache set failed for "
-                            "target='%s' (%s); ignored.",
-                            _tname_disc, _cache_err,
+                            "[CompositeTargetDiscovery] cache set failed for " "target='%s' (%s); ignored.",
+                            _tname_disc,
+                            _cache_err,
                         )
 
             # Record the measured achievable-ceiling verdict on the discovery instance (single source of truth also lives
@@ -786,22 +745,15 @@ def run_composite_target_discovery(
                 if _valid.any():
                     # For multi-base, _base_full is 2-D — pass the
                     # row-filtered 2-D slice; for single-base it stays 1-D.
-                    _base_for_forward = (
-                        _base_full[_valid, :] if _base_full.ndim == 2
-                        else _base_full[_valid]
-                    )
+                    _base_for_forward = _base_full[_valid, :] if _base_full.ndim == 2 else _base_full[_valid]
                     _ct_t_full[_valid] = _transform.forward(
                         _y_arr[_valid], _base_for_forward, _spec.fitted_params,
                     )
                 if not np.all(np.isfinite(_ct_t_full)):
                     _t_train_for_median = _ct_t_full[filtered_train_idx]
-                    _t_train_for_median = _t_train_for_median[
-                        np.isfinite(_t_train_for_median)
-                    ]
+                    _t_train_for_median = _t_train_for_median[np.isfinite(_t_train_for_median)]
                     if _t_train_for_median.size > 0:
-                        _ct_t_full[~np.isfinite(_ct_t_full)] = float(
-                            np.median(_t_train_for_median)
-                        )
+                        _ct_t_full[~np.isfinite(_ct_t_full)] = float(np.median(_t_train_for_median))
                 target_by_type[_tt_disc][_spec.name] = _ct_t_full
                 _t_by_spec_for_charts[_spec.name] = _ct_t_full
                 logger.info(
@@ -814,11 +766,7 @@ def run_composite_target_discovery(
             # ranked spec export all coexist, so the wiring lives here rather than the later report path.
             if save_charts and data_dir and _t_by_spec_for_charts:
                 try:
-                    _chart_specs = (
-                        metadata.get("composite_target_specs", {})
-                        .get(str(_tt_disc), {})
-                        .get(_tname_disc, [])
-                    )
+                    _chart_specs = metadata.get("composite_target_specs", {}).get(str(_tt_disc), {}).get(_tname_disc, [])
                     _saved_charts = _render_composite_discovery_diagnostics(
                         data_dir=data_dir,
                         raw_target_name=_tname_disc,
@@ -827,18 +775,14 @@ def run_composite_target_discovery(
                         specs_export=list(_chart_specs or []),
                     )
                     if _saved_charts:
-                        metadata.setdefault("composite_target_diagnostic_charts", {}) \
-                            .setdefault(str(_tt_disc), {})[_tname_disc] = _saved_charts
+                        metadata.setdefault("composite_target_diagnostic_charts", {}).setdefault(str(_tt_disc), {})[_tname_disc] = _saved_charts
                 except Exception as _chart_err:
                     logger.info(
                         "[CompositeTargetDiscovery] diagnostic chart render failed for target='%s': %s; training continues.",
                         _tname_disc, _chart_err,
                     )
 
-    n_specs_total = sum(
-        len(v) for tt_specs in metadata["composite_target_specs"].values()
-        for v in tt_specs.values()
-    )
+    n_specs_total = sum(len(v) for tt_specs in metadata["composite_target_specs"].values() for v in tt_specs.values())
     # Composite-feature-stacking stub: surface the discovered specs so the
     # downstream FE pipeline (caller-specific) can opt in via
     # ``composite_oof_predictions`` / ``composite_predictions_as_feature``.

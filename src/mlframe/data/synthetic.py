@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import time
@@ -60,7 +59,7 @@ def sample_random_variable(
     random_state=None,
 ):
     """
-        Samples from a specified categorical or continuous distribution.
+    Samples from a specified categorical or continuous distribution.
     """
     if exclude is None:
         exclude = set(["ksone", "gausshyper", "kstwo", "cosine", "frechet_l", "frechet_r"])
@@ -107,7 +106,8 @@ def sample_random_variable(
             logger.warning("Sampling %s from %s took %s sec.", size, dist_name, f"{end-start:,.0f}")
 
     return dist_name.replace("_", "-"), data
-    
+
+
 def assign_classes_from_probability(predictors: np.ndarray, draw: np.ndarray, n_classes: int, out: np.ndarray | None = None) -> np.ndarray:
     """Pick a class per row by walking the cumulative per-row predictor probabilities against a uniform draw.
 
@@ -150,21 +150,21 @@ def generate_modelling_data(
     return_dataframe: bool = True,
 ):
     """
-        Creates a synthetic dataset with random inputs (sampled from randomly chosen distributions with random parameters).
-        Target is nclasses classification. It can be defined:
-            1) by calculating some formula over a set of cont and cat predictors
-            final range of that virual variables is split into nclasses parts. Some target_noise% can be added.
-            
-            2) by using some predictors (up to nclasses) DIRECTLY as generative probs.
-            
-        
-        In 2), it must be a challenge for a ML model to pick exactly and only generative probs variables. Or, at least, fare with them in metrics.
-        
-        Features can be correlated in a linear or non-linear way (way is reflected in the var's name)+ additive noise (some % of varaible's range).
-        
-        Will Brier score of a ML model fare the score or bare probs?
-        
-        Attempt to model a situation in sports, where bookies odds are said to be the only and the best estimates of the winning probability.
+    Creates a synthetic dataset with random inputs (sampled from randomly chosen distributions with random parameters).
+    Target is nclasses classification. It can be defined:
+        1) by calculating some formula over a set of cont and cat predictors
+        final range of that virual variables is split into nclasses parts. Some target_noise% can be added.
+
+        2) by using some predictors (up to nclasses) DIRECTLY as generative probs.
+
+
+    In 2), it must be a challenge for a ML model to pick exactly and only generative probs variables. Or, at least, fare with them in metrics.
+
+    Features can be correlated in a linear or non-linear way (way is reflected in the var's name)+ additive noise (some % of varaible's range).
+
+    Will Brier score of a ML model fare the score or bare probs?
+
+    Attempt to model a situation in sports, where bookies odds are said to be the only and the best estimates of the winning probability.
     """
     if include_distributions is None:
         include_distributions = set([])
@@ -173,9 +173,7 @@ def generate_modelling_data(
             raise ValueError(f"n_informative ({n_informative}) must be <= n_classes ({n_classes})")
 
     if n_unrelated_single < n_unrelated_intercorrelated:
-        raise ValueError(
-            f"n_unrelated_single ({n_unrelated_single}) must be >= n_unrelated_intercorrelated ({n_unrelated_intercorrelated})"
-        )
+        raise ValueError(f"n_unrelated_single ({n_unrelated_single}) must be >= n_unrelated_intercorrelated ({n_unrelated_intercorrelated})")
 
     generator = check_random_state(random_state)
     # random.seed(random_state)

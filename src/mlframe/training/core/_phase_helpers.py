@@ -164,8 +164,7 @@ def _apply_plot_style_overrides(
 
     Overrides are not reverted on suite exit. Failures log at WARNING and don't abort.
     """
-    if (matplotlib_style is None and not matplotlib_rcparams
-            and plotly_template is None):
+    if matplotlib_style is None and not matplotlib_rcparams and plotly_template is None:
         return
 
     if matplotlib_style is not None or matplotlib_rcparams:
@@ -173,8 +172,8 @@ def _apply_plot_style_overrides(
             import matplotlib.pyplot as plt
         except Exception as _imp_err:
             logger.warning(
-                "[plot_style] matplotlib import failed (%s); matplotlib "
-                "style override skipped.", _imp_err,
+                "[plot_style] matplotlib import failed (%s); matplotlib " "style override skipped.",
+                _imp_err,
             )
             plt = None
         if plt is not None:
@@ -187,25 +186,24 @@ def _apply_plot_style_overrides(
                         )
                 except Exception as _style_err:
                     logger.warning(
-                        "[plot_style] plt.style.use(%r) failed: %s. "
-                        "Continuing with the current matplotlib style.",
-                        matplotlib_style, _style_err,
+                        "[plot_style] plt.style.use(%r) failed: %s. " "Continuing with the current matplotlib style.",
+                        matplotlib_style,
+                        _style_err,
                     )
             if matplotlib_rcparams:
                 try:
                     plt.rcParams.update(dict(matplotlib_rcparams))
                     if verbose:
                         logger.info(
-                            "[plot_style] applied %d matplotlib rcParams "
-                            "override(s): %s",
+                            "[plot_style] applied %d matplotlib rcParams " "override(s): %s",
                             len(matplotlib_rcparams),
                             sorted(matplotlib_rcparams.keys()),
                         )
                 except Exception as _rc_err:
                     logger.warning(
-                        "[plot_style] plt.rcParams.update(%r) failed: %s. "
-                        "Some matplotlib keys may not have been applied.",
-                        matplotlib_rcparams, _rc_err,
+                        "[plot_style] plt.rcParams.update(%r) failed: %s. " "Some matplotlib keys may not have been applied.",
+                        matplotlib_rcparams,
+                        _rc_err,
                     )
 
     if plotly_template is not None:
@@ -213,8 +211,8 @@ def _apply_plot_style_overrides(
             import plotly.io as pio
         except Exception as _imp_err:
             logger.warning(
-                "[plot_style] plotly import failed (%s); plotly template "
-                "override skipped.", _imp_err,
+                "[plot_style] plotly import failed (%s); plotly template " "override skipped.",
+                _imp_err,
             )
             return
         try:
@@ -225,9 +223,9 @@ def _apply_plot_style_overrides(
                 )
         except Exception as _tpl_err:
             logger.warning(
-                "[plot_style] plotly templates.default = %r failed: %s. "
-                "Continuing with the current plotly template.",
-                plotly_template, _tpl_err,
+                "[plot_style] plotly templates.default = %r failed: %s. " "Continuing with the current plotly template.",
+                plotly_template,
+                _tpl_err,
             )
 
 
@@ -251,14 +249,14 @@ def _defensive_copy_and_expand_multilabel_regression(
     side effect here is the bounded fix. Future refactor candidate:
     ``_expand_multilabel_regression_and_record(...)``.
     """
-    new_target_by_type = {
-        tt: dict(named) if isinstance(named, dict) else named
-        for tt, named in target_by_type.items()
-    }
-    ml_strategy = str(getattr(
-        composite_target_discovery_config,
-        "multilabel_strategy", "per_target",
-    ))
+    new_target_by_type = {tt: dict(named) if isinstance(named, dict) else named for tt, named in target_by_type.items()}
+    ml_strategy = str(
+        getattr(
+            composite_target_discovery_config,
+            "multilabel_strategy",
+            "per_target",
+        )
+    )
     if ml_strategy == "per_target":
         expanded = dict(new_target_by_type[TargetTypes.REGRESSION])
         ml_expanded_map: dict[str, list[str]] = {}
@@ -278,9 +276,7 @@ def _defensive_copy_and_expand_multilabel_regression(
                 )
         new_target_by_type[TargetTypes.REGRESSION] = expanded
         if ml_expanded_map:
-            metadata.setdefault("multilabel_target_expansion", {})[
-                str(TargetTypes.REGRESSION)
-            ] = ml_expanded_map
+            metadata.setdefault("multilabel_target_expansion", {})[str(TargetTypes.REGRESSION)] = ml_expanded_map
     elif ml_strategy == "multi_target_regression":
         # F-34 (2026-05-31): keep (N, K) regression targets as-is, route
         # them to TargetTypes.MULTI_TARGET_REGRESSION. Strategies that
@@ -304,17 +300,15 @@ def _defensive_copy_and_expand_multilabel_regression(
                 _kept.pop(_tn, None)
                 _routed_names.append(_tn)
                 logger.info(
-                    "[CompositeTargetDiscovery] multi-target regression: kept '%s' "
-                    "as (N, %d) under TargetTypes.MULTI_TARGET_REGRESSION (joint fit).",
-                    _tn, _arr.shape[1],
+                    "[CompositeTargetDiscovery] multi-target regression: kept '%s' " "as (N, %d) under TargetTypes.MULTI_TARGET_REGRESSION (joint fit).",
+                    _tn,
+                    _arr.shape[1],
                 )
         new_target_by_type[TargetTypes.REGRESSION] = _kept
         if _routed:
             new_target_by_type[TargetTypes.MULTI_TARGET_REGRESSION] = _routed
         if _routed_names:
-            metadata.setdefault("multi_target_regression_routing", {})[
-                str(TargetTypes.MULTI_TARGET_REGRESSION)
-            ] = _routed_names
+            metadata.setdefault("multi_target_regression_routing", {})[str(TargetTypes.MULTI_TARGET_REGRESSION)] = _routed_names
     return new_target_by_type
 
 
@@ -387,8 +381,7 @@ def _phase_global_outlier_detection(ctx: TrainingContext) -> None:
         if isinstance(_named, dict):
             for _tn, _tv in _named.items():
                 _targets_flat_for_classbalance[f"{_tt}/{_tn}"] = _tv
-    (filtered_train_df, filtered_val_df, filtered_train_idx, filtered_val_idx,
-     train_od_idx, val_od_idx) = _apply_outlier_detection_global(
+    filtered_train_df, filtered_val_df, filtered_train_idx, filtered_val_idx, train_od_idx, val_od_idx = _apply_outlier_detection_global(
         train_df=train_df_pd,
         val_df=val_df_pd,
         train_idx=ctx.train_idx,
@@ -494,12 +487,7 @@ def _phase_pandas_conversion_and_cat_prep(
     # ``polars_pipeline_applied`` captures whether a polars-aware pipeline actually fitted on the polars frame;
     # when False the downstream pipeline state lives only in pandas representation, so the lazy-pandas fastpath
     # cannot keep frames as polars without losing that state.
-    defer_pandas_conv = (
-        was_polars_input
-        and polars_pipeline_applied
-        and not recurrent_models
-        and not _has_rfecv
-    )
+    defer_pandas_conv = was_polars_input and polars_pipeline_applied and not recurrent_models and not _has_rfecv
 
     train_df_size_bytes_cached: float | None = None
     val_df_size_bytes_cached: float | None = None
@@ -542,13 +530,9 @@ def _phase_pandas_conversion_and_cat_prep(
                 logger.info("  Skipped pandas conversion -- all models are Polars-native")
             else:
                 _strats = _strategies_for(mlframe_models or [])
-                non_native = [
-                    m for m, s in zip(mlframe_models or [], _strats)
-                    if not s.supports_polars
-                ]
+                non_native = [m for m, s in zip(mlframe_models or [], _strats) if not s.supports_polars]
                 logger.info(
-                    "  Deferred pandas conversion -- Polars-native models run on the fastpath; "
-                    "non-native %s will convert lazily at their strategy branch.",
+                    "  Deferred pandas conversion -- Polars-native models run on the fastpath; " "non-native %s will convert lazily at their strategy branch.",
                     non_native,
                 )
     else:
@@ -558,15 +542,8 @@ def _phase_pandas_conversion_and_cat_prep(
                 reasons.append("input is not a Polars DataFrame")
             if not all_models_polars_native:
                 _strats = _strategies_for(mlframe_models or [])
-                non_native = [
-                    m for m, s in zip(mlframe_models or [], _strats)
-                    if not s.supports_polars
-                ]
-                reasons.append(
-                    f"non-Polars-native models requested: {non_native}"
-                    if non_native
-                    else "all_models_polars_native=False (no strategies)"
-                )
+                non_native = [m for m, s in zip(mlframe_models or [], _strats) if not s.supports_polars]
+                reasons.append(f"non-Polars-native models requested: {non_native}" if non_native else "all_models_polars_native=False (no strategies)")
             if recurrent_models:
                 reasons.append(f"recurrent_models={recurrent_models}")
             if _has_rfecv:
@@ -590,14 +567,9 @@ def _phase_pandas_conversion_and_cat_prep(
         _t0_memsize = timer()
         try:
             if isinstance(train_df_pd, pd.DataFrame) and train_df_size_bytes_cached is None:
-                train_df_size_bytes_cached = float(
-                    train_df_pd.memory_usage(deep=False, index=False).sum()
-                )
-            if (val_df_pd is not None and isinstance(val_df_pd, pd.DataFrame)
-                    and val_df_size_bytes_cached is None):
-                val_df_size_bytes_cached = float(
-                    val_df_pd.memory_usage(deep=False, index=False).sum()
-                )
+                train_df_size_bytes_cached = float(train_df_pd.memory_usage(deep=False, index=False).sum())
+            if val_df_pd is not None and isinstance(val_df_pd, pd.DataFrame) and val_df_size_bytes_cached is None:
+                val_df_size_bytes_cached = float(val_df_pd.memory_usage(deep=False, index=False).sum())
         except Exception as e:
             logger.debug("swallowed exception in _phase_helpers.py: %s", e)
             pass
@@ -605,8 +577,7 @@ def _phase_pandas_conversion_and_cat_prep(
             _memsize_elapsed = timer() - _t0_memsize
             if _memsize_elapsed > 1.0:
                 logger.info(
-                    "  trainset_features_stats memory_usage: %.1fs "
-                    "(train=%.1fMB, val=%.1fMB) -- runs once per suite",
+                    "  trainset_features_stats memory_usage: %.1fs " "(train=%.1fMB, val=%.1fMB) -- runs once per suite",
                     _memsize_elapsed,
                     (train_df_size_bytes_cached or 0) / 1e6,
                     (val_df_size_bytes_cached or 0) / 1e6,
@@ -642,8 +613,7 @@ def _phase_pandas_conversion_and_cat_prep(
             )
     elif cat_features and defer_pandas_conv and verbose:
         logger.info(
-            "Skipping pandas-side CatBoost prep for %d categorical "
-            "features -- Polars fastpath receives the DFs natively.",
+            "Skipping pandas-side CatBoost prep for %d categorical " "features -- Polars fastpath receives the DFs natively.",
             len(cat_features),
         )
 

@@ -160,8 +160,7 @@ def drop_columns_from_dataframe(
         return df
 
     if verbose:
-        logger.info("Dropping %d column(s): %s...",
-                    len(all_cols_to_drop), shorten(','.join(all_cols_to_drop), 250))
+        logger.info("Dropping %d column(s): %s...", len(all_cols_to_drop), shorten(",".join(all_cols_to_drop), 250))
 
     # Guard isinstance with `pl is not None` -- the module's top-level
     # `import polars as pl` is wrapped in try/except (line 27) so `pl`
@@ -196,11 +195,7 @@ explicitly via ``_NESTED_DTYPE_WARN_SEEN.clear()``."""
 # import (defensively -- older polars may lack ``Array``) so the bridge's
 # nested-column scan can use ``isinstance`` instead of building a per-column
 # ``str(dt)`` (which is multi-KB for wide Enum/Categorical dtypes).
-_NESTED_PL_DTYPES: tuple = (
-    tuple(getattr(pl, _n) for _n in ("List", "Array", "Struct", "Object") if hasattr(pl, _n))
-    if pl is not None
-    else ()
-)
+_NESTED_PL_DTYPES: tuple = tuple(getattr(pl, _n) for _n in ("List", "Array", "Struct", "Object") if hasattr(pl, _n)) if pl is not None else ()
 
 
 def _dtype_family(dtype_str: str) -> str:
@@ -265,10 +260,7 @@ def _canonical_dtype_str(dtype) -> str:
         fields = getattr(dtype, "fields", None)
         if fields is not None:
             try:
-                parts = sorted(
-                    f"{getattr(f, 'name', '?')}:{_canonical_dtype_str(getattr(f, 'dtype', '?'))}"
-                    for f in fields
-                )
+                parts = sorted(f"{getattr(f, 'name', '?')}:{_canonical_dtype_str(getattr(f, 'dtype', '?'))}" for f in fields)
                 return "Struct{" + ",".join(parts) + "}"
             except Exception:
                 return s
@@ -541,11 +533,7 @@ def get_pandas_view_of_polars_df(
         _n_cols = df.shape[1]
         _size_bytes_proxy = _n_rows * _n_cols * 8
         _LARGE_FRAME_BYTES = 50 * 1024 * 1024  # 50 MB
-        _dict_cols = sum(
-            1
-            for dt in df.schema.values()
-            if dt == pl.Categorical or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
-        )
+        _dict_cols = sum(1 for dt in df.schema.values() if dt == pl.Categorical or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum)))
         # Small + many-dict frames take the raw path; everything else
         # (including all production-scale frames) takes the helper for
         # zero-copy numeric safety.
@@ -672,13 +660,8 @@ def get_pandas_view_of_polars_df(
             # string values. The per-column path is kept for 1-2 columns where
             # the single-collect setup is a wash (ncat=1 0.93x, ncat=2 0.99x).
             if len(_cat_remaps) >= 3:
-                _uniq_row = df.lazy().select(
-                    [pl.col(_name).drop_nulls().unique().implode().alias(_name) for _name in _cat_remaps]
-                ).collect()
-                _exprs = [
-                    pl.col(_name).cast(pl.Enum(_uniq_row.get_column(_name)[0].to_list()))
-                    for _name in _cat_remaps
-                ]
+                _uniq_row = df.lazy().select([pl.col(_name).drop_nulls().unique().implode().alias(_name) for _name in _cat_remaps]).collect()
+                _exprs = [pl.col(_name).cast(pl.Enum(_uniq_row.get_column(_name)[0].to_list())) for _name in _cat_remaps]
             else:
                 _exprs = []
                 for _name in _cat_remaps:
@@ -715,10 +698,7 @@ def get_pandas_view_of_polars_df(
     # refuses ``object`` dtypes (``ValueError: pandas dtypes must be int, float
     # or bool``). Non-null Boolean stays as numpy ``bool``. We post-process only
     # the object-materialized ones below.
-    _arrow_bool_cols = [
-        name for name, col in zip(tbl_fixed.column_names, tbl_fixed.columns)
-        if pa.types.is_boolean(col.type)
-    ]
+    _arrow_bool_cols = [name for name, col in zip(tbl_fixed.column_names, tbl_fixed.columns) if pa.types.is_boolean(col.type)]
 
     # Capture which Arrow columns are date32/date64/timestamp BEFORE to_pandas().
     # On newer pyarrow + pandas combos (verified empirically with pandas 2.x + a
@@ -729,8 +709,7 @@ def get_pandas_view_of_polars_df(
     # raise or fall through with no temporal structure. Coerce back to
     # ``datetime64[ns]`` after the bridge so the documented contract holds.
     _arrow_temporal_cols = [
-        name for name, col in zip(tbl_fixed.column_names, tbl_fixed.columns)
-        if (pa.types.is_date(col.type) or pa.types.is_timestamp(col.type))
+        name for name, col in zip(tbl_fixed.column_names, tbl_fixed.columns) if (pa.types.is_date(col.type) or pa.types.is_timestamp(col.type))
     ]
 
     # Use numpy-backed pandas (types_mapper=None) for broad model compatibility.
@@ -793,15 +772,15 @@ def get_pandas_view_of_polars_df(
             _coerced_temporal_cols.append(name)
     if _coerced_temporal_cols and logger.isEnabledFor(logging.DEBUG):
         logger.debug(
-            "get_pandas_view_of_polars_df: restored %d Arrow date/timestamp "
-            "column(s) to datetime64[ns] after pandas bridge demoted them: %s",
-            len(_coerced_temporal_cols), _coerced_temporal_cols,
+            "get_pandas_view_of_polars_df: restored %d Arrow date/timestamp " "column(s) to datetime64[ns] after pandas bridge demoted them: %s",
+            len(_coerced_temporal_cols),
+            _coerced_temporal_cols,
         )
     if _coerced_bool_cols and logger.isEnabledFor(logging.DEBUG):
         logger.debug(
-            "get_pandas_view_of_polars_df: coerced %d nullable-bool object "
-            "column(s) to Int8: %s",
-            len(_coerced_bool_cols), _coerced_bool_cols,
+            "get_pandas_view_of_polars_df: coerced %d nullable-bool object " "column(s) to Int8: %s",
+            len(_coerced_bool_cols),
+            _coerced_bool_cols,
         )
 
     _elapsed = _time.perf_counter() - _t0

@@ -6,7 +6,6 @@ Also works with ndarrays.
 
 from __future__ import annotations
 
-
 # pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
 
 # *****************************************************************************************************************************************************
@@ -229,10 +228,7 @@ def is_variable_truly_continuous(
         var_is_numeric = is_numeric_dtype(values)
 
     if not (var_is_numeric or var_is_datetime):
-        raise TypeError(
-            "is_variable_truly_continuous: values must be numeric or "
-            "datetime-typed; got non-numeric non-datetime data."
-        )
+        raise TypeError("is_variable_truly_continuous: values must be numeric or " "datetime-typed; got non-numeric non-datetime data.")
 
     # Degenerate columns: an empty column divides by len(values)==0 below, and an all-NaN column makes np.nanmin/np.nanmax
     # raise (empty-slice) or propagate NaN into a meaningless continuity decision. Short-circuit both to discrete + 0 outliers.
@@ -318,9 +314,7 @@ def is_variable_truly_continuous(
                 use_quantile = 1 - use_quantile
             # Wave 31 (2026-05-20): assert -> ValueError.
             if not (0 < use_quantile < 1.0):
-                raise ValueError(
-                    f"use_quantile must be in (0, 1); got {use_quantile!r}."
-                )
+                raise ValueError(f"use_quantile must be in (0, 1); got {use_quantile!r}.")
 
             use_quantiles = (use_quantile, 1 - use_quantile)
             calculated_quantiles = np.nanquantile(values, use_quantiles)
@@ -330,10 +324,7 @@ def is_variable_truly_continuous(
         else:
             # Wave 31 (2026-05-20): assert -> ValueError.
             if tukey_fences_multiplier is None:
-                raise ValueError(
-                    "When calculated_quantiles is provided, "
-                    "tukey_fences_multiplier MUST also be supplied."
-                )
+                raise ValueError("When calculated_quantiles is provided, " "tukey_fences_multiplier MUST also be supplied.")
 
         iqr = calculated_quantiles[1] - calculated_quantiles[0]
         q0 = calculated_quantiles[0]
@@ -424,16 +415,14 @@ def is_variable_truly_continuous(
 
 def suggest_non_outlying_data_indices(values: np.ndarray, var: str = None, use_quantile: float = 0.01):
     """Returns indices of 1d data array that are non-outlying"""
-    
+
     if use_quantile > 0.5:
         use_quantile = 1 - use_quantile
     # Wave 31 (2026-05-20): assert -> ValueError. -O previously stripped
     # the guard, letting use_quantile=0 / 1.0 reach nanquantile which
     # returns +/-inf and silently propagated NaN.
     if not (0 < use_quantile < 1.0):
-        raise ValueError(
-            f"use_quantile must be in (0, 1); got {use_quantile!r}."
-        )
+        raise ValueError(f"use_quantile must be in (0, 1); got {use_quantile!r}.")
     use_quantiles = (use_quantile, 1 - use_quantile)
 
     calculated_quantiles = np.nanquantile(values, use_quantiles)
@@ -469,7 +458,7 @@ def suggest_non_outlying_data_indices(values: np.ndarray, var: str = None, use_q
 
 # Above this frame byte-size the defragmenting ``df.copy()`` would double peak RAM
 # (a 100+ GB prod frame OOMs the host); skip the copy and keep working on the original.
-_DEFRAG_COPY_MAX_BYTES = 2 * 1024 ** 3
+_DEFRAG_COPY_MAX_BYTES = 2 * 1024**3
 
 
 def fragment_df_on_ram_usage_increase(df: pd.DataFrame, prev_mem_usage: float, max_increase_percent: float = 0.5) -> tuple:
@@ -506,7 +495,7 @@ def analyse_and_clean_features(
     max_discrete_col_nuniques_for_rarevals_cleaning: int = 0,
     clean_nonnumeric_rarevals: bool = True,
     exclude_columns: tuple = (),
-    exclude_mask:str=None,
+    exclude_mask: str = None,
     default_na_val=np.nan,
     default_float_type=np.float32,
     verbose: bool = True,
@@ -601,9 +590,9 @@ def analyse_and_clean_features(
 
     iterable_columns = df.columns
     if verbose:
-        mes=f"Analyzing {len(iterable_columns)} features..."
+        mes = f"Analyzing {len(iterable_columns)} features..."
         logger.info(mes)
-        iterable_columns = tqdmu(iterable_columns,desc=mes,leave=True)
+        iterable_columns = tqdmu(iterable_columns, desc=mes, leave=True)
 
     if analyse_mask is None:
         sub_df = df
@@ -747,7 +736,7 @@ def analyse_and_clean_features(
                                 )
                                 col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = classify_column_types(df=df, col=col)
                         else:
-                            #nmerged=1 and nan_vals_already_in_index=0. No point in merging just one category.
+                            # nmerged=1 and nan_vals_already_in_index=0. No point in merging just one category.
                             pass
             if nunique == 2 and not col_is_datetime:
                 # 6. Replaces nan with some other value when there is only one option except NAN. Like, for numerics, -real_val if real_val<>0, else real_val+1.
@@ -885,10 +874,7 @@ def apply_features_cleaning(df: pd.DataFrame, features_cleaning: dict, update_da
         return df
 
     # Non-mutating path: compose the replacements into a new frame without touching the caller's columns.
-    replacements = {
-        col: df[col].replace(repl_instructions).astype(head[col].dtype.name)
-        for col, repl_instructions in transforms.items()
-    }
+    replacements = {col: df[col].replace(repl_instructions).astype(head[col].dtype.name) for col, repl_instructions in transforms.items()}
     if replacements:
         df = df.assign(**replacements)
     if constant_features:

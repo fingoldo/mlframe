@@ -107,7 +107,6 @@ from ._recurrent_config import RNNType, InputMode, RecurrentConfig  # noqa: E402
 from ._recurrent_data import RecurrentDataset, recurrent_collate_fn, RecurrentDataModule  # noqa: E402,F401
 from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSequenceEncoder, MLPHead  # noqa: E402,F401
 
-
 # Substring-match on the monitor name was buggy: "val_log_likelihood" contains
 # "loss" -> wrong "min" direction (likelihood is max-better). Explicit table
 # of base-metric -> direction, matched on whitespace/underscore-delimited
@@ -427,8 +426,8 @@ class RecurrentTorchModel(L.LightningModule):
             f"bidirectional rnn_out must have even channel count; got {total_channels}"
         )
         hidden_size = total_channels // 2
-        fwd = rnn_out[:, :, :hidden_size]   # (B, T, H)
-        bwd = rnn_out[:, :, hidden_size:]   # (B, T, H)
+        fwd = rnn_out[:, :, :hidden_size]  # (B, T, H)
+        bwd = rnn_out[:, :, hidden_size:]  # (B, T, H)
 
         # fwd_last_idx: (B, 1, H) gather at position lengths-1.
         fwd_last_idx = last_indices.expand(-1, 1, hidden_size)
@@ -436,9 +435,9 @@ class RecurrentTorchModel(L.LightningModule):
 
         # bwd_first: position 0 across the batch -- single slice is fine,
         # no gather needed.
-        bwd_summary = bwd[:, 0, :]                              # (B, H)
+        bwd_summary = bwd[:, 0, :]  # (B, H)
 
-        return torch.cat([fwd_summary, bwd_summary], dim=1)     # (B, 2H)
+        return torch.cat([fwd_summary, bwd_summary], dim=1)  # (B, 2H)
 
     def training_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Training step."""
@@ -450,11 +449,7 @@ class RecurrentTorchModel(L.LightningModule):
         # ``mixup_sequence_batch`` which sets lengths = max(l_a, l_b)
         # so pack_padded_sequence drives the RNN over the union of the
         # two original sequences.
-        _mixup_enabled = (
-            getattr(self.config, "use_mixup", False)
-            and self.training
-            and batch["labels"].shape[0] >= 2
-        )
+        _mixup_enabled = getattr(self.config, "use_mixup", False) and self.training and batch["labels"].shape[0] >= 2
         _mixup_active = False
         if _mixup_enabled:
             from ._mixup import mixup_batch, mixup_sequence_batch
@@ -655,10 +650,7 @@ class RecurrentTorchModel(L.LightningModule):
         # is the only safe precision for fused. Observed 2026-05-31 with
         # CPU+EMA on a CUDA-available host: Lightning auto-promotes
         # 16-mixed -> bf16-mixed on CPU, then crashes on the first step.
-        _safe_for_fused = (
-            torch.cuda.is_available()
-            and "mixed" not in precision
-        )
+        _safe_for_fused = torch.cuda.is_available() and "mixed" not in precision
         _fused_kwarg = {"fused": True} if _safe_for_fused else {}
         optimizer = torch.optim.AdamW(
             self.parameters(),
@@ -707,6 +699,4 @@ class RecurrentTorchModel(L.LightningModule):
                 if isinstance(base, Lookahead):
                     base.commit_slow_to_fast()
         except Exception as _lh_err:
-            logger.debug(
-                "F-B: Lookahead commit_slow_to_fast skipped (%s)", _lh_err
-            )
+            logger.debug("F-B: Lookahead commit_slow_to_fast skipped (%s)", _lh_err)

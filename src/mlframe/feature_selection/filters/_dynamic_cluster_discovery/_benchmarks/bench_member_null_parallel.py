@@ -60,7 +60,7 @@ def _parallel(data, nbins, m, y, z, mr, B, seed):
 def main():
     import numba
     print("numba threads:", numba.get_num_threads())
-    for (n, nz, nb, B) in [(30000, 2, 8, 199), (100000, 4, 8, 199), (100000, 2, 8, 199), (300000, 3, 8, 199)]:
+    for n, nz, nb, B in [(30000, 2, 8, 199), (100000, 4, 8, 199), (100000, 2, 8, 199), (300000, 3, 8, 199)]:
         ncols = 20
         rng = np.random.default_rng(3)
         data = rng.integers(0, nb, size=(n, ncols)).astype(np.int32)

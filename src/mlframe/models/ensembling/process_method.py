@@ -103,10 +103,7 @@ def _process_single_ensemble_method(
     # NNLS-weight alignment: when ``precomputed_weights`` is supplied it is length-M aligned to
     # ``level_models_and_predictions``. Each per-split branch below filters None members so we
     # build a parallel mask + slice the weights before handing them to ``ensemble_probabilistic_predictions``.
-    _pcw_full = (
-        np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
-        if precomputed_weights is not None else None
-    )
+    _pcw_full = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1) if precomputed_weights is not None else None
 
     def _slice_weights(mask: list[bool]) -> Optional[np.ndarray]:
         if _pcw_full is None:
@@ -217,7 +214,7 @@ def _process_single_ensemble_method(
 
     if not is_regression:
         predictions = [_oof_or_train(el, "oof_probs", "train_probs", _i, _prefer_calibrated=_use_cal) for _i, el in enumerate(level_models_and_predictions)]
-    elif (_oof_or_train(level_models_and_predictions[0], "oof_preds", "train_preds", 0) is not None):
+    elif _oof_or_train(level_models_and_predictions[0], "oof_preds", "train_preds", 0) is not None:
         # Re-walk so every member's fallback decision is recorded (probe call above counts index 0 only if it fell back; clear and re-probe symmetrically across all members).
         _fallback_used.clear()
         predictions = [_oof_or_train(el, "oof_preds", "train_preds", _i) for _i, el in enumerate(level_models_and_predictions)]
@@ -310,21 +307,12 @@ def _process_single_ensemble_method(
     # switches before popping them to avoid duplicate-key ``dict(...)`` splats;
     # ensemble scoring must respect the same reporting contract as single
     # models.
-    _caller_compute_trainset_metrics = bool(
-        kwargs_copy.pop("compute_trainset_metrics", False)
-    )
-    _caller_compute_valset_metrics = bool(
-        kwargs_copy.pop("compute_valset_metrics", True)
-    )
-    _caller_compute_testset_metrics = bool(
-        kwargs_copy.pop("compute_testset_metrics", True)
-    )
+    _caller_compute_trainset_metrics = bool(kwargs_copy.pop("compute_trainset_metrics", False))
+    _caller_compute_valset_metrics = bool(kwargs_copy.pop("compute_valset_metrics", True))
+    _caller_compute_testset_metrics = bool(kwargs_copy.pop("compute_testset_metrics", True))
 
     def _has_split_predictions(_kwargs: dict, _split: str) -> bool:
-        return (
-            _kwargs.get(f"{_split}_preds") is not None
-            or _kwargs.get(f"{_split}_probs") is not None
-        )
+        return _kwargs.get(f"{_split}_preds") is not None or _kwargs.get(f"{_split}_probs") is not None
 
     # Build config objects from flat params
     flat_params = dict(
@@ -335,18 +323,9 @@ def _process_single_ensemble_method(
         test_idx=test_idx,
         val_idx=val_idx,
         target_label_encoder=target_label_encoder,
-        compute_trainset_metrics=(
-            _caller_compute_trainset_metrics
-            and _has_split_predictions(predictive_kwargs, "train")
-        ),
-        compute_valset_metrics=(
-            _caller_compute_valset_metrics
-            and _has_split_predictions(predictive_kwargs, "val")
-        ),
-        compute_testset_metrics=(
-            _caller_compute_testset_metrics
-            and _has_split_predictions(predictive_kwargs, "test")
-        ),
+        compute_trainset_metrics=(_caller_compute_trainset_metrics and _has_split_predictions(predictive_kwargs, "train")),
+        compute_valset_metrics=(_caller_compute_valset_metrics and _has_split_predictions(predictive_kwargs, "val")),
+        compute_testset_metrics=(_caller_compute_testset_metrics and _has_split_predictions(predictive_kwargs, "test")),
         nbins=nbins,
         custom_ice_metric=custom_ice_metric,
         custom_rice_metric=custom_rice_metric,
@@ -478,18 +457,9 @@ def _process_single_ensemble_method(
             test_idx=test_idx[test_confident_indices] if (test_idx is not None and test_confident_indices is not None) else None,
             val_idx=val_idx[val_confident_indices] if (val_idx is not None and val_confident_indices is not None) else None,
             target_label_encoder=target_label_encoder,
-            compute_trainset_metrics=(
-                _caller_compute_trainset_metrics
-                and _has_split_predictions(conf_predictive_kwargs, "train")
-            ),
-            compute_valset_metrics=(
-                _caller_compute_valset_metrics
-                and _has_split_predictions(conf_predictive_kwargs, "val")
-            ),
-            compute_testset_metrics=(
-                _caller_compute_testset_metrics
-                and _has_split_predictions(conf_predictive_kwargs, "test")
-            ),
+            compute_trainset_metrics=(_caller_compute_trainset_metrics and _has_split_predictions(conf_predictive_kwargs, "train")),
+            compute_valset_metrics=(_caller_compute_valset_metrics and _has_split_predictions(conf_predictive_kwargs, "val")),
+            compute_testset_metrics=(_caller_compute_testset_metrics and _has_split_predictions(conf_predictive_kwargs, "test")),
             nbins=nbins,
             custom_ice_metric=custom_ice_metric,
             custom_rice_metric=custom_rice_metric,
@@ -515,5 +485,3 @@ def _process_single_ensemble_method(
         )
 
     return (internal_ensemble_method, next_ens_results, conf_results)
-
-

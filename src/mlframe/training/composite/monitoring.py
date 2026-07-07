@@ -175,10 +175,7 @@ class CompositeDriftMonitor:
         recommend_update_on: Sequence[str] = ("base", "residual"),
     ) -> None:
         if not hasattr(estimator, "fitted_params_"):
-            raise ValueError(
-                "CompositeDriftMonitor: estimator is not fitted "
-                "(no fitted_params_); fit it before monitoring."
-            )
+            raise ValueError("CompositeDriftMonitor: estimator is not fitted " "(no fitted_params_); fit it before monitoring.")
         self.estimator = estimator
         self.base_psi_threshold = float(base_psi_threshold)
         self.prediction_psi_threshold = float(prediction_psi_threshold)
@@ -376,9 +373,7 @@ class CompositeDriftMonitor:
         for name, sig in signals.items():
             if not sig["alert"]:
                 continue
-            family = "residual" if name.startswith("residual") else (
-                "prediction" if name.startswith("prediction") else "base"
-            )
+            family = "residual" if name.startswith("residual") else ("prediction" if name.startswith("prediction") else "base")
             if family in self.recommend_update_on:
                 return True
         return False

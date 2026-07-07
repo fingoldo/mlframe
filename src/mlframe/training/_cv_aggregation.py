@@ -25,7 +25,6 @@ from typing import Literal, Sequence
 
 import numpy as np
 
-
 AggregateMode = Literal["mean", "mean_minus_std", "median_minus_mad", "t_lcb", "quantile"]
 Direction = Literal["min", "max"]
 
@@ -82,10 +81,7 @@ def _resolve_inflation(
     if not isinstance(correlation_inflation, str):
         return float(correlation_inflation)
     if correlation_inflation != AUTO_INFLATION:
-        raise ValueError(
-            f"aggregate_fold_scores: correlation_inflation must be a float or {AUTO_INFLATION!r}, "
-            f"got {correlation_inflation!r}"
-        )
+        raise ValueError(f"aggregate_fold_scores: correlation_inflation must be a float or {AUTO_INFLATION!r}, " f"got {correlation_inflation!r}")
     if split_geometry is None:
         return 1.0
     k = int(split_geometry[0])

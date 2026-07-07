@@ -225,7 +225,7 @@ def _patch_dataset_constructors_with_logging() -> None:
                 if frame is None:
                     break
                 mod = (frame.f_globals.get("__name__", "") or "").lower()
-                if ("composite" in mod or "screening" in mod or "baseline_diagnostics" in mod):
+                if "composite" in mod or "screening" in mod or "baseline_diagnostics" in mod:
                     return True
                 frame = frame.f_back
         except Exception as e:
@@ -577,5 +577,3 @@ from ._eval_helpers import (  # noqa: E402,F401
     _filter_categorical_features,
     run_confidence_analysis,
 )
-
-

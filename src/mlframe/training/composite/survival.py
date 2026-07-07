@@ -164,43 +164,25 @@ class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
             raise ValueError("CompositeSurvivalEstimator: base_column must be set.")
         time = np.asarray(y, dtype=np.float64).reshape(-1)
         if event is None:
-            raise ValueError(
-                "CompositeSurvivalEstimator.fit requires event=<0/1 indicator>."
-            )
+            raise ValueError("CompositeSurvivalEstimator.fit requires event=<0/1 indicator>.")
         ev = np.asarray(event, dtype=np.float64).reshape(-1)
         if ev.shape[0] != time.shape[0]:
-            raise ValueError(
-                "CompositeSurvivalEstimator: event length "
-                f"{ev.shape[0]} != y length {time.shape[0]}."
-            )
+            raise ValueError("CompositeSurvivalEstimator: event length " f"{ev.shape[0]} != y length {time.shape[0]}.")
         if np.any(~np.isin(ev, (0.0, 1.0))):
-            raise ValueError(
-                "CompositeSurvivalEstimator: event must contain only 0/1 values."
-            )
+            raise ValueError("CompositeSurvivalEstimator: event must contain only 0/1 values.")
         if np.any(time <= 0.0):
-            raise ValueError(
-                "CompositeSurvivalEstimator: all times (y) must be strictly positive."
-            )
+            raise ValueError("CompositeSurvivalEstimator: all times (y) must be strictly positive.")
         base_log = _extract_base(X, self.base_column)
         if base_log.shape[0] != time.shape[0]:
-            raise ValueError(
-                "CompositeSurvivalEstimator: base column length "
-                f"{base_log.shape[0]} != y length {time.shape[0]}."
-            )
+            raise ValueError("CompositeSurvivalEstimator: base column length " f"{base_log.shape[0]} != y length {time.shape[0]}.")
         return base_log, time, ev
 
     def _resolve_mode(self) -> str:
         if self.censoring not in ("auto", "aware", "observed_only"):
-            raise ValueError(
-                "CompositeSurvivalEstimator: censoring must be 'auto', 'aware', "
-                f"or 'observed_only'; got {self.censoring!r}."
-            )
+            raise ValueError("CompositeSurvivalEstimator: censoring must be 'auto', 'aware', " f"or 'observed_only'; got {self.censoring!r}.")
         if self.censoring == "aware":
             if not _has_scikit_survival():
-                raise ImportError(
-                    "CompositeSurvivalEstimator: censoring='aware' requires "
-                    "scikit-survival (pip install scikit-survival)."
-                )
+                raise ImportError("CompositeSurvivalEstimator: censoring='aware' requires " "scikit-survival (pip install scikit-survival).")
             return "aware"
         if self.censoring == "auto":
             return "aware" if _has_scikit_survival() else "observed_only"
@@ -241,10 +223,7 @@ class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
         self.n_observed_ = int(obs.sum())
         self.n_censored_ = int((~obs).sum())
         if self.n_observed_ == 0:
-            raise ValueError(
-                "CompositeSurvivalEstimator: no observed events (event==1); cannot "
-                "fit a residual signal."
-            )
+            raise ValueError("CompositeSurvivalEstimator: no observed events (event==1); cannot " "fit a residual signal.")
         log_time = np.log(np.maximum(time, _TIME_FLOOR))
         residual = log_time - base_log  # T on the log scale
 

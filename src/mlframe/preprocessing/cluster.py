@@ -1,8 +1,7 @@
-
 from __future__ import annotations
 
 import logging
-from typing import Any,Sequence,Optional
+from typing import Any, Sequence, Optional
 import numpy as np
 from sklearn.cluster import DBSCAN
 
@@ -22,11 +21,10 @@ def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusteri
     from sklearn.datasets import make_blobs
     from sklearn.preprocessing import StandardScaler
 
-
     if X is None:
         # Generate sample data
         centers = [[1, 1], [-1, -1], [1, -1]]
-        X, true_labels = make_blobs(n_samples=750, centers=centers, cluster_std=0.4,random_state=0)
+        X, true_labels = make_blobs(n_samples=750, centers=centers, cluster_std=0.4, random_state=0)
 
     if dim_reducer:X= dim_reducer.fit_transform(X)
     X = StandardScaler().fit_transform(X)
@@ -43,8 +41,8 @@ def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusteri
     n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
     n_noise_ = list(labels).count(-1)
 
-    logger.info('Estimated number of clusters: %d', n_clusters_)
-    logger.info('Estimated number of noise points: %d', n_noise_)
+    logger.info("Estimated number of clusters: %d", n_clusters_)
+    logger.info("Estimated number of noise points: %d", n_noise_)
     if show_metrics:
         if len(np.unique(labels))>1: logger.info("Silhouette Coefficient: %0.3f", metrics.silhouette_score(X, labels))
         if true_labels is not None:
@@ -53,7 +51,6 @@ def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusteri
             logger.info("V-measure: %0.3f", metrics.v_measure_score(true_labels, labels))
             logger.info("Adjusted Rand Index: %0.3f", metrics.adjusted_rand_score(true_labels, labels))
             logger.info("Adjusted Mutual Information: %0.3f", metrics.adjusted_mutual_info_score(true_labels, labels))
-        
 
     # #############################################################################
     # Plot result
@@ -65,31 +62,28 @@ def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusteri
 
         # Black removed and is used for noise instead.
         unique_labels = set(labels)
-        colors = [plt.cm.Spectral(each)
-                  for each in np.linspace(0, 1, len(unique_labels))]
+        colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]
         for k, col in zip(unique_labels, colors):
             if k == -1:
                 # Black used for noise.
                 col = [0, 0, 0, 1]
 
-            class_member_mask = (labels == k)
+            class_member_mask = labels == k
 
             xy = X[class_member_mask & core_samples_mask]
-            ax.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
-                     markeredgecolor='k', markersize=14)
+            ax.plot(xy[:, 0], xy[:, 1], "o", markerfacecolor=tuple(col), markeredgecolor="k", markersize=14)
 
             xy = X[class_member_mask & ~core_samples_mask]
-            ax.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=tuple(col),
-                     markeredgecolor='k', markersize=6)
+            ax.plot(xy[:, 0], xy[:, 1], "o", markerfacecolor=tuple(col), markeredgecolor="k", markersize=6)
 
         if title:
             ax.set_title(title)
         else:
-            ax.set_title('Estimated number of clusters: %d' % n_clusters_)
+            ax.set_title("Estimated number of clusters: %d" % n_clusters_)
         if true_labels is not None:
             for i in range(len(true_labels)):
-                ax.annotate(true_labels[i],(X[i,0],X[i,1]))
-        ax.axis('off')
+                ax.annotate(true_labels[i], (X[i, 0], X[i, 1]))
+        ax.axis("off")
         plt.close(fig)
 
         if true_labels is not None:

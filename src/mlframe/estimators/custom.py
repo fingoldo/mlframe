@@ -1,7 +1,6 @@
-""" Specialized estimators that can be iincluded into sklearn's ML pipelines."""
+"""Specialized estimators that can be iincluded into sklearn's ML pipelines."""
 
 from __future__ import annotations
-
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 import pandas as pd, numpy as np
 from scipy.ndimage import shift
-from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
+from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
 from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin, RegressorMixin
 
 from numbers import Number
@@ -43,9 +42,7 @@ from sklearn.base import clone
 # clean and the same source supports the 1.5-1.8 matrix.
 import sklearn as _skl
 _skl_ver = tuple(int(p) for p in _skl.__version__.split(".")[:2])
-_FORCE_ALL_FINITE_KW = (
-    {"ensure_all_finite": True} if _skl_ver >= (1, 6) else {"force_all_finite": True}
-)
+_FORCE_ALL_FINITE_KW = {"ensure_all_finite": True} if _skl_ver >= (1, 6) else {"force_all_finite": True}
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
@@ -62,7 +59,7 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
         func=None,
         inverse_func=None,
         check_inverse=True,
-        es_fit_param_name:str | None=None,
+        es_fit_param_name: str | None = None,
     ):
         # Wave 56 (2026-05-20): forward to parent __init__ so any new sklearn
         # TransformedTargetRegressor attrs (e.g. validate_inverse, _n_features_out)
@@ -91,7 +88,7 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
         if y.ndim == 1:
             y_2d = y.reshape(-1, 1)
         else:
-            y_2d = y            
+            y_2d = y
         # transform y and convert back to 1d array if needed
         y_trans = self.transformer_.transform(y_2d)
         # Wave 63 (2026-05-20): sklearn FunctionTransformer can return a 1D array
@@ -100,93 +97,91 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
         if y_trans.ndim == 2 and y_trans.shape[1] == 1:
             y_trans = y_trans.squeeze(axis=1)
 
-        return y_trans       
-    
+        return y_trans
+
     def fit(self, X, y, **fit_params):
-            """Fit the model according to the given training data.
+        """Fit the model according to the given training data.
 
-            Parameters
-            ----------
-            X : {array-like, sparse matrix} of shape (n_samples, n_features)
-                Training vector, where `n_samples` is the number of samples and
-                `n_features` is the number of features.
+        Parameters
+        ----------
+        X : {array-like, sparse matrix} of shape (n_samples, n_features)
+            Training vector, where `n_samples` is the number of samples and
+            `n_features` is the number of features.
 
-            y : array-like of shape (n_samples,)
-                Target values.
+        y : array-like of shape (n_samples,)
+            Target values.
 
-            **fit_params : dict
-                Parameters passed to the `fit` method of the underlying
-                regressor.
+        **fit_params : dict
+            Parameters passed to the `fit` method of the underlying
+            regressor.
 
-            Returns
-            -------
-            self : object
-                Fitted estimator.
-            """
-            if y is None:
-                raise ValueError(
-                    f"This {self.__class__.__name__} estimator "
-                    "requires y to be passed, but the target y is None."
-                )
-            y = check_array(
-                y,
-                input_name="y",
-                accept_sparse=False,
-                ensure_2d=False,
-                dtype="numeric",
-                allow_nd=True,
-                **_FORCE_ALL_FINITE_KW,
-            )
+        Returns
+        -------
+        self : object
+            Fitted estimator.
+        """
+        if y is None:
+            raise ValueError(f"This {self.__class__.__name__} estimator " "requires y to be passed, but the target y is None.")
+        y = check_array(
+            y,
+            input_name="y",
+            accept_sparse=False,
+            ensure_2d=False,
+            dtype="numeric",
+            allow_nd=True,
+            **_FORCE_ALL_FINITE_KW,
+        )
 
-            # store the number of dimension of the target to predict an array of
-            # similar shape at predict
-            self._training_dim = y.ndim
+        # store the number of dimension of the target to predict an array of
+        # similar shape at predict
+        self._training_dim = y.ndim
 
-            # transformers are designed to modify X which is 2d dimensional, we
-            # need to modify y accordingly.
-            if y.ndim == 1:
-                y_2d = y.reshape(-1, 1)
-            else:
-                y_2d = y
-            self._fit_transformer(y_2d)        
-            
-            y_trans=self._transform_y(y_2d)
-            if self.regressor is None:
-                from ..linear_model import LinearRegression
+        # transformers are designed to modify X which is 2d dimensional, we
+        # need to modify y accordingly.
+        if y.ndim == 1:
+            y_2d = y.reshape(-1, 1)
+        else:
+            y_2d = y
+        self._fit_transformer(y_2d)
 
-                self.regressor_ = LinearRegression()
-            else:
-                self.regressor_ = clone(self.regressor)
-                
-            if self.es_fit_param_name:
-                """print(type(fit_params[self.es_fit_param_name]))
+        y_trans = self._transform_y(y_2d)
+        if self.regressor is None:
+            from ..linear_model import LinearRegression
+
+            self.regressor_ = LinearRegression()
+        else:
+            self.regressor_ = clone(self.regressor)
+
+        if self.es_fit_param_name:
+            """print(type(fit_params[self.es_fit_param_name]))
+            for idx, val_set in enumerate(fit_params[self.es_fit_param_name]):
+                print(type(val_set))"""
+            es_param = []
+            multisets = False
+            if self.es_fit_param_name in fit_params:
                 for idx, val_set in enumerate(fit_params[self.es_fit_param_name]):
-                    print(type(val_set))"""
-                es_param=[]
-                multisets=False
-                if self.es_fit_param_name in fit_params:
-                    for idx, val_set in enumerate(fit_params[self.es_fit_param_name]):
-                        if isinstance(val_set,(tuple,list)):
-                            # print("isinstance(val_set,(tuple,list))")
-                            es_param.append((val_set[0],self._transform_y(val_set[1])))
-                            multisets=True
+                    if isinstance(val_set, (tuple, list)):
+                        # print("isinstance(val_set,(tuple,list))")
+                        es_param.append((val_set[0], self._transform_y(val_set[1])))
+                        multisets = True
+                    else:
+                        if idx == 1:
+                            es_param.append(self._transform_y(val_set))
                         else:
-                            if idx==1:
-                                es_param.append(self._transform_y(val_set))
-                            else:
-                                es_param.append(val_set)
-                            
-                if es_param: 
-                    """print(type(es_param))
-                    for idx, val_set in enumerate(es_param):
-                        print('after',type(val_set))"""
-                    fit_params[self.es_fit_param_name]=tuple(es_param) if not multisets else es_param
-            self.regressor_.fit(X, y_trans, **fit_params)
+                            es_param.append(val_set)
 
-            if hasattr(self.regressor_, "feature_names_in_"):
-                self.feature_names_in_ = self.regressor_.feature_names_in_
+            if es_param:
+                """print(type(es_param))
+                for idx, val_set in enumerate(es_param):
+                    print('after',type(val_set))"""
+                fit_params[self.es_fit_param_name] = tuple(es_param) if not multisets else es_param
+        self.regressor_.fit(X, y_trans, **fit_params)
 
-            return self
+        if hasattr(self.regressor_, "feature_names_in_"):
+            self.feature_names_in_ = self.regressor_.feature_names_in_
+
+        return self
+
 
 class PdOrdinalEncoder(OrdinalEncoder):
     """Ordinal encoder that preserves pandas column names and always emits int32 codes.
@@ -207,10 +202,10 @@ class PdOrdinalEncoder(OrdinalEncoder):
         super().__init__(categories=categories,dtype=dtype,handle_unknown=handle_unknown,unknown_value=unknown_value,encoded_missing_value=encoded_missing_value,min_frequency=min_frequency,max_categories=max_categories)
 
     def transform(self, X):
-        if isinstance(X,pd.DataFrame):
+        if isinstance(X, pd.DataFrame):
             col_names = X.columns.tolist()
         else:
-            col_names=None
+            col_names = None
 
         X = super().transform(X)
         # Wave 50 (2026-05-20): if caller overrode encoded_missing_value=np.nan,
@@ -240,14 +235,14 @@ class PdKBinsDiscretizer(KBinsDiscretizer):
     else an ndarray, casting the result to int32.
     """
 
-    def __init__(self, n_bins=5, encode='onehot', strategy='quantile', dtype=None, subsample=200_000, random_state=None):
-        super().__init__(n_bins=n_bins,encode=encode, strategy=strategy, dtype=dtype, subsample=subsample, random_state=random_state)
+    def __init__(self, n_bins=5, encode="onehot", strategy="quantile", dtype=None, subsample=200_000, random_state=None):
+        super().__init__(n_bins=n_bins, encode=encode, strategy=strategy, dtype=dtype, subsample=subsample, random_state=random_state)
 
     def transform(self, X):
-        if isinstance(X,pd.DataFrame):
+        if isinstance(X, pd.DataFrame):
             col_names = X.columns.tolist()
         else:
-            col_names=None
+            col_names = None
 
         X = super().transform(X)
         # KBinsDiscretizer with encode='onehot' returns sparse; densify for pandas path
@@ -278,9 +273,7 @@ class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
         # available feature count would silently average an empty / short slice
         # (NaN or a wrong-width mean) instead of erroring.
         if self.nprobs is None or self.nprobs < 1 or self.nprobs > X.shape[1]:
-            raise ValueError(
-                f"nprobs must be in [1, n_features={X.shape[1]}]; got {self.nprobs!r}."
-            )
+            raise ValueError(f"nprobs must be in [1, n_features={X.shape[1]}]; got {self.nprobs!r}.")
         self.classes_ = np.unique(y)
         self.n_features_in_ = X.shape[1]
         return self
@@ -314,9 +307,7 @@ class GeomAvgClassifier(BaseEstimator, ClassifierMixin):
     def fit(self, X, y):
         X = check_array(X)
         if self.nprobs is None or self.nprobs < 1 or self.nprobs > X.shape[1]:
-            raise ValueError(
-                f"nprobs must be in [1, n_features={X.shape[1]}]; got {self.nprobs!r}."
-            )
+            raise ValueError(f"nprobs must be in [1, n_features={X.shape[1]}]; got {self.nprobs!r}.")
         self.classes_ = np.unique(y)
         self.n_features_in_ = X.shape[1]
         return self
@@ -423,9 +414,7 @@ def create_dummy_lagged_predictions(y_true: np.ndarray, strategy: str = "constan
     """
     # Only "constant_lag" is implemented; accepting "adaptive_lag" would leave ``y_pred`` unassigned -> UnboundLocalError at return.
     if strategy != "constant_lag":
-        raise ValueError(
-            f"strategy must be 'constant_lag'; got {strategy!r}."
-        )
+        raise ValueError(f"strategy must be 'constant_lag'; got {strategy!r}.")
     if y_true.size == 0:
         raise ValueError("y_true is empty; cannot compute a median-imputed lagged prediction.")
     if strategy == "constant_lag":
@@ -515,9 +504,7 @@ def soft_winsorize(
     """
     # Wave 31 (2026-05-20): assert -> ValueError so -O preserves input validation.
     if distribution not in ("linear", "quantile"):
-        raise ValueError(
-            f"distribution must be 'linear' or 'quantile'; got {distribution!r}."
-        )
+        raise ValueError(f"distribution must be 'linear' or 'quantile'; got {distribution!r}.")
 
     rel_max_real_diff = np.max(data) - abs_upper_threshold
     rel_min_real_diff = abs_lower_threshold - np.min(data)
@@ -569,22 +556,15 @@ def clip_to_quantiles(arr: np.ndarray, quantile: float = 0.01, method: str = "wi
     # Wave 31 (2026-05-20): assert -> ValueError so -O preserves input validation.
     # Pre-fix bad ``method`` slipped past and the elif chain returned None.
     if method not in ("hard", "winsor_linear", "winsor_quantile"):
-        raise ValueError(
-            f"method must be 'hard', 'winsor_linear', or 'winsor_quantile'; "
-            f"got {method!r}."
-        )
+        raise ValueError(f"method must be 'hard', 'winsor_linear', or 'winsor_quantile'; " f"got {method!r}.")
     if not isinstance(quantile, Number):
         raise TypeError(f"quantile must be a number; got {type(quantile).__name__}.")
     if not (0 <= quantile <= 1):
         raise ValueError(f"quantile must be in [0, 1]; got {quantile!r}.")
     if not isinstance(winsor_rel_muliplier, Number):
-        raise TypeError(
-            f"winsor_rel_muliplier must be a number; got {type(winsor_rel_muliplier).__name__}."
-        )
+        raise TypeError(f"winsor_rel_muliplier must be a number; got {type(winsor_rel_muliplier).__name__}.")
     if not (0 <= winsor_rel_muliplier <= 1):
-        raise ValueError(
-            f"winsor_rel_muliplier must be in [0, 1]; got {winsor_rel_muliplier!r}."
-        )
+        raise ValueError(f"winsor_rel_muliplier must be in [0, 1]; got {winsor_rel_muliplier!r}.")
 
     # Wave 39 (2026-05-20): np.quantile on empty input raises an opaque IndexError
     # in numpy>=1.22. Public utility may receive post-filter empty arrays; treat
@@ -638,7 +618,6 @@ def clip_to_quantiles_hard(arr):
     return clip_to_quantiles(arr, quantile=0.01, method="hard")
 
 
-
 class IdentityEstimator(BaseEstimator):
     """Pass-through estimator: returns selected existing feature(s) as-is instead of learning & predicting.
 
@@ -649,9 +628,9 @@ class IdentityEstimator(BaseEstimator):
     Note: `predict` returns the raw feature slice — it is NOT sklearn-standard label-from-argmax behaviour.
     """
 
-    def __init__(self,feature_names:list | None=None,feature_indices:list | None=None):
-        self.feature_names=feature_names
-        self.feature_indices=feature_indices
+    def __init__(self, feature_names: list | None = None, feature_indices: list | None = None):
+        self.feature_names = feature_names
+        self.feature_indices = feature_indices
 
     def fit(self, X, y, **fit_params):
         if isinstance(self, ClassifierMixin):
@@ -676,18 +655,11 @@ class IdentityEstimator(BaseEstimator):
                 # without setting EITHER would raise an opaque IndexError
                 # rather than a clear missing-config message.
                 if self.feature_indices is None:
-                    raise ValueError(
-                        "IdentityEstimator: neither feature_names nor "
-                        "feature_indices set on the instance; pass one at "
-                        "construction time."
-                    )
+                    raise ValueError("IdentityEstimator: neither feature_names nor " "feature_indices set on the instance; pass one at " "construction time.")
                 return X.iloc[:, self.feature_indices].to_numpy()
         else:
             if self.feature_indices is None:
-                raise ValueError(
-                    "IdentityEstimator: feature_indices not set; pass "
-                    "feature_indices at construction for ndarray inputs."
-                )
+                raise ValueError("IdentityEstimator: feature_indices not set; pass " "feature_indices at construction for ndarray inputs.")
             return X[:, self.feature_indices]
 
 

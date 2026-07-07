@@ -410,8 +410,8 @@ def _predict_with_fallback(
             _hit = _cb_val_pool_cache_lookup(X, method)
             if _hit is not None:
                 logger.info(
-                    "[cb-val-pool-reuse] %s hit on cached val Pool -- "
-                    "skipping redundant Pool rebuild.", method,
+                    "[cb-val-pool-reuse] %s hit on cached val Pool -- " "skipping redundant Pool rebuild.",
+                    method,
                 )
                 with phase(method, model=_model_type, n_rows=n_rows):
                     return fn(_hit)
@@ -424,12 +424,7 @@ def _predict_with_fallback(
     # ── 3. Sticky-pandas short-circuit (previous Polars miss) ──────────
     _pl_df = _pl_DataFrame()
     _is_cb = _model_type in CATBOOST_MODEL_TYPES
-    if (
-        _pl_df is not type(None)
-        and isinstance(X, _pl_df)
-        and _is_cb
-        and getattr(model, "_mlframe_polars_fastpath_broken", False)
-    ):
+    if _pl_df is not type(None) and isinstance(X, _pl_df) and _is_cb and getattr(model, "_mlframe_polars_fastpath_broken", False):
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
         with phase(method, model=_model_type, n_rows=n_rows):
             return fn(X_pd)
@@ -456,13 +451,12 @@ def _predict_with_fallback(
             raise
         return _apply_nan_guard(model, X, fn, n_rows)
     except TypeError as e:
-        if not (_is_cb and _pl_df is not type(None) and isinstance(X, _pl_df)
-                and "No matching signature found" in str(e)):
+        if not (_is_cb and _pl_df is not type(None) and isinstance(X, _pl_df) and "No matching signature found" in str(e)):
             raise
         logger.warning(
-            "CatBoost %s Polars fastpath rejected the data (%s); "
-            "converting to pandas and retrying.",
-            method, str(e).splitlines()[-1][:240],
+            "CatBoost %s Polars fastpath rejected the data (%s); " "converting to pandas and retrying.",
+            method,
+            str(e).splitlines()[-1][:240],
         )
         try:
             model._mlframe_polars_fastpath_broken = True
@@ -471,7 +465,6 @@ def _predict_with_fallback(
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
         with phase(method, model=_model_type, n_rows=n_rows):
             return fn(X_pd)
-
 
 
 # Fix 9.4.3 + Fix Orch-1: process-wide CatBoost Pool cache. Keys: tuple
@@ -615,8 +608,6 @@ def _cb_reuse_capable() -> bool:
     except ImportError:
         return False
     return callable(getattr(_Pool, "set_label", None)) and callable(getattr(_Pool, "set_weight", None))
-
-
 
 
 def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:

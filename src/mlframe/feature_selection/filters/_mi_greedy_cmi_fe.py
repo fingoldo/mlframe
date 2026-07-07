@@ -1517,9 +1517,7 @@ def greedy_cmi_fe_construct(
             _yi, _zi, _hyz, _hz, _kyz, _kz, _nf = precompute_cmi_yz_terms(y_shuf, _zc)
             _yzd, _ = _renumber_joint(_yi, _zi)  # round-fixed (y,z) dense codes reused per sampled candidate
             for nm in sample_names:
-                cmis_shuf.append(
-                    cmi_from_binned_fixed_yz(cand_bins[nm], _yi, _zi, _hyz, _hz, _kyz, _kz, _nf, yz_i=_yzd)
-                )
+                cmis_shuf.append(cmi_from_binned_fixed_yz(cand_bins[nm], _yi, _zi, _hyz, _hz, _kyz, _kz, _nf, yz_i=_yzd))
         if not cmis_shuf:
             return 0.0
         return float(np.quantile(np.asarray(cmis_shuf), 0.95))

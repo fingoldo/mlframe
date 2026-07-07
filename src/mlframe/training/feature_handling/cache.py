@@ -145,10 +145,7 @@ class FeatureCache:
                 "hits_disk": self._hits_disk,
                 "misses": self._misses,
                 "evictions": self._evictions,
-                "hit_rate": (
-                    (self._hits_mem + self._hits_disk)
-                    / max(1, self._hits_mem + self._hits_disk + self._misses)
-                ),
+                "hit_rate": ((self._hits_mem + self._hits_disk) / max(1, self._hits_mem + self._hits_disk + self._misses)),
                 "persistence": self._cfg.persistence,
             }
 
@@ -194,9 +191,7 @@ class FeatureCache:
                 # ran AFTER ``_insert_in_memory`` already released the
                 # lock -- a parallel get_or_compute could trigger
                 # eviction in the gap.
-                self._insert_in_memory(in_mem_key, disk_value, recompute_time_s=0.5,
-                                        size_estimator=size_estimator,
-                                        disk_key=disk_key)
+                self._insert_in_memory(in_mem_key, disk_value, recompute_time_s=0.5, size_estimator=size_estimator, disk_key=disk_key)
                 with self._lock:
                     self._hits_disk += 1
                 return disk_value
@@ -209,10 +204,7 @@ class FeatureCache:
         recompute_time_s = max(0.001, time.monotonic() - t0)
 
         # 4. Store
-        write_xref = (
-            self._cfg.persistence in ("auto", "read_write")
-            and disk_key is not None
-        )
+        write_xref = self._cfg.persistence in ("auto", "read_write") and disk_key is not None
         if write_xref:
             self._write_to_disk(disk_key, value)
         self._insert_in_memory(
@@ -491,8 +483,7 @@ def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
     except Exception:
         if not allow_pickle:
             raise CachePickleRefusedError(
-                f"FeatureCache: failed to read {path!r} via numpy and "
-                "CacheConfig.allow_pickle is False; refusing pickle fallback."
+                f"FeatureCache: failed to read {path!r} via numpy and " "CacheConfig.allow_pickle is False; refusing pickle fallback."
             )
         # Pickle fallback: route through safe_pickle.safe_load so a sidecar-digest mismatch
         # surfaces as PickleVerificationError instead of executing tampered bytes. legacy

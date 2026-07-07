@@ -56,8 +56,6 @@ from ._ranker_losses import (  # noqa: F401, E402
     listnet_top1_loss,
 )
 
-
-
 # ----------------------------------------------------------------------------------
 # Group-aware batching
 # ----------------------------------------------------------------------------------
@@ -330,20 +328,14 @@ class _RankerDataset(Dataset):
         # ``np.asarray(indices, dtype=np.int64).tobytes()`` at the typical
         # ~10-row query shape (0.26us vs 1.17us / call) and matches the key
         # built by install_pair_index_cache via ``tuple(indices.tolist())``.
-        if (
-            self._batch_by_query is not None
-            and not torch.is_tensor(indices)
-        ):
+        if self._batch_by_query is not None and not torch.is_tensor(indices):
             indices_key = tuple(indices)
             cached_batch = self._batch_by_query.get(indices_key)
             if cached_batch is not None:
                 # OPT-7 multi-query path falls through; that path uses
                 # _sampler._batch_partition which is keyed by a packed
                 # multi-query union, not present in _batch_by_query.
-                if (
-                    self._sampler is None
-                    or self._sampler.queries_per_batch <= 1
-                ):
+                if self._sampler is None or self._sampler.queries_per_batch <= 1:
                     return [cached_batch]
         else:
             indices_key = None
@@ -362,12 +354,7 @@ class _RankerDataset(Dataset):
         # ``softplus(-(scores[i_idx] - scores[j_idx])).mean()`` computes
         # the cross-query loss in ONE forward+backward; each (i, j) pair
         # is intra-query by construction so no cross-query contamination.
-        if (
-            self._sampler is not None
-            and self._sampler.queries_per_batch > 1
-            and indices_key is not None
-            and self._pair_idx_by_query is not None
-        ):
+        if self._sampler is not None and self._sampler.queries_per_batch > 1 and indices_key is not None and self._pair_idx_by_query is not None:
             partition = self._sampler._batch_partition.get(indices_key)
             if partition is not None:
                 concat_i_parts: List[torch.Tensor] = []
@@ -387,10 +374,8 @@ class _RankerDataset(Dataset):
                         concat_i_parts.append(i_idx + qstart)
                         concat_j_parts.append(j_idx + qstart)
                 if concat_i_parts:
-                    cat_i = (concat_i_parts[0] if len(concat_i_parts) == 1
-                             else torch.cat(concat_i_parts))
-                    cat_j = (concat_j_parts[0] if len(concat_j_parts) == 1
-                             else torch.cat(concat_j_parts))
+                    cat_i = concat_i_parts[0] if len(concat_i_parts) == 1 else torch.cat(concat_i_parts)
+                    cat_j = concat_j_parts[0] if len(concat_j_parts) == 1 else torch.cat(concat_j_parts)
                     return [(self.X[idx], self.y[idx], cat_i, cat_j)]
                 # All queries in batch had zero informative pairs (rare):
                 # fall through to 2-tuple shape so loss returns 0.

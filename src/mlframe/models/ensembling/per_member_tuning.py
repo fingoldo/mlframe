@@ -175,8 +175,7 @@ def run_per_member_sweep(observed_elements: int | None = None, max_elements: int
     return regions
 
 
-def ensure_per_member_tuning(observed_elements: int | None = None,
-                             force: bool = False, max_elements: int | None = None, repeats: int = 25) -> None:
+def ensure_per_member_tuning(observed_elements: int | None = None, force: bool = False, max_elements: int | None = None, repeats: int = 25) -> None:
     """Populate the per-host cache for the 2-D backend if absent (or ``force``).
 
     ``observed_elements`` (the size that triggered the miss) bounds the sweep grid

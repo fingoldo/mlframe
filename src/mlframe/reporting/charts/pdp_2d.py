@@ -48,9 +48,7 @@ def interaction_residual(surface: np.ndarray) -> dict:
     return {"residual": residual, "residual_rms": residual_rms, "surface_std": surface_std, "residual_ratio": ratio}
 
 
-def _default_pair(
-    model: Any, X: Any, names: Optional[List[str]], n_cols: int
-) -> Optional[Tuple[Feature, Feature]]:
+def _default_pair(model: Any, X: Any, names: Optional[List[str]], n_cols: int) -> Optional[Tuple[Feature, Feature]]:
     """Pick the pair: top SHAP interaction pair when available (tree model + shap), else top-2 importance features.
 
     Importance falls back to ``feature_importances_`` / ``coef_`` magnitude, else the first two columns. Returns
