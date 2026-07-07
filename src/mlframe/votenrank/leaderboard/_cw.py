@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.optimize import linprog
 
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def _get_tasks_onehot(self, tasks: List[str]):
@@ -15,8 +15,8 @@ def _get_tasks_onehot(self, tasks: List[str]):
     return idxs
 
 
-def _find_weights_for_majority_graph(self, edge_list: List[Tuple[str, str]], restrictions: Dict[str, List] = None):
-    params = {
+def _find_weights_for_majority_graph(self, edge_list: List[Tuple[str, str]], restrictions: Optional[Dict[str, List]] = None):
+    params: Dict[str, Any] = {
         "weights_to_minimize": None,
         "weights_to_maximize": None,
         "weights_ub": None,
@@ -40,8 +40,8 @@ def _find_weights_for_majority_graph(self, edge_list: List[Tuple[str, str]], res
         max_idxs = self._get_tasks_onehot(params["weights_to_maximize"])
         objective = [-el for el in max_idxs]
 
-    weights_cond_left = []
-    weights_cond_right = []
+    weights_cond_left: list = []
+    weights_cond_right: list = []
 
     if params["weights_ub"] is not None:
         for weights_list, ub in params["weights_ub"]:

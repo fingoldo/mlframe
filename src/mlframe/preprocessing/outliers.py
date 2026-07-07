@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
+from typing import Any, Optional
+
 from sklearn.ensemble import IsolationForest
 
 # imblearn is optional at module import time — older installations are often
@@ -36,9 +38,9 @@ from sklearn.impute import SimpleImputer
 
 
 def reject_outliers(
-    X: object,
-    y: object,
-    model: object = None,
+    X: Any,
+    y: Any,
+    model: Optional[Any] = None,
     verbose: bool = True,
 ):
     """Function used to resample the dataset by dropping the outliers. Should be a part of imblearn Pipeline:

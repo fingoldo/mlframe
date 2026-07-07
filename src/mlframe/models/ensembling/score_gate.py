@@ -42,7 +42,7 @@ def select_gate_source_split(
     _gate_source_split: Optional[str] = None
     _gate_preds_for_check: Optional[List[np.ndarray]] = None
     # GATE-DOUBLE-DIP / GATE-NO-OOF: prefer oof_* exclusively; fall back to val/test/train only when require_oof_for_gate is False. When True and any member lacks OOF we WARN and skip the gate entirely (better to run all members than to gate on the same surface the early-stopper / test-set selector burned). The "all members must share a split" condition stays the same -- mixing splits across members would compare incomparable rows.
-    _candidate_attrs = (
+    _candidate_attrs: Tuple[Tuple[str, str], ...] = (
         ("oof_preds", "oof"),
         ("oof_probs", "oof"),
     )
@@ -59,7 +59,7 @@ def select_gate_source_split(
         _candidate = [getattr(m, _attr, None) for m in level_models_and_predictions]
         # MagicMock test doubles fabricate any attribute access, so ``p is not None`` would always pass; require an actual numpy array to gate the source-split selection.
         if all(isinstance(p, np.ndarray) for p in _candidate):
-            _gate_preds_for_check = _candidate
+            _gate_preds_for_check = _candidate  # type: ignore[assignment]  # narrowed to list[np.ndarray] by the all(isinstance(...)) check above
             _gate_source_split = _label
             break
     # COARSE-GATE-FALLBACK: when OOF is unavailable AND require_oof_for_gate=True, the fine-grained 2.5x gate is intentionally skipped to avoid double-dipping on val. But that lets catastrophic outliers (R^2=-4.75 alongside R^2=0.99 members) survive into the ensemble. Run a SECOND coarse-threshold pass against the val/test/train fallback chain to catch only the disasters. Marked separately in logs (split=val-coarse) so it can't be confused with the strict gate.
@@ -76,7 +76,7 @@ def select_gate_source_split(
         for _attr, _label in _coarse_fallback_attrs:
             _candidate = [getattr(m, _attr, None) for m in level_models_and_predictions]
             if all(isinstance(p, np.ndarray) for p in _candidate):
-                _gate_preds_for_check = _candidate
+                _gate_preds_for_check = _candidate  # type: ignore[assignment]  # narrowed to list[np.ndarray] by the all(isinstance(...)) check above
                 _gate_source_split = _label
                 _coarse_gate_active = True
                 # Coarse pass replaces fine thresholds for the single call below; the embedded per-flavor filter has already been zeroed before this block runs (or will be zeroed in the kept-survivors branch below), so this only governs the single compute_member_quality_gate invocation that follows.
@@ -309,9 +309,13 @@ def catastrophic_drop_k2(
                     _kept_tags = _ensemble_short_tags
                     _re_label = "[" + "+".join(_kept_tags) + "]"
                     if _ENSEMBLE_LABEL_RE.search(ensemble_name):
-                        _label_value = _re_label
+                        _label_value: str = _re_label
+
+                        def _replace_label(_m, _v: str = _label_value) -> str:
+                            return _v
+
                         ensemble_name = _ENSEMBLE_LABEL_RE.sub(
-                            lambda _m, _v=_label_value: _v,
+                            _replace_label,
                             ensemble_name, count=1,
                         )
                     else:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from typing import Optional
 
 from scipy import stats
 import numpy as np, pandas as pd
@@ -52,8 +53,8 @@ def sample_random_variable(
     size: int = 1000,
     shift: float = 0,
     scale: float = 1.0,
-    include: set = None,
-    exclude: set = None,
+    include: Optional[set] = None,
+    exclude: Optional[set] = None,
     max_time_per10k: float = 1.0,
     randomize_params: bool = True,
     random_state=None,
@@ -139,14 +140,14 @@ def generate_modelling_data(
     shift: float = 0.0,
     scale: float = 1.0,
     shuffle: bool = True,
-    random_state: int = None,
+    random_state: Optional[int] = None,
     feature_noise: float = 0.05,  # used additively when generating correlated features
     target_noise: float = 0.05,  # used additively when generating target in mode 1
     timeseries: bool = False,  # dependencies (coefficients, at least) are changing over time?
     # how to create cat features?
     min_cardinality: int = 2,
-    max_cardinality: int = None,
-    include_distributions: set = None,
+    max_cardinality: Optional[int] = None,
+    include_distributions: Optional[set] = None,
     return_dataframe: bool = True,
 ):
     """
