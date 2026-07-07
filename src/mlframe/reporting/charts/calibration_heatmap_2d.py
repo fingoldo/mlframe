@@ -20,7 +20,7 @@ edges is annotated and the grid degenerates; cells below the support floor are g
 
 from __future__ import annotations
 
-from typing import Mapping, Optional, Sequence, Tuple
+from typing import Any, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -73,7 +73,7 @@ def compute_calibration_heatmap_2d(
     *,
     n_bins: int = 5,
     random_state: int = 0,
-) -> Mapping[str, object]:
+) -> Mapping[str, Any]:
     """Headless per-cell ECE grid + worst-cell headline, without building a figure.
 
     Returns ``{"ece_grid", "support_grid", "x_labels", "y_labels", "worst_ece", "worst_cell", "median_cell_ece",

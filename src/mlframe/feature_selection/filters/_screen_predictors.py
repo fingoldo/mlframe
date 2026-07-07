@@ -216,7 +216,7 @@ def screen_predictors(
     # discovery accumulates across passes instead of being rebuilt empty each
     # time (which dropped the screen-1 dup cluster from the published summary).
     existing_dcd_state: object = None,
-) -> float:
+) -> tuple:
     """Finds best predictors for the target. ``factors_data`` must be an n-by-m array of integers (ordinal encoded).
 
     ``max_confirmation_cand_nbins=None`` falls back to the module constant for backward compat; ``MRMR.fit`` overrides explicitly. ``fe_fallback_to_all`` is consumed

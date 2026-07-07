@@ -128,6 +128,11 @@ class CompositeTargetDiscovery:
     add a "use full df for X" shortcut, that test will fail.
     """
 
+    # ``fit`` (bound externally, see below) sets this fitted attribute; declared here so mypy
+    # can type-check the self.specs_ reads in iter_transform() / stability_select() that run
+    # before/without a preceding self.specs_ = ... assignment visible in this class body.
+    specs_: list
+
     def __init__(self, config: Any) -> None:
         if isinstance(config, dict):
             from ...configs import CompositeTargetDiscoveryConfig

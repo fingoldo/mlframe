@@ -73,6 +73,11 @@ class FeaturesAndTargetsExtractor:
     Subclass and override these methods for custom behavior.
     """
 
+    # __init__ params are set on self dynamically via store_params_in_object(); declared here so
+    # mypy can type-check reads/writes of this one (checked/defaulted right after in __init__, and
+    # mutated by subclasses' build_targets()).
+    columns_to_drop: Optional[set]
+
     def __init__(
         self,
         ts_field: Optional[str] = None,

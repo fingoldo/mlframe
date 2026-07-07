@@ -25,6 +25,10 @@ class UniversalCallback:
     their framework's per-iteration hook to this common logic.
     """
 
+    # __init__ params are set on self dynamically via store_params_in_object(); declared here so mypy
+    # can type-check reads/writes of this one (subclasses default it via `self.monitor_dataset or "..."`).
+    monitor_dataset: str | None
+
     def __init__(
         self,
         time_budget_mins: float | None = None,

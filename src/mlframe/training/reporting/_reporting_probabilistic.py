@@ -44,7 +44,7 @@ from ..phases import phase
 # so by the time Python resolves these names ``_reporting`` is partially
 # loaded and the symbols are already there. No circular-load failure,
 # AND a single source of truth (no constant duplication across siblings).
-from ._reporting import (  # noqa: E402
+from ._reporting import (  # noqa: E402  # type: ignore[has-type]  # intentional circular import (see comment above); mypy can't follow the runtime load-order guarantee
     DEFAULT_CALIB_REPORT_NDIGITS,
     DEFAULT_FIGSIZE,
     DEFAULT_NBINS,
@@ -58,11 +58,13 @@ from ._reporting import (  # noqa: E402
 if TYPE_CHECKING:
     from ..configs import MultilabelDispatchConfig
 
-# Share the parent module's logger so the INFO-gate that guards the sklearn classification_report cost is controlled
-# from one place, and access classification_report through the module so callers can swap the fallback at runtime.
+# Share the parent module's logger (logging.getLogger returns the same object for a given name, so this is
+# identical to importing it) so the INFO-gate that guards the sklearn classification_report cost is controlled
+# from one place. classification_report itself is still accessed through the module below so callers can swap
+# the fallback at runtime.
 from . import _reporting as _reporting_mod
 
-logger = _reporting_mod.logger
+logger = logging.getLogger(_reporting_mod.__name__)
 
 
 def _resolve_class_label(class_id: int, class_name: Any, target_label_encoder: Any) -> str:
@@ -95,7 +97,7 @@ def report_probabilistic_model_perf(
     subgroups: dict[str, np.ndarray] | None = None,
     subset_index: np.ndarray | None = None,
     report_ndigits: int = DEFAULT_REPORT_NDIGITS,
-    figsize: tuple[int, int] = DEFAULT_FIGSIZE,
+    figsize: tuple[int, int] = DEFAULT_FIGSIZE,  # type: ignore[has-type]  # intentional circular import (see comment above)
     report_title: str = "",
     use_weights: bool = True,
     calib_report_ndigits: int = DEFAULT_CALIB_REPORT_NDIGITS,

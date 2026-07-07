@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import os
 from timeit import default_timer as timer
-from typing import Sequence, Tuple
+from typing import Any, Sequence, Tuple
 
 import numba
 import numpy as np
@@ -841,7 +841,7 @@ def evaluate_candidate(
 def find_best_partial_gain(
     partial_gains: dict, failed_candidates: set, added_candidates: set, candidates: list, selected_vars: list, skip_indices: tuple = (),
     dcd_state=None,
-) -> float:
+) -> Tuple[float, Any]:
     # 2026-06-02 Wave 9 fix: a DCD-pruned candidate must NOT be returned as a
     # redirect target. ``partial_gains`` persists across the confirmation
     # ``while`` retries within one interactions-order; when DCD prunes a

@@ -25,6 +25,10 @@ _CUDA_GRAPH_PREDICT_CACHE_MAX = max(1, int(os.environ.get("MLFRAME_CUDA_GRAPH_PR
 class _PredictAccelMixin:
     """torch.compile + CUDA-graph predict fast paths and the predict_step dispatch."""
 
+    # Provided by the composed class (MLPTorchModel); declared here so mypy can type-check
+    # the self.network reads/writes in this mixin without a self-referential inference cycle.
+    network: torch.nn.Module
+
     def _evict_cuda_graph_cache_if_needed(self) -> None:
         """Bound the captured-graph count, reclaiming VRAM from the least-recently-used graph.
 

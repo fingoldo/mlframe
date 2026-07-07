@@ -9,7 +9,7 @@ them in unchanged.
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import torch
@@ -24,6 +24,11 @@ logger = __import__("logging").getLogger("mlframe.training.neural.base")
 
 class _PredictMixin:
     """Batched Lightning predict path + base predict / score for the estimator."""
+
+    # Provided by the composed estimator class; declared here so mypy can type-check the
+    # self.trainer reads/writes in this mixin (set/reset to None across fit/predict cycles).
+    trainer: Any
+    trainer_params: Optional[dict]
 
     def _predict_raw(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
         """

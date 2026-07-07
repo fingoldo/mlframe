@@ -62,6 +62,14 @@ _WARM_START_N_ATTRS = ("n_estimators", "max_iter")
 
 
 class EarlyStoppingWrapper(BaseEstimator):
+    # __init__ params are set on self dynamically via store_params_in_object(); fit()-time state is
+    # set the same way / directly on self without a preceding class-scope assignment. Declared here
+    # so mypy can type-check the reads in _resolve_scoring() / partial_fit() that run before fit().
+    _is_regressor: bool
+    best_score_: float
+    n_iterations_: int
+    _monotonic_stopper: MonotonicDeclineStopper
+
     def __init__(
         self,
         base_model: object,
