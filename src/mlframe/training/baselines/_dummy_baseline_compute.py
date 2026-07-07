@@ -14,7 +14,7 @@ They are re-exported below so existing
 from __future__ import annotations
 
 import logging
-from typing import Any, OrderedDict, Sequence, TYPE_CHECKING
+from typing import Any, Callable, OrderedDict, Sequence, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -342,7 +342,7 @@ def _per_group_predict(
 # ---------------------------------------------------------------------
 
 
-def _safe_metric(metric_fn: callable, y_true: np.ndarray, y_pred: np.ndarray, **kwargs: Any) -> float:
+def _safe_metric(metric_fn: Callable, y_true: np.ndarray, y_pred: np.ndarray, **kwargs: Any) -> float:
     """Compute metric in isolated try/except -> NaN on failure (D1).
 
     Failure logged ONCE per (metric_fn.__name__, error type) -- not

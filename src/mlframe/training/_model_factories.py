@@ -69,7 +69,7 @@ def _patch_lgb_feature_names_in_setter() -> None:
         fdel=prop.fdel,
         doc=prop.__doc__,
     )
-    _model_cls.feature_names_in_ = patched
+    _model_cls.feature_names_in_ = patched  # type: ignore[assignment]  # intentional monkey-patch of LightGBM's feature_names_in_ property to add a setter (see module docstring above)
     _model_cls._mlframe_feature_names_setter_installed = True
 
 

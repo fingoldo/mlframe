@@ -622,7 +622,7 @@ def report_probabilistic_model_perf(
                     _ext_err,
                 )
 
-            metrics.update({class_id: class_metrics})
+            metrics.update({str_class_name: class_metrics})
 
     # 2026-05-28 audit batch: post-loop macro / weighted aggregation across
     # classes. The per-class loop above stamped each class's KS / MCC / F1 /

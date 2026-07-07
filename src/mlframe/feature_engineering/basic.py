@@ -81,7 +81,7 @@ logger = logging.getLogger(__name__)
 
 # Map of numpy integer dtypes to polars equivalents. Defined at module scope so it's not
 # rebuilt per call. Add new entries here if a user passes a wider integer dtype.
-_NP_TO_PL_DTYPE: Dict[type, pl.DataType] = {
+_NP_TO_PL_DTYPE: Dict[type, type[pl.DataType]] = {
     np.int8: pl.Int8,
     np.int16: pl.Int16,
     np.int32: pl.Int32,
@@ -98,7 +98,7 @@ _NP_TO_PL_DTYPE: Dict[type, pl.DataType] = {
 # stable name ("week_of_year", "day_of_year") across backends; we route to whichever native
 # accessor each library exposes. ``None`` on the polars side means "needs a custom expression"
 # and is handled in the polars branch below.
-_DATE_METHOD_ALIASES: Dict[str, Tuple[str, Optional[str]]] = {
+_DATE_METHOD_ALIASES: Dict[str, Tuple[Optional[str], Optional[str]]] = {
     "year": ("year", "year"),
     "month": ("month", "month"),
     "day": ("day", "day"),
@@ -346,7 +346,7 @@ def create_date_features(
 
     if delete_original_cols:
         if is_pandas:
-            df = df.drop(columns=cols)
+            df = df.drop(columns=cols)  # type: ignore[call-arg]  # is_pandas guards this to a pandas.DataFrame; mypy can't narrow the Union on a bool flag
         else:
             df = df.drop(cols)
 

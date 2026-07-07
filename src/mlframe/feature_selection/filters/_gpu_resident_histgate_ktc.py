@@ -122,7 +122,7 @@ def _run_histgate_threads_sweep() -> list:
     thread counts produce the SAME gated-MI vector (integer commutative counts), so equivalence is met."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
-    variants = {f"th_{t}": (lambda *a, _t=t: _hist_counts_with_threads(*a, _t)) for t in _HISTGATE_THREADS_VARIANTS}
+    variants = {f"th_{t}": (lambda *a, _t=t: _hist_counts_with_threads(*a, _t)) for t in _HISTGATE_THREADS_VARIANTS}  # type: ignore[call-arg]  # mypy can't verify arg count through *a unpack of an unbounded tuple; runtime tuple from _make_histgate_inputs has exactly 10 elements + _t = 11, matching the signature
     return sweep_backend_grid(
         variants,
         {"n_rows": _HISTGATE_THREADS_SWEEP_N_ROWS},

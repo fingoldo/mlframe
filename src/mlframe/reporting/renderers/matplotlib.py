@@ -75,7 +75,10 @@ def _per_series_flags(flag, n: int):
 class MatplotlibRenderer:
     backend = "matplotlib"
 
-    def render(self, spec: FigureSpec) -> Any:
+    def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
+        # static_legend is a plotly-only concept (see PlotlyRenderer.render); matplotlib legends
+        # are always static, so this backend accepts and ignores the flag to satisfy the Renderer Protocol.
+        del static_legend
         # 2026-05-11: REMOVED ``matplotlib.use("Agg", force=False)``
         # here. The renderer creates its own ``FigureCanvasAgg(fig)``
         # explicitly below, so the global-backend mutation is
@@ -159,7 +162,7 @@ class MatplotlibRenderer:
             _eng = fig.get_layout_engine()
             if _eng is not None:
                 try:
-                    _eng.set(rect=(0.0, _band, 1.0, 1.0))
+                    _eng.set(rect=(0.0, _band, 1.0, 1.0))  # type: ignore[call-arg]  # matplotlib stubs type _eng as the base LayoutEngine; constrained_layout was forced on above so this is always a ConstrainedLayoutEngine, whose .set() does accept rect
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                     logger.debug("suppressed in matplotlib.py:163: %s", e)
                     pass
@@ -358,7 +361,7 @@ class MatplotlibRenderer:
             if heights is None:
                 heights = np.asarray(p.values)
                 width = float(p.bin_width or (bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0)
-            colors_kw = {"color": p.color}
+            colors_kw: dict[str, Any] = {"color": p.color}
             if p.bar_colors is not None:
                 cm = matplotlib.colormaps[p.colormap]
                 _h_min = float(np.min(p.bar_colors))

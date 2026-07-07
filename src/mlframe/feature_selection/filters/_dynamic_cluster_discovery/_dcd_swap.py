@@ -290,6 +290,7 @@ def evaluate_swap_candidate(
         logger.warning(f"DCD swap: PC1 fit failed: {exc!r}")
         return SwapDecision(accept=False)
     # Build a candidate matrix with rep appended.
+    assert state.factors_data is not None, "DCD swap candidate scoring requires a populated DCDState.factors_data"
     new_col_idx = int(state.factors_data.shape[1])
     data_with_rep = np.column_stack([state.factors_data, rep_binned])
     nbins_with_rep = np.concatenate([
@@ -682,6 +683,8 @@ def commit_swap(
         return member_idx
     # Branch C below: aggregate swap (existing behaviour).
     # 1. Extend matrix.
+    assert state.factors_data is not None, "DCD swap application requires a populated DCDState.factors_data"
+    assert decision.binned_rep is not None, "aggregate branch requires the accepted decision to carry its binned representative"
     new_data = np.column_stack([state.factors_data, decision.binned_rep])
     new_cols = list(state.cols) + [str(decision.aggregate_name)]
     new_nbins = np.concatenate([

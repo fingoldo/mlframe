@@ -10,7 +10,7 @@ from __future__ import annotations
 import copy
 import logging
 from timeit import default_timer as timer
-from typing import Any, Sequence, TYPE_CHECKING
+from typing import Any, Callable, Sequence, TYPE_CHECKING
 if TYPE_CHECKING:
     from ._configs_base import TargetTypes
     from ._model_configs import LinearModelConfig, MultilabelDispatchConfig
@@ -221,7 +221,7 @@ def configure_training_params(
     model_name: str = "",
     common_params: dict = None,
     config_params: dict = None,
-    metamodel_func: callable = None,
+    metamodel_func: Callable = None,
     _precomputed_fairness_subgroups: dict = None,
     mlframe_models: list = None,
     linear_model_config: LinearModelConfig = None,

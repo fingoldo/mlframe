@@ -119,7 +119,7 @@ def _process_special_values(
                 else:
                     existing_cols = filter_existing(df, cols_to_drop)
                     if existing_cols:
-                        df = df.drop(columns=existing_cols)
+                        df = df.drop(columns=existing_cols)  # type: ignore[call-arg]  # is_polars guards this to a pandas.DataFrame; mypy can't narrow the Union on a bool flag
             if verbose:
                 logger.info("Dropped %s %s.", len(cols_to_drop), kind)
         elif fill_value is not None:
@@ -381,7 +381,7 @@ def remove_constant_columns(df: pl.DataFrame | pd.DataFrame, verbose: int = 1) -
             logger.info("Removing %s constant columns: %s", len(constant_cols), constant_cols)
 
         if constant_cols:
-            df = df.drop(columns=constant_cols)
+            df = df.drop(columns=constant_cols)  # type: ignore[call-arg]  # else-branch of is_polars guards this to a pandas.DataFrame; mypy can't narrow the Union on a bool flag
 
     return df
 

@@ -423,7 +423,7 @@ def bootstrap_metric(
                 _sz = int(_class_sizes[_c])
                 _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
                 _idx_buf[_class_offsets[_c] : _class_offsets[_c + 1]] = _groups_list[_c][_rand]
-            idx = _idx_buf
+            idx = _idx_buf  # type: ignore[assignment]  # numpy stubs mis-infer rng.integers(..., size=n) as scalar-returning above; idx is always an ndarray at runtime
         # bench-attempt-rejected (2026-05-27, iter392): replacing
         # ``y_true[idx], y_pred[idx]`` with pre-allocated buffers via
         # ``np.take(y_true, idx, out=y_buf)`` ran 0.88x SLOWER on n=100k
@@ -629,9 +629,9 @@ def bootstrap_metrics(
             active.append(name)
         except Exception as exc:
             results[name] = {"error": f"point metric failed: {type(exc).__name__}: {exc}"}
-    for name, fn in metric_fns_idx.items():
+    for name, fn_idx in metric_fns_idx.items():
         try:
-            points[name] = float(fn(_full_idx))
+            points[name] = float(fn_idx(_full_idx))
             active_idx.append(name)
         except Exception as exc:
             results[name] = {"error": f"point metric failed: {type(exc).__name__}: {exc}"}
@@ -684,16 +684,16 @@ def bootstrap_metrics(
             )
             for _lo, _hi in _bounds
         )
-        samples = {name: [] for name in _all_active}
+        samples_lists: dict[str, list] = {name: [] for name in _all_active}
         failures = {name: 0 for name in _all_active}
         first_err = {name: None for name in _all_active}
         for _ls, _fl, _fe in _parts:
             for name in _all_active:
-                samples[name].extend(_ls[name])
+                samples_lists[name].extend(_ls[name])
                 failures[name] += _fl[name]
                 if first_err[name] is None:
                     first_err[name] = _fe[name]
-        samples = {name: np.asarray(samples[name], dtype=np.float64) for name in _all_active}
+        samples = {name: np.asarray(samples_lists[name], dtype=np.float64) for name in _all_active}
         valid = {name: samples[name].shape[0] for name in _all_active}
     else:
         samples = {name: np.empty(n_bootstrap, dtype=np.float64) for name in _all_active}

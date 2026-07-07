@@ -602,6 +602,7 @@ def train_mlframe_ranker_suite(
         # MLP entirely. Skip the suite-level lr forward for MLP and
         # let MLPRanker's own default (1e-3) apply; callers wanting
         # MLP-specific lr override via ``mlp_kwargs={"learning_rate": ...}``.
+        model_kwargs: dict[str, Any]
         if flavor == "mlp":
             model_kwargs = {iter_kw: iterations}
         else:

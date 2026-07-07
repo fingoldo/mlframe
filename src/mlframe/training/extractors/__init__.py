@@ -176,10 +176,12 @@ class FeaturesAndTargetsExtractor:
 
         from mlframe.training.neural import extract_sequences
 
+        # extract_sequences expects one row per entity (list-column format), so grouping is
+        # already implicit in the row structure; sequence_group_column has no effect here and
+        # extract_sequences has no such parameter -- passing it crashed on every call.
         return extract_sequences(
             df,
             columns=self.sequence_columns,
-            group_column=self.sequence_group_column,
         )
 
     def get_sample_weights(self, df: Union[pd.DataFrame, pl.DataFrame], timestamps: Optional[pd.Series] = None) -> Dict[str, np.ndarray]:

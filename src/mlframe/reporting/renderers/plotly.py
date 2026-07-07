@@ -467,7 +467,7 @@ class PlotlyRenderer:
                 width = float(p.bin_width or ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
             else:
                 width = float(width0)
-            colors_kw = dict(color=p.color)
+            colors_kw: dict[str, Any] = dict(color=p.color)
             if p.bar_colors is not None:
                 _h_min = float(np.min(p.bar_colors))
                 _h_max = float(np.max(p.bar_colors))

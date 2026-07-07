@@ -22,8 +22,12 @@ class Renderer(Protocol):
 
     backend: str  # "matplotlib" | "plotly"
 
-    def render(self, spec: FigureSpec) -> Any:
-        """Build native figure handle from the spec."""
+    def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
+        """Build native figure handle from the spec.
+
+        ``static_legend`` is honoured by the plotly backend (see
+        ``PlotlyRenderer.render``); other backends accept and ignore it.
+        """
         ...
 
     def save(self, fig: Any, path: str, fmt: str) -> None:

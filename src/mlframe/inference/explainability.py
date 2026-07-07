@@ -23,7 +23,7 @@ from typing import Tuple
 
 import numpy as np, pandas as pd
 from pyutilz.system import tqdmu
-from mlframe.metrics.core import show_calibration_plot as show_custom_calibration_plot
+from mlframe.calibration.quality import make_custom_calibration_plot as show_custom_calibration_plot
 from mlframe.metrics.core import format_classification_report
 
 
