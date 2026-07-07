@@ -526,7 +526,6 @@ ignore = [
     "N803",   # arg name should be lowercase: sklearn-API surface uses X / Y / Xt convention required by check_estimator
     "N806",   # variable in function should be lowercase: same as N803 -- X / Y / Xt locals throughout estimator wrappers
     "B006",   # mutable default arg: kept open; some configs use dataclass-like helpers where caller never mutates; consider re-enabling case-by-case
-    "F401",   # unused import: re-exports use explicit ``# noqa: F401`` inline; the global ignore is for tomb-stoned compat shims
     "F541",   # f-string without placeholders: tolerated in log lines that get placeholders added later in dev
     "UP031",  # printf-style %: keep for ``logger.info("... %s ...", val)`` lazy-format pattern (mandatory under structured logging)
     "UP006",  # use ``list`` / ``dict`` over typing.List: project targets 3.9 minimum where the deferred annotation form needs from __future__ import; keep typing.List for ABI clarity
