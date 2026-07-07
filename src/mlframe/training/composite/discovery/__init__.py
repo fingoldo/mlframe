@@ -160,8 +160,17 @@ class CompositeTargetDiscovery:
     # Public API
     # ------------------------------------------------------------------
 
-    # ``fit`` is implemented in ``_composite_discovery_fit.py`` and bound
-    # onto this class at the bottom of this module.
+    # ``fit`` and the private helpers below are implemented in sibling modules and bound onto this
+    # class at the bottom of this module (see the assignments after the class body); declared here
+    # as Callable attributes so mypy resolves calls to them without duplicating their signatures.
+    fit: Callable[..., Any]
+    fit_stacked: Callable[..., Any]
+    fit_stacked_on_residual: Callable[..., Any]
+    _tiny_model_rerank: Callable[..., Any]
+    _auto_base: Callable[..., Any]
+    _filter_features: Callable[..., Any]
+    _target_col: str
+    _auto_base_pool: dict
 
     def iter_transform(self, df: Any) -> Iterator[tuple[str, np.ndarray]]:
         """Yield ``(spec_name, T_values)`` per discovered spec, applied

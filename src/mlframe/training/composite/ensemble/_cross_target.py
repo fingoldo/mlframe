@@ -48,6 +48,15 @@ class CompositeCrossTargetEnsemble:
     weight that drags the ensemble below the strongest component.
     """
 
+    # Set post-construction by from_train_metrics()/from_uniform_weights() when strategy is
+    # "linear_stack"/"nnls_stack"; declared here so mypy can type-check the setattr/getattr sites.
+    _linear_stack_intercept: float
+    _linear_stack_train_preds: np.ndarray
+    _linear_stack_train_y: np.ndarray
+    _linear_stack_ridge_alpha: float
+    _nnls_stack_train_preds: np.ndarray
+    _nnls_stack_train_y: np.ndarray
+
     def __init__(
         self,
         component_models: list[Any],
@@ -706,6 +715,7 @@ class CompositeCrossTargetEnsemble:
 
     def export_metadata(self) -> dict[str, Any]:
         """Plain-dict snapshot for ``metadata`` storage."""
+        _cal = getattr(self, "_output_calibrator", None)
         return {
             "strategy": self.strategy,
             "component_names": list(self.component_names),
@@ -713,7 +723,7 @@ class CompositeCrossTargetEnsemble:
             "is_convex": bool(getattr(self, "is_convex", True)),
             "intercept": float(getattr(self, "_linear_stack_intercept", 0.0)),
             "calibrate_output": bool(getattr(self, "calibrate_output", False)),
-            "output_calibration": (self._output_calibrator.export() if getattr(self, "_output_calibrator", None) is not None else None),
+            "output_calibration": (_cal.export() if _cal is not None else None),
             "notes": dict(self.notes),
         }
 

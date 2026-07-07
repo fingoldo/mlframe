@@ -140,7 +140,7 @@ def _silence_tiny_model_output(family: str | None = None):
             ("ignore", _SKIPPING_FEATURES_RE, UserWarning, None, 0),
             ("ignore", _FEATURE_NAMES_RE, UserWarning, None, 0),
         ]
-        warnings._filters_mutated()
+        warnings._filters_mutated()  # type: ignore[attr-defined]  # private CPython API (no typeshed stub); invalidates the warnings filter cache after the manual prepend above
         try:
             yield
         finally:
