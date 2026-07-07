@@ -4,8 +4,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import logging
-from timeit import default_timer as timer
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -47,12 +46,10 @@ def _cached_init_params(cls) -> set[str]:
             pass
     return cached
 
-from sklearn.base import clone
 
 from functools import lru_cache
 
 from pyutilz.strings import slugify as _slugify_raw
-from pyutilz.system import tqdmu_lazy_start
 
 
 @lru_cache(maxsize=512)
@@ -275,29 +272,10 @@ def _apply_loss_recommendation_in_place(
 # Back-compat alias so existing call sites that read ``slugify`` continue to work.
 slugify = _cached_slugify
 
-from mlframe.models.ensembling import score_ensemble
-from ..configs import TargetTypes as _TargetTypes  # TARGETTYPES-IMPORT-LOOP: hoist out of inner write loop
-from .._ram_helpers import estimate_df_size_mb, get_process_rss_mb, maybe_clean_ram_and_gpu
-from ..phases import phase
-from ..models import is_neural_model
-from ..strategies import get_strategy
-from ..train_eval import process_model, select_target
-from ..utils import compute_model_input_fingerprint, filter_existing, get_pandas_view_of_polars_df, log_ram_usage
-from ._misc_helpers import _build_tier_dfs, _compute_neural_max_time, _elapsed_str, _filter_polars_cat_features_by_dtype, _maybe_clear_shim_cache, _prep_polars_df, _split_preds_probs
-from ._phase_diagnostics import run_per_target_diagnostics
-from ._phase_dummy_baselines import run_dummy_baselines
-from ._phase_temporal_audit import _format_temporal_audit_report, _plot_target_over_time
-from ._setup_helpers import _build_common_params_for_target, _build_pre_pipelines, _build_process_model_kwargs, _setup_model_directories, _should_skip_catboost_metamodel
-from ..strategies import PipelineCache
 
 logger = logging.getLogger(__name__)
 
 
-from ._ensemble_chooser import (
-    _ENSEMBLE_RANK_METRIC_CANDIDATES,
-    _choose_ensemble_flavour,
-    _read_ensemble_metric,
-)
 
 
 def _unwrap_selector(pre_pipeline) -> Any:
