@@ -43,7 +43,7 @@ class MLTaskType(Enum):
     Ranking = auto()
 
 
-trained_models = {}
+trained_models: dict = {}
 
 
 class hashabledict(dict):
@@ -288,7 +288,7 @@ def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFram
     logger.info("Favorizing unexplored trials...")
 
     already_sampled = {col: set(trials[col].unique().tolist()) for col in cat_features}
-    newly_seen = {col: set() for col in cat_features}
+    newly_seen: dict = {col: set() for col in cat_features}
 
     # Iterate cat_features directly instead of walking every candidate key and testing ``param in cat_features``
     # (a list -> O(len(cat_features)) membership per key). Candidates also carry many numeric params the
@@ -429,13 +429,13 @@ def justify_estimator(
 # GPU_ENABLED default is False here to match CatboostParamsOptimizer.__init__ (the primary public entry): a
 # mismatched default silently emitted GPU-only ctr vocab (FeatureFreq / FloatTargetMeanValue / Median borders)
 # into params destined for a CPU CatBoost fit, which CatBoost then rejects or silently reinterprets.
-def create_ctr_params(GPU_ENABLED: bool = False, params: Optional[dict] = None, stdlib_rng: Optional[_stdlib_random.Random] = None, random_state: Union[int, np.random.Generator, None] = None) -> str:
+def create_ctr_params(GPU_ENABLED: bool = False, params: Optional[dict] = None, stdlib_rng: Optional[_stdlib_random.Random] = None, random_state: Union[int, np.random.Generator, None] = None) -> Optional[list]:
     if params is None:
         params = {}
     if stdlib_rng is None:
         _rng_tmp = np.random.default_rng(random_state)
         stdlib_rng = _stdlib_random.Random(int(_rng_tmp.integers(0, 2**32 - 1)))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
-    res = []
+    res: list = []
     for main_type in (
         "Borders Buckets BinarizedTargetMeanValue Counter".split() if not GPU_ENABLED else "Borders Buckets FeatureFreq FloatTargetMeanValue".split()
     ):  # The method for transforming categorical features to numerical features.
@@ -462,11 +462,19 @@ def create_ctr_params(GPU_ENABLED: bool = False, params: Optional[dict] = None, 
             if line != main_type:
                 res.append(line)
     if res == []:
-        res = None
+        return None
     return res
 
 
 class ParamsOptimizer:
+    # Set by subclasses (e.g. CatboostParamsOptimizer) in their __init__, not here.
+    params: dict
+    drop_if_rules: list
+    drop_if_not_rules: list
+    skip_if_values_or: dict
+    allow_if_values_or: dict
+    allow_if_values_and: dict
+
     def __init__(self, random_state: Union[int, np.random.Generator, None] = None):
         # ,db_name:str=None,db_host:str=None,db_port:int=None,db_username:str=None,db_pwd:str=None,db_schema:str="public"
         self._rng = np.random.default_rng(random_state)
