@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import Optional, Sequence, Union
+from typing import Any, Callable, Optional, Sequence, Union
 
 import numpy as np
 
@@ -30,7 +30,7 @@ class _LazyModule:
 
     def __init__(self, name: str):
         self._lm_name = name
-        self._lm_mod = None
+        self._lm_mod: Optional[Any] = None
 
     def __getattr__(self, attr):
         if self._lm_mod is None:
@@ -164,13 +164,30 @@ class _ETRWithStd:
 class MBHOptimizer:
     """Optimizer aimed at suggesting prospective candidates to explore."""
 
+    # store_params_in_object() below mirrors every __init__ parameter onto self by name; annotate them here so mypy sees the dynamically-set attrs.
+    search_space: np.ndarray
+    known_candidates: np.ndarray
+    known_evaluations: np.ndarray
+    ground_truth: Optional[np.ndarray]
+    direction: OptimizationDirection
+    acquisition_method: str
+    model_name: str
+    plotting: OptimizationProgressPlotting
+    figsize: tuple
+    font_size: int
+    x_label: Any
+    y_label: Any
+    expected_fitness_color: str
+    legend_location: str
+    verbose: int
+
     def __init__(
         self,
         search_space: np.ndarray,  # search space, all possible input combinations to check
-        ground_truth: np.ndarray = None,  # known true fitness of the entire search space
+        ground_truth: Optional[np.ndarray] = None,  # known true fitness of the entire search space
         direction: OptimizationDirection = OptimizationDirection.Maximize,
-        known_candidates: Optional[list] = None,
-        known_evaluations: Optional[list] = None,
+        known_candidates: Optional[Union[list, np.ndarray]] = None,
+        known_evaluations: Optional[Union[list, np.ndarray]] = None,
         # inits
         seeded_inputs: Optional[Sequence] = None,  # seed items you want to be explored from start
         init_num_samples: Union[float, int] = 5,  # how many samples to generate & evaluate before fitting surrogate self.model
@@ -284,7 +301,7 @@ class MBHOptimizer:
             max_len=int(1e6),
             max_age_seconds=suggestions_cache_max_age_sec,
         )
-        self.evaluated_candidates = []
+        self.evaluated_candidates: list = []
         self.last_retrain_ninputs = 0
         self.additional_info = ""
         self.mode = ""
@@ -315,6 +332,7 @@ class MBHOptimizer:
             else:
                 init_num_samples = int(init_num_samples)
 
+            sampled_inputs: Any
             if init_sampling_method == CandidateSamplingMethod.Random:
                 sampled_inputs = self._rng.choice(search_space, size=min(init_num_samples, len(search_space)), replace=False)
             elif init_sampling_method == CandidateSamplingMethod.Equidistant:
@@ -690,17 +708,17 @@ class MBHOptimizer:
 
 def optimize_finite_onedimensional_search_space(
     search_space: Sequence,  # search space, all possible input combinations to check
-    eval_candidate_func: object,  # fitness function to be optimized over the search space
-    ground_truth: np.ndarray = None,  # known true fitness of the entire search space
+    eval_candidate_func: Callable,  # fitness function to be optimized over the search space
+    ground_truth: Optional[np.ndarray] = None,  # known true fitness of the entire search space
     direction: OptimizationDirection = OptimizationDirection.Maximize,
-    known_candidates: Optional[list] = None,
-    known_evaluations: Optional[list] = None,
+    known_candidates: Optional[Union[list, np.ndarray]] = None,
+    known_evaluations: Optional[Union[list, np.ndarray]] = None,
     # stopping conditions
-    max_runtime_mins: float = None,
+    max_runtime_mins: Optional[float] = None,
     predict_runtimes: bool = False,  # intellectual setting that skips candidates whose evaluation won't finish within current runtime limit
-    max_fevals: int = None,
-    best_desired_score: float = None,
-    max_noimproving_iters: int = None,
+    max_fevals: Optional[int] = None,
+    best_desired_score: Optional[float] = None,
+    max_noimproving_iters: Optional[int] = None,
     # inits
     seeded_inputs: Optional[Sequence] = None,  # seed items you want to be explored from start
     init_num_samples: Union[float, int] = 5,  # how many samples to generate & evaluate before fitting surrogate self.model
@@ -730,7 +748,7 @@ def optimize_finite_onedimensional_search_space(
     # small settings
     verbose: int = 0,
     random_state: Union[int, np.random.Generator, None] = None,
-) -> None:
+) -> tuple:
     """Finds extremum of some (possibly multi-input) function F that is supposedly costly to estimate (like in HPT, FS tasks).
     Function F can also be a numerical sequence in form of some y scores array.
 
@@ -779,7 +797,7 @@ def optimize_finite_onedimensional_search_space(
     """
 
     optimizer = MBHOptimizer(
-        search_space=search_space,
+        search_space=np.asarray(search_space),
         ground_truth=ground_truth,
         direction=direction,
         known_candidates=known_candidates,
@@ -886,13 +904,13 @@ def plot_search_state(
     search_space,
     next_cand: int,
     new_y: float,
-    best_candidate: int,
+    best_candidate: Optional[int],
     best_evaluation: float,
     nsteps: int,
-    expected_fitness: np.ndarray,
-    y_pred: np.ndarray,
-    y_std: np.ndarray,
-    ground_truth: np.ndarray,
+    expected_fitness: Optional[np.ndarray],
+    y_pred: Optional[np.ndarray],
+    y_std: Optional[np.ndarray],
+    ground_truth: Optional[np.ndarray],
     known_candidates: np.ndarray,
     known_evaluations: np.ndarray,
     skip_candidates: Sequence,

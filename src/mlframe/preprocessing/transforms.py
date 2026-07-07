@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from mlframe.config import XGBOOST_MODEL_TYPES, LGBM_MODEL_TYPES, CATBOOST_MODEL_TYPES
 
@@ -27,7 +27,7 @@ def _get_polars():
 
 
 def prepare_df_for_catboost(
-    df: object,
+    df: Any,  # pd.DataFrame or polars.DataFrame; branches on is_polars below
     columns_to_drop: Optional[Sequence] = None,
     text_features: Optional[Sequence] = None,
     cat_features: Optional[list] = None,
@@ -200,6 +200,7 @@ def prepare_df_for_catboost(
                     # exactly into float32, only Int64/UInt64/Float64 need float64.
                     try:
                         src = df[var].dtype
+                        target: type
                         if isinstance(src, pd.Float32Dtype):
                             target = np.float32
                         elif isinstance(src, pd.Float64Dtype):
@@ -272,20 +273,23 @@ def prepare_df_for_xgboost(
         is_polars_df = False
     if is_polars_df:
         raise TypeError(f"prepare_df_for_xgboost requires a pandas DataFrame, got " f"{type(df).__name__}. Convert via get_pandas_view_of_polars_df() first.")
+    cat_features_l: list
     if cat_features is None:
-        cat_features = []
-    if not inplace:
+        cat_features_l = []
+    elif not inplace:
         # Work on a local copy of the names list so the caller's collection is never appended to.
-        cat_features = list(cat_features)
+        cat_features_l = list(cat_features)
+    else:
+        cat_features_l = cat_features  # type: ignore[assignment]  # inplace=True: legacy contract mutates the caller's own list
     cols = set(df.columns)
     casts: dict = {}
     for var in tqdmu(cols, desc="Processing categorical features for XGBoost...", leave=False):
         if isinstance(df[var].dtype, pd.CategoricalDtype):
-            if var not in cat_features:
+            if var not in cat_features_l:
                 logger.info("%s appended to cat_features", var)
-                cat_features.append(var)
+                cat_features_l.append(var)
         else:
-            if var in cat_features and ensure_categorical:
+            if var in cat_features_l and ensure_categorical:
                 if inplace:
                     df[var] = df[var].astype("category")
                 else:
@@ -297,7 +301,7 @@ def prepare_df_for_xgboost(
     return df
 
 
-def pack_val_set_into_fit_params(model: object, X_val: pd.DataFrame, y_val: pd.DataFrame, early_stopping_rounds: int, cat_features: list = None) -> dict:
+def pack_val_set_into_fit_params(model: Any, X_val: pd.DataFrame, y_val: pd.DataFrame, early_stopping_rounds: int, cat_features: Optional[list] = None) -> dict:
     """Crafts fir params with early stopping tailored to particular model type."""
 
     model_type_name = type(model).__name__
