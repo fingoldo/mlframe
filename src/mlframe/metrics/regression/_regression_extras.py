@@ -312,7 +312,7 @@ def _naive_mae_kernel(y_train: np.ndarray, seasonality: int) -> float:
     s = 0.0
     for i in range(seasonality, n):
         s += abs(y_train[i] - y_train[i - seasonality])
-    return s / (n - seasonality)
+    return float(s / (n - seasonality))
 
 
 def fast_mase(

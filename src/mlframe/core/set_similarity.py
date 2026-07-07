@@ -86,7 +86,7 @@ def kulczynski(a, b) -> float:
         return 1.0
     if na == 0.0 or nb == 0.0:
         return 0.0
-    return 0.5 * inter * (1.0 / na + 1.0 / nb)
+    return float(0.5 * inter * (1.0 / na + 1.0 / nb))
 
 
 def tversky(a, b, *, alpha: float = 0.5, beta: float = 0.5) -> float:

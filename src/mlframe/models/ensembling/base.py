@@ -216,7 +216,7 @@ def _stacked_corrcoef(M: np.ndarray) -> np.ndarray:
 
             M_gpu = _cp.asarray(M)
             corr_gpu = _cp.corrcoef(M_gpu)
-            return _cp.asnumpy(corr_gpu)
+            return np.asarray(_cp.asnumpy(corr_gpu))
         except Exception as e:  # pragma: no cover -- defensive
             logger.debug("swallowed exception in base.py: %s", e)
             pass
@@ -518,8 +518,8 @@ def _rrf_aggregate_probs(preds_arr: np.ndarray, k: int = 60) -> np.ndarray:
     if _use_njit:
         aggregated = _rrf_aggregate_probs_njit(preds_arr, int(k))
         if aggregated.shape[1] == 1:
-            return aggregated[:, 0]
-        return aggregated
+            return np.asarray(aggregated[:, 0])
+        return np.asarray(aggregated)
 
     aggregated = np.zeros((N, K), dtype=np.float64)
     for k_class in range(K):
@@ -548,8 +548,8 @@ def _rrf_aggregate_probs(preds_arr: np.ndarray, k: int = 60) -> np.ndarray:
 
     if aggregated.shape[1] == 1:
         # Restore (N,) for 1-D input.
-        return aggregated[:, 0]
-    return aggregated
+        return np.asarray(aggregated[:, 0])
+    return np.asarray(aggregated)
 
 
 def rrf_ensemble(
@@ -762,7 +762,7 @@ def combine_probs(
     if ensure_prob_limits:
         combined = np.clip(combined, 0.0, 1.0)
 
-    return combined
+    return np.asarray(combined)
 
 
 def build_predictive_kwargs(train_data, test_data, val_data, is_regression: bool):

@@ -62,7 +62,7 @@ def _bucket_hist(y_score: np.ndarray, lo: float, inv_w: float, nbuckets: int, nt
             elif b >= nbuckets:
                 b = nbuckets - 1
             local[t, b] += 1
-    return local.sum(axis=0)
+    return np.asarray(local.sum(axis=0))
 
 
 @numba.njit(cache=True, nogil=True)
@@ -102,7 +102,7 @@ def _argsort_desc_par_bucket(y_score: np.ndarray) -> np.ndarray:
     lo = float(y64.min())
     hi = float(y64.max())
     if not (hi > lo):  # constant column (or non-finite collapse) -> nothing to order; mirror numpy's index sequence
-        return np.argsort(y64)[::-1].copy()
+        return np.asarray(np.argsort(y64)[::-1].copy())
     nbuckets = max(64, min(8192, n // 256))
     inv_w = nbuckets / (hi - lo)
     counts = _bucket_hist(y64, lo, inv_w, nbuckets, numba.get_num_threads())
@@ -115,7 +115,7 @@ def _argsort_desc_par_bucket(y_score: np.ndarray) -> np.ndarray:
     idx = _bucket_scatter(y64, lo, inv_w, nbuckets, bnd[:nbuckets].copy(), n)
     res = np.empty(n, dtype=np.int64)
     _bucket_sort_within(idx, y64, bnd, nbuckets, res)
-    return res[::-1].copy()
+    return np.asarray(res[::-1].copy())
 
 
 def _gpu_argsort_available() -> bool:
@@ -140,7 +140,7 @@ def _argsort_desc_for_metrics(y_score: np.ndarray) -> np.ndarray:
     if n >= _GPU_ARGSORT_MIN_N and _gpu_argsort_available():
         try:
             import cupy as cp
-            return cp.asnumpy(cp.argsort(cp.asarray(y_score))[::-1])
+            return np.asarray(cp.asnumpy(cp.argsort(cp.asarray(y_score))[::-1]))
         except Exception:  # nosec B110 - optional/best-effort path, rationale documented
             pass  # GPU OOM / transient device error -> exact CPU fallback
     if n >= _PAR_BUCKET_ARGSORT_MIN_N:
@@ -184,7 +184,7 @@ def fast_roc_auc_unstable(y_true: np.ndarray, y_score: np.ndarray) -> float:
     # numerically identical when scores have no exact ties (the dominant
     # case for float64 model outputs).
     desc_score_indices = np.argsort(y_score)[::-1]
-    return fast_numba_auc_nonw(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
+    return float(fast_numba_auc_nonw(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices))
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -445,10 +445,10 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
         if isinstance(sample_weight, (pd.Series, pl.Series)):
             sample_weight = sample_weight.to_numpy()
         sample_weight = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
-        return fast_numba_auc_weighted(
+        return float(fast_numba_auc_weighted(
             y_true=np.asarray(y_true, dtype=np.float64), y_score=y_score, sample_weight=sample_weight, desc_score_indices=desc_score_indices
-        )
-    return fast_numba_auc_nonw(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
+        ))
+    return float(fast_numba_auc_nonw(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices))
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -825,7 +825,7 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_brier_score_loss_seq(y_true: np.ndarray, y_prob: np.ndarray) -> float:
-    return np.mean((y_true - y_prob) ** 2)
+    return float(np.mean((y_true - y_prob) ** 2))
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
@@ -908,8 +908,8 @@ def fast_brier_score_loss(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     if len(y_true) == 0:
         return float(np.nan)
     if len(y_true) >= _PARALLEL_REDUCTION_THRESHOLD:
-        return _fast_brier_checked_par(y_true, y_prob)
-    return _fast_brier_checked_seq(y_true, y_prob)
+        return float(_fast_brier_checked_par(y_true, y_prob))
+    return float(_fast_brier_checked_seq(y_true, y_prob))
 
 
 # Backward-compat alias - older code and tests import `brier_score_loss` from this module.

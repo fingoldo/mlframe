@@ -479,4 +479,4 @@ def robust_mlperf_metric(
                 weights_sum += bin_weight
                 total_metric_value += bin_metric_value * bin_weight
 
-    return total_metric_value / weights_sum
+    return float(total_metric_value / weights_sum)

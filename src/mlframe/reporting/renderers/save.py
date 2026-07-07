@@ -96,7 +96,7 @@ def _detect_interactive_session() -> bool:
     """
     _override = _thread_inline_override()
     if _override is not None:
-        return _override
+        return bool(_override)
     env = os.environ.get("MLFRAME_PLOT_INLINE_DISPLAY")
     if env is not None:
         env_lo = env.strip().lower()

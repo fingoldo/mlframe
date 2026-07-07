@@ -60,7 +60,7 @@ class _ParquetStore:
         try:
             import pyarrow.parquet as pq
             tbl = pq.read_table(self._path)
-            return tbl.to_pylist()
+            return list(tbl.to_pylist())
         except Exception as e:
             logger.warning("param_oracle: failed to read %s: %s", self._path, e)
             return []

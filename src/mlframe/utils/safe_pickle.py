@@ -35,7 +35,7 @@ _ENV_VAR = "MLFRAME_ALLOW_UNVERIFIED_PICKLE"
 
 
 def verify_sidecar(path: str, *, allow_unverified: Optional[bool] = None) -> bool:
-    return _pyutilz_verify_sidecar(path, allow_unverified=allow_unverified, env_var=_ENV_VAR)
+    return bool(_pyutilz_verify_sidecar(path, allow_unverified=allow_unverified, env_var=_ENV_VAR))
 
 
 def safe_load(path: str, *, allow_unverified: Optional[bool] = None) -> Any:

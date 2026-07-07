@@ -297,7 +297,7 @@ def _backtrace_band(
     def C(i: int, j: int) -> float:
         b = j - i + w
         if 0 <= b < band.shape[1]:
-            return band[i, b]
+            return float(band[i, b])
         return INF
 
     path: List[Tuple[int, int]] = []
@@ -503,10 +503,10 @@ def _run_dtw_sweep() -> list:
     if _HAS_CUPY:
         variants["cupy"] = lambda x, y: dtw_cupy(x, y, window=W)[0]
     sizes = [10_000, 40_000, 160_000, 640_000, 2_560_000]
-    return sweep_backend_crossover(
+    return list(sweep_backend_crossover(
         variants, sizes, _make_dtw_inputs, "n_cells",
         reference="cpu", repeats=5, equiv_rtol=1e-3, equiv_atol=1e-3,
-    )
+    ))
 
 
 def _dtw_fallback_choice(n_cells: int) -> str:

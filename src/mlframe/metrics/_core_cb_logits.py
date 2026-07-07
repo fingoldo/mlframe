@@ -45,8 +45,8 @@ def cb_logits_to_probs_binary(logits: np.ndarray) -> np.ndarray:
         2D array of shape (n_samples, 2) with probabilities for [class_0, class_1]
     """
     if len(logits) >= _PARALLEL_REDUCTION_THRESHOLD:
-        return _cb_logits_to_probs_binary_par(logits)
-    return _cb_logits_to_probs_binary_seq(logits)
+        return np.asarray(_cb_logits_to_probs_binary_par(logits))
+    return np.asarray(_cb_logits_to_probs_binary_seq(logits))
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -107,5 +107,5 @@ def cb_logits_to_probs_multiclass(logits_list: np.ndarray) -> np.ndarray:
         2D array of shape (n_samples, n_classes) with probabilities
     """
     if logits_list.shape[1] >= _PARALLEL_REDUCTION_THRESHOLD:
-        return _cb_logits_to_probs_multiclass_par(logits_list)
-    return _cb_logits_to_probs_multiclass_seq(logits_list)
+        return np.asarray(_cb_logits_to_probs_multiclass_par(logits_list))
+    return np.asarray(_cb_logits_to_probs_multiclass_seq(logits_list))

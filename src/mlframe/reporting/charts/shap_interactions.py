@@ -71,7 +71,7 @@ def _mean_abs_interaction(model: Any, X_sample: Any) -> np.ndarray:
         arr = arr[..., -1]
     if isinstance(iv, list):  # legacy list-of-(rows,F,F) per class
         arr = np.asarray(iv[-1], dtype=np.float64)
-    return np.abs(arr).mean(axis=0)
+    return np.asarray(np.abs(arr).mean(axis=0))
 
 
 def _rank_pairs(mat: np.ndarray, names: Sequence[str], top_pairs: int) -> Tuple[List[Tuple[int, int]], List[str], np.ndarray]:

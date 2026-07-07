@@ -101,4 +101,4 @@ def recency_weights(d: int, scheme: str = "poly", param: float = 1.0, *, normali
         return np.empty(0, dtype=np.float64)
 
     scheme_code = SCHEMES.index(scheme)
-    return _recency_weights_njit(int(d), scheme_code, param, normalize)
+    return np.asarray(_recency_weights_njit(int(d), scheme_code, param, normalize))

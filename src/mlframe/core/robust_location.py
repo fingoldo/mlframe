@@ -49,8 +49,8 @@ def _median_sorted(a: np.ndarray) -> float:
     n = s.size
     m = n // 2
     if n & 1:
-        return s[m]
-    return 0.5 * (s[m - 1] + s[m])
+        return float(s[m])
+    return float(0.5 * (s[m - 1] + s[m]))
 
 
 @njit(fastmath=False, cache=True)
@@ -70,7 +70,7 @@ def _weight(z: float, wcode: int, param: float) -> float:
     """Weight for scaled residual z. 0=meshalkin exp(-lam z^2/2), 1=huber, 2=tukey biweight."""
     az = abs(z)
     if wcode == 0:
-        return np.exp(-0.5 * param * z * z)
+        return float(np.exp(-0.5 * param * z * z))
     if wcode == 1:
         return 1.0 if az <= param else param / az
     # tukey biweight
@@ -87,7 +87,7 @@ def _robust_mean_irls(x: np.ndarray, wcode: int, param: float, scale: float, max
     if n == 0:
         return np.nan
     if n == 1:
-        return x[0]
+        return float(x[0])
     s = scale if scale > 0.0 else _mad_scale(x)
     a = _median_sorted(x)
     for _ in range(max_iter):
@@ -104,7 +104,7 @@ def _robust_mean_irls(x: np.ndarray, wcode: int, param: float, scale: float, max
             a = a_new
             break
         a = a_new
-    return a
+    return float(a)
 
 
 @njit(fastmath=False, cache=True, parallel=True)
@@ -114,7 +114,7 @@ def _robust_mean_irls_parallel(x: np.ndarray, wcode: int, param: float, scale: f
     if n == 0:
         return np.nan
     if n == 1:
-        return x[0]
+        return float(x[0])
     s = scale if scale > 0.0 else _mad_scale(x)
     a = _median_sorted(x)
     for _ in range(max_iter):
@@ -131,7 +131,7 @@ def _robust_mean_irls_parallel(x: np.ndarray, wcode: int, param: float, scale: f
             a = a_new
             break
         a = a_new
-    return a
+    return float(a)
 
 
 def robust_mean_mestimator(
@@ -287,4 +287,4 @@ def geometric_median(
         X = X.reshape(-1, 1)
     if X.shape[0] == 0:
         return np.full(X.shape[1] if X.ndim == 2 else 1, np.nan, dtype=np.float64)
-    return _geometric_median_weiszfeld(X, int(max_iter), float(tol), float(eps))
+    return np.asarray(_geometric_median_weiszfeld(X, int(max_iter), float(tol), float(eps)))

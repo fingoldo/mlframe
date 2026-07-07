@@ -80,7 +80,7 @@ def _binned_proportions(values: np.ndarray, edges: np.ndarray) -> np.ndarray:
     total = counts.sum()
     if total <= 0:
         return np.zeros(nbins, dtype=np.float64)
-    return counts / total
+    return np.asarray(counts / total)
 
 
 def _psi_one(baseline_props: np.ndarray, bucket_props: np.ndarray, eps: float = PSI_EPS) -> float:

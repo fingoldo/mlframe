@@ -35,7 +35,7 @@ from mlframe.utils.safe_pickle import (
 
 
 def _sha256_of_file(path: str, chunk: int = 1 << 20) -> str:
-    return _safe_pickle_sha256_of_file(path, chunk=chunk)
+    return str(_safe_pickle_sha256_of_file(path, chunk=chunk))
 
 
 def _verify_sidecar(path: str) -> bool:
@@ -89,7 +89,7 @@ def agg_pipeline_metric(cv_results, metric: str = "root_mean_squared_error", fun
         if key.endswith("metrics"):
             res.append(metrics.get(metric, np.nan))
 
-    return func(np.array(res))
+    return float(func(np.array(res)))
 
 
 def replay_cv_results(fname: str, trusted_root: Optional[str] = None):

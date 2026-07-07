@@ -32,7 +32,7 @@ def get_dist_percentage_span_for_sd(sd_sigma: float, dist: norm_gen = norm, **di
     >>> float(round(get_dist_percentage_span_for_sd(3, dist=t, df=1e20), 10))
     0.9973002039
     """
-    return 1 - 2 * dist.cdf(-sd_sigma, **dist_kwargs)
+    return float(1 - 2 * dist.cdf(-sd_sigma, **dist_kwargs))
 
 
 def get_sd_for_dist_percentage(dist_percentage: float, dist: norm_gen = norm, **dist_kwargs) -> float:
@@ -41,7 +41,7 @@ def get_sd_for_dist_percentage(dist_percentage: float, dist: norm_gen = norm, **
     >>> float(round(get_sd_for_dist_percentage(0.9973002039367398), 10))
     3.0
     """
-    return -dist.ppf(-(dist_percentage - 1) / 2, **dist_kwargs)
+    return float(-dist.ppf(-(dist_percentage - 1) / 2, **dist_kwargs))
 
 
 @lru_cache
@@ -74,7 +74,7 @@ def get_tukey_fences_multiplier_for_quantile(
         sd_sigma = get_sd_for_dist_percentage(nonoutlying_dist_percentage, dist=dist, **dist_kwargs)
 
     ppf = np.abs(dist.ppf(quantile, **dist_kwargs))
-    return (sd_sigma - ppf) / (2 * ppf)
+    return float((sd_sigma - ppf) / (2 * ppf))
 
 
 def get_expected_unique_random_numbers_qty(span_size: int, sample_size: int) -> float:
@@ -87,4 +87,4 @@ def get_expected_unique_random_numbers_qty(span_size: int, sample_size: int) -> 
     >>> float(get_expected_unique_random_numbers_qty(span_size=200, sample_size=100))
     79.0
     """
-    return np.ceil(span_size * (1 - np.exp(-sample_size / span_size)))
+    return float(np.ceil(span_size * (1 - np.exp(-sample_size / span_size))))

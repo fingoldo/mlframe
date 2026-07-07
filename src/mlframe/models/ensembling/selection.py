@@ -51,7 +51,7 @@ def _rank_transform(scores: np.ndarray, *, axis: int = -1, normalise: bool = Tru
     """
     ranks = rankdata(scores, method="average", axis=axis).astype(np.float64)
     if not normalise:
-        return ranks
+        return np.asarray(ranks)
     n = scores.shape[axis]
     # Map ranks 1..n -> [0, 1]; a single-row axis maps to 0.5 (neutral) rather than dividing by zero.
     return (ranks - 1.0) / (n - 1.0) if n > 1 else np.full_like(ranks, 0.5)
@@ -94,7 +94,7 @@ def rank_average_blend(
     # Rank across the ROW axis (axis 1) so each model's N scores are ranked among themselves, per class column.
     ranked = _rank_transform(arr, axis=1, normalise=normalise)
     if weights is None:
-        return ranked.mean(axis=0)
+        return np.asarray(ranked.mean(axis=0))
     w = np.asarray(weights, dtype=np.float64).reshape(-1)
     if w.shape != (m,):
         raise ValueError(f"rank_average_blend: weights shape {w.shape} != model axis (M={m},).")
@@ -105,7 +105,7 @@ def rank_average_blend(
         raise ValueError("rank_average_blend: weights sum to zero.")
     w = w / wsum
     w_shape = (m,) + (1,) * (ranked.ndim - 1)
-    return np.sum(ranked.reshape(m, *ranked.shape[1:]) * w.reshape(w_shape), axis=0)
+    return np.asarray(np.sum(ranked.reshape(m, *ranked.shape[1:]) * w.reshape(w_shape), axis=0))
 
 
 def _default_metric_is_auc(metric: Optional[Callable]) -> bool:
@@ -159,7 +159,7 @@ class CaruanaSelectionResult:
         if arr.shape[0] != self.weights.shape[0]:
             raise ValueError(f"CaruanaSelectionResult.predict: stacked model axis {arr.shape[0]} != fitted M {self.weights.shape[0]}.")
         w = self.weights.reshape((self.weights.shape[0],) + (1,) * (arr.ndim - 1))
-        return np.sum(arr * w, axis=0)
+        return np.asarray(np.sum(arr * w, axis=0))
 
 
 def caruana_greedy_selection(

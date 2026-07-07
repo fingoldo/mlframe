@@ -93,7 +93,7 @@ def apply_bin_smoother(x: np.ndarray, smoother: dict, *, strategy: str = "mean")
     else:
         reps = smoother["bin_mean"] if strategy == "mean" else smoother["bin_median"]
         out[mask] = reps[assign[mask]]
-    return out
+    return np.asarray(out)
 
 
 def bin_smooth(x: np.ndarray, *, n_bins: int = 10, strategy: str = "mean", binning: str = "quantile") -> np.ndarray:

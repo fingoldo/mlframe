@@ -189,7 +189,7 @@ def _as_sortable_timestamps(timestamps: Any) -> np.ndarray:
     if arr.dtype == object and arr.size and hasattr(arr.flat[0], "isoformat"):
         import pandas as _pd
         arr = _pd.DatetimeIndex(arr).to_numpy()
-    return arr
+    return np.asarray(arr)
 
 
 def build_calibration_drift_spec(

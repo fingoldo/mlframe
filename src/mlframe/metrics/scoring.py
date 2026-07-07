@@ -35,7 +35,7 @@ def _fast_rmse_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     for i in range(n):
         d = y_true[i] - y_pred[i]
         s += d * d
-    return (s / n) ** 0.5
+    return float((s / n) ** 0.5)
 
 
 def fast_rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:

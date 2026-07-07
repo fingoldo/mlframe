@@ -72,13 +72,13 @@ def _per_row_error(
     yt = _as_float_1d(y_true)
     yp = _as_float_1d(y_pred)
     if task == "regression":
-        return np.abs(yt - yp)
+        return np.asarray(np.abs(yt - yp))
     looks_proba = yp.size > 0 and float(np.nanmin(yp)) >= 0.0 and float(np.nanmax(yp)) <= 1.0
     if looks_proba:
         eps = 1e-12
         p = np.clip(yp, eps, 1.0 - eps)
-        return -(yt * np.log(p) + (1.0 - yt) * np.log(1.0 - p))
-    return (yt != yp).astype(np.float64)
+        return np.asarray(-(yt * np.log(p) + (1.0 - yt) * np.log(1.0 - p)))
+    return np.asarray((yt != yp).astype(np.float64))
 
 
 def _resolve_feature_matrix(
@@ -498,7 +498,7 @@ class ErrorBiasResult:
 
 def _signed_error(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
     """Signed prediction error y_pred - y_true: positive => OVER-estimate, negative => UNDER-estimate."""
-    return _as_float_1d(y_pred) - _as_float_1d(y_true)
+    return np.asarray(_as_float_1d(y_pred) - _as_float_1d(y_true))
 
 
 def _tag_error_groups(

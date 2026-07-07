@@ -97,7 +97,7 @@ def rf_proximity_matrix(estimator, X=None, *, max_n: int = _DEFAULT_MAX_N) -> np
         raise ValueError(
             f"rf_proximity_matrix: n={n} exceeds max_n={max_n}; the n x n proximity is O(n^2) memory. " f"Subsample rows or raise max_n explicitly."
         )
-    return _proximity_kernel(leaves)
+    return np.asarray(_proximity_kernel(leaves))
 
 
 def proximity_to_distance(proximity: np.ndarray) -> np.ndarray:
