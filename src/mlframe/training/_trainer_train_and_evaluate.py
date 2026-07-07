@@ -218,7 +218,6 @@ def train_and_evaluate_model(
     test_idx = data.test_idx
     calib_df = data.calib_df
     calib_target = data.calib_target
-    calib_idx = data.calib_idx
     group_ids = data.group_ids
     sample_weight = data.sample_weight
     timestamps = data.timestamps

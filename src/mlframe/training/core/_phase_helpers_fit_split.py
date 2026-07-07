@@ -225,7 +225,7 @@ def _phase_train_val_test_split(
 
     t0_phase2 = timer()
     if verbose:
-        logger.info(f"Making train_val_test split...")
+        logger.info("Making train_val_test split...")
 
     # E2 routing: a time-series cv_strategy + time_column drives the MAIN split as a chronological forward-walk.
     timestamps = _resolve_timeseries_timestamps(timestamps, split_config, df, verbose=verbose)

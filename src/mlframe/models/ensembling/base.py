@@ -931,7 +931,6 @@ def _pairwise_corr_or_nan(M_stack: np.ndarray, *, return_full_shape: bool = Fals
             return np.full((original_k, original_k), np.nan, dtype=np.float64)
         return None
     M_use = M_finite[nonconst]
-    K_use = M_use.shape[0]
     idx_use = np.flatnonzero(nonconst)
     corr_used = _stacked_corrcoef(M_use)
     if return_full_shape and original_k is not None:

@@ -142,7 +142,7 @@ class PlotlyRenderer:
         hover tooltips, so legends stay off there; a STATIC export (png/svg/pdf) has no hover, so when the
         save-format set includes one the caller passes ``static_legend=True`` to make the export readable.
         """
-        go = _go()
+        _go()  # prime the cached plotly.graph_objects module for the render helpers below
         from plotly.subplots import make_subplots
 
         rows = len(spec.panels)

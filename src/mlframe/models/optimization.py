@@ -311,7 +311,6 @@ class MBHOptimizer:
         # ----------------------------------------------------------------------------------------------------------------------------
 
         if len(seeded_inputs) > 0:
-            mode = "Seeded"
             for x in seeded_inputs:
                 if x not in known_candidates and x not in pre_seeded_candidates:
                     pre_seeded_candidates.append(x)
@@ -356,7 +355,6 @@ class MBHOptimizer:
 
             # actual evaluation of initial samples
             if len(sampled_inputs) > 0:
-                mode = "Sampled"
                 for x in sampled_inputs:
                     if x not in known_candidates and x not in pre_seeded_candidates:
                         pre_seeded_candidates.append(x)
@@ -470,7 +468,7 @@ class MBHOptimizer:
                         logger.warning("No known evaluations available; can't train the underlying process model.")
                         return NOT_READY
                     if np.all(self.known_evaluations == self.known_evaluations[0]):
-                        logger.warning(f"All targets are the same! Can't train the underlying process model.")
+                        logger.warning("All targets are the same! Can't train the underlying process model.")
                         return NOT_READY
 
                     if not hasattr(self.model, "partial_fit"):
@@ -654,7 +652,7 @@ class MBHOptimizer:
                 try:
                     del self.suggested_candidates[next_candidate]
                 except Exception as e:  # nosec B110 - narrow except type
-                    pass
+                    logger.debug("Could not delete suggested_candidates[%r]: %s", next_candidate, e)
 
             if next_duration is None and start_ts:
                 next_duration = timer() - start_ts

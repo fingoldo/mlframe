@@ -259,7 +259,7 @@ def _render_markdown(card: dict[str, Any]) -> str:
     lines.append(f"# Composite model card: `{prov['name']}`")
     lines.append("")
     lines.append(
-        f"_Not fitted._" if not ident["is_fitted"] else
+        "_Not fitted._" if not ident["is_fitted"] else
         f"Fitted composite over inner `{ident['inner_estimator_type']}`."
     )
     lines.append("")

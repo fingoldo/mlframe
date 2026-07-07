@@ -55,6 +55,7 @@ Cost is O(n_features_) string building at end of fit().
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Iterable
 
 import numpy as np

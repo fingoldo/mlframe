@@ -470,7 +470,7 @@ def process_model(
             use_cached_model = False
         else:
             if verbose:
-                logger.info(f"Loaded.")
+                logger.info("Loaded.")
             mismatch = _validate_cached_model_schema(loaded_model, common_params.get("train_df"))
             if mismatch:
                 logger.warning(f"Invalidating stale cached model at {fpath}: {mismatch}. Retraining.")

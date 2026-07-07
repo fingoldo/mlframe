@@ -596,8 +596,6 @@ def _roc_optimal_idxs(fps: np.ndarray, tps: np.ndarray) -> np.ndarray:
     plus both endpoints. Points strictly interior to a straight segment are redundant (the curve, AUC and every
     interpolation are identical without them), so dropping them yields sklearn's exact array without altering shape.
     """
-    d1 = np.diff(fps, prepend=fps[0])
-    d2 = np.diff(tps, prepend=tps[0])
     # A vertex is kept if the incremental step differs from the next step in either axis (slope change), or it is
     # an endpoint. Replicates ``np.r_[True, np.logical_or(np.diff(fps,2), np.diff(tps,2)), True]``.
     keep = np.ones(fps.shape[0], dtype=np.bool_)

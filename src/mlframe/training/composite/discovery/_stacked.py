@@ -299,7 +299,6 @@ def fit_stacked_on_residual(
     _train_idx_arr = np.asarray(train_idx)
     y_full = _extract_column_array(df, target_col)
     y_train = y_full[_train_idx_arr]
-    n_train = _train_idx_arr.size
 
     if hasattr(df, "iloc"):
         X_train = df.iloc[_train_idx_arr].reset_index(drop=True)

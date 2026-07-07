@@ -933,7 +933,7 @@ def dispatch_batch_mi_with_noise_gate_gpu(
                 npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
             ), "cupy"
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            log.debug("suppressed in batch_mi_noise_gate_gpu.py:935: %s", e)
+            logging.getLogger(__name__).debug("suppressed in batch_mi_noise_gate_gpu.py:935: %s", e)
             pass
     if choice == "cuda" and _CUDA_AVAIL:
         try:
@@ -963,7 +963,7 @@ try:
         cli_label="batch_mi_noise_gate",
     )
 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-    log.debug("suppressed in batch_mi_noise_gate_gpu.py:964: %s", e)
+    logging.getLogger(__name__).debug("suppressed in batch_mi_noise_gate_gpu.py:964: %s", e)
     pass
 
 

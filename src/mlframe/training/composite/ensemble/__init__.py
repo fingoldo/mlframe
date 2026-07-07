@@ -568,7 +568,8 @@ def compute_oof_holdout_predictions(
                 X_stack = train_X[fold_train_idx]
                 X_holdout = train_X[fold_holdout_idx]
             y_stack = y_train_full[fold_train_idx].astype(np.float64)
-            y_holdout_fold = y_train_full[fold_holdout_idx].astype(np.float64)
+            # Per-fold OOF scoring happens once at the end against the assembled oof_preds_by_name
+            # vs y_train_full as a whole, not per-fold slices, so a per-fold holdout-y copy here is unneeded.
             fold_cols: dict[str, np.ndarray] = {}
             for model, name, spec in zip(component_models, component_names, component_specs):
                 try:

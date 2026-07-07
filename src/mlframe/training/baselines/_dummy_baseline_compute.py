@@ -190,7 +190,6 @@ def _per_group_predict_polars(
     """
     import polars as pl
 
-    n_train = train_y.shape[0]
     y_arr = np.asarray(train_y, dtype=np.float64)
     global_mean = float(np.nanmean(y_arr)) if y_arr.size else 0.0
 
@@ -200,7 +199,6 @@ def _per_group_predict_polars(
     # Single group_by pass yields both per-group mean AND per-group size; coverage / entity-overlap diagnostics reuse the size column without a second sweep.
     stats_df = train_pair.group_by(cat_col).agg(pl.col("__y__").mean().alias("__mean__"), pl.len().alias("__size__"))
     n_groups = stats_df.height
-    train_groups_series = stats_df.get_column(cat_col)
 
     # iter386: do ONE left-join per side and reuse its (mean, size, seen)
     # columns for prediction + coverage + high-overlap. The legacy form
