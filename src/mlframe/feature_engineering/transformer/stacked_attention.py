@@ -20,7 +20,7 @@ Reference: stacked transformer encoders (Vaswani et al. 2017); label propagation
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional
 
 import numpy as np
 import polars as pl

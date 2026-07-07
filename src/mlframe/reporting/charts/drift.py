@@ -22,7 +22,7 @@ and decimate curves so a 1M-row time-ordered frame stays cheap. New behaviour de
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -32,8 +32,6 @@ try:
 except ImportError:
     _NUMBA_AVAILABLE = False
 
-from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
-from mlframe.reporting.charts._sampling import subsample_preserving_extremes
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec, LinePanelSpec, PanelSpec,
 )

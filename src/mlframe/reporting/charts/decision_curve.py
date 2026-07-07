@@ -151,6 +151,9 @@ def build_decision_curve_spec(
     # display window to a bit below the model/treat-none band so the "above the references" gap stays readable.
     finite_nb = nb_model[np.isfinite(nb_model)]
     y_lo = float(min(0.0, finite_nb.min())) if finite_nb.size else 0.0
+    finite_all = np.concatenate([arr[np.isfinite(arr)] for arr in (nb_model, nb_all, nb_none)])
+    y_hi = float(finite_all.max()) if finite_all.size else 1.0
+    ylim = (y_lo, y_hi + 0.05 * max(y_hi - y_lo, 1e-9))
 
     line = LinePanelSpec(
         x=pt,
@@ -166,6 +169,7 @@ def build_decision_curve_spec(
         xlabel="Threshold probability p_t",
         ylabel="Net benefit",
         fill_to_baseline=(False, False, False),
+        ylim=ylim,
     )
     fig = FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
     return DecisionCurveResult(fig, pt, nb_model, nb_all, nb_none, best_pt_advantage, useful)

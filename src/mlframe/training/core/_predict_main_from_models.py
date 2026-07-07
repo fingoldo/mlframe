@@ -4,36 +4,21 @@ brings _predict_main below 1k LOC.
 """
 from __future__ import annotations
 
-import glob
 import logging
-import os
-import pickle as _pickle
-from collections import defaultdict
-from copy import deepcopy
-from os.path import exists, join
 
 from scipy import stats
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Optional
 
-import joblib
 import numpy as np
 import pandas as pd
 import polars as pl
-from pyutilz.strings import slugify
 
-from ..configs import TargetTypes
 from ..extractors import FeaturesAndTargetsExtractor
-from ..io import load_mlframe_model
-from ..pipeline import prepare_df_for_catboost
-from ..cb import _predict_with_fallback
-from ..utils import drop_columns_from_dataframe, get_pandas_view_of_polars_df
 from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,
     get_decision_threshold,
     _drop_cols_df,
-    _setup_model_directories,
     _validate_input_columns_against_metadata,
-    _validate_trusted_path,
 )
 
 logger = logging.getLogger("mlframe.training.core.predict")

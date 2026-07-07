@@ -23,7 +23,7 @@ Reference: He et al. 2014 (Facebook GBDT+LR); Cheng & Koc 2016 (Wide & Deep).
 from __future__ import annotations
 
 import logging
-from typing import Optional, Union
+from typing import Optional
 
 import numpy as np
 import polars as pl

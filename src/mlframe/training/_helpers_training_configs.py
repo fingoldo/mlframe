@@ -6,16 +6,11 @@ Re-imported at the parent module bottom so historical
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from types import SimpleNamespace  # bundled config return at the bottom of get_training_configs
-from typing import Any, Optional, Sequence, Union
+from typing import Any, Optional, Sequence
 
 import numpy as np
-import pandas as pd
-import polars as pl
 import psutil  # used for n_jobs=cpu_count(logical=False) in XGB_GENERAL_PARAMS
-import lightgbm as lgb
-import xgboost as xgb
 from xgboost.callback import TrainingCallback  # noqa: F401
 from sklearn.metrics import roc_auc_score  # noqa: F401
 from sklearn.model_selection import TimeSeriesSplit
@@ -779,7 +774,7 @@ def get_training_configs(
     if not cv:
         if has_time:
             cv = TimeSeriesSplit(n_splits=_cv_n_splits if _cv_n_splits is not None else 3)
-            logger.info(f"Using TimeSeriesSplit for RFECV...")
+            logger.info("Using TimeSeriesSplit for RFECV...")
         elif _cv_n_splits is not None:
             # Non-time-series + user-supplied cv_n_splits: build a KFold so the kwarg actually
             # propagates instead of getting silently dropped. Prior code only honored cv_n_splits

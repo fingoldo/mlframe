@@ -22,7 +22,6 @@ from typing import Any, Literal, Optional
 
 import numpy as np
 import polars as pl
-from sklearn.model_selection import KFold
 
 from ._kernels_njit import row_attention_stage4_adaptive_njit
 from ._projection import (

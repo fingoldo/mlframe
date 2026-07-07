@@ -33,7 +33,7 @@ from mlframe.reporting.charts._layout import (
 from mlframe.reporting.colors import HEATMAP_CMAP
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, ConfusionMarginsPanelSpec, FigureSpec,
-    HeatmapPanelSpec, LinePanelSpec, PanelSpec, ScatterPanelSpec, ViolinPanelSpec,
+    HeatmapPanelSpec, LinePanelSpec, PanelSpec, ViolinPanelSpec,
 )
 
 # Curves drawn on a 200-pt display grid cannot resolve more than this many
@@ -458,7 +458,6 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_s
     draw_colors: List[str] = []
     valid_curves: List[np.ndarray] = []
     yt = np.asarray(y_true)
-    n_valid = int((yt >= 0).sum())
     # Shared class-stratified subsample for all K curves (see _roc_panel).
     if sub is None:
         sub = _stratified_subsample(yt, _CURVE_SUBSAMPLE_CAP, seed=0)

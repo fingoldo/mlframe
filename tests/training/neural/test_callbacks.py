@@ -245,6 +245,26 @@ class TestAggregatingValidationCallback:
         assert kwargs['on_step'] is False
         assert kwargs['prog_bar'] is True
 
+    def test_on_validation_epoch_end_respects_prog_bar_false(self):
+        """``prog_bar=False`` must reach ``pl_module.log``; it was previously hardcoded to True regardless of the ctor arg."""
+        def dummy_metric(y_true, y_score):
+            return 0.5
+
+        callback = AggregatingValidationCallback(
+            metric_name='test',
+            metric_fcn=dummy_metric,
+            prog_bar=False,
+        )
+
+        callback.batched_predictions.append(torch.tensor([0.1, 0.9]))
+        callback.batched_labels.append(torch.tensor([0, 1]))
+
+        mock_module = Mock()
+        callback.on_validation_epoch_end(None, mock_module)
+
+        args, kwargs = mock_module.log.call_args
+        assert kwargs['prog_bar'] is False
+
     def test_on_validation_epoch_end_resets_accumulators(self):
         """Test that on_validation_epoch_end resets accumulators."""
         def dummy_metric(y_true, y_score):

@@ -24,7 +24,6 @@ for ``Blueprint`` methods, ``pds.X`` for top-level ``polars_ds`` API.
 
 from __future__ import annotations
 
-import functools
 import importlib.util
 import logging
 from typing import FrozenSet, Optional

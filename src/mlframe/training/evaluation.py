@@ -18,7 +18,7 @@ from __future__ import annotations
 
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, OrderedDict, Sequence, Tuple, Union
+from typing import Any, Dict, Optional, OrderedDict, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -87,12 +87,10 @@ def _get_cached_plot_idx(n: int, sample_size: int, seed: int) -> "np.ndarray":
             _PLOT_IDX_CACHE.popitem(last=False)
     return idx
 
-import polars as pl
 import matplotlib.pyplot as plt
 
 from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.preprocessing import LabelEncoder
-from sklearn.pipeline import Pipeline
 
 # ``root_mean_squared_error`` is re-exported here because external test modules
 # import it from ``mlframe.training.evaluation``; under sklearn < 1.4 fall back
@@ -120,7 +118,6 @@ except ImportError:
         return np.average(output_errors, weights=multioutput)
 
 
-from mlframe.feature_selection.importance import plot_feature_importance
 from .reporting import (  # noqa: E402,F401
     _canonical_multilabel_y,
     report_model_perf,

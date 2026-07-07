@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from timeit import default_timer as timer
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable
 
 import numpy as np
 import lightgbm as lgb

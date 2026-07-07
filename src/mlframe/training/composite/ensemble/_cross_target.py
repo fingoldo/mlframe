@@ -7,12 +7,10 @@ from __future__ import annotations
 import logging
 import math
 from typing import (
-    Any, Dict, List, Optional, Sequence, Tuple, Union,
+    Any, Sequence, Union,
 )
 
 import numpy as np
-import pandas as pd
-from sklearn.base import BaseEstimator, RegressorMixin, clone
 from sklearn.linear_model import Ridge, RidgeCV
 
 try:

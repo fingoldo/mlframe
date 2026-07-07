@@ -31,7 +31,7 @@ MAJORITY of convex scenarios, so the default is unchanged (REJECTED-as-default !
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 

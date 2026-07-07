@@ -8,11 +8,7 @@ un-fitted sklearn-compatible estimator classes or instances.
 from __future__ import annotations
 
 import logging
-from functools import partial
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import numpy as np
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -491,22 +487,9 @@ def _get_neural_components():
     return MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier
 
 
-from pyutilz.system import clean_ram, ensure_dir_exists, compute_total_gpus_ram, get_gpuinfo_gpu_info
 
 
-from mlframe.training.utils import maybe_clean_ram_adaptive as _maybe_clean_ram
-from mlframe.training.phases import phase
-from pyutilz.strings import slugify
-from pyutilz.pandaslib import get_df_memory_consumption
-from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size
 
-from mlframe.core.helpers import get_model_best_iter, ensure_no_infinity
-from mlframe.config import (
-    TABNET_MODEL_TYPES,
-    XGBOOST_MODEL_TYPES,
-    CATBOOST_MODEL_TYPES,
-    LGBM_MODEL_TYPES,
-)
 
 from numba.cuda import is_available as is_cuda_available
 
@@ -514,43 +497,11 @@ CUDA_IS_AVAILABLE = is_cuda_available()
 MODELS_SUBDIR = "models"
 GPU_VRAM_SAFE_SATURATION_LIMIT: float = 0.9
 GPU_VRAM_SAFE_FREE_LIMIT_GB: float = 0.1
-from mlframe.metrics.core import (
-    compute_probabilistic_multiclass_error,
-    fast_calibration_report,
-    fast_roc_auc,
-)
 
 # Import helper functions from helpers module
-from .helpers import (
-    get_training_configs,
-    parse_catboost_devices,
-    LightGBMCallback,
-    CatBoostCallback,
-    XGBoostCallback,
-    compute_cb_text_processing,
-    CB_DEFAULT_OCCURRENCE_LOWER_BOUND,
-)
 
 # Fairness and feature importance functions from their respective modules
-from mlframe.metrics.core import create_fairness_subgroups, create_fairness_subgroups_indices, compute_fairness_metrics
-from mlframe.feature_selection.importance import plot_feature_importance
-from mlframe.metrics.core import ICE
-from mlframe.feature_selection.wrappers import RFECV
 
-from .configs import (
-    DataConfig,
-    TrainingControlConfig,
-    MetricsConfig,
-    ReportingConfig,
-    FeatureImportanceConfig,
-    OutputConfig,
-    NamingConfig,
-    ConfidenceAnalysisConfig,
-    PredictionsContainer,
-    LinearModelConfig,
-    MultilabelDispatchConfig,
-)
-from .utils import log_ram_usage, get_categorical_columns, get_numeric_columns, filter_existing
 
 # 2026-05-13 refactor: extracted modules
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401

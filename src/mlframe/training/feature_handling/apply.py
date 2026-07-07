@@ -37,10 +37,8 @@ from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
     Any,
-    Dict,
     List,
     Optional,
-    Sequence,
     Tuple,
 )
 
@@ -59,9 +57,6 @@ from mlframe.training.feature_handling.fingerprint import (
     current_session,
 )
 from mlframe.training.feature_handling.handlers import (
-    CatHandlerSpec,
-    HashingParams,
-    TextHandlerSpec,
     TfidfParams,
 )
 from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder

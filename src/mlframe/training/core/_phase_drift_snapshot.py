@@ -146,12 +146,12 @@ def _log_cardinality_and_drift_snapshot(
                             )
                         else:
                             _healing = (
-                                f"        suggested actions (pick one):\n"
-                                f"          a) add an explicit '__UNSEEN__' bucket in the "
-                                f"Enum domain so val values absent from train resolve to a "
-                                f"known category instead of raising;\n"
-                                f"          b) widen the training window (temporal split) so "
-                                f"val_only categories are observed at fit time."
+                                "        suggested actions (pick one):\n"
+                                "          a) add an explicit '__UNSEEN__' bucket in the "
+                                "Enum domain so val values absent from train resolve to a "
+                                "known category instead of raising;\n"
+                                "          b) widen the training window (temporal split) so "
+                                "val_only categories are observed at fit time."
                             )
                         logger.warning(
                             f"  Category drift suspect: {c} -- val has {v_only} categories "

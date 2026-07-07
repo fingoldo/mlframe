@@ -20,7 +20,7 @@ Verified against installed CatBoost 1.2.10, XGBoost 3.x, LightGBM 4.6.0.
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd

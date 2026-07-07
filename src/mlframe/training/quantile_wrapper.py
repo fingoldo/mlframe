@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional, Sequence, Union
+from typing import Sequence
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone

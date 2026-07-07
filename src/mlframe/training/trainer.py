@@ -9,47 +9,18 @@ This module contains:
 """
 from __future__ import annotations
 
-import copy
-import inspect
 import logging
-import re
-import pickle
-from timeit import default_timer as timer
 from functools import partial
-import os
-from os import sep as os_sep
-from os.path import join, exists
-from types import SimpleNamespace
-from typing import Optional, Tuple, Union, Callable, Sequence, List, Any, Dict
+from typing import Optional, Tuple, Callable, Any
 
 import numpy as np
 import pandas as pd
-import polars as pl
-import joblib
-
-from pyutilz.system import compute_total_gpus_ram
-from mlframe.metrics.core import compute_probabilistic_multiclass_error
-from .phases import phase
-from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
 
 # Heavy optional deps: defer failures to first actual use so `import mlframe.training` stays cheap and does not crash when a given backend is not installed.
 try:
     import matplotlib.pyplot as plt
 except ImportError:  # pragma: no cover
     plt = None  # type: ignore[assignment]
-
-from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_classifier
-from sklearn.compose import TransformedTargetRegressor
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import (
-    max_error,
-    root_mean_squared_error,
-    make_scorer,
-)
-from sklearn.pipeline import Pipeline
-from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoostingClassifier
-from sklearn.utils.validation import check_is_fitted
-from sklearn.exceptions import NotFittedError
 
 # Optional model backends: lazy/tolerant of missing deps.
 try:
@@ -147,10 +118,10 @@ def _xgb_regressor_cls() -> type:
     if USE_XGB_DMATRIX_REUSE_SHIM and _XGBRegressorWithDMatrixReuse is not None:
         return _XGBRegressorWithDMatrixReuse
     return XGBRegressor
-from mlframe.metrics.core import create_fairness_subgroups, create_fairness_subgroups_indices, fast_roc_auc
-from mlframe.feature_selection.wrappers import RFECV
-from pyutilz.pandaslib import get_df_memory_consumption
-from .models import create_linear_model
+from mlframe.metrics.core import create_fairness_subgroups, create_fairness_subgroups_indices, fast_roc_auc  # noqa: F401 -- re-exported for ._trainer_configure's runtime `from .trainer import ...`
+from mlframe.feature_selection.wrappers import RFECV  # noqa: F401 -- re-exported, see above
+from pyutilz.pandaslib import get_df_memory_consumption  # noqa: F401 -- re-exported, see above
+from .models import create_linear_model  # noqa: F401 -- re-exported, see above
 
 try:
     import torch
@@ -170,10 +141,11 @@ except ImportError:
 from .configs import (
     DataConfig, TrainingControlConfig, MetricsConfig, ReportingConfig,
     FeatureImportanceConfig, OutputConfig, NamingConfig,
-    ConfidenceAnalysisConfig, PredictionsContainer, LinearModelConfig,
-    MultilabelDispatchConfig, VALID_LINEAR_MODEL_TYPES as LINEAR_MODEL_TYPES, TargetTypes,
+    ConfidenceAnalysisConfig, PredictionsContainer,
+    LinearModelConfig, VALID_LINEAR_MODEL_TYPES as LINEAR_MODEL_TYPES, TargetTypes,  # noqa: F401 -- re-exported for ._trainer_configure's runtime `from .trainer import ...`
+    MultilabelDispatchConfig,  # noqa: F401 -- re-exported for ._trainer_configure's runtime `from .trainer import ...`
 )
-from .helpers import get_training_configs, parse_catboost_devices
+from .helpers import get_training_configs, parse_catboost_devices  # noqa: F401 -- re-exported for ._trainer_configure's runtime `from .trainer import ...`
 
 from ._data_helpers import (  # noqa: E402,F401
     _disable_xgboost_early_stopping_if_needed, _extract_target_subset,
@@ -235,7 +207,7 @@ def _compute_oof_preds(
         # Too few rows for meaningful K-fold; level-1 stacking on tiny data isn't a realistic use case anyway.
         return None, None
     try:
-        from sklearn.model_selection import KFold, GroupKFold, TimeSeriesSplit, cross_val_predict
+        from sklearn.model_selection import KFold, GroupKFold, cross_val_predict
         from sklearn.base import clone
     except ImportError:
         return None, None

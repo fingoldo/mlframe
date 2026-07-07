@@ -14,39 +14,17 @@ from __future__ import annotations
 
 
 import logging
-import psutil
-from dataclasses import dataclass
-from timeit import default_timer as timer
-from types import SimpleNamespace
-from typing import Optional, Dict, List, Callable, Sequence, Any, Union
-
-import numpy as np
-import pandas as pd
-import polars as pl
-import polars.selectors as cs
+from typing import Optional, Dict, List
 
 # NOTE: torch + mlframe.lightninglib are imported lazily inside `get_training_configs`
 # (only needed for MLP configs). Top-level import cost ~2-3s — avoided for CB/LGB/XGB-only runs.
 # lightgbm is likewise not imported here: it was an unused module-level import whose
 # transitive ``lightgbm -> dask.distributed`` pull cost ~1s; the LGBM config paths import
 # it where actually needed.
-import xgboost as xgb
-from xgboost.callback import TrainingCallback
 
-from sklearn.base import BaseEstimator, ClassifierMixin
+from pyutilz.system import get_gpuinfo_gpu_info
+from ._gpu_probe import CUDA_IS_AVAILABLE
 
-from sklearn.model_selection import TimeSeriesSplit
-
-from pyutilz.system import get_gpuinfo_gpu_info, tqdmu, get_own_memory_usage
-from pyutilz.pythonlib import get_parent_func_args, store_params_in_object
-from ._gpu_probe import CUDA_IS_AVAILABLE, LGB_GPU_AVAILABLE, XGB_GPU_AVAILABLE
-from mlframe.metrics.core import (
-    compute_probabilistic_multiclass_error,
-    robust_mlperf_metric,
-    ICE,
-)
-
-from .utils import get_numeric_columns, get_categorical_columns
 # `_probe_xgb_gpu_support` / `_probe_lgb_gpu_support` re-export was dropped:
 # they are private to `_gpu_probe.py` (only used to compute the module-level
 # XGB_GPU_AVAILABLE / LGB_GPU_AVAILABLE booleans imported above), and no other

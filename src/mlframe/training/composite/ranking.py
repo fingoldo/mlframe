@@ -44,7 +44,7 @@ the inner predict. The wrapper-side work -- the per-group residualisation
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone

@@ -7,9 +7,8 @@ threshold. ``_process_single_ensemble_method`` is the per-method worker that
 """
 from __future__ import annotations
 
-import copy
 import logging
-from typing import Any, Callable, Dict, Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd

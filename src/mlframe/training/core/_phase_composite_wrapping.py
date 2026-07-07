@@ -12,7 +12,6 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple  # noqa: F401
 
 import numpy as np
-import pandas as pd
 
 # Wave 100: dependencies needed by the moved _run_composite_target_wrapping.
 # _ADDITIVE_TRANSFORMS is defined inside the function body itself, not at

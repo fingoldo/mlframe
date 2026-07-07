@@ -8,9 +8,7 @@ joint model effect is most non-additive - exactly the pairs worth an explicit en
 
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence, Union
-
-import numpy as np
+from typing import Any, Sequence, Union
 
 from mlframe.reporting.spec import FigureSpec, HeatmapPanelSpec
 

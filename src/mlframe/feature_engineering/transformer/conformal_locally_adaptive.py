@@ -10,7 +10,6 @@ at α ∈ {0.1, 0.2}, plus the row's own sigma_hat and z-score-style ratio.
 """
 from __future__ import annotations
 import logging
-from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input

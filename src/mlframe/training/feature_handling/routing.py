@@ -26,7 +26,7 @@ Public surface:
 from __future__ import annotations
 
 import logging
-from typing import FrozenSet, Optional
+from typing import FrozenSet
 
 logger = logging.getLogger(__name__)
 

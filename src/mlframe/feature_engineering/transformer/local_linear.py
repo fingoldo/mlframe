@@ -17,7 +17,7 @@ Reference: locally-weighted regression / LOWESS (Cleveland 1979); local polynomi
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import numpy as np
 import polars as pl

@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import bisect
 import math
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 

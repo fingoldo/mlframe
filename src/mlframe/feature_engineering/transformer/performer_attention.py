@@ -35,7 +35,7 @@ Reference: Choromanski et al. 2021 — Rethinking Attention with Performers.
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import numpy as np
 import polars as pl

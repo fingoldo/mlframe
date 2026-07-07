@@ -25,8 +25,6 @@ cases (constant rows / NaN inputs -> rho=NaN, ties via average-rank).
 """
 from __future__ import annotations
 
-from typing import Tuple
-
 import numpy as np
 
 try:

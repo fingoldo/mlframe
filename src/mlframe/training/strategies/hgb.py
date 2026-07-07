@@ -1,7 +1,7 @@
 """``HGBStrategy`` -- the HistGradientBoosting model pipeline strategy."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 from .base import ModelPipelineStrategy
 

@@ -6,12 +6,11 @@ Probability post-processing, multilabel wrapping, classifier chains.
 from __future__ import annotations
 
 import logging
-import math
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Optional
 
 import numpy as np
 
-from sklearn.base import ClassifierMixin, BaseEstimator, clone, is_classifier
+from sklearn.base import ClassifierMixin, BaseEstimator, clone
 from sklearn.multioutput import ClassifierChain, MultiOutputClassifier
 
 logger = logging.getLogger(__name__)

@@ -56,11 +56,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import re
-import sys
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
@@ -75,14 +72,10 @@ if sklearn.__version__ < "1.0":
         f"mean_pinball_loss; got {sklearn.__version__}"
     )
 
-from sklearn.dummy import DummyClassifier, DummyRegressor
-
 from .diagnostics import _to_1d_numpy
-from ..evaluation import _canonical_multilabel_y
 from ._dummy_baseline_compute import (
     _compute_regression_baselines, _compute_classification_baselines,
     _compute_quantile_baselines,
-    _safe_metric, _per_group_predict, _pick_per_group_categorical,
     _per_target_seed,
 )
 

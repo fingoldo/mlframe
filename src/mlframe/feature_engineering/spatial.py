@@ -217,8 +217,6 @@ def knn_aggregate(
     q_clean = np.where(np.isfinite(query_coords), query_coords, 0.0)
     distances, indices = tree.query(q_clean, k=q_k)
 
-    n_q = query_coords.shape[0]
-
     if q_group_ids is not None and ref_group_ids is not None:
         q_group_ids = np.asarray(q_group_ids)
         ref_group_ids = np.asarray(ref_group_ids)

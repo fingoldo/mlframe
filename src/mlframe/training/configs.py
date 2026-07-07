@@ -16,9 +16,7 @@ backward-compat: every historical
 from __future__ import annotations
 
 
-from typing import Optional, Dict, Any, List, Callable, Tuple, Literal, Union, ClassVar, FrozenSet, Set
-
-from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator
+from typing import Optional, Dict, Any, Tuple, Literal, FrozenSet
 
 # Shared constants + TargetTypes enum + BaseConfig live in the leaf module so
 # sibling configs can import them without re-entering this module (which would

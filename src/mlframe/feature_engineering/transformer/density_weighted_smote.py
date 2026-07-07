@@ -55,7 +55,6 @@ def _density_weighted_smote_synthesize(X_minority: np.ndarray, n_synthetic: int,
     dists, ids = nn.kneighbors(X_minority)
     # Per-positive density: 1 / mean(top-k NN distances). Sparse positives have small density.
     mean_knn_dist = dists[:, 1:].mean(axis=1) + 1e-9  # exclude self at column 0
-    density = 1.0 / mean_knn_dist  # high density = dense region
     # Inverse-density weight for sampling: low density → high weight.
     weights = mean_knn_dist  # already proportional to 1/density (since density = 1/mean_dist)
     weights = weights / weights.sum()  # normalize to probability distribution

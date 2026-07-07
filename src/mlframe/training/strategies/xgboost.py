@@ -2,10 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
-
-import numpy as np
-import pandas as pd
+from typing import Any, Dict, List, Optional
 
 try:
     import polars as pl
@@ -13,7 +10,7 @@ except ImportError:
     pl = None
 
 # Parent package re-exports XGBoostStrategy AFTER TreeModelStrategy is bound, so this partial-package import resolves.
-from . import TreeModelStrategy, get_polars_cat_columns, is_polars_categorical
+from . import TreeModelStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +125,7 @@ class XGBoostStrategy(TreeModelStrategy):
         Otherwise falls back to the base dispatcher (which returns ``{}``
         for multilabel -- wrapper path takes over).
         """
-        from ..configs import TargetTypes, MultilabelDispatchConfig
+        from ..configs import TargetTypes
         if (
             target_type == TargetTypes.MULTILABEL_CLASSIFICATION
             and multilabel_config is not None

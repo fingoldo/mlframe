@@ -41,10 +41,8 @@ Public surface:
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -58,10 +56,10 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 from ._target_temporal_audit_coerce import (  # noqa: E402
-    _AUDIT_DATETIME_HIGH_NS,
-    _AUDIT_DATETIME_LOW_NS,
-    _AUDIT_UNIT_NS_FACTOR,
-    _import_ruptures,
+    _AUDIT_DATETIME_HIGH_NS,  # noqa: F401
+    _AUDIT_DATETIME_LOW_NS,  # noqa: F401
+    _AUDIT_UNIT_NS_FACTOR,  # noqa: F401
+    _import_ruptures,  # noqa: F401
     coerce_timestamps_for_audit,
 )
 
@@ -94,17 +92,17 @@ outlier, not a regime). Raise to 3+ to filter out short transients."""
 ChangePointMethod = Literal["pelt", "zscore"]
 
 from ._target_temporal_audit_aggregate import (  # noqa: E402
-    DEFAULT_TARGET_BINS_RANGE,
+    DEFAULT_TARGET_BINS_RANGE,  # noqa: F401
     Granularity,
-    _GRANULARITY_ORDER,
+    _GRANULARITY_ORDER,  # noqa: F401
     _GRANULARITY_SECONDS,
-    _POLARS_BIN_TRUNCATE,
+    _POLARS_BIN_TRUNCATE,  # noqa: F401
     _aggregate_by_time_pandas,
     _aggregate_by_time_polars,
     _aggregate_by_time_polars_multi,
-    _format_bin_label,
+    _format_bin_label,  # noqa: F401
     _pick_granularity,
-    _polars_rate_expr,
+    _polars_rate_expr,  # noqa: F401
 )
 
 

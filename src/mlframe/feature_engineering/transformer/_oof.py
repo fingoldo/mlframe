@@ -26,7 +26,6 @@ from typing import Any, Callable
 import numpy as np
 
 from ._aggregation import compute_extra_aggregates, dedupe_by_correlation
-from ._key_bank import KeyBank
 from ._projection import (
     apply_projection,
     build_importance_weighted_projection,

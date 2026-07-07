@@ -31,7 +31,7 @@ holdout set is available.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import numpy as np
 

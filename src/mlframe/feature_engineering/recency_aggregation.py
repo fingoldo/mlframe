@@ -136,7 +136,6 @@ def per_group_recency_weighted_mean(
     if not broadcast:
         # Return per-group values in first-appearance order of the ORIGINAL array.
         _, first_pos = np.unique(group_ids, return_index=True)
-        appearance_order = np.argsort(first_pos)
         # per_group is indexed by sorted-unique-group order; map to appearance order.
         sorted_unique = g_sorted[starts]
         # Build a lookup from group id -> per_group value.

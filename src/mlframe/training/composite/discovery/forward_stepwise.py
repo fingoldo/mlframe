@@ -6,10 +6,9 @@ Selection uses a paired majority-of-folds gate (``paired_fold_selection``, defau
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Sequence
 
 import numpy as np
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -100,11 +99,7 @@ def forward_stepwise_multi_base(
     """
     from sklearn.model_selection import KFold, TimeSeriesSplit  # lazy
     # Lazy-import composite-internal transforms to break the import cycle (composite.py re-exports this module at the bottom; importing at module top would deadlock).
-    from .. import (
-        _linear_residual_multi_fit,
-        _linear_residual_multi_forward,
-        _linear_residual_multi_inverse,
-    )
+    from .. import _linear_residual_multi_fit
     y = np.asarray(y_train, dtype=np.float64).reshape(-1)
     if y.size < 4:
         return list(seed_bases or []), []

@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 from typing import Tuple
 
-import numba
 from numba import get_num_threads, get_thread_id, njit, prange  # type: ignore[attr-defined]  # numba ships no type stubs for its dynamic exports
 import numpy as np
 

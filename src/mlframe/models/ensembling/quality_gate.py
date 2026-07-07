@@ -13,7 +13,7 @@ configures. ``score_ensemble`` calls it once per (flavour x split) cell.
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 

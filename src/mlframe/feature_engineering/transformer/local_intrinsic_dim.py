@@ -58,7 +58,6 @@ def compute_local_intrinsic_dim_features(
         validate_numeric_input(X_query, name="X_query", allow_fp16=False)
 
     X_train_f = np.asarray(X_train, dtype=np.float32)
-    y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray) -> np.ndarray:

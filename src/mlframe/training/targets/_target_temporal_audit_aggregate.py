@@ -8,9 +8,8 @@ audit runners in the parent.
 from __future__ import annotations
 
 import math
-from typing import Any, Literal, Sequence
+from typing import Literal, Sequence
 
-import numpy as np
 import pandas as pd
 
 try:

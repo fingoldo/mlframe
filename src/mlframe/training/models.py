@@ -15,7 +15,6 @@ from typing import Any, Callable, Dict
 
 from sklearn.base import BaseEstimator
 from sklearn.linear_model import (
-    LinearRegression,
     LogisticRegression,
     Ridge,
     RidgeClassifier,

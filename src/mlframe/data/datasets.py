@@ -16,9 +16,7 @@ logger = logging.getLogger(__name__)
 
 from typing import Tuple
 
-import scipy
 from scipy import stats
-from scipy.stats import norm
 import numpy as np, pandas as pd
 
 

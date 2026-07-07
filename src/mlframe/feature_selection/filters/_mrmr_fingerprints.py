@@ -29,6 +29,15 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+# Not used directly in this module -- load-bearing for import ORDER. This module is reached via
+# filters/mrmr/__init__.py -> _legacy.py (circular: _legacy does ``from .mrmr import MRMR`` back into
+# the package being loaded). Forcing wrappers.RFECV to resolve HERE, before that circular re-entry,
+# keeps a working import order; removing it (2026-07-05 ruff "unused import" sweep) let a different
+# external entry point (importing RFECV directly) trigger the circular mrmr<->_legacy re-entry first
+# instead, which crashed the interpreter natively deep in the C-extension init chain. Restored with
+# noqa rather than re-deleted -- see CLAUDE.md's project-wide-rewrite-without-review incident.
+from mlframe.feature_selection.wrappers import RFECV  # noqa: F401
+
 # astropy is imported lazily on first histogram() call: the top-level
 # ``import astropy`` costs ~0.6s and this fingerprints module is on the
 # eager MRMR import path, yet most fits never call histogram().

@@ -5,11 +5,8 @@ Bound back into the parent's namespace via re-export at the parent's module bott
 from __future__ import annotations
 
 import logging
-import math
-import warnings
-from dataclasses import dataclass, field
 from typing import (
-    Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple,
+    Any,
 )
 
 import numpy as np
@@ -291,7 +288,6 @@ def _quantile_residual_fit(
     Returns a dict with keys: ``bin_edges`` (1-D ndarray len ``n_bins+1``, open at -inf, +inf), ``bin_medians`` (len ``n_bins``; median(y) per bin, global median for under-populated bins), ``bin_iqrs`` (len ``n_bins``; IQR(y) per bin, global IQR with floor for under-populated / constant bins), ``bin_sizes`` (list[int] len ``n_bins``, train rows per bin), ``global_median``/``global_iqr`` (float fallbacks from train y), ``n_bins`` (int, recorded for predict-time validation).
     """
     # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
-    from . import _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N, _QUANTILE_RESIDUAL_DEFAULT_N_BINS
     n_bins = max(2, int(n_bins))
     min_bin_n = max(2, int(min_bin_n))
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
@@ -422,7 +418,6 @@ def _monotonic_residual_fit(
     Auto-knot tuning: when ``base`` has few unique values (categorical / discrete), the default knots oversmooth -- several quantile knots collapse to identical x positions, leaving < n_eff effective knots and a wobbly spline that often goes degenerate. The cap is driven by the base's *distinctness*, NOT its row count: at most ``n_unique_base`` distinct quantile knots can be placed (beyond that, ties collapse them), so ``n_knots`` is capped at ``min(n_knots, n_unique_base)`` (with a floor of 3). A continuous base keeps the full default regardless of n -- the historic ``n_unique_base // 200`` rule wrongly conflated cardinality with discreteness and starved continuous mid-/small-n bases (e.g. 600 distinct continuous values -> 3 knots) of resolution they could use.
     """
     # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
-    from . import _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N, _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS
     base_f_for_unique = np.asarray(base, dtype=np.float64).reshape(-1)
     _n_unique_base = int(np.unique(base_f_for_unique[np.isfinite(base_f_for_unique)]).size)
     # Cap by distinctness only: a base with K distinct values supports at most K
@@ -568,7 +563,6 @@ def _ewma_residual_fit(
 ) -> dict[str, Any]:
     """Fit stores only the EWMA half-life span ``k``; the EWMA itself is re-computed at forward / inverse time, keeping the fitted params JSON-serialisable and stateless (storing the full N-row EWMA trace would bloat metadata and break predict-on-new-data). The first-row anchor is the train-base mean: ``ewma[0] = mean(base_train)``."""
     # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
-    from . import _EWMA_RESIDUAL_DEFAULT_K
     k = max(1, int(k))
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
     finite = _finite_mask if _finite_mask is not None else np.isfinite(base_f)
@@ -889,7 +883,6 @@ def _frac_diff_fit(
 ) -> dict[str, Any]:
     """Store fractional order ``d``, lag truncation ``lags``, and the train-y mean used as a pre-window anchor (rows whose lag history is shorter than ``lags`` need a fallback value for the missing past terms)."""
     # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
-    from . import _FRAC_DIFF_DEFAULT_D, _FRAC_DIFF_DEFAULT_LAGS
     d = float(d)
     lags = max(1, int(lags))
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)

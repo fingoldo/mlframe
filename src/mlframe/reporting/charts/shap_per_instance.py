@@ -38,7 +38,6 @@ from mlframe.reporting.charts.shap_panels import (
     _close_figs,
     _matplotlib_formats,
     _row_subset,
-    _safe,
     _shap_values_2d,
     is_tree_model,
 )

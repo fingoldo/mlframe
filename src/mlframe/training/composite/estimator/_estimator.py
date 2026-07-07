@@ -8,12 +8,10 @@ helpers are defined, so the partial-module lookup succeeds.
 """
 from __future__ import annotations
 
-import inspect
 import logging
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Sequence
 
 import numpy as np
-import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 # Module-level helpers carved to _estimator_helpers.py (1k-LOC house limit); re-exported so call sites + tests that
@@ -41,7 +39,6 @@ from . import (
     _extract_base,
     _extract_groups,
     _extract_base_matrix,
-    _is_polars_df,
     _to_1d_numpy,
 )
 # The fitted-from-spec / fit / predict / predict_invert paths all use these, so

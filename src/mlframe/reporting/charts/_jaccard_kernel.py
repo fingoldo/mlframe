@@ -18,8 +18,6 @@ older boxes, etc.); the public ``jaccard_rows`` picks at call time.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
 try:

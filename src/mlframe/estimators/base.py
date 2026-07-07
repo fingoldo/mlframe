@@ -6,8 +6,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from sklearn.utils.validation import check_X_y, check_array, check_is_fitted, check_consistent_length
-from sklearn.base import RegressorMixin, ClassifierMixin, TransformerMixin, BaseEstimator, clone
+from sklearn.utils.validation import check_array, check_is_fitted
+from sklearn.base import RegressorMixin, ClassifierMixin, BaseEstimator, clone
 from sklearn.utils import check_random_state
 
 from sklearn.model_selection import train_test_split

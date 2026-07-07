@@ -35,7 +35,7 @@ import os
 import threading
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Optional
 
 try:
     import orjson  # type: ignore[import-not-found]

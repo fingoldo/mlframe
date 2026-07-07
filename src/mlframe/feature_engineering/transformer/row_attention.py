@@ -15,7 +15,6 @@ from typing import Any, Literal, Optional, Union
 import numpy as np
 import polars as pl
 
-from ._aggregation import dedupe_by_correlation
 from ._key_bank import KeyBank, _key_bank_fingerprint, save_key_bank, try_load_key_bank
 from ._kernels_njit import row_attention_stage4_njit
 from ._oof import apply_dedupe, kfold_attention_loop, stack_outputs_to_array

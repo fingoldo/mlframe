@@ -20,7 +20,6 @@ from typing import Optional, Sequence, Union
 
 import numpy as np
 
-from pyutilz.system import tqdmu
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
 class _LazyModule:

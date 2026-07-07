@@ -6,10 +6,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import (
-    TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple,
+    TYPE_CHECKING, Any, Sequence,
 )
 
 import numpy as np
@@ -381,7 +381,7 @@ def _f_linear_residual_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
 def _f_quantile_residual(t: str, b: str, p: dict) -> tuple[str, str]:
     return (
         f"T = ({t} - median_bin({t})) / IQR_bin({t})  (quantile bins of {b})",
-        f"y_hat = T_hat * IQR_bin + median_bin  (sparse/constant bins -> global)",
+        "y_hat = T_hat * IQR_bin + median_bin  (sparse/constant bins -> global)",
     )
 
 
@@ -416,7 +416,7 @@ def _f_frac_diff(t: str, b: str, p: dict) -> tuple[str, str]:
     return (
         f"T_i = sum_k w_k * {t}_(i-k)  (Lopez de Prado frac-diff, d={d}, {lags} lags; "
         f"w_k = -w_(k-1)*(d-k+1)/k, pre-window padded with train mean)",
-        f"y_hat_i = (T_i - sum_(k>=1) w_k * y_hat_(i-k)) / w_0  (iterative reconstruction)",
+        "y_hat_i = (T_i - sum_(k>=1) w_k * y_hat_(i-k)) / w_0  (iterative reconstruction)",
     )
 
 
@@ -480,7 +480,7 @@ def _f_rank_residual(t: str, b: str, p: dict) -> tuple[str, str]:
     beta = _fmt(p.get("beta"))
     return (
         f"T = rank({t})/n - {alpha} * rank({b})/n - ({beta})  (train sorted-y/base lookup)",
-        f"y_hat = train_sorted_y[clip(rank_recovered, 0, 1)]",
+        "y_hat = train_sorted_y[clip(rank_recovered, 0, 1)]",
     )
 
 

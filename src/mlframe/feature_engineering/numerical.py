@@ -24,7 +24,7 @@ __all__ = [
 import logging
 import warnings
 from contextlib import contextmanager
-from typing import Sequence, Tuple
+from typing import Sequence
 
 import numba
 import numpy as np
@@ -69,7 +69,6 @@ def histogram(a, bins="auto", **kwargs):
     if _h is not None:
         return _h(a, bins=bins, **kwargs)
     return np.histogram(a, bins=bins, **kwargs)
-from scipy import stats
 from scipy.stats import kstest
 from sklearn.feature_selection import mutual_info_regression
 
@@ -99,9 +98,6 @@ def _suppress_numeric_warnings():
 
 from ._numerical_constants import (
     NUMBA_NJIT_PARAMS,
-    LARGE_CONST,
-    GEOMEAN_OVERFLOW_HI,
-    GEOMEAN_OVERFLOW_LO,
     distributions,
     default_quantiles,
 )

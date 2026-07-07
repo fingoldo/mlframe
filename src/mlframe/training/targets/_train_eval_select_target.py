@@ -135,7 +135,7 @@ def select_target(
             summary = ",".join(f"{p*100:.0f}%" for p in per_label_pos)
             model_name += f" ML={summary}"
         else:
-            model_name += f" ML=?"
+            model_name += " ML=?"
     else:
         # Binary / multiclass -- train rate on the model_name; per-split
         # contextual rates are appended downstream in _compute_split_metrics.

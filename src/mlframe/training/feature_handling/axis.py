@@ -20,7 +20,6 @@ from typing import (
     Callable,
     Dict,
     List,
-    Optional,
     Pattern,
     Type,
     Union,

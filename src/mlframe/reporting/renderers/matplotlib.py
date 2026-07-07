@@ -19,7 +19,7 @@ from mlframe.reporting.spec import (
     ScatterPanelSpec, ViolinPanelSpec,
 )
 
-from ._shared_helpers import _finite_range, _thin_tick_positions, _HEATMAP_MAX_TICKS
+from ._shared_helpers import _finite_range, _thin_tick_positions
 
 logger = logging.getLogger(__name__)
 

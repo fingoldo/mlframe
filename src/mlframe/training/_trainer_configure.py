@@ -8,30 +8,17 @@ resolves transparently.
 from __future__ import annotations
 
 import copy
-import inspect
 import logging
-import re
-import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 from timeit import default_timer as timer
-from functools import partial
-import os
-from os import sep as os_sep
-from os.path import join, exists
-from types import SimpleNamespace
-from typing import Any, Callable, Dict, List, Optional, Sequence, TYPE_CHECKING, Tuple, Union
+from typing import Any, Sequence, TYPE_CHECKING
 if TYPE_CHECKING:
     from ._configs_base import TargetTypes
     from ._model_configs import LinearModelConfig, MultilabelDispatchConfig
 
 import numpy as np
 import pandas as pd
-import polars as pl
-import joblib
 
 from pyutilz.system import compute_total_gpus_ram
-from mlframe.metrics.core import compute_probabilistic_multiclass_error
-from .phases import phase
-from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
 
 # Heavy optional deps: defer failures to first actual use so `import mlframe.training` stays cheap and does not crash when a given backend is not installed.
 try:
@@ -39,18 +26,11 @@ try:
 except ImportError:  # pragma: no cover
     plt = None  # type: ignore[assignment]
 
-from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_classifier
-from sklearn.compose import TransformedTargetRegressor
-from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import (
-    root_mean_squared_error,
     make_scorer,
 )
 from mlframe.metrics.core import fast_mean_absolute_error
-from sklearn.pipeline import Pipeline
 from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoostingClassifier
-from sklearn.utils.validation import check_is_fitted
-from sklearn.exceptions import NotFittedError
 
 # Optional model backends: lazy/tolerant of missing deps.
 try:
@@ -108,13 +88,6 @@ from ._model_factories import (  # noqa: E402,F401
     _xgb_classifier_cls as _xgb_classifier_cls_factory,
     _xgb_regressor_cls as _xgb_regressor_cls_factory,
 )
-from ._model_factories import (
-    LGBMClassifierWithDatasetReuse as _LGBMClassifierWithDatasetReuse,
-    LGBMRegressorWithDatasetReuse as _LGBMRegressorWithDatasetReuse,
-    XGBClassifierWithDMatrixReuse as _XGBClassifierWithDMatrixReuse,
-    XGBRegressorWithDMatrixReuse as _XGBRegressorWithDMatrixReuse,
-)
-import lightgbm as _lgb_for_factory
 
 # Optional model backends mirrored from parent: defaults to None when the
 # library is not installed; downstream branches gate on that.
@@ -293,7 +266,7 @@ def configure_training_params(
     # Lazy import of parent-resident helpers: ``.trainer`` re-imports
     # this sibling at its bottom, so a top-level ``from .trainer
     # import ...`` would create a hard cycle the meta-test flags.
-    from .trainer import LINEAR_MODEL_TYPES, LinearModelConfig, MultilabelDispatchConfig, RFECV, TargetTypes, _configure_lightgbm_params, _configure_mlp_params, _configure_xgboost_params, create_fairness_subgroups, create_fairness_subgroups_indices, create_linear_model, fast_roc_auc, get_df_memory_consumption, get_training_configs, parse_catboost_devices
+    from .trainer import LINEAR_MODEL_TYPES, LinearModelConfig, RFECV, TargetTypes, _configure_lightgbm_params, _configure_mlp_params, _configure_xgboost_params, create_fairness_subgroups, create_fairness_subgroups_indices, create_linear_model, fast_roc_auc, get_df_memory_consumption, parse_catboost_devices
 
     def _identity(x):
         return x

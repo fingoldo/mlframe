@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 from functools import lru_cache
-from scipy.stats import norm, t
+from scipy.stats import norm
 from scipy.stats._continuous_distns import norm_gen
 
 

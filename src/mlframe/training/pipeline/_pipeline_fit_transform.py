@@ -16,20 +16,16 @@ from __future__ import annotations
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import logging
-import os
 from timeit import default_timer as timer
-import subprocess
 
 import pandas as pd
 import polars as pl
-import polars.selectors as cs
-from typing import Dict, Union, Optional, List, Tuple
+from typing import Union, Optional, List, Tuple
 from collections import Counter
-from pyutilz.system import clean_ram
 from ..utils import maybe_clean_ram_adaptive, log_ram_usage
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability
 
-from ..configs import PreprocessingBackendConfig, PreprocessingExtensionsConfig
+from ..configs import PreprocessingBackendConfig
 from ..strategies import PANDAS_CATEGORICAL_DTYPES, get_polars_cat_columns
 
 logger = logging.getLogger("mlframe.training.pipeline")
@@ -108,7 +104,7 @@ def fit_and_transform_pipeline(
             pass
         elif pipeline is not None:
             if verbose:
-                logger.info(f"Applying Polars-ds pipeline...")
+                logger.info("Applying Polars-ds pipeline...")
 
             # Capture train schema BEFORE the fit-time transform so we
             # can compare val/test schemas against it below. Without

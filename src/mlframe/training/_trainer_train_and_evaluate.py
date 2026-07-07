@@ -8,17 +8,14 @@ resolves transparently.
 from __future__ import annotations
 
 import copy
-import inspect
 import logging  # nosec B403 - module used safely in this file, see call sites below (no untrusted input reaches it)
-import re
 import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 from timeit import default_timer as timer
 from functools import partial
 import os
-from os import sep as os_sep
-from os.path import join, exists
+from os.path import exists
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, List, Optional, Sequence, TYPE_CHECKING, Tuple, Union
+from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from ._reporting_configs import ConfidenceAnalysisConfig, NamingConfig, PredictionsContainer, ReportingConfig
     from ._training_runtime_configs import DataConfig, MetricsConfig, OutputConfig, TrainingControlConfig
@@ -28,7 +25,6 @@ import pandas as pd
 import polars as pl
 import joblib
 
-from pyutilz.system import compute_total_gpus_ram
 from mlframe.metrics.core import compute_probabilistic_multiclass_error
 from .phases import phase
 from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
@@ -39,17 +35,6 @@ try:
 except ImportError:  # pragma: no cover
     plt = None  # type: ignore[assignment]
 
-from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_classifier
-from sklearn.compose import TransformedTargetRegressor
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import (
-    root_mean_squared_error,
-    make_scorer,
-)
-from sklearn.pipeline import Pipeline
-from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoostingClassifier
-from sklearn.utils.validation import check_is_fitted
-from sklearn.exceptions import NotFittedError
 
 # Optional model backends: lazy/tolerant of missing deps.
 try:
@@ -109,13 +94,6 @@ from ._model_factories import (  # noqa: E402,F401
     _xgb_classifier_cls as _xgb_classifier_cls_factory,
     _xgb_regressor_cls as _xgb_regressor_cls_factory,
 )
-from ._model_factories import (
-    LGBMClassifierWithDatasetReuse as _LGBMClassifierWithDatasetReuse,
-    LGBMRegressorWithDatasetReuse as _LGBMRegressorWithDatasetReuse,
-    XGBClassifierWithDMatrixReuse as _XGBClassifierWithDMatrixReuse,
-    XGBRegressorWithDMatrixReuse as _XGBRegressorWithDMatrixReuse,
-)
-import lightgbm as _lgb_for_factory
 
 
 logger = logging.getLogger("mlframe.training.trainer")
@@ -196,7 +174,7 @@ def train_and_evaluate_model(
     # Lazy import of parent-resident helpers: ``.trainer`` re-imports
     # this sibling at its bottom, so a top-level ``from .trainer
     # import ...`` would create a hard cycle the meta-test flags.
-    from .trainer import ConfidenceAnalysisConfig, DataConfig, FeatureImportanceConfig, MetricsConfig, NamingConfig, OutputConfig, PredictionsContainer, ReportingConfig, TrainingControlConfig, _compute_oof_preds, _disable_xgboost_early_stopping_if_needed, _extract_targets_from_indices, _prepare_train_df_for_fitting, _setup_model_info_and_paths, _setup_sample_weight, _subset_dataframe, _update_model_name_after_training, _validate_infinity_and_columns, _validate_target_values, _validate_trusted_path
+    from .trainer import ConfidenceAnalysisConfig, FeatureImportanceConfig, OutputConfig, PredictionsContainer, _compute_oof_preds, _disable_xgboost_early_stopping_if_needed, _extract_targets_from_indices, _prepare_train_df_for_fitting, _setup_model_info_and_paths, _setup_sample_weight, _subset_dataframe, _update_model_name_after_training, _validate_infinity_and_columns, _validate_target_values, _validate_trusted_path
     from IPython.display import display as ipython_display
 
     # Initialize optional configs with defaults

@@ -11,13 +11,10 @@ or live-compute via ``model.predict`` when none are provided.
 from __future__ import annotations
 
 import logging
-import os
-from timeit import default_timer as timer
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
-import polars as pl
 
 try:
     import matplotlib.pyplot as plt
@@ -35,7 +32,6 @@ try:
 except ImportError:
     classification_report = None  # type: ignore[assignment]
 
-from mlframe.metrics.core import compute_fairness_metrics, fast_calibration_report, fast_mean_absolute_error, fast_max_error, fast_r2_score, fast_regression_metrics_block, fast_roc_auc, fast_root_mean_squared_error
 from pyutilz.pythonlib import get_human_readable_set_size
 
 # .evaluation imports back from ._reporting; deferring breaks the cycle.

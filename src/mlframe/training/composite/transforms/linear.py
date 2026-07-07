@@ -9,12 +9,7 @@ resolves transparently.
 from __future__ import annotations
 
 import logging
-import math
-import warnings
-from dataclasses import dataclass, field
-from typing import (
-    Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple,
-)
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -578,9 +573,7 @@ def _linear_residual_grouped_fit(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from . import (
-        _GROUPED_MIN_GROUP_SIZE, _canonical_group_key, _james_stein_shrinkage_factor,
-    )
+    from . import _canonical_group_key, _james_stein_shrinkage_factor
     if groups is None:
         raise ValueError(
             "linear_residual_grouped requires a 1-D ``groups`` array of "

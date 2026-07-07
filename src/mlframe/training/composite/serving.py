@@ -26,7 +26,7 @@ that would silently mis-predict at serve time.
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, Dict, List, Sequence
+from typing import Any, Callable, Dict
 
 import numpy as np
 

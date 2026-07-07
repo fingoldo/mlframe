@@ -8,18 +8,15 @@ from __future__ import annotations
 
 import inspect
 import logging
-import os
 from os import sep as os_sep
 from os.path import join
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
 import polars as pl
 
 from sklearn.compose import TransformedTargetRegressor
-from sklearn.pipeline import Pipeline
-from sklearn.utils.validation import check_is_fitted
 
 from mlframe.core.helpers import ensure_no_infinity
 from pyutilz.pythonlib import get_human_readable_set_size, prefix_dict_elems
@@ -34,7 +31,6 @@ try:
 except ImportError:
     XGBTrainingCallback = None  # type: ignore[assignment] -- only used when xgboost is the chosen backend
 
-from .pipeline import _extract_feature_selector, _prepare_test_split
 from .utils import filter_existing
 
 logger = logging.getLogger(__name__)
@@ -65,7 +61,6 @@ def _validate_trusted_path(path: str, trusted_root: str | None) -> None:
         raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
 
 
-from .models import create_linear_model, LINEAR_MODEL_TYPES
 
 logger = logging.getLogger(__name__)
 

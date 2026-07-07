@@ -44,7 +44,6 @@ from ._regression_metrics import fast_r2_score
 # time (paid once at startup, amortised across the whole suite) and
 # fast_spearman_corr's runtime profile drops the import attribution
 # entirely. Per-call cost becomes ~4.2 ms (just _spearmanr_batched_numpy).
-from ..rank_correlation import _spearmanr_batched_numpy, spearmanr_scalar_dispatch
 
 
 # ============================================================================

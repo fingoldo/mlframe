@@ -14,7 +14,6 @@ Public API (re-exported from ``mlframe.metrics.core``):
 from __future__ import annotations
 
 from math import log
-from typing import Tuple
 
 import numpy as np
 import numba

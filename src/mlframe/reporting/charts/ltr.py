@@ -28,7 +28,7 @@ build, so the group sort and kernels run once per figure, not per panel.
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 

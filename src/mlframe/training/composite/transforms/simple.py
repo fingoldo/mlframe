@@ -9,7 +9,6 @@ module bottom so historical
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import Any
 
 import numpy as np

@@ -13,14 +13,7 @@ from timeit import default_timer as timer
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
-    Dict,
-    List,
     NamedTuple,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
 )
 
 import numpy as np
@@ -38,17 +31,15 @@ except ImportError:
 # ``_phase_train_val_test_split`` raised NameError. Mirroring the parent
 # module's imports here so this file is genuinely self-contained.
 if TYPE_CHECKING:
-    from ._training_context import TrainingContext
+    pass
 
 from ._misc_helpers import (
     _auto_detect_feature_types,
-    _cfg_get,
     _df_shape_str,
     _drop_cols_df,
     _elapsed_str,
     _validate_feature_type_exclusivity,
 )
-from ..configs import PreprocessingExtensionsConfig, TargetTypes
 from ..preprocessing import (
     create_split_dataframes,
     save_split_artifacts,
@@ -59,12 +50,7 @@ from ..utils import (
     log_ram_usage,
     maybe_clean_ram_and_gpu,
 )
-from ..strategies import get_strategy, get_polars_cat_columns
 from ..splitting import make_train_test_split
-from ..pipeline import (
-    apply_preprocessing_extensions,
-    fit_and_transform_pipeline,
-)
 from ._setup_helpers import _compute_fairness_subgroups
 
 

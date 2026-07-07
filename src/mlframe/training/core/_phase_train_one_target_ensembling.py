@@ -58,7 +58,7 @@ def _finalize_per_target_ensembling(
         return
 
     if verbose:
-        logger.info(f"evaluating simple ensembles...")
+        logger.info("evaluating simple ensembles...")
     ens_n_features = train_df_transformed.shape[1] if train_df_transformed is not None else None
     # Name the ensemble by its members so log grep shows which models actually participated;
     # cap to 4 to keep headers readable. short_model_tag strips internal shim suffixes

@@ -10,7 +10,6 @@ quantile-y-prediction (interpolated rank).
 """
 from __future__ import annotations
 import logging
-from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input

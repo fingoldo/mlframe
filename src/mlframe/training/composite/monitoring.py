@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from typing import Any, Deque, Dict, Optional, Sequence, Tuple
+from typing import Any, Deque, Dict, Sequence, Tuple
 
 import numpy as np
 

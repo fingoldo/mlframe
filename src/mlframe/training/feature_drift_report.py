@@ -52,7 +52,6 @@ import math
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -414,7 +413,6 @@ def _numeric_columns(df: Any) -> List[str]:
     # polars path -- duck-type the schema walk
     if hasattr(df, "schema") and hasattr(df, "columns"):
         try:
-            import polars as pl
             return [name for name, dt in df.schema.items() if dt.is_numeric()]
         except Exception:
             return []
@@ -509,7 +507,6 @@ def _col_value_counts(df: Any, col: str) -> Optional[Dict[Any, int]]:
         # polars path
         if hasattr(df, "schema") and hasattr(df, "columns"):
             try:
-                import polars as pl
                 _ser = df[col]
                 _vc = _ser.value_counts()
                 # polars value_counts returns a 2-column frame (col_name, "count"); column names vary across versions.

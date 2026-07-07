@@ -18,11 +18,10 @@ from __future__ import annotations
 import logging
 import math
 import re
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
-import sklearn
 from sklearn.metrics import (
     log_loss,  # multiclass / labels-pinned degenerate-resample path only; binary AUC uses fast_roc_auc
     mean_pinball_loss,

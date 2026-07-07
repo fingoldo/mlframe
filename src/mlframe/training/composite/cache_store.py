@@ -20,9 +20,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from mlframe.utils.safe_pickle import (
-    PickleVerificationError,
     safe_load as _safe_pickle_load,
-    verify_sidecar as _safe_pickle_verify_sidecar,
     write_sidecar as _safe_pickle_write_sidecar,
 )
 

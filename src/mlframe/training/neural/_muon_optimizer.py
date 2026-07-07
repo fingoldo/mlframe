@@ -29,7 +29,7 @@ can audit/bench it against AdamW directly without an external dep.
 """
 from __future__ import annotations
 
-from typing import Iterable, List
+from typing import List
 
 import torch
 from torch.optim import Optimizer

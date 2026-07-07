@@ -12,7 +12,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional
 
 from mlframe.training.feature_handling.config import (
-    CacheConfig,
     FeatureHandlingConfig,
 )
 from mlframe.training.feature_handling.handlers import (

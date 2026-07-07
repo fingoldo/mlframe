@@ -27,14 +27,12 @@ from .screening import (
     _mi_per_feature_prebinned,
     _mi_to_target,
     _mi_to_target_prebinned,
-    _prebin_feature_columns,
     _prebin_feature_columns_cached,
     _prebin_feature_columns_lazy,
     _sample_indices,
 )
 from ..transforms import (
     UnknownTransformError,
-    _linear_residual_fit,
     _linear_residual_multi_fit,
     compose_target_name,
     get_transform,
@@ -670,7 +668,6 @@ def fit(
         train_idx=train_idx,
         y_full=y_full,
         extract_column_array=_extract_column_array,
-        linear_residual_fit=_linear_residual_fit,
     )
 
     # Collapse redundant linear_residual -> diff when alpha ~ 1 and beta ~ 0 (linear_residual

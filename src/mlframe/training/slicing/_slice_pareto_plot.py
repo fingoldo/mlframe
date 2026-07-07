@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import logging
 import os
-import tempfile
 from typing import Any, Sequence
 
 import numpy as np

@@ -6,12 +6,10 @@ confidence analysis, XGB category alignment, column decategorisation.
 
 from __future__ import annotations
 
-import copy
 import logging
 import os
 import re
-from timeit import default_timer as timer
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -29,11 +27,9 @@ except ImportError:
 
 # CUDA_IS_AVAILABLE / get_categorical_columns / _maybe_clean_ram all sit in modules that ALSO import from this file -- lazy local imports at call sites.
 
-from sklearn.pipeline import Pipeline
 
 from pyutilz.system import ensure_dir_exists
 
-from .utils import log_ram_usage, filter_existing
 
 
 from ._data_helpers import _prepare_df_for_model

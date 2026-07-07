@@ -9,7 +9,6 @@ predicted α=0.2 conformal interval (binary). Emit fraction-covered + mean signe
 """
 from __future__ import annotations
 import logging
-from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input

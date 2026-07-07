@@ -11,19 +11,12 @@ from __future__ import annotations
 
 
 import logging
-import os
 from enum import Enum, auto
 from functools import partial
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Callable, Optional
 
-import lightning as L
-import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from lightning.pytorch.callbacks import ModelCheckpoint
-
-from .base import MetricSpec, to_numpy_safe
 
 logger = logging.getLogger(__name__)
 

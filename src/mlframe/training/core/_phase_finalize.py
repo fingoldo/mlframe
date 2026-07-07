@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 import os
 from os.path import join
 from typing import TYPE_CHECKING, Any

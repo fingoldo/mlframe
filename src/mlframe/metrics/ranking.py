@@ -37,7 +37,7 @@ References:
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Dict, Sequence, Tuple
 
 import numba
 from numba import prange

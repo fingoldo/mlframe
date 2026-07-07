@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import math
-import re
 from typing import Any, Optional, Sequence
 
 import numpy as np

@@ -197,8 +197,6 @@ def compute_anchor_attention(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    n_sim = n_anchors
-    n_agg_cols = n_anchors * 0  # only per-anchor sim + one soft aggregate per agg name
     out_cols: dict[str, np.ndarray] = {}
     for a in range(n_anchors):
         out_cols[f"{column_prefix}_sim_a{a}"] = np.zeros(n_train, dtype=dtype)

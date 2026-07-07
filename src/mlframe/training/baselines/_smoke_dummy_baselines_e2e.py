@@ -14,7 +14,6 @@ import logging
 import sys
 
 import numpy as np
-import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -23,7 +22,6 @@ from mlframe.training.configs import (
     DummyBaselinesConfig,
     BaselineDiagnosticsConfig,
     FeatureTypesConfig,
-    TargetTypes,
 )
 from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 

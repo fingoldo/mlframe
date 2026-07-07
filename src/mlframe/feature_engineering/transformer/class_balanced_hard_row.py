@@ -159,7 +159,6 @@ def compute_class_balanced_hard_row_features(
         anchors_idx = np.concatenate([pos_top, neg_top])
         anchors_X = Xt_s[anchors_idx]                  # (n_total, d)
         anchors_y = y_t[anchors_idx].astype(np.float32)
-        anchors_signed = signed_residuals[anchors_idx].astype(np.float32)
         anchors_abs = abs_residuals[anchors_idx].astype(np.float32)
 
         diffs = Xq_s[:, None, :] - anchors_X[None, :, :]  # (n_q, n_total, d)

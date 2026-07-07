@@ -39,11 +39,9 @@ Motivation for each guard (condensed from production incident reports):
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable
 
 import numpy as np
-
-from mlframe.config import CATBOOST_MODEL_TYPES
 
 logger = logging.getLogger(__name__)
 

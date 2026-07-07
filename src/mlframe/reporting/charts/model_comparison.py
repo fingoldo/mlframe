@@ -14,7 +14,7 @@ obtained by a single vectorized double-argsort over the (n_sub, K) score matrix 
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, List, Mapping, Optional, Tuple
 
 import numpy as np
 

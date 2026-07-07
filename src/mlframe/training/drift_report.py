@@ -26,7 +26,7 @@ for retrospective inspection (and so test code can assert it fired).
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Sequence
 
 import numpy as np
 

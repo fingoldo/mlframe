@@ -15,8 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from timeit import default_timer as timer
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd

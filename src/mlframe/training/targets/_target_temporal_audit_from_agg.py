@@ -7,7 +7,7 @@ bit-for-bit; the helper is re-exported from ``target_temporal_audit``.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence, TYPE_CHECKING, Tuple
+from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from ._target_temporal_audit_aggregate import Granularity
     from .target_temporal_audit import ChangePointMethod

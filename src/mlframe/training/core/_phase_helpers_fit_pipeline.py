@@ -10,14 +10,12 @@ from __future__ import annotations
 import logging
 from timeit import default_timer as timer
 from typing import (
-    TYPE_CHECKING, Any, Callable, Dict, List, NamedTuple, Optional,
-    Sequence, Tuple, Union,
+    TYPE_CHECKING, Any,
 )
 
 import numpy as np
 import pandas as pd
 
-from ..phases import phase
 
 try:
     import polars as pl
@@ -29,25 +27,19 @@ except ImportError:
 # ``_phase_train_val_test_split`` raised NameError. Mirroring the parent
 # module's imports here so this file is genuinely self-contained.
 if TYPE_CHECKING:
-    from ._training_context import TrainingContext
+    pass
 
 from ._misc_helpers import (
-    _auto_detect_feature_types, _cfg_get, _df_shape_str, _drop_cols_df,
-    _elapsed_str, _validate_feature_type_exclusivity,
+    _df_shape_str, _elapsed_str,
 )
-from ..configs import PreprocessingExtensionsConfig, TargetTypes
-from ..preprocessing import (
-    create_split_dataframes, save_split_artifacts,
-)
+from ..configs import PreprocessingExtensionsConfig
 from ..utils import (
-    get_process_rss_mb, log_phase, log_ram_usage, maybe_clean_ram_and_gpu,
+    log_phase,
 )
 from ..strategies import get_strategy, get_polars_cat_columns
-from ..splitting import make_train_test_split
 from ..pipeline import (
     apply_preprocessing_extensions, fit_and_transform_pipeline,
 )
-from ._setup_helpers import _compute_fairness_subgroups
 from ._phase_helpers_fit_split import FitPipelineResult  # noqa: E402
 
 logger = logging.getLogger("mlframe.training.core._phase_helpers_fit_split")

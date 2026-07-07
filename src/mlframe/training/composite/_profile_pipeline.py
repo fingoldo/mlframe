@@ -53,8 +53,7 @@ def _profile(label, fn, top=12):
 
 def main(argv):
     import numpy as np
-    import pandas as pd
-    from sklearn.linear_model import LinearRegression, LogisticRegression
+    from sklearn.linear_model import LinearRegression
     from .estimator import CompositeTargetEstimator
     from .classification import CompositeClassificationEstimator
     from .discovery import CompositeTargetDiscovery

@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 from typing import Optional, Sequence
 
 import os
-import hashlib
 import tempfile
 
 import joblib
@@ -196,9 +195,6 @@ def compare_cv_metrics(cv_results: dict, metric: str = "root_mean_squared_error"
             if mean_score < min_score:
                 min_score = mean_score
             mean_scores[estimator_name] = mean_score
-
-    norm = mpl.colors.Normalize(vmin=min_score, vmax=max_score)
-    m = cm.ScalarMappable(norm=norm, cmap=cmap)
 
     mean_scores = sort_dict_by_value(mean_scores)
 

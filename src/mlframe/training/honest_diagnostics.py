@@ -35,7 +35,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from os.path import join
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional
 
 import numpy as np
 

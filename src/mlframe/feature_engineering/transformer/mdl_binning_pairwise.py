@@ -6,7 +6,6 @@ Per feature: recursive MDL entropy-split binning of x_j by target. Per query emi
 """
 from __future__ import annotations
 import logging
-from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input
@@ -115,7 +114,12 @@ def _entropy_multi(y_subset: np.ndarray, n_classes: int) -> float:
 
 
 def _mdl_bin_edges(x: np.ndarray, y_class: np.ndarray, n_classes: int, max_bins=8, min_size=20) -> list[float]:
-    """Fayyad-Irani MDL recursive binning. Returns sorted unique split points."""
+    """Fayyad-Irani MDL best-split binning. Returns sorted unique split points.
+
+    Single top-level split (pinned bit-identical to the pre-iter81 O(n^2) reference by
+    ``tests/feature_engineering/transformer/test_mdl_binning_split_kernel.py``); not recursive
+    despite ``max_bins``/``depth`` naming -- ``_split`` is only ever invoked once, over the full range.
+    """
     edges = []
 
     def _split(lo, hi, depth):
@@ -146,11 +150,7 @@ def _mdl_bin_edges(x: np.ndarray, y_class: np.ndarray, n_classes: int, max_bins=
             return
         edges.append(float(best_thresh))
 
-    order = np.argsort(x, kind="stable")
-    x_sorted = x[order]
-    y_sorted = y_class[order]
-    n = x.size
-    _split(0, n, 0)
+    _split(0, x.size, 0)
     edges.sort()
     return edges
 
@@ -189,7 +189,6 @@ def compute_mdl_binning_pairwise_features(
         for j in range(d):
             train_bins[:, j] = np.digitize(Xt[:, j], all_edges[j])
             query_bins[:, j] = np.digitize(Xq[:, j], all_edges[j])
-        n_features_train = sum(len(e) + 1 for e in all_edges)
         # Per-query aggregate features
         max_bin_idx = query_bins.max(axis=1).astype(np.float32)
         sum_bins = query_bins.sum(axis=1).astype(np.float32)

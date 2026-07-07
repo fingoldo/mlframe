@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 
 from typing import Iterable, Optional
 
-import hashlib
 import joblib
 import os
 import pandas as pd, numpy as np

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from typing import Any, Literal, Optional, Tuple
+from typing import Any, Literal, Optional
 
 import numpy as np
 import polars as pl

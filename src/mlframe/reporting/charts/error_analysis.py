@@ -27,17 +27,16 @@ subsampled with extremes preserved; curves stay under a few thousand vertices.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels,
 )
-from mlframe.reporting.charts._sampling import subsample_for_density
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
-    HistogramPanelSpec, LinePanelSpec, PanelSpec,
+    LinePanelSpec, PanelSpec,
 )
 
 # A 1-2-feature weak-segment grid: more cells than this fragments support per cell into noise (FreaAI keeps slices coarse so findings stay actionable).
@@ -357,8 +356,6 @@ def segments_bar(
     ``global_value`` is None it defaults to the count-weighted-or-plain mean of the per-group metric. Subgroups are
     sorted worst-first so the weakest slice is leftmost.
     """
-    import pandas as pd
-
     df = slice_frame
     cols = list(df.columns)
     if group_col is None:
@@ -515,7 +512,6 @@ def _tag_error_groups(
     (most negative) UNDER-estimates, the middle is MAJORITY. Quantile cut via ``np.quantile`` (k-way partition,
     O(n)); no full sort.
     """
-    n = signed_err.size
     finite = np.isfinite(signed_err)
     hi_cut = np.quantile(signed_err[finite], 1.0 - tail_fraction) if finite.any() else np.inf
     lo_cut = np.quantile(signed_err[finite], tail_fraction) if finite.any() else -np.inf

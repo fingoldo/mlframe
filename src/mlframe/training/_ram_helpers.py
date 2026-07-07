@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import gc, logging, os, sys, threading
+import gc, logging, sys, threading
 
 import psutil
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +32,8 @@ def _caller_logger() -> logging.Logger:
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-from textwrap import shorten
-from typing import Union, Callable
-
-import numpy as np
 import pandas as pd
 import polars as pl
-import pyarrow as pa
-import polars.selectors as cs
 from pyutilz.system import clean_ram, get_own_memory_usage
 
 

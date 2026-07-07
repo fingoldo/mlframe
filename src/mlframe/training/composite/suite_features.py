@@ -13,7 +13,7 @@ No frame copy beyond the appended column on the polars path (``with_columns`` is
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional
 
 import numpy as np
 

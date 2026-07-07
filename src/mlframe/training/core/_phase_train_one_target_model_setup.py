@@ -396,7 +396,7 @@ def _setup_per_target_mlframe_models(
     )
 
     if verbose:
-        logger.info(f"select_target...")
+        logger.info("select_target...")
 
     t0_select_target = timer()
     od_common_params, current_behavior_config = _build_common_params_for_target(

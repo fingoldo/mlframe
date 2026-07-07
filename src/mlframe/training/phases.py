@@ -28,7 +28,7 @@ import logging
 import threading
 from contextlib import contextmanager
 from time import perf_counter as _timer
-from typing import Any, Dict, Iterator, List, Tuple
+from typing import Any, Iterator
 
 logger = logging.getLogger(__name__)
 

@@ -18,26 +18,21 @@ from __future__ import annotations
 import logging
 from timeit import default_timer as timer
 from os.path import join, exists
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 import polars as pl
 
-from pyutilz.system import clean_ram, get_own_memory_usage
+from pyutilz.system import get_own_memory_usage
 from mlframe.training.utils import maybe_clean_ram_adaptive
 
 from .configs import (
     TargetTypes,
-    DEFAULT_CALIBRATION_BINS,
     DEFAULT_FAIRNESS_MIN_POP_CAT_THRESH,
     DEFAULT_RFECV_MAX_RUNTIME_MINS,
     DEFAULT_RFECV_CV_SPLITS,
     DEFAULT_RFECV_MAX_NOIMPROVING_ITERS,
-    LinearModelConfig,
-    ModelHyperparamsConfig,
-    TrainingBehaviorConfig,
-    MultilabelDispatchConfig,
 )
 from .io import load_mlframe_model, save_mlframe_model
 
@@ -141,7 +136,6 @@ def _validate_cached_model_schema(
 
 # Import from trainer module
 from .trainer import (
-    configure_training_params,
     _build_configs_from_params,
     train_and_evaluate_model,
 )

@@ -43,8 +43,7 @@ Public surface:
 from __future__ import annotations
 
 import logging
-import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from timeit import default_timer as timer
 from typing import Any, Callable, List, Optional, Sequence, Tuple
 

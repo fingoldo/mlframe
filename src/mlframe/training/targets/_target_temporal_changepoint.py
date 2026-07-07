@@ -50,19 +50,15 @@ Public surface:
 
 from __future__ import annotations
 
-import logging
 import math
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, Sequence, TYPE_CHECKING, Tuple
+from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from .target_temporal_audit import ChangePointMethod
 
 import numpy as np
-import pandas as pd
 
 try:
-    import polars as pl
+    import polars as pl  # noqa: F401
     _HAS_POLARS = True
 except ImportError:
     _HAS_POLARS = False
@@ -74,13 +70,9 @@ except ImportError:
 # and the symbols are already bound -- single source of truth, no
 # duplication.
 from .target_temporal_audit import (  # noqa: E402
-    DEFAULT_MIN_BIN_FRACTION_FOR_FILTER,
     DEFAULT_ZSCORE_THRESHOLD,
-    DEFAULT_ZSCORE_WINDOW,
-    DEFAULT_TARGET_BINS_RANGE,
     DEFAULT_PELT_MODEL,
     DEFAULT_PELT_MIN_SEGMENT_SIZE,
-    Granularity,
     _import_ruptures,
 )
 

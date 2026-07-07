@@ -42,7 +42,7 @@ def _find_weights_for_majority_graph(
         and params["weights_to_maximize"] is not None
     ):
         raise ValueError(
-            f"Only one parameter among weights_to_minimize and weights_to_maximize"
+            "Only one parameter among weights_to_minimize and weights_to_maximize"
             "can be not None"
         )
     elif params["weights_to_minimize"] is not None:

@@ -7,7 +7,6 @@ via `concepts` library, emit membership in each concept's extent as a categorica
 """
 from __future__ import annotations
 import logging
-from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input
@@ -20,7 +19,7 @@ def compute_fca_closed_concepts_features(
     top_k=8, standardize=True, column_prefix="fca", dtype=np.float32,
 ):
     try:
-        import concepts as _concepts
+        import concepts as _concepts  # noqa: F401 -- probe import to fail fast with a clear error if concepts is missing
     except ImportError as exc:
         raise ImportError("fca_closed_concepts requires concepts library") from exc
 

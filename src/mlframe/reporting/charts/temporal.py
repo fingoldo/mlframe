@@ -24,7 +24,7 @@ Target serial-structure panels (token-based composer):
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 

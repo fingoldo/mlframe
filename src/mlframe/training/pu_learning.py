@@ -66,7 +66,7 @@ Public surface:
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, clone

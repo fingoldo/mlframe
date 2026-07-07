@@ -54,7 +54,6 @@ def _fisher_lda(X_pos: np.ndarray, X_neg: np.ndarray) -> Tuple[np.ndarray, float
     mu_neg = X_neg.mean(axis=0).astype(np.float32)
     diff = (mu_pos - mu_neg).astype(np.float32)
     # Pool within-class covariance via Ledoit-Wolf on combined within-class scatter.
-    n_p, n_n = X_pos.shape[0], X_neg.shape[0]
     Xp_c = X_pos - mu_pos
     Xn_c = X_neg - mu_neg
     pooled = np.concatenate([Xp_c, Xn_c], axis=0)

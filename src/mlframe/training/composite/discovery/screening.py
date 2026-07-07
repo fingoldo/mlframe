@@ -3,20 +3,11 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
-import math
-import os
-import sys
-import warnings
-from timeit import default_timer as timer
-from typing import (
-    TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple, Union,
-)
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 try:
     import numba as _numba
@@ -39,12 +30,7 @@ def _is_polars_df(x: Any) -> bool:
     return _HAS_POLARS and isinstance(x, pl.DataFrame)
 
 
-from ..estimator import CompositeTargetEstimator, _y_train_clip_bounds
-from ..transforms import get_transform
 from ._corr_numba import safe_abs_corr_all_dispatch as _safe_abs_corr_all_dispatch
-
-if TYPE_CHECKING:
-    from ..transforms import Transform  # used as forward annotation in _tiny_cv_rmse_y_scale signature
 
 logger = logging.getLogger(__name__)
 

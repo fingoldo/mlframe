@@ -8,7 +8,7 @@ resolves transparently.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
     from ..feature_handling.config import FeatureHandlingConfig

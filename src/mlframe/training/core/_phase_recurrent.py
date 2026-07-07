@@ -23,7 +23,7 @@ from __future__ import annotations
 import inspect
 import logging
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -31,7 +31,7 @@ from pyutilz.system import tqdmu_lazy_start
 from sklearn.base import clone
 
 from ..configs import TargetTypes
-from ..utils import log_phase, log_ram_usage
+from ..utils import log_phase
 from ..trainer import _configure_recurrent_params
 from ._misc_helpers import _compute_neural_max_time
 
@@ -500,7 +500,6 @@ def train_recurrent_models(
                     return None
                 train_target = _coerce_to_numpy(_pos_slice(target_values, train_idx))
                 val_target = _coerce_to_numpy(_pos_slice(target_values, val_idx))
-                test_target = _coerce_to_numpy(_pos_slice(target_values, test_idx))
 
                 model_clone = clone(recurrent_model)
 

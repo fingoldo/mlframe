@@ -45,7 +45,6 @@ __all__ = [
     "predictor_quantile_spread",
 ]
 
-from typing import Tuple
 
 import numpy as np
 import numba
@@ -142,7 +141,6 @@ def predictor_pairwise_abs_diffs(preds: np.ndarray) -> np.ndarray:
     arr = _coerce_preds(preds)
     n, k = arr.shape
     iu, ju = np.triu_indices(k, k=1)
-    n_pairs = iu.size
     # Vectorised gather: shape (n, n_pairs)
     return np.abs(arr[:, iu] - arr[:, ju])
 

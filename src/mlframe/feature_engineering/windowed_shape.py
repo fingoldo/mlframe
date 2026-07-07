@@ -656,7 +656,6 @@ def rolling_integral_above_baseline(
             # the write_idx anchor is used as the constant.
             b = np.asarray(baseline, dtype=np.float64)[write_idx]
         else:
-            seg_vals = wins[0].copy() if wins.shape[0] > 0 else np.array([])
             # Re-derive over the WHOLE group (= the values at sort_idx_seg)
             group_full = np.asarray(values, dtype=np.float64)[sort_idx_seg]
             if baseline_fn == "median":

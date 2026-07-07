@@ -32,7 +32,6 @@ from ._model_configs import (
     ModelHyperparamsConfig,
     TrainingBehaviorConfig,
 )
-from ._composite_target_discovery_config import CompositeTargetDiscoveryConfig
 # ``ReportingConfig`` / ``PredictionsContainer`` are referenced only in
 # docstrings here and would create a circular import (_reporting_configs imports
 # FeatureImportanceConfig from this module). Do NOT add a top-level import for

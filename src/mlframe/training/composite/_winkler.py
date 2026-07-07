@@ -26,7 +26,7 @@ ids is then the only O(n) non-kernel cost -- no actionable further speedup at th
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 

@@ -42,7 +42,7 @@ dense regions -- the hallmark of an epistemic signal. Both are pinned by
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone

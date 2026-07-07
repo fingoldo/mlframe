@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, Callable, Mapping, Optional, Sequence
+from typing import Any, Callable, Mapping, Optional
 
 import numpy as np
 from scipy import stats

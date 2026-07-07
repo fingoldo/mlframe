@@ -33,7 +33,6 @@ forced at the boundaries anyway).
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 from typing import List, Optional, Tuple
 
 import numpy as np

@@ -39,7 +39,7 @@ Mlframe wiring:
 """
 from __future__ import annotations
 
-from typing import Iterable, List
+from typing import List
 
 import torch
 from torch.optim import Optimizer

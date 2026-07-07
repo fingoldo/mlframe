@@ -18,13 +18,12 @@ with <2 docs or single-class relevance - no positive pairs possible).
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from sklearn.base import BaseEstimator, RegressorMixin
 from torch.utils.data import DataLoader, Dataset, Sampler
 

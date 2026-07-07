@@ -19,7 +19,7 @@ Reference: Rahimi-Recht 2007 RFF + per-column random projections (a frozen varia
 from __future__ import annotations
 
 import logging
-from typing import Optional, Union
+from typing import Union
 
 import numba
 import numpy as np

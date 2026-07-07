@@ -8,18 +8,14 @@ becomes one entry in ``target_by_type[regression]``; specs are stored on
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
-import pandas as pd
-import polars as pl
 
 from ..baselines import BaselineDiagnostics
 from ..composite import CompositeTargetDiscovery
 from ..composite.cache import (
-    ConfigSignatureV1,
     DiscoveryCache,
-    compute_config_signature_v1,
     data_signature,
     make_discovery_cache_key,
 )

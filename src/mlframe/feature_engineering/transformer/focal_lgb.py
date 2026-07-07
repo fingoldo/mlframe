@@ -20,7 +20,7 @@ Reference: Lin et al. 2017 — Focal Loss for Dense Object Detection. Implementa
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import numpy as np
 import polars as pl

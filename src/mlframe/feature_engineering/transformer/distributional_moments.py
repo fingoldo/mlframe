@@ -4,7 +4,7 @@ Iter 94 mechanism. Agent B #3 ranked. 3rd/4th moments are mathematically orthogo
 """
 from __future__ import annotations
 import logging
-from typing import Any, Literal, Optional, Sequence
+from typing import Sequence
 import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input
@@ -57,7 +57,7 @@ def compute_distributional_moments_features(
                 preds_q[:, i] = m.predict(Xq_s).astype(np.float32)
         # Sort each row's predictions (in case quantile crossing)
         preds_q.sort(axis=1)
-        q05 = preds_q[:, 0]; q15 = preds_q[:, 1]; q25 = preds_q[:, 2]
+        q05 = preds_q[:, 0]; q25 = preds_q[:, 2]
         q50 = preds_q[:, 3]; q75 = preds_q[:, 4]; q85 = preds_q[:, 5]; q95 = preds_q[:, 6]
         iqr = (q75 - q25).astype(np.float32) + 1e-9
         # Skewness (q95 + q05 - 2*q50) / IQR

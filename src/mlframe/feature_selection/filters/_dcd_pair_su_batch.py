@@ -56,7 +56,6 @@ from typing import Iterable, Optional
 import numpy as np
 
 try:
-    import numba
     from numba import njit, prange
 
     @njit(nogil=True, cache=True, parallel=True)

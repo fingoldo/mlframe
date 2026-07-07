@@ -17,7 +17,7 @@ can be ``None`` to leave space empty.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List, Literal, Optional, Tuple, Union
+from typing import Any, Literal, Optional, Tuple, Union
 
 import numpy as np
 
@@ -252,6 +252,9 @@ class LinePanelSpec:
     # quantile reliability) an in-axes legend covers the curves. ``legend_ncol`` splits a long legend into columns.
     legend_outside: bool = False
     legend_ncol: int = 1
+    # Explicit y-axis limits (lo, hi); overrides autoscale (e.g. clipping a net-benefit panel's floor
+    # below a steeply-diving treat-all reference so the informative region near 0 stays readable).
+    ylim: Optional[Tuple[float, float]] = None
 
 
 @dataclass(frozen=True)

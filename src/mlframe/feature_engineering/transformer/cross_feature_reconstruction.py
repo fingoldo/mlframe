@@ -9,7 +9,6 @@ NO y used — unsupervised feature-space outlierness, complementary to geometric
 """
 from __future__ import annotations
 import logging
-from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input
@@ -30,7 +29,6 @@ def compute_cross_feature_reconstruction_features(
     if X_query is not None:
         validate_numeric_input(X_query, name="X_query", allow_fp16=False)
     X_train_f = np.asarray(X_train, dtype=np.float32)
-    y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features_out = 5
 
     def _process(Xt, Xq, fold_seed):

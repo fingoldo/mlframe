@@ -30,7 +30,6 @@ def _run_gate(delta: float, *, min_effect: float, n: int = 200_000):
     kept = apply_alpha_drift_gate(
         fake, [spec], df=df, train_idx=np.arange(n), y_full=y,
         extract_column_array=lambda d, c: d[c].to_numpy(),
-        linear_residual_fit=None,
     )
     return [s.name for s in kept], fake._alpha_drift_flags
 

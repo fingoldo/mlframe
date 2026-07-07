@@ -42,29 +42,21 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------------------------------------------------------------
 
 import warnings
-from enum import Enum
-from pathlib import Path
-from typing import TYPE_CHECKING, List, Tuple, Dict, Any
+from typing import TYPE_CHECKING
 
-import numpy as np
 import lightning as L
 import torch
 import torch.nn as nn
-from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
-from sklearn.preprocessing import StandardScaler
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from torch.utils.data import DataLoader, WeightedRandomSampler
-from concurrent.futures import ThreadPoolExecutor
 
 try:
     import xxhash as _xxhash  # noqa: F401  module-top for hot cache-key path
     _HAS_XXHASH = True
 except ImportError:
     _HAS_XXHASH = False
-import hashlib as _hashlib
 
 if TYPE_CHECKING:
-    import polars as pl_df
+    pass
 
 
 # Default number of channels per timestep when callers don't supply

@@ -34,8 +34,8 @@ Returns any value with a ``__format__`` method (typically float).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Callable, Dict, Iterator, Optional, Tuple, Any
+from dataclasses import dataclass
+from typing import Callable, Iterator, Optional, Any
 
 from .configs import TargetTypes
 

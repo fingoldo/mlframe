@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from math import log2
 
-from typing import Optional, Sequence
+from typing import Optional
 
 import numpy as np
 import numba

@@ -11,7 +11,6 @@ because the iterator state carries over and adjacent draws share entropy).
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import numba
 import numpy as np

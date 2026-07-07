@@ -9,7 +9,6 @@ emit cluster id one-hot bin + log-distance to top-3 centroids + cluster size + c
 """
 from __future__ import annotations
 import logging
-from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input

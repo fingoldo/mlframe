@@ -17,7 +17,7 @@ surface is (approximately) additive f(x)+g(y).
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 
