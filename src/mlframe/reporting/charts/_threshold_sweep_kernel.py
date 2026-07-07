@@ -105,7 +105,7 @@ def _f1_sweep_numpy(y_true: np.ndarray, proba: np.ndarray, T: int) -> np.ndarray
 def f1_sweep_kernel(y_true: np.ndarray, proba: np.ndarray, T: int) -> np.ndarray:
     """(K, T) per-label F1 sweep on the uniform unit grid; numba-parallel fast path with numpy fallback."""
     if _NUMBA_AVAILABLE:
-        return _f1_sweep_numba(y_true, proba, T)
+        return np.asarray(_f1_sweep_numba(y_true, proba, T))
     return _f1_sweep_numpy(y_true, proba, T)
 
 

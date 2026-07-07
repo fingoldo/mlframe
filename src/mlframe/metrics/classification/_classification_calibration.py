@@ -160,4 +160,4 @@ def accuracy_ratio(y_true: np.ndarray, y_score: np.ndarray) -> float:
     denom = area_perfect - 0.5
     if denom <= 0.0:
         return np.nan
-    return (area_model - 0.5) / denom
+    return float((area_model - 0.5) / denom)

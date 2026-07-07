@@ -53,7 +53,7 @@ def _fast_hamming_loss_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         for j in range(K):
             if y_true[i, j] != y_pred[i, j]:
                 err += 1.0
-    return err / (N * K)
+    return float(err / (N * K))
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
@@ -78,7 +78,7 @@ def _fast_hamming_loss_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     total = 0.0
     for i in range(N):
         total += err_per_row[i]
-    return total / N
+    return float(total / N)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -94,7 +94,7 @@ def _fast_subset_accuracy_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
                 break
         if all_eq:
             correct += 1.0
-    return correct / N
+    return float(correct / N)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
@@ -111,7 +111,7 @@ def _fast_subset_accuracy_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
                 break
         if all_eq:
             correct += 1
-    return correct / N
+    return float(correct / N)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -133,7 +133,7 @@ def _fast_jaccard_score_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
             total += intersect / union
         else:
             total += 1.0  # both empty -- perfect by definition
-    return total / N
+    return float(total / N)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
@@ -165,7 +165,7 @@ def _fast_jaccard_score_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     total = 0.0
     for i in range(N):
         total += row_score[i]
-    return total / N
+    return float(total / N)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -179,7 +179,7 @@ def _popcount64(x: np.uint64) -> np.int64:
     x = x - ((x >> 1) & np.uint64(0x5555555555555555))
     x = (x & np.uint64(0x3333333333333333)) + ((x >> 2) & np.uint64(0x3333333333333333))
     x = (x + (x >> 4)) & np.uint64(0x0F0F0F0F0F0F0F0F)
-    return np.int64((x * np.uint64(0x0101010101010101)) >> 56) & np.int64(0x7F)
+    return int(np.int64((x * np.uint64(0x0101010101010101)) >> 56) & np.int64(0x7F))
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -202,7 +202,7 @@ def _fast_jaccard_bitmap_seq(y_true_packed: np.ndarray, y_pred_packed: np.ndarra
             total += intersect / union
         else:
             total += 1.0  # both empty
-    return total / N
+    return float(total / N)
 
 
 def _can_use_bitmap_jaccard(K: int) -> bool:
@@ -286,8 +286,8 @@ def _pack_for_bitmap(arr: np.ndarray) -> np.ndarray:
     rows; tiny frames keep the serial njit (prange spawn ~40-80us not amortised).
     """
     if arr.shape[0] >= _PARALLEL_MULTILABEL_THRESHOLD:
-        return _pack_for_bitmap_kernel_par(arr)
-    return _pack_for_bitmap_kernel_seq(arr)
+        return np.asarray(_pack_for_bitmap_kernel_par(arr))
+    return np.asarray(_pack_for_bitmap_kernel_seq(arr))
 
 
 def _coerce_multilabel_array(arr) -> np.ndarray:
@@ -324,8 +324,8 @@ def hamming_loss(y_true, y_pred) -> float:
     """
     yt, yp = _validate_multilabel_pair(y_true, y_pred)
     if yt.shape[0] * yt.shape[1] > 1_000_000:
-        return _fast_hamming_loss_par(yt, yp)
-    return _fast_hamming_loss_seq(yt, yp)
+        return float(_fast_hamming_loss_par(yt, yp))
+    return float(_fast_hamming_loss_seq(yt, yp))
 
 
 def subset_accuracy(y_true, y_pred) -> float:
@@ -338,8 +338,8 @@ def subset_accuracy(y_true, y_pred) -> float:
     """
     yt, yp = _validate_multilabel_pair(y_true, y_pred)
     if yt.shape[0] >= _PARALLEL_MULTILABEL_THRESHOLD:
-        return _fast_subset_accuracy_par(yt, yp)
-    return _fast_subset_accuracy_seq(yt, yp)
+        return float(_fast_subset_accuracy_par(yt, yp))
+    return float(_fast_subset_accuracy_seq(yt, yp))
 
 
 def jaccard_score_multilabel(y_true, y_pred, *, force_elementwise: bool = False) -> float:
@@ -363,7 +363,7 @@ def jaccard_score_multilabel(y_true, y_pred, *, force_elementwise: bool = False)
     if not force_elementwise and _can_use_bitmap_jaccard(K):
         yt_packed = _pack_for_bitmap(yt)
         yp_packed = _pack_for_bitmap(yp)
-        return _fast_jaccard_bitmap_seq(yt_packed, yp_packed, K)
+        return float(_fast_jaccard_bitmap_seq(yt_packed, yp_packed, K))
     if yt.shape[0] >= _PARALLEL_MULTILABEL_THRESHOLD:
-        return _fast_jaccard_score_par(yt, yp)
-    return _fast_jaccard_score_seq(yt, yp)
+        return float(_fast_jaccard_score_par(yt, yp))
+    return float(_fast_jaccard_score_seq(yt, yp))

@@ -64,7 +64,7 @@ if _NUMBA_AVAILABLE:
                 s += alpha * e
             else:
                 s += (alpha - 1.0) * e
-        return s / n
+        return float(s / n)
 
     @numba.njit(**_NJIT_KW)
     def _fast_pinball_per_alpha(y: np.ndarray, P: np.ndarray, alphas: np.ndarray) -> np.ndarray:
@@ -102,7 +102,7 @@ if _NUMBA_AVAILABLE:
         for i in range(n):
             if q_lo[i] <= y[i] <= q_hi[i]:
                 c += 1
-        return c / n
+        return float(c / n)
 
     @numba.njit(**_NJIT_KW)
     def _fast_winkler(
@@ -123,7 +123,7 @@ if _NUMBA_AVAILABLE:
             elif y[i] > q_hi[i]:
                 penalty = two_over_a * (y[i] - q_hi[i])
             s += width + penalty
-        return s / n
+        return float(s / n)
 
     @numba.njit(**_NJIT_KW)
     def _fast_pit(P: np.ndarray, y: np.ndarray, a_arr: np.ndarray) -> np.ndarray:
@@ -346,7 +346,7 @@ def pit_values(y_true, preds_NK, alphas: Sequence[float]) -> np.ndarray:
             )
     if _NUMBA_AVAILABLE and y.shape[0] > 0:
         out = _fast_pit(np.ascontiguousarray(P), np.ascontiguousarray(y), a_arr)
-        return np.clip(out, 0.0, 1.0)
+        return np.asarray(np.clip(out, 0.0, 1.0))
     out = np.empty(y.shape[0], dtype=np.float64)
     for i in range(y.shape[0]):
         row = P[i]

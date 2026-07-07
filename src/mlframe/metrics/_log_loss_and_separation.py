@@ -126,8 +126,8 @@ def fast_log_loss_binary(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e
     Returns np.nan if only one class is present in y_true.
     """
     if len(y_true) >= _PARALLEL_REDUCTION_THRESHOLD:
-        return _fast_log_loss_binary_par(y_true, y_pred, eps)
-    return _fast_log_loss_binary_seq(y_true, y_pred, eps)
+        return float(_fast_log_loss_binary_par(y_true, y_pred, eps))
+    return float(_fast_log_loss_binary_seq(y_true, y_pred, eps))
 
 
 def fast_log_loss(y_true: np.ndarray, y_pred: np.ndarray, eps: float = None) -> float:
@@ -196,8 +196,8 @@ def _probability_separation_score_seq(y_true: np.ndarray, y_prob: np.ndarray, cl
     std = np.sqrt(sse / n_in)
     addend = std * std_weight
     if class_label == 1:
-        return mean - addend
-    return mean + addend
+        return float(mean - addend)
+    return float(mean + addend)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
@@ -230,9 +230,9 @@ def _probability_separation_score_par(y_true: np.ndarray, y_prob: np.ndarray, cl
     std = np.sqrt(sse / n_in)
     addend = std * std_weight
     if class_label == 1:
-        return mean - addend
+        return float(mean - addend)
     else:
-        return mean + addend
+        return float(mean + addend)
 
 
 def probability_separation_score(y_true: np.ndarray, y_prob: np.ndarray, class_label: int = 1, std_weight: float = 0.5) -> float:
@@ -240,5 +240,5 @@ def probability_separation_score(y_true: np.ndarray, y_prob: np.ndarray, class_l
     discounted by std (separation = mean - std * weight). Auto seq/par
     dispatch above N=50k (~5x faster at N=1M)."""
     if len(y_true) >= _PARALLEL_MULTILABEL_THRESHOLD:
-        return _probability_separation_score_par(y_true, y_prob, class_label, std_weight)
-    return _probability_separation_score_seq(y_true, y_prob, class_label, std_weight)
+        return float(_probability_separation_score_par(y_true, y_prob, class_label, std_weight))
+    return float(_probability_separation_score_seq(y_true, y_prob, class_label, std_weight))

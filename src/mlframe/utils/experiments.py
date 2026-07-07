@@ -41,10 +41,10 @@ def create_experiment(product_id: str, variants: list) -> None:
 def get_experiments(product_name: str, fields: Union[str, Sequence[str]] = "id,name,started_at,finished_at") -> list:
     # if there are active experiments currently, get them
     safe_fields = _validate_and_join_fields(fields, _ALLOWED_EXPERIMENT_FIELDS)
-    return safe_execute(
+    return list(safe_execute(
         f"select {safe_fields} from experiments where started_at is not null and finished_at is null and product_id=(select id from products where name =%s) limit 1",  # nosec B608 - safe_fields validated by _validate_and_join_fields() against an allowlist above; product_name is %s-parameterized, not interpolated
         (product_name,),
-    )
+    ))
 
 
 def get_experiment_routes(experiment_id: str, fields: Union[str, Sequence[str]] = "id,name,audience,type") -> list:
@@ -54,7 +54,7 @@ def get_experiment_routes(experiment_id: str, fields: Union[str, Sequence[str]] 
         f"select {safe_fields} from experiments_routes where experiment_id =%s",  # nosec B608 - safe_fields validated by _validate_and_join_fields() against an allowlist above; experiment_id is %s-parameterized, not interpolated
         (experiment_id,),
     )
-    return routes
+    return list(routes)
 
 def read_experiment(experiment) -> tuple:
     experiment_id, experiment_name, experiment_started_at, experiment_finished_at, *_ = experiment

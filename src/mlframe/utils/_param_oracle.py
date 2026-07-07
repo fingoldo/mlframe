@@ -113,7 +113,7 @@ def _host_key() -> str:
     works without pyutilz."""
     try:
         from pyutilz.performance.kernel_tuning.cache import hw_fingerprint
-        return hw_fingerprint()
+        return str(hw_fingerprint())
     except Exception:
         import platform
         return f"node_{platform.node() or 'unknown'}"
@@ -839,7 +839,7 @@ def _loads(s: Optional[str]) -> dict:
     if not s:
         return {}
     try:
-        return orjson.loads(s)
+        return dict(orjson.loads(s))
     except Exception:
         return {}
 

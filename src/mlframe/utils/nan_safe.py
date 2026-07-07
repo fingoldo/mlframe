@@ -91,7 +91,7 @@ def argmax_classes_safe(
         return np.empty(0, dtype=np.int64)
 
     if np.all(np.isfinite(probs)):
-        return np.argmax(probs, axis=1).astype(np.int64, copy=False)
+        return np.asarray(np.argmax(probs, axis=1).astype(np.int64, copy=False))
 
     # Identify rows that have at least one finite entry; the rest go to fallback.
     row_has_finite = np.isfinite(probs).any(axis=1)

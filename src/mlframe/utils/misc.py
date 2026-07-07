@@ -204,7 +204,7 @@ def get_full_classifier_name(clf: object) -> str:
 def is_cuda_available() -> bool:
     from numba import cuda
 
-    return cuda.is_available()
+    return bool(cuda.is_available())
 
 
 def check_cpu_flag(flag: str = "avx2") -> bool:

@@ -69,7 +69,7 @@ def _jaccard_rows_numpy(y_true: np.ndarray, y_proba: np.ndarray) -> np.ndarray:
 def jaccard_rows(y_true: np.ndarray, y_proba: np.ndarray) -> np.ndarray:
     """Per-row Jaccard score with numba-parallel fast path."""
     if _NUMBA_AVAILABLE:
-        return _jaccard_rows_numba(y_true, y_proba)
+        return np.asarray(_jaccard_rows_numba(y_true, y_proba))
     return _jaccard_rows_numpy(y_true, y_proba)
 
 

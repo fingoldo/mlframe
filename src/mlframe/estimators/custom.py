@@ -435,7 +435,7 @@ def create_dummy_lagged_predictions(y_true: np.ndarray, strategy: str = "constan
 
         y_pred = shift(y_true, shift=shift_params, cval=cval)
 
-    return y_pred
+    return np.asarray(y_pred)
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -571,7 +571,7 @@ def clip_to_quantiles(arr: np.ndarray, quantile: float = 0.01, method: str = "wi
     # empty as identity (nothing to clip).
     arr_arr = np.asarray(arr)
     if arr_arr.size == 0:
-        return arr_arr.copy()
+        return np.asarray(arr_arr.copy())
 
     if quantile > 0.5:
         quantile_from, quantile_to = np.quantile(arr, q=[1 - quantile, quantile])

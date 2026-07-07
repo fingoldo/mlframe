@@ -397,11 +397,11 @@ def compute_batch_rmse(
     if use_gpu:
         import cupy as cp  # lazy
         out = gpu_multiple_rmse_scores(yt, yp)
-        return cp.asnumpy(out)
+        return np.asarray(cp.asnumpy(out))
     # CPU reference
     if yt.ndim == 1:
         yt = yt[:, np.newaxis]
-    return np.sqrt(np.mean((yt - yp) ** 2.0, axis=0))
+    return np.asarray(np.sqrt(np.mean((yt - yp) ** 2.0, axis=0)))
 
 
 def compute_batch_aucs(
@@ -512,13 +512,13 @@ def _run_batch_metric_sweep(metric: str) -> list:
             return roc
         variants["gpu"] = _gpu
 
-    return sweep_backend_grid(
+    return list(sweep_backend_grid(
         variants,
         {"n_samples": _BATCH_METRIC_SWEEP_N, "n_targets": _BATCH_METRIC_SWEEP_M},
         _make_batch_metric_inputs,
         reference="cpu",
         repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6,
-    )
+    ))
 
 
 def _batch_metric_fallback_choice(n_samples: int, n_targets: int) -> str:
@@ -531,7 +531,7 @@ def _batch_metric_backend_choice(kernel_name: str, N: int, M: int) -> str:
     """Per-host cpu/gpu choice for a batch-metric kernel at (N, M) via the matching
     spec's choose() (memoized per dims)."""
     spec = _BATCH_RMSE_SPEC if kernel_name == "batch_rmse" else _BATCH_AUCS_SPEC
-    return spec.choose(n_samples=int(N), n_targets=int(M))
+    return str(spec.choose(n_samples=int(N), n_targets=int(M)))
 
 
 # Register the two batch-metric dispatchers with the kernel-tuner registry so

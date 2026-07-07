@@ -207,7 +207,7 @@ def _spearman_corr_matrix(scores: np.ndarray) -> np.ndarray:
     corr = normed.T @ normed
     # Zero-variance columns produce a degenerate row/col; force diag to 1 and clip FP overshoot.
     np.fill_diagonal(corr, 1.0)
-    return np.clip(corr, -1.0, 1.0)
+    return np.asarray(np.clip(corr, -1.0, 1.0))
 
 
 def _corr_heatmap_panel(per_model: Mapping[str, Mapping[str, Any]], subsample: int, seed: int) -> PanelSpec:

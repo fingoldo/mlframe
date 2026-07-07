@@ -88,7 +88,7 @@ def _get_nunique(vals: np.ndarray, skip_nan: bool = True, skip_vals: tuple = Non
         else:
             skip0 = float(skip_vals[0])
             skip1 = float(skip_vals[1])
-        return _get_count_distinct_njit()(sv, skip0, skip1)
+        return int(_get_count_distinct_njit()(sv, skip0, skip1))
 
     unique_vals = np.unique(vals)
     if skip_nan:

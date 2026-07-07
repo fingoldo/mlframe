@@ -82,14 +82,14 @@ def _per_query_ndcg10(
     """Per-query NDCG@10 vector (NaN for degenerate queries), shared by
     NDCG_DIST and NDCG_BY_QSIZE so the kernel runs once per figure."""
     if shared is not None and "ndcg10" in shared:
-        return shared["ndcg10"]
+        return np.asarray(shared["ndcg10"])
     from mlframe.metrics.ranking import _per_query_ndcg_kernel
 
     sorted_y_true, sorted_y_score, group_starts, _ = _sorted_layout(y_true, y_score, group_ids, shared)
     vals = _per_query_ndcg_kernel(sorted_y_true, sorted_y_score, group_starts, 10)
     if shared is not None:
         shared["ndcg10"] = vals
-    return vals
+    return np.asarray(vals)
 
 
 DEFAULT_BOOTSTRAP_B: int = 1_000

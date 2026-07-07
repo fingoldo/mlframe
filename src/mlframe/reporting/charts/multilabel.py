@@ -400,7 +400,7 @@ def _grid_fire_index(pk: np.ndarray, thresholds: np.ndarray) -> np.ndarray:
         cand = np.clip(cand, -1, T - 1)
         up = (cand + 1 < T) & (thresholds[np.clip(cand + 1, 0, T - 1)] <= pk)
         cand = cand + up.astype(np.int64)
-        return np.clip(cand + 1, 0, T)
+        return np.asarray(np.clip(cand + 1, 0, T))
     return np.clip(np.searchsorted(thresholds, pk, side="right"), 0, T)
 
 
@@ -443,7 +443,7 @@ def _per_label_f1_sweep(y_true: np.ndarray, y_proba: np.ndarray, thresholds: np.
     if _uniform_unit_grid(thresholds):
         fast = _f1_sweep_uniform_grid(yt, P, T)
         if fast is not None:
-            return fast
+            return np.asarray(fast)
     f1 = np.zeros((K, T), dtype=np.float64)
     n_pos = yt.sum(axis=0).astype(np.float64)
     for k in range(K):

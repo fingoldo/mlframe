@@ -91,7 +91,7 @@ def _uniform_bin_index(v: np.ndarray, edges: np.ndarray, nbins: int) -> np.ndarr
     idx[over] -= 1
     under = (v >= edges[idx + 1]) & (idx < nbins - 1)
     idx[under] += 1
-    return idx
+    return np.asarray(idx)
 
 
 def _hist2d_uniform(xp: np.ndarray, yp: np.ndarray, edges: np.ndarray, nbins: int) -> np.ndarray:
@@ -126,7 +126,7 @@ def _worst_k_into_finite(y_true, y_pred, worst_k_indices) -> Optional[np.ndarray
     wk = wk[finite[wk]]
     if wk.size == 0:
         return None
-    return finite_pos[wk].astype(np.int64)
+    return np.asarray(finite_pos[wk].astype(np.int64))
 
 
 def _remap_through_order(order: np.ndarray, wk_finite: Optional[np.ndarray], n: int) -> Optional[np.ndarray]:
@@ -135,7 +135,7 @@ def _remap_through_order(order: np.ndarray, wk_finite: Optional[np.ndarray], n: 
         return None
     inverse = np.empty(n, dtype=np.int64)
     inverse[order] = np.arange(n, dtype=np.int64)
-    return inverse[wk_finite]
+    return np.asarray(inverse[wk_finite])
 
 
 def _append_missing_worst_k(s_pred, s_true, yp_finite, yt_finite, wk_finite):

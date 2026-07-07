@@ -76,7 +76,7 @@ def _normalize_matrix(matrix: np.ndarray, normalize: Optional[str]) -> np.ndarra
         else:
             raise ValueError(f"normalize must be one of None, 'true', 'pred', 'all'; got {normalize!r}")
         denom = np.where(denom == 0, 1.0, denom)
-        return m / denom
+        return np.asarray(m / denom)
 
 
 def plot_confusion_matrix(

@@ -91,7 +91,7 @@ def _equal_population_codes(values: np.ndarray, n_bins: int) -> np.ndarray:
     ranks[order] = np.arange(n, dtype=np.int64)
     codes = (ranks * n_bins) // n
     np.clip(codes, 0, n_bins - 1, out=codes)
-    return codes.astype(np.int64)
+    return np.asarray(codes.astype(np.int64))
 
 
 def _time_codes(df: Any, y_len: int, timestamps: Optional[np.ndarray], time_col: Optional[Any], n_time_bins: int) -> np.ndarray:

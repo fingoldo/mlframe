@@ -90,7 +90,7 @@ def render_model_comparison_diagnostic(
         _record(charts, "model_comparison", ok)
         if ok:
             _record_path(charts, base_path + "_model_comparison")
-        return ok
+        return bool(ok)
     except Exception:
         logger.exception("diagnostics_dispatch: model_comparison failed; continuing.")
         _record(charts, "model_comparison", False)
@@ -262,7 +262,7 @@ def render_decile_table_diagnostic(
         _record(charts, "decile_table", ok)
         if ok:
             _record_path(charts, out)
-        return ok
+        return bool(ok)
     except Exception:
         logger.exception("diagnostics_dispatch: decile_table failed; continuing.")
         _record(charts, "decile_table", False)
@@ -305,7 +305,7 @@ def render_model_card_diagnostic(
         _record(charts, "model_card", ok)
         if ok:
             _record_path(charts, out)
-        return ok
+        return bool(ok)
     except Exception:
         logger.exception("diagnostics_dispatch: model_card failed; continuing.")
         _record(charts, "model_card", False)
@@ -341,7 +341,7 @@ def render_prediction_stability_diagnostic(
         _record(charts, "prediction_stability", ok)
         if ok:
             _record_path(charts, out)
-        return ok
+        return bool(ok)
     except Exception:
         logger.exception("diagnostics_dispatch: prediction_stability failed; continuing.")
         _record(charts, "prediction_stability", False)
@@ -416,7 +416,7 @@ def render_split_comparison_from_suite(
         _record(charts, "split_comparison", ok)
         if ok:
             _record_path(charts, out)
-        return ok
+        return bool(ok)
     except Exception:
         logger.exception("diagnostics_dispatch: split_comparison failed; continuing.")
         _record(charts, "split_comparison", False)
@@ -443,7 +443,7 @@ def render_target_dist_overlay(
         spec = target_dist_overlay(y_true_by_split, pred_by_split=pred_by_split, task=overlay_task)
         ok = _save_spec(spec, plot_outputs, base_path + "_target_dist")
         _record(charts, "target_dist", ok)
-        return ok
+        return bool(ok)
     except Exception:
         logger.exception("diagnostics_dispatch: target_dist_overlay failed; continuing.")
         _record(charts, "target_dist", False)
@@ -530,7 +530,7 @@ def render_engineered_separability_diagnostic(
         _record(charts, "engineered_separability", ok)
         if ok:
             _record_path(charts, base_path + "_separability")
-        return ok
+        return bool(ok)
     except Exception:
         logger.exception("diagnostics_dispatch: engineered_separability failed; continuing.")
         _record(charts, "engineered_separability", False)
@@ -574,7 +574,7 @@ def render_category_discriminability_diagnostic(
         _record(charts, "category_discriminability", ok)
         if ok:
             _record_path(charts, base_path + "_category_discriminability")
-        return ok
+        return bool(ok)
     except Exception:
         logger.exception("diagnostics_dispatch: category_discriminability failed; continuing.")
         _record(charts, "category_discriminability", False)
@@ -618,7 +618,7 @@ def render_class_structure_diagnostic(
         _record(charts, "class_structure", ok)
         if ok:
             _record_path(charts, base_path + "_class_structure")
-        return ok
+        return bool(ok)
     except Exception:
         logger.exception("diagnostics_dispatch: class_structure failed; continuing.")
         _record(charts, "class_structure", False)

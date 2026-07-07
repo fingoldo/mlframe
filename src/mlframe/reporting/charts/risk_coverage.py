@@ -73,7 +73,7 @@ def _binary_confidence(y_score: np.ndarray) -> np.ndarray:
 
 def _multiclass_confidence(proba: np.ndarray) -> np.ndarray:
     """Confidence of a multiclass proba matrix: top class probability (max over classes)."""
-    return proba.max(axis=1)
+    return np.asarray(proba.max(axis=1))
 
 
 def _prepare_classification(y_true, y_score, *, task: Task) -> Tuple[np.ndarray, np.ndarray]:

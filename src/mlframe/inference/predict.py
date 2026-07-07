@@ -36,7 +36,7 @@ _ALLOWED_MODEL_EXTENSIONS = frozenset({".dump", ".joblib", ".pkl", ".pickle"})
 
 
 def _sha256_of_file(path: str, chunk: int = 1 << 20) -> str:
-    return _safe_pickle_sha256_of_file(path, chunk=chunk)
+    return str(_safe_pickle_sha256_of_file(path, chunk=chunk))
 
 
 def _verify_sidecar(path: str) -> bool:

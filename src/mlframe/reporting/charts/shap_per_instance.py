@@ -96,7 +96,7 @@ def np_isnan(a: np.ndarray) -> np.ndarray:
     """NaN mask tolerant of integer / object label arrays (which ``np.isnan`` rejects)."""
     arr = np.asarray(a)
     if arr.dtype.kind in "fc":
-        return np.isnan(arr)
+        return np.asarray(np.isnan(arr))
     return np.zeros(arr.shape, dtype=bool)
 
 

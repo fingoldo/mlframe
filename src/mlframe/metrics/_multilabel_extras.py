@@ -253,8 +253,8 @@ def _ranking_loss_kernel(y_true: np.ndarray, scores: np.ndarray) -> float:
     O(n*K log K) presort kernel for K >= _RANKING_LOSS_SORT_K_THRESHOLD.
     Both produce bit-identical results; only the asymptotics differ."""
     if y_true.shape[1] >= _RANKING_LOSS_SORT_K_THRESHOLD:
-        return _ranking_loss_kernel_sorted(y_true, scores)
-    return _ranking_loss_kernel_pairs(y_true, scores)
+        return float(_ranking_loss_kernel_sorted(y_true, scores))
+    return float(_ranking_loss_kernel_pairs(y_true, scores))
 
 
 def label_ranking_loss(y_true: np.ndarray, scores: np.ndarray) -> float:

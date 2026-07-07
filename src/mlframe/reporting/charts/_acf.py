@@ -39,7 +39,7 @@ def _prep_series(x: np.ndarray) -> np.ndarray:
         arr = arr[-MAX_ACF_SERIES:]
     if arr.size:
         arr = arr - arr.mean()
-    return arr
+    return np.asarray(arr)
 
 
 def acf_fft(x: np.ndarray, nlags: int = MAX_ACF_LAGS) -> Tuple[np.ndarray, int]:

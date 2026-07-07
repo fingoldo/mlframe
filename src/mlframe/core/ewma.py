@@ -79,11 +79,11 @@ def ewma(x, alpha: float, adjust: bool = False) -> np.ndarray:
         raise ValueError(f"ewma: alpha must be in [0, 1] and not NaN; got {alpha!r}.")
     x = np.ascontiguousarray(x)
     if adjust:
-        return _ewma_numba_adjust(x, float(alpha))
-    return _ewma_numba(x, float(alpha))
+        return np.asarray(_ewma_numba_adjust(x, float(alpha)))
+    return np.asarray(_ewma_numba(x, float(alpha)))
 
 
 # Backward-compat alias (previous public name).
 def ewma_numba(x: np.ndarray, alpha: float) -> np.ndarray:
     """Backward-compatible wrapper. Prefer :func:`ewma`."""
-    return _ewma_numba(np.ascontiguousarray(x), float(alpha))
+    return np.asarray(_ewma_numba(np.ascontiguousarray(x), float(alpha)))

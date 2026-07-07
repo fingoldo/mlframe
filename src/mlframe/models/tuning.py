@@ -64,11 +64,11 @@ def check_condition(condition, params: dict) -> bool:
                     return True
         return False
     else:
-        return condition
+        return bool(condition)
 
 
 def value_by_key(dct: dict, key, expected_value) -> bool:
-    return dct.get(key) == expected_value
+    return bool(dct.get(key) == expected_value)
 
 
 def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_values_or=None, allow_if_values_or=None, allow_if_values_and=None):
@@ -275,7 +275,7 @@ def objective_to_sampling_weights(predictions: np.ndarray, y: np.ndarray, minimi
             )
         probs[bad_indices] = 0.0
 
-    return probs
+    return np.asarray(probs)
 
 
 def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFrame, cat_features: list, order: int = 1) -> None:

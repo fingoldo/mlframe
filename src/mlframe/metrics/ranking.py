@@ -101,7 +101,7 @@ def _ndcg_one_query(y_true_q: np.ndarray, y_score_q: np.ndarray, k: int) -> floa
     if idcg <= 0.0:
         return np.nan
     dcg = _dcg_at_k(rels_pred_order, k)
-    return dcg / idcg
+    return float(dcg / idcg)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)

@@ -36,7 +36,7 @@ def robust_float_ensemble(stacked: np.ndarray, *, mad_factor: float = DEFAULT_MA
     ``stacked.mean(axis=0)`` (identical up to the keep-mask being all-True). Returns shape ``stacked[0]``.
     """
     if stacked.shape[0] < 3:
-        return stacked.mean(axis=0)
+        return np.asarray(stacked.mean(axis=0))
     med = np.median(stacked, axis=0)
     abs_dev = np.abs(stacked - med)
     scaled_mad = 1.4826 * np.median(abs_dev, axis=0)
@@ -45,7 +45,7 @@ def robust_float_ensemble(stacked: np.ndarray, *, mad_factor: float = DEFAULT_MA
     keep_counts = keep.sum(axis=0)
     keep_counts = np.where(keep_counts == 0, stacked.shape[0], keep_counts)
     masked_sum = np.where(keep, stacked, 0.0).sum(axis=0)
-    return masked_sum / keep_counts
+    return np.asarray(masked_sum / keep_counts)
 
 
 def combine_float_predictions(stacked: np.ndarray, *, flavour: str = "robust", mad_factor: float = DEFAULT_MAD_FACTOR) -> np.ndarray:
@@ -54,9 +54,9 @@ def combine_float_predictions(stacked: np.ndarray, *, flavour: str = "robust", m
     ``flavour``: ``"robust"`` (default, MAD-gated mean), ``"mean"`` (legacy raw mean), ``"median"``.
     """
     if flavour == "mean":
-        return stacked.mean(axis=0)
+        return np.asarray(stacked.mean(axis=0))
     if flavour == "median":
-        return np.median(stacked, axis=0)
+        return np.asarray(np.median(stacked, axis=0))
     if flavour == "robust":
         return robust_float_ensemble(stacked, mad_factor=mad_factor)
     raise ValueError(f"combine_float_predictions: unknown flavour={flavour!r}, expected one of {FloatEnsembleFlavour}")

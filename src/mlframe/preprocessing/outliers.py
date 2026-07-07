@@ -98,7 +98,7 @@ def compute_outlier_detector_score(detector, X) -> np.ndarray:
     is_inlier = np.asarray(is_inlier)
     score = (is_inlier == -1).astype(float)
     score = np.nan_to_num(score, nan=0.0, posinf=0.0, neginf=0.0)
-    return score
+    return np.asarray(score)
 
 
 @njit(cache=True, parallel=True)
@@ -218,4 +218,4 @@ def compute_naive_outlier_score(X_train: np.ndarray, X_test: np.ndarray) -> np.n
         maxs = np.nanmax(X_train, axis=0)
     d = X_test.shape[1]
     counts = count_num_outofranges(X_test, mins, maxs)
-    return counts.astype(np.float64) / max(d, 1)
+    return np.asarray(counts.astype(np.float64) / max(d, 1))

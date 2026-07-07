@@ -109,7 +109,7 @@ def _process_single_ensemble_method(
             return None
         if _pcw_full.shape[0] != len(mask):
             return None
-        return _pcw_full[np.asarray(mask, dtype=bool)]
+        return np.asarray(_pcw_full[np.asarray(mask, dtype=bool)])
 
     # RRF is rank-based and scale-invariant by construction (per ``rrf_ensemble`` docstring at
     # _ensembling_base.py:493). Calibrating before rank fusion is a no-op on rank order and a small loss on the

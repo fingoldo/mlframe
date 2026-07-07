@@ -364,7 +364,7 @@ def _brier_skill_score_kernel(y_true: np.ndarray, y_score: np.ndarray) -> float:
     bs_base = p_bar * (1.0 - p_bar)
     if bs_base == 0.0:
         return np.nan
-    return 1.0 - bs_model / bs_base
+    return float(1.0 - bs_model / bs_base)
 
 
 def brier_skill_score(y_true: np.ndarray, y_score: np.ndarray) -> float:
@@ -405,7 +405,7 @@ def brier_skill_score_from_brier(brier_loss: float, y_true: np.ndarray) -> float
     bs_base = p_bar * (1.0 - p_bar)
     if bs_base == 0.0:
         return np.nan
-    return 1.0 - float(brier_loss) / bs_base
+    return float(1.0 - float(brier_loss) / bs_base)
 
 
 # ---------- Gini ----------
@@ -533,7 +533,7 @@ def lift_at_k(
     captured = int(yt[top_idx].sum())
     p_top = captured / cutoff
     p_overall = n_pos / n
-    return p_top / p_overall
+    return float(p_top / p_overall)
 
 
 # ============================================================================
@@ -666,7 +666,7 @@ def _rps_kernel(y_true: np.ndarray, probs_NK: np.ndarray) -> float:
             d = cum_p - cum_y
             rps_i += d * d
         total += rps_i / (K - 1)
-    return total / n
+    return float(total / n)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
@@ -685,7 +685,7 @@ def _rps_kernel_par(y_true: np.ndarray, probs_NK: np.ndarray) -> float:
             d = cum_p - cum_y
             rps_i += d * d
         total += rps_i / (K - 1)
-    return total / n
+    return float(total / n)
 
 
 def ranked_probability_score(

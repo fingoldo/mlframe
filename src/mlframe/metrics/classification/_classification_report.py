@@ -735,10 +735,10 @@ def fast_ice_only(
         freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, array_size=len(y_true), use_weights=use_weights,
     )
     roc_auc, pr_auc, _ = fast_aucs_per_group_optimized(y_true=y_true, y_score=y_pred, group_ids=None)
-    return integral_calibration_error_from_metrics(
+    return float(integral_calibration_error_from_metrics(
         calibration_mae=cal_mae, calibration_std=cal_std, calibration_coverage=cal_cov,
         brier_loss=brier_loss, roc_auc=roc_auc, pr_auc=pr_auc, **ice_kwargs,
-    )
+    ))
 
 
 def predictions_time_instability(preds: pd.Series) -> float:
@@ -746,4 +746,4 @@ def predictions_time_instability(preds: pd.Series) -> float:
     It's hard to use predictions that change upside down from point to point.
     For binary classification instability ranges from 0 to 1, for regression from 0 to any value depending on the target stats.
     """
-    return np.abs(np.diff(preds)).mean()
+    return float(np.abs(np.diff(preds)).mean())

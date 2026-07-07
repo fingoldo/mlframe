@@ -95,7 +95,7 @@ def get_model_best_iter(model: object) -> int | None:
             try:
                 return int(val)
             except (TypeError, ValueError):
-                return val
+                return int(val)
     tree_count = getattr(real_model, "tree_count_", None)
     if tree_count is not None:
         try:

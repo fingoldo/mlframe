@@ -71,7 +71,7 @@ def per_member_code_version() -> str | None:
     code-versioning is unavailable (cache then falls back to no-version-check)."""
     try:
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
-        return compute_code_version(_numpy_2d, _per_member_mae_std_njit, salt=_PER_MEMBER_SALT)
+        return str(compute_code_version(_numpy_2d, _per_member_mae_std_njit, salt=_PER_MEMBER_SALT))
     except Exception:
         return None
 

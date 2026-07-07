@@ -118,7 +118,7 @@ def assign_classes_from_probability(predictors: np.ndarray, draw: np.ndarray, n_
     n_samples = predictors.shape[0]
     if out is None:
         out = np.empty(n_samples, dtype=np.int32)
-    return _assign_classes_from_probability_kernel(predictors, draw, n_classes, out)
+    return np.asarray(_assign_classes_from_probability_kernel(predictors, draw, n_classes, out))
 
 
 def generate_modelling_data(
