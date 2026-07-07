@@ -283,7 +283,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # quantization
         quantization_method: str = "quantile",
         quantization_nbins: int = 10,  # [ACCURACY-CAVEAT] <5 is too coarse for the plug-in MI; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
-        quantization_dtype: object = np.int32,
+        quantization_dtype: type = np.int32,
         # Cap categorical column cardinality: any categorical with more than this many distinct codes folds its rare tail
         # into one "other" bucket (top-(cap-1) by frequency kept). None (default) = uncapped. A high-cardinality categorical
         # has sparse contingency cells so its plug-in MI/CMI is unreliable regardless (the analytic null guards on >=5
@@ -2829,7 +2829,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         usability_aware_lists: bool = False,
         usability_w_linear: float = 0.85,
         usability_w_universal: float = 0.5,
-        usability_feature_dtype: object = np.float32,
+        usability_feature_dtype: type = np.float32,
         usability_max_base_features: int = 16,
         usability_pool_kwargs: dict = None,
         usability_greedy_kwargs: dict = None,

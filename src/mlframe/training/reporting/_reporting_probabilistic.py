@@ -114,7 +114,10 @@ def report_probabilistic_model_perf(
     plot_outputs: str | None = None,
     custom_ice_metric: Callable | None = None,
     custom_rice_metric: Callable | None = None,
-    metrics: dict[str, Any] | None = None,
+    # Deliberately dual-keyed: per-class blocks are keyed by their int class_id, macro_*/weighted_*
+    # aggregates by str metric name. The int/str key TYPE is the discriminator _per_class_blocks
+    # below uses to pick out the per-class blocks from the aggregate scalars in the same dict.
+    metrics: dict[int | str, Any] | None = None,
     group_ids: np.ndarray | None = None,
     n_features: int | None = None,
     show_prob_histogram: bool = True,
@@ -624,7 +627,7 @@ def report_probabilistic_model_perf(
                     _ext_err,
                 )
 
-            metrics.update({str_class_name: class_metrics})
+            metrics.update({class_id: class_metrics})
 
     # 2026-05-28 audit batch: post-loop macro / weighted aggregation across
     # classes. The per-class loop above stamped each class's KS / MCC / F1 /

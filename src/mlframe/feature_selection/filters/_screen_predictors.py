@@ -11,7 +11,7 @@ import logging
 from itertools import combinations
 from os.path import exists
 from timeit import default_timer as timer
-from typing import Sequence
+from typing import Iterable, Optional, Sequence
 
 import numba
 import numpy as np
@@ -175,7 +175,7 @@ def screen_predictors(
     # nonlinear combination, not its raw parent (which a shallow downstream can't
     # use). ``None`` raw-name set falls back to the syntactic ``(``/``__``
     # heuristic; rel-eps ``0.0`` restores the legacy pure-index tie-break.
-    raw_feature_names: object = None,
+    raw_feature_names: Optional[Iterable[str]] = None,
     # 2026-06-02 RC1: widened 0.01 -> 0.15. On non-monotone targets (e.g.
     # y=sign(x1^2-1)) the binned-MI of the raw parent x1 edges out its engineered
     # linearizer x1__He2 by more than 1% (estimation noise; in EXACT MI they are
@@ -750,7 +750,7 @@ def screen_predictors(
                 # implicitly bounded; explicit MM correction on joints is double-counting.
                 if cardinality_bias_correction and best_candidate is not None and interactions_order == 1:
                     _n_samples_for_mm = int(factors_data.shape[0])
-                    _y_idx = int(y[0]) if hasattr(y, "__len__") else int(y)
+                    _y_idx = int(y[0]) if hasattr(y, "__len__") else int(y)  # type: ignore[call-overload]  # defensive fallback for a caller passing a bare int despite the Sequence[int] signature
                     _nbins_y = int(factors_nbins[_y_idx])
                     _nbins_x_eff = 1
                     try:
@@ -776,7 +776,7 @@ def screen_predictors(
                 if min_relevance_gain_relative_to_first and selected_vars and predictors:
                     _max_corrected_gain = 0.0
                     _n_samples_for_mm = int(factors_data.shape[0]) if cardinality_bias_correction else 0
-                    _y_idx_for_mm = int(y[0]) if hasattr(y, "__len__") else int(y)
+                    _y_idx_for_mm = int(y[0]) if hasattr(y, "__len__") else int(y)  # type: ignore[call-overload]  # defensive fallback for a caller passing a bare int despite the Sequence[int] signature
                     _nbins_y_for_mm = int(factors_nbins[_y_idx_for_mm]) if cardinality_bias_correction else 0
                     for _pred in predictors:
                         _g_raw = float(_pred.get("gain", 0.0))
@@ -817,7 +817,7 @@ def screen_predictors(
                         _cand_marg_corr = float(_cand_marg_raw)
                         if cardinality_bias_correction:
                             _nb_x_fdr = int(factors_nbins[int(best_candidate[0])])
-                            _y_idx_fdr2 = int(y[0]) if hasattr(y, "__len__") else int(y)
+                            _y_idx_fdr2 = int(y[0]) if hasattr(y, "__len__") else int(y)  # type: ignore[call-overload]  # defensive fallback for a caller passing a bare int despite the Sequence[int] signature
                             _nb_y_fdr = int(factors_nbins[_y_idx_fdr2])
                             _cand_marg_corr -= (_nb_x_fdr - 1) * (_nb_y_fdr - 1) / (2.0 * int(factors_data.shape[0]))
                         _fdr_pass = _cand_marg_corr >= _fdr_floor_eff

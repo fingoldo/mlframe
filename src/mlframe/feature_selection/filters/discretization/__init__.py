@@ -26,7 +26,7 @@ from numba import njit, prange
 # (single-threaded estimator-API overhead) and ~12x faster than astropy.histogram
 # for the supported bin schemes. The legacy methods 'astropy' and 'discretizer'
 # still resolve via thin compat shims below.
-def _safe_code_dtype(n_bins: int, dtype: object) -> object:
+def _safe_code_dtype(n_bins: int, dtype: type) -> object:
     """Widen ``dtype`` to one that can hold ordinal codes ``0..n_bins-1``.
 
     Discretiser codes reach ``n_bins-1``; the default ``int8`` only holds 0..127, so an
@@ -435,7 +435,7 @@ def quantize_search(arr, bins):
 
 
 @njit(cache=True)
-def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: float = None, max_value: float = None, dtype: object = np.int8) -> np.ndarray:
+def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: float = None, max_value: float = None, dtype: type = np.int8) -> np.ndarray:
     # 2026-05-30 Wave 9.1 fix (loop iter 33): the divisor was
     # ``(max - min + min/2)`` instead of the canonical ``(max - min)``.
     # That formula silently miscoded any positive-shifted input -
@@ -489,7 +489,7 @@ def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: float = None, ma
 
 
 @njit(cache=True, parallel=True)
-def discretize_uniform_parallel(arr: np.ndarray, n_bins: int, min_value: float, max_value: float, dtype: object = np.int8) -> np.ndarray:
+def discretize_uniform_parallel(arr: np.ndarray, n_bins: int, min_value: float, max_value: float, dtype: type = np.int8) -> np.ndarray:
     """Column-prange twin of ``discretize_uniform`` for large single-column arrays.
 
     Byte-identical to ``discretize_uniform`` (same affine map + clip-before-cast in float domain), only the elementwise
@@ -532,7 +532,7 @@ _UNIFORM_PAR_THRESHOLD = int(os.environ.get("MLFRAME_DISCRETIZE_UNIFORM_PAR_THRE
 
 def discretize_array(
     arr: np.ndarray, n_bins: int = 10, method: str = "quantile",
-    min_value: float = None, max_value: float = None, dtype: object = np.int8,
+    min_value: float = None, max_value: float = None, dtype: type = np.int8,
 ) -> np.ndarray:
     """Discretise a 1-D continuous array into ordinal bins.
 
@@ -597,7 +597,7 @@ from ._kernels import (  # noqa: F401
 )
 
 
-def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: object = np.int8, parallel: bool = False, assume_finite: bool = False) -> np.ndarray:
+def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: type = np.int8, parallel: bool = False, assume_finite: bool = False) -> np.ndarray:
     """Batch (quantile-only) discretiser: bit-identical to per-column ``discretize_array(method='quantile')``.
 
     ``arr2d`` is ``(n_rows, n_cols)``; each column is discretised independently into ``n_bins`` ordinal codes
@@ -718,7 +718,7 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: obj
 @njit(cache=True)
 def _discretize_array_impl(
     arr: np.ndarray, n_bins: int = 10, method: str = "quantile",
-    min_value: float = None, max_value: float = None, dtype: object = np.int8,
+    min_value: float = None, max_value: float = None, dtype: type = np.int8,
 ) -> np.ndarray:
     if method == "uniform":
         return discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype)
@@ -740,7 +740,7 @@ def _discretize_2d_array_njit(
     min_ncats: int = 50,
     min_values: float = None,
     max_values: float = None,
-    dtype: object = np.int8,
+    dtype: type = np.int8,
 ) -> np.ndarray:
     """CPU prange backend; one column per worker thread."""
     res = np.empty_like(arr, dtype=dtype)
@@ -814,7 +814,7 @@ def discretize_2d_array(
     min_ncats: int = 50,
     min_values: float = None,
     max_values: float = None,
-    dtype: object = np.int8,
+    dtype: type = np.int8,
     prefer_gpu: bool = True,
 ) -> np.ndarray:
     """Discretise every column of a 2-D continuous array into ordinal bins.
@@ -880,7 +880,7 @@ def discretize_2d_array_cuda(
     arr: np.ndarray,
     n_bins: int = 10,
     method: str = "quantile",
-    dtype: object = np.int8,
+    dtype: type = np.int8,
 ) -> np.ndarray:
     """CuPy port of :func:`discretize_2d_array` for the quantile method.
 

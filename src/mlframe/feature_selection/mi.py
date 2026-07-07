@@ -27,7 +27,7 @@ USE_FASTMATH: bool = True
 
 
 @njit(fastmath=USE_FASTMATH, cache=True)
-def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: object = np.int64):
+def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: type = np.int64):
     hist = np.zeros((n_bins, n_bins), dtype=dtype)
     for i in range(len(a)):
         hist[a[i], b[i]] += 1
@@ -38,7 +38,7 @@ def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: ob
 # tests/test_meta/test_dead_helpers.py allowlist as a historical reference
 # point for the kernel-evolution audit trail. Not called from production paths.
 @njit(fastmath=USE_FASTMATH, cache=True)
-def grok_mutual_information_old(a: np.ndarray, b: np.ndarray, n_bins: int = 15, hist_dtype: object = np.int64):
+def grok_mutual_information_old(a: np.ndarray, b: np.ndarray, n_bins: int = 15, hist_dtype: type = np.int64):
     joint_hist = grok_compute_joint_hist(a=a, b=b, n_bins=n_bins, dtype=hist_dtype)
     a_hist = np.sum(joint_hist, axis=1)
     b_hist = np.sum(joint_hist, axis=0)
@@ -55,7 +55,7 @@ def grok_mutual_information_old(a: np.ndarray, b: np.ndarray, n_bins: int = 15, 
 
 
 @njit(cache=True)
-def grok_mutual_information(a: np.ndarray, b: np.ndarray, inv_n_samples: float, log_n_samples: float, n_bins: int = 15, hist_dtype: object = np.int64):
+def grok_mutual_information(a: np.ndarray, b: np.ndarray, inv_n_samples: float, log_n_samples: float, n_bins: int = 15, hist_dtype: type = np.int64):
     joint_hist = grok_compute_joint_hist(a=a, b=b, n_bins=n_bins, dtype=hist_dtype)
     a_hist = np.sum(joint_hist, axis=1)
     b_hist = np.sum(joint_hist, axis=0)

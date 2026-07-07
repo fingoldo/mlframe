@@ -117,6 +117,10 @@ class BorutaShap(BaseEstimator, TransformerMixin):
     ``_auto_dispatch.py``.
     """
 
+    # history_x accumulates as an ndarray across trials (run()), then is promoted to a DataFrame
+    # in store_feature_importance() once accumulation is done and column-labeled stats are added.
+    history_x: "np.ndarray | pd.DataFrame"
+
     def __init__(
         self,
         model=None,
@@ -666,8 +670,8 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         self.history_x = pd.DataFrame(data=self.history_x, columns=self.all_columns)
 
-        self.history_x["Max_Shadow"] = [max(i) for i in self.history_shadow]
-        self.history_x["Min_Shadow"] = [min(i) for i in self.history_shadow]
+        self.history_x["Max_Shadow"] = [max(i) for i in self.history_shadow]  # type: ignore[call-overload]  # numpy stubs narrow the per-row iteration element to a scalar float64; each row is actually a 1D ndarray
+        self.history_x["Min_Shadow"] = [min(i) for i in self.history_shadow]  # type: ignore[call-overload]
         self.history_x["Mean_Shadow"] = [np.nanmean(i) for i in self.history_shadow]
         self.history_x["Median_Shadow"] = [np.nanmedian(i) for i in self.history_shadow]
 

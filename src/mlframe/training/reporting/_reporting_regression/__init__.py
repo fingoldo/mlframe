@@ -596,7 +596,7 @@ def report_regression_model_perf(
                 # constrained_layout cached solver state -- ~13s saved
                 # vs tight_layout per-chart on multi-chart reports.
                 # Honour plot_dpi when caller set it.
-                _reg_subplots_kwargs = dict(
+                _reg_subplots_kwargs: dict[str, Any] = dict(
                     figsize=(figsize[0] * 3 / 2, figsize[1]),
                     layout="constrained",
                 )

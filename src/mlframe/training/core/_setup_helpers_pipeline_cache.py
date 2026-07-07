@@ -64,7 +64,7 @@ def _parent_set(name: str, value) -> None:
 # _PROBE_PRECISION_CACHE (iter181), _CB_GPU_USABLE_CACHE, and
 # _mlframe_callback_cache_installed (iter189) patterns for process-stable
 # costs. Falls back to live validation on cache miss.
-_PIPELINE_JSON_ROUNDTRIP_CACHE: dict[int, bool] = {}
+_PIPELINE_JSON_ROUNDTRIP_CACHE: dict[str, bool] = {}
 
 
 # iter275 (2026-05-23): cross-process file cache. The in-memory cache above

@@ -178,7 +178,7 @@ def find_best_mps_sequence(
     tc_mode_is_fraction: bool,
     optimize_consecutive_regions: bool = True,
     shift: int = 0,
-    dtype: object = np.float64,
+    dtype: type = np.float64,
 ):  # pragma: no cover
     """
     prices: 1D numpy array float64 (closing prices)
@@ -321,7 +321,7 @@ def find_maximum_profit_system(
     tc_mode: str = "fraction",
     optimize_consecutive_regions: bool = True,
     shift: int = 0,
-    dtype: object = np.float64,
+    dtype: type = np.float64,
 ):
     """
     prices: 1D array-like of closing prices
@@ -673,7 +673,7 @@ def compute_mps_targets(
     tc: float = 1e-10,
     sma_size: int = 0,
     ewm_alpha: float = 0.3,
-    dtype: object = np.float64,
+    dtype: type = np.float64,
     tc_mode_is_fraction: bool = True,
     optimize_consecutive_regions: bool = True,
     final_price_alias: str = "final_price",

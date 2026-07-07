@@ -195,7 +195,7 @@ class _RankerDataset(Dataset):
         # Populated by ``install_pair_index_cache`` BEFORE the DataLoader starts;
         # leaving this attribute as None falls back to the in-loss runtime cache
         # (tuple(rel.tolist()) key) which needs a per-call GPU->CPU sync.
-        self._pair_idx_by_query: dict[bytes, tuple] | None = None
+        self._pair_idx_by_query: dict[tuple, tuple] | None = None
         # iter357 (2026-05-26): per-query precomputed batch tuple keyed by the
         # same indices_key as ``_pair_idx_by_query``. Each entry is the EXACT
         # return value of ``__getitems__`` for that query -- either a 4-tuple

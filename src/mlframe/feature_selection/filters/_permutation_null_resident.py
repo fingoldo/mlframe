@@ -23,6 +23,8 @@ computed identically.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 import numpy as np
 
 # Working-set budget so the largest intermediate -- the (chunk_cand * chunk_perm * n) int64 joint-code
@@ -117,7 +119,7 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
     return cp.asnumpy(d_best)
 
 
-def gen_target_shuffles_cupy(y_codes: np.ndarray, nperm: int, dtype: object, random_seed: object) -> object:
+def gen_target_shuffles_cupy(y_codes: np.ndarray, nperm: int, dtype: type, random_seed: Optional[int]) -> object:
     """Generate the ``(nperm, n)`` target-shuffle matrix ON the device (argsort of random keys) and return it
     as a CUPY array, fed DIRECTLY into :func:`pooled_gain_floor_perms_cupy` (whose ``cp.asarray`` is a no-op on
     an already-device array). So the permutation matrix is BORN on the GPU: no host Fisher-Yates generation and

@@ -683,7 +683,7 @@ def per_feature_edges(
     edges_list: list = [None] * n_features
     _miss_keys: list = [None] * n_features  # cache key per missed col (None => don't cache)
     _miss_cols: list = []  # indices needing compute, in ascending order
-    _cols = [None] * n_features  # float64 view per column (reused by phase 2)
+    _cols: list = [None] * n_features  # float64 view per column (reused by phase 2)
     for j in range(n_features):
         col = X[:, j].astype(np.float64, copy=False)
         _cols[j] = col

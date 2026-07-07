@@ -346,14 +346,14 @@ def cat_num_interaction_fit(
     np.add.at(full_sum, inv_arr[finite_mask], num_vals[finite_mask])
     np.add.at(full_cnt, inv_arr[finite_mask], 1.0)
     lookup: dict[str, float] = {}
-    for c in range(n_cats):
-        if full_cnt[c] > 0.0:
-            raw_mean = full_sum[c] / full_cnt[c]
-            lookup[str(unique_cats[c])] = _smooth(
-                raw_mean, full_cnt[c], global_mean, smoothing,
+    for cat_idx in range(n_cats):
+        if full_cnt[cat_idx] > 0.0:
+            raw_mean = full_sum[cat_idx] / full_cnt[cat_idx]
+            lookup[str(unique_cats[cat_idx])] = _smooth(
+                raw_mean, full_cnt[cat_idx], global_mean, smoothing,
             )
         else:
-            lookup[str(unique_cats[c])] = global_mean
+            lookup[str(unique_cats[cat_idx])] = global_mean
 
     recipe = {
         "lookup": lookup,

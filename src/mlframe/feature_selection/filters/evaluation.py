@@ -182,9 +182,9 @@ def should_skip_candidate(
             return True, nexisting
 
         # Or all selected at the lower stages.
-        skip_cand = [(subel in selected_vars) for subel in X]
-        nexisting = sum(skip_cand)
-        if (only_unknown_interactions and any(skip_cand)) or all(skip_cand):
+        skip_cand_flags = [(subel in selected_vars) for subel in X]
+        nexisting = sum(skip_cand_flags)
+        if (only_unknown_interactions and any(skip_cand_flags)) or all(skip_cand_flags):
             return True, nexisting
 
     return False, nexisting

@@ -4724,8 +4724,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _ranks_c = pd.Series(_arr_c).rank(method="average").to_numpy()
             _eng_ranks[_c] = _ranks_c
             _colliding_kept: list[str] = []
-            for _kept in _eng_keep:
-                _arr_k = _eng_arrs[_kept]
+            for _kept_col in _eng_keep:
+                _arr_k = _eng_arrs[_kept_col]
                 _mask = _fin_c & np.isfinite(_arr_k)
                 if _mask.sum() < 8:
                     continue
@@ -4736,10 +4736,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # No-NaN fast path: masked subset == full column, so reuse the cached full-column ranks
                     # (identical values) instead of re-sorting both columns for this pair.
                     _ranks_a = _ranks_c
-                    _ranks_b = _eng_ranks.get(_kept)
+                    _ranks_b = _eng_ranks.get(_kept_col)
                     if _ranks_b is None:
                         _ranks_b = pd.Series(_arr_k).rank(method="average").to_numpy()
-                        _eng_ranks[_kept] = _ranks_b
+                        _eng_ranks[_kept_col] = _ranks_b
                 else:
                     _ranks_a = pd.Series(_a).rank(method="average").to_numpy()
                     _ranks_b = pd.Series(_b).rank(method="average").to_numpy()
@@ -4747,18 +4747,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     continue
                 _rank_corr = abs(float(np.corrcoef(_ranks_a, _ranks_b)[0, 1]))
                 if np.isfinite(_rank_corr) and _rank_corr >= 0.99:
-                    _colliding_kept.append(_kept)
+                    _colliding_kept.append(_kept_col)
             if _colliding_kept:
                 # Keep-higher-MI: the candidate displaces every colliding kept column it out-scores, and is itself dropped only if some colliding kept column wins.
                 # ``_eng_dedup_prefer`` returns False when MI is unavailable, so an unscored cluster degrades exactly to the original first-appended policy (candidate dropped).
-                _cand_loses = any(not _eng_dedup_prefer(_c, _kept) for _kept in _colliding_kept)
+                _cand_loses = any(not _eng_dedup_prefer(_c, _kept_col) for _kept_col in _colliding_kept)
                 if _cand_loses:
                     _eng_drop.add(_c)
                 else:
-                    for _kept in _colliding_kept:
-                        _eng_drop.add(_kept)
-                        _eng_keep.remove(_kept)
-                        _eng_arrs.pop(_kept, None)
+                    for _kept_col in _colliding_kept:
+                        _eng_drop.add(_kept_col)
+                        _eng_keep.remove(_kept_col)
+                        _eng_arrs.pop(_kept_col, None)
                     _eng_keep.append(_c)
                     _eng_arrs[_c] = _arr_c
             else:

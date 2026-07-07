@@ -17,6 +17,8 @@ degrades gracefully (single class / constant y / size>=n) back to a uniform / fu
 """
 from __future__ import annotations
 
+from typing import Optional
+
 import logging
 
 import numpy as np
@@ -324,7 +326,7 @@ _FE_STRATIFY_REG_ABS_SKEW: float = 2.0
 _FE_STRATIFY_REG_TAIL_IQR_RATIO: float = 6.0
 
 
-def resolve_shared_fe_subsample_idx(y: np.ndarray, n_rows: int, size: int, *, is_clf: bool, stratify_knob: object, random_seed: object) -> np.ndarray | None:
+def resolve_shared_fe_subsample_idx(y: np.ndarray, n_rows: int, size: int, *, is_clf: bool, stratify_knob: object, random_seed: Optional[int]) -> np.ndarray | None:
     """Resolve the ONE shared FE subsample row-index set for a whole fit (the single reused draw).
 
     The FE screen / pair-search / polynom / permutation-null floors all bound their cost by row

@@ -93,7 +93,7 @@ def predict_from_models(
             df, predict_batch_rows,
         )
 
-    results = {
+    results: dict[str, Any] = {
         "predictions": {},
         "probabilities": {},
         "ensemble_predictions": None,

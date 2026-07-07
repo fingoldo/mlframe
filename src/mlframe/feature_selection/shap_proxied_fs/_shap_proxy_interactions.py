@@ -553,7 +553,7 @@ def sparse_interaction_candidates(
         # the whole in-sample SHAP fit on the augmented frame. Sanitise to finite values up front so one
         # bad pair cannot take down the entire sparse-interaction ranking; nan->0, +-inf->float bounds.
         prod = X_proxy[col_a].values.astype(np.float64) * X_proxy[col_b].values.astype(np.float64)
-        aug[nm] = np.nan_to_num(prod, nan=0.0, posinf=np.finfo(np.float64).max, neginf=np.finfo(np.float64).min)
+        aug[nm] = np.nan_to_num(prod, nan=0.0, posinf=float(np.finfo(np.float64).max), neginf=float(np.finfo(np.float64).min))
         product_to_operands[n_base + len(prod_names)] = (col_to_idx[col_a], col_to_idx[col_b])
         prod_names.append(nm)
 

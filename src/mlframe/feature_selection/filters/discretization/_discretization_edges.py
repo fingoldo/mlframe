@@ -338,7 +338,7 @@ def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform"
 
 def discretize_sklearn(
     arr: np.ndarray, n_bins: int = 10, method: str = "uniform",
-    min_value: float = None, max_value: float = None, dtype: object = np.int8,
+    min_value: float = None, max_value: float = None, dtype: type = np.int8,
 ) -> np.ndarray:
     """Lightweight numpy port of sklearn's ``KBinsDiscretizer``.
     ``np.searchsorted`` is faster un-jitted on contemporary numpy."""

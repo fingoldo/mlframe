@@ -293,7 +293,7 @@ def build_binagg_oof_matrix_gpu(
         oof = cp.full(n, glob, dtype=cp.float64)
         for f in range(nf):
             _skey = ("stats", f)
-            per_s_all = fold_stat_cache.get(_skey)
+            per_s_all = fold_stat_cache.get(_skey)  # type: ignore[call-overload]  # fold_stat_cache is the per-pair {} cache from pair_cache's tuple; mypy can't narrow its value type through the tuple-unpack at line 276
             if per_s_all is None:
                 # w = 1.0 on this fold's TRAIN rows (other folds AND finite), 0.0 elsewhere. finite_f is shared;
                 # (fold_g != f) is the only per-fold term. Moments -> ALL of the pair's stats in one pass (cached),

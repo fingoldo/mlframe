@@ -395,7 +395,7 @@ def optimal_bin_edges(
 def apply_bin_edges(
     x: np.ndarray,
     edges: np.ndarray,
-    dtype: object = None,
+    dtype: type = None,
 ) -> np.ndarray:
     """Apply pre-fit bin edges to discretise an array.
 

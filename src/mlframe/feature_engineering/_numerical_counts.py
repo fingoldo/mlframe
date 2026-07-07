@@ -175,7 +175,7 @@ def compute_nunique_modes_quantiles_numpy(
     # Wave 21 P1: nanquantile so a NaN in arr doesn't poison all returned
     # quantile feature values silently. The public feature aggregator runs
     # on caller-supplied 1-D series; NaN is common in raw data.
-    quantiles = np.nanquantile(arr, q, method=quantile_method)
+    quantiles = np.nanquantile(arr, q, method=quantile_method)  # type: ignore[call-overload]  # quantile_method is a plain str param (any of numpy's valid method literals); over-typing it as a Literal isn't worth the API churn
     res = res + tuple(quantiles)  # .tolist()
 
     if return_unsorted_stats:
