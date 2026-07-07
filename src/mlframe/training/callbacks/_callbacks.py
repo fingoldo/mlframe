@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from timeit import default_timer as timer
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import numpy as np
 import lightgbm as lgb
@@ -26,8 +26,35 @@ class UniversalCallback:
     """
 
     # __init__ params are set on self dynamically via store_params_in_object(); declared here so mypy
-    # can type-check reads/writes of this one (subclasses default it via `self.monitor_dataset or "..."`).
+    # can type-check reads/writes (subclasses default it via `self.monitor_dataset or "..."`).
+    time_budget_mins: float | None
+    reporting_interval_mins: float | None
+    patience: int | None
+    min_delta: float
     monitor_dataset: str | None
+    monitor_metric: str | None
+    mode: str | None
+    stop_flag: Callable[[], bool]  # store_params_in_object sets the raw param, but __init__ always overwrites with a non-None callable below
+    ndigits: int
+    verbose: int
+    slice_k: int
+    slice_dataset_names: list[str] | None
+    slice_aggregate_mode: str
+    slice_aggregate_alpha: float
+    slice_aggregate_confidence: float
+    slice_aggregate_quantile_level: float
+    slice_correlation_inflation: float
+    slice_min_delta_in_se: float | None
+    slice_persist_history: bool
+    slice_diagnostic_only: bool
+    max_iter: int | None
+
+    # Runtime state set in __init__ / on_start / should_stop (not constructor params).
+    start_time: float | None
+    best_metric: float | None
+    best_iter: int
+    iter: int
+    last_reporting_ts: float
 
     def __init__(
         self,
@@ -228,13 +255,13 @@ class UniversalCallback:
         if len(names) < 2:
             return None
         # Use monitor_dataset's history length as the canonical iteration count.
-        monitor_hist = self.metric_history.get(self.monitor_dataset, {}).get(self.monitor_metric, [])
+        monitor_hist = self.metric_history.get(str(self.monitor_dataset), {}).get(str(self.monitor_metric), [])
         n_iters = len(monitor_hist)
         if n_iters == 0:
             return None
         shard_values: list[float] = []
         for name in names:
-            shard_hist = self.metric_history.get(name, {}).get(self.monitor_metric, [])
+            shard_hist = self.metric_history.get(name, {}).get(str(self.monitor_metric), [])
             if len(shard_hist) < n_iters:
                 # CB metric_period>1 or per-iter eval not run on this shard -> skip aggregation
                 # this round; we'll try again next call.
@@ -242,7 +269,7 @@ class UniversalCallback:
             shard_values.append(float(shard_hist[-1]))
         if self.slice_persist_history:
             self.slice_shard_score_history.append(list(shard_values))
-        direction = "min" if self.mode == "min" else "max"
+        direction: Literal["min", "max"] = "min" if self.mode == "min" else "max"
         agg = aggregate_fold_scores(
             shard_values,
             mode=self.slice_aggregate_mode,  # type: ignore[arg-type]
@@ -384,8 +411,9 @@ class LightGBMCallback(UniversalCallback):
             self.on_start()
             self.first_iteration = False
 
-        metrics_dict = {}
-        for dataset, metric, value, _ in env.evaluation_result_list:
+        metrics_dict: dict[str, dict[str, float]] = {}
+        for entry in env.evaluation_result_list or []:
+            dataset, metric, value = entry[0], entry[1], entry[2]
             metrics_dict.setdefault(dataset, {})[metric] = value
         self.update_history(metrics_dict)
 
@@ -396,7 +424,8 @@ class LightGBMCallback(UniversalCallback):
                 best_iter = self.best_iter
             else:
                 best_iter = 0
-            raise lgb.callback.EarlyStopException(best_iter, [(dataset, metric, self.best_metric, False)])
+            best_metric = self.best_metric if self.best_metric is not None else 0.0
+            raise lgb.callback.EarlyStopException(best_iter, [(dataset, metric, best_metric, False)])
 
 
 class XGBoostCallback(UniversalCallback, TrainingCallback):
@@ -419,7 +448,7 @@ class XGBoostCallback(UniversalCallback, TrainingCallback):
         self.update_history(metrics_dict)  # type: ignore[arg-type]  # XGBoost's evals_log values are list[tuple] only for confidence-interval eval metrics, which this project's callbacks don't use; runtime shape is always list[float]
 
         if self.monitor_metric is None:
-            self.set_default_monitor_metric(metrics_dict)
+            self.set_default_monitor_metric(metrics_dict)  # type: ignore[arg-type]  # same list[tuple] confidence-interval shape as line above; unused here
 
         if self.should_stop():
             if hasattr(self, "best_iter"):
