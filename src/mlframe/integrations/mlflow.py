@@ -94,6 +94,7 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experimen
     if runs:
         for run in runs:
             return run, True
+        return None, False
     else:
         if experiment_name:
             mlflow.set_experiment(experiment_name=experiment_name)

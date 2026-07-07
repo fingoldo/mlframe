@@ -38,6 +38,7 @@ def init_model_instance(model_class: object, params: dict) -> object:
                 return Pipeline(modified_steps)
             else:
                 modified_steps.append(step)
+        raise ValueError('init_model_instance: Pipeline has no step named "est" to (re)initialize')
     else:
         return model_class(**params)
 

@@ -737,3 +737,4 @@ def plot_model_feature_importances(
             logger.warning("Could not plot feature importances. Maybe data shape changed within a pipeline?", exc_info=True)
 
         return feature_importances
+    return None

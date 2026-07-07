@@ -375,7 +375,7 @@ class LightGBMCallback(UniversalCallback):
         super().__init__(**kwargs)
         self.monitor_dataset = self.monitor_dataset or "valid_0"
 
-    def __call__(self, env: lgb.callback.CallbackEnv) -> bool:
+    def __call__(self, env: lgb.callback.CallbackEnv) -> None:
         if self.first_iteration:
             self.on_start()
             self.first_iteration = False
@@ -424,6 +424,7 @@ class XGBoostCallback(UniversalCallback, TrainingCallback):
                 best_iter = 0
             model.set_attr(best_score=self.best_metric, best_iteration=best_iter)
             return True
+        return False
 
 
 class CatBoostCallback(UniversalCallback):
