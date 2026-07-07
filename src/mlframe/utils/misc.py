@@ -8,7 +8,7 @@ import random
 import numpy as np
 from pyutilz.numbalib import set_numba_random_seed
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -165,7 +165,7 @@ def get_pipeline_last_element(clf) -> object:
     return elem
 
 
-def get_full_classifier_name(clf: object) -> str:
+def get_full_classifier_name(clf: Any) -> str:
     clf_name = type(clf).__name__
     if clf_name == "TransformedTargetRegressor":
         regressor_name = get_full_classifier_name(clf.regressor)
