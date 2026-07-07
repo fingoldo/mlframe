@@ -8,14 +8,14 @@ from sklearn.cluster import DBSCAN
 logger = logging.getLogger(__name__)
 
 def list_cluster_members(labels:Sequence,true_lables:Sequence)->None:
-    labels = np.asarray(labels)
-    if labels.size == 0:
+    labels_arr = np.asarray(labels)
+    if labels_arr.size == 0:
         return  # max([]) would raise; no clusters to list.
-    for group in range(int(labels.max())+1):
-        print([true_lables[i] for i in np.where(labels==group)[0]])  # noqa: T201 -- interactive display utility, this IS the function's job
-        
-def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusterizer:Optional[object]=None,dim_reducer:Optional[object]=None,
-               show_plot:Optional[bool]=True,show_metrics:Optional[bool]=True,list_members:Optional[bool]=True,title:str=None):    
+    for group in range(int(labels_arr.max())+1):
+        print([true_lables[i] for i in np.where(labels_arr==group)[0]])  # noqa: T201 -- interactive display utility, this IS the function's job
+
+def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusterizer:Optional[Any]=None,dim_reducer:Optional[Any]=None,
+               show_plot:Optional[bool]=True,show_metrics:Optional[bool]=True,list_members:Optional[bool]=True,title:Optional[str]=None):
     
     from sklearn import metrics
     from sklearn.datasets import make_blobs
@@ -62,7 +62,7 @@ def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusteri
 
         # Black removed and is used for noise instead.
         unique_labels = set(labels)
-        colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]
+        colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]  # type: ignore[attr-defined]  # matplotlib colormap accessor missing from stubs
         for k, col in zip(unique_labels, colors):
             if k == -1:
                 # Black used for noise.
