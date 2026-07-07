@@ -109,5 +109,5 @@ def finite_min_max_std(y: np.ndarray) -> tuple[int, float, float, float, float]:
     """
     arr = np.asarray(y, dtype=np.float64).reshape(-1)
     if _NUMBA_AVAILABLE:
-        return _finite_min_max_std_njit(arr)  # type: ignore[name-defined]
+        return _finite_min_max_std_njit(arr)  # type: ignore[no-any-return]  # untyped numba-jitted function; return value verified correct at runtime
     return _finite_min_max_std_python(arr)

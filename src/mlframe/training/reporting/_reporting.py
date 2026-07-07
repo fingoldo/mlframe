@@ -19,7 +19,7 @@ import pandas as pd
 try:
     import matplotlib.pyplot as plt
 except ImportError:
-    plt = None  # type: ignore[assignment] -- plot branches gated; headless envs skip
+    plt = None  # type: ignore[assignment]  # plot branches gated; headless envs skip
 
 from sklearn.base import ClassifierMixin, RegressorMixin, is_classifier
 # Metrics: use mlframe's fast njit versions, not sklearn

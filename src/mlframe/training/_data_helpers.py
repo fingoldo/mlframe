@@ -29,7 +29,7 @@ from .callbacks import LightGBMCallback, CatBoostCallback, XGBoostCallback
 try:
     from xgboost.callback import TrainingCallback as XGBTrainingCallback
 except ImportError:
-    XGBTrainingCallback = None  # type: ignore[assignment] -- only used when xgboost is the chosen backend
+    XGBTrainingCallback = None  # type: ignore[assignment]  # only used when xgboost is the chosen backend
 
 from .utils import filter_existing
 

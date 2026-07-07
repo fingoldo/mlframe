@@ -18,7 +18,7 @@ with <2 docs or single-class relevance - no positive pairs possible).
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -417,7 +417,7 @@ def _ranker_passthrough_collate(batch):
 # ----------------------------------------------------------------------------------
 
 
-def _import_lightning():
+def _import_lightning() -> Any:
     try:
         import lightning.pytorch as L
         return L
@@ -442,7 +442,7 @@ except ImportError:
         _EarlyStopping = None  # type: ignore
 
 
-class MLPRankerLightningModule(_L_MODULE.LightningModule):
+class MLPRankerLightningModule(_L_MODULE.LightningModule):  # type: ignore[name-defined]  # _L_MODULE is either lightning.pytorch or pytorch_lightning, resolved at runtime; mypy can't statically type a dynamic base class
     """LightningModule for MLPRanker.
 
     Module-level so it pickles cleanly for Lightning's checkpointing and
@@ -507,7 +507,7 @@ def _make_lightning_module(network: nn.Module, loss_name: str, learning_rate: fl
     return MLPRankerLightningModule(network, loss_name, learning_rate)
 
 
-class _SamplerSetEpochCallback(_L_MODULE.Callback):
+class _SamplerSetEpochCallback(_L_MODULE.Callback):  # type: ignore[name-defined]  # _L_MODULE is either lightning.pytorch or pytorch_lightning, resolved at runtime; mypy can't statically type a dynamic base class
     """Call set_epoch(current_epoch) on a custom train batch_sampler.
 
     PyTorch Lightning only auto-calls ``set_epoch`` on torch's DistributedSampler;

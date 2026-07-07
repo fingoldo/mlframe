@@ -384,7 +384,7 @@ def plot_positions(
     raw_price_opacity: float = 0.7,
     background_opacity: float = 0.2,
     plotly_size_multiplier: int = 80,
-) -> Union[plt.Figure, go.Figure]:
+) -> Any:  # matplotlib.figure.Figure | plotly.graph_objects.Figure -- plt/go are lazy-loaded proxies, not real types mypy can resolve
     """
     Plot price with position background colors using either Plotly or Matplotlib.
 

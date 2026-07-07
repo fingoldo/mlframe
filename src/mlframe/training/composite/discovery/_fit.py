@@ -12,9 +12,12 @@ import logging
 import os
 import threading
 from timeit import default_timer as timer
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from . import CompositeTargetDiscovery
 
 from ..spec import CompositeSpec
 from .forward_stepwise import forward_stepwise_multi_base

@@ -16,14 +16,14 @@ import numpy as np
 try:
     import matplotlib.pyplot as plt
 except ImportError:
-    plt = None  # type: ignore[assignment] -- plt-using code paths are guarded; matplotlib-less envs skip the plot branches
+    plt = None  # type: ignore[assignment]  # plt-using code paths are guarded; matplotlib-less envs skip the plot branches
 import pandas as pd
 import polars as pl
 
 try:
     from catboost import CatBoostRegressor
 except ImportError:
-    CatBoostRegressor = None  # type: ignore[assignment] -- only used when CB is the chosen model; guarded at call site
+    CatBoostRegressor = None  # type: ignore[assignment]  # only used when CB is the chosen model; guarded at call site
 
 # CUDA_IS_AVAILABLE / get_categorical_columns / _maybe_clean_ram all sit in modules that ALSO import from this file -- lazy local imports at call sites.
 
