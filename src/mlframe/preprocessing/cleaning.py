@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Optional
 
 from gc import collect
 from collections import defaultdict
@@ -72,7 +72,7 @@ from ._cleaning_kernels import (  # noqa: F401  re-export: lazy njit kernel fact
 )
 
 
-def _get_nunique(vals: np.ndarray, skip_nan: bool = True, skip_vals: tuple = None) -> int:
+def _get_nunique(vals: np.ndarray, skip_nan: bool = True, skip_vals: Optional[tuple] = None) -> int:
     # Float fast path: the caller only ever uses the COUNT, never the unique values, so np.unique's
     # unique-array materialization + the trailing ``unique_vals != val`` boolean-mask passes are pure waste.
     # Sort once + count distinct in a single njit pass (skipping NaN + skip_vals inline). Bit-identical to the
@@ -105,7 +105,7 @@ def _get_nunique(vals: np.ndarray, skip_nan: bool = True, skip_vals: tuple = Non
 
 
 def _update_sub_df_col(
-    df: pd.DataFrame, sub_df: pd.DataFrame, col: str, col_unique_values: pd.DataFrame, nunique: int, analyse_mask: np.ndarray = None
+    df: pd.DataFrame, sub_df: pd.DataFrame, col: str, col_unique_values: pd.DataFrame, nunique: int, analyse_mask: Optional[np.ndarray] = None
 ) -> tuple:
     if analyse_mask is not None:
         # Unconditionally refresh from df.loc[...]: heuristics based on
@@ -122,11 +122,11 @@ def _update_sub_df_col(
 
 def _clean_cat_and_obj_columns(
     df: pd.DataFrame,
-    cat_vars_clean_fcn: object = None,
-    obj_vars_clean_fcn: object = None,
-    cat_vars_replace: object = None,
-    obj_vars_replace: object = None,
-    head: pd.DataFrame = None,
+    cat_vars_clean_fcn: Optional[Callable] = None,
+    obj_vars_clean_fcn: Optional[Callable] = None,
+    cat_vars_replace: Optional[dict] = None,
+    obj_vars_replace: Optional[dict] = None,
+    head: Optional[pd.DataFrame] = None,
     verbose: bool = True,
 ):
     if head is None:
@@ -179,10 +179,10 @@ def _clean_cat_and_obj_columns(
 
 
 def is_variable_truly_continuous(
-    df: pd.DataFrame = None,
+    df: Optional[pd.DataFrame] = None,
     variable_name: str = "",
-    values: np.ndarray = None,
-    calculated_quantiles: np.ndarray = None,
+    values: Any = None,  # np.ndarray, or a pandas datetime carrier (tz-aware Series / DatetimeArray) when var_is_datetime
+    calculated_quantiles: Optional[np.ndarray] = None,
     use_quantile: float = 0.1,
     max_scarceness: float = 10.0,
     max_fract_digits: int = 10,
@@ -190,9 +190,9 @@ def is_variable_truly_continuous(
     log_scarceness_divisor: int = 500,
     # min_fract_fill_perecent: float = 0.5,
     min_fract_level_increase_perecent: float = 0.15,
-    tukey_fences_multiplier: float = None,
-    var_is_datetime: bool = None,
-    var_is_numeric: bool = None,
+    tukey_fences_multiplier: Optional[float] = None,
+    var_is_datetime: Optional[bool] = None,
+    var_is_numeric: Optional[bool] = None,
     verbose: bool = False,
 ):
     """Measures evidence that a variable with numeric type is continuous, given its span and number of unique values.
@@ -274,7 +274,7 @@ def is_variable_truly_continuous(
                 if _sorted_fract is not None:
                     n_unique_fracts = _count_rounded(_sorted_fract, cur_fract_digits, 0.0, 1.0)
                 else:
-                    n_unique_fracts = _get_nunique(vals=np.round(fract_part, cur_fract_digits), skip_vals=(0.0, 1.0))
+                    n_unique_fracts = _get_nunique(vals=np.asarray(np.round(fract_part, cur_fract_digits)), skip_vals=(0.0, 1.0))
                 # print(cur_fract_digits, n_unique_fracts, NDIGITS ** (cur_fract_digits))
                 if last_n_unique_fracts > 0:
                     if (n_unique_fracts - last_n_unique_fracts) / last_n_unique_fracts < min_fract_level_increase_perecent or n_unique_fracts < 0.3 * (
@@ -413,7 +413,7 @@ def is_variable_truly_continuous(
 
     return cont_ratio >= 1.0, outliers_percent
 
-def suggest_non_outlying_data_indices(values: np.ndarray, var: str = None, use_quantile: float = 0.01):
+def suggest_non_outlying_data_indices(values: np.ndarray, var: Optional[str] = None, use_quantile: float = 0.01):
     """Returns indices of 1d data array that are non-outlying"""
 
     if use_quantile > 0.5:
@@ -481,12 +481,12 @@ def fragment_df_on_ram_usage_increase(df: pd.DataFrame, prev_mem_usage: float, m
 
 def analyse_and_clean_features(
     df: pd.DataFrame,
-    analyse_mask: np.ndarray = None,
+    analyse_mask: Optional[np.ndarray] = None,
     update_data: bool = False,
-    cat_vars_clean_fcn: object = None,
-    obj_vars_clean_fcn: object = None,
-    cat_vars_replace: dict = None,
-    obj_vars_replace: dict = None,
+    cat_vars_clean_fcn: Optional[Callable] = None,
+    obj_vars_clean_fcn: Optional[Callable] = None,
+    cat_vars_replace: Optional[dict] = None,
+    obj_vars_replace: Optional[dict] = None,
     max_rarevals_imbalance: int = 20,
     min_fewlyvalued_rows_per_value: int = 1000,
     clean_numeric_discrete_rarevals: bool = True,
@@ -495,7 +495,7 @@ def analyse_and_clean_features(
     max_discrete_col_nuniques_for_rarevals_cleaning: int = 0,
     clean_nonnumeric_rarevals: bool = True,
     exclude_columns: tuple = (),
-    exclude_mask: str = None,
+    exclude_mask: Optional[str] = None,
     default_na_val=np.nan,
     default_float_type=np.float32,
     verbose: bool = True,

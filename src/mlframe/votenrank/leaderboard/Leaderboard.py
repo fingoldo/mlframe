@@ -4,7 +4,7 @@ from pyutilz.system import tqdmu as tqdm
 import pandas as pd
 import numpy as np
 
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 from sklearn.model_selection import ParameterGrid
 
@@ -18,7 +18,7 @@ from .settings import (
 
 
 class Leaderboard:
-    from ._rules import (
+    from ._rules import (  # type: ignore[misc]  # class-scoped import binds these functions as unbound methods; mypy doesn't model this pattern
         mean_ranking,
         mean_election,
         plurality_ranking,
@@ -38,12 +38,12 @@ class Leaderboard:
         optimality_gap_election,
         _approval_ranking,
     )
-    from ._cw import _get_tasks_onehot, _find_weights_for_majority_graph
+    from ._cw import _get_tasks_onehot, _find_weights_for_majority_graph  # type: ignore[misc]  # same class-scoped-import pattern as above
 
-    def __init__(self, table: pd.DataFrame = None, weights: Dict[str, float] = None):
+    def __init__(self, table: pd.DataFrame, weights: Optional[Dict[str, float]] = None):
 
         self.table = table
-        self.tasks = list(self.table.columns) if self.table is not None else []
+        self.tasks = list(self.table.columns)
         self.n_tasks = len(self.tasks)
 
         self.weights = pd.Series(index=self.tasks, data=1.0)
@@ -51,10 +51,12 @@ class Leaderboard:
         for task, weight in weight_dict.items():
             self.weights.loc[task] = weight
 
-        self.models = self.table.index.tolist() if self.table is not None else []
+        self.models = self.table.index.tolist()
         self.n_models = len(self.models)
 
-        self.ranks, self.max_ranks, self.majority_graph = None, None, None
+        self.ranks: pd.DataFrame = None  # type: ignore[assignment]  # set for real by build_ranks() below before any use
+        self.max_ranks: pd.DataFrame = None  # type: ignore[assignment]
+        self.majority_graph: Optional[pd.DataFrame] = None
 
         self.build_ranks()
 
@@ -100,7 +102,7 @@ class Leaderboard:
 
         self.majority_graph = pd.DataFrame(wins).transpose() + 0.5 * pd.DataFrame(ties).transpose() + np.eye(self.n_models) * 0.5
 
-    def elect_all(self, use_methods: List[str] = None, drop_mean=False):
+    def elect_all(self, use_methods: Optional[Dict[str, Any]] = None, drop_mean=False):
         result = []
 
         if use_methods is not None:
@@ -132,7 +134,7 @@ class Leaderboard:
         final["method"].replace(PRETTY_NAMES, inplace=True)
         return final
 
-    def rank_all(self, task_groups=None, group_weights=None, insert_nan=True, use_methods: List[str] = None, drop_mean=False, return_tie_numbers=False):
+    def rank_all(self, task_groups=None, group_weights=None, insert_nan=True, use_methods: Optional[Dict[str, Any]] = None, drop_mean=False, return_tie_numbers=False):
         result = []
 
         if use_methods is not None:
@@ -203,7 +205,7 @@ class Leaderboard:
         ranking_params=None,
         insert_nan=True,
     ):
-        group_merged = sum(list(task_groups.values()), start=[])
+        group_merged: list = sum(list(task_groups.values()), start=[])
         group_set, group_counts = np.unique(group_merged, return_counts=True)
         # Wave 31 (2026-05-20): assert -> ValueError. SILENT-CORRECTNESS
         # bug under -O: partition violations produced wrong meta-tables.
@@ -248,7 +250,7 @@ class Leaderboard:
         ranking_params = ranking_params or {}
         return func(**ranking_params)
 
-    def find_weights_for_condorcet(self, winner_model: str, restrictions: Dict[str, List] = None):
+    def find_weights_for_condorcet(self, winner_model: str, restrictions: Optional[Dict[str, List]] = None):
         edge_list = []
         for model in self.models:
             if model == winner_model:
@@ -258,8 +260,8 @@ class Leaderboard:
 
         return self._find_weights_for_majority_graph(edge_list, restrictions=restrictions)
 
-    def split_models_by_feasibility(self, restrictions: Dict[str, List] = None):
-        result = {"feasible": [], "infeasible": []}
+    def split_models_by_feasibility(self, restrictions: Optional[Dict[str, List]] = None):
+        result: Dict[str, list] = {"feasible": [], "infeasible": []}
         for model in tqdm(self.models):
             if self.find_weights_for_condorcet(model, restrictions) == "infeasible":
                 result["infeasible"].append(model)
