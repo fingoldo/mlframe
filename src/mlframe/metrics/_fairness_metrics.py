@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import Callable, Sequence, Union
+from typing import Callable, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -133,7 +133,7 @@ def create_fairness_subgroups(
 
 
 def create_fairness_subgroups_indices(
-    subgroups: dict, train_idx: np.ndarray, val_idx: np.ndarray, test_idx: np.ndarray, group_weights: dict = None, cont_nbins: int = 3
+    subgroups: dict, train_idx: np.ndarray, val_idx: np.ndarray, test_idx: np.ndarray, group_weights: Optional[dict] = None, cont_nbins: int = 3
 ) -> dict:
     """Create index mappings for fairness subgroups across train/val/test splits.
 
@@ -142,7 +142,7 @@ def create_fairness_subgroups_indices(
     """
     if group_weights is None:
         group_weights = {}
-    res = {}
+    res: dict = {}  # dual-keyed by BOTH split-name (str) and split-length (int), see comment below
     # Each split's partition is keyed by BOTH a stable split-name identity ("train"/"val"/"test")
     # and the split length. The length key exists only because boosters call the eval metric on
     # raw numpy arrays and can distinguish splits solely by ``len(y_true)`` (see robust_mlperf_metric).
@@ -232,6 +232,7 @@ def create_robustness_standard_bins(group_name: str, npoints: int, cont_nbins: i
     # int16 wraps if cont_nbins > 32767. Use a range-aware narrowest dtype
     # that fits the caller's cont_nbins-1 max so unusual callers don't wrap
     # silently.
+    _bin_dtype: type
     if cont_nbins - 1 <= np.iinfo(np.int8).max:
         _bin_dtype = np.int8
     elif cont_nbins - 1 <= np.iinfo(np.int16).max:
@@ -316,8 +317,8 @@ def compute_fairness_metrics(
                 bins_names = group_params.get("bins_names")  # noqa: F841 -- preserved for parity with original
                 unique_bins = None
 
-            npoints = []
-            perfs = defaultdict(dict)
+            npoints: list = []
+            perfs: dict = defaultdict(dict)
             if unique_bins is None:
                 if isinstance(bins, pd.Series):
                     unique_bins = bins.unique()
@@ -348,14 +349,14 @@ def compute_fairness_metrics(
             for metric_name, metric_perf in perfs.items():
 
                 metric_perf = sort_dict_by_value(metric_perf)
-                npoints = np.array(npoints)
+                npoints_arr = np.array(npoints)
                 line = dict(
                     factor=group_name,
                     metric=metric_name,
                     nbins=len(unique_bins),
-                    npoints_from=npoints.min(),
-                    npoints_median=int(np.median(npoints)),
-                    npoints_to=npoints.max(),
+                    npoints_from=npoints_arr.min(),
+                    npoints_median=int(np.median(npoints_arr)),
+                    npoints_to=npoints_arr.max(),
                 )
 
                 # ``np.array(list(metric_perf.values()))`` materialised an
@@ -427,7 +428,7 @@ def robust_mlperf_metric(
     y_score: np.ndarray,
     metric: Callable,
     higher_is_better: bool,
-    subgroups: dict = None,
+    subgroups: Optional[dict] = None,
     whole_set_weight: float = 0.5,
     min_group_size: int = 100,
     ddof: int = 1,
@@ -450,7 +451,7 @@ def robust_mlperf_metric(
             bins = group_params.get("bins")
             bin_weight = group_params.get("weight", 1.0)
 
-            perfs = []
+            perfs: list = []
             for bin_name, bin_indices in bins.items():
                 if len(bin_indices) < min_group_size:
                     continue
@@ -467,10 +468,10 @@ def robust_mlperf_metric(
                 perfs.append(metric_value)
 
             if perfs:
-                perfs = np.array(perfs)
-                bin_metric_value = perfs.mean()
+                perfs_arr = np.array(perfs)
+                bin_metric_value = perfs_arr.mean()
                 # ddof clamped so a single in-spec group (len 1) yields std 0 rather than NaN/inf.
-                spread = float(perfs.std(ddof=ddof)) if perfs.size > ddof else 0.0
+                spread = float(perfs_arr.std(ddof=ddof)) if perfs_arr.size > ddof else 0.0
                 if higher_is_better:
                     bin_metric_value -= spread
                 else:
