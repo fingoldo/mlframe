@@ -48,7 +48,7 @@ Usage:
 from __future__ import annotations
 
 import os
-from typing import Iterable, Optional, Sequence, Tuple, Union
+from typing import Iterable, Literal, Optional, Sequence, Tuple, Union
 
 from hypothesis import HealthCheck, settings, strategies as st
 import polars as pl
@@ -77,9 +77,9 @@ def register_profiles() -> None:
         ],
         derandomize=False,
     )
-    settings.register_profile("mlframe-fast", max_examples=10, **common)
-    settings.register_profile("mlframe-ci", max_examples=50, **common)
-    settings.register_profile("mlframe-nightly", max_examples=500, **common)
+    settings.register_profile("mlframe-fast", max_examples=10, **common)  # type: ignore[arg-type]  # hypothesis settings kwargs are typed narrower than the dict we build them into
+    settings.register_profile("mlframe-ci", max_examples=50, **common)  # type: ignore[arg-type]
+    settings.register_profile("mlframe-nightly", max_examples=500, **common)  # type: ignore[arg-type]
 
     # Users can select via env var at import time.
     chosen = os.environ.get("MLFRAME_HYP_PROFILE", "mlframe-fast")
@@ -165,7 +165,7 @@ def categorical_column(
 def inf_heavy_float_column(
     name: str,
     *,
-    width: int = 32,
+    width: Literal[16, 32, 64] = 32,
     null_rate: float = 0.0,
     specials_rate: float = 0.02,
 ):
@@ -191,7 +191,7 @@ def inf_heavy_float_column(
     )
 
 
-def constant_column(name: str, dtype: pl.DataType, value):
+def constant_column(name: str, dtype: Union[pl.DataType, pl.datatypes.DataTypeClass], value):
     """Every row has the same ``value``. Shakes out code paths that
     expect variance in a feature (e.g. scalers dividing by std)."""
     return column(name=name, dtype=dtype, strategy=st.just(value), allow_null=False)
@@ -223,7 +223,7 @@ def high_card_text_column(
 
 def sparse_null_column(
     name: str,
-    dtype: pl.DataType,
+    dtype: Union[pl.DataType, pl.datatypes.DataTypeClass],
     *,
     non_null_rate: float = 0.001,
     fill_strategy: Optional[st.SearchStrategy] = None,
