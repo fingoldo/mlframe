@@ -12,7 +12,7 @@ import hashlib
 import logging
 import os
 import threading
-from typing import Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -132,7 +132,7 @@ def create_redundant_continuous_factor(
     factors: Sequence[str],
     agg_func: object = np.sum,
     noise_percent: float = 5.0,
-    dist: object = None,
+    dist: Optional[Any] = None,
     dist_args: tuple = (),
     name: str | None = None,
     sep: str = "_",
@@ -174,11 +174,11 @@ def categorize_dataset(
     min_ncats: int = 50,
     dtype=np.int16,
     missing_strategy: str = "fillna_zero",
-    nbins_strategy: str = None,
-    nbins_strategy_kwargs: dict = None,
+    nbins_strategy: Optional[str] = None,
+    nbins_strategy_kwargs: Optional[dict] = None,
     y_for_strategy=None,
-    cache_dir: str = None,
-    max_categorical_cardinality: int = None,
+    cache_dir: Optional[str] = None,
+    max_categorical_cardinality: Optional[int] = None,
 ):
     """Convert a DataFrame into an ordinal-encoded ``(n_samples, n_features)`` array. Accepts pandas or polars (DataFrame or LazyFrame -- materialised at the
     boundary). ``missing_strategy`` controls NaN handling: see :func:`_handle_missing`."""
@@ -395,6 +395,7 @@ def categorize_dataset(
         global_max = int(new_vals.max(axis=0).max()) if new_vals.size else -1
         max_cats = new_vals.max(axis=0) if new_vals.size else None
         if global_max > np.iinfo(dtype).max:
+            assert max_cats is not None  # global_max > 0 implies new_vals.size > 0
             for _candidate in (np.int16, np.int32, np.int64):
                 if global_max <= np.iinfo(_candidate).max:
                     logger.warning(

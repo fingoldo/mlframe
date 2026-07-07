@@ -17,6 +17,7 @@ import logging
 import math
 import os
 import warnings
+from typing import Any, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -35,7 +36,7 @@ def _safe_code_dtype(n_bins: int, dtype: type) -> object:
     corrupting: int8->int16->int32->int64 as the bin count grows. No-op for n_bins<=128.
     """
     try:
-        info = np.iinfo(np.dtype(dtype))
+        info = np.iinfo(np.dtype(dtype))  # type: ignore[arg-type]  # dtype may be non-integer; caught below
     except (ValueError, TypeError):
         return dtype  # non-integer requested dtype: caller owns the contract
     if n_bins - 1 <= info.max:
@@ -55,7 +56,7 @@ def _native_ordinal_encode_2d(vals: np.ndarray) -> np.ndarray:
     """
     flat = vals.reshape(-1)
     codes, _ = pd.factorize(flat, use_na_sentinel=True)
-    return codes.astype(np.float64).reshape(vals.shape)
+    return np.asarray(codes, dtype=np.float64).reshape(vals.shape)
 
 
 def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> np.ndarray:
@@ -335,6 +336,8 @@ def categorize_1d_array(
 
     if vals.dtype.name != "category" and nuniques > min_ncats:
         if method == "discretizer":
+            if bins is None:
+                raise ValueError("categorize_1d_array: method='discretizer' requires method_kwargs['n_bins'].")
             if nuniques > bins:
                 # 2026-05-28: native pure-numpy quantile binning (replaces sklearn KBinsDiscretizer).
                 # Bit-for-bit identical output (np.nanpercentile + np.searchsorted) at ~12x lower wall-clock.
@@ -351,7 +354,7 @@ def categorize_1d_array(
                 new_vals = _native_ordinal_encode_2d(vals)
         else:
             if method == "numpy":
-                bin_edges = np.histogram_bin_edges(vals, bins=bins)
+                bin_edges = np.histogram_bin_edges(vals, bins=bins if bins is not None else "auto")
             elif method == "astropy":
                 # 2026-05-28: astropy removed from the install graph. The legacy 'astropy'
                 # method used Bayesian-blocks / Knuth-rule binning; both have native numba
@@ -435,7 +438,7 @@ def quantize_search(arr, bins):
 
 
 @njit(cache=True)
-def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: float = None, max_value: float = None, dtype: type = np.int8) -> np.ndarray:
+def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: Optional[float] = None, max_value: Optional[float] = None, dtype: type = np.int8) -> np.ndarray:
     # 2026-05-30 Wave 9.1 fix (loop iter 33): the divisor was
     # ``(max - min + min/2)`` instead of the canonical ``(max - min)``.
     # That formula silently miscoded any positive-shifted input -
@@ -532,7 +535,7 @@ _UNIFORM_PAR_THRESHOLD = int(os.environ.get("MLFRAME_DISCRETIZE_UNIFORM_PAR_THRE
 
 def discretize_array(
     arr: np.ndarray, n_bins: int = 10, method: str = "quantile",
-    min_value: float = None, max_value: float = None, dtype: type = np.int8,
+    min_value: Optional[float] = None, max_value: Optional[float] = None, dtype: type = np.int8,
 ) -> np.ndarray:
     """Discretise a 1-D continuous array into ordinal bins.
 
@@ -718,7 +721,7 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
 @njit(cache=True)
 def _discretize_array_impl(
     arr: np.ndarray, n_bins: int = 10, method: str = "quantile",
-    min_value: float = None, max_value: float = None, dtype: type = np.int8,
+    min_value: Optional[float] = None, max_value: Optional[float] = None, dtype: type = np.int8,
 ) -> np.ndarray:
     if method == "uniform":
         return discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype)
@@ -738,8 +741,8 @@ def _discretize_2d_array_njit(
     n_bins: int = 10,
     method: str = "quantile",
     min_ncats: int = 50,
-    min_values: float = None,
-    max_values: float = None,
+    min_values: Optional[np.ndarray] = None,
+    max_values: Optional[np.ndarray] = None,
     dtype: type = np.int8,
 ) -> np.ndarray:
     """CPU prange backend; one column per worker thread."""
@@ -812,8 +815,8 @@ def discretize_2d_array(
     n_bins: int = 10,
     method: str = "quantile",
     min_ncats: int = 50,
-    min_values: float = None,
-    max_values: float = None,
+    min_values: Optional[np.ndarray] = None,
+    max_values: Optional[np.ndarray] = None,
     dtype: type = np.int8,
     prefer_gpu: bool = True,
 ) -> np.ndarray:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Optional
 
 import numpy as np
 from numba import njit
@@ -124,7 +125,7 @@ def _knuth_bin_edges(a: np.ndarray, edge_type: str = "quantile", m_max_cap: int 
         # through equal-frequency spacing - empirically closes ~half the
         # bench gap to FD on skewed / heavy-tailed distributions.
         quantiles = np.linspace(0.0, 100.0, best_M + 1)
-        return np.nanpercentile(a, quantiles)
+        return np.asarray(np.nanpercentile(a, quantiles))
     return np.linspace(a_min, a_max, best_M + 1)
 
 
@@ -304,7 +305,7 @@ def edges(arr, quantiles):
 
 
 @njit(cache=True)
-def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform", min_value: float = None, max_value: float = None):
+def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform", min_value: Optional[float] = None, max_value: Optional[float] = None):
     """Numba-jitted binning-edge calculator. Used by ``discretize_2d_array`` (itself ``@njit(parallel=True)`` and cannot dispatch to object-mode helpers).
 
     Outside an njit context (single-column path via ``discretize_array``) prefer the inlined raw-numpy version -- ``np.percentile`` beats numba's njit
@@ -338,7 +339,7 @@ def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform"
 
 def discretize_sklearn(
     arr: np.ndarray, n_bins: int = 10, method: str = "uniform",
-    min_value: float = None, max_value: float = None, dtype: type = np.int8,
+    min_value: Optional[float] = None, max_value: Optional[float] = None, dtype: type = np.int8,
 ) -> np.ndarray:
     """Lightweight numpy port of sklearn's ``KBinsDiscretizer``.
     ``np.searchsorted`` is faster un-jitted on contemporary numpy."""

@@ -27,6 +27,7 @@ held-out LGBM+logit AUC + ground-truth recovery; planted XOR/sign-product pairs 
 from __future__ import annotations
 
 import gc
+from typing import Optional
 
 import numpy as np
 import numba
@@ -57,11 +58,11 @@ def get_fleuret_criteria_confidence_parallel(
     max_veteranes_interactions_order: int = 1,
     extra_knowledge_multipler: float = -1.0,
     sink_threshold: float = -1.0,
-    cached_cond_MIs: dict = None,
+    cached_cond_MIs: Optional[dict] = None,
     n_workers: int = 1,
-    workers_pool: object = None,
-    parallel_kwargs: dict = None,
-    entropy_cache: dict = None,
+    workers_pool: Optional[Parallel] = None,
+    parallel_kwargs: Optional[dict] = None,
+    entropy_cache: Optional[dict] = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
     base_seed: int = 0,
@@ -155,8 +156,8 @@ def parallel_fleuret(
     max_veteranes_interactions_order: int = 1,
     extra_knowledge_multipler: float = -1.0,
     sink_threshold: float = -1.0,
-    cached_cond_MIs: dict = None,
-    entropy_cache: dict = None,
+    cached_cond_MIs: Optional[dict] = None,
+    entropy_cache: Optional[dict] = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
     base_seed: int = 0,
@@ -238,8 +239,8 @@ def get_fleuret_criteria_confidence(
     max_veteranes_interactions_order: int = 1,
     extra_knowledge_multipler: float = -1.0,
     sink_threshold: float = -1.0,
-    cached_cond_MIs: dict = None,
-    entropy_cache: dict = None,
+    cached_cond_MIs: Optional[dict] = None,
+    entropy_cache: Optional[dict] = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
     base_seed: np.uint64 = _DEFAULT_BASE_SEED,

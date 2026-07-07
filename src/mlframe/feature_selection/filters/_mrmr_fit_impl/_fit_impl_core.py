@@ -21,6 +21,8 @@ import warnings
 from collections import defaultdict
 from timeit import default_timer as timer
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from sklearn.metrics import make_scorer
@@ -178,6 +180,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # expands nested ``get_params``-bearing objects (``param__subparam``) so in-place mutation of a
     # nested estimator/config also invalidates the skip. On any ``get_params`` failure we fall back
     # to a per-call unique token (identity equality) => never matches => conservative full refit.
+    _self_params_sig: Any
     try:
         _self_params_sig = _hashable_params_signature(self.get_params(deep=True))
     except Exception:
@@ -258,7 +261,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # wall-clock so an oversized fit handed a small max_runtime_mins aborts within a small multiple of the budget.
         if self.max_runtime_mins is None:
             return True
-        return (timer() - start_time) / 60.0 < self.max_runtime_mins
+        return bool((timer() - start_time) / 60.0 < self.max_runtime_mins)
 
     dtype = self.dtype
 

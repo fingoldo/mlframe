@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Optional
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -126,7 +127,7 @@ def _addone_pvalue_enabled() -> bool:
     return _os.environ.get("MLFRAME_MRMR_ADDONE_PVALUE", "1") != "0"
 
 
-def _perm_pvalue(nfailed: int, nchecked: int, full_budget: int = None) -> float:
+def _perm_pvalue(nfailed: int, nchecked: int, full_budget: Optional[int] = None) -> float:
     """Permutation p-value from the exceedance count.
 
     ``full_budget`` (P2): when an early-break path stopped at ``nchecked < full_budget`` because ``nfailed`` blew past ``max_failed``, the plain ``nfailed/nchecked`` OVERSTATES
@@ -543,17 +544,17 @@ def mi_direct(
     x: tuple,
     y: tuple,
     factors_nbins: np.ndarray,
-    min_occupancy: int = None,
+    min_occupancy: Optional[int] = None,
     dtype: type = np.int32,
     npermutations: int = 10,
-    max_failed: int = None,
+    max_failed: Optional[int] = None,
     min_nonzero_confidence: float = 0.95,
-    classes_y: np.ndarray = None,
-    classes_y_safe: np.ndarray = None,
-    freqs_y: np.ndarray = None,
+    classes_y: Optional[np.ndarray] = None,
+    classes_y_safe: Optional[np.ndarray] = None,
+    freqs_y: Optional[np.ndarray] = None,
     n_workers: int = 1,
-    workers_pool: object = None,
-    parallel_kwargs: dict = None,
+    workers_pool: Optional[Parallel] = None,
+    parallel_kwargs: Optional[dict] = None,
     parallelism: str = "outer",
     base_seed: int = 0,
     prefer_gpu: bool = True,

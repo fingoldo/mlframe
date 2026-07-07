@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import os as _os
-from typing import Sequence
+from typing import Optional, Sequence
 
 import numba
 import numpy as np
@@ -166,22 +166,22 @@ def evaluate_candidates(
     partial_gains: dict,
     selected_vars: list,
     baseline_npermutations: int,
-    classes_y: np.ndarray = None,
-    freqs_y: np.ndarray = None,
-    freqs_y_safe: np.ndarray = None,
+    classes_y: Optional[np.ndarray] = None,
+    freqs_y: Optional[np.ndarray] = None,
+    freqs_y_safe: Optional[np.ndarray] = None,
     use_gpu: bool = True,
-    cached_MIs: dict = None,
-    cached_confident_MIs: dict = None,
-    cached_cond_MIs: dict = None,
-    cached_jmim_MIs: dict = None,
-    entropy_cache: dict = None,
+    cached_MIs: Optional[dict] = None,
+    cached_confident_MIs: Optional[dict] = None,
+    cached_cond_MIs: Optional[dict] = None,
+    cached_jmim_MIs: Optional[dict] = None,
+    entropy_cache: Optional[dict] = None,
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
     max_veteranes_interactions_order: int = 1,
     dtype=np.int32,
-    max_runtime_mins: float = None,
-    start_time: float = None,
-    min_relevance_gain: float = None,
+    max_runtime_mins: Optional[float] = None,
+    start_time: Optional[float] = None,
+    min_relevance_gain: Optional[float] = None,
     verbose: int = 1,
     ndigits: int = 5,
     use_simple_mode: bool = True,
@@ -201,7 +201,7 @@ def evaluate_candidates(
     cmi_perm: tuple = (False, 0.05, 100),
     mi_miller_madow: bool = False,
     group_mi=None,
-) -> None:
+) -> tuple:
 
     # Worker-thread re-publish of Wave 8 toggles (iter 5 fix). The
     # try/finally guarantees we don't pollute the worker thread's locals
@@ -274,8 +274,8 @@ def _evaluate_candidates_inner(
     from .evaluation import evaluate_candidate, handle_best_candidate, _JMIM_CACHE_STATS
 
     best_gain = -LARGE_CONST
-    best_candidate = None
-    expected_gains = {}
+    best_candidate: Optional[Sequence] = None
+    expected_gains: dict = {}
 
     entropy_cache_dict = numba.typed.Dict.empty(
         key_type=types.unicode_type,
@@ -344,7 +344,7 @@ def _evaluate_candidates_inner(
             mrmr_relevance_algo=mrmr_relevance_algo,
             mrmr_redundancy_algo=mrmr_redundancy_algo,
             max_veteranes_interactions_order=max_veteranes_interactions_order,
-            expected_gains=expected_gains,
+            expected_gains=expected_gains,  # type: ignore[arg-type]  # evaluate_candidate accepts dict or ndarray by int-key indexing; annotation says ndarray
             selected_vars=selected_vars,
             cached_MIs=cached_MIs,
             cached_confident_MIs=cached_confident_MIs,
@@ -362,7 +362,7 @@ def _evaluate_candidates_inner(
             current_gain=current_gain,
             best_gain=best_gain,
             X=X,
-            best_candidate=best_candidate,
+            best_candidate=best_candidate,  # type: ignore[arg-type]  # None on the first iteration; handle_best_candidate only reads it when replacing, so this is safe
             factors_names=factors_names,
             verbose=verbose,
             ndigits=ndigits,

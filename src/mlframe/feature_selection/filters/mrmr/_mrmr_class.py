@@ -17,7 +17,7 @@ import logging
 import psutil
 import warnings
 from collections import OrderedDict
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -157,9 +157,9 @@ _UNSET = object()
 def _mrmr_y_is_multioutput(y) -> bool:
     """True when y carries >=2 target columns (2D DataFrame / 2D ndarray); a Series / 1D array / single-column frame is single-target."""
     if isinstance(y, pd.DataFrame):
-        return y.shape[1] >= 2
+        return bool(y.shape[1] >= 2)
     if str(type(y).__module__).startswith("polars") and type(y).__name__ == "DataFrame":
-        return y.shape[1] >= 2
+        return bool(y.shape[1] >= 2)
     try:
         arr = np.asarray(y)
     except Exception as exc:
@@ -241,6 +241,10 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
     average reflections via splits). ``augment`` adds the aggregate; ``replace`` also drops the members.
     """
 
+    # Set dynamically (to None in _mrmr_class_fit_helpers.py's identity-shortcut path, to a dict in the
+    # provenance-recording block below) -- annotated here so mypy sees the full attribute contract.
+    provenance_: dict[str, Any] | None
+
     # Process-wide cache of fitted state, keyed by (content_sig(X), content_sig(y), params_signature). When the
     # training suite iterates over models (clone()ing the pre-pipeline MRMR each time, stripping
     # ``_cat_fe_cache_``), subsequent fits on the same arrays hit this cache and skip the full cat-FE +
@@ -289,7 +293,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # has sparse contingency cells so its plug-in MI/CMI is unreliable regardless (the analytic null guards on >=5
         # expected/cell); capping DENSIFIES the cells (better MI) AND lets the whole codes matrix stay a narrow int -- set
         # to <=127 to keep the compact-codes storage int8 (4x smaller) even when legitimate high-card categoricals exist.
-        max_categorical_cardinality: int = None,
+        max_categorical_cardinality: int | None = None,
         # per-feature adaptive bin chooser. Default
         # ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the
         # honest combined-ranking winner of the F1 leaderboard
@@ -305,7 +309,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # modules for ad-hoc / benchmark use only and are explicitly NOT
         # wired into MRMR.fit().
         nbins_strategy: str = "mdlp",
-        nbins_strategy_kwargs: dict = None,
+        nbins_strategy_kwargs: dict | None = None,
         # Large-n REGRESSION adaptive quantization gate. On a large-n regression target the supervised MDLP per-feature binning
         # under-resolves a heavy-tailed continuous y: the 180-cell large-n MRMR campaign (reg n=100k, 15 seeds) measured a 15/15
         # paired win for fixed 20-bin quantile over MDLP -- holdout R2 0.597 vs 0.481 (+0.116, std 0.0025) and F1 0.909 vs 0.667
@@ -327,7 +331,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         #   None (legacy) | 'jmim' | 'auto' (data-dependent: a cheap pre-fit synergy probe routes to JMIM
         #   only when the data is synergistic, else stays plain Fleuret -- so the additive-regime
         #   over-selection that keeps 'jmim' opt-in is avoided. See _synergy_detector.detect_synergy.)
-        redundancy_aggregator: str = None,
+        redundancy_aggregator: str | None = None,
         # A3 MRwMR-BUR unique-relevance bonus (Gao 2022). Additive bonus on the
         # MRMR score for features whose marginal-y relevance cannot be explained
         # by any already-selected feature.
@@ -378,8 +382,8 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # which biases MI; only kept for reproducibility of pre-2026-05-15 runs.
         nan_strategy: str = "separate_bin",
         # factors
-        factors_names_to_use: Sequence[str] = None,
-        factors_to_use: Sequence[int] = None,
+        factors_names_to_use: Sequence[str] | None = None,
+        factors_to_use: Sequence[int] | None = None,
         # algorithm
         mrmr_relevance_algo: str = "fleuret",
         mrmr_redundancy_algo: str = "fleuret",
@@ -399,7 +403,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # re-injecting noise. 'one_se_min' keeps the SMALLEST subset within 1 SE, so the rescue re-adds only features that genuinely lift CV.
         additional_rfecv_selection_rule: str = "one_se_min",
         # Extra kwargs merged into (and overriding) the rescue RFECV's params, e.g. {"max_refits": 30, "n_features_selection_rule": "argmax"}.
-        additional_rfecv_kwargs: dict = None,
+        additional_rfecv_kwargs: dict | None = None,
         # performance
         extra_x_shuffling: bool = True,
         dtype=np.int32,
@@ -407,11 +411,11 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # downstream (see ``_resolve_target_prefix``: uses pid ^ id(self) instead of touching the
         # numpy global RNG). For bit-exact reproducibility across runs / mlflow hash stability, pass
         # an explicit integer seed.
-        random_seed: int = None,
+        random_seed: int | None = None,
         use_gpu: bool = False,
         n_workers: int = 1,
         # confidence
-        min_occupancy: int = None,
+        min_occupancy: int | None = None,
         min_nonzero_confidence: float = 0.99,
         full_npermutations: int = 3,
         baseline_npermutations: int = 2,
@@ -459,7 +463,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # mutate the raw mrmr_gains_ attr (downstream sees raw plug-in MI).
         cardinality_bias_correction: bool = True,
         max_consec_unconfirmed: int = 10,
-        max_runtime_mins: float = None,
+        max_runtime_mins: float | None = None,
         interactions_min_order: int = 1,
         interactions_max_order: int = 1,
         interactions_order_reversed: bool = False,
@@ -1088,12 +1092,12 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # verbosity and formatting
         verbose: bool | int = 0,
         ndigits: int = 5,
-        parallel_kwargs: dict = None,
+        parallel_kwargs: dict | None = None,
         # CV
         cv: object | int | None = 3,
         cv_shuffle: bool = False,
         # service
-        random_state: int = None,
+        random_state: int | None = None,
         n_jobs: int = -1,
         # Skip the full re-fit when a process-cache hit replays a prior fit on the SAME content. The cache invalidates on
         # (a) X content change, (b) y / TARGET content change, AND (c) ANY selector-parameter change (set_params or direct
@@ -1101,12 +1105,12 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # target or changed settings. Both layers honour this: the in-object identity skip and the process-wide _FIT_CACHE.
         skip_retraining_on_same_content: bool = True,
         # Deprecated alias for ``skip_retraining_on_same_content`` (the old name implied shape-only keying, which was always a misnomer). Pass ``None`` to defer to the new name; a non-None value overrides it with a DeprecationWarning.
-        skip_retraining_on_same_shape: bool = None,
+        skip_retraining_on_same_shape: bool | None = None,
         # Cardinality cutoff for the confirmation step. ``None`` (default) computes
         # ``quantization_nbins ** interactions_max_order * 2`` (20 for the defaults). Pin to 50 for legacy behaviour.
         # Conservative default skips high-cardinality conditioning sets where permutation-based confirmation does not
         # converge in reasonable time.
-        max_confirmation_cand_nbins: int = None,
+        max_confirmation_cand_nbins: int | None = None,
         # When screening returns zero selected_vars, legacy code fell back to FE on ALL features; new default is
         # to skip FE (running FE on an empty screen typically just amplifies noise). Set True for legacy.
         fe_fallback_to_all: bool = False,
@@ -1559,7 +1563,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # "auto" then escalates to the exhaustive sweep regardless of p (the user did not ask to bound wall-time).
         # Set this (or max_runtime_mins) to bound the worst-case FE wall-time: at the bench ~5e4 CUDA pairs/s,
         # p=2000 -> ~38s, p=5000 -> ~241s, p=10000 -> ~1004s. "force" ignores the budget entirely.
-        fe_synergy_exhaustive_max_seconds: float = None,
+        fe_synergy_exhaustive_max_seconds: float | None = None,
         # N-AWARE COST GATE on the synergy bootstrap's all-pairs joint-MI sweep (O(p^2) pairs x O(n) each). The
         # feature cap above does NOT bound wall-time -- a wide-but-not-too-wide frame at large n blows up
         # super-linearly (measured p=200: n=5k +108%, n=20k +300%, n=100k >24min). The bootstrap fires only when
@@ -2415,10 +2419,10 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         fe_pairwise_log_ratio_enable: bool = False,
         fe_pairwise_log_ratio_cols: tuple = (),
         fe_grouped_delta_enable: bool = False,
-        fe_grouped_delta_group_col: str = None,
+        fe_grouped_delta_group_col: str | None = None,
         fe_grouped_delta_num_cols: tuple = (),
         fe_lagged_diff_enable: bool = False,
-        fe_lagged_diff_time_col: str = None,
+        fe_lagged_diff_time_col: str | None = None,
         fe_lagged_diff_value_cols: tuple = (),
         fe_lagged_diff_periods: tuple = (1, 2),
         # TWO-TIER IT GATES on the four recipe-emitting
@@ -2454,7 +2458,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         fe_local_mi_gate: bool = True,
         fe_local_mi_gate_top_k: int = 20,
         fe_unified_second_pass_gate: bool = False,
-        fe_unified_second_pass_max_keep: int = None,
+        fe_unified_second_pass_max_keep: int | None = None,
         fe_unified_second_pass_min_gain: float = 0.005,
         # grouped multi-stat aggregator with CMI gate.
         # NVIDIA cuDF Kaggle-Grandmaster technique #1: per-group statistics of
@@ -2750,7 +2754,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         fe_temporal_agg_enable: bool = False,
         fe_temporal_agg_entity_cols: tuple = (),
         fe_temporal_agg_value_cols: tuple = (),
-        fe_temporal_agg_time_col: str = None,
+        fe_temporal_agg_time_col: str | None = None,
         fe_temporal_agg_stats: tuple = ("mean", "std", "count"),
         fe_temporal_agg_windows: tuple = (),
         fe_temporal_agg_lags: tuple = (1,),
@@ -2785,7 +2789,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         #     the rolling window (cumulative growth).
         partial_fit_decay: float = 0.0,
         partial_fit_min_recompute: int = 100,
-        partial_fit_window: int = None,
+        partial_fit_window: int | None = None,
         # META FE-RECOMMENDER "1-knob" mode. Default OFF
         # -> byte-identical legacy path (individual fe_*_enable defaults
         # untouched). When True, fit() fingerprints (X, y) BEFORE the FE stages
@@ -2807,7 +2811,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # by (column-summary, method, kwargs, y-summary-when-supervised); re-fits on the same X+y
         # skip the per-column edge-builder. Most useful for hyperparam sweeps and ablations where
         # the binning input recurs verbatim across runs. See ``mlframe.utils.disk_cache``.
-        cache_dir: str = None,
+        cache_dir: str | None = None,
         # EMBEDDING / FREE-TEXT PASSTHROUGH (default ON). Columns whose cells are embedding vectors (list/ndarray) or long free-text cannot be MI-discretised; when
         # True they are detected at fit, EXCLUDED from the MI screen / FE candidate set, and PASSED THROUGH to the transform output unchanged so a downstream
         # learnable-embedding network (PyTorch-Lightning MLP / recurrent) and its ``_encode_emb_text_fit`` boundary encoder consume them end-to-end. Set False for
@@ -2831,8 +2835,8 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         usability_w_universal: float = 0.5,
         usability_feature_dtype: type = np.float32,
         usability_max_base_features: int = 16,
-        usability_pool_kwargs: dict = None,
-        usability_greedy_kwargs: dict = None,
+        usability_pool_kwargs: dict | None = None,
+        usability_greedy_kwargs: dict | None = None,
         # Multi-output (2D y: multilabel / multi-target regression). MRMR's greedy partial-gain machinery merges the target columns into one
         # joint target, and that merged target makes the lazy confirmation step drop the 2nd genuine feature even when the per-column MI is high.
         # 'union' (default): fit one single-target selector per output column (the 1D path, which is correct) and UNION the selected raw columns.
@@ -2886,7 +2890,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
 
         # save params
         store_params_in_object(obj=self, params=get_parent_func_args())
-        self.signature = None
+        self.signature: str | None = None
 
     def __repr__(self, N_CHAR_MAX: int = 700) -> str:
         # ``n_workers`` (candidate-MI evaluation parallelism; default 1 = SERIAL, the fast path) is hidden by sklearn's
@@ -2898,7 +2902,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             _inner = r[:-1]
             _sep = "" if _inner.endswith("(") else ", "
             r = f"{_inner}{_sep}n_workers={getattr(self, 'n_workers', 1)})"
-        return r
+        return str(r)
 
     # Constructor-param validation allow-lists. Carved VERBATIM into the leaf module
     # ``_mrmr_param_constants.py`` (no class refs -> no cycle) and re-bound here as class
@@ -2991,7 +2995,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         self.__dict__.update(state)
 
     @hygienic_fit
-    def fit(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, sample_weight: np.ndarray | pd.Series | None = None, **fit_params):
+    def fit(self, X: pd.DataFrame | np.ndarray | Any, y: pd.DataFrame | pd.Series | np.ndarray | Any, groups: pd.Series | np.ndarray = None, sample_weight: np.ndarray | pd.Series | None = None, **fit_params):
         """Public ``fit`` wrapper. The body (``_fit_impl``) is run inside a try / finally so the
         temporary target columns injected into a caller-supplied pandas frame are always dropped,
         even if screening / cat-FE / discretization raises. Pre-fix code dropped only on success,
@@ -3174,7 +3178,9 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # ``_mlframe_identity_cache_override_`` so cache lifetime is bounded by the suite
         # rather than the process. When absent, fall back to the module-level dict for
         # cross-suite reuse (CI matrices opt in via mrmr_identity_cache_scope="process").
-        _cache_dict = getattr(self, "_mlframe_identity_cache_override_", None)
+        # Entries are legacy bool OR (is_id, prior_y_sample) tuples (see the store below); the module-level
+        # dict is declared dict[str, bool] for its legacy shape, so widen the local view to match actual usage.
+        _cache_dict: dict = getattr(self, "_mlframe_identity_cache_override_", None)
         if _cache_dict is None:
             _cache_dict = _MRMR_IDENTITY_FP_CACHE
         _x_fp = None
@@ -3619,7 +3625,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             if _orig_random_seed is not _UNSET:
                 self.random_seed = _orig_random_seed
             if _orig_skip_content is not _UNSET:
-                self.skip_retraining_on_same_content = _orig_skip_content
+                self.skip_retraining_on_same_content = _orig_skip_content  # type: ignore[assignment]  # narrowed by the is-not-_UNSET sentinel check above; mypy can't track object-identity narrowing
             # restore the fast-search profile overrides (constructor-arg stability).
             # Restore the default screen-subsample knobs to their pre-fit (constructor) values so
             # clone / pickle / repeated-fit see unchanged constructor-arg semantics.
