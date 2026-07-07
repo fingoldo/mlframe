@@ -103,7 +103,14 @@ def _numeric_codes_frame(X: "pd.DataFrame") -> "pd.DataFrame":
         if pd.api.types.is_numeric_dtype(s.dtype):
             series_list.append(np.asarray(s.to_numpy()))
         else:
-            codes, _ = pd.factorize(s, use_na_sentinel=True)
+            try:
+                codes, _ = pd.factorize(s, use_na_sentinel=True)
+            except TypeError:
+                # An object column whose values are themselves unhashable (e.g. an embedding column
+                # storing one ndarray per row) cannot be factor-coded. Emit an all-zero (single-code)
+                # column instead of raising -- it carries no redundancy signal, but preserves the
+                # column-count/order invariant this function promises callers.
+                codes = np.zeros(len(s), dtype=np.intp)
             series_list.append(np.asarray(codes))
     out = pd.DataFrame(np.column_stack(series_list) if series_list else np.empty((len(X), 0)), index=X.index)
     out.columns = list(X.columns)

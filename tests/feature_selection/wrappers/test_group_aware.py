@@ -13,6 +13,8 @@ import pytest
 from mlframe.feature_selection.filters.group_aware import (
     GroupAwareMRMR,
     _cluster_medoids,
+    _numeric_codes_frame,
+    _redundancy_matrix,
     cluster_features_by_correlation,
 )
 
@@ -431,3 +433,28 @@ def test_prune_rank_deficient_skips_non_numeric_columns():
     numeric_only = df[["x1", "x2", "x3", "x4"]]
     kept_numeric = GroupAwareMRMR._prune_rank_deficient(numeric_only, [0, 1, 2, 3])
     assert [numeric_only.columns[i] for i in kept_numeric] == ["x1", "x2", "x4"]
+
+
+def test_numeric_codes_frame_skips_unhashable_embedding_column():
+    """``_numeric_codes_frame`` factor-codes every non-numeric column via ``pd.factorize`` to feed
+    redundancy clustering. An embedding column (object dtype, one ndarray per row) is non-numeric but
+    its values are themselves unhashable, so ``pd.factorize`` raised ``TypeError: unhashable type:
+    'numpy.ndarray'`` and aborted the whole redundancy matrix -- surfaced by the bug-hunt fuzz suite
+    (c0062, GroupAwareMRMR redundancy matrix on a frame carrying an embedding column). The column-count/
+    order invariant this function promises callers must still hold -- the embedding column survives as
+    a neutral (all-zero) code column rather than being dropped or crashing.
+    """
+    rng = np.random.default_rng(4)
+    n = 60
+    df = pd.DataFrame({
+        "num_0": rng.standard_normal(n),
+        "cat_0": np.array(["a", "b"] * (n // 2)),
+        "emb_0": [rng.standard_normal(4) for _ in range(n)],
+    })
+
+    out = _numeric_codes_frame(df)
+    assert list(out.columns) == ["num_0", "cat_0", "emb_0"]
+    assert np.all(out["emb_0"].to_numpy() == 0)
+
+    corr = _redundancy_matrix(df, "pearson")
+    assert corr.shape == (3, 3)
