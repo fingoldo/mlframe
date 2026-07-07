@@ -146,7 +146,7 @@ class ShapProxiedMethodsMixin:
         try:
             import polars as pl
         except ImportError:
-            pl = None
+            pl = None  # type: ignore[assignment]  # optional-dependency sentinel, guarded by the `pl is not None` check below
         if pl is not None and isinstance(X, pl.DataFrame):
             from mlframe.training.utils import get_pandas_view_of_polars_df
 

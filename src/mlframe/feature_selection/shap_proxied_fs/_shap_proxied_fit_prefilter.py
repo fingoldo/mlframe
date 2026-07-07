@@ -82,8 +82,8 @@ def materialise_holdout_and_cluster(*, self, working_cols, n_features, _precompu
                 # Reuse precomputed bins when keyed to every working column; else bin
                 # X_search on the fly via MRMR's discretiser. Keeping the precomputed path
                 # avoids the second binning pass when MRMR already produced an aligned view.
-                _cluster_names = [c for c in X_search.columns.tolist() if c in _bins] if _have_precomputed_bins else []
-                if _have_precomputed_bins and len(_cluster_names) == X_search.shape[1]:
+                _cluster_names = [c for c in X_search.columns.tolist() if c in _bins] if _have_precomputed_bins and isinstance(_bins, dict) else []
+                if _have_precomputed_bins and isinstance(_bins, dict) and len(_cluster_names) == X_search.shape[1]:
                     _nbins_pf = _precomputed_aligned.get("nbins_per_feature") if isinstance(_precomputed_aligned, dict) else None
                     _bins_for_su = _bins
                     _cluster_bins_source = "precomputed"

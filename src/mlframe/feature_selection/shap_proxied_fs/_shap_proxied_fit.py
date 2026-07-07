@@ -149,6 +149,7 @@ class ShapProxiedFitMixin:
     cache_dir: Optional[str]
     _rng: np.random.Generator
     _split_col_batch: int
+    _deferred_holdout: Optional[tuple]
     # Provided by ``ShapProxiedMethodsMixin`` (the concrete class inherits both).
     _resolve_booster_kind: Callable[[], str]
     _resolve_optimizer: Callable[[int], str]
@@ -247,7 +248,7 @@ class ShapProxiedFitMixin:
         def _budget_exhausted() -> bool:
             if _budget_max_mins and (time.perf_counter() - _budget_t0) > _budget_max_mins * 60.0:
                 return True
-            return bool(_budget_stop_file) and _stop_file_exists(_budget_stop_file)
+            return bool(_budget_stop_file) and _stop_file_exists(str(_budget_stop_file))
 
         X = self._to_pandas(X).reset_index(drop=True)
         X.columns = [str(c) for c in X.columns]
@@ -1013,7 +1014,7 @@ class ShapProxiedFitMixin:
                 # values are apples-to-apples. The cache lookup is the full-template namespace (no
                 # template_id), so this hits any prior pipeline retrain of the same subset (e.g. when
                 # refine made no drops, this is a cache hit of the union retrain done elsewhere).
-                refine_info = dict(before=len(member_cols), after=len(refined))
+                refine_info: dict[str, Any] = dict(before=len(member_cols), after=len(refined))
                 if refined:
                     # iter81: the full-template re-eval of the refined subset frequently hits the
                     # disk cache too -- the same (cols, template, cap=None) tuple was retrained as

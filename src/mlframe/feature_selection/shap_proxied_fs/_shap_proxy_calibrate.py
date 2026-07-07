@@ -17,6 +17,8 @@ falls back to identity. So it can never do worse than the raw proxy ordering on 
 
 from __future__ import annotations
 
+from typing import Optional
+
 import numpy as np
 
 
@@ -46,7 +48,7 @@ def subset_redundancy(phi: np.ndarray, idx) -> float:
     return _mean_abs_offdiag_corr(phi[:, idx].T)
 
 
-def subset_redundancy_many(phi: np.ndarray, idx_list, *, phi_T: np.ndarray = None) -> np.ndarray:
+def subset_redundancy_many(phi: np.ndarray, idx_list, *, phi_T: Optional[np.ndarray] = None) -> np.ndarray:
     """Vectorised :func:`subset_redundancy` over many subsets sharing one ``phi``.
 
     ``phi`` is row-major (n_samples, n_units); a per-subset strided column gather ``phi[:, idx]`` is

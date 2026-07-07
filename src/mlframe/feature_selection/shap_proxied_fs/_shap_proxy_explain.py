@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Optional, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -159,7 +159,7 @@ def _treeshap_numba_min_features() -> int:
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:
-            entry = ktc.lookup("shap_proxy_treeshap")
+            entry = cast(Any, ktc).lookup("shap_proxy_treeshap")
             if isinstance(entry, dict) and entry.get("numba_min_features"):
                 return int(entry["numba_min_features"])
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
@@ -358,20 +358,20 @@ def compute_phi_rank_stability(per_fold_phi_mean, top_k: int = 80) -> float:
         # spearmanr on the matrix returns the full pairwise correlation; extract upper-triangle.
         corr, _ = spearmanr(ranks, axis=1)
         if np.isscalar(corr):
-            return float(corr)
+            return float(np.asarray(corr, dtype=np.float64))
         corr = np.asarray(corr, dtype=np.float64)
         iu = np.triu_indices(n_folds, k=1)
         vals = corr[iu]
     except Exception:
         ranks = np.argsort(np.argsort(-sub, axis=1), axis=1).astype(np.float64)
-        vals = []
+        vals_list: list[float] = []
         for i in range(n_folds):
             ri = ranks[i] - ranks[i].mean()
             for j in range(i + 1, n_folds):
                 rj = ranks[j] - ranks[j].mean()
                 denom = float(np.sqrt((ri * ri).sum() * (rj * rj).sum()))
-                vals.append(float((ri * rj).sum() / denom) if denom > 0 else 1.0)
-        vals = np.asarray(vals, dtype=np.float64)
+                vals_list.append(float((ri * rj).sum() / denom) if denom > 0 else 1.0)
+        vals = np.asarray(vals_list, dtype=np.float64)
     if vals.size == 0:
         return 1.0
     # Median is more robust than mean against one outlier fold (e.g. a tiny class-imbalance KFold split).
@@ -581,6 +581,7 @@ def compute_shap_matrix(
                 _params = model_template.get_params(deep=False)
             except Exception:
                 _params = {"_repr": repr(model_template)}
+            _rng_state: Any
             try:
                 _rng_state = rng.bit_generator.state
             except AttributeError:
@@ -760,8 +761,10 @@ def compute_shap_matrix(
         phi[va_idx] = pf
         base[va_idx] = bf
         if return_variance:
+            assert phi_var is not None  # tied to return_variance by construction (see phi_var init above)
             phi_var[va_idx] = vf
         if return_per_fold_phi_mean:
+            assert per_fold_mean is not None  # tied to return_per_fold_phi_mean by construction
             per_fold_mean[fold_id] = np.abs(pf).mean(axis=0)
 
     out_tail = []

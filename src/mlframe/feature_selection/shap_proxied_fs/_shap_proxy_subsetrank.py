@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+from typing import Any, cast
 
 import numpy as np
 from numba import njit, prange
@@ -163,7 +164,7 @@ def _gpu_min_subsets() -> int:
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:
-            entry = ktc.lookup("shap_proxy_subsetrank")
+            entry = cast(Any, ktc).lookup("shap_proxy_subsetrank")
             if isinstance(entry, dict) and entry.get("gpu_min_subsets"):
                 return int(entry["gpu_min_subsets"])
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design

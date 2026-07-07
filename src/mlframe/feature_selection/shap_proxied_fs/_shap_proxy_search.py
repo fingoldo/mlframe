@@ -20,6 +20,7 @@ Exact enumeration is intended for ``n_features <= ~22``; larger n routes to the 
 from __future__ import annotations
 
 import math
+from typing import Any, cast
 
 import numpy as np
 from numba import njit, prange
@@ -264,7 +265,7 @@ def _resolve_brute_force_n_chunks() -> int:
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:
-            entry = ktc.lookup("shap_proxy_brute_force")
+            entry = cast(Any, ktc).lookup("shap_proxy_brute_force")
             if isinstance(entry, dict) and entry.get("n_chunks"):
                 val = int(entry["n_chunks"])
     except Exception:  # nosec B110 - best-effort path

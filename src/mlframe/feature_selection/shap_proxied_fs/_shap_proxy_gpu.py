@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import math
 import multiprocessing
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -73,7 +73,7 @@ def gpu_available() -> bool:
     try:
         import cupy as cp
 
-        return cp.cuda.runtime.getDeviceCount() > 0
+        return bool(cp.cuda.runtime.getDeviceCount() > 0)
     except _cuda_demote_errors() as exc:
         logger.debug("GPU subset-loss kernel unavailable, demoting to CPU: %s", exc)
         return False
@@ -97,7 +97,7 @@ def _block_size() -> int:
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:
-            entry = ktc.lookup("shap_proxy_subset_loss")  # may be absent -> fall through
+            entry = cast(Any, ktc).lookup("shap_proxy_subset_loss")  # may be absent -> fall through
             if isinstance(entry, dict) and entry.get("block_size"):
                 return int(entry["block_size"])
     except (ImportError, KeyError, ValueError, TypeError) as exc:

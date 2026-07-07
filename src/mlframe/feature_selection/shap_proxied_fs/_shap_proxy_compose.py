@@ -53,7 +53,7 @@ def per_fold_stability_select(X, y, *, classification=True, n_folds=5, vote_thre
     splitter = StratifiedKFold(n_folds, shuffle=True, random_state=random_state) if classification else KFold(n_folds, shuffle=True, random_state=random_state)
     split = splitter.split(X, y) if classification else splitter.split(X)
 
-    weighted = defaultdict(float)
+    weighted: defaultdict = defaultdict(float)
     total_w = 0.0
     per_fold = []
     for fold, (tr, _) in enumerate(split):

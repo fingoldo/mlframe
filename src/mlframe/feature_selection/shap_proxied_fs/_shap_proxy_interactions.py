@@ -21,6 +21,7 @@ interacting pairs the main-effect search would miss.
 from __future__ import annotations
 
 import itertools
+from typing import Any, cast
 
 import numpy as np
 
@@ -49,7 +50,7 @@ def _interaction_numba_min_features() -> int:
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:
-            entry = ktc.lookup("shap_proxy_treeshap")
+            entry = cast(Any, ktc).lookup("shap_proxy_treeshap")
             if isinstance(entry, dict) and entry.get("interaction_numba_min_features"):
                 return int(entry["interaction_numba_min_features"])
     except Exception:  # nosec B110 - best-effort path
@@ -64,7 +65,7 @@ def _interaction_gpu_min_cells() -> int:
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:
-            entry = ktc.lookup("shap_proxy_treeshap")
+            entry = cast(Any, ktc).lookup("shap_proxy_treeshap")
             if isinstance(entry, dict) and entry.get("interaction_gpu_min_cells"):
                 return int(entry["interaction_gpu_min_cells"])
     except Exception:  # nosec B110 - best-effort path
@@ -203,9 +204,9 @@ def interaction_margin(Phi: np.ndarray, base: np.ndarray, idx) -> np.ndarray:
     """``base + sum_{i,k in S} Phi_ik`` -- coalition value keeping only within-subset interactions."""
     idx = np.asarray(idx, dtype=np.int64)
     if idx.size == 0:
-        return base.copy()
+        return np.asarray(np.asarray(base).copy())
     sub = Phi[:, idx][:, :, idx]
-    return base + sub.sum(axis=(1, 2))
+    return np.asarray(base + sub.sum(axis=(1, 2)))
 
 
 def interaction_subset_loss(Phi, base, y, idx, metric) -> float:
@@ -239,7 +240,7 @@ def interaction_top_n(
                 loss(comb)
     # Always run greedy-forward to surface interacting pairs (cheap, dedup via cache); when P is too
     # wide to enumerate exhaustively this is the only pass that runs.
-    current = ()
+    current: tuple[int, ...] = ()
     best = float("inf")
     remaining = set(range(P))
     while remaining and len(current) < max_card:

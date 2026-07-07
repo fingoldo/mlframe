@@ -342,7 +342,7 @@ def pairwise_su_edges_bitmap(
         return np.zeros((n_features, n_features), dtype=np.uint8)
     n_words = (int(n_samples) + 63) // 64
     bitmap = _pack_onehot_bitmap(bins_packed, nbins, max_nb, n_words)
-    return _pairwise_su_edges_bitmap(
+    return np.asarray(_pairwise_su_edges_bitmap(
         bitmap, nbins, freqs_packed, freqs_offsets,
         h_marginals, constant_mask, int(n_samples), float(threshold),
-    )
+    ))

@@ -151,7 +151,7 @@ def _sample_anchor_subsets(
     if card_mode == "zipf":
         card_values = np.arange(int(min_card), int(max_card) + 1, dtype=np.int64)
         card_probs = _zipf_card_probs(min_card, max_card, zipf_alpha)
-    anchors = set()
+    anchors: set[tuple[int, ...]] = set()
     guard = 0
     max_guard = n_anchors * 50
     while len(anchors) < n_anchors and guard < max_guard:

@@ -23,7 +23,7 @@ Batch size resolves through three priorities:
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 
@@ -77,7 +77,7 @@ def resolve_batch_size(
         if cache is not None:
             feature_bucket = _pow2_bucket(n_features)
             sample_bucket = _pow2_bucket(n_samples)
-            hit = cache.lookup(
+            hit = cast(Any, cache).lookup(
                 "shap_proxy_prefilter_univariate_batch",
                 n_features=feature_bucket,
                 n_samples=sample_bucket,
@@ -117,7 +117,7 @@ def _coerce_2d_float(X) -> np.ndarray:
         X = X.astype(np.float64, copy=False)
     if X.ndim != 2:
         raise ValueError(f"expected 2-D array, got shape {X.shape}")
-    return X
+    return np.asarray(X)
 
 
 def f_classif_chunked(
