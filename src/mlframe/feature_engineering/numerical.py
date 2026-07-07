@@ -23,7 +23,7 @@ __all__ = [
 import logging
 import warnings
 from contextlib import contextmanager
-from typing import Sequence
+from typing import Any, Optional, Sequence, cast
 
 import numba
 import numpy as np
@@ -68,7 +68,7 @@ def histogram(a, bins="auto", **kwargs):
     if _h is not None:
         return _h(a, bins=bins, **kwargs)
     return np.histogram(a, bins=bins, **kwargs)
-from scipy.stats import kstest
+from scipy.stats import kstest, rv_continuous
 from sklearn.feature_selection import mutual_info_regression
 
 from mlframe.feature_engineering.hurst import compute_hurst_exponent
@@ -291,12 +291,12 @@ def compute_simple_stats_numba(arr: np.ndarray, compensated: bool = False) -> tu
     Returns an all-zero tuple when ``arr`` contains no finite element. ``std`` is biased (ddof=0).
     """
     if compensated:
-        return _compute_simple_stats_compensated(arr)
+        return cast(tuple, _compute_simple_stats_compensated(arr))
     # Pre-flight finiteness check: O(N) vectorised in C, ~2us per 100k. Cheap insurance against
     # the LLVM `nnan`/`ninf` assumptions in the fast kernel.
     if not np.isfinite(arr).all():
-        return _compute_simple_stats_compensated(arr)
-    return _compute_simple_stats_fast(arr)
+        return cast(tuple, _compute_simple_stats_compensated(arr))
+    return cast(tuple, _compute_simple_stats_fast(arr))
 
 
 def compute_simple_stats_numba_arr(arr: np.ndarray, dtype=np.float32, compensated: bool = False) -> np.ndarray:
@@ -315,7 +315,7 @@ def get_simple_stats_names() -> list:
 from ._numerical_numba import compute_numerical_aggregates_numba  # noqa: F401, E402
 
 def get_basic_feature_names(
-    weights: np.ndarray = None,
+    weights: Optional[np.ndarray] = None,
     whiten_means: bool = True,
     return_drawdown_stats: bool = False,
     return_profit_factor: bool = False,
@@ -390,10 +390,10 @@ def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = _EMPTY_F
     else:
         mi = mutual_info_regression(np.arange(len(arr)).reshape(-1, 1), arr, n_neighbors=2)
 
-    return mi[0]
+    return float(mi[0])
 
 
-def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spectral_method: str = "welch") -> list:
+def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spectral_method: str = "welch") -> tuple:
     """Apply every function in ``entropy_funcs`` to ``arr`` and return their outputs as a tuple.
 
     Non-finite values are stripped first; if fewer than 2 finite samples remain, returns zeros.
@@ -414,7 +414,7 @@ def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spe
         return tuple(np.nan_to_num([f(safe_arr) for f in _entropy_funcs], posinf=0, neginf=0))
 
 
-def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
+def fit_distribution(dist: rv_continuous, data: np.ndarray, method: str = "mle"):
     """Fit a scipy distribution to ``data`` and return parameters + Kolmogorov-Smirnov fit quality.
 
     Returns the distribution's fitted parameters concatenated with ``(ks_stat, ks_pval)``. On any
@@ -450,15 +450,15 @@ def compute_distributional_features(arr: np.ndarray) -> tuple:
 
 def compute_numaggs(
     arr: np.ndarray,
-    xvals: np.ndarray = None,
-    weights: np.ndarray = None,
+    xvals: Optional[np.ndarray] = None,
+    weights: Optional[np.ndarray] = None,
     geomean_log_mode: bool = False,
     q: Sequence[float] = default_quantiles,
     quantile_method: str = "median_unbiased",
     max_modes: int = 10,
     sampling_frequency: int = 100,
     spectral_method: str = "welch",
-    hurst_kwargs: dict = None,
+    hurst_kwargs: Optional[dict] = None,
     directional_only: bool = False,
     whiten_means: bool = True,
     return_distributional: bool = False,
@@ -547,7 +547,7 @@ def compute_numaggs(
     if return_distributional:
         res = res + tuple(compute_distributional_features(arr=arr))
     if return_lintrend_approx_stats:
-        params = dict(
+        params: dict[str, Any] = dict(
             weights=weights,
             geomean_log_mode=geomean_log_mode,
             q=q,
@@ -578,7 +578,7 @@ def compute_numaggs(
 
 
 def get_numaggs_names(
-    weights: np.ndarray = None,
+    weights: Optional[np.ndarray] = None,
     q: Sequence[float] = default_quantiles,
     directional_only: bool = False,
     whiten_means: bool = True,
@@ -623,7 +623,7 @@ def get_numaggs_names(
     )
 
     if return_lintrend_approx_stats:
-        params = dict(
+        params: dict[str, Any] = dict(
             weights=weights,
             q=q,
             directional_only=directional_only,
@@ -643,7 +643,7 @@ def get_numaggs_names(
     return res
 
 
-def get_moments_slope_mi_feature_names(weights: np.ndarray = None, directional_only: bool = False, return_lintrend_approx_stats: bool = True):
+def get_moments_slope_mi_feature_names(weights: Optional[np.ndarray] = None, directional_only: bool = False, return_lintrend_approx_stats: bool = True):
     """Feature names produced by ``compute_moments_slope_mi``. ``weights is not None`` toggles weighted variants."""
     res = []
     if not directional_only:
@@ -723,8 +723,8 @@ def rolling_moving_average(arr: np.ndarray, n: int = 2, compensated: bool = True
     if n > len(arr):
         raise ValueError("n must be less than or equal to the length of the array")
     if compensated:
-        return _rolling_moving_average_compensated(arr, n)
-    return _rolling_moving_average_fast(arr, n)
+        return cast(np.ndarray, _rolling_moving_average_compensated(arr, n))
+    return cast(np.ndarray, _rolling_moving_average_fast(arr, n))
 
 
 def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: int = 0, use_diffs: bool = False, dtype=np.float32) -> np.ndarray:
@@ -755,11 +755,11 @@ def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: 
 
 def compute_numaggs_parallel(
     df: pd.DataFrame = None,
-    cols: Sequence = None,
-    values: np.ndarray = None,
+    cols: Optional[Sequence] = None,
+    values: Optional[np.ndarray] = None,
     use_diffs: bool = False,
     rolling_ma: int = 0,
-    numagg_params: dict = None,
+    numagg_params: Optional[dict] = None,
     dtype=np.float32,
     n_jobs=-1,
     prefetch_factor: int = 2,

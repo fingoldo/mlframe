@@ -108,7 +108,13 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
     fmap = {name: i for i, name in enumerate(booster.feature_names)} if booster.feature_names else None
     dumps = booster.get_dump(dump_format="json", with_stats=True)
 
-    cl, cr, cd, feat, thr, val, cover = [], [], [], [], [], [], []
+    cl: list[int] = []
+    cr: list[int] = []
+    cd: list[int] = []
+    feat: list[int] = []
+    thr: list[float] = []
+    val: list[float] = []
+    cover: list[float] = []
     tree_roots = []
     max_depth = 0
 
@@ -449,7 +455,13 @@ def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
     offset is just the cover-weighted ensemble expectation (no separate intercept term) -- matching
     ``shap``'s ``expected_value`` to machine precision (see the additivity test)."""
     md = booster.dump_model()
-    cl, cr, cd, feat, thr, val, cover = [], [], [], [], [], [], []
+    cl: list[int] = []
+    cr: list[int] = []
+    cd: list[int] = []
+    feat: list[int] = []
+    thr: list[float] = []
+    val: list[float] = []
+    cover: list[float] = []
     tree_roots = []
     max_depth = 0
 
@@ -459,7 +471,7 @@ def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
         tree_roots.append(base)
         # DFS pre-order: parent emitted before children so global ids increase down the tree (the
         # invariant ``_ensemble_expected_value`` relies on). Collect nodes, assigning each a global id.
-        flat = []
+        flat: list[dict] = []
 
         def _collect(node, depth):
             nonlocal max_depth

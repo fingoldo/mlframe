@@ -8,7 +8,7 @@ is unchanged.
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Sequence, cast
 
 import numba
 import numpy as np
@@ -114,7 +114,7 @@ def _fused_nunique_modes_quantiles(arr: np.ndarray, q: np.ndarray, quantile_meth
 
 def compute_nunique_modes_quantiles_numpy(
     arr: np.ndarray, q: Sequence[float] = default_quantiles, quantile_method: str = "median_unbiased", max_modes: int = 10, return_unsorted_stats: bool = True
-) -> list:
+) -> tuple:
     """For a 1d array, computes aggregates:
     nunique
     modes:min,max,mean
@@ -152,15 +152,15 @@ def compute_nunique_modes_quantiles_numpy(
             )  # for higher stability. cnt=1 is not really a mode, rather a random pick.
         else:
             next_idx = modes_indices[0]
-            best_modes = [vals[next_idx]]
+            best_modes_list = [vals[next_idx]]
             for i in range(1, max_modes):
                 next_idx = modes_indices[i]
                 next_mode_count = counts[next_idx]
                 if next_mode_count < first_mode_count:
                     break
                 else:
-                    best_modes.append(vals[next_idx])
-            best_modes = np.asarray(best_modes)
+                    best_modes_list.append(vals[next_idx])
+            best_modes = np.asarray(best_modes_list)
             modes_min = best_modes.min()
             modes_max = best_modes.max()
             modes_mean = best_modes.mean()
@@ -168,7 +168,7 @@ def compute_nunique_modes_quantiles_numpy(
 
         nuniques = len(vals)
 
-        res = (nuniques, modes_min, modes_max, modes_mean, modes_qty)
+        res: tuple = (nuniques, modes_min, modes_max, modes_mean, modes_qty)
     else:
         res = ()
 
@@ -236,8 +236,8 @@ def compute_ncrossings(arr: np.ndarray, marks: np.ndarray, dtype: type = np.int3
     output path to a mark-parallel kernel (sequential per-mark scan, ~31x at n=1e6); other dtypes use the serial kernel.
     """
     if dtype is np.int32 or dtype == np.int32:
-        return _compute_ncrossings_marks_prange(arr, marks)
-    return _compute_ncrossings_serial(arr, marks, dtype)
+        return cast(np.ndarray, _compute_ncrossings_marks_prange(arr, marks))
+    return cast(np.ndarray, _compute_ncrossings_serial(arr, marks, dtype))
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)

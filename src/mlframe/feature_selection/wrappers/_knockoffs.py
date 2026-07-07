@@ -146,7 +146,7 @@ def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np
 
     # Return on the original scale; estimators don't typically standardise themselves.
     X_tilde = X_tilde_std * stds + means
-    return X_tilde
+    return np.asarray(X_tilde)
 
 
 def select_features_fdr(W: dict, q: float = 0.1) -> list:

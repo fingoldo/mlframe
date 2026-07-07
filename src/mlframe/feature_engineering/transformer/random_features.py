@@ -62,7 +62,7 @@ def _rff_fit_state(X_arr, *, seed, n_features, sigma, standardize, column_prefix
     if sigma == "median":
         median_dist = sigma_median_heuristic(X_std, seed=seed)
         # Rahimi-Recht: gamma = 1 / (2 * sigma_RBF^2); the standard "median trick" sets sigma_RBF = median_dist. So W ~ N(0, 1 / median_dist^2). Pre-scale W's std.
-        sigma_w = float(1.0 / max(median_dist, np.finfo(np.float64).tiny))
+        sigma_w = float(1.0 / max(median_dist, float(np.finfo(np.float64).tiny)))
     elif isinstance(sigma, (int, float)):
         if sigma <= 0:
             raise ValueError(f"sigma must be positive; got {sigma}.")
@@ -130,7 +130,7 @@ def compute_rff_features(
     standardize: bool = True,
     use_gpu: Union[bool, Literal["auto"]] = "auto",
     gpu_threshold: int | None = None,
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
     batch_rows: int = 100_000,
     column_prefix: str = "rff",
     release_memory_after: bool = True,
@@ -178,7 +178,7 @@ def compute_rff_features(
             raise ValueError("return_state is not supported in Mode A (each fold fits its own state).")
         n = X_arr.shape[0]
         # F-contiguous for zero-copy column slices in the DataFrame builder (see _rff_project).
-        out = np.zeros((n, n_features), dtype=dtype, order="F")
+        out: np.ndarray = np.zeros((n, n_features), dtype=dtype, order="F")
         for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_arr)):
             _state = _rff_fit_state(X_arr[train_idx], seed=seed, n_features=n_features, sigma=sigma, standardize=standardize, column_prefix=column_prefix, dtype=dtype)
             out[val_idx] = _rff_project(_state, X_arr[val_idx], use_gpu=use_gpu, gpu_threshold=gpu_threshold, batch_rows=batch_rows, release_memory_after=release_memory_after)
@@ -204,7 +204,7 @@ def compute_positional_encoding(
     *,
     d_model: int = 16,
     base: float = 10_000.0,
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
     column_prefix: str = "pe",
 ) -> pl.DataFrame:
     """Sinusoidal positional encoding (Vaswani et al. 2017): ``PE(pos, 2i) = sin(pos / base^(2i/d_model))``, ``PE(pos, 2i+1) = cos(...)``.
@@ -249,7 +249,7 @@ def compute_positional_encoding(
     half = d_model // 2
     # div_term[i] = 1 / base^(2i / d_model) for i = 0..half-1
     i_idx = np.arange(half, dtype=np.float64)
-    div_term = (1.0 / np.power(base, 2.0 * i_idx / d_model)).astype(dtype, copy=False)
+    div_term: np.ndarray = (1.0 / np.power(base, 2.0 * i_idx / d_model)).astype(dtype, copy=False)
     # Fused sin/cos in one parallel sweep — no (N, half) angles / sin / cos temporaries (5.6-6.4x at N=10M; see positional_encoding_njit).
     pe = np.empty((pos_f.size, d_model), dtype=dtype)
     positional_encoding_njit(np.ascontiguousarray(pos_f), div_term, pe)
@@ -292,7 +292,7 @@ def positions_within_group(
 def _coerce_input(
     X: Union[pl.DataFrame, np.ndarray],
     *,
-    dtype: np.dtype,
+    dtype: type,
 ) -> tuple[np.ndarray, list[str] | None]:
     """Normalise polars / numpy input to a 2-D contiguous ndarray with the requested dtype. Returns ``(arr, names)`` where names is the polars column list or None.
 
@@ -365,7 +365,7 @@ def _resolve_use_gpu(
     # matmul ``work`` via the shared get_or_tune orchestrator; measurement-backed
     # threshold fallback. We still gate on live ``is_gpu_available()`` above, so a
     # ``cupy`` choice here only routes to GPU when the device is actually usable.
-    return _RFF_SPEC.choose(work=int(work)) == "cupy"
+    return bool(_RFF_SPEC.choose(work=int(work)) == "cupy")
 
 
 # ---------------------------------------------------------------------
@@ -433,7 +433,7 @@ def _run_rff_sweep() -> list:
     variants = {"numpy": _rff_matmul_numpy}
     if is_gpu_available():
         variants["cupy"] = _rff_matmul_cupy
-    return sweep_backend_crossover(
+    result: list = sweep_backend_crossover(
         variants,
         _RFF_SWEEP_WORK,
         _make_rff_inputs,
@@ -443,6 +443,7 @@ def _run_rff_sweep() -> list:
         equiv_rtol=1e-4,
         equiv_atol=1e-6,
     )
+    return result
 
 
 def _rff_fallback_choice(work: int = 0, **_dims) -> str:

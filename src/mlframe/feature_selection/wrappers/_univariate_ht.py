@@ -97,12 +97,12 @@ def _classify_target(y: np.ndarray) -> str:
 
 def _isnan_mask(arr: np.ndarray) -> np.ndarray:
     if arr.dtype.kind in "fc":
-        return np.isnan(arr)
+        return np.asarray(np.isnan(arr))
     return np.zeros(arr.shape, dtype=bool)
 
 
 def _is_numeric_dtype(s: pd.Series) -> bool:
-    return pd.api.types.is_numeric_dtype(s) or pd.api.types.is_bool_dtype(s)
+    return bool(pd.api.types.is_numeric_dtype(s) or pd.api.types.is_bool_dtype(s))
 
 
 def _benjamini_yekutieli(p_values: np.ndarray, alpha: float) -> np.ndarray:

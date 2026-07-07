@@ -46,7 +46,7 @@ class _LazyModule:
 
     def __init__(self, name: str):
         self._lm_name = name
-        self._lm_mod = None
+        self._lm_mod: Any = None
 
     def __getattr__(self, attr):
         if self._lm_mod is None:
@@ -200,8 +200,8 @@ def find_best_mps_sequence(
         deltas[i] = prices[i + 1] - prices[i]
 
     # 3 states: idx 0 -> pos -1, 1 -> pos 0, 2 -> pos 1
-    dp = np.full(3, -1e300, dtype=dtype)  # current best cumul. profit up to previous interval
-    dp_next = np.full(3, -1e300, dtype=dtype)
+    dp: np.ndarray = np.full(3, -1e300, dtype=dtype)  # current best cumul. profit up to previous interval
+    dp_next: np.ndarray = np.full(3, -1e300, dtype=dtype)
     # backpointers: for each time and state, store prev_state index
     back = np.empty((m, 3), dtype=np.int8)
 
@@ -316,7 +316,7 @@ def backfill_zeros(arr, direction="right"):  # pragma: no cover
 # public wrapper to call from normal Python (non-numba callers)
 def find_maximum_profit_system(
     prices: np.ndarray,
-    raw_prices: np.ndarray = None,
+    raw_prices: Optional[np.ndarray] = None,
     tc: float = 3e-4,
     tc_mode: str = "fraction",
     optimize_consecutive_regions: bool = True,
@@ -339,10 +339,10 @@ def find_maximum_profit_system(
     profits: [ 1.      0.485   0.5     0.51    0.9975 -0.02  ]
 
     """
-    prices_arr = np.asarray(prices, dtype=dtype)
+    prices_arr: np.ndarray = np.asarray(prices, dtype=dtype)
 
     if raw_prices is not None:
-        raw_prices_arr = np.asarray(raw_prices, dtype=dtype)
+        raw_prices_arr: np.ndarray = np.asarray(raw_prices, dtype=dtype)
     else:
         raw_prices_arr = prices_arr
 
@@ -556,8 +556,8 @@ def plot_positions(
 
 def show_mps_regions(
     prices: np.ndarray,
-    raw_prices: np.ndarray = None,
-    positions: np.ndarray = None,
+    raw_prices: Optional[np.ndarray] = None,
+    positions: Optional[np.ndarray] = None,
     tc: float = 3e-4,
     shift: int = 0,
     profit_quantile: float = 0.95,
@@ -571,7 +571,7 @@ def show_mps_regions(
     profits = None
     profit_quantile_value = None
     max_profit = None
-    res = {}
+    res: dict = {}
     if positions is None:
         # Get optimal positions
         res = find_maximum_profit_system(prices=prices, raw_prices=raw_prices, tc=tc, tc_mode=tc_mode, shift=shift)
@@ -665,8 +665,8 @@ def safely_compute_mps(f, **kwargs):
 
 
 def compute_mps_targets(
-    fpath: str = None,
-    fo_df: pl.DataFrame = None,
+    fpath: Optional[str] = None,
+    fo_df: Optional[pl.DataFrame] = None,
     ts_field: str = "ts",
     group_field: str = "secid",
     price_field: str = "pr_close",
@@ -677,7 +677,7 @@ def compute_mps_targets(
     tc_mode_is_fraction: bool = True,
     optimize_consecutive_regions: bool = True,
     final_price_alias: str = "final_price",
-) -> pl.DataFrame:
+) -> Optional[pl.DataFrame]:
 
     if fo_df is None:
         try:
@@ -701,7 +701,7 @@ def compute_mps_targets(
 
     grouped_df = fo_df.sort(group_field, ts_field).group_by(group_field).agg(pl.col(ts_field), basic_expr, final_expr.alias(final_price_alias))
 
-    targets_df = []
+    targets_dfs: list = []
     for row in grouped_df.iter_rows(named=True):
         raw_prices = np.array(row[price_field])
         final_prices = np.array(row[final_price_alias])
@@ -714,7 +714,7 @@ def compute_mps_targets(
                 optimize_consecutive_regions=optimize_consecutive_regions,
                 dtype=dtype,
             )
-            targets_df.append(
+            targets_dfs.append(
                 pl.DataFrame(
                     dict(
                         ts=row[ts_field][:-1],
@@ -725,6 +725,4 @@ def compute_mps_targets(
                 )
             )
 
-    # targets_df=pl.concat(targets_df)
-    targets_df = pl.concat([el for el in targets_df if el is not None and len(el) > 0])
-    return targets_df
+    return pl.concat([el for el in targets_dfs if el is not None and len(el) > 0])

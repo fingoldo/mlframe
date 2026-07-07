@@ -11,6 +11,8 @@ optimized & rich set of aggregates for 1d vectors" module.)
 
 from __future__ import annotations
 
+from typing import Optional, cast
+
 __all__ = [
     "compute_numerical_aggregates_numba",
     "_make_compute_moments_slope_mi",
@@ -46,7 +48,7 @@ import numpy as np
 @numba.njit(**{**NUMBA_NJIT_PARAMS, "cache": False})
 def compute_numerical_aggregates_numba(
     arr: np.ndarray,
-    weights: np.ndarray = None,
+    weights: Optional[np.ndarray] = None,
     geomean_log_mode: bool = False,
     directional_only: bool = False,
     whiten_means: bool = True,
@@ -451,12 +453,12 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
     def kernel(
         arr: np.ndarray,
         mean_value: float,
-        weights: np.ndarray = None,
-        weighted_mean_value: float = None,
-        xvals: np.ndarray = None,
+        weights: Optional[np.ndarray] = None,
+        weighted_mean_value: Optional[float] = None,
+        xvals: Optional[np.ndarray] = None,
         directional_only: bool = False,
         return_lintrend_approx_stats: bool = True,
-    ) -> list:  # pragma: no cover
+    ) -> tuple:  # pragma: no cover
         slope_over, slope_under = 0.0, 0.0
         mad, std, skew, kurt = 0.0, 0.0, 0.0, 0.0
         # Kahan compensation counters. When KAHAN=False these stay 0.0 and get DCE'd along with
@@ -748,9 +750,9 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
                 prev_d = d
                 has_prev_d = True
                 if return_lintrend_approx_stats:
-                    lintrend_data_diffs[i] = d
+                    lintrend_data_diffs[i] = d  # type: ignore[index]  # allocated iff return_lintrend_approx_stats, same guard as here
 
-        res = []
+        res: list = []
         if not directional_only:
             res.extend((mad, std, skew, kurt))
             if weights is not None:
@@ -769,9 +771,9 @@ _compute_moments_slope_mi_fast = _make_compute_moments_slope_mi(use_kahan=False,
 def compute_moments_slope_mi(
     arr: np.ndarray,
     mean_value: float,
-    weights: np.ndarray = None,
-    weighted_mean_value: float = None,
-    xvals: np.ndarray = None,
+    weights: Optional[np.ndarray] = None,
+    weighted_mean_value: Optional[float] = None,
+    xvals: Optional[np.ndarray] = None,
     directional_only: bool = False,
     return_lintrend_approx_stats: bool = True,
     compensated: bool = False,
@@ -789,18 +791,35 @@ def compute_moments_slope_mi(
     Returns ``(stats_list, lintrend_data_diffs)`` - see kernel source for the per-element layout.
     """
     if compensated:
-        return _compute_moments_slope_mi_compensated(
-            arr=arr,
-            mean_value=mean_value,
-            weights=weights,
-            weighted_mean_value=weighted_mean_value,
-            xvals=xvals,
-            directional_only=directional_only,
-            return_lintrend_approx_stats=return_lintrend_approx_stats,
+        return cast(
+            tuple,
+            _compute_moments_slope_mi_compensated(
+                arr=arr,
+                mean_value=mean_value,
+                weights=weights,
+                weighted_mean_value=weighted_mean_value,
+                xvals=xvals,
+                directional_only=directional_only,
+                return_lintrend_approx_stats=return_lintrend_approx_stats,
+            ),
         )
     # NaN-gate: see compute_simple_stats_numba for rationale.
     if not np.isfinite(arr).all() or (weights is not None and not np.isfinite(weights).all()):
-        return _compute_moments_slope_mi_compensated(
+        return cast(
+            tuple,
+            _compute_moments_slope_mi_compensated(
+                arr=arr,
+                mean_value=mean_value,
+                weights=weights,
+                weighted_mean_value=weighted_mean_value,
+                xvals=xvals,
+                directional_only=directional_only,
+                return_lintrend_approx_stats=return_lintrend_approx_stats,
+            ),
+        )
+    return cast(
+        tuple,
+        _compute_moments_slope_mi_fast(
             arr=arr,
             mean_value=mean_value,
             weights=weights,
@@ -808,15 +827,7 @@ def compute_moments_slope_mi(
             xvals=xvals,
             directional_only=directional_only,
             return_lintrend_approx_stats=return_lintrend_approx_stats,
-        )
-    return _compute_moments_slope_mi_fast(
-        arr=arr,
-        mean_value=mean_value,
-        weights=weights,
-        weighted_mean_value=weighted_mean_value,
-        xvals=xvals,
-        directional_only=directional_only,
-        return_lintrend_approx_stats=return_lintrend_approx_stats,
+        ),
     )
 
 

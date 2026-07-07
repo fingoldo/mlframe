@@ -108,7 +108,7 @@ def _isnan_mask(arr: np.ndarray) -> np.ndarray:
     """NaN mask that is safe on integer / object dtype arrays (np.isnan raises on non-float)."""
     a = np.asarray(arr)
     if a.dtype.kind in "fc":
-        return np.isnan(a)
+        return np.asarray(np.isnan(a))
     return np.zeros(a.shape, dtype=bool)
 
 

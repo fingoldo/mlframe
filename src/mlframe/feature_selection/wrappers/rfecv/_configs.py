@@ -25,7 +25,7 @@ try:
     _PYDANTIC_AVAILABLE = True
 except ImportError:
     _PYDANTIC_AVAILABLE = False
-    BaseModel = object  # type: ignore[assignment]
+    BaseModel = object  # type: ignore[assignment,misc]
 
 
 if _PYDANTIC_AVAILABLE:
