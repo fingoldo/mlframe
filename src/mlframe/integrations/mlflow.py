@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import Tuple
+from typing import Optional, Tuple
 import html
 import re
 from enum import Enum
@@ -75,7 +75,7 @@ def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:
     with open(fname + extension, "w", encoding="utf-8") as f:
         f.write(website_embed)
 
-def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experiment_name: str = None, experiment_id: str = None,tags:dict=None) -> Tuple[object, bool]:
+def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None, experiment_name: Optional[str] = None, experiment_id: Optional[str] = None, tags: Optional[dict] = None) -> Tuple[object, bool]:
     """Tries to find a run by name within current mlflow experiment.
     If not found, creates new one.
     """
@@ -90,7 +90,7 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experimen
     if parent_run_id:
         filter_string += f' and tag.mlflow.parentRunId = "{_dsl_escape(parent_run_id)}"'
 
-    runs = mlflow.search_runs(experiment_names=[experiment_name], filter_string=filter_string, output_format="list",)
+    runs = mlflow.search_runs(experiment_names=[experiment_name] if experiment_name else None, filter_string=filter_string, output_format="list",)
     if runs:
         for run in runs:
             return run, True
@@ -135,20 +135,20 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experimen
                 break
         return run, False
     
-def create_mlflow_run_label(params: dict=None, category: str = None) -> str:
+def create_mlflow_run_label(params: Optional[dict] = None, category: Optional[str] = None) -> str:
     if params is None:
         params = {}
-    label = []
+    label_parts = []
     for key, value in params.items():
         if value:
             if isinstance(value, Enum):
-                label.append(f"{key}={value.name}")
+                label_parts.append(f"{key}={value.name}")
             else:
                 if type(value) is type:
-                    label.append(f"{key}={value.__name__}")
+                    label_parts.append(f"{key}={value.__name__}")
                 else:
-                    label.append(f"{key}={value}")
-    label = ",".join(label)
+                    label_parts.append(f"{key}={value}")
+    label = ",".join(label_parts)
     if category:
         if label:
             label = f"{category}:{label}"
