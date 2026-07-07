@@ -183,7 +183,7 @@ class TestReportingIntegration:
             for _f in sorted(_pkg.glob("*.py")):
                 src += "\n" + _f.read_text(encoding="utf-8")
         # The clip block must be gated on the three kwargs being non-None.
-        assert "if (y_train_min is not None and y_train_max is not None" in src
+        assert "if y_train_min is not None and y_train_max is not None" in src
 
     def test_train_envelope_stats_threaded_through_unified_entry(self) -> None:
         """2026-05-26: ``report_model_perf`` accepts a single

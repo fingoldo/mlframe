@@ -632,7 +632,7 @@ class TestPeriodicLearningRateFinder:
         assert callback.lr_find.call_count == 4
 
     def test_on_train_epoch_start_prints_messages(self):
-        """Test that on_train_epoch_start prints messages."""
+        """Test that on_train_epoch_start logs messages (via logger.info, not print)."""
         callback = PeriodicLearningRateFinder(period=5)
 
         callback.lr_find = Mock()
@@ -643,11 +643,11 @@ class TestPeriodicLearningRateFinder:
         mock_module = Mock()
         mock_module.learning_rate = 0.001
 
-        with patch('builtins.print') as mock_print:
+        with patch('mlframe.training.neural._base_callbacks.logger') as mock_logger:
             callback.on_train_epoch_start(mock_trainer, mock_module)
 
-        # Should print 2 messages (before and after)
-        assert mock_print.call_count == 2
+        # Should log 2 messages (before and after)
+        assert mock_logger.info.call_count == 2
 
     def test_period_one(self):
         """Test with period=1 (every epoch)."""
