@@ -102,8 +102,8 @@ def fit(
         auto-detection.
     """
     if not self.config.enabled:
-        self.specs_: list[CompositeSpec] = []
-        self.report_: list[dict[str, Any]] = []
+        self.specs_ = []
+        self.report_ = []
         self.train_idx_ = np.asarray(train_idx)
         self._df_ref = df
         self._target_col = target_col
@@ -275,7 +275,7 @@ def fit(
     # set: X without the base column.
 
     # Stash the per-candidate base arrays so the multi-base forward-stepwise extension (run after kept_specs is finalised) can pick from the SAME pool of MI-ranked bases that the single-base discovery considered. Keyed by column name; values are train-row-restricted ndarrays.
-    self._auto_base_pool: dict[str, np.ndarray] = {}
+    self._auto_base_pool = {}
 
     # Score each (base, transform).
     # Unary y-transforms (``requires_base=False``) ignore the base column, so each routes through ONE dedicated context (``_UNARY_BASE_SENTINEL``) scored against the FULL feature matrix (no base dropped) with an empty-string, base-free spec name -- not bound to / scored against / named after an arbitrary "first" base as before (which made the unary's mi_gain shift with irrelevant auto-base ranking and claim a nonexistent base dependence). The set tracks which unary names are already evaluated so later base-loop iterations skip the redundant re-fit; bivariate + chain transforms still iterate per base.

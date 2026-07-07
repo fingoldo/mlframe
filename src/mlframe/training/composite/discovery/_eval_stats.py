@@ -280,7 +280,7 @@ def apply_alpha_drift_gate(
     """
     if not (getattr(self.config, "detect_linear_residual_alpha_drift", True) and any(s.transform_name == "linear_residual" for s in kept_specs)):
         return kept_specs
-    self._alpha_drift_flags: dict[str, dict[str, float]] = {}
+    self._alpha_drift_flags = {}
     drift_threshold = float(getattr(self.config, "alpha_drift_z_threshold", 3.0))
     reject_on_drift = bool(getattr(self.config, "reject_on_alpha_drift", False))
     half = len(train_idx) // 2

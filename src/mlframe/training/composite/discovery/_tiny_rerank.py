@@ -413,7 +413,7 @@ def _tiny_model_rerank(
     # via :attr:`CompositeTargetDiscovery.tiny_rerank_scores_`.
     # CompositeSpec is frozen; we keep the per-spec scoring on the
     # discovery instance instead of mutating the spec.
-    self._tiny_rerank_scores: dict[str, float] = {kept_specs[i].name: float(agg_scores[i]) for i in range(len(kept_specs))}
+    self._tiny_rerank_scores = {kept_specs[i].name: float(agg_scores[i]) for i in range(len(kept_specs))}
 
     # Honest group-OOF reconstruction RMSE becomes the load-bearing ORDERING key (and the raw-baseline gate reference)
     # when a group-disjoint honest holdout exists. The group-internal CV-RMSE above stays as the fallback for any spec

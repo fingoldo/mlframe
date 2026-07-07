@@ -128,10 +128,16 @@ class CompositeTargetDiscovery:
     add a "use full df for X" shortcut, that test will fail.
     """
 
-    # ``fit`` (bound externally, see below) sets this fitted attribute; declared here so mypy
-    # can type-check the self.specs_ reads in iter_transform() / stability_select() that run
-    # before/without a preceding self.specs_ = ... assignment visible in this class body.
+    # ``fit`` (bound externally, see below) sets these fitted attributes; declared here so mypy
+    # can type-check reads that run before/without a preceding assignment visible in this class
+    # body, and so the sibling modules implementing ``fit`` can assign them without an inline
+    # annotation (mypy forbids ``x.attr: T = v`` when ``x`` isn't literally a class-body ``self``).
     specs_: list
+    report_: list[dict[str, Any]]
+    _auto_base_pool: dict[str, np.ndarray]
+    _tiny_rerank_scores: dict[str, float]
+    _auto_chains_diag: list
+    _alpha_drift_flags: dict[str, dict[str, float]]
 
     def __init__(self, config: Any) -> None:
         if isinstance(config, dict):
