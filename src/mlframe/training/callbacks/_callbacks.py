@@ -406,13 +406,13 @@ class XGBoostCallback(UniversalCallback, TrainingCallback):
         super().__init__(**kwargs)
         self.monitor_dataset = self.monitor_dataset or "validation_0"
 
-    def after_iteration(self, model: xgb.Booster, epoch: int, evals_log: dict[str, dict[str, list[float]]]) -> bool:
+    def after_iteration(self, model: xgb.Booster, epoch: int, evals_log: dict[str, dict[str, list[float] | list[tuple[float, float]]]]) -> bool:
         if self.first_iteration:
             self.on_start()
             self.first_iteration = False
         metrics_dict = {dataset: {metric: values[-1] for metric, values in metric_dict.items()} for dataset, metric_dict in evals_log.items()}
 
-        self.update_history(metrics_dict)
+        self.update_history(metrics_dict)  # type: ignore[arg-type]  # XGBoost's evals_log values are list[tuple] only for confidence-interval eval metrics, which this project's callbacks don't use; runtime shape is always list[float]
 
         if self.monitor_metric is None:
             self.set_default_monitor_metric(metrics_dict)

@@ -100,7 +100,7 @@ def _compute_metrics_table(
     elif target_type in ("regression", "quantile_regression"):
         primary_metric = "val_RMSE"
         for name in baseline_names:
-            row: dict[str, Any] = {"baseline": name}
+            row = {"baseline": name}
             vp = val_preds.get(name)
             tp = test_preds.get(name)
             if vp is not None and val_y is not None and len(vp) == len(val_y):

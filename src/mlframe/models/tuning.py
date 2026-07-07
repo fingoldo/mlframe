@@ -47,7 +47,7 @@ trained_models = {}
 
 
 class hashabledict(dict):
-    def __hash__(self):
+    def __hash__(self):  # type: ignore[override]  # intentional: dict.__hash__ is None (unhashable); this recipe makes it hashable
         return hash(tuple(sorted(self.items())))
 
 

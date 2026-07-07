@@ -795,7 +795,7 @@ def compute_oof_holdout_predictions(
             _group_stack = None
 
     holdout_cols: list[np.ndarray] = []
-    surviving_names: list[str] = []
+    surviving_names = []
     for model, name, spec in zip(component_models, component_names, component_specs):
         try:
             inner, pp = _unwrap_shim(model)

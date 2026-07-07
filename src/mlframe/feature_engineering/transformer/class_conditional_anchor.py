@@ -209,7 +209,7 @@ def compute_class_conditional_anchor_attention(
         out_mass[val_idx] = feats["mass_pos"].astype(dtype, copy=False)
         logger.info("class_conditional_anchor: fold %d/%d done (n_pos=%d, n_neg=%d, anch_pos=%d, anch_neg=%d)", fold_idx + 1, len(splits), int(pos_mask.sum()), int(neg_mask.sum()), n_anch_pos, n_anch_neg)
 
-    cols: dict[str, np.ndarray] = {}
+    cols = {}
     for j in range(n_anch_pos):
         cols[f"{column_prefix}_pos_a{j}"] = out_pos[:, j]
     for j in range(n_anch_neg):

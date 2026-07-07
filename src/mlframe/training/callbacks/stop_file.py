@@ -50,7 +50,7 @@ if _HAS_CATBOOST:
 
 else:  # pragma: no cover
 
-    class CatBoostStopFileCallback:
+    class CatBoostStopFileCallback:  # type: ignore[no-redef]  # optional-dependency fallback stub; only one branch is ever live
         def __init__(self, *args, **kwargs):
             raise ImportError("catboost is not installed; cannot use CatBoostStopFileCallback")
 
@@ -86,7 +86,7 @@ if _HAS_LIGHTGBM:
 
 else:  # pragma: no cover
 
-    class LightGBMStopFileCallback:
+    class LightGBMStopFileCallback:  # type: ignore[no-redef]  # optional-dependency fallback stub; only one branch is ever live
         def __init__(self, *args, **kwargs):
             raise ImportError("lightgbm is not installed; cannot use LightGBMStopFileCallback")
 
@@ -120,7 +120,7 @@ if _HAS_XGBOOST:
 
 else:  # pragma: no cover
 
-    class XGBoostStopFileCallback:
+    class XGBoostStopFileCallback:  # type: ignore[no-redef]  # optional-dependency fallback stub; only one branch is ever live
         def __init__(self, *args, **kwargs):
             raise ImportError("xgboost is not installed; cannot use XGBoostStopFileCallback")
 

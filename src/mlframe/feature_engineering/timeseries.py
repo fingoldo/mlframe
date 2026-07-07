@@ -863,8 +863,8 @@ def general_acf(
             # so the partition is different every step and no prefix-sum table reuses across scales without changing
             # the carved windows. Left as-is; revisit only if this becomes a measured hotspot on real flexible-window FE.
             for window_size in tqdmu(window_sizes, desc=window_var):
-                dependent_vals: list = []
-                independent_vals: list = []
+                dependent_vals = []
+                independent_vals = []
                 windows_r = len(window_var_values) - 1
 
                 while True:

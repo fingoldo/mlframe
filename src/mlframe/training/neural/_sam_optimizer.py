@@ -109,7 +109,7 @@ class SAM(Optimizer):
     def param_groups(self, value: List[dict]) -> None:
         self.base_optimizer.param_groups = value
 
-    @property
+    @property  # type: ignore[override]  # SAM wraps base_optimizer and intentionally delegates state as a property
     def state(self) -> dict:
         return self.base_optimizer.state
 

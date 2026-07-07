@@ -159,8 +159,8 @@ def _bin_columns(
         return bins, ks, names
     # Fallback: per-column path preserves the NaN / Inf handling of
     # ``_quantile_bin`` for mixed-finite data.
-    bins: list[np.ndarray] = []
-    ks: list[int] = []
+    bins = []
+    ks = []
     for c in names:
         b = _quantile_bin(df[c].to_numpy(), nbins=nbins).astype(np.int64)
         k = int(b.max()) + 1 if b.size else 1

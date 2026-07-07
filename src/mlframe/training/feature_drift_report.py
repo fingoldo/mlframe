@@ -472,7 +472,7 @@ def _categorical_columns(df: Any) -> List[str]:
         try:
             import polars as pl
             _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)
-            out: List[str] = []
+            out = []
             for name, dt in df.schema.items():
                 if dt == pl.Categorical or dt in _string_types or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum)):
                     out.append(name)

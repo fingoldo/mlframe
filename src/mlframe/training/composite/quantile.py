@@ -342,7 +342,7 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
             req = np.sort(req)
 
         decreasing = bool(getattr(self, "_inverse_decreasing_", False))
-        cols: list[np.ndarray] = []
+        q_cols: list[np.ndarray] = []
         for q in req:
             # Decreasing inverse: the y-quantile at level q is produced by the head
             # trained for the (1-q)-quantile of T. Use the complementary head so
@@ -350,8 +350,8 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
             head_q = 1.0 - float(q) if decreasing else float(q)
             head = self._lookup_head(head_q)
             y_q = np.asarray(head.predict(X), dtype=np.float64).reshape(-1)
-            cols.append(y_q)
-        out = np.column_stack(cols)
+            q_cols.append(y_q)
+        out = np.column_stack(q_cols)
 
         if self.enforce_non_crossing and out.shape[1] > 1:
             # Sort each row ascending -> q_low <= ... <= q_high. np.sort pushes

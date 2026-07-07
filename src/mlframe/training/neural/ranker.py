@@ -418,6 +418,7 @@ def _ranker_passthrough_collate(batch):
 
 
 def _import_lightning() -> Any:
+    L: Any
     try:
         import lightning.pytorch as L
         return L

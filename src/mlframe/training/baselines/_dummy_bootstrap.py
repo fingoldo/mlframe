@@ -518,7 +518,7 @@ def _bootstrap_ci_for_strongest(
         if not np.isfinite(point):
             return None
         # Bootstrap resamples
-        samples: list[float] = []
+        samples = []
         failures = 0
         first_err: Optional[str] = None
         for _ in range(n_resamples):

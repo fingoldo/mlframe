@@ -274,8 +274,8 @@ def assemble_for_model(
 
     # ---- Single-track DENSE concat (with auto-SVD on big sparse) -
     # is_dense_only(model_kind) OR unknown model -> safest path.
-    dense_parts: List[np.ndarray] = []
-    all_names: List[str] = []
+    dense_parts = []
+    all_names = []
 
     for b in sparse_blocks:
         per_key = per_handler_svd_dim.get(f"{b.column}__{b.method}") if per_handler_svd_dim else None

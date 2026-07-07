@@ -175,7 +175,7 @@ def align_precomputed_to_X(
         # the original artifact axis (caller forgot to call
         # ``restrict_artifacts``; we recover transparently).
         order = np.array([name_to_idx[c] for c in X_cols], dtype=np.intp)
-        aligned: dict[str, Any] = {
+        aligned = {
             "feature_names": list(X_cols),
             "su_to_target": su_arr[order],
         }

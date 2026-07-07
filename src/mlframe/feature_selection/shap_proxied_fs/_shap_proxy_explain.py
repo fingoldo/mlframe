@@ -764,7 +764,7 @@ def compute_shap_matrix(
         if return_per_fold_phi_mean:
             per_fold_mean[fold_id] = np.abs(pf).mean(axis=0)
 
-    out_tail: list = []
+    out_tail = []
     if return_variance:
         out_tail.append(phi_var)
     if return_per_fold_phi_mean:
