@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
+from typing import Optional
+
 import pandas as pd
 
 import category_encoders as ce
@@ -30,9 +32,9 @@ from sklearn.preprocessing import FunctionTransformer
 
 def get_binningprocess_featureselectors(
     features: pd.DataFrame,
-    memory: str = None,
+    memory: Optional[str] = None,
     n_jobs: int = -1,
-    iv_kwargs: dict = None,
+    iv_kwargs: Optional[dict] = None,
 ) -> tuple:
     """Returns binningprocess pipelines for a specific featureset. Inserts categorical encoders where needed."""
     if iv_kwargs is None:

@@ -145,4 +145,4 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
     )
     # Apply the rest of optimizer_config last so user's explicit kwargs (plotting=..., direction=..., etc.) override our defaults.
     _mbh_kwargs.update(_user_cfg)
-    return MBHOptimizer(**_mbh_kwargs)
+    return MBHOptimizer(**_mbh_kwargs)  # type: ignore[arg-type]  # heterogeneous kwargs dict vs MBHOptimizer's typed ctor; each value is individually valid

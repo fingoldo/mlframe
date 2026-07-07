@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import random
 import warnings
-from typing import Union
+from typing import Any, Union
 
 import numpy as np
 import pandas as pd
@@ -48,7 +48,7 @@ def _pin_threads_to_one(estimator: object) -> None:
     if not hasattr(estimator, "set_params"):
         return
     try:
-        valid = set(estimator.get_params().keys())
+        valid = set(estimator.get_params().keys())  # type: ignore[attr-defined]  # narrowed by hasattr above (sklearn-style estimator protocol)
     except Exception:
         return
     pinned = {p: 1 for p in _THREAD_PARAMS if p in valid}
@@ -67,7 +67,7 @@ def suppress_irritating_3rdparty_warnings() -> None:
 
 
 def split_into_train_test(
-    X: pd.DataFrame | np.ndarray, y: pd.DataFrame | np.ndarray, train_index: np.ndarray, test_index: np.ndarray, features_indices: np.ndarray = None,
+    X: pd.DataFrame | np.ndarray, y: pd.DataFrame | np.ndarray, train_index: np.ndarray, test_index: np.ndarray, features_indices: Union[np.ndarray, None] = None,
     X_estimator: np.ndarray | None = None, col_pos: dict | None = None,
 ) -> tuple:
     """Split X & y according to indices & dtypes. Handles pd.DataFrame, np.ndarray, and polars.
@@ -164,28 +164,28 @@ def split_into_train_test(
     return X_train, y_train, X_test, y_test
 
 
-def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict, evaluated_scores_std: dict, self: object) -> tuple:
+def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict, evaluated_scores_std: dict, self: Any) -> tuple:
     """Compute (mean, std, final_score) and store at ``pos`` ONLY if the new score
     beats any existing score at the same key. Returns (mean, std, final_score, was_stored).
 
     Gating on best-so-far avoids silently downgrading the curve and the cached
     selected_features when MBH re-explores the same nfeatures-count with a worse subset.
     """
-    scores = np.array(scores)
-    n_nan = int(np.isnan(scores).sum()) if scores.size else 0
+    scores_arr = np.array(scores)
+    n_nan = int(np.isnan(scores_arr).sum()) if scores_arr.size else 0
     if n_nan:
         logger.warning(
             "store_averaged_cv_scores @ pos=%d: %d / %d CV fold score(s) are NaN. "
             "Likely cause: single-class CV fold (stratified split would fix it) "
             "or scorer returning NaN on degenerate folds.",
-            pos, n_nan, scores.size,
+            pos, n_nan, scores_arr.size,
         )
 
     # nanmean/nanstd: a single degenerate fold mustn't poison the entire iter's final_score.
-    if scores.size and n_nan and n_nan < scores.size:
-        scores_mean, scores_std = np.nanmean(scores), np.nanstd(scores)
+    if scores_arr.size and n_nan and n_nan < scores_arr.size:
+        scores_mean, scores_std = np.nanmean(scores_arr), np.nanstd(scores_arr)
     else:
-        scores_mean, scores_std = np.mean(scores), np.std(scores)
+        scores_mean, scores_std = np.mean(scores_arr), np.std(scores_arr)
     final_score = scores_mean * self.mean_perf_weight - scores_std * self.std_perf_weight
 
     existing_mean = evaluated_scores_mean.get(pos)
@@ -214,10 +214,10 @@ def get_next_features_subset(
     use_fi_ranking: bool,
     top_predictors_search_method: OptimumSearch = OptimumSearch.ScipyLocal,
     votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
-    Optimizer: object = None,
+    Optimizer: Any = None,
     fi_missing_policy: str = "worst",
     dichotomic_epsilon: float = 0.0,
-    rng: object = None,
+    rng: Any = None,
     fi_decay_rate: float = 0.0,
     fi_run_order: Union[list, None] = None,
     importance_agg: str = "legacy",
@@ -243,7 +243,7 @@ def get_next_features_subset(
         if rng is not None and hasattr(rng, "integers"):
             next_nfeatures_to_check = int(remaining[int(rng.integers(0, len(remaining)))])
         else:  # nosec B311 - non-cryptographic sampling/jitter, not a security-sensitive use
-            next_nfeatures_to_check = random.choice(remaining)  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+            next_nfeatures_to_check = int(random.choice(remaining))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
     elif top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
         next_nfeatures_to_check = Optimizer.suggest_candidate()
     elif top_predictors_search_method == OptimumSearch.ExhaustiveDichotomic:
@@ -365,10 +365,10 @@ def _curve_is_flat_near_best(evaluated_scores_mean: dict, best_n: int) -> bool:
     span = max(abs(v) for v in evaluated_scores_mean.values()) or 1.0
     # Max relative score change to the immediate evaluated neighbours.
     rel = max(abs(best_s - evaluated_scores_mean[n]) for n in neigh) / span
-    return rel < 0.01
+    return bool(rel < 0.01)
 
 
-def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng: object = None, step: str = "auto") -> int:
+def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng: Any = None, step: str = "auto") -> Union[int, None]:
     """Coarse-to-fine suggester for ExhaustiveDichotomic.
 
     ``step='midpoint'`` (default) is the legacy fixed bisection. ``step='auto'`` is the adaptive elimination-pace schedule:
@@ -396,7 +396,7 @@ def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict, n_total: i
     if len(evaluated_scores_mean) <= 1:
         # First-time call (or just-the-baseline): probe the midpoint of the FULL range.
         target = max(1, n_total // 2)
-        return min(remaining, key=lambda n: abs(n - target))
+        return int(min(remaining, key=lambda n: abs(n - target)))
     best_evaluated = max(evaluated_scores_mean.items(), key=lambda kv: kv[1])[0]
 
     # Adaptive coarse step: only fire while the pool is still large AND the curve near best is flat. ``frac`` shrinks as
@@ -414,7 +414,7 @@ def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict, n_total: i
             target = best_evaluated + stride if side_hi and higher else best_evaluated - stride
             if (side_hi and not higher) or (not side_hi and not lower):
                 target = best_evaluated - stride if side_hi else best_evaluated + stride
-            return min(remaining, key=lambda n: abs(n - target))
+            return int(min(remaining, key=lambda n: abs(n - target)))
 
     # Legacy fine refinement: bisect toward the nearest unevaluated neighbour on the wider-gap side.
     lower = [n for n in remaining if n < best_evaluated]
@@ -428,12 +428,12 @@ def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict, n_total: i
         candidates.append((gap_hi, (best_evaluated + min(higher)) // 2))
     if not candidates:
         # No unevaluated N adjacent to the best: fall back to any remaining N closest to it.
-        return min(remaining, key=lambda n: abs(n - best_evaluated))
+        return int(min(remaining, key=lambda n: abs(n - best_evaluated)))
     target = max(candidates, key=lambda gc: gc[0])[1]
-    return min(remaining, key=lambda n: abs(n - target))
+    return int(min(remaining, key=lambda n: abs(n - target)))
 
 
-def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng=None) -> int:
+def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng: Any = None) -> Union[int, None]:
     """S5 (Wave 2, 2026-05-28): retained as a thin alias for ExhaustiveDichotomic.
 
     The previous implementation built a piecewise-linear interpolant over evaluated points and ran scipy's ``minimize_scalar`` on it.
@@ -445,7 +445,7 @@ def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict, n_total: 
     return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total, epsilon=epsilon, rng=rng)
 
 
-def _suggest_scipy_global(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng=None) -> int:
+def _suggest_scipy_global(remaining: list, evaluated_scores_mean: dict, n_total: int, epsilon: float = 0.0, rng: Any = None) -> Union[int, None]:
     """S5 (Wave 2, 2026-05-28): retained as a thin alias for ExhaustiveDichotomic.
 
     Same reasoning as _suggest_scipy_local: differential_evolution over a piecewise-linear interpolant has no global structure to

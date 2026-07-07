@@ -65,7 +65,7 @@ def selection_stability_(self, metric: str = "jaccard") -> float:
                 return 1.0 if a == b else 0.0
             expected = k * k / N
             ki = (inter - expected) / (k - expected)
-            return max(0.0, ki)
+            return float(max(0.0, ki))
         raise ValueError(f"Unknown stability metric: {metric!r}")
 
     pairs = [_pair_stability(per_fold_top[i], per_fold_top[j]) for i in range(len(per_fold_top)) for j in range(i + 1, len(per_fold_top))]
@@ -218,7 +218,7 @@ def pareto_front_(self, metric: str = "jaccard") -> list:
         if not dominated:
             front.append(a)
     # dedup by n (keep best mean), sort by n
-    best_by_n = {}
+    best_by_n: dict = {}
     for p in front:
         if p["n"] not in best_by_n or p["mean"] > best_by_n[p["n"]]["mean"]:
             best_by_n[p["n"]] = p
@@ -239,7 +239,7 @@ def pareto_knee_(self, metric: str = "jaccard") -> int:
     if not front:
         return getattr(self, "n_features_", 0)
     if len(front) == 1:
-        return front[0]["n"]
+        return int(front[0]["n"])
     means = np.array([p["mean"] for p in front]); ns = np.array([p["n"] for p in front], dtype=float)
     stabs = np.array([p["stability"] for p in front])
     have_stab = np.all(np.isfinite(stabs))

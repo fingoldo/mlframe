@@ -19,7 +19,7 @@ __all__ = [
 
 import logging
 from functools import partial
-from typing import Callable, Dict, List, Optional, Pattern, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Pattern, Sequence, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -110,7 +110,7 @@ def find_next_cumsum_left_index(
     cannot accept ``None`` directly so this Python wrapper translates the sentinel.
     """
     right_int = -1 if right_index is None else int(right_index)
-    return _find_next_cumsum_left_index_njit(window_var_values, amount, right_int, min_samples, use_abs)
+    return cast(Tuple[int, float], _find_next_cumsum_left_index_njit(window_var_values, amount, right_int, min_samples, use_abs))
 
 
 @njit(cache=True)
@@ -149,7 +149,7 @@ def find_next_cumsum_right_index(
     ``left_index=None`` defaults to ``0`` (start from the array head).
     """
     left_int = 0 if left_index is None else int(left_index)
-    return _find_next_cumsum_right_index_njit(window_var_values, amount, left_int, min_samples, use_abs)
+    return cast(Tuple[int, float], _find_next_cumsum_right_index_njit(window_var_values, amount, left_int, min_samples, use_abs))
 
 
 def get_nwindows_expected(windows: Dict[str, Sequence]) -> int:
@@ -161,7 +161,7 @@ def get_ts_window_name(window_var: str, window_size: float, window_index_name: s
     """Human-readable short name for a time-series window."""
     if window_var == "":
         return str(window_size) + window_index_name
-    return window_var + ":" + get_human_readable_set_size(window_size)
+    return window_var + ":" + str(get_human_readable_set_size(window_size))
 
 
 # Wave 96 (2026-05-21): the 11 _emit_* per-transform helpers moved to
@@ -301,7 +301,7 @@ def create_aggregated_features(  # nosec B107 - default is a separator/label tok
         if return_n_finite:
             row_features.append(idx.sum())
             if create_features_names:
-                features_names.append(captions_vars_sep.join((dataset_name, var, "n_finite")))
+                features_names.append(captions_vars_sep.join((cast(str, dataset_name), var, "n_finite")))
 
         simple_numerical_features, simple_numaggs_names, custom_numaggs_kwds = _emit_raw_numaggs(
             var, raw_vals, drawdown_vars, lintrend_approx_vars,
@@ -451,7 +451,7 @@ def create_aggregated_features(  # nosec B107 - default is a separator/label tok
 
 def compute_splitting_stats(
     window_df: pd.DataFrame,
-    dataset_name: str,
+    dataset_name: Optional[str],
     splitting_vars: Dict[str, Sequence[str]],
     var: str,
     numaggs_names: List[str],
@@ -467,7 +467,7 @@ def compute_splitting_stats(
     if len(window_df) == 0:
         return
     splitting_vals: list = []
-    splitting_ratios_names: list = [] if create_features_names else None
+    splitting_ratios_names: Optional[list] = [] if create_features_names else None
     subvars = splitting_vars[var]
     for col in ("minr", "maxr"):
         try:
@@ -494,7 +494,7 @@ def compute_splitting_stats(
                 tot = pre_sum + post_sum
                 splitting_vals.append(pre_sum / tot if tot else 0)
                 if create_features_names:
-                    splitting_ratios_names.append(captions_vars_sep.join([dataset_name, var, col, subvar, "split"]))
+                    splitting_ratios_names.append(captions_vars_sep.join([cast(str, dataset_name), var, col, subvar, "split"]))
 
     row_features.extend(splitting_vals)
     if create_features_names:
@@ -639,7 +639,7 @@ def create_windowed_features(
 def create_and_process_windows(
     df: pd.DataFrame,
     base_point: int,
-    apply_fcn: Callable,
+    apply_fcn: Optional[Callable],
     windows: Dict[str, Sequence],
     window_features_names: list,
     window_features: Optional[list],
@@ -697,6 +697,8 @@ def create_and_process_windows(
 
             window_df = df.iloc[windows_l:windows_r]
             if len(window_df):
+                if apply_fcn is None:
+                    raise ValueError(f"create_and_process_windows: apply_fcn is required to process non-empty window '{dataset_name}'")
                 if verbose:
                     logger.info(
                         "%s, acc.size %s, l=%s, r=%s (%s to %s)",
@@ -744,6 +746,9 @@ def create_ts_features_parallel(
     **kwargs,
 ):
     """Split ``[start_index, end_index)`` into ``n_chunks`` chunks, run ``ts_func`` in parallel, join results."""
+    if ts_func is None:
+        raise ValueError("create_ts_features_parallel: ts_func is required")
+
     nrecords_per_period = kwargs.get("nrecords_per_period", 1)
 
     if end_index is None:
@@ -804,7 +809,7 @@ def compute_corr(
     if absolutize:
         corr = np.abs(corr)
 
-    return corr
+    return float(corr)
 
 
 def general_acf(
@@ -863,23 +868,23 @@ def general_acf(
             # so the partition is different every step and no prefix-sum table reuses across scales without changing
             # the carved windows. Left as-is; revisit only if this becomes a measured hotspot on real flexible-window FE.
             for window_size in tqdmu(window_sizes, desc=window_var):
-                dependent_vals = []
-                independent_vals = []
+                dependent_vals_list: list = []
+                independent_vals_list: list = []
                 windows_r = len(window_var_values) - 1
 
                 while True:
                     windows_l, accumulated_amount = find_next_cumsum_left_index(window_var_values=window_var_values, amount=window_size, right_index=windows_r)
                     if accumulated_amount * 2 < window_size:
                         break
-                    dependent_vals.append(Y[windows_r])
-                    independent_vals.append(Y[windows_l])
+                    dependent_vals_list.append(Y[windows_r])
+                    independent_vals_list.append(Y[windows_l])
                     windows_r = windows_l
                     if windows_l <= 0:
                         break
-                if dependent_vals:
+                if dependent_vals_list:
                     corr = compute_corr(
-                        dependent_vals=np.asarray(dependent_vals),
-                        independent_vals=np.asarray(independent_vals),
+                        dependent_vals=np.asarray(dependent_vals_list),
+                        independent_vals=np.asarray(independent_vals_list),
                         deciding_func=deciding_func,
                         absolutize=absolutize,
                     )

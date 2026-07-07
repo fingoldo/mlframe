@@ -28,7 +28,7 @@ USE_FASTMATH: bool = True
 
 @njit(fastmath=USE_FASTMATH, cache=True)
 def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: type = np.int64):
-    hist = np.zeros((n_bins, n_bins), dtype=dtype)
+    hist: np.ndarray = np.zeros((n_bins, n_bins), dtype=dtype)
     for i in range(len(a)):
         hist[a[i], b[i]] += 1
     return hist
@@ -137,7 +137,7 @@ def grok_compute_mutual_information(
                       Row k = MI(target_indices[k], all columns)
     """
     data = _validate_bin_codes(data, "grok_compute_mutual_information")
-    return _grok_compute_mutual_information_kernel(data, target_indices, n_bins=n_bins, hist_dtype=hist_dtype, out_dtype=out_dtype)
+    return np.asarray(_grok_compute_mutual_information_kernel(data, target_indices, n_bins=n_bins, hist_dtype=hist_dtype, out_dtype=out_dtype))
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -316,4 +316,4 @@ def deepseek_compute_mutual_information(
                       Row k = MI(target_indices[k], all columns)
     """
     data = _validate_bin_codes(data, "deepseek_compute_mutual_information")
-    return _deepseek_compute_mutual_information_kernel(data, target_indices, n_bins=n_bins, hist_dtype=hist_dtype, out_dtype=out_dtype)
+    return np.asarray(_deepseek_compute_mutual_information_kernel(data, target_indices, n_bins=n_bins, hist_dtype=hist_dtype, out_dtype=out_dtype))

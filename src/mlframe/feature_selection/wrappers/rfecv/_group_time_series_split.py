@@ -60,7 +60,7 @@ class GroupTimeSeriesSplit:
         try:
             import pandas as pd
 
-            return pd.unique(np.asarray(groups))
+            return np.asarray(pd.unique(np.asarray(groups)))
         except Exception:
             g = np.asarray(groups)
             _, idx = np.unique(g, return_index=True)

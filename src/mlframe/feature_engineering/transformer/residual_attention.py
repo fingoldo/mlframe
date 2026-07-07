@@ -52,7 +52,7 @@ def compute_residual_attention(
     projection: Literal["random", "pls"] = "pls",
     column_prefix: str = "resid",
     dedupe_threshold: float | None = None,
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Residual row-attention: fits auxiliary LGB, takes OOF residuals, runs row-attention with residuals as target.
 
@@ -93,19 +93,17 @@ def compute_residual_attention(
         )
         return lgb.LGBMClassifier(**common) if task == "binary" else lgb.LGBMRegressor(**common)
 
-    common_attn = dict(
-        seed=seed, n_heads=n_heads, head_dim=head_dim, k=k,
-        aggregate=aggregate, projection=projection,
-        gpu_stage4=False, dedupe_threshold=None, column_prefix=column_prefix,
-    )
-
     if X_query is not None:
         # Mode B: aux fit once on full train → residual bank for the full train; query rows attend to the full bank.
         residual_train = compute_oof_residual_within(
             X_train, y_train, task=task, make_aux=_make_aux, aux_n_splits=aux_n_splits, seed=seed,
         )
         logger.info("residual_attention: aux LGB OOF residuals: mean=%.4f, std=%.4f, abs_mean=%.4f", residual_train.mean(), residual_train.std(), np.abs(residual_train).mean())
-        return compute_row_attention(X_train=X_train, y_train=residual_train, X_query=X_query, splitter=splitter, **common_attn)
+        return compute_row_attention(
+            X_train=X_train, y_train=residual_train, X_query=X_query, splitter=splitter,
+            seed=seed, n_heads=n_heads, head_dim=head_dim, k=k, aggregate=aggregate, projection=projection,
+            gpu_stage4=False, dedupe_threshold=None, column_prefix=column_prefix,
+        )
 
     # Mode A: nest the aux OOF inside the caller's outer splitter. For each outer fold f, the residual bank attended by f's val rows is built from an aux OOF
     # restricted to f's train complement only — so no row of fold f contributes to a complement-row residual (the cross-outer-fold target leak the flat aux KFold had).
@@ -120,7 +118,9 @@ def compute_residual_attention(
         abs_means.append(float(np.abs(residual_complement).mean()))
         # Single-fold attention: complement residuals are the bank, this fold's val rows are the queries (Mode B mechanics, leakage-safe by construction here).
         fold_out = compute_row_attention(
-            X_train=X_train[train_idx], y_train=residual_complement, X_query=X_train[val_idx], splitter=splitter, **common_attn,
+            X_train=X_train[train_idx], y_train=residual_complement, X_query=X_train[val_idx], splitter=splitter,
+            seed=seed, n_heads=n_heads, head_dim=head_dim, k=k, aggregate=aggregate, projection=projection,
+            gpu_stage4=False, dedupe_threshold=None, column_prefix=column_prefix,
         )
         fold_frames.append(fold_out)
         fold_val_idx.append(np.asarray(val_idx))
@@ -128,7 +128,7 @@ def compute_residual_attention(
 
     # Scatter each fold's val-row features into the master output at val_idx. Column names are deterministic (dedupe disabled per fold), so all folds share a schema.
     names = fold_frames[0].columns
-    matrix = np.zeros((n_train, len(names)), dtype=dtype)
+    matrix: np.ndarray = np.zeros((n_train, len(names)), dtype=dtype)
     for frame, val_idx in zip(fold_frames, fold_val_idx):
         matrix[val_idx] = frame.select(names).to_numpy().astype(dtype, copy=False)
 

@@ -171,21 +171,21 @@ class RFECV(BaseEstimator, TransformerMixin):
         search_config: "Union[SearchConfig, None]" = None,
         fi_config: "Union[FIConfig, None]" = None,
         robustness_config: "Union[RobustnessConfig, None]" = None,
-        fit_params: dict = None,
-        max_nfeatures: int = None,
+        fit_params: Union[dict, None] = None,
+        max_nfeatures: Union[int, None] = None,
         mean_perf_weight: float = 1.0,
         std_perf_weight: float = 0.1,
         feature_cost: float = 0.0,
         smooth_perf: int = 0,
         # stopping conditions
-        max_runtime_mins: float = None,
-        max_refits: int = None,
-        best_desired_score: float = None,
+        max_runtime_mins: Union[float, None] = None,
+        max_refits: Union[int, None] = None,
+        best_desired_score: Union[float, None] = None,
         max_noimproving_iters: int = 30,
         # CV
         cv: Union[object, int, None] = 3,
         cv_shuffle: bool = False,
-        min_train_size: int = None,
+        min_train_size: Union[int, None] = None,
         # Other
         early_stopping_val_nsplits: Union[int, None] = 10,
         early_stopping_rounds: Union[int, None] = None,
@@ -205,16 +205,16 @@ class RFECV(BaseEstimator, TransformerMixin):
         # budget allows. 'conditional_permutation' (Strobl) was measured to HURT here (splits credit across correlated
         # copies, keeps more noise). Also: 'coef_', 'shap', 'drop_column', 'boruta', 'boruta_shap', or a callable.
         importance_getter: Union[str, Callable, None] = None,
-        random_state: int = None,
+        random_state: Union[int, None] = None,
         leave_progressbars: bool = True,
         verbose: Union[bool, int] = 0,
         show_plot: bool = False,
         optimizer_plotting: Union[str, None] = None,  # Controls Optimizer plotting: 'No', 'Final', 'OnScoreImprovement', 'Regular'
         cat_features: Union[Sequence, None] = None,
         keep_estimators: bool = False,
-        estimators_save_path: str = None,  # fitted estimators get saved into join(estimators_save_path,estimator_type_name,nestimator_nfeatures_nfold.dump)
+        estimators_save_path: Union[str, None] = None,  # fitted estimators get saved into join(estimators_save_path,estimator_type_name,nestimator_nfeatures_nfold.dump)
         # Required features and achieved ml metrics get saved in a dict join(estimators_save_path,required_features.dump).
-        frac: float = None,
+        frac: Union[float, None] = None,
         # Skip the full re-fit when fit() is called again on identical inputs. Despite the legacy "same_shape" name, the
         # skip keys on CONTENT: it invalidates on (a) X content / column-name change, (b) y / TARGET content change, AND
         # (c) ANY selector- or wrapped-estimator-parameter change (set_params or direct attribute assignment alike;
@@ -223,7 +223,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         stop_file: str = "stop",
         report_ndigits: int = 4,
         #
-        special_feature_indices: list = None,
+        special_feature_indices: Union[list, None] = None,
         conduct_final_voting: bool = False,
         # must_include: feature names (or integer indices for ndarray X) that MUST end up in support_. The optimiser only searches over the remaining features;
         # the final support_ is the union of must_include and the optimiser's pick. Differs from special_feature_indices which forces a fixed subset and short-circuits search.
@@ -760,6 +760,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                 return np.asarray(cache, dtype=object)
         if len(self.support_) == 0:
             return np.array([], dtype=object)
+        if names_in is None:
+            names_in = [f"x{i}" for i in range(int(getattr(self, "n_features_in_", len(self.support_))))]
         if isinstance(self.support_[0], (bool, np.bool_)):
             return np.asarray(
                 [c for c, s in zip(names_in, self.support_) if s],

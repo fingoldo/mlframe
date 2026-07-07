@@ -10,7 +10,7 @@ few module-scope names the two method bodies reference directly.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -64,34 +64,145 @@ def _apply_min_selected_ratio(candidates, n_proxy_cols: int, min_selected_ratio:
 class ShapProxiedFitMixin:
     """Search-dispatch + fit pipeline for :class:`ShapProxiedFS` (see module docstring)."""
 
+    # Constructor state lives on the concrete ``ShapProxiedFS`` class (see its ``__init__``); these
+    # annotations declare the contract so mypy can type-check this mixin's methods on ``self``.
+    model: Any
+    classification: bool
+    metric: Optional[str]
+    optimizer: str
+    out_of_fold: bool
+    n_splits: int
+    n_models: int
+    min_features: int
+    max_features: Optional[int]
+    top_n: int
+    holdout_size: float
+    revalidate: bool
+    n_revalidation_models: int
+    lambda_stab: float
+    parsimony_tol: float
+    min_selected_ratio: float
+    trust_guard: bool
+    n_anchors: "int | str"
+    fidelity_floor: Optional[float]
+    spearman_floor: Optional[float]
+    run_importance_ablation: bool
+    use_bias_corrector: bool
+    active_learning: bool
+    active_learning_budget: Optional[int]
+    config_jitter: bool
+    uncertainty_penalty: float
+    interaction_aware: bool
+    max_interaction_features: int
+    interaction_proxy_top_k: int
+    su_seeded_interactions: bool
+    su_seeded_top_k: int
+    su_seeded_n_bins: int
+    su_seeded_max_screen_cols: int
+    su_seeded_snr_z: float
+    su_seeded_snr_null_quantile: float
+    su_seeded_snr_abs_floor: float
+    su_seeded_n_permutations: int
+    beam_width: int
+    brute_force_max_features: int
+    adaptive_prescreen_by_stability: bool
+    use_gpu: bool
+    prefilter_top: Optional[int]
+    prefilter_method: str
+    prefilter_n_estimators: Optional[int]
+    oof_shap_n_estimators: Optional[int]
+    prefilter_stage1_keep: Optional[int]
+    prefilter_univariate_batch_size: Optional[int]
+    shap_prefilter_enabled: bool
+    shap_prefilter_top: Optional[int]
+    shap_prefilter_safety_factor: int
+    shap_prefilter_min_features: int
+    shap_aware_stage1_keep: bool
+    shap_aware_stage1_cushion: int
+    shap_aware_stage1_floor: int
+    prescreen_top: Optional[int]
+    within_cluster_refine: bool
+    refine_n_estimators: Optional[int]
+    refine_ucb_enabled: bool
+    refine_ucb_min_eval_size: Optional[int]
+    refine_ucb_slack: Optional[float]
+    refine_ucb_stdev_multiplier: float
+    revalidation_n_estimators: Optional[int]
+    revalidation_ucb_enabled: bool
+    revalidation_ucb_min_eval_size: Optional[int]
+    revalidation_ucb_slack: Optional[float]
+    revalidation_adaptive_n_models: bool
+    trust_guard_n_estimators: Optional[int]
+    trust_guard_stratified_anchors: bool
+    trust_guard_uniform_tail_frac: float
+    trust_guard_cardinality_dist: str
+    trust_guard_zipf_alpha: float
+    trust_guard_fidelity_weights: tuple
+    trust_guard_metric: str
+    n_jobs: int
+    inner_n_jobs_cap: bool
+    random_state: int
+    verbose: bool
+    tqdm: bool
+    precomputed: Optional[dict]
+    cat_features: Optional[list]
+    cache_dir: Optional[str]
+    _rng: np.random.Generator
+    _split_col_batch: int
+    # Provided by ``ShapProxiedMethodsMixin`` (the concrete class inherits both).
+    _resolve_booster_kind: Callable[[], str]
+    _resolve_optimizer: Callable[[int], str]
+    _resolve_revalidation_mmr_jaccard_threshold: Callable[[int], Optional[float]]
+    _resolve_revalidation_ucb_stdev_multiplier: Callable[[int], float]
+    _mmr_filter_by_jaccard: Callable[..., "list[int]"]
+    _to_pandas: Callable[..., pd.DataFrame]
+    _coerce_target: Callable[..., np.ndarray]
+
     def _run_search(self, optimizer, phi, base, y):
         """Dispatch to the chosen optimizer; returns list of (proxy_loss, feature_idx tuple)."""
-        kw = dict(classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n)
         if optimizer == "bruteforce":
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 
-            return brute_force_top_n(phi, base, y, min_card=self.min_features, parallel=(phi.shape[1] >= 14), **kw)
+            return brute_force_top_n(
+                phi, base, y, min_card=self.min_features, parallel=(phi.shape[1] >= 14),
+                classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n,
+            )
         if optimizer == "bruteforce_gpu":
             # Size-aware dispatcher: defaults to CPU, routes to the cupy kernel only when the KTC
             # crossover says GPU wins, and auto-falls back to the CPU kernel on any cupy/OOM error
             # (catch + log once). Keeps zero crash risk on hosts that segfault importing cupy.
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_subsetrank import brute_force_top_n_dispatch
 
-            return brute_force_top_n_dispatch(phi, base, y, min_card=self.min_features, parallel=True, prefer_gpu=True, **kw)
+            return brute_force_top_n_dispatch(
+                phi, base, y, min_card=self.min_features, parallel=True, prefer_gpu=True,
+                classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n,
+            )
         from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_heuristics as H
 
         if optimizer == "beam":
-            return H.beam_search(phi, base, y, beam_width=self.beam_width, min_card=self.min_features, **kw)
+            return H.beam_search(
+                phi, base, y, beam_width=self.beam_width, min_card=self.min_features,
+                classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n,
+            )
         if optimizer == "greedy_forward":
             return H.greedy_forward(phi, base, y, classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n)
         if optimizer == "greedy_backward":
             return H.greedy_backward(phi, base, y, classification=self.classification, metric=self.metric, min_card=self.min_features, top_n=self.top_n)
         if optimizer == "multistart":
-            return H.multistart_local(phi, base, y, rng=self._rng, **kw)
+            return H.multistart_local(
+                phi, base, y, rng=self._rng,
+                classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n,
+            )
         if optimizer == "genetic":
-            return H.genetic(phi, base, y, rng=self._rng, **kw)
+            return H.genetic(
+                phi, base, y, rng=self._rng,
+                classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n,
+            )
         if optimizer == "annealing":
-            return H.simulated_annealing(phi, base, y, rng=self._rng, **kw)
+            return H.simulated_annealing(
+                phi, base, y, rng=self._rng,
+                classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n,
+            )
         if optimizer == "gradient":
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gradient import gradient_top_n
 

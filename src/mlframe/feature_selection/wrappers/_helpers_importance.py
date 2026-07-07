@@ -81,7 +81,7 @@ def _make_fast_default_scorer(model: object) -> Callable:
     # mode:      -1 = baseline pending; 0 = safe (estimator.score); 1 = fast closed-form.
     # need_copy: True = defensive copy each call (writeable-flip / read-only buffer); False = read _X directly.
     # _ycache:   y-derived invariants keyed by id(_y) -- see _fast_value.
-    state = {"mode": -1, "need_copy": True, "_ycache": None, "_yid": None}
+    state: dict = {"mode": -1, "need_copy": True, "_ycache": None, "_yid": None}
 
     def _y_invariants(_y):
         """Return (y_arr, regressor (yt, ss_tot)) for ``_y``, computing once and reusing while ``_y`` is unchanged.
@@ -202,12 +202,13 @@ def _conditional_permutation_importance(
     """
     from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 
-    is_dataframe = isinstance(X, pd.DataFrame)
-    if is_dataframe:
+    if isinstance(X, pd.DataFrame):
+        is_dataframe = True
         X_arr = X.to_numpy()
         cols = X.columns
         idx = X.index
     else:
+        is_dataframe = False
         X_arr = np.asarray(X)
         cols = None
         idx = None
@@ -470,7 +471,7 @@ def get_feature_importances(
                 raise ValueError("importance_getter='drop_column' requires data (X) and target (y) at the call site.")
             from sklearn.base import clone as _clone
             _Xnp = data.to_numpy(copy=False) if hasattr(data, "to_numpy") else np.asarray(data)
-            _baseline = float(model.score(data, target))
+            _baseline = float(model.score(data, target))  # type: ignore[attr-defined]  # model: object at signature (accepts any estimator-like with .score)
             _scores = np.zeros(_Xnp.shape[1], dtype=float)
             for _j in range(_Xnp.shape[1]):
                 _X_drop = np.delete(_Xnp, _j, axis=1)

@@ -6,6 +6,8 @@ lazy-imported in-body as in the original, so this module needs only a few module
 """
 from __future__ import annotations
 
+from typing import Any, Callable, Optional
+
 import numpy as np
 import pandas as pd
 
@@ -14,6 +16,21 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import _r
 
 class ShapProxiedMethodsMixin:
     """Resolver + coercion + preflight helpers for :class:`ShapProxiedFS` (see module docstring)."""
+
+    # Constructor state lives on the concrete ``ShapProxiedFS`` class (see its ``__init__``); these
+    # annotations declare the contract so mypy can type-check this mixin's methods on ``self``.
+    booster_kind: Optional[str]
+    brute_force_max_features: int
+    classification: bool
+    max_features: Optional[int]
+    min_features: int
+    optimizer: str
+    use_gpu: bool
+    revalidation_mmr_jaccard_threshold: Optional[float]
+    revalidation_ucb_stdev_multiplier: Optional[float]
+    classes_: Any
+    # Provided by ``ShapProxiedFitMixin`` (the concrete class inherits both).
+    fit: Callable[..., Any]
 
     def _resolve_booster_kind(self) -> str:
         """Pick the default booster family. ``None`` (default) auto-detects by availability so

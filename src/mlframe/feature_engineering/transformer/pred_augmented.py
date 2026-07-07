@@ -50,7 +50,7 @@ def compute_pred_augmented_attention(
     aggregate: tuple[str, ...] = ("y_mean", "y_std"),
     projection: Literal["random", "pls", "importance"] = "pls",
     column_prefix: str = "predaug",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Row-attention with similarity in (X || y_hat) augmented space.
 
@@ -83,13 +83,8 @@ def compute_pred_augmented_attention(
         model = _make_aux()
         model.fit(X_fit, y_fit)
         if task == "binary":
-            return model.predict_proba(X_pred)[:, 1].astype(np.float32, copy=False)
-        return model.predict(X_pred).astype(np.float32, copy=False)
-
-    common_attn = dict(
-        seed=seed, n_heads=n_heads, k=k, aggregate=aggregate, projection=projection,
-        gpu_stage4=False, dedupe_threshold=None, column_prefix=column_prefix,
-    )
+            return np.asarray(model.predict_proba(X_pred)[:, 1], dtype=np.float32)
+        return np.asarray(model.predict(X_pred), dtype=np.float32)
 
     if X_query is not None:
         # Mode B: aux y_hat OOF for the train bank; query rows get y_hat from a full-train aux fit (leakage-safe — query rows are disjoint from train).
@@ -100,7 +95,9 @@ def compute_pred_augmented_attention(
                     y_hat_train.mean(), y_hat_train.std(), X_train_aug.shape, X_query_aug.shape)
         return compute_row_attention(
             X_train=X_train_aug, y_train=y_train, X_query=X_query_aug, splitter=splitter,
-            head_dim=min(head_dim, X_train_aug.shape[1] - 1), **common_attn,
+            seed=seed, n_heads=n_heads, head_dim=min(head_dim, X_train_aug.shape[1] - 1), k=k,
+            aggregate=aggregate, projection=projection, gpu_stage4=False, dedupe_threshold=None,
+            column_prefix=column_prefix,
         )
 
     # Mode A: nest the aux OOF inside the caller's outer splitter so a val row's own target never leaks into the augmented similarity coordinate. For each outer fold
@@ -116,13 +113,15 @@ def compute_pred_augmented_attention(
         X_val_aug = _augment(X_train[val_idx], y_hat_val)
         fold_out = compute_row_attention(
             X_train=X_comp_aug, y_train=y_comp, X_query=X_val_aug, splitter=splitter,
-            head_dim=min(head_dim, X_comp_aug.shape[1] - 1), **common_attn,
+            seed=seed, n_heads=n_heads, head_dim=min(head_dim, X_comp_aug.shape[1] - 1), k=k,
+            aggregate=aggregate, projection=projection, gpu_stage4=False, dedupe_threshold=None,
+            column_prefix=column_prefix,
         )
         fold_frames.append(fold_out)
         fold_val_idx.append(np.asarray(val_idx))
 
     names = fold_frames[0].columns
-    matrix = np.zeros((n_train, len(names)), dtype=dtype)
+    matrix: np.ndarray = np.zeros((n_train, len(names)), dtype=dtype)
     for frame, val_idx in zip(fold_frames, fold_val_idx):
         matrix[val_idx] = frame.select(names).to_numpy().astype(dtype, copy=False)
     matrix, names = apply_dedupe(matrix, list(names), dedupe_threshold=None)

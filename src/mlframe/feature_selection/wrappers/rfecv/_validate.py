@@ -243,15 +243,15 @@ def _sanitize_X_inputs(self, X, y):
                 if _nu < _ratio_thr * _n:
                     continue
                 try:
-                    _v = np.sort(_ser.dropna().to_numpy(dtype=float))
+                    _vsort = np.sort(_ser.dropna().to_numpy(dtype=float))
                 except (TypeError, ValueError):
                     continue
-                _v = _v[np.isfinite(_v)]
-                if _v.size < 50:
+                _vsort = _vsort[np.isfinite(_vsort)]
+                if _vsort.size < 50:
                     continue
-                _d = np.diff(_v)
+                _d = np.diff(_vsort)
                 _d = _d[_d > 0]
-                if _d.size < max(10, 0.5 * _v.size):
+                if _d.size < max(10, 0.5 * _vsort.size):
                     continue
                 _md = float(_d.mean())
                 if _md <= 0:
