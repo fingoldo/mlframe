@@ -213,23 +213,9 @@ jobs:
         run: uvx ruff check src/mlframe
         continue-on-error: true
 
-      # Blocking: mirrors the pre-commit mypy hook's strict-mode beachhead (see
-      # [tool.mypy.overrides] in pyproject.toml) so a commit that passes locally
-      # cannot silently regress once pushed -- previously mypy ran ONLY in the
-      # pre-commit hook (bypassable with --no-verify) and never in CI at all.
-      # numpy pinned <2.5 to match the pre-commit hook's additional_dependencies --
-      # 2.5+'s bundled .pyi stubs use PEP 695 `type` statements that mypy rejects
-      # under python_version="3.10" ("Type statement is only supported in Python
-      # 3.12 and greater"), and uvx --with resolves unpinned deps fresh each run.
-      - name: MyPy (strict-mode beachhead)
-        run: >
-          uvx --with "numpy<2.5" --with scipy --with scikit-learn --with pydantic mypy
-          src/mlframe/system/_gpu_guard.py
-          src/mlframe/metrics/_numba_params.py
-          src/mlframe/metrics/rank_correlation.py
-          src/mlframe/metrics/_core_precision_mape.py
-          src/mlframe/utils/safe_pickle.py
-          src/mlframe/calibration
+      # MyPy strict-mode beachhead moved to its own workflow (mypy.yml) so it gets
+      # an independent, honest badge instead of being buried as a step inside this
+      # combined lint job.
 
       - name: Run bandit security scan
         run: uvx bandit -r src/mlframe -ll -f json -o bandit-report.json
