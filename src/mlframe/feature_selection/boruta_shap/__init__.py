@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from sklearn.utils import check_random_state, check_X_y
 from sklearn.base import TransformerMixin, BaseEstimator
 from mlframe.utils.misc import get_pipeline_last_element
@@ -120,6 +122,8 @@ class BorutaShap(BaseEstimator, TransformerMixin):
     # history_x accumulates as an ndarray across trials (run()), then is promoted to a DataFrame
     # in store_feature_importance() once accumulation is done and column-labeled stats are added.
     history_x: "np.ndarray | pd.DataFrame"
+    # tentative starts as a plain list (set difference at fit entry), then TentativeRoughFix() rebinds it to an ndarray for boolean-mask filtering.
+    tentative: "list | np.ndarray"
 
     def __init__(
         self,
@@ -139,14 +143,14 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         verbose: bool = True,
         stratify=None,
         optimistic: bool = True,
-        fit_params: dict = None,
+        fit_params: Optional[dict] = None,
         stability_subsamples: int = 0,
         stability_subsample_fraction: float = 0.75,
         stability_threshold: float = 1.0,
         early_stop_tentative: bool = False,
         early_stop_patience: int = 20,
         early_stop_margin: float = 0.15,
-        max_runtime_mins: float = None,
+        max_runtime_mins: Optional[float] = None,
         stop_file: str = "stop",
         shadow_min_pad: int = 5,
     ):
@@ -731,8 +735,10 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         """
 
-        median_tentaive_values = self.history_x[self.tentative].median(axis=0).values
-        median_max_shadow = self.history_x["Max_Shadow"].median(axis=0)
+        # history_x is promoted from ndarray to DataFrame by run() before TentativeRoughFix is ever called.
+        hx: pd.DataFrame = self.history_x  # type: ignore[assignment]
+        median_tentaive_values = hx[self.tentative].median(axis=0).values
+        median_max_shadow = hx["Max_Shadow"].median(axis=0)
 
         filtered = median_tentaive_values > median_max_shadow
 
@@ -740,7 +746,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         newly_accepted = self.tentative[filtered]
 
         if len(newly_accepted) < 1:
-            newly_rejected = self.tentative
+            newly_rejected = np.asarray(self.tentative)
 
         else:
             newly_rejected = self.symetric_difference_between_two_arrays(newly_accepted, self.tentative)
@@ -758,7 +764,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         Returns the subset of desired features
         """
         if tentative:
-            return self.starting_X[self.accepted + self.tentative.tolist()]
+            return self.starting_X[self.accepted + list(self.tentative)]
         else:
             return self.starting_X[self.accepted]
 

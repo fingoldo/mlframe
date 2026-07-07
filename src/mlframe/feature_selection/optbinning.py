@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 from typing import Optional
 
+from typing import Optional
+
 import pandas as pd
 
 import category_encoders as ce

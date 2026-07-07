@@ -95,7 +95,7 @@ def _finalize_fit_results(
             # could mask a genuinely-better swapped subset and silently discard the swap improvement.
             _finite_means = {n: v for n, v in evaluated_scores_mean.items() if v is not None and not np.isnan(v)}
             if _finite_means:
-                new_best_nf = max(_finite_means, key=_finite_means.get)
+                new_best_nf = max(_finite_means, key=lambda k: _finite_means[k])
                 if _finite_means[new_best_nf] > best_score:
                     best_nfeatures = new_best_nf
                     best_score = _finite_means[new_best_nf]

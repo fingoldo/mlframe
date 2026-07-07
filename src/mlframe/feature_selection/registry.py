@@ -42,9 +42,14 @@ class FeatureSelectorSpec(Protocol):
         a fourth selector doesn't require editing the central report builder.
     """
 
-    name: str
-    instantiate: Callable[..., Any]
-    report_extract: Callable[[Any, list[str]], dict] | None
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def instantiate(self) -> Callable[..., Any]: ...
+
+    @property
+    def report_extract(self) -> Callable[[Any, list[str]], dict] | None: ...
 
 
 @dataclass(frozen=True)

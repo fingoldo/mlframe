@@ -106,19 +106,19 @@ def estimate_features_relevancy(
     bins: pl.DataFrame,
     target_columns: list,
     # precomputed info
-    mi_algorithms_ranking: list = None,  # ltr
+    mi_algorithms_ranking: list | None = None,  # ltr
     benchmark_mi_algorithms: bool = True,
-    permuted_mutual_informations: dict = None,
+    permuted_mutual_informations: dict | None = None,
     # working params
     min_mi_prevalence: float = 2,  # 10 is too high for a weak target
-    permuted_max_mi_quantile: float = None,
+    permuted_max_mi_quantile: float | None = None,
     min_permuted_mi_evaluations: int = 500,
     min_randomized_permutations: int = 1,
     max_permuted_prevalence_percent: float = 0.05,
     # multiple-comparison control (statistical calibration of the relevancy test)
     fdr_alpha: float = 0.05,
     # stopping criteria
-    max_runtime_mins: float = None,
+    max_runtime_mins: float | None = None,
     # rng
     random_state: int | None = 42,
     # style
@@ -208,8 +208,8 @@ def estimate_features_relevancy(
     if expected_evaluations_num < min_permuted_mi_evaluations:
         num_randomized_permutations += int(np.ceil((min_permuted_mi_evaluations - expected_evaluations_num) / len(feature_columns)))
 
-    all_permuted_mis = defaultdict(list)
-    current_permuted_mis = defaultdict(list)
+    all_permuted_mis: dict = defaultdict(list)
+    current_permuted_mis: dict = defaultdict(list)
 
     if permuted_mutual_informations:
         for target_name, permuted_mis in permuted_mutual_informations.items():
@@ -391,8 +391,8 @@ def run_efs(
     # Build the augmented exclusion set locally instead of ``.update()``-ing the caller's argument: ``exclude_columns``
     # is annotated ``list`` (no ``.update``) and mutating the caller's collection in place is a surprising side effect.
     # The augmented set is handed back via the return value.
-    exclude_columns = set(exclude_columns) | set(bins.columns)
+    exclude_columns_out = set(exclude_columns) | set(bins.columns)
 
     clean_ram()
 
-    return (df, exclude_columns, permuted_mutual_informations, binned_targets, mi_algorithms_ranking, features_mis)
+    return (df, exclude_columns_out, permuted_mutual_informations, binned_targets, mi_algorithms_ranking, features_mis)

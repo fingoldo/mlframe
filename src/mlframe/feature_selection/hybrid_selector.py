@@ -300,7 +300,7 @@ class HybridSelector:
             if self.use_fe and getattr(self, "mrmr_synergy_cap", None) is not None:
                 fe_strict["fe_synergy_screen_max_features"] = int(self.mrmr_synergy_cap)
             m = MRMR(verbose=0, fe_max_steps=(self.fe_max_steps if self.use_fe else 0), n_jobs=-1,
-                     random_seed=self.random_state, retain_artifacts=True, retain_bins=True, **fe_strict)
+                     random_seed=self.random_state, retain_artifacts=True, retain_bins=True, **fe_strict)  # type: ignore[arg-type]
             m.fit(X, y)
             selected = [c for c in m.get_feature_names_out() if c in X.columns]
             try:
@@ -335,7 +335,6 @@ class HybridSelector:
             return
         try:
             from itertools import combinations
-            from collections import Counter
             import lightgbm as lgb
             m = lgb.LGBMClassifier(n_estimators=self.tree_n_estimators, max_depth=self.tree_max_depth,
                                    num_leaves=2 ** self.tree_max_depth, learning_rate=0.1, n_jobs=-1,
@@ -346,25 +345,26 @@ class HybridSelector:
             self._tree_ranked_ = [c for c in imp.sort_values(ascending=False).index if imp[c] > 0]
             tdf = m.booster_.trees_to_dataframe()
             tdf = tdf[tdf["split_feature"].notna()]
-            pair_w = Counter()
+            pair_w: dict = {}
             mode = str(getattr(self, "cooccur_weight", "gain")).lower()
             for _tid, g in tdf.groupby("tree_index"):
                 feats = sorted(set(g["split_feature"].tolist()))
                 if mode == "count":
                     # count: every co-occurring pair gets +1 -- raw split-co-occurrence frequency (legacy).
                     for a, b in combinations(feats, 2):
-                        pair_w[(a, b)] += 1.0
+                        pair_w[(a, b)] = pair_w.get((a, b), 0.0) + 1.0
                 else:
                     # gain: a pair is weighted by the loss reduction its two features actually contribute in this tree
                     # (sum of their per-node split gains), so true interactions outrank shallow high-frequency splits.
                     per_feat = g.groupby("split_feature")["split_gain"].sum()
                     for a, b in combinations(feats, 2):
-                        pair_w[(a, b)] += float(per_feat.get(a, 0.0)) + float(per_feat.get(b, 0.0))
+                        pair_w[(a, b)] = pair_w.get((a, b), 0.0) + float(per_feat.get(a, 0.0)) + float(per_feat.get(b, 0.0))
             # The co-occurrence PRODUCTS are feature engineering -> gate them on use_fe (use_fe=False means no
             # engineering of ANY kind, raw selection only). The importance RANKING above is kept regardless, so the
             # top-k selection votes still work under use_fe=False if tree_top_k>0.
             if self.use_fe:
-                top = [(a, b) for (a, b), _ in pair_w.most_common(self.tree_cooccur_pairs) if a in cols and b in cols]
+                _pair_w_sorted = sorted(pair_w.items(), key=lambda kv: kv[1], reverse=True)[: self.tree_cooccur_pairs]
+                top = [(a, b) for (a, b), _ in _pair_w_sorted if a in cols and b in cols]
                 # expand each co-occurrence pair to one candidate column per rich operator; each column carries its
                 # operand pair (so the synergy gate scores it independently) and its op (so _augment replays it).
                 ops = [o for o in self.tree_rich_ops if o in _TREE_OPS] or ["mul"]

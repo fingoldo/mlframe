@@ -125,7 +125,7 @@ def _eval_fold_body(
     else:
         fit_features = current_features
     X_train, y_train, X_test, y_test = split_into_train_test(
-        X=X, y=y, train_index=train_index, test_index=test_index, features_indices=fit_features,
+        X=X, y=y, train_index=train_index, test_index=test_index, features_indices=np.asarray(fit_features, dtype=object),
         X_estimator=X_estimator, col_pos=col_pos,
     )
     if verbose > 2:
@@ -167,7 +167,7 @@ def _eval_fold_body(
             X_val=X_val,
             y_val=y_val,
             early_stopping_rounds=early_stopping_rounds,
-            cat_features=temp_cat_features,
+            cat_features=temp_cat_features,  # type: ignore[arg-type]  # list[int] | None is accepted at runtime; pack_val_set_into_fit_params's stub is typed list[Any]
         )
         # Filter feature-list keys (cat_features / text_features / embedding_features) coming in via fit_params to only columns present in the current selector iteration. Otherwise names from the outer call reference columns dropped by the current iteration and CB raises ``Error while processing column for feature 'cat_0'``.
         # cat_features: pack_val_set_into_fit_params above already injected index-based temp_cat_features IFF that list was non-empty. When empty (current_features doesn't intersect self.cat_features) we MUST still pass a name-list filtered to current_features so CB doesn't fall back to auto-detect on numerically-encoded category columns (target-encoded cats look like floats and trip CB's "Invalid type for cat_feature").
@@ -328,7 +328,7 @@ def _eval_fold_body(
             cpi_max_depth=getattr(self, "cpi_max_depth", None),
             cpi_min_samples_leaf=int(getattr(self, "cpi_min_samples_leaf", 10)),
             # Prefer the wide-data-guard's effective n_repeats (set in RFECV.fit) over the user-facing self.n_repeats.
-            n_repeats=int(getattr(self, "_effective_n_repeats", None) or getattr(self, "n_repeats", 5)),
+            n_repeats=int(getattr(self, "_effective_n_repeats", None) or getattr(self, "n_repeats", 5) or 5),
         )
         if must_include_resolved:
             must_set = set(must_include_resolved)
