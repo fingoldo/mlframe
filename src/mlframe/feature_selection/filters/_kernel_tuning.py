@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +65,15 @@ def _register_default_tuning_cache() -> None:
             logger.debug("register_default_cache(%s) failed (%s: %s)", _DEFAULT_TUNING_JSON, type(_exc).__name__, _exc)
 
 
-def get_kernel_tuning_cache() -> Optional[object]:
+def get_kernel_tuning_cache() -> Optional[Any]:
     """Return the per-process KernelTuningCache singleton, or None if pyutilz is
     unavailable. Sentinel ``False`` caches the import-failure so subsequent
-    calls don't re-attempt the lazy import."""
+    calls don't re-attempt the lazy import.
+
+    Typed ``Optional[Any]`` (not the concrete ``KernelTuningCache`` class) since
+    pyutilz is an optional dependency and this module avoids importing it at
+    module scope; callers rely on the ``.lookup(...)`` duck-typed contract.
+    """
     global _CACHE_SINGLETON
     if _CACHE_SINGLETON is False:
         return None
