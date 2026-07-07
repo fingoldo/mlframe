@@ -114,7 +114,7 @@ def _asinh_residual_domain(
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
     if y is None:
         return base_ok
-    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64))
+    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64)))
 
 
 # ============================================================
@@ -146,7 +146,7 @@ def _centered_ratio_forward(
     eps = float(params["eps"])
     shifted = np.asarray(base, dtype=np.float64) + c
     safe = np.where(np.abs(shifted) < eps, np.sign(shifted + 1e-300) * eps, shifted)
-    return np.asarray(y, dtype=np.float64) / safe
+    return np.asarray(np.asarray(y, dtype=np.float64) / safe)
 
 
 def _centered_ratio_inverse(
@@ -157,7 +157,7 @@ def _centered_ratio_inverse(
     eps = float(params["eps"])
     shifted = np.asarray(base, dtype=np.float64) + c
     safe = np.where(np.abs(shifted) < eps, np.sign(shifted + 1e-300) * eps, shifted)
-    return np.asarray(t_hat, dtype=np.float64) * safe
+    return np.asarray(np.asarray(t_hat, dtype=np.float64) * safe)
 
 
 def _centered_ratio_domain(
@@ -166,7 +166,7 @@ def _centered_ratio_domain(
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
     if y is None:
         return base_ok
-    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64))
+    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64)))
 
 
 # ============================================================
@@ -229,7 +229,7 @@ def _polynomial_residual_deg2_domain(
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
     if y is None:
         return base_ok
-    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64))
+    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64)))
 
 
 # ============================================================
@@ -319,7 +319,7 @@ def _rank_residual_domain(
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
     if y is None:
         return base_ok
-    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64))
+    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64)))
 
 
 # ============================================================
@@ -403,13 +403,13 @@ def _smoothing_spline_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
 def _smoothing_spline_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    return np.asarray(y, dtype=np.float64) - _smoothing_spline_g(base, params)
+    return np.asarray(np.asarray(y, dtype=np.float64) - _smoothing_spline_g(base, params))
 
 
 def _smoothing_spline_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    return np.asarray(t_hat, dtype=np.float64) + _smoothing_spline_g(base, params)
+    return np.asarray(np.asarray(t_hat, dtype=np.float64) + _smoothing_spline_g(base, params))
 
 
 def _smoothing_spline_residual_domain(
@@ -418,7 +418,7 @@ def _smoothing_spline_residual_domain(
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
     if y is None:
         return base_ok
-    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64))
+    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64)))
 
 
 # ============================================================
@@ -473,7 +473,7 @@ def _reciprocal_residual_domain(
     if y is None:
         return base_ok
     yv = np.asarray(y, dtype=np.float64)
-    return base_ok & np.isfinite(yv) & (np.abs(yv) > 0)
+    return np.asarray(base_ok & np.isfinite(yv) & (np.abs(yv) > 0))
 
 
 # ============================================================
@@ -502,7 +502,7 @@ def _geometric_mean_residual_forward(
     # geomean via log-mean-exp. Strict positivity required by domain.
     log_b = np.log(np.where(bv > eps, bv, eps))
     g = np.exp(log_b.mean(axis=1))
-    return np.asarray(y, dtype=np.float64) / np.where(g > eps, g, eps)
+    return np.asarray(np.asarray(y, dtype=np.float64) / np.where(g > eps, g, eps))
 
 
 def _geometric_mean_residual_inverse(
@@ -514,7 +514,7 @@ def _geometric_mean_residual_inverse(
     bv = np.asarray(base, dtype=np.float64)
     log_b = np.log(np.where(bv > eps, bv, eps))
     g = np.exp(log_b.mean(axis=1))
-    return np.asarray(t_hat, dtype=np.float64) * g
+    return np.asarray(np.asarray(t_hat, dtype=np.float64) * g)
 
 
 def _geometric_mean_residual_domain(
@@ -525,9 +525,9 @@ def _geometric_mean_residual_domain(
     bv = np.asarray(base, dtype=np.float64)
     base_ok = np.all(np.isfinite(bv) & (bv > 0), axis=1)
     if y is None:
-        return base_ok
+        return np.asarray(base_ok)
     yv = np.asarray(y, dtype=np.float64)
-    return base_ok & np.isfinite(yv) & (yv > 0)
+    return np.asarray(base_ok & np.isfinite(yv) & (yv > 0))
 
 
 # ============================================================
@@ -568,7 +568,7 @@ def _pairwise_interaction_residual_forward(
     beta = float(params["beta"])
     bv = np.asarray(base, dtype=np.float64)
     p = np.prod(bv, axis=1)
-    return np.asarray(y, dtype=np.float64) - alpha * p - beta
+    return np.asarray(np.asarray(y, dtype=np.float64) - alpha * p - beta)
 
 
 def _pairwise_interaction_residual_inverse(
@@ -580,7 +580,7 @@ def _pairwise_interaction_residual_inverse(
     beta = float(params["beta"])
     bv = np.asarray(base, dtype=np.float64)
     p = np.prod(bv, axis=1)
-    return np.asarray(t_hat, dtype=np.float64) + alpha * p + beta
+    return np.asarray(np.asarray(t_hat, dtype=np.float64) + alpha * p + beta)
 
 
 def _pairwise_interaction_residual_domain(
@@ -591,9 +591,9 @@ def _pairwise_interaction_residual_domain(
     bv = np.asarray(base, dtype=np.float64)
     base_ok = np.all(np.isfinite(bv), axis=1)
     if y is None:
-        return base_ok
+        return np.asarray(base_ok)
     yv = np.asarray(y, dtype=np.float64)
-    return base_ok & np.isfinite(yv)
+    return np.asarray(base_ok & np.isfinite(yv))
 
 
 __all__ = [

@@ -66,14 +66,14 @@ def _second_diff_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],  # noqa: ARG001
 ) -> np.ndarray:
     b1, b2 = _second_diff_bases(base)
-    return np.asarray(y, dtype=np.float64) - 2.0 * b1 + b2
+    return np.asarray(np.asarray(y, dtype=np.float64) - 2.0 * b1 + b2)
 
 
 def _second_diff_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],  # noqa: ARG001
 ) -> np.ndarray:
     b1, b2 = _second_diff_bases(base)
-    return np.asarray(t_hat, dtype=np.float64) + 2.0 * b1 - b2
+    return np.asarray(np.asarray(t_hat, dtype=np.float64) + 2.0 * b1 - b2)
 
 
 def _second_diff_domain(
@@ -89,4 +89,4 @@ def _second_diff_domain(
         base_ok = np.all(np.isfinite(cols), axis=1)
     if y is None:
         return base_ok
-    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64))
+    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64)))

@@ -153,5 +153,5 @@ def _causal_anchor_residual_domain(
 ) -> np.ndarray:
     base_ok = np.isfinite(base)
     if y is None:
-        return base_ok
-    return base_ok & np.isfinite(y)
+        return np.asarray(base_ok)
+    return np.asarray(base_ok & np.isfinite(y))

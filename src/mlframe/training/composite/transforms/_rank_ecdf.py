@@ -118,4 +118,4 @@ def _rank_ecdf_residual_domain(
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
     if y is None:
         return base_ok
-    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64))
+    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64)))

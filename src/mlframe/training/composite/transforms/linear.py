@@ -62,7 +62,7 @@ def _logratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
         "soft_cap_k": _MAD_SOFT_CAP_K,
     }
 def _logratio_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
-    return np.log(y) - np.log(base)
+    return np.asarray(np.log(y) - np.log(base))
 def _logratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     median_t = float(params["median_t"])
     mad = float(params["mad_eff"])
@@ -73,12 +73,12 @@ def _logratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any
     # the cap and inverse predictions collapse to ``base``.
     cap = k * mad
     t_capped = np.clip(t_hat, median_t - cap, median_t + cap)
-    return base * np.exp(t_capped)
+    return np.asarray(base * np.exp(t_capped))
 def _logratio_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
     base_ok = np.isfinite(base) & (base > 0)
     if y is None:
-        return base_ok
-    return base_ok & np.isfinite(y) & (y > 0)
+        return np.asarray(base_ok)
+    return np.asarray(base_ok & np.isfinite(y) & (y > 0))
 def _linear_residual_fit(
     y: np.ndarray, base: np.ndarray,
     sample_weight: np.ndarray | None = None,
@@ -230,8 +230,8 @@ def _linear_residual_inverse(
 def _linear_residual_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
     base_ok = np.isfinite(base)
     if y is None:
-        return base_ok
-    return base_ok & np.isfinite(y)
+        return np.asarray(base_ok)
+    return np.asarray(base_ok & np.isfinite(y))
 def _linear_residual_robust_fit(
     y: np.ndarray, base: np.ndarray,
     sample_weight: np.ndarray | None = None,
@@ -522,8 +522,8 @@ def _linear_residual_multi_domain(
         base = base.reshape(-1, 1)
     base_ok = np.all(np.isfinite(base), axis=1)
     if y is None:
-        return base_ok
-    return base_ok & np.isfinite(y)
+        return np.asarray(base_ok)
+    return np.asarray(base_ok & np.isfinite(y))
 def _linear_residual_grouped_fit(
     y: np.ndarray, base: np.ndarray,
     groups: np.ndarray | None = None,
@@ -707,7 +707,7 @@ def _linear_residual_grouped_forward(
         raise ValueError("linear_residual_grouped.forward: groups kwarg is required.")
     groups = np.asarray(groups).reshape(-1)
     row_alpha, row_beta = _row_alpha_beta(groups, params)
-    return y - row_alpha * base - row_beta
+    return np.asarray(y - row_alpha * base - row_beta)
 def _linear_residual_grouped_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
     groups: np.ndarray | None = None,
@@ -720,7 +720,7 @@ def _linear_residual_grouped_inverse(
         raise ValueError("linear_residual_grouped.inverse: groups kwarg is required.")
     groups = np.asarray(groups).reshape(-1)
     row_alpha, row_beta = _row_alpha_beta(groups, params)
-    return t_hat + row_alpha * base + row_beta
+    return np.asarray(t_hat + row_alpha * base + row_beta)
 def _linear_residual_grouped_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:

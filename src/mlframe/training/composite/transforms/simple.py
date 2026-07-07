@@ -61,18 +61,18 @@ def _diff_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
 
 
 def _diff_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
-    return y - base
+    return np.asarray(y - base)
 
 
 def _diff_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
-    return t_hat + base
+    return np.asarray(t_hat + base)
 
 
 def _diff_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
     base_ok = np.isfinite(base)
     if y is None:
-        return base_ok
-    return base_ok & np.isfinite(y)
+        return np.asarray(base_ok)
+    return np.asarray(base_ok & np.isfinite(y))
 
 
 # ----------------------------------------------------------------------
@@ -96,13 +96,13 @@ def _additive_residual_fit(
 def _additive_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    return y - base - float(params.get("beta", 0.0))
+    return np.asarray(y - base - float(params.get("beta", 0.0)))
 
 
 def _additive_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    return t_hat + base + float(params.get("beta", 0.0))
+    return np.asarray(t_hat + base + float(params.get("beta", 0.0)))
 
 
 def _additive_residual_domain(
@@ -110,8 +110,8 @@ def _additive_residual_domain(
 ) -> np.ndarray:
     base_ok = np.isfinite(base)
     if y is None:
-        return base_ok
-    return base_ok & np.isfinite(y)
+        return np.asarray(base_ok)
+    return np.asarray(base_ok & np.isfinite(y))
 
 
 # ----------------------------------------------------------------------
@@ -213,13 +213,13 @@ def _median_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
 def _median_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    return y - _median_residual_g(base, params)
+    return np.asarray(y - _median_residual_g(base, params))
 
 
 def _median_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    return t_hat + _median_residual_g(base, params)
+    return np.asarray(t_hat + _median_residual_g(base, params))
 
 
 def _median_residual_domain(
@@ -227,8 +227,8 @@ def _median_residual_domain(
 ) -> np.ndarray:
     base_ok = np.isfinite(base)
     if y is None:
-        return base_ok
-    return base_ok & np.isfinite(y)
+        return np.asarray(base_ok)
+    return np.asarray(base_ok & np.isfinite(y))
 
 
 # ----------------------------------------------------------------------
@@ -308,21 +308,21 @@ def _ratio_fit(
 def _ratio_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     eps = float(params["eps"])
     safe_base = np.where(np.abs(base) < eps, np.sign(base + 1e-300) * eps, base)
-    return y / safe_base
+    return np.asarray(y / safe_base)
 
 
 def _ratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     # Mirror the forward eps-floor so the round-trip is exact on in-domain near-zero base rows (0<|base|<eps would otherwise yield unbounded relative error).
     eps = float(params["eps"])
     safe_base = np.where(np.abs(base) < eps, np.sign(base + 1e-300) * eps, base)
-    return t_hat * safe_base
+    return np.asarray(t_hat * safe_base)
 
 
 def _ratio_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
     base_ok = np.isfinite(base) & (np.abs(base) > 0)
     if y is None:
-        return base_ok
-    return base_ok & np.isfinite(y)
+        return np.asarray(base_ok)
+    return np.asarray(base_ok & np.isfinite(y))
 
 
 # ----------------------------------------------------------------------
@@ -363,7 +363,7 @@ def _rolling_quantile_ratio_forward(
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
     roll_med = _rolling_median(base_f, k)
     safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)
-    return np.asarray(y, dtype=np.float64) / safe
+    return np.asarray(np.asarray(y, dtype=np.float64) / safe)
 
 
 def _rolling_quantile_ratio_inverse(
@@ -376,7 +376,7 @@ def _rolling_quantile_ratio_inverse(
     # Mirror the forward eps-floor so the round-trip is exact on near-zero rolling medians.
     eps = float(params["eps"])
     safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)
-    return np.asarray(t_hat, dtype=np.float64) * safe
+    return np.asarray(np.asarray(t_hat, dtype=np.float64) * safe)
 
 
 def _rolling_quantile_ratio_domain(
@@ -385,4 +385,4 @@ def _rolling_quantile_ratio_domain(
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     if y is None:
         return base_ok
-    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))

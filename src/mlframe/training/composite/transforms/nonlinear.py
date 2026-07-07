@@ -183,7 +183,7 @@ def _james_stein_shrinkage_factor(
     else:
         # Legacy (unit-dependent) proxy: σ²_per_group ≈ σ²_total / mean(n_g).
         # Retained only for callers that predate the scale-invariant fix.
-        mean_per_group_variance = float(sigma2_total / max(np.mean(sizes), 1.0))
+        mean_per_group_variance = float(sigma2_total / max(float(np.mean(sizes)), 1.0))
     # Classic JS factor c in α_shrunk = (1-c) α_g + c α_global; c = (K-3) · mean_g(σ²_g) / Σ_g (α_g - α_global)², clamped to [0, 1]. High noise / low spread => c->1 (full shrink); low noise / high spread => c->0 (keep per-group).
     raw = (k - 3) * mean_per_group_variance / sum_sq
     return float(max(0.0, min(1.0, raw)))
@@ -356,9 +356,9 @@ def _quantile_residual_assign_bins(base: np.ndarray, edges: np.ndarray) -> np.nd
         return np.zeros(base_f.size, dtype=np.intp)
     # ``edges[1:-1]`` are the INNER cut points; searchsorted returns 0..n_bins.
     if _HAS_NUMBA:
-        return _quantile_assign_bins_kernel(
+        return np.asarray(_quantile_assign_bins_kernel()(
             np.ascontiguousarray(base_f), np.ascontiguousarray(edges[1:-1]), n_bins,
-        )
+        ))
     bin_idx = np.searchsorted(edges[1:-1], base_f, side="right")
     return np.clip(bin_idx, 0, n_bins - 1)
 def _quantile_residual_forward(
@@ -368,7 +368,7 @@ def _quantile_residual_forward(
     medians = np.asarray(params["bin_medians"], dtype=np.float64)
     iqrs = np.asarray(params["bin_iqrs"], dtype=np.float64)
     bin_idx = _quantile_residual_assign_bins(base, edges)
-    return (np.asarray(y, dtype=np.float64) - medians[bin_idx]) / iqrs[bin_idx]
+    return np.asarray((np.asarray(y, dtype=np.float64) - medians[bin_idx]) / iqrs[bin_idx])
 def _quantile_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
@@ -376,14 +376,14 @@ def _quantile_residual_inverse(
     medians = np.asarray(params["bin_medians"], dtype=np.float64)
     iqrs = np.asarray(params["bin_iqrs"], dtype=np.float64)
     bin_idx = _quantile_residual_assign_bins(base, edges)
-    return np.asarray(t_hat, dtype=np.float64) * iqrs[bin_idx] + medians[bin_idx]
+    return np.asarray(np.asarray(t_hat, dtype=np.float64) * iqrs[bin_idx] + medians[bin_idx])
 def _quantile_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     if y is None:
         return base_ok
-    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))
 def _spearman_sign(a: np.ndarray, b: np.ndarray) -> int:
     """Return +1 / -1: the sign of the Spearman rank correlation between ``a`` and ``b``.
 
@@ -531,7 +531,7 @@ def _monotonic_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarra
         # Degenerate: linear interpolation between the two anchor knots; out-of-range clamps to edge value.
         clipped = np.clip(base_f, knots_x[0], knots_x[-1])
         slope = (knots_y[-1] - knots_y[0]) / max(knots_x[-1] - knots_x[0], 1e-12)
-        return knots_y[0] + slope * (clipped - knots_x[0])
+        return np.asarray(knots_y[0] + slope * (clipped - knots_x[0]))
     from scipy.interpolate import PchipInterpolator  # lazy
     # extrapolate=False yields NaN outside [x[0], x[-1]]; fill those with the edge knot values to keep predict-time well-defined.
     interp = PchipInterpolator(knots_x, knots_y, extrapolate=False)
@@ -541,22 +541,22 @@ def _monotonic_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarra
         high_mask = base_f > knots_x[-1]
         out[low_mask] = knots_y[0]
         out[high_mask] = knots_y[-1]
-    return out
+    return np.asarray(out)
 def _monotonic_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    return np.asarray(y, dtype=np.float64) - _monotonic_residual_g(base, params)
+    return np.asarray(np.asarray(y, dtype=np.float64) - _monotonic_residual_g(base, params))
 def _monotonic_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    return np.asarray(t_hat, dtype=np.float64) + _monotonic_residual_g(base, params)
+    return np.asarray(np.asarray(t_hat, dtype=np.float64) + _monotonic_residual_g(base, params))
 def _monotonic_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     if y is None:
         return base_ok
-    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))
 def _ewma_residual_fit(
     y: np.ndarray, base: np.ndarray, k: int = _EWMA_RESIDUAL_DEFAULT_K,
     _finite_mask: np.ndarray | None = None,
@@ -674,8 +674,8 @@ def _ewma_dispatch(base_f: np.ndarray, k_param: float, anchor: float) -> np.ndar
         base_batch = base_f.reshape(1, -1)
         alphas = np.array([alpha], dtype=np.float64)
         anchors = np.array([anchor], dtype=np.float64)
-        return _ewma_kernel_njit_par_batched(base_batch, alphas, anchors)[0]
-    return _ewma_kernel(base_f, alpha, float(anchor))
+        return np.asarray(_ewma_kernel_njit_par_batched(base_batch, alphas, anchors)[0])
+    return np.asarray(_ewma_kernel(base_f, alpha, float(anchor)))
 
 
 def _ewma_compute_batched(
@@ -704,7 +704,7 @@ def _ewma_compute_batched(
         return out
     backend = _lookup_ewma_backend(K, N)
     if backend == "njit_par":
-        return _ewma_kernel_njit_par_batched(base_batch, alphas, anchors_a)
+        return np.asarray(_ewma_kernel_njit_par_batched(base_batch, alphas, anchors_a))
     out = np.empty((K, N), dtype=np.float64)
     for s in range(K):
         out[s] = _ewma_kernel(
@@ -744,8 +744,8 @@ def _frac_diff_inverse_dispatch(
         t_batch = t_f.reshape(1, -1)
         weights_batch = weights.reshape(1, -1)
         anchors = np.array([anchor], dtype=np.float64)
-        return _frac_diff_inverse_kernel_njit_par_batched(t_batch, lags, weights_batch, anchors)[0]
-    return _frac_diff_inverse_kernel(t_f, lags, weights, anchor)
+        return np.asarray(_frac_diff_inverse_kernel_njit_par_batched(t_batch, lags, weights_batch, anchors)[0])
+    return np.asarray(_frac_diff_inverse_kernel(t_f, lags, weights, anchor))
 
 
 def _frac_diff_inverse_compute_batched(
@@ -780,7 +780,7 @@ def _frac_diff_inverse_compute_batched(
         return out
     backend = _lookup_frac_diff_inv_backend(K, N)
     if backend == "njit_par":
-        return _frac_diff_inverse_kernel_njit_par_batched(t_batch, lags, weights_batch, anchors_a)
+        return np.asarray(_frac_diff_inverse_kernel_njit_par_batched(t_batch, lags, weights_batch, anchors_a))
     out = np.empty((K, N), dtype=np.float64)
     for s in range(K):
         out[s] = _frac_diff_inverse_kernel(
@@ -792,26 +792,26 @@ def _frac_diff_inverse_compute_batched(
 def _ewma_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    return np.asarray(y, dtype=np.float64) - _ewma_compute(
+    return np.asarray(np.asarray(y, dtype=np.float64) - _ewma_compute(
         base, int(params["k"]), float(params["anchor"]),
-    )
+    ))
 def _ewma_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    return np.asarray(t_hat, dtype=np.float64) + _ewma_compute(
+    return np.asarray(np.asarray(t_hat, dtype=np.float64) + _ewma_compute(
         base, int(params["k"]), _ewma_anchor(params),
-    )
+    ))
 def _ewma_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     if y is None:
         return base_ok
-    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+    return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))
 def _rolling_median_pandas(arr_f: np.ndarray, k: int) -> np.ndarray:
     """Reference centred rolling median: pandas ``rolling(window=k, center=True, min_periods=1).median()``. This is the CONTRACT both backends reproduce. ``arr_f`` must already be float64 / 1-D / non-empty; ``k`` already clamped to ``>= 1``."""
     import pandas as pd  # lazy
-    return pd.Series(arr_f).rolling(window=k, center=True, min_periods=1).median().to_numpy()
+    return np.asarray(pd.Series(arr_f).rolling(window=k, center=True, min_periods=1).median().to_numpy())
 
 
 def _rolling_median(arr: np.ndarray, k: int) -> np.ndarray:
@@ -825,7 +825,7 @@ def _rolling_median(arr: np.ndarray, k: int) -> np.ndarray:
     """
     arr_f = np.asarray(arr, dtype=np.float64).reshape(-1)
     if arr_f.size == 0:
-        return arr_f.copy()
+        return np.asarray(arr_f.copy())
     n = arr_f.size
     k = max(1, int(k))
     out: np.ndarray | None = None
@@ -908,7 +908,7 @@ def _frac_diff_forward(
     anchor = float(params["anchor"])
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     if y_f.size == 0:
-        return y_f.copy()
+        return np.asarray(y_f.copy())
     y_padded = np.concatenate([np.full(lags, anchor, dtype=np.float64), y_f])
     return np.convolve(y_padded, weights, mode="valid")
 def _frac_diff_inverse(

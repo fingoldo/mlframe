@@ -308,7 +308,7 @@ def _yj_forward(y: np.ndarray, lam: float) -> np.ndarray:
     on tiny inputs or when numba is unavailable; the numba path matches
     the numpy reference within ~1e-13 (fastmath=True)."""
     if _HAS_NUMBA and y.shape[0] >= _YJ_NUMBA_MIN_N:
-        return _yj_forward_numba_kernel(y, lam)
+        return np.asarray(_yj_forward_numba_kernel(y, lam))
     return _yj_forward_numpy(y, lam)
 
 
@@ -316,7 +316,7 @@ def _yj_inverse(t: np.ndarray, lam: float) -> np.ndarray:
     """Yeo-Johnson inverse transform. See ``_yj_forward`` for the
     dispatch contract; same numba/numpy size-dispatch."""
     if _HAS_NUMBA and t.shape[0] >= _YJ_NUMBA_MIN_N:
-        return _yj_inverse_numba_kernel(t, lam)
+        return np.asarray(_yj_inverse_numba_kernel(t, lam))
     return _yj_inverse_numpy(t, lam)
 
 
@@ -338,7 +338,7 @@ def yeo_johnson_y_fit(y: np.ndarray) -> Dict[str, Any]:
             return float("inf")
         # YJ log-Jacobian: sum sign(y) * (lambda - 1) * log(|y| + 1)... but we use the equivalent form: profile likelihood with Jacobian correction subsumed into the variance term and a (lambda - 1) sum log term.
         log_jac = float(np.sum(np.sign(finite) * (lam - 1.0) * np.log(np.abs(finite) + 1.0)))
-        return 0.5 * n * np.log(var) - log_jac
+        return float(0.5 * n * np.log(var) - log_jac)
 
     try:
         from scipy.optimize import minimize_scalar
@@ -399,7 +399,7 @@ def quantile_normal_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarr
     eps = 1.0 / (2.0 * len(knots_q))
     q = np.clip(q, eps, 1.0 - eps)
     # ndtri is the bare standard-normal inverse-CDF kernel underlying norm.ppf -- bit-identical, ~2.4x faster (no rv_continuous wrapper).
-    return ndtri(q)
+    return np.asarray(ndtri(q))
 
 
 def quantile_normal_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
@@ -410,7 +410,7 @@ def quantile_normal_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarr
     # ndtr is the bare standard-normal CDF kernel underlying norm.cdf -- bit-identical, ~2.4x faster (no rv_continuous wrapper).
     q = ndtr(np.asarray(t, dtype=np.float64))
     # Inverse interp: knots_q -> knots_y.
-    return np.interp(q, knots_q, knots_y)
+    return np.asarray(np.interp(q, knots_q, knots_y))
 
 
 def quantile_normal_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:

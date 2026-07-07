@@ -158,7 +158,7 @@ def _target_encoding_residual_forward(
     if groups is None:
         raise ValueError("target_encoding_residual.forward: groups kwarg is required.")
     enc = _category_encoding_lookup(groups, params)
-    return np.asarray(y, dtype=np.float64).reshape(-1) - enc
+    return np.asarray(np.asarray(y, dtype=np.float64).reshape(-1) - enc)
 
 
 def _target_encoding_residual_inverse(
@@ -169,7 +169,7 @@ def _target_encoding_residual_inverse(
     if groups is None:
         raise ValueError("target_encoding_residual.inverse: groups kwarg is required.")
     enc = _category_encoding_lookup(groups, params)
-    return np.asarray(t_hat, dtype=np.float64).reshape(-1) + enc
+    return np.asarray(np.asarray(t_hat, dtype=np.float64).reshape(-1) + enc)
 
 
 def _target_encoding_residual_domain(
