@@ -195,7 +195,7 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized", time_
     if y_pred.shape[0] != y_true.shape[0]:
         raise ValueError("calibrate_conformal: predict produced " f"{y_pred.shape[0]} rows but y_cal has {y_true.shape[0]}")
     residuals = y_true - y_pred
-    alphas = [alpha] if np.isscalar(alpha) else list(alpha)
+    alphas: list = [alpha] if np.isscalar(alpha) else list(alpha)
     if not hasattr(self, "_conformal_q_") or self._conformal_q_ is None:
         self._conformal_q_ = {}
     if not hasattr(self, "_conformal_sigma_") or self._conformal_sigma_ is None:
@@ -452,7 +452,7 @@ def calibrate_conformal_mondrian(self, X_cal, y_cal, groups_cal, alpha=0.1):
         raise ValueError("calibrate_conformal_mondrian: predict produced " f"{y_pred.shape[0]} rows but y_cal has {y_true.shape[0]}")
     residuals = y_true - y_pred
     g = _normalize_groups(groups_cal, residuals.shape[0])
-    alphas = [alpha] if np.isscalar(alpha) else list(alpha)
+    alphas: list = [alpha] if np.isscalar(alpha) else list(alpha)
     if not hasattr(self, "_mondrian_q_") or self._mondrian_q_ is None:
         self._mondrian_q_ = {}
     if not hasattr(self, "_mondrian_ood_") or self._mondrian_ood_ is None:
@@ -731,7 +731,7 @@ def calibrate_conformal_weighted(self, X_cal, y_cal, alpha=0.1, weights=None):
         w = np.ones(n, dtype=np.float64)
     else:
         w = _resolve_weights(weights, X_cal, n)
-    alphas = [alpha] if np.isscalar(alpha) else list(alpha)
+    alphas: list = [alpha] if np.isscalar(alpha) else list(alpha)
     if not hasattr(self, "_weighted_conformal_q_") or self._weighted_conformal_q_ is None:
         self._weighted_conformal_q_ = {}
     for a in alphas:

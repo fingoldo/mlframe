@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import re
-from typing import Sequence
+from typing import Any, Sequence, Union
 
 from os.path import join
 from matplotlib import pyplot as plt
@@ -163,9 +163,8 @@ def plot_feature_importance(
     if len(columns) not in (0, len(feature_importances)):
         # A partial-length ``columns`` (1..n-1) would index past its end at ``np.array(columns)[sorted_idx]`` with an opaque IndexError; require it empty or aligned.
         raise ValueError(f"plot_feature_importance: len(columns)={len(columns)} must be 0 or len(feature_importances)={len(feature_importances)}.")
-    if len(columns) == 0:
-        columns = np.arange(len(feature_importances))
-    sorted_columns = np.array(columns)[sorted_idx]
+    columns_eff: Any = np.arange(len(feature_importances)) if len(columns) == 0 else columns
+    sorted_columns = np.array(columns_eff)[sorted_idx]
     df = pd.Series(data=feature_importances[sorted_idx], index=sorted_columns, name="fi").to_frame().sort_values(by="fi", ascending=False)
     if positive_fi_only:
         df = df[df.fi > 0.0]
@@ -242,7 +241,7 @@ def plot_feature_importance(
         # cleanly (most-negative at the bottom, most-positive at the top).
         _abs_order = _abs_order[np.argsort(feature_importances[_abs_order])]
         _picked_fi = feature_importances[_abs_order]
-        _picked_cols = np.array(columns)[_abs_order]
+        _picked_cols = np.array(columns_eff)[_abs_order]
         # Align the dispersion to the SAME picked + signed-sorted order as the bars so each
         # whisker sits on its own bar. Non-finite / negative entries -> 0 (errorbar rejects them).
         _picked_std = None
@@ -347,7 +346,7 @@ def compute_permutation_importances(*sklearn_args, columns: list, **sklearn_kwar
     # `result` is a Bunch; "importances" is 2D (n_features x n_repeats) and
     # breaks Polars construction on some versions. Keep only the per-feature
     # 1-D arrays that survive conversion, then assemble the frame explicitly.
-    frame = {key: np.asarray(value) for key, value in result.items() if key != "importances" and hasattr(value, "__len__") and np.asarray(value).ndim == 1}
+    frame: dict = {key: np.asarray(value) for key, value in result.items() if key != "importances" and hasattr(value, "__len__") and np.asarray(value).ndim == 1}
     frame["feature"] = list(columns)
 
     return (
@@ -358,10 +357,10 @@ def compute_permutation_importances(*sklearn_args, columns: list, **sklearn_kwar
 
 
 def explain_top_feature_importances(
-    model: object,
+    model: Any,
     model_name: str,
     df: pd.DataFrame,
-    beeswarm_plot_params: dict = None,
+    beeswarm_plot_params: Union[dict, None] = None,
     save_chart: bool = True,
     figsize: tuple = (15, 20),
 ) -> None:

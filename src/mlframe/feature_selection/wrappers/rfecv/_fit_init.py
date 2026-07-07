@@ -191,7 +191,7 @@ def _init_fit_state(
             # E7 (Wave 4, 2026-05-28): warn when minority just barely meets
             # n_splits; ROC AUC / log_loss likely to NaN on the all-train-no-test
             # minority fold split. Hard floor 2*cv_n recommended.
-            if min_class < 2 * cv_n and getattr(self, "verbose", 0):
+            if min_class < 2 * cv_n and getattr(self, "verbose", False):
                 logger.warning(
                     "RFECV: minority class has %d samples vs cv=%d. With 1-2 "
                     "minority per fold, the test fold may have 0 minority -> "
@@ -238,7 +238,7 @@ def _init_fit_state(
             )
 
         # Tree-based estimators handle NaN; linear models don't.
-        if getattr(self, "verbose", 0):
+        if getattr(self, "verbose", False):
             # Existence-only check, lazy short-circuits at the first NaN cell instead of materialising the full bool-frame ``X.isna().to_numpy().sum()`` (OOMs on 100+ GB frames just to compute the warn-once count).
             if bool(X.isna().any().any()):
                 logger.warning(
@@ -253,7 +253,7 @@ def _init_fit_state(
         if _obj_cols:
             _user_cats = set(self.cat_features or [])
             _unhandled = [c for c in _obj_cols if c not in _user_cats]
-            if _unhandled and getattr(self, "verbose", 0):
+            if _unhandled and getattr(self, "verbose", False):
                 logger.warning(
                     "RFECV: %d object/string/category column(s) %s have "
                     "NOT been listed in cat_features=. CB/XGB will crash "
@@ -290,6 +290,7 @@ def _init_fit_state(
     # 16-byte digest because two semantically-different targets of the same length and shape (e.g. column-A binary vs column-B
     # binary picked off the same frame) used to replay the prior fit's support_; without the y-hash a per-target FS loop reusing
     # one RFECV instance silently selected features for whichever target arrived first.
+    columns_key: tuple
     if isinstance(X, pd.DataFrame):
         columns_key = tuple(map(str, X.columns.tolist()))
     else:
@@ -330,7 +331,7 @@ def _init_fit_state(
                     # blake2b reads the contiguous array buffer directly (no
                     # .tobytes() copy); bit-identical to hashing tobytes() bytes.
                     _x_hash = hashlib.blake2b(
-                        np.ascontiguousarray(_x_arr),
+                        memoryview(np.ascontiguousarray(_x_arr)),  # type: ignore[arg-type]  # ndarray satisfies the buffer protocol at runtime; numpy stubs don't declare it as typing.Buffer
                         digest_size=12,
                     ).hexdigest()
         else:

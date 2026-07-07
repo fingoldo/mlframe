@@ -182,7 +182,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
                 f"RFECV does not accept scipy.sparse X whose dense form would be {_dense_bytes / 1024 ** 3:.1f} GB "
                 f"(> 2 GB); densify a representative subset or pass a DataFrame/ndarray that fits in RAM."
             )
-        X = np.asarray(X.toarray())
+        X = np.asarray(X.toarray())  # type: ignore[union-attr]  # narrowed by _issparse(X) above
 
     # Multi-output (2D y) opt-in: fit one single-target RFECV per output column and aggregate support_ (union/intersect).
     # Default ``multioutput_strategy=None`` falls through to the historical clear NotImplementedError in _fit_init.
@@ -351,9 +351,9 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     if random_state is not None:
         set_random_seed(random_state)
 
-    feature_importances = {}
-    evaluated_scores_std = {}
-    evaluated_scores_mean = {}
+    feature_importances: dict = {}
+    evaluated_scores_std: dict = {}
+    evaluated_scores_mean: dict = {}
 
     # importance_agg='dispatched': resolve the estimator family ONCE (cheap, type-name based) and prepare the
     # signed-coef store the fold loop fills for the linear sign-harmony path. Multi-estimator runs fall back to

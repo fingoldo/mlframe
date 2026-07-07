@@ -177,7 +177,7 @@ def _fit_stability_selection(self, X, y, signature):
                     model=est_clone, current_features=feature_names,
                     data=X_sub, target=y_sub,
                     importance_getter=importance_getter,
-                    n_repeats=int(getattr(self, "_effective_n_repeats", None) or getattr(self, "n_repeats", 5)),
+                    n_repeats=int(getattr(self, "_effective_n_repeats", None) or getattr(self, "n_repeats", 5) or 5),
                 )
             except Exception as exc:
                 if self.verbose:

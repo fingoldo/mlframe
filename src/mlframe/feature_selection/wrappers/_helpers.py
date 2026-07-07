@@ -48,7 +48,7 @@ def _pin_threads_to_one(estimator: object) -> None:
     if not hasattr(estimator, "set_params"):
         return
     try:
-        valid = set(estimator.get_params().keys())  # type: ignore[attr-defined]  # narrowed by hasattr above (sklearn-style estimator protocol)
+        valid = set(estimator.get_params().keys())  # type: ignore[attr-defined]
     except Exception:
         return
     pinned = {p: 1 for p in _THREAD_PARAMS if p in valid}
@@ -82,6 +82,8 @@ def split_into_train_test(
     consults ``X_estimator``; the polars / ndarray branches are untouched.
     """
 
+    X_train: Any
+    X_test: Any
     if X_estimator is not None and isinstance(X, pd.DataFrame):
         # All-numeric fast path: slice rows + (name->pos) cols out of the numpy mirror.
         tr_arr = np.asarray(train_index)
@@ -238,6 +240,7 @@ def get_next_features_subset(
     if len(remaining) == 0:
         return []
 
+    next_nfeatures_to_check: Union[int, None]
     if top_predictors_search_method == OptimumSearch.ExhaustiveRandom:
         # use the threaded seeded rng (np.random.default_rng); module-global random is unseeded -> not reproducible.
         if rng is not None and hasattr(rng, "integers"):

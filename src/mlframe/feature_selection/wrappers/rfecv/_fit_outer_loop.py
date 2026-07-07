@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from os.path import exists
 from timeit import default_timer as timer
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -61,6 +61,8 @@ class OuterLoopState:
     dummy_scores: list = field(default_factory=list)
     # 2026-05-28 sklearn-parity: per-fold scores keyed by N, for cv_results_["splitK_test_score"] schema.
     per_fold_scores: dict = field(default_factory=dict)  # dict[N -> list[float] of length n_splits]
+    # convergence_tol sliding window of recent final_scores (see run_outer_loop_iteration).
+    _recent_finals: list = field(default_factory=list)
 
     Optimizer: Any = None
 
@@ -223,6 +225,7 @@ def run_outer_loop_iteration(
         )
 
     # Dispatch _eval_fold sequentially or in parallel. n_jobs>1 uses prefer="threads" so we don't pickle X/y across workers (datasets stay in shared memory) and the closure can keep mutating outer state under the GIL. When n_jobs>1 AND the estimator is multi-threaded AND force_parallel=True, pin inner threads to 1.
+    _fold_runner: Callable
     if n_jobs_effective > 1 and _is_multithreaded and self.force_parallel:
         _orig_eval_fold = _eval_fold
 
@@ -408,8 +411,6 @@ def run_outer_loop_iteration(
     _tol = getattr(self, "convergence_tol", None)
     if _tol is not None and _tol > 0 and not np.isnan(final_score):
         _tol_window = max(2, int(getattr(self, "convergence_tol_window", 10)))
-        if not hasattr(state, "_recent_finals"):
-            state._recent_finals = []
         state._recent_finals.append(final_score)
         if len(state._recent_finals) > _tol_window:
             state._recent_finals = state._recent_finals[-_tol_window:]
