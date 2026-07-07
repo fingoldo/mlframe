@@ -363,8 +363,7 @@ class UniversalCallback:
                     # Last-iteration check: when the booster is at its iteration cap and we're
                     # NOT stopping early, log the diagnostic so the operator can decide whether
                     # to raise the budget or refit on train+val.
-                    if (self.max_iter is not None and
-                            self.iter >= int(self.max_iter) - 1):
+                    if self.max_iter is not None and self.iter >= int(self.max_iter) - 1:
                         self.maybe_warn_max_iter_hit()
         return False
 

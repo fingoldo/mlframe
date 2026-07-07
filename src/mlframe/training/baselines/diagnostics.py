@@ -155,18 +155,13 @@ def _coerce_to_pandas(df: Any, columns: Sequence[str]) -> pd.DataFrame:
     if isinstance(df, pd.DataFrame):
         missing = [c for c in columns if c not in df.columns]
         if missing:
-            raise KeyError(
-                f"BaselineDiagnostics: features missing from train frame: {missing[:5]}"
-                + ("..." if len(missing) > 5 else "")
-            )
+            raise KeyError(f"BaselineDiagnostics: features missing from train frame: {missing[:5]}" + ("..." if len(missing) > 5 else ""))
         return df.loc[:, list(columns)]
     # ndarray fallback
     arr = np.asarray(df)
     if arr.ndim == 2 and arr.shape[1] == len(columns):
         return pd.DataFrame(arr, columns=list(columns))
-    raise TypeError(
-        f"BaselineDiagnostics: unsupported train frame type {type(df).__name__}"
-    )
+    raise TypeError(f"BaselineDiagnostics: unsupported train frame type {type(df).__name__}")
 
 
 def _select_metric(target_type: str) -> tuple[str, bool]:
@@ -222,11 +217,7 @@ def _delta_pct(
         return float("nan")
     if abs(metric_baseline) < 1e-12:
         # Absolute delta as percentage points fallback; sign conventions match.
-        return (
-            float(metric_after - metric_baseline) * 100.0
-            if not higher_is_better
-            else float(metric_baseline - metric_after) * 100.0
-        )
+        return float(metric_after - metric_baseline) * 100.0 if not higher_is_better else float(metric_baseline - metric_after) * 100.0
     if higher_is_better:
         return float((1.0 - metric_after / metric_baseline) * 100.0)
     return float((metric_after / metric_baseline - 1.0) * 100.0)
@@ -294,14 +285,12 @@ class BaselineDiagnostics:
         cat_features = list(cat_features or [])
 
         if not self.config.enabled:
-            return self._skipped(
-                target_name, target_type, "config.enabled=False", elapsed=timer() - t0
-            )
+            return self._skipped(target_name, target_type, "config.enabled=False", elapsed=timer() - t0)
         if target_type not in self.config.apply_to_target_types:
             return self._skipped(
-                target_name, target_type,
-                f"target_type='{target_type}' not in apply_to_target_types="
-                f"{self.config.apply_to_target_types}",
+                target_name,
+                target_type,
+                f"target_type='{target_type}' not in apply_to_target_types=" f"{self.config.apply_to_target_types}",
                 elapsed=timer() - t0,
             )
         if not feature_cols:
@@ -361,9 +350,9 @@ class BaselineDiagnostics:
 
             if not math.isfinite(raw_metric):
                 return self._skipped(
-                    target_name, target_type,
-                    f"raw quick-fit metric is non-finite ({raw_metric}); "
-                    "likely degenerate target / sample",
+                    target_name,
+                    target_type,
+                    f"raw quick-fit metric is non-finite ({raw_metric}); " "likely degenerate target / sample",
                     elapsed=timer() - t0,
                 )
 
@@ -372,10 +361,7 @@ class BaselineDiagnostics:
                 X_s, y_s, feature_cols, cat_features, target_type,
                 raw_fi, raw_metric, metric_name, higher_is_better,
             )
-            dominant_features = [
-                {"feature": e.feature, "score": e.delta_pct, "rank": e.rank}
-                for e in ablation
-            ]
+            dominant_features = [{"feature": e.feature, "score": e.delta_pct, "rank": e.rank} for e in ablation]
 
             # 3. init_score baseline (regression + binary classification).
             init_score_baseline = None
@@ -405,8 +391,7 @@ class BaselineDiagnostics:
                 composite_recommendation_reason=reason,
                 elapsed_seconds=timer() - t0,
             )
-        except (ValueError, TypeError, RuntimeError, ImportError, KeyError,
-                AttributeError, IndexError) as exc:  # pragma: no cover - defensive
+        except (ValueError, TypeError, RuntimeError, ImportError, KeyError, AttributeError, IndexError) as exc:  # pragma: no cover - defensive
             # Narrow catch covers degenerate-input ValueError, dtype-mismatch
             # TypeError, LightGBM RuntimeError, missing optional dep ImportError,
             # config KeyError. KeyboardInterrupt / MemoryError / generic Exception
@@ -491,21 +476,11 @@ def format_baseline_diagnostics_report(
     if report.ablation:
         lines.append("[BaselineDiagnostics] Ablation (drop -> delta%, positive = drop hurt):")
         for entry in report.ablation:
-            lines.append(
-                f"  rank={entry.rank} {entry.feature:<24s} "
-                f"{metric}_after_drop={entry.metric_after_drop:.4f} "
-                f"delta%={entry.delta_pct:+.2f}"
-            )
+            lines.append(f"  rank={entry.rank} {entry.feature:<24s} " f"{metric}_after_drop={entry.metric_after_drop:.4f} " f"delta%={entry.delta_pct:+.2f}")
     if report.init_score_baseline is not None:
         isb = report.init_score_baseline
-        lines.append(
-            f"[BaselineDiagnostics] init_score({isb.feature_used}) "
-            f"{metric}={isb.metric:.4f} "
-            f"delta%={isb.delta_vs_raw_pct:+.2f} vs raw"
-        )
-    lines.append(
-        f"[BaselineDiagnostics] composite_recommendation={report.composite_recommendation}"
-    )
+        lines.append(f"[BaselineDiagnostics] init_score({isb.feature_used}) " f"{metric}={isb.metric:.4f} " f"delta%={isb.delta_vs_raw_pct:+.2f} vs raw")
+    lines.append(f"[BaselineDiagnostics] composite_recommendation={report.composite_recommendation}")
     if report.composite_recommendation_reason:
         lines.append(f"  reason: {report.composite_recommendation_reason}")
     return "\n".join(lines)

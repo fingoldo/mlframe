@@ -76,10 +76,7 @@ def _auto_base(
         # constant / corr-threshold). Don't ask sklearn to do MI on
         # a 0-column matrix -- it raises ValueError. Return empty
         # cleanly so discovery falls through to the no-spec path.
-        logger.info(
-            "[CompositeTargetDiscovery] auto-base: 0 usable features "
-            "after filtering; no base candidates available."
-        )
+        logger.info("[CompositeTargetDiscovery] auto-base: 0 usable features " "after filtering; no base candidates available.")
         return []
 
     # Hint-aware ranking: BaselineDiagnostics ablation already
@@ -101,9 +98,9 @@ def _auto_base(
             hint_dropped.append(c)
     if hint_dropped:
         logger.info(
-            "[CompositeTargetDiscovery] dominant_features_hint dropped "
-            "%d entries (filtered or not in feature_cols): %s",
-            len(hint_dropped), hint_dropped[:5],
+            "[CompositeTargetDiscovery] dominant_features_hint dropped " "%d entries (filtered or not in feature_cols): %s",
+            len(hint_dropped),
+            hint_dropped[:5],
         )
     top_k = self.config.auto_base_top_k
     # Adaptive hint cap. Previous fixed cap of
@@ -130,11 +127,7 @@ def _auto_base(
     # hint_raw and hint_strengths are positionally aligned; hint_kept drops filtered entries, so realign strengths to the surviving hints before taking the max -- otherwise a dropped strong hint's strength leaks onto a surviving weak one.
     _kept_set = set(hint_kept)
     _aligned = [s for f, s in zip(hint_raw, (hint_strengths or [])) if f in _kept_set]
-    is_strong_hint = (
-        hint_strengths is not None
-        and len(_aligned) > 0
-        and max(_aligned) >= strong_hint_threshold
-    )
+    is_strong_hint = hint_strengths is not None and len(_aligned) > 0 and max(_aligned) >= strong_hint_threshold
     if is_strong_hint:
         # Full hint -- no cap. Log so it's auditable.
         logger.info(
@@ -181,19 +174,14 @@ def _auto_base(
     _col_finite_frac = np.isfinite(x_matrix).mean(axis=0)
     _keep_cols = _col_finite_frac >= _MIN_FRAC_FINITE
     if not _keep_cols.all():
-        _dropped = [
-            usable_features[i] for i, k in enumerate(_keep_cols.tolist())
-            if not k
-        ]
+        _dropped = [usable_features[i] for i, k in enumerate(_keep_cols.tolist()) if not k]
         logger.info(
             "[CompositeTargetDiscovery] auto-base: dropping %d feature(s) "
             "with <%.0f%% finite cells in screening sample: %s",
             len(_dropped), _MIN_FRAC_FINITE * 100, _dropped[:10],
         )
         x_matrix = x_matrix[:, _keep_cols]
-        usable_features = [
-            f for f, k in zip(usable_features, _keep_cols.tolist()) if k
-        ]
+        usable_features = [f for f, k in zip(usable_features, _keep_cols.tolist()) if k]
     # The MI RANKING must be estimated with
     # PER-PAIR (per-column) finite masking, NOT the global all-column
     # ``np.all(isfinite(x_matrix), axis=1)`` intersection. For mid-range-NaN
@@ -225,11 +213,7 @@ def _auto_base(
     _per_col_finite = np.isfinite(x_matrix) & np.isfinite(y_screen)[:, None]
     _per_col_counts = _per_col_finite.sum(axis=0)
     _max_per_col = int(_per_col_counts.max()) if _per_col_counts.size else 0
-    if (
-        use_per_pair
-        and _max_per_col > 0
-        and _n_global < _mnar_threshold * _max_per_col
-    ):
+    if use_per_pair and _max_per_col > 0 and _n_global < _mnar_threshold * _max_per_col:
         logger.info(
             "[CompositeTargetDiscovery] auto-base: global all-column finite "
             "mask keeps %d row(s) vs %d per-pair-available (%.0f%%, below "
@@ -312,8 +296,7 @@ def _auto_base(
     # (large MI penalty) so they only win base selection when
     # genuinely high-MI relative to alternatives.
     demote_set: set = set()
-    if getattr(self.config, "auto_base_demote_time_index", True) \
-            and finite.sum() >= 50:
+    if getattr(self.config, "auto_base_demote_time_index", True) and finite.sum() >= 50:
         # Spearman(rank(x), arange(n)) computed as |corr(rankdata(x), arange(n))|.
         # ``scipy.stats.rankdata`` uses fractional (average) ranks for ties; the prior
         # ``argsort(argsort(x))`` assigned arbitrary integer positions to tied values,
@@ -347,8 +330,7 @@ def _auto_base(
                 "|Spearman| > 0.95): %s. Demoted in MI ranking.",
                 len(demote_set), sorted(demote_set)[:5],
             )
-    if getattr(self.config, "auto_base_demote_spatial_coords", True) \
-            and len(usable_features) >= 3 and finite.sum() >= 50:
+    if getattr(self.config, "auto_base_demote_spatial_coords", True) and len(usable_features) >= 3 and finite.sum() >= 50:
         # Spatial-coord block detector tightened
         # after a production geological-data run demoted 17
         # features (entire feature set). Previously: ``>=2 cross-
@@ -375,7 +357,7 @@ def _auto_base(
         corr_matrix = np.zeros((n_feats, n_feats))
         if n_feats >= 2 and X_screen.shape[0] >= 3:
             Xc = X_screen - X_screen.mean(axis=0)
-            norms = np.sqrt((Xc ** 2).sum(axis=0))
+            norms = np.sqrt((Xc**2).sum(axis=0))
             live = norms > 1e-12
             if live.sum() >= 2:
                 live_idx = np.where(live)[0]
@@ -468,9 +450,7 @@ def _auto_base(
             perm = rng.permutation(n_blocks)
             return block_shuffle_gather(arr, perm, block_len)
 
-        rng_perm = np.random.default_rng(
-            int(self.config.random_state) + 7919
-        )
+        rng_perm = np.random.default_rng(int(self.config.random_state) + 7919)
         y_finite = y_screen[finite]
         # Under per-pair masking the null distribution must be estimated
         # on the SAME rows as the per-pair MI it is compared against (line
@@ -494,7 +474,7 @@ def _auto_base(
         # to _mi_pair_bin, whose internal finite mask makes y-binning shuffle-dependent
         # (prebinning would not be bit-identical there).
         _nbins = self.config.mi_nbins
-        _bin_estimator = (self.config.mi_estimator == "bin")
+        _bin_estimator = self.config.mi_estimator == "bin"
         _y_codes_null = None
         if _bin_estimator and n_screen >= 5 * _nbins and np.isfinite(y_finite).all():
             _qs_null = np.linspace(0.0, 1.0, _nbins + 1)[1:-1]
@@ -566,18 +546,13 @@ def _auto_base(
         )
         passes_null = mi_per_feature > null_threshold
         null_dropped: list[tuple[str, float, float]] = []
-        for j, (mi_val, col_name) in enumerate(
-            zip(mi_per_feature.tolist(), usable_features)
-        ):
+        for j, (mi_val, col_name) in enumerate(zip(mi_per_feature.tolist(), usable_features)):
             if not passes_null[j]:
                 null_dropped.append((
                     col_name, float(mi_val), float(null_threshold[j]),
                 ))
         if null_dropped:
-            preview = ", ".join(
-                f"{n}(mi={m:.4f}<=null+{n_sigma:.0f}sigma={t:.4f})"
-                for n, m, t in null_dropped[:5]
-            )
+            preview = ", ".join(f"{n}(mi={m:.4f}<=null+{n_sigma:.0f}sigma={t:.4f})" for n, m, t in null_dropped[:5])
             logger.info(
                 "[CompositeTargetDiscovery] permutation-MI null "
                 "dropped %d feature(s) (z<%.0f, block_len=%d, "
@@ -653,15 +628,12 @@ def _auto_base(
                 applied.append((col_name, kinds.get(col_name, "?"), float(boost[j])))
             if _boost_corr_skipped:
                 logger.info(
-                    "[CompositeTargetDiscovery] auto-base structural boost withheld from %d "
-                    "near-copy-of-y candidate(s) (|corr(col,y)| > %.4g).",
-                    _boost_corr_skipped, _boost_corr_gate,
+                    "[CompositeTargetDiscovery] auto-base structural boost withheld from %d " "near-copy-of-y candidate(s) (|corr(col,y)| > %.4g).",
+                    _boost_corr_skipped,
+                    _boost_corr_gate,
                 )
             if applied:
-                preview = ", ".join(
-                    f"{n}({k},+{b:.4g})" for n, k, b in
-                    sorted(applied, key=lambda t: -t[2])[:5]
-                )
+                preview = ", ".join(f"{n}({k},+{b:.4g})" for n, k, b in sorted(applied, key=lambda t: -t[2])[:5])
                 logger.info(
                     "[CompositeTargetDiscovery] auto-base structural boost "
                     "applied to %d candidate(s) (mi_spread=%.4g): %s",
@@ -689,10 +661,7 @@ def _auto_base(
     # correlation. Redundancy reuses the bin-MI kernel on the shared finite
     # screening rows; relevance is the (post-demote/boost/null) MI. Default
     # "mi" leaves this path dormant and byte-identical to the legacy ranking.
-    if (
-        getattr(self.config, "base_ranking_criterion", "mi") == "mrmr"
-        and len(ranked) > 1
-    ):
+    if getattr(self.config, "base_ranking_criterion", "mi") == "mrmr" and len(ranked) > 1:
         from ._mrmr_base_rank import mrmr_rank_bases
         _mrmr_names = [c for _m, c in ranked]
         _mrmr_rel = [m for m, _c in ranked]
@@ -717,9 +686,9 @@ def _auto_base(
         _rel_lookup = dict(zip(_mrmr_names, _mrmr_rel))
         ranked = [(_rel_lookup[c], c) for c in _mrmr_order]
         logger.info(
-            "[CompositeTargetDiscovery] auto-base MRMR reranked %d candidate(s) "
-            "(beta=%.3g); top: %s",
-            len(ranked), _mrmr_beta,
+            "[CompositeTargetDiscovery] auto-base MRMR reranked %d candidate(s) " "(beta=%.3g); top: %s",
+            len(ranked),
+            _mrmr_beta,
             ", ".join(c for _m, c in ranked[:5]),
         )
     # Near-copy-of-y exclusion. A base whose |corr(base, y)| is ~1.0 is y itself up to noise; the
@@ -846,14 +815,9 @@ def _auto_base(
                 kept_ranked.append((mi_score, col))
                 kept_arrays[col] = col_arr
             else:
-                dedup_dropped.append(
-                    (col, drop_due_to[0], drop_due_to[1])
-                )
+                dedup_dropped.append((col, drop_due_to[0], drop_due_to[1]))
         if dedup_dropped:
-            preview = ", ".join(
-                f"{c}~={ref}(|corr|={corr:.3f})"
-                for c, ref, corr in dedup_dropped[:5]
-            )
+            preview = ", ".join(f"{c}~={ref}(|corr|={corr:.3f})" for c, ref, corr in dedup_dropped[:5])
             logger.info(
                 "[CompositeTargetDiscovery] auto-base dedup dropped "
                 "%d candidate(s) at |corr|>=%.3f: %s",
@@ -873,21 +837,16 @@ def _auto_base(
         top = hint_kept + mi_tail
         top = top[:top_k]
         mi_lookup = {c: mi for mi, c in ranked}
-        scores = ", ".join(
-            f"{c}={mi_lookup.get(c, float('nan')):.4f}{'(hint)' if c in hint_kept else ''}"
-            for c in top
-        )
+        scores = ", ".join(f"{c}={mi_lookup.get(c, float('nan')):.4f}{'(hint)' if c in hint_kept else ''}" for c in top)
         logger.info(
             "[CompositeTargetDiscovery] auto-base top-%d (%d hint, %d MI): %s",
             len(top), len(hint_kept), len(mi_tail), scores,
         )
         return top
 
-    top = [c for _, c in ranked[: top_k]]
+    top = [c for _, c in ranked[:top_k]]
     if top:
-        scores = ", ".join(
-            f"{c}={mi:.4f}" for mi, c in ranked[: top_k]
-        )
+        scores = ", ".join(f"{c}={mi:.4f}" for mi, c in ranked[:top_k])
         logger.info(
             "[CompositeTargetDiscovery] auto-base top-%d by MI(y, x): %s",
             len(top), scores,

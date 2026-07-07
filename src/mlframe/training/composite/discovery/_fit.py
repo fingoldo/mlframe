@@ -719,13 +719,11 @@ def fit(
     # base-shift amplification of the inverse on unseen groups. (On the prod TVT pool every base was
     # >=0.999 correlated -- a multi-base upgrade there would have made the collapse strictly worse.)
     _multibase_pool_corr_skip = False
-    if (kept_specs and getattr(self.config, "multi_base_enabled", False)
-            and getattr(self, "_auto_base_pool", None)):
+    if kept_specs and getattr(self.config, "multi_base_enabled", False) and getattr(self, "_auto_base_pool", None):
         _pool_corr_thresh = float(getattr(self.config, "multi_base_skip_when_pool_corr_above", 0.98))
         if _pool_corr_thresh < 1.0:
             try:
-                _pa = [np.asarray(v, dtype=np.float64).ravel()
-                       for v in self._auto_base_pool.values() if v is not None]
+                _pa = [np.asarray(v, dtype=np.float64).ravel() for v in self._auto_base_pool.values() if v is not None]
                 _pa = [a for a in _pa if a.size > 2 and float(a.std()) > 0]
                 if len(_pa) >= 2:
                     _M = np.vstack(_pa)
@@ -742,8 +740,7 @@ def fit(
                         )
             except Exception:  # noqa: BLE001 -- the corr guard is a heuristic; never abort discovery on it
                 _multibase_pool_corr_skip = False
-    if (kept_specs and getattr(self.config, "multi_base_enabled", False)
-            and getattr(self, "_auto_base_pool", None) and not _multibase_pool_corr_skip):
+    if kept_specs and getattr(self.config, "multi_base_enabled", False) and getattr(self, "_auto_base_pool", None) and not _multibase_pool_corr_skip:
         _multi_max_k = int(getattr(self.config, "multi_base_max_k", 3))
         _multi_min_gain = float(getattr(self.config, "multi_base_min_marginal_rmse_gain", 0.02))
         _cv_sel_mode = str(getattr(self.config, "cv_selector_mode", "mean"))

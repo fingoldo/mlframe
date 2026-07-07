@@ -67,10 +67,7 @@ import pandas as pd
 # loosened pins.
 import sklearn
 if sklearn.__version__ < "1.0":
-    raise RuntimeError(
-        f"mlframe.training.baselines.dummy requires sklearn >= 1.0 for "
-        f"mean_pinball_loss; got {sklearn.__version__}"
-    )
+    raise RuntimeError(f"mlframe.training.baselines.dummy requires sklearn >= 1.0 for " f"mean_pinball_loss; got {sklearn.__version__}")
 
 from .diagnostics import _to_1d_numpy
 from ._dummy_baseline_compute import (
@@ -173,9 +170,9 @@ def _warmup_numba_kernels_body(verbose: bool = False) -> None:
         log("[dummy-baselines] numba kernels pre-warmed in %.2fs", _time.time() - t0)
     except Exception as e:
         logger.debug(
-            "[dummy-baselines] numba pre-warmup failed (%s: %s); "
-            "first real call will JIT-compile lazily",
-            type(e).__name__, e,
+            "[dummy-baselines] numba pre-warmup failed (%s: %s); " "first real call will JIT-compile lazily",
+            type(e).__name__,
+            e,
         )
 
     # Also warm the full metric / calibration / classification-report
@@ -200,9 +197,9 @@ def _warmup_numba_kernels_body(verbose: bool = False) -> None:
         )
     except Exception as _exc:
         logger.debug(
-            "[dummy-baselines] metric kernel pre-warmup failed (%s: %s); "
-            "calibration report will JIT-compile lazily on first call",
-            type(_exc).__name__, _exc,
+            "[dummy-baselines] metric kernel pre-warmup failed (%s: %s); " "calibration report will JIT-compile lazily on first call",
+            type(_exc).__name__,
+            _exc,
         )
 
 # ``BaselineReport`` NamedTuple + ``SCHEMA_VERSION`` moved to
@@ -288,9 +285,7 @@ def _has_signal(target_type: str, y_ref: np.ndarray, n_min: int = 10) -> tuple[b
         # multilabel: at least one label needs both 0 and 1 in val
         if y_ref.ndim != 2:
             return False, f"multilabel y_ref ndim={y_ref.ndim} != 2"
-        any_label_has_signal = any(
-            len(np.unique(y_ref[:, k])) >= 2 for k in range(y_ref.shape[1])
-        )
+        any_label_has_signal = any(len(np.unique(y_ref[:, k])) >= 2 for k in range(y_ref.shape[1]))
         if not any_label_has_signal:
             return False, "no multilabel column has both classes"
     return True, ""
@@ -311,7 +306,6 @@ from ._dummy_timeseries import (  # noqa: E402,F401
     _detect_acf_periods,
     _resolve_ts_periods,
 )
-
 
 
 def compute_dummy_baselines(
@@ -381,11 +375,7 @@ def compute_dummy_baselines(
     # run the dispatcher per output and aggregate per-output strongest +
     # cross-output normalized strongest. Headline emission stays one verdict
     # block per target (not K verdicts).
-    if (
-        target_type in ("regression", "quantile_regression")
-        and train_y_arr.ndim == 2
-        and train_y_arr.shape[1] > 1
-    ):
+    if target_type in ("regression", "quantile_regression") and train_y_arr.ndim == 2 and train_y_arr.shape[1] > 1:
         return _compute_multi_output_regression(
             target_type=target_type,
             target_name=target_name,
@@ -504,11 +494,7 @@ def compute_dummy_baselines(
         n_val_finite if n_val_finite > 0 else 10_000_000,
         n_test_finite if n_test_finite > 0 else 10_000_000,
     )
-    if (
-        strongest is not None
-        and primary_metric is not None
-        and n_ref_for_paired < config.bootstrap_ci_threshold
-    ):
+    if strongest is not None and primary_metric is not None and n_ref_for_paired < config.bootstrap_ci_threshold:
         try:
             paired = _paired_bootstrap_vs_runner_up(
                 target_type, strongest, primary_metric, table,
@@ -518,9 +504,7 @@ def compute_dummy_baselines(
             )
             if paired is not None:
                 extras["paired_bootstrap"] = paired
-                if paired.get("p_strongest_beats") is not None and (
-                    paired["p_strongest_beats"] < config.strongest_min_beat_runner_up_prob
-                ):
+                if paired.get("p_strongest_beats") is not None and (paired["p_strongest_beats"] < config.strongest_min_beat_runner_up_prob):
                     extras["tie"] = True
         except Exception as e:
             logger.debug(
@@ -536,12 +520,7 @@ def compute_dummy_baselines(
         n_val_finite if n_val_finite > 0 else 10_000_000,
         n_test_finite if n_test_finite > 0 else 10_000_000,
     )
-    if (
-        strongest is not None
-        and primary_metric is not None
-        and n_ref_for_ci < config.bootstrap_ci_threshold
-        and n_ref_for_ci >= 10
-    ):
+    if strongest is not None and primary_metric is not None and n_ref_for_ci < config.bootstrap_ci_threshold and n_ref_for_ci >= 10:
         try:
             ci = _bootstrap_ci_for_strongest(
                 target_type, strongest, primary_metric,
@@ -696,9 +675,7 @@ def _compute_multi_output_regression(
         sub_reports.append(sub_rep)
         if sub_rep.strongest is not None and sub_rep.primary_metric is not None:
             try:
-                primary_value = float(
-                    sub_rep.table.loc[sub_rep.strongest, sub_rep.primary_metric]
-                )
+                primary_value = float(sub_rep.table.loc[sub_rep.strongest, sub_rep.primary_metric])
             except (KeyError, ValueError, TypeError) as _lookup_err:
                 # Surface the silent NaN substitution: pre-fix this swallowed bare
                 # Exception, NaN flowed into per_output_strongest -> cross-output
@@ -784,7 +761,6 @@ from ._dummy_summary_format import (  # noqa: E402,F401
     format_suite_end_summary,
     format_unified_target_verdict_table,
 )
-
 
 __all__ = [
     "compute_dummy_baselines",

@@ -256,9 +256,7 @@ def _categorical_to_string_array(values: Sequence) -> np.ndarray:
             # per value so an int 1 and a float 1.0 in the SAME logical category
             # collapse to one key.
             null_mask = _objectwise_isnull(values)
-            toks = np.array(
-                [_canonical_cat_token(v) for v in values], dtype=object
-            )
+            toks = np.array([_canonical_cat_token(v) for v in values], dtype=object)
             out = np.where(null_mask, _NULL_SENTINEL, toks).astype(object)
             return out
         if values.dtype.kind in ("M", "m"):
@@ -322,10 +320,7 @@ def _objectwise_isnull(arr: np.ndarray) -> np.ndarray:
         try:
             is_nan = _pd.isna(arr).astype(bool)
         except Exception as _e_pd:
-            raise ValueError(
-                f"_objectwise_isnull: per-row NaN check failed ({_e_nan}) and "
-                f"pandas.isna fallback also failed ({_e_pd})."
-            ) from _e_pd
+            raise ValueError(f"_objectwise_isnull: per-row NaN check failed ({_e_nan}) and " f"pandas.isna fallback also failed ({_e_pd}).") from _e_pd
     return is_none | is_nan
 
 
@@ -462,9 +457,7 @@ class LeakageSafeEncoder:
             "target_james_stein", "target_loo", "woe",
         }
         if method not in valid_methods:
-            raise ValueError(
-                f"unknown method {method!r}; valid: {sorted(valid_methods)}"
-            )
+            raise ValueError(f"unknown method {method!r}; valid: {sorted(valid_methods)}")
         if cv < 2:
             raise ValueError(f"cv must be >= 2, got {cv}")
         if smoothing < 0:
@@ -524,9 +517,7 @@ class LeakageSafeEncoder:
         cats = _categorical_to_string_array(X_column)
         y_arr = _coerce_y_to_float64(y)
         if cats.shape[0] != y_arr.shape[0]:
-            raise ValueError(
-                f"X and y length mismatch: {cats.shape[0]} vs {y_arr.shape[0]}"
-            )
+            raise ValueError(f"X and y length mismatch: {cats.shape[0]} vs {y_arr.shape[0]}")
         sw_arr = self._coerce_sample_weight(sample_weight, len(y_arr))
 
         self._global_prior = _compute_prior(y_arr, self.prior, sw_arr)
@@ -535,10 +526,7 @@ class LeakageSafeEncoder:
         if self.method == "woe":
             unique_y = np.unique(y_arr)
             if not (set(unique_y).issubset({0.0, 1.0}) and len(unique_y) <= 2):
-                raise ValueError(
-                    "method='woe' requires binary {0, 1} target; got "
-                    f"{sorted(unique_y)[:5]}"
-                )
+                raise ValueError("method='woe' requires binary {0, 1} target; got " f"{sorted(unique_y)[:5]}")
             self._woe_pos, self._woe_neg = self._compute_woe_per_category(cats, y_arr, sw_arr)
 
         self._is_fitted = True
@@ -554,10 +542,7 @@ class LeakageSafeEncoder:
         rows were never in the fitted folds).
         """
         if not self._is_fitted:
-            raise RuntimeError(
-                "LeakageSafeEncoder.transform called before fit; "
-                "use fit_transform on train rows first"
-            )
+            raise RuntimeError("LeakageSafeEncoder.transform called before fit; " "use fit_transform on train rows first")
         cats = _categorical_to_string_array(X_column)
         return self._encode_with_full_train_stat(cats)
 
@@ -580,9 +565,7 @@ class LeakageSafeEncoder:
         cats = _categorical_to_string_array(X_column)
         y_arr = _coerce_y_to_float64(y)
         if cats.shape[0] != y_arr.shape[0]:
-            raise ValueError(
-                f"X and y length mismatch: {cats.shape[0]} vs {y_arr.shape[0]}"
-            )
+            raise ValueError(f"X and y length mismatch: {cats.shape[0]} vs {y_arr.shape[0]}")
         sw_arr = self._coerce_sample_weight(sample_weight, len(y_arr))
 
         self._global_prior = _compute_prior(y_arr, self.prior, sw_arr)
@@ -815,10 +798,7 @@ class LeakageSafeEncoder:
                     out[i] = prior
                 else:
                     loo_mean = (sums[c] - y_i) / (n_c - 1)
-                    out[i] = (
-                        ((n_c - 1) * loo_mean + self.smoothing * prior)
-                        / ((n_c - 1) + self.smoothing)
-                    )
+                    out[i] = ((n_c - 1) * loo_mean + self.smoothing * prior) / ((n_c - 1) + self.smoothing)
             return out
         for i, (c, y_i, w_i) in enumerate(zip(cats, y, sample_weight)):
             w_total = counts[c]
@@ -827,10 +807,7 @@ class LeakageSafeEncoder:
                 out[i] = prior
             else:
                 loo_mean = (sums[c] - float(w_i) * float(y_i)) / w_remaining
-                out[i] = (
-                    (w_remaining * loo_mean + self.smoothing * prior)
-                    / (w_remaining + self.smoothing)
-                )
+                out[i] = (w_remaining * loo_mean + self.smoothing * prior) / (w_remaining + self.smoothing)
         return out
 
     def _compute_per_category_sums(self, cats: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | None = None) -> tuple:

@@ -93,17 +93,17 @@ def compute_local_linear_attention(
         # Build ANN index over the neighbour pool.
         index = build_hnsw_index(X_neighbour_pool, space="cosine", M=16, ef_construction=100, num_threads=None)
         topk_ids, _ = query_topk(index, X_anchor, k=k)
-        Xn_all = X_neighbour_pool[topk_ids].astype(np.float64, copy=False)   # (N, k, d)
-        yn_all = y_neighbour_pool[topk_ids].astype(np.float64, copy=False)   # (N, k)
-        Xm = Xn_all.mean(axis=1)                                             # (N, d)
-        ym = yn_all.mean(axis=1)                                             # (N,)
+        Xn_all = X_neighbour_pool[topk_ids].astype(np.float64, copy=False)  # (N, k, d)
+        yn_all = y_neighbour_pool[topk_ids].astype(np.float64, copy=False)  # (N, k)
+        Xm = Xn_all.mean(axis=1)  # (N, d)
+        ym = yn_all.mean(axis=1)  # (N,)
         Xc = Xn_all - Xm[:, None, :]
         yc = yn_all - ym[:, None]
-        A = np.einsum("nki,nkj->nij", Xc, Xc)                               # (N, d, d)
+        A = np.einsum("nki,nkj->nij", Xc, Xc)  # (N, d, d)
         A[:, np.arange(d), np.arange(d)] += ridge_alpha
-        b = np.einsum("nki,nk->ni", Xc, yc)                                # (N, d)
+        b = np.einsum("nki,nk->ni", Xc, yc)  # (N, d)
         try:
-            beta = np.linalg.solve(A, b[:, :, None])[:, :, 0]              # (N, d)
+            beta = np.linalg.solve(A, b[:, :, None])[:, :, 0]  # (N, d)
             singular = ~np.all(np.isfinite(beta), axis=1)
         except np.linalg.LinAlgError:
             # At least one matrix is exactly singular: solve per-row, flag the failures for fallback.

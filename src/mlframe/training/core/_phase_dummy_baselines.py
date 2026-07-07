@@ -61,14 +61,12 @@ def run_dummy_baselines(
     target_by_type: dict,
     _split_preds_probs,
     group_ids=None,  # ctx.group_ids; required for LTR-Popularity / per-group baselines.
-                    # Pre-fix the signature didn't accept it -> LTR suites silently
-                    # degraded to regression-style dummy + the LTR baseline table came
-                    # back blank with extras["ltr_skip_reason"] = "group_ids missing".
+    # Pre-fix the signature didn't accept it -> LTR suites silently
+    # degraded to regression-style dummy + the LTR baseline table came
+    # back blank with extras["ltr_skip_reason"] = "group_ids missing".
 ) -> dict:
     try:
-        if not (dummy_baselines_config.enabled and (
-            str(target_type) in dummy_baselines_config.apply_to_target_types
-        )):
+        if not (dummy_baselines_config.enabled and (str(target_type) in dummy_baselines_config.apply_to_target_types)):
             return metadata
 
         # Composite targets: pre-fix this branch early-returned without computing
@@ -90,21 +88,9 @@ def run_dummy_baselines(
 
         from ..baselines import compute_dummy_baselines
 
-        _ts_train = (
-            timestamps[filtered_train_idx]
-            if timestamps is not None and filtered_train_idx is not None
-            else None
-        )
-        _ts_val = (
-            timestamps[filtered_val_idx]
-            if timestamps is not None and filtered_val_idx is not None
-            else None
-        )
-        _ts_test = (
-            timestamps[test_idx]
-            if timestamps is not None and test_idx is not None
-            else None
-        )
+        _ts_train = timestamps[filtered_train_idx] if timestamps is not None and filtered_train_idx is not None else None
+        _ts_val = timestamps[filtered_val_idx] if timestamps is not None and filtered_val_idx is not None else None
+        _ts_test = timestamps[test_idx] if timestamps is not None and test_idx is not None else None
 
         # Re-attach high-card cat cols dropped earlier so per_group_mean can use them as group keys.
         _dummy_train_X = filtered_train_df
@@ -132,9 +118,7 @@ def run_dummy_baselines(
 
         _q_alphas = None
         if str(target_type) == "quantile_regression":
-            _q_alphas = list(getattr(
-                quantile_regression_config, "alphas", ()
-            ) or ())
+            _q_alphas = list(getattr(quantile_regression_config, "alphas", ()) or ())
             if not _q_alphas:
                 _q_alphas = None
 
@@ -155,8 +139,8 @@ def run_dummy_baselines(
                     _gid_test = _gid_arr[test_idx]
             except (TypeError, IndexError) as _gid_err:
                 logger.warning(
-                    "run_dummy_baselines: failed to slice group_ids to split indices "
-                    "(%s); LTR-popularity baseline will be skipped.", _gid_err,
+                    "run_dummy_baselines: failed to slice group_ids to split indices " "(%s); LTR-popularity baseline will be skipped.",
+                    _gid_err,
                 )
         with phase(f"dummy_baselines:{str(target_type)}", target=cur_target_name):
             _db_report = compute_dummy_baselines(
@@ -187,8 +171,7 @@ def run_dummy_baselines(
         )
 
         # Report strongest dummy through the same report_model_perf pipeline as real models. Gated on plot_strongest.
-        if (getattr(dummy_baselines_config, "plot_strongest", True)
-                and _db_report.strongest is not None):
+        if getattr(dummy_baselines_config, "plot_strongest", True) and _db_report.strongest is not None:
             try:
                 _strongest_val_raw = _db_report.extras.get("strongest_val_preds")
                 _strongest_test_raw = _db_report.extras.get("strongest_test_preds")
@@ -203,11 +186,7 @@ def run_dummy_baselines(
                         _dummy_mt_suffix = ""
                 except Exception:
                     _dummy_mt_suffix = ""
-                _dummy_name = (
-                    f"DummyBaseline:{_db_report.strongest} "
-                    f"{target_name} {model_name} {cur_target_name}"
-                    f"{_dummy_mt_suffix}"
-                )
+                _dummy_name = f"DummyBaseline:{_db_report.strongest} " f"{target_name} {model_name} {cur_target_name}" f"{_dummy_mt_suffix}"
 
                 # ``X or []`` triggers pd.Index.__bool__ which raises ValueError; use an
                 # explicit None/empty check instead. Was: ``getattr(..., "columns", []) or []``.
@@ -241,8 +220,7 @@ def run_dummy_baselines(
                 )
                 _emit_val = bool(getattr(reporting_config, "compute_valset_metrics", True))
                 _emit_test = bool(getattr(reporting_config, "compute_testset_metrics", True))
-                if (_emit_val and _strongest_val_raw is not None
-                        and current_val_target is not None):
+                if _emit_val and _strongest_val_raw is not None and current_val_target is not None:
                     _vp, _vpr = _split_preds_probs(_strongest_val_raw)
                     _common_val = dict(_common)
                     if plot_file:
@@ -253,8 +231,7 @@ def run_dummy_baselines(
                         report_title="VAL (DUMMY) ",
                         **_common_val,
                     )
-                if (_emit_test and _strongest_test_raw is not None
-                        and current_test_target is not None):
+                if _emit_test and _strongest_test_raw is not None and current_test_target is not None:
                     _tp, _tpr = _split_preds_probs(_strongest_test_raw)
                     _common_test = dict(_common)
                     if plot_file:
@@ -282,8 +259,7 @@ def run_dummy_baselines(
                     _val_t, _test_t, _strong_val_t, _strong_test_t,
                 )
 
-        metadata.setdefault("dummy_baselines", {}) \
-            .setdefault(str(target_type), {})[cur_target_name] = _db_report.to_dict()
+        metadata.setdefault("dummy_baselines", {}).setdefault(str(target_type), {})[cur_target_name] = _db_report.to_dict()
 
         # Invert strongest dummy preds to y-scale so the verdict block compares both numbers on the same scale.
         _specs_for_tt = metadata.get("composite_target_specs", {}).get(str(target_type), {})
@@ -295,9 +271,7 @@ def run_dummy_baselines(
                     break
             if _matching_spec is not None:
                 break
-        if (_matching_spec is not None
-                and _db_report.strongest is not None
-                and _db_report.extras.get("strongest_val_preds") is not None):
+        if _matching_spec is not None and _db_report.strongest is not None and _db_report.extras.get("strongest_val_preds") is not None:
             try:
                 from ..composite import get_transform
                 _tf = get_transform(_matching_spec["transform_name"])
@@ -322,10 +296,7 @@ def run_dummy_baselines(
                     ("test", test_df_pd, test_idx, "strongest_test_preds"),
                 ):
                     _T_preds = _db_report.extras.get(_T_preds_key)
-                    if (_T_preds is None or _split_df is None
-                            or _split_idx is None
-                            or _raw_y_full is None
-                            or _base_col not in _split_df.columns):
+                    if _T_preds is None or _split_df is None or _split_idx is None or _raw_y_full is None or _base_col not in _split_df.columns:
                         continue
                     # Skip cleanly when any extra base is missing from this
                     # split (avoid a deep traceback inside the inverse).
@@ -333,8 +304,7 @@ def run_dummy_baselines(
                         continue
                     if _extra_bases:
                         _base_split = np.column_stack(
-                            [np.asarray(_split_df[_base_col], dtype=np.float64)]
-                            + [np.asarray(_split_df[_eb], dtype=np.float64) for _eb in _extra_bases]
+                            [np.asarray(_split_df[_base_col], dtype=np.float64)] + [np.asarray(_split_df[_eb], dtype=np.float64) for _eb in _extra_bases]
                         )
                     else:
                         _base_split = np.asarray(_split_df[_base_col], dtype=np.float64)
@@ -353,25 +323,20 @@ def run_dummy_baselines(
                         "n_rows_finite": int(_finite.sum()),
                     }
                 if _y_scale_dummy_metrics:
-                    metadata["dummy_baselines"][str(target_type)][
-                        cur_target_name
-                    ]["y_scale_strongest_metrics"] = _y_scale_dummy_metrics
-                    _ys_log_parts = [
-                        f"{k.upper()}=RMSE_y:{v['RMSE']:.4g} MAE_y:{v['MAE']:.4g}"
-                        for k, v in _y_scale_dummy_metrics.items()
-                    ]
+                    metadata["dummy_baselines"][str(target_type)][cur_target_name]["y_scale_strongest_metrics"] = _y_scale_dummy_metrics
+                    _ys_log_parts = [f"{k.upper()}=RMSE_y:{v['RMSE']:.4g} MAE_y:{v['MAE']:.4g}" for k, v in _y_scale_dummy_metrics.items()]
                     logger.info(
-                        "[DUMMY_BASELINES] composite='%s' strongest='%s' y-scale metrics "
-                        "(inverted from T via %s): %s",
-                        cur_target_name, _db_report.strongest,
+                        "[DUMMY_BASELINES] composite='%s' strongest='%s' y-scale metrics " "(inverted from T via %s): %s",
+                        cur_target_name,
+                        _db_report.strongest,
                         _matching_spec["transform_name"],
                         " | ".join(_ys_log_parts),
                     )
             except Exception as _yscale_err:
                 logger.warning(
-                    "[DUMMY_BASELINES] failed to compute y-scale dummy for composite '%s': %s. "
-                    "T-scale metrics remain in metadata.",
-                    cur_target_name, _yscale_err,
+                    "[DUMMY_BASELINES] failed to compute y-scale dummy for composite '%s': %s. " "T-scale metrics remain in metadata.",
+                    cur_target_name,
+                    _yscale_err,
                 )
 
     except Exception as _db_err:
@@ -388,8 +353,7 @@ def run_dummy_baselines(
         # ``"dummy_baselines" in metadata`` for release-gating saw the slot remain absent on
         # failure (which read as "step never ran" rather than "step failed") AND the failure
         # key was easy to miss because it's not part of the standard happy-path key set.
-        metadata.setdefault("dummy_baselines_failures", {}) \
-            .setdefault(str(target_type), {})[cur_target_name] = str(_db_err)
+        metadata.setdefault("dummy_baselines_failures", {}).setdefault(str(target_type), {})[cur_target_name] = str(_db_err)
         # Top-level status sentinel: any failure flips this from missing/"ok" to "failed".
         # Callers can gate on ``metadata.get("dummy_baselines_status") != "failed"``.
         metadata["dummy_baselines_status"] = "failed"

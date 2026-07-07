@@ -204,8 +204,7 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
                 estimator.set_params(**to_set)
             except (ValueError, TypeError) as err:  # pragma: no cover - defensive
                 logger.debug(
-                    "BaggedCompositeEstimator: could not set member seed (%r); "
-                    "member stays at its default random_state.",
+                    "BaggedCompositeEstimator: could not set member seed (%r); " "member stays at its default random_state.",
                     err,
                 )
 
@@ -228,28 +227,15 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         Returns ``self``.
         """
         if self.aggregation not in ("trimmed_mean", "mean", "median"):
-            raise ValueError(
-                f"BaggedCompositeEstimator: aggregation must be one of "
-                f"'trimmed_mean' / 'mean' / 'median'; got {self.aggregation!r}."
-            )
+            raise ValueError(f"BaggedCompositeEstimator: aggregation must be one of " f"'trimmed_mean' / 'mean' / 'median'; got {self.aggregation!r}.")
         if not (0.0 <= self.trim_fraction < 0.5):
-            raise ValueError(
-                f"BaggedCompositeEstimator: trim_fraction must be in [0, 0.5); got {self.trim_fraction!r}."
-            )
+            raise ValueError(f"BaggedCompositeEstimator: trim_fraction must be in [0, 0.5); got {self.trim_fraction!r}.")
         if self.base_estimator is None:
-            raise ValueError(
-                "BaggedCompositeEstimator: base_estimator must not be None."
-            )
+            raise ValueError("BaggedCompositeEstimator: base_estimator must not be None.")
         if self.n_estimators < 1:
-            raise ValueError(
-                f"BaggedCompositeEstimator: n_estimators must be >=1, got "
-                f"{self.n_estimators}."
-            )
+            raise ValueError(f"BaggedCompositeEstimator: n_estimators must be >=1, got " f"{self.n_estimators}.")
         if not (0.0 < self.max_samples <= 1.0):
-            raise ValueError(
-                f"BaggedCompositeEstimator: max_samples must be in (0, 1], got "
-                f"{self.max_samples}."
-            )
+            raise ValueError(f"BaggedCompositeEstimator: max_samples must be in (0, 1], got " f"{self.max_samples}.")
 
         n = _n_rows(X)
         if n == 0:
@@ -298,13 +284,8 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         if not getattr(self, "estimators_", None):
             from sklearn.exceptions import NotFittedError
 
-            raise NotFittedError(
-                "BaggedCompositeEstimator: call fit before predict."
-            )
-        preds = [
-            np.asarray(est.predict(X), dtype=np.float64).reshape(-1)
-            for est in self.estimators_
-        ]
+            raise NotFittedError("BaggedCompositeEstimator: call fit before predict.")
+        preds = [np.asarray(est.predict(X), dtype=np.float64).reshape(-1) for est in self.estimators_]
         return np.vstack(preds)
 
     def predict(self, X: Any) -> np.ndarray:
@@ -325,7 +306,7 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
             # Too few members to trim symmetrically -- the trimmed mean degenerates to the plain mean.
             return members.mean(axis=0)
         ordered = np.sort(members, axis=0)
-        return ordered[k:m - k].mean(axis=0)
+        return ordered[k : m - k].mean(axis=0)
 
     def predict_std(self, X: Any) -> np.ndarray:
         """Across-member prediction spread -- an epistemic-uncertainty signal.
@@ -362,9 +343,6 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         if not getattr(self, "estimators_", None):
             from sklearn.exceptions import NotFittedError
 
-            raise NotFittedError(
-                "BaggedCompositeEstimator: feature_importances_ needs fit first."
-            )
-        mats = [np.asarray(e.feature_importances_, dtype=np.float64)
-                for e in self.estimators_]
+            raise NotFittedError("BaggedCompositeEstimator: feature_importances_ needs fit first.")
+        mats = [np.asarray(e.feature_importances_, dtype=np.float64) for e in self.estimators_]
         return np.mean(np.vstack(mats), axis=0)

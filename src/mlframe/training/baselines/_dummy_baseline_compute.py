@@ -342,9 +342,7 @@ def _per_group_predict(
 # ---------------------------------------------------------------------
 
 
-def _safe_metric(
-    metric_fn: callable, y_true: np.ndarray, y_pred: np.ndarray, **kwargs: Any
-) -> float:
+def _safe_metric(metric_fn: callable, y_true: np.ndarray, y_pred: np.ndarray, **kwargs: Any) -> float:
     """Compute metric in isolated try/except -> NaN on failure (D1).
 
     Failure logged ONCE per (metric_fn.__name__, error type) -- not
@@ -458,11 +456,7 @@ def compute_dummy_baselines(
     # run the dispatcher per output and aggregate per-output strongest +
     # cross-output normalized strongest. Headline emission stays one verdict
     # block per target (not K verdicts).
-    if (
-        target_type in ("regression", "quantile_regression")
-        and train_y_arr.ndim == 2
-        and train_y_arr.shape[1] > 1
-    ):
+    if target_type in ("regression", "quantile_regression") and train_y_arr.ndim == 2 and train_y_arr.shape[1] > 1:
         return _compute_multi_output_regression(
             target_type=target_type,
             target_name=target_name,
@@ -581,11 +575,7 @@ def compute_dummy_baselines(
         n_val_finite if n_val_finite > 0 else 10_000_000,
         n_test_finite if n_test_finite > 0 else 10_000_000,
     )
-    if (
-        strongest is not None
-        and primary_metric is not None
-        and n_ref_for_paired < config.bootstrap_ci_threshold
-    ):
+    if strongest is not None and primary_metric is not None and n_ref_for_paired < config.bootstrap_ci_threshold:
         try:
             paired = _paired_bootstrap_vs_runner_up(
                 target_type, strongest, primary_metric, table,
@@ -595,9 +585,7 @@ def compute_dummy_baselines(
             )
             if paired is not None:
                 extras["paired_bootstrap"] = paired
-                if paired.get("p_strongest_beats") is not None and (
-                    paired["p_strongest_beats"] < config.strongest_min_beat_runner_up_prob
-                ):
+                if paired.get("p_strongest_beats") is not None and (paired["p_strongest_beats"] < config.strongest_min_beat_runner_up_prob):
                     extras["tie"] = True
         except Exception as e:
             logger.debug(
@@ -613,12 +601,7 @@ def compute_dummy_baselines(
         n_val_finite if n_val_finite > 0 else 10_000_000,
         n_test_finite if n_test_finite > 0 else 10_000_000,
     )
-    if (
-        strongest is not None
-        and primary_metric is not None
-        and n_ref_for_ci < config.bootstrap_ci_threshold
-        and n_ref_for_ci >= 10
-    ):
+    if strongest is not None and primary_metric is not None and n_ref_for_ci < config.bootstrap_ci_threshold and n_ref_for_ci >= 10:
         try:
             ci = _bootstrap_ci_for_strongest(
                 target_type, strongest, primary_metric,
@@ -683,5 +666,3 @@ def compute_dummy_baselines(
 # ---------------------------------------------------------------------
 # Wave 92 (2026-05-21): _compute_quantile_baselines moved to sibling file
 # _dummy_baseline_quantile.py and re-exported from the module-top imports.
-
-

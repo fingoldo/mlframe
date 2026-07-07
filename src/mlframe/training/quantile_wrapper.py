@@ -98,10 +98,7 @@ def _resolve_n_jobs(requested: int | str, k: int) -> int:
     if requested == "auto":
         cpu = os.cpu_count() or 2
         return max(1, min(k, cpu // 2))
-    raise ValueError(
-        f"_QuantileMultiOutputWrapper.n_jobs must be int or 'auto'; "
-        f"got {requested!r}"
-    )
+    raise ValueError(f"_QuantileMultiOutputWrapper.n_jobs must be int or 'auto'; " f"got {requested!r}")
 
 
 class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
@@ -150,9 +147,7 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
             raise ValueError("_QuantileMultiOutputWrapper requires non-None y.")
         y_raw = np.asarray(y)
         if y_raw.ndim != 1:
-            raise ValueError(
-                f"_QuantileMultiOutputWrapper expects 1-D y; got shape {y_raw.shape}"
-            )
+            raise ValueError(f"_QuantileMultiOutputWrapper expects 1-D y; got shape {y_raw.shape}")
         y_arr = y_raw
         alphas = tuple(self.alphas)
         alpha_param = _probe_alpha_param_name(self.base_estimator)
@@ -169,9 +164,9 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
                 except TypeError:
                     # Estimator doesn't accept sample_weight -> warn + fit unweighted.
                     logger.warning(
-                        "_QuantileMultiOutputWrapper: %s does not accept "
-                        "sample_weight; fitting alpha=%g unweighted.",
-                        type(est).__name__, alpha,
+                        "_QuantileMultiOutputWrapper: %s does not accept " "sample_weight; fitting alpha=%g unweighted.",
+                        type(est).__name__,
+                        alpha,
                     )
                     est.fit(X, y_arr)
             else:
@@ -191,9 +186,7 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
             # the GIL inside their native fit; the sklearn pre/post hooks
             # (validation, attribute stamping) are short.
             with Parallel(n_jobs=n_jobs, backend="threading") as par:
-                self.estimators_ = par(
-                    delayed(_fit_one)(a) for a in alphas
-                )
+                self.estimators_ = par(delayed(_fit_one)(a) for a in alphas)
         # sklearn convention: expose feature info from the first fitted
         # estimator (all are fit on identical X).
         if self.estimators_ and hasattr(self.estimators_[0], "n_features_in_"):
@@ -204,9 +197,7 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
         if not hasattr(self, "estimators_") or not self.estimators_:
             from sklearn.exceptions import NotFittedError
 
-            raise NotFittedError(
-                "_QuantileMultiOutputWrapper.predict called before fit."
-            )
+            raise NotFittedError("_QuantileMultiOutputWrapper.predict called before fit.")
         cols = [est.predict(X) for est in self.estimators_]
         # Each predict returns (N,); stack into (N, K).
         out = np.column_stack(cols)

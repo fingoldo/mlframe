@@ -126,9 +126,7 @@ def _err_to_plotly(err):
     if err is None:
         return None
     if isinstance(err, tuple):
-        return dict(type="data", symmetric=False,
-                    array=np.asarray(err[1], dtype=float), arrayminus=np.asarray(err[0], dtype=float),
-                    visible=True)
+        return dict(type="data", symmetric=False, array=np.asarray(err[1], dtype=float), arrayminus=np.asarray(err[0], dtype=float), visible=True)
     return dict(type="data", symmetric=True, array=np.asarray(err, dtype=float), visible=True)
 
 
@@ -230,7 +228,7 @@ class PlotlyRenderer:
         bottom_margin = (90 if static_legend else 50) + n_caption_lines * 16
 
         fig.update_layout(
-            width=int(spec.figsize[0] * 80),   # ~80px per matplotlib inch
+            width=int(spec.figsize[0] * 80),  # ~80px per matplotlib inch
             height=int(spec.figsize[1] * 80) + (top_margin if spec.suptitle else 0) + n_caption_lines * 16,
             # Bottom margin grows when the legend is shown so the below-figure legend has room.
             margin=dict(l=60, r=40, t=top_margin, b=bottom_margin),
@@ -259,10 +257,7 @@ class PlotlyRenderer:
         elif fmt in ("png", "svg", "pdf"):
             write_image_via_kaleido(fig, path, fmt)
         else:
-            raise ValueError(
-                f"plotly doesn't support format {fmt!r}; "
-                "supported: html/png/svg/pdf/json"
-            )
+            raise ValueError(f"plotly doesn't support format {fmt!r}; " "supported: html/png/svg/pdf/json")
 
     def show(self, fig: Any) -> None:
         try:
@@ -404,9 +399,9 @@ class PlotlyRenderer:
         if p.overlay_band is not None:
             bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
             fig.add_trace(
-                go.Scatter(x=bx, y=blo, mode="lines", line=dict(width=0),
-                           showlegend=False, hoverinfo="skip"),
-                row=row, col=col,
+                go.Scatter(x=bx, y=blo, mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"),
+                row=row,
+                col=col,
             )
             fig.add_trace(
                 go.Scatter(x=bx, y=bhi, mode="lines", line=dict(width=0),
@@ -418,10 +413,9 @@ class PlotlyRenderer:
         if p.overlay_line is not None:
             ox_grid, oy_grid, olabel = p.overlay_line
             fig.add_trace(
-                go.Scatter(x=np.asarray(ox_grid), y=np.asarray(oy_grid), mode="lines",
-                           line=dict(color="purple", width=2),
-                           name=olabel, showlegend=True),
-                row=row, col=col,
+                go.Scatter(x=np.asarray(ox_grid), y=np.asarray(oy_grid), mode="lines", line=dict(color="purple", width=2), name=olabel, showlegend=True),
+                row=row,
+                col=col,
             )
 
         if p.perfect_fit_line and n > 0:
@@ -430,11 +424,9 @@ class PlotlyRenderer:
             lo = float(min(np.min(x), np.min(y)))
             hi = float(max(np.max(x), np.max(y)))
             fig.add_trace(
-                go.Scatter(x=[lo, hi], y=[lo, hi],
-                           mode="lines",
-                           line=dict(color="green", dash="dash"),
-                           name="Perfect fit", showlegend=True),
-                row=row, col=col,
+                go.Scatter(x=[lo, hi], y=[lo, hi], mode="lines", line=dict(color="green", dash="dash"), name="Perfect fit", showlegend=True),
+                row=row,
+                col=col,
             )
             y_range = list(p.ylim) if p.ylim is not None else [lo, hi]
             x_range = list(p.xlim) if p.xlim is not None else [lo, hi]
@@ -472,8 +464,7 @@ class PlotlyRenderer:
         if bin_centers is not None:
             if heights is None:
                 heights = np.asarray(p.values)
-                width = float(p.bin_width or (
-                    (bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
+                width = float(p.bin_width or ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
             else:
                 width = float(width0)
             colors_kw = dict(color=p.color)
@@ -513,24 +504,18 @@ class PlotlyRenderer:
                     vals = np.asarray(p.values)
                     overlay_x_lo, overlay_x_hi = float(np.min(vals)), float(np.max(vals))
                 x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
-                normal_pdf = (
-                    1 / (sigma * np.sqrt(2 * np.pi))
-                    * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
-                )
+                normal_pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
                 label = p.overlay_label or f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
                 fig.add_trace(
-                    go.Scatter(x=x_grid, y=normal_pdf,
-                               mode="lines",
-                               line=dict(color="red", dash="dash", width=1.4),
-                               name=label, showlegend=True),
-                    row=row, col=col,
+                    go.Scatter(x=x_grid, y=normal_pdf, mode="lines", line=dict(color="red", dash="dash", width=1.4), name=label, showlegend=True),
+                    row=row,
+                    col=col,
                 )
 
         if p.xlim is not None:
             fig.update_xaxes(range=list(p.xlim), row=row, col=col)
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
-        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid,
-                         type="log" if p.yscale == "log" else "linear")
+        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid, type="log" if p.yscale == "log" else "linear")
 
     def _confusion_margins(self, fig, p: ConfusionMarginsPanelSpec, row: int, col: int) -> None:
         # Plotly subplot cells cannot host nested marginal axes the way the matplotlib subgridspec does, so the
@@ -633,15 +618,15 @@ class PlotlyRenderer:
             if horizontal:
                 # Categories on y, values on x; reverse so the first category sits on top (worst-first reads down).
                 fig.add_trace(
-                    go.Bar(y=cats, x=np.asarray(values).tolist(), orientation="h",
-                           name=label, showlegend=show, marker=dict(color=color)),
-                    row=row, col=col,
+                    go.Bar(y=cats, x=np.asarray(values).tolist(), orientation="h", name=label, showlegend=show, marker=dict(color=color)),
+                    row=row,
+                    col=col,
                 )
             else:
                 fig.add_trace(
-                    go.Bar(x=cats, y=np.asarray(values).tolist(),
-                           name=label, showlegend=show, marker=dict(color=color)),
-                    row=row, col=col,
+                    go.Bar(x=cats, y=np.asarray(values).tolist(), name=label, showlegend=show, marker=dict(color=color)),
+                    row=row,
+                    col=col,
                 )
 
         if isinstance(p.values, tuple):
@@ -659,9 +644,7 @@ class PlotlyRenderer:
         # hline for vertical bars (value axis is y).
         if p.hline is not None:
             hval, hcolor, hlabel = p.hline
-            line_kw = dict(line=dict(color=hcolor, dash="dash", width=1.3),
-                           annotation_text=hlabel or None, annotation_position="top right",
-                           row=row, col=col)
+            line_kw = dict(line=dict(color=hcolor, dash="dash", width=1.3), annotation_text=hlabel or None, annotation_position="top right", row=row, col=col)
             if horizontal:
                 fig.add_vline(x=hval, **line_kw)
             else:
@@ -669,8 +652,7 @@ class PlotlyRenderer:
 
         if horizontal:
             if any(len(str(c)) > _BAR_XTICK_MAXLEN for c in cats):  # truncate long feature-name labels on the y-axis so they don't crowd the panel
-                fig.update_yaxes(tickmode="array", tickvals=cats,
-                                 ticktext=[_truncate_label(c) for c in cats], row=row, col=col)
+                fig.update_yaxes(tickmode="array", tickvals=cats, ticktext=[_truncate_label(c) for c in cats], row=row, col=col)
             fig.update_yaxes(autorange="reversed", row=row, col=col)
             fig.update_xaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
             fig.update_yaxes(title_text=p.xlabel, row=row, col=col)
@@ -756,11 +738,10 @@ class PlotlyRenderer:
                 row=row, col=col, **sec_kw,
             )
 
-        for span in (p.vspans or ()):
+        for span in p.vspans or ():
             vx0, vx1, vcolor, valpha = span[0], span[1], span[2], span[3]
             vlabel = span[4] if len(span) > 4 else ""
-            fig.add_vrect(x0=vx0, x1=vx1, fillcolor=_rgba(vcolor, valpha),
-                          line_width=0, layer="below", row=row, col=col)
+            fig.add_vrect(x0=vx0, x1=vx1, fillcolor=_rgba(vcolor, valpha), line_width=0, layer="below", row=row, col=col)
             if vlabel:
                 # No native per-vrect legend in plotly; add an invisible scatter proxy so the regime label shows.
                 fig.add_trace(
@@ -769,13 +750,13 @@ class PlotlyRenderer:
                                name=vlabel, showlegend=True),
                     row=row, col=col,
                 )
-        for vx, vcolor, vlabel in (p.vlines or ()):
+        for vx, vcolor, vlabel in p.vlines or ():
             # add_vline does arithmetic on x that raises on a datetime axis; a line-shape with the x in data coords
             # and y spanning the panel's y-domain works on numeric AND datetime axes alike (G4).
             self._add_vline_datetime_safe(fig, vx, vcolor, vlabel, row, col)
 
         _MARKER_MAP = {"*": "star", "D": "diamond", "o": "circle", "s": "square", "^": "triangle-up"}
-        for mx, my, mlabel, mcolor, msym in (p.point_markers or ()):
+        for mx, my, mlabel, mcolor, msym in p.point_markers or ():
             fig.add_trace(
                 go.Scatter(x=[mx], y=[my], mode="markers+text",
                            marker=dict(color=mcolor, size=13, symbol=_MARKER_MAP.get(msym, "star"),
@@ -785,13 +766,10 @@ class PlotlyRenderer:
                 row=row, col=col,
             )
 
-        fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid,
-                         tickangle=-30 if p.x_is_time else 0)
-        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid,
-                         secondary_y=False)
+        fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid, tickangle=-30 if p.x_is_time else 0)
+        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid, secondary_y=False)
         if has_secondary:
-            fig.update_yaxes(title_text=p.secondary_ylabel, row=row, col=col,
-                             secondary_y=True, showgrid=False)
+            fig.update_yaxes(title_text=p.secondary_ylabel, row=row, col=col, secondary_y=True, showgrid=False)
 
     @staticmethod
     def _is_datetime_like(v) -> bool:
@@ -811,18 +789,13 @@ class PlotlyRenderer:
         if self._is_datetime_like(vx):
             import pandas as pd
             x_coord = pd.Timestamp(vx) if not isinstance(vx, np.datetime64) else pd.Timestamp(vx)
-            fig.add_shape(type="line", x0=x_coord, x1=x_coord, y0=0, y1=1,
-                          yref="y domain", xref="x",
-                          line=dict(color=vcolor, dash="dot", width=1.2),
-                          row=row, col=col)
+            fig.add_shape(
+                type="line", x0=x_coord, x1=x_coord, y0=0, y1=1, yref="y domain", xref="x", line=dict(color=vcolor, dash="dot", width=1.2), row=row, col=col
+            )
             if vlabel:
-                fig.add_annotation(x=x_coord, y=1, yref="y domain", yanchor="bottom",
-                                   text=vlabel, showarrow=False, font=dict(size=9),
-                                   row=row, col=col)
+                fig.add_annotation(x=x_coord, y=1, yref="y domain", yanchor="bottom", text=vlabel, showarrow=False, font=dict(size=9), row=row, col=col)
         else:
-            fig.add_vline(x=vx, line=dict(color=vcolor, dash="dot", width=1.2),
-                          annotation_text=vlabel or None, annotation_position="top",
-                          row=row, col=col)
+            fig.add_vline(x=vx, line=dict(color=vcolor, dash="dot", width=1.2), annotation_text=vlabel or None, annotation_position="top", row=row, col=col)
 
     def _violin(self, fig, p: ViolinPanelSpec, row: int, col: int) -> None:
         go = _go()
@@ -843,8 +816,7 @@ class PlotlyRenderer:
                           showlegend=False),
                 row=row, col=col,
             )
-        fig.update_xaxes(title_text=p.xlabel, row=row, col=col,
-                         tickangle=-30)
+        fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=-30)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
 
     # Cap on directed-edge arrow annotations. Each arrow is one layout
@@ -885,10 +857,9 @@ class PlotlyRenderer:
                     xs.extend([node_x[a], node_x[d], None])
                     ys.extend([node_y[a], node_y[d], None])
                 fig.add_trace(
-                    go.Scattergl(x=xs, y=ys, mode="lines",
-                                 line=dict(width=width, color=color),
-                                 hoverinfo="skip", showlegend=False),
-                    row=row, col=col,
+                    go.Scattergl(x=xs, y=ys, mode="lines", line=dict(width=width, color=color), hoverinfo="skip", showlegend=False),
+                    row=row,
+                    col=col,
                 )
 
             # Invisible marker trace at edge midpoints carries the continuous MI
@@ -930,8 +901,7 @@ class PlotlyRenderer:
                                 standoff=6, startstandoff=6,
                             )
                 except Exception:
-                    logger.debug("network arrows skipped (subplot axis-ref resolution failed)",
-                                 exc_info=True)
+                    logger.debug("network arrows skipped (subplot axis-ref resolution failed)", exc_info=True)
 
         # Nodes: one marker trace. size follows matplotlib ``scatter(s=)`` area
         # semantics; convert to plotly's pixel diameter (sqrt(area) * 1.33).
@@ -948,10 +918,8 @@ class PlotlyRenderer:
             row=row, col=col,
         )
 
-        fig.update_xaxes(title_text=p.xlabel, row=row, col=col,
-                         showgrid=False, zeroline=False, showticklabels=False)
-        fig.update_yaxes(title_text=p.ylabel, row=row, col=col,
-                         showgrid=False, zeroline=False, showticklabels=False)
+        fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=False, zeroline=False, showticklabels=False)
+        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=False, zeroline=False, showticklabels=False)
 
 
 __all__ = ["PlotlyRenderer"]

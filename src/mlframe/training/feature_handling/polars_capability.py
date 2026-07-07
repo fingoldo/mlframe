@@ -164,10 +164,7 @@ class PolarsNativeDispatcher:
         return None
 
     def __repr__(self) -> str:
-        return (
-            f"PolarsNativeDispatcher(prefer={self._prefer}, "
-            f"version={self.get_version()!r}, caps={len(self._caps)})"
-        )
+        return f"PolarsNativeDispatcher(prefer={self._prefer}, " f"version={self.get_version()!r}, caps={len(self._caps)})"
 
 
 __all__ = [

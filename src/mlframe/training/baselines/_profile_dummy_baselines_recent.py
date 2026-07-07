@@ -252,8 +252,7 @@ def main():
     p.add_argument(
         "--component",
         default="all",
-        choices=("all", "paired_bootstrap", "bootstrap_ci",
-                 "quantile", "multi_output", "augment"),
+        choices=("all", "paired_bootstrap", "bootstrap_ci", "quantile", "multi_output", "augment"),
     )
     args = p.parse_args()
 

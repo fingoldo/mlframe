@@ -15,7 +15,6 @@ from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD, _ch
 
 import os as _os
 
-
 # iter338 (2026-05-27): central dispatcher for ``argsort(y_score)[::-1]``
 # in metric kernels. Default UNSTABLE (numpy quicksort) -- 2-3x faster than
 # stable sort and numerically identical on continuous-valued ML predictions
@@ -453,8 +452,7 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def _roc_curve_kernel(y_true: np.ndarray, y_score: np.ndarray, sample_weight: np.ndarray,
-                      desc_score_indices: np.ndarray, weighted: bool):
+def _roc_curve_kernel(y_true: np.ndarray, y_score: np.ndarray, sample_weight: np.ndarray, desc_score_indices: np.ndarray, weighted: bool):
     """Cumulative TP/FP sweep over descending-sorted scores -> (fps, tps, thr) at DISTINCT-score boundaries.
 
     Mirrors sklearn's ``_binary_clf_curve``: walk samples in descending score order accumulating the true-positive
@@ -633,9 +631,7 @@ def fast_numba_auc_nonw(y_true: np.ndarray, y_score: np.ndarray, desc_score_indi
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def fast_numba_auc_weighted(
-    y_true: np.ndarray, y_score: np.ndarray, sample_weight: np.ndarray, desc_score_indices: np.ndarray
-) -> float:
+def fast_numba_auc_weighted(y_true: np.ndarray, y_score: np.ndarray, sample_weight: np.ndarray, desc_score_indices: np.ndarray) -> float:
     """Weighted ROC AUC via the same tie-aware trapezoidal scan as ``fast_numba_auc_nonw``.
 
     Equivalent to ``sklearn.metrics.roc_auc_score(..., sample_weight=w)``: each sample contributes its weight to the

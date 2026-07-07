@@ -222,24 +222,16 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
             Forwarded to ``base_estimator.fit``.
         """
         if is_unbiased is None:
-            raise ValueError(
-                "PULearningWrapper.fit requires ``is_unbiased`` (bool array "
-                "per sample). Pass positionally or as keyword."
-            )
+            raise ValueError("PULearningWrapper.fit requires ``is_unbiased`` (bool array " "per sample). Pass positionally or as keyword.")
         y = np.asarray(y).astype(np.int8, copy=False)
         is_unbiased = np.asarray(is_unbiased).astype(bool, copy=False)
 
         if y.shape[0] != is_unbiased.shape[0]:
-            raise ValueError(
-                f"y and is_unbiased length mismatch: y={y.shape[0]}, "
-                f"is_unbiased={is_unbiased.shape[0]}"
-            )
+            raise ValueError(f"y and is_unbiased length mismatch: y={y.shape[0]}, " f"is_unbiased={is_unbiased.shape[0]}")
 
         unique_y = set(np.unique(y).tolist())
         if not unique_y.issubset({0, 1}):
-            raise ValueError(
-                f"PULearningWrapper is binary-only. Got y values: {unique_y}"
-            )
+            raise ValueError(f"PULearningWrapper is binary-only. Got y values: {unique_y}")
 
         # Sanity check: biased rows should all be observed-positive.
         biased = ~is_unbiased
@@ -267,8 +259,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
         # Resolve "auto" strategy.
         strategy = self.strategy
         if strategy == "auto":
-            if (n_ub_pos >= self.auto_strategy_unbiased_count_threshold
-                    and n_ub_neg >= self.auto_strategy_unbiased_count_threshold):
+            if n_ub_pos >= self.auto_strategy_unbiased_count_threshold and n_ub_neg >= self.auto_strategy_unbiased_count_threshold:
                 strategy = "unbiased_only"
             else:
                 strategy = "prior_shift_correction"
@@ -315,21 +306,15 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
             ub_y = y[is_unbiased]
             target_prior = float(ub_y.mean())
             logger.info(
-                "PULearningWrapper(prior_shift_correction): true_prior not "
-                "provided; estimated from unbiased subset = %.3f.",
+                "PULearningWrapper(prior_shift_correction): true_prior not " "provided; estimated from unbiased subset = %.3f.",
                 target_prior,
             )
         if not (0 < target_prior < 1):
-            raise ValueError(
-                f"true_prior must be in (0, 1); got {target_prior}."
-            )
+            raise ValueError(f"true_prior must be in (0, 1); got {target_prior}.")
 
         train_prior = float((y == 1).mean())
         if train_prior <= 0 or train_prior >= 1:
-            raise ValueError(
-                f"Train P(y=1)={train_prior} is degenerate -- Saerens "
-                "correction needs both classes in train."
-            )
+            raise ValueError(f"Train P(y=1)={train_prior} is degenerate -- Saerens " "correction needs both classes in train.")
 
         self.base_estimator_ = clone(self.base_estimator)
         self.base_estimator_.fit(X, y, **fit_params)
@@ -361,7 +346,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
             # sample_weight to float64 anyway, so producing float32 here only
             # paid the rounding cost without saving downstream work.
             sample_weight = np.where(s == 1, 1.0 / n1, 1.0 / n0).astype(np.float64)
-            sample_weight *= (n0 + n1)  # rescale for numerical stability
+            sample_weight *= n0 + n1  # rescale for numerical stability
         else:
             sample_weight = None
 

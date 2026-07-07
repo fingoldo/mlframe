@@ -34,15 +34,11 @@ logger = logging.getLogger(__name__)
 # Models with native sparse-matrix support. CB, XGB, LGB take sparse
 # via Pool / DMatrix / Dataset; sklearn linear / SGD also accept it
 # via the standard sparse handling.
-SPARSE_AWARE_MODELS: FrozenSet[str] = frozenset(
-    {"cb", "xgb", "lgb", "linear", "ridge", "sgd"}
-)
+SPARSE_AWARE_MODELS: FrozenSet[str] = frozenset({"cb", "xgb", "lgb", "linear", "ridge", "sgd"})
 
 # Dense-only consumers. HGB cannot ingest sparse; RF deprecated sparse
 # in 1.0+; NGB / MLP / recurrent / TabNet always operate on dense.
-DENSE_ONLY_MODELS: FrozenSet[str] = frozenset(
-    {"hgb", "rf", "ngb", "mlp", "recurrent", "tabnet"}
-)
+DENSE_ONLY_MODELS: FrozenSet[str] = frozenset({"hgb", "rf", "ngb", "mlp", "recurrent", "tabnet"})
 
 # Default trigger threshold for auto-SVD on dense-only models.
 DEFAULT_SVD_TRIGGER_NCOLS: int = 512
@@ -101,8 +97,7 @@ def hgb_max_features_cap(
         return requested_max_features
     if allow_high:
         logger.info(
-            "[fhc] HGB tfidf cap bypassed via allow_high=True; max_features=%d "
-            "(densified TF-IDF on a multi-million-row frame may exhaust RAM)",
+            "[fhc] HGB tfidf cap bypassed via allow_high=True; max_features=%d " "(densified TF-IDF on a multi-million-row frame may exhaust RAM)",
             requested_max_features,
         )
         return requested_max_features

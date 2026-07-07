@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from typing import Optional, Tuple
 
-
 CALIBRATION = "RdYlBu"
 CONFUSION = "RdBu_r"
 # CB-safe heatmap defaults. ``HEATMAP_CMAP`` (viridis) is perceptually uniform and colourblind-safe for
@@ -87,8 +86,8 @@ def resolve_heatmap_cmap(colormap: Optional[str]) -> str:
 # read the same legend colors. ``FRIEND_GRAPH_EDGE_CMAP`` shades edges by the
 # mutual information they carry.
 FRIEND_GRAPH_NODE_COLORS = {
-    "green": "#2ca02c",   # tab:green - unique knowledge
-    "red": "#d62728",     # tab:red - suspected sink / aggregator
+    "green": "#2ca02c",  # tab:green - unique knowledge
+    "red": "#d62728",  # tab:red - suspected sink / aggregator
     "yellow": "#e6a700",  # amber - middling
 }
 FRIEND_GRAPH_EDGE_CMAP = "plasma"
@@ -102,8 +101,7 @@ def friend_graph_node_color(klass: str) -> str:
     return FRIEND_GRAPH_NODE_COLORS.get(klass, "#7f7f7f")
 
 
-def auto_text_color(value: float, colormap: str,
-                    vmin: float = 0.0, vmax: float = 1.0) -> str:
+def auto_text_color(value: float, colormap: str, vmin: float = 0.0, vmax: float = 1.0) -> str:
     """Pick ``"black"`` or ``"white"`` text for an overlay on a
     colormap-shaded background, by perceived-luminance threshold.
 

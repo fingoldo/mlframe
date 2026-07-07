@@ -135,9 +135,7 @@ def format_phase_summary(top: int = 30) -> str:
             ram_str = f" {delta:+6.2f}GB"
         else:
             ram_str = "        "
-        lines.append(
-            f"{name.ljust(name_w)}  {total:8.2f}s  {count:6d}  {avg:7.3f}s{ram_str}"
-        )
+        lines.append(f"{name.ljust(name_w)}  {total:8.2f}s  {count:6d}  {avg:7.3f}s{ram_str}")
     return "\n".join(lines)
 
 

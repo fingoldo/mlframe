@@ -198,10 +198,7 @@ def _try_predict_with_pp_fallback(
         #   1. "ufunc 'isnan' not supported" (isnan probe on str vocabulary)
         #   2. "'<' not supported between instances of 'float' and 'str'"
         # Both retry on the pre-main-pipeline frame where cat cols are strings.
-        _is_encoder_mismatch = (
-            ("isnan" in _msg and "supported" in _msg)
-            or ("'<' not supported" in _msg and "'float'" in _msg and "'str'" in _msg)
-        )
+        _is_encoder_mismatch = ("isnan" in _msg and "supported" in _msg) or ("'<' not supported" in _msg and "'float'" in _msg and "'str'" in _msg)
         if _is_encoder_mismatch and fallback is not None:
             logger.warning(
                 "predict_from_models: %s.%s on post-pipeline "
@@ -258,18 +255,13 @@ def _try_predict_with_pp_fallback(
         # model.predict rather than letting sklearn's validate_data reject the
         # whole call.
         _msg = str(_exc)
-        if (
-            isinstance(_exc, ValueError)
-            and expected_list is not None
-            and hasattr(primary, "columns")
-            and "feature names" in _msg.lower()
-        ):
+        if isinstance(_exc, ValueError) and expected_list is not None and hasattr(primary, "columns") and "feature names" in _msg.lower():
             _drop = [c for c in primary.columns if c not in expected_list]
             if _drop:
                 logger.warning(
-                    "predict_from_models: %s.%s tripped feature-names mismatch "
-                    "(%s); dropping %d unseen column(s) %s and retrying.",
-                    model_name, fn.__name__,
+                    "predict_from_models: %s.%s tripped feature-names mismatch " "(%s); dropping %d unseen column(s) %s and retrying.",
+                    model_name,
+                    fn.__name__,
                     _msg.splitlines()[0][:120],
                     len(_drop), _drop[:5],
                 )
@@ -335,8 +327,7 @@ def _apply_pre_pipeline_with_passthrough(
     if not _pp_fitted:
         if verbose:
             logger.debug(
-                "predict_from_models: %s has unfitted pre_pipeline; "
-                "skipping .transform (main pipeline already prepared the frame)",
+                "predict_from_models: %s has unfitted pre_pipeline; " "skipping .transform (main pipeline already prepared the frame)",
                 model_name,
             )
         return input_for_model

@@ -165,18 +165,12 @@ def compute_member_quality_gate(
             diffs = np.abs(_arr_eff - _med_eff)
             if _arr_eff.ndim == 2:
                 per_member_mae = np.array([float(np.average(diffs[i], weights=_sw_b)) for i in range(diffs.shape[0])])
-                per_member_std = np.array([
-                    float(np.sqrt(np.average((diffs[i] - per_member_mae[i]) ** 2, weights=_sw_b)))
-                    for i in range(diffs.shape[0])
-                ])
+                per_member_std = np.array([float(np.sqrt(np.average((diffs[i] - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])])
             else:
-                per_member_mae = np.array([
-                    float(np.average(diffs[i].mean(axis=-1), weights=_sw_b)) for i in range(diffs.shape[0])
-                ])
-                per_member_std = np.array([
-                    float(np.sqrt(np.average((diffs[i].mean(axis=-1) - per_member_mae[i]) ** 2, weights=_sw_b)))
-                    for i in range(diffs.shape[0])
-                ])
+                per_member_mae = np.array([float(np.average(diffs[i].mean(axis=-1), weights=_sw_b)) for i in range(diffs.shape[0])])
+                per_member_std = np.array(
+                    [float(np.sqrt(np.average((diffs[i].mean(axis=-1) - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])]
+                )
         else:
             _sw_b = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
             if arr.ndim >= 2 and _sw_b.shape[0] == arr.shape[1]:
@@ -184,19 +178,13 @@ def compute_member_quality_gate(
                 diffs = np.abs(arr - median_preds)
                 if arr.ndim == 2:
                     per_member_mae = np.array([float(np.average(diffs[i], weights=_sw_b)) for i in range(diffs.shape[0])])
-                    per_member_std = np.array([
-                        float(np.sqrt(np.average((diffs[i] - per_member_mae[i]) ** 2, weights=_sw_b)))
-                        for i in range(diffs.shape[0])
-                    ])
+                    per_member_std = np.array([float(np.sqrt(np.average((diffs[i] - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])])
                 else:
                     # (K, N, C) -- average over (N, C) with broadcasted sample_weight on the N axis.
-                    per_member_mae = np.array([
-                        float(np.average(diffs[i].mean(axis=-1), weights=_sw_b)) for i in range(diffs.shape[0])
-                    ])
-                    per_member_std = np.array([
-                        float(np.sqrt(np.average((diffs[i].mean(axis=-1) - per_member_mae[i]) ** 2, weights=_sw_b)))
-                        for i in range(diffs.shape[0])
-                    ])
+                    per_member_mae = np.array([float(np.average(diffs[i].mean(axis=-1), weights=_sw_b)) for i in range(diffs.shape[0])])
+                    per_member_std = np.array(
+                        [float(np.sqrt(np.average((diffs[i].mean(axis=-1) - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])]
+                    )
 
     # Wave 21 P1: nanmedian so a NaN-bearing per-member statistic doesn't
     # silently make the threshold NaN -- pre-fix that NaN threshold then
@@ -257,5 +245,3 @@ def compute_member_quality_gate(
             "per_member_std": per_member_std,
         },
     )
-
-

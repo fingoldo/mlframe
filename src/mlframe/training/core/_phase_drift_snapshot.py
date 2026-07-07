@@ -48,9 +48,7 @@ def _log_cardinality_and_drift_snapshot(
         cols_present = [c for c in all_cat_cols if c in train_df.columns]
         if is_polars:
             if cols_present:
-                _card_row = train_df.lazy().select(
-                    [pl.col(c).n_unique().alias(c) for c in cols_present]
-                ).collect()
+                _card_row = train_df.lazy().select([pl.col(c).n_unique().alias(c) for c in cols_present]).collect()
                 pairs = [(c, int(_card_row[c][0])) for c in cols_present]
             else:
                 pairs = []
@@ -65,9 +63,7 @@ def _log_cardinality_and_drift_snapshot(
             # Per-col anti-join was 3 selects + 2 joins = ~5 eager passes; on 100 cols that's ~500 passes ~10-30 s.
             # Batched implode pattern: one lazy collect per frame yielding a 1-row frame whose cells are the
             # imploded unique-value lists. Anti-set is then a pure-Python set-difference on the materialised lists.
-            drift_cols = [c for c, card in pairs
-                          if card <= _DRIFT_SKIP_CARD
-                          and c in val_df.columns and c in test_df.columns]
+            drift_cols = [c for c, card in pairs if card <= _DRIFT_SKIP_CARD and c in val_df.columns and c in test_df.columns]
             drift_rows: list = []
             if drift_cols:
                 # CAT-DRIFT-FULL-IMPLODE: cache the train-side ``unique().implode()`` result on
@@ -77,30 +73,17 @@ def _log_cardinality_and_drift_snapshot(
                 # only when ctx is absent OR the train frame identity changes; val/test sides are
                 # not cached because they're cheap relative to train and may rotate per pass.
                 _cache_key = (id(train_df), tuple(drift_cols))
-                _drift_cache = (
-                    getattr(ctx, "_cat_drift_implode_cache", None)
-                    if ctx is not None else None
-                )
-                _tr_sets_cached = (
-                    _drift_cache.get(_cache_key) if isinstance(_drift_cache, dict) else None
-                )
+                _drift_cache = getattr(ctx, "_cat_drift_implode_cache", None) if ctx is not None else None
+                _tr_sets_cached = _drift_cache.get(_cache_key) if isinstance(_drift_cache, dict) else None
                 if _tr_sets_cached is None:
-                    _tr_uniq = train_df.lazy().select(
-                        [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
-                    ).collect()
+                    _tr_uniq = train_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
                     # Materialise to per-col sets ONCE; the previous code recomputed the
                     # ``set(_tr_uniq[c][0].to_list())`` per column inside the row loop.
-                    _tr_sets_cached = {
-                        c: set(_tr_uniq[c][0].to_list()) for c in drift_cols
-                    }
+                    _tr_sets_cached = {c: set(_tr_uniq[c][0].to_list()) for c in drift_cols}
                     if isinstance(_drift_cache, dict):
                         _drift_cache[_cache_key] = _tr_sets_cached
-                _v_uniq = val_df.lazy().select(
-                    [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
-                ).collect()
-                _te_uniq = test_df.lazy().select(
-                    [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
-                ).collect()
+                _v_uniq = val_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
+                _te_uniq = test_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
                 _card_by_col = dict(pairs)
                 for c in drift_cols:
                     tr_set = _tr_sets_cached[c]
@@ -110,10 +93,7 @@ def _log_cardinality_and_drift_snapshot(
 
             if drift_rows:
                 drift_rows.sort(key=lambda x: -x[2])
-                drift_summary = ", ".join(
-                    f"{c}:val_only={v},test_only={t}"
-                    for c, _, v, t in drift_rows if v > 0 or t > 0
-                ) or "(none)"
+                drift_summary = ", ".join(f"{c}:val_only={v},test_only={t}" for c, _, v, t in drift_rows if v > 0 or t > 0) or "(none)"
                 logger.info("  Category drift (val/test values missing from train): %s", drift_summary)
 
                 # Test-side drift is reported above but NOT used in healing decisions

@@ -258,10 +258,7 @@ def _render_markdown(card: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.append(f"# Composite model card: `{prov['name']}`")
     lines.append("")
-    lines.append(
-        "_Not fitted._" if not ident["is_fitted"] else
-        f"Fitted composite over inner `{ident['inner_estimator_type']}`."
-    )
+    lines.append("_Not fitted._" if not ident["is_fitted"] else f"Fitted composite over inner `{ident['inner_estimator_type']}`.")
     lines.append("")
 
     lines.append("## Identity")
@@ -314,9 +311,7 @@ def _render_markdown(card: dict[str, Any]) -> str:
             lines.append("|-------|-----------|---------------|-----------|---|")
             for a, c in cov.items():
                 lines.append(
-                    f"| {a} | {_fmt_num(c['target_coverage'])} | "
-                    f"{_fmt_num(c['empirical_coverage'])} | "
-                    f"{_fmt_num(c['mean_width'])} | {c['n']} |"
+                    f"| {a} | {_fmt_num(c['target_coverage'])} | " f"{_fmt_num(c['empirical_coverage'])} | " f"{_fmt_num(c['mean_width'])} | {c['n']} |"
                 )
         lines.append("")
 

@@ -292,9 +292,7 @@ def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
             if _existing_optimizer is None:
                 out["model_params"]["optimizer"] = torch.optim.AdamW
             out["model_params"].setdefault("optimizer_kwargs", {})
-            out["model_params"]["optimizer_kwargs"]["weight_decay"] = float(
-                sklearn_overrides["alpha"]
-            )
+            out["model_params"]["optimizer_kwargs"]["weight_decay"] = float(sklearn_overrides["alpha"])
         except Exception:
             untranslated.append("alpha")
 
@@ -609,14 +607,8 @@ def compute_categorical_drift_psi(
             continue
         val_counts = _col_value_counts(val_df, col) if val_df is not None else None
         test_counts = _col_value_counts(test_df, col) if test_df is not None else None
-        val_psi = (
-            _compute_categorical_psi(train_counts, val_counts, bin_min_count=bin_min_count)
-            if val_counts is not None else float("nan")
-        )
-        test_psi = (
-            _compute_categorical_psi(train_counts, test_counts, bin_min_count=bin_min_count)
-            if test_counts is not None else float("nan")
-        )
+        val_psi = _compute_categorical_psi(train_counts, val_counts, bin_min_count=bin_min_count) if val_counts is not None else float("nan")
+        test_psi = _compute_categorical_psi(train_counts, test_counts, bin_min_count=bin_min_count) if test_counts is not None else float("nan")
         per_feature[col] = {"val_psi": val_psi, "test_psi": test_psi}
         max_psi = max(
             val_psi if math.isfinite(val_psi) else 0.0,
@@ -832,9 +824,7 @@ def compute_feature_distribution_drift(
     _cache_key = _drift_invariant_cache_key(
         train_df, val_df, test_df, feature_names, warn_threshold_z,
     )
-    _invariant: Optional[Dict[str, Any]] = (
-        _DRIFT_INVARIANT_CACHE.get(_cache_key) if _cache_key is not None else None
-    )
+    _invariant: Optional[Dict[str, Any]] = _DRIFT_INVARIANT_CACHE.get(_cache_key) if _cache_key is not None else None
     if _invariant is None:
         _invariant = _compute_drift_invariant(
             train_df, val_df, test_df,
@@ -875,16 +865,8 @@ def compute_feature_distribution_drift(
     # weight differences so more L2 regularization is empirically better).
     # When target_type is not supplied (legacy callers) fall back to the
     # regression family for back-compat.
-    _is_classification = (
-        target_type is not None
-        and str(target_type).lower() != "regression"
-        and "ranking" not in str(target_type).lower()
-    )
-    _override_family = (
-        ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION
-        if _is_classification
-        else ROBUST_MLP_OVERRIDES_UNDER_DRIFT
-    )
+    _is_classification = target_type is not None and str(target_type).lower() != "regression" and "ranking" not in str(target_type).lower()
+    _override_family = ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION if _is_classification else ROBUST_MLP_OVERRIDES_UNDER_DRIFT
     # Pick the target-type-grouped threshold. Regression: 3.0 (universally
     # grounded). Classification: 3.0 BUT additionally gated by the linear-
     # shape detector below -- interaction-rich classification targets show
@@ -905,18 +887,9 @@ def compute_feature_distribution_drift(
         if linear_shape_delta_vs_raw_pct is None:
             _shape_gate_passes = False  # no signal -> conservatively skip
         else:
-            _shape_gate_passes = (
-                abs(float(linear_shape_delta_vs_raw_pct))
-                <= CLASSIFICATION_LINEAR_SHAPE_MAX_DELTA_VS_RAW_PCT
-            )
+            _shape_gate_passes = abs(float(linear_shape_delta_vs_raw_pct)) <= CLASSIFICATION_LINEAR_SHAPE_MAX_DELTA_VS_RAW_PCT
     recommend_neural_overrides: Optional[Dict[str, Any]] = None
-    if (
-        weighted_score is not None
-        and _per_type_threshold is not None
-        and weighted_score >= _per_type_threshold
-        and _override_family
-        and _shape_gate_passes
-    ):
+    if weighted_score is not None and _per_type_threshold is not None and weighted_score >= _per_type_threshold and _override_family and _shape_gate_passes:
         recommend_neural_overrides = dict(_override_family)
 
     if candidates:
@@ -930,18 +903,10 @@ def compute_feature_distribution_drift(
         # grounded harm signal -- per-model FS may drop the feature, or it
         # may be FI~0 and the drift is irrelevant.
         _max_abs_z = candidates[0][1] if candidates else 0.0
-        _escalate = (
-            _max_abs_z >= 10.0 * warn_threshold_z
-            or (weighted_score is not None and weighted_score >= 1.0)
-        )
+        _escalate = _max_abs_z >= 10.0 * warn_threshold_z or (weighted_score is not None and weighted_score >= 1.0)
         _level = "warning" if _escalate else "info"
-        _ws_str = (
-            f", weighted_drift={weighted_score:.2f}" if weighted_score is not None else ""
-        )
-        _override_str = (
-            f", recommend_neural_overrides={recommend_neural_overrides}"
-            if recommend_neural_overrides else ""
-        )
+        _ws_str = f", weighted_drift={weighted_score:.2f}" if weighted_score is not None else ""
+        _override_str = f", recommend_neural_overrides={recommend_neural_overrides}" if recommend_neural_overrides else ""
         getattr(logger, _level)(
             "[feature-distribution-drift] %d numeric feature(s) drift > %.1f sigma "
             "between train and val/test (max |z|=%.2f%s%s). Observational only -- "

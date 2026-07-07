@@ -25,7 +25,6 @@ import numba
 
 from ._numba_params import NUMBA_NJIT_PARAMS
 
-
 # Fixed graded-relevance ceiling for ERR's gain map (2**rel - 1) / 2**max_grade.
 # ERR is only comparable across queries / splits when every call uses the SAME
 # max_grade: a per-call ``y_true.max()`` makes the gain normalisation depend on
@@ -183,7 +182,7 @@ def _dcg_per_group_kernel(
     for i in range(kk):
         rel = y_true[order[i]]
         if exp_gain:
-            gain = (2.0 ** rel) - 1.0
+            gain = (2.0**rel) - 1.0
         else:
             gain = float(rel)
         dcg += gain / log2(i + 2.0)  # log2(rank + 1), rank starts at 1
@@ -236,14 +235,14 @@ def _err_per_group_kernel(
         return 0.0
     order = np.argsort(-y_score, kind="mergesort")  # stable: deterministic tie-break by input order
     kk = k if k < n else n
-    denom = (2.0 ** max_grade)
+    denom = 2.0**max_grade
     err = 0.0
     p_remain = 1.0  # probability that the user is still browsing
     for i in range(kk):
         rel = y_true[order[i]]
-        R = ((2.0 ** rel) - 1.0) / denom
+        R = ((2.0**rel) - 1.0) / denom
         err += p_remain * R / (i + 1.0)
-        p_remain *= (1.0 - R)
+        p_remain *= 1.0 - R
         if p_remain <= 0.0:
             break
     return err

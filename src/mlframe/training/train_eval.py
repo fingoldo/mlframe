@@ -36,7 +36,6 @@ from .configs import (
 )
 from .io import load_mlframe_model, save_mlframe_model
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -104,10 +103,7 @@ def _validate_cached_model_schema(
             diff = set(current_names) ^ set(saved_names)
             if diff:
                 sample = sorted(diff)[:8]
-                return (
-                    f"feature-name mismatch (saved={len(saved_names)}, current={len(current_names)}); "
-                    f"symmetric diff sample={sample}"
-                )
+                return f"feature-name mismatch (saved={len(saved_names)}, current={len(current_names)}); " f"symmetric diff sample={sample}"
             return "feature-name order differs between saved model and current df"
 
     # 2. CatBoost-specific cat_features check. Only meaningful if we have
@@ -231,7 +227,6 @@ def optimize_model_for_storage(
 
 # select_target carved to ``_train_eval_select_target``; re-exported below.
 from .targets import select_target  # noqa: F401, E402
-
 
 
 def _call_train_evaluate_with_configs(
@@ -486,10 +481,7 @@ def process_model(
                 # No-op on non-CB models (the attribute is never read for
                 # them).
                 _model_cls_name = type(model_obj).__name__
-                if (
-                    _model_cls_name.startswith("CatBoost")
-                    and not getattr(model_obj, "_mlframe_polars_fastpath_broken", False)
-                ):
+                if _model_cls_name.startswith("CatBoost") and not getattr(model_obj, "_mlframe_polars_fastpath_broken", False):
                     try:
                         model_obj._mlframe_polars_fastpath_broken = True
                     except Exception:  # nosec B110 - non-trivial body
@@ -536,8 +528,7 @@ def process_model(
     if not use_cached_model:
         end = timer()
         if verbose:
-            logger.info("Finished training, took %.1f min. RAM usage %.1fGBs...",
-                        (end - start) / 60, get_own_memory_usage())
+            logger.info("Finished training, took %.1f min. RAM usage %.1fGBs...", (end - start) / 60, get_own_memory_usage())
         if fpath:
             # lean=True. The train-time save here is the inference-ready
             # bundle the harness / serving stack reads back; train_preds + train_target

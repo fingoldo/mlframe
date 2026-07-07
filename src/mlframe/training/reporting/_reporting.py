@@ -132,9 +132,7 @@ def _labels_are_arange(classes: Sequence | None, probs: np.ndarray) -> bool:
     recompute (``targets == class_name``) and can be indexed by class_id. Non-0-indexed
     labels (e.g. [1,2,3] / strings) make the column index differ from the label -> unsafe."""
     k = probs.shape[1] if hasattr(probs, "shape") and probs.ndim == 2 else (len(classes) if classes is not None else 0)
-    return bool(classes is not None and len(classes) == k and all(
-        isinstance(c, (int, np.integer)) and int(c) == i for i, c in enumerate(classes)
-    ))
+    return bool(classes is not None and len(classes) == k and all(isinstance(c, (int, np.integer)) and int(c) == i for i, c in enumerate(classes)))
 
 
 def _canonical_multilabel_y(targets) -> np.ndarray:
@@ -167,9 +165,7 @@ def _canonical_multilabel_y(targets) -> np.ndarray:
 
     if targets_arr.dtype == object and targets_arr.ndim == 1 and targets_arr.shape[0] > 0:
         first = targets_arr[0]
-        if hasattr(first, "shape") or (
-            hasattr(first, "__len__") and not isinstance(first, (str, bytes))
-        ):
+        if hasattr(first, "shape") or (hasattr(first, "__len__") and not isinstance(first, (str, bytes))):
             try:
                 targets_arr = np.stack([np.asarray(c) for c in targets_arr], axis=0)
             except Exception:
@@ -232,8 +228,8 @@ def _canonicalize_split_names(split_names: list) -> dict:
             has_val = True
             continue
         for prefix in ("valid_", "validation_"):
-            if low.startswith(prefix) and low[len(prefix):].isdigit():
-                positional.append((int(low[len(prefix):]), name))
+            if low.startswith(prefix) and low[len(prefix) :].isdigit():
+                positional.append((int(low[len(prefix) :]), name))
                 break
     if positional:
         positional.sort()
@@ -248,11 +244,9 @@ def _canonicalize_split_names(split_names: list) -> dict:
     return out
 
 
-
-
 def model_name_for_title(target_type) -> str:
     """Short report-title tag from the target_type (combined-HTML page heading)."""
-    return (str(target_type) if target_type else "Model")
+    return str(target_type) if target_type else "Model"
 
 
 # Internal shim-wrapper suffixes that mlframe appends to an estimator class to add dataset/eval-set plumbing (e.g.
@@ -435,7 +429,7 @@ def report_model_perf(
         _calibration_heatmap_2d_charts = getattr(reporting_config, "calibration_heatmap_2d_charts", True)
         with phase(
             "report_probabilistic_model_perf",
-            n_rows=(len(targets) if hasattr(targets, '__len__') else None),
+            n_rows=(len(targets) if hasattr(targets, "__len__") else None),
         ):
             preds, probs = report_probabilistic_model_perf(
                 **common_params,
@@ -464,7 +458,7 @@ def report_model_perf(
     else:
         with phase(
             "report_regression_model_perf",
-            n_rows=(len(targets) if hasattr(targets, '__len__') else None),
+            n_rows=(len(targets) if hasattr(targets, "__len__") else None),
         ):
             # Thread plot_outputs explicitly so the regression
             # report can pick the plotly DSL path. Probabilistic path
@@ -496,9 +490,7 @@ def report_model_perf(
     # output DSL. No-op for binary classification / regression / when
     # templates are unset. Failures are logged + swallowed (panels are
     # additive; existing perf chart + FI still emit).
-    if plot_file and plot_outputs and (
-        binary_panels or multiclass_panels or multilabel_panels or ltr_panels or quantile_panels
-    ):
+    if plot_file and plot_outputs and (binary_panels or multiclass_panels or multilabel_panels or ltr_panels or quantile_panels):
         from mlframe.reporting.auto_dispatch import render_multi_target_panels
         # INV-37: stamp the [NF / M rows] shape annotation onto the panel-grid suptitle like the FI plot header, so a
         # multi-target panel grid is self-describing (how many features + rows produced it).
@@ -511,7 +503,7 @@ def report_model_perf(
         _panel_emphasis = getattr(reporting_config, "panel_emphasis", "all")
         _emph_lo = getattr(reporting_config, "emphasis_imbalance_lo", 0.2)
         _emph_hi = getattr(reporting_config, "emphasis_imbalance_hi", 0.8)
-        _binary_panels_is_default = (binary_panels == _reporting_field_default("binary_panels"))
+        _binary_panels_is_default = binary_panels == _reporting_field_default("binary_panels")
         with phase("render_multi_target_panels"):
             _rendered_tag = render_multi_target_panels(
                 targets=np.asarray(targets) if not isinstance(targets, np.ndarray) else targets,
@@ -544,10 +536,7 @@ def report_model_perf(
             # INV-56: also stamp the base path so the accounting points at the on-disk artifact, not just a tag.
             if isinstance(metrics, dict):
                 _charts = metrics.setdefault("charts", {"saved": [], "failed": []})
-                _which = (
-                    "binary" if (target_type or "").lower() == "binary_classification"
-                    else (target_type or "").lower()
-                ) or "panels"
+                _which = ("binary" if (target_type or "").lower() == "binary_classification" else (target_type or "").lower()) or "panels"
                 if _rendered_tag:
                     _charts["saved"].append(f"{_rendered_tag}_panels")
                     _charts.setdefault("paths", []).append(f"{plot_file}_{_rendered_tag}_panels")
@@ -570,11 +559,7 @@ def report_model_perf(
 
     # Binary decile gains/lift/KS table -- surfaced in the metrics dict (not a
     # chart panel) so the operator gets the gains-table view alongside the curves.
-    if (
-        isinstance(metrics, dict)
-        and (target_type or "").lower() == "binary_classification"
-        and probs is not None
-    ):
+    if isinstance(metrics, dict) and (target_type or "").lower() == "binary_classification" and probs is not None:
         try:
             from mlframe.reporting.charts.binary import binary_decile_table
             probs_arr = np.asarray(probs)
@@ -650,4 +635,3 @@ from ._reporting_diagnostics import (  # noqa: F401, E402
     _render_post_fit_diagnostics,
     _render_training_curves,
 )
-

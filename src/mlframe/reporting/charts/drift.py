@@ -125,7 +125,7 @@ def compute_psi_matrix(
     bucket_bounds = np.linspace(0, n, n_buckets + 1).astype(np.int64)
     bucket_of = np.empty(n, dtype=np.int64)
     for b in range(n_buckets):
-        bucket_of[order[bucket_bounds[b]:bucket_bounds[b + 1]]] = b
+        bucket_of[order[bucket_bounds[b] : bucket_bounds[b + 1]]] = b
 
     if baseline_mask is None:
         base_sel = bucket_of == 0
@@ -157,9 +157,7 @@ def compute_psi_matrix(
     return matrix, tuple(names), col_labels
 
 
-def _frame_columns(
-    feature_frame: Any, feature_names: Optional[Sequence[str]]
-) -> Tuple[List[np.ndarray], List[str]]:
+def _frame_columns(feature_frame: Any, feature_names: Optional[Sequence[str]]) -> Tuple[List[np.ndarray], List[str]]:
     """Yield per-column ndarrays + names from ndarray / pandas / polars without copying the whole frame.
 
     ``feature_names`` (when given) RESTRICTS + ORDERS the pulled columns for a DataFrame
@@ -247,7 +245,7 @@ def _time_bucket_edges(ts: np.ndarray, n_buckets: int) -> Tuple[np.ndarray, np.n
     centers = np.empty(nb, dtype=np.float64)
     ts_f = ts.astype(np.float64)
     for b in range(nb):
-        idx = order[bounds[b]:bounds[b + 1]]
+        idx = order[bounds[b] : bounds[b + 1]]
         bucket_of[idx] = b
         centers[b] = float(np.mean(ts_f[idx])) if idx.size else np.nan
     return order, bucket_of, centers
@@ -544,9 +542,7 @@ def _is_datetime_index(idx: Any) -> bool:
         return False
 
 
-def _regimes_to_vspans(
-    regimes: Optional[Sequence[Tuple[Any, Any, str, str]]], alpha: float
-) -> Optional[Tuple[Tuple[Any, ...], ...]]:
+def _regimes_to_vspans(regimes: Optional[Sequence[Tuple[Any, Any, str, str]]], alpha: float) -> Optional[Tuple[Tuple[Any, ...], ...]]:
     """Convert ``(start, end, color, label)`` regime spans to LinePanelSpec ``vspans``.
 
     start/end are coerced to the same numeric x-scale as the line (datetime -> int64 ns, else float). A non-empty
@@ -655,7 +651,7 @@ def adversarial_auc(
             sa = pd.Series(a).astype("string")
             sb = pd.Series(b).astype("string")
             codes, _ = pd.factorize(pd.concat([sa, sb], ignore_index=True), use_na_sentinel=True)
-            return codes[: len(a)].astype(np.float64), codes[len(a):].astype(np.float64)
+            return codes[: len(a)].astype(np.float64), codes[len(a) :].astype(np.float64)
 
     _enc, _kept_names = [], []
     for j, nm in enumerate(names):
@@ -721,7 +717,7 @@ def adversarial_validation(
     if not cols_a or not cols_b or min(na, nb) < MIN_ADV_ROWS_PER_SIDE:
         ann = AnnotationPanelSpec(
             text=f"Adversarial validation skipped: needs >= {MIN_ADV_ROWS_PER_SIDE} rows/side and >= 1 feature "
-                 f"(got train={na}, test={nb}, n_features={len(cols_a)})",
+            f"(got train={na}, test={nb}, n_features={len(cols_a)})",
             title="Adversarial validation",
         )
         return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
@@ -765,7 +761,7 @@ def adversarial_validation(
         ylabel="True Positive Rate",
     )
 
-    order = np.argsort(imp_tt)[::-1][:max(1, min(top_features, imp_tt.size))]
+    order = np.argsort(imp_tt)[::-1][: max(1, min(top_features, imp_tt.size))]
     bar = BarPanelSpec(
         categories=tuple(names[i] for i in order),
         values=imp_tt[order],

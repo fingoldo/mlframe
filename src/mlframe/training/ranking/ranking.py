@@ -52,9 +52,7 @@ def qid_to_group_sizes(group_ids: np.ndarray) -> np.ndarray:
     return np.diff(edges).astype(np.intp)
 
 
-def _validate_ranking_inputs(
-    X: Any, y: np.ndarray, group_ids: np.ndarray, *, name: str
-) -> None:
+def _validate_ranking_inputs(X: Any, y: np.ndarray, group_ids: np.ndarray, *, name: str) -> None:
     """Common shape / contract checks for ranking inputs."""
     n = len(y) if hasattr(y, "__len__") else None
     n_x = X.shape[0] if hasattr(X, "shape") else (len(X) if hasattr(X, "__len__") else None)
@@ -62,21 +60,15 @@ def _validate_ranking_inputs(
 
     if n is None or n_x is None or n_g is None:
         raise ValueError(
-            f"{name}: X, y, group_ids must all have a length. Got "
-            f"types {type(X).__name__}, {type(y).__name__}, "
-            f"{type(group_ids).__name__}."
+            f"{name}: X, y, group_ids must all have a length. Got " f"types {type(X).__name__}, {type(y).__name__}, " f"{type(group_ids).__name__}."
         )
     if not (n == n_x == n_g):
-        raise ValueError(
-            f"{name}: length mismatch -- y={n}, X={n_x}, group_ids={n_g}"
-        )
+        raise ValueError(f"{name}: length mismatch -- y={n}, X={n_x}, group_ids={n_g}")
     if n == 0:
         raise ValueError(f"{name}: empty inputs")
 
 
-def prepare_cb_inputs(
-    X: Any, y: np.ndarray, group_ids: np.ndarray
-) -> tuple[Any, np.ndarray, np.ndarray, np.ndarray]:
+def prepare_cb_inputs(X: Any, y: np.ndarray, group_ids: np.ndarray) -> tuple[Any, np.ndarray, np.ndarray, np.ndarray]:
     """CatBoost requires rows of one query to be contiguous.
 
     Sorts X / y / group_ids by group_id (stable sort, preserves within-group
@@ -116,9 +108,7 @@ def prepare_cb_inputs(
     return X_sorted, y_sorted, g_sorted, sort_idx
 
 
-def prepare_xgb_inputs(
-    X: Any, y: np.ndarray, group_ids: np.ndarray
-) -> tuple[Any, np.ndarray, np.ndarray]:
+def prepare_xgb_inputs(X: Any, y: np.ndarray, group_ids: np.ndarray) -> tuple[Any, np.ndarray, np.ndarray]:
     """XGBoost ``XGBRanker.fit(X, y, qid=...)`` accepts per-row qid.
 
     No sort required (XGB handles arbitrary qid order internally).
@@ -128,9 +118,7 @@ def prepare_xgb_inputs(
     return X, np.asarray(y), np.asarray(group_ids)
 
 
-def prepare_lgb_inputs(
-    X: Any, y: np.ndarray, group_ids: np.ndarray
-) -> tuple[Any, np.ndarray, np.ndarray, np.ndarray]:
+def prepare_lgb_inputs(X: Any, y: np.ndarray, group_ids: np.ndarray) -> tuple[Any, np.ndarray, np.ndarray, np.ndarray]:
     """LightGBM ``LGBMRanker.fit(X, y, group=per_query_sizes)``.
 
     Sorts by group_id first (LGB's group= shape requires contiguous
@@ -219,9 +207,7 @@ def fit_ranker(
     Caller invokes ``predict_ranker_scores`` with the dict + new X.
     """
     if not getattr(strategy, "supports_native_ranking", False):
-        raise NotImplementedError(
-            f"{type(strategy).__name__} does not support native ranking."
-        )
+        raise NotImplementedError(f"{type(strategy).__name__} does not support native ranking.")
 
     flavor = _strategy_flavor(strategy)
     y_max = float(np.asarray(y_train).max()) if len(y_train) else None
@@ -383,7 +369,7 @@ def _fit_xgb_ranker(
                 if _c not in _frame.columns:
                     continue
                 _col = _frame[_c]
-                _uniq = (_col.cat.categories.tolist() if isinstance(_col.dtype, _CatDtype) else _col.dropna().unique().tolist())
+                _uniq = _col.cat.categories.tolist() if isinstance(_col.dtype, _CatDtype) else _col.dropna().unique().tolist()
                 for _v in _uniq:
                     if _v not in _seen:
                         _seen.add(_v)
@@ -420,15 +406,11 @@ def _fit_lgb_ranker(
 ) -> dict:
     from lightgbm import LGBMRanker
 
-    X_tr, y_tr, group_sizes_tr, sort_idx_tr = prepare_lgb_inputs(
-        X_train, y_train, group_ids_train
-    )
+    X_tr, y_tr, group_sizes_tr, sort_idx_tr = prepare_lgb_inputs(X_train, y_train, group_ids_train)
 
     fit_kwargs: dict = {}
     if X_val is not None and y_val is not None and group_ids_val is not None:
-        X_va, y_va, group_sizes_va, _ = prepare_lgb_inputs(
-            X_val, y_val, group_ids_val
-        )
+        X_va, y_va, group_sizes_va, _ = prepare_lgb_inputs(X_val, y_val, group_ids_val)
         fit_kwargs["eval_set"] = [(X_va, y_va)]
         fit_kwargs["eval_group"] = [group_sizes_va]
 
@@ -471,9 +453,7 @@ def _fit_lgb_ranker(
 
         X_tr = _coerce_cats(X_tr)
         if fit_kwargs.get("eval_set"):
-            fit_kwargs["eval_set"] = [
-                (_coerce_cats(_xv), _yv) for _xv, _yv in fit_kwargs["eval_set"]
-            ]
+            fit_kwargs["eval_set"] = [(_coerce_cats(_xv), _yv) for _xv, _yv in fit_kwargs["eval_set"]]
         fit_kwargs["categorical_feature"] = cat_features
 
     model.fit(
@@ -533,8 +513,7 @@ def _fit_mlp_ranker(
 
     if cat_features:
         logger.info(
-            "MLPRanker: cat_features=%s passed but ignored -- MLPRanker "
-            "operates on numeric tensors; caller must pre-encode.",
+            "MLPRanker: cat_features=%s passed but ignored -- MLPRanker " "operates on numeric tensors; caller must pre-encode.",
             cat_features,
         )
 
@@ -742,19 +721,13 @@ def ensemble_ranker_scores(
     n_rows = len(scores_per_model[0])
     for i, s in enumerate(scores_per_model):
         if len(s) != n_rows:
-            raise ValueError(
-                f"score length mismatch: model 0 has {n_rows}, model {i} has {len(s)}"
-            )
+            raise ValueError(f"score length mismatch: model 0 has {n_rows}, model {i} has {len(s)}")
     if len(group_ids) != n_rows:
-        raise ValueError(
-            f"group_ids length {len(group_ids)} != score length {n_rows}"
-        )
+        raise ValueError(f"group_ids length {len(group_ids)} != score length {n_rows}")
 
     method = method.lower()
     if method not in {"rrf", "borda", "score_mean"}:
-        raise ValueError(
-            f"unknown ensemble method {method!r}; must be rrf | borda | score_mean"
-        )
+        raise ValueError(f"unknown ensemble method {method!r}; must be rrf | borda | score_mean")
 
     if method == "score_mean" and not assume_comparable_scales:
         # C-P1-4: hard-fail instead of silently mutating method='score_mean' -> method='rrf'. The previous

@@ -1,6 +1,5 @@
 """Composite x FE-pipeline stacking helpers: ``composite_predictions_as_feature`` attaches a fitted wrapper's predictions to a dataframe as a new column; ``composite_oof_predictions`` runs K-fold OOF stacking to avoid in-sample leakage. Both use ``CompositeTargetEstimator``-style wrappers passed in by the caller; no compile-time dep on the wrapper class itself."""
 
-
 from __future__ import annotations
 
 import logging
@@ -14,7 +13,7 @@ logger = logging.getLogger(__name__)
 # Byte-size threshold above which a full pandas-frame copy is flagged as an
 # OOM risk (the polars path is zero-copy). 2 GB mirrors the suite-wide
 # eager-conversion gate documented in CLAUDE.md.
-_FEATURE_STACK_LARGE_FRAME_BYTES: int = 2 * 1024 ** 3
+_FEATURE_STACK_LARGE_FRAME_BYTES: int = 2 * 1024**3
 
 
 # ----------------------------------------------------------------------
@@ -94,9 +93,7 @@ def composite_predictions_as_feature(
         out = df.copy()
         out[column_name] = preds
         return out
-    raise TypeError(
-        f"composite_predictions_as_feature: unsupported df type {type(df).__name__}; pass pandas / polars DataFrame."
-    )
+    raise TypeError(f"composite_predictions_as_feature: unsupported df type {type(df).__name__}; pass pandas / polars DataFrame.")
 
 
 def composite_oof_predictions(
@@ -143,9 +140,7 @@ def composite_oof_predictions(
     out = np.full(n, np.nan, dtype=np.float64)
     groups_arr = None if groups is None else np.asarray(groups).reshape(-1)
     if groups_arr is not None and groups_arr.size != n:
-        raise ValueError(
-            f"composite_oof_predictions: groups length {groups_arr.size} != n {n}."
-        )
+        raise ValueError(f"composite_oof_predictions: groups length {groups_arr.size} != n {n}.")
     # A full-length per-row sample_weight must be sliced to each fold's train rows; mark it so the per-fold loop slices it (and leave any wrapper-already-fold-scoped fit_kwargs untouched).
     _sw_full = None
     _sw = fit_kwargs.get("sample_weight", None)
@@ -181,9 +176,7 @@ def composite_oof_predictions(
             X_train = X.iloc[train_idx].reset_index(drop=True)
             X_val = X.iloc[val_idx].reset_index(drop=True)
         else:
-            raise TypeError(
-                f"composite_oof_predictions: unsupported X type {type(X).__name__}"
-            )
+            raise TypeError(f"composite_oof_predictions: unsupported X type {type(X).__name__}")
         # Slice a full-length per-row sample_weight to THIS fold's train rows; a verbatim length-n vector would mis-align to the len(train_idx) rows the wrapper fits on (or raise).
         if _sw_full is None:
             fold_fit_kwargs = fit_kwargs

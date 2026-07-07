@@ -69,12 +69,12 @@ class LearningCurveResult:
     lists the requested fractions a ``time_budget_s`` cut before they ran (empty when nothing was skipped).
     """
 
-    train_sizes: np.ndarray            # absolute row counts (ascending)
-    train_scores: np.ndarray           # score on the fit subset itself
-    holdout_scores: np.ndarray         # score on the ONE fixed holdout
+    train_sizes: np.ndarray  # absolute row counts (ascending)
+    train_scores: np.ndarray  # score on the fit subset itself
+    holdout_scores: np.ndarray  # score on the ONE fixed holdout
     train_score_std: np.ndarray
     holdout_score_std: np.ndarray
-    holdout_n: int                     # rows in the fixed holdout
+    holdout_n: int  # rows in the fixed holdout
     scorer_name: str = "score"
     higher_is_better: bool = True
     warm_start_used: bool = False
@@ -458,9 +458,8 @@ def learning_curve_panel(result: LearningCurveResult, *, title: str = "Learning 
         band = (hold_y - result.holdout_score_std, hold_y + result.holdout_score_std)
 
     verdict = result.verdict()
-    subtitle = (
-        f"{title} ({result.scorer_name}) -- {verdict}; holdout n={result.holdout_n}"
-        + (f"; {len(result.skipped_fractions)} size(s) skipped (budget)" if result.skipped_fractions else "")
+    subtitle = f"{title} ({result.scorer_name}) -- {verdict}; holdout n={result.holdout_n}" + (
+        f"; {len(result.skipped_fractions)} size(s) skipped (budget)" if result.skipped_fractions else ""
     )
 
     line = LinePanelSpec(

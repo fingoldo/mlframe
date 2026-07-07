@@ -90,9 +90,7 @@ def _group_boundaries(group: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return sort_idx, sizes
 
 
-def _within_group_residual(
-    y: np.ndarray, base: np.ndarray, group: np.ndarray, mode: str
-) -> np.ndarray:
+def _within_group_residual(y: np.ndarray, base: np.ndarray, group: np.ndarray, mode: str) -> np.ndarray:
     """Residual rank signal of ``y`` against ``base``, computed WITHIN each group.
 
     ``mode="diff"``: ``y - base`` re-centred so each group's residual has zero mean
@@ -171,11 +169,11 @@ def _ndcg_at_k(y_true: np.ndarray, scores: np.ndarray, group: np.ndarray, k: int
         sc = scores[m]
         kk = min(k, yt.size)
         order = np.argsort(-sc, kind="stable")[:kk]
-        gains = (2.0 ** yt[order] - 1.0)
+        gains = 2.0 ** yt[order] - 1.0
         disc = 1.0 / np.log2(np.arange(2, kk + 2))
         dcg = float((gains * disc).sum())
         ideal_order = np.argsort(-yt, kind="stable")[:kk]
-        igains = (2.0 ** yt[ideal_order] - 1.0)
+        igains = 2.0 ** yt[ideal_order] - 1.0
         idcg = float((igains * disc).sum())
         vals.append(dcg / idcg if idcg > 0 else 0.0)
     return float(np.mean(vals)) if vals else 0.0
@@ -264,9 +262,7 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
             import lightgbm as lgb  # noqa: F401
 
             return (
-                __import__("lightgbm").LGBMRanker(
-                    objective="lambdarank", n_estimators=200, verbose=-1
-                ),
+                __import__("lightgbm").LGBMRanker(objective="lambdarank", n_estimators=200, verbose=-1),
                 "lambdarank",
             )
         except Exception:
@@ -279,9 +275,7 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
         return type(est).__name__ == "LGBMRanker"
 
     # -- pairwise fallback ------------------------------------------------------
-    def _build_pairs(
-        self, Xnum: np.ndarray, res: np.ndarray, group: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def _build_pairs(self, Xnum: np.ndarray, res: np.ndarray, group: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Within-group item-pair difference features + sign labels for the fallback.
 
         For each ordered pair ``(i, j)`` in the SAME group with a non-tied residual we
@@ -328,22 +322,14 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
         if group is None:
             raise ValueError("CompositeRankEstimator.fit requires the per-item ``group`` argument.")
         if self.residual_mode not in ("diff", "rank"):
-            raise ValueError(
-                f"CompositeRankEstimator: residual_mode must be 'diff' or 'rank', "
-                f"got {self.residual_mode!r}."
-            )
+            raise ValueError(f"CompositeRankEstimator: residual_mode must be 'diff' or 'rank', " f"got {self.residual_mode!r}.")
         y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
         group_arr = np.asarray(group).reshape(-1)
         if group_arr.shape[0] != y_arr.shape[0]:
-            raise ValueError(
-                "CompositeRankEstimator: group length must match y length "
-                f"({group_arr.shape[0]} != {y_arr.shape[0]})."
-            )
+            raise ValueError("CompositeRankEstimator: group length must match y length " f"({group_arr.shape[0]} != {y_arr.shape[0]}).")
         base = self._extract_base(X)
         if base.shape[0] != y_arr.shape[0]:
-            raise ValueError(
-                "CompositeRankEstimator: base column length must match y length."
-            )
+            raise ValueError("CompositeRankEstimator: base column length must match y length.")
         res = _within_group_residual(y_arr, base, group_arr, self.residual_mode)
 
         if self.base_estimator is None:

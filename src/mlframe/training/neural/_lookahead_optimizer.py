@@ -71,10 +71,7 @@ class Lookahead(Optimizer):
         alpha: float = 0.5,
     ) -> None:
         if not isinstance(base_optimizer, Optimizer):
-            raise TypeError(
-                f"base_optimizer must be torch.optim.Optimizer; got "
-                f"{type(base_optimizer).__name__}"
-            )
+            raise TypeError(f"base_optimizer must be torch.optim.Optimizer; got " f"{type(base_optimizer).__name__}")
         if k < 1:
             raise ValueError(f"k must be >= 1; got {k}")
         if not 0.0 < alpha <= 1.0:

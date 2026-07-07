@@ -6,7 +6,6 @@ resolves transparently.
 """
 from __future__ import annotations
 
-
 # *****************************************************************************************************************************************************
 # IMPORTS
 # *****************************************************************************************************************************************************
@@ -80,9 +79,7 @@ def fit_and_transform_pipeline(
     if isinstance(train_df, pl.DataFrame) and config.prefer_polarsds:
         # Detect cat_features from the ORIGINAL schema before the pipeline possibly
         # ordinal/one-hot-encodes them to numeric (which would erase their categorical dtype).
-        _orig_cat_features = [
-            c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding
-        ]
+        _orig_cat_features = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
         pipeline = create_polarsds_pipeline(
             train_df, config, verbose=verbose,
             exclude_from_encoding=_exclude_from_encoding,
@@ -170,9 +167,7 @@ def fit_and_transform_pipeline(
                 return False
             if _first is None:
                 return False
-            return hasattr(_first, "shape") or (
-                hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
-            )
+            return hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
 
         # High-cardinality object/string columns are free-text, not categoricals.
         # The downstream auto-detect (_phase_auto_detect_feature_types) will

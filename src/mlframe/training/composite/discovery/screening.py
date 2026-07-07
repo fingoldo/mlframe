@@ -1,6 +1,5 @@
 """Screening helpers used by CompositeTargetDiscovery: column extraction (_extract_column_array / _is_numeric_column), correlation guards (_safe_corr / _safe_abs_corr_all / _residualise), mutual-information scoring (_mi_pair_bin / _mi_to_target), tiny-model CV-RMSE rerank (_build_tiny_model / _tiny_cv_rmse_raw_y / _tiny_cv_rmse_y_scale / *_multiseed variants), stratified sampling (_sample_indices). composite.py re-exports every symbol below for full back-compat."""
 
-
 from __future__ import annotations
 
 import logging
@@ -72,9 +71,7 @@ def _extract_column_array(df: Any, col: str, rows: np.ndarray | None = None) -> 
         if rows is not None:
             return df[col].iloc[rows].to_numpy(dtype=np.float32, na_value=np.nan)
         return df[col].to_numpy(dtype=np.float32, na_value=np.nan)
-    raise TypeError(
-        f"CompositeTargetDiscovery: unsupported df type {type(df).__name__}"
-    )
+    raise TypeError(f"CompositeTargetDiscovery: unsupported df type {type(df).__name__}")
 
 
 def _is_numeric_column(df: Any, col: str) -> bool:
@@ -894,10 +891,7 @@ def _sample_indices(
         idx.sort()
         return idx
     if strategy != "stratified_quantile":
-        raise ValueError(
-            f"_sample_indices: unknown strategy '{strategy}'. "
-            "Choose from 'random' or 'stratified_quantile'."
-        )
+        raise ValueError(f"_sample_indices: unknown strategy '{strategy}'. " "Choose from 'random' or 'stratified_quantile'.")
 
     # Stratified quantile sampling. Bin y into n_strata quantile
     # bins, sample ceil(sample_n / n_strata) from each.

@@ -24,8 +24,6 @@ from .utils import (
 logger = logging.getLogger("mlframe.training.core.predict")
 
 
-
-
 def predict_from_models(
     df: pl.DataFrame | pd.DataFrame,
     models: dict,
@@ -196,11 +194,7 @@ def predict_from_models(
     # Without this merge the per-model column subset below cannot find the expected raw cols and raises
     # ``expects features missing from input``. Surfaced by fuzz iter#189 (binary x lgb x onehot x
     # dim_reducer=TruncatedSVD).
-    if (
-        extensions_pipeline is not None
-        and isinstance(df, pd.DataFrame)
-        and isinstance(df_pre_pipeline, pd.DataFrame)
-    ):
+    if extensions_pipeline is not None and isinstance(df, pd.DataFrame) and isinstance(df_pre_pipeline, pd.DataFrame):
         _ext_new_cols = [c for c in df.columns if c not in set(df_pre_pipeline.columns)]
         if _ext_new_cols:
             _ext_only = df[_ext_new_cols]
@@ -639,7 +633,7 @@ def predict_from_models(
             results["ensemble_probabilities"] = all_probs[0]
 
     if verbose:
-        logger.info("Generated predictions for %d models", len(results['predictions']))
+        logger.info("Generated predictions for %d models", len(results["predictions"]))
 
     # Escalate all-models-failed to a single aggregated RuntimeError.
     # Previously every per-model failure was logged and swallowed, leaving
@@ -648,15 +642,8 @@ def predict_from_models(
     # empty dict -- iter-45 500k cb-regression saw the predict swallow
     # the original error and the harness only got "per_target_probs
     # keys: []" with no clue what crashed.
-    if (
-        _models_attempted > 0
-        and not results["predictions"]
-        and not results["probabilities"]
-        and _predict_errors
-    ):
-        _summary = "; ".join(
-            f"{_mn}: {_err}" for _mn, _err in _predict_errors[:5]
-        )
+    if _models_attempted > 0 and not results["predictions"] and not results["probabilities"] and _predict_errors:
+        _summary = "; ".join(f"{_mn}: {_err}" for _mn, _err in _predict_errors[:5])
         if len(_predict_errors) > 5:
             _summary += f"; ... (+{len(_predict_errors) - 5} more)"
         raise RuntimeError(

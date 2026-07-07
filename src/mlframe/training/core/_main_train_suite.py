@@ -54,7 +54,6 @@ from .utils import (
     _phase_train_val_test_split,
 )
 
-
 # CODE-P1-8: single consolidated import for all per-phase entry points (was 8 separate ``from
 # ._phase_X import Y`` lines). Call e.g. ``pr.apply_polars_categorical_fixes(...)``.
 from . import _phase_runners as pr
@@ -81,7 +80,6 @@ from ._main_train_suite_phases import (
     validate_suite_inputs,
     warn_on_empty_target_by_type,
 )
-
 
 # Module-level handles for the prelude patch functions. They're populated
 # lazily on the first ``train_mlframe_models_suite`` call (delays the
@@ -571,11 +569,7 @@ def train_mlframe_models_suite(
         # default=True placeholder, to decide whether the polars-side cat fixes (Utf8 -> Categorical fills) need to be
         # mirrored back into the pandas-side frames before CatBoost Pool construction.
         polars_pipeline_applied=polars_pipeline_applied,
-        needs_polars_pre_clone=(
-            was_polars_input
-            and not pipeline_config.skip_categorical_encoding
-            and pipeline_config.categorical_encoding is not None
-        ),
+        needs_polars_pre_clone=(was_polars_input and not pipeline_config.skip_categorical_encoding and pipeline_config.categorical_encoding is not None),
         mlframe_models=mlframe_models,
         recurrent_models=recurrent_models,
         rfecv_models=rfecv_models,

@@ -157,9 +157,7 @@ def dtw_cuda(
     # (i-1,j-1)/(i-1,j)/(i,j-1) dependency forces the anti-diagonal sweep so the
     # launch count is unchanged -- the memory reduction is the win.
     if not _HAS_NB_CUDA:
-        raise ImportError(
-            "dtw_cuda requires numba.cuda + a CUDA-capable GPU."
-        )
+        raise ImportError("dtw_cuda requires numba.cuda + a CUDA-capable GPU.")
     n = len(x)
     m = len(y)
     w = int(window)
@@ -355,9 +353,9 @@ def dtw_cupy_banded(
             continue
         blocks = (n_cells + threads - 1) // threads
         kernel(
-            (blocks,), (threads,),
-            (x_d, y_d, band_d, np.int32(n), np.int32(m),
-             np.int32(w), np.int32(bw), np.int32(k)),
+            (blocks,),
+            (threads,),
+            (x_d, y_d, band_d, np.int32(n), np.int32(m), np.int32(w), np.int32(bw), np.int32(k)),
         )
     cp.cuda.Stream.null.synchronize()
     band = cp.asnumpy(band_d)
@@ -407,9 +405,9 @@ def dtw_cupy_full(
             continue
         blocks = (n_cells + threads - 1) // threads
         kernel(
-            (blocks,), (threads,),
-            (x_d, y_d, cost_d, np.int32(n), np.int32(m),
-             np.int32(window), np.int32(k)),
+            (blocks,),
+            (threads,),
+            (x_d, y_d, cost_d, np.int32(n), np.int32(m), np.int32(window), np.int32(k)),
         )
     cp.cuda.Stream.null.synchronize()
     cost = cp.asnumpy(cost_d)
@@ -453,7 +451,6 @@ def _backtrace_path(
 
 import os as _os
 
-
 # Source-code default crossover: below this product n*m the CPU
 # dtaidistance C kernel beats GPU. Calibrated 2026-05-24 on
 # GTX 1050 Ti (Pascal CC 6.1, 4 GB VRAM); cell counts (warping path
@@ -487,7 +484,7 @@ def set_dtw_dispatch_threshold(n_cells: int) -> None:
 
 def _make_dtw_inputs(n_cells: int):
     """Two random float32 sequences whose cost matrix has ~n_cells cells."""
-    L = max(8, int(n_cells ** 0.5))
+    L = max(8, int(n_cells**0.5))
     rng = np.random.default_rng(0)
     return (rng.standard_normal(L).astype(np.float32), rng.standard_normal(L).astype(np.float32))
 
@@ -564,9 +561,7 @@ def dtw_dispatch(
     if forced == "cupy":
         return dtw_cupy(x, y, window=window)
     if forced:
-        raise ValueError(
-            f"unknown backend {forced!r}; expected cpu/cuda/cupy"
-        )
+        raise ValueError(f"unknown backend {forced!r}; expected cpu/cuda/cupy")
     if psi > 0:
         return dtw_cpu(x, y, window=window, psi=psi)
     n_cells = len(x) * len(y)

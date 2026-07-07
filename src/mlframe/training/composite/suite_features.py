@@ -9,7 +9,6 @@ Leakage contract (the cardinal sin to avoid):
 No frame copy beyond the appended column on the polars path (``with_columns`` is zero-copy); the pandas path warns above the suite-wide 2 GB gate (pandas has no zero-copy column add). Reuses ``composite_oof_predictions`` / ``composite_predictions_as_feature`` -- no duplication.
 """
 
-
 from __future__ import annotations
 
 import logging
@@ -119,9 +118,7 @@ class CompositeFeatureGenerator(BaseEstimator, TransformerMixin):
         if self.wrapper_factory is not None:
             return self.wrapper_factory()
         if self.spec is None:
-            raise ValueError(
-                "CompositeFeatureGenerator: supply either `spec` or `wrapper_factory`."
-            )
+            raise ValueError("CompositeFeatureGenerator: supply either `spec` or `wrapper_factory`.")
         inner = self.base_estimator if self.base_estimator is not None else _default_inner()
         base_columns = _spec_base_columns(self.spec)
         return CompositeTargetEstimator(
@@ -185,9 +182,7 @@ class CompositeFeatureGenerator(BaseEstimator, TransformerMixin):
                 "(fit_final_on_all=False or fit not called). Use fit_transform for the "
                 "training column, or set fit_final_on_all=True to enable transform on new data."
             )
-        return composite_predictions_as_feature(
-            self.estimator_, X, column_name=self.column_name_
-        )
+        return composite_predictions_as_feature(self.estimator_, X, column_name=self.column_name_)
 
     # ------------------------------------------------------------------
     def _attach(self, X: Any, values: np.ndarray) -> Any:
@@ -208,10 +203,7 @@ class CompositeFeatureGenerator(BaseEstimator, TransformerMixin):
             # and returns a NEW frame (the caller's X is not mutated), unlike ``X.copy()`` which duplicated all
             # columns just to add one.
             return X.assign(**{self.column_name_: vals})
-        raise TypeError(
-            f"CompositeFeatureGenerator: unsupported X type {type(X).__name__}; "
-            "pass a pandas / polars DataFrame."
-        )
+        raise TypeError(f"CompositeFeatureGenerator: unsupported X type {type(X).__name__}; " "pass a pandas / polars DataFrame.")
 
     def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
         """sklearn feature-name surface: the appended composite column name."""

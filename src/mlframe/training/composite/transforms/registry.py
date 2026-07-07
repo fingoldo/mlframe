@@ -341,10 +341,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         inverse=_ratio_inverse,
         fit=_ratio_fit,
         domain_check=_ratio_domain,
-        description=(
-            "T = y / base. Inverse y_hat = T_hat * base. Requires |base| > 0; "
-            "fitted eps stored from train scale."
-        ),
+        description=("T = y / base. Inverse y_hat = T_hat * base. Requires |base| > 0; " "fitted eps stored from train scale."),
         tags=frozenset({TAG_CORE, TAG_REGRESSION}),
     ),
     "logratio": Transform(
@@ -366,10 +363,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         inverse=_linear_residual_inverse,
         fit=_linear_residual_fit,
         domain_check=_linear_residual_domain,
-        description=(
-            "T = y - alpha*base - beta with (alpha, beta) fitted via OLS on train. "
-            "Inverse y_hat = T_hat + alpha*base + beta."
-        ),
+        description=("T = y - alpha*base - beta with (alpha, beta) fitted via OLS on train. " "Inverse y_hat = T_hat + alpha*base + beta."),
         tags=frozenset({TAG_CORE, TAG_REGRESSION}),
     ),
     "linear_residual_robust": Transform(
@@ -634,8 +628,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         unary_forward=_cbrt_y_forward_raw,
         unary_inverse=_cbrt_y_inverse_raw,
         description=(
-            "Chain: monotonic_residual (PCHIP-fitted g(base)) + signed cube root. "
-            "Combines a nonlinear-monotone base absorber with tail compression."
+            "Chain: monotonic_residual (PCHIP-fitted g(base)) + signed cube root. " "Combines a nonlinear-monotone base absorber with tail compression."
         ),
     ),
     "chain_monres_yj": _make_chain_transform(
@@ -648,9 +641,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         unary_fit=_yj_y_fit_raw,
         unary_forward=_yj_y_forward_raw,
         unary_inverse=_yj_y_inverse_raw,
-        description=(
-            "Chain: monotonic_residual + Yeo-Johnson power transform."
-        ),
+        description=("Chain: monotonic_residual + Yeo-Johnson power transform."),
     ),
     # 3-stage chain. For VERY heavy-tail residuals where a single unary still leaves leptokurtosis, follow up with quantile-normalisation to map
     # any remaining structure to a standard Normal. Lossy on absolute scale (quantile_normal forgets the original units) but RMSE on the

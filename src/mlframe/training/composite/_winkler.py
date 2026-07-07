@@ -229,8 +229,7 @@ def winkler_score_per_group(
     if codes.shape[0] != n:
         raise ValueError(f"group_ids length {codes.shape[0]} != y length {n}")
     n_groups = len(uniq)
-    w = np.ones(n, dtype=np.float64) if sample_weight is None else np.ascontiguousarray(
-        np.asarray(sample_weight, dtype=np.float64).reshape(-1))
+    w = np.ones(n, dtype=np.float64) if sample_weight is None else np.ascontiguousarray(np.asarray(sample_weight, dtype=np.float64).reshape(-1))
     if w.shape[0] != n:
         raise ValueError(f"sample_weight length {w.shape[0]} != y length {n}")
     if n == 0 or n_groups == 0:
@@ -280,8 +279,7 @@ def interval_quality_summary(
     alpha = _check_alpha(alpha)
     y, lo, hi = _prep(y_true, q_lo, q_hi)
     n = y.shape[0]
-    w = np.ones(n, dtype=np.float64) if sample_weight is None else np.ascontiguousarray(
-        np.asarray(sample_weight, dtype=np.float64).reshape(-1))
+    w = np.ones(n, dtype=np.float64) if sample_weight is None else np.ascontiguousarray(np.asarray(sample_weight, dtype=np.float64).reshape(-1))
     if w.shape[0] != n:
         raise ValueError(f"sample_weight length {w.shape[0]} != y length {n}")
     wsum = float(w.sum())

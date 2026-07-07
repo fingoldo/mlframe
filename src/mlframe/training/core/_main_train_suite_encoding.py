@@ -68,10 +68,7 @@ def _assert_suite_return_shape(result: Any, *, source: str) -> SuiteResult:
     the richer type uniformly (LTR/dispatch passthroughs may still yield a plain tuple).
     """
     if not (isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], dict) and isinstance(result[1], dict)):
-        raise TypeError(
-            f"{source} returned {type(result).__name__} not matching the suite "
-            f"(models_dict, metadata_dict) 2-tuple contract."
-        )
+        raise TypeError(f"{source} returned {type(result).__name__} not matching the suite " f"(models_dict, metadata_dict) 2-tuple contract.")
     if isinstance(result, SuiteResult):
         return result
     return SuiteResult(result[0], result[1])

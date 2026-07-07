@@ -95,7 +95,7 @@ def compute_per_column_rff(
     rng = np.random.default_rng(seed)
     # Per-column W_j and b_j.
     W = (rng.standard_normal((d_input, m)) / sigma_scale).astype(dtype, copy=False)  # (d_input, m)
-    b = (rng.uniform(0, 2.0 * np.pi, size=(d_input, m))).astype(dtype, copy=False)   # (d_input, m)
+    b = (rng.uniform(0, 2.0 * np.pi, size=(d_input, m))).astype(dtype, copy=False)  # (d_input, m)
 
     # Fused per-column RFF kernel: angle = x_j * W[j,i] + b[j,i] computed once per element and
     # written straight into the interleaved output (per column j: cos [0..m), then sin [m..2m)).

@@ -85,7 +85,7 @@ if _HAS_NUMBA_MOMENTS:
             d = (y_true[i] - y_pred[i]) - mean
             ss += d * d
         var = ss / (n - 1) if n > 1 else 0.0
-        std = var ** 0.5
+        std = var**0.5
         if std <= 0:
             return mean, std, 0.0, 0.0, 0.0
         # Pass 3: skew / kurt / 3-sigma count via standardized residual z.
@@ -120,7 +120,7 @@ if _HAS_NUMBA_MOMENTS:
             d = (y_true[i] - y_pred[i]) - mean
             ss += d * d
         var = ss / (n - 1) if n > 1 else 0.0
-        std = var ** 0.5
+        std = var**0.5
         if std <= 0:
             return mean, std, 0.0, 0.0, 0.0
         z3_sum = 0.0
@@ -159,8 +159,8 @@ math is O(n log n) at worst (sort for AD, sort for Spearman); sampling
 to 50k makes the audit sub-second for any practical N. Plot uses its
 own (smaller) sample independently."""
 
-SKEW_MODERATE: float = 0.3   # tightened from 0.5 -> 0.3
-SKEW_HIGH: float = 0.8       # tightened from 1.0 -> 0.8
+SKEW_MODERATE: float = 0.3  # tightened from 0.5 -> 0.3
+SKEW_HIGH: float = 0.8  # tightened from 1.0 -> 0.8
 # Thresholds significantly tightened after a user-reported
 # case where the audit verdict said "Gaussian (well-behaved)" for a
 # histogram with excess_kurt=+2.40 -- the threshold was set at the
@@ -176,9 +176,9 @@ SKEW_HIGH: float = 0.8       # tightened from 1.0 -> 0.8
 # is NOT well-behaved Gaussian; calling it so is profanation, the user
 # was right to flag.
 EXCESS_KURT_NEAR_GAUSSIAN: float = 0.5  # < 0.5 -> truly Normal-like
-EXCESS_KURT_MILD: float = 1.5            # 0.5-1.5 -> mild leptokurtosis
-EXCESS_KURT_HEAVY: float = 1.5           # > 1.5 -> heavy tails (was 3.0!)
-EXCESS_KURT_EXTREME: float = 10.0        # > 10 -> outlier contamination
+EXCESS_KURT_MILD: float = 1.5  # 0.5-1.5 -> mild leptokurtosis
+EXCESS_KURT_HEAVY: float = 1.5  # > 1.5 -> heavy tails (was 3.0!)
+EXCESS_KURT_EXTREME: float = 10.0  # > 10 -> outlier contamination
 HETERO_SPEARMAN_THRESHOLD: float = 0.30
 """|Spearman corr(|residuals|, y_hat)| above this -> heteroscedasticity
 is real, not noise. 0.30 is a moderate effect; 0.50+ is strong."""
@@ -193,18 +193,18 @@ class ResidualAudit:
     mean: float                         # E[residual]
     std: float                          # sigma(residual)
     median: float
-    mad: float                          # median absolute deviation (robust sigma)
-    skew: float                         # 3rd standardized moment
-    excess_kurt: float                  # kurtosis - 3 (Normal = 0)
-    p01: float                          # 1st percentile of residuals
-    p99: float                          # 99th percentile
-    pct_outliers_3sigma: float          # fraction of |residual - mean| > 3*std
-    hetero_spearman: float              # Spearman corr(|residual|, y_hat)
-    hetero_significant: bool            # |hetero_spearman| > HETERO_SPEARMAN_THRESHOLD
-    y_true_all_nonneg: bool             # True if min(y_true) >= 0
-    y_pred_all_nonneg: bool             # True if min(y_pred) >= 0
-    hypothesis: str                     # short distribution name (e.g. "Gaussian", "LogNormal")
-    suggested_loss: str                 # e.g. "MSE", "MAE", "Huber"
+    mad: float  # median absolute deviation (robust sigma)
+    skew: float  # 3rd standardized moment
+    excess_kurt: float  # kurtosis - 3 (Normal = 0)
+    p01: float  # 1st percentile of residuals
+    p99: float  # 99th percentile
+    pct_outliers_3sigma: float  # fraction of |residual - mean| > 3*std
+    hetero_spearman: float  # Spearman corr(|residual|, y_hat)
+    hetero_significant: bool  # |hetero_spearman| > HETERO_SPEARMAN_THRESHOLD
+    y_true_all_nonneg: bool  # True if min(y_true) >= 0
+    y_pred_all_nonneg: bool  # True if min(y_pred) >= 0
+    hypothesis: str  # short distribution name (e.g. "Gaussian", "LogNormal")
+    suggested_loss: str  # e.g. "MSE", "MAE", "Huber"
     rationale: list[str] = field(default_factory=list)
     warnings_: list[str] = field(default_factory=list)
     # Formal normality test result -- D'Agostino K^2 + Anderson-Darling.
@@ -271,7 +271,7 @@ def _spearman_corr(x: np.ndarray, y: np.ndarray) -> float:
     ry = _ranks_via_scatter(y)
     rx -= rx.mean()
     ry -= ry.mean()
-    denom = math.sqrt(float((rx ** 2).sum())) * math.sqrt(float((ry ** 2).sum()))
+    denom = math.sqrt(float((rx**2).sum())) * math.sqrt(float((ry**2).sum()))
     if denom == 0.0:
         return 0.0
     return float((rx * ry).sum() / denom)
@@ -303,13 +303,10 @@ def _diagnose(
     if abs_skew >= SKEW_HIGH and skew > 0 and y_true_all_nonneg and y_pred_all_nonneg:
         if abs_hetero > HETERO_SPEARMAN_THRESHOLD:
             rationale.append(
-                f"right-skewed (skew={skew:+.2f}) AND y >= 0 AND heteroscedastic - "
-                "classic multiplicative-noise pattern (error proportional to y)."
+                f"right-skewed (skew={skew:+.2f}) AND y >= 0 AND heteroscedastic - " "classic multiplicative-noise pattern (error proportional to y)."
             )
             return "LogNormal", "MSE on log(y) (CAUTION: introduces bias when back-transforming; consider Duan smearing)", rationale
-        rationale.append(
-            f"right-skewed (skew={skew:+.2f}) AND y >= 0 - additive Gamma/Exponential family."
-        )
+        rationale.append(f"right-skewed (skew={skew:+.2f}) AND y >= 0 - additive Gamma/Exponential family.")
         return "Gamma / Exponential", "Gamma deviance loss (LightGBM 'gamma' / XGBoost 'reg:gamma' / sklearn GLM)", rationale
 
     # Heavy tails - outlier-robust losses. Distinguish Laplace-class
@@ -375,8 +372,7 @@ def _diagnose(
     # Mild asymmetry without nonneg constraint - flag but Gaussian still ok.
     if abs_skew >= SKEW_MODERATE:
         rationale.append(
-            f"mild skew ({skew:+.2f}); within Gaussian tolerance but worth investigating "
-            "if the target has a natural non-negativity constraint."
+            f"mild skew ({skew:+.2f}); within Gaussian tolerance but worth investigating " "if the target has a natural non-negativity constraint."
         )
 
     # True Gaussian verdict reserved for tight near-Normal:
@@ -405,10 +401,7 @@ def _diagnose(
         f"|hetero|={abs_hetero:.2f}. Default MSE / MAE losses are appropriate."
     )
     if normality_test is not None and math.isfinite(normality_test.get("k2_p", float("nan"))):
-        rationale.append(
-            "formal tests do not reject Normal: "
-            f"{normality_test.get('verdict')}."
-        )
+        rationale.append("formal tests do not reject Normal: " f"{normality_test.get('verdict')}.")
     return "Gaussian (well-behaved)", "MSE (default) - diagnostics support the standard regression assumption", rationale
 
 
@@ -443,9 +436,7 @@ def audit_residuals(
     y_pred = np.asarray(y_pred, dtype=np.float64).ravel()
 
     if y_true.shape != y_pred.shape:
-        raise ValueError(
-            f"y_true / y_pred shape mismatch: {y_true.shape} vs {y_pred.shape}"
-        )
+        raise ValueError(f"y_true / y_pred shape mismatch: {y_true.shape} vs {y_pred.shape}")
 
     n_total = int(y_true.size)
     if n_total == 0:
@@ -489,9 +480,7 @@ def audit_residuals(
     y_pred = y_pred[finite_mask]
 
     if y_true.size < 5:
-        raise ValueError(
-            f"need >= 5 finite observations to compute residual diagnostics; got {y_true.size}."
-        )
+        raise ValueError(f"need >= 5 finite observations to compute residual diagnostics; got {y_true.size}.")
 
     residuals = y_true - y_pred
     n = int(residuals.size)
@@ -512,9 +501,9 @@ def audit_residuals(
             pct_outliers_3sigma = float(pct_outliers_3sigma)
         except Exception as _moments_err:
             logger.warning(
-                "audit_residuals: numba fused-moments kernel failed (%s); "
-                "falling back to numpy path. n=%d.",
-                _moments_err, n,
+                "audit_residuals: numba fused-moments kernel failed (%s); " "falling back to numpy path. n=%d.",
+                _moments_err,
+                n,
             )
             mean = float(residuals.mean())
             std = float(residuals.std(ddof=1)) if n > 1 else 0.0
@@ -566,8 +555,7 @@ def audit_residuals(
         normality_test = _nv(residuals)
     except Exception as _nv_err:
         logger.debug(
-            "normality_verdict unavailable / failed: %s; "
-            "audit will fall back to moment-cutoff heuristic only.",
+            "normality_verdict unavailable / failed: %s; " "audit will fall back to moment-cutoff heuristic only.",
             _nv_err,
         )
 
@@ -615,19 +603,14 @@ def audit_residuals(
 def format_residual_audit_report(audit: ResidualAudit, *, ndigits: int = 4) -> str:
     """Compact log block: header + one-line moments + hypothesis +
     rationale + warnings."""
-    sample_note = (
-        f" (sampled {audit.n:_}/{audit.n_total:_})" if audit.sampled
-        else f" (n={audit.n:_})"
-    )
+    sample_note = f" (sampled {audit.n:_}/{audit.n_total:_})" if audit.sampled else f" (n={audit.n:_})"
     lines = [
         f"residual_audit{sample_note}:",
-        f"  moments:   mean={audit.mean:+.{ndigits}g} std={audit.std:.{ndigits}g} "
-        f"median={audit.median:+.{ndigits}g} MAD={audit.mad:.{ndigits}g}",
+        f"  moments:   mean={audit.mean:+.{ndigits}g} std={audit.std:.{ndigits}g} " f"median={audit.median:+.{ndigits}g} MAD={audit.mad:.{ndigits}g}",
         f"  shape:     skew={audit.skew:+.{ndigits-2}f} excess_kurt={audit.excess_kurt:+.{ndigits-2}f} "
         f"|p01,p99|=[{audit.p01:+.{ndigits-2}f}, {audit.p99:+.{ndigits-2}f}] "
         f"outliers_3sigma={audit.pct_outliers_3sigma*100:.2f}%",
-        f"  hetero:    spearman(|resid|, y_hat) = {audit.hetero_spearman:+.{ndigits-2}f} "
-        f"({'significant' if audit.hetero_significant else 'ok'})",
+        f"  hetero:    spearman(|resid|, y_hat) = {audit.hetero_spearman:+.{ndigits-2}f} " f"({'significant' if audit.hetero_significant else 'ok'})",
         f"  hypothesis: {audit.hypothesis}",
         f"  suggested:  {audit.suggested_loss}",
     ]
@@ -696,8 +679,7 @@ def plot_residual_diagnostics(
                 audit = audit_residuals(_yt[_mask], _yp[_mask], seed=seed)
             except Exception as _audit_err:
                 logger.warning(
-                    "residual audit unavailable for the regression chart (%s); "
-                    "rendering scatter + residual hist without the noise-distribution hypothesis.",
+                    "residual audit unavailable for the regression chart (%s); " "rendering scatter + residual hist without the noise-distribution hypothesis.",
                     _audit_err,
                 )
                 audit = None
@@ -751,8 +733,7 @@ def plot_residual_diagnostics(
     # Histogram panel
     if ax_hist is not None:
         n_bins = max(20, min(80, int(math.sqrt(plot_resid.size))))
-        ax_hist.hist(plot_resid, bins=n_bins, alpha=0.6, color="steelblue",
-                     edgecolor="white", linewidth=0.4, density=True)
+        ax_hist.hist(plot_resid, bins=n_bins, alpha=0.6, color="steelblue", edgecolor="white", linewidth=0.4, density=True)
         # Overlay fitted Normal density (the baseline assumption). Guard
         # against constant-residual inputs: when min == max, linspace
         # collapses to a single point and the normal PDF is meaningless.
@@ -763,12 +744,8 @@ def plot_residual_diagnostics(
         _r_max = float(plot_resid.max())
         if audit.std > 0 and _r_max > _r_min:
             x_grid = np.linspace(_r_min, _r_max, 200)
-            normal_pdf = (
-                1 / (audit.std * math.sqrt(2 * math.pi))
-                * np.exp(-0.5 * ((x_grid - audit.mean) / audit.std) ** 2)
-            )
-            ax_hist.plot(x_grid, normal_pdf, color="red", linestyle="--",
-                         linewidth=1.4, label=f"Normal(mu={audit.mean:.2g}, sigma={audit.std:.2g})")
+            normal_pdf = 1 / (audit.std * math.sqrt(2 * math.pi)) * np.exp(-0.5 * ((x_grid - audit.mean) / audit.std) ** 2)
+            ax_hist.plot(x_grid, normal_pdf, color="red", linestyle="--", linewidth=1.4, label=f"Normal(mu={audit.mean:.2g}, sigma={audit.std:.2g})")
             ax_hist.legend(loc="best", fontsize=8, framealpha=0.7)
         ax_hist.axvline(0, color="green", linestyle=":", linewidth=1.0, alpha=0.7)
         ax_hist.set_xlabel("Residual (y_true - y_pred)")
@@ -782,27 +759,17 @@ def plot_residual_diagnostics(
         _hyp_line = f"hypothesis: {audit.hypothesis}"
         if _suggested:
             _hyp_line += f" (suggested: {_suggested})"
-        ax_hist.set_title(
-            f"Residuals (skew={audit.skew:+.2f}, excess_kurt={audit.excess_kurt:+.2f})\n"
-            f"{_hyp_line}"
-        )
+        ax_hist.set_title(f"Residuals (skew={audit.skew:+.2f}, excess_kurt={audit.excess_kurt:+.2f})\n" f"{_hyp_line}")
         ax_hist.grid(True, alpha=0.3)
 
     # Residuals vs predicted (heteroscedasticity panel)
     if ax_resid_vs_pred is not None:
-        ax_resid_vs_pred.scatter(plot_pred, plot_resid, alpha=0.3, s=10,
-                                 color="steelblue")
-        ax_resid_vs_pred.axhline(0, color="green", linestyle="--",
-                                 linewidth=1.0, alpha=0.7)
+        ax_resid_vs_pred.scatter(plot_pred, plot_resid, alpha=0.3, s=10, color="steelblue")
+        ax_resid_vs_pred.axhline(0, color="green", linestyle="--", linewidth=1.0, alpha=0.7)
         ax_resid_vs_pred.set_xlabel("Predicted (y_hat)")
         ax_resid_vs_pred.set_ylabel("Residual")
-        het_marker = (
-            "(!) heteroscedastic" if audit.hetero_significant else "homoscedastic"
-        )
-        ax_resid_vs_pred.set_title(
-            f"Residuals vs predicted ({het_marker})\n"
-            f"spearman(|resid|, y_hat) = {audit.hetero_spearman:+.3f}"
-        )
+        het_marker = "(!) heteroscedastic" if audit.hetero_significant else "homoscedastic"
+        ax_resid_vs_pred.set_title(f"Residuals vs predicted ({het_marker})\n" f"spearman(|resid|, y_hat) = {audit.hetero_spearman:+.3f}")
         ax_resid_vs_pred.grid(True, alpha=0.3)
 
     return audit

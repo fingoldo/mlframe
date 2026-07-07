@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 # pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -71,10 +70,7 @@ def get_tukey_fences_multiplier_for_quantile(
 
     if sd_sigma is None:
         if not (0 < nonoutlying_dist_percentage < 1.0):
-            raise ValueError(
-                f"nonoutlying_dist_percentage must be in (0, 1); "
-                f"got {nonoutlying_dist_percentage!r}."
-            )
+            raise ValueError(f"nonoutlying_dist_percentage must be in (0, 1); " f"got {nonoutlying_dist_percentage!r}.")
         sd_sigma = get_sd_for_dist_percentage(nonoutlying_dist_percentage, dist=dist, **dist_kwargs)
 
     ppf = np.abs(dist.ppf(quantile, **dist_kwargs))

@@ -6,7 +6,6 @@ resolves transparently.
 """
 from __future__ import annotations
 
-
 # *****************************************************************************************************************************************************
 # IMPORTS
 # *****************************************************************************************************************************************************
@@ -48,10 +47,7 @@ def sparse_df_from_spmatrix(spmat, columns, index):
     preserved. On pandas 2.x where the fill is already ``0`` this is a no-op.
     """
     df = pd.DataFrame.sparse.from_spmatrix(spmat, columns=columns, index=index)
-    _needs_zero_fill = any(
-        isinstance(_dt, pd.SparseDtype) and (pd.isna(_dt.fill_value) or _dt.fill_value != 0)
-        for _dt in df.dtypes
-    )
+    _needs_zero_fill = any(isinstance(_dt, pd.SparseDtype) and (pd.isna(_dt.fill_value) or _dt.fill_value != 0) for _dt in df.dtypes)
     if not _needs_zero_fill:
         return df
     from pandas.arrays import SparseArray
@@ -109,10 +105,7 @@ def _apply_pysr_fe(
         from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
     except (ImportError, OSError, subprocess.CalledProcessError):
         if verbose:
-            logger.warning(
-                "PySR feature engineering is enabled but the pysr / Julia "
-                "runtime is not importable. Skipping."
-            )
+            logger.warning("PySR feature engineering is enabled but the pysr / Julia " "runtime is not importable. Skipping.")
         return []
     import numpy as np
 
@@ -277,14 +270,11 @@ def _apply_pysr_fe(
         # absent across splits, and log the skip so the operator sees how many
         # equations were dropped.
         try:
-            train_df[col_name] = np.asarray(
-                model.predict(train_df, index=idx), dtype=np.float32)
+            train_df[col_name] = np.asarray(model.predict(train_df, index=idx), dtype=np.float32)
             if val_df is not None:
-                val_df[col_name] = np.asarray(
-                    model.predict(val_df, index=idx), dtype=np.float32)
+                val_df[col_name] = np.asarray(model.predict(val_df, index=idx), dtype=np.float32)
             if test_df is not None:
-                test_df[col_name] = np.asarray(
-                    model.predict(test_df, index=idx), dtype=np.float32)
+                test_df[col_name] = np.asarray(model.predict(test_df, index=idx), dtype=np.float32)
         except Exception as _eq_err:
             # Roll back any partial writes so train / val / test stay schema-consistent.
             for _frame in (train_df, val_df, test_df):

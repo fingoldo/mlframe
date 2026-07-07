@@ -67,7 +67,7 @@ def _fit_focal_lgb(X: np.ndarray, y: np.ndarray, *, n_estimators: int, max_depth
         objective=_focal_loss_obj(gamma),
         learning_rate=0.05,
         max_depth=max_depth,
-        num_leaves=2 ** max_depth,
+        num_leaves=2**max_depth,
         min_data_in_leaf=5,
         seed=seed,
         verbosity=-1,

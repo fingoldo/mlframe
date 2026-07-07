@@ -48,7 +48,7 @@ def _profile(label, fn, top=12):
     s = io.StringIO()
     pstats.Stats(pr, stream=s).strip_dirs().sort_stats("cumulative").print_stats(top)
     print(f"\n===== {label} =====")
-    print("\n".join(s.getvalue().splitlines()[:top + 6]))
+    print("\n".join(s.getvalue().splitlines()[: top + 6]))
 
 
 def main(argv):
@@ -74,7 +74,7 @@ def main(argv):
 
     def conformal():
         est = CompositeTargetEstimator(base_estimator=LinearRegression(), transform_name="linear_residual", base_column="b").fit(X.iloc[: n // 2], y[: n // 2])
-        est.calibrate_conformal(X.iloc[n // 2:], y[n // 2:], 0.1)
+        est.calibrate_conformal(X.iloc[n // 2 :], y[n // 2 :], 0.1)
         est.predict_interval(X, 0.1)
 
     def classify():

@@ -149,10 +149,7 @@ def xgb_dmatrix_reuse_capable() -> bool:
     """
     if not _XGB_AVAILABLE:
         return False
-    return all(
-        hasattr(xgb.QuantileDMatrix, attr)
-        for attr in ("set_label", "set_weight")
-    )
+    return all(hasattr(xgb.QuantileDMatrix, attr) for attr in ("set_label", "set_weight"))
 
 
 # ---------------------------------------------------------------------
@@ -391,18 +388,14 @@ class _DMatrixReuseMixin:
         """Swap label on the cached training DMatrix in place. Raises
         if no DMatrix has been built yet (call ``.fit()`` first)."""
         if self._cached_train_dmatrix is None:
-            raise RuntimeError(
-                "no cached DMatrix — call .fit() first to build one"
-            )
+            raise RuntimeError("no cached DMatrix — call .fit() first to build one")
         self._cached_train_dmatrix.set_label(np.asarray(y))
 
     def set_weight(self, w) -> None:
         """Swap sample weights on the cached training DMatrix in place.
         Raises if no DMatrix has been built yet."""
         if self._cached_train_dmatrix is None:
-            raise RuntimeError(
-                "no cached DMatrix — call .fit() first to build one"
-            )
+            raise RuntimeError("no cached DMatrix — call .fit() first to build one")
         self._cached_train_dmatrix.set_weight(np.asarray(w))
 
     # ------------------------------------------------------------------
@@ -462,8 +455,7 @@ class _DMatrixReuseMixin:
         train_key = (_signature_of(X), _max_bin)
         dtrain = None
         _cache_source: str = "miss"
-        if (self._cached_train_key == train_key
-                and self._cached_train_dmatrix is not None):
+        if self._cached_train_key == train_key and self._cached_train_dmatrix is not None:
             dtrain = self._cached_train_dmatrix
             _cache_source = "instance"
         else:
@@ -517,11 +509,7 @@ class _DMatrixReuseMixin:
                 X_val = _align_eval_categoricals(X, X_val)
                 # sample_weight_eval_set supports list-aligned weights;
                 # default None.
-                w_val = (
-                    sample_weight_eval_set[i]
-                    if sample_weight_eval_set and i < len(sample_weight_eval_set)
-                    else None
-                )
+                w_val = sample_weight_eval_set[i] if sample_weight_eval_set and i < len(sample_weight_eval_set) else None
                 # Composite key (train_key, val_key) so we only reuse the
                 # val DMatrix when BOTH the val content AND the originating
                 # train content match. Different train content -> different
@@ -534,10 +522,7 @@ class _DMatrixReuseMixin:
                 val_key = (_signature_of(X_val), train_key)
                 dval = None
                 _val_source: str = "miss"
-                if (
-                    self._cached_val_key == val_key
-                    and self._cached_val_dmatrix is not None
-                ):
+                if self._cached_val_key == val_key and self._cached_val_dmatrix is not None:
                     dval = self._cached_val_dmatrix
                     _val_source = "instance"
                 else:
@@ -561,9 +546,7 @@ class _DMatrixReuseMixin:
                     dval = _build_quantile_dmatrix(
                         X_val, y_val, w_val,
                         ref_dmatrix=dtrain,
-                        enable_categorical=self.get_params().get(
-                            "enable_categorical", True
-                        ),
+                        enable_categorical=self.get_params().get("enable_categorical", True),
                         max_bin=_max_bin,
                     )
                     self._cached_val_dmatrix = dval
@@ -597,13 +580,7 @@ class _DMatrixReuseMixin:
         early_stopping_rounds = self.get_params().get("early_stopping_rounds")
 
         callbacks = list(fit_kwargs.pop("callbacks", []) or [])
-        if (
-            early_stopping_rounds
-            and evals
-            and not any(
-                isinstance(cb, xgb.callback.EarlyStopping) for cb in callbacks
-            )
-        ):
+        if early_stopping_rounds and evals and not any(isinstance(cb, xgb.callback.EarlyStopping) for cb in callbacks):
             callbacks.append(
                 xgb.callback.EarlyStopping(
                     rounds=int(early_stopping_rounds),
@@ -615,9 +592,7 @@ class _DMatrixReuseMixin:
         # early_stopping_rounds: stop once the first eval set's metric strictly worsens for
         # ``monotonic_decline_patience`` consecutive rounds since the best. Only attached when
         # eval sets exist, the caller hasn't already supplied one, and it isn't disabled (None).
-        if monotonic_decline_patience is not None and evals and not any(
-            getattr(cb, "_is_mlframe_monotonic_decline", False) for cb in callbacks
-        ):
+        if monotonic_decline_patience is not None and evals and not any(getattr(cb, "_is_mlframe_monotonic_decline", False) for cb in callbacks):
             from .callbacks.monotonic_decline import _make_xgb_monotonic_callback
             _mono_cb = _make_xgb_monotonic_callback(patience=monotonic_decline_patience)
             if _mono_cb is not None:
@@ -740,9 +715,7 @@ if _XGB_AVAILABLE:
             n_classes = len(unique)
             params = dict(params)  # avoid mutating shared dict
             if "objective" not in params or params.get("objective") is None:
-                params["objective"] = (
-                    "binary:logistic" if n_classes == 2 else "multi:softprob"
-                )
+                params["objective"] = "binary:logistic" if n_classes == 2 else "multi:softprob"
             if n_classes > 2 and "num_class" not in params:
                 params["num_class"] = int(n_classes)
             return params
@@ -753,7 +726,6 @@ if _XGB_AVAILABLE:
             ``np.arange(n_classes_)`` in modern XGBoost — no separate
             assignment needed."""
             self.n_classes_ = int(len(np.unique(np.asarray(y))))
-
 
     class XGBRegressorWithDMatrixReuse(_DMatrixReuseMixin, XGBRegressor):
         """XGBRegressor with cached QuantileDMatrix across fits.

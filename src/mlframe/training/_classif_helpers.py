@@ -89,11 +89,7 @@ def _canonical_predict_proba_shape(probs, classes_=None):
                     cls = np.asarray(classes_[j])
                     # Pick the column corresponding to label "1" if present,
                     # else fall back to the last column.
-                    pos_idx = (
-                        int(np.where(cls == 1)[0][0])
-                        if cls.size > 1 and (cls == 1).any()
-                        else sub.shape[1] - 1
-                    )
+                    pos_idx = int(np.where(cls == 1)[0][0]) if cls.size > 1 and (cls == 1).any() else sub.shape[1] - 1
                 cols.append(sub[:, pos_idx])
             elif sub.ndim == 2 and sub.shape[1] == 1:
                 # Constant label column: estimator never saw class 1 in training.
@@ -102,10 +98,7 @@ def _canonical_predict_proba_shape(probs, classes_=None):
             elif sub.ndim == 1:
                 cols.append(sub.astype(np.float64))
             else:
-                raise ValueError(
-                    f"_canonical_predict_proba_shape: unexpected per-label "
-                    f"shape {sub.shape} at index {j}"
-                )
+                raise ValueError(f"_canonical_predict_proba_shape: unexpected per-label " f"shape {sub.shape} at index {j}")
         return np.column_stack(cols).astype(np.float64)
 
     arr = np.asarray(probs)
@@ -114,9 +107,7 @@ def _canonical_predict_proba_shape(probs, classes_=None):
         return np.column_stack([1.0 - arr, arr]).astype(np.float64)
     if arr.ndim == 2:
         return arr.astype(np.float64, copy=False)
-    raise ValueError(
-        f"_canonical_predict_proba_shape: unsupported probs shape {arr.shape}"
-    )
+    raise ValueError(f"_canonical_predict_proba_shape: unsupported probs shape {arr.shape}")
 
 
 def _predict_from_probs(probs_NK, target_type, classes_=None, threshold=0.5):
@@ -152,9 +143,7 @@ def _predict_from_probs(probs_NK, target_type, classes_=None, threshold=0.5):
 
     arr = np.ascontiguousarray(probs_NK)
     if arr.ndim != 2:
-        raise ValueError(
-            f"_predict_from_probs expects (N, K); got shape {arr.shape}"
-        )
+        raise ValueError(f"_predict_from_probs expects (N, K); got shape {arr.shape}")
 
     if target_type == TargetTypes.BINARY_CLASSIFICATION:
         thr = float(threshold) if np.ndim(threshold) == 0 else float(threshold[-1])
@@ -176,9 +165,8 @@ def _predict_from_probs(probs_NK, target_type, classes_=None, threshold=0.5):
             if _bad_rows > 0:
                 import logging as _logging
                 _logging.getLogger(__name__).warning(
-                    "argmax on probabilistic predictions: %d row(s) contain "
-                    "non-finite probabilities; using nanargmax (will raise "
-                    "on any all-NaN row).", _bad_rows,
+                    "argmax on probabilistic predictions: %d row(s) contain " "non-finite probabilities; using nanargmax (will raise " "on any all-NaN row).",
+                    _bad_rows,
                 )
             idx = np.nanargmax(arr, axis=1)
         else:
@@ -198,10 +186,7 @@ def _predict_from_probs(probs_NK, target_type, classes_=None, threshold=0.5):
         np.greater_equal(arr, thr, out=out, where=~np.isnan(arr))
         return out
 
-    raise ValueError(
-        f"_predict_from_probs: target_type {target_type!r} is not a "
-        "classification type (REGRESSION has no decision rule)."
-    )
+    raise ValueError(f"_predict_from_probs: target_type {target_type!r} is not a " "classification type (REGRESSION has no decision rule).")
 
 
 def _classif_objective_kwargs(flavor, target_type, n_classes):
@@ -266,8 +251,7 @@ def _classif_objective_kwargs(flavor, target_type, n_classes):
     return {}
 
 
-def _maybe_wrap_multilabel(estimator, target_type, multilabel_config=None,
-                           strategy_supports_native_multilabel=False, n_labels=None):
+def _maybe_wrap_multilabel(estimator, target_type, multilabel_config=None, strategy_supports_native_multilabel=False, n_labels=None):
     """Multilabel dispatch: native (CB) vs MultiOutputClassifier vs ChainEnsemble.
 
     Decision tree (when ``target_type == MULTILABEL_CLASSIFICATION``):
@@ -382,8 +366,7 @@ def _auto_wrapper_n_jobs(n_labels: Optional[int]) -> int:
     return min(n_labels, max(1, cpu // 2))
 
 
-def _compute_chain_orders(n_labels, n_chains, order_strategy="random",
-                          user_orders=None, seeds=None, y=None):
+def _compute_chain_orders(n_labels, n_chains, order_strategy="random", user_orders=None, seeds=None, y=None):
     """Return ``n_chains`` orderings of ``range(n_labels)`` per the strategy.
 
     Strategies:
@@ -401,10 +384,7 @@ def _compute_chain_orders(n_labels, n_chains, order_strategy="random",
     """
     if order_strategy == "user":
         if user_orders is None or len(user_orders) != n_chains:
-            raise ValueError(
-                f"chain_order_strategy='user' requires chain_order_user with "
-                f"{n_chains} orderings"
-            )
+            raise ValueError(f"chain_order_strategy='user' requires chain_order_user with " f"{n_chains} orderings")
         return [np.asarray(o, dtype=int) for o in user_orders]
 
     if order_strategy == "by_frequency":
@@ -500,10 +480,7 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         # cloning (which calls __init__ with the params get_params returned)
         # produces a fresh, unfitted estimator without inheriting cached
         # state from the parent.
-        seeds_resolved = (
-            self.seeds if self.seeds is not None
-            else list(range(self.n_chains))
-        )
+        seeds_resolved = self.seeds if self.seeds is not None else list(range(self.n_chains))
         # by_frequency needs y; other strategies can be resolved without it.
         orders_resolved = _compute_chain_orders(
             self.n_labels, self.n_chains,
@@ -593,8 +570,8 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         except Exception as _e:  # pragma: no cover - defensive
             import logging as _lg
             _lg.getLogger(__name__).warning(
-                "_ChainEnsemble.fit: NaN-guard priming failed (%s); a NaN-bearing "
-                "predict frame may still raise. Non-fatal.", _e,
+                "_ChainEnsemble.fit: NaN-guard priming failed (%s); a NaN-bearing " "predict frame may still raise. Non-fatal.",
+                _e,
             )
         return self
 
@@ -619,12 +596,9 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         return all(hasattr(c, "estimators_") for c in chains)
 
 
-
-def _build_classifier_chain_ensemble(base_estimator, n_labels, *,
-                                      n_chains=3, seeds=None,
-                                      order_strategy="random",
-                                      user_orders=None, cv=5,
-                                      proba_aggregation="geometric"):
+def _build_classifier_chain_ensemble(
+    base_estimator, n_labels, *, n_chains=3, seeds=None, order_strategy="random", user_orders=None, cv=5, proba_aggregation="geometric"
+):
     """Convenience factory for ``_ChainEnsemble`` (the public dispatch entry).
 
     See ``_ChainEnsemble`` for parameter semantics.
@@ -639,5 +613,3 @@ def _build_classifier_chain_ensemble(base_estimator, n_labels, *,
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # GPU Device Parsing
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
-
-

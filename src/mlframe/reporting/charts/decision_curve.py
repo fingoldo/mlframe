@@ -137,8 +137,7 @@ def build_decision_curve_spec(
     iff the model strictly beats BOTH references somewhere in ``pt_range`` (margin > 1e-4 to ignore FP noise), and
     ``best_pt_advantage`` quantifies the largest net-benefit gain over the better reference.
     """
-    pt, nb_model, nb_all, nb_none = compute_net_benefit(
-        y_true, y_score, pt_range=pt_range, n_thresholds=n_thresholds)
+    pt, nb_model, nb_all, nb_none = compute_net_benefit(y_true, y_score, pt_range=pt_range, n_thresholds=n_thresholds)
 
     # A useless model coincides with treat-all at low pt and treat-none at high pt but never rises above the UPPER
     # ENVELOPE of the two references; usefulness is "clears that envelope by a non-noise margin somewhere in pt_range".

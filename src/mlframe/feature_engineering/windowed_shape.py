@@ -665,10 +665,7 @@ def rolling_integral_above_baseline(
             elif baseline_fn == "p25":
                 b_scalar = float(np.nanpercentile(group_full, 25)) if group_full.size else 0.0
             else:
-                raise ValueError(
-                    f"baseline_fn={baseline_fn!r} not in "
-                    f"('median', 'mean', 'p25')"
-                )
+                raise ValueError(f"baseline_fn={baseline_fn!r} not in " f"('median', 'mean', 'p25')")
             b = b_scalar  # broadcast scalar
         excess = np.clip(wins - (b if np.ndim(b) == 0 else b[:, None]), 0.0, None)
         out[write_idx] = excess.sum(axis=1)

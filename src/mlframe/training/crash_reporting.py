@@ -93,9 +93,7 @@ def enable_crash_reporting(file=None, all_threads: bool = True) -> bool:
             SEM_FAILCRITICALERRORS = 0x0001
             SEM_NOGPFAULTERRORBOX = 0x0002
             prev = ctypes.windll.kernel32.SetErrorMode(0)  # read current
-            ctypes.windll.kernel32.SetErrorMode(
-                prev | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX
-            )
+            ctypes.windll.kernel32.SetErrorMode(prev | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX)
         except Exception as e:
             logger.warning(f"SetErrorMode() failed: {e}")
             ok = False

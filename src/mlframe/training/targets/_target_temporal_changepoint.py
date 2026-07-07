@@ -322,9 +322,7 @@ def find_change_points_zscore(
                 flagged[i] = abs(rates[i] - med_i) > abs_min_spread
             else:
                 mz_i = 0.6745 * abs(rates[i] - med_i) / mad_i
-                flagged[i] = (mz_i > z_threshold) or (
-                    abs(rates[i] - med_i) > abs_min_spread * 2
-                )
+                flagged[i] = (mz_i > z_threshold) or (abs(rates[i] - med_i) > abs_min_spread * 2)
 
     # Group consecutive flags into runs; report run boundaries.
     boundaries: list[int] = []
@@ -395,19 +393,18 @@ def _segments_from_change_points(
         seg_rates = rates[s:e]
         seg_weights = weights[s:e]
         total_w = float(seg_weights.sum())
-        wmean = (
-            float(np.average(seg_rates, weights=seg_weights))
-            if total_w > 0 else float(seg_rates.mean()) if seg_rates.size else float("nan")
+        wmean = float(np.average(seg_rates, weights=seg_weights)) if total_w > 0 else float(seg_rates.mean()) if seg_rates.size else float("nan")
+        segments.append(
+            {
+                "start_idx": int(s),
+                "end_idx": int(e),
+                "start_label": bin_labels[s] if s < len(bin_labels) else "",
+                "end_label": bin_labels[e - 1] if e - 1 < len(bin_labels) else "",
+                "n_bins": int(e - s),
+                "n_obs": int(seg_weights.sum()),
+                "mean_rate": wmean,
+            }
         )
-        segments.append({
-            "start_idx": int(s),
-            "end_idx": int(e),
-            "start_label": bin_labels[s] if s < len(bin_labels) else "",
-            "end_label": bin_labels[e - 1] if e - 1 < len(bin_labels) else "",
-            "n_bins": int(e - s),
-            "n_obs": int(seg_weights.sum()),
-            "mean_rate": wmean,
-        })
     return segments
 
 

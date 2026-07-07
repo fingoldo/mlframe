@@ -137,15 +137,12 @@ def _mdl_bin_edges(x: np.ndarray, y_class: np.ndarray, n_classes: int, max_bins=
         y_sorted = np.ascontiguousarray(sub_y[order], dtype=np.int64)
         # Single-pass njit best-split scan (replaces the prior O(n^2) double-bincount inner loop). Returns the same best split + the
         # left/right entropies needed for the MDL stop term, bit-identical to recomputing _entropy_multi over the same slices.
-        best_idx, best_thresh, best_gain, E_left_best, E_right_best, _H_S_sorted = _best_mdl_split_kernel(
-            y_sorted, x_sorted, n_classes, min_size
-        )
+        best_idx, best_thresh, best_gain, E_left_best, E_right_best, _H_S_sorted = _best_mdl_split_kernel(y_sorted, x_sorted, n_classes, min_size)
         if best_idx < 0:
             return
         # MDL stop criterion
         k = n_classes
-        delta = np.log2(3 ** k - 2) - (k * H_S - 2 * E_left_best * (best_idx / n) -
-                                       (n - best_idx) / n * 2 * E_right_best)
+        delta = np.log2(3**k - 2) - (k * H_S - 2 * E_left_best * (best_idx / n) - (n - best_idx) / n * 2 * E_right_best)
         if best_gain * n < np.log2(n - 1) + delta:
             return
         edges.append(float(best_thresh))

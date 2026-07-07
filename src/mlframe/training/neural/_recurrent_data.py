@@ -230,10 +230,7 @@ class RecurrentDataModule(LightningDataModule):
         # CPU (e.g. user explicitly set accelerator="cpu" on a CUDA box for
         # debugging or smoke tests) wastes RAM and triggers a useless host-
         # side page-lock attempt for every batch.
-        self._pin_memory = (
-            torch.cuda.is_available()
-            and accelerator in ("auto", "gpu", "cuda")
-        )
+        self._pin_memory = torch.cuda.is_available() and accelerator in ("auto", "gpu", "cuda")
 
         # For dynamic prediction
         self.predict_sequences = None

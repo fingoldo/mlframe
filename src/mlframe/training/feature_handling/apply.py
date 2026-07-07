@@ -296,10 +296,7 @@ def feature_handling_apply(
         for col in target_cols:
             if spec.method.startswith("target_") or spec.method == "woe":
                 if train_target is None:
-                    raise ValueError(
-                        f"target encoder method={spec.method!r} on column "
-                        f"{col!r} requires train_target argument; got None."
-                    )
+                    raise ValueError(f"target encoder method={spec.method!r} on column " f"{col!r} requires train_target argument; got None.")
                 # Target encoders are single-output by construction. Multi-output (multilabel /
                 # multi-regression) inputs slip through downstream sklearn's ``np.asarray(list(y))`` with
                 # shape (n, k); the LeakageSafeEncoder then crashes with an opaque length-mismatch trace.
@@ -557,9 +554,9 @@ def _text_column_content_token(train_df: Any, column: str) -> int:
         # the per-process lifetime of train_df; the fallback path is rare).
         import logging as _logging
         _logging.getLogger(__name__).warning(
-            "_text_column_content_token: hash failed for column=%r (%s); using "
-            "id(train_df) fallback to avoid cross-frame cache collisions.",
-            column, _e,
+            "_text_column_content_token: hash failed for column=%r (%s); using " "id(train_df) fallback to avoid cross-frame cache collisions.",
+            column,
+            _e,
         )
         return id(train_df) & ((1 << 63) - 1)
 

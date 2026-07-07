@@ -80,11 +80,7 @@ def _finalize_per_target_ensembling(
     _ens_sample_weight = (
         _ctx_sw_dict.get(cur_target_name)
         if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict
-        else (
-            current_common_params.get("sample_weight")
-            if isinstance(current_common_params, dict)
-            else None
-        )
+        else (current_common_params.get("sample_weight") if isinstance(current_common_params, dict) else None)
     )
     # Spread common_params first, then explicitly set group_ids/sample_weight.
     # If common_params happened to already carry either key (unlikely on the
@@ -152,9 +148,7 @@ def _finalize_per_target_ensembling(
                 # Sub-key per ensemble family: simple per-target ensembles live under
                 # ``ensembles_chosen["simple"]``; cross-target ensembles are stamped by
                 # _phase_composite_post under ``ensembles_chosen["cross_target"]``.
-                metadata.setdefault("ensembles_chosen", {}) \
-                    .setdefault("simple", {}) \
-                    .setdefault(target_type, {})[cur_target_name] = _chosen
+                metadata.setdefault("ensembles_chosen", {}).setdefault("simple", {}).setdefault(target_type, {})[cur_target_name] = _chosen
         except Exception as _choose_err:
             logger.warning("ensembles_chosen stamp failed for %s/%s: %s", target_type, cur_target_name, _choose_err)
         # Persist ``rrf_k`` only when RRF was actually iterated for this target -- otherwise
@@ -174,10 +168,9 @@ def _finalize_per_target_ensembling(
                 _rrf_k_used = int(common_params.get("rrf_k", 60))
             except (TypeError, ValueError):
                 _rrf_k_used = 60
-            metadata.setdefault("ensembles_chosen_params", {}) \
-                .setdefault(str(target_type), {})[str(cur_target_name)] = {
-                    "rrf_k": _rrf_k_used,
-                }
+            metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {})[str(cur_target_name)] = {
+                "rrf_k": _rrf_k_used,
+            }
 
     # Per-target binary decision-threshold tuning on val (NEVER test). Tri-state behavior_config.tune_decision_threshold:
     # "auto" (default) tunes only when the val target is imbalanced and leaves 0.5 otherwise, True always tunes, False forces 0.5.

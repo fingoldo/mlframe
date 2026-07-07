@@ -76,16 +76,11 @@ class CompositeCrossTargetEnsemble:
         if is_convex:
             wsum = float(weights.sum())
             if wsum <= 0 or not math.isfinite(wsum):
-                raise ValueError(
-                    f"CompositeCrossTargetEnsemble: convex weights must sum to positive finite "
-                    f"value; got sum={wsum}."
-                )
+                raise ValueError(f"CompositeCrossTargetEnsemble: convex weights must sum to positive finite " f"value; got sum={wsum}.")
             weights = weights / wsum
         else:
             if not np.all(np.isfinite(weights)):
-                raise ValueError(
-                    "CompositeCrossTargetEnsemble: weights contain non-finite values."
-                )
+                raise ValueError("CompositeCrossTargetEnsemble: weights contain non-finite values.")
         self.component_models = list(component_models)
         self.component_names = list(component_names)
         self.weights = weights
@@ -162,23 +157,17 @@ class CompositeCrossTargetEnsemble:
             raise ValueError("from_linear_stack: empty component list.")
         component_predictions = np.asarray(component_predictions, dtype=np.float64)
         if component_predictions.shape[1] != n:
-            raise ValueError(
-                f"from_linear_stack: prediction matrix has {component_predictions.shape[1]} "
-                f"columns, expected {n} (one per component)."
-            )
+            raise ValueError(f"from_linear_stack: prediction matrix has {component_predictions.shape[1]} " f"columns, expected {n} (one per component).")
         y = np.asarray(y_train, dtype=np.float64).reshape(-1)
         if len(y) != component_predictions.shape[0]:
-            raise ValueError(
-                f"from_linear_stack: y_train length {len(y)} != prediction "
-                f"matrix rows {component_predictions.shape[0]}."
-            )
+            raise ValueError(f"from_linear_stack: y_train length {len(y)} != prediction " f"matrix rows {component_predictions.shape[0]}.")
         # Drop rows with non-finite y or predictions.
         finite = np.isfinite(y) & np.all(np.isfinite(component_predictions), axis=1)
         if finite.sum() < n + 2:
             logger.warning(
-                "[CompositeCrossTargetEnsemble] linear_stack: only %d finite rows for "
-                "%d components; falling back to oof_weighted-style mean.",
-                int(finite.sum()), n,
+                "[CompositeCrossTargetEnsemble] linear_stack: only %d finite rows for " "%d components; falling back to oof_weighted-style mean.",
+                int(finite.sum()),
+                n,
             )
             return cls.from_uniform_weights(component_models, component_names)
 
@@ -189,8 +178,7 @@ class CompositeCrossTargetEnsemble:
             _ridge_sw = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
             if _ridge_sw.shape[0] != component_predictions.shape[0]:
                 raise ValueError(
-                    f"from_linear_stack: sample_weight length {_ridge_sw.shape[0]} != "
-                    f"prediction matrix rows {component_predictions.shape[0]}."
+                    f"from_linear_stack: sample_weight length {_ridge_sw.shape[0]} != " f"prediction matrix rows {component_predictions.shape[0]}."
                 )
             if not np.all(np.isfinite(_ridge_sw)) or (_ridge_sw < 0).any():
                 raise ValueError("from_linear_stack: sample_weight must be finite and non-negative.")
@@ -207,10 +195,7 @@ class CompositeCrossTargetEnsemble:
         raw_weights = np.asarray(ridge.coef_, dtype=np.float64)
         # Sanity: if all weights are zero or non-finite, fall back.
         if not np.any(raw_weights) or not np.all(np.isfinite(raw_weights)):
-            logger.warning(
-                "[CompositeCrossTargetEnsemble] linear_stack: degenerate weights; "
-                "falling back to mean."
-            )
+            logger.warning("[CompositeCrossTargetEnsemble] linear_stack: degenerate weights; " "falling back to mean.")
             return cls.from_uniform_weights(component_models, component_names)
         # Ridge can produce negative coefficients when a component is
         # anti-correlated with the target. That's mathematically fine for a linear stack but
@@ -293,9 +278,9 @@ class CompositeCrossTargetEnsemble:
         finite = np.isfinite(y) & np.all(np.isfinite(component_predictions), axis=1)
         if finite.sum() < n + 2:
             logger.warning(
-                "[CompositeCrossTargetEnsemble] nnls_stack: only %d finite rows for "
-                "%d components; falling back to mean.",
-                int(finite.sum()), n,
+                "[CompositeCrossTargetEnsemble] nnls_stack: only %d finite rows for " "%d components; falling back to mean.",
+                int(finite.sum()),
+                n,
             )
             return cls.from_uniform_weights(component_models, component_names)
 
@@ -305,10 +290,7 @@ class CompositeCrossTargetEnsemble:
         if sample_weight is not None:
             _nnls_sw = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
             if _nnls_sw.shape[0] != component_predictions.shape[0]:
-                raise ValueError(
-                    f"from_nnls_stack: sample_weight length {_nnls_sw.shape[0]} != "
-                    f"prediction matrix rows {component_predictions.shape[0]}."
-                )
+                raise ValueError(f"from_nnls_stack: sample_weight length {_nnls_sw.shape[0]} != " f"prediction matrix rows {component_predictions.shape[0]}.")
             if not np.all(np.isfinite(_nnls_sw)) or (_nnls_sw < 0).any():
                 raise ValueError("from_nnls_stack: sample_weight must be finite and non-negative.")
             _nnls_sw = _nnls_sw[finite]
@@ -320,16 +302,13 @@ class CompositeCrossTargetEnsemble:
             w, _residual = nnls(_A_for_nnls, _b_for_nnls)
         except RuntimeError as exc:
             logger.warning(
-                "[CompositeCrossTargetEnsemble] nnls_stack: solver failed (%s); "
-                "falling back to mean.", exc,
+                "[CompositeCrossTargetEnsemble] nnls_stack: solver failed (%s); " "falling back to mean.",
+                exc,
             )
             return cls.from_uniform_weights(component_models, component_names)
 
         if w.sum() <= 0 or not np.all(np.isfinite(w)):
-            logger.warning(
-                "[CompositeCrossTargetEnsemble] nnls_stack: zero or non-finite "
-                "weights; falling back to mean."
-            )
+            logger.warning("[CompositeCrossTargetEnsemble] nnls_stack: zero or non-finite " "weights; falling back to mean.")
             return cls.from_uniform_weights(component_models, component_names)
 
         instance = cls(
@@ -415,9 +394,7 @@ class CompositeCrossTargetEnsemble:
             rmse_source = "oof"
             rmses = np.asarray(component_oof_rmse, dtype=np.float64)
             if len(rmses) != n:
-                raise ValueError(
-                    f"from_train_metrics: component_oof_rmse list len {len(rmses)} != n_components {n}."
-                )
+                raise ValueError(f"from_train_metrics: component_oof_rmse list len {len(rmses)} != n_components {n}.")
             # Only an OOF-scale baseline is scale-consistent with OOF rmses. A train-scale
             # ``baseline_train_rmse`` is systematically optimistic (train RMSE < OOF RMSE), so
             # honouring it here would shrink every gain and spuriously trip the single-best gate.
@@ -447,9 +424,7 @@ class CompositeCrossTargetEnsemble:
                 )
             rmses = np.asarray(component_train_rmse, dtype=np.float64)
             if len(rmses) != n:
-                raise ValueError(
-                    f"from_train_metrics: rmse list len {len(rmses)} != n_components {n}."
-                )
+                raise ValueError(f"from_train_metrics: rmse list len {len(rmses)} != n_components {n}.")
             logger.warning(
                 "[CompositeCrossTargetEnsemble] from_train_metrics: ranking on TRAIN RMSE which is "
                 "biased optimistic (rows seen at fit). Pass component_oof_rmse=... for an honest "
@@ -568,9 +543,9 @@ class CompositeCrossTargetEnsemble:
                 pred = np.asarray(model.predict(X), dtype=np.float64).reshape(-1)
             except Exception as exc:
                 logger.warning(
-                    "[CompositeCrossTargetEnsemble] component '%s' predict failed: "
-                    "%s. Excluding from this batch's ensemble (re-normalising).",
-                    name, exc,
+                    "[CompositeCrossTargetEnsemble] component '%s' predict failed: " "%s. Excluding from this batch's ensemble (re-normalising).",
+                    name,
+                    exc,
                 )
                 pred = None
             per_component.append(pred)
@@ -580,9 +555,7 @@ class CompositeCrossTargetEnsemble:
         surviving_idx = [i for i, p in enumerate(per_component) if p is not None]
         ok = [(per_component[i], self.weights[i]) for i in surviving_idx]
         if not ok:
-            raise RuntimeError(
-                "CompositeCrossTargetEnsemble.predict: all components failed."
-            )
+            raise RuntimeError("CompositeCrossTargetEnsemble.predict: all components failed.")
         preds_matrix = np.column_stack([p for p, _ in ok])
         weights = np.array([w for _, w in ok], dtype=np.float64)
 
@@ -672,8 +645,8 @@ class CompositeCrossTargetEnsemble:
             return cal.predict(raw_blend)
         except Exception as exc:
             logger.warning(
-                "[CompositeCrossTargetEnsemble] output calibrator predict failed (%s); "
-                "returning the raw blend for this batch.", exc,
+                "[CompositeCrossTargetEnsemble] output calibrator predict failed (%s); " "returning the raw blend for this batch.",
+                exc,
             )
             return raw_blend
 
@@ -684,9 +657,7 @@ class CompositeCrossTargetEnsemble:
         """
         M = np.asarray(oof_component_matrix, dtype=np.float64)
         if M.ndim != 2 or M.shape[1] != len(self.component_models):
-            raise ValueError(
-                f"_blend_oof_matrix: matrix has shape {M.shape}; expected (n, {len(self.component_models)})."
-            )
+            raise ValueError(f"_blend_oof_matrix: matrix has shape {M.shape}; expected (n, {len(self.component_models)}).")
         _meta = getattr(self, "_meta_model", None)
         if _meta is not None:
             return np.asarray(_meta.predict(M), dtype=np.float64).reshape(-1)
@@ -717,8 +688,8 @@ class CompositeCrossTargetEnsemble:
             raw_blend = self._blend_oof_matrix(oof_component_matrix)
         except Exception as exc:
             logger.warning(
-                "[CompositeCrossTargetEnsemble] fit_output_calibrator: could not blend OOF matrix "
-                "(%s); leaving output uncalibrated.", exc,
+                "[CompositeCrossTargetEnsemble] fit_output_calibrator: could not blend OOF matrix " "(%s); leaving output uncalibrated.",
+                exc,
             )
             self.calibrate_output = False
             return self
@@ -742,10 +713,7 @@ class CompositeCrossTargetEnsemble:
             "is_convex": bool(getattr(self, "is_convex", True)),
             "intercept": float(getattr(self, "_linear_stack_intercept", 0.0)),
             "calibrate_output": bool(getattr(self, "calibrate_output", False)),
-            "output_calibration": (
-                self._output_calibrator.export()
-                if getattr(self, "_output_calibrator", None) is not None else None
-            ),
+            "output_calibration": (self._output_calibrator.export() if getattr(self, "_output_calibrator", None) is not None else None),
             "notes": dict(self.notes),
         }
 
@@ -798,12 +766,11 @@ class CompositeCrossTargetEnsemble:
             component_names=[self.component_names[i] for i in keep],
             weights=np.asarray([self.weights[i] for i in keep], dtype=np.float64),
             strategy=self.strategy,
-            notes={**self.notes, "capped_to_top_n": int(max_components),
-                   "dropped_components": [
-                       self.component_names[i]
-                       for i in range(len(self.component_models))
-                       if i not in keep
-                   ]},
+            notes={
+                **self.notes,
+                "capped_to_top_n": int(max_components),
+                "dropped_components": [self.component_names[i] for i in range(len(self.component_models)) if i not in keep],
+            },
             is_convex=getattr(self, "is_convex", True),
             calibration_method=getattr(self, "calibration_method", "isotonic"),
         )
@@ -884,4 +851,3 @@ class CompositeCrossTargetEnsemble:
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)
-

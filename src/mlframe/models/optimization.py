@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -236,21 +235,13 @@ class MBHOptimizer:
         if len(search_space) <= 0:
             raise ValueError("search_space must be non-empty.")
         if acquisition_method not in ("EE",):
-            raise ValueError(
-                f"acquisition_method must be 'EE'; got {acquisition_method!r}."
-            )
+            raise ValueError(f"acquisition_method must be 'EE'; got {acquisition_method!r}.")
         if not (0.0 <= skip_best_candidate_prob < 0.5):
-            raise ValueError(
-                f"skip_best_candidate_prob must be in [0, 0.5); got {skip_best_candidate_prob!r}."
-            )
+            raise ValueError(f"skip_best_candidate_prob must be in [0, 0.5); got {skip_best_candidate_prob!r}.")
         if not (0.0 < dist_scaling_coefficient <= 1.0):
-            raise ValueError(
-                f"dist_scaling_coefficient must be in (0, 1]; got {dist_scaling_coefficient!r}."
-            )
+            raise ValueError(f"dist_scaling_coefficient must be in (0, 1]; got {dist_scaling_coefficient!r}.")
         if not (0.0 <= exploitation_probability <= 1.0):
-            raise ValueError(
-                f"exploitation_probability must be in [0, 1]; got {exploitation_probability!r}."
-            )
+            raise ValueError(f"exploitation_probability must be in [0, 1]; got {exploitation_probability!r}.")
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Save params
@@ -362,10 +353,7 @@ class MBHOptimizer:
         # list slipped past under -O and reached the surrogate-model fit
         # with no inputs -> opaque downstream crash.
         if len(pre_seeded_candidates) == 0:
-            raise ValueError(
-                "MBHOptimizer: pre_seeded_candidates is empty after sampling; "
-                "increase init_num_samples or provide non-empty seeded_inputs."
-            )
+            raise ValueError("MBHOptimizer: pre_seeded_candidates is empty after sampling; " "increase init_num_samples or provide non-empty seeded_inputs.")
         self.pre_seeded_candidates = pre_seeded_candidates
 
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -485,9 +473,11 @@ class MBHOptimizer:
                             _ys = self.known_evaluations
                             _unique_x, _inv = np.unique(_xs, return_inverse=True)
                             if len(_unique_x) < len(_xs):
-                                _agg = np.full(len(_unique_x), -np.inf, dtype=_ys.dtype) \
-                                    if self.direction == OptimizationDirection.Maximize \
+                                _agg = (
+                                    np.full(len(_unique_x), -np.inf, dtype=_ys.dtype)
+                                    if self.direction == OptimizationDirection.Maximize
                                     else np.full(len(_unique_x), np.inf, dtype=_ys.dtype)
+                                )
                                 _cmp = np.maximum if self.direction == OptimizationDirection.Maximize else np.minimum
                                 for _i, _y in zip(_inv, _ys):
                                     _agg[_i] = _cmp(_agg[_i], _y)

@@ -101,9 +101,7 @@ class HGBStrategy(ModelPipelineStrategy):
                 # core.py:2992 which also passes strict=False on the test split.
                 _strict_false_cols.append(col)
                 if high_card:
-                    casts.append(
-                        pl.col(col).cast(pl.String).cast(enum_dt, strict=False).to_physical().cast(pl.UInt32).alias(col)
-                    )
+                    casts.append(pl.col(col).cast(pl.String).cast(enum_dt, strict=False).to_physical().cast(pl.UInt32).alias(col))
                 else:
                     casts.append(pl.col(col).cast(pl.String).cast(enum_dt, strict=False).alias(col))
                 continue
@@ -116,9 +114,7 @@ class HGBStrategy(ModelPipelineStrategy):
             if local_enum is None:
                 continue
             if high_card:
-                casts.append(
-                    pl.col(col).cast(pl.String).cast(local_enum).to_physical().cast(pl.UInt32).alias(col)
-                )
+                casts.append(pl.col(col).cast(pl.String).cast(local_enum).to_physical().cast(pl.UInt32).alias(col))
             else:
                 casts.append(pl.col(col).cast(pl.String).cast(local_enum).alias(col))
 
@@ -128,10 +124,7 @@ class HGBStrategy(ModelPipelineStrategy):
             _null_pre = {c: int(df[c].null_count()) for c in _strict_false_cols if c in df.columns}
             df = df.with_columns(casts)
             if _null_pre:
-                _null_deltas = {
-                    c: int(df[c].null_count()) - _null_pre[c]
-                    for c in _null_pre
-                }
+                _null_deltas = {c: int(df[c].null_count()) - _null_pre[c] for c in _null_pre}
                 _nonzero = {c: d for c, d in _null_deltas.items() if d > 0}
                 if _nonzero:
                     import logging as _lg
@@ -158,11 +151,9 @@ class HGBStrategy(ModelPipelineStrategy):
 
         cat_features = cat_features or []
         candidate_cols = [
-            name for name, dtype in train_df.schema.items()
-            if dtype in (pl.Utf8, pl.String)
-            or dtype == pl.Categorical
-            or isinstance(dtype, pl.Enum)
-            or name in cat_features
+            name
+            for name, dtype in train_df.schema.items()
+            if dtype in (pl.Utf8, pl.String) or dtype == pl.Categorical or isinstance(dtype, pl.Enum) or name in cat_features
         ]
         candidate_cols = [c for c in candidate_cols if c in train_df.columns]
 
@@ -181,10 +172,7 @@ class HGBStrategy(ModelPipelineStrategy):
             if not cols_present:
                 return {}
             try:
-                lf = df.lazy().select([
-                    pl.col(c).cast(pl.String).drop_nulls().unique().implode().alias(c)
-                    for c in cols_present
-                ])
+                lf = df.lazy().select([pl.col(c).cast(pl.String).drop_nulls().unique().implode().alias(c) for c in cols_present])
                 row = lf.collect()
                 return {c: row[c][0].to_list() for c in cols_present}
             except Exception:

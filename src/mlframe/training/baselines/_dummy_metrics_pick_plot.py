@@ -88,19 +88,14 @@ def _compute_metrics_table(
                             for j in non_boundary_idx
                             if _isfinite(row.get(f"{split_name}_pinball@{alphas[j]:.3f}", float("nan")))
                         ]
-                        row[f"{split_name}_pinball_mean"] = (
-                            float(np.mean(non_boundary_vals)) if non_boundary_vals else float("nan")
-                        )
+                        row[f"{split_name}_pinball_mean"] = float(np.mean(non_boundary_vals)) if non_boundary_vals else float("nan")
                     else:
                         row[f"{split_name}_pinball_mean"] = float("nan")
                 else:
                     for a in alphas:
                         row[f"{split_name}_pinball@{a:.3f}"] = float("nan")
                     row[f"{split_name}_pinball_mean"] = float("nan")
-            row["failed"] = not (
-                _isfinite(row.get("val_pinball_mean", float("nan")))
-                or _isfinite(row.get("test_pinball_mean", float("nan")))
-            )
+            row["failed"] = not (_isfinite(row.get("val_pinball_mean", float("nan"))) or _isfinite(row.get("test_pinball_mean", float("nan"))))
             rows.append(row)
     elif target_type in ("regression", "quantile_regression"):
         primary_metric = "val_RMSE"
@@ -120,9 +115,7 @@ def _compute_metrics_table(
             else:
                 row["test_RMSE"] = float("nan")
                 row["test_MAE"] = float("nan")
-            row["failed"] = not (
-                _isfinite(row["val_RMSE"]) or _isfinite(row["test_RMSE"])
-            )
+            row["failed"] = not (_isfinite(row["val_RMSE"]) or _isfinite(row["test_RMSE"]))
             rows.append(row)
 
     elif target_type in ("binary_classification", "multiclass_classification"):
@@ -152,10 +145,7 @@ def _compute_metrics_table(
                     row[f"{split_name}_log_loss"] = float("nan")
                     auc_key = f"{split_name}_AUC" if target_type == "binary_classification" else f"{split_name}_AUC_macro"
                     row[auc_key] = float("nan")
-            row["failed"] = not (
-                _isfinite(row.get("val_log_loss", float("nan")))
-                or _isfinite(row.get("test_log_loss", float("nan")))
-            )
+            row["failed"] = not (_isfinite(row.get("val_log_loss", float("nan"))) or _isfinite(row.get("test_log_loss", float("nan"))))
             rows.append(row)
 
     elif target_type == "multilabel_classification":
@@ -195,18 +185,14 @@ def _compute_metrics_table(
                                 ll = _safe_metric(log_loss, y[:, k], p[:, k], labels=[0, 1])
                                 if _isfinite(ll):
                                     label_lls.append(ll)
-                        row[f"{split_name}_log_loss_macro"] = (
-                            float(np.mean(label_lls)) if label_lls else float("nan")
-                        )
+                        row[f"{split_name}_log_loss_macro"] = float(np.mean(label_lls)) if label_lls else float("nan")
                         row[f"{split_name}_log_loss_micro"] = _safe_metric(
                             log_loss, y.ravel(), p.ravel(), labels=[0, 1],
                         )
                 else:
                     row[f"{split_name}_log_loss_macro"] = float("nan")
                     row[f"{split_name}_log_loss_micro"] = float("nan")
-            row["failed"] = not (
-                _isfinite(row["val_log_loss_macro"]) or _isfinite(row["test_log_loss_macro"])
-            )
+            row["failed"] = not (_isfinite(row["val_log_loss_macro"]) or _isfinite(row["test_log_loss_macro"]))
             rows.append(row)
 
     elif target_type == "learning_to_rank":
@@ -237,10 +223,7 @@ def _compute_metrics_table(
                         row[f"{split_name}_NDCG@{k}"] = float("nan")
                     row[f"{split_name}_MAP@10"] = float("nan")
                     row[f"{split_name}_MRR"] = float("nan")
-            row["failed"] = not (
-                _isfinite(row.get("val_NDCG@10", float("nan")))
-                or _isfinite(row.get("test_NDCG@10", float("nan")))
-            )
+            row["failed"] = not (_isfinite(row.get("val_NDCG@10", float("nan"))) or _isfinite(row.get("test_NDCG@10", float("nan"))))
             rows.append(row)
 
     else:
@@ -300,8 +283,7 @@ def _pick_strongest(
         # behaviour for unknowns); the operator should register the
         # metric to get the right direction.
         logger.warning(
-            "_pick_strongest: cannot determine direction for primary_metric=%r; "
-            "defaulting to minimize=True. Register via metrics_registry to fix.",
+            "_pick_strongest: cannot determine direction for primary_metric=%r; " "defaulting to minimize=True. Register via metrics_registry to fix.",
             primary_metric,
         )
         minimize = True
@@ -380,16 +362,16 @@ def plot_best_dummy_baseline_overlay(
     import matplotlib.pyplot as _plt
     if report.strongest is None:
         logger.info(
-            "[dummy-baselines] target='%s' no strongest baseline -- "
-            "overlay plot skipped.", report.target_name,
+            "[dummy-baselines] target='%s' no strongest baseline -- " "overlay plot skipped.",
+            report.target_name,
         )
         return None
     sv = report.extras.get("strongest_val_preds")
     st = report.extras.get("strongest_test_preds")
     if sv is None and st is None:
         logger.info(
-            "[dummy-baselines] target='%s' no strongest preds in "
-            "extras -- overlay plot skipped.", report.target_name,
+            "[dummy-baselines] target='%s' no strongest preds in " "extras -- overlay plot skipped.",
+            report.target_name,
         )
         return None
     is_regression = report.target_type in (
@@ -442,16 +424,13 @@ def plot_best_dummy_baseline_overlay(
             )
         ax_scatter.set_xlabel("y_true")
         ax_scatter.set_ylabel("y_hat (strongest baseline)")
-        ax_scatter.set_title(
-            f"Baseline floor: {report.strongest}\n"
-            f"({report.primary_metric}={_safe_metric_for_title(report)})"
-        )
+        ax_scatter.set_title(f"Baseline floor: {report.strongest}\n" f"({report.primary_metric}={_safe_metric_for_title(report)})")
         ax_scatter.legend(loc="best", fontsize=9)
         ax_scatter.grid(alpha=0.3)
 
         # Right: residual histogram.
         for label, y_s, p_s, color in [
-            ("val",  val_y_s,  val_p_s,  "tab:blue"),
+            ("val", val_y_s, val_p_s, "tab:blue"),
             ("test", test_y_s, test_p_s, "tab:orange"),
         ]:
             if y_s is None or p_s is None:
@@ -475,14 +454,12 @@ def plot_best_dummy_baseline_overlay(
         # Classification: single-panel bar of class-prior probabilities
         # for the strongest baseline (typically ``majority`` /
         # ``stratified_random``).
-        fig, ax = _plt.subplots(1, 1, figsize=(figsize[0] / 2, figsize[1]),
-                                constrained_layout=True)
+        fig, ax = _plt.subplots(1, 1, figsize=(figsize[0] / 2, figsize[1]), constrained_layout=True)
         # Pull P(y=k) from the strongest baseline's val predictions.
         if sv is not None and sv.ndim == 1:
             # Single-label hard-prediction baseline (e.g. majority).
             uniq, counts = np.unique(sv, return_counts=True)
-            ax.bar(range(len(uniq)),
-                   counts / counts.sum(), color="tab:blue")
+            ax.bar(range(len(uniq)), counts / counts.sum(), color="tab:blue")
             ax.set_xticks(range(len(uniq)))
             ax.set_xticklabels([str(u) for u in uniq])
             ax.set_ylabel("P(predicted class)")
@@ -494,17 +471,14 @@ def plot_best_dummy_baseline_overlay(
             ax.set_xticks(range(len(avg_p)))
             ax.set_ylabel("mean P(class) on val")
             ax.set_xlabel("class")
-        ax.set_title(
-            f"Baseline floor: {report.strongest}\n"
-            f"({report.primary_metric}={_safe_metric_for_title(report)})"
-        )
+        ax.set_title(f"Baseline floor: {report.strongest}\n" f"({report.primary_metric}={_safe_metric_for_title(report)})")
         ax.grid(axis="y", alpha=0.3)
 
     # Suptitle with target name.
     fig.suptitle(
-        f"Dummy-baseline floor: target='{report.target_name}' "
-        f"(target_type={report.target_type})",
-        fontsize=11, y=1.02,
+        f"Dummy-baseline floor: target='{report.target_name}' " f"(target_type={report.target_type})",
+        fontsize=11,
+        y=1.02,
     )
 
     if save_path:
@@ -561,4 +535,3 @@ def _safe_metric_for_title(report: BaselineReport) -> str:
         return "?"
     except Exception:
         return "?"
-

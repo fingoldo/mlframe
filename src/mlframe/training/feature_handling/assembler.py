@@ -222,10 +222,7 @@ def assemble_for_model(
     for b in blocks:
         sig = (b.column, b.method)
         if sig in seen:
-            raise ValueError(
-                f"duplicate handler on column={b.column!r} method={b.method!r}; "
-                f"same-column + same-method handlers are not allowed."
-            )
+            raise ValueError(f"duplicate handler on column={b.column!r} method={b.method!r}; " f"same-column + same-method handlers are not allowed.")
         seen.add(sig)
 
     sparse_blocks = [b for b in blocks if b.output_kind == "sparse"]
@@ -244,10 +241,7 @@ def assemble_for_model(
             sparse_mat = stacked
             for b in sparse_blocks:
                 sparse_names.extend(b.expanded_feature_names())
-            routing_trace.append(
-                f"sparse_block: {len(sparse_blocks)} handlers -> "
-                f"{stacked.shape[1]} cols"
-            )
+            routing_trace.append(f"sparse_block: {len(sparse_blocks)} handlers -> " f"{stacked.shape[1]} cols")
         dense_parts: List[np.ndarray] = []
         dense_names: List[str] = []
         for b in dense_blocks + embedding_blocks:
@@ -264,9 +258,7 @@ def assemble_for_model(
             if numeric_feature_names is not None:
                 dense_names.extend(numeric_feature_names)
             else:
-                dense_names.extend(
-                    [f"num__{i}" for i in range(numeric_block.shape[1])]
-                )
+                dense_names.extend([f"num__{i}" for i in range(numeric_block.shape[1])])
         if dense_parts:
             dense_mat = np.concatenate(dense_parts, axis=1)
         else:
@@ -297,16 +289,12 @@ def assemble_for_model(
             # Renamed: <prefix>__svd<dim>__<i>
             prefix = b.name_prefix()
             all_names.extend([f"{prefix}__svd{reduced.shape[1]}__{i}" for i in range(reduced.shape[1])])
-            routing_trace.append(
-                f"svd: {b.column!r} {b.method!r} {b.n_features} -> {reduced.shape[1]}"
-            )
+            routing_trace.append(f"svd: {b.column!r} {b.method!r} {b.n_features} -> {reduced.shape[1]}")
         else:
             arr = b.data.toarray().astype(np.float32, copy=False)
             dense_parts.append(arr)
             all_names.extend(b.expanded_feature_names())
-            routing_trace.append(
-                f"densify: {b.column!r} {b.method!r} {b.n_features} cols (under SVD trigger)"
-            )
+            routing_trace.append(f"densify: {b.column!r} {b.method!r} {b.n_features} cols (under SVD trigger)")
 
     for b in dense_blocks + embedding_blocks:
         arr = b.data

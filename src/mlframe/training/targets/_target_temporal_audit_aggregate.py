@@ -20,7 +20,6 @@ except ImportError:
 
 from ._target_temporal_audit_coerce import coerce_timestamps_for_audit
 
-
 DEFAULT_TARGET_BINS_RANGE: tuple[int, int] = (30, 50)
 """Granularity auto-picker aims for this many non-empty bins."""
 
@@ -130,11 +129,7 @@ def _aggregate_by_time_polars(
     # the per-bin aggregate -- bin counts grow O(n_obs / bin_width) so the saving
     # scales with input frame size.
     agg = _get_pandas_view(
-        df.select([timestamp_col, target_col])
-          .with_columns(bin_expr.alias("__bin"))
-          .group_by("__bin")
-          .agg(pl.len().alias("n_obs"), rate_expr)
-          .sort("__bin")
+        df.select([timestamp_col, target_col]).with_columns(bin_expr.alias("__bin")).group_by("__bin").agg(pl.len().alias("n_obs"), rate_expr).sort("__bin")
     )
     agg = agg.rename(columns={"__bin": "bin_start"})
     agg["bin_start"] = pd.to_datetime(agg["bin_start"])
@@ -176,10 +171,7 @@ def _aggregate_by_time_polars_multi(
         raise ValueError("target_specs must be non-empty.")
 
     bin_expr = pl.col(timestamp_col).dt.truncate(_POLARS_BIN_TRUNCATE[granularity])
-    rate_exprs = [
-        _polars_rate_expr(col, ttype, alias)
-        for (col, ttype, alias) in target_specs
-    ]
+    rate_exprs = [_polars_rate_expr(col, ttype, alias) for (col, ttype, alias) in target_specs]
     select_cols = [timestamp_col, *{spec[0] for spec in target_specs}]
 
     from ..utils import get_pandas_view_of_polars_df as _get_pandas_view
@@ -187,11 +179,7 @@ def _aggregate_by_time_polars_multi(
     # above; multi-target aggregates have wider output columns so the saving
     # (avoided per-column consolidation copy) compounds.
     agg = _get_pandas_view(
-        df.select(select_cols)
-          .with_columns(bin_expr.alias("__bin"))
-          .group_by("__bin")
-          .agg(pl.len().alias("n_obs"), *rate_exprs)
-          .sort("__bin")
+        df.select(select_cols).with_columns(bin_expr.alias("__bin")).group_by("__bin").agg(pl.len().alias("n_obs"), *rate_exprs).sort("__bin")
     )
     agg = agg.rename(columns={"__bin": "bin_start"})
     agg["bin_start"] = pd.to_datetime(agg["bin_start"])
@@ -228,9 +216,7 @@ def _aggregate_by_time_pandas(
         # the reported positive rate per bin. Drop NaN explicitly so the rate
         # is the honest empirical positive fraction over non-missing rows;
         # NaN fraction is surfaced separately via n_obs.
-        rate = s.groupby("__bin")[target_col].apply(
-            lambda c: (c.dropna() > 0).mean() if c.notna().any() else float("nan")
-        )
+        rate = s.groupby("__bin")[target_col].apply(lambda c: (c.dropna() > 0).mean() if c.notna().any() else float("nan"))
     else:
         rate = s.groupby("__bin")[target_col].mean()
     n_obs = s.groupby("__bin")[target_col].size()

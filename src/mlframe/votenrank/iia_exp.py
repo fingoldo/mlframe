@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import numpy as np
@@ -29,7 +28,7 @@ def compute_iia_for_fixed_models(method, table, models_order, weights):
         current_ranking_without_new_model.remove(models_order[current_models_order - 1])
         result += last_ranking != current_ranking_without_new_model
         last_ranking = current_ranking
-    
+
     return result
 
 

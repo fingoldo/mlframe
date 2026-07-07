@@ -126,8 +126,7 @@ class Muon(Optimizer):
                     continue
                 if p.dim() != 2:
                     raise RuntimeError(
-                        f"Muon only handles 2D parameters; got shape {tuple(p.shape)}. "
-                        "Use MuonAdamWHybrid to auto-route non-2D params to AdamW."
+                        f"Muon only handles 2D parameters; got shape {tuple(p.shape)}. " "Use MuonAdamWHybrid to auto-route non-2D params to AdamW."
                     )
                 g = p.grad
                 state = self.state[p]
@@ -194,11 +193,7 @@ class MuonAdamWHybrid(Optimizer):
         defaults = dict(lr=lr)
         super().__init__([{"params": param_list}], defaults)
 
-        self._muon = (
-            Muon(muon_params, lr=muon_lr, momentum=momentum,
-                 nesterov=nesterov, ns_steps=ns_steps)
-            if muon_params else None
-        )
+        self._muon = Muon(muon_params, lr=muon_lr, momentum=momentum, nesterov=nesterov, ns_steps=ns_steps) if muon_params else None
         self._adamw = (
             torch.optim.AdamW(
                 adamw_params, lr=lr, betas=betas, eps=eps,

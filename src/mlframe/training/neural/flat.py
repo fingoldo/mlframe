@@ -171,20 +171,13 @@ class _ResidualLinearBlock(nn.Module):
         self.dropout = nn.Dropout(dropout_prob) if dropout_prob > 0 else nn.Identity()
         # Skip projection: identity when dims match (parameter-free);
         # bias-free Linear when dims differ (smallest projection cost).
-        self.skip = (
-            nn.Identity()
-            if in_dim == out_dim
-            else nn.Linear(in_dim, out_dim, bias=False)
-        )
+        self.skip = nn.Identity() if in_dim == out_dim else nn.Linear(in_dim, out_dim, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.dropout(self.act(self.norm(self.linear(x)))) + self.skip(x)
 
     def extra_repr(self) -> str:
-        return (
-            f"in={self.linear.in_features}, out={self.linear.out_features}, "
-            f"skip={'identity' if isinstance(self.skip, nn.Identity) else 'linear'}"
-        )
+        return f"in={self.linear.in_features}, out={self.linear.out_features}, " f"skip={'identity' if isinstance(self.skip, nn.Identity) else 'linear'}"
 
 
 def generate_mlp(
@@ -311,9 +304,7 @@ def generate_mlp(
     if inputs_dropout_prob < 0.0:
         raise ValueError(f"inputs_dropout_prob must be >= 0.0, got {inputs_dropout_prob!r}")
     if consec_layers_neurons_ratio < 1.0:
-        raise ValueError(
-            f"consec_layers_neurons_ratio must be >= 1.0, got {consec_layers_neurons_ratio!r}"
-        )
+        raise ValueError(f"consec_layers_neurons_ratio must be >= 1.0, got {consec_layers_neurons_ratio!r}")
     if not isinstance(nlayers, int) or isinstance(nlayers, bool):
         raise TypeError(f"nlayers must be an int, got {type(nlayers).__name__}")
     if nlayers < 1:
@@ -330,10 +321,7 @@ def generate_mlp(
     if not isinstance(first_layer_num_neurons, int) or isinstance(first_layer_num_neurons, bool):
         raise TypeError(f"first_layer_num_neurons must be an int, got {type(first_layer_num_neurons).__name__}")
     if first_layer_num_neurons < min_layer_neurons:
-        raise ValueError(
-            f"first_layer_num_neurons must be >= min_layer_neurons "
-            f"({min_layer_neurons}), got {first_layer_num_neurons!r}"
-        )
+        raise ValueError(f"first_layer_num_neurons must be >= min_layer_neurons " f"({min_layer_neurons}), got {first_layer_num_neurons!r}")
 
     # Identity-MLP footgun guard. ``nn.Identity`` (or ``None``) on a
     # multi-layer net composes to a single affine map but with 3x
@@ -346,10 +334,7 @@ def generate_mlp(
     # gives an honest single Linear -> Identity which is well-conditioned
     # AND has the same expressivity. Multi-layer Identity is always a
     # mistake; warn loudly so the operator picks one or the other.
-    _is_identity_activation = (
-        activation_function is None
-        or activation_function is nn.Identity
-    )
+    _is_identity_activation = activation_function is None or activation_function is nn.Identity
     if _is_identity_activation and nlayers >= 2 and num_classes != 0:
         logger.warning(
             "generate_mlp: activation_function=%s with nlayers=%d on a %s "
@@ -362,8 +347,7 @@ def generate_mlp(
             "on identical data). Pick one: set nlayers=1 for an honest "
             "linear model, OR pick a real nonlinearity (nn.ReLU, nn.GELU, "
             "nn.LeakyReLU) for an actual nonlinear function.",
-            "Identity/None" if activation_function is None
-            else activation_function.__name__,
+            "Identity/None" if activation_function is None else activation_function.__name__,
             nlayers,
             "regression" if num_classes == 1 else "classification",
         )
@@ -420,10 +404,7 @@ def generate_mlp(
         if numerical_embedding == "plr":
             _emb = PeriodicLinearEmbedding(in_features=num_features, **_ne_kwargs)
         else:
-            raise ValueError(
-                f"Unknown numerical_embedding={numerical_embedding!r}; "
-                "supported: 'plr' (Periodic-Linear-ReLU)."
-            )
+            raise ValueError(f"Unknown numerical_embedding={numerical_embedding!r}; " "supported: 'plr' (Periodic-Linear-ReLU).")
         layers.append(_emb)
         layer_sizes.append(_emb.out_features)
         # Override num_features for everything that follows so the
@@ -572,10 +553,7 @@ def generate_mlp(
                 center=output_activation_center,
             ))
         else:
-            raise ValueError(
-                f"Unknown output_activation={output_activation!r}; expected "
-                f"one of: 'linear', 'tanh_train_range'."
-            )
+            raise ValueError(f"Unknown output_activation={output_activation!r}; expected " f"one of: 'linear', 'tanh_train_range'.")
 
     model = nn.Sequential(*layers)
 
@@ -746,4 +724,3 @@ def generate_mlp(
 
 # MLPTorchModel carved to ``_flat_torch_module``; re-exported below.
 from ._flat_torch_module import MLPTorchModel  # noqa: F401, E402
-

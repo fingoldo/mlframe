@@ -95,10 +95,7 @@ class PositionalEncoding(nn.Module):
         # channel and silently degrades to single-component encoding. Refuse
         # rather than emit a half-encoded buffer the caller can't detect.
         if d_model < 2:
-            raise ValueError(
-                f"PositionalEncoding requires d_model >= 2 (got {d_model}); "
-                "sinusoidal encoding needs sin+cos channel pair."
-            )
+            raise ValueError(f"PositionalEncoding requires d_model >= 2 (got {d_model}); " "sinusoidal encoding needs sin+cos channel pair.")
         self.dropout = nn.Dropout(p=dropout)
 
         # Precompute sin/cos positional encodings (Vaswani et al., 2017)

@@ -106,10 +106,7 @@ def _resolve_aggs(values: np.ndarray, agg_fns: Iterable[str]) -> dict:
         elif name == "p90":
             out[name] = np.percentile(values, 90, axis=1)
         else:
-            raise ValueError(
-                f"unknown agg_fn={name!r}; allowed: "
-                "{'median','mean','std','iqr','min','max','p10','p90'}"
-            )
+            raise ValueError(f"unknown agg_fn={name!r}; allowed: " "{'median','mean','std','iqr','min','max','p10','p90'}")
     return out
 
 
@@ -171,23 +168,15 @@ def knn_aggregate(
     try:
         from sklearn.neighbors import KDTree
     except Exception as e:
-        raise ImportError(
-            "knn_aggregate requires scikit-learn (KDTree). Install via "
-            "`pip install scikit-learn`."
-        ) from e
+        raise ImportError("knn_aggregate requires scikit-learn (KDTree). Install via " "`pip install scikit-learn`.") from e
 
     ref_coords = np.ascontiguousarray(ref_coords, dtype=np.float64)
     ref_labels = np.ascontiguousarray(ref_labels, dtype=np.float64)
     query_coords = np.ascontiguousarray(query_coords, dtype=np.float64)
     if ref_coords.shape[0] != ref_labels.shape[0]:
-        raise ValueError(
-            f"ref_coords rows {ref_coords.shape[0]} != ref_labels "
-            f"len {ref_labels.shape[0]}"
-        )
+        raise ValueError(f"ref_coords rows {ref_coords.shape[0]} != ref_labels " f"len {ref_labels.shape[0]}")
     # Drop non-finite ref rows so KDTree gets a clean pool.
-    ref_finite_mask = (
-        np.isfinite(ref_coords).all(axis=1) & np.isfinite(ref_labels)
-    )
+    ref_finite_mask = np.isfinite(ref_coords).all(axis=1) & np.isfinite(ref_labels)
     if not ref_finite_mask.all():
         ref_coords = ref_coords[ref_finite_mask]
         ref_labels = ref_labels[ref_finite_mask]
@@ -195,10 +184,7 @@ def knn_aggregate(
             ref_group_ids = np.asarray(ref_group_ids)[ref_finite_mask]
 
     if ref_coords.shape[0] < k + 1:
-        raise ValueError(
-            f"need >= k+1 ({k + 1}) finite reference rows; got "
-            f"{ref_coords.shape[0]}"
-        )
+        raise ValueError(f"need >= k+1 ({k + 1}) finite reference rows; got " f"{ref_coords.shape[0]}")
 
     tree = KDTree(ref_coords, leaf_size=leaf_size)
 
@@ -250,10 +236,7 @@ def knn_aggregate(
                 if distance_weighted:
                     w = 1.0 / (compact_dist + weight_eps)
                     w = np.where(np.isfinite(labels_arr), w, 0.0)
-                    out_aggs[name] = (
-                        (np.where(np.isfinite(labels_arr), labels_arr, 0.0) * w).sum(axis=1)
-                        / (w.sum(axis=1) + 1e-12)
-                    )
+                    out_aggs[name] = (np.where(np.isfinite(labels_arr), labels_arr, 0.0) * w).sum(axis=1) / (w.sum(axis=1) + 1e-12)
                 else:
                     out_aggs[name] = np.nanmean(labels_arr, axis=1)
             elif name == "std":
@@ -329,10 +312,7 @@ def knn_within_bucket_aggregate(
         raise ValueError("query_coords / q_bucket length mismatch")
 
     # Drop non-finite refs
-    ref_finite = (
-        np.isfinite(ref_coords).all(axis=1)
-        & np.isfinite(ref_labels)
-    )
+    ref_finite = np.isfinite(ref_coords).all(axis=1) & np.isfinite(ref_labels)
     ref_coords = ref_coords[ref_finite]
     ref_labels = ref_labels[ref_finite]
     ref_bucket = ref_bucket[ref_finite]
@@ -397,9 +377,9 @@ def knn_within_bucket_aggregate(
                 out_aggs[name][q_idx] = np.nanmean(labels_arr, axis=1) if use_nan else labels_arr.mean(axis=1)
             elif name == "std":
                 out_aggs[name][q_idx] = (
-                    np.nanstd(labels_arr, axis=1, ddof=1) if use_nan
-                    else labels_arr.std(axis=1, ddof=1) if labels_arr.shape[1] > 1
-                    else np.zeros(labels_arr.shape[0])
+                    np.nanstd(labels_arr, axis=1, ddof=1)
+                    if use_nan
+                    else labels_arr.std(axis=1, ddof=1) if labels_arr.shape[1] > 1 else np.zeros(labels_arr.shape[0])
                 )
             elif name == "iqr":
                 q25 = np.nanpercentile(labels_arr, 25, axis=1) if use_nan else np.percentile(labels_arr, 25, axis=1)
@@ -474,7 +454,7 @@ def local_density_features(
     dist_iqr = q75 - q25
     # d-dim ball volume up to constant: density = k / r^d (drop the
     # pi/Gamma constant; it's the same for every row -> meaningless to ML).
-    local_density = float(k) / (dist_to_kth ** d + 1e-12)
+    local_density = float(k) / (dist_to_kth**d + 1e-12)
     return {
         "dist_to_kth": dist_to_kth,
         "dist_median": dist_median,
@@ -535,7 +515,7 @@ def inverse_distance_weighted_aggregate(
     else:
         compact_indices = indices[:, :k]
         compact_dist = distances[:, :k]
-    weights = 1.0 / (compact_dist ** power + 1e-12)
+    weights = 1.0 / (compact_dist**power + 1e-12)
     w_sum = weights.sum(axis=1, keepdims=True) + 1e-12
     weights_norm = weights / w_sum
     label_arr = labels[compact_indices]
@@ -784,9 +764,7 @@ def knn_gradient_features(
     x_diff_all = ref[compact_indices] - q[:, None, :]
     y_all = labels[compact_indices]
     w_all = 1.0 / (compact_dist + 1.0)
-    X_all = np.concatenate(
-        [np.ones((n_q, k, 1), dtype=np.float64), x_diff_all], axis=2
-    )
+    X_all = np.concatenate([np.ones((n_q, k, 1), dtype=np.float64), x_diff_all], axis=2)
     Wx = X_all * w_all[..., None]
     XtX = np.einsum("ijk,ijl->ikl", X_all, Wx)
     Xty = np.einsum("ijk,ij->ik", X_all, w_all * y_all)[:, :, None]

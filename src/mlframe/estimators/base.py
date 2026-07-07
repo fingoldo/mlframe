@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import inspect
@@ -14,7 +13,7 @@ from sklearn.model_selection import train_test_split
 
 class EstimatorWithEarlyStopping(BaseEstimator):
     """
-        Adds early stopping in pipeline to estimators that only accept fixed evaluation set, like Catboost.
+    Adds early stopping in pipeline to estimators that only accept fixed evaluation set, like Catboost.
     """
     def __init__(self, base_estimator=None, test_size=0.05, train_size=None, random_state=None, shuffle=True, stratify=None, plot: bool = False):
         self.plot = plot
@@ -73,9 +72,9 @@ class EstimatorWithEarlyStopping(BaseEstimator):
             )
             fitted_estimator.fit(X, y, **fit_params)
 
-        self.fitted_estimator_=fitted_estimator
+        self.fitted_estimator_ = fitted_estimator
 
-        self.n_features_in_=X.shape[1]
+        self.n_features_in_ = X.shape[1]
 
         return self
 
@@ -111,7 +110,5 @@ class ClassifierWithEarlyStopping(EstimatorWithEarlyStopping, ClassifierMixin):
     def decision_function(self, X):
         check_is_fitted(self)
         if not hasattr(self.fitted_estimator_, "decision_function"):
-            raise AttributeError(
-                f"Wrapped estimator {type(self.fitted_estimator_).__name__} has no decision_function"
-            )
+            raise AttributeError(f"Wrapped estimator {type(self.fitted_estimator_).__name__} has no decision_function")
         return self.fitted_estimator_.decision_function(X)

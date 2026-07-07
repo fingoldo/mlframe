@@ -1,12 +1,10 @@
 """Synthetic interaction-base generator: generate_interaction_bases combines candidate base columns pairwise under binary ops (mul / div / add / sub) to capture multiplicative DGPs that linear_residual on a single base misses. Pure numpy; no composite-internal deps."""
 
-
 from __future__ import annotations
 
 from typing import Any, Optional, Sequence
 
 import numpy as np
-
 
 # ----------------------------------------------------------------------
 # generate_interaction_bases (synthetic base column generator).
@@ -65,9 +63,7 @@ def generate_interaction_bases(
     valid_ops = {"mul", "div", "add", "sub"}
     bad_ops = [o for o in ops if o not in valid_ops]
     if bad_ops:
-        raise ValueError(
-            f"generate_interaction_bases: unsupported op(s) {bad_ops}. Valid: {sorted(valid_ops)}"
-        )
+        raise ValueError(f"generate_interaction_bases: unsupported op(s) {bad_ops}. Valid: {sorted(valid_ops)}")
     selected_names = list(candidates.keys())[:top_k]
     selected_arrays = [np.asarray(candidates[n], dtype=np.float64).reshape(-1) for n in selected_names]
     synthetics: dict[str, np.ndarray] = {}

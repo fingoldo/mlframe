@@ -39,9 +39,6 @@ from ._configs_base import (  # noqa: F401
     BaseConfig,
 )
 
-
-
-
 # Preprocessing-side configs moved to ``_preprocessing_configs.py``;
 # re-exported below so historical
 # ``from mlframe.training.configs import PreprocessingConfig`` (and the
@@ -55,8 +52,6 @@ from ._preprocessing_configs import (  # noqa: E402,F401
 # (which would close a ``configs <-> sibling`` import cycle).
 from ._feature_selection_config import FeatureSelectionConfig  # noqa: E402,F401
 
-
-
 # Model + hyperparameter + training-behavior configs moved to
 # ``_model_configs.py``; re-exported below so historical
 # ``from mlframe.training.configs import ModelConfig`` (and the other moved
@@ -67,7 +62,6 @@ from ._model_configs import (  # noqa: E402,F401
     MultilabelDispatchConfig, LearningToRankConfig, QuantileRegressionConfig,
     EnsemblingConfig,
 )
-
 
 # Training-runtime + IO configs moved to ``_training_runtime_configs.py``;
 # re-exported below so historical

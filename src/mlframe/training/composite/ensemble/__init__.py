@@ -1,6 +1,5 @@
 """Cross-target ensemble + OOF utilities: CompositeCrossTargetEnsemble (stack/weighted/mean strategies with validation gate), compute_oof_holdout_predictions, derive_seeds (sha256-stable subseed derivation), detect_gpu_in_use, env_signature. Split out of composite.py to keep ensemble concerns separate from discovery; composite.py re-exports every symbol below at its bottom for full back-compat."""
 
-
 from __future__ import annotations
 
 import hashlib
@@ -168,8 +167,7 @@ def env_signature() -> dict[str, str | None]:
     # Read versions via dist metadata, NOT __import__: catboost/lgb/xgb cold-import is ~0.5-3s each and this runs on the predict-path drift check (keeps cold-import off the predict path).
     distmap = {"sklearn": "scikit-learn"}
     sig: dict[str, str | None] = {}
-    for libname in ("numpy", "pandas", "polars", "sklearn", "lightgbm",
-                    "xgboost", "catboost", "scipy", "dill"):
+    for libname in ("numpy", "pandas", "polars", "sklearn", "lightgbm", "xgboost", "catboost", "scipy", "dill"):
         try:
             sig[libname] = version(distmap.get(libname, libname))
         except PackageNotFoundError:
@@ -210,23 +208,15 @@ def _maybe_pass_sample_weight(
     """
     import inspect as _inspect
     if sw is not None and len(sw) != len(y):
-        raise ValueError(
-            f"_maybe_pass_sample_weight: sample_weight length {len(sw)} != y length {len(y)}"
-        )
+        raise ValueError(f"_maybe_pass_sample_weight: sample_weight length {len(sw)} != y length {len(y)}")
     try:
         _sig = _inspect.signature(fit_callable.fit)
         _params = _sig.parameters
-        _accepts_var_kw = any(
-            p.kind == _inspect.Parameter.VAR_KEYWORD for p in _params.values()
-        )
+        _accepts_var_kw = any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in _params.values())
         _kwargs: dict = {}
-        if sw is not None and (
-            "sample_weight" in _params or _accepts_var_kw
-        ):
+        if sw is not None and ("sample_weight" in _params or _accepts_var_kw):
             _kwargs["sample_weight"] = sw
-        if eval_set is not None and (
-            "eval_set" in _params or _accepts_var_kw
-        ):
+        if eval_set is not None and ("eval_set" in _params or _accepts_var_kw):
             # LightGBM expects a list of (X, y) tuples; XGBoost/CatBoost accept either (X, y) tuple or list-of-tuples. Normalising to list-of-tuples covers all three.
             _es = eval_set if isinstance(eval_set, list) else [eval_set]
             _kwargs["eval_set"] = _es
@@ -313,16 +303,11 @@ def _compute_oof_with_external_holdout(
                     spec.get("name") or spec.get("base_column"),
                 )
                 if base_full is None:
-                    raise ValueError(
-                        f"missing base column '{spec['base_column']}' "
-                        "for external-holdout OOF (train side)"
-                    )
+                    raise ValueError(f"missing base column '{spec['base_column']}' " "for external-holdout OOF (train side)")
                 transform = get_transform(spec["transform_name"])
                 valid = transform.domain_check(y_train_full, base_full)
                 if valid.sum() < 10:
-                    raise ValueError(
-                        "too few valid rows after domain filter"
-                    )
+                    raise ValueError("too few valid rows after domain filter")
                 t_train = transform.forward(
                     y_train_full[valid], base_full[valid],
                     spec["fitted_params"],
@@ -336,10 +321,7 @@ def _compute_oof_with_external_holdout(
                     X_train_valid = X_stack_t.filter(pl.Series(valid))
                 else:
                     X_train_valid = X_stack_t[valid]
-                _sw_train_valid = (
-                    None if sample_weight is None
-                    else sample_weight[valid]
-                )
+                _sw_train_valid = None if sample_weight is None else sample_weight[valid]
                 _group_for_valid = None
                 if group_ids is not None:
                     try:
@@ -354,18 +336,14 @@ def _compute_oof_with_external_holdout(
                         group_ids=_group_for_valid, return_fit_mask=True,
                     )
                 )
-                _eval_set_c = (
-                    (_X_ev_c, _t_ev_c) if _X_ev_c is not None else None
-                )
+                _eval_set_c = (_X_ev_c, _t_ev_c) if _X_ev_c is not None else None
                 _sw_fit_c = _align_fit_sw(_sw_train_valid, _fm_c, len(_t_fit_c))
                 _maybe_pass_sample_weight(
                     inner_clone, _X_fit_c, _t_fit_c, _sw_fit_c,
                     eval_set=_eval_set_c,
                 )
                 _extra = tuple(spec.get("extra_base_columns") or ())
-                _base_columns = (
-                    (spec["base_column"], *_extra) if _extra else None
-                )
+                _base_columns = (spec["base_column"], *_extra) if _extra else None
                 wrapped = CompositeTargetEstimator.from_fitted_inner(
                     fitted_inner=inner_clone,
                     transform_name=spec["transform_name"],
@@ -383,9 +361,7 @@ def _compute_oof_with_external_holdout(
                         group_ids=group_ids, return_fit_mask=True,
                     )
                 )
-                _eval_set_r = (
-                    (_X_ev_r, _y_ev_r) if _X_ev_r is not None else None
-                )
+                _eval_set_r = (_X_ev_r, _y_ev_r) if _X_ev_r is not None else None
                 _sw_fit_r = _align_fit_sw(sample_weight, _fm_r, len(_y_fit_r))
                 _maybe_pass_sample_weight(
                     inner_clone, _X_fit_r, _y_fit_r, _sw_fit_r,
@@ -394,28 +370,22 @@ def _compute_oof_with_external_holdout(
                 preds = inner_clone.predict(X_holdout_t)
             preds = np.asarray(preds).reshape(-1).astype(np.float64)
             if preds.shape[0] != external_holdout_y.shape[0]:
-                raise ValueError(
-                    f"component '{name}' predicted "
-                    f"{preds.shape[0]} rows but external holdout has "
-                    f"{external_holdout_y.shape[0]}"
-                )
+                raise ValueError(f"component '{name}' predicted " f"{preds.shape[0]} rows but external holdout has " f"{external_holdout_y.shape[0]}")
             if not np.all(np.isfinite(preds)):
                 raise ValueError("non-finite holdout predictions")
             holdout_cols.append(preds)
             surviving_names.append(name)
         except Exception as exc:
             logger.warning(
-                "[CompositeCrossTargetEnsemble] external-holdout OOF "
-                "refit failed for component '%s': %s. Excluded from "
-                "ensemble weights.", name, exc,
+                "[CompositeCrossTargetEnsemble] external-holdout OOF " "refit failed for component '%s': %s. Excluded from " "ensemble weights.",
+                name,
+                exc,
             )
             continue
     _surviving_n = len(surviving_names)
     _total_n = len(component_names)
     if _surviving_n < _total_n:
-        _dropped = [
-            n for n in component_names if n not in set(surviving_names)
-        ]
+        _dropped = [n for n in component_names if n not in set(surviving_names)]
         logger.info(
             "compute_oof_holdout_predictions (external-holdout): built "
             "OOF matrix with %d of %d components (dropped %d: %s).",
@@ -582,9 +552,7 @@ def compute_oof_holdout_predictions(
                             raise ValueError("composite component with no spec")
                         base_full = base_train_full_per_spec.get(spec.get("name") or spec.get("base_column"))
                         if base_full is None:
-                            raise ValueError(
-                                f"missing base column '{spec['base_column']}'"
-                            )
+                            raise ValueError(f"missing base column '{spec['base_column']}'")
                         base_stack = base_full[fold_train_idx]
                         transform = get_transform(spec["transform_name"])
                         valid = transform.domain_check(y_stack, base_stack)
@@ -639,9 +607,7 @@ def compute_oof_holdout_predictions(
                         )
                         # Multi-base parity with _phase_composite_post: pass the full base_columns tuple so predict reconstructs the K-column base matrix matching the K alphas.
                         _extra = tuple(spec.get("extra_base_columns") or ())
-                        _base_columns = (
-                            (spec["base_column"], *_extra) if _extra else None
-                        )
+                        _base_columns = (spec["base_column"], *_extra) if _extra else None
                         wrapped = CompositeTargetEstimator.from_fitted_inner(
                             fitted_inner=inner_clone,
                             transform_name=spec["transform_name"],
@@ -717,9 +683,7 @@ def compute_oof_holdout_predictions(
         return _result
 
     # External honest holdout (caller-supplied val frame). Skip the train-tail split entirely: fit each component clone on the FULL train, predict on the external frame, return the parallel y column the caller supplied. Defends against AR(1) train-tail distribution mismatch.
-    if (external_holdout_X is not None
-            and external_holdout_y is not None
-            and len(external_holdout_y) > 0):
+    if external_holdout_X is not None and external_holdout_y is not None and len(external_holdout_y) > 0:
         # external_holdout_base_per_spec is intentionally NOT forwarded: the
         # CompositeTargetEstimator wrapper re-extracts its base column from
         # external_holdout_X at predict time, so a parallel holdout-base dict
@@ -745,9 +709,7 @@ def compute_oof_holdout_predictions(
     if time_ordering is not None:
         if _is_monotone_nondecreasing(time_ordering):
             use_time_split = True
-            logger.info(
-                "composite OOF: time_ordering signal is monotone non-decreasing; using trailing-slice holdout instead of random shuffle."
-            )
+            logger.info("composite OOF: time_ordering signal is monotone non-decreasing; using trailing-slice holdout instead of random shuffle.")
         else:
             # Explicit but non-monotone time signal: recover the forward-walk by SORTING rows by time, instead of silently random-shuffling (which discards the very signal the caller passed and leaks future rows into the refit-train slice). argsort is stable so ties keep their original order.
             _time_order = np.argsort(np.asarray(time_ordering), kind="stable")
@@ -846,9 +808,7 @@ def compute_oof_holdout_predictions(
                     raise ValueError("composite component with no spec")
                 base_full = base_train_full_per_spec.get(spec.get("name") or spec.get("base_column"))
                 if base_full is None:
-                    raise ValueError(
-                        f"missing base column '{spec['base_column']}' for OOF"
-                    )
+                    raise ValueError(f"missing base column '{spec['base_column']}' for OOF")
                 base_stack = base_full[train_idx]
                 transform = get_transform(spec["transform_name"])
                 valid = transform.domain_check(y_stack, base_stack)
@@ -886,9 +846,7 @@ def compute_oof_holdout_predictions(
                 )
                 # Multi-base parity: same fix as the kfold OOF branch above. Without base_columns, predict reconstructs only the primary base column and trips the K-alphas shape check.
                 _extra = tuple(spec.get("extra_base_columns") or ())
-                _base_columns = (
-                    (spec["base_column"], *_extra) if _extra else None
-                )
+                _base_columns = (spec["base_column"], *_extra) if _extra else None
                 wrapped = CompositeTargetEstimator.from_fitted_inner(
                     fitted_inner=inner_clone,
                     transform_name=spec["transform_name"],
@@ -955,4 +913,3 @@ from ._stackers import (  # noqa: F401, E402
     fit_gbm_meta_stacker,
     fit_ridge_meta_stacker,
 )
-

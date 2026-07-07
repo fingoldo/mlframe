@@ -1,6 +1,5 @@
 """CompositeProvenance dataclass + report-to-markdown helper. Production-grade metadata for one composite-target spec: human-readable formula, fitted params, baseline metrics, ensemble weight, selection-path audit trail. ``composite.py`` re-exports every symbol below at its bottom for full back-compat."""
 
-
 from __future__ import annotations
 
 import hashlib
@@ -152,8 +151,7 @@ class CompositeProvenance:
             "mi_gain": float(self.mi_gain),
             "valid_domain_frac": float(self.valid_domain_frac),
             "n_train_rows": int(self.n_train_rows),
-            "ensemble_weight": (None if self.ensemble_weight is None
-                                else float(self.ensemble_weight)),
+            "ensemble_weight": (None if self.ensemble_weight is None else float(self.ensemble_weight)),
             "ensemble_strategy": self.ensemble_strategy,
         }
 
@@ -163,10 +161,7 @@ class CompositeProvenance:
         that justified inclusion so the reader can cross-check."""
         ensemble_clause = ""
         if self.ensemble_weight is not None and self.ensemble_strategy is not None:
-            ensemble_clause = (
-                f" In the cross-target {self.ensemble_strategy} ensemble it "
-                f"received weight {self.ensemble_weight:.3f}."
-            )
+            ensemble_clause = f" In the cross-target {self.ensemble_strategy} ensemble it " f"received weight {self.ensemble_weight:.3f}."
         return (
             f"Composite '{self.name}' "
             f"(id={self.composite_id}) was discovered using "
@@ -190,81 +185,44 @@ class CompositeProvenance:
 # the live ``TRANSFORMS_REGISTRY`` so a newly registered transform that forgets a formula entry
 # fails fast instead of silently regressing to the opaque generic stub.
 _TRANSFORM_DESCRIPTIONS: dict[str, str] = {
-    "diff": ("predicts the residual after subtracting the base feature "
-             "from the target"),
-    "additive_residual": ("predicts the residual after subtracting the base "
-                          "feature and a fitted constant offset (alpha fixed at 1)"),
-    "median_residual": ("predicts the residual after subtracting the per-bin "
-                        "median of the target within quantile bins of the base"),
-    "y_quantile_clip": ("clips the target to its train 0.5%/99.5% quantiles to "
-                       "bound the downstream model's effective range"),
-    "ratio": ("predicts the multiplicative factor relating target to "
-              "base feature"),
-    "logratio": ("predicts the log-ratio of target to base feature, "
-                 "stabilising heavy-tail distributions"),
-    "linear_residual": ("predicts the residual after subtracting a "
-                        "fitted linear contribution of the base feature"),
-    "linear_residual_robust": ("predicts the residual after subtracting an "
-                              "outlier-robust (trimmed-LS) linear contribution of the base"),
-    "theilsen_residual": ("predicts the residual after subtracting a high-breakdown "
-                         "robust (Theil-Sen median-of-slopes) linear contribution of the base"),
-    "linear_residual_multi": ("predicts the residual after subtracting a fitted "
-                             "linear combination of several base features"),
-    "linear_residual_grouped": ("predicts the residual after subtracting a "
-                               "per-group linear contribution of the base (James-Stein shrunk to global)"),
-    "causal_anchor_residual": ("predicts the residual after subtracting a robust "
-                              "shrink coefficient (clamped to [0,1]) times the base anchor"),
-    "second_diff": ("predicts the second difference of the target (level and linear "
-                    "drift removed via the lag-1 and lag-2 anchors)"),
-    "rank_ecdf_residual": ("predicts the empirical-CDF (rank-space) residual between "
-                          "target and base, robust to monotone / heavy-tailed distortion"),
-    "quantile_residual": ("predicts the heteroscedasticity-standardised residual: "
-                         "per-bin median removed then divided by per-bin IQR"),
-    "monotonic_residual": ("predicts the residual after subtracting a fitted "
-                          "monotone (PCHIP) function of the base feature"),
-    "ewma_residual": ("predicts the residual after subtracting an exponentially-"
-                     "weighted moving average of the base feature"),
-    "rolling_quantile_ratio": ("predicts the ratio of target to a rolling median "
-                              "of the base feature (local multiplicative level)"),
-    "frac_diff": ("predicts the fractionally-differenced target (long-memory-"
-                 "preserving stationarising transform)"),
-    "cbrt_y": ("predicts the signed cube root of the target, compressing heavy "
-              "tails without breaking sign"),
+    "diff": ("predicts the residual after subtracting the base feature " "from the target"),
+    "additive_residual": ("predicts the residual after subtracting the base " "feature and a fitted constant offset (alpha fixed at 1)"),
+    "median_residual": ("predicts the residual after subtracting the per-bin " "median of the target within quantile bins of the base"),
+    "y_quantile_clip": ("clips the target to its train 0.5%/99.5% quantiles to " "bound the downstream model's effective range"),
+    "ratio": ("predicts the multiplicative factor relating target to " "base feature"),
+    "logratio": ("predicts the log-ratio of target to base feature, " "stabilising heavy-tail distributions"),
+    "linear_residual": ("predicts the residual after subtracting a " "fitted linear contribution of the base feature"),
+    "linear_residual_robust": ("predicts the residual after subtracting an " "outlier-robust (trimmed-LS) linear contribution of the base"),
+    "theilsen_residual": ("predicts the residual after subtracting a high-breakdown " "robust (Theil-Sen median-of-slopes) linear contribution of the base"),
+    "linear_residual_multi": ("predicts the residual after subtracting a fitted " "linear combination of several base features"),
+    "linear_residual_grouped": ("predicts the residual after subtracting a " "per-group linear contribution of the base (James-Stein shrunk to global)"),
+    "causal_anchor_residual": ("predicts the residual after subtracting a robust " "shrink coefficient (clamped to [0,1]) times the base anchor"),
+    "second_diff": ("predicts the second difference of the target (level and linear " "drift removed via the lag-1 and lag-2 anchors)"),
+    "rank_ecdf_residual": ("predicts the empirical-CDF (rank-space) residual between " "target and base, robust to monotone / heavy-tailed distortion"),
+    "quantile_residual": ("predicts the heteroscedasticity-standardised residual: " "per-bin median removed then divided by per-bin IQR"),
+    "monotonic_residual": ("predicts the residual after subtracting a fitted " "monotone (PCHIP) function of the base feature"),
+    "ewma_residual": ("predicts the residual after subtracting an exponentially-" "weighted moving average of the base feature"),
+    "rolling_quantile_ratio": ("predicts the ratio of target to a rolling median " "of the base feature (local multiplicative level)"),
+    "frac_diff": ("predicts the fractionally-differenced target (long-memory-" "preserving stationarising transform)"),
+    "cbrt_y": ("predicts the signed cube root of the target, compressing heavy " "tails without breaking sign"),
     "log_y": ("predicts the shifted log of the target, compressing right-skew"),
-    "yeo_johnson_y": ("predicts the Yeo-Johnson power transform of the target "
-                     "(lambda fitted by MLE), normalising mixed-sign targets"),
-    "quantile_normal_y": ("predicts the target mapped through its empirical CDF "
-                         "into a standard Normal"),
-    "chain_linres_cbrt": ("predicts the cube-root of the linear-residual of the "
-                         "target (linear base absorber then tail compression)"),
-    "chain_linres_yj": ("predicts the Yeo-Johnson transform of the linear-residual "
-                       "of the target"),
-    "chain_monres_cbrt": ("predicts the cube-root of the monotone-residual of the "
-                         "target"),
-    "chain_monres_yj": ("predicts the Yeo-Johnson transform of the monotone-residual "
-                       "of the target"),
-    "chain_linres_cbrt_qn": ("predicts the quantile-normalised cube-root of the "
-                            "linear-residual of the target (3-stage chain)"),
-    "asinh_residual": ("predicts the residual after subtracting a fitted linear "
-                      "contribution of the base in arcsinh space (signed-base logratio)"),
-    "centered_ratio": ("predicts the ratio of target to a shifted base feature "
-                      "(ratio extended to signed bases)"),
-    "polynomial_residual_deg2": ("predicts the residual after subtracting a fitted "
-                                "quadratic (degree-2) function of the base feature"),
-    "rank_residual": ("predicts the distribution-free rank-space linear residual "
-                     "of the target against the base feature"),
-    "smoothing_spline_residual": ("predicts the residual after subtracting a fitted "
-                                 "smoothing spline of the base feature"),
-    "reciprocal_residual": ("predicts the residual of 1/target against 1/base "
-                          "(reciprocal-scale dynamics)"),
-    "geometric_mean_residual": ("predicts the ratio of target to the geometric mean "
-                              "of several positive base features"),
-    "pairwise_interaction_residual": ("predicts the residual after subtracting a "
-                                     "fitted multiple of the product of several base features"),
-    "signed_power_y": ("predicts the signed power of the target, |y|^p with p fitted "
-                      "to minimise skew, symmetrising a heavy-tailed target"),
-    "target_encoding_residual": ("predicts the residual after subtracting the "
-                                "empirical-Bayes smoothed per-category mean of the target"),
+    "yeo_johnson_y": ("predicts the Yeo-Johnson power transform of the target " "(lambda fitted by MLE), normalising mixed-sign targets"),
+    "quantile_normal_y": ("predicts the target mapped through its empirical CDF " "into a standard Normal"),
+    "chain_linres_cbrt": ("predicts the cube-root of the linear-residual of the " "target (linear base absorber then tail compression)"),
+    "chain_linres_yj": ("predicts the Yeo-Johnson transform of the linear-residual " "of the target"),
+    "chain_monres_cbrt": ("predicts the cube-root of the monotone-residual of the " "target"),
+    "chain_monres_yj": ("predicts the Yeo-Johnson transform of the monotone-residual " "of the target"),
+    "chain_linres_cbrt_qn": ("predicts the quantile-normalised cube-root of the " "linear-residual of the target (3-stage chain)"),
+    "asinh_residual": ("predicts the residual after subtracting a fitted linear " "contribution of the base in arcsinh space (signed-base logratio)"),
+    "centered_ratio": ("predicts the ratio of target to a shifted base feature " "(ratio extended to signed bases)"),
+    "polynomial_residual_deg2": ("predicts the residual after subtracting a fitted " "quadratic (degree-2) function of the base feature"),
+    "rank_residual": ("predicts the distribution-free rank-space linear residual " "of the target against the base feature"),
+    "smoothing_spline_residual": ("predicts the residual after subtracting a fitted " "smoothing spline of the base feature"),
+    "reciprocal_residual": ("predicts the residual of 1/target against 1/base " "(reciprocal-scale dynamics)"),
+    "geometric_mean_residual": ("predicts the ratio of target to the geometric mean " "of several positive base features"),
+    "pairwise_interaction_residual": ("predicts the residual after subtracting a " "fitted multiple of the product of several base features"),
+    "signed_power_y": ("predicts the signed power of the target, |y|^p with p fitted " "to minimise skew, symmetrising a heavy-tailed target"),
+    "target_encoding_residual": ("predicts the residual after subtracting the " "empirical-Bayes smoothed per-category mean of the target"),
 }
 
 
@@ -372,8 +330,7 @@ def _f_linear_residual_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
     a_g = _fmt(p.get("alpha_global"))
     b_g = _fmt(p.get("beta_global"))
     return (
-        f"T = {t} - alpha_g * {b} - beta_g  (per-group OLS, James-Stein shrunk "
-        f"to global alpha={a_g}, beta={b_g}; small/unseen groups use global)",
+        f"T = {t} - alpha_g * {b} - beta_g  (per-group OLS, James-Stein shrunk " f"to global alpha={a_g}, beta={b_g}; small/unseen groups use global)",
         f"y_hat = T_hat + alpha_g * {b} + beta_g",
     )
 
@@ -414,8 +371,7 @@ def _f_frac_diff(t: str, b: str, p: dict) -> tuple[str, str]:
     d = _fmt(p.get("d"))
     lags = int(p.get("lags", 0))
     return (
-        f"T_i = sum_k w_k * {t}_(i-k)  (Lopez de Prado frac-diff, d={d}, {lags} lags; "
-        f"w_k = -w_(k-1)*(d-k+1)/k, pre-window padded with train mean)",
+        f"T_i = sum_k w_k * {t}_(i-k)  (Lopez de Prado frac-diff, d={d}, {lags} lags; " f"w_k = -w_(k-1)*(d-k+1)/k, pre-window padded with train mean)",
         "y_hat_i = (T_i - sum_(k>=1) w_k * y_hat_(i-k)) / w_0  (iterative reconstruction)",
     )
 
@@ -602,10 +558,8 @@ def _f_chain_linres_cbrt_qn(t: str, b: str, p: dict) -> tuple[str, str]:
     alpha = _fmt(bp.get("alpha"))
     beta = _fmt(bp.get("beta"))
     return (
-        f"T1 = {t} - {alpha} * {b} - ({beta}); T2 = sign(T1) * |T1|^(1/3); "
-        f"T = Phi^-1(rank(T2)/(n+1))",
-        f"T2_hat = empirical_CDF_inverse(Phi(T_hat)); T1_hat = T2_hat^3; "
-        f"y_hat = T1_hat + {alpha} * {b} + ({beta})  (scale lost in quantile-normal stage)",
+        f"T1 = {t} - {alpha} * {b} - ({beta}); T2 = sign(T1) * |T1|^(1/3); " f"T = Phi^-1(rank(T2)/(n+1))",
+        f"T2_hat = empirical_CDF_inverse(Phi(T_hat)); T1_hat = T2_hat^3; " f"y_hat = T1_hat + {alpha} * {b} + ({beta})  (scale lost in quantile-normal stage)",
     )
 
 
@@ -620,8 +574,7 @@ def _f_signed_power_y(t: str, b: str, p: dict) -> tuple[str, str]:
 def _f_target_encoding_residual(t: str, b: str, p: dict) -> tuple[str, str]:
     sm = _fmt(p.get("smoothing"))
     return (
-        f"T = {t} - cat_mean(group)  (empirical-Bayes smoothed per-category mean, "
-        f"smoothing={sm}; unseen categories use the global mean)",
+        f"T = {t} - cat_mean(group)  (empirical-Bayes smoothed per-category mean, " f"smoothing={sm}; unseen categories use the global mean)",
         "y_hat = T_hat + cat_mean(group)",
     )
 
@@ -682,9 +635,7 @@ def register_chain_provenance(chain_name: str, residual_name: str, unary_name: s
         return
     res_desc = _TRANSFORM_DESCRIPTIONS.get(residual_name, residual_name)
     un_desc = _TRANSFORM_DESCRIPTIONS.get(unary_name, unary_name)
-    _TRANSFORM_DESCRIPTIONS[chain_name] = (
-        f"two-stage chain -- {un_desc}, applied to the residual that {res_desc}"
-    )
+    _TRANSFORM_DESCRIPTIONS[chain_name] = f"two-stage chain -- {un_desc}, applied to the residual that {res_desc}"
 
     def _builder(t: str, b: str, p: dict, _r: str = residual_name, _u: str = unary_name) -> tuple[str, str]:
         return (
@@ -847,9 +798,7 @@ def report_to_markdown(
     lines: list[str] = []
     lines.append(f"# Composite-target discovery report: `{target_col}`")
     lines.append("")
-    lines.append(
-        f"**{len(specs)}** discovered spec(s); **{len(failures)}** rejected candidate(s)."
-    )
+    lines.append(f"**{len(specs)}** discovered spec(s); **{len(failures)}** rejected candidate(s).")
     lines.append("")
 
     if specs:
@@ -876,25 +825,17 @@ def report_to_markdown(
             "composite's own y-scale tiny-CV RMSE. `-` = metric not recorded."
         )
         lines.append("")
-        lines.append(
-            "| name | status | mi_gain | raw_delta | tiny_cv_rmse | gate | reason |"
-        )
-        lines.append(
-            "|------|--------|---------|-----------|--------------|------|--------|"
-        )
+        lines.append("| name | status | mi_gain | raw_delta | tiny_cv_rmse | gate | reason |")
+        lines.append("|------|--------|---------|-----------|--------------|------|--------|")
         for spec in specs:
             extra = spec_metrics.get(spec.name)
             raw_delta = _spec_metric(spec.name, "raw_delta", spec, extra)
             tiny_rmse = _spec_metric(spec.name, "tiny_cv_rmse", spec, extra)
             lines.append(
-                f"| `{spec.name}` | kept | {spec.mi_gain:+.4f} | "
-                f"{_fmt_metric(raw_delta, '{:+.4f}')} | "
-                f"{_fmt_metric(tiny_rmse)} | gate-passed | - |"
+                f"| `{spec.name}` | kept | {spec.mi_gain:+.4f} | " f"{_fmt_metric(raw_delta, '{:+.4f}')} | " f"{_fmt_metric(tiny_rmse)} | gate-passed | - |"
             )
         for f in failures:
-            name = f.get("name") or (
-                f"__{f.get('transform_name', '?')}__{f.get('base_column', '?')}"
-            )
+            name = f.get("name") or (f"__{f.get('transform_name', '?')}__{f.get('base_column', '?')}")
             extra = spec_metrics.get(name)
             reason = f.get("reason", "")
             mi_gain = f.get("mi_gain")
@@ -910,20 +851,14 @@ def report_to_markdown(
         if failures:
             lines.append("## Decision trail")
             lines.append("")
-            lines.append(
-                "Which gate each rejected candidate failed (first failing gate)."
-            )
+            lines.append("Which gate each rejected candidate failed (first failing gate).")
             lines.append("")
             lines.append("| candidate | failed_gate | detail |")
             lines.append("|-----------|-------------|--------|")
             for f in failures:
-                name = f.get("name") or (
-                    f"__{f.get('transform_name', '?')}__{f.get('base_column', '?')}"
-                )
+                name = f.get("name") or (f"__{f.get('transform_name', '?')}__{f.get('base_column', '?')}")
                 reason = f.get("reason", "")
-                lines.append(
-                    f"| `{name}` | {_classify_gate(reason)} | {reason or '-'} |"
-                )
+                lines.append(f"| `{name}` | {_classify_gate(reason)} | {reason or '-'} |")
             lines.append("")
 
     if specs:

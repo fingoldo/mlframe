@@ -560,8 +560,6 @@ def _build_configs_from_params(
     return data_config, control_config, metrics_config, reporting_config, naming_config, confidence_config, predictions_container, output_config
 
 
-
-
 def _configure_xgboost_params(
     configs,
     cpu_configs,
@@ -755,13 +753,8 @@ def _configure_mlp_params(
     # caller hasn't explicitly set nlayers in network_params; explicit
     # override always wins.
     _SMALL_DATA_NLAYERS_AUTO_TUNE_THRESHOLD = 10_000
-    _is_small_data = (
-        n_train is not None
-        and n_train < _SMALL_DATA_NLAYERS_AUTO_TUNE_THRESHOLD
-    )
-    _user_overrode_network = bool(
-        mlp_kwargs and "nlayers" in mlp_kwargs.get("network_params", {})
-    )
+    _is_small_data = n_train is not None and n_train < _SMALL_DATA_NLAYERS_AUTO_TUNE_THRESHOLD
+    _user_overrode_network = bool(mlp_kwargs and "nlayers" in mlp_kwargs.get("network_params", {}))
     if _is_small_data and not _user_overrode_network:
         if mlp_network_params["nlayers"] > 1:
             _orig_nlayers = mlp_network_params["nlayers"]
@@ -943,8 +936,6 @@ def _configure_recurrent_params(
         result[model_name_lower] = dict(model=metamodel_func(wrapper))
 
     return result
-
-
 
 
 __all__ = [

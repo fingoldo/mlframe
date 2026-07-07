@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 __all__ = [
     "get_numaggs_metadata",
     "find_next_cumsum_left_index",
@@ -163,7 +162,6 @@ def get_ts_window_name(window_var: str, window_size: float, window_index_name: s
     if window_var == "":
         return str(window_size) + window_index_name
     return window_var + ":" + get_human_readable_set_size(window_size)
-
 
 
 # Wave 96 (2026-05-21): the 11 _emit_* per-transform helpers moved to
@@ -398,7 +396,7 @@ def create_aggregated_features(  # nosec B107 - default is a separator/label tok
             _subset_vals = window_df[subset_var].to_numpy()
             for subset_var_value in subset_var_values:
                 # Compute the boolean mask ONCE on the numpy view (was: two pandas-aligned mask evaluations on the direct + complement path). ``np.flatnonzero`` materialises a positional-index array used to drive the single ``.iloc`` slice below, avoiding the pre-fix "copy on the direct path, then maybe copy AGAIN on the complement when ``len(subset_df)<=1``" pattern -- now we know which set to keep BEFORE the BlockManager copy fires.
-                _bm = (_subset_vals == subset_var_value)
+                _bm = _subset_vals == subset_var_value
                 _pos_idx = np.flatnonzero(_bm)
                 subset_direct = True
                 if len(_pos_idx) <= 1:
@@ -496,9 +494,7 @@ def compute_splitting_stats(
                 tot = pre_sum + post_sum
                 splitting_vals.append(pre_sum / tot if tot else 0)
                 if create_features_names:
-                    splitting_ratios_names.append(
-                        captions_vars_sep.join([dataset_name, var, col, subvar, "split"])
-                    )
+                    splitting_ratios_names.append(captions_vars_sep.join([dataset_name, var, col, subvar, "split"]))
 
     row_features.extend(splitting_vals)
     if create_features_names:
@@ -592,11 +588,7 @@ def create_windowed_features(
         # with the future-side check at the future-windows branch above. Skip
         # the row when past windows didn't produce the expected count (data
         # boundary -- not enough history yet at this base_point).
-        if (
-            past_nwindows_expected
-            and not past_windows_features
-            and (features_creation_fcn or not row_features)
-        ):
+        if past_nwindows_expected and not past_windows_features and (features_creation_fcn or not row_features):
             continue
 
         if row_features or past_windows_features:
@@ -690,13 +682,9 @@ def create_and_process_windows(
             else:
                 dataset_name = window_var + ":" + get_human_readable_set_size(window_size)
                 if forward_direction:
-                    windows_r, accumulated_amount = find_next_cumsum_right_index(
-                        window_var_values=window_var_values, amount=window_size, left_index=windows_l
-                    )
+                    windows_r, accumulated_amount = find_next_cumsum_right_index(window_var_values=window_var_values, amount=window_size, left_index=windows_l)
                 else:
-                    windows_l, accumulated_amount = find_next_cumsum_left_index(
-                        window_var_values=window_var_values, amount=window_size, right_index=windows_r
-                    )
+                    windows_l, accumulated_amount = find_next_cumsum_left_index(window_var_values=window_var_values, amount=window_size, right_index=windows_r)
             if window_var and accumulated_amount > 0 and accumulated_amount * 2 < window_size:
                 logger.warning(
                     "Insufficient data for window %s of size %s: real size=%s (< %.0f%% threshold)",
@@ -880,9 +868,7 @@ def general_acf(
                 windows_r = len(window_var_values) - 1
 
                 while True:
-                    windows_l, accumulated_amount = find_next_cumsum_left_index(
-                        window_var_values=window_var_values, amount=window_size, right_index=windows_r
-                    )
+                    windows_l, accumulated_amount = find_next_cumsum_left_index(window_var_values=window_var_values, amount=window_size, right_index=windows_r)
                     if accumulated_amount * 2 < window_size:
                         break
                     dependent_vals.append(Y[windows_r])

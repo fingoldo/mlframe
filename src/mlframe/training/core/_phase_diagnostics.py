@@ -35,8 +35,7 @@ def run_per_target_diagnostics(
         target_type=str(target_type),
     )
     logger.info(format_drift_report(_drift_report, target_name=cur_target_name))
-    metadata.setdefault("label_distribution_drift", {}) \
-        .setdefault(str(target_type), {})[cur_target_name] = _drift_report
+    metadata.setdefault("label_distribution_drift", {}).setdefault(str(target_type), {})[cur_target_name] = _drift_report
 
     # BASELINE DIAGNOSTICS FIRST -- its ablation deltas are the feature
     # importance source we feed to the feature-drift sensor below. Per the
@@ -58,11 +57,7 @@ def run_per_target_diagnostics(
     _target_is_composite = _is_composite(cur_target_name)
     try:
         # Reuse cached result if composite-discovery already computed one for this pair (~30-60s saved).
-        _existing_bd = (
-            metadata.get("baseline_diagnostics", {})
-            .get(str(target_type), {})
-            .get(cur_target_name)
-        )
+        _existing_bd = metadata.get("baseline_diagnostics", {}).get(str(target_type), {}).get(cur_target_name)
         if _target_is_composite:
             logger.info(
                 "[BaselineDiagnostics] target='%s' is a composite target -- "
@@ -74,13 +69,11 @@ def run_per_target_diagnostics(
             _bd_report_dict = None
         elif _existing_bd is not None:
             logger.info(
-                "[BaselineDiagnostics] target='%s' reusing cached diagnostic "
-                "from composite-discovery precompute (saved ~30-60s).", cur_target_name,
+                "[BaselineDiagnostics] target='%s' reusing cached diagnostic " "from composite-discovery precompute (saved ~30-60s).",
+                cur_target_name,
             )
             _bd_report_dict = _existing_bd
-        elif baseline_diagnostics_config.enabled and (
-            str(target_type) in baseline_diagnostics_config.apply_to_target_types
-        ):
+        elif baseline_diagnostics_config.enabled and (str(target_type) in baseline_diagnostics_config.apply_to_target_types):
             _bd = BaselineDiagnostics(baseline_diagnostics_config)
             _bd_report = _bd.fit_and_report(
                 train_df=filtered_train_df,
@@ -92,8 +85,7 @@ def run_per_target_diagnostics(
             )
             logger.info(format_baseline_diagnostics_report(_bd_report, target_name=cur_target_name))
             _bd_report_dict = _bd_report.to_dict()
-            metadata.setdefault("baseline_diagnostics", {}) \
-                .setdefault(str(target_type), {})[cur_target_name] = _bd_report_dict
+            metadata.setdefault("baseline_diagnostics", {}).setdefault(str(target_type), {})[cur_target_name] = _bd_report_dict
     except Exception as _bd_err:
         logger.warning(
             "baseline_diagnostics failed for target='%s' (%s): %s. "
@@ -146,13 +138,12 @@ def run_per_target_diagnostics(
                 target_type=str(target_type),
                 linear_shape_delta_vs_raw_pct=_linear_shape_delta,
             )
-            metadata.setdefault("feature_distribution_drift", {}) \
-                .setdefault(str(target_type), {})[cur_target_name] = _fd_report
+            metadata.setdefault("feature_distribution_drift", {}).setdefault(str(target_type), {})[cur_target_name] = _fd_report
         except Exception as _fd_err:
             logger.warning(
-                "feature_distribution_drift failed for target='%s' (%s); training "
-                "continues without the feature-drift sensor.",
-                cur_target_name, _fd_err,
+                "feature_distribution_drift failed for target='%s' (%s); training " "continues without the feature-drift sensor.",
+                cur_target_name,
+                _fd_err,
             )
 
     return metadata

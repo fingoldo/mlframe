@@ -111,8 +111,7 @@ class XGBoostStrategy(TreeModelStrategy):
             "eval_metric": "ndcg",
         }
 
-    def get_classif_objective_kwargs(self, target_type, n_classes: int,
-                                      multilabel_config=None) -> dict:
+    def get_classif_objective_kwargs(self, target_type, n_classes: int, multilabel_config=None) -> dict:
         """Override base to support opt-in native XGB multilabel.
 
         When ``target_type == MULTILABEL_CLASSIFICATION`` AND
@@ -140,8 +139,7 @@ class XGBoostStrategy(TreeModelStrategy):
             }
         return super().get_classif_objective_kwargs(target_type, n_classes)
 
-    def wrap_multilabel(self, estimator, target_type, multilabel_config=None,
-                       n_labels: Optional[int] = None):
+    def wrap_multilabel(self, estimator, target_type, multilabel_config=None, n_labels: Optional[int] = None):
         """Override base to opt into native XGB multilabel when configured.
 
         When ``force_native_xgb_multilabel=True``, return ``estimator``
@@ -221,10 +219,7 @@ class XGBoostStrategy(TreeModelStrategy):
                 # becomes visible.
                 _null_pre = {c: int(df[c].null_count()) for c in _logged_cols}
                 df = df.with_columns(exprs)
-                _null_deltas = {
-                    c: int(df[c].null_count()) - _null_pre[c]
-                    for c in _logged_cols
-                }
+                _null_deltas = {c: int(df[c].null_count()) - _null_pre[c] for c in _logged_cols}
                 _nonzero = {c: d for c, d in _null_deltas.items() if d > 0}
                 if _nonzero:
                     import logging as _lg
@@ -235,10 +230,7 @@ class XGBoostStrategy(TreeModelStrategy):
             # Still need to cover any pl.String / pl.Utf8 not present in
             # the map (e.g. brand-new columns surfacing only after the
             # map was built) -- fall back to per-DF Enum.
-            remaining = {
-                name for name, dtype in df.schema.items()
-                if (dtype in (pl.Utf8, pl.String)) and name not in category_map
-            }
+            remaining = {name for name, dtype in df.schema.items() if (dtype in (pl.Utf8, pl.String)) and name not in category_map}
             if remaining:
                 fallback_exprs = []
                 for c in remaining:
@@ -252,14 +244,8 @@ class XGBoostStrategy(TreeModelStrategy):
         # pl.Categorical) so the cast doesn't pollute polars 1.x's
         # default global string cache. ``pl.String`` / ``pl.Utf8``
         # columns get an Enum built from their own unique values.
-        schema_cats = {
-            name for name, dtype in df.schema.items()
-            if dtype in (pl.Utf8, pl.String)
-        }
-        cols_to_cast = schema_cats | {
-            c for c in (cat_features or [])
-            if c in df.columns and df[c].dtype in (pl.Utf8, pl.String)
-        }
+        schema_cats = {name for name, dtype in df.schema.items() if dtype in (pl.Utf8, pl.String)}
+        cols_to_cast = schema_cats | {c for c in (cat_features or []) if c in df.columns and df[c].dtype in (pl.Utf8, pl.String)}
         if not cols_to_cast:
             return df
         exprs = []
@@ -288,11 +274,9 @@ class XGBoostStrategy(TreeModelStrategy):
 
         cat_features = cat_features or []
         candidate_cols = [
-            name for name, dtype in train_df.schema.items()
-            if dtype in (pl.Utf8, pl.String)
-            or dtype == pl.Categorical
-            or isinstance(dtype, pl.Enum)
-            or name in cat_features
+            name
+            for name, dtype in train_df.schema.items()
+            if dtype in (pl.Utf8, pl.String) or dtype == pl.Categorical or isinstance(dtype, pl.Enum) or name in cat_features
         ]
         candidate_cols = [c for c in candidate_cols if c in train_df.columns]
 
@@ -311,10 +295,7 @@ class XGBoostStrategy(TreeModelStrategy):
             if not cols_present:
                 return {}
             try:
-                lf = df.lazy().select([
-                    pl.col(c).cast(pl.String).drop_nulls().unique().implode().alias(c)
-                    for c in cols_present
-                ])
+                lf = df.lazy().select([pl.col(c).cast(pl.String).drop_nulls().unique().implode().alias(c) for c in cols_present])
                 row = lf.collect()
                 return {c: row[c][0].to_list() for c in cols_present}
             except Exception:

@@ -94,16 +94,11 @@ def register_handler_spec(spec_cls: Type[HandlerSpec]) -> Type[HandlerSpec]:
     backup file accidentally picked up by an editor's reload).
     """
     if not issubclass(spec_cls, HandlerSpec):
-        raise TypeError(
-            f"register_handler_spec expects a HandlerSpec subclass, got {spec_cls!r}"
-        )
+        raise TypeError(f"register_handler_spec expects a HandlerSpec subclass, got {spec_cls!r}")
     axis = spec_cls.axis()
     existing = _AXIS_REGISTRY.get(axis)
     if existing is not None and existing is not spec_cls:
-        raise ValueError(
-            f"axis {axis!r} already registered to {existing.__name__}; "
-            f"cannot reassign to {spec_cls.__name__}"
-        )
+        raise ValueError(f"axis {axis!r} already registered to {existing.__name__}; " f"cannot reassign to {spec_cls.__name__}")
     _AXIS_REGISTRY[axis] = spec_cls
     return spec_cls
 
@@ -111,8 +106,5 @@ def register_handler_spec(spec_cls: Type[HandlerSpec]) -> Type[HandlerSpec]:
 def get_handler_spec_for_axis(axis: Axis) -> Type[HandlerSpec]:
     """Look up the concrete spec class for an axis. Raises if unregistered."""
     if axis not in _AXIS_REGISTRY:
-        raise KeyError(
-            f"no HandlerSpec registered for axis {axis!r}; "
-            f"registered axes: {sorted(a.value for a in _AXIS_REGISTRY)}"
-        )
+        raise KeyError(f"no HandlerSpec registered for axis {axis!r}; " f"registered axes: {sorted(a.value for a in _AXIS_REGISTRY)}")
     return _AXIS_REGISTRY[axis]

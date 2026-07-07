@@ -80,7 +80,7 @@ def _ova_auc_all_classes(yt_pos: np.ndarray, proba: np.ndarray) -> np.ndarray:
         col = proba[:, k]
         finite = np.isfinite(col) & valid
         scores = col[finite]
-        pos = (yt_pos[finite] == k)
+        pos = yt_pos[finite] == k
         n_pos = int(pos.sum())
         n_neg = scores.shape[0] - n_pos
         if n_pos == 0 or n_neg == 0:
@@ -107,8 +107,8 @@ def _avg_ranks(scores: np.ndarray) -> np.ndarray:
         np.cumsum(sorted_scores[1:] != sorted_scores[:-1], out=dense[1:])
     # For each distinct value, the average of its 1-based ordinal ranks is (first_ord + last_ord + 2)/2.
     counts = np.bincount(dense)
-    last_ord = np.cumsum(counts)            # 1-based last ordinal per group
-    first_ord = last_ord - counts + 1       # 1-based first ordinal per group
+    last_ord = np.cumsum(counts)  # 1-based last ordinal per group
+    first_ord = last_ord - counts + 1  # 1-based first ordinal per group
     group_avg = (first_ord + last_ord) / 2.0
     ranks = np.empty(n, dtype=np.float64)
     ranks[order] = group_avg[dense]
@@ -231,8 +231,8 @@ def _confusion_margins_panel(y_true, y_proba, classes, *, y_pred=None, normalize
     """
     K = len(classes)
     matrix = _confusion_counts(y_true, _resolve_pred(y_pred, y_proba), K)
-    row_margin = matrix.sum(axis=1)   # true-class support
-    col_margin = matrix.sum(axis=0)   # predicted-class volume
+    row_margin = matrix.sum(axis=1)  # true-class support
+    col_margin = matrix.sum(axis=0)  # predicted-class volume
     total = float(matrix.sum())
     note: Optional[str] = None
     if K <= 1:
@@ -337,8 +337,7 @@ def _pr_f1_panel(y_true, y_proba, classes, *, y_pred=None) -> BarPanelSpec:
     )
 
 
-def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: bool = True,
-               class_subset=None) -> LinePanelSpec:
+def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: bool = True, class_subset=None) -> LinePanelSpec:
     """Per-class ROC curves overlaid (one-vs-rest).
 
     Curve vertices AND the legend AUC come from one class-stratified subsample (cap
@@ -464,7 +463,7 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_s
     yt_s = yt[sub]
     proba_s = y_proba[sub]
     for k in draw_idx:
-        bin_full = int((yt == k).sum())                              # full-n prevalence numerator
+        bin_full = int((yt == k).sum())  # full-n prevalence numerator
         bin_y = (yt_s == k).astype(np.int8)
         col = proba_s[:, k]
         finite = np.isfinite(col)
@@ -477,7 +476,7 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_s
             baseline_labels.append("")
             continue
         bin_yf, colf = bin_y[finite], col[finite]
-        ap = average_precision_score(bin_yf, colf)                   # stratified-subsample AP
+        ap = average_precision_score(bin_yf, colf)  # stratified-subsample AP
         precision, recall, _ = precision_recall_curve(bin_yf, colf)
         order = np.argsort(recall)
         curve = np.interp(x_grid, recall[order], precision[order])
@@ -621,7 +620,7 @@ def _prob_dist_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> Pane
     proba_s = y_proba[sub]
     for k in range(K):
         if full_counts[k] == 0:
-            continue   # drop empty class rather than planting a fake [0.0] violin
+            continue  # drop empty class rather than planting a fake [0.0] violin
         mask = yt_s == k
         groups.append(subsample_for_density(proba_s[mask, k], seed=k))
         labels.append(f"{classes[k]} (n={int(full_counts[k])})")
@@ -655,8 +654,7 @@ def _top_k_acc_panel(y_true, y_proba, classes, *, y_pred=None) -> LinePanelSpec:
     n = len(y_arr)
     if n == 0:
         x = np.arange(1, K + 1)
-        return LinePanelSpec(x=x, y=np.zeros(K), title="Top-k accuracy",
-                             xlabel="k", ylabel="Top-k accuracy")
+        return LinePanelSpec(x=x, y=np.zeros(K), title="Top-k accuracy", xlabel="k", ylabel="Top-k accuracy")
     if n > _CURVE_SUBSAMPLE_CAP:
         rng = np.random.default_rng(0)
         sub = rng.choice(n, size=_CURVE_SUBSAMPLE_CAP, replace=False)
@@ -730,10 +728,7 @@ def compose_multiclass_figure(
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(
-            f"Unknown multiclass panel tokens {unknown}. "
-            f"Allowed: {sorted(ALLOWED_MULTICLASS_PANEL_TOKENS)}"
-        )
+        raise ValueError(f"Unknown multiclass panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_MULTICLASS_PANEL_TOKENS)}")
     # ``y_true`` carries the RAW class labels (commonly ``model.classes_``
     # values), which are NOT guaranteed to be the positions 0..K-1 -- the
     # target is never label-encoded upstream. Every panel builder indexes a
@@ -798,8 +793,7 @@ def compose_multiclass_figure(
     K = len(classes)
     class_subset = None
     if K > overlay_max_classes and overlay_top_n < K:
-        class_subset = _select_overlay_classes(
-            np.asarray(y_true_pos)[shared_sub], y_proba[shared_sub], overlay_top_n)
+        class_subset = _select_overlay_classes(np.asarray(y_true_pos)[shared_sub], y_proba[shared_sub], overlay_top_n)
     panels: List[PanelSpec] = []
     for tok in tokens:
         kw = {"y_pred": y_pred_pos}
@@ -817,8 +811,7 @@ def compose_multiclass_figure(
     return FigureSpec(
         suptitle=suptitle,
         panels=grid,
-        figsize=figsize_for_grid(n_rows, n_cols,
-                                 cell_width=eff_cell_width, cell_height=cell_height),
+        figsize=figsize_for_grid(n_rows, n_cols, cell_width=eff_cell_width, cell_height=cell_height),
     )
 
 

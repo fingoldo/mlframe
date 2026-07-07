@@ -15,7 +15,6 @@ import pandas as pd
 
 from mlframe.config import CATBOOST_MODEL_TYPES
 
-
 logger = logging.getLogger(__name__)
 
 # Guards concurrent first-time probing of the GPU info cache and the CB-GPU

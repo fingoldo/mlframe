@@ -152,8 +152,8 @@ def kfold_attention_loop(
             projections = projections_global
 
         # Project both fold subsets with the projection matrices.
-        k_proj_tr = apply_projection(X_tr_s, projections, l2_normalize=True)   # (n_heads, |train_idx|, head_dim)
-        q_proj_va = apply_projection(X_va_s, projections, l2_normalize=True)   # (n_heads, |val_idx|,   head_dim)
+        k_proj_tr = apply_projection(X_tr_s, projections, l2_normalize=True)  # (n_heads, |train_idx|, head_dim)
+        q_proj_va = apply_projection(X_va_s, projections, l2_normalize=True)  # (n_heads, |val_idx|,   head_dim)
 
         for h in range(n_heads):
             # Build per-head ANN index on this fold's train subset.

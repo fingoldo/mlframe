@@ -81,10 +81,10 @@ def _ci_from_samples(
         return _pct_pair(lo_pct, hi_pct)
     jk_mean = jackknife.mean()
     diffs = jk_mean - jackknife
-    denom = 6.0 * (np.sum(diffs ** 2) ** 1.5)
+    denom = 6.0 * (np.sum(diffs**2) ** 1.5)
     if denom == 0.0 or not np.isfinite(denom):
         return _pct_pair(lo_pct, hi_pct)
-    a = float(np.sum(diffs ** 3) / denom)
+    a = float(np.sum(diffs**3) / denom)
 
     z_lo = stats.norm.ppf(alpha / 2.0)
     z_hi = stats.norm.ppf(1.0 - alpha / 2.0)
@@ -250,9 +250,9 @@ def _jackknife_auc(y_true: np.ndarray, scores: np.ndarray, *, max_n: int = 2000)
     x = s[pos]
     z = s[~pos]
     ranks_pooled = stats.rankdata(np.concatenate([x, z]), method="average")
-    plc_pos = ranks_pooled[:n_pos] - stats.rankdata(x, method="average")   # negatives each positive beats (+0.5 ties)
-    plc_neg = ranks_pooled[n_pos:] - stats.rankdata(z, method="average")   # positives each negative beats (+0.5 ties)
-    total = float(plc_pos.sum())                                            # total concordant (+0.5 tie) mass
+    plc_pos = ranks_pooled[:n_pos] - stats.rankdata(x, method="average")  # negatives each positive beats (+0.5 ties)
+    plc_neg = ranks_pooled[n_pos:] - stats.rankdata(z, method="average")  # positives each negative beats (+0.5 ties)
+    total = float(plc_pos.sum())  # total concordant (+0.5 tie) mass
     pos_of_row = np.full(n, -1, dtype=np.int64)
     pos_of_row[np.flatnonzero(pos)] = np.arange(n_pos)
     neg_of_row = np.full(n, -1, dtype=np.int64)
@@ -336,9 +336,7 @@ def bootstrap_metric(
     if n < 2:
         raise ValueError(f"bootstrap_metric: need at least 2 samples; got n={n}")
     if y_pred.shape[0] != n:
-        raise ValueError(
-            f"bootstrap_metric: y_true ({n}) and y_pred ({y_pred.shape[0]}) row counts diverge"
-        )
+        raise ValueError(f"bootstrap_metric: y_true ({n}) and y_pred ({y_pred.shape[0]}) row counts diverge")
 
     rng = np.random.default_rng(random_state)
 
@@ -367,9 +365,7 @@ def bootstrap_metric(
     if stratify is not None:
         stratify = np.asarray(stratify).ravel()
         if stratify.shape[0] != n:
-            raise ValueError(
-                f"bootstrap_metric: stratify length {stratify.shape[0]} must match y_true length {n}"
-            )
+            raise ValueError(f"bootstrap_metric: stratify length {stratify.shape[0]} must match y_true length {n}")
         groups = {int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}
         # iter358 (2026-05-26): pre-extract list+offsets once and reuse a
         # single idx buffer across all n_bootstrap iters. The listcomp +
@@ -426,7 +422,7 @@ def bootstrap_metric(
             for _c in range(_class_sizes.shape[0]):
                 _sz = int(_class_sizes[_c])
                 _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
-                _idx_buf[_class_offsets[_c]:_class_offsets[_c + 1]] = _groups_list[_c][_rand]
+                _idx_buf[_class_offsets[_c] : _class_offsets[_c + 1]] = _groups_list[_c][_rand]
             idx = _idx_buf
         # bench-attempt-rejected (2026-05-27, iter392): replacing
         # ``y_true[idx], y_pred[idx]`` with pre-allocated buffers via
@@ -455,10 +451,7 @@ def bootstrap_metric(
         valid += 1
 
     if valid == 0:
-        raise ValueError(
-            f"bootstrap_metric: all {n_bootstrap} resamples failed (first error: {first_err}). "
-            "CI cannot be computed."
-        )
+        raise ValueError(f"bootstrap_metric: all {n_bootstrap} resamples failed (first error: {first_err}). " "CI cannot be computed.")
     samples = samples[:valid]
     if failures > n_bootstrap // 4:
         logger.warning(
@@ -510,7 +503,7 @@ def _bootstrap_resample_chunk(
             for _c in range(class_sizes.shape[0]):
                 _sz = int(class_sizes[_c])
                 _rand = rng_i.integers(0, _sz, size=_sz, dtype=np.int64)
-                idx_buf[class_offsets[_c]:class_offsets[_c + 1]] = groups_list[_c][_rand]
+                idx_buf[class_offsets[_c] : class_offsets[_c + 1]] = groups_list[_c][_rand]
             idx = idx_buf
         if need_slice:
             yt = y_true[idx]
@@ -615,9 +608,7 @@ def bootstrap_metrics(
     if n < 2:
         raise ValueError(f"bootstrap_metrics: need at least 2 samples; got n={n}")
     if y_pred.shape[0] != n:
-        raise ValueError(
-            f"bootstrap_metrics: y_true ({n}) and y_pred ({y_pred.shape[0]}) row counts diverge"
-        )
+        raise ValueError(f"bootstrap_metrics: y_true ({n}) and y_pred ({y_pred.shape[0]}) row counts diverge")
     if not metric_fns and not metric_fns_idx:
         return {}
 
@@ -650,9 +641,7 @@ def bootstrap_metrics(
     if stratify is not None:
         stratify = np.asarray(stratify).ravel()
         if stratify.shape[0] != n:
-            raise ValueError(
-                f"bootstrap_metrics: stratify length {stratify.shape[0]} must match y_true length {n}"
-            )
+            raise ValueError(f"bootstrap_metrics: stratify length {stratify.shape[0]} must match y_true length {n}")
         groups = {int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}
         _groups_list = list(groups.values())
         _class_sizes = np.array([g.shape[0] for g in _groups_list], dtype=np.int64)
@@ -685,9 +674,7 @@ def bootstrap_metrics(
             _use_parallel = False
     if _use_parallel:
         _seeds = np.random.SeedSequence(random_state).spawn(n_bootstrap)
-        _strat_book = (
-            (_groups_list, _class_sizes, _class_offsets, _total_n) if stratify is not None else None
-        )
+        _strat_book = (_groups_list, _class_sizes, _class_offsets, _total_n) if stratify is not None else None
         _bounds = [(int(c[0]), int(c[-1]) + 1) for c in np.array_split(np.arange(n_bootstrap), _nw) if len(c)]
         _backend = os.environ.get("MLFRAME_BOOTSTRAP_BACKEND", "threading")
         _parts = Parallel(n_jobs=_nw, backend=_backend)(
@@ -722,7 +709,7 @@ def bootstrap_metrics(
                 for _c in range(_class_sizes.shape[0]):
                     _sz = int(_class_sizes[_c])
                     _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
-                    _idx_buf[_class_offsets[_c]:_class_offsets[_c + 1]] = _groups_list[_c][_rand]
+                    _idx_buf[_class_offsets[_c] : _class_offsets[_c + 1]] = _groups_list[_c][_rand]
                 idx = _idx_buf
             # Slice ONCE; every non-idx-aware metric reads the same resampled views.
             # Skipped entirely when all active metrics are idx-aware (re-gather internally).
@@ -763,9 +750,7 @@ def bootstrap_metrics(
     for name in _all_active:
         v_n = valid[name]
         if v_n == 0:
-            results[name] = {
-                "error": f"all {n_bootstrap} resamples failed (first error: {first_err[name]})"
-            }
+            results[name] = {"error": f"all {n_bootstrap} resamples failed (first error: {first_err[name]})"}
             continue
         s = samples[name][:v_n]
         if failures[name] > n_bootstrap // 4:
@@ -981,23 +966,17 @@ def delong_test(
     score_a = np.asarray(score_a, dtype=np.float64).ravel()
     score_b = np.asarray(score_b, dtype=np.float64).ravel()
     if not (y_true.shape == score_a.shape == score_b.shape):
-        raise ValueError(
-            f"delong_test: shape mismatch y_true={y_true.shape} score_a={score_a.shape} score_b={score_b.shape}"
-        )
+        raise ValueError(f"delong_test: shape mismatch y_true={y_true.shape} score_a={score_a.shape} score_b={score_b.shape}")
     classes = np.unique(y_true)
     if classes.size != 2 or not np.array_equal(np.sort(classes), np.array([0, 1])):
-        raise ValueError(
-            f"delong_test: y_true must be binary 0/1; got unique={classes.tolist()}"
-        )
+        raise ValueError(f"delong_test: y_true must be binary 0/1; got unique={classes.tolist()}")
 
     pos = y_true == 1
     neg = ~pos
     n_pos = int(pos.sum())
     n_neg = int(neg.sum())
     if n_pos < 2 or n_neg < 2:
-        raise ValueError(
-            f"delong_test: need >=2 positives and >=2 negatives; got n_pos={n_pos}, n_neg={n_neg}"
-        )
+        raise ValueError(f"delong_test: need >=2 positives and >=2 negatives; got n_pos={n_pos}, n_neg={n_neg}")
 
     auc_a, v10_a, v01_a = _auc_structural_components(score_a, pos, neg, n_pos, n_neg)
     auc_b, v10_b, v01_b = _auc_structural_components(score_b, pos, neg, n_pos, n_neg)

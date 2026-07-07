@@ -1,6 +1,5 @@
 """Auto-detect helpers for composite-target discovery: time-column candidates (for EWMA / rolling / frac_diff which assume chronological row order) and group-column candidates (for linear_residual_grouped). Pure pandas / polars + numpy; no composite-internal deps."""
 
-
 from __future__ import annotations
 
 import logging
@@ -24,7 +23,6 @@ def _is_polars_df(x: Any) -> bool:
 
 
 from .screening import _is_numeric_column
-
 
 # ----------------------------------------------------------------------
 # detect_time_column + sort_df_by_time (auto-sort for EWMA / rolling / frac_diff transforms which assume chronological row order).
@@ -93,9 +91,7 @@ def detect_time_column_candidates(
                 "detect_time_column_candidates: skipping col=%r: %s", col, _e,
             )
             continue
-        is_datetime = ("datetime" in dtype_str
-                       or "timestamp" in dtype_str
-                       or dtype_str.startswith("date"))
+        is_datetime = "datetime" in dtype_str or "timestamp" in dtype_str or dtype_str.startswith("date")
         info: dict[str, Any] = {
             "dtype": dtype_str,
             "is_datetime": is_datetime,

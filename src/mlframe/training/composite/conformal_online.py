@@ -89,18 +89,16 @@ def _aci_default_state(alpha: float, gamma: float, buffer_n: int) -> Dict[str, A
         "alpha_t": float(alpha),
         "gamma": float(gamma),
         "buffer_n": int(buffer_n),
-        "residuals": [],          # rolling abs-residual buffer (FIFO, last buffer_n)
-        "residuals_sorted": [],   # same values kept ascending (bisect.insort) for O(1)-index quantile
-        "errors": [],             # rolling 0/1 miss history (for rolling coverage)
+        "residuals": [],  # rolling abs-residual buffer (FIFO, last buffer_n)
+        "residuals_sorted": [],  # same values kept ascending (bisect.insort) for O(1)-index quantile
+        "errors": [],  # rolling 0/1 miss history (for rolling coverage)
         "n_seen": 0,
         "n_miss": 0,
         "last_radius": float("inf"),
     }
 
 
-def init_aci(self, alpha: float = 0.1, gamma: float = 0.05,
-             buffer_n: int = 500,
-             warmup_residuals: Optional[np.ndarray] = None) -> "Any":
+def init_aci(self, alpha: float = 0.1, gamma: float = 0.05, buffer_n: int = 500, warmup_residuals: Optional[np.ndarray] = None) -> "Any":
     """Initialise / reset the online ACI controller on the wrapper.
 
     Parameters
@@ -163,10 +161,7 @@ def predict_interval_online(self, X, clip: bool = True) -> Tuple[np.ndarray, np.
     """
     state = getattr(self, "_aci_state_", None)
     if state is None:
-        raise RuntimeError(
-            "predict_interval_online: ACI not initialised. Call init_aci(alpha, "
-            "gamma) first."
-        )
+        raise RuntimeError("predict_interval_online: ACI not initialised. Call init_aci(alpha, " "gamma) first.")
     radius = _aci_radius(state)
     state["last_radius"] = radius
     point = np.asarray(self.predict(X), dtype=np.float64).reshape(-1)
@@ -230,10 +225,7 @@ def update_conformal(self, x: Any, y: Any) -> Dict[str, Any]:
     """
     state = getattr(self, "_aci_state_", None)
     if state is None:
-        raise RuntimeError(
-            "update_conformal: ACI not initialised. Call init_aci(alpha, gamma) "
-            "first."
-        )
+        raise RuntimeError("update_conformal: ACI not initialised. Call init_aci(alpha, gamma) " "first.")
     y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
     n = y_arr.shape[0]
     if n == 0:
@@ -242,10 +234,7 @@ def update_conformal(self, x: Any, y: Any) -> Dict[str, Any]:
     # the wrapper was fit on; we never materialise / convert the frame here.
     point = np.asarray(self.predict(x), dtype=np.float64).reshape(-1)
     if point.shape[0] != n:
-        raise ValueError(
-            f"update_conformal: predict produced {point.shape[0]} rows but y has "
-            f"{n} -- caller passed misaligned (x, y)."
-        )
+        raise ValueError(f"update_conformal: predict produced {point.shape[0]} rows but y has " f"{n} -- caller passed misaligned (x, y).")
     for i in range(n):
         # Interval formed with the radius CURRENT as of this row (pre-update),
         # then the controller steps for the next row -- the online contract.
@@ -265,9 +254,7 @@ def get_aci_state(self) -> Dict[str, Any]:
         return {"initialised": False}
     errors = state["errors"]
     rolling_cov = (1.0 - float(np.mean(errors))) if errors else float("nan")
-    lifetime_cov = (
-        1.0 - state["n_miss"] / state["n_seen"] if state["n_seen"] else float("nan")
-    )
+    lifetime_cov = 1.0 - state["n_miss"] / state["n_seen"] if state["n_seen"] else float("nan")
     return {
         "initialised": True,
         "alpha_target": state["alpha_target"],

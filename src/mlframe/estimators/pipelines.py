@@ -1,8 +1,6 @@
-"""ML pipelines related procedures.
-"""
+"""ML pipelines related procedures."""
 
 from __future__ import annotations
-
 
 # pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
 

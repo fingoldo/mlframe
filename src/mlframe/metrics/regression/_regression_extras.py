@@ -560,7 +560,6 @@ from ._regression_corr import (  # noqa: F401  re-export: rank/correlation metri
     fast_concordance_index,
 )
 
-
 # ============================================================================
 # Fused single-pass extended block
 # ============================================================================
@@ -634,8 +633,7 @@ def _fused_regression_ext_pass1_seq(y_true: np.ndarray, y_pred: np.ndarray):
         if denom_s < eps:
             denom_s = eps
         sum_smape += 2.0 * abs_err / denom_s
-    return (sum_abs, sum_sqr, max_abs, sum_y, sum_p, sum_signed,
-            sum_ape, sum_smape, sum_abs_y, n_zero_y)
+    return (sum_abs, sum_sqr, max_abs, sum_y, sum_p, sum_signed, sum_ape, sum_smape, sum_abs_y, n_zero_y)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
@@ -715,8 +713,7 @@ def _fused_regression_ext_pass1_par(
         sum_smape += l_sum_smape[tid]
         sum_abs_y += l_sum_abs_y[tid]
         n_zero_y += l_n_zero[tid]
-    return (sum_abs, sum_sqr, max_abs, sum_y, sum_p, sum_signed,
-            sum_ape, sum_smape, sum_abs_y, n_zero_y)
+    return (sum_abs, sum_sqr, max_abs, sum_y, sum_p, sum_signed, sum_ape, sum_smape, sum_abs_y, n_zero_y)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -790,10 +787,7 @@ def fast_regression_metrics_block_extended(
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
     if yt.ndim != 1 or yp.ndim != 1:
-        raise ValueError(
-            "fast_regression_metrics_block_extended expects 1-D arrays; got shapes "
-            f"y_true={yt.shape}, y_pred={yp.shape}."
-        )
+        raise ValueError("fast_regression_metrics_block_extended expects 1-D arrays; got shapes " f"y_true={yt.shape}, y_pred={yp.shape}.")
     n = yt.shape[0]
     if n == 0:
         return {
@@ -807,11 +801,9 @@ def fast_regression_metrics_block_extended(
     use_par = n >= _PARALLEL_REDUCTION_THRESHOLD
     if use_par:
         nthr = numba.get_num_threads()
-        (sum_abs, sum_sqr, max_abs, sum_y, sum_p, sum_signed,
-         sum_ape, sum_smape, sum_abs_y, n_zero_y) = _fused_regression_ext_pass1_par(yt, yp, nthr)
+        sum_abs, sum_sqr, max_abs, sum_y, sum_p, sum_signed, sum_ape, sum_smape, sum_abs_y, n_zero_y = _fused_regression_ext_pass1_par(yt, yp, nthr)
     else:
-        (sum_abs, sum_sqr, max_abs, sum_y, sum_p, sum_signed,
-         sum_ape, sum_smape, sum_abs_y, n_zero_y) = _fused_regression_ext_pass1_seq(yt, yp)
+        sum_abs, sum_sqr, max_abs, sum_y, sum_p, sum_signed, sum_ape, sum_smape, sum_abs_y, n_zero_y = _fused_regression_ext_pass1_seq(yt, yp)
     y_mean = sum_y / n
     p_mean = sum_p / n
     if use_par:

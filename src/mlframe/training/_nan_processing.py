@@ -79,10 +79,7 @@ def _process_special_values(
                 # which counts NaN as its own bucket: pure-NaN -> 1, mixed
                 # NaN+value -> 2+, all-equal numeric -> 1. Matches the polars
                 # branch which treats all-NaN columns as constant.
-                constant_cols = [
-                    col for col in df.select_dtypes(include="number").columns
-                    if df[col].nunique(dropna=False) <= 1
-                ]
+                constant_cols = [col for col in df.select_dtypes(include="number").columns if df[col].nunique(dropna=False) <= 1]
             else:
                 # Categorical constants: n_unique == 1
                 constant_cols = [col for col in df.select_dtypes(exclude="number").columns if df[col].nunique() == 1]
@@ -272,18 +269,12 @@ def get_categorical_columns(df: pl.DataFrame | pd.DataFrame, include_string: boo
             # raises ``Unsupported data type Enum(...) for a numerical
             # feature column``. Surfaced default-seed c0043 / c0049 / c0050
             # (hgb / pl.Enum cat columns + confidence_analysis_cfg=True).
-            return [
-                name for name, dtype in df.schema.items()
-                if dtype == pl.Categorical
-                or (hasattr(pl, "Enum") and isinstance(dtype, pl.Enum))
-            ]
+            return [name for name, dtype in df.schema.items() if dtype == pl.Categorical or (hasattr(pl, "Enum") and isinstance(dtype, pl.Enum))]
     else:
         # Function-local import (see note above) -- breaks strategies↔utils cycle.
         from .strategies import PANDAS_CATEGORICAL_SELECT_DTYPES
         if include_string:
-            return df.select_dtypes(
-                include=list(PANDAS_CATEGORICAL_SELECT_DTYPES)
-            ).columns.tolist()
+            return df.select_dtypes(include=list(PANDAS_CATEGORICAL_SELECT_DTYPES)).columns.tolist()
         else:
             return df.select_dtypes(include=["category"]).columns.tolist()
 
@@ -473,9 +464,7 @@ def batch_scan_constants_and_inf_polars(
         # (1.30x). The Categorical fast-path beats the min/max scan on
         # the common cat_feature_count axis (low cardinality), so kept
         # n_unique here.
-        exprs.append(
-            (cs.by_dtype(pl.String, pl.Categorical).n_unique() == 1).name.prefix(_PFX_CS)
-        )
+        exprs.append((cs.by_dtype(pl.String, pl.Categorical).n_unique() == 1).name.prefix(_PFX_CS))
     if not exprs:
         return out
     result = df.select(*exprs)
@@ -484,15 +473,15 @@ def batch_scan_constants_and_inf_polars(
     row = result.row(0, named=True)
     for key, value in row.items():
         if key.startswith(_PFX_INF):
-            col = key[len(_PFX_INF):]
+            col = key[len(_PFX_INF) :]
             if value is not None and value > 0:
                 out["inf_counts"][col] = int(value)
         elif key.startswith(_PFX_CN):
-            col = key[len(_PFX_CN):]
+            col = key[len(_PFX_CN) :]
             if bool(value):
                 out["constant_numeric"].append(col)
         elif key.startswith(_PFX_CS):
-            col = key[len(_PFX_CS):]
+            col = key[len(_PFX_CS) :]
             if bool(value):
                 out["constant_nonnumeric"].append(col)
     return out

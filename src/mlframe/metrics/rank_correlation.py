@@ -61,10 +61,7 @@ def _spearmanr_batched_numpy(
     from scipy.stats import rankdata
 
     if X.shape != Y.shape:
-        raise ValueError(
-            f"X.shape {X.shape} != Y.shape {Y.shape}; batched spearman "
-            "requires aligned row pairs."
-        )
+        raise ValueError(f"X.shape {X.shape} != Y.shape {Y.shape}; batched spearman " "requires aligned row pairs.")
     if X.ndim != 2:
         raise ValueError(f"X must be 2-D, got shape {X.shape}")
 
@@ -207,14 +204,9 @@ def spearmanr_batched_numba(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
     soft fallback should use :func:`spearmanr_batched_dispatch`.
     """
     if not _HAS_NUMBA:
-        raise ImportError(
-            "spearmanr_batched_numba requires numba; install it or use "
-            "spearmanr_batched (numpy path)."
-        )
+        raise ImportError("spearmanr_batched_numba requires numba; install it or use " "spearmanr_batched (numpy path).")
     if X.shape != Y.shape:
-        raise ValueError(
-            f"X.shape {X.shape} != Y.shape {Y.shape}"
-        )
+        raise ValueError(f"X.shape {X.shape} != Y.shape {Y.shape}")
     if X.ndim != 2:
         raise ValueError(f"X must be 2-D, got shape {X.shape}")
     X64 = np.ascontiguousarray(X, dtype=np.float64)

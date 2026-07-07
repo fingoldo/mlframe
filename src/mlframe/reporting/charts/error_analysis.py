@@ -205,8 +205,7 @@ def _top_split_features(
     if mat.shape[0] > fit_cap:
         from mlframe.reporting.charts._sampling import subsample_preserving_extremes
 
-        idx = subsample_preserving_extremes(err, sample_size=fit_cap, extreme_values=err,
-                                             k_extremes=min(fit_cap // 10, err.size), rng=seed)
+        idx = subsample_preserving_extremes(err, sample_size=fit_cap, extreme_values=err, k_extremes=min(fit_cap // 10, err.size), rng=seed)
         fit_mat, fit_err = mat[idx], err[idx]
     else:
         fit_mat, fit_err = mat, err
@@ -451,7 +450,7 @@ def worst_k_table(
         empty = pd.DataFrame()
         return WorstKResult(empty, np.empty(0, dtype=np.int64))
 
-    part = np.argpartition(score, n - kk)[n - kk:]
+    part = np.argpartition(score, n - kk)[n - kk :]
     order = part[np.argsort(score[part])[::-1]]
     sel = finite_idx[order]
 
@@ -634,10 +633,7 @@ def error_bias_per_feature(
     grid = pack_panels(panels, max_cols=2)
     n_rows = len(grid)
     worst_line = f"Worst-bias segment overall: {global_worst_text}" if global_worst_text else "Worst-bias segment overall: n/a"
-    suptitle = (
-        f"{title}\nSigned residual = y_true - y_pred; > 0 in a segment => model UNDER-predicts there, < 0 => OVER-predicts.\n"
-        f"{worst_line}"
-    )
+    suptitle = f"{title}\nSigned residual = y_true - y_pred; > 0 in a segment => model UNDER-predicts there, < 0 => OVER-predicts.\n" f"{worst_line}"
     fig = FigureSpec(
         suptitle=suptitle,
         panels=grid,
@@ -739,8 +735,7 @@ def _classrate_panel(
     xlabel: str,
 ) -> PanelSpec:
     """Per-split class-rate grouped bars: one bar group per class, one bar per split. Aggregate via bincount."""
-    classes = np.unique(np.concatenate([np.asarray(a).ravel() for a in groups.values() if len(a)])) \
-        if any(len(a) for a in groups.values()) else np.array([0])
+    classes = np.unique(np.concatenate([np.asarray(a).ravel() for a in groups.values() if len(a)])) if any(len(a) for a in groups.values()) else np.array([0])
     class_index = {c: i for i, c in enumerate(classes)}
     rate_series: List[np.ndarray] = []
     split_labels: List[str] = []

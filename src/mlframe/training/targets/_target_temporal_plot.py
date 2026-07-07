@@ -112,10 +112,7 @@ def plot_target_over_time(
     ax.set_ylim(-0.02, 1.05)
     ax.set_xlabel(f"{result.timestamp_col} ({result.granularity})")
     ax.set_ylabel("target rate")
-    ax.set_title(
-        f"target_temporal_audit: {result.target_name} "
-        f"({result.granularity}-binned, {len(result.segments)} segments)"
-    )
+    ax.set_title(f"target_temporal_audit: {result.target_name} " f"({result.granularity}-binned, {len(result.segments)} segments)")
     ax.legend(loc="best", framealpha=0.7)
     ax.grid(True, alpha=0.3)
     fig.autofmt_xdate()

@@ -68,10 +68,7 @@ def format_suite_end_summary(
         return ""
 
     lines.append("[DUMMY_BASELINES] CROSS-TARGET VERDICT")
-    lines.append(
-        f"{'target':<24} {'strongest_dummy':<28} {'dummy_metric':<28} "
-        f"{'best_model':<12} {'model_metric':<22} {'lift':<8} verdict"
-    )
+    lines.append(f"{'target':<24} {'strongest_dummy':<28} {'dummy_metric':<28} " f"{'best_model':<12} {'model_metric':<22} {'lift':<8} verdict")
 
     warn_lines: list[str] = []
     n_total = 0
@@ -104,30 +101,21 @@ def format_suite_end_summary(
             # honesty). Lookup via composite_to_raw_target_map.
             _used_raw_y_dummy = False
             if composite_to_raw_target_map is not None:
-                _raw_tname = composite_to_raw_target_map.get(
-                    (str(target_type), str(target_name))
-                )
+                _raw_tname = composite_to_raw_target_map.get((str(target_type), str(target_name)))
                 if _raw_tname is not None:
-                    _raw_rep = dummy_baselines_metadata.get(
-                        target_type, {}
-                    ).get(_raw_tname)
+                    _raw_rep = dummy_baselines_metadata.get(target_type, {}).get(_raw_tname)
                     if _raw_rep is not None:
                         _raw_strongest = _raw_rep.get("strongest")
                         _raw_pm = _raw_rep.get("primary_metric")
                         _raw_data = _raw_rep.get("data", {})
-                        if (_raw_strongest and _raw_pm
-                                and _raw_strongest in _raw_data):
-                            _raw_dummy_val = _raw_data[_raw_strongest].get(
-                                _raw_pm
-                            )
+                        if _raw_strongest and _raw_pm and _raw_strongest in _raw_data:
+                            _raw_dummy_val = _raw_data[_raw_strongest].get(_raw_pm)
                             if _raw_dummy_val is not None:
                                 dummy_val = _raw_dummy_val
                                 # Override strongest name in the
                                 # output for clarity (the raw-y dummy
                                 # is conceptually different).
-                                strongest = (
-                                    f"{_raw_strongest} [raw-y trivial]"
-                                )
+                                strongest = f"{_raw_strongest} [raw-y trivial]"
                                 _used_raw_y_dummy = True
 
             # No raw-y trivial baseline available (raw target not separately
@@ -218,18 +206,8 @@ def format_suite_end_summary(
             # TS_BEATS_TREES heuristic: strongest baseline name contains
             # 'naive' / 'seasonal' / 'rolling' / 'linear_extrap', AND
             # model_val is worse than dummy_val on a minimize metric.
-            ts_strongest = any(
-                tok in str(strongest).lower()
-                for tok in ("naive", "seasonal", "rolling", "linear_extrap")
-            )
-            if (
-                ts_strongest
-                and model_val is not None
-                and is_minimize
-                and np.isfinite(model_val)
-                and np.isfinite(dummy_val)
-                and model_val > dummy_val
-            ):
+            ts_strongest = any(tok in str(strongest).lower() for tok in ("naive", "seasonal", "rolling", "linear_extrap"))
+            if ts_strongest and model_val is not None and is_minimize and np.isfinite(model_val) and np.isfinite(dummy_val) and model_val > dummy_val:
                 warn_lines.append(
                     f"[DUMMY_BASELINES] WARN TS_BEATS_TREES "
                     f"target='{target_name}' -- verify val_placement='forward'; "
@@ -239,11 +217,7 @@ def format_suite_end_summary(
             # ALL_BASELINES_BELOW_RANDOM (binary only): every classifier
             # baseline has AUC < 0.5 -> label flip suspected.
             if str(target_type) == "binary_classification":
-                aucs = [
-                    row.get("val_AUC") for row in data.values()
-                    if row.get("val_AUC") is not None
-                    and np.isfinite(row.get("val_AUC", float("nan")))
-                ]
+                aucs = [row.get("val_AUC") for row in data.values() if row.get("val_AUC") is not None and np.isfinite(row.get("val_AUC", float("nan")))]
                 if aucs and all(a < 0.5 for a in aucs):
                     warn_lines.append(
                         f"[DUMMY_BASELINES] WARN ALL_BASELINES_BELOW_RANDOM "
@@ -263,17 +237,11 @@ def format_suite_end_summary(
     if failures_metadata:
         for target_type, by_name in failures_metadata.items():
             for target_name, err_msg in by_name.items():
-                warn_lines.append(
-                    f"[DUMMY_BASELINES] WARN PARTIAL_FAILURE "
-                    f"target='{target_name}' ({target_type}) -- {err_msg}"
-                )
+                warn_lines.append(f"[DUMMY_BASELINES] WARN PARTIAL_FAILURE " f"target='{target_name}' ({target_type}) -- {err_msg}")
 
     lines.extend(warn_lines)
     if best_model_metrics_by_target is not None:
-        lines.append(
-            f"[DUMMY_BASELINES] HEALTH: {n_healthy}/{n_total} targets -- "
-            f"{'ALL_HEALTHY' if n_healthy == n_total else 'see WARN lines above'}"
-        )
+        lines.append(f"[DUMMY_BASELINES] HEALTH: {n_healthy}/{n_total} targets -- " f"{'ALL_HEALTHY' if n_healthy == n_total else 'see WARN lines above'}")
 
     return "\n".join(lines)
 
@@ -300,10 +268,7 @@ def format_unified_target_verdict_table(
         return ""
 
     lines: list[str] = ["[DUMMY_BASELINES] UNIFIED PER-TARGET VERDICT"]
-    lines.append(
-        f"{'target':<24} {'raw_best':<14} {'composite_best':<16} "
-        f"{'CT_ensemble':<14} {'lift_vs_raw_%':<14} verdict"
-    )
+    lines.append(f"{'target':<24} {'raw_best':<14} {'composite_best':<16} " f"{'CT_ensemble':<14} {'lift_vs_raw_%':<14} verdict")
 
     # Group rows: {(target_type, raw_name): {'raw_metric': ..., 'composite_specs': [(name, metric), ...]}}.
     composite_to_raw = composite_to_raw_target_map or {}
@@ -325,24 +290,17 @@ def format_unified_target_verdict_table(
         # Prefer val_RMSE; fall back to whatever the slot has.
         raw_val = raw_metric.get("val_RMSE") or raw_metric.get("RMSE")
         best_comp = min(
-            (c for c in comp_specs
-             if (c[1].get("val_RMSE") or c[1].get("RMSE")) is not None),
+            (c for c in comp_specs if (c[1].get("val_RMSE") or c[1].get("RMSE")) is not None),
             key=lambda c: c[1].get("val_RMSE") or c[1].get("RMSE"),
             default=None,
         )
-        comp_val = (
-            best_comp[1].get("val_RMSE") or best_comp[1].get("RMSE")
-            if best_comp else None
-        )
+        comp_val = best_comp[1].get("val_RMSE") or best_comp[1].get("RMSE") if best_comp else None
         ct_val = None
         if cross_target_ensemble_metrics:
             ct_entry = cross_target_ensemble_metrics.get((str(tt), raw_name))
             if ct_entry:
                 ct_val = ct_entry.get("val_RMSE") or ct_entry.get("RMSE")
-        lift = (
-            (float(raw_val) / float(comp_val)) if (raw_val and comp_val and comp_val > 0)
-            else None
-        )
+        lift = (float(raw_val) / float(comp_val)) if (raw_val and comp_val and comp_val > 0) else None
         verdict_parts = []
         if lift is not None and lift > 1.05:
             verdict_parts.append("COMPOSITE_WINS")

@@ -18,8 +18,6 @@ import polars as pl
 logger = logging.getLogger(__name__)
 
 
-
-
 def train_mlframe_ranker_suite(
     df: pd.DataFrame | pl.DataFrame,
     target_name: str,
@@ -140,10 +138,7 @@ def train_mlframe_ranker_suite(
                 logger.debug("polars read_parquet failed for %r; falling back to pandas", df, exc_info=True)
                 df = pd.read_parquet(df)
         else:
-            raise ValueError(
-                f"train_mlframe_ranker_suite: file-path input must be .parquet, "
-                f"got {df!r}"
-            )
+            raise ValueError(f"train_mlframe_ranker_suite: file-path input must be .parquet, " f"got {df!r}")
 
     transformed = features_and_targets_extractor.transform(df)
     # FTE.transform returns a tuple whose precise shape varies by
@@ -159,16 +154,10 @@ def train_mlframe_ranker_suite(
         # it lands, this assignment can be re-added. Removing the F841-bait
         # keeps the static-analysis surface clean.
     else:
-        raise ValueError(
-            f"FTE.transform returned {type(transformed)!r}; expected tuple. "
-            "This suite was written against the standard FTE contract."
-        )
+        raise ValueError(f"FTE.transform returned {type(transformed)!r}; expected tuple. " "This suite was written against the standard FTE contract.")
 
     if group_ids is None:
-        raise ValueError(
-            "FTE produced no group_ids despite group_field being set. "
-            "Check that the configured group_field column exists in df."
-        )
+        raise ValueError("FTE produced no group_ids despite group_field being set. " "Check that the configured group_field column exists in df.")
 
     # Pull the target -- LTR extractors put it under TargetTypes.LEARNING_TO_RANK
     # OR under REGRESSION (graded relevance often slots into the regression
@@ -238,11 +227,7 @@ def train_mlframe_ranker_suite(
         _inf_exprs = []
         for _cn, _dt in zip(df_features.columns, df_features.dtypes):
             if _dt.is_numeric():
-                _inf_exprs.append(
-                    _pl.when(_pl.col(_cn).is_infinite())
-                    .then(None).otherwise(_pl.col(_cn))
-                    .alias(_cn)
-                )
+                _inf_exprs.append(_pl.when(_pl.col(_cn).is_infinite()).then(None).otherwise(_pl.col(_cn)).alias(_cn))
         if _inf_exprs:
             df_features = df_features.with_columns(_inf_exprs)
         # Convert to pandas via the Arrow-backed bridge (utils.get_pandas_view_of_polars_df).
@@ -277,10 +262,7 @@ def train_mlframe_ranker_suite(
     # ``_resolved_key`` is the ACTUAL relevance column name the y was read from -- the authoritative drop. FTEs that
     # declare the target via typed lists (e.g. ``learning_to_rank_targets=[...]``) expose no ``target_column``, so
     # without this the relevance column leaked into X and the rankers memorised it (perfect target leak).
-    cols_to_drop_for_X = [
-        c for c in (group_col_name, target_name, fte_target_col_for_drop, _resolved_key)
-        if c is not None
-    ]
+    cols_to_drop_for_X = [c for c in (group_col_name, target_name, fte_target_col_for_drop, _resolved_key) if c is not None]
     if isinstance(df_features, pd.DataFrame):
         existing = [c for c in cols_to_drop_for_X if c in df_features.columns]
         df_X = df_features.drop(columns=existing) if existing else df_features
@@ -430,11 +412,7 @@ def train_mlframe_ranker_suite(
             # those land in cat_features and the downstream LGB ranker can
             # cast them to pandas Categorical before fit.
             _dn = str(_dt)
-            _is_str_like = (
-                _dt == object  # noqa: E721 -- pandas dtype `== object` comparison is intended
-                or _dn in ("string", "str")
-                or "string" in _dn.lower()
-            )
+            _is_str_like = _dt == object or _dn in ("string", "str") or "string" in _dn.lower()  # noqa: E721 -- pandas dtype `== object` comparison is intended
             if _is_str_like:
                 _probe = X_tr[col].dropna()
                 if len(_probe) == 0:
@@ -490,10 +468,7 @@ def train_mlframe_ranker_suite(
     # or bool" crash returned (test_object_cats_encoded... regressed on
     # pandas 2.3+).
     if isinstance(X_tr, pd.DataFrame) and cat_features:
-        _to_encode = [
-            c for c in cat_features
-            if c in X_tr.columns and pd.api.types.is_string_dtype(X_tr[c])
-        ]
+        _to_encode = [c for c in cat_features if c in X_tr.columns and pd.api.types.is_string_dtype(X_tr[c])]
         if _to_encode:
             _splits_for_vocab = [X_tr]
             if isinstance(X_va, pd.DataFrame):
@@ -527,9 +502,7 @@ def train_mlframe_ranker_suite(
                 # run-to-run drift on dict-ordering of insertion sets. ``key=str``
                 # (not the equivalent ``lambda x: str(x)``) sidesteps the per-call
                 # Python-frame overhead.
-                _vocabs[_c] = {
-                    v: i for i, v in enumerate(sorted(_vals, key=str))
-                }
+                _vocabs[_c] = {v: i for i, v in enumerate(sorted(_vals, key=str))}
             # Per-col ``_split_local[_c] = ...`` triggers BlockManager rebuilds
             # for each column. Build a {col: new_series} dict in one pass, then
             # assemble the result frame with a single ``pd.concat`` so the
@@ -551,9 +524,7 @@ def train_mlframe_ranker_suite(
                         # not in the mapped vocabulary. Plain object dtype
                         # demotes to float64 on missing cells and lets fillna(-1)
                         # land cleanly.
-                        _new_series[_c] = (
-                            _split[_c].astype(object).map(_vmap).fillna(-1).astype("int32")
-                        )
+                        _new_series[_c] = _split[_c].astype(object).map(_vmap).fillna(-1).astype("int32")
                 if _new_series:
                     _kept = [c for c in _orig_cols if c not in _new_series]
                     _split_local = pd.concat(
@@ -611,9 +582,9 @@ def train_mlframe_ranker_suite(
             )
     except Exception as _db_err:
         logger.warning(
-            "[DUMMY_BASELINES] FAILED target='%s' (learning_to_rank): %s. "
-            "Training continues without baseline floor.",
-            target_name, _db_err,
+            "[DUMMY_BASELINES] FAILED target='%s' (learning_to_rank): %s. " "Training continues without baseline floor.",
+            target_name,
+            _db_err,
         )
 
     for flavor in selected:
@@ -716,10 +687,7 @@ def train_mlframe_ranker_suite(
         # Zero-variance gate: scores with std<=eps cannot inform rank order; including them
         # adds a phantom tie-breaker that lowers the fused NDCG.
         _zero_var_eps = 1e-12
-        _zv_drop = [
-            i for i in _keep_idx
-            if float(np.std(np.asarray(val_scores_per_model[i], dtype=np.float64))) <= _zero_var_eps
-        ]
+        _zv_drop = [i for i in _keep_idx if float(np.std(np.asarray(val_scores_per_model[i], dtype=np.float64))) <= _zero_var_eps]
         if _zv_drop:
             _gate_log.append(f"zero_variance: dropped {[flavor_order[i] for i in _zv_drop]}")
             _keep_idx = [i for i in _keep_idx if i not in set(_zv_drop)]
@@ -729,20 +697,14 @@ def train_mlframe_ranker_suite(
         # ``ensemble_probabilistic_predictions`` applies for outlier members); the goal is to
         # avoid dragging the fused score below the best single member.
         if len(_keep_idx) >= 2:
-            _ndcgs = {
-                i: float(models_dict[flavor_order[i]]["val_metrics"].get("ndcg@10", 0.0))
-                for i in _keep_idx
-            }
+            _ndcgs = {i: float(models_dict[flavor_order[i]]["val_metrics"].get("ndcg@10", 0.0)) for i in _keep_idx}
             _ndcg_finite = {i: v for i, v in _ndcgs.items() if np.isfinite(v)}
             if _ndcg_finite:
                 _best = max(_ndcg_finite.values())
                 _floor = 0.5 * _best
                 _q_drop = [i for i, v in _ndcg_finite.items() if v < _floor]
                 if _q_drop and len(_keep_idx) - len(_q_drop) >= 2:
-                    _gate_log.append(
-                        f"quality: dropped {[flavor_order[i] for i in _q_drop]} "
-                        f"(val_ndcg@10 below 0.5x best={_best:.4f})"
-                    )
+                    _gate_log.append(f"quality: dropped {[flavor_order[i] for i in _q_drop]} " f"(val_ndcg@10 below 0.5x best={_best:.4f})")
                     _keep_idx = [i for i in _keep_idx if i not in set(_q_drop)]
 
         # Diversity gate: when two members have val_score Spearman correlation > 0.99 they
@@ -761,7 +723,7 @@ def train_mlframe_ranker_suite(
                 if _i in _drop_div:
                     continue
                 _vi = np.asarray(val_scores_per_model[_i], dtype=np.float64)
-                for _j in _kept_sorted[_ix + 1:]:
+                for _j in _kept_sorted[_ix + 1 :]:
                     if _j in _drop_div:
                         continue
                     _vj = np.asarray(val_scores_per_model[_j], dtype=np.float64)
@@ -773,10 +735,7 @@ def train_mlframe_ranker_suite(
                     if _rho is not None and np.isfinite(_rho) and _rho > 0.99:
                         _drop_div.add(_j)
             if _drop_div and len(_keep_idx) - len(_drop_div) >= 2:
-                _gate_log.append(
-                    f"diversity: dropped {[flavor_order[i] for i in sorted(_drop_div)]} "
-                    f"(val Spearman > 0.99 vs higher-NDCG sibling)"
-                )
+                _gate_log.append(f"diversity: dropped {[flavor_order[i] for i in sorted(_drop_div)]} " f"(val Spearman > 0.99 vs higher-NDCG sibling)")
                 _keep_idx = [i for i in _keep_idx if i not in _drop_div]
 
         if _gate_log:
@@ -793,8 +752,7 @@ def train_mlframe_ranker_suite(
         _gated_test_scores = [test_scores_per_model[i] for i in _keep_idx]
         if len(_gated_flavor_order) < 2:
             logger.warning(
-                "[ranker_ensemble gates] only %d member(s) survived post-gate "
-                "(need >=2 to build a rank-fusion ensemble); skipping ensemble step.",
+                "[ranker_ensemble gates] only %d member(s) survived post-gate " "(need >=2 to build a rank-fusion ensemble); skipping ensemble step.",
                 len(_gated_flavor_order),
             )
     else:
@@ -893,10 +851,7 @@ def train_mlframe_ranker_suite(
         }
         for flavor in flavor_order
     }
-    _columns = (
-        list(X_tr.columns) if hasattr(X_tr, "columns") else
-        list(range(X_tr.shape[1])) if hasattr(X_tr, "shape") else []
-    )
+    _columns = list(X_tr.columns) if hasattr(X_tr, "columns") else list(range(X_tr.shape[1])) if hasattr(X_tr, "shape") else []
     metadata: dict[str, Any] = {
         "target_type": "learning_to_rank",
         "target_name": target_name,

@@ -393,26 +393,20 @@ class FeatureHandlingConfig(BaseConfig):
             # Child must itself be a FeatureHandlingConfig; pydantic
             # already ensures that, so we go straight to field checks.
             if child.cache.dir != parent_cache.dir:
-                mismatches.append(
-                    f"per_target[{target_name!r}].cache.dir={child.cache.dir!r} "
-                    f"!= parent cache.dir={parent_cache.dir!r}"
-                )
+                mismatches.append(f"per_target[{target_name!r}].cache.dir={child.cache.dir!r} " f"!= parent cache.dir={parent_cache.dir!r}")
             if child.cache.namespace != parent_cache.namespace:
                 mismatches.append(
-                    f"per_target[{target_name!r}].cache.namespace={child.cache.namespace!r} "
-                    f"!= parent cache.namespace={parent_cache.namespace!r}"
+                    f"per_target[{target_name!r}].cache.namespace={child.cache.namespace!r} " f"!= parent cache.namespace={parent_cache.namespace!r}"
                 )
             if child.cache.dataset_id != parent_cache.dataset_id:
                 mismatches.append(
-                    f"per_target[{target_name!r}].cache.dataset_id={child.cache.dataset_id!r} "
-                    f"!= parent cache.dataset_id={parent_cache.dataset_id!r}"
+                    f"per_target[{target_name!r}].cache.dataset_id={child.cache.dataset_id!r} " f"!= parent cache.dataset_id={parent_cache.dataset_id!r}"
                 )
         if mismatches:
             raise ValueError(
                 "FeatureHandlingConfig.per_target has inconsistent cache identity "
                 "settings vs the parent FHC; this silently splits the cache and "
-                "replays stale state. Mismatches:\n  - "
-                + "\n  - ".join(mismatches)
+                "replays stale state. Mismatches:\n  - " + "\n  - ".join(mismatches)
             )
         return self
 
@@ -507,9 +501,7 @@ class FeatureHandlingConfig(BaseConfig):
         if isinstance(value, str):
             from mlframe.training.feature_handling.handlers import NoParams
             return [spec_cls(method=value, params=NoParams(kind=value))]
-        raise TypeError(
-            f"unsupported value type for {spec_cls.__name__}: {type(value).__name__}"
-        )
+        raise TypeError(f"unsupported value type for {spec_cls.__name__}: {type(value).__name__}")
 
     def _effective_text_specs(self, model_kind: str) -> List[TextHandlerSpec]:
         """Resolve final text-handler chain for a model: override

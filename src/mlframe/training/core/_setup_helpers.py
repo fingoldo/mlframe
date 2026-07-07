@@ -271,9 +271,7 @@ def _build_common_params_for_target(
 ) -> tuple[dict[str, Any], TrainingBehaviorConfig]:
     """Build common_params and behavior_config for select_target call."""
     if fairness_subgroups is not None:
-        current_behavior_config = behavior_config.model_copy(
-            update={"_precomputed_fairness_subgroups": fairness_subgroups}
-        )
+        current_behavior_config = behavior_config.model_copy(update={"_precomputed_fairness_subgroups": fairness_subgroups})
     else:
         current_behavior_config = behavior_config
 
@@ -303,7 +301,7 @@ from ._setup_helpers_pre_pipelines import _build_pre_pipelines  # noqa: E402, F4
 def _build_process_model_kwargs(
     model_file: str,
     model_name_with_weight: str,
-    model_file_name:str,
+    model_file_name: str,
     target_type: TargetTypes,
     pre_pipeline: Any,
     pre_pipeline_name: str,
@@ -496,10 +494,7 @@ def log_chart_summary(metadata: dict | None, *, save_charts: bool, data_dir: str
     n_failed = len(charts.get("failed", [])) if isinstance(charts, dict) else 0
 
     if n_saved == 0 and not (save_charts and data_dir):
-        msg = (
-            "[reporting] 0 charts saved; set output_config.data_dir (and keep save_charts=True) "
-            "to persist diagnostics to disk."
-        )
+        msg = "[reporting] 0 charts saved; set output_config.data_dir (and keep save_charts=True) " "to persist diagnostics to disk."
     else:
         dest = f"{data_dir}/charts" if data_dir else "(not saved)"
         msg = f"[reporting] {n_saved} chart(s) saved to {dest}"

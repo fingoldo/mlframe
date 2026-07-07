@@ -88,9 +88,9 @@ def _ensure_lgbm_gets_pandas(model: Any, X: Any, method: str) -> Any:
         return X
     from .utils import get_pandas_view_of_polars_df
     logger.warning(
-        "  [predict] %s.%s received pl.DataFrame; "
-        "converting to pandas for LGB's sklearn-native fastpath.",
-        type(model).__name__, method,
+        "  [predict] %s.%s received pl.DataFrame; " "converting to pandas for LGB's sklearn-native fastpath.",
+        type(model).__name__,
+        method,
     )
     return get_pandas_view_of_polars_df(X)
 
@@ -217,8 +217,7 @@ def _cb_polars_to_pandas(
     t0 = timer()
     shape_str = f"{X.shape[0]:_}x{X.shape[1]}" if hasattr(X, "shape") else "?"
     X_pd = get_pandas_view_of_polars_df(X)
-    logger.info("  [predict fallback] polars->pandas(%s) %s in %.1fs",
-                method, shape_str, timer() - t0)
+    logger.info("  [predict fallback] polars->pandas(%s) %s in %.1fs", method, shape_str, timer() - t0)
 
     # Decategorise text columns before prep_cb (same ordering as fit path)
     if text_feat:
@@ -229,8 +228,7 @@ def _cb_polars_to_pandas(
 
     t0 = timer()
     _prep_cb(X_pd, cat_features=list(cat_feat))  # in-place; text_feat already decategorised above
-    logger.info("  [predict fallback] prepare_df_for_catboost(%s) in %.1fs",
-                method, timer() - t0)
+    logger.info("  [predict fallback] prepare_df_for_catboost(%s) in %.1fs", method, timer() - t0)
     return X_pd
 
 
@@ -444,10 +442,7 @@ def _fit_persist_and_transform(
         # survive to the bridged pandas frame and crash the NaN-intolerant
         # model the guard exists to protect. ``drop_nans().mean()`` already
         # ignores both null and NaN, matching sklearn SimpleImputer's nanmean.
-        df_imp = X.with_columns([
-            pl.col(c).fill_nan(pl.col(c).drop_nans().mean()).fill_null(pl.col(c).drop_nans().mean())
-            for c in cols
-        ])
+        df_imp = X.with_columns([pl.col(c).fill_nan(pl.col(c).drop_nans().mean()).fill_null(pl.col(c).drop_nans().mean()) for c in cols])
         # All-null / all-NaN column: ``drop_nans().mean()`` is null, so the fill
         # above leaves null/NaN in place. sklearn SimpleImputer(keep_empty_features=
         # True) fills such a column with 0.0; mirror that so no null/NaN reaches
@@ -460,17 +455,11 @@ def _fit_persist_and_transform(
         # ``pl.col(c).mean()`` again, so each column triggered three extra
         # full-column aggregations on top of the persistence scan. Broadcasting
         # pre-computed scalars cuts the aggregations from 4N to N per fit.
-        _stats = df_imp.select(
-            [pl.col(c).mean().alias(f"_mean_{c}") for c in cols] +
-            [pl.col(c).std(ddof=0).alias(f"_std_{c}") for c in cols]
-        ).row(0)
-        _means_post = np.asarray(_stats[:len(cols)], dtype=np.float64)
-        _stds_post = np.asarray(_stats[len(cols):], dtype=np.float64)
+        _stats = df_imp.select([pl.col(c).mean().alias(f"_mean_{c}") for c in cols] + [pl.col(c).std(ddof=0).alias(f"_std_{c}") for c in cols]).row(0)
+        _means_post = np.asarray(_stats[: len(cols)], dtype=np.float64)
+        _stds_post = np.asarray(_stats[len(cols) :], dtype=np.float64)
         _stds_safe = np.where(_stds_post == 0.0, 1.0, _stds_post)
-        df_std = df_imp.with_columns([
-            (pl.col(c) - pl.lit(float(_means_post[_i]))) / pl.lit(float(_stds_safe[_i]))
-            for _i, c in enumerate(cols)
-        ])
+        df_std = df_imp.with_columns([(pl.col(c) - pl.lit(float(_means_post[_i]))) / pl.lit(float(_stds_safe[_i])) for _i, c in enumerate(cols)])
         # Persist as sklearn-compatible objects so the NEXT call hits the transform-only fastpath.
         # The imputer's statistics_ holds the imputation mean (== drop_nans mean == post-fill mean).
         try:

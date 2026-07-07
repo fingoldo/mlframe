@@ -158,11 +158,7 @@ def _setup_per_target_mlframe_models(
         # _train_idx still derived even when no models train: downstream code
         # (e.g. metadata schema_version record) reads ``cur_target_values[_train_idx]``
         # to compute train_y for n_classes / multilabel_strategy introspection.
-        _train_idx_fallback = (
-            ctx.filtered_train_idx
-            if ctx.filtered_train_idx is not None
-            else ctx.train_idx
-        )
+        _train_idx_fallback = ctx.filtered_train_idx if ctx.filtered_train_idx is not None else ctx.train_idx
         return {
             "plot_file": None,
             "model_file": None,
@@ -248,26 +244,16 @@ def _setup_per_target_mlframe_models(
     )
 
     _train_idx = filtered_train_idx if filtered_train_idx is not None else train_idx
-    current_train_target = (
-        cur_target_values[_train_idx]
-        if isinstance(cur_target_values, (np.ndarray, pl.Series))
-        else cur_target_values.iloc[_train_idx]
-    )
+    current_train_target = cur_target_values[_train_idx] if isinstance(cur_target_values, (np.ndarray, pl.Series)) else cur_target_values.iloc[_train_idx]
     current_val_target = None
     if filtered_val_idx is not None:
         current_val_target = (
-            cur_target_values[filtered_val_idx]
-            if isinstance(cur_target_values, (np.ndarray, pl.Series))
-            else cur_target_values.iloc[filtered_val_idx]
+            cur_target_values[filtered_val_idx] if isinstance(cur_target_values, (np.ndarray, pl.Series)) else cur_target_values.iloc[filtered_val_idx]
         )
     # test_idx is intentionally raw (not OD-filtered) - test must never be filtered by outlier detector.
     current_test_target = None
     if test_idx is not None:
-        current_test_target = (
-            cur_target_values[test_idx]
-            if isinstance(cur_target_values, (np.ndarray, pl.Series))
-            else cur_target_values.iloc[test_idx]
-        )
+        current_test_target = cur_target_values[test_idx] if isinstance(cur_target_values, (np.ndarray, pl.Series)) else cur_target_values.iloc[test_idx]
 
     # Calib slice (calib_size>0): raw calib rows + aligned target for the trainer's post-hoc-calibration predict.
     # calib_idx indexes the original full-df rows (disjoint from train/val/test by the splitter's asserts), so the
@@ -276,11 +262,7 @@ def _setup_per_target_mlframe_models(
     _calib_df = getattr(ctx, "calib_df", None)
     current_calib_target = None
     if _calib_df is not None and _calib_idx is not None and len(_calib_idx) > 0:
-        current_calib_target = (
-            cur_target_values[_calib_idx]
-            if isinstance(cur_target_values, (np.ndarray, pl.Series))
-            else cur_target_values.iloc[_calib_idx]
-        )
+        current_calib_target = cur_target_values[_calib_idx] if isinstance(cur_target_values, (np.ndarray, pl.Series)) else cur_target_values.iloc[_calib_idx]
 
     # Feature-handling wire-in: opt-in via ctx.feature_handling_config. Sits after the per-target
     # OD-filtered frames + targets are bound (this is the "post-FS / pre-final-pipeline" seam for
@@ -354,8 +336,7 @@ def _setup_per_target_mlframe_models(
     if _audit is not None:
         try:
             logger.info(_format_temporal_audit_report(_audit))
-            if (getattr(behavior_config, "target_temporal_audit_save_plot", True)
-                    and plot_file):
+            if getattr(behavior_config, "target_temporal_audit_save_plot", True) and plot_file:
                 # Route through the multi-backend DSL when reporting_config exposes plot_outputs
                 # (e.g. "plotly[html]+matplotlib[png]") so the temporal-audit chart obeys the
                 # same backend selection as every other suite plot. Falls back to matplotlib-only
@@ -370,13 +351,12 @@ def _setup_per_target_mlframe_models(
                 else:
                     _plot_path = f"{plot_file}_target_temporal_audit.png"
                     _plot_target_over_time(_audit, save_path=_plot_path)
-            metadata.setdefault("target_temporal_audit", {}) \
-                .setdefault(str(target_type), {})[cur_target_name] = _audit.to_dict()
+            metadata.setdefault("target_temporal_audit", {}).setdefault(str(target_type), {})[cur_target_name] = _audit.to_dict()
         except Exception as _audit_err:
             logger.warning(
-                "target_temporal_audit (per-target render) failed for "
-                "target='%s': %s. Training continues.",
-                cur_target_name, _audit_err,
+                "target_temporal_audit (per-target render) failed for " "target='%s': %s. Training continues.",
+                cur_target_name,
+                _audit_err,
             )
 
     _render_per_target_diagnostics(
@@ -437,18 +417,15 @@ def _setup_per_target_mlframe_models(
     # ``metadata["feature_drift_auto_action"]`` for observability.
     _target_hyperparams_config = hyperparams_config
     try:
-        _fd_for_target = (
-            metadata.get("feature_distribution_drift", {})
-            .get(str(target_type), {})
-            .get(cur_target_name)
+        _fd_for_target = metadata.get("feature_distribution_drift", {}).get(str(target_type), {}).get(cur_target_name)
+        _sklearn_override = _fd_for_target.get("recommend_neural_overrides") if isinstance(_fd_for_target, dict) else None
+        _auto_apply_enabled = bool(
+            getattr(
+                behavior_config,
+                "feature_drift_auto_apply_neural_overrides",
+                False,
+            )
         )
-        _sklearn_override = (
-            _fd_for_target.get("recommend_neural_overrides")
-            if isinstance(_fd_for_target, dict) else None
-        )
-        _auto_apply_enabled = bool(getattr(
-            behavior_config, "feature_drift_auto_apply_neural_overrides", False,
-        ))
         if _sklearn_override and "mlp" in mlframe_models and not _auto_apply_enabled:
             # WARN-only path. Surface the recommendation loudly so the
             # operator can copy-paste into their config if desired, but
@@ -470,19 +447,17 @@ def _setup_per_target_mlframe_models(
             # Stamp the recommendation in metadata for downstream tooling
             # (post-mortem / dashboards) so the same payload that would
             # have been applied is still visible.
-            metadata.setdefault("feature_drift_auto_action_skipped", {}) \
-                .setdefault(str(target_type), {})[cur_target_name] = {
-                    "reason": "auto_apply_disabled",
-                    "sklearn_override_recommended": dict(_sklearn_override),
-                    "weighted_drift_score": _fd_for_target.get("weighted_drift_score"),
-                }
+            metadata.setdefault("feature_drift_auto_action_skipped", {}).setdefault(str(target_type), {})[cur_target_name] = {
+                "reason": "auto_apply_disabled",
+                "sklearn_override_recommended": dict(_sklearn_override),
+                "weighted_drift_score": _fd_for_target.get("weighted_drift_score"),
+            }
         elif _sklearn_override and "mlp" in mlframe_models and _auto_apply_enabled:
             from ..feature_drift_report import (
                 translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs,
             )
-            _orig_mlp_kwargs = (
-                getattr(hyperparams_config, "mlp_kwargs", None) or {}
-            )
+
+            _orig_mlp_kwargs = getattr(hyperparams_config, "mlp_kwargs", None) or {}
             # Pass existing mlp_kwargs so the translator can preserve a
             # caller-pinned optimizer (e.g. MuonAdamWHybrid). Without it
             # the translator hardcoded ``optimizer=torch.optim.AdamW``
@@ -498,22 +473,19 @@ def _setup_per_target_mlframe_models(
             for _slot in ("model_params", "network_params"):
                 if _slot in _mlframe_override:
                     _merged_mlp_kwargs.setdefault(_slot, {})
-                    _merged_mlp_kwargs[_slot] = dict(
-                        {**_merged_mlp_kwargs[_slot], **_mlframe_override[_slot]}
-                    )
+                    _merged_mlp_kwargs[_slot] = dict({**_merged_mlp_kwargs[_slot], **_mlframe_override[_slot]})
             try:
                 _target_hyperparams_config = hyperparams_config.model_copy(
                     update={"mlp_kwargs": _merged_mlp_kwargs},
                 )
             except Exception:
                 _target_hyperparams_config = hyperparams_config
-            metadata.setdefault("feature_drift_auto_action", {}) \
-                .setdefault(str(target_type), {})[cur_target_name] = {
-                    "sklearn_override": dict(_sklearn_override),
-                    "mlframe_mlp_kwargs_override": _mlframe_override,
-                    "untranslated_keys": _untranslated or [],
-                    "weighted_drift_score": _fd_for_target.get("weighted_drift_score"),
-                }
+            metadata.setdefault("feature_drift_auto_action", {}).setdefault(str(target_type), {})[cur_target_name] = {
+                "sklearn_override": dict(_sklearn_override),
+                "mlframe_mlp_kwargs_override": _mlframe_override,
+                "untranslated_keys": _untranslated or [],
+                "weighted_drift_score": _fd_for_target.get("weighted_drift_score"),
+            }
             logger.warning(
                 "[feature-drift-auto-action] target='%s' weighted_drift=%.2f "
                 ">= per-type threshold -- applying empirically-grounded MLP "
@@ -527,9 +499,9 @@ def _setup_per_target_mlframe_models(
             )
     except Exception as _fd_aa_err:
         logger.warning(
-            "feature-drift-auto-action failed for target='%s' (%s); "
-            "training continues without per-target MLP override.",
-            cur_target_name, _fd_aa_err,
+            "feature-drift-auto-action failed for target='%s' (%s); " "training continues without per-target MLP override.",
+            cur_target_name,
+            _fd_aa_err,
         )
 
     # Test set is never OD-filtered. train_df_size_bytes_cached is the pre-conversion Polars-side size
@@ -601,11 +573,7 @@ def _setup_per_target_mlframe_models(
         rfecv_cluster_min_reduction=feature_selection_config.rfecv_cluster_min_reduction,
         rfecv_cluster_corr_method=feature_selection_config.rfecv_cluster_corr_method,
         use_sample_weights_in_fs=feature_selection_config.use_sample_weights_in_fs,
-        mrmr_identity_cache=(
-            ctx._mrmr_identity_cache
-            if getattr(feature_selection_config, "mrmr_identity_cache_scope", "ctx") == "ctx"
-            else None
-        ),
+        mrmr_identity_cache=(ctx._mrmr_identity_cache if getattr(feature_selection_config, "mrmr_identity_cache_scope", "ctx") == "ctx" else None),
         # Thread target_type so BorutaShap can auto-derive
         # ``classification=False`` for regression targets (otherwise the
         # default RandomForestClassifier crashes on continuous y inside

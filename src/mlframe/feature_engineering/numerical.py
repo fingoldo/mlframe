@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 __all__ = [
     "compute_simple_stats_numba",
     "compute_simple_stats_numba_arr",
@@ -377,8 +376,6 @@ from ._numerical_counts import (  # noqa: F401  re-export: count / crossing / qu
 )
 
 
-
-
 from ._numerical_numba import (  # noqa: F401, E402
     _make_compute_moments_slope_mi,
     compute_moments_slope_mi,
@@ -594,7 +591,7 @@ def get_numaggs_names(
     return_exotic_means: bool = True,
     return_unsorted_stats: bool = True,
     return_lintrend_approx_stats: bool = False,
-    **kwargs
+    **kwargs,
 ) -> tuple:
     """Feature names produced by ``compute_numaggs`` under the same kwargs.
 
@@ -766,7 +763,7 @@ def compute_numaggs_parallel(
     dtype=np.float32,
     n_jobs=-1,
     prefetch_factor: int = 2,
-    **parallel_kwargs
+    **parallel_kwargs,
 ) -> np.ndarray:
     """Computes numaggs over columns of a dataframe, in parallel fashion.
 
@@ -776,9 +773,7 @@ def compute_numaggs_parallel(
     if numagg_params is None:
         numagg_params = {}
     if values is None and (df is None or cols is None):
-        raise ValueError(
-            "compute_numaggs_parallel: must provide either `values` or both `df` and `cols`."
-        )
+        raise ValueError("compute_numaggs_parallel: must provide either `values` or both `df` and `cols`.")
     if n_jobs <= 0:
         # psutil.cpu_count can return None on container/restricted hosts; fall back to logical.
         n_jobs = psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True) or 1
@@ -793,7 +788,7 @@ def compute_numaggs_parallel(
         ],
         max_nbytes=0,
         n_jobs=n_jobs,
-        **parallel_kwargs
+        **parallel_kwargs,
     )
     res = np.vstack(res).astype(dtype)
 

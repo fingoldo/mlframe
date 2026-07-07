@@ -74,13 +74,9 @@ def _coerce_preds(preds: np.ndarray) -> np.ndarray:
     """
     arr = np.ascontiguousarray(preds, dtype=np.float64)
     if arr.ndim != 2:
-        raise ValueError(
-            f"preds must be 2-D (n_rows, n_preds); got shape {arr.shape}"
-        )
+        raise ValueError(f"preds must be 2-D (n_rows, n_preds); got shape {arr.shape}")
     if arr.shape[1] < 2:
-        raise ValueError(
-            f"need >= 2 predictors for disagreement features; got {arr.shape[1]}"
-        )
+        raise ValueError(f"need >= 2 predictors for disagreement features; got {arr.shape[1]}")
     finite = np.isfinite(arr)
     if not finite.all():
         # Row medians excluding non-finite cells.
@@ -113,14 +109,8 @@ def predictor_disagreement_iqr(preds: np.ndarray) -> np.ndarray:
     p75 = 0.75 * (nc - 1)
     fi25, ff25 = int(p25), p25 - int(p25)
     fi75, ff75 = int(p75), p75 - int(p75)
-    q25 = (
-        sorted_arr[:, fi25] * (1 - ff25)
-        + sorted_arr[:, min(fi25 + 1, nc - 1)] * ff25
-    )
-    q75 = (
-        sorted_arr[:, fi75] * (1 - ff75)
-        + sorted_arr[:, min(fi75 + 1, nc - 1)] * ff75
-    )
+    q25 = sorted_arr[:, fi25] * (1 - ff25) + sorted_arr[:, min(fi25 + 1, nc - 1)] * ff25
+    q75 = sorted_arr[:, fi75] * (1 - ff75) + sorted_arr[:, min(fi75 + 1, nc - 1)] * ff75
     return q75 - q25
 
 
@@ -214,9 +204,7 @@ def predictor_weighted_consensus(
     arr = _coerce_preds(preds)
     w = np.asarray(weights, dtype=np.float64).ravel()
     if w.size != arr.shape[1]:
-        raise ValueError(
-            f"weights len {w.size} != n_preds {arr.shape[1]}"
-        )
+        raise ValueError(f"weights len {w.size} != n_preds {arr.shape[1]}")
     if (w < 0).any():
         raise ValueError("weights must be non-negative")
     w_sum = w.sum()
@@ -251,7 +239,7 @@ def predictor_consensus_trimmed_stats(
     n_trim = int(np.floor(trim_frac * k))
     sorted_arr = np.sort(arr, axis=1)
     if n_trim > 0 and k - 2 * n_trim > 0:
-        trimmed = sorted_arr[:, n_trim: k - n_trim]
+        trimmed = sorted_arr[:, n_trim : k - n_trim]
     else:
         trimmed = sorted_arr
     trimmed_mean = trimmed.mean(axis=1)

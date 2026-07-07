@@ -52,13 +52,9 @@ def _clean_oof_matrix(
     X = np.asarray(oof_matrix, dtype=np.float64)
     y = np.asarray(oof_y, dtype=np.float64).reshape(-1)
     if X.ndim != 2 or X.shape[1] != n_components:
-        raise ValueError(
-            f"meta-stacker: OOF matrix has shape {X.shape}; expected (n, {n_components})."
-        )
+        raise ValueError(f"meta-stacker: OOF matrix has shape {X.shape}; expected (n, {n_components}).")
     if y.shape[0] != X.shape[0]:
-        raise ValueError(
-            f"meta-stacker: y length {y.shape[0]} != OOF matrix rows {X.shape[0]}."
-        )
+        raise ValueError(f"meta-stacker: y length {y.shape[0]} != OOF matrix rows {X.shape[0]}.")
     finite = np.isfinite(y) & np.all(np.isfinite(X), axis=1)
     return X[finite], y[finite], finite
 
@@ -70,9 +66,7 @@ def _validate_sample_weight(
         return None
     sw = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
     if sw.shape[0] != n_rows:
-        raise ValueError(
-            f"meta-stacker: sample_weight length {sw.shape[0]} != OOF matrix rows {n_rows}."
-        )
+        raise ValueError(f"meta-stacker: sample_weight length {sw.shape[0]} != OOF matrix rows {n_rows}.")
     if not np.all(np.isfinite(sw)) or (sw < 0).any():
         raise ValueError(
             f"meta-stacker: sample_weight must be finite and non-negative; got "
@@ -108,9 +102,7 @@ def fit_ridge_meta_stacker(
     X, y, finite = _clean_oof_matrix(oof_matrix, oof_y, n_components)
     sw = _validate_sample_weight(sample_weight, np.asarray(oof_matrix).shape[0], finite)
     if X.shape[0] < n_components + 2:
-        raise ValueError(
-            f"fit_ridge_meta_stacker: only {X.shape[0]} finite OOF rows for {n_components} components (need >= {n_components + 2})."
-        )
+        raise ValueError(f"fit_ridge_meta_stacker: only {X.shape[0]} finite OOF rows for {n_components} components (need >= {n_components + 2}).")
     if ridge_alpha is None:
         rcv = RidgeCV(alphas=tuple(ridge_alpha_grid), fit_intercept=True)
         rcv.fit(X, y, sample_weight=sw)
@@ -201,14 +193,10 @@ def build_meta_stack_ensemble(
     if n == 0:
         raise ValueError("build_meta_stack_ensemble: empty component list.")
     if len(component_names) != n:
-        raise ValueError(
-            f"build_meta_stack_ensemble: {n} models but {len(component_names)} names."
-        )
+        raise ValueError(f"build_meta_stack_ensemble: {n} models but {len(component_names)} names.")
     kind = str(stacker).lower()
     if kind not in META_STACKER_KINDS:
-        raise ValueError(
-            f"build_meta_stack_ensemble: unknown stacker {stacker!r}; choose one of {META_STACKER_KINDS}."
-        )
+        raise ValueError(f"build_meta_stack_ensemble: unknown stacker {stacker!r}; choose one of {META_STACKER_KINDS}.")
     if kind == "nnls":
         return ensemble_cls.from_nnls_stack(
             component_models, component_names, oof_matrix, oof_y, sample_weight=sample_weight,
@@ -264,7 +252,5 @@ def build_meta_stack_ensemble(
     # Per-component OOF column means: the neutral stand-in predict uses when a component drops out at inference (the
     # meta-model needs its full K-column design). Cheap (K floats), kept on the instance (survives pickle).
     _Xclean, _yclean, _finite = _clean_oof_matrix(oof_matrix, oof_y, n)
-    instance._meta_col_means = (
-        _Xclean.mean(axis=0).tolist() if _Xclean.shape[0] > 0 else [0.0] * n
-    )
+    instance._meta_col_means = _Xclean.mean(axis=0).tolist() if _Xclean.shape[0] > 0 else [0.0] * n
     return instance

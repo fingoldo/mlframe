@@ -188,16 +188,11 @@ class EmbeddingProvider(BaseModel):
         """
         m = _URI_RE.match(uri.strip())
         if not m:
-            raise ValueError(
-                f"invalid EmbeddingProvider URI {uri!r}; expected "
-                f"'<kind>://<model>[?param=value]'"
-            )
+            raise ValueError(f"invalid EmbeddingProvider URI {uri!r}; expected " f"'<kind>://<model>[?param=value]'")
         kind_raw = m.group("kind").lower()
         if kind_raw not in _URI_KIND_ALIAS:
             valid = sorted(_URI_KIND_ALIAS)
-            raise ValueError(
-                f"unknown provider kind {kind_raw!r} in URI {uri!r}; valid: {valid}"
-            )
+            raise ValueError(f"unknown provider kind {kind_raw!r} in URI {uri!r}; valid: {valid}")
         kind = _URI_KIND_ALIAS[kind_raw]
         rest = m.group("rest")
         # Use urllib.parse to split off the query portion. urlsplit
@@ -253,13 +248,11 @@ class EmbeddingProvider(BaseModel):
         resolved: Dict[str, Any] = {}
         for k, v in self.params.items():
             if isinstance(v, str) and v.startswith(_ENV_PREFIX):
-                env_name = v[len(_ENV_PREFIX):]
+                env_name = v[len(_ENV_PREFIX) :]
                 env_val = os.environ.get(env_name)
                 if env_val is None:
                     raise KeyError(
-                        f"EmbeddingProvider param {k!r} references env var "
-                        f"{env_name!r} which is unset. Set it or replace "
-                        f"with the literal value."
+                        f"EmbeddingProvider param {k!r} references env var " f"{env_name!r} which is unset. Set it or replace " f"with the literal value."
                     )
                 resolved[k] = env_val
             else:
@@ -288,10 +281,7 @@ class EmbeddingProvider(BaseModel):
         # traceback / sentry doesn't leak them. pydantic's default
         # repr walks all fields; we override.
         scrubbed_params = _scrub_dict(self.params)
-        return (
-            f"EmbeddingProvider(kind={self.kind!r}, model={self.model!r}, "
-            f"params={scrubbed_params!r})"
-        )
+        return f"EmbeddingProvider(kind={self.kind!r}, model={self.model!r}, " f"params={scrubbed_params!r})"
 
 
 __all__ = ["EmbeddingProvider"]

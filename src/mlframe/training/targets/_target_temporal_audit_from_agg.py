@@ -125,9 +125,7 @@ def _audit_from_agg(
             )
             for s in segments:
                 warnings.append(
-                    f"  segment {s['start_label']}..{s['end_label']} "
-                    f"({s['n_bins']} bins, n_obs={s['n_obs']:_}): "
-                    f"mean_rate={s['mean_rate']:.3f}"
+                    f"  segment {s['start_label']}..{s['end_label']} " f"({s['n_bins']} bins, n_obs={s['n_obs']:_}): " f"mean_rate={s['mean_rate']:.3f}"
                 )
 
     n_dropped = sum(1 for b in bins if not b.kept)

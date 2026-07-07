@@ -38,7 +38,6 @@ import numba
 import numpy as np
 
 
-
 # cache=False overrides NUMBA_NJIT_PARAMS for this kernel only: numba's AOT
 # cache for functions with many bool kwargs corrupts on Windows (Python 3.11
 # + numba 0.59) -- a fresh process that calls this with all kwargs explicit

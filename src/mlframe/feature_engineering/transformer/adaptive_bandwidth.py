@@ -82,8 +82,8 @@ def compute_adaptive_bandwidth_attention(
         raise ValueError(f"projection must be 'random', 'pls', or 'importance'; got {projection!r}.")
 
     def _run_attention(X_anchor: np.ndarray, X_pool: np.ndarray, y_pool: np.ndarray, projections: np.ndarray) -> dict[str, np.ndarray]:
-        k_proj_pool = apply_projection(X_pool, projections, l2_normalize=True)        # (n_heads, |pool|, head_dim)
-        q_proj_anchor = apply_projection(X_anchor, projections, l2_normalize=True)    # (n_heads, |anchor|, head_dim)
+        k_proj_pool = apply_projection(X_pool, projections, l2_normalize=True)  # (n_heads, |pool|, head_dim)
+        q_proj_anchor = apply_projection(X_anchor, projections, l2_normalize=True)  # (n_heads, |anchor|, head_dim)
         n_anchor = X_anchor.shape[0]
         outs: dict[str, np.ndarray] = {}
         for h in range(n_heads):

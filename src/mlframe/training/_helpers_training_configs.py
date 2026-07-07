@@ -542,9 +542,7 @@ def get_training_configs(
     # path. With a stale regression metric=l2 on the params, the
     # multiclass fit raises "Multiclass objective and metrics don't
     # match" before training starts.
-    _is_regression_path = (
-        _resolved_tt is None or not _resolved_tt.is_classification
-    )
+    _is_regression_path = _resolved_tt is None or not _resolved_tt.is_classification
     if _is_regression_path:
         _LGB_METRIC_NAME = {
             "RMSE": "l2", "MAE": "l1", "Huber": "huber",
@@ -612,9 +610,8 @@ def get_training_configs(
         # user override under mlp_kwargs["trainer_params"]["precision"]
         # always wins.
         from .mlp_runtime_defaults import resolve_mlp_precision_default
-        _user_precision = (
-            (mlp_kwargs or {}).get("trainer_params", {}).get("precision")
-        )
+
+        _user_precision = (mlp_kwargs or {}).get("trainer_params", {}).get("precision")
         _resolved_precision = resolve_mlp_precision_default(
             user_override=_user_precision,
         )
@@ -710,9 +707,8 @@ def get_training_configs(
         # ``mlp_kwargs["dataloader_params"]["num_workers"]`` once their
         # specific dataset is verified to fit each worker's memory budget.
         from .mlp_runtime_defaults import resolve_mlp_dataloader_defaults
-        _user_dataloader_overrides = (
-            (mlp_kwargs or {}).get("dataloader_params", {}) or {}
-        )
+
+        _user_dataloader_overrides = (mlp_kwargs or {}).get("dataloader_params", {}) or {}
         _resolved_dataloader_extras = resolve_mlp_dataloader_defaults(
             user_overrides=_user_dataloader_overrides,
         )

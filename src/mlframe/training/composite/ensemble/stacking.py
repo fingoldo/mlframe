@@ -1,11 +1,9 @@
 """Stacking-aware transform selection (measure-first): residual_correlation_matrix + max_off_diagonal_correlation diagnostic; stacking_aware_gate (NNLS-weight gate that keeps transforms contributing orthogonal signal). Pure numpy + scipy.optimize.nnls; no composite-internal deps."""
 
-
 from __future__ import annotations
 
 import logging
 import numpy as np
-
 
 logger = logging.getLogger(__name__)
 
@@ -47,16 +45,10 @@ def residual_correlation_matrix(
         return np.zeros((0, 0), dtype=np.float64), []
     names = list(transform_residuals.keys())
     K = len(names)
-    arrs = [
-        np.asarray(transform_residuals[n], dtype=np.float64).reshape(-1)
-        for n in names
-    ]
+    arrs = [np.asarray(transform_residuals[n], dtype=np.float64).reshape(-1) for n in names]
     n_rows = arrs[0].size
     if any(a.size != n_rows for a in arrs):
-        raise ValueError(
-            "residual_correlation_matrix: all residual arrays must have the same length; "
-            f"got lengths {[a.size for a in arrs]}"
-        )
+        raise ValueError("residual_correlation_matrix: all residual arrays must have the same length; " f"got lengths {[a.size for a in arrs]}")
     M = np.column_stack(arrs)
     # Masked correlation: drop rows with any non-finite entry to keep np.corrcoef well-defined.
     finite_rows = np.all(np.isfinite(M), axis=1)
@@ -178,15 +170,9 @@ def stacking_aware_gate(
         return [], {}
     names = list(transform_predictions.keys())
     y = np.asarray(y_train, dtype=np.float64).reshape(-1)
-    arrs = [
-        np.asarray(transform_predictions[n], dtype=np.float64).reshape(-1)
-        for n in names
-    ]
+    arrs = [np.asarray(transform_predictions[n], dtype=np.float64).reshape(-1) for n in names]
     if any(a.size != y.size for a in arrs):
-        raise ValueError(
-            "stacking_aware_gate: all prediction arrays must match y_train length; "
-            f"got y={y.size}, preds={[a.size for a in arrs]}"
-        )
+        raise ValueError("stacking_aware_gate: all prediction arrays must match y_train length; " f"got y={y.size}, preds={[a.size for a in arrs]}")
     X = np.column_stack(arrs)
     finite_rows = np.all(np.isfinite(X), axis=1) & np.isfinite(y)
     if finite_rows.sum() < max(3, X.shape[1] + 1):
@@ -209,10 +195,7 @@ def stacking_aware_gate(
     if survivors:
         s = sum(raw_weights[n] for n in survivors)
         if s > 0:
-            normalised = {
-                n: (raw_weights[n] / s if n in survivors else raw_weights[n])
-                for n in names
-            }
+            normalised = {n: (raw_weights[n] / s if n in survivors else raw_weights[n]) for n in names}
         else:
             normalised = raw_weights
     else:

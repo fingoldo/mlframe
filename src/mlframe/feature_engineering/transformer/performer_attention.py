@@ -51,7 +51,7 @@ def _performer_features(X: np.ndarray, W: np.ndarray) -> np.ndarray:
     Returns (n_rows, M) feature matrix. Numerically stable via shifting (subtract row max).
     """
     # ||x||² per row.
-    x_norm_sq = (X ** 2).sum(axis=1, keepdims=True)  # (n, 1)
+    x_norm_sq = (X**2).sum(axis=1, keepdims=True)  # (n, 1)
     proj = X @ W  # (n, M)
     log_phi = proj - 0.5 * x_norm_sq  # (n, M)
     # Stabilize: subtract row max before exp.
@@ -105,7 +105,7 @@ def compute_performer_attention_features(
         numer = phi_q @ A  # (n_query,)
         denom = phi_q @ B + 1e-9
         y_estimate = (numer / denom).astype(np.float32)
-        y_estimate_sq = (y_estimate ** 2).astype(np.float32)
+        y_estimate_sq = (y_estimate**2).astype(np.float32)
         # Kernel concentration: max kernel-similarity over a SAMPLE of train rows (full max is O(N) per query but we sample).
         n_sample = min(200, Xt_s.shape[0])
         sample_idx = rng.choice(Xt_s.shape[0], size=n_sample, replace=False)

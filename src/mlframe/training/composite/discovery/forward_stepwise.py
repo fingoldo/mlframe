@@ -1,7 +1,7 @@
 """Forward-stepwise multi-base selection: picks additional bases to extend a linear_residual seed via 3-fold CV-RMSE on joint-OLS predictions. Lazy-imports ``_linear_residual_multi_fit`` from composite.py to break the import cycle.
 
-Selection uses a paired majority-of-folds gate (``paired_fold_selection``, default ON) on top of the aggregate relative-gain gate: a candidate must beat the current kept-set on a majority of jointly-finite folds, not merely on the aggregate point estimate (positively-correlated repeated-CV folds let one fold drive the aggregate). cProfile (25 bases, n=20k, tottime): irreducible OLS ``lstsq``/``svd`` + RMSE ufunc reductions dominate; per-trial design-matrix construction is no longer a hotspot after the buffer-reuse (kept-prefix stacked once per round, candidate written into a preallocated last column -- byte-identical to the prior per-trial ``np.column_stack``; isolated microbench 5.4x on matrix construction at n=100k, K=2 prefix, 25 candidates)."""
-
+Selection uses a paired majority-of-folds gate (``paired_fold_selection``, default ON) on top of the aggregate relative-gain gate: a candidate must beat the current kept-set on a majority of jointly-finite folds, not merely on the aggregate point estimate (positively-correlated repeated-CV folds let one fold drive the aggregate). cProfile (25 bases, n=20k, tottime): irreducible OLS ``lstsq``/``svd`` + RMSE ufunc reductions dominate; per-trial design-matrix construction is no longer a hotspot after the buffer-reuse (kept-prefix stacked once per round, candidate written into a preallocated last column -- byte-identical to the prior per-trial ``np.column_stack``; isolated microbench 5.4x on matrix construction at n=100k, K=2 prefix, 25 candidates).
+"""
 
 from __future__ import annotations
 
@@ -109,9 +109,7 @@ def forward_stepwise_multi_base(
     # A length mismatch otherwise surfaces much later as an opaque column_stack ValueError; fail at the boundary with the offending column named.
     for _n, _a in candidates.items():
         if _a.size != y.size:
-            raise ValueError(
-                f"forward_stepwise_multi_base: candidate '{_n}' has length {_a.size}, expected {y.size} (== len(y_train))."
-            )
+            raise ValueError(f"forward_stepwise_multi_base: candidate '{_n}' has length {_a.size}, expected {y.size} (== len(y_train)).")
     # Validate seeds against the candidate map. Seeds not in candidate_bases are an API misuse; raise loudly so caller fixes their wiring.
     seeds = list(seed_bases or [])
     missing_seeds = [s for s in seeds if s not in candidates]

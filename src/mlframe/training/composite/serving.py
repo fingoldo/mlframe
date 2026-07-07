@@ -99,10 +99,7 @@ def _inv_linear_residual_multi(t_hat: np.ndarray, base: np.ndarray, p: dict[str,
         base = base.reshape(-1, 1)
     alphas = np.asarray(p["alphas"], dtype=np.float64)
     if base.shape[1] != alphas.size:
-        raise ValueError(
-            f"linear_residual_multi serving: base has {base.shape[1]} columns "
-            f"but fitted alphas has {alphas.size} entries"
-        )
+        raise ValueError(f"linear_residual_multi serving: base has {base.shape[1]} columns " f"but fitted alphas has {alphas.size} entries")
     # Normalise to a canonical C-contiguous layout before the matvec: BLAS dgemv rounds an (n,K)@(K,)
     # product differently for C- vs F-ordered bases (~1 ULP), and the predict path always feeds a
     # C-contiguous base (via the soft-shrink guard's ascontiguousarray), so this keeps serving byte-identical.
@@ -233,10 +230,7 @@ def export_serving_spec(estimator: Any) -> Dict[str, Any]:
     transform_name = getattr(estimator, "transform_name", None)
     fitted_params = getattr(estimator, "fitted_params_", None)
     if fitted_params is None:
-        raise ValueError(
-            "export_serving_spec: estimator is not fitted (no fitted_params_). "
-            "Call fit() / from_fitted_inner() first."
-        )
+        raise ValueError("export_serving_spec: estimator is not fitted (no fitted_params_). " "Call fit() / from_fitted_inner() first.")
     if transform_name not in _INVERSE_TABLE:
         raise NotImplementedError(
             f"export_serving_spec: transform '{transform_name}' has no "
@@ -253,10 +247,7 @@ def export_serving_spec(estimator: Any) -> Dict[str, Any]:
         base_columns: tuple[str, ...] = tuple(resolver())
     else:
         bc = getattr(estimator, "base_columns", None)
-        base_columns = tuple(bc) if bc else (
-            (getattr(estimator, "base_column", "") or "",)
-            if getattr(estimator, "base_column", "") else ()
-        )
+        base_columns = tuple(bc) if bc else ((getattr(estimator, "base_column", "") or "",) if getattr(estimator, "base_column", "") else ())
 
     spec: Dict[str, Any] = {
         "spec_version": SERVING_SPEC_VERSION,
@@ -315,10 +306,7 @@ def load_serving_spec(
     transform_name = spec.get("transform_name")
     inverse_fn = _INVERSE_TABLE.get(transform_name)
     if inverse_fn is None:
-        raise NotImplementedError(
-            f"load_serving_spec: transform '{transform_name}' has no lightweight "
-            f"numpy inverse. Supported: {sorted(_INVERSE_TABLE)}."
-        )
+        raise NotImplementedError(f"load_serving_spec: transform '{transform_name}' has no lightweight " f"numpy inverse. Supported: {sorted(_INVERSE_TABLE)}.")
     params: dict[str, Any] = dict(spec.get("fitted_params", {}))
     fallback_predict = spec.get("fallback_predict", "y_train_median")
     multi_base = bool(spec.get("multi_base", False))
@@ -365,10 +353,7 @@ def load_serving_spec(
             if fallback_predict == "y_train_median":
                 y_hat[~domain_ok] = fallback_const
             elif fallback_predict != "nan":
-                raise ValueError(
-                    f"load_serving_spec: unknown fallback_predict "
-                    f"'{fallback_predict}'; choose 'y_train_median' or 'nan'."
-                )
+                raise ValueError(f"load_serving_spec: unknown fallback_predict " f"'{fallback_predict}'; choose 'y_train_median' or 'nan'.")
 
         # 4) Non-finite guard on domain-valid rows (mirror the general guard).
         nonfinite = ~np.isfinite(y_hat)

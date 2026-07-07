@@ -172,10 +172,7 @@ def select_target(
             elif isinstance(target, np.ndarray):
                 vlcnts = pd.Series(target).value_counts(normalize=True)
             else:
-                raise TypeError(
-                    f"target must be np.ndarray, pd.Series, or pl.Series, "
-                    f"got {type(target).__name__}"
-                )
+                raise TypeError(f"target must be np.ndarray, pd.Series, or pl.Series, " f"got {type(target).__name__}")
             if isinstance(target, pl.Series):
                 vlcnts = vlcnts.filter(pl.col(target.name) == 1)
                 perc = vlcnts["proportion"][0] if len(vlcnts) > 0 else 0
@@ -233,8 +230,7 @@ def select_target(
         "feature_drift_auto_apply_neural_overrides",
     }
     effective_behavior_params = {
-        k: v for k, v in behavior_config.model_dump(exclude_none=True).items()
-        if k in defined_behavior_fields and k not in _SUITE_LEVEL_FLAGS
+        k: v for k, v in behavior_config.model_dump(exclude_none=True).items() if k in defined_behavior_fields and k not in _SUITE_LEVEL_FLAGS
     }
     precomputed_fairness = (behavior_config.model_extra or {}).get("_precomputed_fairness_subgroups")
     if precomputed_fairness is not None:

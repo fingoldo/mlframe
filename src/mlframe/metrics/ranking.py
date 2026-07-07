@@ -72,7 +72,7 @@ def _dcg_at_k(rels_sorted_by_score: np.ndarray, k: int) -> float:
         if rel <= 0:
             continue
         # 2^rel - 1; for binary {0,1} rel=1 -> gain=1 (matches sklearn binary NDCG).
-        gain = (2.0 ** rel) - 1.0
+        gain = (2.0**rel) - 1.0
         # Position discount: log2(i+2) so first item has discount log2(2)=1.
         dcg += gain / np.log2(i + 2.0)
     return dcg
@@ -185,10 +185,7 @@ def _iter_group_slices(
         ys = np.asarray(y_score, dtype=np.float64)
         return yt, ys, np.array([0, len(yt)], dtype=np.intp)
     if len(group_ids) != len(y_true) or len(group_ids) != len(y_score):
-        raise ValueError(
-            f"length mismatch: y_true={len(y_true)} y_score={len(y_score)} "
-            f"group_ids={len(group_ids)}"
-        )
+        raise ValueError(f"length mismatch: y_true={len(y_true)} y_score={len(y_score)} " f"group_ids={len(group_ids)}")
     if len(group_ids) == 0:
         return (
             np.asarray(y_true, dtype=np.float64),
@@ -365,13 +362,13 @@ def _summary_batched_kernel(
             for j in range(limit):
                 rel = rels_ideal[j]
                 if rel > 0:
-                    idcg += ((2.0 ** rel) - 1.0) / np.log2(j + 2.0)
+                    idcg += ((2.0**rel) - 1.0) / np.log2(j + 2.0)
             if idcg > 0.0:
                 dcg = 0.0
                 for j in range(limit):
                     rel = rels_pred[j]
                     if rel > 0:
-                        dcg += ((2.0 ** rel) - 1.0) / np.log2(j + 2.0)
+                        dcg += ((2.0**rel) - 1.0) / np.log2(j + 2.0)
                 ndcg_per_group[i, kj] = dcg / idcg
 
             # MAP@k -- needs at least one positive globally.
@@ -584,17 +581,11 @@ def compute_ranking_summary(
         return out
 
     eval_ks = np.asarray(list(eval_at), dtype=np.int64)
-    ndcg_sums, ndcg_counts, map_sums, map_counts, mrr_sum, mrr_count = (
-        _summary_batched_kernel(sorted_y_true, sorted_y_score, group_starts, eval_ks)
-    )
+    ndcg_sums, ndcg_counts, map_sums, map_counts, mrr_sum, mrr_count = _summary_batched_kernel(sorted_y_true, sorted_y_score, group_starts, eval_ks)
 
     for kj, k in enumerate(eval_at):
-        out[f"ndcg@{k}"] = (
-            ndcg_sums[kj] / ndcg_counts[kj] if ndcg_counts[kj] > 0 else float("nan")
-        )
-        out[f"map@{k}"] = (
-            map_sums[kj] / map_counts[kj] if map_counts[kj] > 0 else float("nan")
-        )
+        out[f"ndcg@{k}"] = ndcg_sums[kj] / ndcg_counts[kj] if ndcg_counts[kj] > 0 else float("nan")
+        out[f"map@{k}"] = map_sums[kj] / map_counts[kj] if map_counts[kj] > 0 else float("nan")
     out["mrr"] = mrr_sum / mrr_count if mrr_count > 0 else float("nan")
     return out
 

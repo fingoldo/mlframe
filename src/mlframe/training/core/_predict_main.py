@@ -9,9 +9,6 @@ from __future__ import annotations
 
 import logging
 
-
-
-
 logger = logging.getLogger("mlframe.training.core.predict")
 
 

@@ -105,7 +105,7 @@ def build_importance_weighted_projection(
     if importances.sum() <= 0:
         logger.info("build_importance_weighted_projection: LGB returned all-zero importances (degenerate); falling back to uniform.")
         importances = np.ones(d_input, dtype=np.float64)
-    importances = importances * (d_input / importances.sum())   # mean(importances) = 1.0
+    importances = importances * (d_input / importances.sum())  # mean(importances) = 1.0
     weights = np.sqrt(importances).astype(dtype)  # per-column sqrt-scale; rows of projection get multiplied by this
 
     scale = float(1.0 / np.sqrt(head_dim))
@@ -261,7 +261,7 @@ def build_nca_projection(
     W_base = nca.components_.T.astype(dtype)  # (d_input, n_components_eff)
     if W_base.shape[1] < head_dim:
         padded = np.zeros((d_input, head_dim), dtype=dtype)
-        padded[:, :W_base.shape[1]] = W_base
+        padded[:, : W_base.shape[1]] = W_base
         W_base = padded
 
     # Per-head noise to break symmetry across heads.

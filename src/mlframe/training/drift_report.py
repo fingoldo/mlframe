@@ -80,8 +80,7 @@ def _multiclass_split_summary(arr: np.ndarray, classes: Sequence) -> dict[str, A
         count_lookup = dict(zip(uvals.tolist(), ucounts.tolist()))
     else:
         count_lookup = {}
-    counts = {int(c) if isinstance(c, (np.integer, int)) else c:
-              int(count_lookup.get(c, 0)) for c in classes}
+    counts = {int(c) if isinstance(c, (np.integer, int)) else c: int(count_lookup.get(c, 0)) for c in classes}
     rates = {k: (v / n if n else float("nan")) for k, v in counts.items()}
     return {"n": n, "counts": counts, "rates": rates}
 
@@ -112,17 +111,14 @@ def _multilabel_split_summary(arr: np.ndarray) -> dict[str, Any]:
         "n": n,
         "n_labels": k,
         "n_positive_per_label": pos_per_label,
-        "p_positive_per_label": [
-            (p / n if n else float("nan")) for p in pos_per_label
-        ],
+        "p_positive_per_label": [(p / n if n else float("nan")) for p in pos_per_label],
     }
 
 
 def _regression_split_summary(arr: np.ndarray) -> dict[str, float]:
     n = int(arr.shape[0])
     if n == 0:
-        return {"n": 0, "mean": float("nan"), "std": float("nan"),
-                "median": float("nan"), "p01": float("nan"), "p99": float("nan")}
+        return {"n": 0, "mean": float("nan"), "std": float("nan"), "median": float("nan"), "p01": float("nan"), "p99": float("nan")}
     arr = arr.astype(np.float64, copy=False)
     return {
         "n": n,
@@ -215,19 +211,13 @@ def compute_label_distribution_drift(
             if _a.dtype != object or _a.ndim != 1 or _a.shape[0] == 0:
                 return False
             _first = _a[0]
-            return hasattr(_first, "shape") or (
-                hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
-            )
+            return hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
         except Exception:
             return False
 
-    is_multilabel = (
-        target_type == "multilabel_classification"
-        or (hasattr(train, "ndim") and train.ndim == 2)
-        or _is_object_of_arrays(train)
-    )
-    is_regression = (target_type == "regression")
-    is_multiclass = (target_type == "multiclass_classification")
+    is_multilabel = target_type == "multilabel_classification" or (hasattr(train, "ndim") and train.ndim == 2) or _is_object_of_arrays(train)
+    is_regression = target_type == "regression"
+    is_multiclass = target_type == "multiclass_classification"
     # Default fall-through: binary classification.
 
     splits: dict[str, Any] = {}
@@ -275,9 +265,7 @@ def compute_label_distribution_drift(
 
     elif is_multiclass:
         # Discover class labels from the union of all three splits.
-        all_arr = np.concatenate(
-            [a for a in (train, val, test) if a is not None and a.size > 0]
-        )
+        all_arr = np.concatenate([a for a in (train, val, test) if a is not None and a.size > 0])
         classes = list(np.unique(all_arr).tolist())
         for name, arr in (("train", train), ("val", val), ("test", test)):
             splits[name] = _multiclass_split_summary(arr, classes) if arr is not None else None
@@ -286,9 +274,7 @@ def compute_label_distribution_drift(
             if splits.get(split_name) is None:
                 continue
             split_rates = splits[split_name]["rates"]
-            per_class_pp = {
-                c: (split_rates[c] - train_rates[c]) * 100 for c in classes
-            }
+            per_class_pp = {c: (split_rates[c] - train_rates[c]) * 100 for c in classes}
             drifts[f"{split_name}_minus_train_pp_per_class"] = per_class_pp
             for c, d in per_class_pp.items():
                 if abs(d) > multi_warn_threshold_pp:
@@ -323,8 +309,7 @@ def compute_label_distribution_drift(
             t = splits["test"]["p_positive"]
             drifts["test_minus_val_pp"] = float((t - v) * 100)
         drifts["max_abs_drift_pp"] = max(
-            (abs(d) for k, d in drifts.items()
-             if k.endswith("_minus_train_pp")),
+            (abs(d) for k, d in drifts.items() if k.endswith("_minus_train_pp")),
             default=0.0,
         )
 
@@ -362,9 +347,7 @@ def format_drift_report(report: dict[str, Any], target_name: str = "") -> str:
             if s is None:
                 continue
             lines.append(
-                f"  {name:<5} n={s['n']:>10_} mean={s['mean']:.4g} "
-                f"std={s['std']:.4g} median={s['median']:.4g} "
-                f"p01={s['p01']:.4g} p99={s['p99']:.4g}"
+                f"  {name:<5} n={s['n']:>10_} mean={s['mean']:.4g} " f"std={s['std']:.4g} median={s['median']:.4g} " f"p01={s['p01']:.4g} p99={s['p99']:.4g}"
             )
     elif target_type == "multilabel_classification":
         for name in ("train", "val", "test"):
@@ -372,9 +355,7 @@ def format_drift_report(report: dict[str, Any], target_name: str = "") -> str:
             if s is None:
                 continue
             rates_str = ", ".join(f"{r:.3f}" for r in s["p_positive_per_label"])
-            lines.append(
-                f"  {name:<5} n={s['n']:>10_} p_positive_per_label=[{rates_str}]"
-            )
+            lines.append(f"  {name:<5} n={s['n']:>10_} p_positive_per_label=[{rates_str}]")
     elif target_type == "multiclass_classification":
         for name in ("train", "val", "test"):
             s = splits.get(name)
@@ -387,10 +368,7 @@ def format_drift_report(report: dict[str, Any], target_name: str = "") -> str:
             s = splits.get(name)
             if s is None:
                 continue
-            lines.append(
-                f"  {name:<5} n={s['n']:>10_} n_positive={s['n_positive']:>10_} "
-                f"P(y=1)={s['p_positive']:.4f}"
-            )
+            lines.append(f"  {name:<5} n={s['n']:>10_} n_positive={s['n_positive']:>10_} " f"P(y=1)={s['p_positive']:.4f}")
 
     if warnings:
         for w in warnings:

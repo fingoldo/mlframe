@@ -95,7 +95,6 @@ from ._model_factories import (  # noqa: E402,F401
     _xgb_regressor_cls as _xgb_regressor_cls_factory,
 )
 
-
 logger = logging.getLogger("mlframe.training.trainer")
 
 # Split-metrics emitters carved into a sibling to keep this orchestration module under the LOC budget.
@@ -489,9 +488,7 @@ def train_and_evaluate_model(
         _slice_cfg = getattr(control, "slice_stable_es", None)
         # Slice ES infrastructure activates when either ``enabled`` (drives ES decisions) or
         # ``diagnostic_only`` (per-shard logging + Pareto plot without changing ES) is set.
-        _slice_active = _slice_cfg is not None and (
-            getattr(_slice_cfg, "enabled", False) or getattr(_slice_cfg, "diagnostic_only", False)
-        )
+        _slice_active = _slice_cfg is not None and (getattr(_slice_cfg, "enabled", False) or getattr(_slice_cfg, "diagnostic_only", False))
         _slice_diag_only = _slice_cfg is not None and getattr(_slice_cfg, "diagnostic_only", False) and not getattr(_slice_cfg, "enabled", False)
         if _slice_active:
             from .slicing import build_slice_eval_sets
@@ -549,9 +546,9 @@ def train_and_evaluate_model(
                     )
                 if verbose:
                     logger.info(
-                        "slice-stable ES skipped for model_category=%s (uses separate X_val/y_val kwargs); "
-                        "on_unsupported=%s",
-                        model_category, _policy,
+                        "slice-stable ES skipped for model_category=%s (uses separate X_val/y_val kwargs); " "on_unsupported=%s",
+                        model_category,
+                        _policy,
                     )
         _setup_eval_set(
             model_type_name, fit_params, val_df, val_target, callback_params, model_obj, model_category,
@@ -592,8 +589,7 @@ def train_and_evaluate_model(
         else:
             _wrapped, _did_wrap = None, False
         if _did_wrap:
-            logger.info("Auto-wrapped %s in PartialFitESWrapper for val-driven ES "
-                         "(model_category=%s)", model_type_name, model_category)
+            logger.info("Auto-wrapped %s in PartialFitESWrapper for val-driven ES " "(model_category=%s)", model_type_name, model_category)
             # Replace both ``model`` (used downstream for predict / metrics / FI) and
             # ``model_obj`` (used for set_params / get_params probes upstream) with the wrapper.
             # The wrapper's __getattr__ forwards everything to the underlying estimator.
@@ -771,8 +767,7 @@ def train_and_evaluate_model(
                 _y_train_envelope_stats = compute_train_envelope_stats(train_target)
             except Exception as _env_err:
                 logger.debug(
-                    "Could not compute train envelope stats: %s. Per-split "
-                    "eval-fallback envelope still applies in the reporter.",
+                    "Could not compute train envelope stats: %s. Per-split " "eval-fallback envelope still applies in the reporter.",
                     _env_err,
                 )
 

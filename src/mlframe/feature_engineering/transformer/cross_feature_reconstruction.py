@@ -54,7 +54,7 @@ def compute_cross_feature_reconstruction_features(
             r_q = Xq_s[:, j] - x_hat_q
             z_residuals_q[:, j] = r_q / mad_j
         abs_z = np.abs(z_residuals_q)
-        sum_sq = (z_residuals_q ** 2).sum(axis=1).astype(np.float32)
+        sum_sq = (z_residuals_q**2).sum(axis=1).astype(np.float32)
         max_z = abs_z.max(axis=1).astype(np.float32)
         mean_abs_z = abs_z.mean(axis=1).astype(np.float32)
         n_extreme = (abs_z > 3.0).sum(axis=1).astype(np.float32)

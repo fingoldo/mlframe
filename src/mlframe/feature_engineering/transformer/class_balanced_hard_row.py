@@ -136,8 +136,8 @@ def compute_class_balanced_hard_row_features(
         else:
             # Regression: Q5 (top-y) and Q1 (bottom-y).
             q1, q4 = np.quantile(y_t, [0.2, 0.8])
-            pos_mask_idx = np.where(y_t >= q4)[0]   # top-y subset
-            neg_mask_idx = np.where(y_t <= q1)[0]   # bottom-y subset
+            pos_mask_idx = np.where(y_t >= q4)[0]  # top-y subset
+            neg_mask_idx = np.where(y_t <= q1)[0]  # bottom-y subset
 
         # Pick K/2 hardest within each side.
         pos_top = _topk_within_subset(abs_residuals, pos_mask_idx, n_hard_per_side)
@@ -157,12 +157,12 @@ def compute_class_balanced_hard_row_features(
                 neg_top = np.zeros(n_hard_per_side, dtype=np.int64)
 
         anchors_idx = np.concatenate([pos_top, neg_top])
-        anchors_X = Xt_s[anchors_idx]                  # (n_total, d)
+        anchors_X = Xt_s[anchors_idx]  # (n_total, d)
         anchors_y = y_t[anchors_idx].astype(np.float32)
         anchors_abs = abs_residuals[anchors_idx].astype(np.float32)
 
         diffs = Xq_s[:, None, :] - anchors_X[None, :, :]  # (n_q, n_total, d)
-        sq = (diffs ** 2).sum(axis=-1)
+        sq = (diffs**2).sum(axis=-1)
         scores = -sq
         weights = _softmax(scores, temp=temp)  # (n_q, n_total)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)

@@ -66,8 +66,7 @@ def generate_pareto_artifact(
 
     means = np.array([float(np.mean(s)) for s in shard_history], dtype=float)
     stds = np.array([float(np.std(s, ddof=1)) if len(s) > 1 else 0.0 for s in shard_history], dtype=float)
-    pareto_idx = compute_pareto_frontier(list(zip(means.tolist(), stds.tolist())),
-                                          mean_direction=direction)  # type: ignore[arg-type]
+    pareto_idx = compute_pareto_frontier(list(zip(means.tolist(), stds.tolist())), mean_direction=direction)  # type: ignore[arg-type]
 
     best_iter = getattr(callback, "best_iter", None)
     if best_iter is None or best_iter < 0 or best_iter >= n_iters:
@@ -101,13 +100,13 @@ def generate_pareto_artifact(
             out_path = f"{base_stem}.{backend}.{fmt}"
             try:
                 if backend == "matplotlib":
-                    _render_matplotlib(out_path, means, stds, pareto_idx, best_iter, alt_picks,
-                                        title=title, monitor_metric_name=monitor_metric_name,
-                                        direction=direction)
+                    _render_matplotlib(
+                        out_path, means, stds, pareto_idx, best_iter, alt_picks, title=title, monitor_metric_name=monitor_metric_name, direction=direction
+                    )
                 elif backend == "plotly":
-                    _render_plotly(out_path, means, stds, pareto_idx, best_iter, alt_picks,
-                                    title=title, monitor_metric_name=monitor_metric_name,
-                                    direction=direction)
+                    _render_plotly(
+                        out_path, means, stds, pareto_idx, best_iter, alt_picks, title=title, monitor_metric_name=monitor_metric_name, direction=direction
+                    )
                 else:
                     logger.warning("Unknown Pareto plot backend %r; skipping", backend)
                     continue
@@ -163,21 +162,17 @@ def _render_matplotlib(
 
     fig, ax = plt.subplots(figsize=(10.0, 6.5))
     iters = np.arange(len(means))
-    sc = ax.scatter(means, stds, c=iters, cmap="viridis", s=18, alpha=0.65,
-                    edgecolors="none", label="all iterations")
+    sc = ax.scatter(means, stds, c=iters, cmap="viridis", s=18, alpha=0.65, edgecolors="none", label="all iterations")
     cbar = fig.colorbar(sc, ax=ax)
     cbar.set_label("iteration")
 
     if pareto_idx:
         pf_idx = np.asarray(pareto_idx, dtype=int)
-        ax.plot(means[pf_idx], stds[pf_idx], "-", color="black", linewidth=1.0, alpha=0.5,
-                zorder=2, label="Pareto frontier")
-        ax.scatter(means[pf_idx], stds[pf_idx], s=60, facecolors="none", edgecolors="black",
-                    linewidths=1.0, zorder=3, label="non-dominated")
+        ax.plot(means[pf_idx], stds[pf_idx], "-", color="black", linewidth=1.0, alpha=0.5, zorder=2, label="Pareto frontier")
+        ax.scatter(means[pf_idx], stds[pf_idx], s=60, facecolors="none", edgecolors="black", linewidths=1.0, zorder=3, label="non-dominated")
 
     if 0 <= int(best_iter) < len(means):
-        ax.scatter([means[best_iter]], [stds[best_iter]], marker="X", s=180, c="crimson",
-                    zorder=4, label=f"best_iter={best_iter}")
+        ax.scatter([means[best_iter]], [stds[best_iter]], marker="X", s=180, c="crimson", zorder=4, label=f"best_iter={best_iter}")
         ax.annotate(
             f"iter={best_iter}\nmean={means[best_iter]:.4f}\nstd={stds[best_iter]:.4f}",
             xy=(means[best_iter], stds[best_iter]),
@@ -188,11 +183,8 @@ def _render_matplotlib(
 
     for q_str, idx in alt_picks.items():
         if 0 <= int(idx) < len(means) and int(idx) != int(best_iter):
-            ax.scatter([means[idx]], [stds[idx]], marker="o", s=70, facecolors="none",
-                        edgecolors="orange", linewidths=1.5, zorder=3)
-            ax.annotate(f"q={q_str}", xy=(means[idx], stds[idx]),
-                        xytext=(6, -10), textcoords="offset points",
-                        fontsize=7, color="orange")
+            ax.scatter([means[idx]], [stds[idx]], marker="o", s=70, facecolors="none", edgecolors="orange", linewidths=1.5, zorder=3)
+            ax.annotate(f"q={q_str}", xy=(means[idx], stds[idx]), xytext=(6, -10), textcoords="offset points", fontsize=7, color="orange")
 
     direction_arrow = "->" if direction == "min" else "<-"
     ax.set_xlabel(f"mean across shards ({monitor_metric_name}, lower is better {direction_arrow})"
@@ -285,8 +277,7 @@ def _persist_shard_history(
     records = []
     for it, scores in enumerate(shard_history):
         for sh, v in enumerate(scores):
-            records.append({"iter": it, "shard_idx": sh, "score": float(v),
-                            "metric_name": monitor_metric_name})
+            records.append({"iter": it, "shard_idx": sh, "score": float(v), "metric_name": monitor_metric_name})
     df = pd.DataFrame.from_records(records)
     path = f"{base_stem}.shard_history.parquet"
     tmp = path + ".tmp"

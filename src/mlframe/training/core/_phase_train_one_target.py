@@ -107,8 +107,8 @@ def _apply_loss_recommendation_in_place(
         # Best-effort: never crash training because the auto-loss helper failed to import.
         if verbose:
             logger_.warning(
-                "[auto-loss] could not import loss recommendation helper: %s. "
-                "Inner regression models keep their default loss.", _imp_err,
+                "[auto-loss] could not import loss recommendation helper: %s. " "Inner regression models keep their default loss.",
+                _imp_err,
             )
         return
 
@@ -117,9 +117,9 @@ def _apply_loss_recommendation_in_place(
     except Exception as _rec_err:
         if verbose:
             logger_.warning(
-                "[auto-loss] recommend_boosting_regression_loss failed on target='%s': %s. "
-                "Inner regression models keep their default loss.",
-                composite_name, _rec_err,
+                "[auto-loss] recommend_boosting_regression_loss failed on target='%s': %s. " "Inner regression models keep their default loss.",
+                composite_name,
+                _rec_err,
             )
         return
 
@@ -227,11 +227,7 @@ def _apply_loss_recommendation_in_place(
     # dispatch would notice.
     _excess_kurt = float(rec.get("excess_kurt", float("nan")))
     _cb_recommendation = rec.get("cb")
-    _heavy_kurt_fired = (
-        np.isfinite(_excess_kurt)
-        and _cb_recommendation is not None
-        and str(_cb_recommendation).startswith("Huber")
-    )
+    _heavy_kurt_fired = np.isfinite(_excess_kurt) and _cb_recommendation is not None and str(_cb_recommendation).startswith("Huber")
     if _heavy_kurt_fired:
         _LINEAR_HEAVY_KURT_ALPHA: float = 10.0
         for _lin_backend in ("linear", "ridge", "lasso", "elasticnet"):
@@ -243,9 +239,7 @@ def _apply_loss_recommendation_in_place(
                 continue
             try:
                 _model.set_params(alpha=_LINEAR_HEAVY_KURT_ALPHA)
-                _applied.append(
-                    f"{_lin_backend}:alpha={_LINEAR_HEAVY_KURT_ALPHA}"
-                )
+                _applied.append(f"{_lin_backend}:alpha={_LINEAR_HEAVY_KURT_ALPHA}")
             except (ValueError, TypeError):
                 continue
 
@@ -274,8 +268,6 @@ slugify = _cached_slugify
 
 
 logger = logging.getLogger(__name__)
-
-
 
 
 def _unwrap_selector(pre_pipeline) -> Any:
@@ -368,8 +360,6 @@ def _selector_params_hash(selector) -> str | None:
         return hashlib.blake2b(_digest_src.encode("utf-8", errors="replace"), digest_size=16).hexdigest()
     except Exception:
         return None
-
-
 
 
 def _compute_pipeline_cache_key(
@@ -511,9 +501,7 @@ def _canonical_dtype_pairs_compute(train_df) -> tuple:
         # actual category content is disambiguated separately by the content
         # hashers (``_full_target_content_hash`` etc.) -- the dtype suffix only
         # needs to distinguish dtype FAMILIES, not category lists.
-        _CAT_LIKE: tuple = tuple(
-            t for t in (pl.Categorical, getattr(pl, "Enum", None)) if t is not None
-        )
+        _CAT_LIKE: tuple = tuple(t for t in (pl.Categorical, getattr(pl, "Enum", None)) if t is not None)
         # Hoist the schema once: ``train_df.schema[c]`` inside the loop rebuilds the whole schema per
         # access (O(n_cols^2); ~27ms at 300 cols). Reading it once is bit-identical and ~550x cheaper.
         _schema = train_df.schema
@@ -537,11 +525,11 @@ def _canonicalise_dtype(dt: str) -> str:
     """Map polars / pandas dtype strings to a single canonical form (see ``_canonical_dtype_pairs`` docstring for table)."""
     s = str(dt).strip().lower()
     if s.startswith("int"):
-        return "i" + s[len("int"):]
+        return "i" + s[len("int") :]
     if s.startswith("uint"):
-        return "u" + s[len("uint"):]
+        return "u" + s[len("uint") :]
     if s.startswith("float"):
-        return "f" + s[len("float"):]
+        return "f" + s[len("float") :]
     if s in ("boolean", "bool"):
         return "b"
     if s in ("utf8", "string", "object", "str"):
@@ -567,7 +555,6 @@ from ._phase_train_one_target_dataset_cache import (  # noqa: E402,F401
     _release_ctx_polars_frames,
     _restore_dataset_reuse_cache,
 )
-
 
 # ----------------------------------------------------------------------
 # Sibling-module re-exports. Carved out for monolith-split; loaded AFTER

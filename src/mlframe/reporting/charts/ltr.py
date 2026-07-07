@@ -40,7 +40,6 @@ from mlframe.reporting.spec import (
     ViolinPanelSpec,
 )
 
-
 # ----------------------------------------------------------------------------
 # Per-token panel builders
 # ----------------------------------------------------------------------------
@@ -52,7 +51,7 @@ def _per_query_groups(group_ids: np.ndarray) -> List[np.ndarray]:
     sorted_groups = group_ids[sort_idx]
     boundaries = np.flatnonzero(sorted_groups[1:] != sorted_groups[:-1]) + 1
     starts = np.concatenate(([0], boundaries, [len(sorted_groups)]))
-    return [sort_idx[starts[i]:starts[i + 1]] for i in range(len(starts) - 1)]
+    return [sort_idx[starts[i] : starts[i + 1]] for i in range(len(starts) - 1)]
 
 
 def _sorted_layout(
@@ -86,8 +85,7 @@ def _per_query_ndcg10(
         return shared["ndcg10"]
     from mlframe.metrics.ranking import _per_query_ndcg_kernel
 
-    sorted_y_true, sorted_y_score, group_starts, _ = _sorted_layout(
-        y_true, y_score, group_ids, shared)
+    sorted_y_true, sorted_y_score, group_starts, _ = _sorted_layout(y_true, y_score, group_ids, shared)
     vals = _per_query_ndcg_kernel(sorted_y_true, sorted_y_score, group_starts, 10)
     if shared is not None:
         shared["ndcg10"] = vals
@@ -140,16 +138,13 @@ def _ndcg_k_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> 
     """
     from mlframe.metrics.ranking import _summary_batched_kernel
 
-    sorted_y_true, sorted_y_score, group_starts, sizes = _sorted_layout(
-        y_true, y_score, group_ids, shared)
+    sorted_y_true, sorted_y_score, group_starts, sizes = _sorted_layout(y_true, y_score, group_ids, shared)
     n_groups = len(group_starts) - 1
     if n_groups == 0 or int(sizes.max(initial=0)) < 1:
-        return LinePanelSpec(x=np.array([1]), y=np.array([0.0]),
-                             title="NDCG@k", xlabel="k", ylabel="Mean NDCG@k")
+        return LinePanelSpec(x=np.array([1]), y=np.array([0.0]), title="NDCG@k", xlabel="k", ylabel="Mean NDCG@k")
     max_k = min(int(sizes.max()), 50)  # cap for plot readability
     eval_ks = np.arange(1, max_k + 1, dtype=np.int64)
-    ndcg_sums, ndcg_counts, _, _, _, _ = _summary_batched_kernel(
-        sorted_y_true, sorted_y_score, group_starts, eval_ks)
+    ndcg_sums, ndcg_counts, _, _, _, _ = _summary_batched_kernel(sorted_y_true, sorted_y_score, group_starts, eval_ks)
     ndcgs = np.where(ndcg_counts > 0, ndcg_sums / np.maximum(ndcg_counts, 1), np.nan)
     return LinePanelSpec(
         x=eval_ks.astype(np.float64),
@@ -206,7 +201,7 @@ def _ndcg_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = No
     means: List[float] = []
     for b in np.unique(bin_idx):
         m = bin_idx == b
-        lo_sz, hi_sz = int(2 ** b), int(2 ** (b + 1)) - 1
+        lo_sz, hi_sz = int(2**b), int(2 ** (b + 1)) - 1
         label = f"{lo_sz}" if lo_sz == hi_sz else f"{lo_sz}-{hi_sz}"
         # Per-bin bootstrap-over-queries 95% CI: a wide bracket on a sparse bin flags its mean is not yet pinned down.
         bmean, blo, bhi = bootstrap_ndcg_ci(vals_v[m])
@@ -231,13 +226,11 @@ def _lift_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> Li
     """
     from mlframe.metrics.ranking import _lift_curve_kernel
 
-    sorted_y_true, sorted_y_score, group_starts, sizes = _sorted_layout(
-        y_true, y_score, group_ids, shared)
+    sorted_y_true, sorted_y_score, group_starts, sizes = _sorted_layout(y_true, y_score, group_ids, shared)
     max_k = min(int(sizes.max(initial=1)), 50)
     if max_k < 1:
         max_k = 1
-    lift_sums, counts = _lift_curve_kernel(
-        sorted_y_true, sorted_y_score, group_starts, max_k)
+    lift_sums, counts = _lift_curve_kernel(sorted_y_true, sorted_y_score, group_starts, max_k)
     lift = lift_sums / np.maximum(counts, 1)
     return LinePanelSpec(
         x=np.arange(1, max_k + 1, dtype=np.float64),
@@ -258,8 +251,7 @@ def _mrr_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -
 
     from ._sampling import prebin_histogram
 
-    sorted_y_true, sorted_y_score, group_starts, _ = _sorted_layout(
-        y_true, y_score, group_ids, shared)
+    sorted_y_true, sorted_y_score, group_starts, _ = _sorted_layout(y_true, y_score, group_ids, shared)
     rrs_raw = _per_query_mrr_kernel(sorted_y_true, sorted_y_score, group_starts)
     rrs = np.where(np.isnan(rrs_raw), 0.0, rrs_raw)
     if rrs.size == 0:
@@ -313,10 +305,7 @@ def _score_by_rel_panel(y_true, y_score, group_ids, shared: Optional[dict] = Non
     # - Float dtype with non-integer values → quartile path.
     # - Integer dtype with > 12 unique values → quartile path.
     # - Otherwise → original discrete-grade path.
-    is_float_continuous = (
-        y_true_arr.dtype.kind == "f"
-        and not np.array_equal(y_true_arr, np.round(y_true_arr))
-    )
+    is_float_continuous = y_true_arr.dtype.kind == "f" and not np.array_equal(y_true_arr, np.round(y_true_arr))
     unique_vals_full = None
     if is_float_continuous:
         unique_vals_full = np.unique(y_true_arr)
@@ -355,9 +344,7 @@ def _score_by_rel_panel(y_true, y_score, group_ids, shared: Optional[dict] = Non
                     full = y_score_arr[mask]
                     groups.append(subsample_for_density(full, seed=i))
                     qlabel = ("Q1", "Q2", "Q3", "Q4")[i] if n_bins == 4 else f"B{i+1}"
-                    labels.append(
-                        f"{qlabel} [{lo:.3g}..{hi:.3g}] (n={int(mask.sum()):_})"
-                    )
+                    labels.append(f"{qlabel} [{lo:.3g}..{hi:.3g}] (n={int(mask.sum()):_})")
     else:
         # Discrete-grade path (n_unique <= 12). The head probe above may miss grades that only appear later in the array, so the grade list
         # always comes from a full-array unique (vectorised ~20 ms at 2M; the prior python set-comprehension over .tolist() cost ~0.25 s).
@@ -422,19 +409,12 @@ def _top1_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = No
                 if is_correct:
                     correct[b_idx] += 1
                 break
-    accs = np.array([
-        (c / n_) if n_ > 0 else np.nan for c, n_ in zip(correct, counts)
-    ])
-    bucket_labels = [
-        f"{lo}-{hi}" if hi < 10**9 else f"{lo}+"
-        for lo, hi in buckets
-    ]
+    accs = np.array([(c / n_) if n_ > 0 else np.nan for c, n_ in zip(correct, counts)])
+    bucket_labels = [f"{lo}-{hi}" if hi < 10**9 else f"{lo}+" for lo, hi in buckets]
     # Use an integer x for the line plot; xlabels get attached via the
     # bar variant of LinePanelSpec? Simpler: keep numeric x; renderers
     # don't read tick labels from LinePanelSpec. Use the bucket midpoint.
-    midpoints = np.array([
-        (lo + hi) / 2 if hi < 10**9 else lo + 5 for lo, hi in buckets
-    ], dtype=np.float64)
+    midpoints = np.array([(lo + hi) / 2 if hi < 10**9 else lo + 5 for lo, hi in buckets], dtype=np.float64)
     title = "Top-1 accuracy by query size"
     return LinePanelSpec(
         x=midpoints,
@@ -485,36 +465,24 @@ def compose_ltr_figure(
     y_score = np.asarray(y_score, dtype=np.float64)
     group_ids = np.asarray(group_ids)
     if not (y_true.ndim == 1 and y_score.ndim == 1 and group_ids.ndim == 1):
-        raise ValueError(
-            f"LTR panels require 1-D inputs; got shapes "
-            f"{y_true.shape}, {y_score.shape}, {group_ids.shape}"
-        )
+        raise ValueError(f"LTR panels require 1-D inputs; got shapes " f"{y_true.shape}, {y_score.shape}, {group_ids.shape}")
     if not (len(y_true) == len(y_score) == len(group_ids)):
-        raise ValueError(
-            f"length mismatch: y_true={len(y_true)}, y_score={len(y_score)}, "
-            f"group_ids={len(group_ids)}"
-        )
+        raise ValueError(f"length mismatch: y_true={len(y_true)}, y_score={len(y_score)}, " f"group_ids={len(group_ids)}")
 
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(
-            f"Unknown LTR panel tokens {unknown}. "
-            f"Allowed: {sorted(ALLOWED_LTR_PANEL_TOKENS)}"
-        )
+        raise ValueError(f"Unknown LTR panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_LTR_PANEL_TOKENS)}")
     # One shared cache per figure: the group sort + per-query NDCG kernel results are reused by every panel that needs them.
     shared: Dict[str, object] = {}
-    panels: List[PanelSpec] = [
-        _TOKEN_BUILDERS[tok](y_true, y_score, group_ids, shared) for tok in tokens
-    ]
+    panels: List[PanelSpec] = [_TOKEN_BUILDERS[tok](y_true, y_score, group_ids, shared) for tok in tokens]
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)
     n_cols = max_cols if grid else 0
     return FigureSpec(
         suptitle=suptitle,
         panels=grid,
-        figsize=figsize_for_grid(n_rows, n_cols,
-                                 cell_width=cell_width, cell_height=cell_height),
+        figsize=figsize_for_grid(n_rows, n_cols, cell_width=cell_width, cell_height=cell_height),
     )
 
 

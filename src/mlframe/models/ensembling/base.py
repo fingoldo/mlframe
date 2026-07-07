@@ -15,7 +15,6 @@ Every name here is bit-for-bit identical to the pre-split definition in
 ``from mlframe.models.ensembling import X`` imports continue to resolve.
 """
 
-
 from __future__ import annotations
 
 # *****************************************************************************************************************************************************
@@ -87,7 +86,7 @@ try:  # pragma: no cover -- env-dependent
                     _s_dev_sq += dev * dev
                 _var = _s_dev_sq / N
                 out_mae[k] = mae
-                out_std[k] = _var ** 0.5
+                out_std[k] = _var**0.5
         else:
             # 3-D (K, N, C): per-COLUMN MAE & std over the N axis, then averaged
             # across the C columns -- matches the numpy path exactly
@@ -599,9 +598,7 @@ def rrf_ensemble(
     base_shape = arrs[0].shape
     for i, a in enumerate(arrs):
         if a.shape != base_shape:
-            raise ValueError(
-                f"rrf_ensemble: member {i} shape {a.shape!r} != member 0 shape {base_shape!r}"
-            )
+            raise ValueError(f"rrf_ensemble: member {i} shape {a.shape!r} != member 0 shape {base_shape!r}")
     stacked = np.stack(arrs, axis=0)
     return _rrf_aggregate_probs(stacked, k=k)
 
@@ -757,9 +754,9 @@ def combine_probs(
         # Wave 78 (2026-05-21): hard-assert shape contract -- np.where broadcasts
         # silently on shape mismatch, which would silently produce wrong-shape
         # ensemble output if a future flavour returns a different reduce shape.
-        assert combined.shape == _arith.shape, (
-            f"ensemble combine: shape mismatch combined={combined.shape} vs arith fallback={_arith.shape}"
-        )  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
+        assert (
+            combined.shape == _arith.shape
+        ), f"ensemble combine: shape mismatch combined={combined.shape} vs arith fallback={_arith.shape}"  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
         combined = np.where(non_finite_mask, _arith, combined)
 
     if ensure_prob_limits:
@@ -977,5 +974,3 @@ from .member_metrics import (  # noqa: E402,F401
     _per_member_mae_std,
     _per_member_use_numba,
 )
-
-

@@ -107,9 +107,7 @@ def _column_to_string_iter(
     except ImportError:  # pragma: no cover
         pass
 
-    raise TypeError(
-        f"unsupported DataFrame type {type(df).__name__}; expected polars or pandas"
-    )
+    raise TypeError(f"unsupported DataFrame type {type(df).__name__}; expected polars or pandas")
 
 
 def _column_to_string_list(
@@ -196,10 +194,8 @@ class TextColumnEncoder:
         if not self._fitted:
             # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
             from sklearn.exceptions import NotFittedError as _NFE
-            raise _NFE(
-                f"TextColumnEncoder({self.column!r}) not fitted. "
-                f"Call .fit(train_df) first."
-            )
+
+            raise _NFE(f"TextColumnEncoder({self.column!r}) not fitted. " f"Call .fit(train_df) first.")
         if self._empty_vocab:
             return self._empty_matrix(df)
         texts = _column_to_string_iter(df, self.column)
@@ -247,10 +243,7 @@ class TextColumnEncoder:
                 alternate_sign=False,  # all-positive for log-friendly downstream
             )
         else:
-            raise TypeError(
-                f"unsupported params type {type(self.params).__name__}; "
-                f"expected TfidfParams or HashingParams"
-            )
+            raise TypeError(f"unsupported params type {type(self.params).__name__}; " f"expected TfidfParams or HashingParams")
 
         # TF-IDF on an all-empty / all-missing column yields no tokens; sklearn
         # raises ValueError("empty vocabulary ..."). Degrade to a faithful
@@ -269,8 +262,8 @@ class TextColumnEncoder:
         except ValueError as exc:
             if isinstance(self.params, TfidfParams) and "empty vocabulary" in str(exc):
                 logger.warning(
-                    "TextColumnEncoder(%r): empty vocabulary (all-empty/all-missing "
-                    "text column); emitting 0-width matrix.", self.column,
+                    "TextColumnEncoder(%r): empty vocabulary (all-empty/all-missing " "text column); emitting 0-width matrix.",
+                    self.column,
                 )
                 self._empty_vocab = True
                 self._n_features_out = 0
@@ -305,10 +298,7 @@ class TextColumnEncoder:
 
     def __repr__(self) -> str:
         kind = type(self.params).__name__
-        return (
-            f"TextColumnEncoder(column={self.column!r}, params_kind={kind}, "
-            f"fitted={self._fitted}, n_features_out={self._n_features_out})"
-        )
+        return f"TextColumnEncoder(column={self.column!r}, params_kind={kind}, " f"fitted={self._fitted}, n_features_out={self._n_features_out})"
 
 
 __all__ = ["TextColumnEncoder"]

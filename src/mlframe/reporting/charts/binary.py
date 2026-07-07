@@ -179,8 +179,7 @@ def _operating_point_label(threshold: float, a: float, b: float, kind: str) -> s
     return f"thr={threshold:.2f}: R={a:.2f} P={b:.2f}"
 
 
-def _roc_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: float, cost_ratio=None,
-               operating_point: bool = True) -> PanelSpec:
+def _roc_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: float, cost_ratio=None, operating_point: bool = True) -> PanelSpec:
     """ROC curve (TPR vs FPR) with the chance diagonal; AUC in the title.
 
     Built from the shared score sort's per-distinct-threshold cumulative TP/FP counts (the same quantities
@@ -700,8 +699,7 @@ def binary_decile_table_figure(
     total_n = int(tbl["count"].sum())
     total_resp = total_pos / total_n if total_n else float("nan")
     # TOTAL row: cumulative gain/KS are 100% / 0 by construction at the full population; lift is 1.0 (the baseline).
-    total_row = ["TOTAL", f"{total_n:,}", f"{total_pos:,}",
-                 "-" if not np.isfinite(total_resp) else f"{total_resp:.1%}", "100.0%", "1.00", "0.000"]
+    total_row = ["TOTAL", f"{total_n:,}", f"{total_pos:,}", "-" if not np.isfinite(total_resp) else f"{total_resp:.1%}", "100.0%", "1.00", "0.000"]
     cells.append(total_row)
 
     fig = Figure(figsize=figsize or (8.0, 0.42 * (n_rows + 3)))
@@ -797,10 +795,7 @@ def compose_binary_figure(
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(
-            f"Unknown binary panel tokens {unknown}. "
-            f"Allowed: {sorted(ALLOWED_BINARY_PANEL_TOKENS)}"
-        )
+        raise ValueError(f"Unknown binary panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_BINARY_PANEL_TOKENS)}")
     yt, ys = _finite_binary(y_true, y_score)
     # Single descending-score sort + cumulative counts shared by every rank-threshold panel.
     sort = _ScoreSort(yt, ys)

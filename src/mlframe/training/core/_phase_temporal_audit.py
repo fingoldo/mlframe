@@ -117,28 +117,26 @@ def run_temporal_audit_batch(
                 # behavior_config.target_temporal_audit_unit ('s' / 'ms' / 'us' / 'ns');
                 # otherwise we try each unit and pick the COARSEST one that yields a fully-in-range
                 # [1970, 2200] result (coarsest = widest span = highest audit resolution).
-                _override_unit = (
-                    getattr(behavior_config, "target_temporal_audit_unit", None)
-                    if behavior_config is not None else None
-                )
+                _override_unit = getattr(behavior_config, "target_temporal_audit_unit", None) if behavior_config is not None else None
                 _ts_for_pl = _coerce_timestamps_for_audit(_ts_arr, explicit_unit=_override_unit)
-                _batch_input = _pl.DataFrame({
-                    _audit_ts_col: _ts_for_pl,
-                    **_audit_input_cols,
-                })
+                _batch_input = _pl.DataFrame(
+                    {
+                        _audit_ts_col: _ts_for_pl,
+                        **_audit_input_cols,
+                    }
+                )
             except ImportError:
                 # Same coercion as the polars path: building the audit frame from raw int64
                 # timestamps lets pandas interpret them as nanoseconds-since-epoch, collapsing
                 # epoch-seconds input into a single bin (no change-point coverage).
-                _override_unit = (
-                    getattr(behavior_config, "target_temporal_audit_unit", None)
-                    if behavior_config is not None else None
-                )
+                _override_unit = getattr(behavior_config, "target_temporal_audit_unit", None) if behavior_config is not None else None
                 _ts_for_pd = _coerce_timestamps_for_audit(_ts_arr, explicit_unit=_override_unit)
-                _batch_input = pd.DataFrame({
-                    _audit_ts_col: _ts_for_pd,
-                    **_audit_input_cols,
-                })
+                _batch_input = pd.DataFrame(
+                    {
+                        _audit_ts_col: _ts_for_pd,
+                        **_audit_input_cols,
+                    }
+                )
             _gran = getattr(behavior_config, "target_temporal_audit_granularity", "auto")
             _batch_results = _audit_targets_over_time(
                 _batch_input,

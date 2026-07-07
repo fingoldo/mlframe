@@ -102,9 +102,7 @@ class SliceStableESConfig(BaseConfig):
     # ``ctx.metadata["slice_stable_es"][target][model]["pareto_plot_paths"]``.
     pareto_plot_enabled: bool = True
     pareto_plot_backends: List[str] = Field(default_factory=lambda: ["plotly", "matplotlib"])
-    pareto_plot_formats: Dict[str, List[str]] = Field(
-        default_factory=lambda: {"plotly": ["html"], "matplotlib": ["png"]}
-    )
+    pareto_plot_formats: Dict[str, List[str]] = Field(default_factory=lambda: {"plotly": ["html"], "matplotlib": ["png"]})
     pareto_plot_min_iterations: int = 10
     pareto_plot_show_alt_quantiles: List[float] = Field(default_factory=lambda: [0.5, 0.7, 0.9, 0.95])
     pareto_persist_shard_history: bool = False
@@ -503,12 +501,7 @@ class OutputConfig(BaseConfig):
         save_charts and data_dir (including data_dir="" via model_dump round-trip)
         has made a deliberate choice and is not the misconfiguration we want to catch.
         """
-        if (
-            "save_charts" in self.model_fields_set
-            and self.save_charts
-            and not self.data_dir
-            and "data_dir" not in self.model_fields_set
-        ):
+        if "save_charts" in self.model_fields_set and self.save_charts and not self.data_dir and "data_dir" not in self.model_fields_set:
             raise ValueError(
                 "OutputConfig: save_charts=True was explicitly set but data_dir is empty; "
                 f"got data_dir={self.data_dir!r}. The save branch silently short-circuits "

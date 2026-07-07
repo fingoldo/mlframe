@@ -86,9 +86,7 @@ def unregister_metric(target_type: TargetTypes, name: str) -> None:
         _REGISTRY[target_type].pop(name, None)
 
 
-def iter_extra_metrics(
-    target_type: TargetTypes, y_true, probs_NK, preds_NK
-) -> Iterator[tuple[str, Any]]:
+def iter_extra_metrics(target_type: TargetTypes, y_true, probs_NK, preds_NK) -> Iterator[tuple[str, Any]]:
     """Yield (name, value) for every registered metric on this target type.
 
     Narrow exception catch: only the documented failure modes for sklearn
@@ -245,9 +243,7 @@ _KNOWN_METRIC_DIRECTIONS_LOWER: frozenset[str] = frozenset({
 # Carry-out: LRAP is higher-is-better; ensure it lands in HIGHER bucket
 # even though it's a multilabel-ranking metric (not in the
 # classification-quality cluster above).
-_KNOWN_METRIC_DIRECTIONS_HIGHER = frozenset(
-    _KNOWN_METRIC_DIRECTIONS_HIGHER | {"lrap", "label_ranking_average_precision"}
-)
+_KNOWN_METRIC_DIRECTIONS_HIGHER = frozenset(_KNOWN_METRIC_DIRECTIONS_HIGHER | {"lrap", "label_ranking_average_precision"})
 
 
 def _canonicalise_metric_name(name: str) -> str:
@@ -258,7 +254,7 @@ def _canonicalise_metric_name(name: str) -> str:
     s = name.strip().lower()
     for prefix in ("val_", "test_", "oof_", "train_", "holdout_"):
         if s.startswith(prefix):
-            s = s[len(prefix):]
+            s = s[len(prefix) :]
             break
     if "@" in s:
         s = s.split("@", 1)[0]

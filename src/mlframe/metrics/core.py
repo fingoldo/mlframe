@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import logging
@@ -31,7 +30,6 @@ from ._numba_params import (  # noqa: F401
     _PARALLEL_MULTILABEL_THRESHOLD,
 )
 
-
 # CB logits->probabilities (binary + multiclass) live in ``_core_cb_logits.py``;
 # imported at module-top so subsequent in-module references resolve before the
 # bottom-of-file re-export block fires.
@@ -41,7 +39,6 @@ from ._core_cb_logits import (  # noqa: F401, E402
     _cb_logits_to_probs_multiclass_seq, _cb_logits_to_probs_multiclass_par,
     cb_logits_to_probs_multiclass,
 )
-
 
 # AUC + Brier kernels and combined Brier+precision scorer live in
 # ``_core_auc_brier.py``; imported here so historical names
@@ -57,7 +54,6 @@ from ._core_auc_brier import (  # noqa: F401, E402
     fast_brier_score_loss, brier_score_loss,
     brier_and_precision_score, make_brier_precision_scorer,
 )
-
 
 # GPU dispatch + batch metrics live in ``_gpu_metrics.py``; re-exported here so
 # historical ``from mlframe.metrics.core import compute_batch_aucs`` (and the other
@@ -75,7 +71,6 @@ from ._gpu_metrics import (  # noqa: E402,F401
     _resolve_backend,
 )
 
-
 # Precision + classification report + MAPE kernels live in
 # ``_core_precision_mape.py``; imported here so existing call sites resolve.
 from ._core_precision_mape import (  # noqa: F401, E402
@@ -83,7 +78,6 @@ from ._core_precision_mape import (  # noqa: F401, E402
     _max_abs_pct_error_kernel, _max_abs_pct_error_kernel_par,
     _MAPE_ZERO_WARN_SEEN, maximum_absolute_percentage_error,
 )
-
 
 # Multilabel metrics (hamming_loss, subset_accuracy, jaccard_score_multilabel +
 # private numba kernels + bitmap-popcount fastpath) live in
@@ -99,7 +93,6 @@ from ._multilabel_metrics import (  # noqa: E402,F401
     _coerce_multilabel_array, _validate_multilabel_pair,
     hamming_loss, subset_accuracy, jaccard_score_multilabel,
 )
-
 
 # Closed set of title-metrics tokens recognised by render_title_metrics() and
 # validated by ReportingConfig at construction time. Order in DEFAULT matches
@@ -132,7 +125,6 @@ from .calibration import (  # noqa: F401, E402
     show_calibration_plot,
 )
 
-
 # Calibration metric kernels (CMAEW, ECE, Murphy Brier-decomp,
 # fast_calibration_metrics) live in ``_calibration_metrics.py``; re-exported
 # below so historical
@@ -147,7 +139,6 @@ from .calibration import (  # noqa: E402,F401
     fast_calibration_metrics,
 )
 
-
 # Per-group AUC helpers live in ``_auc_per_group.py``; re-exported below so
 # historical ``from mlframe.metrics.core import fast_aucs_per_group`` (and the
 # other moved names) imports continue to resolve. See sibling for SSOT.
@@ -156,7 +147,6 @@ from ._auc_per_group import (  # noqa: E402,F401
     compute_grouped_group_aucs, fast_numba_aucs_simple,
     compute_mean_aucs_per_group,
 )
-
 
 # Classification + calibration report block moved to _classification_report.py.
 from .classification._classification_report import (  # noqa: F401, E402
@@ -181,13 +171,11 @@ from ._ice_metric import (  # noqa: E402,F401
     _install_catboost_sklearn_clone_patch,
 )
 
-
 # ICE-from-base-metrics aggregator lives in ``_calibration_metrics.py`` (it
 # composes the calibration outputs into the single ICE score). Re-exported
 # below so historical ``from mlframe.metrics.core import integral_calibration_error_from_metrics``
 # imports keep resolving.
 from .calibration import integral_calibration_error_from_metrics  # noqa: E402,F401
-
 
 # Regression metrics live in ``_regression_metrics.py``; re-exported below to keep
 # ``from mlframe.metrics.core import fast_*`` imports stable. See sibling for SSOT.
@@ -206,7 +194,6 @@ from .regression import (  # noqa: E402,F401
     fast_regression_metrics_block,
 )
 
-
 # Binary log-loss + probability-separation kernels live in
 # ``_log_loss_and_separation.py``; re-exported below so historical
 # ``from mlframe.metrics.core import fast_log_loss`` imports keep resolving.
@@ -216,7 +203,6 @@ from ._log_loss_and_separation import (  # noqa: E402,F401
     _probability_separation_score_seq, _probability_separation_score_par,
     probability_separation_score,
 )
-
 
 # Fairness / robustness subgrouping + metrics live in ``_fairness_metrics.py``;
 # re-exported below so historical
@@ -229,7 +215,6 @@ from ._fairness_metrics import (  # noqa: E402,F401
     compute_robustness_metrics, robust_mlperf_metric,
 )
 
-
 # Numba warmup helpers (``numba_warmup``, ``_assert_numba_nogil_active``,
 # ``prewarm_numba_cache``, ``_prewarm_numba_cache_body``) live in
 # ``_core_numba_warmup.py``. Re-exported at bottom so the warmup module's
@@ -241,7 +226,6 @@ from ._core_numba_warmup import (  # noqa: F401, E402
     prewarm_numba_cache,
     _prewarm_numba_cache_body,
 )
-
 
 # Additional classification metrics (binary + multiclass) - 2026-05-28
 # audit batch. Re-exported here so historical
@@ -270,7 +254,6 @@ from .classification._classification_extras import (  # noqa: F401, E402
     accuracy_ratio,
 )
 
-
 # Additional regression metrics (RMSLE / MAPE-mean / SMAPE / ...) - 2026-05-28.
 from .regression import (  # noqa: F401, E402
     fast_rmsle,
@@ -296,7 +279,6 @@ from .regression import (  # noqa: F401, E402
     fast_tweedie_deviance,
 )
 
-
 # Additional multilabel metrics (LRAP / coverage / ranking-loss / one-error
 # / macro+micro+weighted F1) - 2026-05-28.
 from ._multilabel_extras import (  # noqa: F401, E402
@@ -314,7 +296,6 @@ from ._multilabel_extras import (  # noqa: F401, E402
     multilabel_auc_weighted,
 )
 
-
 # Additional ranking (LTR) metrics (DCG / ERR / Hit@k / Precision@k) - 2026-05-28.
 from ._ranking_extras import (  # noqa: F401, E402
     dcg_at_k,
@@ -322,7 +303,6 @@ from ._ranking_extras import (  # noqa: F401, E402
     hit_at_k,
     precision_at_k,
 )
-
 
 # Distributional / drift metrics (PSI / KL / JS / Wasserstein / KS) - 2026-05-28.
 from ._drift import (  # noqa: F401, E402

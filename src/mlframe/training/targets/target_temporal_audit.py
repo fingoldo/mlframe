@@ -111,9 +111,9 @@ class TimeBin:
     """One row of the time-binned target series."""
     bin_label: str           # e.g. "2024-01" (display)
     bin_start: pd.Timestamp  # bin's left edge (sorting / interval math)
-    n_obs: int               # number of rows in this bin
-    target_rate: float       # binary: P(y=1); regression: mean(y)
-    kept: bool = True        # False if filtered out as too-sparse
+    n_obs: int  # number of rows in this bin
+    target_rate: float  # binary: P(y=1); regression: mean(y)
+    kept: bool = True  # False if filtered out as too-sparse
 
 
 @dataclass
@@ -125,7 +125,7 @@ class TemporalAuditResult:
     granularity: Granularity
     bins: list[TimeBin]
     change_point_indices: list[int]  # indices into kept-bin list
-    segments: list[dict[str, Any]]   # [{start: ..., end: ..., mean_rate: ..., n_obs: ..., n_bins: ...}, ...]
+    segments: list[dict[str, Any]]  # [{start: ..., end: ..., mean_rate: ..., n_obs: ..., n_bins: ...}, ...]
     warnings: list[str]
     actionable: dict[str, Any] = field(default_factory=dict)
     plot_path: str | None = None  # filled in if plot_target_over_time saves a file
@@ -223,10 +223,7 @@ class TemporalAuditResult:
         elif segment == "last":
             chosen_segs = [self.segments[-1]]
         else:
-            raise ValueError(
-                f"Unknown segment selector: {segment!r}. "
-                "Choose from: most_recent_stable / largest / all_stable / first / last."
-            )
+            raise ValueError(f"Unknown segment selector: {segment!r}. " "Choose from: most_recent_stable / largest / all_stable / first / last.")
 
         # Compute (start_ts, end_ts) for each chosen segment. The
         # segment's start_idx is into the kept-bin list; the bin's
@@ -359,22 +356,14 @@ def audit_target_over_time(
     if _HAS_POLARS and isinstance(df, pl.DataFrame):
         # Granularity check needs timestamps as a python iterable
         ts_for_picker = df[timestamp_col].to_list()
-        chosen = (
-            _pick_granularity(ts_for_picker)
-            if granularity == "auto"
-            else granularity
-        )
+        chosen = _pick_granularity(ts_for_picker) if granularity == "auto" else granularity
         agg = _aggregate_by_time_polars(
             df, timestamp_col, target_col, chosen, target_type=target_type,
         )
     else:
         if not isinstance(df, pd.DataFrame):
             df = pd.DataFrame(df)
-        chosen = (
-            _pick_granularity(df[timestamp_col])
-            if granularity == "auto"
-            else granularity
-        )
+        chosen = _pick_granularity(df[timestamp_col]) if granularity == "auto" else granularity
         agg = _aggregate_by_time_pandas(
             df, timestamp_col, target_col, chosen, target_type=target_type,
         )
@@ -482,10 +471,7 @@ def audit_targets_over_time(
         elif isinstance(spec, tuple) and len(spec) == 2:
             col, ttype = spec[0], spec[1]
         else:
-            raise ValueError(
-                f"targets[{name!r}] must be str or (col, target_type) tuple; "
-                f"got {type(spec).__name__}"
-            )
+            raise ValueError(f"targets[{name!r}] must be str or (col, target_type) tuple; " f"got {type(spec).__name__}")
         alias = f"__rate__{name}"
         target_specs.append((col, ttype, alias))
         name_to_alias[name] = alias
@@ -575,11 +561,7 @@ def format_temporal_audit_report(result: TemporalAuditResult) -> str:
         f"{len(result.segments)} segments)",
     ]
     for s in result.segments:
-        lines.append(
-            f"  segment {s['start_label']}..{s['end_label']} "
-            f"({s['n_bins']} bins, n_obs={s['n_obs']:_}): "
-            f"mean_rate={s['mean_rate']:.3f}"
-        )
+        lines.append(f"  segment {s['start_label']}..{s['end_label']} " f"({s['n_bins']} bins, n_obs={s['n_obs']:_}): " f"mean_rate={s['mean_rate']:.3f}")
     if result.warnings:
         lines.append("")
         for w in result.warnings:

@@ -345,9 +345,7 @@ def fingerprint_df(
                     dtype_lines.append(f"{c}:{df[c].dtype}")
         except ImportError:  # pragma: no cover
             pass
-    column_dtypes_hash = hashlib.blake2b(
-        ";".join(dtype_lines).encode("utf-8"), digest_size=8
-    ).hexdigest()
+    column_dtypes_hash = hashlib.blake2b(";".join(dtype_lines).encode("utf-8"), digest_size=8).hexdigest()
 
     # ---- sampled_rows_hash ---------------------------------------
     payload_parts: list = [str(n_rows).encode(), str(n_cols).encode()]

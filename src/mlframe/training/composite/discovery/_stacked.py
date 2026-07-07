@@ -52,9 +52,7 @@ def _warn_unrebuildable_oof_specs(pass2_specs, existing_names):
     for _s in pass2_specs:
         if _s.name in existing_names:
             continue
-        _bases = (getattr(_s, "base_column", "") or "",) + tuple(
-            getattr(_s, "extra_base_columns", ()) or ()
-        )
+        _bases = (getattr(_s, "base_column", "") or "",) + tuple(getattr(_s, "extra_base_columns", ()) or ())
         if any(str(_b).startswith(_OOF_FEATURE_PREFIX) for _b in _bases):
             bad.append(_s.name)
     if bad:
@@ -281,10 +279,7 @@ def fit_stacked_on_residual(
     self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx)
     pass1_specs = list(self.specs_) if self.specs_ else []
     if not pass1_specs:
-        logger.info(
-            "[CompositeTargetDiscovery.stacked_on_residual] pass1 yielded 0 specs; "
-            "skipping residual-target pass 2."
-        )
+        logger.info("[CompositeTargetDiscovery.stacked_on_residual] pass1 yielded 0 specs; " "skipping residual-target pass 2.")
         return self
 
     rank_by_tiny = getattr(self, "tiny_rerank_scores_", None) or {}
@@ -313,8 +308,7 @@ def fit_stacked_on_residual(
                 raise TypeError(type(df).__name__)
         except Exception:
             logger.warning(
-                "[CompositeTargetDiscovery.stacked_on_residual] cannot slice df type=%s; "
-                "returning pass-1 only.",
+                "[CompositeTargetDiscovery.stacked_on_residual] cannot slice df type=%s; " "returning pass-1 only.",
                 type(df).__name__,
             )
             return self
@@ -350,16 +344,13 @@ def fit_stacked_on_residual(
                 oof_preds_per_spec.append(_oof)
         except Exception as _oof_err:
             logger.warning(
-                "[CompositeTargetDiscovery.stacked_on_residual] OOF for "
-                "spec=%s failed: %s",
-                spec.name, _oof_err,
+                "[CompositeTargetDiscovery.stacked_on_residual] OOF for " "spec=%s failed: %s",
+                spec.name,
+                _oof_err,
             )
 
     if not oof_preds_per_spec:
-        logger.info(
-            "[CompositeTargetDiscovery.stacked_on_residual] no usable OOF "
-            "predictions; returning pass-1 specs only."
-        )
+        logger.info("[CompositeTargetDiscovery.stacked_on_residual] no usable OOF " "predictions; returning pass-1 specs only.")
         return self
 
     if residual_aggregation == "first":
@@ -378,13 +369,10 @@ def fit_stacked_on_residual(
             import polars as _pl
             _y_full_residual = np.full(df.height, np.nan, dtype=np.float64)
             _y_full_residual[_train_idx_arr] = y_residual_train
-            df_with_resid = df.with_columns(
-                _pl.Series(_residual_col, _y_full_residual)
-            )
+            df_with_resid = df.with_columns(_pl.Series(_residual_col, _y_full_residual))
         except Exception as _aug_err:
             logger.warning(
-                "[CompositeTargetDiscovery.stacked_on_residual] could not "
-                "build residual-target df: %s. Returning pass-1 only.",
+                "[CompositeTargetDiscovery.stacked_on_residual] could not " "build residual-target df: %s. Returning pass-1 only.",
                 _aug_err,
             )
             return self
@@ -396,8 +384,7 @@ def fit_stacked_on_residual(
         )
     except Exception as _p2_err:
         logger.warning(
-            "[CompositeTargetDiscovery.stacked_on_residual] pass-2 fit on "
-            "residual target failed: %s. Returning pass-1 only.",
+            "[CompositeTargetDiscovery.stacked_on_residual] pass-2 fit on " "residual target failed: %s. Returning pass-1 only.",
             _p2_err,
         )
         self.specs_ = pass1_specs
@@ -437,8 +424,7 @@ def fit_stacked_on_residual(
     merged = pass1_specs + _new_residual_specs
     self.specs_ = merged
     logger.info(
-        "[CompositeTargetDiscovery.stacked_on_residual] pass1=%d specs, "
-        "pass2=%d new residual-target specs, total=%d",
+        "[CompositeTargetDiscovery.stacked_on_residual] pass1=%d specs, " "pass2=%d new residual-target specs, total=%d",
         len(pass1_specs),
         len(_new_residual_specs),
         len(merged),

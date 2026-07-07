@@ -250,13 +250,9 @@ def apply_cat_cooccurrence_svd(
     """
     for key in ("lookup", "default", "n_components"):
         if key not in recipe:
-            raise KeyError(
-                f"apply_cat_cooccurrence_svd: recipe missing {key!r}. Re-fit to regenerate."
-            )
+            raise KeyError(f"apply_cat_cooccurrence_svd: recipe missing {key!r}. Re-fit to regenerate.")
     if not isinstance(X_test, pd.DataFrame):
-        raise TypeError(
-            f"apply_cat_cooccurrence_svd: X_test must be a DataFrame; got {type(X_test).__name__}"
-        )
+        raise TypeError(f"apply_cat_cooccurrence_svd: X_test must be a DataFrame; got {type(X_test).__name__}")
     lookup: dict = recipe["lookup"]
     default = np.asarray(recipe["default"], dtype=np.float64)
     n_comp = int(recipe["n_components"])

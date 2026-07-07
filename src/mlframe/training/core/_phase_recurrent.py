@@ -137,8 +137,7 @@ def _safe_predict_recurrent(
         preds = np.asarray(preds)
         if preds.size == 0:
             logger.warning(
-                "Recurrent predict returned empty array for split=%s (features.shape=%s, "
-                "sequences.len=%s); member dropped for this split.",
+                "Recurrent predict returned empty array for split=%s (features.shape=%s, " "sequences.len=%s); member dropped for this split.",
                 split,
                 getattr(features, "shape", None) if features is not None else None,
                 len(sequences) if sequences is not None else None,
@@ -308,11 +307,7 @@ def _apply_recurrent_to_ensemble(
     # ensemble (which OVERWRITES the prior ensemble at L331) is strictly weaker than the
     # pre-recurrent build on weighted suites.
     _ctx_sw_dict = getattr(ctx, "sample_weights", None) or {}
-    _sw_for_target = (
-        _ctx_sw_dict.get(target_name)
-        if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict
-        else None
-    )
+    _sw_for_target = _ctx_sw_dict.get(target_name) if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict else None
     # Wave 14 P2 (re-opened 2026-05-20): ``ctx.model_name or 'mdl'``
     # silently injected the prefix ``mdl`` when the caller's ctx had
     # ``model_name=""``. Empty string is a legitimate "no prefix" intent
@@ -353,8 +348,7 @@ def _apply_recurrent_to_ensemble(
         return ensemble_dict
     if not rebuilt:
         logger.warning(
-            "apply_recurrent_to_ensemble: rebuilt ensemble is empty for target %s "
-            "(all members gated out); returning empty dict, not prior ensemble.",
+            "apply_recurrent_to_ensemble: rebuilt ensemble is empty for target %s " "(all members gated out); returning empty dict, not prior ensemble.",
             target_name,
         )
     return rebuilt
@@ -399,8 +393,7 @@ def _rerun_ensemble_with_recurrent(
         logger.info("Recurrent ensemble rerun: rebuilt %d-member ensemble for target %s (previously %d methods).",
                     len(members), target_name, len(existing_ensembles) if isinstance(existing_ensembles, dict) else 0)
     else:
-        logger.info("Recurrent ensemble rerun: built FIRST ensemble for target %s with %d members (recurrent + booster).",
-                    target_name, len(members))
+        logger.info("Recurrent ensemble rerun: built FIRST ensemble for target %s with %d members (recurrent + booster).", target_name, len(members))
     ctx.ensembles.setdefault(target_type, {})[target_name] = rebuilt
 
     # Bookkeeping so downstream consumers (and the integration test) can confirm the rerun fired and which
@@ -511,8 +504,7 @@ def train_recurrent_models(
                         _r_inner.trainer_params["max_time"] = _max_time_dict
                         if verbose:
                             logger.info(
-                                "  [NeuralTimeout] %s max_time=%dh%02dm%02ds "
-                                "(P95 of %d prior non-neural train times: %.0fs)",
+                                "  [NeuralTimeout] %s max_time=%dh%02dm%02ds " "(P95 of %d prior non-neural train times: %.0fs)",
                                 recurrent_model_name,
                                 _max_time_dict["hours"], _max_time_dict["minutes"], _max_time_dict["seconds"],
                                 _n, _p95_r,
@@ -539,11 +531,7 @@ def train_recurrent_models(
                 # versions may not accept sample_weight; fall back to unweighted
                 # fit + WARN so the caller sees the path was taken.
                 _ctx_sw_dict = getattr(ctx, "sample_weights", None) or {}
-                _sw_for_target = (
-                    _ctx_sw_dict.get(cur_target_name)
-                    if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict
-                    else None
-                )
+                _sw_for_target = _ctx_sw_dict.get(cur_target_name) if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict else None
                 # Slice weights to train_idx so length matches train_target.
                 if _sw_for_target is not None and hasattr(ctx, "train_idx") and ctx.train_idx is not None:
                     try:

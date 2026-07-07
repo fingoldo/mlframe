@@ -1,6 +1,5 @@
 """Streaming alpha check/refit: Chow-style drift detector + change-point-aware refit for linear_residual coefficients. Lazy-imports ``_linear_residual_fit`` from composite.py."""
 
-
 from __future__ import annotations
 
 import logging
@@ -121,11 +120,11 @@ def _detect_change_point(
     # equivalent to the per-segment _ols_alpha_beta_sse (same sufficient
     # statistics) up to FP rounding in the cumulative reduction.
     # _ols_alpha_beta_sse is retained for sse_full + as the tested reference.
-    cb = np.concatenate(([0.0], np.cumsum(base)))          # prefix sum base
-    cy = np.concatenate(([0.0], np.cumsum(y)))             # prefix sum y
+    cb = np.concatenate(([0.0], np.cumsum(base)))  # prefix sum base
+    cy = np.concatenate(([0.0], np.cumsum(y)))  # prefix sum y
     cbb = np.concatenate(([0.0], np.cumsum(base * base)))  # prefix sum base^2
-    cby = np.concatenate(([0.0], np.cumsum(base * y)))     # prefix sum base*y
-    cyy = np.concatenate(([0.0], np.cumsum(y * y)))        # prefix sum y^2
+    cby = np.concatenate(([0.0], np.cumsum(base * y)))  # prefix sum base*y
+    cyy = np.concatenate(([0.0], np.cumsum(y * y)))  # prefix sum y^2
     ks = np.arange(min_segment_n, n - min_segment_n + 1, dtype=np.int64)
 
     def _seg_sse(m, sb, sy, sbb, sby, syy):

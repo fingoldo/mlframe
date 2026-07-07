@@ -23,7 +23,6 @@ from ._estimator_helpers import (  # noqa: E402,F401
     _sk_has_fit_parameter,
 )
 
-
 try:
     import polars as pl
     _HAS_POLARS = True
@@ -554,10 +553,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         transform = get_transform(self.transform_name)
         # Validate the fallback strategy in fit (sklearn convention) rather than lazily on the first predict that hits a domain violation, which may be weeks into prod.
         if self.fallback_predict not in ("y_train_median", "nan"):
-            raise ValueError(
-                f"CompositeTargetEstimator: unknown fallback_predict {self.fallback_predict!r}; "
-                "choose 'y_train_median' or 'nan'."
-            )
+            raise ValueError(f"CompositeTargetEstimator: unknown fallback_predict {self.fallback_predict!r}; " "choose 'y_train_median' or 'nan'.")
         base_columns = self._resolve_base_columns()
         # Unary y-transforms (cbrt_y, log_y, ...) have ``requires_base=False`` and must not require a base column. Feed a zeros placeholder so downstream calls keep their (y, base, params) signatures without branching.
         if not transform.requires_base:
@@ -565,17 +561,11 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             base_arr = np.zeros_like(y_arr)
         else:
             if not base_columns:
-                raise ValueError(
-                    "CompositeTargetEstimator: either base_column (str) or "
-                    "base_columns (sequence) must be supplied."
-                )
+                raise ValueError("CompositeTargetEstimator: either base_column (str) or " "base_columns (sequence) must be supplied.")
             y_arr = _to_1d_numpy(y).astype(np.float64)
             base_arr = self._extract_base_for_transform(X, base_columns)
             if len(y_arr) != len(base_arr):
-                raise ValueError(
-                    f"CompositeTargetEstimator.fit: y has {len(y_arr)} rows but X "
-                    f"has {len(base_arr)} -- caller passed misaligned inputs."
-                )
+                raise ValueError(f"CompositeTargetEstimator.fit: y has {len(y_arr)} rows but X " f"has {len(base_arr)} -- caller passed misaligned inputs.")
 
         # Apply domain check before fitting transform params: invalid
         # rows must NOT bias the OLS / MAD computation.
@@ -583,8 +573,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         valid = np.asarray(valid)
         if valid.ndim != 1:
             raise ValueError(
-                f"CompositeTargetEstimator.fit: transform '{self.transform_name}' "
-                f"domain_check returned ndim={valid.ndim}; expected 1-D boolean mask."
+                f"CompositeTargetEstimator.fit: transform '{self.transform_name}' " f"domain_check returned ndim={valid.ndim}; expected 1-D boolean mask."
             )
         # Fitted-params-aware domain refinement. The
         # params-free ``domain_check`` above cannot see learned params
@@ -627,18 +616,13 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         base_train = base_arr[valid]
 
         if y_train.size == 0:
-            raise DomainViolationError(
-                f"CompositeTargetEstimator.fit: 0 rows pass domain_check for "
-                f"transform '{self.transform_name}'. Check inputs."
-            )
+            raise DomainViolationError(f"CompositeTargetEstimator.fit: 0 rows pass domain_check for " f"transform '{self.transform_name}'. Check inputs.")
 
         # Fit transform-specific params on the valid train rows.
         # Pass sample_weight through to weight-aware transforms
         # (currently only ``linear_residual``); other transforms
         # ignore the kwarg.
-        sample_weight_train = (
-            np.asarray(sample_weight)[valid] if sample_weight is not None else None
-        )
+        sample_weight_train = np.asarray(sample_weight)[valid] if sample_weight is not None else None
         # Grouped-transform support. When the transform requires_groups=True,
         # extract group labels from the configured group_column and pass them
         # as kwargs through fit / forward. The transform's own fit signature
@@ -646,10 +630,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         groups_train: np.ndarray | None = None
         if transform.requires_groups:
             if not self.group_column:
-                raise ValueError(
-                    f"CompositeTargetEstimator: transform '{self.transform_name}' "
-                    f"requires groups; configure ``group_column`` on the wrapper."
-                )
+                raise ValueError(f"CompositeTargetEstimator: transform '{self.transform_name}' " f"requires groups; configure ``group_column`` on the wrapper.")
             groups_train = _extract_groups(X, self.group_column)[valid]
         # transform_fit_kwargs is separate from fit_kwargs (which is
         # the caller's pass-through to the inner estimator's .fit() at
@@ -665,10 +646,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # the transform silently re-fit UNWEIGHTED. Gating on the declared
         # signature passes the weight only where it is actually a parameter and
         # lets every genuine error propagate.
-        if (
-            sample_weight_train is not None
-            and _callable_accepts_param(transform.fit, "sample_weight")
-        ):
+        if sample_weight_train is not None and _callable_accepts_param(transform.fit, "sample_weight"):
             transform_fit_kwargs = {**transform_fit_kwargs, "sample_weight": sample_weight_train}
         transform_params = transform.fit(
             y_train, base_train, **transform_fit_kwargs,
@@ -676,9 +654,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
 
         # Compute T on the valid rows. Grouped transforms need the
         # groups kwarg for forward as well.
-        transform_forward_kwargs: dict[str, Any] = (
-            {"groups": groups_train} if groups_train is not None else {}
-        )
+        transform_forward_kwargs: dict[str, Any] = {"groups": groups_train} if groups_train is not None else {}
         if getattr(transform, "recurrent", False) and not bool(valid.all()):
             # Time-recurrent forward (ewma_residual / rolling_quantile_ratio /
             # frac_diff): each output row depends on its NEIGHBOURS in the row
@@ -700,11 +676,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
                         base_arr, np.isfinite(base_arr),
                     )
                 else:
-                    base_seq = np.column_stack(
-                        [_carry_forward_fill(base_arr[:, j],
-                                             np.isfinite(base_arr[:, j]))
-                         for j in range(base_arr.shape[1])]
-                    )
+                    base_seq = np.column_stack([_carry_forward_fill(base_arr[:, j], np.isfinite(base_arr[:, j])) for j in range(base_arr.shape[1])])
             else:
                 base_seq = base_arr
             t_full = transform.forward(
@@ -743,8 +715,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             X_valid = self._drop_columns(X_valid, [self.group_column])
         if sample_weight is not None:
             sample_weight = np.asarray(sample_weight)[valid]
-        elif (getattr(self, "auto_variance_stabilise", False)
-                and self.transform_name in ("ratio", "logratio")):
+        elif getattr(self, "auto_variance_stabilise", False) and self.transform_name in ("ratio", "logratio"):
             # Variance-stabilising weights for ratio/logratio: under a
             # multiplicative DGP residual variance scales with |base|, so
             # weight ~ 1/|base| (floored at the 5th percentile to avoid blow-up
@@ -779,8 +750,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
                 estimator.fit(X_valid, t_train, sample_weight=sample_weight, **fit_kwargs)
             else:
                 logger.info(
-                    "[CompositeTargetEstimator] inner estimator '%s' does not accept "
-                    "sample_weight; ignoring.",
+                    "[CompositeTargetEstimator] inner estimator '%s' does not accept " "sample_weight; ignoring.",
                     type(self.base_estimator).__name__,
                 )
                 estimator.fit(X_valid, t_train, **fit_kwargs)
@@ -881,7 +851,6 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             "t_clip_high_hits": 0,
         }
         return self
-
 
 
 # Method rebinding from sibling carves. Done at module bottom so the parent class is fully constructed; identity preserved (parent.X is sibling.X) which keeps isinstance / hasattr / sklearn introspection unchanged.

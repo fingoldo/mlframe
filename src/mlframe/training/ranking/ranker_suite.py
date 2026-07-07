@@ -52,10 +52,7 @@ def _filter_models_for_ranking(mlframe_models: list[str] | None) -> list[str]:
             len(dropped), dropped, kept,
         )
     if not kept:
-        raise NotImplementedError(
-            f"LTR target_type: every requested model {requested} lacks a "
-            "native ranker. Pick at least one of cb / xgb / lgb / mlp."
-        )
+        raise NotImplementedError(f"LTR target_type: every requested model {requested} lacks a " "native ranker. Pick at least one of cb / xgb / lgb / mlp.")
     return kept
 
 
@@ -74,8 +71,6 @@ def _strategy_for_model(model_name: str):
     if name == "mlp":
         return NeuralNetStrategy()
     raise ValueError(f"unknown ranker model {model_name!r}")
-
-
 
 
 def rrf_fuse(ranks_per_member: list[np.ndarray], k: int = 60) -> np.ndarray:
@@ -118,13 +113,9 @@ def rrf_fuse(ranks_per_member: list[np.ndarray], k: int = 60) -> np.ndarray:
     for i, r in enumerate(ranks_per_member):
         arr = np.asarray(r, dtype=np.float64)
         if arr.shape != base.shape:
-            raise ValueError(
-                f"rrf_fuse: member {i} shape {arr.shape!r} != member 0 shape {base.shape!r}"
-            )
+            raise ValueError(f"rrf_fuse: member {i} shape {arr.shape!r} != member 0 shape {base.shape!r}")
         if np.any(arr <= 0):
-            raise ValueError(
-                f"rrf_fuse: member {i} contains non-positive ranks; expected 1-based dense ranks (>= 1)"
-            )
+            raise ValueError(f"rrf_fuse: member {i} contains non-positive ranks; expected 1-based dense ranks (>= 1)")
         aggregated += 1.0 / (k + arr)
     return aggregated
 
@@ -169,21 +160,15 @@ def borda_fuse(
     else:
         sizes = np.asarray(group_sizes, dtype=np.float64)
         if sizes.shape != base.shape:
-            raise ValueError(
-                f"borda_fuse: group_sizes shape {sizes.shape!r} != ranks shape {base.shape!r}"
-            )
+            raise ValueError(f"borda_fuse: group_sizes shape {sizes.shape!r} != ranks shape {base.shape!r}")
 
     aggregated = np.zeros(n, dtype=np.float64)
     for i, r in enumerate(ranks_per_member):
         arr = np.asarray(r, dtype=np.float64)
         if arr.shape != base.shape:
-            raise ValueError(
-                f"borda_fuse: member {i} shape {arr.shape!r} != member 0 shape {base.shape!r}"
-            )
+            raise ValueError(f"borda_fuse: member {i} shape {arr.shape!r} != member 0 shape {base.shape!r}")
         if np.any(arr <= 0):
-            raise ValueError(
-                f"borda_fuse: member {i} contains non-positive ranks; expected 1-based dense ranks (>= 1)"
-            )
+            raise ValueError(f"borda_fuse: member {i} contains non-positive ranks; expected 1-based dense ranks (>= 1)")
         # C-Low-2: a rank exceeding its group size (sizes - arr < 0) means the caller passed a stale
         # rank under a reduced group_sizes vector, producing a negative Borda contribution that flips
         # the score sign and confuses operators. Refuse loudly rather than aggregating silently.
@@ -194,7 +179,7 @@ def borda_fuse(
                 f"size {float(sizes[_bad])!r}. Either rerank within each group or update group_sizes "
                 "to match the rank vector."
             )
-        aggregated += (sizes - arr)
+        aggregated += sizes - arr
     return aggregated
 
 

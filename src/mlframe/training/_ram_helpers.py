@@ -107,9 +107,9 @@ def clean_ram_and_gpu(verbose: bool = False) -> None:
                 torch.cuda.synchronize()
             except RuntimeError as _sync_err:
                 logger.warning(
-                    "torch.cuda.synchronize raised %s: %s; proceeding with empty_cache "
-                    "anyway to reclaim what we can. Likely a prior kernel error.",
-                    type(_sync_err).__name__, _sync_err,
+                    "torch.cuda.synchronize raised %s: %s; proceeding with empty_cache " "anyway to reclaim what we can. Likely a prior kernel error.",
+                    type(_sync_err).__name__,
+                    _sync_err,
                 )
             # Empty the CUDA memory cache. Also robust to its own RuntimeError (very
             # rare: only on a broken CUDA context).
@@ -217,4 +217,3 @@ def maybe_clean_ram_and_gpu(
                 logger.info("  clean_ram fired")
         return get_process_rss_mb()
     return baseline_rss_mb
-

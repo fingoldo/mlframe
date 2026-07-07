@@ -290,7 +290,7 @@ class SuiteArtefactCache:
                 logger.warning("SuiteArtefactCache: failed to drop sidecar %s during eviction: %s", sidecar, exc)
                 sidecar_size = 0
             self._lru.pop(key, None)
-            total -= (pkl_size + sidecar_size)
+            total -= pkl_size + sidecar_size
             removed += 1
         return removed
 

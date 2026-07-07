@@ -44,7 +44,7 @@ def compute_distributional_moments_features(
             for i, g in enumerate(gammas[: len(quantiles)]):
                 if g > 0:
                     p_mean = float(y_t.mean())
-                    sw = np.where(y_t > 0.5, (1 - p_mean) ** g, p_mean ** g).astype(np.float32)
+                    sw = np.where(y_t > 0.5, (1 - p_mean) ** g, p_mean**g).astype(np.float32)
                 else:
                     sw = None
                 m = lgb.LGBMClassifier(n_estimators=30, max_depth=3, learning_rate=0.1, random_state=int(fold_seed) + i, verbose=-1, n_jobs=-1)

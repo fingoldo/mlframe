@@ -84,18 +84,18 @@ def compute_local_intrinsic_dim_features(
         cov = np.matmul(deviations.transpose(0, 2, 1), deviations) / np.float32(k_eff)  # (n_q, d, d)
         lambdas = np.linalg.eigvalsh(cov)  # (n_q, d) ascending
         lambdas = np.clip(lambdas, 0.0, None) + 1e-9
-        sum_l = lambdas.sum(axis=1)                # (n_q,)
-        sum_l_sq = (lambdas ** 2).sum(axis=1)      # (n_q,)
+        sum_l = lambdas.sum(axis=1)  # (n_q,)
+        sum_l_sq = (lambdas**2).sum(axis=1)  # (n_q,)
         out = np.empty((n_q, n_features), dtype=np.float32)
-        out[:, 0] = (sum_l * sum_l) / sum_l_sq     # participation_ratio
+        out[:, 0] = (sum_l * sum_l) / sum_l_sq  # participation_ratio
         top1 = lambdas[:, -1]
         top2 = lambdas[:, -2] if d >= 2 else np.full(n_q, 1e-9, dtype=lambdas.dtype)
-        out[:, 1] = top1 / sum_l                   # top1_ratio
-        out[:, 2] = top2 / top1                    # top2_ratio
+        out[:, 1] = top1 / sum_l  # top1_ratio
+        out[:, 2] = top2 / top1  # top2_ratio
         p = lambdas / sum_l[:, None]
         spectrum_entropy = -np.sum(p * np.log(p + 1e-9), axis=1)
         out[:, 3] = spectrum_entropy
-        out[:, 4] = np.exp(spectrum_entropy)       # effective_dim
+        out[:, 4] = np.exp(spectrum_entropy)  # effective_dim
         return out
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:

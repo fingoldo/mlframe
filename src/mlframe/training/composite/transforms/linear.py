@@ -36,8 +36,8 @@ from . import (  # noqa: E402
     _THEILSEN_MAX_PAIRS,
 )
 
-
 logger = logging.getLogger("mlframe.training.composite_transforms")
+
 
 def _logratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
     # T_train computed in the valid domain (caller has already filtered).
@@ -103,9 +103,7 @@ def _linear_residual_fit(
     else:
         w = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
         if w.size != n:
-            raise ValueError(
-                f"_linear_residual_fit: sample_weight length {w.size} != y length {n}"
-            )
+            raise ValueError(f"_linear_residual_fit: sample_weight length {w.size} != y length {n}")
         # Drop non-positive weights silently; warn if all zero.
         finite = np.isfinite(w) & (w > 0)
         if not finite.any():
@@ -178,9 +176,7 @@ def _linear_residual_fit_batched(
     """
     k = len(x_segments)
     if k != len(y_segments):
-        raise ValueError(
-            f"_linear_residual_fit_batched: {k} x-segments != {len(y_segments)} y-segments"
-        )
+        raise ValueError(f"_linear_residual_fit_batched: {k} x-segments != {len(y_segments)} y-segments")
     alphas = np.zeros(k, dtype=np.float64)
     betas = np.zeros(k, dtype=np.float64)
     if k == 0:
@@ -477,10 +473,7 @@ def _linear_residual_multi_fit(
     else:
         w = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
         if w.size != n:
-            raise ValueError(
-                f"_linear_residual_multi_fit: sample_weight length {w.size} "
-                f"!= y length {n}"
-            )
+            raise ValueError(f"_linear_residual_multi_fit: sample_weight length {w.size} " f"!= y length {n}")
         finite = np.isfinite(w) & (w > 0)
         if not finite.any():
             return {
@@ -508,10 +501,7 @@ def _linear_residual_multi_forward(
     alphas = np.asarray(params["alphas"], dtype=np.float64)
     beta = float(params["beta"])
     if base.shape[1] != alphas.size:
-        raise ValueError(
-            f"linear_residual_multi: base has {base.shape[1]} columns but "
-            f"fitted alphas has {alphas.size} entries"
-        )
+        raise ValueError(f"linear_residual_multi: base has {base.shape[1]} columns but " f"fitted alphas has {alphas.size} entries")
     return y - (np.ascontiguousarray(base, dtype=np.float64) @ alphas) - beta
 def _linear_residual_multi_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
@@ -521,10 +511,7 @@ def _linear_residual_multi_inverse(
     alphas = np.asarray(params["alphas"], dtype=np.float64)
     beta = float(params["beta"])
     if base.shape[1] != alphas.size:
-        raise ValueError(
-            f"linear_residual_multi: base has {base.shape[1]} columns but "
-            f"fitted alphas has {alphas.size} entries"
-        )
+        raise ValueError(f"linear_residual_multi: base has {base.shape[1]} columns but " f"fitted alphas has {alphas.size} entries")
     # Canonical C-contiguous layout so the (n,K)@(K,) matvec rounds identically regardless of the caller's
     # array order (C vs F differ by ~1 ULP in BLAS dgemv); keeps predict and the serving spec byte-identical.
     return t_hat + (np.ascontiguousarray(base, dtype=np.float64) @ alphas) + beta
@@ -582,10 +569,7 @@ def _linear_residual_grouped_fit(
         )
     groups = np.asarray(groups).reshape(-1)
     if len(groups) != len(y):
-        raise ValueError(
-            f"linear_residual_grouped: groups has {len(groups)} rows but "
-            f"y has {len(y)} rows."
-        )
+        raise ValueError(f"linear_residual_grouped: groups has {len(groups)} rows but " f"y has {len(y)} rows.")
 
     # Global OLS: same logic as legacy linear_residual.
     global_params = _linear_residual_fit(y, base, sample_weight=sample_weight)
@@ -699,10 +683,7 @@ def _linear_residual_grouped_fit(
             alpha_shrunk = (1.0 - c) * a_g + c * alpha_global
             base_mean_g = base_mean_for_shrink.get(g_key)
             if base_mean_g is not None:
-                per_group_betas[g_key] = (
-                    per_group_betas[g_key]
-                    + (a_g - alpha_shrunk) * base_mean_g
-                )
+                per_group_betas[g_key] = per_group_betas[g_key] + (a_g - alpha_shrunk) * base_mean_g
             per_group_alphas[g_key] = alpha_shrunk
 
     return {
@@ -723,9 +704,7 @@ def _linear_residual_grouped_forward(
     # import ...`` would create a hard cycle the meta-test flags.
     from . import _row_alpha_beta
     if groups is None:
-        raise ValueError(
-            "linear_residual_grouped.forward: groups kwarg is required."
-        )
+        raise ValueError("linear_residual_grouped.forward: groups kwarg is required.")
     groups = np.asarray(groups).reshape(-1)
     row_alpha, row_beta = _row_alpha_beta(groups, params)
     return y - row_alpha * base - row_beta
@@ -738,9 +717,7 @@ def _linear_residual_grouped_inverse(
     # import ...`` would create a hard cycle the meta-test flags.
     from . import _row_alpha_beta
     if groups is None:
-        raise ValueError(
-            "linear_residual_grouped.inverse: groups kwarg is required."
-        )
+        raise ValueError("linear_residual_grouped.inverse: groups kwarg is required.")
     groups = np.asarray(groups).reshape(-1)
     row_alpha, row_beta = _row_alpha_beta(groups, params)
     return t_hat + row_alpha * base + row_beta

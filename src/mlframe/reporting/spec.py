@@ -26,7 +26,6 @@ import numpy as np
 # facade into one import SCC. ``colors`` has no internal imports, so this is a true leaf edge.
 import mlframe.reporting.colors as _colors
 
-
 # ----------------------------------------------------------------------------
 # Panel specs
 # ----------------------------------------------------------------------------
@@ -155,9 +154,9 @@ class ConfusionMarginsPanelSpec:
     grid; ``cell_text`` is suppressed (None) past the large-K cap, exactly like ``HeatmapPanelSpec``.
     """
 
-    matrix: np.ndarray               # K x K display matrix (counts or row-rates)
-    row_margin: np.ndarray           # length-K true-class support (counts)
-    col_margin: np.ndarray           # length-K predicted-class volume (counts)
+    matrix: np.ndarray  # K x K display matrix (counts or row-rates)
+    row_margin: np.ndarray  # length-K true-class support (counts)
+    col_margin: np.ndarray  # length-K predicted-class volume (counts)
     row_labels: Tuple[str, ...]
     col_labels: Tuple[str, ...]
     title: str = ""
@@ -291,12 +290,12 @@ class NetworkPanelSpec:
 
     node_x: np.ndarray
     node_y: np.ndarray
-    node_size: np.ndarray            # matplotlib area units (pt^2)
-    node_color: Tuple[str, ...]      # one resolved color per node
+    node_size: np.ndarray  # matplotlib area units (pt^2)
+    node_color: Tuple[str, ...]  # one resolved color per node
     node_label: Tuple[str, ...]
-    edge_src: np.ndarray             # int index into node arrays
-    edge_dst: np.ndarray             # int index into node arrays
-    edge_weight: np.ndarray          # float; drives width + color
+    edge_src: np.ndarray  # int index into node arrays
+    edge_dst: np.ndarray  # int index into node arrays
+    edge_weight: np.ndarray  # float; drives width + color
     title: str = ""
     xlabel: str = ""
     ylabel: str = ""

@@ -6,7 +6,6 @@ Handles data loading, cleaning, train/val/test splitting, and artifact saving.
 
 from __future__ import annotations
 
-
 # *****************************************************************************************************************************************************
 # IMPORTS
 # *****************************************************************************************************************************************************
@@ -81,9 +80,9 @@ def _process_special_values(
             # kind); tuples have no ``.max()``. Use the builtin ``max`` on
             # the slice, and only when non-empty.
             for kind, vals in [
-                ("null", row[:len(row)//3]),
-                ("NaN", row[len(row)//3:2*len(row)//3]),
-                ("inf", row[2*len(row)//3:]),
+                ("null", row[: len(row) // 3]),
+                ("NaN", row[len(row) // 3 : 2 * len(row) // 3]),
+                ("inf", row[2 * len(row) // 3 :]),
             ]:
                 if vals and max(vals) > 0:
                     parts.append(f"{kind}={max(vals)}")
@@ -330,10 +329,7 @@ def preprocess_dataframe(
         # Walk dtypes positionally instead so the column-by-name lookup never
         # fires on duplicates - the dedicated dup-column raise downstream
         # handles surfacing the real error to the caller.
-        _string_cols = [
-            c for c, _dt in zip(df.columns, df.dtypes)
-            if isinstance(_dt, pd.StringDtype)
-        ]
+        _string_cols = [c for c, _dt in zip(df.columns, df.dtypes) if isinstance(_dt, pd.StringDtype)]
         if _string_cols:
             # Shallow copy: only StringDtype columns are recast below; deep-copying a 100+ GB frame to normalise a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
             df = df.copy(deep=False)
@@ -360,11 +356,7 @@ def preprocess_dataframe(
     # original three-pass path is restored for forensic A/B benchmarks.
     _do_remove_const = bool(getattr(config, "remove_constant_columns", True))
     _do_fix_inf = bool(config.fix_infinities) and config.fillna_value is None
-    _use_batched = (
-        isinstance(df, pl.DataFrame)
-        and (_do_remove_const or _do_fix_inf)
-        and os.environ.get("MLFRAME_DISABLE_BATCHED_PREPROCESS_SCAN") != "1"
-    )
+    _use_batched = isinstance(df, pl.DataFrame) and (_do_remove_const or _do_fix_inf) and os.environ.get("MLFRAME_DISABLE_BATCHED_PREPROCESS_SCAN") != "1"
     if _use_batched:
         from ._nan_processing import batch_scan_constants_and_inf_polars
         import polars.selectors as _cs

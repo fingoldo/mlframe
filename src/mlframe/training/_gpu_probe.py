@@ -64,10 +64,7 @@ if CUDA_IS_AVAILABLE and not XGB_GPU_AVAILABLE:
         "to CPU as we couldn't find any available GPU on the system``."
     )
 if CUDA_IS_AVAILABLE and not LGB_GPU_AVAILABLE:
-    logger.info(
-        "[gpu-probe] LightGBM GPU support not opted-in "
-        "(``MLFRAME_TRUST_LGB_CUDA`` not set). LGB will run on CPU."
-    )
+    logger.info("[gpu-probe] LightGBM GPU support not opted-in " "(``MLFRAME_TRUST_LGB_CUDA`` not set). LGB will run on CPU.")
 
 
 # =============================================================================
@@ -82,5 +79,3 @@ if CUDA_IS_AVAILABLE and not LGB_GPU_AVAILABLE:
 # heterogeneity behind two pure functions used at every site that
 # previously hard-coded ``probs[:, 1]`` (4 sites in core.py, 3 in
 # evaluation.py, 2 in automl.py).
-
-

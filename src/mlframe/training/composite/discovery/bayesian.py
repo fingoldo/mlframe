@@ -18,7 +18,6 @@ Lazy-imports ``_linear_residual_fit`` from composite.py to break the
 import cycle.
 """
 
-
 from __future__ import annotations
 
 import logging

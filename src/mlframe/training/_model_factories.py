@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 
-
 logger = logging.getLogger(__name__)
 
 # Lazy-loaded module-level references — populated on first call to
@@ -485,10 +484,6 @@ def _get_neural_components():
         except ImportError:  # pragma: no cover
             return None, None, None
     return MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier
-
-
-
-
 
 
 from numba.cuda import is_available as is_cuda_available

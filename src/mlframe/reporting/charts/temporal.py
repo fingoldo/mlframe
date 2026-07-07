@@ -52,7 +52,7 @@ def _median_gap(x_axis: np.ndarray) -> Any:
 
 
 def build_temporal_audit_spec(
-    audit_result: Any,                # TemporalAuditResult instance
+    audit_result: Any,  # TemporalAuditResult instance
     *,
     figsize: Tuple[float, float] = (12.0, 4.5),
 ) -> FigureSpec:
@@ -243,10 +243,7 @@ def compose_target_acf_figure(
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(
-            f"Unknown temporal panel tokens {unknown}. "
-            f"Allowed: {sorted(ALLOWED_TEMPORAL_PANEL_TOKENS)}"
-        )
+        raise ValueError(f"Unknown temporal panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_TEMPORAL_PANEL_TOKENS)}")
     panels: List[PanelSpec] = [_TOKEN_BUILDERS[tok](y_arr, nlags=nlags) for tok in tokens]
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)

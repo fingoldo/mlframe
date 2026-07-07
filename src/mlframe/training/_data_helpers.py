@@ -61,7 +61,6 @@ def _validate_trusted_path(path: str, trusted_root: str | None) -> None:
         raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
 
 
-
 logger = logging.getLogger(__name__)
 
 
