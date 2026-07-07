@@ -18,6 +18,8 @@ not inside the numba hot loop -- documented in ``METRIC_CODES``.
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import numpy as np
 from numba import njit, prange
 
@@ -47,9 +49,9 @@ def _sigmoid(x: float) -> float:
     # hot path of Brier / log-loss scoring over hundreds of thousands of subsets per fit).
     if x >= 0.0:
         z = np.exp(-x)
-        return 1.0 / (1.0 + z)
+        return float(1.0 / (1.0 + z))
     z = np.exp(x)
-    return z / (1.0 + z)
+    return float(z / (1.0 + z))
 
 
 @njit(cache=True, fastmath=True)
@@ -64,18 +66,18 @@ def score_margin(margin: np.ndarray, y: np.ndarray, metric_code: int) -> float:
         for i in range(n):
             d = y[i] - margin[i]
             s += d if d >= 0.0 else -d
-        return s / n
+        return float(s / n)
     if metric_code == 1:  # MSE on raw margin (regression); sqrt is monotone so omitted for ranking
         for i in range(n):
             d = y[i] - margin[i]
             s += d * d
-        return s / n
+        return float(s / n)
     if metric_code == 2:  # Brier: (sigmoid(margin) - y)^2
         for i in range(n):
             p = _sigmoid(margin[i])
             d = p - y[i]
             s += d * d
-        return s / n
+        return float(s / n)
     # metric_code == 3: log-loss with probability clipping
     eps = 1e-7
     for i in range(n):
@@ -85,7 +87,7 @@ def score_margin(margin: np.ndarray, y: np.ndarray, metric_code: int) -> float:
         elif p > 1.0 - eps:
             p = 1.0 - eps
         s += -(y[i] * np.log(p) + (1.0 - y[i]) * np.log(1.0 - p))
-    return s / n
+    return float(s / n)
 
 
 @njit(cache=True, fastmath=True, parallel=True)
@@ -106,18 +108,18 @@ def score_margin_parallel(margin: np.ndarray, y: np.ndarray, metric_code: int) -
         for i in prange(n):
             d = y[i] - margin[i]
             s += d if d >= 0.0 else -d
-        return s / n
+        return float(s / n)
     if metric_code == 1:  # MSE
         for i in prange(n):
             d = y[i] - margin[i]
             s += d * d
-        return s / n
+        return float(s / n)
     if metric_code == 2:  # Brier
         for i in prange(n):
             p = _sigmoid(margin[i])
             d = p - y[i]
             s += d * d
-        return s / n
+        return float(s / n)
     eps = 1e-7  # log-loss with probability clipping
     for i in prange(n):
         p = _sigmoid(margin[i])
@@ -126,7 +128,7 @@ def score_margin_parallel(margin: np.ndarray, y: np.ndarray, metric_code: int) -
         elif p > 1.0 - eps:
             p = 1.0 - eps
         s += -(y[i] * np.log(p) + (1.0 - y[i]) * np.log(1.0 - p))
-    return s / n
+    return float(s / n)
 
 
 # Row-count crossover above which the prange ``score_margin_parallel`` beats the serial loop on the
@@ -153,7 +155,7 @@ def _score_margin_parallel_min_rows() -> int:
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:
-            entry = ktc.lookup("shap_proxy_score_margin")
+            entry = cast(Any, ktc).lookup("shap_proxy_score_margin")
             if isinstance(entry, dict) and entry.get("parallel_min_rows"):
                 val = int(entry["parallel_min_rows"])
     except Exception:  # nosec B110 - best-effort path
@@ -169,8 +171,8 @@ def score_margin_auto(margin: np.ndarray, y: np.ndarray, metric_code: int) -> fl
     short ones (anchor subsets, small holdouts) stay serial to dodge thread-spawn overhead. Both
     kernels compute the same loss; the choice is purely a wall-clock route, never a semantic one."""
     if margin.shape[0] >= _score_margin_parallel_min_rows():
-        return score_margin_parallel(margin, y, metric_code)
-    return score_margin(margin, y, metric_code)
+        return float(score_margin_parallel(margin, y, metric_code))
+    return float(score_margin(margin, y, metric_code))
 
 
 def coalition_margin(phi: np.ndarray, base: np.ndarray, feature_idx) -> np.ndarray:
@@ -180,8 +182,8 @@ def coalition_margin(phi: np.ndarray, base: np.ndarray, feature_idx) -> np.ndarr
     When the caller already holds a contiguous transpose, :func:`coalition_margin_T` is ~4x faster."""
     idx = np.asarray(feature_idx, dtype=np.int64)
     if idx.size == 0:
-        return base.copy()
-    return base + phi[:, idx].sum(axis=1)
+        return np.asarray(np.asarray(base).copy())
+    return np.asarray(base + phi[:, idx].sum(axis=1))
 
 
 def coalition_margin_T(phi_T: np.ndarray, base: np.ndarray, feature_idx) -> np.ndarray:
@@ -194,8 +196,8 @@ def coalition_margin_T(phi_T: np.ndarray, base: np.ndarray, feature_idx) -> np.n
     transpose (brute-force search kernels, trust guard, revalidate)."""
     idx = np.asarray(feature_idx, dtype=np.int64)
     if idx.size == 0:
-        return base.copy()
-    return base + phi_T[idx].sum(axis=0)
+        return np.asarray(np.asarray(base).copy())
+    return np.asarray(base + phi_T[idx].sum(axis=0))
 
 
 def proxy_loss(margin: np.ndarray, y: np.ndarray, metric: str) -> float:

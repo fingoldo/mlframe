@@ -222,7 +222,7 @@ def _try_cap_n_estimators(est, cap):
     honest, and swallow only the narrow ValueError/TypeError sklearn raises for unknown params."""
     if cap is None:
         return None
-    valid = getattr(est, "get_params", lambda: {})()
+    valid: dict = getattr(est, "get_params", lambda: {})()
     for name in _N_ESTIMATORS_PARAMS:
         if name in valid:
             try:

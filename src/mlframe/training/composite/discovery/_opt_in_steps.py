@@ -225,7 +225,7 @@ def _run_auto_chain(
         per_base = [_chains_for_base(b) for b in bases]
 
     extra_specs: list[CompositeSpec] = []
-    self._auto_chains_diag: list[Any] = []
+    self._auto_chains_diag = []
     from ..provenance import register_chain_provenance
     for base_col, chains in per_base:
         for cand in chains:

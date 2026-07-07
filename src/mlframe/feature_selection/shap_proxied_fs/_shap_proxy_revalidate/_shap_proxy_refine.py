@@ -8,6 +8,8 @@ sampling leaf siblings; ``resolve_metric`` comes from the proxy objective module
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import resolve_metric
@@ -477,7 +479,7 @@ def active_learning_revalidate(
     redund_all = subset_redundancy_many(phi, idxs)
     member_cols = [_expand(i, unit_to_members) for i in idxs]
 
-    honest = {}  # candidate index -> mean honest loss
+    honest: dict[int, float] = {}  # candidate index -> mean honest loss
     budget = min(budget, len(candidates))
     while len(honest) < budget:
         corrector = fit_proxy_corrector(cd["proxy"], cd["honest"], cd["cards"], cd["redund"])
@@ -503,10 +505,10 @@ def active_learning_revalidate(
             cd["cards"].append(float(cards_all[i]))
             cd["redund"].append(float(redund_all[i]))
 
-    ranked = [dict(features=tuple(idxs[i]), n_members=len(member_cols[i]), proxy_loss=float(proxy_all[i]),
+    ranked: list[dict[str, Any]] = [dict(features=tuple(idxs[i]), n_members=len(member_cols[i]), proxy_loss=float(proxy_all[i]),
                    honest_loss=honest[i], honest_std=0.0, stable_score=honest[i]) for i in honest]
     ranked.sort(key=lambda d: d["stable_score"])
-    best_idx = ()
+    best_idx: tuple = ()
     if ranked:
         best_score = ranked[0]["stable_score"]
         thr = best_score + parsimony_tol * abs(best_score)

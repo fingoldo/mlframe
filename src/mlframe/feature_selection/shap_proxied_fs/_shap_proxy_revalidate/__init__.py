@@ -172,7 +172,7 @@ def proxy_trust_guard(
     # (n_samples, n_units); phi[:, idx] is a strided column gather, ~4x slower than phi_T[idx] at
     # tall n -- same layout win as the _Evaluator seed margins). n_anchors gathers per fit.
     _phi_T = np.ascontiguousarray(phi.T)
-    proxy_losses = [proxy_loss(coalition_margin_T(_phi_T, base, idx), y_search, metric) for idx in anchors]
+    proxy_losses_list = [proxy_loss(coalition_margin_T(_phi_T, base, idx), y_search, metric) for idx in anchors]
     # iter80: open the cross-process disk cache once (None when disabled). The cache short-circuits
     # the per-anchor xgboost fit whenever (X_search, y_search, X_holdout, y_holdout, expanded cols,
     # template params, cap) was retrained by a prior fit -- the standard ShapProxiedFS hyperparam
@@ -187,7 +187,7 @@ def proxy_trust_guard(
     # Reuse the contiguous _phi_T built above for the coalition margins instead of letting
     # subset_redundancy_many re-transpose phi (one fewer O(n_samples*n_units) copy per trust_guard call).
     redunds = subset_redundancy_many(phi, anchors, phi_T=_phi_T)
-    proxy_losses = np.asarray(proxy_losses)
+    proxy_losses = np.asarray(proxy_losses_list)
     honest_losses = np.asarray(honest_losses)
     ok = np.isfinite(proxy_losses) & np.isfinite(honest_losses)
     proxy_losses, honest_losses, cards, redunds = proxy_losses[ok], honest_losses[ok], cards[ok], redunds[ok]

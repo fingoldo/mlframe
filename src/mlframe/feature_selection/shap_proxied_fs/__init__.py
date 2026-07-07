@@ -211,7 +211,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # SHAP-attribution input unchanged. The cache is content-addressable, multi-process safe,
         # LRU-evicted; see ``mlframe.utils.disk_cache``.
         cache_dir: str | None = None,
-        max_runtime_mins: float = None,
+        max_runtime_mins: Optional[float] = None,
         stop_file: str = "stop",
     ):
         self.model = model
@@ -771,7 +771,7 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, BaseEstimator,
         # not a quality lever. Override via ``self._split_col_batch = ...`` post-construction
         # if needed; sklearn `get_params()` ignores underscore-prefixed attrs.
         self._split_col_batch = 1024
-        self._deferred_holdout = None
+        self._deferred_holdout: Optional[tuple] = None
 
 
 __all__ = [

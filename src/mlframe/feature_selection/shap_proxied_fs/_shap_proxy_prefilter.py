@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -97,7 +97,7 @@ def _prefilter_tuning() -> dict:
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:
-            entry = ktc.lookup("shap_proxy_prefilter")
+            entry = cast(Any, ktc).lookup("shap_proxy_prefilter")
             if isinstance(entry, dict):
                 return entry
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
@@ -230,7 +230,7 @@ def _importances_from_fitted(est, n_features: int) -> Optional[np.ndarray]:
     if hasattr(est, "feature_importances_"):
         return np.asarray(est.feature_importances_, dtype=np.float64)
     if hasattr(est, "coef_"):
-        return np.abs(np.asarray(est.coef_, dtype=np.float64)).reshape(-1, n_features).sum(axis=0)
+        return np.asarray(np.abs(np.asarray(est.coef_, dtype=np.float64)).reshape(-1, n_features).sum(axis=0))
     return None
 
 
@@ -294,7 +294,7 @@ def _rank_fast_model(model_template, X, y, *, n_features: int, n_estimators_cap=
     # Coarse-but-cheap: ~1/4 the trees, shallow, subsample columns+rows. Only set params the estimator
     # exposes (get_params keys) so a non-GBM template is left as-is rather than crashing on set_params.
     valid = set(pf.get_params(deep=False).keys()) if hasattr(pf, "get_params") else set()
-    fast = {}
+    fast: dict[str, Any] = {}
     n_est = getattr(pf, "n_estimators", None)
     if "n_estimators" in valid and isinstance(n_est, (int, np.integer)):
         budget = max(50, int(n_est) // 4)
@@ -383,7 +383,7 @@ def _rank_two_stage(
     stage1_keep: int,
     n_estimators_cap=None,
     univariate_batch_size: Optional[int] = None,
-):
+) -> "tuple[np.ndarray, dict]":
     """Cheap-funnel + capped-booster ranking.
 
     Stage A: vectorised O(n*f) ANOVA F-score on ALL columns -> keep top ``stage1_keep`` original indices

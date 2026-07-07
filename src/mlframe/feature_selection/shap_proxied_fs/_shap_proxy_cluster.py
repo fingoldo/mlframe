@@ -24,6 +24,7 @@ Connected components via a numba union-find over the edge list.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 from numba import njit
@@ -93,7 +94,8 @@ def _edges_dense_gpu(Z, threshold, edge_cap):
 
 def _edges_blocked(Z, threshold, edge_cap, block, use_gpu):
     """Stream correlation in feature-row blocks; collect only above-threshold upper-triangle edges."""
-    xp = None
+    xp: Any = np
+    Zb = Z
     if use_gpu:
         try:
             import cupy as cp
@@ -102,9 +104,8 @@ def _edges_blocked(Z, threshold, edge_cap, block, use_gpu):
             Zb = cp.asarray(Z)
         except Exception:
             use_gpu = False
-    if not use_gpu:
-        xp = np
-        Zb = Z
+            xp = np
+            Zb = Z
     n, f = Z.shape
     ei_parts, ej_parts = [], []
     total = 0
@@ -214,7 +215,7 @@ def cluster_correlated_features(
             f"ShapProxiedFS clustering: >{edge_cap} correlation edges at threshold={threshold}. " f"Raise cluster_corr_threshold to merge fewer features."
         )
     ei, ej = edges
-    return _uf_labels(f, ei, ej)
+    return np.asarray(_uf_labels(f, ei, ej))
 
 
 def build_unit_matrix(

@@ -264,7 +264,7 @@ def _pairwise_su_edges_gpu(
         del joint_counts, joint_p, px_outer, safe_outer, ratio, log_ratio, mi, denom
         del safe_denom, su, upper, not_const, passes
 
-    return cp.asnumpy(flags)
+    return np.asarray(cp.asnumpy(flags))
 
 
 @njit(parallel=True, nogil=True, cache=True, fastmath=False)
@@ -613,10 +613,10 @@ def _run_cpu_pairwise_su(
                 logger.warning(
                     "Bitmap SU kernel failed (%s); falling back to scalar prange kernel", exc,
                 )
-    return _pairwise_su_edges(
+    return np.asarray(_pairwise_su_edges(
         bins_packed, nbins, freqs_packed, freqs_offsets,
         h_marginals, constant_mask, threshold,
-    )
+    ))
 
 
 def cluster_correlated_features_su(
@@ -799,7 +799,7 @@ def cluster_correlated_features_su(
                 )
             ei = ei_arr.astype(np.int64, copy=False)
             ej = ej_arr.astype(np.int64, copy=False)
-            return _uf_labels(f, ei, ej)
+            return np.asarray(_uf_labels(f, ei, ej))
 
     # Serial fallback only reached when use_kernel is False (small width) or packing
     # was unsafe. Build marginals lazily here so the parallel path (fused builder
@@ -839,4 +839,4 @@ def cluster_correlated_features_su(
     else:
         ei = np.asarray(ei_parts, dtype=np.int64)
         ej = np.asarray(ej_parts, dtype=np.int64)
-    return _uf_labels(f, ei, ej)
+    return np.asarray(_uf_labels(f, ei, ej))

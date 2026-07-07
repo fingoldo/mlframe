@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 import multiprocessing
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -247,7 +247,7 @@ def gpu_interactions_available() -> bool:
     try:
         import cupy as cp
 
-        return cp.cuda.runtime.getDeviceCount() > 0
+        return bool(cp.cuda.runtime.getDeviceCount() > 0)
     except _cuda_demote_errors() as exc:
         logger.debug("GPU interaction kernel unavailable, demoting to CPU: %s", exc)
         return False
@@ -259,7 +259,7 @@ def _block_size() -> int:
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:
-            entry = ktc.lookup("shap_proxy_treeshap")
+            entry = cast(Any, ktc).lookup("shap_proxy_treeshap")
             if isinstance(entry, dict) and entry.get("interaction_gpu_block_size"):
                 return int(entry["interaction_gpu_block_size"])
     except (ImportError, KeyError, ValueError, TypeError) as exc:
