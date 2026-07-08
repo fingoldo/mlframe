@@ -33,7 +33,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence, cast
 
 import numpy as np
 
@@ -140,7 +140,7 @@ def waic_from_oof_residuals(
         a = a[np.isfinite(a)]
         if a.size >= 2:  # need >=2 points to estimate the fold variance.
             clean.append(a)
-            if have_scale and j < len(fold_scale_residuals):
+            if fold_scale_residuals is not None and j < len(fold_scale_residuals):
                 sr = np.asarray(fold_scale_residuals[j], dtype=np.float64).ravel()
                 sr = sr[np.isfinite(sr)]
                 scale_resid.append(sr if sr.size >= 2 else None)
@@ -165,7 +165,8 @@ def waic_from_oof_residuals(
         # from hiding its bias inside a re-centred variance). The variance is
         # estimated from the TRAIN-fold residuals when available so the held-out
         # density is NOT self-normalised to its own scale (see docstring).
-        scale_arr = scale_resid[k] if scale_resid[k] is not None else r
+        _sr_k = scale_resid[k]
+        scale_arr = _sr_k if _sr_k is not None else r
         sigma2 = max(float(np.mean(scale_arr * scale_arr)), var_floor)
         lpd = -0.5 * (_LOG_2PI + math.log(sigma2) + (r * r) / sigma2)
         per_point_lpd.append(lpd)
@@ -221,7 +222,7 @@ def _oof_residuals_kfold(
     train_residuals: list[np.ndarray] = []
     for tr, va in kf.split(x):
         try:
-            model = factory()
+            model = cast(Any, factory())
             model.fit(x[tr], y[tr])
             pred = np.asarray(model.predict(x[va]), dtype=np.float64).ravel()
             pred_tr = np.asarray(model.predict(x[tr]), dtype=np.float64).ravel()
