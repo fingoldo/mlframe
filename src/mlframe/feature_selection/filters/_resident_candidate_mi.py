@@ -128,7 +128,7 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
 
 def best_existing_op_mi_resident(
     arrs: dict, names: Sequence[str], yi: np.ndarray, nbins: int,
-    *, y_gpu: object = None, y_min: object = None, n_classes: object = None,
+    *, y_gpu: object = None, y_min: int | None = None, n_classes: int | None = None,
     rank_binning: bool = False,
 ) -> Optional[float]:
     """Resident-GPU twin of ``_conditional_gate_fe.best_existing_op_mi``: build the candidate columns on the
@@ -180,7 +180,7 @@ def best_existing_op_mi_resident(
 
 def gate_grid_mi_resident(
     specs: Sequence[tuple], yi: np.ndarray, nbins: int,
-    *, rank_binning: bool = False, y_gpu: object = None, y_min: object = None, n_classes: object = None,
+    *, rank_binning: bool = False, y_gpu: object = None, y_min: int | None = None, n_classes: int | None = None,
 ) -> Optional[np.ndarray]:
     """Resident-GPU twin of ``_conditional_gate_fe._gate_grid_mi`` that builds the tau-grid candidate columns
     ON THE DEVICE (no host-built matrix uploaded) and scores per-column MI with the resident plug-in kernel.

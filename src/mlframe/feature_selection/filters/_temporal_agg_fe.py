@@ -45,7 +45,7 @@ time-series targets, and prefer rolling windows / a bounded lag set over unbound
 from __future__ import annotations
 
 import logging
-from typing import Sequence
+from typing import Any, Sequence
 
 import numba
 import numpy as np
@@ -239,9 +239,9 @@ def _expanding_stat_past_only(
         return np.full(0, np.nan, dtype=np.float64)
     gc = np.ascontiguousarray(group_codes, dtype=np.int64)
     n_groups = int(gc.max()) + 1 if gc.size else 1
-    return _expanding_stat_past_only_njit(
+    return np.asarray(_expanding_stat_past_only_njit(
         np.ascontiguousarray(sorted_vals, dtype=np.float64), gc, _EXPANDING_STAT_CODE[stat], n_groups,
-    )
+    ))
 
 
 def generate_expanding_agg_features(
@@ -381,6 +381,7 @@ def _rolling_stat_past_only(
     n = vals.size
     if n == 0:
         return np.full(0, np.nan, dtype=np.float64)
+    td_num: Any
     if _is_datetime_like(times):
         # int64 nanoseconds so the window comparison keeps full datetime precision (float64 would lose ns on
         # ~1e18-scale timestamps). td is the window as ns.
@@ -391,9 +392,9 @@ def _rolling_stat_past_only(
         td_num = float(_numeric_window(window))
     gc = np.ascontiguousarray(group_codes, dtype=np.int64)
     n_groups = int(gc.max()) + 1 if gc.size else 1
-    return _rolling_stat_past_only_njit(
+    return np.asarray(_rolling_stat_past_only_njit(
         t_num, np.ascontiguousarray(vals, dtype=np.float64), gc, td_num, _EXPANDING_STAT_CODE[stat], n_groups,
-    )
+    ))
 
 
 def _is_datetime_like(arr: np.ndarray) -> bool:
@@ -786,6 +787,7 @@ def apply_temporal_rolling(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarr
     key, times = _replay_keys_times(X_test, entity_cols, time_col)
     vals = np.asarray(X_test[value_col].to_numpy(), dtype=np.float64)
     is_dt = _is_datetime_like(times)
+    td: Any
     if is_dt:
         times_num = times.astype("datetime64[ns]").astype(np.int64)
         td = int(pd.Timedelta(window).value)

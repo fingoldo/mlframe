@@ -27,7 +27,7 @@ accept dict-style config:
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def cluster_stability_selection(
-    X: np.ndarray, y: np.ndarray,
+    X: Any, y: np.ndarray,
     selector_fn: Callable[[np.ndarray, np.ndarray], np.ndarray],
     *,
     n_bootstrap: int = 100,
@@ -187,7 +187,7 @@ def cluster_stability_selection(
 
 
 def complementary_pairs_stability(
-    X: np.ndarray, y: np.ndarray,
+    X: Any, y: np.ndarray,
     selector_fn: Callable[[np.ndarray, np.ndarray], np.ndarray],
     *,
     n_pairs: int = 50,

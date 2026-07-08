@@ -125,7 +125,7 @@ class FriendGraphGPUStats:
 
     __slots__ = ("H", "rel", "edge_mi", "backend")
 
-    def __init__(self, H: dict, rel: dict, edge_mi: dict, backend: str):
+    def __init__(self, H: dict, rel: dict | None, edge_mi: dict, backend: str):
         self.H = H
         self.rel = rel
         self.edge_mi = edge_mi
@@ -220,7 +220,7 @@ def friend_graph_stats_cupy(
         H[int(sel_arr[i])] = _entropy_from_counts(block, n)
 
     # ----- Feature-target relevance (single-target fast path on GPU; else CPU).
-    rel: dict = {}
+    rel: dict | None = {}
     tcol = _target_col(target_indices)
     if tcol is not None:
         nb_y = int(nbins[tcol])
@@ -244,6 +244,7 @@ def friend_graph_stats_cupy(
                 code = d_y_flat + va * np.int64(nb_y)  # nbins_first = nbins[t]
             d_codes[:, i] = code + np.int64(off_rel[i])
         rel_counts = cp.asnumpy(cp.bincount(d_codes.reshape(-1), minlength=total_rel)[:total_rel])
+        assert rel is not None  # this branch starts with rel = {} above
         for i in range(k):
             f = int(sel_arr[i])
             block = rel_counts[off_rel[i] : off_rel[i + 1]]
@@ -466,7 +467,8 @@ def friend_graph_stats_cuda(
                 codes[:, i] = y + sub64[:, i] * nb_y
         d_codes = _nb_cuda.to_device(np.ascontiguousarray(codes))
         rel_counts = _launch_node(d_codes, off_rel[:k], int(off_rel[k]))
-        rel: dict = {}
+        rel: dict | None = {}
+        assert rel is not None  # just assigned {} above
         for i in range(k):
             f = int(sel_arr[i])
             h_xy = _entropy_from_counts(rel_counts[off_rel[i] : off_rel[i + 1]], n)
@@ -612,7 +614,7 @@ def _run_friend_graph_sweep() -> list:
         variants["cuda"] = _vec(friend_graph_stats_cuda)
     if _CUPY_AVAIL:
         variants["cupy"] = _vec(friend_graph_stats_cupy)
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants,
         {"n_rows": _FG_SWEEP_N_ROWS, "k": _FG_SWEEP_K},
         _make_friend_graph_inputs,
