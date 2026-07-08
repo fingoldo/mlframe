@@ -267,7 +267,7 @@ def _evaluate_candidates_inner(
     mrmr_redundancy_algo="fleuret", max_veteranes_interactions_order=1,
     dtype=np.int32, max_runtime_mins=None, start_time=None,
     min_relevance_gain=None, verbose=1, ndigits=5, use_simple_mode=True,
-):
+) -> tuple:
 
     # lazy: parent-defined helpers + cache deque, imported here to avoid the
     # _evaluation_driver <-> evaluation module-level import cycle.
