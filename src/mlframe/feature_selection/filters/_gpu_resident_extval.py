@@ -85,7 +85,7 @@ def gpu_materialise_extval_codes_host(
         codes_dev = _gpu_resident_discretize_codes(out_dev, int(nbins))  # NaN/inf -> rightmost bin (searchsorted)
         _cd = np.dtype(dtype)
         codes_dev = codes_dev.astype(cp.dtype(_cd), copy=False) if codes_dev.dtype != _cd else codes_dev
-        return cp.asnumpy(codes_dev)
+        return np.asarray(cp.asnumpy(codes_dev))
     except Exception:
         return None
 
