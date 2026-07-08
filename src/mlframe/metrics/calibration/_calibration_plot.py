@@ -19,7 +19,7 @@ import logging
 import os
 import sys
 from math import floor
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import numba
@@ -34,7 +34,7 @@ class _LazyModule:
 
     def __init__(self, name: str):
         self._lm_name = name
-        self._lm_mod = None
+        self._lm_mod: Optional[Any] = None
 
     def __getattr__(self, attr):
         if self._lm_mod is None:
@@ -756,7 +756,7 @@ def show_calibration_plot(
             # constrained-layout solver adds ~170 ms per call without visual
             # benefit. Honour the dpi kwarg so ReportingConfig.plot_dpi
             # propagates; None defers to matplotlib's default.
-            _fig_kwargs = {"figsize": figsize, "layout": None}
+            _fig_kwargs: dict[str, Any] = {"figsize": figsize, "layout": None}
             if dpi is not None:
                 _fig_kwargs["dpi"] = dpi
             fig = Figure(**_fig_kwargs)
@@ -790,7 +790,7 @@ def show_calibration_plot(
         # save-only path above: 1.67x faster, visually equivalent on this
         # 12x6 figsize + multi-axis colorbar + 2-line title geometry).
         if show_prob_histogram:
-            _subplots_kwargs = dict(
+            _subplots_kwargs: dict[str, Any] = dict(
                 nrows=2, ncols=1,
                 figsize=figsize,
                 sharex=True,
@@ -808,7 +808,7 @@ def show_calibration_plot(
             if plot_title:
                 ax_main.set_title(plot_title)
         else:
-            _fig_kwargs2 = {"figsize": figsize, "layout": None}
+            _fig_kwargs2: dict[str, Any] = {"figsize": figsize, "layout": None}
             if dpi is not None:
                 _fig_kwargs2["dpi"] = dpi
             fig = plt.figure(**_fig_kwargs2)
