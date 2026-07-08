@@ -21,7 +21,7 @@ import warnings
 from collections import defaultdict
 from timeit import default_timer as timer
 
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -2670,8 +2670,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _te_cols = list(_te_cols_cfg) if _te_cols_cfg else None
                 if _te_cols is not None:
                     _hybrid_appended = set(self.hybrid_orth_features_ or [])
-                    _mig_appended = set(self.mi_greedy_features_ or [])
-                    _te_cols = [c for c in _te_cols if c in X.columns and c not in _hybrid_appended and c not in _mig_appended]
+                    _mig_appended_set = set(self.mi_greedy_features_ or [])
+                    _te_cols = [c for c in _te_cols if c in X.columns and c not in _hybrid_appended and c not in _mig_appended_set]
                 _y_for_te = _y_np
                 # TE works for both binary classification and regression as-
                 # is (mean of {0,1} = P(y=1); mean of continuous = mean).
@@ -2906,8 +2906,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 try:
                     _cn_cats = tuple(getattr(self, "fe_cat_num_interaction_cat_cols", ()) or ())
                     _cn_nums = tuple(getattr(self, "fe_cat_num_interaction_num_cols", ()) or ())
-                    _cn_cats = [c for c in _cn_cats if c in X.columns]
-                    _cn_nums = [c for c in _cn_nums if c in X.columns]
+                    _cn_cats = tuple(c for c in _cn_cats if c in X.columns)
+                    _cn_nums = tuple(c for c in _cn_nums if c in X.columns)
                     if _cn_cats and _cn_nums:
                         _y_for_cn = _y_np
                         _y_for_cn = np.asarray(_y_for_cn, dtype=np.float64).ravel()
@@ -3010,7 +3010,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             def _resolve_missing_cols(cfg):
                 _cfg = tuple(cfg or ())
                 if _cfg:
-                    return [c for c in _cfg if c in X.columns and c not in _engineered_seen_l37]
+                    return [c for c in _cfg if c in X.columns and c not in _engineered_seen_l37]  # type: ignore[union-attr]
                 # Auto-detect candidate cols with NaN rate in [1%, 99%].
                 return [c for c in auto_detect_missing_cols(fe_to_pandas(X)) if c not in _engineered_seen_l37]
 
@@ -3206,7 +3206,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if bool(getattr(self, "fe_pairwise_ratio_enable", False)):
                 try:
                     _ratio_cols = tuple(getattr(self, "fe_pairwise_ratio_cols", ()) or ())
-                    _ratio_cols = [c for c in _ratio_cols if c in X.columns]
+                    _ratio_cols = tuple(c for c in _ratio_cols if c in X.columns)
                     _eps = float(getattr(self, "fe_pairwise_ratio_eps", 1e-9))
                     _X_before_r_cols = list(X.columns)
                     X_r, _r_appended, _r_recipes = pairwise_ratio_with_recipes(
@@ -3239,7 +3239,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             if bool(getattr(self, "fe_pairwise_log_ratio_enable", False)):
                 try:
                     _lr_cols = tuple(getattr(self, "fe_pairwise_log_ratio_cols", ()) or ())
-                    _lr_cols = [c for c in _lr_cols if c in X.columns]
+                    _lr_cols = tuple(c for c in _lr_cols if c in X.columns)
                     _eps_lr = float(getattr(self, "fe_pairwise_ratio_eps", 1e-9))
                     _X_before_lr_cols = list(X.columns)
                     X_lr, _lr_appended, _lr_recipes = pairwise_log_ratio_with_recipes(
@@ -3273,7 +3273,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 try:
                     _gd_group = getattr(self, "fe_grouped_delta_group_col", None)
                     _gd_nums = tuple(getattr(self, "fe_grouped_delta_num_cols", ()) or ())
-                    _gd_nums = [c for c in _gd_nums if c in X.columns]
+                    _gd_nums = tuple(c for c in _gd_nums if c in X.columns)
                     _X_before_gd_cols = list(X.columns)
                     X_gd, _gd_appended, _gd_recipes = grouped_delta_with_recipes(
                         fe_to_pandas(X), group_col=_gd_group, num_cols=_gd_nums,
@@ -3306,7 +3306,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 try:
                     _ld_time = getattr(self, "fe_lagged_diff_time_col", None)
                     _ld_vals = tuple(getattr(self, "fe_lagged_diff_value_cols", ()) or ())
-                    _ld_vals = [c for c in _ld_vals if c in X.columns]
+                    _ld_vals = tuple(c for c in _ld_vals if c in X.columns)
                     _ld_periods = tuple(getattr(self, "fe_lagged_diff_periods", (1, 2)) or (1, 2))
                     _X_before_ld_cols = list(X.columns)
                     X_ld, _ld_appended, _ld_recipes = lagged_diff_with_recipes(
@@ -3370,9 +3370,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             _y_for_ga = _y_for_ga.astype(np.int64)
 
                 _ga_groups = tuple(getattr(self, "fe_grouped_agg_group_cols", ()) or ())
-                _ga_groups = [c for c in _ga_groups if c in X.columns] or None
+                _ga_groups = [c for c in _ga_groups if c in X.columns] or None  # type: ignore[assignment]
                 _ga_nums = tuple(getattr(self, "fe_grouped_agg_num_cols", ()) or ())
-                _ga_nums = [c for c in _ga_nums if c in X.columns] or None
+                _ga_nums = [c for c in _ga_nums if c in X.columns] or None  # type: ignore[assignment]
                 _ga_stats = tuple(getattr(self, "fe_grouped_agg_stats", ()) or ("mean", "std", "min", "max", "nunique", "skew", "median"))
                 _ga_top_k = int(getattr(self, "fe_grouped_agg_top_k", 10))
                 _X_before_ga_cols = list(X.columns)
@@ -3438,9 +3438,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # auto-detect r-combinations of detected group columns.
                 _cga_key_sets_raw = tuple(getattr(self, "fe_composite_group_agg_key_sets", ()) or ())
                 _cga_key_sets = [tuple(c for c in gset if c in X.columns) for gset in _cga_key_sets_raw]
-                _cga_key_sets = [g for g in _cga_key_sets if len(g) >= 2] or None
+                _cga_key_sets = [g for g in _cga_key_sets if len(g) >= 2] or None  # type: ignore[assignment]
                 _cga_nums = tuple(getattr(self, "fe_composite_group_agg_num_cols", ()) or ())
-                _cga_nums = [c for c in _cga_nums if c in X.columns] or None
+                _cga_nums = [c for c in _cga_nums if c in X.columns] or None  # type: ignore[assignment]
                 _cga_stats = tuple(getattr(self, "fe_composite_group_agg_stats", ()) or ("mean", "std", "count"))
                 _cga_max_arity = int(getattr(self, "fe_composite_group_agg_max_arity", 2))
                 _cga_top_k = int(getattr(self, "fe_composite_group_agg_top_k", 10))
@@ -3500,9 +3500,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # parent is regenerated independently, not present in the apply X)
                 # -> KeyError. Mirrors the cat_pair / cat_triple guard.
                 _gq_groups = tuple(getattr(self, "fe_grouped_quantile_group_cols", ()) or ())
-                _gq_groups = [c for c in _gq_groups if c in X.columns] or None
+                _gq_groups = [c for c in _gq_groups if c in X.columns] or None  # type: ignore[assignment]
                 _gq_nums = tuple(getattr(self, "fe_grouped_quantile_num_cols", ()) or ())
-                _gq_nums = [c for c in _gq_nums if c in X.columns] or None
+                _gq_nums = [c for c in _gq_nums if c in X.columns] or None  # type: ignore[assignment]
                 _gq_raw = set(_raw_input_cols_pre_fe)
                 if _gq_groups is None or _gq_nums is None:
                     from .._grouped_quantile_fe import (
@@ -3563,7 +3563,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
                 _y_for_cp = _y_np
                 _cp_cols = tuple(getattr(self, "fe_cat_pair_cat_cols", ()) or ())
-                _cp_cols = [c for c in _cp_cols if c in X.columns] or None
+                _cp_cols = [c for c in _cp_cols if c in X.columns] or None  # type: ignore[assignment]
                 # When auto-detecting cat-pair members, restrict candidates to
                 # the RAW input columns. By this point X carries engineered
                 # intermediates (count/frequency-encoded integer columns from
@@ -3623,7 +3623,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
                 _y_for_ct = _y_np
                 _ct_cols = tuple(getattr(self, "fe_cat_triple_cat_cols", ()) or ())
-                _ct_cols = [c for c in _ct_cols if c in X.columns] or None
+                _ct_cols = [c for c in _ct_cols if c in X.columns] or None  # type: ignore[assignment]
                 # Same raw-column restriction as the cat_pair stage: auto-
                 # detected triple members must be raw inputs so the cross
                 # recipe replays as a pure function of X (an engineered
@@ -3856,7 +3856,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # whose engineered source is not resolvable at replay time (transform() emits NaN and drops the feature).
                     _pm_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
                     _pm_appended, _pm_recipes = hybrid_pairwise_modular_fe_with_recipes(
-                        X, _y_pm_binned,
+                        X, _y_pm_binned,  # type: ignore[arg-type]
                         cols=_pm_raw_cols,
                         top_k=int(getattr(self, "fe_pairwise_modular_top_k", 4)),
                         seed=int(getattr(self, "random_seed", 0) or 0),
@@ -3917,7 +3917,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # Raw-column operands only (excludes pmod_/orth engineered columns added upstream); see the modular note.
                     _il_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
                     _il_appended, _il_recipes = hybrid_integer_lattice_fe_with_recipes(
-                        X, _y_il_binned,
+                        X, _y_il_binned,  # type: ignore[arg-type]
                         cols=_il_raw_cols,
                         top_k=int(getattr(self, "fe_integer_lattice_top_k", 4)),
                         seed=int(getattr(self, "random_seed", 0) or 0),
@@ -3978,7 +3978,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # engineered columns yields nested recipes whose engineered source is not resolvable at replay -> NaN drop.
                     _am_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
                     _am_appended, _am_recipes = hybrid_row_argmax_fe_with_recipes(
-                        X, _y_am_binned,
+                        X, _y_am_binned,  # type: ignore[arg-type]
                         cols=_am_raw_cols,
                         top_k=int(getattr(self, "fe_row_argmax_top_k", 4)),
                         seed=int(getattr(self, "random_seed", 0) or 0),
@@ -4039,7 +4039,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # Raw-column operands only (see the row-argmax / modular note); engineered operands would orphan at replay.
                     _cg_raw_cols = [c for c in X.columns if c not in set(self.hybrid_orth_features_ or [])]
                     _cg_appended, _cg_recipes = hybrid_conditional_gate_fe_with_recipes(
-                        X, _y_cg_binned,
+                        X, _y_cg_binned,  # type: ignore[arg-type]
                         cols=_cg_raw_cols,
                         top_k=int(getattr(self, "fe_conditional_gate_top_k", 4)),
                         seed=int(getattr(self, "random_seed", 0) or 0),
@@ -4105,9 +4105,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
                 _y_for_gd = _y_np
                 _gd_groups = tuple(getattr(self, "fe_group_distance_group_cols", ()) or ())
-                _gd_groups = [c for c in _gd_groups if c in X.columns] or None
+                _gd_groups = [c for c in _gd_groups if c in X.columns] or None  # type: ignore[assignment]
                 _gd_nums = tuple(getattr(self, "fe_group_distance_num_cols", ()) or ())
-                _gd_nums = [c for c in _gd_nums if c in X.columns] or None
+                _gd_nums = [c for c in _gd_nums if c in X.columns] or None  # type: ignore[assignment]
                 _gd_top_k = int(getattr(self, "fe_group_distance_top_k", 6))
                 _X_before_gd_cols = list(X.columns)
                 X_gd, _gd_appended, _gd_recipes, _gd_scores = hybrid_group_distance_fe(
@@ -4172,7 +4172,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
                 _y_for_rc = _y_np
                 _rc_cols = tuple(getattr(self, "fe_rare_category_cols", ()) or ())
-                _rc_cols = [c for c in _rc_cols if c in X.columns] or None
+                _rc_cols = [c for c in _rc_cols if c in X.columns] or None  # type: ignore[assignment]
                 _X_before_rc_cols = list(X.columns)
                 _rc_raw_floor = X[[c for c in _raw_input_cols_pre_fe if c in X.columns]] if _raw_input_cols_pre_fe else None
                 X_rc, _rc_appended, _rc_recipes, _ = hybrid_rare_category_fe(
@@ -4231,7 +4231,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
                 _y_for_cr = _y_np
                 _cr_cols = tuple(getattr(self, "fe_conditional_residual_cols", ()) or ())
-                _cr_cols = [c for c in _cr_cols if c in X.columns] or None
+                _cr_cols = [c for c in _cr_cols if c in X.columns] or None  # type: ignore[assignment]
                 # RAW columns only (mirrors conditional_dispersion / wavelet): X is
                 # already augmented with engineered intermediates here, and a
                 # conditional-residual recipe built on an engineered x_i / x_j source
@@ -4304,7 +4304,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
                 _y_for_cd = _y_np
                 _cd_cols = tuple(getattr(self, "fe_conditional_dispersion_cols", ()) or ())
-                _cd_cols = [c for c in _cd_cols if c in X.columns] or None
+                _cd_cols = [c for c in _cd_cols if c in X.columns] or None  # type: ignore[assignment]
                 # RAW columns only (2026-06-10 fix, same class as the wavelet stage
                 # below): the all-numeric default scope over the already-augmented X
                 # builds dispersion features OF engineered columns -> nested recipes
@@ -4381,7 +4381,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
                 _y_for_wv = _y_np
                 _wv_cols = tuple(getattr(self, "fe_wavelet_cols", ()) or ())
-                _wv_cols = [c for c in _wv_cols if c in X.columns] or None
+                _wv_cols = [c for c in _wv_cols if c in X.columns] or None  # type: ignore[assignment]
                 # RAW columns only (2026-06-10 fix, mirrors the extra-basis stage's
                 # guard at the hybrid_orth call above): by this point X is ALREADY
                 # augmented with poly/fourier/spline/hinge engineered columns, so the
@@ -4445,7 +4445,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
                 _y_for_rg = _y_np
                 _rg_cols = tuple(getattr(self, "fe_rankgauss_cols", ()) or ())
-                _rg_cols = [c for c in _rg_cols if c in X.columns] or None
+                _rg_cols = [c for c in _rg_cols if c in X.columns] or None  # type: ignore[assignment]
                 # RAW columns only (2026-06-10 fix, same class as the wavelet /
                 # conditional-dispersion stages): keep rankgauss recipes 1-deep and
                 # replayable -- never rank-Gaussianise an engineered column whose
@@ -5392,6 +5392,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     if data.size and os.environ.get("MLFRAME_MRMR_COMPACT_CODES", "1").strip().lower() not in ("0", "false", "off", "no"):
         try:
             _dmin = int(data.min()); _dmax = int(data.max())
+            _store_dt: Optional[type]
             if -128 <= _dmin and _dmax <= 127:
                 _store_dt = np.int8
             elif -32768 <= _dmin and _dmax <= 32767:
@@ -5449,8 +5450,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             logger.info("nunary_transformations: %s", f"{len(unary_transformations):_}")
             logger.info("nbinary_transformations: %s", f"{len(binary_transformations):_}")
 
-        engineered_features = set()
-        checked_pairs = set()
+        engineered_features: set = set()
+        checked_pairs: set = set()
     # engineered_recipes (name -> EngineeredRecipe) is initialised unconditionally; the splitter at the bottom
     # of fit() looks it up regardless of fe_max_steps. Stays empty when FE is disabled.
     engineered_recipes: dict = {}
@@ -5604,7 +5605,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             freqs_y=_freqs_y,
             categorical_vars=categorical_vars,
             cfg=cat_fe_cfg,
-            streaming_cache=_prev_cache,
+            streaming_cache=_prev_cache,  # type: ignore[arg-type]
             numeric_raw_values=_num_raw_values,
             dtype=dtype, verbose=verbose,
         )
@@ -5712,7 +5713,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _persisted_dcd_state = None
     while True:
         n_recommended_features = 0
-        times_spent = defaultdict(float)
+        times_spent: defaultdict = defaultdict(float)
         # Resolve the fit's ONE shared row draw BEFORE the screen so the order-1 relevance sweep + FDR
         # floor score on it (screen is the first consumer -> caches the draw -> the FE step reuses the
         # SAME rows). None at small n -> full-n screen, unchanged.
@@ -5737,7 +5738,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _dcd_state,
         ) = screen_predictors(
             factors_data=data,
-            y=target_indices,
+            y=target_indices,  # type: ignore[arg-type]
             subsample_idx=_screen_shared_idx,
             factors_nbins=nbins,
             factors_names=cols,
@@ -5953,7 +5954,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 self,
                 data=data, nbins=nbins, cols=cols,
                 selected_vars=selected_vars,
-                target_indices=target_indices,
+                target_indices=target_indices,  # type: ignore[arg-type]
                 X=X, y=y, verbose=verbose,
             )
             self.sufficient_summary_ = _ss_verdict
@@ -6374,7 +6375,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # surviving engineered feature (the originally-intended absorbed-by-unrelated case).
         from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RR_TOK_SPLIT
         # Map each raw-operand name -> list of surviving ENGINEERED survivor column indices that consume it.
-        _eng_operands_of = {}  # raw_name -> list[engineered survivor col idx]
+        _eng_operands_of: dict = {}  # raw_name -> list[engineered survivor col idx]
         for _v in selected_vars:
             _vname = cols[_v]
             if _vname in _raw_names_set:
@@ -6436,7 +6437,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         try:
             from ..permutation import mi_direct as _mi_direct_rr
         except Exception:
-            _mi_direct_rr = None
+            _mi_direct_rr = None  # type: ignore[assignment]
         _rr_signif_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
         _rr_q_dtype = getattr(self, "quantization_dtype", np.int32)
 
@@ -6447,7 +6448,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 return True
             try:
                 _sig = _mi_direct_rr(
-                    data, x=np.array([int(_idx)], dtype=np.int64), y=target_indices,
+                    data, x=np.array([int(_idx)], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]
                     factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
                     return_null_mean=True, parallelism="none", dtype=_rr_q_dtype, prefer_gpu=False,
                 )
@@ -6973,7 +6974,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # snapshot is only populated by the fe_max_steps>0 path); the binned codes preserve the monotone/linear
     # signal well enough for the usability test (a genuine encoding lifts R^2 >> floor; a noise encoding ~0).
     if isinstance(X, pd.DataFrame) and len(selected_vars):
-        _cf_names = []
+        _cf_names: list = []
         for _attr in ("kfold_te_features_", "count_encoding_features_", "frequency_encoding_features_", "cat_num_interaction_features_"):
             _cf_names.extend(getattr(self, _attr, None) or [])
         _cf_names = [n for n in dict.fromkeys(_cf_names)]  # dedup, preserve order
@@ -7249,7 +7250,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 try:
                     from ..permutation import mi_direct as _pcr_mi_direct
                 except Exception:
-                    _pcr_mi_direct = None
+                    _pcr_mi_direct = None  # type: ignore[assignment]
                 _pcr_signif_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
                 _pcr_q_dtype = getattr(self, "quantization_dtype", np.int32)
 
@@ -7258,7 +7259,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         return True
                     try:
                         _sig = _pcr_mi_direct(
-                            data, x=np.array([int(_idx)], dtype=np.int64), y=target_indices,
+                            data, x=np.array([int(_idx)], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]
                             factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
                             return_null_mean=True, parallelism="none", dtype=_pcr_q_dtype, prefer_gpu=False,
                         )
@@ -8219,15 +8220,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 if cols.index(_enm) not in _eb_sel_set:
                     continue  # only SELECTED engineered features
                 _src = getattr(_erec, "src_names", None)
-                _toks = list(_src) if _src else [t for t in _EB_TOK_SPLIT.split(str(_enm)) if t]
-                for _t in _toks:
+                _eb_toks = list(_src) if _src else [t for t in _EB_TOK_SPLIT.split(str(_enm)) if t]
+                for _t in _eb_toks:
                     _base = _t if _t in _eb_raw_names else (_t.split("__", 1)[0] if "__" in _t else None)
-                    if _base in _eb_raw_names and _base not in _eb_operands:
+                    if _base is not None and _base in _eb_raw_names and _base not in _eb_operands:
                         _eb_operands.append(_base)
 
             def _eb_operand_is_signal(_cols_i):
                 try:
-                    _r = _eb_mi_direct(data, x=np.array([int(_cols_i)], dtype=np.int64), y=target_indices,
+                    _r = _eb_mi_direct(data, x=np.array([int(_cols_i)], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]
                                        factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
                                        return_null_mean=True, parallelism="none", dtype=_eb_qdtype, prefer_gpu=False)
                     return float(_r[3]) < _eb_alpha  # p-value below alpha -> genuine marginal signal
@@ -8240,8 +8241,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     continue
                 if _allowed_raw_idx is not None and int(_idx) not in _allowed_raw_idx:
                     continue
-                _ci = _eb_cols_idx.get(_op)
-                if _ci is None or not _eb_operand_is_signal(_ci):
+                _eb_ci = _eb_cols_idx.get(_op)
+                if _eb_ci is None or not _eb_operand_is_signal(_eb_ci):
                     continue  # noise operand of a composite -> FS keeps rejecting it
                 selected_vars.append(int(_idx))
                 _eb_sel_set.add(int(_idx))
@@ -8622,11 +8623,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _rr_eng_cont = _eng_continuous_snapshot or {}
                         _rr_seed = int(getattr(self, "random_seed", 0) or 0)
                         for _base in _rr_cand_subsumed:
-                            _ci = _rr_cols_idx.get(_base)
-                            if _ci is None:
+                            _rr_ci = _rr_cols_idx.get(_base)
+                            if _rr_ci is None:
                                 _rr_excl_names.add(_base)  # cannot test -> keep the conservative exclusion
                                 continue
-                            _raw_b = np.asarray(data[:, _ci]).astype(np.int64).ravel()
+                            _raw_b = np.asarray(data[:, _rr_ci]).astype(np.int64).ravel()
                             _child_bins = []
                             for _en_name in _rr_consumers.get(_base, ()):  # genuine engineered survivors
                                 _cci = _rr_cols_idx.get(_en_name)
@@ -8747,13 +8748,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _post_name_to_idx = {nm: i for i, nm in enumerate(_post_cols)}
                 _post_sel_idx = []
                 for _rn in _post_sel_raw_names:
-                    _ci = _post_name_to_idx.get(_rn)
-                    if _ci is not None:
-                        _post_sel_idx.append(_ci)
+                    _ci1 = _post_name_to_idx.get(_rn)
+                    if _ci1 is not None:
+                        _post_sel_idx.append(_ci1)
                 for _enm in _post_recipes:
-                    _ci = _post_name_to_idx.get(_enm)
-                    if _ci is not None and _ci not in _post_sel_idx:
-                        _post_sel_idx.append(_ci)
+                    _ci2 = _post_name_to_idx.get(_enm)
+                    if _ci2 is not None and _ci2 not in _post_sel_idx:
+                        _post_sel_idx.append(_ci2)
                 _has_eng_post = any(_post_cols[i] not in _post_raw_set for i in _post_sel_idx)
                 _has_raw_post = any(_post_cols[i] in _post_raw_set for i in _post_sel_idx)
                 if _has_eng_post and _has_raw_post:
@@ -8859,8 +8860,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _raw_mi_aug = []
                 for _i in range(self.n_features_in_):
                     _name = self.feature_names_in_[_i] if _i < len(self.feature_names_in_) else None
-                    _ci = _name_to_cols_idx_aug.get(_name)
-                    _mi = self.cached_MIs.get((_ci,), 0.0) if _ci is not None else 0.0
+                    _aug_ci = _name_to_cols_idx_aug.get(_name)
+                    _mi = self.cached_MIs.get((_aug_ci,), 0.0) if _aug_ci is not None else 0.0
                     _raw_mi_aug.append((_i, _name, float(_mi)))
                 _max_mi_aug = max((m for _, _, m in _raw_mi_aug), default=0.0)
                 _floor_aug = max(_abs_floor_aug, _max_mi_aug * _rel_frac_aug)
@@ -9016,14 +9017,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # claimed (a hard support/output desync). Trim raw support AND engineered recipes in LOCKSTEP so
                     # the retained feature count is exactly elbow+1 in both the state and the transform output.
                     _sup = np.asarray(self.support_)
-                    _recipes = list(getattr(self, "_engineered_recipes_", []) or [])
-                    _keep = elbow + 1  # combined features to retain
-                    _raw_keep = min(_keep, _sup.size)
-                    _eng_keep = max(0, _keep - _sup.size)  # <= len(_recipes): gains was zero-extended to n_features_
-                    self.support_ = _sup[:_raw_keep]
-                    if _recipes and _eng_keep < len(_recipes):
-                        self._engineered_recipes_ = _recipes[:_eng_keep]
-                    self.n_features_ = int(self.support_.size) + min(_eng_keep, len(_recipes))
+                    _uaed_recipes = list(getattr(self, "_engineered_recipes_", []) or [])
+                    _uaed_keep = elbow + 1  # combined features to retain
+                    _uaed_raw_keep = min(_uaed_keep, _sup.size)
+                    _uaed_eng_keep = max(0, _uaed_keep - _sup.size)  # <= len(_uaed_recipes): gains was zero-extended to n_features_
+                    self.support_ = _sup[:_uaed_raw_keep]
+                    if _uaed_recipes and _uaed_eng_keep < len(_uaed_recipes):
+                        self._engineered_recipes_ = _uaed_recipes[:_uaed_eng_keep]
+                    self.n_features_ = int(self.support_.size) + min(_uaed_eng_keep, len(_uaed_recipes))
                     self.uaed_elbow_ = int(elbow)
         except Exception:  # nosec B110 - non-trivial body
             # UAED is best-effort post-fit; don't break fit() on internal hiccup.
