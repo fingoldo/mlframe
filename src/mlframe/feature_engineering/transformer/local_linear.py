@@ -123,22 +123,24 @@ def compute_local_linear_attention(
             ss_tot = np.sum((yn_all - ym[:, None]) ** 2, axis=1)
             out[:, 1 + d] = (1.0 - ss_res / np.maximum(ss_tot, 1e-12)).astype(dtype, copy=False)
         # Exact per-row fallback for any singular neighbourhood (matches the original behaviour).
-        for q in np.nonzero(singular)[0]:
-            out[q, :] = 0.0
-            Xn = X_neighbour_pool[topk_ids[q]]
-            yn = y_neighbour_pool[topk_ids[q]]
+        # ``qi`` (not ``q``): a plain-int ``q`` is already bound by the ``range(n_anchor)`` loop above,
+        # and np.nonzero(...)[0] iterates np.intp -- reusing ``q`` here would clash the inferred type.
+        for qi in np.nonzero(singular)[0]:
+            out[qi, :] = 0.0
+            Xn = X_neighbour_pool[topk_ids[qi]]
+            yn = y_neighbour_pool[topk_ids[qi]]
             model = Ridge(alpha=ridge_alpha, fit_intercept=True)
             try:
                 model.fit(Xn, yn)
-                out[q, 0] = model.intercept_
-                out[q, 1 : 1 + d] = model.coef_
+                out[qi, 0] = model.intercept_
+                out[qi, 1 : 1 + d] = model.coef_
                 if return_r2:
                     pred_q = model.predict(Xn)
                     ss_res_q = float(np.sum((yn - pred_q) ** 2))
                     ss_tot_q = float(np.sum((yn - yn.mean()) ** 2))
-                    out[q, 1 + d] = 1.0 - ss_res_q / max(ss_tot_q, 1e-12)
+                    out[qi, 1 + d] = 1.0 - ss_res_q / max(ss_tot_q, 1e-12)
             except Exception as exc:  # pragma: no cover - degenerate fits
-                logger.info("local_linear: fit failed on row %d (%s); leaving zeros", int(q), exc)
+                logger.info("local_linear: fit failed on row %d (%s); leaving zeros", int(qi), exc)
         return out
 
     if not out_for_query:

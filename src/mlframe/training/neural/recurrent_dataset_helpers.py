@@ -707,7 +707,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
 
         if checkpoint_callback is not None and checkpoint_callback.best_model_path:
             try:
-                self.model = RecurrentTorchModel.load_from_checkpoint(
+                self.model = RecurrentTorchModel.load_from_checkpoint(  # type: ignore[arg-type, assignment]
                     checkpoint_callback.best_model_path,
                     config=self._cfg,
                     seq_input_size=self._seq_input_size,
@@ -774,7 +774,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         )
         predictions = predict_trainer.predict(self.model, loader)
 
-        result = torch.cat(cast(list, predictions), dim=0).float().cpu().numpy().astype(np.float32)
+        result = np.asarray(torch.cat(cast(list, predictions), dim=0).float().cpu().numpy().astype(np.float32))
 
         self._prediction_cache[cache_key] = result
         return result
@@ -897,7 +897,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
 
         if checkpoint_callback is not None and checkpoint_callback.best_model_path:
             try:
-                self.model = RecurrentTorchModel.load_from_checkpoint(
+                self.model = RecurrentTorchModel.load_from_checkpoint(  # type: ignore[arg-type, assignment]
                     checkpoint_callback.best_model_path,
                     config=self._cfg,
                     seq_input_size=self._seq_input_size,
@@ -964,7 +964,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         )
         predictions = predict_trainer.predict(self.model, loader)
 
-        result = torch.cat(cast(list, predictions), dim=0).float().cpu().numpy().astype(np.float32)
+        result = np.asarray(torch.cat(cast(list, predictions), dim=0).float().cpu().numpy().astype(np.float32))
 
         self._prediction_cache[cache_key] = result
         return result

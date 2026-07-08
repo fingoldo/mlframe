@@ -160,7 +160,7 @@ def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torc
         return scores.new_zeros(())
     score_diff_pairs = scores[i_idx] - scores[j_idx]
     # softplus(-x) = -log(sigmoid(x)) = BCE-w-logits(x, t=1) on informative (rel_i > rel_j) diffs.
-    return F.softplus(-score_diff_pairs).mean()
+    return cast(torch.Tensor, F.softplus(-score_diff_pairs).mean())
 
 
 @torch.jit.script
@@ -185,7 +185,7 @@ def _ranknet_loss_precomputed_core(
     annotations and the wrapping check is essentially free per-call.
     """
     score_diff_pairs = scores[i_idx] - scores[j_idx]
-    return F.softplus(-score_diff_pairs).mean()
+    return cast(torch.Tensor, F.softplus(-score_diff_pairs).mean())
 
 
 def ranknet_pairwise_loss_precomputed(

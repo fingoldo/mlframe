@@ -112,7 +112,7 @@ class Lookahead(Optimizer):
         """Forward a param_groups assignment to the wrapped optimizer."""
         self.base_optimizer.param_groups = value
 
-    @property
+    @property  # type: ignore[override]  # Lookahead wraps base_optimizer and intentionally delegates state as a property
     def state(self) -> dict:
         """Delegate to ``base_optimizer.state`` (Lookahead keeps its own slow-weight state separately in ``_slow_weights``, not here)."""
         return self.base_optimizer.state
@@ -120,7 +120,7 @@ class Lookahead(Optimizer):
     @state.setter
     def state(self, value: dict) -> None:
         """Forward a state assignment to the wrapped optimizer."""
-        self.base_optimizer.state = value
+        self.base_optimizer.state = value  # type: ignore[assignment]  # torch's Optimizer.state stub is narrower (defaultdict[Tensor, Any]) than the plain dict this setter accepts
 
     def add_param_group(self, param_group: dict) -> None:
         """F-C fix (2026-05-31, audit follow-up): when a new param group

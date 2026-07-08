@@ -30,7 +30,7 @@ def compute_apriori_itemsets_features(
     """
     # numpy>=2.0 removed in1d; mlxtend still uses it. Monkey-patch before import.
     if not hasattr(np, "in1d"):
-        np.in1d = np.isin
+        np.in1d = np.isin  # type: ignore[attr-defined]
     try:
         import mlxtend
         from mlxtend.frequent_patterns import fpgrowth

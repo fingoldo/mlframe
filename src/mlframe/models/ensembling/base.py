@@ -220,7 +220,7 @@ def _stacked_corrcoef(M: np.ndarray) -> np.ndarray:
         except Exception as e:  # pragma: no cover -- defensive
             logger.debug("swallowed exception in base.py: %s", e)
             pass
-    return np.corrcoef(M)
+    return np.asarray(np.corrcoef(M))
 
 
 # Rank-fusion methods are NOT moment-based (RRF / Borda operate on rank

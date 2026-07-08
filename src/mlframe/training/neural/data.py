@@ -605,8 +605,8 @@ class TorchDataModule(LightningDataModule):
 
         if isinstance(features, (pd.DataFrame, np.ndarray)):
             return int(features.shape[1])
-        elif torch.is_tensor(features):
-            return features.shape[1]
+        elif isinstance(features, torch.Tensor):
+            return int(features.shape[1])
         else:
             raise TypeError(f"Cannot determine feature dimension from type: {type(features)}")
 
