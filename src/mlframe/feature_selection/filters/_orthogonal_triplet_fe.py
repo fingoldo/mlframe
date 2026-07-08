@@ -278,6 +278,7 @@ def score_triplet_cross_basis_by_mi_uplift(
         raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins)
         raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
         eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
+    assert raw_mi_map is not None  # set by either the device-born path or the host fallback above
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
         # parse "{col_i}*{col_j}*{col_k}__..."
