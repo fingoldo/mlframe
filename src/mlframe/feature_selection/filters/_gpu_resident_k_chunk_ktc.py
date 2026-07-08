@@ -100,7 +100,7 @@ def _run_gpu_k_chunk_sweep() -> list:
     variants = {
         f"frac_{f}": (lambda a, b, y, _f=f: gpu_resident_pair_candidate_mi_vram_fraction(a, b, y, vram_fraction=_f)[1]) for f in _GPU_K_CHUNK_VRAM_FRACTIONS
     }
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants,
         {"n_samples": _GPU_K_CHUNK_SWEEP_N_SAMPLES},
         _make_gpu_k_chunk_inputs,
