@@ -109,8 +109,8 @@ def _fe_gpu_discretize_enabled(n_rows: int, n_cands: int) -> bool:
     except Exception:  # nosec B110 - optional dependency import guard
         pass
     try:  # auto: per-host crossover from kernel_tuning_cache (measurement-backed fallback)
-        from .._gpu_resident_fe import fe_gpu_pairs_mi_backend_choice
-        return fe_gpu_pairs_mi_backend_choice(int(n_rows), int(n_cands)) == "gpu"
+        from .._gpu_resident_fe import fe_gpu_pairs_mi_backend_choice  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+        return bool(fe_gpu_pairs_mi_backend_choice(int(n_rows), int(n_cands)) == "gpu")
     except Exception:
         return False
 
@@ -152,8 +152,8 @@ def _fe_gpu_binning_enabled(n_rows: int, n_cands: int) -> bool:
     except Exception:  # nosec B110 - optional dependency import guard
         pass
     try:  # auto: per-host binning crossover from kernel_tuning_cache (measurement-backed fallback)
-        from .._gpu_resident_fe import fe_gpu_binning_backend_choice
-        return fe_gpu_binning_backend_choice(int(n_rows), int(n_cands)) == "gpu"
+        from .._gpu_resident_fe import fe_gpu_binning_backend_choice  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+        return bool(fe_gpu_binning_backend_choice(int(n_rows), int(n_cands)) == "gpu")
     except Exception:
         return False
 
@@ -810,7 +810,7 @@ def check_prospective_fe_pairs(
     # the GPU-clock variance between runs. Re-evaluate only if a workload makes this gate hot.
     def _operand_marginal_mi(_var) -> float:
         if _var in _operand_marginal_mi_cache:
-            return _operand_marginal_mi_cache[_var]
+            return float(_operand_marginal_mi_cache[_var])
         _mi_val = 0.0
         _idx = vars_transformations.get((_var, "identity"))
         if _idx is not None:
@@ -821,7 +821,7 @@ def check_prospective_fe_pairs(
                 )
                 _m, _ = mi_direct(
                     _disc.reshape(-1, 1),
-                    x=np.array([0], dtype=np.int64), y=None,
+                    x=np.array([0], dtype=np.int64), y=None,  # type: ignore[arg-type]  # mi_direct (permutation.py, sibling-owned) accepts this call shape at runtime; its x/y annotation (tuple) is stricter than actual usage
                     factors_nbins=np.array([quantization_nbins], dtype=np.int64),
                     classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y,
                     min_nonzero_confidence=fe_min_nonzero_confidence, npermutations=fe_npermutations,
@@ -976,7 +976,7 @@ def check_prospective_fe_pairs(
                 import cupy as _pl_cp
                 from concurrent.futures import ThreadPoolExecutor
                 _chunk_buffer2 = np.empty_like(_chunk_buffer)
-                from .._gpu_resident_fe import _resident_operand_table
+                from .._gpu_resident_fe import _resident_operand_table  # type: ignore[attr-defined]  # dynamically re-exported via globals()
                 _resident_operand_table(_pl_cp, transformed_vars)   # pre-warm: both threads then only read
                 _chunk_state["pipeline_buffers"] = [_chunk_buffer, _chunk_buffer2]
                 _chunk_state["pipeline_ex"] = ThreadPoolExecutor(max_workers=1)
