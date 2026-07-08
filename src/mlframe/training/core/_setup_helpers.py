@@ -201,7 +201,7 @@ def _ensure_config(
 
     Dict path is STRICT: a user-supplied config dict that carries a key which
     is neither a declared field nor a whitelisted ``_known_extras`` pass-through
-    raises ``ValueError`` so typos (``iteratoins=100``) fail loud instead of
+    raises ``ValueError`` so typos (``iterations=100``) fail loud instead of
     being silently absorbed by ``extra="allow"``. The None path keeps filtering
     the ambient kwargs to declared fields (those kwargs are the suite's own
     superset, not a user-typed dict, so unknown ones are expected and dropped).

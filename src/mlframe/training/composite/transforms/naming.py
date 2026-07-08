@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 # adding a new transform never silently breaks naming.
 TRANSFORM_NAME_SHORT: dict[str, str] = {
     "diff": "diff",
-    "additive_residual": "addres",
+    "additive_residual": "address",
     "median_residual": "medres",
     "y_quantile_clip": "yqclip",
     "ratio": "ratio",

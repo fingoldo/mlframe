@@ -694,7 +694,7 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # specs (diff / additive_residual / linear_residual* / poly2 -- inverse y = T_hat + s*base) whose
     # base variance is dominated by BETWEEN-group (well) level differences, because such a base takes
     # out-of-range values on unseen groups and the additive inverse re-injects them. Catches the
-    # val-passes-but-test-collapses case the single val sample can miss (addres/diff on a per-well
+    # val-passes-but-test-collapses case the single val sample can miss (address/diff on a per-well
     # aggregate). Reject when between_var/total_var > frac AND s*between_group_std > ratio*std(y).
     # Default ON; group-aware only (no-op without group ids). 1.0 thresholds effectively disable.
     structural_fragility_gate_enabled: bool = True

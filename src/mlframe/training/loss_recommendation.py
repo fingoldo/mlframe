@@ -9,7 +9,7 @@ The fix is policy: when the target distribution moments indicate Laplace / Stude
 
 Wiring: callers thread the returned per-backend loss name into the model factory's ``common_params`` / ``loss_function`` / ``objective`` argument BEFORE building the estimator. The recommended call site is ``_phase_train_one_target`` just after the per-target ``y_train`` is materialised; the recommendation is a one-shot O(n) compute on the target array. Composite-target paths feed the residual T directly (``y_T = transform.forward(y, base)``) so the loss matches the actual distribution the inner sees.
 
-Thresholds. The cutoffs come from the empirical excess-kurtosis ladder verified in ``regression_residual_audit.py`` and 2026-05-26 production observation on a +42.67-kurt addres composite:
+Thresholds. The cutoffs come from the empirical excess-kurtosis ladder verified in ``regression_residual_audit.py`` and 2026-05-26 production observation on a +42.67-kurt address composite:
 - ``excess_kurt < 1.5`` -> near-Gaussian, keep RMSE (default).
 - ``excess_kurt in [1.5, 20]`` -> heavy tails (Laplace, Student-t,
   contaminated). Huber where supported (LightGBM ``huber``, CatBoost

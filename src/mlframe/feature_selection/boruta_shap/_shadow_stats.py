@@ -185,7 +185,7 @@ def calculate_Zscore(array):
 
 def feature_importance(self, normalize):
     """
-    Caculates the feature importances scores of the model
+    Calculates the feature importances scores of the model
 
     Parameters
     ----------
@@ -260,7 +260,7 @@ def feature_importance(self, normalize):
 
 def isolation_forest(X):
     """
-    fits isloation forest to the dataset and gives an anomally score to every sample
+    fits isolation forest to the dataset and gives an anomaly score to every sample
     """
     clf = IsolationForest().fit(X)
     preds = clf.score_samples(X)
@@ -282,8 +282,8 @@ def get_5_percent_splits(self, length):
 
 def find_sample(self):
     """
-    Finds a sample by comparing the distributions of the anomally scores between the sample and the original
-    distribution using the KS-test. Starts of a 5% howver will increase to 10% and then 15% etc. if a significant sample can not be found
+    Finds a sample by comparing the distributions of the anomaly scores between the sample and the original
+    distribution using the KS-test. Starts of a 5% however will increase to 10% and then 15% etc. if a significant sample can not be found
     """
     iteration = 0
     size = self.get_5_percent_splits(self.X.shape[0])
@@ -346,7 +346,7 @@ def bonferoni_corrections(pvals, alpha=0.05, n_tests=None):
 def test_features(self, iteration):
     """
     For each feature with an undetermined importance perform a two-sided test of equality
-    with the maximum shadow value to determine if it is statistcally better
+    with the maximum shadow value to determine if it is statistically better
 
     Parameters
     ----------
@@ -390,7 +390,7 @@ def test_features(self, iteration):
 
     modified_regect_p_values = self.bonferoni_corrections(regect_p_values, alpha=0.05, n_tests=_n_tests)[1]
 
-    # Take the inverse as we want true to keep featrues
+    # Take the inverse as we want true to keep features
     rejected_columns = np.array(modified_regect_p_values) < self.pvalue
     accepted_columns = np.array(modified_acceptance_p_values) < self.pvalue
 

@@ -147,7 +147,7 @@ class MultiHeadAttention(nn.Module):
         self.qk_head_dim = qk_out_dim // heads
         self.v_head_dim = v_out_dim // heads
 
-        self.qeury = nn.Linear(q_dim, qk_out_dim)
+        self.query = nn.Linear(q_dim, qk_out_dim)
         self.key = nn.Linear(kv_dim, qk_out_dim)
         self.value = nn.Linear(kv_dim, v_out_dim)
 
@@ -159,7 +159,7 @@ class MultiHeadAttention(nn.Module):
         batch = x_q.shape[0]
         query_len, key_len, value_len = x_q.shape[1], x_k.shape[1], x_v.shape[1]
 
-        queries = self.qeury(x_q)
+        queries = self.query(x_q)
         keys = self.key(x_k)
         values = self.value(x_v)
 

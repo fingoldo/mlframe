@@ -88,7 +88,7 @@ def arrayCountingSort(array, maxval):
     m = maxval + 1
     count = np.zeros(m, np.int32)
     for a in array:
-        count[a] += 1  # count occurences
+        count[a] += 1  # count occurrences
     i = 0
     for a in range(m):  # emit
         for c in range(count[a]):  # - emit 'count[a]' copies of 'a'

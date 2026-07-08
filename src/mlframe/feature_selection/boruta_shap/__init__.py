@@ -158,7 +158,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         Parameters
         ----------
         model: Model Object
-            If no model specified then a base Random Forest will be returned otherwise the specifed model will
+            If no model specified then a base Random Forest will be returned otherwise the specified model will
             be returned.
 
         importance_measure: String
@@ -179,7 +179,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         p_value: float
             A float used as a significance level again if the p-value is increased the algorithm will be more lenient making it smaller
-            would make it more strict also by making the model more strict could impact runtime making it slower. As it will be less likley
+            would make it more strict also by making the model more strict could impact runtime making it slower. As it will be less likely
             to reject and accept features.
 
         early_stop_tentative: bool (default False)
@@ -481,7 +481,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         """
         if self.stratify is not None and not self.classification:
-            raise ValueError("Cannot take a strtified sample from continuos variable please bucket the variable and try again !")
+            raise ValueError("Cannot take a strtified sample from continuous variable please bucket the variable and try again !")
 
         # Read the RESOLVED working copy (``_train_or_test_``), not the verbatim param: 'auto' importance may
         # pin it to 'test' for held-out permutation without mutating the clone-able constructor arg. Falls back

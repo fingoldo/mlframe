@@ -226,7 +226,7 @@ class BaseConfig(BaseModel):
     Uses ``extra="allow"`` so user-supplied kwargs flow through to downstream
     callees (e.g. ``hyperparams_config={"mae_weight": 1.0}`` is not declared
     on ``ModelHyperparamsConfig`` but is consumed by ``get_training_configs``
-    via ``**config_params``). Downside: typos like ``iteratoins=100`` get
+    via ``**config_params``). Downside: typos like ``iterations=100`` get
     silently absorbed. The ``_warn_on_unknown_extras`` validator below issues
     a WARNING so typos are noticed (unless a subclass sets the
     ``_known_extras`` class attribute to list the legitimate extras).
@@ -250,7 +250,7 @@ class BaseConfig(BaseModel):
     def _warn_on_unknown_extras(self) -> "BaseConfig":
         """Log a WARNING for each extra field that is not a known pass-through.
 
-        Catches the common typo class (``iteratoins`` for ``iterations``,
+        Catches the common typo class (``iterations`` for ``iterations``,
         ``prefer_calibrated_classifer`` missing an ``i``, etc.) that
         ``extra="allow"`` otherwise swallows without feedback.
         """

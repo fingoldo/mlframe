@@ -433,8 +433,8 @@ def robust_mlperf_metric(
     min_group_size: int = 100,
     ddof: int = 1,
 ) -> float:
-    """Bins idices need to be aware of arr sizes: boostings can call the metric on
-    multiple sets of differnt lengths - train, val, etc. Arrays will be pure numpy, so no other means to
+    """Bins indices need to be aware of arr sizes: boostings can call the metric on
+    multiple sets of different lengths - train, val, etc. Arrays will be pure numpy, so no other means to
     distinguish except the arr size.
 
     The dispersion penalty uses the Bessel-corrected sample std (``ddof=1`` default) over the per-subgroup metrics, matching ``compute_fairness_metrics``: ddof=0

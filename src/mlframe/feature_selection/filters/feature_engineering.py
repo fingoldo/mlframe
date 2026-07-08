@@ -685,7 +685,7 @@ def _resolve_preset(preset: str | None) -> str:
     well-defined registry. ``None`` (and the empty string) mean "use the
     default tier" and resolve to ``medium`` -- callers pass ``None`` to opt
     into the standard preset without naming it. Any other value raises
-    ValueError so a typo (``mininal``) surfaces loudly rather than silently
+    ValueError so a typo (``minimal``) surfaces loudly rather than silently
     aliasing to ``medium``.
     """
     if preset is None:

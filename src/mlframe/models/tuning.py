@@ -536,7 +536,7 @@ class ParamsOptimizer:
 
             trials, cat_features = prepare_trials_dataset(experiment_name=experiment_name, objective_name=objective_name)
 
-            # if we have too few samples yet, return random, but favor yet unexplored invididual cat values
+            # if we have too few samples yet, return random, but favor yet unexplored individual cat values
 
             if len(trials) == 0:
                 return get_n_cands(n)
@@ -774,7 +774,7 @@ class CatboostParamsOptimizer(ParamsOptimizer):
                 "conditions": [GPU_ENABLED],
                 "fields": ["sampling_frequency"],
             },  # Error: change of option sampling_frequency is unimplemented for task type GPU and was not default in previous run
-            {"conditions": [{"bootstrap_type": "No"}], "fields": ["subsample"]},  # Error: you shoudn't provide bootstrap options if bootstrap is disabled
+            {"conditions": [{"bootstrap_type": "No"}], "fields": ["subsample"]},  # Error: you shouldn't provide bootstrap options if bootstrap is disabled
             {"conditions": [{"bootstrap_type": "Bayesian"}], "fields": ["subsample"]},  # Error: bayesian bootstrap doesn't support taken fraction option
             {
                 "conditions": [GPU_ENABLED],

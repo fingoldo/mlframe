@@ -1,7 +1,7 @@
 """Measured proof that an MRMR gain-ratio leak audit CANNOT separate a partial look-ahead leak from a strong legit feature.
 
 The "layer-17 gain-ratio audit" (top-leak gain / top-legit gain >= 2x) detects a DIRECT corr~1 leak that dominates every legit
-feature. The open question was whether the same gain-ratio idea, retuned, could flag a PARTIAL look-ahead leak (lead1 = s_{t+1}
+feature. The open question was whether the same gain-ratio idea, returned, could flag a PARTIAL look-ahead leak (lead1 = s_{t+1}
 in an AR(1) series, corr~0.7 to y, tying lag1 by AR symmetry). This bench answers it: NO, and the reason is structural, not a
 threshold-calibration miss.
 

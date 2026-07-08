@@ -498,7 +498,7 @@ def soft_winsorize(
     becomes upper_clipping_threshold+rel_upper_limit.
 
     >>arr = np.array([1,2,156,3,4,5,150,],dtype="float32")
-    >>soft_winsorize(arr, 2, 0.2, 140, 5, distribution="quantile") # everything above 140 will be distributed between 140 and 145 (+5 is relative), and under 2 betwee 1.8 and 2 (0.2 is relative)
+    >>soft_winsorize(arr, 2, 0.2, 140, 5, distribution="quantile") # everything above 140 will be distributed between 140 and 145 (+5 is relative), and under 2 between 1.8 and 2 (0.2 is relative)
     >>arr
     array([  1.8,   2. , 145. ,   3. ,   4. ,   5. , 142.5], dtype=float32)
 

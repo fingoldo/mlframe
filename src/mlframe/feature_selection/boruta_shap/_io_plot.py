@@ -19,8 +19,8 @@ def results_to_csv(self, filename="feature_importance"):
 
     Parameters
     ----------
-    filname : string
-        used as the name for the outputed file.
+    filename : string
+        used as the name for the outputted file.
 
     Returns
     -------

@@ -308,7 +308,7 @@ def fit(self, X, y):
         used if Sample==True.
 
     train_or_test: string
-        Decides whether the feature importance should be calculated on out of sample data see the dicussion here.
+        Decides whether the feature importance should be calculated on out of sample data see the discussion here.
         https://compstat-lmu.github.io/iml_methods_limitations/pfi-data.html#introduction-to-test-vs.training-data
 
     normalize: boolean
@@ -606,7 +606,7 @@ def explain(self):
     # with ``IndexError: tuple index out of range``.
     _y_multi = hasattr(self.y, "shape") and getattr(self.y, "ndim", 1) >= 2 and self.y.shape[1] > 1
     if self.classification or _y_multi:
-        # for some reason shap returns values wraped in a list of length 1
+        # for some reason shap returns values wrapped in a list of length 1
         # Wave 29 P1 fix (2026-05-20): pre-fix wrapped the raw return
         # in ``np.array(...)`` BEFORE the ``isinstance(..., list)``
         # check, which made the list branch unreachable on modern

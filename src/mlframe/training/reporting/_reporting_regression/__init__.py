@@ -406,7 +406,7 @@ def report_regression_model_perf(
         # gate was a ``"MTRESID="`` substring check that missed the
         # ``MTRESID/MRTS=...`` combined-label form and let a misleading
         # T-scale chart (R^2 = -44M observed in prod on a heavy-kurt
-        # addres composite) render. Token-name fallback retained so a
+        # address composite) render. Token-name fallback retained so a
         # caller emitting the MTRESID tag with a non-canonical target
         # column (custom user composite) still hits the skip path.
         # Override via env MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=1.

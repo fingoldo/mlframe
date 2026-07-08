@@ -47,7 +47,7 @@ def _generate_probs_from_outcomes_kernel(
     l = 0  # left border
     for idx in range(n // chunk_size):  # traverse randomly selected chunks/subsets of original data
         r = (idx + 1) * chunk_size  # right border
-        freq = outcomes[l:r].mean()  # find real event occuring frequency in current chunk of observation
+        freq = outcomes[l:r].mean()  # find real event occurring frequency in current chunk of observation
 
         # add pregenerated offset for particular bin. Clamp bin_idx to nbins-1 so that
         # freq==1.0 (int(1.0*nbins) == nbins) does not index out of bounds.

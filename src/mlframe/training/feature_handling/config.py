@@ -375,7 +375,7 @@ class FeatureHandlingConfig(BaseConfig):
         construction (the suite plumbs the parent's ``cache.dir`` into
         every handler); a child that names a *different* directory,
         namespace, or dataset_id is almost always a copy-paste bug
-        (e.g. ``cache=CacheConfig(dir='/A')`` then per-target accidently
+        (e.g. ``cache=CacheConfig(dir='/A')`` then per-target accidentally
         ``cache=CacheConfig(dir='/B')``). The two children then write
         to different disk caches without coordination, so a "cache
         hit" against the wrong directory replays stale state into the

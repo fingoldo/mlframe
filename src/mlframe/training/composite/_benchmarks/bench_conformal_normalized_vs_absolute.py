@@ -100,13 +100,13 @@ def run(alpha=0.1, n_cal=2000, n_eval=4000, seeds=(0, 1, 2, 3, 4)):
         for seed in seeds:
             rng = np.random.default_rng(1000 * seed + hash(sc) % 997)
             xc, yhc, yc = _make_scenario(sc, n_cal, rng)
-            xe, yhe, ye = _make_scenario(sc, n_eval, rng)
+            xe, the, ye = _make_scenario(sc, n_eval, rng)
             res_c = yc - yhc
             abs_c = np.abs(res_c)
 
             # --- ABSOLUTE (current default) ---
             q_abs = conformal_quantile(res_c, alpha)
-            lo_a, hi_a = yhe - q_abs, yhe + q_abs
+            lo_a, hi_a = the - q_abs, the + q_abs
             cov_a = (ye >= lo_a) & (ye <= hi_a)
             marg_a = cov_a.mean()
             width_a = float(np.mean(hi_a - lo_a))
@@ -114,9 +114,9 @@ def run(alpha=0.1, n_cal=2000, n_eval=4000, seeds=(0, 1, 2, 3, 4)):
             condgap_a = max(abs(g - target) for g in gaps_a)
 
             # --- NORMALIZED (challenger) ---
-            sig_c, sig_e = _sigma_hat_from_residuals(yhc, abs_c, yhe)
+            sig_c, sig_e = _sigma_hat_from_residuals(yhc, abs_c, the)
             q_norm = conformal_quantile(res_c / sig_c, alpha)
-            lo_n, hi_n = yhe - q_norm * sig_e, yhe + q_norm * sig_e
+            lo_n, hi_n = the - q_norm * sig_e, the + q_norm * sig_e
             cov_n = (ye >= lo_n) & (ye <= hi_n)
             marg_n = cov_n.mean()
             width_n = float(np.mean(hi_n - lo_n))

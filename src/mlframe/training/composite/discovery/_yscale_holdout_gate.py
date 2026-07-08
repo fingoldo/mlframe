@@ -138,7 +138,7 @@ def apply_structural_fragility_gate(
     well's base takes values OUTSIDE the train range; the tree's ``T_hat`` is clamped to the train
     range while ``s*base`` extrapolates, so ``y_hat`` blows past the envelope. The val-split gate
     catches most of these, but val is only ONE sample of unseen wells -- a base that extrapolates
-    harder on TEST than on VAL slips through (observed: addres/diff on ``expected_tvt_in_layer_p50``
+    harder on TEST than on VAL slips through (observed: address/diff on ``expected_tvt_in_layer_p50``
     passed val at y-RMSE~14 yet collapsed to R^2=-333 on test).
 
     This gate detects the risk from TRAIN ALONE: a base whose variance is dominated by BETWEEN-group

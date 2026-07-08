@@ -422,8 +422,8 @@ def _quantile_reliability_panel(y_true, preds_NK, alphas) -> PanelSpec:
         q_k = P[:, k]
         indicator = (y <= q_k).astype(np.float64)
         grid = np.quantile(q_k, quantile_grid)
-        recal = _isotonic_recalibrated_coverage(q_k, indicator, grid)
-        curves.append(recal)
+        recall = _isotonic_recalibrated_coverage(q_k, indicator, grid)
+        curves.append(recall)
         nominal.append(np.full(_RELIABILITY_GRID, float(a_arr[k])))
         labels.append(f"tau={a_arr[k]:g} (obs)")
         styles.append("lines+markers")

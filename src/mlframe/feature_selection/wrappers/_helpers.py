@@ -61,8 +61,8 @@ def _pin_threads_to_one(estimator: object) -> None:
 
 
 def suppress_irritating_3rdparty_warnings() -> None:
-    # "optimze" typo is verbatim from catboost's _catboost.pyx _jit_common_checks(); do not "fix" it or the filter stops matching.
-    for message in [r"Can't optimze method \"evaluate\" because self argument is used"]:
+    # "optimize" typo is verbatim from catboost's _catboost.pyx _jit_common_checks(); do not "fix" it or the filter stops matching.
+    for message in [r"Can't optimize method \"evaluate\" because self argument is used"]:
         warnings.filterwarnings("ignore", category=UserWarning, message=message)
 
 

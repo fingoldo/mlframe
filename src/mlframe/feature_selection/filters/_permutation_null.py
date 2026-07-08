@@ -46,7 +46,7 @@ def _default_pair_maxt_max_rows() -> int:
     """HALF the unified screen subsample (``UNIFIED_FE_SUBSAMPLE_N`` // 2 = 15000 at the 30k default).
 
     Derived from the ONE screen-subsample constant rather than a standalone literal, so the two stay in lockstep
-    if the unified default is retuned. The maxT floor is a COARSE q=0.95-quantile of the per-shuffle MAX joint-MI,
+    if the unified default is returned. The maxT floor is a COARSE q=0.95-quantile of the per-shuffle MAX joint-MI,
     dominated by the finite-sample plug-in bias ~ (k-1)(ky-1)/2n, so half the rows the relevance screen uses give a
     selection-identical floor at ~1.8x (bench IDENTICAL at cap>=10k; 5k was too aggressive). Lazy import avoids a
     circular dep; 30000 is the bootstrap fallback matching feature_engineering.UNIFIED_FE_SUBSAMPLE_N."""

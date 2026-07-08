@@ -80,7 +80,7 @@ def get_fqn(params_pipe: dict, sep: str = ":", hide_keys: tuple = ("models", "wr
 
 
 def agg_pipeline_metric(cv_results, metric: str = "root_mean_squared_error", func=np.nanmean) -> float:
-    """Average some pipleine & dataset's over all estimators, to compare pipelines.
+    """Average some pipeline & dataset's over all estimators, to compare pipelines.
     Allows to quickly find out what faetureset or pipeline is superior.
     """
     res = []

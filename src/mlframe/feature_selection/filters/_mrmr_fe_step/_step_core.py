@@ -297,7 +297,7 @@ def _run_fe_step(
         verbose=verbose,
     )
     # ---------------------------------------------------------------------------------------------------------------
-    # For every pair of factors (A,B), select ones having MI((A,B),Y)>MI(A,Y)+MI(B,Y). Such ones must posess more special connection!
+    # For every pair of factors (A,B), select ones having MI((A,B),Y)>MI(A,Y)+MI(B,Y). Such ones must possess more special connection!
     # ---------------------------------------------------------------------------------------------------------------
 
     # Per-pair joint-MI uplift + order-2 maxT scoring of the candidate pairs (carved 2026-06-22 to

@@ -275,7 +275,7 @@ def evaluate_gain(
 
             if k > last_checked_k:
                 if confidence_mode and count_cand_nbins(Z, factors_nbins) > max_confirmation_cand_nbins:
-                    additional_knowledge = 0.0  # this is needed to skip checking agains hi cardinality approved factors
+                    additional_knowledge = 0.0  # this is needed to skip checking against hi cardinality approved factors
                 else:
                     if mrmr_relevance_algo == "fleuret":
                         # additional_knowledge = I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z); I(X, Z) = entropy_x + entropy_z - entropy_xz.

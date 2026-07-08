@@ -485,6 +485,19 @@ show_missing = true
 skips = ["B101"]
 
 # ---------------------------------------------------------------------------
+# Codespell
+# ---------------------------------------------------------------------------
+[tool.codespell]
+# Every entry below is a confirmed false positive from the 2026-07-08 sweep: a domain
+# abbreviation (MIs=mutual informations, ALS=alternating least squares, MAPE/mape=mean
+# absolute percentage error, LAMA/lama=LightAutoML, ACI=adaptive conformal inference,
+# COO=coordinate sparse format, ttest/disjointness/unparseable=valid English), or a
+# short substring codespell matched inside a longer identifier/comment fragment
+# (strat/ser/clen/fo/anc/mis/numer/sav/bu/ans/ot/qest/OLL), or a hyphenated spelling
+# choice that is not a typo (re-use/re-used/re-using/re-uses).
+ignore-words-list = "nd,hist,te,ith,ba,thi,fpr,tre,strat,ser,clen,fo,anc,mis,als,mis,mape,lama,aci,coo,oll,ot,qest,ttest,disjointness,unparseable,numer,sav,bu,ans,re-use,re-used,re-using,re-uses,compilability,accreting,lightening"
+
+# ---------------------------------------------------------------------------
 # Deptry (unused / missing / transitive dependency scan). NOT wired into CI yet -- a local
 # `uvx deptry .` dry run (2026-07-08) produced ~37k DEP001 findings, almost entirely PyPI-name
 # vs. import-name mismatches (e.g. scikit-learn -> sklearn) deptry needs an explicit

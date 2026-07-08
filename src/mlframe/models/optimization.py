@@ -410,7 +410,7 @@ class MBHOptimizer:
 
     def suggest_candidate(self):
         """Get next most promising candidate. Keeps a buffer of suggested, but not yet evaluated candidates, to avoid recommending them again.
-        We only need a method to get one suggestion at time: in absense of new evaluations, no model retraining is needed, and response should be fast.
+        We only need a method to get one suggestion at time: in absence of new evaluations, no model retraining is needed, and response should be fast.
         """
 
         eval_start_time = timer()
@@ -561,7 +561,7 @@ class MBHOptimizer:
 
                 if self.mode == "exploration":
 
-                    # pick the point with higest std and most distant from already known points
+                    # pick the point with highest std and most distant from already known points
                     expected_fitness = y_std + distances
                     self.additional_info = ""
 

@@ -15,7 +15,7 @@ VERDICT (qual-21, n=600, 7 seeds, 2 scenarios -> tests/perf/results/mi_correctio
   AGGREGATE 3/14 seed-scenario metric cells -- far below majority. Selection BIT-IDENTICAL on every cell.
 Root cause (confirmed, not hypothesised): the default ``nbins_strategy='mdlp'`` (supervised discretization) collapses pure-noise high-cardinality columns to 1-2 occupied
 bins, so ``k_x<=1`` and the Miller-Madow bias term ``(k_x-1)(k_y-1)/(2n)`` is already ~0; AND the default permutation null-debias screen subtracts the EMPIRICAL plug-in
-bias non-parametrically (the MM bias term is constant across y-permutations -> cancels in ``observed - null_mean``). Both production defaults pre-empt exactly the
+bias non-parametrically (the MM bias term is constant across y-permutations -> cancels in ``observed - null_mean``). Both production defaults preempt exactly the
 small-sample plug-in inflation MM targets. The kernel-level correction is REAL (a 60-level noise feature vs binary y: plug-in MI 0.088 -> MM 0.015, 0.074 nats removed,
 pinned in test_biz_val_filters_mrmr_mi_correction.py) but does not survive end-to-end on the production path. Kept as an OPT-IN (``mi_correction='miller_madow'``) for the
 legacy fixed-bin / no-permutation-screen regime where it is the only bias defense.

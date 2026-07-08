@@ -348,7 +348,7 @@ def compute_numerical_aggregates_numba(
             minimum,
             maximum,
         )
-    )  # cant combine with the next statement as it's failing on interger inputs due to tuple dtypes mismatch
+    )  # can't combine with the next statement as it's failing on integer inputs due to tuple dtypes mismatch
     res.extend(
         (
             arithmetic_mean / first if first else LARGE_CONST * np.sign(arithmetic_mean),

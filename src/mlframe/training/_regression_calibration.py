@@ -89,7 +89,7 @@ def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 def recalibration_rmse_gain(
-    recal: PointRecalibrator,
+    recall: PointRecalibrator,
     y_pred_test: np.ndarray,
     y_true_test: np.ndarray,
 ) -> float:
@@ -99,7 +99,7 @@ def recalibration_rmse_gain(
     identity). This is the gate that decides whether to apply ``g``, never assume it helps.
     """
     raw = _rmse(y_true_test, y_pred_test)
-    recalibrated = _rmse(y_true_test, recal.transform(y_pred_test))
+    recalibrated = _rmse(y_true_test, recall.transform(y_pred_test))
     return raw - recalibrated
 
 

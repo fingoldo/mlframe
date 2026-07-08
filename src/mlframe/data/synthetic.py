@@ -154,7 +154,7 @@ def generate_modelling_data(
     Creates a synthetic dataset with random inputs (sampled from randomly chosen distributions with random parameters).
     Target is nclasses classification. It can be defined:
         1) by calculating some formula over a set of cont and cat predictors
-        final range of that virual variables is split into nclasses parts. Some target_noise% can be added.
+        final range of that virtual variables is split into nclasses parts. Some target_noise% can be added.
 
         2) by using some predictors (up to nclasses) DIRECTLY as generative probs.
 

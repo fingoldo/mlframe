@@ -224,10 +224,11 @@ jobs:
 
       # Advisory: prose typo scan. This codebase carries an unusually large volume of
       # long inline rationale comments (CLAUDE.md's 160-char-comment convention) --
-      # real hit-surface for genuine typos. codespell-ignore-words-list below seeds
-      # legitimate ML/numeric jargon that would otherwise false-positive.
+      # real hit-surface for genuine typos. [tool.codespell] in pyproject.toml is the
+      # single source of truth for the ignore-words-list (legitimate ML/numeric jargon
+      # and identifier-fragment false positives that would otherwise flag).
       - name: Codespell (advisory)
-        run: uvx codespell src/mlframe --ignore-words-list=nd,hist,te,ith,ba,thi,fpr,tre
+        run: uvx codespell --toml pyproject.toml src/mlframe
         continue-on-error: true
 
       # deptry NOT wired in as a CI step yet: a local dry run against [tool.deptry] below
