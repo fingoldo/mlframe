@@ -105,16 +105,17 @@ def _conditional_perm_null(
     except Exception:
         cand_dev = None
 
+    _host_x_cache: list = [None]
+
     def _host_x():
         # D2H the resident code once (cached on the closure via the list cell) or contiguous-cast a host input.
-        if _host_x._v is None:
+        if _host_x_cache[0] is None:
             if cand_dev is not None:
                 import cupy as _cp2
-                _host_x._v = np.ascontiguousarray(_cp2.asnumpy(cand_dev), dtype=np.int64).ravel()
+                _host_x_cache[0] = np.ascontiguousarray(_cp2.asnumpy(cand_dev), dtype=np.int64).ravel()
             else:
-                _host_x._v = np.ascontiguousarray(cand_bin, dtype=np.int64).ravel()
-        return _host_x._v
-    _host_x._v = None
+                _host_x_cache[0] = np.ascontiguousarray(cand_bin, dtype=np.int64).ravel()
+        return _host_x_cache[0]
 
     y = np.ascontiguousarray(y_bin, dtype=np.int64).ravel()
 
@@ -180,6 +181,7 @@ def _conditional_perm_null(
                     if _z is None and z_support_dev is not None:
                         import cupy as _cp
                         _z = np.ascontiguousarray(_cp.asnumpy(z_support_dev), dtype=np.int64).ravel()
+                    assert _z is not None  # the enclosing else-branch condition guarantees z_support or z_support_dev is present
                     _xh = _host_x()
                     xz, _ = _renumber_joint(_xh, _z)
                     yz, _ = _renumber_joint(y, _z)
@@ -272,7 +274,7 @@ def _conditional_perm_null(
                     Xp[:, i] = _xh[rng.permutation(_xh.size)]
                 # null CMI vector reduced on-device -> stays resident, one D2H for (floor, mean)
                 nulls_dev = batched_cmi_gpu(Xp, y, None, return_device=True)
-                return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
+                return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)  # type: ignore[no-any-return]  # helper returns a (floor, mean) float tuple
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                 logger.debug("suppressed in _fe_cmi_redundancy_null.py:276: %s", e)
                 pass
@@ -395,7 +397,7 @@ def _conditional_perm_null(
             Xp_d[order_d, :] = x_sorted_d[within]  # xp[order] = x_sorted[within], per perm
             from ._fe_cmi_perm_null_gpu import _floor_mean_from_nulls_dev
             nulls_dev = batched_cmi_gpu(Xp_d, y_i, z_i, return_device=True)   # stays resident
-            return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
+            return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)  # type: ignore[no-any-return]  # helper returns a (floor, mean) float tuple
         except Exception:  # nosec B110 - optional/best-effort path, rationale documented
             pass  # any cupy error -> exact per-perm CPU loop below
     _xh = _host_x()
