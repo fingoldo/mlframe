@@ -32,6 +32,7 @@ def evaluate_tta_quality(
     spread = np.asarray(spread_a, dtype=np.float64).reshape(-1)
 
     def _rmse(a):
+        """RMSE of predictions ``a`` against the closed-over target ``yv``, computed only over finite-valued pairs; returns NaN if none are finite."""
         d = a - yv
         m = np.isfinite(d)
         return float(np.sqrt(np.mean(d[m] ** 2))) if m.any() else float("nan")

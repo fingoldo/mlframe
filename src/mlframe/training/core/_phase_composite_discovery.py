@@ -512,6 +512,8 @@ def run_composite_target_discovery(
                     _cached_specs = []
 
                 class _CacheReplay:
+                    """Minimal duck-typed stand-in for ``CompositeTargetDiscovery`` exposing only the cached ``specs_`` attribute, used to replay a prior run's composite-target specs without re-running discovery."""
+
                     specs_ = _cached_specs
 
                 _disc: Any = _CacheReplay()

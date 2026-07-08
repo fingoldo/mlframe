@@ -180,6 +180,7 @@ class CompositeDistributionEstimator(BaseEstimator, RegressorMixin):
         return self
 
     def _check_fitted(self) -> None:
+        """Raise sklearn's ``NotFittedError`` if ``fit`` has not run yet, gating every predict-time method behind a consistent contract."""
         if not hasattr(self, "quantile_estimator_"):
             from sklearn.exceptions import NotFittedError
 

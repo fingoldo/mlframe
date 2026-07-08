@@ -232,6 +232,7 @@ def streaming_alpha_check_and_refit(
     base_f = np.asarray(base_buffer, dtype=np.float64).reshape(-1)
 
     def _too_small() -> tuple[float, float, dict[str, Any]]:
+        """No-refit early return when the streaming buffer is below the minimum-fit size: keeps the current (alpha, beta) and reports diagnostics with NaN stats and ``reason="buffer_too_small"``."""
         return current_alpha, current_beta, {
             "refit": False, "z_score": float("nan"),
             "z_alpha": float("nan"), "z_beta": float("nan"),

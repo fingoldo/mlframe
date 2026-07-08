@@ -447,6 +447,7 @@ class PreprocessingExtensionsConfig(BaseConfig):
     @field_validator("pysr_precision")
     @classmethod
     def _validate_pysr_precision(cls, v: Optional[int]) -> Optional[int]:
+        """Restrict ``pysr_precision`` to the float widths PySR actually supports (16/32/64-bit)."""
         if v is not None and v not in (16, 32, 64):
             raise ValueError(f"pysr_precision must be 16, 32, or 64 (got {v!r})")
         return v
@@ -454,6 +455,7 @@ class PreprocessingExtensionsConfig(BaseConfig):
     @field_validator("pysr_operator_preset")
     @classmethod
     def _validate_pysr_operator_preset(cls, v: Optional[str]) -> Optional[str]:
+        """Validate ``pysr_operator_preset`` against the registered preset names, deferring the import to avoid a hard dependency on PySR at config-module load time."""
         if v is None:
             return v
         from mlframe.feature_engineering.pysr_operators import VALID_PRESETS
@@ -463,6 +465,7 @@ class PreprocessingExtensionsConfig(BaseConfig):
 
     @model_validator(mode="after")
     def _check_mutual_exclusion(self) -> "PreprocessingExtensionsConfig":
+        """Cross-field validation: binarization and k-bins discretization are mutually exclusive, and polynomial_degree/kbins must be >= their minimum meaningful value when set."""
         if self.binarization_threshold is not None and self.kbins is not None:
             raise ValueError("binarization_threshold and kbins are mutually exclusive; set at most one.")
         if self.polynomial_degree is not None and self.polynomial_degree < 2:

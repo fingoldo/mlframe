@@ -120,6 +120,7 @@ class OutputCalibrator:
 
     # ------------------------------------------------------------------
     def _fit_isotonic(self, p: np.ndarray, t: np.ndarray, w: np.ndarray | None) -> None:
+        """Fit a monotone-increasing (out-of-bounds clipped) isotonic map p -> t via sklearn's PAVA solver."""
         from sklearn.isotonic import IsotonicRegression
 
         iso = IsotonicRegression(increasing=True, out_of_bounds="clip")
@@ -127,6 +128,7 @@ class OutputCalibrator:
         self._iso = iso
 
     def _fit_linear(self, p: np.ndarray, t: np.ndarray, w: np.ndarray | None) -> None:
+        """Fit an affine map t ~ a*p + b via weighted OLS, collapsing to the weighted target mean (a=0) if the fitted slope would be negative (a recalibration map must never invert the ensemble's ranking)."""
         a, b = _weighted_ols_1d(p, t, w)
         # Keep the map monotone non-decreasing: a negative slope would invert the
         # ensemble's ranking, which a recalibration map must never do. Collapse to
@@ -176,6 +178,7 @@ class OutputCalibrator:
         self, z: np.ndarray, t: np.ndarray, lo: float, hi: float, tspan: float,
         pmin: float, pspan: float, w: np.ndarray | None,
     ) -> None:
+        """Legacy Platt-style fit: OLS-regress the clipped logit of normalised t on normalised p; kept opt-in (``sigmoid_fit="ols_logit"``) only for byte-identical replay of pre-qual-16 pickles, not statistically correct (see MLE-based ``_fit_sigmoid``)."""
         # bench-attempt-rejected (qual-16): OLS-on-centred-logit is NOT a Platt fit; it lost 8/8 seeds to the MLE
         # Platt map (and to the raw blend at small OOF) on bench_sigmoid_platt_vs_ols_logit.py. Kept opt-in via
         # ``sigmoid_fit="ols_logit"`` for byte-identical replay of pre-qual-16 pickles (REJECTED != DELETED).

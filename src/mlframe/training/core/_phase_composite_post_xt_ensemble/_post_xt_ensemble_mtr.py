@@ -86,18 +86,22 @@ class MTRPerColumnEqualMeanEnsemble:
 
     @property
     def components(self):
+        """The wrapped per-column base estimators, in ensemble order."""
         return tuple(self._components)
 
     @property
     def component_names(self):
+        """Display names for each component, parallel to ``components``."""
         return tuple(self._component_names)
 
     @property
     def n_targets(self) -> int:
+        """Number of target columns (K) this ensemble was built for."""
         return self._n_targets
 
     @property
     def strategy(self) -> str:
+        """Weighting strategy: ``"equal_mean"`` (fixed 1/n_components) or ``"nnls"`` (fit via non-negative least squares)."""
         return self._strategy
 
     @property
@@ -178,6 +182,7 @@ class MTRPerColumnEqualMeanEnsemble:
         return self
 
     def predict(self, X) -> np.ndarray:
+        """Predict all K target columns as the per-column weighted combination of each component's predictions on ``X``."""
         preds_stack = []
         for c in self._components:
             p = np.asarray(c.predict(X))

@@ -36,11 +36,13 @@ logger = logging.getLogger(__name__)
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Plain RMSE, upcasting both arrays to float64 to avoid overflow/precision loss on wide-range targets."""
     d = np.asarray(y_true, dtype=np.float64) - np.asarray(y_pred, dtype=np.float64)
     return float(np.sqrt(np.mean(d * d)))
 
 
 def _spec_base_columns(spec) -> list[str]:
+    """Collect the column(s) a spec's inverse transform needs as its ``base`` argument: the primary ``base_column`` plus any ``extra_base_columns``."""
     extra = tuple(getattr(spec, "extra_base_columns", ()) or ())
     if not spec.base_column:
         return []
@@ -91,6 +93,7 @@ def honest_oof_reconstruction_rmse(
     rng = np.random.default_rng(int(getattr(cfg, "random_state", 0)))
 
     def _subsample(idx: np.ndarray, n_cap: int) -> np.ndarray:
+        """Cap ``idx`` to ``n_cap`` rows via a sorted random draw (sorted so downstream gathers stay cache-friendly), leaving it unchanged when already within budget."""
         if n_cap <= 0 or idx.size <= n_cap:
             return idx
         return np.sort(rng.choice(idx, size=n_cap, replace=False))
@@ -110,6 +113,7 @@ def honest_oof_reconstruction_rmse(
     rs = int(getattr(cfg, "random_state", 0))
 
     def _new_model():
+        """Build a fresh tiny LightGBM regressor with the configured (small) capacity, so each spec/baseline gets an unfitted model rather than reusing fitted state."""
         return _build_tiny_model(
             "lgb", n_estimators=n_estimators, num_leaves=num_leaves,
             learning_rate=learning_rate, random_state=rs,
@@ -138,6 +142,7 @@ def honest_oof_reconstruction_rmse(
             logger.debug("[honest_oof_select] lag floor probe failed for %s: %s", lag_col, exc)
 
     def _score_one(spec) -> tuple[str, float | None]:
+        """Fit-and-invert one spec's transform on the screen/holdout split, returning ``(spec.name, rmse)``; ``rmse=None`` signals a degenerate measurement (unknown transform, no valid rows) that should NOT auto-kill the spec, distinct from ``+inf`` which signals a genuine reconstruction collapse."""
         try:
             transform = get_transform(spec.transform_name)
         except UnknownTransformError:

@@ -72,6 +72,7 @@ class _MoEGatedDeployableModel:
         self.group_column = group_column
 
     def _expert_preds(self, X: Any) -> dict[str, np.ndarray]:
+        """Predict with each of the three experts (composite, raw, lag) on ``X``, returning flat float64 arrays keyed by expert name for the gate to select over."""
         return {
             "composite": np.asarray(self.composite_model.predict(X), dtype=np.float64).reshape(-1),
             "raw": np.asarray(self.raw_model.predict(X), dtype=np.float64).reshape(-1),
@@ -79,6 +80,7 @@ class _MoEGatedDeployableModel:
         }
 
     def predict(self, X: Any) -> np.ndarray:
+        """Route each row to its fitted gate-selected expert prediction; falls back to the gate's global (lag failsafe) choice when the group column is absent from ``X``."""
         preds = self._expert_preds(X)
         groups = _extract_group_array(X, self.group_column) if self.group_column else None
         return self.gate.predict(preds, group_ids=groups)

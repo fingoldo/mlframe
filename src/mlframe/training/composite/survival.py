@@ -178,6 +178,7 @@ class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
         return base_log, time, ev
 
     def _resolve_mode(self) -> str:
+        """Resolve ``self.censoring`` to the concrete fit mode: 'aware' requires scikit-survival and raises if missing, 'auto' picks 'aware' when scikit-survival is installed else falls back to 'observed_only'."""
         if self.censoring not in ("auto", "aware", "observed_only"):
             raise ValueError("CompositeSurvivalEstimator: censoring must be 'auto', 'aware', " f"or 'observed_only'; got {self.censoring!r}.")
         if self.censoring == "aware":
@@ -302,6 +303,7 @@ class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
 
     @staticmethod
     def _to_2d_float(X: Any) -> np.ndarray:
+        """Format-agnostic coercion of ``X`` (polars, pandas, or ndarray) to a 2D float64 ndarray, for scikit-survival's fit/predict which requires plain numpy input."""
         try:
             import polars as pl
 

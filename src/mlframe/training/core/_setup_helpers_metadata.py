@@ -45,6 +45,7 @@ def _create_initial_metadata(
 ) -> dict[str, Any]:
     """Create the initial metadata dictionary for tracking training."""
     def _as_dict(cfg):
+        """Normalize a pydantic config (or already-dict / None) to a plain dict via ``model_dump()``, passing anything else through unchanged."""
         if cfg is None or isinstance(cfg, dict):
             return cfg
         if hasattr(cfg, "model_dump"):
@@ -215,11 +216,13 @@ def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None =
             # still on the single-threaded default.
             _cctx = _zstd.ZstdCompressor(level=3, threads=-1)
             def _writer(f):
+                """Pickle the metadata dict and write it zstd-compressed (multi-threaded)."""
                 f.write(_cctx.compress(_pickle.dumps(metadata, protocol=5)))
         else:
             # Fallback: uncompressed pickle. .pkl extension lets the reader's magic-byte sniff route it.
             metadata_file = join(metadata_dir, "metadata.pkl")
             def _writer(f):
+                """Pickle the metadata dict directly (no zstd available)."""
                 _pickle.dump(metadata, f, protocol=5)
 
         try:

@@ -46,6 +46,7 @@ _ATOMIC_WRITE_COUNTER = itertools.count(0)
 
 
 def _atomic_write_counter() -> int:
+    """Next value of the monotonic counter used (with PID + a uuid suffix) to name atomic-write temp files uniquely, avoiding ``mkstemp``'s much slower O_EXCL retry loop on Windows."""
     return next(_ATOMIC_WRITE_COUNTER)
 
 
@@ -299,6 +300,7 @@ class _SafeUnpickler(dill.Unpickler):
     """Restricted unpickler that only allows a conservative allowlist of modules."""
 
     def find_class(self, module: str, name: str):
+        """Resolve a pickled (module, name) reference only if it is on the allowlist (exact pair, allowed module prefix, or the restricted ``getattr``/``setattr`` reconstructors); raises ``UnpicklingError`` for anything else, including code-exec builtins."""
         # Block code-exec builtins even though ``builtins`` is allowlisted for data containers.
         if module in ("builtins", "__builtin__") and name in _UNSAFE_BUILTINS:
             raise dill.UnpicklingError(f"Unsafe builtin blocked by _SafeUnpickler allowlist: {module}.{name}")
@@ -470,6 +472,7 @@ def _write_save_meta_sidecar(bundle_path: str, *, durable: bool = False) -> None
     meta_bytes = json.dumps(payload, sort_keys=True, indent=2).encode("utf-8")
 
     def _writer(f):
+        """Write the pre-serialized meta-sidecar JSON bytes to the atomic-write temp file handle."""
         f.write(meta_bytes)
 
     atomic_write_bytes(_meta_sidecar_path(bundle_path), _writer, fsync=durable)

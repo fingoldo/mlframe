@@ -104,6 +104,7 @@ class CompositeFeatureGenerator(BaseEstimator, TransformerMixin):
 
     # ------------------------------------------------------------------
     def _resolve_column_name(self) -> str:
+        """Output feature column name: an explicit ``column_name`` if given, else a name derived from the spec's transform name + base column, else the generic ``"composite_pred"`` fallback."""
         if self.column_name:
             return self.column_name
         spec = self.spec

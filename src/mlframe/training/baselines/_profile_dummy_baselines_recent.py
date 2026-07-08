@@ -248,6 +248,7 @@ def bench_augment_helper():
 
 
 def main():
+    """CLI entrypoint: run the requested benchmark component (or all of them) and print wall-time results, excluding cProfile attribution overhead."""
     p = argparse.ArgumentParser()
     p.add_argument(
         "--component",

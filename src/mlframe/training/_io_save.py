@@ -214,6 +214,7 @@ def save_mlframe_model(
         return False
 
     def _collect_pre_dump_swaps(obj: object) -> None:
+        """Recursively walk ``obj.__dict__`` (cycle-guarded via ``_walk_seen``), temporarily stripping FS-internal suite markers, swapping ``torch.compile``-wrapped modules for their original, and nulling heavy Lightning training-only attributes so none of them reach the pickle; each mutation is recorded for restoration in the caller's ``finally`` block."""
         if id(obj) in _walk_seen:
             return
         _walk_seen.add(id(obj))
@@ -282,6 +283,7 @@ def save_mlframe_model(
             _payload_bytes = dill.dumps(_payload)
 
         def _writer(f):
+            """Write the pre-serialized payload bytes through a zstd stream compressor into the atomic-write temp file handle."""
             compressor = zstd.ZstdCompressor(**zstd_kwargs)
             # closefd=False: stream_writer.__exit__ would otherwise close the wrapped
             # file (deterministic on Windows when threads=-1 hands the descriptor to

@@ -402,6 +402,7 @@ def apply_preprocessing_extensions(
     # logger so the message goes through the project's standard logging pipeline.
     _fallback_warned = [False]
     def _to_pandas(df):
+        """Convert a polars frame to pandas via the fast Arrow split-blocks bridge (preferring ``split_blocks=True`` for the ~32x throughput win), falling back to the slow ``df.to_pandas()`` consolidation copy (with a one-time WARN) only on polars < 0.20.4."""
         if df is None:
             return None
         if isinstance(df, pl.DataFrame):
@@ -663,6 +664,7 @@ def apply_preprocessing_extensions(
         _eff_skip = False
 
         def _proj_bytes(_d: int, _io: bool) -> int:
+            """Projected byte size of the polynomial-expansion output at degree ``_d`` / interaction-only ``_io``, used to auto-downgrade the config to fit under ``_byte_cap``."""
             _p = _projected_output_cols(n_features, _d, _io)
             return int(_n_samples) * int(_p) * 8
 
@@ -743,6 +745,7 @@ def apply_preprocessing_extensions(
     # sklearn>=1.3 exposes ``get_feature_names_out``; fall back to
     # ``ext_<step>_<i>`` derived from the last step's name otherwise.
     def _build_output_column_names(n_cols: int) -> list:
+        """Named-transformer output column names for the fitted extension pipeline, preferring sklearn's ``get_feature_names_out()`` and falling back to ``ext_<last_step>_<i>`` when unavailable/mismatched (keeps stage provenance instead of opaque ``ext_<i>`` indices)."""
         try:
             names = pipe.get_feature_names_out()
             if names is not None and len(names) == n_cols:
@@ -755,6 +758,7 @@ def apply_preprocessing_extensions(
         return [f"ext_{last_step_name}_{i}" for i in range(n_cols)]
 
     def _to_df(arr, template):
+        """Wrap the pipeline's transformed array back into a DataFrame matching ``template``'s index, using named columns from ``_build_output_column_names`` and preserving sparsity as a Sparse-dtype DataFrame when the array is still scipy-sparse."""
         if arr is None:
             return None
         # sklearn pipeline output may still be sparse if no dim_reducer was

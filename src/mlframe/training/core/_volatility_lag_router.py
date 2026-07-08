@@ -56,6 +56,7 @@ def _group_local_volatility(group_ids: np.ndarray, values: np.ndarray, order_key
 
 
 def _extract_column(X: Any, name: str) -> Optional[np.ndarray]:
+    """Pull ``name`` out of a polars or pandas frame as a numpy array, returning ``None`` on any failure (missing column, unsupported frame type) so callers can fall back gracefully."""
     try:
         if hasattr(X, "get_column"):  # polars
             return np.asarray(X.get_column(name).to_numpy())
@@ -68,6 +69,7 @@ def _extract_column(X: Any, name: str) -> Optional[np.ndarray]:
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """RMSE over the finite-valued rows of both arrays; returns NaN when fewer than 50 finite pairs remain, since an RMSE from a tiny sample is not a reliable routing signal."""
     f = np.isfinite(y_true) & np.isfinite(y_pred)
     if int(f.sum()) < 50:
         return float("nan")
@@ -87,6 +89,7 @@ class VolatilityLagRouter:
         self.threshold = float(threshold)
 
     def predict(self, X: Any) -> np.ndarray:
+        """Blend predictions row-by-row: use ``lag_component`` wherever the row's local target volatility is finite and at-or-below ``threshold``, else fall back to ``trained``. Falls back entirely to ``trained`` when the group/order columns can't be resolved on ``X``."""
         raw = np.asarray(self.trained.predict(X), dtype=np.float64)
         lag = np.asarray(self.lag_component.predict(X), dtype=np.float64)
         gids = _extract_column(X, self.group_column)

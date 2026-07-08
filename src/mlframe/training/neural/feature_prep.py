@@ -96,6 +96,7 @@ class NeuralEmbeddingTextEncoder(BaseEstimator, TransformerMixin):
         return prov
 
     def fit(self, X, y=None):
+        """Learn each pre-computed embedding column's width and, for raw text columns, resolve the pretrained provider's fixed embedding dimension (no actual training; the provider is frozen)."""
         X = _as_pandas(X)
         self.feature_names_in_ = list(X.columns)
         cols = set(X.columns)
@@ -112,6 +113,7 @@ class NeuralEmbeddingTextEncoder(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
+        """Expand pre-computed embedding columns into ``<col>__e<j>`` numeric columns and raw text columns into pretrained-provider embedding vectors, per the widths/provider resolved in ``fit``."""
         X = _as_pandas(X, feature_names_in_=getattr(self, "feature_names_in_", None))
         cols = set(X.columns)
         new_blocks: dict = {}

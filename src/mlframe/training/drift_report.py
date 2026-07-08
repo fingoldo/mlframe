@@ -60,6 +60,7 @@ def _to_numpy_or_none(arr: Any) -> np.ndarray | None:
 
 
 def _binary_split_summary(arr: np.ndarray) -> dict[str, float]:
+    """Summarize one split of a binary target: sample count, positive count, and positive rate."""
     n = int(arr.shape[0])
     if n == 0:
         return {"n": 0, "n_positive": 0, "p_positive": float("nan")}
@@ -72,6 +73,7 @@ def _binary_split_summary(arr: np.ndarray) -> dict[str, float]:
 
 
 def _multiclass_split_summary(arr: np.ndarray, classes: Sequence) -> dict[str, Any]:
+    """Summarize one split of a multiclass target: per-class count and rate, computed via a single ``np.unique`` pass and reindexed to ``classes``' order/dtype so missing classes report zero rather than raising a KeyError."""
     n = int(arr.shape[0])
     # Single sort-based pass via np.unique(return_counts) instead of one ``(arr == c).sum()`` full scan per class.
     # Bit-identical (exact integer counts); the per-class dict is rebuilt in the caller's ``classes`` order/dtype.
@@ -117,6 +119,7 @@ def _multilabel_split_summary(arr: np.ndarray) -> dict[str, Any]:
 
 
 def _regression_split_summary(arr: np.ndarray) -> dict[str, float]:
+    """Summarize one split of a regression target: count, NaN-robust mean/std/median, and 1st/99th percentiles."""
     n = int(arr.shape[0])
     if n == 0:
         return {"n": 0, "mean": float("nan"), "std": float("nan"), "median": float("nan"), "p01": float("nan"), "p99": float("nan")}
@@ -206,6 +209,7 @@ def compute_label_distribution_drift(
     # fell into ``_binary_split_summary``'s ``arr == 1`` and raised
     # ``truth value of an array ambiguous``.
     def _is_object_of_arrays(_a) -> bool:
+        """Detect a 1-D object-dtype array whose cells are themselves array-likes (the polars ``pl.List`` -> object-cell roundtrip signature), so multilabel routing catches it even when ``target_type`` misreports "binary_classification"."""
         try:
             if not hasattr(_a, "dtype"):
                 return False

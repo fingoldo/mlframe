@@ -88,6 +88,7 @@ def _sanitize_name_component(s: str) -> str:
 
 
 def _is_polars_df(obj: Any) -> bool:
+    """Check whether ``obj`` is a polars DataFrame, tolerating environments where polars isn't installed (``_pl is None``)."""
     return _pl is not None and isinstance(obj, _pl.DataFrame)
 
 
@@ -112,6 +113,7 @@ def _row_select(frame: Any, row_idx: np.ndarray) -> Any:
 
 
 def _aligned_select(arr: Any, row_idx: np.ndarray) -> np.ndarray | None:
+    """Row-select an auxiliary array (sample weights / base margin / group ids) aligned to ``row_idx``, passing through ``None`` unchanged for optional inputs."""
     if arr is None:
         return None
     return np.asarray(np.asarray(arr)[row_idx])
@@ -270,6 +272,7 @@ def _materialize(
     base_margin: np.ndarray | None,
     group_ids: np.ndarray | None,
 ) -> list[SliceEvalSet]:
+    """Turn a list of per-shard row-index arrays into concrete ``SliceEvalSet`` objects, row-selecting X/y and the aligned auxiliary arrays for each shard; empty shards are skipped rather than emitted as degenerate eval sets."""
     out: list[SliceEvalSet] = []
     for i, row_idx in enumerate(row_idx_lists):
         row_idx = np.asarray(row_idx, dtype=np.int64)

@@ -29,6 +29,7 @@ class NoiseAugmentedEnsemble:
         self.seed = int(seed)
 
     def fit(self, X, y):
+        """Fit ``k`` independent clones of ``base_estimator``, each on ``X`` perturbed by its own Gaussian jitter stream (scaled per-feature by ``sigma_scale * std``); jitter streams are spawned from one seed via ``SeedSequence.spawn`` for reproducible, mutually-independent member noise."""
         from sklearn.base import clone
 
         Xf = np.asarray(X, dtype=np.float64)
@@ -53,11 +54,13 @@ class NoiseAugmentedEnsemble:
         return self
 
     def predict(self, X):
+        """Average the ``k`` members' predictions on the unperturbed query ``X``."""
         Xf = np.asarray(X, dtype=np.float64)
         preds = np.stack([np.asarray(e.predict(Xf)) for e in self.estimators_], axis=0)
         return preds.mean(axis=0)
 
     def predict_proba(self, X):
+        """Average the ``k`` members' predicted class probabilities on the unperturbed query ``X``."""
         Xf = np.asarray(X, dtype=np.float64)
         probs = np.stack([np.asarray(e.predict_proba(Xf)) for e in self.estimators_], axis=0)
         return probs.mean(axis=0)

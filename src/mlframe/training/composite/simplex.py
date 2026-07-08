@@ -239,12 +239,14 @@ class CompositeSimplexEstimator(BaseEstimator, MultiOutputMixin, RegressorMixin)
     # ---- internals -------------------------------------------------------
 
     def _forward(self, y: np.ndarray) -> np.ndarray:
+        """Map a composition ``y`` (n, K) to its (n, K-1) unconstrained coordinates, dispatching to ALR or ILR per ``self.transform``."""
         if self.transform == "alr":
             return alr_forward(y, self._ref_)
         assert self._basis_ is not None  # set in fit() whenever transform == "ilr"
         return ilr_forward(y, self._basis_)
 
     def _inverse(self, z: np.ndarray) -> np.ndarray:
+        """Map predicted (n, K-1) unconstrained coordinates back to the closed (sum-to-1) composition, dispatching to ALR or ILR per ``self.transform``."""
         if self.transform == "alr":
             return alr_inverse(z, self._ref_, self._k_)
         assert self._basis_ is not None  # set in fit() whenever transform == "ilr"
@@ -263,6 +265,7 @@ class CompositeSimplexEstimator(BaseEstimator, MultiOutputMixin, RegressorMixin)
     # ---- sklearn API -----------------------------------------------------
 
     def fit(self, X: Any, y: np.ndarray) -> "CompositeSimplexEstimator":
+        """Close+zero-replace the composition, transform it to K-1 unconstrained coordinates, and fit one independent inner estimator per coordinate on the shared feature matrix ``X``."""
         y = np.asarray(y, dtype=np.float64)
         if y.ndim != 2 or y.shape[1] < 2:
             raise ValueError(f"y must be a 2-D composition (n, K) with K>=2; got shape {getattr(y, 'shape', None)}")

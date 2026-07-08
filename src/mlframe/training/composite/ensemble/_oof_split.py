@@ -65,6 +65,7 @@ def _carve_inner_eval_split(
     :func:`_align_fit_sw`) or None for the prefix / no-split paths. The
     4-tuple default keeps the legacy contract for existing callers."""
     def _ret(x_fit, y_fit, x_ev, y_ev, fit_mask):
+        """Assemble the return tuple, appending the fit-row mask only when ``return_fit_mask=True`` (keeps the legacy 4-tuple contract for existing callers)."""
         if return_fit_mask:
             return x_fit, y_fit, x_ev, y_ev, fit_mask
         return x_fit, y_fit, x_ev, y_ev

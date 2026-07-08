@@ -44,11 +44,13 @@ logger = logging.getLogger(__name__)
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Plain RMSE, upcasting both arrays to float64 to avoid overflow/precision loss on wide-range targets."""
     d = np.asarray(y_true, dtype=np.float64) - np.asarray(y_pred, dtype=np.float64)
     return float(np.sqrt(np.mean(d * d)))
 
 
 def _spec_base_columns(spec) -> list[str]:
+    """Collect the column(s) a spec's inverse transform needs as its ``base`` argument: the primary ``base_column`` plus any ``extra_base_columns``."""
     extra = tuple(getattr(spec, "extra_base_columns", ()) or ())
     if not spec.base_column:
         return []
@@ -289,6 +291,7 @@ def apply_yscale_holdout_gate(
     rng = np.random.default_rng(int(getattr(cfg, "random_state", 0)))
 
     def _subsample(idx: np.ndarray, n_cap: int) -> np.ndarray:
+        """Cap ``idx`` to ``n_cap`` rows via a sorted random draw, leaving it unchanged when already within budget."""
         idx = np.asarray(idx)
         if n_cap <= 0 or idx.size <= n_cap:
             return idx
@@ -348,6 +351,7 @@ def apply_yscale_holdout_gate(
     rs = int(getattr(cfg, "random_state", 0))
 
     def _fit_predict(y_target_fit: np.ndarray, valid_fit: np.ndarray | None = None) -> np.ndarray:
+        """Fit a fresh tiny model on ``y_target_fit`` (optionally row-masked by ``valid_fit``, e.g. to drop out-of-domain rows for a transformed target) and predict on the shared unseen-group eval matrix ``x_eval``."""
         xf = x_fit if valid_fit is None else x_fit[valid_fit]
         yf = y_target_fit if valid_fit is None else y_target_fit[valid_fit]
         model = _build_tiny_model(

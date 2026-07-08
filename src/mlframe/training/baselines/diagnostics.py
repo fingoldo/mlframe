@@ -422,6 +422,7 @@ class BaselineDiagnostics:
     def _skipped(
         self, target_name: str, target_type: str, reason: str, elapsed: float,
     ) -> BaselineDiagnosticsReport:
+        """Build the placeholder report for a target that diagnostics did not run on (e.g. disabled, unsupported type), with NaN headline metrics and ``skipped=True`` so callers can distinguish it from a genuine zero-value result."""
         return BaselineDiagnosticsReport(
             target_name=target_name,
             target_type=target_type,

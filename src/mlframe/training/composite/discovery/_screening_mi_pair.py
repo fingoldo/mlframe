@@ -49,6 +49,7 @@ _mi_from_binned_pair_njit_kernel = None
 if _HAS_NUMBA:
     @_numba.njit(cache=True, fastmath=False, nogil=True)
     def _mi_from_binned_pair_njit_kernel(x_idx, y_idx, nbins):
+        """njit single-pass mutual information from two pre-binned integer index arrays; term-for-term reproduces the numpy reference (only FP reduction order differs, ~1e-16 on the MI scale)."""
         # Single-pass joint histogram + marginals, then MI = sum pxy*log(pxy/(px*py)).
         # Reproduces the numpy reference's arithmetic term-for-term: the joint counts are
         # integer-exact (no FP), px/py are the same row/col sums, and each non-zero cell adds

@@ -187,6 +187,7 @@ if _NUMBA_AVAILABLE:
 
     @njit(parallel=True, fastmath=True, cache=True)
     def _numba_bootstrap_mae_samples(y, p, n_resamples, seed):
+        """Bootstrap CI on a single predictor's MAE; twin of ``_numba_bootstrap_rmse_samples`` (same per-resample splitmix64 index generation), returns an ndarray of length ``n_resamples`` of MAE bootstrap samples."""
         n = len(y)
         out = np.empty(n_resamples, dtype=np.float64)
         for i in prange(n_resamples):

@@ -31,6 +31,7 @@ class _LightningRankZeroNoiseFilter(logging.Filter):
     )
 
     def filter(self, record: logging.LogRecord) -> bool:
+        """Drop the record (return False) iff its message matches one of the device-availability noise patterns; every other record passes through unchanged."""
         msg = record.getMessage()
         return not any(p in msg for p in self._PATTERNS)
 
@@ -66,6 +67,8 @@ def _rmse_metric(y_true, y_score):
 
 
 class MetricSpec(BaseModel):
+    """Declarative spec for a single training/validation metric: its callable plus flags describing what input shape it expects (argmax labels vs. probabilities) and whether it must run on CPU."""
+
     name: str
     fcn: Callable  # the metric function
     requires_argmax: bool = False  # True if metric wants predicted class labels

@@ -28,6 +28,7 @@ def _make_binary_focal_loss(gamma: float, alpha: float):
         _has_torchvision = False
 
     def _focal(input, target, reduction: str = "mean"):
+        """Compute the focal loss between ``input`` logits and ``target`` labels, dispatching to ``torchvision``'s fused kernel when available and otherwise a pure-PyTorch fallback; both honor the ``mean``/``sum``/``none`` reduction contract."""
         # The estimator passes labels as float for the BCE-replacement
         # path (labels_dtype was set to float32). Cast defensively in case
         # a custom carrier slips a Long through.

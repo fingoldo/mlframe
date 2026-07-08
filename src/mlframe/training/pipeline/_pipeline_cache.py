@@ -190,6 +190,7 @@ def _content_fingerprint_for_cache(arr) -> tuple:
                 # Bounded cost: 4 rows × O(embedding_len) chars per fingerprint call -- <<1ms even on
                 # wide embedding frames.
                 def _row_to_hashable(r):
+                    """Coerce a pandas row into a hashable tuple by ``repr()``-ing any list/dict/ndarray cell (unhashable) and leaving plain scalars untouched."""
                     out = []
                     for v in r.values.tolist():
                         if isinstance(v, (list, dict)) or hasattr(v, "tolist"):
@@ -552,6 +553,7 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
     # iter625 fast-path: build a cheap id-tuple key (shape included
     # for id-recycling defence) and check the last-computed cache.
     def _id_shape(arr):
+        """Build a cheap ``(object id, shape)`` key component for ``arr``, guarding against id-recycling (a freed-then-reused id colliding with a different-shaped object) by including shape in the key."""
         if arr is None:
             return (None,)
         sh = getattr(arr, "shape", None)

@@ -112,6 +112,7 @@ class Muon(Optimizer):
 
     @torch.no_grad()
     def step(self, closure=None):
+        """Standard Muon update: momentum-accumulate the gradient, orthogonalize it via Newton-Schulz, and apply as the parameter step. Requires every parameter to be 2D; raises otherwise (use ``MuonAdamWHybrid`` to auto-route non-2D params)."""
         loss = None
         if closure is not None:
             with torch.enable_grad():
@@ -204,6 +205,7 @@ class MuonAdamWHybrid(Optimizer):
 
     @torch.no_grad()
     def step(self, closure=None):
+        """Step both inner optimizers (whichever have params): Muon for the 2D hidden weights, AdamW for everything else."""
         loss = None
         if closure is not None:
             with torch.enable_grad():
@@ -215,6 +217,7 @@ class MuonAdamWHybrid(Optimizer):
         return loss
 
     def zero_grad(self, set_to_none: bool = True):
+        """Zero grads on both inner optimizers (whichever have params)."""
         if self._muon is not None:
             self._muon.zero_grad(set_to_none=set_to_none)
         if self._adamw is not None:

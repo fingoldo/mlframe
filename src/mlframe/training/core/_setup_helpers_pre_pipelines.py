@@ -38,6 +38,7 @@ class _NonPicklingCacheView:
         self._backing = backing
 
     def get(self, key, default=None):
+        """Delegate ``dict.get`` to the shared backing cache dict (cross-target reuse preserved)."""
         return self._backing.get(key, default)
 
     def __getitem__(self, key):

@@ -58,7 +58,9 @@ class FrozenFeaturizerProvider(Protocol):
         the simpler EmbeddingProvider.signature."""
 
     @property
-    def embedding_dim(self) -> int: ...
+    def embedding_dim(self) -> int:
+        """Width of the embedding vectors this provider emits, used to pre-allocate the downstream feature matrix."""
+        ...
 
     def fit(self, train_texts: Sequence[str]) -> FrozenFeaturizerProvider:
         """No-op for pretrained models; for FastText etc. trains the

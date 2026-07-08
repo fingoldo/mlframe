@@ -37,6 +37,7 @@ _PER_GROUP_PATTERN_CACHE: dict[str, "re.Pattern[str]"] = {}
 
 
 def _get_per_group_pattern(pattern: str) -> "re.Pattern[str]":
+    """Case-insensitive compiled regex for ``pattern``, memoized per pattern string so repeated calls avoid recompiling."""
     cached = _PER_GROUP_PATTERN_CACHE.get(pattern)
     if cached is None:
         cached = re.compile(pattern, re.IGNORECASE)
@@ -83,6 +84,7 @@ def _apply_mlp_extreme_ar_weight_decay_bump(
     visited = set()
 
     def _enqueue(obj):
+        """Add ``obj`` to the BFS worklist unless it is ``None`` or already visited (guards against cycles in the nested-estimator graph)."""
         if obj is None or id(obj) in visited:
             return
         visited.add(id(obj))
@@ -146,6 +148,7 @@ def _apply_mlp_extreme_ar_output_activation(model) -> bool:
     visited = set()
 
     def _enqueue(obj):
+        """Add ``obj`` to the BFS worklist unless it is ``None`` or already visited (guards against cycles in the nested-estimator graph)."""
         if obj is None or id(obj) in visited:
             return
         visited.add(id(obj))

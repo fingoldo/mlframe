@@ -100,6 +100,7 @@ def analyze_target_distribution(
     knob_overrides_provenance: dict[str, dict[str, dict[str, Any]]] = {}
 
     def _stamp_prov(slot: str, knob: str, value: Any, reason: str) -> None:
+        """Record why the analyzer overrode ``knob`` in ``slot`` to ``value``, so downstream reporting/debugging can distinguish analyzer-driven overrides from user-set config."""
         knob_overrides_provenance.setdefault(slot, {})[knob] = {
             "value": value, "source": "analyzer", "reason": reason,
         }

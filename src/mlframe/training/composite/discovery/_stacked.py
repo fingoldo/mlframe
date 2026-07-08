@@ -152,6 +152,7 @@ def fit_stacked(
     oof_cols: dict[str, np.ndarray] = {}
     for spec in top_specs:
         def _factory(_s=spec):  # bind spec
+            """Build a fresh Ridge-based ``CompositeTargetEstimator`` replaying ``_s``'s transform, for one fold of the OOF stacking pass."""
             return CompositeTargetEstimator(
                 base_estimator=Ridge(alpha=1e-3),
                 transform_name=_s.transform_name,
@@ -326,6 +327,7 @@ def fit_stacked_on_residual(
     oof_preds_per_spec: list[np.ndarray] = []
     for spec in _ranked_capped:
         def _factory(_s=spec):
+            """Build a fresh Ridge-based ``CompositeTargetEstimator`` replaying ``_s``'s transform, for one fold of the residual-target OOF stacking pass."""
             return CompositeTargetEstimator(
                 base_estimator=Ridge(alpha=1e-3),
                 transform_name=_s.transform_name,

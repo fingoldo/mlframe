@@ -192,6 +192,7 @@ def _deleak_tied_boundaries(
     test_idx = np.asarray(test_idx)
 
     def _move_ties(earlier: np.ndarray, later: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Move every ``earlier`` row whose timestamp equals ``earlier``'s max (its boundary) into ``later``, but only when ``later`` actually starts at that same boundary value (a real precedence violation); no-ops when either split is empty or moving would empty ``earlier`` entirely (a degenerate single-timestamp split, left to the caller's empty-split guard)."""
         if len(earlier) == 0 or len(later) == 0:
             return earlier, later
         boundary = ts_vals[earlier].max()

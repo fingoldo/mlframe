@@ -168,6 +168,7 @@ def engineer_temporal_bases(
     out: dict[str, np.ndarray] = {}
 
     def _emit(name: str, sorted_vec: np.ndarray) -> None:
+        """Store an engineered base computed in time-sorted order back into ``out`` under ``name``, permuted to the original frame row order via ``inv``."""
         out[name] = sorted_vec[inv]  # back to original row order
 
     if "lag" in ops:

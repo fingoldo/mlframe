@@ -149,6 +149,7 @@ def tune_decision_threshold(
     if metric == "f1":
         from sklearn.metrics import f1_score
         def scorer(yt, yp):
+            """F1 scorer with zero-division treated as 0 (degenerate all-one-class threshold candidates don't crash the sweep)."""
             return f1_score(yt, yp, zero_division=0)
     elif metric == "balanced_accuracy":
         from mlframe.metrics.core import balanced_accuracy_binary
@@ -379,6 +380,7 @@ def _convert_dfs_to_pandas(
             raise TypeError(f"{name} must be pandas DataFrame, polars DataFrame, or None, got {type(df).__name__}")
 
     def _convert_one(df, name):
+        """Zero-copy-bridge one frame (train/val/test) from polars to a pandas Arrow view via ``get_pandas_view_of_polars_df``, logging the conversion time; already-pandas or None frames pass through unchanged."""
         if df is None or isinstance(df, pd.DataFrame):
             return df
         t0 = timer()

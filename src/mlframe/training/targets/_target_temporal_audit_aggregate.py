@@ -230,6 +230,7 @@ def _aggregate_by_time_pandas(
 
 
 def _format_bin_label(ts: pd.Timestamp, granularity: Granularity) -> str:
+    """Format a bin's start timestamp as a human-readable label for the given ``granularity``; quarter is special-cased since strftime has no native quarter directive."""
     fmt = {
         "minute": "%Y-%m-%d %H:%M",
         "hour": "%Y-%m-%d %H",

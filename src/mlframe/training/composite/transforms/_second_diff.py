@@ -65,6 +65,7 @@ def _second_diff_fit(
 def _second_diff_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Second-difference target transform: ``T = y - 2*b1 + b2``, cancelling both level and linear-drift so the residual is stationary."""
     b1, b2 = _second_diff_bases(base)
     return np.asarray(np.asarray(y, dtype=np.float64) - 2.0 * b1 + b2)
 
@@ -72,6 +73,7 @@ def _second_diff_forward(
 def _second_diff_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Additive inverse of the second-difference transform: ``y = T_hat + 2*b1 - b2``; bounded by construction since ``b1``/``b2`` are real observed lags."""
     b1, b2 = _second_diff_bases(base)
     return np.asarray(np.asarray(t_hat, dtype=np.float64) + 2.0 * b1 - b2)
 
@@ -79,6 +81,7 @@ def _second_diff_inverse(
 def _second_diff_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Row validity mask: True where the two consulted lag columns (and ``y``, if given) are finite; a NaN in an ignored extra base column never drops an otherwise-valid row."""
     base_f = np.asarray(base, dtype=np.float64)
     if base_f.ndim == 1:
         base_ok = np.isfinite(base_f)

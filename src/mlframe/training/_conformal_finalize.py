@@ -187,6 +187,7 @@ def conformal_classification_report(
     cp, cal_true = cp[valid], cal_true[valid]
 
     def _aps_scores(probs: np.ndarray, true_idx: np.ndarray) -> np.ndarray:
+        """Adaptive Prediction Sets nonconformity score: cumulative probability mass of classes ranked at-or-above the true class (probs sorted descending, then cumsum up through the true class's rank)."""
         order = np.argsort(-probs, axis=1)
         sorted_p = np.take_along_axis(probs, order, axis=1)
         csum = np.cumsum(sorted_p, axis=1)

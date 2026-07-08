@@ -69,6 +69,7 @@ def _get_residual_audit_enabled() -> bool:
 
 
 def _get_cached_plot_idx(n: int, sample_size: int, seed: int) -> "np.ndarray":
+    """Return a reproducible random row-subsample index for scatter/residual plots, cached (LRU-bounded) by ``(n, sample_size, seed)`` so repeated plot calls on the same series don't repay the ``np.random.choice`` cost; the draw itself runs outside the lock so unrelated keys don't serialize on each other."""
     key = (n, sample_size, seed)
     with _PLOT_IDX_CACHE_LOCK:
         cached = _PLOT_IDX_CACHE.get(key)
@@ -678,6 +679,7 @@ def compute_ml_perf_by_time(
     _freq = _normalize_pandas_offset_alias(freq)
 
     def _bin_metric(yt, yp, n, bin_start):
+        """Compute ``metric`` for one time bin, returning NaN when the bin has fewer than ``min_samples`` rows or the metric fails on degenerate inputs (e.g. single-class y_true) rather than aborting the whole time series."""
         if n < min_samples:
             return float("nan")
         try:

@@ -69,6 +69,7 @@ def _finite_min_max_std_python(y: np.ndarray) -> tuple[int, float, float, float,
 if _NUMBA_AVAILABLE:
     @njit(cache=True, fastmath=False)
     def _finite_min_max_std_njit(y: np.ndarray) -> tuple:
+        """njit twin of ``_finite_min_max_std_python``: single-pass Welford (min, max, mean, population std) over the finite entries of ``y``, skipping NaN/+-inf; bit-identical numerics, no fastmath (NaN handling requires exact isfinite semantics)."""
         n_finite = 0
         ymin = np.inf
         ymax = -np.inf

@@ -352,6 +352,7 @@ def _coerce_y_to_float64(y) -> np.ndarray:
 
 
 def _compute_prior(y: np.ndarray, prior_kind: Literal["mean", "median"], sample_weight: np.ndarray | None = None) -> float:
+    """Global fallback statistic (mean or median of ``y``) used to smooth/backfill rare or unseen categories; supports sample weights (weighted median via cumulative-weight cutoff), and returns 0.0 for empty ``y``."""
     # Wave 39 (2026-05-20): np.mean/np.median([]) returns NaN with RuntimeWarning, and the weighted-median
     # branch's y[order[idx]] raises IndexError on empty y. _oof_encode is safe (KFold guarantees nonempty
     # train_idx) but the direct fit/_loo_encode paths receive caller-supplied y. Treat empty as no-evidence.
@@ -499,6 +500,7 @@ class LeakageSafeEncoder:
 
     @property
     def is_fitted(self) -> bool:
+        """Whether ``fit``/``fit_transform`` has populated the full-train statistic (required before ``transform``)."""
         return self._is_fitted
 
     def fit(
@@ -615,6 +617,7 @@ class LeakageSafeEncoder:
         y: np.ndarray,
         sample_weight: np.ndarray | None = None,
     ) -> tuple:
+        """Compute per-category (count, mean) dicts used for the full-train statistic; vectorized via ``pd.factorize`` + ``np.bincount`` (~10x faster than the legacy dict-accumulation loop at 1M+ rows), falling back to the dict loop when pandas is unavailable."""
         # counts: effective sample size per cat (weighted mass when sw given, else integer count).
         # means: sum(w*y)/sum(w) per cat when weighted; sum(y)/n_c per cat when uniform.
         # Vectorised path via ``pd.factorize`` + ``np.bincount``: ~10x faster
@@ -811,6 +814,7 @@ class LeakageSafeEncoder:
         return out
 
     def _compute_per_category_sums(self, cats: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | None = None) -> tuple:
+        """Legacy Python dict-loop accumulation of per-category (count, sum) used by the LOO encode path, which needs raw sums (not means) to subtract the current row's own contribution."""
         counts: Dict[str, float] = {}
         sums: Dict[str, float] = {}
         if sample_weight is None:
@@ -824,6 +828,7 @@ class LeakageSafeEncoder:
         return counts, sums
 
     def _encode_with_full_train_stat(self, cats: np.ndarray) -> np.ndarray:
+        """Encode ``cats`` against the fitted full-train statistic, dispatching to the vectorised path when pandas is available and falling back to the per-row loop otherwise."""
         # The per-row encoding is a deterministic function of the category string alone, so we compute the value once over
         # the (small) unique set and gather it back with pd.factorize + take. Bit-identical to the per-row loop by construction
         # (same arithmetic per category, same unseen fallback), and ~10-30x faster at n=10M where the Python loop dominated.
@@ -836,11 +841,13 @@ class LeakageSafeEncoder:
         return self._encode_per_row(cats)
 
     def _encode_vectorised(self, cats: np.ndarray, pd) -> np.ndarray:
+        """Encode each row by computing the per-row encoding once over the small unique-category set, then gathering it back per row; bit-identical to ``_encode_per_row`` since the encoding is a pure function of the category string, but ~10-30x faster at large n."""
         codes, uniq = pd.factorize(cats, sort=False)
         per_uniq = self._encode_per_row(uniq)
         return np.asarray(per_uniq[codes])
 
     def _encode_per_row(self, cats: np.ndarray) -> np.ndarray:
+        """Encode each category via the fitted full-train statistic (mean/m-estimate/James-Stein/WoE per ``self.method``), falling back to the global prior (or its log-odds for WoE) for unseen categories."""
         out = np.empty(len(cats), dtype=np.float64)
         assert self._global_prior is not None, "_encode_per_row: fit() must populate _global_prior before transform"
         prior = self._global_prior

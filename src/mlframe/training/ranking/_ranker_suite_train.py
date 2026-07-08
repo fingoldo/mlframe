@@ -378,6 +378,7 @@ def train_mlframe_ranker_suite(
         )
         if selected_features:
             def _subset_cols(Xf):
+                """Restrict a frame to ``selected_features``, format-agnostic (polars ``.select`` when available, else plain column indexing)."""
                 return Xf.select(selected_features) if hasattr(Xf, "select") else Xf[selected_features]
             X_tr, X_va, X_te = _subset_cols(X_tr), _subset_cols(X_va), _subset_cols(X_te)
             if verbose:
@@ -913,6 +914,7 @@ def train_mlframe_ranker_suite(
             # NOTE: no shared numpy->json coercer exists in mlframe.utils or
             # pyutilz today; not worth a new util for this single call site.
             def _coerce(o):
+                """``json.dump`` ``default=`` hook: coerce numpy scalar/array types to plain Python int/float/list so the ranker run metadata serialises."""
                 if isinstance(o, (np.integer,)):
                     return int(o)
                 if isinstance(o, (np.floating,)):

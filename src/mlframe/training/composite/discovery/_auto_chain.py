@@ -134,6 +134,7 @@ class ChainCandidate:
 
 
 def _short(residual_name: str, unary_name: str) -> str:
+    """Build a short display name for a chained (residual + unary) transform, abbreviating the common residual kinds."""
     res_frag = {"linear_residual": "linres", "monotonic_residual": "monres"}.get(residual_name, residual_name)
     return f"{res_frag}+{unary_name}"
 

@@ -33,6 +33,8 @@ else:
     from enum import Enum
 
     class StrEnum(str, Enum):
+        """Backport of Python 3.11's ``enum.StrEnum`` for older interpreters: members are real ``str`` instances (equality/hashing/dict-key compatible with plain string values) but ``str(member)`` renders the value, not ``ClassName.MEMBER``."""
+
         def __str__(self) -> str:
             return str(self.value)
 
@@ -168,14 +170,17 @@ class TargetTypes(StrEnum):
 
     @property
     def is_binary(self) -> bool:
+        """True only for ``BINARY_CLASSIFICATION`` (two-class, single-column probability output)."""
         return self == TargetTypes.BINARY_CLASSIFICATION
 
     @property
     def is_multiclass(self) -> bool:
+        """True only for ``MULTICLASS_CLASSIFICATION`` (K>2 exclusive labels via softmax)."""
         return self == TargetTypes.MULTICLASS_CLASSIFICATION
 
     @property
     def is_multilabel(self) -> bool:
+        """True only for ``MULTILABEL_CLASSIFICATION`` (K>=1 independent per-label sigmoid outputs)."""
         return self == TargetTypes.MULTILABEL_CLASSIFICATION
 
     @property

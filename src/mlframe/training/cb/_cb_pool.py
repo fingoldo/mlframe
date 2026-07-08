@@ -233,6 +233,7 @@ def _polars_nullable_categorical_cols(df: Any, cat_features: list[str] | None = 
         # Fuzz c0061/c0084/c0096 (cb + polars_utf8 + nulls) all crashed
         # because Utf8 cols weren't in this candidate list.
         def _is_cat_like(dt):
+            """Test whether a polars dtype is one CatBoost treats as categorical: Categorical/Enum, plus Utf8/String (which crash CB's Polars fastpath on nulls the same way and so need the same null-fill treatment)."""
             return dt == _pl.Categorical or dt == _pl.Utf8 or dt == _pl.String or (hasattr(_pl, "Enum") and isinstance(dt, _pl.Enum))
 
         if cat_features:

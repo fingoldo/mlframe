@@ -137,6 +137,7 @@ def _causal_anchor_residual_fit(
 def _causal_anchor_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Apply the fitted anchor shrink: target - alpha * base."""
     alpha = float(params["alpha"])
     return y - alpha * base
 
@@ -144,6 +145,7 @@ def _causal_anchor_residual_forward(
 def _causal_anchor_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Invert the anchor shrink to recover the original target scale: prediction + alpha * base."""
     alpha = float(params["alpha"])
     return t_hat + alpha * base
 
@@ -151,6 +153,7 @@ def _causal_anchor_residual_inverse(
 def _causal_anchor_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Row mask of valid inputs for this transform: finite ``base`` (and finite ``y`` when given)."""
     base_ok = np.isfinite(base)
     if y is None:
         return np.asarray(base_ok)

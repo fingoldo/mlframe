@@ -74,6 +74,7 @@ _SPLINE_DEFAULT_S_MULT: float = 1.0  # smoothing = m * var_noise * s_mult (scipy
 def _asinh_residual_fit(
     y: np.ndarray, base: np.ndarray,
 ) -> dict[str, Any]:
+    """OLS-fit alpha/beta of arcsinh(y) ~ alpha * arcsinh(base) + beta on finite train rows; falls back to alpha=1/0 pass-through when fewer than 10 finite rows or base has zero variance."""
     yz = np.arcsinh(np.asarray(y, dtype=np.float64))
     bz = np.arcsinh(np.asarray(base, dtype=np.float64))
     finite = np.isfinite(yz) & np.isfinite(bz)
@@ -94,6 +95,7 @@ def _asinh_residual_fit(
 def _asinh_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Apply the fitted asinh residual: arcsinh(y) - alpha * arcsinh(base) - beta."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
     return np.arcsinh(np.asarray(y, dtype=np.float64)) - alpha * np.arcsinh(np.asarray(base, dtype=np.float64)) - beta
@@ -102,6 +104,7 @@ def _asinh_residual_forward(
 def _asinh_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Invert the asinh residual back to y-space: sinh(t_hat + alpha * arcsinh(base) + beta)."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
     z = np.asarray(t_hat, dtype=np.float64) + alpha * np.arcsinh(np.asarray(base, dtype=np.float64)) + beta
@@ -111,6 +114,7 @@ def _asinh_residual_inverse(
 def _asinh_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Row mask for asinh_residual: every finite base (and finite y, when supplied) is admissible since arcsinh is defined on all reals."""
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
     if y is None:
         return base_ok
@@ -126,6 +130,7 @@ def _asinh_residual_domain(
 def _centered_ratio_fit(
     y: np.ndarray, base: np.ndarray,
 ) -> dict[str, Any]:
+    """Fit a shift ``c`` that pushes the train-set minimum of ``base + c`` slightly positive, plus an eps floor scaled to the median absolute base value, so ``y / (base + c)`` is well-defined even on constant-on-train columns."""
     base_arr = np.asarray(base, dtype=np.float64)
     finite = np.isfinite(base_arr)
     if not finite.any():
@@ -142,6 +147,7 @@ def _centered_ratio_fit(
 def _centered_ratio_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Compute ``y / (base + c)`` with the shifted denominator eps-floored away from zero."""
     c = float(params["c"])
     eps = float(params["eps"])
     shifted = np.asarray(base, dtype=np.float64) + c
@@ -152,6 +158,7 @@ def _centered_ratio_forward(
 def _centered_ratio_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Invert centered_ratio: y = t_hat * (base + c), using the same eps-floored shifted base as forward."""
     c = float(params["c"])
     # Mirror the forward eps-floor on (base + c) so the round-trip stays exact on near-zero shifted rows (forward divides by the floored value, not the raw one).
     eps = float(params["eps"])
@@ -163,6 +170,7 @@ def _centered_ratio_inverse(
 def _centered_ratio_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Row mask for centered_ratio: only finiteness of base (and y, when supplied) is required; the shift/eps handling is done in forward/inverse."""
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
     if y is None:
         return base_ok
@@ -179,6 +187,7 @@ def _centered_ratio_domain(
 def _polynomial_residual_deg2_fit(
     y: np.ndarray, base: np.ndarray,
 ) -> dict[str, Any]:
+    """Fit y ~ alpha1*base + alpha2*base^2 + beta via normal equations on the (1, base, base^2) design matrix, ridge-stabilised on the quadratic terms; falls back to a constant fit when solve fails or too few finite rows."""
     yv = np.asarray(y, dtype=np.float64)
     bv = np.asarray(base, dtype=np.float64)
     finite = np.isfinite(yv) & np.isfinite(bv)
@@ -206,6 +215,7 @@ def _polynomial_residual_deg2_fit(
 def _polynomial_residual_deg2_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Compute the degree-2 residual y - alpha1*base - alpha2*base^2 - beta."""
     a1 = float(params["alpha1"])
     a2 = float(params["alpha2"])
     b = float(params["beta"])
@@ -216,6 +226,7 @@ def _polynomial_residual_deg2_forward(
 def _polynomial_residual_deg2_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Invert the degree-2 residual: y = t_hat + alpha1*base + alpha2*base^2 + beta."""
     a1 = float(params["alpha1"])
     a2 = float(params["alpha2"])
     b = float(params["beta"])
@@ -226,6 +237,7 @@ def _polynomial_residual_deg2_inverse(
 def _polynomial_residual_deg2_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Row mask for polynomial_residual_deg2: any finite base value is admissible (no positivity constraint since it is a polynomial, not a ratio/log)."""
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
     if y is None:
         return base_ok
@@ -242,6 +254,7 @@ def _polynomial_residual_deg2_domain(
 def _rank_residual_fit(
     y: np.ndarray, base: np.ndarray,
 ) -> dict[str, Any]:
+    """Fit the rank-space residual: OLS of empirical-CDF rank(y) on rank(base), storing the sorted train arrays needed to reproduce mid-rank fractions and to invert back to y-space."""
     yv = np.asarray(y, dtype=np.float64)
     bv = np.asarray(base, dtype=np.float64)
     finite = np.isfinite(yv) & np.isfinite(bv)
@@ -283,6 +296,7 @@ def _rank_residual_fit(
 def _rank_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Map y and base to train-calibrated rank fractions and return the residual rank(y) - alpha * rank(base) - beta."""
     y_sorted = np.asarray(params["y_sorted"], dtype=np.float64)
     b_sorted = np.asarray(params["b_sorted"], dtype=np.float64)
     alpha = float(params["alpha"])
@@ -297,6 +311,7 @@ def _rank_residual_forward(
 def _rank_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Invert the rank residual by recovering the predicted y-rank fraction, then looking it up against the train-sorted y table (nearest bucket, not interpolated)."""
     y_sorted = np.asarray(params["y_sorted"], dtype=np.float64)
     b_sorted = np.asarray(params["b_sorted"], dtype=np.float64)
     alpha = float(params["alpha"])
@@ -316,6 +331,7 @@ def _rank_residual_inverse(
 def _rank_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Row mask for rank_residual: distribution-free, so only finiteness of base (and y, when supplied) is required."""
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
     if y is None:
         return base_ok
@@ -334,6 +350,7 @@ def _rank_residual_domain(
 def _smoothing_spline_residual_fit(
     y: np.ndarray, base: np.ndarray,
 ) -> dict[str, Any]:
+    """Fit a smoothing-spline mean curve g(base) on train (base, y): bucket y by unique base value, estimate residual noise variance via the lag-1 first-difference (Rice) estimator on the bucket means, and set scipy's ``s`` smoothing factor to m * noise_var so the spline absorbs noise, not signal. Falls back to a flat y-mean curve when fewer than 20 finite rows or fewer than 4 unique base values."""
     yv = np.asarray(y, dtype=np.float64)
     bv = np.asarray(base, dtype=np.float64)
     finite = np.isfinite(yv) & np.isfinite(bv)
@@ -382,6 +399,7 @@ def _smoothing_spline_residual_fit(
 
 
 def _smoothing_spline_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    """Rebuild the UnivariateSpline from the stored train knots and evaluate g(base); falls back to the constant train y-mean when there are too few knots or the spline construction/evaluation raises."""
     knots_b = np.asarray(params.get("knots_b", []), dtype=np.float64)
     knots_y = np.asarray(params.get("knots_y", []), dtype=np.float64)
     bv = np.asarray(base, dtype=np.float64).reshape(-1)
@@ -403,18 +421,21 @@ def _smoothing_spline_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
 def _smoothing_spline_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Compute the residual y - g(base) using the fitted smoothing spline."""
     return np.asarray(np.asarray(y, dtype=np.float64) - _smoothing_spline_g(base, params))
 
 
 def _smoothing_spline_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Invert the spline residual: y = t_hat + g(base)."""
     return np.asarray(np.asarray(t_hat, dtype=np.float64) + _smoothing_spline_g(base, params))
 
 
 def _smoothing_spline_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Row mask for smoothing_spline_residual: only finiteness of base (and y, when supplied) is required; the spline's ``ext='const'`` extrapolation handles out-of-train-range base values."""
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
     if y is None:
         return base_ok
@@ -429,6 +450,7 @@ def _smoothing_spline_residual_domain(
 def _reciprocal_residual_fit(
     y: np.ndarray, base: np.ndarray,
 ) -> dict[str, Any]:
+    """Derive eps floors for y and base (scaled to each column's median absolute value) used to guard the 1/x terms against division blow-up near zero."""
     yv = np.asarray(y, dtype=np.float64)
     bv = np.asarray(base, dtype=np.float64)
     y_scale = float(np.median(np.abs(yv[np.isfinite(yv)]))) if np.isfinite(yv).any() else 1.0
@@ -442,6 +464,7 @@ def _reciprocal_residual_fit(
 def _reciprocal_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Compute T = 1/y - 1/base with both denominators eps-floored away from zero."""
     eps_y = float(params["eps_y"])
     eps_b = float(params["eps_b"])
     yv = np.asarray(y, dtype=np.float64)
@@ -454,6 +477,7 @@ def _reciprocal_residual_forward(
 def _reciprocal_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Invert the reciprocal residual: z = t_hat + 1/base, then y = 1/z, with z eps-floored so a near-zero z does not blow up the prediction."""
     eps_b = float(params["eps_b"])
     bv = np.asarray(base, dtype=np.float64)
     safe_b = np.where(np.abs(bv) < eps_b, np.sign(bv + 1e-300) * eps_b, bv)
@@ -468,6 +492,7 @@ def _reciprocal_residual_inverse(
 def _reciprocal_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Row mask for reciprocal_residual: base (and y, when supplied) must be finite and strictly nonzero, since both feed a 1/x term."""
     bv = np.asarray(base, dtype=np.float64)
     base_ok = np.isfinite(bv) & (np.abs(bv) > 0)
     if y is None:
@@ -485,6 +510,7 @@ def _reciprocal_residual_domain(
 def _geometric_mean_residual_fit(
     y: np.ndarray, base: np.ndarray,
 ) -> dict[str, Any]:
+    """Derive an eps floor (scaled to the median absolute base value) for the log-mean-exp geomean computation, and record the number of base columns."""
     if base.ndim == 1:
         base = base.reshape(-1, 1)
     bv = np.asarray(base, dtype=np.float64)
@@ -495,6 +521,7 @@ def _geometric_mean_residual_fit(
 def _geometric_mean_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Compute T = y / geomean(bases), with the geomean via log-mean-exp and both the per-column base and the resulting geomean eps-floored."""
     if base.ndim == 1:
         base = base.reshape(-1, 1)
     eps = float(params["eps"])
@@ -508,6 +535,7 @@ def _geometric_mean_residual_forward(
 def _geometric_mean_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Invert the geometric-mean residual: y = t_hat * geomean(bases)."""
     if base.ndim == 1:
         base = base.reshape(-1, 1)
     eps = float(params["eps"])
@@ -520,6 +548,7 @@ def _geometric_mean_residual_inverse(
 def _geometric_mean_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Row mask for geometric_mean_residual: every base column on the row must be finite and strictly positive (required for the log-mean-exp geomean and, when y is supplied, for T = y / geomean to be well-defined for a subsequent log/ratio-style downstream use)."""
     if base.ndim == 1:
         base = base.reshape(-1, 1)
     bv = np.asarray(base, dtype=np.float64)
@@ -540,6 +569,7 @@ def _geometric_mean_residual_domain(
 def _pairwise_interaction_residual_fit(
     y: np.ndarray, base: np.ndarray,
 ) -> dict[str, Any]:
+    """OLS-fit y ~ alpha * prod(bases) + beta on finite train rows, capturing the pure multiplicative interaction term across all base columns."""
     if base.ndim == 1:
         base = base.reshape(-1, 1)
     yv = np.asarray(y, dtype=np.float64)
@@ -562,6 +592,7 @@ def _pairwise_interaction_residual_fit(
 def _pairwise_interaction_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Compute T = y - alpha * prod(bases) - beta."""
     if base.ndim == 1:
         base = base.reshape(-1, 1)
     alpha = float(params["alpha"])
@@ -574,6 +605,7 @@ def _pairwise_interaction_residual_forward(
 def _pairwise_interaction_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Invert the pairwise interaction residual: y = t_hat + alpha * prod(bases) + beta."""
     if base.ndim == 1:
         base = base.reshape(-1, 1)
     alpha = float(params["alpha"])
@@ -586,6 +618,7 @@ def _pairwise_interaction_residual_inverse(
 def _pairwise_interaction_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Row mask for pairwise_interaction_residual: every base column must be finite; no positivity constraint since the interaction is a plain product/residual, not a ratio or log."""
     if base.ndim == 1:
         base = base.reshape(-1, 1)
     bv = np.asarray(base, dtype=np.float64)

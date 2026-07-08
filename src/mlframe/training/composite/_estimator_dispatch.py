@@ -25,6 +25,7 @@ def recommend_composite_estimator(pathologies: Sequence[str]) -> Optional[dict[s
     pats = [str(p) for p in (pathologies or [])]
 
     def _first(prefixes):
+        """Return the first pathology string in ``pats`` starting with any of ``prefixes``, or None if none match."""
         for p in pats:
             if any(p.startswith(pre) for pre in prefixes):
                 return p
@@ -90,6 +91,7 @@ def _pick_base_column(train_df: Any, y: Any) -> Optional[str]:
         return None
 
     def _col_values(name):
+        """Extract column ``name`` from ``train_df`` (pandas or polars) as a flat float64 ndarray."""
         col = train_df[name]
         arr = getattr(col, "to_numpy", lambda: col)()
         return np.asarray(arr, dtype=np.float64).reshape(-1)
@@ -193,6 +195,7 @@ def maybe_inject_distribution_driven_estimator(
         sbm[id(estimator)] = _get_strategy(estimator)
 
         def _tier(m):
+            """Sort key for the per-target training order: negated feature-tier tuple (memoized in ``sbm`` by estimator identity) so higher tiers train first."""
             strat = sbm.get(id(m))
             if strat is None:
                 strat = _get_strategy(m)

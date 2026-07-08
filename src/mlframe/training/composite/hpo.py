@@ -389,6 +389,7 @@ def optimize_composite(
     trials_log: List[Tuple[str, Dict[str, Any], float]] = []
 
     def _evaluate(transform_name: str, inner_params: Dict[str, Any]) -> float:
+        """CV-score one (transform, inner-params) candidate and append it to ``trials_log``."""
         score = _cv_score_candidate(
             X, y_arr,
             base_column=base_column,
@@ -464,6 +465,7 @@ def _search_optuna(
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     def _objective(trial: Any) -> float:
+        """Optuna trial objective: sample a (transform, inner-params) candidate from the joint space and delegate scoring to ``evaluate``."""
         transform_name = trial.suggest_categorical("transform", list(transform_candidates))
         params = {name: sp.suggest(trial, name) for name, sp in inner_spaces.items()}
         return evaluate(transform_name, params)

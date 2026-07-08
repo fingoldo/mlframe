@@ -269,6 +269,7 @@ def configure_training_params(
     from .trainer import LINEAR_MODEL_TYPES, LinearModelConfig, RFECV, TargetTypes, _configure_lightgbm_params, _configure_mlp_params, _configure_xgboost_params, create_fairness_subgroups, create_fairness_subgroups_indices, create_linear_model, fast_roc_auc, get_df_memory_consumption, parse_catboost_devices
 
     def _identity(x):
+        """Default ``metamodel_func`` when the caller doesn't supply one: passes the model through unchanged."""
         return x
 
     # Helper for lazy model creation
@@ -521,6 +522,7 @@ def configure_training_params(
 
     # Per-strategy multilabel-wrap helper. Strategies without native (N, K) target support (HGB, XGB-via-MultiOutputClassifier, LGB, Linear) need MultiOutputClassifier when target is multilabel. Inner-estimator early_stopping that depends on eval_set must be disabled because the outer wrapper doesn't slice eval_set per label; without an eval_set the inner fit would crash ("at least one dataset and eval metric is required for evaluation").
     def _wrap_for_multilabel_if_needed(estimator, strategy_cls):
+        """For strategies without native ``(N, K)`` target support, wrap ``estimator`` in ``strategy_cls().wrap_multilabel`` on a MULTILABEL_CLASSIFICATION target; first strips any eval_set-dependent early-stopping params, since the multilabel wrapper doesn't slice eval_set per label. No-op for regression or non-multilabel targets."""
         if use_regression or target_type is None or not hasattr(target_type, "name") or target_type.name != "MULTILABEL_CLASSIFICATION":
             return estimator
         # Disable eval_set-dependent early stopping on the inner estimator.
@@ -693,6 +695,7 @@ def configure_training_params(
         if prefer_calibrated_classifiers:
 
             def fs_and_hpt_integral_calibration_error(*args, **kwargs):
+                """RFECV scorer for calibrated classifiers: forwards to ``configs.fs_and_hpt_integral_calibration_error`` with the closure-captured ``verbose`` level threaded in."""
                 return configs.fs_and_hpt_integral_calibration_error(*args, **kwargs, verbose=rfecv_model_verbose)
 
             rfecv_scoring = make_scorer(

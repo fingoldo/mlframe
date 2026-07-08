@@ -392,6 +392,7 @@ def compute_learning_curve(
         )
 
     def _job(c: int) -> Tuple[float, float, float, float]:
+        """Bind the closed-over pool/holdout/scorer state to a single-argument fit-at-size-``c`` call, so each train-size point can be dispatched (serially or in parallel) with a uniform signature."""
         return _fit_one_size(
             estimator_factory, X_pool, y_pool, perm, c, X_hold, y_hold,
             scorer, score_repeats, random_state,

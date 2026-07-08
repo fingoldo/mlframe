@@ -191,6 +191,7 @@ class PIDAwareFileLock:
         return self.path + ".pid"
 
     def _write_holder_pid(self) -> None:
+        """Record this process's PID in the sidecar file so a future contender can detect a stale (dead-process) lock and reclaim it. Best-effort: an OSError here degrades to "future contenders wait out the full timeout" rather than crashing the lock holder."""
         # Atomic via temp-file + os.replace so a SIGKILL between create
         # and write cannot leave an empty PID file (which would make
         # ``_read_holder_pid`` return None, breaking stale-lock reclaim).
@@ -215,6 +216,7 @@ class PIDAwareFileLock:
                 pass
 
     def _read_holder_pid(self) -> Optional[int]:
+        """Read the current lock holder's PID from the sidecar file; None if the file is missing, empty, or unreadable (treated as "liveness unknown", not an error)."""
         try:
             with open(self._meta_path()) as f:
                 return int(f.read().strip())

@@ -277,6 +277,7 @@ def _compute_oof_preds_timeseries(*, estimator, train_df, train_target, method: 
     y_arr = np.asarray(train_target)
 
     def _row(df, idx):
+        """Frame-agnostic positional row/index subset: uses ``.iloc`` for pandas-like frames, plain indexing otherwise (numpy/polars)."""
         if hasattr(df, "iloc"):
             return df.iloc[idx]
         return df[idx]
@@ -872,6 +873,7 @@ def _configure_recurrent_params(
     if metamodel_func is None:
 
         def metamodel_func(x):
+            """Identity fallback used when no metamodel post-processing function is supplied."""
             return x
 
     # Determine input mode based on available data

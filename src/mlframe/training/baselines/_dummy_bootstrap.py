@@ -201,15 +201,18 @@ def _paired_bootstrap_vs_runner_up(
         # paths raised.
         if "RMSE" in primary_metric:
             def fn(y, p):
+                """Per-resample RMSE of the fallback sklearn metric loop."""
                 return float(fast_root_mean_squared_error(y, p))
         elif "MAE" in primary_metric:
             def fn(y, p):
+                """Per-resample MAE of the fallback sklearn metric loop."""
                 return float(fast_mean_absolute_error(y, p))
         elif "log_loss_macro" in primary_metric:
             return None  # multi-output; cost > value at this gate
         elif "log_loss" in primary_metric:
             from sklearn.metrics import log_loss as _ll
             def fn(y, p):
+                """Per-resample binary log-loss of the fallback sklearn metric loop."""
                 return float(_ll(y, p))
         else:
             return None
@@ -371,6 +374,7 @@ def _bootstrap_ci_for_strongest(
     # Pick the metric callable matching primary_metric. Minimize
     # convention follows _pick_strongest naming.
     def _resample_metric(y: np.ndarray, p: np.ndarray) -> tuple[float, float, float] | None:
+        """Bootstrap ``(lo, point, hi)`` 95% CI for ``primary_metric`` on ``(y, p)``; routes to the numba-accelerated kernel for RMSE/MAE/binary log-loss when available, else falls back to a per-resample sklearn metric loop."""
         n = len(y)
         if n < 10:
             return None
@@ -461,9 +465,11 @@ def _bootstrap_ci_for_strongest(
         try:
             if "RMSE" in primary_metric:
                 def fn(yi, pi):
+                    """Per-resample RMSE fallback when the numba kernel is unavailable or raised."""
                     return float(fast_root_mean_squared_error(yi, pi))
             elif "MAE" in primary_metric:
                 def fn(yi, pi):
+                    """Per-resample MAE fallback when the numba kernel is unavailable or raised."""
                     return float(fast_mean_absolute_error(yi, pi))
             elif "log_loss_macro" in primary_metric:
                 # Multilabel macro: average over labels; here we use per-row
@@ -471,6 +477,7 @@ def _bootstrap_ci_for_strongest(
                 from sklearn.metrics import log_loss as _ll
                 K = y.shape[1] if y.ndim == 2 else 1
                 def fn(yi, pi):
+                    """Per-resample multilabel macro log-loss; averages per-label binary log-loss, reporting NaN (not silently dropping) any label whose sklearn call fails."""
                     if yi.ndim == 1:
                         return float(_ll(yi, pi, labels=[0, 1]))
                     losses = []
@@ -497,6 +504,7 @@ def _bootstrap_ci_for_strongest(
                 from sklearn.metrics import log_loss as _ll
                 # 1D label, 1D or 2D pred
                 def fn(yi, pi):
+                    """Per-resample log-loss fallback for non-macro log_loss variants."""
                     return float(_ll(yi, pi))
             else:
                 # Maximize metrics (NDCG / AUC) -- bootstrap point estimate

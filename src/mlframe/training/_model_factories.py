@@ -62,6 +62,7 @@ def _patch_lgb_feature_names_in_setter() -> None:
         return
 
     def _set_feature_names_in(self, value):
+        """Patched setter for ``LGBMModel.feature_names_in_``: stores the value privately instead of raising, since sklearn's ``validate_data`` unconditionally assigns to this read-only property."""
         object.__setattr__(self, "_mlframe_feature_names_in_override", value)
 
     patched = property(
@@ -174,6 +175,7 @@ def _patch_dataset_constructors_with_logging() -> None:
     _build_logger = logging.getLogger("mlframe.training.trainer")
 
     def _infer_shape(args, kwargs):
+        """Best-effort ``(rows, cols)`` of the dataset payload (first positional arg or ``data`` kwarg) for the build-event log line; falls back to ``(len(payload), -1)`` or ``None`` when no shape is inferable."""
         # First positional or the ``data`` kwarg is the payload; try shape.
         payload = kwargs.get("data")
         if payload is None and args:
@@ -195,6 +197,7 @@ def _patch_dataset_constructors_with_logging() -> None:
             return None
 
     def _infer_callsite() -> str:
+        """``"module:lineno"`` of the first stack frame outside catboost/xgboost/lightgbm internals, i.e. the mlframe (or user) call that triggered this dataset build."""
         # Walk up to find the first frame outside the library internals.
         try:
             frame: Any = _sys._getframe(2)
@@ -210,6 +213,7 @@ def _patch_dataset_constructors_with_logging() -> None:
             return "?"
 
     def _originates_in_internal_loop() -> bool:
+        """True if any ancestor stack frame lives in a known per-iteration internal loop (composite discovery / screening / baseline-diagnostics ablation) -- used to demote its build-event log line to DEBUG."""
         # A per-iteration nuisance build is one fired from inside an internal FIT LOOP -- composite discovery /
         # screening / baseline-diagnostics ablation / cross-target OOF K-fold. The reported single call site is the
         # nearest non-library frame, which is often mlframe's own thin dataset-build shim (lgb_shim / xgb_shim) and so
@@ -230,6 +234,7 @@ def _patch_dataset_constructors_with_logging() -> None:
         return False
 
     def _wrap_init(cls, label: str):
+        """Monkey-patch ``cls.__init__`` in place to emit a build-event log line after construction; idempotent per concrete class via the ``_mlframe_build_logger_installed`` own-``__dict__`` marker."""
         if cls is None:
             return
         # Check the marker on ``cls.__dict__`` specifically -- a subclass
@@ -243,6 +248,7 @@ def _patch_dataset_constructors_with_logging() -> None:
         orig_init = cls.__init__
 
         def _logged_init(self, *args, **kwargs):
+            """Replacement ``__init__`` that runs the original constructor then logs shape/duration/callsite (at DEBUG when inside an internal loop, else INFO)."""
             t0 = _time.perf_counter()
             try:
                 orig_init(self, *args, **kwargs)

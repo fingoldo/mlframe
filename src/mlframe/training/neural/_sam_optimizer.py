@@ -103,24 +103,30 @@ class SAM(Optimizer):
 
     @property
     def param_groups(self) -> List[dict]:
+        """Forward to the wrapped base optimizer's ``param_groups`` so SAM is a transparent drop-in for schedulers/logging that read it."""
         return self.base_optimizer.param_groups
 
     @param_groups.setter
     def param_groups(self, value: List[dict]) -> None:
+        """Forward assignment to the wrapped base optimizer, keeping SAM's view in sync."""
         self.base_optimizer.param_groups = value
 
     @property  # type: ignore[override]  # SAM wraps base_optimizer and intentionally delegates state as a property
     def state(self) -> dict:
+        """Forward to the wrapped base optimizer's ``state`` (per-param optimizer state such as momentum buffers)."""
         return self.base_optimizer.state
 
     @state.setter
     def state(self, value: dict) -> None:
+        """Forward assignment to the wrapped base optimizer's ``state``."""
         self.base_optimizer.state = value  # type: ignore[assignment]  # torch's Optimizer.state stub is narrower (defaultdict[Tensor, Any]) than the plain dict this setter accepts
 
     def add_param_group(self, param_group: dict) -> None:
+        """Delegate to the base optimizer so newly added groups get its scheduling/state handling; SAM has no per-group state of its own."""
         self.base_optimizer.add_param_group(param_group)
 
     def state_dict(self) -> dict:
+        """Checkpoint the wrapped optimizer's state plus SAM's own ``rho``/``adaptive`` hyperparameters, so a reload reproduces identical perturbation behavior."""
         return {
             "base": self.base_optimizer.state_dict(),
             "rho": self.rho,
@@ -128,12 +134,14 @@ class SAM(Optimizer):
         }
 
     def load_state_dict(self, state_dict: dict) -> None:
+        """Restore the base optimizer plus SAM hyperparameters from a checkpoint; clears the in-flight perturbation backup since it is not meaningful across a reload."""
         self.base_optimizer.load_state_dict(state_dict["base"])
         self.rho = state_dict.get("rho", self.rho)
         self.adaptive = state_dict.get("adaptive", self.adaptive)
         self._param_backup = {}
 
     def zero_grad(self, set_to_none: bool = True) -> None:
+        """Forward to the base optimizer's ``zero_grad``."""
         self.base_optimizer.zero_grad(set_to_none=set_to_none)
 
     # ---- SAM-specific two-step API ------------------------------------

@@ -19,6 +19,7 @@ CarveResult = tuple[np.ndarray, np.ndarray, np.ndarray]
 
 
 def _resolve_counts(n: int, calib_frac: float, conformal_frac: float) -> tuple[int, int]:
+    """Convert the calib/conformal fractions to integer row (or block/group) counts out of ``n``, floored, with a non-positive fraction resolving to 0."""
     n_calib = int(np.floor(calib_frac * n)) if calib_frac and calib_frac > 0 else 0
     n_conf = int(np.floor(conformal_frac * n)) if conformal_frac and conformal_frac > 0 else 0
     return n_calib, n_conf

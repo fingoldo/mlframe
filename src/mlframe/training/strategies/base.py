@@ -58,6 +58,7 @@ class _Float32CastTransformer(TransformerMixin, BaseEstimator):
         return tags
 
     def fit(self, X, y=None):
+        """Stamp ``feature_names_in_``/``n_features_in_`` without touching values; the cast itself is stateless."""
         # Stamp the standard fitted attributes so ``check_is_fitted`` succeeds
         # AND sklearn's pipeline name-tracker (which calls
         # ``get_feature_names_out(input_features=None)`` on each step in turn,
@@ -72,13 +73,16 @@ class _Float32CastTransformer(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
+        """Cast ``X`` to float32, delegating to the module-level helper."""
         return _cast_numeric_to_float32(X)
 
     def fit_transform(self, X, y=None):
+        """Fit (stamp attributes) then cast; kept separate from ``fit``+``transform`` to avoid a double no-op call."""
         self.fit(X)
         return _cast_numeric_to_float32(X)
 
     def get_feature_names_out(self, input_features=None):
+        """Echo ``input_features`` if given, else the names/count captured at fit time, per sklearn's contract."""
         import numpy as _np
         if input_features is not None:
             return _np.asarray(input_features)
@@ -111,6 +115,7 @@ class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
         return tags
 
     def fit(self, X, y=None):
+        """Stamp ``feature_names_in_``/``n_features_in_``; the inf->NaN replacement itself needs no fitted state."""
         import numpy as _np
         if hasattr(X, "columns"):
             self.feature_names_in_ = _np.asarray(list(X.columns))
@@ -121,6 +126,7 @@ class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
 
     @staticmethod
     def _replace(X):
+        """Replace +/-inf with NaN, branching on carrier type: pandas ``.replace`` for frames, ``np.where`` for float ndarrays, pass-through for int/bool arrays where inf cannot occur."""
         import numpy as _np
         if hasattr(X, "replace") and hasattr(X, "columns"):  # pandas DataFrame
             return X.replace([_np.inf, -_np.inf], _np.nan)
@@ -131,13 +137,16 @@ class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
         return X
 
     def transform(self, X):
+        """Apply the inf->NaN replacement to ``X``."""
         return self._replace(X)
 
     def fit_transform(self, X, y=None):
+        """Fit (stamp attributes) then apply the inf->NaN replacement in one call."""
         self.fit(X)
         return self._replace(X)
 
     def get_feature_names_out(self, input_features=None):
+        """Echo ``input_features`` if given, else the names/count captured at fit time, per sklearn's contract."""
         import numpy as _np
         if input_features is not None:
             return _np.asarray(input_features)
@@ -165,6 +174,7 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
         self.cat_features = cat_features
 
     def _num_cols(self, X):
+        """Return the columns of ``X`` that should be routed to the inner imputer/scaler (not a named or dtype-detected categorical)."""
         import pandas as _pd
         named = set(self.cat_features or [])
         # Route ONLY numeric columns to the inner imputer/scaler. Categoricals -- whether explicitly named OR raw object/category/string columns
@@ -180,6 +190,7 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
         return tags
 
     def fit(self, X, y=None):
+        """Fit the inner transformer on the detected numeric columns only; on non-frame input, fit it on the whole array since cats can't be identified by name."""
         import numpy as _np
         if hasattr(X, "columns"):
             self.feature_names_in_ = _np.asarray(list(X.columns))
@@ -196,6 +207,7 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
         return self
 
     def transform(self, X):
+        """Transform the numeric block via the inner transformer and reassemble it back into original column order/names, leaving categoricals untouched."""
         if getattr(self, "_num_cols_", None) is None or not hasattr(X, "columns"):
             return self.inner.transform(X)
         num_cols = self._num_cols_
@@ -234,9 +246,11 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
         return out
 
     def fit_transform(self, X, y=None):
+        """Fit then transform in one call."""
         return self.fit(X, y).transform(X)
 
     def get_feature_names_out(self, input_features=None):
+        """Echo ``input_features`` if given, else the names/count captured at fit time, per sklearn's contract."""
         import numpy as _np
         if input_features is not None:
             return _np.asarray(input_features)

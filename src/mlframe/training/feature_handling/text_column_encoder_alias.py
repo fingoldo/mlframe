@@ -21,6 +21,7 @@ def build_text_encoder(
     column: str,
     params: Union[TfidfParams, HashingParams],
 ) -> TextColumnEncoder:
+    """Build a ``TextColumnEncoder`` for ``column`` from either TF-IDF or hashing params; thin factory, see module docstring for why it lives in its own module."""
     return TextColumnEncoder(column=column, params=params)
 
 

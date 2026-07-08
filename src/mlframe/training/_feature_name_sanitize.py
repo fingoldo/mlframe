@@ -35,6 +35,7 @@ _TRANS = {ord(c): "_" for c in _HOSTILE_CHARS}
 
 
 def _is_hostile(name) -> bool:
+    """Whether ``name`` contains any GBM-hostile character (JSON structural chars rejected by LightGBM plus XGBoost's ``< > [ ]``)."""
     s = name if isinstance(name, str) else str(name)
     return any(ch in s for ch in _HOSTILE_CHARS)
 

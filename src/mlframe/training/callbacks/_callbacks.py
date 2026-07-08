@@ -161,12 +161,14 @@ class UniversalCallback:
             )
 
     def on_start(self) -> None:
+        """Record the training start timestamp for the time-budget check and log initial RAM usage when verbose."""
         self.start_time = timer()
         if self.verbose > 0:
             self.last_reporting_ts = self.start_time
             logger.info("Training started. Timer initiated. RAM usage %.1fGB.", get_own_memory_usage())
 
     def update_history(self, metrics_dict: dict[str, dict[str, float]]) -> None:
+        """Append this iteration's per-dataset/per-metric values onto the running ``metric_history`` series."""
         for dataset in metrics_dict:
             if dataset not in self.metric_history:
                 self.metric_history[dataset] = {}
@@ -208,6 +210,7 @@ class UniversalCallback:
         return "min"  # explicit-fallback default
 
     def set_default_monitor_metric(self, metrics_dict: dict[str, dict[str, float]]) -> None:
+        """Auto-pick the metric to monitor when the caller didn't specify one: prefer a known calibration/AUC metric, else fall back to whatever the booster reports first, then derive the min/max direction for it."""
         if self.monitor_dataset not in metrics_dict:
             raise ValueError(f"Monitor dataset '{self.monitor_dataset}' not found in metrics.")
         available_metrics = list(metrics_dict[self.monitor_dataset].keys())
@@ -223,6 +226,7 @@ class UniversalCallback:
             logger.info("Auto-selected monitor_metric: %s, mode: %s", self.monitor_metric, self.mode)
 
     def _get_state(self, current_value: float) -> str:
+        """Format a one-line progress summary (iteration, current/best metric, RAM) for logging."""
         return f"iter={self.iter:_}, {self.monitor_dataset} {self.monitor_metric}: current={current_value:.{self.ndigits}f}, best={self.best_metric:.{self.ndigits}f} @{self.best_iter:_}. RAM usage {get_own_memory_usage():.1f}GB."
 
     def _resolve_slice_dataset_names(self) -> list[str]:
@@ -319,6 +323,7 @@ class UniversalCallback:
         return float(self.slice_min_delta_in_se) * se
 
     def should_stop(self) -> bool:
+        """Evaluate all early-stop triggers in order (time budget, external stop flag, then the metric-plateau/patience logic) and return whether training should halt now."""
         cur_ts = timer()
         if self.time_budget_mins is not None and self.start_time is not None:
 
@@ -440,6 +445,7 @@ class XGBoostCallback(UniversalCallback, TrainingCallback):
         self.monitor_dataset = self.monitor_dataset or "validation_0"
 
     def after_iteration(self, model: xgb.Booster, epoch: int, evals_log: dict[str, dict[str, list[float] | list[tuple[float, float]]]]) -> bool:
+        """XGBoost's per-iteration hook: feed the latest eval values into history, auto-pick the monitor metric on first call, and stamp ``best_score``/``best_iteration`` on the model when signalling stop (XGBoost's own contract for retrieving the best round)."""
         if self.first_iteration:
             self.on_start()
             self.first_iteration = False
@@ -468,6 +474,7 @@ class CatBoostCallback(UniversalCallback):
         self.monitor_dataset = self.monitor_dataset or "validation"
 
     def after_iteration(self, info: Any) -> bool:
+        """CatBoost's per-iteration hook: feed the latest eval values into history, auto-pick the monitor metric on first call, and return whether to stop."""
         if self.first_iteration:
             self.on_start()
             self.first_iteration = False

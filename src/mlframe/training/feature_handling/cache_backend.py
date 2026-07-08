@@ -106,14 +106,17 @@ class LocalDiskBackend:
     # ---- path helpers ------------------------------------------------
 
     def _value_path(self, key: str) -> str:
+        """Resolve ``key`` to its on-disk ``.bin`` value path under ``root``."""
         return os.path.join(self.root, f"{key}.bin")
 
     def _lock_path(self, key: str) -> str:
+        """Resolve ``key`` to its per-key lock-file path under ``.locks``."""
         return os.path.join(self._locks_dir, f"{key}.lock")
 
     # ---- Protocol methods -------------------------------------------
 
     def read(self, key: str) -> bytes:
+        """Read the raw bytes for ``key``, raising ``KeyError`` (not ``FileNotFoundError``) so callers can treat this backend uniformly with others."""
         path = self._value_path(key)
         try:
             with open(path, "rb") as f:
@@ -122,9 +125,11 @@ class LocalDiskBackend:
             raise KeyError(key) from e
 
     def write(self, key: str, data: bytes) -> None:
+        """Atomically persist ``data`` under ``key``, then update the LRU sidecar and enforce eviction caps if configured."""
         path = self._value_path(key)
 
         def _writer(fileobj) -> None:
+            """Write the pre-captured ``data`` payload to the tempfile handed in by ``atomic_write_bytes``."""
             fileobj.write(data)
 
         atomic_write_bytes(path, _writer)
@@ -147,6 +152,7 @@ class LocalDiskBackend:
         return os.path.exists(self._value_path(key))
 
     def delete(self, key: str) -> None:
+        """Remove ``key``'s value file (no-op if already absent) and drop its LRU sidecar entry if caps are configured."""
         path = self._value_path(key)
         try:
             os.unlink(path)
@@ -214,6 +220,7 @@ class LocalDiskBackend:
                 )
 
     def _load_lru(self) -> "dict[str, float]":
+        """Load the ``.lru`` sidecar (key -> last-access timestamp), tolerating a missing or corrupt file by returning an empty ledger."""
         import json
         if not os.path.exists(self._lru_path):
             return {}
@@ -227,6 +234,7 @@ class LocalDiskBackend:
         return {}
 
     def _save_lru(self, lru: "dict[str, float]") -> None:
+        """Atomically overwrite the ``.lru`` sidecar with ``lru``, serialised with sorted keys for deterministic diffs."""
         import json
         atomic_write_bytes(
             self._lru_path,
@@ -234,6 +242,7 @@ class LocalDiskBackend:
         )
 
     def _touch_lru(self, key: str) -> None:
+        """Stamp ``key`` with the current time as most-recently-used and persist the sidecar."""
         import time
         lru = self._load_lru()
         lru[key] = time.time()
@@ -294,9 +303,11 @@ class LocalDiskBackend:
         return removed
 
     def lock(self, key: str) -> ContextManager:
+        """Return a cross-process, PID-aware exclusive lock scoped to ``key``."""
         return PIDAwareFileLock(self._lock_path(key))
 
     def list_keys(self, prefix: str = "") -> List[str]:
+        """List stored keys (``.bin`` files with the extension stripped), optionally filtered to those starting with ``prefix``. Returns empty when ``root`` doesn't exist."""
         out: List[str] = []
         try:
             for name in os.listdir(self.root):

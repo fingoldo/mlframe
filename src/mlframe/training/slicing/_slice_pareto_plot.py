@@ -147,6 +147,7 @@ def generate_pareto_artifact(
 
 
 def _sanitize(s: str) -> str:
+    """Replace every character outside alnum/``.``/``_``/``-`` with ``_`` so ``s`` is safe for use as a filesystem path component."""
     return "".join(c if c.isalnum() or c in "._-" else "_" for c in str(s))
 
 

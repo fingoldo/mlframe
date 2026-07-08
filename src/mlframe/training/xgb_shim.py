@@ -196,10 +196,12 @@ _XGB_DMATRIX_CACHE_LOCK = _threading.Lock()
 
 
 def _xgb_cache_disabled() -> bool:
+    """True when the ``MLFRAME_XGB_CACHE_DISABLE`` env var is set, forcing every DMatrix cache lookup/store to be a no-op (diagnostics / A-B testing escape hatch)."""
     return bool(_os.environ.get("MLFRAME_XGB_CACHE_DISABLE"))
 
 
 def _xgb_cache_get(key: tuple):
+    """LRU-ordered lookup of a cached DMatrix by content-signature ``key``; touches the entry to most-recently-used on hit, returns None on miss or when the cache is disabled."""
     if _xgb_cache_disabled() or key is None:
         return None
     with _XGB_DMATRIX_CACHE_LOCK:
@@ -210,6 +212,7 @@ def _xgb_cache_get(key: tuple):
 
 
 def _xgb_cache_put(key: tuple, dmatrix: Any) -> None:
+    """Store ``dmatrix`` under ``key`` in the LRU DMatrix cache, evicting the least-recently-used entry once the cache exceeds ``_XGB_DMATRIX_CACHE_CAP``."""
     if _xgb_cache_disabled() or key is None or dmatrix is None:
         return
     with _XGB_DMATRIX_CACHE_LOCK:
@@ -295,6 +298,7 @@ class _DMatrixReuseMixin:
     _CACHE_KEY_ATTRS: tuple = ("_cached_train_key", "_cached_val_key")
 
     def _init_cache(self) -> None:
+        """Reset all cached-DMatrix pointer and signature-key attributes to None; called on construction and after a pickle round-trip strips the (unpicklable) cached DMatrix pointers."""
         for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
             setattr(self, _attr, None)
 
@@ -741,6 +745,7 @@ if _XGB_AVAILABLE:
             return type(self)(**self.get_params(deep=False))
 
         def _finalize_native_params(self, params: dict, y) -> dict:
+            """Default ``objective`` to ``reg:squarederror`` for native ``xgb.train()`` when the caller didn't set one; regression has no class-cardinality logic to mirror."""
             params = dict(params)
             if "objective" not in params or params.get("objective") is None:
                 params["objective"] = "reg:squarederror"

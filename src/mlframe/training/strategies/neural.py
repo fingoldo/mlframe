@@ -37,6 +37,7 @@ class NeuralNetStrategy(ModelPipelineStrategy):
 
     @property
     def requires_encoding(self) -> bool:
+        """Whether categorical columns need pre-encoding (legacy CatBoostEncoder path); False when the estimator self-encodes via learnable embeddings."""
         return not self.use_learnable_cat_embeddings
     # The estimator self-encodes embedding/text columns at its fit/predict boundary (NeuralEmbeddingTextEncoder via _encode_emb_text_fit), and MRMR now routes
     # non-scalar embedding (object cells = list/ndarray) + free-text columns THROUGH the MI screen unchanged (embedding_passthrough, default ON). With both ends
@@ -206,6 +207,7 @@ class RecurrentModelStrategy(ModelPipelineStrategy):
 
     @property
     def requires_encoding(self) -> bool:
+        """Whether tabular categorical columns need pre-encoding (legacy CatBoostEncoder path); False when the recurrent estimator factorizes them and learns its own embeddings."""
         return not self.use_learnable_cat_embeddings
     # supports_native_ranking stays False -- group-batching for sequences
     # would require a custom sampler that yields one query's sequences

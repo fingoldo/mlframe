@@ -73,6 +73,7 @@ if _HAS_NUMBA_MOMENTS:
     # moments kernel only fuses the linear-time reductions.
     @_njit(cache=True, fastmath=False)
     def _audit_moments_njit_seq(y_true: np.ndarray, y_pred: np.ndarray) -> tuple:
+        """Single-threaded 3-pass fused computation of residual (mean, std, skew, excess kurtosis, pct-outside-3-sigma); avoids numpy's ``**3``/``**4`` power dispatch via integer-exponent multiplication."""
         n = y_true.shape[0]
         # Pass 1: mean of residuals.
         s = 0.0
@@ -110,6 +111,7 @@ if _HAS_NUMBA_MOMENTS:
 
     @_njit(cache=True, parallel=True, fastmath=False)
     def _audit_moments_njit_par(y_true: np.ndarray, y_pred: np.ndarray) -> tuple:
+        """Parallel (prange) counterpart of ``_audit_moments_njit_seq``; wins above ``_AUDIT_MOMENTS_PAR_THRESHOLD`` where prange spawn overhead is amortised (see the bench numbers below)."""
         n = y_true.shape[0]
         s = 0.0
         for i in _prange(n):
@@ -215,6 +217,7 @@ class ResidualAudit:
     normality_test: dict | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Flatten the audit result into a plain dict, suitable for JSON serialization / logging."""
         return {
             "n": self.n,
             "n_total": self.n_total,

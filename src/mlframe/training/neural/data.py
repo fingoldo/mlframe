@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 
 
 class TorchDataset(Dataset):
+    """PyTorch ``Dataset`` wrapping feature/label/sample-weight arrays; eager-converts small inputs to tensors up front and defers per-batch conversion for large inputs to bound peak RAM (see the module's byte-size gate)."""
+
     def __init__(
         self,
         features,
@@ -333,6 +335,7 @@ class TorchDataModule(LightningDataModule):
         return None
 
     def _resolve_batch_size(self, batch_size, features, split_name: str) -> int:
+        """Resolve ``batch_size`` to a concrete int: passes an explicit int through, or auto-sizes via ``resolve_mlp_train_batch_size`` (based on feature width + available memory) when ``"auto"`` is requested."""
         if isinstance(batch_size, str):
             if batch_size.lower() != "auto":
                 raise ValueError(f"Unsupported MLP DataLoader batch_size={batch_size!r}; " "expected an int or 'auto'.")

@@ -47,6 +47,7 @@ def _compute_classification_baselines(
     seed = _per_target_seed(config.random_state, target_name)
 
     def _prior_from(y: np.ndarray | None) -> np.ndarray:
+        """Class-marginal distribution of ``y`` (uniform fallback for None/empty or an all-zero bincount); used only for the oracle/eval-split-aware baselines, never the honest train-only prior (see the comment below)."""
         if y is None or len(y) == 0:
             return train_prior
         bc = np.bincount(np.asarray(y).astype(np.int64), minlength=n_classes).astype(np.float64)

@@ -138,6 +138,7 @@ def _apply_loss_recommendation_in_place(
     # could keep improving. Mismatch caused systematic under-convergence,
     # boosters' TEST RMSE was WORSE than the trivial lag_predict baseline.
     def _eval_metric_for(_backend: str, _value: str) -> tuple[str, Any] | None:
+        """Per-backend ``(param_name, eval_metric_value)`` matching the chosen loss/objective ``_value``, so LGB/XGB/CB early-stopping tracks the same surface the optimiser descends instead of a mismatched suite-default metric; returns None when no mapping is needed for that backend/value."""
         if _backend == "cb":
             if _value == "RMSE":
                 return ("eval_metric", "RMSE")

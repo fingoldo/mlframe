@@ -45,6 +45,7 @@ def _render_composite_discovery_diagnostics(
         return saved
 
     def _save(fig, suffix: str) -> None:
+        """Save ``fig`` under a target-scoped filename, record the path in ``saved``, and always close the figure afterward to avoid leaking matplotlib figure objects across repeated discovery calls."""
         path = os.path.join(data_dir, f"composite_{_safe_target}_{suffix}.png")
         try:
             fig.savefig(path, dpi=110, bbox_inches="tight")

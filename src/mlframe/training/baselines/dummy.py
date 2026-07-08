@@ -137,6 +137,7 @@ def _warmup_numba_kernels(verbose: bool = False) -> None:
 
 
 def _warmup_numba_kernels_body(verbose: bool = False) -> None:
+    """Run every numba-jitted dummy-baseline kernel once on tiny synthetic inputs to pay the JIT-compile cost up front rather than on the first real fit; called under the in-progress guard in ``_warmup_numba_kernels``."""
     import time as _time
     log = logger.info if verbose else logger.debug
     t0 = _time.time()
@@ -437,6 +438,7 @@ def compute_dummy_baselines(
         _cls_sorted = unique_classes
         if len(_cls_sorted) and not np.array_equal(_cls_sorted, np.arange(len(_cls_sorted))):
             def _enc(_y):
+                """Remap raw multiclass labels to contiguous 0..K-1 via searchsorted against the sorted unique classes; identity (bit-identical) for already-contiguous labels, needed for non-0-indexed or gappy label sets (e.g. {1,2,3} or {10,20,30})."""
                 if _y is None:
                     return None
                 return np.searchsorted(_cls_sorted, np.asarray(_y)).astype(np.int64)

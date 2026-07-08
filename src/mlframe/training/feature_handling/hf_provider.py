@@ -64,6 +64,7 @@ _E5_FAMILY_MARKERS = ("-e5-", "/e5-", "_e5_")
 
 
 def _needs_e5_prefix(model_name: str) -> bool:
+    """Detect whether ``model_name`` belongs to the E5 embedding family, which requires a ``"passage: "``/``"query: "`` instruction prefix for good embedding quality."""
     name = model_name.lower()
     return any(m in name for m in _E5_FAMILY_MARKERS)
 
@@ -139,10 +140,12 @@ class HuggingFaceProvider:
 
     @property
     def signature(self) -> str:
+        """Stable identity string for this provider's config, used for caching/dedup across FHC calls."""
         return self._cfg.signature
 
     @property
     def embedding_dim(self) -> int:
+        """Output embedding width, only known after the model has been loaded via ``acquire()``."""
         if self._embedding_dim is None:
             raise RuntimeError("embedding_dim not available before acquire() -- " "call .acquire() first or wrap in `with acquire_provider(...)`")
         return self._embedding_dim

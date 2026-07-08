@@ -743,6 +743,7 @@ def _phase_auto_detect_feature_types(
                 )
 
             def _enum_cast(df, strict: bool, split_name: str | None = None):
+                """Cast this split's string columns to the shared (train+val union) ``pl.Enum`` domains computed above, so categorical codes agree across splits; ``strict`` controls whether an out-of-domain value raises or nulls."""
                 if df is None:
                     return df
                 _existing = set(df.columns)
