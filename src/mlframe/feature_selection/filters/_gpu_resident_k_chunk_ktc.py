@@ -56,7 +56,7 @@ def gpu_resident_pair_candidate_mi_vram_fraction(
     to the default-fraction path (chunk width is per-column-independent), so the sweep ranks by WALL only."""
     import cupy as cp
 
-    from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before the direct sibling import
+    from . import hermite_fe as _hf
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
     from ._gpu_resident_fe import (
         _COMBOS, _candidate_names, _fused_generate_block, _gpu_k_chunk, _unary_stack_cm,

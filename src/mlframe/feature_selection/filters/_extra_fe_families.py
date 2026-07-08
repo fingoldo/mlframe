@@ -888,7 +888,7 @@ def hybrid_rankgauss_fe(
 # at the bottom AFTER the Family-B helpers Family D reuses (``_quantile_edges`` /
 # ``_digitize_with_edges`` / ``_top_mi_num_cols``) are defined, so the
 # parent->sibling->parent cycle resolves cleanly.
-from ._extra_fe_families_dispersion import (  # noqa: E402
+from ._extra_fe_families_dispersion import (
     engineered_name_conditional_dispersion,
     generate_conditional_dispersion_features,
     apply_conditional_dispersion,

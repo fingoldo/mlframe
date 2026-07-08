@@ -222,6 +222,7 @@ def _cuda_mi_from_counts_kernel_factory():
         P,
         out_mi,  # (P, K) float64 output
     ):
+        """numba.cuda kernel: one thread per (permutation, column) pair, converts a precomputed joint histogram into an MI value in ``out_mi``."""
         K = nbins_col.shape[0]
         tid = _nb_cuda.blockIdx.x * _nb_cuda.blockDim.x + _nb_cuda.threadIdx.x
         if tid >= K * P:
@@ -344,6 +345,7 @@ def _cuda_hist_kernel_factory():
         n,
         K_y,
     ):
+        """numba.cuda kernel: one block per candidate column, atomically accumulates its joint histogram against ``y_codes`` in global memory."""
         k = _nb_cuda.blockIdx.x
         if k >= disc_2d.shape[1]:
             return
@@ -369,6 +371,7 @@ def _cuda_hist_kernel_batched_factory():
 
     @_nb_cuda.jit
     def _kernel_b(disc_2d, col_offsets, y_all, counts_flat, n, K_y, total_size):
+        """numba.cuda kernel: grid (K, P), accumulates the joint histogram of column k against permutation p's y-vector in one launch across all permutations."""
         # bench-attempt-rejected (2026-06-21): column-major (K,n) coalescing of this batched hist was
         # 0.79-1.05x (LOSS) -- the host transpose-copy cost outweighs any coalescing gain and the kernel
         # is not actually bandwidth-coalescing-bound here (consistent with the radix/noise-gate coalescing
@@ -408,6 +411,7 @@ def _cuda_hist_kernel_batched_shared_factory():
 
     @_nb_cuda.jit
     def _kernel_bs(disc_2d, col_offsets, nbins_col, y_all, counts_flat, n, K_y, total_size):
+        """numba.cuda kernel: privatized shared-memory batched joint-histogram, one block per (column, permutation) pair (see factory docstring)."""
         k = _nb_cuda.blockIdx.x
         p = _nb_cuda.blockIdx.y
         if k >= disc_2d.shape[1]:
@@ -459,6 +463,7 @@ def _cuda_hist_kernel_batched_shared_cm_factory():
 
     @_nb_cuda.jit
     def _kernel_bs_cm(disc_cm, col_offsets, nbins_col, y_all, counts_flat, n, K_y, total_size):
+        """numba.cuda kernel: column-major variant of ``_kernel_bs`` reading a (K, n) buffer for fully-coalesced loads (see factory docstring)."""
         k = _nb_cuda.blockIdx.x
         p = _nb_cuda.blockIdx.y
         if k >= disc_cm.shape[0]:

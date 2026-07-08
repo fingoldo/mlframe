@@ -52,7 +52,7 @@ from ..hermite_fe import (
     basis_route_by_moments,
     polyeval_dispatch,
 )
-from ._orth_mi_backends import (  # noqa: F401
+from ._orth_mi_backends import (
     _MI_BACKEND,
     _mi_classif_batch,
     mi_classif_batch_chunked,
@@ -171,7 +171,7 @@ def _evaluate_basis_column(
 
 # Carved out to _orth_dedup.py (2026-06-22 monolith-split, LOC budget); re-exported here so the
 # package-facade name `_dedup_collinear_source_cols` and all internal callers keep working.
-from ._orth_dedup import _dedup_collinear_source_cols  # noqa: E402
+from ._orth_dedup import _dedup_collinear_source_cols
 
 
 def basis_route_by_signal(
@@ -973,14 +973,14 @@ def hybrid_orth_mi_fe_with_recipes(
     return X_aug, scores, recipes
 
 
-from ._orth_pair_cross_fe import (  # noqa: E402,F401
+from ._orth_pair_cross_fe import (
     _pair_eng_col_name,
     generate_pair_cross_basis_features,
     hybrid_orth_mi_pair_fe,
     hybrid_orth_mi_pair_fe_with_recipes,
     score_pair_cross_basis_by_mi_uplift,
 )
-from ._orth_extra_basis_fe import (  # noqa: E402,F401
+from ._orth_extra_basis_fe import (
     _ADAPTIVE_FE_RAW_USABILITY_CAP,
     _EXTRA_BASIS_KINDS,
     _FOURIER_INT_AS_CAT_MAX_CARD,

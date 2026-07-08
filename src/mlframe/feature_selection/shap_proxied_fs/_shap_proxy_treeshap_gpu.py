@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # cupy/CUDA runtime/driver error (no device, OOM, driver mismatch). Anything else (a bug in our own
 # dispatch / lookup code) must propagate, not be silently swallowed into a CPU demotion (T4).
 def _cuda_demote_errors():
+    """Build the exception tuple that legitimately means "no usable CUDA, demote to CPU" (cupy missing, or a cupy runtime/compile error); anything outside this tuple must propagate as a real bug rather than being silently swallowed."""
     excs: tuple = (ImportError,)
     try:
         import cupy as cp
@@ -171,6 +172,7 @@ void treeshap(const float* X, const int n, const int f,
 
 
 def gpu_treeshap_available() -> bool:
+    """Return whether a CUDA device usable for the GPU TreeSHAP kernel is present; any cupy-missing or CUDA-runtime error demotes to ``False`` (CPU fallback) rather than raising."""
     try:
         import cupy as cp
 
@@ -181,6 +183,7 @@ def gpu_treeshap_available() -> bool:
 
 
 def _block_size() -> int:
+    """Look up a hardware-tuned CUDA block size for this kernel from the shared ``kernel_tuning_cache``, falling back to ``_DEFAULT_BLOCK_SIZE`` when the cache is unavailable or has no entry for this kernel."""
     try:
         from mlframe.feature_selection.filters import get_kernel_tuning_cache
 
@@ -195,6 +198,7 @@ def _block_size() -> int:
 
 
 def _ensure_kernel():
+    """Lazily compile (or return the already-compiled) ``cp.RawKernel`` for the TreeSHAP scan, guarded by a module-global lock + double-checked locking so concurrent callers (including Windows-spawned worker processes) never race the NVCC compile."""
     global _TREESHAP_KERNEL
     if _TREESHAP_KERNEL is not None:
         return _TREESHAP_KERNEL

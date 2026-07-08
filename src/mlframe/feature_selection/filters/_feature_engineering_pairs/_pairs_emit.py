@@ -160,7 +160,7 @@ def _emit_pair_features(
     # ``div(sqr(a),b)`` 0.1167, yet |corr(y)| 0.25 vs 0.46 -- the noise winner does not fuse cleanly and
     # leaves the ratio form as a fragment). Snapping the primary MI key to this band inside
     # ``_select_single_best`` lets the EXISTING linear-usability tie-break pick the linearly-usable form.
-    _mi_band = mi_tie_band(int(quantization_nbins), int(len(classes_y)), int(np.asarray(freqs_y).shape[0]))
+    _mi_band = mi_tie_band(int(quantization_nbins), len(classes_y), int(np.asarray(freqs_y).shape[0]))
 
     if len(leading_features) > 1:
         if len(numeric_vars_to_consider) > 2:
@@ -376,7 +376,7 @@ def _emit_pair_features(
                             discretized_transformed_values = discretize_array(
                                 arr=valid_vals, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
                             )
-                            fe_mi, fe_conf = mi_direct(
+                            fe_mi, _fe_conf = mi_direct(
                                 discretized_transformed_values.reshape(-1, 1),
                                 x=np.array([0], dtype=np.int64),
                                 y=None,

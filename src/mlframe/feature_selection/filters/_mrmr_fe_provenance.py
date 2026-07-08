@@ -343,6 +343,7 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
     seen: set[str] = set()
 
     def _append(nm: Any) -> None:
+        """Append ``nm`` to ``names`` unless it is ``None`` or already seen."""
         if nm is None:
             return
         s = str(nm)

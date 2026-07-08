@@ -217,6 +217,7 @@ def generate_adaptive_arity_cross_basis(
     tuple_best: dict[int, dict[frozenset, tuple[float, tuple[int, ...], str, np.ndarray]]] = {k: {} for k in range(2, max_arity + 1)}
 
     def _all_deg_combos(k: int) -> list[tuple[int, ...]]:
+        """Enumerate every degree assignment (1..max_d per leg) for a k-way tuple, i.e. the full max_d**k grid."""
         combos: list[tuple[int, ...]] = [()]
         for _ in range(k):
             combos = [c + (d,) for c in combos for d in range(1, max_d + 1)]
@@ -392,7 +393,7 @@ def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, n
     if not _crossbasis_device_born_on() or not eval_results_k:
         return None
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
         from ._orthogonal_univariate_fe._gpu_resident_cross_basis import (
             build_leg_product_matrix_gpu, _resident_mi,
         )
@@ -402,7 +403,7 @@ def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, n
         if mat_gpu.shape[1] != len(eval_results_k):
             return None
         return _resident_mi(cp, mat_gpu, y_arr, nbins)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 
@@ -622,6 +623,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
     code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
 
     def _parse_code_deg(s: str):
+        """Parse a leg-name suffix like 'He3' or 'LL2' back into (basis_name, degree); returns (None, None) if unrecognized."""
         for code in ("LL", "He", "T", "L"):
             if s.startswith(code):
                 rest = s[len(code) :]
@@ -630,6 +632,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
         return None, None
 
     def _route_basis(col: str) -> str:
+        """Resolve the basis to record in the recipe for a source column: the fixed `basis` unless 'auto', in which case re-derive it from the column's moments (falling back to hermite on any read/compute failure)."""
         if basis != "auto":
             return basis
         try:

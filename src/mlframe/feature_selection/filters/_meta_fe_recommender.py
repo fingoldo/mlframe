@@ -228,6 +228,7 @@ def _iter_columns(X):
 
 
 def _is_integral(vals) -> bool:
+    """True iff every finite value is a whole number (fractional part exactly 0), used to detect float columns that actually hold integer-coded categories/ids."""
     import numpy as np
     try:
         return bool(np.all(np.equal(np.mod(vals, 1.0), 0.0)))
@@ -236,6 +237,7 @@ def _is_integral(vals) -> bool:
 
 
 def _is_monotone(vals) -> bool:
+    """True iff the sequence is entirely non-decreasing or entirely non-increasing, the cheap signal that an int-as-cat column is plausibly a time/ordinal axis."""
     import numpy as np
     try:
         d = np.diff(vals)
@@ -245,6 +247,7 @@ def _is_monotone(vals) -> bool:
 
 
 def _skew_kurt(x):
+    """Sample skewness and excess kurtosis via standardised third/fourth moments; returns ``(0.0, 0.0)`` on too-few points or ~zero variance rather than raising."""
     n = x.size
     if n < 3:
         return 0.0, 0.0
@@ -367,6 +370,7 @@ class MetaFERecommender:
 
     @staticmethod
     def _fingerprint(X, y=None) -> dict:
+        """Stat-only Param-Oracle fingerprint of ``X`` (``y`` unused, kept for a uniform call signature with the rule recommender)."""
         return default_fingerprint((X,), {})
 
     # ----- observe / learn -----
@@ -417,6 +421,7 @@ class MetaFERecommender:
 
 
 def _stable_bucket_key(fp: Mapping[str, Any]) -> str:
+    """Deterministic string key for a bucketized fingerprint, used to test EXACT fingerprint-bucket equality against stored observation rows."""
     import orjson
     # orjson emits compact output (no spaces), matching the old
     # ``separators=(",", ":")``; decode to keep the ``str`` return contract.

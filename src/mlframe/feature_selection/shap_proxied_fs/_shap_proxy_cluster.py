@@ -279,7 +279,7 @@ def build_unit_matrix(
 def cluster_summary(unit_to_members: list[np.ndarray]) -> dict:
     sizes = np.array([len(m) for m in unit_to_members], dtype=np.int64)
     return dict(
-        n_units=int(len(unit_to_members)),
+        n_units=len(unit_to_members),
         n_singletons=int((sizes == 1).sum()),
         n_multi_clusters=int((sizes > 1).sum()),
         largest_cluster=int(sizes.max()) if sizes.size else 0,

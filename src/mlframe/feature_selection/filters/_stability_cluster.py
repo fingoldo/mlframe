@@ -104,6 +104,7 @@ def cluster_stability_selection(
     # Single-linkage union-find.
     parent = np.arange(p, dtype=np.int64)
     def _find(i):
+        """Union-find root lookup with path compression."""
         while parent[i] != i:
             parent[i] = parent[parent[i]]
             i = parent[i]

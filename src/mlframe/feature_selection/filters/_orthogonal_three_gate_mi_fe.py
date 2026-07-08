@@ -274,6 +274,7 @@ def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool 
     xy, _ = _renumber_joint(x_bin, y_bin)
 
     def _h_and_k(arr: np.ndarray) -> tuple[float, int]:
+        """Plug-in entropy (nats) and observed support size of a binned int array via bincount frequencies."""
         if arr.size == 0:
             return 0.0, 0
         counts = np.bincount(arr)

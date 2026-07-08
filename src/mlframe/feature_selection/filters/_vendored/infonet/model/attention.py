@@ -1,3 +1,5 @@
+"""Vendored multi-head, self- and cross-attention blocks used by InfoNet's mutual-information estimator network."""
+
 from typing import Optional
 
 import torch
@@ -5,6 +7,7 @@ import torch.nn as nn
 
 
 class MultiHeadAttention(nn.Module):
+    """Standard scaled dot-product multi-head attention with separate query/key-value projection dims and a post-attention output projection."""
 
     def __init__(
         self,
@@ -38,6 +41,7 @@ class MultiHeadAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x_q: torch.Tensor, x_kv: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
+        """Projects queries/keys/values into heads, computes masked softmax attention, and returns the recombined, output-projected result."""
 
         batch = x_q.shape[0]
         query_len, key_len, value_len = x_q.shape[1], x_kv.shape[1], x_kv.shape[1]
@@ -73,6 +77,7 @@ class MultiHeadAttention(nn.Module):
 
 
 class SelfAttention(nn.Module):
+    """Pre-norm self-attention block: LayerNorm followed by ``MultiHeadAttention`` with query and key/value drawn from the same tensor."""
 
     def __init__(self, q_dim: int, qk_out_dim: Optional[int] = None, v_out_dim: Optional[int] = None, heads: int = 1, dropout: float = 0.0):
 
@@ -84,11 +89,13 @@ class SelfAttention(nn.Module):
         )
 
     def forward(self, x_q: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
+        """Normalizes the input and applies self-attention, keeping the output dim equal to ``q_dim`` for residual-friendly stacking."""
         x_q = self.norm(x_q)
         return self.attention(x_q=x_q, x_kv=x_q, attention_mask=attention_mask)
 
 
 class CrossAttention(nn.Module):
+    """Pre-norm cross-attention block: independently normalizes the query and key/value tensors before ``MultiHeadAttention`` between them."""
 
     def __init__(
         self,
@@ -108,6 +115,7 @@ class CrossAttention(nn.Module):
         )
 
     def forward(self, x_q, x_kv, attention_mask=None):
+        """Normalizes both inputs separately (they may differ in dim) and applies attention of the query tensor over the key/value tensor."""
         x_q = self.q_norm(x_q)
         x_kv = self.kv_norm(x_kv)
         return self.attention(x_q, x_kv, attention_mask=attention_mask)

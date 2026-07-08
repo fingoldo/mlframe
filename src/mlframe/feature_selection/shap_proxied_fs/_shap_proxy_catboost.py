@@ -43,7 +43,7 @@ def catboost_available() -> bool:
     if _CATBOOST_AVAILABLE_CACHE is not None:
         return _CATBOOST_AVAILABLE_CACHE
     try:
-        import catboost  # noqa: F401
+        import catboost
     except Exception:
         _CATBOOST_AVAILABLE_CACHE = False
         return False

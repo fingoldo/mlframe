@@ -141,6 +141,7 @@ def ksg_mi_with_significance(
     shuffle_seeds = rng.integers(0, 2**31 - 1, size=n_permutations)
 
     def _one_perm(seed: int) -> np.ndarray:
+        """Recompute per-feature KSG MI against one seeded shuffle of ``y`` (one permutation-null draw)."""
         local_rng = np.random.default_rng(seed)
         y_shuf = y.copy()
         local_rng.shuffle(y_shuf)

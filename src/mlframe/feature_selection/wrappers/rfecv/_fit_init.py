@@ -268,7 +268,7 @@ def _init_fit_state(
     if groups is not None:
         _n_groups_for_floor: int | None = None
         try:
-            _n_groups_for_floor = int(len(np.unique(np.asarray(groups))))
+            _n_groups_for_floor = len(np.unique(np.asarray(groups)))
         except (TypeError, ValueError):
             _n_groups_for_floor = None
         if _n_groups_for_floor is not None and _n_groups_for_floor < 2 * cv_n:

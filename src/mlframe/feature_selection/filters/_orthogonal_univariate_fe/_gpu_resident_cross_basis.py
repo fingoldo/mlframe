@@ -123,6 +123,7 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
     basis_of_col: dict = {}  # col -> routed basis (host moment route, computed once)
 
     def _leg(col: str, degree: int, explicit_basis: str | None = None):
+        """Cached GPU-resident basis-eval column for ``col`` at ``degree``, routing to the explicit or auto-detected basis and reusing prior evals via ``leg_cache``."""
         # Ensure the mean-filled operand is materialised + cached for this col (needed by both routes).
         if ("_x", col) not in basis_of_col:
             basis_of_col[("_x", col)] = _operand_filled(X, col)
@@ -142,7 +143,7 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
             xf = basis_of_col[("_x", col)]
             xg = resident_operand(np.ascontiguousarray(xf), ("xbasis_op", col), dtype=cp.float64)
             # _gpu_evaluate_basis_matrix is BATCHED over (n, K) columns x degrees; here one column, one degree.
-            cand, meta = _gpu_evaluate_basis_matrix(
+            cand, _meta = _gpu_evaluate_basis_matrix(
                 cp, xg[:, None], [b], [int(degree)], robust_axis=robust_axis,
             )
             if cand is None or cand.shape[1] != 1:
@@ -217,7 +218,7 @@ def raw_and_product_mi_resident(
     from .._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
     except Exception:
         return None
     if engineered_X is None or engineered_X.shape[1] == 0:
@@ -244,6 +245,6 @@ def raw_and_product_mi_resident(
         raw_mi = _resident_mi(cp, raw_gpu, y, nbins)
         raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
         return raw_mi_map, eng_mi
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("raw_and_product_mi_resident: GPU path failed (%s); host fallback", _exc)
         return None

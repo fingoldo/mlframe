@@ -179,7 +179,7 @@ def _factorize_pack(*cols: np.ndarray) -> tuple[np.ndarray, int]:
     if overflow:
         return _renumber_joint_safe(*cols)
     codes, uniques = pd.factorize(key, sort=False)
-    return codes.astype(np.int64, copy=False), int(len(uniques))
+    return codes.astype(np.int64, copy=False), len(uniques)
 
 
 def _renumber_joint_safe(*cols: np.ndarray) -> tuple[np.ndarray, int]:

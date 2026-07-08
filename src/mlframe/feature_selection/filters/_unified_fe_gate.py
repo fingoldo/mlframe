@@ -93,6 +93,9 @@ def _coerce_y_classes(y) -> np.ndarray:
 
 
 def _coerce_y_classes_impl(y_arr: np.ndarray) -> np.ndarray:
+    """Uncached coercion body for ``_coerce_y_classes``: integer/bool y is factorised to dense 0..k-1
+    codes, low-cardinality float y (<=20 uniques) is treated as already-categorical, and genuinely
+    continuous float y is quantile-binned into 10 bins so the plug-in classification MI estimator applies."""
     if np.issubdtype(y_arr.dtype, np.integer) or y_arr.dtype == bool:
         _, y_bin = np.unique(y_arr.astype(np.int64), return_inverse=True)
         return y_bin.astype(np.int64)

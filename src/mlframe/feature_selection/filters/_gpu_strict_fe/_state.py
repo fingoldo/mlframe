@@ -81,15 +81,19 @@ class ResidentFEState:
         return self._operands[device]
 
     def y_codes(self, device: int):
+        """The resident target class-codes array on ``device`` (no H2D)."""
         return self._y_codes[device]
 
     def y_cont(self, device: int):
+        """The resident continuous-target array on ``device`` (no H2D), or ``None`` when no continuous target was built for this state."""
         return self._y_cont.get(device) if self._y_cont else None
 
     def device_ids(self) -> list:
+        """List the device indices this state has residency on, in profile order."""
         return [p.device for p in self.profiles]
 
     def profile(self, device: int):
+        """Return the queried hardware profile for ``device``; raises ``KeyError`` if this state was not built with residency on that device."""
         for p in self.profiles:
             if p.device == device:
                 return p

@@ -82,7 +82,7 @@ def combiner_mi_resident(
         if mi is None:
             return None
         return float(np.asarray(mi, dtype=np.float64)[0])
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("combiner_mi_resident: GPU path failed (%s); host fallback", _exc)
         return None
 
@@ -141,7 +141,7 @@ def residue_grid_mis_resident(
             for j, idx in enumerate(idxs):
                 out[idx] = float(mis[j])
         return out
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("residue_grid_mis_resident: GPU path failed (%s); host fallback", _exc)
         return None
 
@@ -215,6 +215,6 @@ def perm_null_residue_mis_resident(
         # fire -- skip its blocking min/max sync (FIX1).
         mis = binned_mi_from_codes_gpu(code_mat, yd, kx_per_col=[nb] * n_perm, ky=int(_ncls), codes_trusted=True)
         return np.asarray(mis, dtype=np.float64)
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("perm_null_residue_mis_resident: GPU path failed (%s); host fallback", _exc)
         return None

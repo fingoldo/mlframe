@@ -30,6 +30,7 @@ _FE_VRAM_CUSHION_FLOOR = int(os.environ.get("MLFRAME_FE_VRAM_CUSHION_FLOOR_BYTES
 
 
 def _cores_per_sm(cc_major: int, cc_minor: int) -> int:
+    """Look up CUDA cores per SM for a compute-capability tuple, falling back to a conservative default for unlisted (future/rare) capabilities."""
     return _CORES_PER_SM.get((int(cc_major), int(cc_minor)), _DEFAULT_CORES_PER_SM)
 
 
@@ -116,12 +117,14 @@ def _visible_device_ids() -> list[int]:
 
 
 def _profile_device(device: int) -> "DeviceProfile":
+    """Query one CUDA device's current free/total VRAM and static properties (SM count, clock, shared mem, compute capability) and pack them into a :class:`DeviceProfile`."""
     import cupy as cp
     with cp.cuda.Device(device):
         free, total = cp.cuda.runtime.memGetInfo()
         props = cp.cuda.runtime.getDeviceProperties(device)
 
     def _p(key, default):
+        """Best-effort lookup of a device-properties key, falling back to ``default`` when the key is missing or the underlying value is None (older cupy/driver combos don't expose every field)."""
         try:
             v = props[key]
         except Exception:

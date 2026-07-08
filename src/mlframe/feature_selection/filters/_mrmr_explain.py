@@ -95,7 +95,7 @@ def _survivor_section(mrmr_self: Any) -> str:
     if prov is None or not isinstance(prov, pd.DataFrame) or prov.empty:
         return "Surviving features: none recorded (estimator unfitted, or provenance wiped)."
     by_origin = prov.groupby("origin", dropna=False).size().sort_values(ascending=False)
-    n_total = int(len(prov))
+    n_total = len(prov)
     n_eng = int((prov["origin"].astype(str) != "raw").sum())
     kinds = [str(o) for o in by_origin.index if str(o) != "raw"]
     kinds_str = ", ".join(f"{k}={int(by_origin[k])}" for k in kinds) if kinds else "none"
@@ -144,13 +144,13 @@ def _rejection_section(mrmr_self: Any) -> tuple[str, str | None]:
     if led is None or not isinstance(led, pd.DataFrame) or led.empty:
         return ("Rejections: none -- no FE candidate was dropped by a gate this fit.", None)
     by_gate = led.groupby("gate", dropna=False).size().sort_values(ascending=False)
-    n_total = int(len(led))
+    n_total = len(led)
     binding_gate = str(by_gate.index[0])
     binding_n = int(by_gate.iloc[0])
     band = _fmt_margin_band(led.loc[led["gate"].astype(str) == binding_gate, "margin"])
     band_str = f" ({band})" if band else ""
     lines = [
-        f"Rejections: {n_total} FE candidates dropped across {int(len(by_gate))} gate(s).",
+        f"Rejections: {n_total} FE candidates dropped across {len(by_gate)} gate(s).",
         f"  BINDING gate: {binding_gate} -- dropped {binding_n}{band_str}.",
     ]
     others = [f"{g}={int(c)}" for g, c in list(by_gate.items())[1:_MAX_LEDGER_GATES]]

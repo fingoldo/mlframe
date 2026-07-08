@@ -173,6 +173,8 @@ def _compute_per_scorer_rank_table(
     eng_cols = list(engineered_X.columns)
 
     def _call(name, x_vec, y_vec):
+        """Dispatches a single-vector scoring request to the named dependence scorer, threading through the
+        shared nbins/n_neighbors/copula/dcor hyperparameters captured from the enclosing scope."""
         if name == "plug_in":
             return _score_plug_in(x_vec, y_vec, nbins=int(nbins))
         if name == "ksg":
@@ -659,7 +661,7 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
     return X_aug, scores, recipes
 
 
-from ._orth_auto_scorer_fe import (  # noqa: E402,F401
+from ._orth_auto_scorer_fe import (
     hybrid_orth_mi_auto_scorer_fe,
     hybrid_orth_mi_auto_scorer_fe_with_recipes,
     score_features_by_auto_scorer_uplift,

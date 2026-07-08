@@ -907,7 +907,7 @@ def dispatch_batch_mi_with_noise_gate_gpu(
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
         if not fe_gpu_has_vram_cushion(n * max(K, 1) * 8):
             return None
-    except Exception:  # noqa: BLE001  # nosec B110 - best-effort/optional path, no module logger
+    except Exception:  # nosec B110 - best-effort/optional path, no module logger
         pass
 
     if force_backend is not None:

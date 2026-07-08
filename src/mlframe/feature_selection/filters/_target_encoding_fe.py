@@ -181,7 +181,7 @@ def auto_detect_te_cols(
     candidates: list[str] = []
     for col in X.columns:
         dt = X[col].dtype
-        if not (dt == object or isinstance(dt, pd.CategoricalDtype)  # noqa: E721 -- pandas dtype `== object` comparison is intended
+        if not (dt == object or isinstance(dt, pd.CategoricalDtype)
                 or pd.api.types.is_string_dtype(X[col])):
             continue
         # nunique() with dropna=True is fast (Cython on pandas).

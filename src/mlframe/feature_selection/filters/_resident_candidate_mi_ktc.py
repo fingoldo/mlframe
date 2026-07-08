@@ -64,15 +64,17 @@ def _make_rescand_inputs(dims: dict):
 
 
 def _rescand_njit(mat, y):
+    """Sweep probe variant: score ``mat`` on the host exact njit batch plug-in MI (the path being gated against)."""
     from .hermite_fe import _plugin_mi_classif_batch_njit
 
     return _plugin_mi_classif_batch_njit(mat, y, 20)
 
 
 def _rescand_resident(mat, y):
+    """Sweep probe variant: upload ``mat``/``y`` to the GPU and score via the resident plug-in MI kernel being gated."""
     import cupy as cp
 
-    from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before sibling import
+    from . import hermite_fe as _hf
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 
     mat_gpu = cp.asarray(mat, dtype=cp.float64)

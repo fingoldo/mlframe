@@ -107,22 +107,32 @@ def _prefilter_tuning() -> dict:
 
 
 def _auto_fast_width() -> int:
+    """Per-HW override (else the module default ``_AUTO_FAST_WIDTH``) of the width crossover at which
+    ``"auto"`` abandons the faithful full-booster ``"model"`` prefilter for the cheaper interaction-aware path."""
     return int(_prefilter_tuning().get("auto_fast_width", _AUTO_FAST_WIDTH))
 
 
 def _gpu_model_min_rows() -> int:
+    """Per-HW override (else ``_GPU_MODEL_MIN_ROWS``) of the row count at which ``"gpu_model"`` actually
+    beats the CPU ``"model"`` fit (below it, GPU transfer + launch overhead dominates)."""
     return int(_prefilter_tuning().get("gpu_model_min_rows", _GPU_MODEL_MIN_ROWS))
 
 
 def _two_stage_min_width() -> int:
+    """Per-HW override (else ``_TWO_STAGE_MIN_WIDTH``) of the width at which ``"auto"`` routes to the
+    cheap-stage-A + capped-booster-stage-B ``"two_stage"`` path."""
     return int(_prefilter_tuning().get("two_stage_min_width", _TWO_STAGE_MIN_WIDTH))
 
 
 def _stage_b_gpu_min_rows() -> int:
+    """Per-HW override (else ``_STAGE_B_GPU_MIN_ROWS``) of the row count at which the ``two_stage`` stage-B
+    booster fit is worth routing to the GPU."""
     return int(_prefilter_tuning().get("stage_b_gpu_min_rows", _STAGE_B_GPU_MIN_ROWS))
 
 
 def _stage_b_gpu_min_features() -> int:
+    """Per-HW override (else ``_STAGE_B_GPU_MIN_FEATURES``) of the minimum stage-A survivor count below
+    which stage-B stays on CPU even at a high row count (too few columns for the GPU upload to amortize)."""
     return int(_prefilter_tuning().get("stage_b_gpu_min_features", _STAGE_B_GPU_MIN_FEATURES))
 
 
@@ -418,7 +428,7 @@ def _rank_two_stage(
     stage1_keep = max(1, min(stage1_keep, n_features))
     stage1_cols = _topk(scores, stage1_keep)
     stage_a_dt = time.perf_counter() - t0
-    logger.info("ShapProxiedFS prefilter two_stage: stage A done in %.1fs, kept %d/%d", stage_a_dt, int(len(stage1_cols)), int(n_features))
+    logger.info("ShapProxiedFS prefilter two_stage: stage A done in %.1fs, kept %d/%d", stage_a_dt, len(stage1_cols), int(n_features))
 
     # Stage B: fit a capped booster on the survivors only and rank by native importances.
     # Keep the survivor slice as a NAMELESS numpy array (do NOT rewrap into a named DataFrame): the
@@ -433,7 +443,7 @@ def _rank_two_stage(
     # Route stage-B to the GPU when the problem is big enough that upload + kernel-launch overhead
     # amortizes; on small problems / no GPU build the CPU model path stays faster (and is the only
     # correct path when the xgboost binary lacks USE_CUDA -- gpu_model_available() guards both).
-    n_features_b = int(len(stage1_cols))
+    n_features_b = len(stage1_cols)
     stage_b_routed_gpu = _stage_b_should_route_gpu(n_rows=int(Xv.shape[0]), n_features_b=n_features_b)
     if stage_b_routed_gpu:
         stage_b_imp = _rank_gpu_model(model_template, X_stage1, y, n_features=n_features_b, n_estimators_cap=n_estimators_cap)
@@ -453,21 +463,21 @@ def _rank_two_stage(
         logger.warning("ShapProxiedFS prefilter two_stage: stage B returned no importances; " "falling back to the stage-A survivors as working_cols.")
         working_cols = stage1_survivors_sorted
         return working_cols, dict(
-            method="two_stage", kept=int(len(working_cols)), of=int(n_features),
-            stage1_kept=int(len(stage1_cols)), stage1_of=int(n_features),
+            method="two_stage", kept=len(working_cols), of=int(n_features),
+            stage1_kept=len(stage1_cols), stage1_of=int(n_features),
             stage_a_seconds=float(stage_a_dt), stage_b_seconds=float(stage_b_dt),
             stage_b_routed_gpu=bool(stage_b_routed_gpu),
             stage1_survivors=stage1_survivors_sorted,
             stage1_f_scores=stage1_f_scores_arr,
             skipped="stage_b_no_importance")
-    keep_b = min(prefilter_top, int(len(stage1_cols)))
+    keep_b = min(prefilter_top, len(stage1_cols))
     local_top = _topk(stage_b_imp, keep_b)
     # Map back to ORIGINAL indices via stage1_cols (positional), then sort for the canonical contract.
     working_cols = np.sort(stage1_cols[local_top])
-    logger.info("ShapProxiedFS prefilter two_stage: stage B done in %.1fs, kept %d/%d", stage_b_dt, int(len(working_cols)), int(len(stage1_cols)))
+    logger.info("ShapProxiedFS prefilter two_stage: stage B done in %.1fs, kept %d/%d", stage_b_dt, len(working_cols), len(stage1_cols))
     return working_cols, dict(
-        method="two_stage", kept=int(len(working_cols)), of=int(n_features),
-        stage1_kept=int(len(stage1_cols)), stage1_of=int(n_features),
+        method="two_stage", kept=len(working_cols), of=int(n_features),
+        stage1_kept=len(stage1_cols), stage1_of=int(n_features),
         stage_a_seconds=float(stage_a_dt), stage_b_seconds=float(stage_b_dt),
         stage_b_routed_gpu=bool(stage_b_routed_gpu),
         stage1_survivors=stage1_survivors_sorted,
@@ -559,7 +569,7 @@ def prefilter_columns(
         # Ranking unavailable -> keep all columns (identity), exactly the pre-existing fall-through.
         return np.arange(n_features), dict(method=resolved, kept=int(n_features), of=int(n_features), skipped="no_importance", n_estimators_cap=applied_cap)
     working_cols = _topk(importance, prefilter_top)
-    info = dict(method=resolved, kept=int(len(working_cols)), of=int(n_features), n_estimators_cap=applied_cap)
+    info = dict(method=resolved, kept=len(working_cols), of=int(n_features), n_estimators_cap=applied_cap)
     if resolved == "univariate":
         # ``univariate`` already has the dense F-score vector in hand -- expose it for the same
         # downstream consumers that read ``stage1_f_scores`` from the ``two_stage`` path so the two

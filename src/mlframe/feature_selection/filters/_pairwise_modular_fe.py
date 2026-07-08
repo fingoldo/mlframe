@@ -309,7 +309,7 @@ def cheap_modular_scan(
     Returns hits sorted by ``margin_over_baseline`` descending. A hit's ``.responded`` flag applies the
     measured gate. The permutation null is computed ONLY for the per-combiner best modulus (keeps the
     null cost off the inner grid loop)."""
-    import pandas as pd  # noqa: F401  (X may be pandas or polars; we pull ndarrays)
+    import pandas as pd
 
     if cols is None:
         cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]

@@ -104,7 +104,7 @@ def _compute_pair_ii_mm(
     # the six terms commensurable so the bias cancels exactly as the Jakulin/Roulston derivation intends.
 
     # ---- merge X1 alone (gives H(X1)) ----
-    cls_x1, freqs_x1, _ = merge_vars(
+    _cls_x1, freqs_x1, _ = merge_vars(
         factors_data=factors_data,
         vars_indices=np.array([idx_a], dtype=np.int64),
         var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
@@ -112,7 +112,7 @@ def _compute_pair_ii_mm(
     h_x1 = _entropy_for_mode(freqs_x1, n_samples, False)
 
     # ---- merge X2 alone (gives H(X2)) ----
-    cls_x2, freqs_x2, _ = merge_vars(
+    _cls_x2, freqs_x2, _ = merge_vars(
         factors_data=factors_data,
         vars_indices=np.array([idx_b], dtype=np.int64),
         var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
@@ -120,7 +120,7 @@ def _compute_pair_ii_mm(
     h_x2 = _entropy_for_mode(freqs_x2, n_samples, False)
 
     # ---- merge X1, X2 (gives H(X1, X2)) ----
-    cls_x1x2, freqs_x1x2, _ = merge_vars(
+    _cls_x1x2, freqs_x1x2, _ = merge_vars(
         factors_data=factors_data,
         vars_indices=np.array([idx_a, idx_b], dtype=np.int64),
         var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
@@ -246,7 +246,7 @@ def _maybe_rerank_with_mm(
     h_marginal_y_cache: dict = {}  # idx -> H(X_idx, Y)
     k_marginal_cache: dict = {}  # idx -> occupied bin count of X_idx (for the telescoped II bias)
     for col_idx in touched_cols:
-        cls_x, freqs_x, _ = merge_vars(
+        _cls_x, freqs_x, _ = merge_vars(
             factors_data=factors_data,
             vars_indices=np.array([col_idx], dtype=np.int64),
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
@@ -280,7 +280,7 @@ def _maybe_rerank_with_mm(
         idx_a = int(pairs_a[k])
         idx_b = int(pairs_b[k])
         # Only joint entropies H(X1,X2) and H(X1,X2,Y) are per-pair.
-        cls_pair, freqs_pair, _ = merge_vars(
+        _cls_pair, freqs_pair, _ = merge_vars(
             factors_data=factors_data,
             vars_indices=np.array([idx_a, idx_b], dtype=np.int64),
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,

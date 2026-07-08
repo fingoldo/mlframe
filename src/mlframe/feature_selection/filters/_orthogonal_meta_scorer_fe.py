@@ -176,7 +176,7 @@ def fingerprint_signal(
     """
     num_cols = _numeric_cols(X, cols)
     y_arr = np.asarray(y).ravel()
-    n = int(len(y_arr))
+    n = len(y_arr)
     unique_y_count = int(np.unique(y_arr[~pd.isna(y_arr)]).size)
 
     if not num_cols:
@@ -295,7 +295,7 @@ def fingerprint_signal(
     return {
         "n": n,
         "unique_y_count": unique_y_count,
-        "n_source_cols": int(len(num_cols)),
+        "n_source_cols": len(num_cols),
         "x_unique_avg": x_unique_avg,
         "mean_abs_pearson": mean_abs_pearson,
         "mean_abs_skew": mean_abs_skew,

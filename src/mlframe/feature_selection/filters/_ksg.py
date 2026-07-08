@@ -70,6 +70,7 @@ def _digamma_scalar(x: float) -> float:
 
 @njit(nogil=True, cache=True, parallel=False)
 def _digamma_vec(arr: np.ndarray) -> np.ndarray:
+    """Element-wise digamma via ``_digamma_scalar``."""
     out = np.empty(arr.shape[0], dtype=np.float64)
     for i in range(arr.shape[0]):
         out[i] = _digamma_scalar(float(arr[i]))
@@ -431,7 +432,7 @@ def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5, intens: float = 1
     """cupy-accelerated mixed-KSG. KDTree build still CPU; the eps-radius
     counts move to cupy via sorted-array binary search (cp.searchsorted)."""
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
     except ImportError:
         logger.warning("cupy not available; falling back to CPU mixed_ksg_mi")
         return mixed_ksg_mi(x, y, k=k)
@@ -488,7 +489,7 @@ def ksg_mi_dispatch(x: np.ndarray, y: np.ndarray, *, k: int = 5, estimator: str 
     n = x.size
     if estimator == "mixed_ksg" and prefer_gpu and n >= _KSG_GPU_THRESHOLD:
         try:
-            import cupy  # noqa: F401
+            import cupy
             return mixed_ksg_mi_gpu(x, y, k=k)
         except ImportError:
             pass

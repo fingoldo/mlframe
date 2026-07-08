@@ -119,7 +119,7 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
             _seeded = list(range(1, max(2, _p) + 1))[: max(_K, 1)]
         else:
             _raw = np.linspace(2, _p, _K)
-            _seeded = sorted(set(int(round(x)) for x in _raw if 1 <= int(round(x)) <= _p))
+            _seeded = sorted(set(round(x) for x in _raw if 1 <= round(x) <= _p))
             if 2 not in _seeded and _p >= 2:
                 _seeded = [2] + _seeded
             _seeded = sorted(set(_seeded))[:_K]

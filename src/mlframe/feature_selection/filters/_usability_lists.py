@@ -163,6 +163,7 @@ def materialize_usability_features(candidates: list, X: Any):
         return pd.DataFrame(index=getattr(X, "index", None))
 
     def _col(cand):
+        """Materialize one usability-list candidate column: raw source column or its recorded engineered recipe."""
         if cand.recipe is None:
             src = X[cand.name] if isinstance(X, pd.DataFrame) else None
             if src is None:

@@ -141,7 +141,7 @@ def _refine_peak_freq_gpu(cp, z_tr, yc, y_ss: float, coarse_f: float) -> float:
     def _scan(center: float, half_width: float, step: float):
         lo_r = max(0.05, center - half_width)
         hi_r = center + half_width
-        n_steps = int(round((hi_r - lo_r) / step)) + 1
+        n_steps = round((hi_r - lo_r) / step) + 1
         # freq order = [center, lo_r+0*step, ..., lo_r+(n_steps-1)*step]: the center is
         # the initial best, then strictly-greater earliest-wins -> argmax first-max.
         freqs_host = np.empty(n_steps + 1, dtype=np.float64)

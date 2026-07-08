@@ -442,7 +442,7 @@ def _materialize_pairs(
         i = int(pairs_a[k_in])
         j = int(pairs_b[k_in])
         vi = np.array([i, j], dtype=np.int64)
-        classes_pair, _, n_uniq = merge_vars(
+        classes_pair, _, _n_uniq = merge_vars(
             factors_data=factors_data,
             vars_indices=vi,
             var_is_nominal=None,

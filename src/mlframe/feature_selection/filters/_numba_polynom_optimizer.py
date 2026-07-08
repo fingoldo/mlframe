@@ -514,6 +514,7 @@ def _optimize_all_pairs_kernel(
 
 
 def _basis_name_to_id(basis: str) -> int:
+    """Map a basis name string to the integer id the njit kernel dispatches on (only chebyshev/legendre/hermite/power, no factory bases)."""
     name = basis.lower()
     if name not in _BASIS_NAME_TO_ID:
         raise ValueError(

@@ -91,7 +91,7 @@ def scan_integer_lattice_pairs(
     unordered pair is scanned once.
     """
     yi = np.asarray(y).astype(np.int64)
-    n, p = X.shape
+    _n, p = X.shape
     elig = [j for j in range(p) if _is_integer_col(X[:, j])]
     raw_mi = {j: _mi(X[:, j], yi, nbins=nbins) for j in elig}
     hits: list[dict] = []

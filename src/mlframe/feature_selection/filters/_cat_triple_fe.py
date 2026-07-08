@@ -227,6 +227,7 @@ def generate_cat_triple_crosses(
     str_cache: dict[str, np.ndarray] = {}
 
     def _strs(col: str) -> np.ndarray:
+        """Memoized string-cast of column ``col``; avoids re-stringifying the same column across multiple triples."""
         if col not in str_cache:
             str_cache[col] = _column_to_str(X[col])
         return str_cache[col]
@@ -240,7 +241,7 @@ def generate_cat_triple_crosses(
             "cat_b": str(cat_b),
             "cat_c": str(cat_c),
             "mapping": mapping,
-            "n_cells": int(len(mapping)),
+            "n_cells": len(mapping),
         }
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes
@@ -311,6 +312,7 @@ def score_cat_triples_by_interaction_information(
     code_cache: dict[str, np.ndarray] = {}
 
     def _codes(col: str) -> np.ndarray:
+        """Memoized dense integer codes for column ``col``, reused across every triple/pair/singleton MI lookup in the beam search."""
         if col not in code_cache:
             code_cache[col] = _dense_codes(_column_to_str(X[col]))
         return code_cache[col]
@@ -320,6 +322,7 @@ def score_cat_triples_by_interaction_information(
     mi_cache: dict[frozenset, float] = {}
 
     def _mi(cols: tuple[str, ...]) -> float:
+        """Memoized MI(joint(cols), y_bin) keyed by the column set (order-independent), since the same pairs/singletons recur across many triples."""
         key = frozenset(cols)
         if key not in mi_cache:
             joint = _join_codes(*(_codes(c) for c in cols))
@@ -327,6 +330,7 @@ def score_cat_triples_by_interaction_information(
         return mi_cache[key]
 
     def _ii3(a: str, b: str, c: str) -> float:
+        """3-way interaction information via inclusion-exclusion: joint MI minus pairwise MIs plus singleton MIs; positive means synergy beyond any pair."""
         return _mi((a, b, c)) - (_mi((a, b)) + _mi((a, c)) + _mi((b, c))) + (_mi((a,)) + _mi((b,)) + _mi((c,)))
 
     seen: set[frozenset] = set()
@@ -444,6 +448,7 @@ def hybrid_cat_triple_fe(
     str_cache: dict[str, np.ndarray] = {}
 
     def _strs(col: str) -> np.ndarray:
+        """Memoized string-cast of column ``col``; avoids re-stringifying the same column across multiple appended recipes."""
         if col not in str_cache:
             str_cache[col] = _column_to_str(X[col])
         return str_cache[col]

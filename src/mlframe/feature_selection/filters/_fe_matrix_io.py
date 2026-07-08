@@ -84,6 +84,7 @@ class FeatureMatrix:
 
 
 def _detect_framework(X) -> str:
+    """Classify ``X`` by its defining package's top-level module name (pandas / polars / pyarrow), defaulting to "numpy" for anything else (ndarray, list, etc.)."""
     mod = type(X).__module__.split(".")[0]
     if mod == "pandas":
         return "pandas"
@@ -132,6 +133,11 @@ def _polars_column_to_arrays(s, dtype):
 
 
 def _pandas_column_to_arrays(s, dtype):
+    """Pandas counterpart of :func:`_polars_column_to_arrays`: returns (numeric_values_or_None, codes_or_None, categories_or_None, null_mask).
+
+    Categorical dtype columns already carry -1-for-NaN codes. Object columns try a numeric cast first and only
+    fall back to ``pd.factorize`` (also -1-for-NaN) if that raises, so plain numeric-looking object columns are
+    not needlessly treated as categorical."""
     import pandas as pd
 
     null_mask = s.isna().to_numpy()
@@ -174,10 +180,10 @@ def to_feature_matrix(X, *, dtype: Any = np.float32) -> FeatureMatrix:
 
     if framework == "polars":
         columns = list(X.columns)
-        getcol = lambda nm: _polars_column_to_arrays(X[nm], dtype)  # noqa: E731
+        getcol = lambda nm: _polars_column_to_arrays(X[nm], dtype)
     else:  # pandas
         columns = [str(c) for c in X.columns]
-        getcol = lambda nm: _pandas_column_to_arrays(X[nm], dtype)  # noqa: E731
+        getcol = lambda nm: _pandas_column_to_arrays(X[nm], dtype)
 
     n = int(X.shape[0])
     p = len(columns)

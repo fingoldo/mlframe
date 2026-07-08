@@ -51,6 +51,7 @@ class GroupTimeSeriesSplit:
         self.gap = int(gap)
 
     def get_n_splits(self, X=None, y=None, groups=None) -> int:
+        """Number of folds this splitter yields (sklearn CV-splitter protocol); ``X``/``y``/``groups`` are accepted but unused."""
         return self.n_splits
 
     @staticmethod
@@ -67,6 +68,10 @@ class GroupTimeSeriesSplit:
             return g[np.sort(idx)]
 
     def split(self, X=None, y=None, groups=None):
+        """Yield ``(train_idx, test_idx)`` row-index arrays for each fold, forward-chaining over ``groups`` in first-appearance order.
+
+        ``X``/``y`` are accepted (sklearn CV-splitter protocol) but unused; ``groups`` is required. Folds whose train block is
+        fully consumed by ``gap`` (too early in the sequence) or whose train/test block ends up empty are silently skipped."""
         if groups is None:
             raise ValueError("GroupTimeSeriesSplit requires groups.")
         groups = np.asarray(groups)

@@ -152,6 +152,7 @@ def _cuda_kernel_factory():
         n_samples,
         n_classes_y,
     ):
+        """numba.cuda device kernel: one block per (feature-a, feature-b) pair, builds a shared-memory joint histogram against ``classes_y`` and writes each pair's MI into ``mi_out``."""
         # One block per pair. Threads within the block stride over n_samples
         # to populate a shared-memory joint-class histogram. Then thread 0
         # reduces to MI.

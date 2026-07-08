@@ -74,6 +74,7 @@ __all__ = [
 
 
 def engineered_name_binned_agg(num_col: str, group_col: str, stat: str) -> str:
+    """Canonical engineered-feature name for a binned-numeric aggregate, e.g. ``binagg_mean(price|qbin(area))``."""
     return f"binagg_{stat}({num_col}|qbin({group_col}))"
 
 
@@ -131,6 +132,7 @@ def per_cell_stats_bincount(codes: np.ndarray, v: np.ndarray, n_cells: int, stat
 
 
 def _global_stat(v: np.ndarray, stat: str) -> float:
+    """Fallback statistic computed over the whole (finite-valued) column, used to fill empty bin cells at fit/apply time."""
     vf = v[np.isfinite(v)]
     if vf.size == 0:
         return 0.0
@@ -164,7 +166,7 @@ def fit_binned_numeric_agg(
     by bin code) + ``global`` fallback, so transform replays leak-free via ``apply_binned_numeric_agg``.
     """
     n = len(X)
-    y_arr = np.asarray(y, dtype=np.float64).ravel()  # noqa: F841 (kept for parity / future y-aware gating)
+    y_arr = np.asarray(y, dtype=np.float64).ravel()
     rng = np.random.default_rng(int(random_state))
     fold_ids = np.empty(n, dtype=np.int64)
     fold_ids[rng.permutation(n)] = np.arange(n) % int(n_folds)
@@ -413,6 +415,7 @@ def binned_numeric_agg_with_recipes(
     pair_rank = {(g, a): (g_mi.get(g, 0.0), a_var.get(a, 0.0)) for g in gsel for a in asel}
 
     def _cap_names(names, recipes_map):
+        """Group ``names`` by their (group_col, agg_col) source pair and keep only the top ``max_pairs`` pairs by ``pair_rank``, preserving per-pair column order."""
         nbp: dict = {}
         for _nm in names:
             nbp.setdefault((recipes_map[_nm]["group_col"], recipes_map[_nm]["agg_col"]), []).append(_nm)
@@ -530,6 +533,7 @@ def binned_numeric_agg_with_recipes(
         _rng = np.random.default_rng(int(random_state))
 
         def _src_bins(col: str) -> np.ndarray:
+            """Quantile-bin codes for a raw source column, memoized in ``_src_bin_cache`` since the same source column conditions many candidate binagg columns."""
             b = _src_bin_cache.get(col)
             if b is None:
                 b = _quantile_bin(X[col].to_numpy(dtype=np.float64), nbins=nbins_base)

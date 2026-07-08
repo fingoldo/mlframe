@@ -74,18 +74,22 @@ _MIN_GROUP_SIZE = 8
 
 
 def engineered_name_grouped_pctrank(num_col: str, group_col: str) -> str:
+    """Column name for the percentile-rank-within-group feature of ``num_col`` grouped by ``group_col``."""
     return f"grppct({num_col}|{group_col})"
 
 
 def engineered_name_grouped_iqr(num_col: str, group_col: str) -> str:
+    """Column name for the per-group IQR (q75-q25) spread broadcast of ``num_col`` grouped by ``group_col``."""
     return f"grpiqr({num_col}|{group_col})"
 
 
 def engineered_name_grouped_p90p10(num_col: str, group_col: str) -> str:
+    """Column name for the per-group p90-p10 spread broadcast of ``num_col`` grouped by ``group_col``."""
     return f"grpp90p10({num_col}|{group_col})"
 
 
 def engineered_name_target_aware_bin(num_col: str, group_col: str) -> str:
+    """Column name for the target-aware (MDLP-supervised) per-group bin index of ``num_col`` grouped by ``group_col``."""
     return f"grptabin({num_col}|{group_col})"
 
 
@@ -483,6 +487,7 @@ def apply_target_aware_group_bin(X_test: pd.DataFrame, recipe: dict) -> np.ndarr
 
 
 def _coerce_X(X, group_col: str, num_col: str, recipe_name: str) -> pd.DataFrame:
+    """Extract ``[group_col, num_col]`` from ``X`` as a pandas frame regardless of the incoming carrier (pandas / polars / structured ndarray), for recipe replay."""
     if isinstance(X, pd.DataFrame):
         return X
     try:
@@ -576,6 +581,7 @@ def score_grouped_quantile_by_mi_uplift(
     y_bin = y_arr.astype(np.int64)
 
     def _bin(arr: np.ndarray) -> np.ndarray:
+        """Quantile-bin (or pass through as-is if already low-cardinality integer-valued) a column into ``n_bins`` int codes for the plug-in MI estimator."""
         a = np.asarray(arr, dtype=np.float64)
         # Compute the finite mask + finite subset ONCE (the original recomputed
         # np.isfinite(a) 4x and a[np.isfinite(a)] 3x). All-finite columns skip
@@ -606,6 +612,7 @@ def score_grouped_quantile_by_mi_uplift(
     source_mi_cache: dict[str, float] = {}
 
     def _source_mi(col: Optional[str]) -> float:
+        """Cached ``MI(source_col; y)`` lookup, used as the baseline an engineered column must beat (the uplift gate)."""
         if not col or col not in raw_X.columns:
             return 0.0
         if col in source_mi_cache:
@@ -636,6 +643,7 @@ def score_grouped_quantile_by_mi_uplift(
 
 
 def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
+    """Pick up to ``max_cols`` candidate grouping columns via the shared composite-target group-column detector, falling back to a low/mid-cardinality non-float scan when that detector is unavailable."""
     try:
         from ...training.composite import detect_group_column_candidates
         cands = detect_group_column_candidates(X)
@@ -660,6 +668,9 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
 def _auto_detect_num_cols(
     X: pd.DataFrame, group_cols: Sequence[str], max_cols: int = 8,
 ) -> list[str]:
+    """Pick up to ``max_cols`` numeric source columns for grouped-quantile FE: floats always qualify, high-cardinality
+    integers qualify, group columns and already-``grp``-prefixed engineered columns are excluded (see inline comment
+    on why nesting on an engineered column would break replay)."""
     group_set = set(group_cols)
     out: list[str] = []
     for c in X.columns:

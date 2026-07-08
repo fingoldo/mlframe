@@ -15,7 +15,7 @@ from typing import Callable, Sequence, Union
 import numpy as np
 import pandas as pd
 import polars as pl
-from pyutilz.numbalib import set_numba_random_seed  # noqa: F401
+from pyutilz.numbalib import set_numba_random_seed
 from pyutilz.pythonlib import (
     get_parent_func_args,
     store_params_in_object,
@@ -29,15 +29,15 @@ from sklearn.base import (
     is_classifier,
     is_regressor,
 )
-from sklearn.dummy import DummyClassifier, DummyRegressor  # noqa: F401
-from sklearn.metrics import make_scorer  # noqa: F401
+from sklearn.dummy import DummyClassifier, DummyRegressor
+from sklearn.metrics import make_scorer
 from sklearn.model_selection import (
     GroupKFold,
-    GroupShuffleSplit,  # noqa: F401
+    GroupShuffleSplit,
     KFold,
     StratifiedGroupKFold,
     StratifiedKFold,
-    StratifiedShuffleSplit,  # noqa: F401
+    StratifiedShuffleSplit,
     TimeSeriesSplit,
 )
 from sklearn.pipeline import Pipeline
@@ -852,7 +852,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 # AFTER the class body has loaded so the sibling can reference RFECV-via-
 # self with no cycle.
 # ----------------------------------------------------------------------
-from ._fit import fit as _fit_func  # noqa: E402
+from ._fit import fit as _fit_func
 
 
 @functools.wraps(_fit_func)
@@ -870,7 +870,7 @@ def _fit_with_rng_hygiene(self, *args, **kwargs):
 
 RFECV.fit = _fit_with_rng_hygiene
 
-from ._stability_select import (  # noqa: E402
+from ._stability_select import (
     _fit_stability_selection as _fit_stability_selection_func,
 )
 from ._stability_select import (
@@ -880,7 +880,7 @@ from ._stability_select import (
 RFECV._fit_stability_selection = _fit_stability_selection_func
 RFECV.select_optimal_nfeatures_ = _select_optimal_nfeatures_func
 
-from ._diagnostics import (  # noqa: E402,F401
+from ._diagnostics import (
     cv_results_df_ as _cv_results_df_func,
 )
 from ._diagnostics import (
@@ -915,6 +915,6 @@ RFECV.pareto_front_ = _pareto_front_func
 RFECV.pareto_knee_ = _pareto_knee_func
 RFECV.n_features_bootstrap_ci_ = _n_features_bootstrap_ci_func
 
-from ._sffs import _sffs_swap_pass as _sffs_swap_pass_func  # noqa: E402
+from ._sffs import _sffs_swap_pass as _sffs_swap_pass_func
 
 RFECV._sffs_swap_pass = _sffs_swap_pass_func

@@ -89,6 +89,13 @@ class _Evaluator:
 
     @staticmethod
     def _key(idx) -> tuple[int, ...]:
+        """Canonicalise a feature-index collection into the sorted-tuple-of-int cache key.
+
+        Two subsets containing the same indices in different orders (or as a list / numpy array /
+        already-sorted tuple) must hash to the same ``cache`` / ``margin_cache`` entry; sorting is
+        what makes that dedup work. Returns the input tuple unchanged when it is already a sorted
+        tuple of plain ints (``_is_sorted_tuple``), otherwise builds a fresh sorted tuple.
+        """
         # Skip the per-element ``int(i)`` cast on the fast path (Python int / numpy scalar tuples
         # iterate fine into ``sorted``); fall back only for exotic inputs.
         if isinstance(idx, tuple):
@@ -96,6 +103,13 @@ class _Evaluator:
         return tuple(sorted(int(i) for i in idx))
 
     def loss(self, idx) -> float:
+        """Return the (memoised) proxy loss of the feature subset ``idx``.
+
+        Canonicalises ``idx`` via ``_key``, returns the cached value on a repeat lookup, else
+        computes the coalition margin from scratch (full ``phi_T[key].sum`` reduction, not the
+        incremental parent-delta path) and stores it in ``cache``. The empty subset is not a valid
+        selection and is scored as ``+inf`` without touching ``_loss_fast``/``n_evals``.
+        """
         key = self._key(idx)
         cached = self.cache.get(key)
         if cached is not None:
@@ -226,12 +240,20 @@ class _Evaluator:
         return val, child_key, child_margin
 
     def top_n(self, n: int) -> list[tuple[float, tuple[int, ...]]]:
+        """Return the ``n`` lowest-loss non-empty subsets ever scored, as loss-sorted ``(loss, key)``.
+
+        Scans the full ``cache`` accumulated over the evaluator's lifetime (every ``loss`` /
+        ``loss_with_margin`` / ``loss_from_parent*`` call), skips the empty-subset key and any
+        non-finite loss, and sorts ascending (lower proxy loss = better). This is every search
+        strategy's shared return path, so results across strategies stay directly comparable.
+        """
         items = [(v, k) for k, v in self.cache.items() if k and np.isfinite(v)]
         items.sort(key=lambda t: t[0])
         return items[:n]
 
 
 def _is_sorted_tuple(t: tuple) -> bool:
+    """Check ``t`` is a tuple of plain ``int`` in non-decreasing order (the ``_Evaluator`` key shape)."""
     # Fast verify ints + sorted; falls back if any non-int slips in (e.g. numpy scalars).
     for i in range(1, len(t)):
         a, b = t[i - 1], t[i]
@@ -243,6 +265,13 @@ def _is_sorted_tuple(t: tuple) -> bool:
 
 
 def _prep(phi, base, y, classification, metric):
+    """Coerce ``phi``/``base``/``y`` to contiguous float64 and resolve the metric name.
+
+    Shared entry-point setup for every search strategy in this module: normalises input dtype/
+    layout once (so the ``_Evaluator`` and its ``coalition_margin_T`` calls never re-check it), and
+    resolves ``metric`` (possibly ``None``) to the concrete metric string via ``resolve_metric``
+    given the ``classification`` flag.
+    """
     phi = np.ascontiguousarray(phi, dtype=np.float64)
     base = np.ascontiguousarray(base, dtype=np.float64)
     y = np.ascontiguousarray(y, dtype=np.float64)
@@ -250,6 +279,17 @@ def _prep(phi, base, y, classification, metric):
 
 
 def beam_search(phi, base, y, *, classification, metric=None, beam_width=8, min_card=1, max_card=None, top_n=30):
+    """Deterministic forward beam search: the default, trusted heuristic.
+
+    Seeds the beam with the ``beam_width`` best single features, then for ``min_card`` steps grows
+    every kept subset by one feature at a time. At each layer, every (parent, candidate-add) pair
+    is scored via the incremental ``loss_from_parent`` (one O(n) margin update per child, reusing
+    each parent's cached margin), duplicate children reached from different parents keep whichever
+    value was computed first (deterministic, pure function of the key), and only the ``beam_width``
+    lowest-loss children survive into the next layer. Stops early if a layer produces no children.
+    Returns the evaluator's ``top_n`` best-loss subsets seen across the whole search (not just the
+    final beam), so weaker intermediate-size subsets can still surface in the result.
+    """
     phi, base, y, metric = _prep(phi, base, y, classification, metric)
     f = phi.shape[1]
     max_card = f if max_card is None else min(max_card, f)
@@ -283,6 +323,14 @@ def beam_search(phi, base, y, *, classification, metric=None, beam_width=8, min_
 
 
 def greedy_forward(phi, base, y, *, classification, metric=None, max_card=None, top_n=30):
+    """Classic forward hill-climb: start empty, repeatedly add the single best-improving feature.
+
+    At each step, every remaining feature is scored as an add-one-feature child of the current
+    subset via the incremental ``loss_from_parent`` (reusing the current subset's cached margin);
+    the best-loss feature is added if it strictly improves on the running ``best_loss``, else the
+    search stops (also stops once ``max_card`` is reached or no features remain). Returns the
+    evaluator's ``top_n`` best-loss subsets seen along the path, not just the final subset.
+    """
     phi, base, y, metric = _prep(phi, base, y, classification, metric)
     f = phi.shape[1]
     max_card = f if max_card is None else min(max_card, f)

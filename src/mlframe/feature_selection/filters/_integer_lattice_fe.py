@@ -223,10 +223,12 @@ class LatticeHit:
 
     @property
     def margin_over_operands(self) -> float:
+        """MI gained by the engineered lattice feature over the best raw operand alone."""
         return self.feat_mi - self.operand_floor
 
     @property
     def responded(self) -> bool:
+        """Whether this lattice hit clears both the operand floor and the permutation-null band."""
         return _responded(self.feat_mi, self.operand_floor, self.null_hi)
 
 
@@ -246,7 +248,7 @@ def cheap_integer_lattice_scan(
     hit's ``.responded`` flag applies the measured dual gate (margin + permutation null). The permutation null is
     computed ONLY for the per-pair best op when it already clears the baseline margin (early-reject keeps the null cost
     off the inner grid loop)."""
-    import pandas as pd  # noqa: F401  (X may be pandas or polars; we pull ndarrays)
+    import pandas as pd
 
     if cols is None:
         cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]

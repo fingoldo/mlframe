@@ -501,6 +501,11 @@ class HybridSelector:
     # ------------------------------------------------------------------ fit / transform
     @rng_hygienic_fit
     def fit(self, X, y):
+        """Run the full hybrid pipeline: bridge to a pandas view, validate a classification target, run MRMR (stage 0,
+        engineers the shared FE columns), score the augmented frame with one shared permutation-FI pass, gate/admit tree
+        co-occurrence products, cluster-prescreen wide frames, run the member selectors (mrmr/shap/boruta/tree) on the
+        shared narrowed space, then combine their votes cluster-aware (stage 3). Populates the sklearn-style fitted
+        attributes (``feature_names_in_``, ``n_features_in_``, ``selected_features_``) used by ``transform``."""
         # Polars frames carry their column names in a plain ``list`` (no ``.has_duplicates`` / ``.iloc`` / ``.values``), so the pandas-only glue below
         # would crash at the first ``X.columns.has_duplicates``. Bridge to an Arrow-backed pandas VIEW once at the boundary (zero-copy for numeric cols),
         # which captures the REAL polars column names. The defensive LGBM ``feature_names_in_`` setter shim guards the inner LightGBM fits against the
@@ -686,6 +691,7 @@ class HybridSelector:
         support = {r: len(voters) for r, voters in cluster_votes.items()}
 
         def _rep_fi(r):
+            """Cluster r's credibility score: the highest shared-FI among its still-present members (0.0 if none survived the frame)."""
             return max((self.fi_.get(m, 0.0) for m in self.members_[r] if m in cols), default=0.0)
 
         # FI-CREDIBILITY GUARD (off by default -- MEASURED net loss): a cluster confirmed by only ONE member is
@@ -744,6 +750,8 @@ class HybridSelector:
         return list(dict.fromkeys(selected))
 
     def transform(self, X):
+        """Replay the fitted FE recipe on ``X`` (so engineered ``eng_N`` selections are reproducible on new data), then
+        slice to the fitted selection. Falls back to the frame's first column if the selection is empty on this input."""
         # replay FE so engineered selections (eng_N) are available, then slice to the selected set
         X = _as_pandas_view(X)
         X_aug = self._augment(X)
@@ -751,6 +759,7 @@ class HybridSelector:
         return X_aug[keep] if keep else X_aug.iloc[:, :1]
 
     def fit_transform(self, X, y):
+        """Fit then transform the same ``X`` (avoids materializing FE twice for the common fit_transform call pattern)."""
         return self.fit(X, y).transform(X)
 
     def get_feature_names_out(self, input_features=None):

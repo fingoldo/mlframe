@@ -150,6 +150,7 @@ def _validate_string_params(self):
 # All-constant features are NOT rejected here: zero-variance columns survive validation and surface as MI=0
 # in the screening loop, which is the documented downstream behaviour.
 def _validate_inputs(self, X, y):
+    """Validate constructor params and ``X``/``y`` shapes/dtypes for MRMR.fit (see module-level contract above)."""
     # Validate string-valued constructor params on every fit. We intentionally
     # do NOT validate inside __init__ to preserve sklearn-style "no work in
     # __init__" semantics (clone() must not raise).

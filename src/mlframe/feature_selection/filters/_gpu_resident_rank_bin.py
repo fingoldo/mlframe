@@ -89,7 +89,7 @@ def rank_bin_codes_gpu_resident(x_gpu: Any, n_bins: int) -> Any:
         out = cp.empty(n, dtype=cp.int32)
         out[si] = binid
         return out
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("rank_bin_codes_gpu_resident: cupy failed (%s)", _exc)
         return None
 
@@ -137,7 +137,7 @@ def rank_bin_codes_batch_gpu_resident(X_gpu: Any, n_bins: int) -> Any:
         cols = cp.broadcast_to(cp.arange(k, dtype=cp.int64), (n, k))
         out[si, cols] = binid[:, None]
         return out
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("rank_bin_codes_batch_gpu_resident: cupy failed (%s)", _exc)
         return None
 
@@ -186,6 +186,6 @@ def plugin_mi_classif_batch_rank_cuda_resident(
         # codes_trusted: rank_bin_codes_batch_gpu_resident emits dense 0..n_bins-1 codes and yg was shifted to
         # dense 0-based above, so the in-range guard cannot fire -- skip its blocking min/max sync (FIX1).
         return binned_mi_from_codes_gpu(codes, yg, kx_per_col=[int(n_bins)] * k, ky=int(n_classes), codes_trusted=True)
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("plugin_mi_classif_batch_rank_cuda_resident: GPU path failed (%s); host fallback", _exc)
         return None

@@ -21,9 +21,11 @@ try:
 except ImportError:
     _NUMBA_AVAILABLE = False
     def njit(*args, **kwargs):
+        """Fallback no-op stand-in for ``numba.njit`` when numba is not installed -- accepts and ignores any decorator kwargs (``fastmath``, ``cache``, ...) and returns the wrapped function unchanged, so the eval kernels below still run (as plain CPython) rather than raising ImportError."""
         if len(args) == 1 and callable(args[0]):
             return args[0]
         def deco(fn):
+            """Identity decorator used when ``njit(...)`` was called with kwargs only (no bare function argument) -- returns ``fn`` unmodified."""
             return fn
         return deco
 
@@ -50,6 +52,7 @@ def _fourier_fit(x: np.ndarray):
 
 
 def _fourier_apply(x: np.ndarray, params: dict) -> np.ndarray:
+    """Rescale x with the fitted ``lo``/``span`` (or return the degenerate all-zero z) -- same mapping as ``_fourier_fit`` but for eval-time data (e.g. holdout/CV) that must reuse train-fold parameters instead of refitting."""
     if params.get("degenerate"):
         return np.zeros_like(x, dtype=np.float64)
     return np.asarray((x - params["lo"]) / params["span"])
@@ -145,9 +148,11 @@ def _rbf_eval_kernel_njit(z: np.ndarray, c: np.ndarray, centres: np.ndarray, ban
 # RBF eval signature differs (needs centres, bandwidth) -- the hermite_fe registry passes only (z, c). We close over centres / bandwidth via a closure factory.
 
 def _rbf_make_eval(params: dict):
+    """Factory building an RBF evaluator closure bound to this column's fitted ``centres``/``bandwidth``, so the returned ``_eval(z, c)`` matches the ``eval(z, c)`` contract other bases satisfy directly with a plain function -- required because the njit kernel needs the extra ``centres``/``bandwidth`` args the registry doesn't pass through."""
     centres = params["centres"]
     bandwidth = params["bandwidth"]
     def _eval(z, c):
+        """Evaluate the Gaussian-RBF basis at ``z`` with coefficients ``c``, using the ``centres``/``bandwidth`` captured from the enclosing ``_rbf_make_eval`` call."""
         return _rbf_eval_kernel_njit(z, c, centres, bandwidth)
     return _eval
 
@@ -184,11 +189,13 @@ def _sigmoid_fit(x: np.ndarray):
 
 
 def _sigmoid_apply(x: np.ndarray, params: dict) -> np.ndarray:
+    """Sigmoid doesn't transform x for eval -- thresholds + slope come from params. Just ensure float64 contiguous (mirrors ``_rbf_apply``)."""
     return np.ascontiguousarray(x, dtype=np.float64)
 
 
 @njit(fastmath=True, cache=True)
 def _sigmoid_eval_kernel_njit(z: np.ndarray, c: np.ndarray, thresholds: np.ndarray, slope: float) -> np.ndarray:
+    """njit-compiled kernel for ``sum_k c_k * sigma(slope * (z - thresholds_k))``: a weighted sum of logistic bumps, one per quantile threshold, using a numerically stable sigmoid split on the sign of the argument to avoid overflow in ``exp``."""
     n = z.shape[0]
     K = thresholds.shape[0]
     out = np.zeros(n, dtype=np.float64)
@@ -213,18 +220,22 @@ def _sigmoid_eval_kernel_njit(z: np.ndarray, c: np.ndarray, thresholds: np.ndarr
 
 
 def _sigmoid_make_eval(params: dict):
+    """Factory building a sigmoid evaluator closure bound to this column's fitted ``thresholds``/``slope`` (same pattern as ``_rbf_make_eval``), so the registry's ``eval(z, c)`` contract is satisfied without threading the extra params through every call site."""
     thresholds = params["thresholds"]
     slope = params["slope"]
     def _eval(z, c):
+        """Evaluate the sigmoid-threshold basis at ``z`` with coefficients ``c``, using the ``thresholds``/``slope`` captured from the enclosing ``_sigmoid_make_eval`` call."""
         return _sigmoid_eval_kernel_njit(z, c, thresholds, slope)
     return _eval
 
 
 def _sigmoid_coef_size(degree: int) -> int:
+    """Sigmoid degree maps to number of threshold bumps used. Up to 9 thresholds at quantiles 0.1..0.9 (mirrors ``_rbf_coef_size``); degree saturates at 9."""
     return min(max(1, degree + 1), 9)
 
 
 def _sigmoid_canonical_seeds(degree: int) -> list:
+    """Canonical seeds for the sigmoid basis search: one seed per single-threshold activation plus a cumulative ramp across all thresholds (mirrors ``_rbf_canonical_seeds``' single-centre + uniform-average pattern)."""
     seeds = []
     K = _sigmoid_coef_size(degree)
     for k in range(K):
@@ -256,6 +267,7 @@ def _pade_fit(x: np.ndarray):
 
 
 def _pade_apply(x: np.ndarray, params: dict) -> np.ndarray:
+    """Standardize eval-time x with the fitted ``mean``/``std`` (or return the degenerate all-zero z) -- same z-score mapping as ``_pade_fit`` but reusing train-fold parameters instead of refitting."""
     if params.get("degenerate"):
         return np.zeros_like(x, dtype=np.float64)
     return np.asarray(((x - params["mean"]) / params["std"]).astype(np.float64))

@@ -67,7 +67,7 @@ def _make_pooltable_inputs(dims: dict):
     # derive a (nu, nb) op grid whose nu*nu*nb is closest to the requested n_combos (binary preset 'minimal'
     # is 6 ops; pick nu so nu^2*6 ~ ncombos, capped at the 17-op 'medium' unary set).
     nb = 6
-    nu = max(1, min(17, int(round((ncombos / nb) ** 0.5))))
+    nu = max(1, min(17, round((ncombos / nb) ** 0.5)))
     ua_codes = list(range(nu))
     ub_codes = list(range(nu))
     bn_codes = list(range(nb))
@@ -96,6 +96,8 @@ def _pooltable_njit(operands, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_co
 
 
 def _pooltable_resident(operands, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_codes):
+    """Candidate: the resident-GPU batched table build over ALL pairs at once. Falls back to the njit
+    reference (rather than raising) on a no-cupy host / device error so the sweep itself never crashes."""
     from ._usability_pool_resident import score_pair_combos_table_resident
 
     out = score_pair_combos_table_resident(operands, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_codes)

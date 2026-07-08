@@ -125,7 +125,7 @@ def warm_gbm_cost_cache() -> None:
     Best effort: callers may skip this and rely on ``measured_gbm_cols_per_second``'s fallback.
     No-op if LightGBM or pyutilz is unavailable."""
     try:
-        import lightgbm  # noqa: F401
+        import lightgbm
     except Exception:
         return
     try:
@@ -136,6 +136,7 @@ def warm_gbm_cost_cache() -> None:
             return
 
         def _tuner() -> list:
+            """kernel_tuning tuner body: measure gbm cols/sec at each sweep n_samples, falling back per-point on failure."""
             regions = []
             for n in _GBM_COST_SWEEP_N_SAMPLES:
                 try:
@@ -230,6 +231,7 @@ _NUMBA_FN = None
 
 
 def _get_numba_fn():
+    """Lazily compile and cache the parallel numba kernel (module-level singleton; import + JIT paid once)."""
     global _NUMBA_FN
     if _NUMBA_FN is not None:
         return _NUMBA_FN
@@ -237,6 +239,7 @@ def _get_numba_fn():
 
     @numba.njit(parallel=True, fastmath=True, cache=True)
     def _kernel(ZV, ZV2, Yc):  # ZV,ZV2 (n,p) ; Yc (n,K)
+        """Per-column-parallel accumulation of sum_c(|corr(V,1[y=c])| + |corr(V2,1[y=c])|) via explicit dot-product loops (no BLAS)."""
         n, p = ZV.shape
         K = Yc.shape[1]
         out = np.zeros(p, dtype=np.float64)
@@ -258,6 +261,7 @@ def _get_numba_fn():
 
 
 def discrete_score_numba(ZV: np.ndarray, ZV2: np.ndarray, Yc: np.ndarray) -> np.ndarray:
+    """numba parallel-prange variant of ``discrete_score_numpy``; no BLAS dependency, retained as a HW-dependent sweep option."""
     fn = _get_numba_fn()
     return np.asarray(fn(np.ascontiguousarray(ZV), np.ascontiguousarray(ZV2), np.ascontiguousarray(Yc)))
 
@@ -266,6 +270,7 @@ def discrete_score_numba(ZV: np.ndarray, ZV2: np.ndarray, Yc: np.ndarray) -> np.
 # Variant: cupy GEMM (GPU; wins at p>=100k once H2D/D2H amortised).
 # ---------------------------------------------------------------------------
 def discrete_score_cupy(ZV: np.ndarray, ZV2: np.ndarray, Yc: np.ndarray) -> np.ndarray:
+    """cupy GEMM variant of ``discrete_score_numpy``; H2D-uploads the standardized operands then mirrors the numpy math on GPU."""
     import cupy as cp
 
     ZVd = cp.asarray(ZV)
@@ -294,6 +299,7 @@ _SWEEP_WORK = [8000 * 1000 * 2, 8000 * 10000 * 2, 8000 * 50000 * 2, 8000 * 10000
 
 
 def _gpu_available() -> bool:
+    """True iff cupy is importable and at least one CUDA device is visible."""
     try:
         import cupy as cp
 
@@ -303,6 +309,7 @@ def _gpu_available() -> bool:
 
 
 def _fallback_choice(work: int = 0, **_dims) -> str:
+    """Source-default backend heuristic (cache miss / no pyutilz): cupy above the work threshold on a GPU host, else numpy."""
     if _gpu_available() and work >= _DEFAULT_CUPY_WORK_THRESHOLD:
         return "cupy"
     return "numpy"
@@ -321,6 +328,7 @@ def _make_inputs(work: int):
 
 
 def _run_sweep() -> list:
+    """kernel_tuning tuner body: bench numpy-vs-cupy across ``_SWEEP_WORK`` sizes and return the crossover regions."""
     from pyutilz.dev.benchmarking import sweep_backend_crossover
 
     # numba is benched-slower than the BLAS GEMM for the standardized matmul on this class of inputs
@@ -339,6 +347,7 @@ _SPEC = None
 
 
 def _get_spec():
+    """Lazily build and cache the kernel_tuning ``KernelSpec`` (module-level singleton); ``False`` if pyutilz is unavailable, signalling callers to use ``_fallback_choice``."""
     global _SPEC
     if _SPEC is not None:
         return _SPEC

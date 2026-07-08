@@ -650,7 +650,7 @@ def log_fe_summary(
     ``verbose >= 1`` with 0 additions it also names the likely too-tight knob (often ``fe_min_engineered_mi_prevalence``). Pure logging, no state mutation.
     """
     try:
-        _n_pairs_considered = int(len(prospective_pairs))
+        _n_pairs_considered = len(prospective_pairs)
     except Exception:
         _n_pairs_considered = -1
     try:

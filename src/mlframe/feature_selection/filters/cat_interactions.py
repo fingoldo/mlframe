@@ -320,7 +320,7 @@ def _pair_search_kernel_njit(
 # Miller-Madow bias correction for pair-II moved to
 # ``_cat_mm_correction.py``; re-exported below so the orchestrator
 # continues to call them via the same names. See sibling for SSOT.
-from ._cat_mm_correction import (  # noqa: E402,F401
+from ._cat_mm_correction import (
     _entropy_for_mode,
     _should_apply_mm_for_pair_analytical, _should_apply_mm_for_pair,
     _compute_pair_ii_mm, _maybe_rerank_with_mm,
@@ -328,12 +328,12 @@ from ._cat_mm_correction import (  # noqa: E402,F401
 # UCB1-bandit pair-confirmation moved to ``_cat_confirm_bandit.py``;
 # re-exported below so the orchestrator continues to call it via the same
 # name. See sibling for SSOT.
-from ._cat_confirm_bandit import _confirm_pairs_bandit_ucb1  # noqa: E402,F401
+from ._cat_confirm_bandit import _confirm_pairs_bandit_ucb1
 # Target encoding + weighted pair-search kernel + group-aware shuffle moved
 # to ``_cat_target_encoding_and_weighted.py``; re-exported below so the
 # orchestrator continues to call them via the same names. See sibling for
 # SSOT.
-from ._cat_target_encoding_and_weighted import (  # noqa: E402,F401
+from ._cat_target_encoding_and_weighted import (
     _compute_target_encoding,
     _pair_search_kernel_weighted_njit,
     _group_aware_shuffle,
@@ -341,7 +341,7 @@ from ._cat_target_encoding_and_weighted import (  # noqa: E402,F401
 # Permutation-based pair-confirmation moved to
 # ``_cat_confirm_permutation.py``; re-exported below so the orchestrator
 # continues to call it via the same name. See sibling for SSOT.
-from ._cat_confirm_permutation import (  # noqa: E402,F401
+from ._cat_confirm_permutation import (
     _full_conditional_shuffle_ipf, _conditional_shuffle_within_strata,
     _count_nfailed_joint_indep_prange, _count_nfailed_joint_indep_cupy,
     _perm_kernel_dispatch_use_gpu,
@@ -352,14 +352,14 @@ from ._cat_confirm_permutation import (  # noqa: E402,F401
 # Post-screen refinement moved to ``_cat_post_refine.py``; re-exported
 # below so the orchestrator continues to call them via the same names.
 # See sibling for SSOT.
-from ._cat_post_refine import (  # noqa: E402,F401
+from ._cat_post_refine import (
     _bootstrap_ii_cis, _anti_redundancy_rerank,
     _kfold_stability_filter, _refine_kway_coordinate_ascent,
 )
 # K-way expansion + pair/k-way materialisation moved to
 # ``_cat_kway_materialize.py``; re-exported below so the orchestrator
 # continues to call them via the same names. See sibling for SSOT.
-from ._cat_kway_materialize import (  # noqa: E402,F401
+from ._cat_kway_materialize import (
     _greedy_expand_one_seed, _build_kway_chained_lookup, _materialize_kway,
     _select_top_k_pairs, _build_factorize_lookup, _materialize_pairs,
 )
@@ -375,4 +375,4 @@ from ._cat_kway_materialize import (  # noqa: E402,F401
 # 1k-LOC monolith threshold (parent had regressed past 1k since the
 # prior cat_interactions split).
 # ----------------------------------------------------------------------
-from ._cat_interactions_step import run_cat_interaction_step  # noqa: E402,F401
+from ._cat_interactions_step import run_cat_interaction_step

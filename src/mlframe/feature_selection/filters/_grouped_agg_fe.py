@@ -69,14 +69,17 @@ _RESIDUAL_STATS = ("mean", "std")
 
 
 def engineered_name_grouped_agg(num_col: str, group_col: str, stat: str) -> str:
+    """Canonical engineered-column name for a per-group aggregate (e.g. group mean/std), parseable back by the recipe replay path."""
     return f"grpagg_{stat}({num_col}|{group_col})"
 
 
 def engineered_name_grouped_z(num_col: str, group_col: str) -> str:
+    """Canonical engineered-column name for the within-group z-score (``(x - group_mean) / group_std``)."""
     return f"grpz({num_col}|{group_col})"
 
 
 def engineered_name_grouped_ratio(num_col: str, group_col: str) -> str:
+    """Canonical engineered-column name for the value-to-group-mean ratio."""
     return f"grpratio({num_col}|{group_col})"
 
 
@@ -302,6 +305,7 @@ def apply_grouped_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
 
 
 def _coerce_X_for_grouped_agg(X, group_col: str, num_col: str, recipe_name: str) -> pd.DataFrame:
+    """Extract only the two columns a recipe replay needs into a narrow pandas frame, accepting pandas/polars/structured-ndarray input without a full-frame copy."""
     if isinstance(X, pd.DataFrame):
         return X
     try:
@@ -439,6 +443,7 @@ def score_grouped_agg_by_cmi_uplift(
     eng_to_source = eng_to_source or {}
 
     def _source_mi(col: str) -> float:
+        """Memoized marginal MI(source col, y) used as the uplift baseline (an engineered stat should beat its source's own signal)."""
         if col in source_mi_cache:
             return source_mi_cache[col]
         if col not in raw_X.columns:

@@ -123,7 +123,7 @@ def create_shadow_features(self):
             (_dtypes == _d0).all()
             and pd.api.types.is_numeric_dtype(_d0)
             and not isinstance(_d0, pd.CategoricalDtype)
-            and _d0 != bool  # noqa: E721 -- dtype vs type comparison; numpy/pandas dtype `==`/`!=` is intended, `is` would break it
+            and _d0 != bool
         ):
             _vals = self.X.to_numpy()
             if _vals.dtype == _d0:  # guard: confirm no silent upcast (e.g. nullable/extension dtypes)

@@ -20,48 +20,48 @@ in their own siblings. Every public + private name external code imported from
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field  # noqa: F401  (incidental re-export preserved)
-from typing import Any, Literal, Optional  # noqa: F401  (incidental re-export preserved)
+from dataclasses import dataclass, field
+from typing import Any, Literal, Optional
 
-import numpy as np  # noqa: F401  (incidental re-export preserved)
+import numpy as np
 
 try:
-    import pandas as pd  # noqa: F401  (incidental re-export preserved)
+    import pandas as pd
 except ImportError:  # pragma: no cover
     pd = None
 
 try:
-    import polars as pl  # noqa: F401  (incidental re-export preserved)
+    import polars as pl
 except ImportError:  # pragma: no cover
     pl = None  # type: ignore[assignment]
 
 # Core dataclass + array-aware extra-equality helper (leaf submodule).
-from ._recipe_core import EngineeredRecipe, _extra_equal  # noqa: F401
+from ._recipe_core import EngineeredRecipe, _extra_equal
 
 # Column extraction + int-coercion helpers shared across the replay paths.
-from ._recipe_extract import (  # noqa: F401
+from ._recipe_extract import (
     _coerce_to_int_with_nan_handling,
     _extract_column,
 )
 
 # The ``apply_recipe`` dispatcher.
-from ._recipe_dispatch import apply_recipe  # noqa: F401
+from ._recipe_dispatch import apply_recipe
 
 # Numeric pair-FE (unary_binary) builder + replay + the orjson preprocess helper.
-from ._recipe_unary_binary import (  # noqa: F401
+from ._recipe_unary_binary import (
     _apply_unary_binary,
     _orjson_pp,
     build_unary_binary_recipe,
 )
 
 # Cat-FE factorize replay (pair + k-way chained).
-from ._recipe_factorize import (  # noqa: F401
+from ._recipe_factorize import (
     _apply_factorize,
     _apply_factorize_kway,
 )
 
 # Hermite-pair / cluster-aggregate / target-encoding builders + replay.
-from ._recipe_poly_cluster import (  # noqa: F401
+from ._recipe_poly_cluster import (
     _apply_cluster_aggregate,
     _apply_hermite_pair,
     _apply_target_encoding,
@@ -70,40 +70,40 @@ from ._recipe_poly_cluster import (  # noqa: F401
 )
 
 # Orthogonal-triplet cross recipe builder + replay (sibling FE module).
-from .._orthogonal_triplet_fe_recipes import (  # noqa: F401
+from .._orthogonal_triplet_fe_recipes import (
     build_orth_triplet_cross_recipe,
     _apply_orth_triplet_cross,
 )
 
 # Orthogonal-quadruplet cross recipe builder + replay (sibling FE module).
-from .._orthogonal_quadruplet_fe_recipes import (  # noqa: F401
+from .._orthogonal_quadruplet_fe_recipes import (
     build_orth_quadruplet_cross_recipe,
     _apply_orth_quadruplet_cross,
 )
 
 # Numeric-decomposition recipe builders (sibling FE module); apply is dispatched inline.
-from .._numeric_decompose_fe import (  # noqa: F401
+from .._numeric_decompose_fe import (
     build_numeric_rounding_recipe,
     build_digit_extract_recipe,
 )
 
 # Temporal leak-safe aggregation recipe builders (sibling FE module); apply is dispatched inline.
-from .._temporal_agg_fe import (  # noqa: F401
+from .._temporal_agg_fe import (
     build_temporal_expanding_recipe,
     build_temporal_rolling_recipe,
     build_temporal_lag_recipe,
 )
 
 # Periodic / modular decomposition recipe builder (sibling FE module); apply is dispatched inline.
-from .._periodic_fe import build_modular_recipe  # noqa: F401
+from .._periodic_fe import build_modular_recipe
 
 # Per-group distribution-distance recipe builder (sibling FE module); apply is dispatched inline.
-from .._group_distance_fe import build_group_distance_recipe  # noqa: F401
+from .._group_distance_fe import build_group_distance_recipe
 
 # Hinge / piecewise-linear change-point basis recipe builder + replay (sibling
 # FE module, backlog #11). Apply path dispatched lazily in the dispatcher;
 # re-exported so external importers resolve the builder from this module.
-from .._hinge_basis_fe import (  # noqa: F401
+from .._hinge_basis_fe import (
     build_hinge_basis_recipe,
     _apply_hinge_basis,
 )
@@ -112,7 +112,7 @@ from .._hinge_basis_fe import (  # noqa: F401
 # #13, 2026-06-09) live in the sibling ``_wavelet_basis_fe`` one package level up;
 # re-exported so external importers resolve the builder from this module (mirrors
 # the hinge re-export above).
-from .._wavelet_basis_fe import (  # noqa: F401
+from .._wavelet_basis_fe import (
     build_orth_wavelet_recipe,
     _apply_orth_wavelet,
 )
@@ -120,7 +120,7 @@ from .._wavelet_basis_fe import (  # noqa: F401
 # Orthogonal-basis recipe builders + replay helpers live in the sibling
 # ``_orth_basis_recipes`` (apply path dispatched lazily in the dispatcher);
 # re-exported so external importers keep resolving them from this module.
-from ._orth_basis_recipes import (  # noqa: F401
+from ._orth_basis_recipes import (
     _apply_orth_fourier,
     _apply_orth_pair_cross,
     _apply_orth_pre_transform,
@@ -141,7 +141,7 @@ from ._orth_basis_recipes import (  # noqa: F401
 # Categorical-encoding recipe builders + replay helpers live in the sibling
 # ``_encoding_recipes`` (apply path dispatched lazily in the dispatcher);
 # re-exported so external importers keep resolving them from this module.
-from ._encoding_recipes import (  # noqa: F401
+from ._encoding_recipes import (
     _apply_cat_num_residual,
     _apply_count_encoded,
     _apply_frequency_encoded,
@@ -157,7 +157,7 @@ from ._encoding_recipes import (  # noqa: F401
 # MI-greedy + missingness / pairwise-ratio recipe builders live in the sibling
 # ``_missingness_ratio_recipes`` (mi-greedy apply dispatched lazily in the
 # dispatcher); re-exported so external importers keep resolving them here.
-from ._missingness_ratio_recipes import (  # noqa: F401
+from ._missingness_ratio_recipes import (
     _apply_mi_greedy_transform,
     build_missing_indicator_recipe,
     build_missingness_count_recipe,
@@ -168,7 +168,7 @@ from ._missingness_ratio_recipes import (  # noqa: F401
 
 # Grouped / temporal recipe builders live in the sibling ``_grouped_recipes``
 # (apply helpers dispatched lazily in the dispatcher); re-exported for importers.
-from ._grouped_recipes import (  # noqa: F401
+from ._grouped_recipes import (
     build_composite_group_agg_recipe,
     build_grouped_agg_recipe,
     build_grouped_delta_recipe,

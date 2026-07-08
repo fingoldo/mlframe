@@ -186,6 +186,9 @@ def usability_greedy_clf_gpu_resident(
 
         # ---------- resident logistic fits (strictly-convex L2 Newton; the unique sklearn optimum) ----------
         def _standardize(Xtr, Xother):
+            """Per-column mean/std standardization fit on ``Xtr``, applied to ``Xtr`` itself and every
+            array in ``Xother`` (val/holdout slices). Zero/near-zero std columns are held at scale 1 (no
+            div-by-zero) rather than dropped, matching sklearn ``StandardScaler``'s degenerate-column handling."""
             mu = Xtr.mean(axis=0)
             sd = Xtr.std(axis=0)
             sd = cp.where(sd < 1e-12, 1.0, sd)
@@ -223,6 +226,8 @@ def usability_greedy_clf_gpu_resident(
             return wv
 
         def _proba_binary(Xs, wv):
+            """Sigmoid positive-class probability from the fitted binary weight vector ``wv`` (last entry
+            is the unpenalised intercept) evaluated on the standardized design ``Xs``."""
             k = Xs.shape[1]
             z = Xs @ wv[:k] + wv[k]
             return 1.0 / (1.0 + cp.exp(-z))
@@ -279,6 +284,8 @@ def usability_greedy_clf_gpu_resident(
             return Wm
 
         def _proba_multinomial(Xs, Wm):
+            """Softmax class-probability matrix from the fitted symmetric weight matrix ``Wm`` (last row is
+            the unpenalised intercept), row-max-shifted for numerical stability before the exponential."""
             nn, k = Xs.shape
             A = cp.empty((nn, k + 1), dtype=cp.float64)
             A[:, :k] = Xs
@@ -313,6 +320,9 @@ def usability_greedy_clf_gpu_resident(
 
         # ---------------- shortlist (residual-aware pre-rank), fully resident ----------------
         def _abscorr_batch(resid_dev, rows_mask) -> np.ndarray:
+            """Resident |Pearson correlation| of the current residual against every pool candidate column at once
+            (a single (m, P) reduction), restricted to ``rows_mask`` when given. Degenerate (near-zero-variance
+            residual or candidate) entries return 0.0 instead of NaN so the shortlist score stays well-defined."""
             M = Vdev if rows_mask is None else Vdev[rows_mask]
             out = cp.zeros(P, dtype=cp.float64)
             m = int(M.shape[0])
@@ -335,6 +345,11 @@ def usability_greedy_clf_gpu_resident(
             return np.asarray(cp.asnumpy(r))
 
         def _shortlist(sel_idx) -> list:
+            """Residual-aware pre-rank of the not-yet-selected pool candidates, mirroring the CPU path's
+            shortlist: with an empty ``sel_idx`` the residual is the positive-class indicator centered on its
+            own mean; otherwise it's the fold-0 holdout residual of the current selection's fitted probability.
+            Each candidate scores ``(1-w)*mi/mi_max + w*|corr(resid)|`` and the top ``shortlist`` indices (by
+            that blended score) are returned for the next round's per-candidate CV refit."""
             if sel_idx:
                 ho = va_masks[0]
                 tr = tr_masks[0]
@@ -394,7 +409,7 @@ def usability_greedy_clf_gpu_resident(
                 errs[fo] = _logloss(yenc_dev[va], proba)
             return errs
 
-        min_improving_folds = max(1, int(math.ceil(0.75 * nf)))
+        min_improving_folds = max(1, math.ceil(0.75 * nf))
         selected: list = []
         folds_cur = _cv_baseline()
         cur = float(folds_cur.mean())

@@ -176,7 +176,7 @@ class HonestLossCache:
     correctly. Random-seeded re-validation fits get distinct seeds and so are never wrongly merged.
     Thread-safe for the threading-backend parallel pool (dict get/set under a lock)."""
 
-    __slots__ = ("_store", "_lock", "hits", "misses")
+    __slots__ = ("_lock", "_store", "hits", "misses")
 
     def __init__(self):
         import threading

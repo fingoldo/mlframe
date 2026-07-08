@@ -345,7 +345,7 @@ def local_mi_gate_binagg_resident(
     raw_X) -- that path is the small raw matrix already routed through STRICT ``_mi_classif_batch`` and is NOT
     the collapsed upload; reproducing it host-side keeps the floor (and thus the keep/drop decision) identical."""
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
     except Exception:
         return None
     # ``cand_cols`` / ``n_rows`` let the DEVICE-BORN caller (binned_numeric_agg_with_recipes' recipes-only path)
@@ -396,7 +396,7 @@ def local_mi_gate_binagg_resident(
             _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True),
             dtype=np.float64,
         )
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("local_mi_gate_binagg_resident: GPU path failed (%s); host fallback", _exc)
         return None
 

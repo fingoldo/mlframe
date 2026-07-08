@@ -83,6 +83,7 @@ def noise_floor_plateau(n_grid: Sequence[int], real_curve: np.ndarray, perm_curv
 
 
 def _default_grid(p: int) -> list:
+    """Log-ish spaced default sweep of feature-count checkpoints to probe the noise-floor curve, capped and de-duplicated against the actual feature count ``p``."""
     grid = [1, 2, 3, 5, 8, 12, 16, 20, 25, 30, 40, 50, 75, 100, 150, 200, 300, 400, p]
     return sorted({n for n in grid if 1 <= n <= p})
 
@@ -193,7 +194,7 @@ def select_features_noise_floor(estimator_factory: Callable, X, y, ranking: Sequ
     # 3 draws), so the floor jumps around with the seed and is anti-conservative. n_perm must be large enough that the
     # ``pct`` percentile is an interpolated interior order statistic: require at least ceil(100/(100-pct)) draws so the
     # requested quantile is not the sample maximum (e.g. >=20 for pct=95), and recommend >=50 for a stable estimate.
-    min_perm = int(math.ceil(100.0 / max(100.0 - pct, 1e-9)))
+    min_perm = math.ceil(100.0 / max(100.0 - pct, 1e-9))
     if n_perm < min_perm:
         logger.warning(
             "select_features_noise_floor: n_perm=%d is too small for the %.1fth-percentile noise floor (the quantile "

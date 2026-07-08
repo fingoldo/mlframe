@@ -15,6 +15,7 @@ import pandas as pd
 # re-exports our public API at its bottom, and we need ``get_feature_importances``
 # from ``_helpers.py`` for the W='gain'/'coef'/legacy paths.
 def _get_feature_importances(*args, **kwargs):
+    """Lazy-imported forward to ``_helpers.get_feature_importances`` (deferred to avoid a load-time circular import)."""
     from ._helpers import get_feature_importances as _gfi
     return _gfi(*args, **kwargs)
 
@@ -239,7 +240,7 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
     """
     is_df = hasattr(X, "columns")
     X_arr = X.values if is_df else np.asarray(X)
-    n, p = X_arr.shape
+    _n, p = X_arr.shape
     if current_features is None:
         current_features = list(X.columns) if is_df else list(range(p))
 

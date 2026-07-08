@@ -140,6 +140,8 @@ def warm_exhaustive_throughput_cache() -> None:
             return
 
         def _tuner() -> list:
+            """Sweeps the (n_samples, n_pairs) grid, measuring real GPU throughput per region (falling back to
+            the documented constant on measurement failure) so ``get_or_tune`` can persist the tuning table."""
             regions = []
             for n in _EXH_TPUT_SWEEP_N_SAMPLES:
                 for npairs in _EXH_TPUT_SWEEP_N_PAIRS:

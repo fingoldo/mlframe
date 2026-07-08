@@ -23,7 +23,7 @@ def _mi_classif_batch_sklearn(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) 
     explicitly opts out via ``MLFRAME_NUMBA_MI=0``. Returns MI in nats.
     """
     from sklearn.metrics import mutual_info_score
-    n, p = X.shape
+    _n, p = X.shape
     mis = np.zeros(p, dtype=np.float64)
     for j in range(p):
         col = X[:, j]
@@ -100,7 +100,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) ->
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     from ..hermite_fe import plugin_mi_classif_batch_dispatch
 
-    n, p = X.shape
+    _n, p = X.shape
     y_i64 = np.ascontiguousarray(y, dtype=np.int64)
     mis = np.zeros(p, dtype=np.float64)
     # Partition columns into "all-finite" (bulk path) and "partial-NaN"
@@ -180,6 +180,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) ->
 # Cached because hybrid_orth_mi_fe calls _mi_classif_batch twice per fit and
 # the dispatcher decision is constant per process.
 def _select_mi_backend() -> str:
+    """Resolve the ``_mi_classif_batch`` backend: ``MLFRAME_NUMBA_MI`` env override, else auto-detect via a trial import of the numba dispatcher, falling back to sklearn."""
     import os as _os
     flag = _os.environ.get("MLFRAME_NUMBA_MI", "").strip().lower()
     if flag in ("0", "false", "off", "no"):
@@ -190,7 +191,7 @@ def _select_mi_backend() -> str:
     # in a stripped-down install) fall back to sklearn rather than crashing
     # at first call.
     try:
-        from ..hermite_fe import plugin_mi_classif_batch_dispatch  # noqa: F401
+        from ..hermite_fe import plugin_mi_classif_batch_dispatch
         return "numba"
     except Exception:
         return "sklearn"

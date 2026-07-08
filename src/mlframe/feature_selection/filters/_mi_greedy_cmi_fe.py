@@ -991,8 +991,8 @@ def _ent_from_counts(c, inv_n: float):
         blocks = min(1024, max(1, (M + threads - 1) // threads))
         _get_ent_nnz_kernel(cp)((blocks,), (threads,), (c, float(inv_n), np.int64(M), out))
         h_k = cp.asnumpy(out)
-        return float(-h_k[0]), int(round(h_k[1]))
-    except Exception:  # noqa: BLE001
+        return float(-h_k[0]), round(h_k[1])
+    except Exception:
         if _ENT_RK is None:
             _ENT_RK = cp.ReductionKernel("int64 c, float64 inv_n", "float64 h",
                                          "c > 0 ? (c * inv_n) * log(c * inv_n) : 0.0", "a + b", "h = -a", "0.0", "mrmr_ent_rk")
@@ -1439,7 +1439,7 @@ def greedy_cmi_fe_construct(
     y_bin_dev = None
     if _cmi_gpu_enabled():
         try:
-            import cupy as _cp  # noqa: F401
+            import cupy as _cp
             from ._fe_resident_operands import resident_code_operand as _resident_code_operand
             y_bin_dev = _resident_code_operand(y_bin, "cmi_greedy_y_fixed")
         except Exception:

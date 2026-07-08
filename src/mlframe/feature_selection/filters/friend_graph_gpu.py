@@ -123,7 +123,7 @@ class FriendGraphGPUStats:
     applies the floor + ADC direction itself, unchanged.
     """
 
-    __slots__ = ("H", "rel", "edge_mi", "backend")
+    __slots__ = ("H", "backend", "edge_mi", "rel")
 
     def __init__(self, H: dict, rel: dict | None, edge_mi: dict, backend: str):
         self.H = H
@@ -704,7 +704,7 @@ def dispatch_friend_graph_stats(
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
         if not fe_gpu_has_vram_cushion(n * 8):
             return None
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.debug("swallowed exception in friend_graph_gpu.py: %s", e)
         pass
 

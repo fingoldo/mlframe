@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 
 def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """Replay a ``unary_binary`` recipe: reconstruct ``binary(unary_a(X[a]), unary_b(X[b]))`` (including the
+    ``prewarp`` / ``gate_med`` / ``poly_`` pseudo-unaries and nested-engineered operands) and return the
+    CONTINUOUS engineered column. Tries the GPU-resident replay path first when opted in; falls back to numpy
+    on any GPU ineligibility or failure."""
     # GPU-RESIDENT REPLAY (2026-06-28): the elementwise ``binary(unary_a(X[a]),
     # unary_b(X[b]))`` materialisation on full-n (300k-1M) operands is
     # embarrassingly parallel and was the dominant FE-replay cost (~3.4s) on the
@@ -64,6 +68,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     _PSEUDO = (_PREWARP, _GATE_MED)
 
     def _is_pseudo(_u: str) -> bool:
+        """Whether ``_u`` is a state-carrying pseudo-unary (not a preset registry lookup)."""
         # prewarp / gate_med / poly_<coef> are STATE-CARRYING pseudo-unaries -- not members of any preset registry;
         # they replay closed-form from state stored in recipe.extra (poly: hermite coeffs). Skip the preset lookup.
         return _u in _PSEUDO or _u.startswith("poly_")
@@ -82,6 +87,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     # composite is built on continuous values exactly as at fit time -- the fit-time
     # operand was the parent's continuous engineered value, not its bin codes.
     def _nested_continuous(parent: "EngineeredRecipe") -> np.ndarray:
+        """Recursively replay ``parent`` (a step-k>1 composite operand), forcing its output continuous (quantization stripped) so it matches the fit-time operand."""
         from ._recipe_dispatch import apply_recipe
         if parent.quantization is not None:
             # Replay the parent WITHOUT quantization (continuous output).
@@ -95,6 +101,8 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     vals_b = _nested_continuous(_np_b) if _np_b is not None else _extract_column(X, name_b)
 
     def _apply_side(side: str, uname: str, vals):
+        """Apply the ``uname`` unary to one operand side, dispatching between the closed-form pseudo-unaries
+        (``gate_med``, ``poly_<coef>``, ``prewarp``), the frozen-anchor ``log`` replay, and the plain preset registry lookup."""
         if uname == _GATE_MED:
             # Median-gate pseudo-unary: replay closed-form ``(x > train_median)``
             # from the single fit-time median float stored in ``extra`` (no y, no

@@ -254,6 +254,7 @@ def _rebuild_full_survivor_col(
     _eng_vals = engineered_operand_values or {}
 
     def _operand_full_vals(var_idx):
+        """Resolve the full-``n`` continuous values for operand ``var_idx``: raw column position when known, else the engineered-operand store/frame by name; raises the original ``KeyError`` rather than fabricating data."""
         if var_idx in original_cols:
             if isinstance(X_full, pd.DataFrame):
                 return X_full.iloc[:, original_cols[var_idx]].values
@@ -286,6 +287,7 @@ def _rebuild_full_survivor_col(
     _gm = gate_med_median_by_var or {}
 
     def _apply_unary(name, var_idx, vals):
+        """Apply a named unary transform to ``vals``, dispatching the pseudo-unaries (prewarp/gate_med, whose fitted state lives in the enclosing per-var stores) and the ``poly_*`` hermval-coefficient keys separately from plain callables."""
         if name == "prewarp":
             from .hermite_fe import apply_operand_prewarp
             return apply_operand_prewarp(vals, _pw[var_idx])
@@ -430,7 +432,7 @@ UNARY_INPUT_CONSTRAINTS: dict[str, str] = {
 }
 
 from ._internals import njit_functions_dict, smart_log
-from .discretization import discretize_array, discretize_2d_quantile_batch  # noqa: F401 -- re-exported (see _feature_engineering_pairs/_pairs_core.py)
+from .discretization import discretize_array, discretize_2d_quantile_batch
 from .permutation import mi_direct
 
 logger = logging.getLogger(__name__)
@@ -451,6 +453,7 @@ def compute_pairs_mis(
     fe_min_pair_mi: float,
     fe_min_pair_mi_prevalence: float,
 ):
+    """Compute (or reuse from cache) confidence-permutation-tested MI for every candidate pair, dropping pairs below the prevalence/relevance floor."""
     # Live progress: on the single-thread path ``all_pairs`` is the "getting pairs MIs"
     # tqdm bar itself, so we surface the running top single feature by its (already-
     # computed) marginal MI with y, plus the strongest pair MI, in the bar postfix.
@@ -526,6 +529,7 @@ def compute_pairs_mis(
 
 
 def get_existing_feature_name(fe_tuple: tuple, cols_names: Sequence) -> str:
+    """Display name for a unary-transformed feature: the bare column name for ``identity``, else ``transform(name)``."""
     fname = cols_names[fe_tuple[0]]
     if fe_tuple[1] == "identity":
         return str(fname)
@@ -534,6 +538,7 @@ def get_existing_feature_name(fe_tuple: tuple, cols_names: Sequence) -> str:
 
 
 def get_new_feature_name(fe_tuple: tuple, cols_names: Sequence) -> str:
+    """Display name for a binary-engineered feature: ``binary_op(unary(a), unary(b))``."""
     return f"{fe_tuple[1]}({get_existing_feature_name(fe_tuple=fe_tuple[0][0],cols_names=cols_names)},{get_existing_feature_name(fe_tuple=fe_tuple[0][1],cols_names=cols_names)})"  # (((2, 'log'), (3, 'sin')), 'mul', 1016)
 
 
@@ -703,6 +708,7 @@ def _resolve_preset(preset: str | None) -> str:
 
 
 def create_unary_transformations(preset: str = "minimal"):
+    """Build the ``{name: callable}`` unary-transform registry for the given preset (``minimal``/``medium``/``maximal``, monotone supersets)."""
     # Domain-validity tags for each transform live in the module-level ``UNARY_INPUT_CONSTRAINTS`` dict so callers that need to clip / reject inputs can look them up
     # by transform name (e.g. ``arccos`` requires ``-1to1``).
     #
@@ -835,6 +841,7 @@ def _safe_div(x, y):
 
 
 def create_binary_transformations(preset: str = "minimal"):
+    """Build the ``{name: callable}`` binary-transform registry for the given preset (``minimal``/``medium``/``maximal``, monotone supersets)."""
     # Preset ladder (monotone: minimal subset of medium subset of maximal):
     #   minimal -- the elementary closed binary algebra: mul, add, sub,
     #     div, max, min. ``sub`` and ``div`` were absent from EVERY
@@ -916,4 +923,4 @@ def create_binary_transformations(preset: str = "minimal"):
 # body lives in ``_feature_engineering_pairs.py`` so this file stays
 # below the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._feature_engineering_pairs import check_prospective_fe_pairs  # noqa: E402,F401
+from ._feature_engineering_pairs import check_prospective_fe_pairs

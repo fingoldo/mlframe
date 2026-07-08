@@ -63,12 +63,14 @@ class MRMRTreeRescued(MRMR):
 
     @classmethod
     def _get_param_names(cls):
+        """Return the union of MRMR's param names and the rescue's own, so sklearn's get_params/set_params/clone round-trip correctly despite the varargs ctor."""
         # The varargs ctor hides params from sklearn's introspection; report MRMR's params + the rescue's own so
         # get_params / set_params / clone round-trip (clone reconstructs via **kwargs, which the ctor accepts).
         return sorted(set(MRMR._get_param_names()) | set(cls._TREE_RESCUE_PARAMS))
 
     # ------------------------------------------------------------------
     def _tree_rescue_should_fire(self) -> bool:
+        """Decide whether the post-fit rescue should run, based on ``tree_rescue`` mode, pool width, and (in "auto" mode) whether MRMR under-selected relative to the collapse-regime threshold."""
         mode = self.tree_rescue
         if not mode or (isinstance(mode, str) and mode.lower() in ("off", "false", "none")):
             return False
@@ -149,6 +151,7 @@ class MRMRTreeRescued(MRMR):
             warnings.warn(f"MRMRTreeRescued: tree-rescue degraded ({type(e).__name__}: {e}); selection unchanged", stacklevel=2)
 
     def fit(self, X, y, *args, **kwargs):
+        """Fit MRMR normally, then apply the gated tree-importance rescue on top of the resulting ``support_``."""
         super().fit(X, y, *args, **kwargs)
         self._apply_tree_rescue(X, y)
         return self

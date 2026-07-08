@@ -303,6 +303,8 @@ class ACESelector(BaseEstimator, TransformerMixin):
         self.random_state = random_state
 
     def fit(self, X, y=None):
+        """Run ``ace_select`` once and materialise the sklearn selector attributes (``support_``,
+        ``selected_features_``, ``feature_names_in_``) in input-column order."""
         result = ace_select(
             X, y, estimator=self.estimator,
             n_replicates=self.n_replicates, contrast_percentile=self.contrast_percentile,
@@ -317,6 +319,7 @@ class ACESelector(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
+        """Narrow ``X`` to the accepted columns (positional slice, no full-frame copy)."""
         from sklearn.exceptions import NotFittedError
 
         if not hasattr(self, "support_"):
@@ -327,9 +330,11 @@ class ACESelector(BaseEstimator, TransformerMixin):
         return np.asarray(X)[:, self.support_]
 
     def fit_transform(self, X, y=None, **fit_params):
+        """Convenience ``fit`` then ``transform`` in one call (fit_params accepted for sklearn API parity, unused)."""
         return self.fit(X, y).transform(X)
 
     def get_support(self, indices: bool = False):
+        """sklearn-style accepted-feature mask; returns positional indices instead when ``indices=True``."""
         from sklearn.exceptions import NotFittedError
 
         if not hasattr(self, "support_"):
@@ -337,6 +342,7 @@ class ACESelector(BaseEstimator, TransformerMixin):
         return np.where(self.support_)[0] if indices else self.support_
 
     def get_feature_names_out(self, input_features=None):
+        """Names of the accepted features, in the order ``ace_select`` returned them (``input_features`` unused, kept for sklearn API parity)."""
         from sklearn.exceptions import NotFittedError
 
         if not hasattr(self, "selected_features_"):

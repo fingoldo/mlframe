@@ -659,6 +659,8 @@ def _make_usability_inputs(dims: dict):
 
 
 def _run_usability_sweep() -> list:
+    """Runs the serial/parallel/gpu crossover sweep over the configured (n_rows, n_combos) grid, checking each
+    variant's output against the serial reference within the loosened GPU-reassociation tolerance."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {

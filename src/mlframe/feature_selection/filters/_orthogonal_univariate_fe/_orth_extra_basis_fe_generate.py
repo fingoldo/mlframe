@@ -33,7 +33,7 @@ __all__ = [
 _EXTRA_BASIS_KINDS = ("spline", "fourier", "wavelet")
 
 
-from ._orth_extra_basis_fe import (  # noqa: E402 (cycle-safe: defined before parent's bottom re-export)
+from ._orth_extra_basis_fe import (
     _ADAPTIVE_FE_RAW_USABILITY_CAP,
     _chirp_axis,
     _detect_fourier_freqs_for_col,

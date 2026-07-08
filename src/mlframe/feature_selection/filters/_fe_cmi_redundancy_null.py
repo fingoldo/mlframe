@@ -23,6 +23,7 @@ _CMI_ANALYTIC_NULL_MIN_N_DEFAULT = 20_000
 
 
 def _cmi_analytic_null_min_n() -> int:
+    """Minimum ``n`` at which the analytic chi-square CMI null replaces the within-stratum permutation null, from ``MLFRAME_CMI_ANALYTIC_NULL_MIN_N`` or the module default."""
     raw = _os.environ.get("MLFRAME_CMI_ANALYTIC_NULL_MIN_N", "").strip()
     if raw:
         try:
@@ -108,6 +109,7 @@ def _conditional_perm_null(
     _host_x_cache: list = [None]
 
     def _host_x():
+        """Return the candidate codes as a host int64 array, D2H-transferring once and caching the result on the closure."""
         # D2H the resident code once (cached on the closure via the list cell) or contiguous-cast a host input.
         if _host_x_cache[0] is None:
             if cand_dev is not None:

@@ -294,6 +294,8 @@ def histogram(a, bins="auto", **kwargs):
 
 
 def edges(arr, quantiles):
+    """Quantile bin edges for ``arr`` at the given ``quantiles``, NaN-safe (see the inline comment below
+    for why plain ``np.percentile`` is unsafe here)."""
     # Wave 21 P0: use nanpercentile so NaN in arr doesn't poison every
     # bin edge. ``discretize_array`` calls this 6000+ times per FS fit
     # (per the module docstring); pre-fix any NaN-bearing column made

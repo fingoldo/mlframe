@@ -27,10 +27,12 @@ except Exception:
 
 
 def is_pandas(X: Any) -> bool:
+    """True iff ``X`` is a pandas DataFrame (safe when pandas itself failed to import)."""
     return pd is not None and isinstance(X, pd.DataFrame)
 
 
 def is_polars(X: Any) -> bool:
+    """True iff ``X`` is a polars DataFrame (safe when polars itself failed to import)."""
     return pl is not None and isinstance(X, pl.DataFrame)
 
 

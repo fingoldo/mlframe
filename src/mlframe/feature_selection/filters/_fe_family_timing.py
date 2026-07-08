@@ -28,6 +28,7 @@ _LOCK = threading.Lock()
 
 @contextmanager
 def fe_family_timer(name: str):
+    """Context manager that accumulates wall time and invocation count for ``name`` into the process-global ``_FE_FAMILY_WALL`` map under the lock."""
     _t0 = perf_counter()
     try:
         yield
@@ -42,8 +43,10 @@ def fe_family_timer(name: str):
 def fe_timed(name: str):
     """Decorator form of ``fe_family_timer`` for wrapping a whole family entry function with a one-line edit."""
     def _deco(func):
+        """Wrap ``func`` so every call is timed under ``fe_family_timer(name)``."""
         @functools.wraps(func)
         def _wrapped(*args, **kwargs):
+            """Time this call into the ``name`` family bucket, then delegate to the wrapped function."""
             with fe_family_timer(name):
                 return func(*args, **kwargs)
         return _wrapped
@@ -51,11 +54,13 @@ def fe_timed(name: str):
 
 
 def reset_fe_family_wall() -> None:
+    """Clear all accumulated per-family wall-time/invocation counters (e.g. between independent fits in the same process)."""
     with _LOCK:
         _FE_FAMILY_WALL.clear()
 
 
 def get_fe_family_wall() -> dict[str, tuple[float, int]]:
+    """Snapshot the current per-family ``(total_wall_seconds, n_invocations)`` map without resetting it."""
     with _LOCK:
         return {k: (v[0], int(v[1])) for k, v in _FE_FAMILY_WALL.items()}
 

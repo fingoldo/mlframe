@@ -80,6 +80,7 @@ def _bspline_col_gpu(cp, z_g, knots: np.ndarray, idx: int, degree: int = 3):
     _cache: dict = {}
 
     def _N(i: int, p: int):
+        """Memoised Cox-de Boor basis value ``B_{i,p}(zc)`` over the whole clipped point array; recurses down to the degree-0 indicator base case."""
         key = (i, p)
         v = _cache.get(key)
         if v is not None:
@@ -115,6 +116,7 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict):
     op_cache: dict = {}
 
     def _raw(src):
+        """Device column for raw source ``src``, uploading + caching it once via the shared resident-operand cache."""
         from .._fe_usability_signal import _crit_np_dtype
         _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
         g = op_cache.get(src)
@@ -181,7 +183,7 @@ def extra_basis_eng_mi_resident(
         return None
     names = list(engineered_X.columns)
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
 
         from ._gpu_resident_cross_basis import _resident_mi
 
@@ -189,6 +191,6 @@ def extra_basis_eng_mi_resident(
         if mat_gpu.shape[1] != len(names):
             return None  # never emit a misaligned MI vector
         return _resident_mi(cp, mat_gpu, y, int(nbins))
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("extra_basis_eng_mi_resident: GPU path failed (%s); host fallback", _exc)
         return None

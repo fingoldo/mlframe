@@ -30,6 +30,7 @@ import numpy as np
 
 
 def _scrub(v: np.ndarray, dtype: Any = np.float64) -> np.ndarray:
+    """Cast ``v`` to ``dtype`` and replace every non-finite entry (NaN/+inf/-inf) with 0.0, returning a new array."""
     # ``np.where(isfinite, a, 0)`` is bit-identical to ``nan_to_num(nan=0, posinf=0, neginf=0)`` (isfinite
     # is False for exactly nan/+inf/-inf) but ~2.8x faster (no per-call isposinf/isneginf/_getmaxmin
     # machinery): 764us -> 269us on a 100k float32 column. _scrub is called ~17k+/retention fit on full-n
@@ -46,6 +47,8 @@ def _f64(v: np.ndarray) -> np.ndarray:
 
 
 def _abscorr(u: np.ndarray, v: np.ndarray) -> float:
+    """Absolute Pearson correlation ``|corr(u, v)|`` in float64, used as the diversity / near-duplicate gate. Returns
+    0.0 if either input is empty or near-constant (std < 1e-12), or if the raw correlation is non-finite."""
     # GATED GPU PATH (MLFRAME_FE_GPU_USABILITY, default OFF). The cupy twin is float64 + the SAME
     # std<1e-12 guard, but a cupy reduction can reassociate the last bits vs numpy -> a |corr| drift
     # that, on the ULP-sensitive clean-form demotion, could flip a pin. So it is ENABLED only on a host
@@ -86,6 +89,12 @@ def _GPU_USABILITY() -> bool:
 
 @dataclass
 class UsableCandidate:
+    """One candidate feature (a raw column or a unary/binary-engineered pair form) evaluated for the linear-usability
+    greedy. ``name`` is the display/recipe name, ``values`` the full-n scrubbed continuous column, ``mi`` its binned
+    mutual information with the target, ``recipe`` a replayable ``EngineeredRecipe`` (``None`` for a raw column),
+    ``src`` the raw operand name(s) the candidate was built from, and ``ops`` the ``(unary_a, unary_b, binary)`` op
+    names used to build a pair form (empty for a raw column)."""
+
     name: str
     values: np.ndarray  # continuous, full-n, scrubbed
     mi: float  # binned MI with y
@@ -95,6 +104,9 @@ class UsableCandidate:
 
 
 def _binned_mi(x: np.ndarray, y_codes: np.ndarray, nbins: int, y_terms: Any = None) -> float:
+    """Mutual information of ``x`` with the target, estimated via equi-frequency quantile binning of ``x`` into
+    ``nbins`` bins. When ``y_terms`` (the precomputed H(Y)/k_y terms for the fixed target) is supplied, uses the
+    faster fixed-y marginal-MI path; otherwise falls back to the general conditional-MI-from-binned estimator."""
     from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin, marginal_mi_binned_fixed_y
     xb = _quantile_bin(_f64(x), nbins)
     if y_terms is not None:
@@ -194,6 +206,8 @@ def build_usability_candidate_pool(
         _nb = int(quantization_nbins)
 
         def _pair_joint_mi(p):
+            """Binned joint MI of the pair ``p = (name_a, name_b)`` with the target: bins each operand independently
+            then combines their quantile codes into one joint code (``code_a * nbins + code_b``) before scoring."""
             return float(marginal_mi_binned_fixed_y(_pj_codes[p[0]] * _nb + _pj_codes[p[1]], *y_terms))
 
         # DEVICE-BATCHED pair ranking (kernel-residency, 2026-07-02): under the resident strict path score ALL
@@ -493,12 +507,15 @@ def usability_greedy(
             return []
 
         def _mk():
+            """Build a fresh scaled-logistic-regression pipeline (classification path CV scorer/pre-rank model)."""
             return make_pipeline(StandardScaler(), LogisticRegression(max_iter=200))
 
         from sklearn.metrics import log_loss as _log_loss
         _labels = np.arange(n_classes)
 
         def _logloss(y_true, proba):
+            """Multi-class log loss of ``proba`` against ``y_true``, evaluated over the fixed full label set
+            ``_labels`` (so a fold missing a class still scores against the complete class set)."""
             return float(_log_loss(y_true, proba, labels=_labels))
     else:
         # bench-attempt-rejected (2026-06-13): an audit flagged OLS min-norm as fragile on a singular/wide
@@ -508,6 +525,7 @@ def usability_greedy(
         # selected-feature count, which cannot happen given the shortlist + the small K, so Ridge buys
         # nothing. Kept OLS (the gold-standard wrapper that matches the deployed objective). Do not re-add.
         def _mk():
+            """Build a fresh scaled-OLS-linear-regression pipeline (regression path CV scorer/pre-rank model)."""
             return make_pipeline(StandardScaler(), LinearRegression())
 
     if not pool:
@@ -635,6 +653,12 @@ def usability_greedy(
         return out
 
     def _cv_per_fold(sel_idx) -> np.ndarray:
+        """Exact (full-refit) K-fold CV score of the candidate set ``sel_idx``: per fold, fit ``_mk()`` on the
+        train rows and score the held-out rows, returning one error value per fold (CV log loss when
+        ``classification``, else CV mean-absolute-error). With an empty ``sel_idx`` scores the no-selection
+        baseline (train-fold class-prior probabilities for classification, train-fold mean for regression). This
+        is the exact fallback for any fold where the incremental bordered-Gram solve in
+        ``_cv_candidates_incremental`` is singular."""
         if classification:
             # CV LOGLOSS of a logistic model (lower-is-better, same gate semantics as MAE). The
             # no-selection baseline is the constant train-fold class-PRIOR probability.
@@ -671,6 +695,13 @@ def usability_greedy(
 
     # cheap residual-aware pre-rank to a bounded shortlist (so per-step CV stays cheap).
     def _shortlist(sel_idx) -> list[int]:
+        """Rank every not-yet-selected pool candidate by a cheap pre-rank score -- ``(1-w) * (mi / mi_max) + w *
+        |corr(candidate, held-out residual)|`` -- and return the indices of the top ``shortlist`` (default 40)
+        candidates. The residual is computed on the fold-0 held-out rows only (fit on the other folds, to avoid
+        leakage): for regression it is ``y - model.predict(X)``, for classification the positive/majority-class
+        indicator minus its predicted probability; with no prior selection it falls back to the (train-fold) mean/
+        prior-centered residual over all rows. This pre-rank only bounds the candidate pool the greedy's expensive
+        per-step CV evaluates -- the actual commit decision is always the CV-MAE/logloss improvement."""
         # HELD-OUT residual (audit fix, 2026-06-13): fit on the fold-0-out train rows but score the
         # candidate correlation on the HELD-OUT fold-0 residual only -- the prior code predicted over
         # ALL rows (in-sample for the ~(k-1)/k training rows), which is the leakage the module's
@@ -740,7 +771,7 @@ def usability_greedy(
     # a committed feature must improve a MAJORITY of folds (>=75%), not just the mean -- a noise-
     # contaminated feature lowers some folds by chance and raises others (net ~0); requiring
     # consistency across folds rejects it and stops the greedy at the genuinely useful set.
-    min_improving_folds = max(1, int(math.ceil(0.75 * n_folds)))
+    min_improving_folds = max(1, math.ceil(0.75 * n_folds))
     selected: list[int] = []
     folds_cur = _cv_per_fold(selected)
     mae_cur = float(folds_cur.mean())

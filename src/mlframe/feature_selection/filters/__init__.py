@@ -33,7 +33,7 @@ Module dependency graph (acyclic)::
 from __future__ import annotations
 
 # Legacy monolith star-import keeps every existing importer working transparently.
-from ._legacy import *  # noqa: F401,F403
+from ._legacy import *
 from ._legacy import (  # explicit re-exports, kept stable
     MRMR,
     entropy,
@@ -53,8 +53,8 @@ from ._legacy import (  # explicit re-exports, kept stable
     distribute_permutations,
 )
 from ._mrmr_tree_rescue import MRMRTreeRescued
-from ._internals import canonical_group_token  # noqa: F401
-from ._analytic_mi_null import analytic_mi_null, analytic_mi_null_batch  # noqa: F401
+from ._internals import canonical_group_token
+from ._analytic_mi_null import analytic_mi_null, analytic_mi_null_batch
 
 __all__ = [
     "MRMR",
@@ -94,9 +94,9 @@ __all__ = [
 
 # Pre-warm hooks. Idempotent; call once per process before first MRMR.fit to
 # move ~5-15s of numba+CuPy NVRTC compile out of the timed fit path.
-from ._prewarm import prewarm_fs_numba_cache, prewarm_fs_cupy_kernels  # noqa: E402
-from ._kernel_tuning import get_kernel_tuning_cache  # noqa: E402, F401
-from ._cluster_aggregate import (  # noqa: E402, F401
+from ._prewarm import prewarm_fs_numba_cache, prewarm_fs_cupy_kernels
+from ._kernel_tuning import get_kernel_tuning_cache
+from ._cluster_aggregate import (
     _derive_weights as derive_cluster_weights,
     _standardize_align as standardize_align_cluster,
     _apply_method_nonlinear as apply_cluster_aggregate_nonlinear,
@@ -104,9 +104,9 @@ from ._cluster_aggregate import (  # noqa: E402, F401
 
 # Cat-FE re-exports. Imported here (not via the ``_legacy`` star) so that
 # ``from mlframe.feature_selection.filters import CatFEConfig`` works as advertised in the public ``MRMR(cat_fe_config=CatFEConfig(...))`` API.
-from .cat_fe_state import CatFEConfig, CatFEState  # noqa: E402
-from .cat_interactions import run_cat_interaction_step  # noqa: E402
-from .engineered_recipes import EngineeredRecipe  # noqa: E402
+from .cat_fe_state import CatFEConfig, CatFEState
+from .cat_interactions import run_cat_interaction_step
+from .engineered_recipes import EngineeredRecipe
 
 # Pickle BC: MRMR was historically saved with __module__="mlframe.feature_selection.filters". After the move into a package, the class object's __module__
 # becomes "..._legacy" (or "..._mrmr"). Reassign here so cloudpickle / joblib continue to resolve unpickling against the package's __init__.
@@ -137,7 +137,7 @@ def __getattr__(name):
         return _fn
     if name == "MAX_CONFIRMATION_CAND_NBINS":
         import warnings as _w
-        from ._internals import MAX_CONFIRMATION_CAND_NBINS as _legacy_const  # noqa: N811 -- deprecation-trap alias, name intentionally non-constant-looking
+        from ._internals import MAX_CONFIRMATION_CAND_NBINS as _legacy_const
         _w.warn(
             "Accessing MAX_CONFIRMATION_CAND_NBINS as a module constant is "
             "deprecated. Use MRMR(max_confirmation_cand_nbins=...) per-instance "

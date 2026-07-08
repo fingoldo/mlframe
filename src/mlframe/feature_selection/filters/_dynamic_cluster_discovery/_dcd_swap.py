@@ -424,6 +424,7 @@ def evaluate_swap_candidate(
     # the aggregate path -- the member branch must not be a side door
     # that bypasses the same check.
     def _run_member_null(member_idx: int, member_rel: float, B_: int) -> float:
+        """Delegate to ``_dcd_swap_null.run_member_null`` for a p-value on the member candidate's relevance, closing over ``state``/``anchor``/``target``/``S_minus_anchor``/``logger`` so both call sites below need only pass the member-specific args."""
         # The B-permutation null is parallelized across cores in ``_dcd_swap_null.run_member_null``:
         # it pre-generates all B shuffles of ONLY the member column (SAME rng sequence -> bit-identical
         # permutation multiset / p-value), then ``prange``s the per-draw conditional MI over a thread-local

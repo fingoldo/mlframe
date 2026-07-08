@@ -226,8 +226,8 @@ def _kernel_tuning_cache_lookup_tau(factors_data, factors_nbins, fallback: float
         n_samples = int(factors_data.shape[0]) if factors_data is not None else 0
         n_features = int(factors_data.shape[1]) if factors_data is not None else 0
         # Coarse buckets to keep the cache key stable across small fluctuations.
-        n_samples_bucket = int(round(np.log10(max(n_samples, 1)) * 2)) / 2
-        n_features_bucket = int(round(np.log10(max(n_features, 1)) * 2)) / 2
+        n_samples_bucket = round(np.log10(max(n_samples, 1)) * 2) / 2
+        n_features_bucket = round(np.log10(max(n_features, 1)) * 2) / 2
         entry = _cache.lookup(
             "dcd_tau_cluster",
             n_samples_log10=float(n_samples_bucket),
@@ -809,7 +809,7 @@ def dcd_summary(state: Optional[DCDState]) -> Optional[dict]:
                 "min_pair_su": float(min(pair_sus)),
                 "mean_pair_su": float(sum(pair_sus) / len(pair_sus)),
                 "max_pair_su": float(max(pair_sus)),
-                "n_pairs_evaluated": int(len(pair_sus)),
+                "n_pairs_evaluated": len(pair_sus),
             }
         else:
             cluster_diagnostics[_name(anchor_idx)] = {

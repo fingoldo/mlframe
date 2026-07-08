@@ -57,19 +57,23 @@ __all__ = [
 
 
 def _log_abs(x: np.ndarray) -> np.ndarray:
+    """``log1p(|x|)`` -- sign-agnostic log compression, good for heavy-tailed / power-law columns."""
     return np.asarray(np.log1p(np.abs(np.asarray(x, dtype=np.float64))))
 
 
 def _sqrt_abs(x: np.ndarray) -> np.ndarray:
+    """``sqrt(|x|)`` -- sign-agnostic square-root compression, milder than ``log_abs`` on the tail."""
     return np.asarray(np.sqrt(np.abs(np.asarray(x, dtype=np.float64))))
 
 
 def _square(x: np.ndarray) -> np.ndarray:
+    """``x**2`` -- exposes magnitude / symmetric-around-zero relationships (e.g. ``y = sign(x**2 - c)``)."""
     a = np.asarray(x, dtype=np.float64)
     return a * a
 
 
 def _cube(x: np.ndarray) -> np.ndarray:
+    """``x**3`` -- odd power, preserves sign while amplifying the tail (unlike ``square``)."""
     a = np.asarray(x, dtype=np.float64)
     return a * a * a
 
@@ -87,6 +91,7 @@ def _reciprocal_safe(x: np.ndarray) -> np.ndarray:
 
 
 def _tanh(x: np.ndarray) -> np.ndarray:
+    """``tanh(x)`` -- smooth saturating squash, captures threshold / diminishing-returns non-linearities."""
     return np.tanh(np.asarray(x, dtype=np.float64))
 
 
@@ -99,14 +104,17 @@ def _expm1_clip(x: np.ndarray) -> np.ndarray:
 
 
 def _abs(x: np.ndarray) -> np.ndarray:
+    """``|x|`` -- folds sign, exposing magnitude-only relationships (e.g. ``y = sign(|x| - c)``)."""
     return np.abs(np.asarray(x, dtype=np.float64))
 
 
 def _sin(x: np.ndarray) -> np.ndarray:
+    """``sin(x)`` -- periodic transform; only enumerated on columns ``_is_bounded_column`` flags as bounded, since sin of an unbounded/heavy-tailed column is uninformative."""
     return np.sin(np.asarray(x, dtype=np.float64))
 
 
 def _cos(x: np.ndarray) -> np.ndarray:
+    """``cos(x)`` -- periodic transform, ``sin``'s phase-shifted sibling; same bounded-column gating applies."""
     return np.cos(np.asarray(x, dtype=np.float64))
 
 
@@ -131,14 +139,17 @@ TRIG_BOUNDED_TRANSFORMS: dict[str, Callable[[np.ndarray], np.ndarray]] = {
 
 
 def _bin_add(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``a + b`` -- linear combination; catches additive interactions two raw columns don't expose alone."""
     return np.asarray(a, dtype=np.float64) + np.asarray(b, dtype=np.float64)
 
 
 def _bin_sub(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``a - b`` -- signed difference; useful when the target depends on the gap/spread between two columns."""
     return np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64)
 
 
 def _bin_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``a * b`` -- product interaction; catches multiplicative/AND-like relationships between two columns."""
     return np.asarray(a, dtype=np.float64) * np.asarray(b, dtype=np.float64)
 
 
@@ -153,14 +164,17 @@ def _bin_div_safe(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 
 def _bin_max(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``max(a, b)`` -- elementwise maximum; catches "worst/best of two" or OR-like decision boundaries (e.g. ``y = sign(max(x_i, x_j) > c)``)."""
     return np.maximum(np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64))
 
 
 def _bin_min(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``min(a, b)`` -- elementwise minimum, the AND-like counterpart to ``_bin_max``."""
     return np.minimum(np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64))
 
 
 def _bin_abs_diff(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``|a - b|`` -- unsigned gap between two columns; catches "how far apart" relationships regardless of which column is larger."""
     return np.abs(np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64))
 
 
@@ -193,10 +207,12 @@ BINARY_TRANSFORMS: dict[str, Callable[[np.ndarray, np.ndarray], np.ndarray]] = {
 
 
 def engineered_name_unary(col: str, transform: str) -> str:
+    """Build the canonical engineered-column name for a unary transform, e.g. ``"log_abs(revenue)"``. Must stay parseable by ``_parse_unary_name``."""
     return f"{transform}({col})"
 
 
 def engineered_name_binary(col_i: str, col_j: str, transform: str) -> str:
+    """Build the canonical engineered-column name for a binary transform, e.g. ``"(revenue__ratio_log__cost)"``. Outer parens + double-underscore delimiters must stay parseable by ``_parse_binary_name``."""
     return f"({col_i}__{transform}__{col_j})"
 
 

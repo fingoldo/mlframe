@@ -105,7 +105,7 @@ import numpy as np
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Significance-null primitives carved to a sibling; re-imported so this facade and apply_cmi_redundancy_gate resolve them unchanged.
-from ._fe_cmi_redundancy_null import (  # noqa: F401
+from ._fe_cmi_redundancy_null import (
     _CMI_FLOOR_PERMUTATIONS,
     _CMI_FLOOR_QUANTILE,
     _CMI_ANALYTIC_NULL_MIN_N_DEFAULT,
@@ -453,6 +453,8 @@ def apply_cmi_redundancy_gate(
     # step, which a prewarp-operand form is not), made deterministic. ``_tie_key`` orders so that
     # ``min`` picks the most-preferred candidate; ``-marg[nm]`` keeps marginal MI the primary key.
     def _tie_key(nm: str) -> tuple:
+        """Orders MI-tied candidate names so ``min`` picks the highest-marginal-MI, structurally simplest
+        (fewest warped operands, fewest operators, then lexical) representative of the equivalence class."""
         return (-marg[nm], nm.count("__"), nm.count("("), nm)
 
     seed_name = min(remaining, key=_tie_key)

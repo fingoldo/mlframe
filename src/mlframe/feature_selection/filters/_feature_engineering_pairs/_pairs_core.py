@@ -365,6 +365,18 @@ def check_prospective_fe_pairs(
     # ledger. ``None`` (default) = legacy behaviour, no records captured.
     rejection_ledger_out: list | None = None,
 ):
+    """Search ``prospective_pairs`` for engineered unary/binary transforms whose MI against ``classes_y`` clears the
+    joint-prevalence and external-validation gates, and materialise the surviving engineered columns.
+
+    This is the core FE pair-search kernel: for each candidate pair it builds the unary-transform pool of both
+    operands (optionally extended with a per-operand pre-warp and/or median gate), evaluates every configured
+    binary operator on top, scores each resulting form's MI against the (optionally subsampled, optionally
+    stratified) target, and admits the best form(s) per pair once they beat the raw pair's joint MI by
+    ``fe_min_engineered_mi_prevalence`` (or pass one of the marginal-uplift / tail-concentration fallback
+    admission paths). Engineered-operand feed-forward lets step-k>1 searches compose earlier engineered columns
+    into higher-order composites. Returns the accepted engineered features plus their recipes for later
+    leak-safe replay; declined pairs are recorded to ``rejection_ledger_out`` when provided.
+    """
     # Starting from the most heavily connected pairs, create a big pool of original features + their unary transforms. Individual vars referenced more than once go
     # to the global pool, the rest to the local (not stored)?
 
@@ -671,7 +683,7 @@ def check_prospective_fe_pairs(
                 # envelope (the SUM of the coexisting per-worker buffers fits the SAME 0.4
                 # global budget). One pair (``max_n_combs * _n_binary`` cols) already passed,
                 # so this is always >= one pair; we pack whole pairs up to it.
-                _per_row_bytes = max(1, int(len(X)) * 4)
+                _per_row_bytes = max(1, len(X) * 4)
                 _eff_budget_bytes = _fe_effective_buffer_budget_bytes(_avail, n_workers=_n_workers)
                 if _eff_budget_bytes >= 0:
                     _fe_chunk_max_cols = int(_eff_budget_bytes // _per_row_bytes)
@@ -809,6 +821,8 @@ def check_prospective_fe_pairs(
     # is only 0.1-0.3% of fit wall -- batching it saves a sub-noise fraction that is dwarfed by
     # the GPU-clock variance between runs. Re-evaluate only if a workload makes this gate hot.
     def _operand_marginal_mi(_var) -> float:
+        """Memoised single-operand MI against the target, used as the marginal-uplift fallback gate's baseline. Fails CLOSED
+        (returns +inf, never 0.0) on a computation error so an unknown marginal can only tighten admission, never loosen it."""
         if _var in _operand_marginal_mi_cache:
             return float(_operand_marginal_mi_cache[_var])
         _mi_val = 0.0
@@ -855,6 +869,7 @@ def check_prospective_fe_pairs(
     _operand_disc_cache: dict = {}
 
     def _operand_discretized(_var):
+        """Memoised per-operand discretised codes (same binning as the raw pair's joint MI), or None if the operand has no identity transform / discretisation fails."""
         if _var in _operand_disc_cache:
             return _operand_disc_cache[_var]
         _codes = None

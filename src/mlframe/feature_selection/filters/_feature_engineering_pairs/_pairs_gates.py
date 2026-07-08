@@ -244,6 +244,7 @@ def _select_single_best(
     _band = float(mi_band) if (mi_band and mi_band > 0.0) else 0.0
 
     def _primary(_mi: float) -> float:
+        """Sort key for the primary (banded-MI) tier: exact MI when unbanded, else a discretised distance-from-leader so within-band forms collapse to one key."""
         if _band <= 0.0:
             return float(_mi)
         # Floor to the band so two MIs within ``_band`` collapse to one key; the leader's own

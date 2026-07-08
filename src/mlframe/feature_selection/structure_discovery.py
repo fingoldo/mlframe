@@ -137,6 +137,7 @@ def _lift(mi: float, baseline_mi: float) -> float:
 
 
 def _fmt_lift(lift: float) -> str:
+    """Human-readable lift suffix, e.g. ``6.9x``; ``inf`` when the baseline was ~0 (structure is the entire signal)."""
     return "inf" if not np.isfinite(lift) else f"{lift:.1f}x"
 
 
@@ -177,6 +178,10 @@ def _modular_kind(op: str, modulus: int) -> str:
 
 
 def _modular_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
+    """Run the cheap modular scan (``(a+b) mod m`` / parity / hidden period) over the integer-eligible columns and
+    turn every ``responded`` hit into a :class:`DiscoveredRelation`, escalating to the best modulus found and
+    attaching a deeper permutation p-value. Returns ``[]`` when the integer-column budget (``max_int_cols``) is
+    exceeded or there are no integer columns."""
     from .filters._pairwise_modular_fe import cheap_modular_scan, escalate_modulus, _is_integer_col, apply_pairwise_modular
 
     int_cols = [c for c in names_ok if _is_integer_col(np.asarray(X[c]))]
@@ -199,6 +204,9 @@ def _modular_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
 
 
 def _lattice_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
+    """Run the cheap integer-lattice scan (``gcd`` / ``lcm`` / ``bitwise_and`` over column pairs) and turn every
+    ``responded`` hit into a :class:`DiscoveredRelation`. Returns ``[]`` when the integer-column budget is exceeded
+    or fewer than 2 integer-eligible columns are present (lattice ops need a pair)."""
     from .filters._integer_lattice_fe import cheap_integer_lattice_scan, apply_integer_lattice
     from .filters._pairwise_modular_fe import _is_integer_col
 
@@ -218,6 +226,9 @@ def _lattice_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
 
 
 def _argmax_relations(X, y, names_ok, nbins, seed, n_perm):
+    """Run the cheap row-argmax scan (which of several columns is largest per row) and turn every ``responded``
+    hit into a :class:`DiscoveredRelation`. Carries its own internal relevance-pruned budget (no ``max_int_cols``
+    guard needed here, unlike the modular/lattice scans)."""
     from .filters._conditional_gate_fe import cheap_row_argmax_scan, apply_row_argmax
 
     out = []
@@ -233,6 +244,9 @@ def _argmax_relations(X, y, names_ok, nbins, seed, n_perm):
 
 
 def _gate_relations(X, y, names_ok, nbins, seed, n_perm):
+    """Run the cheap conditional-gate scan (regime switch ``c>tau ? a : b`` / masked interaction ``1[c>tau]*a``) and
+    turn every ``responded`` hit into a :class:`DiscoveredRelation`, labelling it ``gate_select`` or ``gate_mask``
+    per the detector's reported mode."""
     from .filters._conditional_gate_fe import cheap_conditional_gate_scan, apply_conditional_gate
 
     out = []

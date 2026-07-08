@@ -22,6 +22,8 @@ import warnings
 
 
 class _Caveat(NamedTuple):
+    """One accuracy-affecting parameter check: which attr, what makes it "bad", and the cost/restore messages to warn with."""
+
     attr: str
     is_bad: Callable[[Any], bool]
     cost: str  # what accuracy is lost
@@ -29,6 +31,7 @@ class _Caveat(NamedTuple):
 
 
 def _eq(target: Any) -> Callable[[Any], bool]:
+    """Return a predicate that flags a value as "bad" when it equals ``target``."""
     return lambda v: v == target
 
 

@@ -71,14 +71,17 @@ def composite_key_label(group_cols: Sequence[str]) -> str:
 def engineered_name_composite_agg(
     num_col: str, group_cols: Sequence[str], stat: str,
 ) -> str:
+    """Column name for a per-composite-key ``stat`` broadcast of ``num_col``, e.g. ``"cgrpagg_mean(x|region,month)"``."""
     return f"cgrpagg_{stat}({num_col}|{composite_key_label(group_cols)})"
 
 
 def engineered_name_composite_z(num_col: str, group_cols: Sequence[str]) -> str:
+    """Column name for the z-score-within-composite-group residual of ``num_col``."""
     return f"cgrpz({num_col}|{composite_key_label(group_cols)})"
 
 
 def engineered_name_composite_ratio(num_col: str, group_cols: Sequence[str]) -> str:
+    """Column name for the ratio-to-composite-group-mean residual of ``num_col``."""
     return f"cgrpratio({num_col}|{composite_key_label(group_cols)})"
 
 
@@ -168,6 +171,7 @@ def _global_value_for_stat(x: np.ndarray, stat: str) -> float:
 
 
 def _agg_func_for_stat(stat: str):
+    """Validate ``stat`` and return it unchanged as the pandas ``groupby.agg`` function name (all supported stats are native pandas agg names)."""
     if stat in ("mean", "std", "min", "max", "median", "skew", "nunique", "count"):
         return stat
     raise ValueError(f"composite_group_agg: unknown stat {stat!r}; valid: {_VALID_STATS}")
@@ -423,6 +427,7 @@ def apply_composite_group_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
 
 
 def _coerce_X_for_composite_agg(X, group_cols, num_col, recipe_name: str) -> pd.DataFrame:
+    """Extract only the columns a replay needs (``group_cols`` + ``num_col``) as a pandas frame, accepting polars or a structured ndarray so recipe replay is format-agnostic without materialising the full input."""
     if isinstance(X, pd.DataFrame):
         return X
     try:
@@ -523,6 +528,7 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
 def _auto_detect_num_cols(
     X: pd.DataFrame, group_cols: Sequence[str], max_cols: int = 8,
 ) -> list[str]:
+    """Pick numeric columns worth composite-aggregating: any float column, or an int column with >500 distinct values (low-cardinality ints are treated as categorical, not aggregation targets)."""
     group_set = set(group_cols)
     out: list[str] = []
     for c in X.columns:

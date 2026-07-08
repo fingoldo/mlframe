@@ -213,6 +213,7 @@ class ShapProxiedFitMixin:
     # ------------------------------------------------------------------ fit
     @rng_hygienic_fit
     def fit(self, X, y):
+        """Fit the SHAP-proxied selector: compute OOF SHAP values, run the configured proxy-search optimizer, then apply the budget-gated refinement stages (revalidation, ablation, cluster-refine) before finalising the selected subset."""
         import time
         from contextlib import contextmanager
 
@@ -225,6 +226,7 @@ class ShapProxiedFitMixin:
 
         @contextmanager
         def _stage(name):
+            """Accumulate wall-clock seconds spent in the ``with`` block under ``_timings[name]``; a no-op context when no timing dict was requested."""
             if _timings is None:
                 yield
                 return
@@ -246,6 +248,7 @@ class ShapProxiedFitMixin:
         _budget_stop_file = getattr(self, "stop_file", None)
 
         def _budget_exhausted() -> bool:
+            """True once the optional refinement wall-clock budget has elapsed or the caller-provided ``stop_file`` has appeared."""
             if _budget_max_mins and (time.perf_counter() - _budget_t0) > _budget_max_mins * 60.0:
                 return True
             return bool(_budget_stop_file) and _stop_file_exists(str(_budget_stop_file))
@@ -631,7 +634,7 @@ class ShapProxiedFitMixin:
                     unit_to_members = [unit_to_members[i] for i in keep]
                 else:
                     unit_to_members = [np.array([int(i)], dtype=np.int64) for i in keep]
-                report["prescreen"] = dict(kept=int(len(keep)), of=int(n_proxy), su_rescued=int(len(_su_rescue_proxy_idx)))
+                report["prescreen"] = dict(kept=len(keep), of=int(n_proxy), su_rescued=len(_su_rescue_proxy_idx))
 
         optimizer = self._resolve_optimizer(phi.shape[1])
         with _stage("search"):
@@ -922,6 +925,7 @@ class ShapProxiedFitMixin:
         # Expose the ranked candidate subsets (expanded to feature names) so downstream patterns
         # (e.g. proposal-generator seeding RFECV/genetic honest search) can consume them.
         def _cand_names(idx):
+            """Expand a candidate subset (unit indices, or raw column indices when no clustering was applied) to sorted feature names."""
             if unit_to_members is not None:
                 cols = sorted({int(c) for u in idx for c in unit_to_members[int(u)]})
             else:

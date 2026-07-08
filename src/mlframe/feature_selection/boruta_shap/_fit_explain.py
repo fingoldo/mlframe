@@ -12,6 +12,7 @@ try:
     from scipy.stats import binomtest as _binomtest
 
     def binom_test(x, n, p, alternative="two-sided"):
+        """Shim over SciPy 1.7+ ``binomtest`` matching the removed ``scipy.stats.binom_test`` signature/return (a bare p-value, not the result object)."""
         # SciPy 1.7+ ``binomtest`` requires ``k`` integer; our hit-count vector is float (np.zeros), so coerce on the boundary.
         return _binomtest(int(x), n=int(n), p=p, alternative=alternative).pvalue
 except ImportError:  # SciPy < 1.7 fallback
@@ -162,7 +163,7 @@ def _fit_with_subsample_stability(self, X, y):
     # Cap the >=10-row floor by n: with replace=False, np.random.Generator.choice raises when size>n,
     # so on a tiny frame (n<10) the bare max(10, ...) floor would request more rows than exist and crash.
     # min(n, max(10, ...)) keeps the intended floor when the data allows it, never exceeding the population.
-    size = min(n, max(10, int(round(frac * n))))
+    size = min(n, max(10, round(frac * n)))
     base_seed = int(getattr(self, "random_state", 0) or 0)
 
     params = self.get_params(deep=False)  # shallow: deep=True yields model__* nested keys __init__ rejects
@@ -182,6 +183,7 @@ def _fit_with_subsample_stability(self, X, y):
             _stratify_arr = _strat_candidate
 
     def _run_one_subfit(k: int):
+        """Draw the k-th random row subsample (with a de-correlated model random_state) and run one full BorutaShap sub-fit for the stability-selection vote."""
         rng = np.random.default_rng(base_seed + 1 + k)
         idx = rng.choice(n, size=size, replace=False)
         Xk = X.iloc[idx].reset_index(drop=True)
@@ -247,7 +249,7 @@ def _fit_with_subsample_stability(self, X, y):
         self.support_ = np.array([c in kept for c in all_columns], dtype=bool)
         self.selected_features_ = [c for c in all_columns if c in kept]
         self.feature_names_in_ = np.asarray(all_columns)
-    self.n_features_in_ = int(len(all_columns))
+    self.n_features_in_ = len(all_columns)
     self.stability_accept_counts_ = dict(accept_counts)  # diagnostic: per-feature accept frequency
     if self.verbose:
         logger.info(
@@ -531,7 +533,7 @@ def fit(self, X, y):
     # FS report's ``dropped_features`` field is None for BorutaShap and
     # asymmetric vs MRMR / RFECV.
     self.feature_names_in_ = np.asarray(_final_columns)
-    self.n_features_in_ = int(len(_final_columns))
+    self.n_features_in_ = len(_final_columns)
 
     # sklearn fit-returns-self contract: the stability path already returns self, so this single-fit path
     # must too, otherwise ``selector.fit(X, y).transform(X)`` (used across this codebase) yields None ->

@@ -329,6 +329,7 @@ _DEDUP_EDGES_KERNEL = None
 
 
 def _get_dedup_edges_kernel():
+    """Lazy-compile + cache the ``dedup_njit_edges`` RawKernel (module-level singleton, pickle-safe)."""
     global _DEDUP_EDGES_KERNEL
     if _DEDUP_EDGES_KERNEL is None:
         import cupy as cp
@@ -360,6 +361,7 @@ _MI_MM_FROM_VALUES_NEK_F32_KERNEL = None
 
 
 def _get_mi_mm_from_values_nek_kernel():
+    """Lazy-compile + cache the f64 length-aware Miller-Madow ``mi_mm_from_values_nek`` RawKernel."""
     global _MI_MM_FROM_VALUES_NEK_KERNEL
     if _MI_MM_FROM_VALUES_NEK_KERNEL is None:
         import cupy as cp
@@ -368,6 +370,7 @@ def _get_mi_mm_from_values_nek_kernel():
 
 
 def _get_mi_mm_from_values_nek_f32_kernel():
+    """Lazy-compile + cache the f32-X twin of ``mi_mm_from_values_nek`` (bit-identical MI, halved X bytes)."""
     global _MI_MM_FROM_VALUES_NEK_F32_KERNEL
     if _MI_MM_FROM_VALUES_NEK_F32_KERNEL is None:
         import cupy as cp
@@ -376,6 +379,7 @@ def _get_mi_mm_from_values_nek_f32_kernel():
 
 
 def _get_mi_mm_from_values_kernel():
+    """Lazy-compile + cache the non-length-aware ``mi_mm_from_values`` RawKernel (full nbins-1 edge set)."""
     global _MI_MM_FROM_VALUES_KERNEL
     if _MI_MM_FROM_VALUES_KERNEL is None:
         import cupy as cp
@@ -446,6 +450,7 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
 
 
 def _get_mi_from_values_kernel():
+    """Lazy-compile + cache the plug-in ``mi_from_values`` RawKernel (one block per column, f64 X)."""
     global _MI_FROM_VALUES_KERNEL
     if _MI_FROM_VALUES_KERNEL is None:
         import cupy as cp
@@ -454,6 +459,8 @@ def _get_mi_from_values_kernel():
 
 
 def _get_mi_split_kernels(cp):
+    """Lazy-compile + cache the SPLIT-N (``mi_hist_split`` + ``mi_from_counts_col``) kernel pair used when
+    one-block-per-column would starve the SMs for narrow K."""
     global _MI_SPLIT_KERNELS
     if _MI_SPLIT_KERNELS is None:
         mod = cp.RawModule(code=_MI_FROM_VALUES_SRC)
@@ -472,6 +479,7 @@ def _get_mi_from_values_f32_kernel():
 
 
 def _get_mi_split_f32_kernels(cp):
+    """Lazy-compile + cache the f32-X twin of the SPLIT-N kernel pair."""
     global _MI_SPLIT_F32_KERNELS
     if _MI_SPLIT_F32_KERNELS is None:
         mod = cp.RawModule(code=_MI_FROM_VALUES_F32_SRC)
@@ -546,6 +554,7 @@ _MI_FROM_CODES_MAX_SHARED = 44000  # bytes; stay under the 48KB default shared c
 
 
 def _get_mi_from_codes_kernel():
+    """Lazy-compile + cache the ``mi_from_codes`` RawKernel (plug-in MI over a pre-binned (n,K) code matrix)."""
     global _MI_FROM_CODES_KERNEL
     if _MI_FROM_CODES_KERNEL is None:
         import cupy as cp
@@ -774,7 +783,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
 # Back-compat re-exports: the batched CMI count/entropy kernel infrastructure was carved into
 # ``_fe_batched_mi_cmi`` (carve-wave, 2026-06-28). Importers use ``from ._fe_batched_mi import X``;
 # keep every previously-public name resolving through the parent.
-from ._fe_batched_mi_cmi import (  # noqa: E402,F401
+from ._fe_batched_mi_cmi import (
     _rows_entropy_and_k,
     _batched_joint_counts2,
     _batched_marginal_counts,

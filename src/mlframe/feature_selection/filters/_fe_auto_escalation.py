@@ -456,7 +456,7 @@ def find_underdelivering_pairs(
     from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
 
     out: list = []
-    n = int(len(X))
+    n = len(X)
     if n <= 0:
         return out
     step = max(1, int(np.ceil(n / float(max_rows))))
@@ -582,7 +582,7 @@ def run_fe_auto_escalation(
     if not failed_pairs:
         return []
 
-    n_rows = int(len(X))
+    n_rows = len(X)
     min_rows = int(getattr(self, "fe_escalation_min_rows", 500))
     if n_rows < min_rows:
         info["skipped"] = f"n_rows={n_rows} < fe_escalation_min_rows={min_rows}"

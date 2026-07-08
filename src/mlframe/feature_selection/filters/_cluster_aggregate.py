@@ -266,6 +266,7 @@ def _derive_weights(Z: np.ndarray, method: str, svd_cache: dict | None = None):
 
 
 def _continuous_cols(X, names: Sequence[str]) -> np.ndarray:
+    """Extract ``names`` columns from ``X`` as a float64 matrix with NaN/inf sanitized to 0.0, for distance/correlation-based cluster discovery."""
     from .engineered_recipes import _extract_column
 
     cols = [np.nan_to_num(np.asarray(_extract_column(X, n), dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0) for n in names]
@@ -285,6 +286,7 @@ def _connected_components(n: int, edges: list) -> list:
     parent = list(range(n))
 
     def find(x):
+        """Path-halving find with iterative parent-pointer compression."""
         while parent[x] != x:
             parent[x] = parent[parent[x]]
             x = parent[x]

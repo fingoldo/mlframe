@@ -79,7 +79,7 @@ def sturges_nbins(n: int) -> int:
     """Sturges (1926): n_bins = ceil(1 + log2(n)). Assumes Gaussian-ish data; under-bins skewed data."""
     if n < 2:
         return 1
-    return max(1, int(math.ceil(1.0 + math.log2(n))))
+    return max(1, math.ceil(1.0 + math.log2(n)))
 
 
 def freedman_diaconis_nbins(x: np.ndarray) -> int:
@@ -102,7 +102,7 @@ def freedman_diaconis_nbins(x: np.ndarray) -> int:
     span = float(x.max() - x.min())
     if h <= 0 or span <= 0:
         return sturges_nbins(n)
-    nbins = int(math.ceil(span / h))
+    nbins = math.ceil(span / h)
     cap = max(2, int(math.sqrt(n) * 4))
     return int(max(1, min(nbins, cap)))
 
@@ -168,7 +168,7 @@ def qs_nbins(n: int, alpha: float = 0.30) -> int:
     """
     if n < 2:
         return 1
-    raw = int(round(alpha * n))
+    raw = round(alpha * n)
     return max(3, min(64, raw))
 
 
@@ -736,6 +736,7 @@ def per_feature_edges(
         from concurrent.futures import ThreadPoolExecutor
 
         def _one(j):
+            """Column-index-preserving wrapper around ``_compute_col_edges`` so ``ThreadPoolExecutor.map`` results can be scattered back into ``edges_list`` by their original column position."""
             return j, _compute_col_edges(_cols[j])
 
         with ThreadPoolExecutor(max_workers=_resolved_jobs) as _ex:

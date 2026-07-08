@@ -160,7 +160,7 @@ def compute_unsupervised_drops(
                     _np_dt = col.dtype
                     if _np_dt == np.float64 or _np_dt == np.float32:
                         null_count = int(np.isnan(col.to_numpy()).sum())
-                    elif _np_dt == np.int64 or _np_dt == np.int32 or _np_dt == np.int16 or _np_dt == np.int8 or _np_dt == bool:  # noqa: E721 -- numpy dtype `==` comparison is intended
+                    elif _np_dt == np.int64 or _np_dt == np.int32 or _np_dt == np.int16 or _np_dt == np.int8 or _np_dt == bool:
                         null_count = 0
                     else:
                         null_count = int(col.isna().sum())

@@ -39,9 +39,11 @@ except ImportError:
         "_univariate_ht: numba is not available; falling back to pure-Python kernels " "(~10-30x slower on rank/U/H/tau). Install numba for the fast path."
     )
     def njit(*args, **kwargs):
+        """No-op numba.njit shim used when numba is unavailable: returns the function unchanged."""
         if args and callable(args[0]):
             return args[0]
         def _dec(f):
+            """Identity decorator (numba absent): returns ``f`` as-is."""
             return f
         return _dec
 
@@ -96,12 +98,14 @@ def _classify_target(y: np.ndarray) -> str:
 
 
 def _isnan_mask(arr: np.ndarray) -> np.ndarray:
+    """NaN mask that is safe on non-float dtypes: only float/complex arrays can hold NaN, so integer/bool arrays get an all-False mask."""
     if arr.dtype.kind in "fc":
         return np.asarray(np.isnan(arr))
     return np.zeros(arr.shape, dtype=bool)
 
 
 def _is_numeric_dtype(s: pd.Series) -> bool:
+    """True for numeric or boolean pandas dtypes; routes the feature to the rank-based tests instead of chi-squared."""
     return bool(pd.api.types.is_numeric_dtype(s) or pd.api.types.is_bool_dtype(s))
 
 
@@ -256,12 +260,14 @@ def _mann_whitney_u_z(x: np.ndarray, group: np.ndarray) -> Tuple[float, float, f
 
 
 def _normal_two_sided_p(z: float) -> float:
+    """Two-sided normal-approximation p-value from a z-statistic, via ``erfc`` (scipy-free)."""
     if not np.isfinite(z):
         return 1.0
     return float(math.erfc(abs(z) / math.sqrt(2.0)))
 
 
 def _mann_whitney_p_numeric_binary(x: np.ndarray, y: np.ndarray) -> float:
+    """Two-sided Mann-Whitney U p-value for numeric feature ``x`` vs a binary target ``y``; ``1.0`` (non-significant) on <5 valid rows or a non-binary ``y``."""
     mask = ~np.isnan(x) & ~_isnan_mask(y)
     if mask.sum() < 5:
         return 1.0
@@ -405,6 +411,7 @@ def _chi2_sf(x: float, df: int) -> float:
 
 
 def _kw_p_numeric_multiclass(x: np.ndarray, y: np.ndarray) -> float:
+    """Kruskal-Wallis p-value for numeric feature ``x`` vs a multiclass target ``y``; ``1.0`` on <5 valid rows or a single-group ``y``."""
     mask = ~np.isnan(x) & ~_isnan_mask(y)
     if mask.sum() < 5:
         return 1.0
@@ -501,6 +508,7 @@ def _kendall_tau_z(x: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
 
 
 def _kendall_p_numeric_continuous(x: np.ndarray, y: np.ndarray, random_state: int = 0) -> float:
+    """Kendall tau-b p-value for numeric feature ``x`` vs a continuous target ``y`` at full ``n`` (scipy if available, else the O(n^2) njit fallback); ``1.0`` on <5 valid rows."""
     mask = ~np.isnan(x) & ~np.isnan(y)
     if mask.sum() < 5:
         return 1.0

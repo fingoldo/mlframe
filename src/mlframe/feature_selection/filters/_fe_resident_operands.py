@@ -106,6 +106,7 @@ _MAX_ENTRIES = 192
 
 
 def _disabled() -> bool:
+    """Whether the resident-operand cache is disabled via ``MLFRAME_FE_RESIDENT_OPERANDS`` (diagnostic A/B switch, default on)."""
     # Diagnostic A/B switch only (default ON): MLFRAME_FE_RESIDENT_OPERANDS=0 forces a fresh upload every call
     # to reproduce the pre-cache H2D churn for the wall/util A/B. NOT a perf gate -- always on in prod.
     return _os.environ.get("MLFRAME_FE_RESIDENT_OPERANDS", "1").strip().lower() in ("0", "false", "off", "no")

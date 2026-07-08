@@ -59,6 +59,7 @@ def numba_cuda_can_compile() -> bool:
 
         @_cuda.jit
         def _probe(out):  # pragma: no cover - trivial device kernel
+            """Minimal device kernel: writes a sentinel so the host side can confirm compile+launch actually succeeded."""
             out[0] = 1
 
         out = _cuda.to_device(np.zeros(1, dtype=np.int32))
@@ -202,6 +203,7 @@ _NJIT_DISPATCHER_CACHE: dict = {}
 
 
 def _njit_cache_key(func):
+    """Build a hashable key identifying ``func``'s compiled form for ``_NJIT_DISPATCHER_CACHE`` (code object + defaults + closure-cell identities); returns ``None`` when the function is not cacheable (no ``__code__``, or an unhashable default)."""
     code = getattr(func, "__code__", None)
     if code is None:
         return None  # builtins / ufuncs have no __code__ -> not cacheable, compile fresh

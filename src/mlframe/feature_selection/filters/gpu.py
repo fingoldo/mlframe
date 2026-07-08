@@ -35,6 +35,8 @@ compute_joint_hist_batched_shared_cuda: Any = None
 # Persistent device-buffer pool. Reuses a preallocated set of CuPy arrays across ``mi_direct_gpu`` calls so the inner permutation loop does not pay the H2D-copy
 # + alloc cost on every iteration. Buffers grow monotonically (never shrink) so repeated calls with similar shapes hit the cached allocation.
 class _GpuBufferPool:
+    """Persistent, monotonically-growing pool of CuPy device buffers reused across ``mi_direct_gpu`` calls (see module comment above)."""
+
     def __init__(self):
         self.classes_x = None  # CuPy int32 vector, length >= n
         self.classes_y = None  # CuPy int32 vector, length >= n
@@ -47,6 +49,7 @@ class _GpuBufferPool:
         self.cap_nbins_y = 0
 
     def ensure(self, n: int, nbins_x: int, nbins_y: int):
+        """Grow the pooled device buffers, if needed, so they can hold shapes up to ``(n, nbins_x, nbins_y)``."""
         import cupy as cp
         # Grow each buffer monotonically to the max ever requested.
         if self.cap_n < n:
@@ -127,7 +130,7 @@ def init_kernels() -> None:
         from pyutilz.system.gpu_dispatch import select_best_gpu
         _best = select_best_gpu(strategy="auto")
         if _best is not None:
-            global _BEST_DEVICE_ID  # noqa: PLW0603 - module-level state by design
+            global _BEST_DEVICE_ID
             _BEST_DEVICE_ID = int(_best)
             if int(_best) != cp.cuda.Device().id:
                 cp.cuda.Device(int(_best)).use()
@@ -489,7 +492,7 @@ def mi_direct_gpu_batched(
     try:
         from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
         _cushion_ok = fe_gpu_has_vram_cushion(n * 4)
-    except Exception:  # noqa: BLE001  -- cushion module unavailable: leave existing guards in charge
+    except Exception:
         _cushion_ok = True
     if not _cushion_ok:
         from .permutation import mi_direct
@@ -721,7 +724,7 @@ def mi_direct_gpu_batched_streamed(
     try:
         from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
         _cushion_ok = fe_gpu_has_vram_cushion(n * 4)
-    except Exception:  # noqa: BLE001
+    except Exception:
         _cushion_ok = True
     if not _cushion_ok:
         from .permutation import mi_direct
@@ -1067,4 +1070,4 @@ def mi_direct_gpu(
 # threshold. Re-exported below so existing callers
 # (`from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched_pairs`)
 # keep working.
-from ._gpu_pairs import mi_direct_gpu_batched_pairs  # noqa: F401, E402
+from ._gpu_pairs import mi_direct_gpu_batched_pairs

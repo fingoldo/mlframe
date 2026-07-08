@@ -75,8 +75,8 @@ from ._fe_raw_redundancy_helpers import (
     _recipe_subexprs,
     _subexpr_continuous,
     _excess_and_floor,
-    _rank_transform,  # noqa: F401
-    _residualize,  # noqa: F401
+    _rank_transform,
+    _residualize,
     raw_retains_linear_signal_given_children,
     _heldout_ridge_r2,
     RAW_SELF_RETAIN_FRAC,
@@ -397,6 +397,10 @@ def drop_redundant_raw_operands(
     # ``_raw_codes`` build; ``None`` for a column that failed the device binner (host fallback).
     _raw_dev_cache: dict = {}
     def _raw_codes(_rname, _ridx):
+        """Cached binned codes for raw column ``_ridx`` at the fair-comparison resolution (up-resolved from
+        continuous values to ``_eng_card`` only when the fit codes in ``data`` are coarser, never finer -- see
+        the 2026-06-15 compromise note above). Also populates the parallel resident-code cache used by the
+        device-born scoring sites; a column is computed once per call regardless of how many consumers score it."""
         if _ridx in _raw_codes_cache:
             return _raw_codes_cache[_ridx]
         _fit = np.asarray(data[:, _ridx]).astype(np.int64).ravel()
@@ -489,6 +493,9 @@ def drop_redundant_raw_operands(
     _raw_marg_cache: dict[str, tuple] = {}
 
     def _raw_marginal(_rname: str) -> tuple:
+        """Cached ``(cmi, floor, debiased_excess)`` for the raw's UNCONDITIONAL relationship with ``y``: the
+        raw's own signal scale, reused both as the "is this raw a legitimate signal-bearing parent" test
+        (DPI-trap guard) and as the keep-rule's self-retention reference. Computed once per raw name."""
         if _rname in _raw_marg_cache:
             return _raw_marg_cache[_rname]
         try:
@@ -503,6 +510,9 @@ def drop_redundant_raw_operands(
         return _res  # type: ignore[no-any-return]  # _excess_and_floor returns a tuple; its own annotation is loose (Any-heavy internals)
 
     def _raw_is_signal_bearing(_rname: str) -> bool:
+        """True iff the raw's marginal CMI clears its own permutation floor with positive debiased excess --
+        the "second signal source" test the DPI-trap guard uses to tell a genuine combination parent from a
+        noise operand paired into an engineered child (e.g. the noise ``x3`` in ``add(exp(x0),sign(x3))``)."""
         _mcmi, _mfloor, _mexc = _raw_marginal(_rname)
         return bool(_mcmi > _mfloor and _mexc > 0.0)
 
@@ -557,6 +567,9 @@ def drop_redundant_raw_operands(
                 _consumer_subtrees[ei] = _recipe_subexprs(_r)
 
         def _subexpr_signal_parents(_sub) -> set:
+            """Signal-bearing raw parents referenced by a recipe sub-expression node's name (same
+            token-split + ``_raw_is_signal_bearing`` filter as the top-level ``_eng_signal_parents`` build,
+            applied to one candidate sub-expression instead of the whole engineered survivor)."""
             _p = set()
             for _t in _TOKEN_SPLIT.split(getattr(_sub, "name", "") or ""):
                 if not _t:
@@ -967,6 +980,9 @@ def drop_redundant_raw_operands(
         assert _yv is not None  # _guard_on requires _yv is not None
         try:
             def _cont_of(i):
+                """Continuous (unbinned) values for kept column ``i``, for the downstream no-harm Ridge R2
+                probe: raw columns read from ``raw_X``, engineered survivors from the continuous fit-time
+                snapshot, and anything else falls back to the (lossy, but only-available) binned ``data`` codes."""
                 nm = cols[i]
                 if nm in raw_name_set and raw_X is not None and hasattr(raw_X, "columns") and nm in raw_X.columns:
                     return np.asarray(raw_X[nm], dtype=np.float64).ravel()

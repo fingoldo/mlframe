@@ -256,6 +256,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _set_fe_deadline((start_time + self.max_runtime_mins * 60.0) if self.max_runtime_mins is not None else None)
 
     def _fe_budget_ok() -> bool:
+        """Between-FE-step wall-clock gate: True while remaining time under ``max_runtime_mins`` is unspent (or unset)."""
         # Pre-FE univariate generators (extra-basis, wavelet, dispersion, ...) run once before the FE loop and the
         # between-step guard below cannot bound a single long stage; gate each heavy default-ON stage on the remaining
         # wall-clock so an oversized fit handed a small max_runtime_mins aborts within a small multiple of the budget.
@@ -351,7 +352,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # frame (peak ~2x the nullable-column bytes); above the threshold densify one column per ``assign`` so
             # each intermediate frame is freed and peak extra RAM stays ~one column. ``assign`` returns a new frame
             # either way, so the caller's frame is never mutated -- the densification stays RAM-safe on 100+ GB frames.
-            if int(len(X)) * len(_nullable_num) * 8 <= _NULLABLE_DENSIFY_EAGER_MAX_BYTES:
+            if len(X) * len(_nullable_num) * 8 <= _NULLABLE_DENSIFY_EAGER_MAX_BYTES:
                 X = X.assign(**{c: X[c].astype("float64") for c in _nullable_num})
             else:
                 for _nc in _nullable_num:
@@ -532,6 +533,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
             else:
                 def _default_scorer_run(_Xs, _ys, **_kw):
+                    """Adapt ``_default_scorer`` to the ``fe_decide_on_subsample`` callable signature (subsample-scorer callback)."""
                     return _dispatch_default_scorer(_default_scorer, X=_Xs, y=_ys, **_kw)
                 X_h, _uni_sc, _recipes = fe_decide_on_subsample(
                     _default_scorer_run,
@@ -1364,6 +1366,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _cb_step = int(getattr(self, "_fe_steps_executed_", -1))
 
             def _cb_reject_sink(**_kw):
+                """Reject-sink callback for the per-cluster shared-basis FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
                 _record_fe_rejection(self, step=_cb_step, **_kw)
 
             _y_for_cb = _y_np
@@ -1600,6 +1603,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # CMI bins). Build it from whatever pandas frame the subsample funnel hands the callee (the subsample block
             # or, on the small-frame fallback, the full frame) so support rows always align with the decision rows.
             def _tg_run(_Xs, _ys, **_kw):
+                """Adapt the three-gate FE generator to the subsample-funnel callback signature, threading the current_support sub-frame (columns already appended by earlier hybrid stages) through as Gate 3's conditioning set."""
                 _cs = _Xs[_tg_support_cols] if _tg_support_cols else None
                 return hybrid_orth_mi_three_gate_fe_with_recipes(_Xs, _ys, _cs, **_kw)
             X_tg, _tg_scores, _tg_recipes = fe_decide_on_subsample(
@@ -2501,6 +2505,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _mig_step = int(getattr(self, "_fe_steps_executed_", -1))
 
             def _mig_reject_sink(**_kw):
+                """Reject-sink callback for the greedy MI-construction FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
                 _record_fe_rejection(self, step=_mig_step, **_kw)
 
             _y_for_mig = _y_np
@@ -2686,6 +2691,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _te_step = int(getattr(self, "_fe_steps_executed_", -1))
 
                 def _te_reject_sink(**_kw):
+                    """Reject-sink callback for the k-fold target-encoding FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
                     _record_fe_rejection(self, step=_te_step, **_kw)
 
                 X_te, _te_appended, _te_recipes = kfold_target_encode_with_recipes(
@@ -2814,6 +2820,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _l34_step = int(getattr(self, "_fe_steps_executed_", -1))
 
             def _l34_reject_sink(**_kw):
+                """Shared reject-sink for the count/frequency/cat-num-interaction FE family; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
                 _record_fe_rejection(self, step=_l34_step, **_kw)
 
             _hybrid_appended_l34 = set(self.hybrid_orth_features_ or [])
@@ -2996,6 +3003,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _l37_step = int(getattr(self, "_fe_steps_executed_", -1))
 
             def _l37_reject_sink(**_kw):
+                """Shared reject-sink for the missingness-indicator FE family; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
                 _record_fe_rejection(self, step=_l37_step, **_kw)
 
             _engineered_seen_l37 = (
@@ -3008,6 +3016,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             )
 
             def _resolve_missing_cols(cfg):
+                """Resolve the missingness-indicator family's candidate columns: explicit ``cfg`` when given, else auto-detect NaN-rate-in-[1%,99%] columns; always excludes columns already engineered by an earlier FE stage."""
                 _cfg = tuple(cfg or ())
                 if _cfg:
                     return [c for c in _cfg if c in X.columns and c not in _engineered_seen_l37]  # type: ignore[union-attr]
@@ -3200,6 +3209,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _l38_step = int(getattr(self, "_fe_steps_executed_", -1))
 
             def _l38_reject_sink(**_kw):
+                """Shared reject-sink for the ratio/log-ratio/grouped-delta/lagged-diff FE family; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
                 _record_fe_rejection(self, step=_l38_step, **_kw)
 
             # ----- Pairwise ratio --------------------------------------------
@@ -4168,6 +4178,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _rc_step = int(getattr(self, "_fe_steps_executed_", -1))
 
                 def _rc_reject_sink(**_kw):
+                    """Reject-sink callback for the rare-category FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
                     _record_fe_rejection(self, step=_rc_step, **_kw)
 
                 _y_for_rc = _y_np
@@ -4227,6 +4238,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _cr_step = int(getattr(self, "_fe_steps_executed_", -1))
 
                 def _cr_reject_sink(**_kw):
+                    """Reject-sink callback for the num-x-num conditional-residual FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
                     _record_fe_rejection(self, step=_cr_step, **_kw)
 
                 _y_for_cr = _y_np
@@ -4300,6 +4312,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _cd_step = int(getattr(self, "_fe_steps_executed_", -1))
 
                 def _cd_reject_sink(**_kw):
+                    """Reject-sink callback for the num-x-num conditional-dispersion FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
                     _record_fe_rejection(self, step=_cd_step, **_kw)
 
                 _y_for_cd = _y_np
@@ -4507,6 +4520,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _adaptive_set_now = set(getattr(self, "_adaptive_fourier_features_", None) or [])
 
             def _gate_col_arr(_name):
+                """Fetch column ``_name`` from ``X`` as a float64 1-D array for the held-out linear-probe accuracy gate (unwraps a duplicate-label DataFrame slice to its first column)."""
                 _v = X[_name]
                 if isinstance(_v, pd.DataFrame):
                     _v = _v.iloc[:, 0]
@@ -5719,7 +5733,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # SAME rows). None at small n -> full-n screen, unchanged.
         try:
             from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
-            _screen_shared_idx = _get_shared_fe_subsample_idx(self, np.asarray(data[:, int(target_indices[0])]), int(len(data)))
+            _screen_shared_idx = _get_shared_fe_subsample_idx(self, np.asarray(data[:, int(target_indices[0])]), len(data))
         except Exception as _sub_exc:
             # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
             logger.warning("mrmr: shared FE subsample resolution failed; screening at FULL n: %r", _sub_exc, exc_info=True)
@@ -6337,7 +6351,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # leaves the support when a sole-parent transform of it survives.
     _prefe_raw = getattr(self, "_prefe_screened_raw_", None)
     if _prefe_raw and len(selected_vars):
-        from .._confirm_predictor import _extract_single_raw_parent  # noqa: E501
+        from .._confirm_predictor import _extract_single_raw_parent
         _raw_names_set = set(self.feature_names_in_)
         _cur_names = set(np.asarray(cols)[np.asarray(selected_vars, dtype=np.intp)])
         # Raw parents already represented by a SOLE-parent engineered survivor:
@@ -6738,6 +6752,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 if _sv.shape[0] == n and np.all(np.isfinite(_sv)):
                     base = base + [_sv, _sv * _sv]
             def _r2(design_cols):
+                """Fit an OLS design on the train stride and return held-out R^2 on the %3 validation stride (``-inf`` on a singular/failed lstsq)."""
                 A = np.column_stack(design_cols)
                 try:
                     coef, *_ = np.linalg.lstsq(A[tr], _y_for_hinge_gate[tr], rcond=None)
@@ -7017,6 +7032,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _cf_base.append(_cv)
 
                 def _cf_r2(_design):
+                    """Fit an OLS design on the train stride and return held-out R^2 on the %3 validation stride (0.0 on degenerate variance, ``-inf`` on a failed lstsq); used by the categorical-FE protect/re-add gate."""
                     _A = np.column_stack(_design)
                     _yv = _cf_y[_cf_va]
                     _ss = float(np.sum((_yv - _yv.mean()) ** 2))
@@ -7255,6 +7271,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _pcr_q_dtype = getattr(self, "quantization_dtype", np.int32)
 
                 def _pcr_raw_is_significant(_idx):
+                    """Permutation-significance test (32 permutations) for raw column ``_idx`` against y; True when it clears its own null (p<alpha) or the MI estimator is unavailable/errors, gating the masked-raw rescue against pure-noise raws whose only consumer is a pseudo binagg/gate/argmax re-mix."""
                     if _pcr_mi_direct is None:
                         return True
                     try:
@@ -7541,6 +7558,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _mt_ranks[_v] = pd.Series(_cv).rank(method="average").to_numpy()
                 # Relevance to break ties / pick the survivor: the screening marginal MI.
                 def _mt_relevance(_v):
+                    """Screening marginal MI(v, y) for raw column index ``_v``, used to pick the survivor between two monotone-twin raw columns (0.0 on a cache miss)."""
                     try:
                         return float(cached_MIs.get((_v,), 0.0))
                     except Exception:
@@ -7850,6 +7868,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # Resolve the name from ``.name`` (the column the recipe materialises), falling
             # back to ``str(r)`` only for a legacy bare-string entry.
             def _ne_recipe_name(_r):
+                """Resolve an ``EngineeredRecipe`` to its materialised column name (via ``.name``), falling back to ``str(r)`` for a legacy bare-string entry."""
                 _nm = getattr(_r, "name", None)
                 return str(_nm) if _nm is not None else str(_r)
             _operand_idxs: set = set()
@@ -8010,6 +8029,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # silently swapping in an unselected member.
         _sel_names_cm = {self.feature_names_in_[int(v)] for v in selected_vars if int(v) < len(self.feature_names_in_)}
         def _cm_mi(_nm):
+            """Screening marginal MI(name, y) for a cluster-member column name, used to pick the strongest representative when collapsing a pure-raw redundancy cluster (0.0 when the column has no cached score)."""
             _ci = _nm2col_cm.get(_nm)
             return float(_cached_cm.get((_ci,), 0.0)) if _ci is not None else 0.0
 
@@ -8186,6 +8206,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _fni_pgn = self.feature_names_in_
 
             def _pgn_rel(_v):
+                """Screening marginal MI(v, y) for raw index ``_v``, used to rank raw features for the p>=n false-positive-control cap (0.0 when unresolvable)."""
                 _nm = _fni_pgn[_v] if _v < len(_fni_pgn) else None
                 _ci = _pgn_n2ci.get(_nm)
                 return float(_pgn_cached.get((_ci,), 0.0)) if _ci is not None else 0.0
@@ -8227,6 +8248,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _eb_operands.append(_base)
 
             def _eb_operand_is_signal(_cols_i):
+                """Permutation-significance test (32 permutations) for a raw operand of a selected engineered feature; True when it clears its own null (p<alpha) or the MI estimator errors, gating the emit-both re-attach so a noise operand fused into a composite is not resurrected."""
                 try:
                     _r = _eb_mi_direct(data, x=np.array([int(_cols_i)], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]
                                        factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,

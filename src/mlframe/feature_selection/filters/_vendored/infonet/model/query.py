@@ -1,3 +1,4 @@
+"""Vendored InfoNet query-generation modules: transformer-style blocks that turn a pair of input variables into a fixed-size "query" tensor consumed downstream by the InfoNet MI estimator, plus a standalone multi-head attention block used by both variants."""
 import torch
 import torch.nn as nn
 from typing import Optional
@@ -5,6 +6,8 @@ from typing import Optional
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class Query_Gen_transformer(nn.Module):
+    """Splits a 2-column input into X/Y, encodes each half with its own MLP, and cross-attends a learned query parameter against the two encodings via ``MultiHeadAttention`` to produce the fixed-size query tensor."""
+
     def __init__(self, input_dim, dim, max_batch=64, num_filters=128, hidden_dim=512, dropout=0.0):
         super().__init__()
 
@@ -39,7 +42,8 @@ class Query_Gen_transformer(nn.Module):
         self.norm_k = nn.LayerNorm(self.hidden_dim)
         self.norm_v = nn.LayerNorm(self.hidden_dim)
 
-    def forward(self, input):  # noqa: A002 -- vendored third-party code, matches upstream nn.Module.forward signature
+    def forward(self, input):
+        """Encode ``input`` of shape ``(batch, N, 2)`` (X in column 0, Y in column 1) into the query tensor via the X/Y MLPs + cross-attention against the learned ``query`` parameter."""
 
         batch_size = input.shape[0]
         query = self.query.repeat(batch_size, 1, 1)
@@ -57,8 +61,9 @@ class Query_Gen_transformer(nn.Module):
         return attention
 
 
-def PositionalEmbedding(input):  # noqa: A002 -- vendored third-party code, matches upstream naming
-    input = input.squeeze()  # noqa: A001
+def PositionalEmbedding(input):
+    """Add standard sinusoidal (Transformer-style) positional encodings to ``input``, treating the batch dimension as the sequence position."""
+    input = input.squeeze()
     batch_size = input.shape[0]
     input_dim = input.shape[1]
     positional_embedding = torch.zeros(batch_size, input_dim).to(device)
@@ -70,6 +75,8 @@ def PositionalEmbedding(input):  # noqa: A002 -- vendored third-party code, matc
 
 
 class Query_Gen_transformer_PE(nn.Module):
+    """Variant of ``Query_Gen_transformer`` that applies ``PositionalEmbedding`` to the raw input before splitting into X/Y and cross-attending against the learned query parameter."""
+
     def __init__(self, input_dim, dim, num_filters=128, hidden_dim=512, dropout=0.0):
         super().__init__()
 
@@ -103,9 +110,10 @@ class Query_Gen_transformer_PE(nn.Module):
         self.norm_k = nn.LayerNorm(self.hidden_dim)
         self.norm_v = nn.LayerNorm(self.hidden_dim)
 
-    def forward(self, input):  # noqa: A002 -- vendored third-party code, matches upstream nn.Module.forward signature
+    def forward(self, input):
+        """Apply positional embedding to ``input``, then encode X/Y halves via the MLPs and cross-attend the learned ``query`` parameter against them."""
 
-        input = PositionalEmbedding(input)  # noqa: A001
+        input = PositionalEmbedding(input)
 
         X = input[:, :, 0]
         Y = input[:, :, 1]
@@ -122,6 +130,7 @@ class Query_Gen_transformer_PE(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
+    """Standard scaled dot-product multi-head attention: separate linear projections for query/key/value, per-head split, softmax-weighted value aggregation, and an output projection."""
 
     def __init__(
         self,
@@ -155,6 +164,7 @@ class MultiHeadAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x_q: torch.Tensor, x_k: torch.Tensor, x_v: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
+        """Compute multi-head attention output for query/key/value tensors ``x_q``/``x_k``/``x_v``, optionally masking attention scores with ``attention_mask`` (masked positions set to a large negative value before softmax)."""
 
         batch = x_q.shape[0]
         query_len, key_len, value_len = x_q.shape[1], x_k.shape[1], x_v.shape[1]

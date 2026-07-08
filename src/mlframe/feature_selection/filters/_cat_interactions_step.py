@@ -135,7 +135,7 @@ def run_cat_interaction_step(
         # keeps ~the densest grid the Paninski ceiling allows (>= 2 so a median-split threshold cross survives).
         _budget_for_numeric = resolve_max_combined_nbins(cfg, n_samples)
         _num_nbins = int(getattr(cfg, "numeric_nbins", 10))
-        _num_nbins = max(2, min(_num_nbins, int(math.isqrt(int(_budget_for_numeric)))))
+        _num_nbins = max(2, min(_num_nbins, math.isqrt(int(_budget_for_numeric))))
         _work_cols = list(cols)
         _extra_blocks: list = []
         _extra_nbins: list = []
@@ -536,6 +536,7 @@ def run_cat_interaction_step(
         seen_kway: set = set()
 
         def _expand_seeds(seed_pair_indices):
+            """Grow k-way candidates from each seed pair index, deduping via ``seen_kway``."""
             for k in seed_pair_indices:
                 seed_a = int(pairs_a[k])
                 seed_b = int(pairs_b[k])

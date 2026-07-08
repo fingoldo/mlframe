@@ -212,7 +212,7 @@ def apply_rung_schedule(
         return prospective_pairs, info
 
     ranked = sorted(keys, key=_pm, reverse=True)
-    keep_n = max(1, int(round(n_pairs * keep_frac)))
+    keep_n = max(1, round(n_pairs * keep_frac))
     floor_val = rel_floor * max_pm
     kept_set = set(ranked[:keep_n])
     # Relative-MI floor union: protect every moderate-or-better-MI pair from the cut.

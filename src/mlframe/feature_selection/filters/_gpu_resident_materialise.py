@@ -100,6 +100,7 @@ _FE_MATERIALISE_KERNEL = None  # module-level singleton (lazy-compiled; never on
 
 
 def _get_fe_materialise_kernel():
+    """Lazily compile (once) and return the module-level row-major ``fe_materialise`` RawKernel singleton."""
     global _FE_MATERIALISE_KERNEL
     if _FE_MATERIALISE_KERNEL is None:
         import cupy as cp
@@ -189,6 +190,7 @@ def fe_gpu_materialise_cm_enabled() -> bool:
 
 
 def _get_fe_materialise_cm_kernel():
+    """Lazily compile (once) and return the module-level coalesced column-major ``fe_materialise_cm`` RawKernel singleton."""
     global _FE_MATERIALISE_CM_KERNEL
     if _FE_MATERIALISE_CM_KERNEL is None:
         import cupy as cp
@@ -229,7 +231,7 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block, ret
 
     n = int(tv_gpu.shape[0])
     n_operands = int(tv_gpu.shape[1])
-    K = int(len(ops_block))
+    K = len(ops_block)
     a_g = cp.asarray(a_cols_block, dtype=cp.int64)
     b_g = cp.asarray(b_cols_block, dtype=cp.int64)
     ops_g = cp.asarray(ops_block, dtype=cp.int8)
@@ -498,6 +500,7 @@ _BATCH_UNARY_KERNEL = None
 
 
 def _get_batch_unary_kernel():
+    """Lazily compile (once) and return the module-level batched plain-unary op-code ``batch_unary`` RawKernel singleton."""
     global _BATCH_UNARY_KERNEL
     if _BATCH_UNARY_KERNEL is None:
         import cupy as cp
@@ -715,6 +718,7 @@ def gpu_materialise_discretize_codes_host(
             _copy_stream = None
 
     def _drain_pending():
+        """Block on the pending async D2H copy's event (if any) and flush it into ``out_cand``, letting the previous block's transfer overlap the current block's compute."""
         nonlocal _db_pending
         if _db_pending is not None:
             _pev, _phv, _psl, _pc = _db_pending

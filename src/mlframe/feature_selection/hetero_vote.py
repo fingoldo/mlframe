@@ -45,6 +45,9 @@ def _importance(est, X, y, *, n_perm_repeats: int = 3, random_state: int = 0) ->
 
 
 def _default_panel(classification: bool):
+    """Default 3-member cross-model panel (tree / linear / distance geometry) used when the caller
+    doesn't supply its own estimators. Deliberately spans structurally-different decision surfaces so a
+    noise column that fools one geometry (e.g. tree overfit to a spurious split) rarely fools the others."""
     from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
     from sklearn.linear_model import LogisticRegression, Ridge
     from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor

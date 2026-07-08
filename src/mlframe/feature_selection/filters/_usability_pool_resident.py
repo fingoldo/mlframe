@@ -220,6 +220,6 @@ def score_pair_combos_table_resident(
         # ONE D2H for the WHOLE table (was ~96/call, 17340/fit): all chunk MI accumulated resident above.
         out[:] = cp.asnumpy(mi_table_d)
         return out.reshape(npairs, nc)
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("score_pair_combos_table_resident: GPU path failed (%s); host fallback", _exc)
         return None

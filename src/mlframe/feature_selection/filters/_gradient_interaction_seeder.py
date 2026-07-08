@@ -99,7 +99,7 @@ def _resolve_grad_threshold(name: str, default):
         except (TypeError, ValueError):
             pass
     try:  # best-effort per-host cache (populated by the tuner on this host)
-        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache  # noqa: F401
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
         # The cache is keyed by kernel-name + hw fingerprint; a missing entry returns the default.
         # We deliberately do not WRITE here (the seeder is opt-in / off the hot path); a future
@@ -135,6 +135,7 @@ def _route_gradient_seeder(n_rows: int, n_pool: int):
 # ---------------------------------------------------------------------------------------------
 
 def _standardize(X: np.ndarray):
+    """Column-wise zero-mean/unit-std standardization; degenerate (all-constant) columns get std=1 to avoid a divide-by-zero."""
     mu = X.mean(axis=0)
     sd = X.std(axis=0)
     sd = np.where(sd == 0.0, 1.0, sd)
@@ -175,6 +176,7 @@ def _fit_additive_residual(Xs: np.ndarray, y: np.ndarray, n_per_feat: int, alpha
 
 
 def _oof_r2(Xs: np.ndarray, y: np.ndarray, n_components: int, gamma: float, alpha: float, seed: int, n_splits: int = 3):
+    """Out-of-fold R2 of an RFF+ridge surrogate fit on ``Xs``/``y``, used to gauge how well the smooth surrogate explains the target before trusting its mixed-partial energies."""
     from sklearn.kernel_approximation import RBFSampler
     from sklearn.linear_model import Ridge
     from sklearn.model_selection import KFold, cross_val_predict
@@ -326,6 +328,7 @@ def rank_gradient_interaction_pairs(
     rbf, ridge = _fit_rff_ridge(Xsub, target, n_components, gamma, alpha, seed)
     if kernel == "finite_diff":
         def _predict(Z):
+            """RFF+ridge surrogate prediction at ``Z``, closed over the fitted ``rbf``/``ridge`` for the finite-diff mixed-partial energy."""
             return ridge.predict(rbf.transform(Z))
         en_sub = _finite_diff_mixed_partial_energy(_predict, Xsub, sub_pairs, seed=seed)
     else:
@@ -338,6 +341,7 @@ def rank_gradient_interaction_pairs(
         rbf_p, ridge_p = _fit_rff_ridge(Xsub, tp, n_components, gamma, alpha, s)
         if kernel == "finite_diff":
             def _predict_p(Z, _r=rbf_p, _g=ridge_p):
+                """Permutation-null RFF+ridge surrogate prediction at ``Z``, binding the per-permutation ``rbf_p``/``ridge_p`` as defaults so the closure captures the right pair inside the loop."""
                 return _g.predict(_r.transform(Z))
             en_p = _finite_diff_mixed_partial_energy(_predict_p, Xsub, sub_pairs, seed=s)
         else:
@@ -429,7 +433,7 @@ def propose_gradient_interaction_pairs(
 
     topk = int(_resolve_grad_threshold("topk", _GRAD_DEFAULT_TOPK))
     try:
-        proposed, energies, diag = rank_gradient_interaction_pairs(
+        proposed, _energies, diag = rank_gradient_interaction_pairs(
             X, y, list(range(len(pool))),
             row_cap=row_cap, kernel=kernel, seed=0,
         )

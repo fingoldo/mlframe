@@ -22,6 +22,7 @@ import numpy as np
 
 
 def _cuda_available() -> bool:
+    """Return whether a usable CUDA device is present, delegating to the GPU-strict usability check."""
     try:
         from ._fe_gpu_strict import _cuda_usable
         return bool(_cuda_usable())

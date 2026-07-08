@@ -1,3 +1,5 @@
+"""Perceiver-IO-style decoder: cross-attends a query set onto the InfoNet latent array, then linearly projects the result to the desired output width."""
+
 import torch
 import torch.nn as nn
 
@@ -7,6 +9,7 @@ from .attention_block import CrossAttentionBlock
 
 
 class Decoder(nn.Module):
+    """Cross-attention decoder that reads out task-specific outputs from a shared latent bottleneck (queries attend to latents, not the reverse)."""
 
     def __init__(
         self,
@@ -32,6 +35,7 @@ class Decoder(nn.Module):
             self.projection = nn.Identity()
 
     def forward(self, x_q: torch.Tensor, latents: torch.Tensor, query_mask: Optional[torch.Tensor] = None):
+        """Cross-attend queries `x_q` onto `latents` (optionally masked) and project the attended output to the configured output dimension."""
 
         output = self.cross_attn(x_q=x_q, x_kv=latents, attention_mask=query_mask)
 

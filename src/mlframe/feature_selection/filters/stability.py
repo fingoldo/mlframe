@@ -102,6 +102,9 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         self.stratify = stratify
 
     def fit(self, X, y):
+        """Fit ``n_bootstraps`` clones of ``estimator`` on subsampled ``(X, y)`` draws and derive per-feature selection frequencies. Populates
+        ``selection_probabilities_``, ``support_`` (features with frequency >= ``support_threshold``), and the Meinshausen-Buhlmann PFER bound
+        ``pfer_bound_`` (only defined at ``sample_fraction == 0.5`` and ``support_threshold > 0.5``, NaN otherwise)."""
         from joblib import Parallel, delayed
         # 2026-05-30 Wave 9.1 fix (loop iter 41): input validation.
         # Pre-fix:
@@ -130,7 +133,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         n_features = X.shape[1]
         # Floor at 2 so a clone never sees 0/1-row fit (numerically
         # degenerate; MI estimators raise or return NaN at n<2).
-        sub_size = max(2, int(round(self.sample_fraction * n_samples)))
+        sub_size = max(2, round(self.sample_fraction * n_samples))
         if sub_size > n_samples:
             raise ValueError(f"StabilityMRMR: sub_size ({sub_size}) exceeds n_samples " f"({n_samples}); reduce sample_fraction.")
 
@@ -154,16 +157,18 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
                     _class_groups = [np.flatnonzero(_y_arr == c) for c in _uniq]
 
         def _stratified_indices(local_rng) -> np.ndarray:
+            """Draw a per-class-quota subsample from ``_class_groups`` so every present class survives, per the rare-imbalance stratification gate above."""
             # Draw round(sample_fraction * n_class) rows from each class (>=1 per present class) so no class is dropped; the global floor of 2 total rows still holds.
             assert _class_groups is not None  # only called when _class_groups was populated above
             parts = []
             for grp in _class_groups:
-                k = max(1, int(round(self.sample_fraction * grp.size)))
+                k = max(1, round(self.sample_fraction * grp.size))
                 k = min(k, grp.size)
                 parts.append(local_rng.choice(grp, size=k, replace=False))
             return np.concatenate(parts)
 
         def _one_bootstrap(seed: int) -> np.ndarray:
+            """Draw one (stratified or plain) subsample, fit a fresh ``estimator`` clone on it, and return the selected feature indices."""
             local_rng = np.random.default_rng(seed)
             if _class_groups is not None:
                 idx = _stratified_indices(local_rng)
@@ -197,7 +202,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         # Compare integer counts against a ceiling rather than float prob >= float threshold: counts/n_bootstraps is not exactly representable
         # (e.g. 12/20 != 0.6 in float64), so a feature selected in exactly threshold*n runs could spuriously fail a direct float >= compare.
         import math as _math
-        _min_count = int(_math.ceil(float(self.support_threshold) * self.n_bootstraps - 1e-9))
+        _min_count = _math.ceil(float(self.support_threshold) * self.n_bootstraps - 1e-9)
         self.support_ = np.where(counts >= _min_count)[0]
         self.n_features_ = len(self.support_)
         self.n_features_in_ = n_features
@@ -216,6 +221,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
+        """Select ``self.support_`` columns from ``X``, verifying (by name when available) that ``X``'s columns still match those seen at fit time."""
         # 2026-05-30 Wave 9.1 fix (loop iter 42): validate fit-time
         # column semantics at transform. Pre-fix the function
         # positional-indexed via ``X.iloc[:, self.support_]`` with no

@@ -21,8 +21,9 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import coal
 
 
 def torch_available() -> bool:
+    """Probe whether PyTorch is importable, gating whether the gradient-relaxation backend can run at all."""
     try:
-        import torch  # noqa: F401
+        import torch
 
         return True
     except Exception:
@@ -44,6 +45,9 @@ def gradient_top_n(
     device: str = "cpu",
     top_n: int = 30,
 ) -> list[tuple[float, tuple[int, ...]]]:
+    """Optimise continuous feature gates via Adam to minimise a relaxed proxy loss, periodically thresholding and
+    scoring the discrete subset with the true (non-differentiable) proxy objective, and return the ``top_n``
+    lowest-loss distinct subsets seen (as ``(loss, sorted_index_tuple)`` pairs) across the whole trajectory."""
     import torch
 
     metric = resolve_metric(classification, metric)
@@ -65,6 +69,7 @@ def gradient_top_n(
     candidates: dict[tuple[int, ...], float] = {}
 
     def record(idx_tuple):
+        """Score a candidate discrete coalition (sorted, deduped by index-tuple key) under the true numpy proxy objective and cache it; no-ops on the empty coalition."""
         if not idx_tuple:
             return
         key = tuple(sorted(idx_tuple))

@@ -127,7 +127,7 @@ def _run_fe_step(
     try:
         from .._fe_gpu_vram import ensure_fe_gpu_pool_limit as _ensure_fe_gpu_pool_limit
         _ensure_fe_gpu_pool_limit()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.debug("swallowed exception in _step_core.py: %s", e)
         pass
     # SEPARATE KTC-free GPU-RESIDENT FE step (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT, default

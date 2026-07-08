@@ -173,7 +173,7 @@ def best_existing_op_mi_resident(
                 mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes, relax_binning=True,
             )
         return float(np.max(mis))
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("best_existing_op_mi_resident: GPU path failed (%s); host fallback", _exc)
         return None
 
@@ -255,6 +255,6 @@ def gate_grid_mi_resident(
                 mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes, relax_binning=True,
             )
         return np.asarray(mis, dtype=np.float64)
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("gate_grid_mi_resident: GPU path failed (%s); host fallback", _exc)
         return None

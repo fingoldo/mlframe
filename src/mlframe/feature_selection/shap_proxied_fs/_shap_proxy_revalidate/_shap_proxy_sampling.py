@@ -161,7 +161,7 @@ def _sample_anchor_subsets(
         else:
             k = int(rng.integers(min_card, max_card + 1))
         if use_weights and k >= 2 and 0.0 < uniform_tail_frac < 1.0:
-            n_uniform = max(1, int(round(uniform_tail_frac * k)))
+            n_uniform = max(1, round(uniform_tail_frac * k))
             n_uniform = min(n_uniform, k - 1)  # ensure at least one weighted pick
             n_weighted = k - n_uniform
             weighted_pick = _weighted_choice_no_replace(rng, n_features, n_weighted, probs_all)

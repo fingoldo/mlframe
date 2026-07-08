@@ -83,13 +83,13 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0) -> bool:
     Also lazily installs the own-pool cap on first call (see ``ensure_fe_gpu_pool_limit``)."""
     try:
         import cupy as cp
-    except Exception:  # noqa: BLE001  -- no cupy: non-GPU host, stay permissive (caller's other gates decide)
+    except Exception:
         return True
     # Lazily cap our own pool so even the first cushion probe benefits from headroom.
     ensure_fe_gpu_pool_limit()
     try:
         free_b, total_b = cp.cuda.runtime.memGetInfo()
-    except Exception as exc:  # noqa: BLE001  -- probe failed: permissive, do not block the GPU on a probe error
+    except Exception as exc:
         logger.debug("fe_gpu_has_vram_cushion: memGetInfo failed (%s); permissive", exc)
         return True
     cushion_b = _min_free_mb() * 1024 * 1024
@@ -112,7 +112,7 @@ def ensure_fe_gpu_pool_limit() -> bool:
     _POOL_LIMIT_DONE = True  # set first: a failed attempt must not retry every dispatch
     try:
         import cupy as cp
-    except Exception:  # noqa: BLE001  -- no cupy: nothing to cap
+    except Exception:
         return False
     try:
         frac = _pool_fraction()
@@ -123,10 +123,10 @@ def ensure_fe_gpu_pool_limit() -> bool:
                 "fe_gpu_pool: capped cupy default pool at fraction=%.2f (~%d MiB of %d MiB total)",
                 frac, int(total_b * frac) // (1024 * 1024), total_b // (1024 * 1024),
             )
-        except Exception:  # noqa: BLE001  -- logging detail only
+        except Exception:
             logger.info("fe_gpu_pool: capped cupy default pool at fraction=%.2f", frac)
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug("fe_gpu_pool: set_limit failed (%s); pool uncapped", exc)
         return False
 

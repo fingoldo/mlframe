@@ -218,7 +218,7 @@ def partial_fit(
         self._partial_fit_X_buffer_ = X_buf
         self._partial_fit_y_buffer_ = y_buf
         self._partial_fit_batch_sizes_ = batch_sizes
-        self._partial_fit_n_seen_ = int(len(X_buf))
+        self._partial_fit_n_seen_ = len(X_buf)
         self._partial_fit_n_since_refit_ = 0
         # Run the full fit. Decay on a first call is moot (single batch),
         # so pass sample_weight straight through (caller-supplied or None).
@@ -247,8 +247,8 @@ def partial_fit(
     self._partial_fit_X_buffer_ = X_buf
     self._partial_fit_y_buffer_ = y_buf
     self._partial_fit_batch_sizes_ = batch_sizes
-    self._partial_fit_n_seen_ = int(getattr(self, "_partial_fit_n_seen_", 0)) + int(len(X_df))
-    self._partial_fit_n_since_refit_ = int(getattr(self, "_partial_fit_n_since_refit_", 0)) + int(len(X_df))
+    self._partial_fit_n_seen_ = int(getattr(self, "_partial_fit_n_seen_", 0)) + len(X_df)
+    self._partial_fit_n_since_refit_ = int(getattr(self, "_partial_fit_n_since_refit_", 0)) + len(X_df)
 
     if self._partial_fit_n_since_refit_ < min_recompute:
         # Below the recompute threshold; buffer-only update keeps support_
@@ -267,7 +267,7 @@ def partial_fit(
 
     if sample_weight is not None:
         sw_new = np.asarray(sample_weight, dtype=np.float64).ravel()
-        if sw_new.shape[0] != int(len(X_df)) and is_first is False:
+        if sw_new.shape[0] != len(X_df) and is_first is False:
             # New batch may have been partially truncated by the rolling
             # window. Trim sw_new to the surviving suffix of the new batch.
             kept_new = batch_sizes[-1]

@@ -21,7 +21,7 @@ from ._cat_confirm_permutation import (
 # registration (the per-call dispatch still re-checks importability inside the parent's
 # ``_perm_kernel_dispatch_use_gpu``).
 try:
-    import cupy as _cp_probe  # noqa: F401
+    import cupy as _cp_probe
     _CUPY_AVAIL = True
 except Exception:
     _CUPY_AVAIL = False
@@ -83,14 +83,17 @@ def _run_perm_kernel_sweep() -> list:
     _seed = 7
 
     def _cpu_serial(*a):
+        """Sweep-grid wrapper binding the fixed sweep seed + int32 output dtype onto the serial-njit permutation kernel."""
         return _count_nfailed_joint_indep_serial(*a, _seed, np.int32)
 
     def _cpu_parallel(*a):
+        """Sweep-grid wrapper binding the fixed sweep seed + int32 output dtype onto the prange-parallel permutation kernel."""
         return _count_nfailed_joint_indep_prange(*a, _seed, np.int32)
 
     variants = {"cpu_serial": _cpu_serial, "cpu_parallel": _cpu_parallel}
     if _CUPY_AVAIL:
         def _gpu(*a):
+            """Sweep-grid wrapper binding the fixed sweep seed onto the cupy permutation kernel; only registered when cupy is importable."""
             return _count_nfailed_joint_indep_cupy(*a, base_seed=_seed)  # type: ignore[misc]  # mypy can't count *a's arity (10 positional args from _make_perm_kernel_inputs); verified correct at runtime
         variants["cupy"] = _gpu
 
@@ -114,7 +117,7 @@ def _perm_kernel_fallback_choice(n_samples: int, n_perms: int) -> str:
 
 # Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
 # discover + batch-tune the cat-FE permutation kernel. GPU-capable (cupy backend).
-from pyutilz.performance.kernel_tuning.registry import kernel_tuner  # noqa: E402
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 _CAT_PERM_SPEC = kernel_tuner(
     kernel_name="cat_fe_perm_kernel",

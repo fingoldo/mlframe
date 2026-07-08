@@ -393,6 +393,7 @@ def compute_phi_rank_stability(per_fold_phi_mean, top_k: int = 80) -> float:
 
 def _fit_one(model_template, X, y, classification: bool, seed: Optional[int], jitter_depth: Optional[int] = None,
              inner_n_jobs: Optional[int] = None, n_estimators_cap: Optional[int] = None):
+    """Clone ``model_template`` and fit one ensemble member, applying seed/depth jitter, an inner-thread cap, and an optional tree-count cap before fitting; returns the fitted estimator."""
     est = clone(model_template)
     if seed is not None and hasattr(est, "random_state"):
         try:
@@ -629,6 +630,7 @@ def compute_shap_matrix(
             _cache_key = None
 
     def _maybe_store(result):
+        """Write ``result`` into the outer ``shap_phi_`` disk cache under the pre-computed key (no-op if caching is disabled or unavailable); returns ``result`` unchanged for chaining at the return site."""
         if _cache is not None and _cache_key is not None:
             try:
                 _cache.put(_cache_key, result)
@@ -739,6 +741,7 @@ def compute_shap_matrix(
         inner = None
 
     def _one_fold(fold_id, tr_idx, va_idx):
+        """Fit + explain one out-of-fold CV split (train on ``tr_idx``, attribute the held-out ``va_idx`` rows), returning the fold id, validation indices, and the fold's mean phi/base/variance for the caller to scatter back into the full-length accumulators."""
         pf, bf, vf = _models_phi(X.iloc[tr_idx], y[tr_idx], X.iloc[va_idx], fold_seeds[fold_id], inner_n_jobs=inner)
         _assert_additivity_and_base(pf, bf, fold_tag=f" fold {fold_id}")
         return fold_id, va_idx, pf, bf, vf

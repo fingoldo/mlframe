@@ -197,7 +197,7 @@ def score_features_by_bootstrap_mi(
     eng_sort_safe = _all_columns_distinct(eng_arr)
 
     n_boot_eff = max(1, int(n_boot))
-    sample_n = max(2, int(round(float(sample_fraction) * n)))
+    sample_n = max(2, round(float(sample_fraction) * n))
     rng = np.random.default_rng(int(seed))
 
     # Precompute engineered-col -> raw-col position ONCE so each replicate's

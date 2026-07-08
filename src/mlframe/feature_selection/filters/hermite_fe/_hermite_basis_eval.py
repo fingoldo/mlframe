@@ -12,13 +12,16 @@ try:
     from numba import njit, prange
 except ImportError:  # pragma: no cover
     def njit(*args, **kwargs):
+        """No-op ``@njit`` fallback when numba isn't installed: returns the function unchanged (supports both bare ``@njit`` and ``@njit(cache=True, ...)`` call forms), so the decorated kernels still run as plain Python/numpy."""
         if len(args) == 1 and callable(args[0]):
             return args[0]
         def deco(fn):
+            """Identity decorator returned for the ``@njit(...)`` call form."""
             return fn
         return deco
 
     def prange(n):
+        """No-op ``prange`` fallback: degrades parallel loops to a plain sequential ``range`` when numba isn't installed."""
         return range(n)
 
 
@@ -44,6 +47,8 @@ except ImportError:  # pragma: no cover
 
 @njit(cache=True, fastmath=True)
 def _hermeval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Evaluate the probabilist's Hermite series ``sum_k c[k]*He_k(x)`` via the He recurrence, single-thread Horner form
+    with the fused prologue (see the module-level perf note above). ``x`` and the returned array share length ``n``."""
     n = x.shape[0]
     out = np.zeros(n, dtype=np.float64)
     nc = c.shape[0]
@@ -73,6 +78,7 @@ def _hermeval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
 
 @njit(cache=True, fastmath=True)
 def _legval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Evaluate the Legendre series ``sum_k c[k]*P_k(x)`` via Bonnet's recurrence, single-thread Horner form."""
     n = x.shape[0]
     out = np.zeros(n, dtype=np.float64)
     nc = c.shape[0]
@@ -104,6 +110,7 @@ def _legval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
 
 @njit(cache=True, fastmath=True)
 def _chebval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Evaluate the Chebyshev series ``sum_k c[k]*T_k(x)`` via ``T_{k+1} = 2x*T_k - T_{k-1}``, single-thread Horner form."""
     n = x.shape[0]
     out = np.zeros(n, dtype=np.float64)
     nc = c.shape[0]
@@ -132,6 +139,8 @@ def _chebval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
 
 @njit(cache=True, fastmath=True)
 def _lagval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Evaluate the Laguerre series ``sum_k c[k]*L_k(x)`` via the Laguerre recurrence, single-thread Horner form. Unlike
+    the other three kernels, ``L_1 = 1 - x`` so the prologue can't reuse ``x`` directly and computes ``p_curr`` explicitly."""
     n = x.shape[0]
     out = np.zeros(n, dtype=np.float64)
     nc = c.shape[0]
@@ -171,6 +180,8 @@ def _lagval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
 
 @njit(cache=True, fastmath=True, parallel=True)
 def _hermeval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Prange variant of ``_hermeval_njit``: recomputes the He recurrence in per-element registers (no shared p_prev/
+    p_curr arrays) so each output element is independent across threads; wins over the single-thread form for n>=50k."""
     n = x.shape[0]
     nc = c.shape[0]
     out = np.zeros(n, dtype=np.float64)
@@ -197,6 +208,7 @@ def _hermeval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
 
 @njit(cache=True, fastmath=True, parallel=True)
 def _legval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Prange variant of ``_legval_njit``: per-element register recurrence, parallelised across elements for n>=50k."""
     n = x.shape[0]
     nc = c.shape[0]
     out = np.zeros(n, dtype=np.float64)
@@ -226,6 +238,7 @@ def _legval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
 
 @njit(cache=True, fastmath=True, parallel=True)
 def _chebval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Prange variant of ``_chebval_njit``: per-element register recurrence, parallelised across elements for n>=50k."""
     n = x.shape[0]
     nc = c.shape[0]
     out = np.zeros(n, dtype=np.float64)
@@ -252,6 +265,7 @@ def _chebval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
 
 @njit(cache=True, fastmath=True, parallel=True)
 def _lagval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Prange variant of ``_lagval_njit``: per-element register recurrence, parallelised across elements for n>=50k."""
     n = x.shape[0]
     nc = c.shape[0]
     out = np.zeros(n, dtype=np.float64)

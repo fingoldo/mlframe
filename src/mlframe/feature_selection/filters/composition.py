@@ -56,7 +56,7 @@ def compose_pair_fe(
     from itertools import combinations
 
     X = np.asarray(X, dtype=np.float64)
-    n, p_orig = X.shape
+    _n, p_orig = X.shape
     if feature_names is None:
         feature_names = [f"x{i}" for i in range(p_orig)]
     else:

@@ -36,6 +36,7 @@ def set_fe_deadline(deadline: float | None) -> None:
 
 
 def clear_fe_deadline() -> None:
+    """Explicitly reset the thread-local deadline to unset (equivalent to ``set_fe_deadline(None)``); called from the ``finally`` in MRMR.fit so a budget never leaks into the next fit on the same thread."""
     _state.deadline = None
 
 

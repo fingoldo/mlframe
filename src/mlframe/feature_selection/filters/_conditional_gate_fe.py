@@ -290,7 +290,7 @@ def _resident_cand(feat: np.ndarray, role):
         return feat
     try:
         from ._fe_resident_operands import resident_operand
-        import cupy as cp  # noqa: F401  (import guard: skip residency when cupy is absent)
+        import cupy as cp
         return resident_operand(host, role, dtype=np.float64)
     except Exception:
         logger.debug("gate resident-candidate upload failed; host fallback", exc_info=True)
@@ -390,10 +390,12 @@ class ArgmaxHit:
 
     @property
     def margin_over_operands(self) -> float:
+        """MI gained by the argmax code over the hardened best-existing-op floor; the ranking key for candidate triples."""
         return self.feat_mi - self.operand_floor
 
     @property
     def responded(self) -> bool:
+        """Whether this argmax feature's MI clears both the operand floor and the null band -- i.e. it is a genuine signal, not noise."""
         return _responded(self.feat_mi, self.operand_floor, self.null_hi)
 
 
@@ -411,10 +413,12 @@ class GateHit:
 
     @property
     def margin_over_baseline(self) -> float:
+        """MI gained by the gated feature at its frozen tau over the hardened best-existing-op baseline; the ranking key for candidate gates."""
         return self.feat_mi - self.baseline_mi
 
     @property
     def responded(self) -> bool:
+        """Whether this gate's MI clears both the operand baseline and the null band -- i.e. it is a genuine signal, not noise."""
         return _responded(self.feat_mi, self.baseline_mi, self.null_hi)
 
 
@@ -434,7 +438,7 @@ def cheap_row_argmax_scan(
     raw single-operand MI) is what keeps argmax clean on the ordinary-multiplicative control at scale. Pairs are skipped (a 2-col
     argmax == sign of the diff, already on the diff list). Budgeted by ``max_triples``. The null is early-rejected (computed only
     for triples already clearing the operand margin)."""
-    import pandas as pd  # noqa: F401  (X may be pandas or polars; we pull ndarrays)
+    import pandas as pd
 
     if cols is None:
         cols = [c for c in X.columns if _is_argmax_eligible(np.asarray(X[c]))]
@@ -614,7 +618,7 @@ def cheap_conditional_gate_scan(
     then the best-tau column is gated vs the HARDENED best-existing-op baseline (max MI over raw / product / ratio / diff / min /
     max on the candidate's operands) by ``_MIN_MARGIN`` AND a 12-perm null band. The null is early-rejected (computed only for a
     candidate already clearing the hardened baseline). The tau-scan + hardened gate are unchanged -- only the candidate SET shrinks."""
-    import pandas as pd  # noqa: F401
+    import pandas as pd
 
     if cols is None:
         cols = [c for c in X.columns if _is_argmax_eligible(np.asarray(X[c]))]
@@ -652,6 +656,7 @@ def cheap_conditional_gate_scan(
     _baseline_cache: dict[tuple[str, ...], float] = {}
 
     def _baseline(operands: tuple[str, ...]) -> float:
+        """Memoised hardened best-existing-op MI floor for a given operand set -- computed once per distinct operand combo since it is tau/mode-independent."""
         key = tuple(sorted(operands))
         if key not in _baseline_cache:
             _baseline_cache[key] = best_existing_op_mi(arrs, key, yi, nbins)
@@ -702,6 +707,7 @@ def cheap_conditional_gate_scan(
     # path uses so the binning estimator never switches. Per-column bit-identical; on any cupy failure / non-strict
     # default the host ``_gate_grid_mi`` of the materialised blocks runs (byte-identical).
     def _device_born_all_mi():
+        """Score all pending tau-grid specs on the device without materialising/uploading the host gate-grid matrix; returns ``None`` (triggering the host fallback) on missing strict-residency support, disabled config, or any cupy failure."""
         try:
             from ._gpu_strict_fe import fe_gpu_device_born_gate_enabled
             if not fe_gpu_device_born_gate_enabled():
@@ -718,6 +724,7 @@ def cheap_conditional_gate_scan(
             return None
 
     def _flush():
+        """Score every pending spec's tau grid in one batched call (device-born if available, else host), pick each spec's argmax tau, gate on the margin-over-baseline, and append the resulting ``GateHit``(s); clears ``_pending`` afterward."""
         nonlocal _pending, _pending_cols
         if not _pending:
             return
@@ -756,6 +763,7 @@ def cheap_conditional_gate_scan(
         _pending = []; _pending_cols = 0
 
     def _add(mode, ctup, operands, taus, bkey):
+        """Queue one (mode, columns, operand-arrays, tau-grid, baseline-key) spec and flush the batch once the accumulated tau-grid column count hits ``_GATE_MI_COL_BUDGET`` (bounds peak memory at any n)."""
         nonlocal _pending_cols
         _pending.append((mode, ctup, operands, taus, bkey))
         _pending_cols += len(taus)

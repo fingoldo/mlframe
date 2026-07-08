@@ -296,6 +296,8 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
     # for continuous inputs is preserved; for discrete inputs it breaks ties
     # uniformly at random.
     def _jitter_if_discrete(arr, label):
+        """Adds negligible-magnitude Gaussian noise to a low-cardinality array so InfoNet's rank-normalisation
+        doesn't collapse it to a constant; continuous inputs (high unique-value count) pass through unchanged."""
         uniq = np.unique(arr)
         if uniq.size <= max(8, arr.size // 50):
             std = float(np.std(arr))

@@ -286,7 +286,7 @@ def select_optimal_nfeatures_(
     font_size: int = 12,
     figsize: tuple = (10, 7),
 ):
-
+    """Pick the RFECV subset size trading off CV performance against ``feature_cost`` per feature, smoothing the performance curve first."""
     base_perf = np.array(cv_mean_perf) * self.mean_perf_weight - np.array(cv_std_perf) * self.std_perf_weight
     if smooth_perf:
         # C4 (Wave 4, 2026-05-28): rolling.mean smooths by INDEX, not by N
@@ -478,7 +478,7 @@ def select_optimal_nfeatures_(
         import matplotlib.pyplot as plt  # deferred: matplotlib import costs ~0.15s and is only needed when plotting
 
         plt.rcParams.update({"font.size": font_size})
-        fig, ax1 = plt.subplots(figsize=figsize)
+        _fig, ax1 = plt.subplots(figsize=figsize)
         ax2 = ax1.twinx()
 
         ax1.set_xlabel("Number of features selected")

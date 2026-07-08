@@ -239,6 +239,14 @@ def run_polynom_pair_fe(
         X_ndarr = X.values if hasattr(X, "values") else np.asarray(X)
 
     def _eval_one_pair_impl(raw_vars_pair, X_arr, y_arr):
+        """Search + fit the best polynomial-basis feature for one raw variable pair; runs inside a worker.
+
+        Extracts the pair's two columns from the shared ``X_arr``, subsamples for the optimiser's MI loop (per
+        ``shared_subsample_idx`` / ``subsample_n``), computes the trivial-feature baseline once, cheap-skips the
+        expensive CMA/Optuna search when that baseline already saturates the pair's joint-MI ceiling (subject to the
+        linear-usability guard), and otherwise runs ``optimise_hermite_pair`` for ``fe_smart_polynom_iters`` restarts,
+        keeping the best-MI result. Returns ``(raw_vars_pair, best_res_or_sentinel, vals_a_full, vals_b_full)`` on the
+        FULL (non-subsampled) columns so the injection step transforms every row."""
         # X_arr is X.to_numpy()/.values; a frame with ANY string column makes the WHOLE array object dtype, so even a
         # numeric operand extracts as an object slice that the Hermite basis (np.isfinite / z-score / minmax) rejects.
         # The pair already passed the numeric-position guard above, so coerce to float64; a genuinely non-numeric operand
@@ -370,6 +378,7 @@ def run_polynom_pair_fe(
         return (raw_vars_pair, best_res, vals_a_full, vals_b_full)
 
     def _eval_one_pair(raw_vars_pair, X_arr, y_arr):
+        """Worker entry point: runs :func:`_eval_one_pair_impl` on a big-stack sub-thread to dodge the Windows loky 1MB-stack numba crash."""
         # Windows loky workers have a 1MB main-thread stack -- numba's
         # JIT cache load runs an llvmlite finalize chain that needs
         # ~2-3MB and crashes the worker. Running the impl in a sub-thread
@@ -492,7 +501,7 @@ def run_polynom_pair_fe(
             ])
             cols = cols + [_new_col_name]
             if is_polars_input:
-                X = X.with_columns(pl.Series(_new_col_name, _t_vals))  # noqa: F821
+                X = X.with_columns(pl.Series(_new_col_name, _t_vals))
             else:
                 X[_new_col_name] = _t_vals
             engineered_features.add(_new_col_name)

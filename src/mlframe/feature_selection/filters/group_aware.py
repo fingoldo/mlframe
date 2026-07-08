@@ -152,6 +152,7 @@ def _su_redundancy_matrix(X, nbins: int = 10) -> np.ndarray:
         codes[:, j] = c
 
     def _entropy(counts):
+        """Shannon entropy (nats) of a bincount vector; skips zero-count bins to avoid log(0)."""
         tot = counts.sum()
         if tot <= 0:
             return 0.0
@@ -215,12 +216,14 @@ def cluster_features_by_correlation(
     cluster_id = np.arange(n)  # union-find roots
 
     def _find(i: int) -> int:
+        """Union-find root lookup with path halving (each visited node re-points to its grandparent)."""
         while cluster_id[i] != i:
             cluster_id[i] = cluster_id[cluster_id[i]]
             i = cluster_id[i]
         return i
 
     def _union(i: int, j: int) -> None:
+        """Union-find merge: attach the higher-index root under the lower-index one so the smaller label wins as cluster id."""
         ri, rj = _find(i), _find(j)
         if ri != rj:
             cluster_id[max(ri, rj)] = min(ri, rj)
@@ -376,6 +379,11 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
 
     @rng_hygienic_fit
     def fit(self, X, y, **fit_params):
+        """Cluster near-duplicate features, run the wrapped selector on cluster medoids (or the full set if the reduction is too small), and expand support back to the original columns.
+
+        Skips the medoid bypass entirely when clustering reduces the feature count by less than ``min_reduction``,
+        so the wrapper degrades to a plain pass-through of the inner selector rather than wasting a clustering pass.
+        """
         # **fit_params (e.g. ``groups`` for a GroupKFold cv, ``sample_weight``)
         # are row-aligned, so they pass straight through to the inner selector
         # whether it fits on the medoid subset or the full X (same rows).
@@ -468,6 +476,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
+        """Subset ``X`` to the columns retained in ``support_`` (expanded cluster members or medoids-only, per ``expand``)."""
         if hasattr(X, "iloc"):
             return X.iloc[:, self.support_]
         return X[:, self.support_]

@@ -56,9 +56,11 @@ try:
     from numba import njit
 except ImportError:  # pragma: no cover - numba is a hard dep in practice
     def njit(*args, **kwargs):  # no-op fallback so the module imports
+        """Fallback ``numba.njit`` stub used when numba is unavailable: returns the function unmodified (or a passthrough decorator when called with keyword options), so the module still imports and runs in pure Python."""
         if len(args) == 1 and callable(args[0]):
             return args[0]
         def deco(fn):
+            """Passthrough decorator returned by the ``njit`` fallback when invoked with options (e.g. ``@njit(cache=True)``); returns ``fn`` unchanged."""
             return fn
         return deco
 
@@ -188,6 +190,7 @@ def apply_modular(x: np.ndarray, period: float, op: str) -> np.ndarray:
 
 
 def _numeric_cols(X: pd.DataFrame, cols: Optional[Sequence[str]]) -> list[str]:
+    """Filter ``cols`` (or all of ``X``'s columns when ``cols`` is None) down to those present in ``X`` with a numeric dtype, preserving input order."""
     candidates = list(cols) if cols is not None else list(X.columns)
     return [c for c in candidates if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
 

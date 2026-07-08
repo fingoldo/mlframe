@@ -87,12 +87,14 @@ def _make_permnull_inputs(dims: dict):
 
 
 def _permnull_njit(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n):
+    """Sweep variant: dispatch straight to the exact host njit floor kernel (the sweep's timing reference)."""
     from ._permutation_null import _pooled_gain_floor_perms_njit
 
     return _pooled_gain_floor_perms_njit(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n)
 
 
 def _permnull_resident(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n):
+    """Sweep variant: dispatch to the resident-GPU cupy floor kernel being benchmarked against ``_permnull_njit``."""
     from ._permutation_null_resident import pooled_gain_floor_perms_cupy
 
     return pooled_gain_floor_perms_cupy(scaled_flat, offsets, joint_card, h_x, mm_bias, h_y, y_perms, inv_n)

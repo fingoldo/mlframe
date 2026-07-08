@@ -74,7 +74,7 @@ def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> n
         return codes_2d
     out = codes_2d
     _copied = False
-    n, p = codes_2d.shape
+    _n, p = codes_2d.shape
     for j in range(p):
         col = codes_2d[:, j]
         finite = col[col >= 0]
@@ -171,7 +171,7 @@ def _native_kbins_quantile(vals: np.ndarray, n_bins: int) -> np.ndarray:
 
 from mlframe.core.arrays import arrayMinMax
 
-from ._discretization_edges import (  # noqa: F401
+from ._discretization_edges import (
     _bayesian_blocks_bin_edges,
     _bayesian_blocks_inner,
     _bayesian_blocks_midpoints,
@@ -406,6 +406,7 @@ def categorize_1d_array(
 
 @njit(cache=True)
 def digitize(arr: np.ndarray, bins: np.ndarray, dtype=np.int32) -> np.ndarray:
+    """Linear-scan bin-code assignment: the index of the first ``bin_edge >= val``, clamped to the top bin above the last edge."""
     # Values above the last edge (e.g. a transform-time row exceeding the
     # fit-time max) must clamp to the top bin. Pre-fix the inner break never
     # fired for ``val > bins[-1]``, leaving ``res[i]`` at its uninitialised
@@ -429,16 +430,19 @@ def digitize(arr: np.ndarray, bins: np.ndarray, dtype=np.int32) -> np.ndarray:
 
 @njit(cache=True)
 def quantize_dig(arr, bins):
+    """Bin-code assignment via ``np.digitize`` on the interior bin edges (excludes the outer -inf/+inf sentinels)."""
     return np.digitize(arr, bins[1:-1], right=True)
 
 
 @njit(cache=True)
 def quantize_search(arr, bins):
+    """Bin-code assignment via ``np.searchsorted`` on the interior bin edges -- equivalent to ``quantize_dig`` but faster for sorted, dense inputs."""
     return np.searchsorted(bins[1:-1], arr, side="right")
 
 
 @njit(cache=True)
 def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: Optional[float] = None, max_value: Optional[float] = None, dtype: type = np.int8) -> np.ndarray:
+    """Equal-width binning of ``arr`` into ``n_bins`` over ``[min_value, max_value]`` (or the array's own range when unset)."""
     # 2026-05-30 Wave 9.1 fix (loop iter 33): the divisor was
     # ``(max - min + min/2)`` instead of the canonical ``(max - min)``.
     # That formula silently miscoded any positive-shifted input -
@@ -593,7 +597,7 @@ def discretize_array(
 # discretize_2d_quantile_batch below keeps calling them, and re-exported at the
 # bottom of this module so the package public/private import surface is unchanged
 # (e.g. from ...discretization import _quantile_edges_2d_njit still resolves).
-from ._kernels import (  # noqa: F401
+from ._kernels import (
     _quantile_edges_2d_njit,
     _searchsorted_2d_right_njit,
     _searchsorted_2d_right_njit_parallel,
@@ -723,6 +727,7 @@ def _discretize_array_impl(
     arr: np.ndarray, n_bins: int = 10, method: str = "quantile",
     min_value: Optional[float] = None, max_value: Optional[float] = None, dtype: type = np.int8,
 ) -> np.ndarray:
+    """Discretize a single 1-D column via ``uniform`` or ``quantile`` binning."""
     if method == "uniform":
         return np.asarray(discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype))
     elif method == "quantile":
@@ -788,6 +793,7 @@ def _run_discretize_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     def _cpu(arr):
+        """CPU-path timing: the njit-prange 2D discretize kernel."""
         return _discretize_2d_array_njit(
             arr=arr, n_bins=10, method="quantile", min_ncats=50,
             min_values=None, max_values=None, dtype=np.int8,
@@ -796,6 +802,7 @@ def _run_discretize_sweep() -> list:
     variants = {"cpu": _cpu}
     if is_cuda_available():
         def _cuda(arr):
+            """GPU-path timing: the cupy percentile-binning discretize kernel, for crossover comparison against ``_cpu``."""
             return discretize_2d_array_cuda(arr=arr, n_bins=10, method="quantile", dtype=np.int8)
         variants["cuda"] = _cuda
     return list(sweep_backend_grid(
@@ -1057,7 +1064,7 @@ _DISCRETIZE_SPEC = kernel_tuner(
 )
 
 
-from ._discretization_dataset import (  # noqa: E402,F401
+from ._discretization_dataset import (
     categorize_dataset,
     clear_numeric_code_cache,
     create_redundant_continuous_factor,

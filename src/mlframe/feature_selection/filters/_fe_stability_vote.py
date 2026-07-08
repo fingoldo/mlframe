@@ -247,7 +247,7 @@ def confirm_recipes_cross_fold(
     if rng is None:
         rng = np.random.default_rng()
     folds = _fold_indices(n, k, rng)
-    need = int(math.ceil(q * k))
+    need = math.ceil(q * k)
 
     raw_set = set(feature_names_in or [])
 
@@ -256,6 +256,7 @@ def confirm_recipes_cross_fold(
     _is_polars = hasattr(X, "schema") and not _is_pandas
 
     def _slice(idx: np.ndarray):
+        """Row-slice ``X`` at ``idx`` while preserving its pandas/polars/ndarray type so downstream ``apply_recipe`` calls see the expected frame kind."""
         if _is_pandas:
             return X.iloc[idx]
         if _is_polars:
@@ -270,6 +271,7 @@ def confirm_recipes_cross_fold(
     _raw_col_cache: dict = {}
 
     def _raw_codes(name: str, idx: np.ndarray) -> Optional[np.ndarray]:
+        """Return quantile-binned codes for raw source column ``name`` restricted to fold rows ``idx``, caching the full-frame float extraction across folds; ``None`` for engineered parents or extraction failures."""
         if name not in raw_set:
             return None  # engineered parent: scored with a None leg
         vals = _raw_col_cache.get(name)
@@ -337,7 +339,7 @@ def confirm_recipes_cross_fold(
             continue
         # Scale the quorum to the number of folds actually evaluated so a recipe
         # that could not replay on a fold is not unfairly penalised.
-        need_eff = need if evaluated == k else int(math.ceil(q * evaluated))
+        need_eff = need if evaluated == k else math.ceil(q * evaluated)
         if passes < need_eff:
             failed.add(eng_name)
             if diagnostics_out is not None:

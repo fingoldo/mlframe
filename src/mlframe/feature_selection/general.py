@@ -1,3 +1,4 @@
+"""General-purpose feature-selection helpers: MI-algorithm benchmarking and exhaustive feature search (EFS)."""
 from __future__ import annotations
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -81,7 +82,7 @@ def _benjamini_hochberg_reject(p_values: np.ndarray, alpha: float) -> np.ndarray
 
 
 def benchmark_mi_algos(base_mi_algos: list, verbose: int = 0, seed: int = 42) -> list:
-
+    """Time each candidate MI implementation on a fixed synthetic workload and return them ranked fastest-first."""
     target_indices = np.array([0, 10, 20], dtype=np.int64)
 
     # Deterministic per-call RNG. ``np.random.randint`` on the global legacy RNG made benchmark-based MI-implementation selection non-deterministic across processes, breaking reproducibility tests that expect identical column selection.
@@ -94,7 +95,7 @@ def benchmark_mi_algos(base_mi_algos: list, verbose: int = 0, seed: int = 42) ->
 
     # main
     arr = _rng.integers(0, 15, size=(1_000_000, 200), dtype=np.int8)
-    base_mi_algos, durations = benchmark_algos_by_runtime(
+    base_mi_algos, _durations = benchmark_algos_by_runtime(
         implementations=base_mi_algos, algo_name="MI", n_reps=2, verbose=verbose, data=arr, target_indices=target_indices
     )
 
@@ -354,11 +355,11 @@ def run_efs(
     efs_params: dict,
     use_mis: bool = True,
 ) -> tuple:
-
+    """Run exhaustive feature search: drop columns with no permutation-significant MI to any target, then rank the survivors."""
     features_mis = None
     clean_ram()
 
-    bins, binned_targets, public_clips, columns_to_drop, stats = bin_numerical_columns(
+    bins, binned_targets, _public_clips, columns_to_drop, _stats = bin_numerical_columns(
         df=df, target_columns=target_columns, binned_targets=binned_targets, exclude_columns=exclude_columns, **binning_params
     )
     if columns_to_drop:

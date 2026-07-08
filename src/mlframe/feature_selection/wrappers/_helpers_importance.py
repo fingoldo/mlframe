@@ -131,6 +131,9 @@ def _make_fast_default_scorer(model: object) -> Callable:
         return 1.0 - ss_res / ss_tot
 
     def _scorer(_est, _X, _y):
+        """``permutation_importance``-compatible scoring callable: latches to the closed-form fast path (mode 1)
+        or falls back to ``_est.score`` (mode 0) after a one-shot baseline bit-identity self-check; see the
+        enclosing docstring for the exact latch/copy safety conditions."""
         mode = state["mode"]
         if mode != -1:
             # Latched. Copy only if the estimator was found to flip the writeable flag (or non-ndarray X).
@@ -222,6 +225,8 @@ def _conditional_permutation_importance(
     importances = np.zeros(p, dtype=float)
 
     def _is_discrete(col: np.ndarray) -> bool:
+        """Superseded by ``_is_discrete_v2`` below (kept for reference / A-B); pragmatic proxy: integer dtype OR
+        <=10 unique non-null values routes the conditioning tree to a classifier."""
         # Integer dtype OR <=10 unique non-null values: pragmatic proxy.
         if np.issubdtype(col.dtype, np.integer):
             return True
@@ -233,6 +238,9 @@ def _conditional_permutation_importance(
         return uniq.size <= 10
 
     def _is_discrete_v2(col: np.ndarray) -> bool:
+        """Tighter discrete-vs-continuous detection than ``_is_discrete``: integer dtype is canonical discrete; for
+        floats, both low unique-count AND cardinality far below the row count are required, so decile-binned
+        continuous columns route to the regressor conditioning tree instead of mis-triggering the classifier."""
         # F11 (Wave 3, 2026-05-28): tighter discrete detection.
         # Integer dtype is canonical discrete. For floats, require BOTH (a) low
         # unique count AND (b) cardinality << n_rows. Decile-binned continuous
@@ -606,6 +614,9 @@ def get_feature_importances(
             # wrappers to the underlying ``_final_estimator`` / ``regressor_``
             # before searching for feature_importances_ / coef_.
             def _unwrap_estimator(m):
+                """Walk up to 8 wrapper hops to the innermost fitted estimator (Pipeline / TransformedTargetRegressor /
+                a search-CV's ``best_estimator_``), so ``'auto'`` can find ``feature_importances_``/``coef_`` through
+                common wrapper chains rather than only on the outermost object."""
                 # Walk to the innermost fitted estimator: Pipeline -> _final_estimator;
                 # TransformedTargetRegressor -> regressor_; ColumnTransformer-style
                 # wrappers fall back to themselves.
@@ -623,6 +634,7 @@ def get_feature_importances(
                 return m
 
             def _resolve_getter(obj, dotted: str):
+                """Resolve a dotted attribute path (e.g. ``'regressor_.coef_'``, ``'named_steps.lr.coef_'``) on ``obj``."""
                 # operator.attrgetter handles the dotted-path traversal.
                 from operator import attrgetter
                 return attrgetter(dotted)(obj)
@@ -732,6 +744,21 @@ def select_appropriate_feature_importances(
     use_fi_ranking: bool = False,
     votes_aggregation_method: Union[VotesAggregation, None] = None,
 ) -> dict:
+    """Filter the per-RFECV-iteration ``feature_importances`` history down to the runs the voting rule should see.
+
+    ``feature_importances`` maps a run key -> per-feature importance dict, with runs recorded at every elimination
+    step (a shrinking feature-set size per run). The four selection modes:
+      - ``use_last_fi_run_only``: keep only runs whose feature-set size equals the FULL original feature count.
+      - ``use_all_fi_runs`` (default): keep every run with more than 1 feature (all history votes).
+      - ``use_one_freshest_fi_run``: walk feature-set sizes from ``nfeatures+1`` up to ``n_original_features``
+        (inclusive) and take the first size that has any runs recorded -- the "freshest" (smallest, most-refined)
+        run set that still covers at least ``nfeatures`` features.
+      - else: keep runs with more than ``nfeatures`` features (excluding the degenerate size-1 case).
+
+    When ``use_fi_ranking`` is set, importances are converted to a percentile RANK per run BEFORE voting, except for
+    aggregators that are themselves rank-based (Borda / Copeland / Dowdall / Minimax / Plurality), where a pre-rank
+    would only add tiebreak drift against the aggregator's own internal ranking.
+    """
     if use_last_fi_run_only:
         fi_to_consider = {key: value for key, value in feature_importances.items() if len(value) == n_original_features}
     else:

@@ -19,12 +19,15 @@ try:
 except ImportError:
     _NUMBA_AVAILABLE = False
     def njit(*args, **kwargs):
+        """No-numba fallback: return the function unchanged (bare-decorator form) or a pass-through decorator (parametrized form)."""
         if len(args) == 1 and callable(args[0]):
             return args[0]
         def deco(fn):
+            """Pass-through decorator used when ``njit`` is called with arguments but numba is unavailable."""
             return fn
         return deco
     def prange(n):
+        """No-numba fallback: plain ``range``."""
         return range(n)
 
 # Parent-resident numba kernel referenced by the @njit'd functions below.
@@ -34,7 +37,7 @@ except ImportError:
 # runtime (parent defines ``_quantile_bin_njit`` at line 80, then re-imports
 # this sibling at its bottom; ``_quantile_bin_njit`` is already bound when
 # this line fires). Whitelisted in ``tests/test_meta/test_no_import_cycles.py``.
-from .hermite_fe import _quantile_bin_njit  # noqa: E402
+from .hermite_fe import _quantile_bin_njit
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
@@ -234,6 +237,7 @@ def _get_fused_mi_term():
 
         @cp.fuse()
         def _term(hxyc, logx, logy, inv_n, log_n):
+            """Per-cell MI nat contribution from joint/marginal log-counts, 0 where the joint count is 0."""
             # cp.where(hxyc>0, hxyc, 1.0) feeds the log so log(0) never fires (matches the safe_xyc guard);
             # the outer where zeroes empty cells, mirroring the njit ``if n_xy==0: continue`` short-circuit.
             safe = cp.where(hxyc > 0, hxyc, 1.0)

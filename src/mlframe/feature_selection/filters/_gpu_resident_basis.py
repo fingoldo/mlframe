@@ -60,6 +60,7 @@ from ._gpu_resident_fe import (
 # (escalation only -- not in the main operand table) is ported too for completeness.
 
 def _cheb_clenshaw_gpu(cp, x, c):
+    """Clenshaw-recurrence evaluation of a Chebyshev series with coefficients ``c`` at cupy array ``x``, matching the host ``_chebval_njit``."""
     if len(c) == 1:
         c0 = c[0]; c1 = 0.0
     elif len(c) == 2:
@@ -75,6 +76,7 @@ def _cheb_clenshaw_gpu(cp, x, c):
 
 
 def _leg_clenshaw_gpu(cp, x, c):
+    """Clenshaw-recurrence evaluation of a Legendre series with coefficients ``c`` at cupy array ``x``, matching the host ``_legval_njit``."""
     if len(c) == 1:
         return c[0] + 0.0 * x
     if len(c) == 2:
@@ -91,6 +93,7 @@ def _leg_clenshaw_gpu(cp, x, c):
 
 
 def _herme_clenshaw_gpu(cp, x, c):
+    """Clenshaw-recurrence evaluation of a (probabilists') Hermite series with coefficients ``c`` at cupy array ``x``, matching the host ``_hermeval_njit``."""
     if len(c) == 1:
         return c[0] + 0.0 * x
     if len(c) == 2:
@@ -107,6 +110,7 @@ def _herme_clenshaw_gpu(cp, x, c):
 
 
 def _lag_clenshaw_gpu(cp, x, c):
+    """Forward-recurrence evaluation of a Laguerre series with coefficients ``c`` at cupy array ``x``. Uses the forward form (not Clenshaw) since Laguerre's Clenshaw variant was found wrong here -- see the comment below."""
     # FORWARD recurrence ``out = sum_k c[k] L_k`` matching the host _lagval_njit EXACTLY
     # (L_0=1, L_1=1-x, L_k = ((2k-1-x)L_{k-1} - (k-1)L_{k-2})/k). The prior Clenshaw-style
     # recurrence here was WRONG for Laguerre (verified: L_2(0) gave -0.5 vs the correct 1) --
@@ -186,6 +190,7 @@ _CLENSHAW_KERNEL = None
 
 
 def _get_clenshaw_kernel():
+    """Lazily compile-and-cache the ``clenshaw_basis`` RawKernel on first call (CUDA compile is ~30ms; subsequent calls reuse the cached kernel handle)."""
     global _CLENSHAW_KERNEL
     if _CLENSHAW_KERNEL is None:
         import cupy as cp
@@ -240,7 +245,7 @@ def _batched_quantiles(cp, M, q_fracs):
         out = _radix_quantiles(M, q_fracs)
         if out is not None:
             return out
-    except Exception:  # noqa: BLE001  # nosec B110 - best-effort/optional path, no module logger
+    except Exception:  # nosec B110 - best-effort/optional path, no module logger
         pass
     return cp.percentile(M, cp.asarray([float(q) * 100.0 for q in q_fracs]), axis=0)
 
@@ -276,6 +281,7 @@ def _gpu_detect_heavy_tail(cp, xf):
 
 
 def _gpu_robust_lo_hi(cp, x, xf, med):
+    """Robust ``[lo, hi]`` bounds around the median for basis-domain rescaling; falls back to ``[min, max]`` when the robust scale collapses to near-zero."""
     scale = _gpu_robust_scale(cp, xf, med)
     if scale <= 1e-12:
         return float(cp.min(xf)), float(cp.max(xf))
@@ -352,6 +358,7 @@ _ROBUST_SCALE_COMBINE_KERNEL = None
 
 
 def _get_robust_scale_combine_kernel(cp):
+    """Lazily compile-and-cache the ``robust_scale_combine`` RawKernel (fuses the MAD/IQR-fallback/degenerate combine into one launch)."""
     global _ROBUST_SCALE_COMBINE_KERNEL
     if _ROBUST_SCALE_COMBINE_KERNEL is None:
         _ROBUST_SCALE_COMBINE_KERNEL = cp.RawKernel(_ROBUST_SCALE_COMBINE_SRC, "robust_scale_combine")
@@ -380,13 +387,14 @@ def _gpu_robust_scale_batched(cp, M, med, *, q25=None, q75=None):
              cp.ascontiguousarray(q25.astype(cp.float64, copy=False)),
              cp.ascontiguousarray(q75.astype(cp.float64, copy=False)), np.int32(K), out))
         return out
-    except Exception:  # noqa: BLE001
+    except Exception:
         scale = 1.4826 * mad
         iqr = (q75 - q25) / 1.349
         return cp.where(scale > 1e-12, scale, cp.where(iqr > 1e-12, iqr, 0.0))
 
 
 def _gpu_robust_lo_hi_batched(cp, M, med, scale):
+    """Per-column robust ``[lo, hi]`` bounds around ``med``; columns with a degenerate (near-zero) scale fall back to their raw ``[min, max]``."""
     deg = scale <= 1e-12
     lo = cp.where(deg, M.min(axis=0), med - _GPU_ROBUST_AXIS_K * scale)
     hi = cp.where(deg, M.max(axis=0), med + _GPU_ROBUST_AXIS_K * scale)
@@ -437,6 +445,7 @@ _HEAVY_TAIL_STATS_KERNEL = None
 
 
 def _get_heavy_tail_stats_kernel(cp):
+    """Lazily compile-and-cache the ``heavy_tail_stats`` RawKernel (per-column outlier-fraction/gap heavy-tail detector)."""
     global _HEAVY_TAIL_STATS_KERNEL
     if _HEAVY_TAIL_STATS_KERNEL is None:
         _HEAVY_TAIL_STATS_KERNEL = cp.RawKernel(_HEAVY_TAIL_STATS_SRC, "heavy_tail_stats")
@@ -467,7 +476,7 @@ def _gpu_detect_heavy_tail_batched(cp, M):
              float(_GPU_ROBUST_AXIS_OUTER_K), float(_GPU_ROBUST_AXIS_GAP),
              float(_GPU_ROBUST_AXIS_MAX_FRAC), np.int64(n), np.int32(K), out_v))
         return out_v.astype(cp.bool_)
-    except Exception:  # noqa: BLE001
+    except Exception:
         dev = cp.abs(M - med)
         outer = dev > (_GPU_ROBUST_AXIS_OUTER_K * scale)
         n_outer = outer.sum(axis=0)
@@ -516,6 +525,7 @@ _BASIS_PREPROCESS_KERNEL = None
 
 
 def _get_basis_preprocess_kernel(cp):
+    """Lazily compile-and-cache the robust ``basis_preprocess`` RawKernel (per-basis clipped rescale: z-score/min-max/shift, robust lo/hi already computed)."""
     global _BASIS_PREPROCESS_KERNEL
     if _BASIS_PREPROCESS_KERNEL is None:
         _BASIS_PREPROCESS_KERNEL = cp.RawKernel(_BASIS_PREPROCESS_SRC, "basis_preprocess")
@@ -549,6 +559,7 @@ _BASIS_PREPROCESS_NR_KERNEL = None
 
 
 def _get_basis_preprocess_nr_kernel(cp):
+    """Lazily compile-and-cache the non-robust ``basis_preprocess_nr`` RawKernel (unclipped per-basis rescale from precomputed p0/p1 params)."""
     global _BASIS_PREPROCESS_NR_KERNEL
     if _BASIS_PREPROCESS_NR_KERNEL is None:
         _BASIS_PREPROCESS_NR_KERNEL = cp.RawKernel(_BASIS_PREPROCESS_NR_SRC, "basis_preprocess_nr")
@@ -682,7 +693,7 @@ def _gpu_basis_preprocess_batched(cp, M, basis, *, robust):
     if basis in _BASIS_PREPROCESS_CODE:
         try:
             return _gpu_basis_preprocess_robust_fused(cp, M, basis) if robust else _gpu_basis_preprocess_nonrobust_fused(cp, M, basis)
-        except Exception:  # noqa: BLE001  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
+        except Exception:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
             pass  # fall through to the exact cupy chain below
     if basis == "hermite":  # z-score
         if robust:
@@ -796,6 +807,7 @@ _ABS_CORR_KERNEL = None
 
 
 def _get_abs_corr_kernel():
+    """Lazily compile-and-cache the ``abs_corr`` RawKernel (per-column |Pearson correlation| against a fixed target vector)."""
     global _ABS_CORR_KERNEL
     if _ABS_CORR_KERNEL is None:
         import cupy as cp
@@ -978,6 +990,7 @@ def _run_fe_gpu_pairs_mi_sweep() -> list:
     from ._feature_engineering_pairs._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
 
     def _cpu(cand, nbins, yc, fy):
+        """CPU-path timing: discretize the candidate then run the pair-MI noise-gate dispatch."""
         disc = discretize_2d_quantile_batch(cand, n_bins=nbins, dtype=np.int8, assume_finite=True)
         return _dispatch_batch_mi_with_noise_gate(
             disc_2d=disc, quantization_nbins=nbins, classes_y=yc, classes_y_safe=yc, freqs_y=fy,
@@ -985,6 +998,7 @@ def _run_fe_gpu_pairs_mi_sweep() -> list:
         )
 
     def _gpu(cand, nbins, yc, fy):
+        """GPU-path timing: the resident-basis pair-MI kernel on the same inputs, for crossover comparison against ``_cpu``."""
         return gpu_pairs_fe_mi(cand, nbins, yc, yc, fy, 3, 0.0, False)
 
     return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
@@ -996,6 +1010,7 @@ def _run_fe_gpu_pairs_mi_sweep() -> list:
 
 
 def _fe_gpu_pairs_mi_code_version():
+    """Content-hash of the pair-MI GPU kernel + its discretize dependencies, used as a kernel-tuning-cache invalidation key when any of them changes."""
     try:
         from ._gpu_resident_select import _gpu_resident_discretize_codes, gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
@@ -1106,9 +1121,11 @@ def _run_fe_gpu_binning_sweep() -> list:
     from ._gpu_resident_select import gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals()
 
     def _cpu(cand, nbins):
+        """CPU-path timing: the njit quantile-discretize kernel."""
         return discretize_2d_quantile_batch(cand, n_bins=nbins, dtype=np.int8, assume_finite=True)
 
     def _gpu(cand, nbins):
+        """GPU-path timing: the resident-select discretize kernel, for crossover comparison against ``_cpu``."""
         return gpu_discretize_codes_host(cand, nbins, dtype=np.int8)
 
     return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
@@ -1120,6 +1137,7 @@ def _run_fe_gpu_binning_sweep() -> list:
 
 
 def _fe_gpu_binning_code_version():
+    """Content-hash of the binning GPU kernel + its resident-discretize dependency, used as a kernel-tuning-cache invalidation key when either changes."""
     try:
         from ._gpu_resident_select import _gpu_resident_discretize_codes, gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
@@ -1212,7 +1230,7 @@ def grand_fused_pair_mi(
     import cupy as cp
 
     from ._gpu_resident_select import _gpu_resident_discretize_codes  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling, avoids cycle
-    from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before the GPU MI import cycle
+    from . import hermite_fe as _hf
     from .batch_mi_noise_gate_gpu import dispatch_batch_mi_with_noise_gate_gpu
 
     a_gpu = cp.asarray(a, dtype=cp.float64)
@@ -1270,7 +1288,7 @@ def _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins,
     import cupy as cp
 
     n = int(ua_cm.shape[1])
-    K = int(len(block))
+    K = len(block)
     # Same fit-invariant index trio as _fused_generate_block (block is a slice of the module constant
     # _COMBOS); reuse the shared cache to drop the per-chunk-per-pair list-comps + tiny H2D.
     _ck = tuple(block)
@@ -1518,7 +1536,7 @@ def pair_candidate_mi_dispatch(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray
         _use_gpu = n >= _GPU_RESIDENT_MIN_N
     if _use_gpu:
         try:
-            import cupy  # noqa: F401
+            import cupy
 
             # Resolve via the parent module (where this function is re-exported) so a monkeypatch of
             # ``gpu_resident_pair_candidate_mi`` on the parent -- the canonical patch target -- is honoured

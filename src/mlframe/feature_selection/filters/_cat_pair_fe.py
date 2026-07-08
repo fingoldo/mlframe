@@ -186,7 +186,7 @@ def generate_cat_pair_crosses(
             "cat_i": str(cat_i),
             "cat_j": str(cat_j),
             "mapping": mapping,
-            "n_cells": int(len(mapping)),
+            "n_cells": len(mapping),
         }
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes

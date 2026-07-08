@@ -386,6 +386,7 @@ _TRANSPOSE_F64_KERNEL = None
 
 
 def _get_transpose_f32_kernel():
+    """Lazy-compiled (pickle-safe, module-level singleton) f32 tiled-transpose ``RawKernel``."""
     global _TRANSPOSE_F32_KERNEL
     if _TRANSPOSE_F32_KERNEL is None:
         import cupy as cp
@@ -394,6 +395,7 @@ def _get_transpose_f32_kernel():
 
 
 def _get_transpose_f64_kernel():
+    """Lazy-compiled (pickle-safe, module-level singleton) f64 tiled-transpose ``RawKernel``."""
     global _TRANSPOSE_F64_KERNEL
     if _TRANSPOSE_F64_KERNEL is None:
         import cupy as cp
@@ -481,6 +483,8 @@ _TRANSPOSE_I16_KERNEL = None
 
 
 def _get_transpose_int_kernel(itemsize: int):
+    """Lazy-compiled (pickle-safe, module-level singleton) int-codes tiled-transpose ``RawKernel``: the int8 body
+    for ``itemsize==1``, the int16 twin (same tile logic, ``short`` instead of ``signed char``) otherwise."""
     global _TRANSPOSE_I8_KERNEL, _TRANSPOSE_I16_KERNEL
     import cupy as cp
     if itemsize == 1:
@@ -516,6 +520,8 @@ def transpose_codes_to_cm(disc_gpu: Any) -> Any:
 
 
 def _get_radix_select_kernel(is_f32: bool):
+    """Lazy-compiled (pickle-safe, module-level singleton) base linear-scan radix-select ``RawKernel`` -- f32 or
+    f64 per ``is_f32`` -- the ultimate fallback below the ``bsearch``/``v3`` f32 variants."""
     global _RADIX_SELECT_F64_KERNEL, _RADIX_SELECT_F32_KERNEL
     import cupy as cp
     if is_f32:
@@ -777,6 +783,9 @@ _RADIX_INTERP_KERNEL = None
 
 
 def _get_radix_interp_kernel():
+    """Lazy-compiled (pickle-safe, module-level singleton) two-kernel-path f64 interp ``RawKernel``: applies cupy's
+    'linear' interpolation formula between two order statistics (``osv``) to produce the interior quantile edges,
+    given the gather indices ``bi``/``ai`` and weight ``w`` precomputed from ``(n, nbins)`` alone."""
     global _RADIX_INTERP_KERNEL
     if _RADIX_INTERP_KERNEL is None:
         import cupy as cp
@@ -970,8 +979,8 @@ def _radix_quantiles(cand_gpu, q_fracs):
 # (public AND underscore-private) into THIS namespace so every existing ``from ._gpu_resident_select import X``
 # and ``_gpu_resident_select.X`` path still resolves byte-for-byte. At the BOTTOM so the siblings' top-level
 # back-imports (from ._gpu_resident_fe import ...) resolve during the partial-init import chain.
-from . import _gpu_resident_discretize as _grd  # noqa: E402
-from . import _gpu_resident_materialise as _grm  # noqa: E402
+from . import _gpu_resident_discretize as _grd
+from . import _gpu_resident_materialise as _grm
 for _m in (_grd, _grm):
     for _n in dir(_m):
         if not _n.startswith("__") and _n not in globals():

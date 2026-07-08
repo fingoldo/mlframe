@@ -149,8 +149,8 @@ _DETECT_HEAVY_TAIL_NJIT_MAX_N = int(os.environ.get("MLFRAME_DETECT_HEAVY_TAIL_NJ
 # Keyed on id(x) WITH an identity-verify on hit (cache stores the array ref) -> collision-proof: a hit returns the
 # cached verdict ONLY when it is the exact same live array object (the routing+build pass the one column array, kept
 # alive for the scope body), else it recomputes. threading.local -> no cross-worker contamination.
-import threading as _threading  # noqa: E402
-import contextlib as _contextlib  # noqa: E402
+import threading as _threading
+import contextlib as _contextlib
 _HEAVY_TAIL_MEMO = _threading.local()
 
 

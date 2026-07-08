@@ -224,10 +224,12 @@ def _run_fe_parallelism_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     def _serial(tv, a_cols, b_cols, ops, out):
+        """Sweep variant: single-threaded materialise kernel (the sweep's timing reference)."""
         _materialise_chunk_njit(tv, a_cols, b_cols, ops, out)
         return out
 
     def _parallel(tv, a_cols, b_cols, ops, out):
+        """Sweep variant: ``prange``-parallel materialise kernel being benchmarked against ``_serial``."""
         _materialise_chunk_njit_parallel(tv, a_cols, b_cols, ops, out)
         return out
 

@@ -519,6 +519,7 @@ def _select_diverse_topm(history: list, top_m: int, min_l2_distance: float = 0.3
     max_b = max(e[4].shape[0] for e in sorted_h)
 
     def _padded_vec(coef_a, coef_b):
+        """Concatenate + zero-pad two coefficient vectors to a fixed ``max_a + max_b`` length for cross-degree comparison."""
         v = np.zeros(max_a + max_b, dtype=np.float64)
         v[: coef_a.shape[0]] = coef_a
         v[max_a : max_a + coef_b.shape[0]] = coef_b
@@ -886,4 +887,4 @@ def optimise_pair_multimode(
 # lives in ``_hermite_fe_optimise_pair.py`` so this file stays below
 # the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._hermite_fe_optimise_pair import optimise_hermite_pair  # noqa: E402,F401
+from ._hermite_fe_optimise_pair import optimise_hermite_pair

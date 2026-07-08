@@ -156,7 +156,7 @@ def retention_form_is_subsumed(
         # kx=nbins (candidate is nbins-binned) / kz=_zcard skip the per-call int(dx.max())/int(dz.max()) reads.
         _cbkx = int(nbins)
         # Candidate's OWN marginal debiased excess (the reference scale for the relative bar).
-        marg_floor, marg_null_mean = _conditional_perm_null(_cb, y_arr, None, seed=seed)
+        _marg_floor, marg_null_mean = _conditional_perm_null(_cb, y_arr, None, seed=seed)
         marg_cmi = float(_cmi_from_binned(_cb, y_arr, None, kx=_cbkx))
         marg_excess = max(0.0, marg_cmi - marg_null_mean)
         # Conditional CMI given the incumbent engineered survivors.

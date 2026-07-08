@@ -125,7 +125,7 @@ def _resolve_adaptive_n_anchors(
     except Exception:  # nosec B110 - best-effort path
         pass
     p = max(1, int(n_search_cols))
-    n = int(round(float(c) * float(np.sqrt(p))))
+    n = round(float(c) * float(np.sqrt(p)))
     return int(min(int(hi), max(int(lo), n)))
 
 

@@ -351,7 +351,7 @@ def _build_operand_table(
                             _diag = f", isnan={np.isnan(vals).sum()}, " f"isinf={np.isinf(vals).sum()}, nanmin={np.nanmin(vals)}"
                         else:
                             _diag = f", dtype={vals.dtype} (numeric diagnostics skipped)"
-                        logger.error(f"Error when performing {tr_name} on array {vals[:5]}, " f"var={cols[var]}: {str(e)}{_diag}")
+                        logger.error(f"Error when performing {tr_name} on array {vals[:5]}, " f"var={cols[var]}: {e!s}{_diag}")
                     else:
                         vars_transformations[key] = i
                         if _operand_col_specs is not None:

@@ -346,6 +346,7 @@ def surrogate_gbm_interaction_seeds(
     # candidate column indices. Every surrogate feature is a candidate by construction, so
     # nothing is dropped; the sorted (a < b) / sorted-triple key order is re-imposed.
     def _g(i):
+        """Maps a surrogate-local feature index (into ``sub_X``) back to its global candidate column index."""
         return local_to_global[int(i)]
 
     pair_w: dict = {}

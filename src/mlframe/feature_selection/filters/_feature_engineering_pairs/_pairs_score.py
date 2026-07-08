@@ -212,6 +212,7 @@ def _score_one_pair(
                 _target_buf = _bufs[_my_chunk % 2] if _bufs is not None else _chunk_buffer
 
                 def _produce(_ci, _buf):
+                    """Compute one FE chunk's engineered values into ``_buf``, for the pipelined worker to prefetch ahead of the consumer."""
                     return _compute_one_fe_chunk(
                         chunk_pairs=_fe_chunks[_ci],
                         pair_valid_combs=_pair_valid_combs,
@@ -668,7 +669,7 @@ def _score_one_pair(
                         discretized_transformed_values = discretize_array(
                             arr=_col_view, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
                         )
-                        fe_mi, fe_conf = mi_direct(
+                        fe_mi, _fe_conf = mi_direct(
                             discretized_transformed_values.reshape(-1, 1),
                             x=np.array([0], dtype=np.int64),
                             y=None,
@@ -883,7 +884,7 @@ def _score_one_pair(
     _gate_ratio = (best_mi / pair_mi) if pair_mi > 0.0 else 0.0
     if fe_mm_debias_prevalence and pair_mi > 0.0 and best_config is not None:
         from ._pairs_gates import _occupied_k, mm_debiased_prevalence_ratio
-        _n_rows = int(len(classes_y))
+        _n_rows = len(classes_y)
         _k_y = int(np.asarray(freqs_y).shape[0])
         # Engineered winner occupied-K: discretise its CONTINUOUS column (the buffer
         # column ``best_config[2]``) with the SAME quantiser the MI was scored under.
@@ -1051,7 +1052,7 @@ def _score_one_pair(
                     _safe_abs_corr(_tc_x0), _safe_abs_corr(_tc_x1),
                 )
                 _mi_band = mi_tie_band(
-                    int(quantization_nbins), int(len(classes_y)), int(np.asarray(freqs_y).shape[0]),
+                    int(quantization_nbins), len(classes_y), int(np.asarray(freqs_y).shape[0]),
                 )
                 _override_cfg = tail_concentration_form_override(
                     var_pairs_perf, _use_map,

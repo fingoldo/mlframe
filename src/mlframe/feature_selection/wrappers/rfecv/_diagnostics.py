@@ -50,6 +50,7 @@ def selection_stability_(self, metric: str = "jaccard") -> float:
         return float("nan")
 
     def _pair_stability(a: set, b: set) -> float:
+        """Overlap of two per-fold top-N feature sets, jaccard or dice; ``1.0`` when both sets are empty (vacuously stable, not undefined)."""
         inter = len(a & b)
         if metric == "jaccard":
             union = len(a | b)
@@ -244,6 +245,7 @@ def pareto_knee_(self, metric: str = "jaccard") -> int:
     stabs = np.array([p["stability"] for p in front])
     have_stab = np.all(np.isfinite(stabs))
     def _nrm(v, maximize):
+        """Min-max normalise ``v`` to [0, 1]; inverted when ``maximize`` is False so every axis becomes "higher is closer to ideal". Constant ``v`` maps to all-zeros (no preference)."""
         lo, hi = np.min(v), np.max(v)
         u = (v - lo) / (hi - lo) if hi > lo else np.zeros_like(v)
         return u if maximize else (1.0 - u)

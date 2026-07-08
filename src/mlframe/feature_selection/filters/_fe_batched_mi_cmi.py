@@ -195,7 +195,7 @@ def _rows_entropy_and_k(counts, inv_n):
             return out_h, out_k
         _ker((K,), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), out_h, out_k))
         return out_h, out_k
-    except Exception:  # noqa: BLE001
+    except Exception:
         if _XLOGX_ROWS_EK is None:
             _XLOGX_ROWS_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o", "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_rows_ek")
         h = -_XLOGX_ROWS_EK(counts, float(inv_n)).sum(axis=1)
@@ -454,7 +454,7 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
             (K,), (threads,), (Xc, b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), out_h, out_k), shared_mem=M * 4
         )
         return out_h, out_k
-    except Exception:  # noqa: BLE001
+    except Exception:
         import logging
         logging.getLogger(__name__).debug("fused batched joint entropy failed; count+reduce fallback", exc_info=True)
         return None
@@ -507,8 +507,8 @@ def _ent_nnz_1d(c, inv_n):
         blocks = min(1024, max(1, (M + threads - 1) // threads))
         _ENT_NNZ_1D_KERNEL((blocks,), (threads,), (c, float(inv_n), np.int64(M), out))
         h_k = cp.asnumpy(out)
-        return float(-h_k[0]), int(round(h_k[1]))
-    except Exception:  # noqa: BLE001
+        return float(-h_k[0]), round(h_k[1])
+    except Exception:
         cf = c.astype(cp.float64) if c.dtype != cp.float64 else c
         p = cf[cf > 0] * float(inv_n)
         return float(-(p * cp.log(p)).sum()), int((cf > 0).sum())
@@ -641,8 +641,8 @@ def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]
                                        np.int32(int(cards[2])), np.int64(n), np.int32(M), float(inv_n), out),
                         shared_mem=shmem)
             hk = cp.asnumpy(out)
-            return float(-hk[0]), int(round(hk[1]))
-        except Exception:  # noqa: BLE001  # nosec B110 - best-effort/optional path, no module logger
+            return float(-hk[0]), round(hk[1])
+        except Exception:  # nosec B110 - best-effort/optional path, no module logger
             pass
     return _ent_nnz_1d(joint_counts_gpu(codes, cards), inv_n)  # type: ignore[no-any-return]
 
@@ -714,8 +714,8 @@ def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int
         _CMI_JOINT_ENTROPIES_KERNEL((4,), (256,), (dx, dy, dz, np.int32(int(Kx)), np.int32(int(ky)),
                                     np.int32(int(kz)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
         hk = cp.asnumpy(out)
-        return ((float(hk[0]), int(round(hk[1]))), (float(hk[2]), int(round(hk[3]))), (float(hk[4]), int(round(hk[5]))), (float(hk[6]), int(round(hk[7]))))
-    except Exception:  # noqa: BLE001
+        return ((float(hk[0]), round(hk[1])), (float(hk[2]), round(hk[3])), (float(hk[4]), round(hk[5])), (float(hk[6]), round(hk[7])))
+    except Exception:
         return None
 
 
@@ -782,8 +782,8 @@ def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) 
         out = cp.zeros(6, dtype=cp.float64)
         _MARGINAL_MI_ENTROPIES_KERNEL((3,), (256,), (dx, dy, np.int32(int(Kx)), np.int32(int(ky)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
         hk = cp.asnumpy(out)
-        return ((float(hk[0]), int(round(hk[1]))), (float(hk[2]), int(round(hk[3]))), (float(hk[4]), int(round(hk[5]))))
-    except Exception:  # noqa: BLE001
+        return ((float(hk[0]), round(hk[1])), (float(hk[2]), round(hk[3])), (float(hk[4]), round(hk[5])))
+    except Exception:
         return None
 
 
@@ -826,7 +826,7 @@ def _cmi_assemble(he1, he2, hc, kc1, kc2, kc, inv2n):
                               cp.ascontiguousarray(kc2.astype(cp.int64, copy=False)), float(kc),
                               float(inv2n), np.int32(K), out))
         return out
-    except Exception:  # noqa: BLE001
+    except Exception:
         return cp.maximum((he1 - he2 + hc) - ((kc1 - kc2) + kc) * inv2n, 0.0)
 
 

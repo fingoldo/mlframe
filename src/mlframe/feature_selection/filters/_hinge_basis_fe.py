@@ -220,6 +220,7 @@ def _heldout_hinge_r2_uplift(
         return 0.0
 
     def _val_r2(design_fn) -> float:
+        """Fit an OLS model on the train split's design matrix (``design_fn(x_tr)``) and return its held-out R^2 on the val split; ``-inf`` if lstsq fails."""
         A_tr = design_fn(x_tr)
         A_va = design_fn(x_va)
         try:
@@ -545,6 +546,7 @@ def _heldout_incremental_r2(
         return 0.0
 
     def _val_r2(cols_tr, cols_va) -> float:
+        """Fit an OLS model on ``cols_tr`` (already-assembled design columns) and return its held-out R^2 on ``cols_va``; ``-inf`` if lstsq fails."""
         A_tr = np.column_stack(cols_tr)
         A_va = np.column_stack(cols_va)
         try:

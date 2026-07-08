@@ -127,6 +127,7 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
         nodes: dict = {}
 
         def _collect(node, depth, nodes=nodes):
+            """Recursively index this xgboost JSON node (and its children) into ``nodes`` by local ``nodeid``, tracking the tree's max depth."""
             nonlocal max_depth
             max_depth = max(max_depth, depth)
             nodes[node["nodeid"]] = node
@@ -474,6 +475,7 @@ def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
         flat: list[dict] = []
 
         def _collect(node, depth, base=base, flat=flat):
+            """Pre-order DFS over this lightgbm tree, stamping each node with a global id (``base + len(flat)``) so ids increase parent-before-child, and appending nodes to ``flat`` in that same order."""
             nonlocal max_depth
             max_depth = max(max_depth, depth)
             node["_gid"] = base + len(flat)
@@ -582,6 +584,7 @@ def is_supported_lightgbm(estimator) -> bool:
 
 
 def _lightgbm_booster_and_nfeatures(estimator):
+    """Resolve the underlying lightgbm ``Booster`` and its feature count from either a raw ``Booster`` or a sklearn-style wrapper, falling back through ``n_features_in_`` -> ``booster.num_feature()`` -> the dumped model's ``max_feature_idx`` for estimators that expose neither attribute."""
     booster = estimator if type(estimator).__name__ == "Booster" else estimator.booster_
     try:
         n_features = int(estimator.n_features_in_)

@@ -69,6 +69,7 @@ if _PYDANTIC_AVAILABLE:
         @field_validator("optimizer_target")
         @classmethod
         def _ck_target(cls, v: str) -> str:
+            """Restricts ``optimizer_target`` to the two scores the MBH surrogate can be pointed at."""
             if v not in ("mean", "final_score"):
                 raise ValueError(f"optimizer_target must be 'mean' or 'final_score'; got {v!r}")
             return v
@@ -76,6 +77,7 @@ if _PYDANTIC_AVAILABLE:
         @field_validator("dichotomic_step")
         @classmethod
         def _ck_dstep(cls, v: str) -> str:
+            """Restricts ``dichotomic_step`` to the two supported step-halving strategies."""
             if v not in ("auto", "midpoint"):
                 raise ValueError(f"dichotomic_step must be 'auto' or 'midpoint'; got {v!r}")
             return v
@@ -131,6 +133,7 @@ if _PYDANTIC_AVAILABLE:
         @field_validator("fi_missing_policy")
         @classmethod
         def _ck_policy(cls, v: str) -> str:
+            """Restricts ``fi_missing_policy`` to the three ways a missing per-fold FI value can be handled."""
             if v not in ("worst", "median", "skip"):
                 raise ValueError(f"fi_missing_policy must be 'worst', 'median' or 'skip'; got {v!r}")
             return v
@@ -138,6 +141,7 @@ if _PYDANTIC_AVAILABLE:
         @field_validator("multiclass_coef_aggregation")
         @classmethod
         def _ck_coef_agg(cls, v: str) -> str:
+            """Restricts ``multiclass_coef_aggregation`` to the two ways per-class linear coefficients collapse to one importance."""
             if v not in ("max", "sum"):
                 raise ValueError(f"multiclass_coef_aggregation must be 'max' or 'sum'; got {v!r}")
             return v
@@ -145,6 +149,7 @@ if _PYDANTIC_AVAILABLE:
         @field_validator("coef_scale_source")
         @classmethod
         def _ck_scale(cls, v: str) -> str:
+            """Restricts ``coef_scale_source`` to the three feature-scale sources used to rescale raw linear coefficients into importances."""
             if v not in ("train", "test", "none"):
                 raise ValueError(f"coef_scale_source must be 'train' / 'test' / 'none'; got {v!r}")
             return v
@@ -152,6 +157,7 @@ if _PYDANTIC_AVAILABLE:
         @field_validator("n_features_selection_rule")
         @classmethod
         def _ck_rule(cls, v: str) -> str:
+            """Restricts ``n_features_selection_rule`` to the supported CV-curve-to-final-N selection strategies."""
             if v not in ("auto", "argmax", "one_se_min", "one_se_max", "plateau"):
                 raise ValueError(f"n_features_selection_rule must be 'auto' / 'argmax' / 'one_se_min' / 'one_se_max' / 'plateau'; got {v!r}")
             return v
@@ -192,6 +198,7 @@ if _PYDANTIC_AVAILABLE:
         @field_validator("leakage_action")
         @classmethod
         def _ck_action(cls, v: str) -> str:
+            """Restricts ``leakage_action`` to the three responses when a candidate feature exceeds ``leakage_corr_threshold``."""
             if v not in ("warn", "exclude", "raise"):
                 raise ValueError(f"leakage_action must be 'warn' / 'exclude' / 'raise'; got {v!r}")
             return v
@@ -202,18 +209,22 @@ else:
     # __init__ don't crash; users on those environments stick with flat kwargs.
 
     class SearchConfig:  # type: ignore[no-redef]
+        """No-op fallback for environments without pydantic: a plain attribute bag, no field validation or defaults."""
+
         def __init__(self, **kwargs):
+            """Stores every keyword argument as an instance attribute (no validation, unlike the pydantic model it replaces)."""
             for k, v in kwargs.items():
                 setattr(self, k, v)
 
         def model_dump(self) -> dict:
+            """Mimics pydantic's ``model_dump`` by returning all non-private instance attributes as a plain dict."""
             return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
     class FIConfig(SearchConfig):  # type: ignore[no-redef]  # optional-dependency fallback stub; only one branch is ever live
-        pass
+        """No-op fallback for ``FIConfig`` when pydantic is unavailable; see ``SearchConfig``."""
 
     class RobustnessConfig(SearchConfig):  # type: ignore[no-redef]  # optional-dependency fallback stub; only one branch is ever live
-        pass
+        """No-op fallback for ``RobustnessConfig`` when pydantic is unavailable; see ``SearchConfig``."""
 
 
 __all__ = ["SearchConfig", "FIConfig", "RobustnessConfig"]

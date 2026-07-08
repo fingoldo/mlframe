@@ -52,6 +52,8 @@ _polyeval_oracle_singleton = None
 
 
 def _polyeval_oracle_enabled() -> bool:
+    """Whether the ParamOracle CPU-backend migration is active; gated OFF by default so the legacy
+    threshold path (``_lookup_polyeval_thresholds``) stays byte-identical unless explicitly opted in."""
     return _os.environ.get("MLFRAME_POLYEVAL_ORACLE", "0").strip() not in ("", "0")
 
 

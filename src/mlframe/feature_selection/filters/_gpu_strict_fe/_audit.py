@@ -25,17 +25,21 @@ class ResidencyReport:
 
     @property
     def bulk_h2d(self):
+        """H2D transfer byte sizes that are >= :data:`BULK_BYTES` -- the ones the resident-FE contract forbids."""
         return [b for b in self.h2d if b >= BULK_BYTES]
 
     @property
     def bulk_d2h(self):
+        """D2H transfer byte sizes that are >= :data:`BULK_BYTES` -- the ones the resident-FE contract forbids."""
         return [b for b in self.d2h if b >= BULK_BYTES]
 
     @property
     def scalar_d2h_bytes(self):
+        """Total bytes of D2H transfers below :data:`BULK_BYTES` -- the tolerated scalar/branch-decision traffic."""
         return sum(b for b in self.d2h if b < BULK_BYTES)
 
     def summary(self) -> str:
+        """One-line ``"H2D: N ops (B bulk, T B); D2H: ..."`` string for logging / assertion messages."""
         return (f"H2D: {len(self.h2d)} ops ({len(self.bulk_h2d)} bulk, {sum(self.h2d)} B); "
                 f"D2H: {len(self.d2h)} ops ({len(self.bulk_d2h)} bulk, {self.scalar_d2h_bytes} B scalar)")
 
@@ -58,6 +62,7 @@ def residency_audit() -> Iterator[ResidencyReport]:
     _orig_get = cp.ndarray.get
 
     def _asarray(obj, *a, **k):
+        """Monkeypatched ``cp.asarray``: records host-array byte size as an H2D transfer, then delegates unchanged."""
         try:
             if isinstance(obj, np.ndarray):
                 rep.h2d.append(int(obj.nbytes))
@@ -66,6 +71,7 @@ def residency_audit() -> Iterator[ResidencyReport]:
         return _orig_asarray(obj, *a, **k)
 
     def _asnumpy(obj, *a, **k):
+        """Monkeypatched ``cp.asnumpy``: records the source array's byte size as a D2H transfer, then delegates unchanged."""
         try:
             nb = int(getattr(obj, "nbytes", 0))
             if nb:
@@ -75,6 +81,7 @@ def residency_audit() -> Iterator[ResidencyReport]:
         return _orig_asnumpy(obj, *a, **k)
 
     def _get(self, *a, **k):
+        """Monkeypatched ``cupy.ndarray.get``: records ``self``'s byte size as a D2H transfer, then delegates unchanged."""
         try:
             rep.d2h.append(int(self.nbytes))
         except Exception:  # nosec B110 - best-effort path

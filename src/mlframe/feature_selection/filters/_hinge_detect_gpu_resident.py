@@ -246,6 +246,6 @@ def detect_hinge_breakpoints_gpu(
             found.append(best_tau)
             extra_legs.append(cp.maximum(xg - best_tau, 0.0))
         return found
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("detect_hinge_breakpoints_gpu failed (%s); host detector fallback", _exc)
         return None

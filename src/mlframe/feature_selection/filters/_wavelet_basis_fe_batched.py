@@ -104,7 +104,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
     partition-based -- the device leg / dense-code partition is bit-identical to the host). Returns ``None`` on
     any cupy failure / no-cupy so the caller falls back to the exact host (numpy + ``cp.asarray``) body."""
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
     except Exception:
         return None
 

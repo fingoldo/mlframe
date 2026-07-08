@@ -199,6 +199,7 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             # (the F2 ``a**2/b + log(c)*sin(d)`` composite case) they remain in ``_engineered_recipes_``
             # and still correctly drop their subsumed operands -- behaviour unchanged there.
             def _surv_eng_name(_r):
+                """Extract the recipe's engineered-feature name, falling back to ``str(recipe)`` when it has no ``.name`` attribute."""
                 _nm = getattr(_r, "name", None)
                 return str(_nm) if _nm is not None else str(_r)
             for _eng_name in (_surv_eng_name(_r) for _r in (self._engineered_recipes_ or [])):

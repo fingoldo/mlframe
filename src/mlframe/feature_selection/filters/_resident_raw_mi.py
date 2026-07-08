@@ -68,7 +68,7 @@ def resident_raw_baseline_mi(
     except Exception:
         return None
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
     except Exception:
         return None
     try:
@@ -109,6 +109,6 @@ def resident_raw_baseline_mi(
             _plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls),
             dtype=np.float64,
         )
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("resident_raw_baseline_mi: GPU path failed (%s); host fallback", _exc)
         return None

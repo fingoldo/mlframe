@@ -55,7 +55,7 @@ def _fit_spline_for_col(x: np.ndarray, n_inner_knots: int):
     held (knots baked into the recipe, replay reads only knots/lo/hi), but moot.
     Don't add fe_spline_knot_strategy="supervised". (D:/Temp/item7_supervised_knots_findings.md)
     """
-    from ..engineered_recipes import _bspline_basis_values, _fit_spline_knots  # noqa: F401
+    from ..engineered_recipes import _bspline_basis_values, _fit_spline_knots
     knots, lo, hi = _fit_spline_knots(x, n_inner_knots, degree=3)
     # Number of cubic B-spline basis functions = len(knots) - degree - 1.
     n_basis = len(knots) - 3 - 1
@@ -367,9 +367,10 @@ def _refine_peak_freq(
     the downstream Ridge recovery margin on multitone signals (a 0.05-only
     refine left secondary tones mis-located by up to ~0.3, costing R^2)."""
     def _scan(center: float, half_width: float, step: float) -> tuple[float, float]:
+        """Grid-scan candidate frequencies in ``[center-half_width, center+half_width]`` and return the best ``(freq, score)`` pair."""
         lo_r = max(0.05, center - half_width)
         hi_r = center + half_width
-        n_steps = int(round((hi_r - lo_r) / step)) + 1
+        n_steps = round((hi_r - lo_r) / step) + 1
         best_f = center
         best_p = _power_centered(z_tr, yc, y_ss, center)
         for k in range(n_steps):
@@ -831,7 +832,7 @@ def _detect_fourier_freq_for_col(
 
 
 # generate/recipe entry points carved to _orth_extra_basis_fe_generate.py (1k-LOC ceiling).
-from ._orth_extra_basis_fe_generate import (  # noqa: E402, F401
+from ._orth_extra_basis_fe_generate import (
     _build_recipe_from_meta,
     generate_extra_basis_features,
     hybrid_orth_extra_basis_fe_with_recipes,

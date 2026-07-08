@@ -520,6 +520,7 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
     code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
 
     def _parse_code_deg(s: str):
+        """Parse a basis-code-plus-degree token (e.g. ``"He3"``) into its ``(basis_name, degree)`` pair."""
         for code in ("LL", "He", "T", "L"):
             if s.startswith(code):
                 rest = s[len(code) :]

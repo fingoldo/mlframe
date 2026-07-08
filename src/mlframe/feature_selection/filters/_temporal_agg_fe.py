@@ -74,14 +74,17 @@ EXPANDING_STATS = ("mean", "std", "count", "min", "max")
 
 
 def engineered_name_expanding(value_col: str, entity_col: str, stat: str) -> str:
+    """Canonical feature name for an expanding-stat feature, e.g. ``texp_mean(amount|user_id)``."""
     return f"texp_{stat}({value_col}|{entity_col})"
 
 
 def engineered_name_rolling(value_col: str, entity_col: str, window: str, stat: str) -> str:
+    """Canonical feature name for a rolling time-window-stat feature, e.g. ``troll_mean_7D(amount|user_id)``."""
     return f"troll_{stat}_{window}({value_col}|{entity_col})"
 
 
 def engineered_name_lag(value_col: str, entity_col: str, lag: int) -> str:
+    """Canonical feature name for a lag feature, e.g. ``tlag3(amount|user_id)``."""
     return f"tlag{int(lag)}({value_col}|{entity_col})"
 
 
@@ -111,6 +114,7 @@ def _entity_key_series(X: pd.DataFrame, entity_cols: Sequence[str]) -> pd.Series
 
 
 def _global_prior(values: np.ndarray, stat: str) -> float:
+    """Fallback statistic used for rows with no per-entity history (row 0 of an entity, or out-of-history lag positions): the same ``stat`` computed globally over all finite ``values``."""
     finite = values[np.isfinite(values)]
     if finite.size == 0:
         return 0.0
@@ -130,6 +134,7 @@ def _global_prior(values: np.ndarray, stat: str) -> float:
 
 
 def _validate(X, entity_cols, value_cols, time_col, fn_name):
+    """Type/column-presence gate shared by the three feature generators: X must be a DataFrame, ``time_col`` must exist; ``entity_cols``/``value_cols`` are silently filtered to existing (and, for values, numeric) columns rather than raising."""
     if not isinstance(X, pd.DataFrame):
         raise TypeError(f"{fn_name}: X must be a pandas DataFrame; got {type(X).__name__}")
     entity_cols = [c for c in (entity_cols or []) if c in X.columns]
@@ -398,6 +403,7 @@ def _rolling_stat_past_only(
 
 
 def _is_datetime_like(arr: np.ndarray) -> bool:
+    """True if ``arr`` has a numpy datetime64 dtype; selects whether the rolling window is treated as a wall-clock ``Timedelta`` or a raw numeric span."""
     return np.issubdtype(np.asarray(arr).dtype, np.datetime64)
 
 
@@ -414,6 +420,7 @@ def _numeric_window(window: str) -> float:
 
 
 def _reduce(arr: np.ndarray, stat: str) -> float:
+    """Reduce an array of past-window values to the requested statistic (mean/std/count/min/max/median); used by the pandas-fallback rolling path."""
     if stat == "mean":
         return float(np.mean(arr))
     if stat == "std":
@@ -580,6 +587,7 @@ def generate_lag_features(
 
 
 def build_temporal_expanding_recipe(*, name, entity_cols, value_col, time_col, stat, history, global_prior):
+    """Build an ``EngineeredRecipe`` carrying the per-entity TRAIN history + global prior needed to leak-safely replay an expanding-stat feature at transform time."""
     from .engineered_recipes import EngineeredRecipe
     return EngineeredRecipe(
         name=name, kind="temporal_expanding",
@@ -596,6 +604,7 @@ def build_temporal_expanding_recipe(*, name, entity_cols, value_col, time_col, s
 
 
 def build_temporal_rolling_recipe(*, name, entity_cols, value_col, time_col, window, stat, history, global_prior):
+    """Build an ``EngineeredRecipe`` carrying the per-entity TRAIN history + global prior needed to leak-safely replay a rolling time-window-stat feature at transform time."""
     from .engineered_recipes import EngineeredRecipe
     return EngineeredRecipe(
         name=name, kind="temporal_rolling",
@@ -613,6 +622,7 @@ def build_temporal_rolling_recipe(*, name, entity_cols, value_col, time_col, win
 
 
 def build_temporal_lag_recipe(*, name, entity_cols, value_col, time_col, lag, history, global_prior):
+    """Build an ``EngineeredRecipe`` carrying the per-entity TRAIN history + global prior needed to leak-safely replay a lag feature at transform time."""
     from .engineered_recipes import EngineeredRecipe
     return EngineeredRecipe(
         name=name, kind="temporal_lag",
@@ -635,6 +645,7 @@ def build_temporal_lag_recipe(*, name, entity_cols, value_col, time_col, lag, hi
 
 
 def _coerce_replay_frame(X, entity_cols, value_col, time_col, recipe_name):
+    """Coerce a transform-time ``X`` (pandas, polars, or a structured numpy array) to a pandas DataFrame exposing exactly the entity/value/time columns the recipe needs; raises for unsupported types."""
     if isinstance(X, pd.DataFrame):
         return X
     cols = list(entity_cols) + [value_col, time_col]
@@ -650,6 +661,7 @@ def _coerce_replay_frame(X, entity_cols, value_col, time_col, recipe_name):
 
 
 def _replay_keys_times(X_test, entity_cols, time_col):
+    """Extract the per-row entity key array and raw time-column values from a replay frame, ready for time-ordered per-entity accumulation."""
     key = _entity_key_series(X_test, entity_cols).to_numpy()
     times = X_test[time_col].to_numpy()
     return key, times
@@ -696,6 +708,7 @@ def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.nda
     seeded: set[str] = set()
 
     def _fold(ent: str, v: float) -> None:
+        """Fold one strictly-past value ``v`` (train history or earlier test row) into entity ``ent``'s running count/sum/Welford-M2/min/max accumulators."""
         cnt = acc_n[ent] + 1
         acc_n[ent] = cnt
         acc_sum[ent] += v
@@ -708,6 +721,7 @@ def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.nda
             acc_max[ent] = v
 
     def _init(ent: str) -> None:
+        """Lazily seed entity ``ent``'s sorted train-history arrays and zeroed accumulators the first time it is seen in the test time-ordered scan."""
         h = history.get(ent, {})
         _hv = np.asarray(h.get("v", []), dtype=np.float64)
         _ht = np.asarray(h.get("t", []))
@@ -767,6 +781,7 @@ def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.nda
 
 
 def _reduce_expanding(arr: np.ndarray, stat: str) -> float:
+    """Fallback reducer for expanding stats not handled by the fast running accumulators in :func:`apply_temporal_expanding` (e.g. ``median``); delegates to :func:`_reduce`."""
     if stat == "count":
         return float(arr.size)
     return _reduce(arr, stat)
@@ -857,6 +872,7 @@ def apply_temporal_lag(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
     buffers: dict[str, list] = {}
 
     def _hist(ent: str) -> tuple:
+        """Return entity ``ent``'s time-sorted (times, values) train-history arrays, falling back to an all-``-inf`` time axis for legacy recipes without stored timestamps."""
         h = history.get(ent, {})
         _v = np.asarray(h.get("v", []), dtype=np.float64)
         _t = np.asarray(h.get("t", []))
@@ -899,6 +915,7 @@ def apply_temporal_lag(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
 
 
 def _mi_score(col: np.ndarray, y_bin: np.ndarray, n_bins: int = 10) -> float:
+    """Quantile-bin a candidate temporal feature and compute its mutual information against the pre-binned target; used by :func:`hybrid_temporal_agg_fe` to rank/gate candidates before they enter the recipe pool."""
     from ._mi_greedy_cmi_fe import _quantile_bin, _cmi_from_binned
     x_bin = _quantile_bin(np.asarray(col, dtype=np.float64), nbins=n_bins)
     return float(_cmi_from_binned(x_bin, y_bin, None))

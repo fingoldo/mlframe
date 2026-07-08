@@ -1,3 +1,5 @@
+"""Vendored (third-party) InfoNet component: a fixed (non-trainable) Gaussian-blur convolution built from a
+discretized Gaussian CDF kernel, replicated per channel and applied as a depthwise ``conv2d``."""
 import numpy as np
 import scipy.stats as st
 import torch
@@ -5,6 +7,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 def gauss_kernel(kernlen=5, nsig=3, channels=1):
+    """Build a ``(1, 1, kernlen, kernlen)`` 2D Gaussian kernel (outer product of a 1D CDF-difference kernel with
+    itself, normalized to sum 1), replicated to ``channels`` along the input-channel axis, as a torch tensor."""
     interval = (2 * nsig + 1.0) / (kernlen)
     x = np.linspace(-nsig - interval / 2.0, nsig + interval / 2.0, kernlen + 1)
     kern1d = np.diff(st.norm.cdf(x))
@@ -16,17 +20,21 @@ def gauss_kernel(kernlen=5, nsig=3, channels=1):
     return torch.from_numpy(out_filter)
 
 def make_gauss_var(size, nsig, c_i):
+    """Wrap ``gauss_kernel(size, nsig, c_i)`` in a non-trainable ``torch.nn.Parameter`` (``requires_grad=False``)."""
     kernel = gauss_kernel(size, nsig, c_i)
     var = torch.nn.Parameter(kernel, requires_grad=False)
     return var
 
 class GaussConv(nn.Module):
+    """Fixed depthwise Gaussian-blur convolution module (non-trainable kernel from :func:`gauss_kernel`)."""
+
     def __init__(self, size, nsig, channels, padding="same"):
         super().__init__()
         self.padding = padding
         self.kernel = make_gauss_var(size, nsig, channels)
 
     def forward(self, img):
+        """Apply the fixed Gaussian kernel as a grouped (depthwise, ``groups=channels``) 2D convolution to ``img``."""
         c_i = img.shape[1]
 
         if self.padding == "same":

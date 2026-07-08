@@ -43,13 +43,19 @@ class FeatureSelectorSpec(Protocol):
     """
 
     @property
-    def name(self) -> str: ...
+    def name(self) -> str:
+        """Stable registry key + selector_kind marker; must be non-empty."""
+        ...
 
     @property
-    def instantiate(self) -> Callable[..., Any]: ...
+    def instantiate(self) -> Callable[..., Any]:
+        """Factory that builds a fitted-ready selector instance from suite kwargs."""
+        ...
 
     @property
-    def report_extract(self) -> Callable[[Any, list[str]], dict] | None: ...
+    def report_extract(self) -> Callable[[Any, list[str]], dict] | None:
+        """Optional per-selector FS-report extractor; ``None`` falls back to the generic extraction."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -75,6 +81,7 @@ def register(spec: FeatureSelectorSpec) -> None:
 
 
 def get(name: str) -> FeatureSelectorSpec:
+    """Look up a registered spec by name; raises ``KeyError`` (listing all registered names) on a typo or unregistered selector."""
     if name not in _REGISTRY:
         raise KeyError(f"Unknown feature selector spec: {name!r}. Registered: {sorted(_REGISTRY)}")
     return _REGISTRY[name]
@@ -86,12 +93,14 @@ def available() -> list[str]:
 
 
 def _instantiate_mrmr(**kwargs):
+    """Registry factory for MRMR: forwards kwargs verbatim to the ``MRMR`` constructor."""
     # Deferred import: see _setup_helpers.py comment about MRMR's ~10-25s cold-import cost.
     from mlframe.feature_selection.filters import MRMR
     return MRMR(**kwargs)
 
 
 def _instantiate_rfecv(**kwargs):
+    """Registry factory for RFECV: builds the base RFECV then optionally wraps it in a cluster-medoid GroupAwareMRMR pre-reduction (default ON here)."""
     # Go through the public re-export so the underscore module remains an implementation detail.
     from mlframe.feature_selection.wrappers import RFECV
     # cluster-medoid pre-reduction is DEFAULT-ON for RFECV instantiated through THIS factory (MRMR / BorutaShap
@@ -127,6 +136,7 @@ def _instantiate_rfecv(**kwargs):
 
 
 def _instantiate_boruta_shap(**kwargs):
+    """Registry factory for BorutaShap: builds the base selector then optionally wraps it in a cluster-medoid GroupAwareMRMR pre-reduction (default ON here)."""
     # Lazy import: BorutaShap pulls in shap + matplotlib + seaborn (~2s).
     from mlframe.feature_selection.boruta_shap import BorutaShap
     # 2026-06-03 (audit integration-defaults-3): cluster-medoid pre-reduction
@@ -154,6 +164,7 @@ def _instantiate_boruta_shap(**kwargs):
 
 
 def _instantiate_shap_proxied_fs(**kwargs):
+    """Registry factory for ShapProxiedFS. NOT wrapped in the cluster-medoid reduction -- the selector already clusters internally."""
     # Lazy import: ShapProxiedFS pulls in shap + a tree booster on first fit.
     # 2026-06-03 (audit integration-defaults-3): ShapProxiedFS is intentionally
     # NOT wrapped in the cluster-medoid reduction -- it ALREADY clusters
@@ -165,6 +176,7 @@ def _instantiate_shap_proxied_fs(**kwargs):
 
 
 def _instantiate_ace(**kwargs):
+    """Registry factory for ACE (Artificial Contrasts with Ensembles): forwards kwargs verbatim to ``ACESelector``."""
     # Lazy import: ace pulls in sklearn ensembles + scipy.stats on first fit.
     from mlframe.feature_selection.ace import ACESelector
     return ACESelector(**kwargs)

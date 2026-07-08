@@ -47,7 +47,7 @@ def _discretize_input_dtype():
 # cache is process-wide + LRU-bounded; keyed on a content hash so a hit is bit-identical BY CONSTRUCTION.
 # NOTE: deliberately NOT used on the supervised ``nbins_strategy`` path (mdlp/optimal_joint/...), where bins
 # depend on y -> a feature's codes differ per target and sharing would be WRONG. Disable via env if needed.
-from collections import OrderedDict as _OrderedDict  # noqa: E402
+from collections import OrderedDict as _OrderedDict
 
 _NUMERIC_CODE_CACHE: "_OrderedDict[bytes, np.ndarray]" = _OrderedDict()
 # Total bytes of cached column-code arrays to retain (column codes are n_rows*dtype; gate so a 100GB-frame

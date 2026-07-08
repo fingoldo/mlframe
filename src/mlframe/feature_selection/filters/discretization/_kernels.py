@@ -99,7 +99,7 @@ def _quantile_edges_2d_njit(arr2d: np.ndarray, quantiles: np.ndarray, kths: np.n
             # to float64 in the multiply and the interpolation result is float64 -- matching
             # numpy bit-for-bit. (Sort in float32 order statistics, lerp them in float64.)
             v = (quantiles[qi] / 100.0) * (n_rows - 1)
-            lo = int(math.floor(v))
+            lo = math.floor(v)
             if lo >= n_rows - 1:
                 edges_out[qi, j] = col[n_rows - 1]
             else:
@@ -224,7 +224,7 @@ def _quantile_codes_1d_njit(arr: np.ndarray, quantiles: np.ndarray, kths: np.nda
     edges = np.empty(n_q, dtype=np.float64)
     for qi in range(n_q):
         v = (quantiles[qi] / 100.0) * (n - 1)
-        lo = int(math.floor(v))
+        lo = math.floor(v)
         if lo >= n - 1:
             edges[qi] = buf[n - 1]
         else:

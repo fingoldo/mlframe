@@ -82,6 +82,8 @@ def run_in_big_stack_thread(
     exc_holder: list = [None]
 
     def _target() -> None:
+        """Runs ``func`` on the big-stack worker thread, stashing its result or exception for the caller to
+        retrieve/re-raise on the main thread once the worker joins."""
         try:
             result_holder[0] = func(*args, **kwargs)
         except (Exception, KeyboardInterrupt, SystemExit) as e:

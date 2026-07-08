@@ -117,13 +117,14 @@ def interaction_proxy_top_n(
     phi = np.ascontiguousarray(phi, dtype=np.float64)
     base = np.ascontiguousarray(base, dtype=np.float64)
     y = np.ascontiguousarray(y, dtype=np.float64)
-    n, P = phi.shape
+    _n, P = phi.shape
     max_card = P if max_card is None else min(max_card, P)
     phi_T = np.ascontiguousarray(phi.T)
     pair_rows, in_gate = build_pair_table(Phi, phi, interaction_top_k)
     cache: dict[tuple[int, ...], float] = {}
 
     def _loss(key: tuple[int, ...]) -> float:
+        """Cached greedy-search objective for a candidate feature subset ``key`` (empty subset scores ``+inf``, never selected)."""
         if not key:
             return float("inf")
         v = cache.get(key)

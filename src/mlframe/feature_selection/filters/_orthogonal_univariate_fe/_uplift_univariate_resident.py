@@ -109,7 +109,7 @@ def uplift_univariate_eng_mi_resident(
     if specs is None:
         return None  # extra-basis / unparseable -> host path (SF1c irreducible transient).
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
 
         from ._gpu_resident_cross_basis import _resident_mi, build_leg_product_matrix_gpu
 
@@ -117,6 +117,6 @@ def uplift_univariate_eng_mi_resident(
         if mat_gpu.shape[1] != engineered_X.shape[1]:
             return None  # spec / column-count mismatch -> host scorer (never emit a misaligned ratio).
         return _resident_mi(cp, mat_gpu, y, int(nbins))
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("uplift_univariate_eng_mi_resident: GPU path failed (%s); host fallback", _exc)
         return None

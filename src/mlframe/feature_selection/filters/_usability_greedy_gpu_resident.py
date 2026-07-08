@@ -348,7 +348,7 @@ def usability_greedy_gpu_resident(
                     out[i] = errs_host[r]
             return out
 
-        min_improving_folds = max(1, int(math.ceil(0.75 * nf)))
+        min_improving_folds = max(1, math.ceil(0.75 * nf))
         selected: list = []
         folds_cur = _cv_baseline()
         mae_cur = float(folds_cur.mean())

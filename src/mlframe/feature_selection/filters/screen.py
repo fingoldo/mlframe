@@ -100,9 +100,9 @@ class ScreenState:
     """
     selected_vars: list = field(default_factory=list)
     # MI cache attributes: name kept mixedCase to match the kwarg-name contract threaded through evaluate_candidate / mi_direct / mi_direct_gpu (renaming would cascade through ~40 call sites in screen/evaluation/gpu/permutation).
-    cached_MIs: dict = field(default_factory=dict)  # noqa: N815
-    cached_confident_MIs: dict = field(default_factory=dict)  # noqa: N815
-    cached_cond_MIs: dict = field(default_factory=dict)  # noqa: N815
+    cached_MIs: dict = field(default_factory=dict)
+    cached_confident_MIs: dict = field(default_factory=dict)
+    cached_cond_MIs: dict = field(default_factory=dict)
     entropy_cache: dict = field(default_factory=dict)
     partial_gains: dict = field(default_factory=dict)
     failed_candidates: set = field(default_factory=set)
@@ -167,4 +167,4 @@ def postprocess_candidates(
 # in ``_screen_predictors.py`` so this file stays below the 1k-LOC
 # monolith threshold.
 # ----------------------------------------------------------------------
-from ._screen_predictors import screen_predictors  # noqa: E402,F401
+from ._screen_predictors import screen_predictors

@@ -53,6 +53,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class FriendGraphNode:
+    """One feature's summary stats within the friend graph: its relevance, entropy, and how much MI it shares with its neighbors (used to classify it green/red/yellow)."""
+
     idx: int  # column index into the discretized factor matrix
     name: str
     entropy: float  # H(X) in nats
@@ -65,6 +67,8 @@ class FriendGraphNode:
 
 @dataclass
 class FriendGraphEdge:
+    """One directed pairwise-MI link between two features in the friend graph, pointing from the explaining feature to the explained one."""
+
     a: int  # explaining feature (arrow source)
     b: int  # explained feature (arrow target)
     mi: float  # I(X_a; X_b)
@@ -72,6 +76,8 @@ class FriendGraphEdge:
 
 @dataclass
 class FriendGraph:
+    """The full computed friend graph for a feature set: nodes, edges, suspected-garbage/pruned features, and the layout needed to render or summarize it."""
+
     nodes: List[FriendGraphNode] = field(default_factory=list)
     edges: List[FriendGraphEdge] = field(default_factory=list)
     suspected_garbage: List[str] = field(default_factory=list)

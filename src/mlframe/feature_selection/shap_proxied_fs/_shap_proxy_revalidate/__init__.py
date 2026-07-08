@@ -221,7 +221,7 @@ def proxy_trust_guard(
     else:
         raise ValueError(f"trustworthy_metric must be 'proxy_fidelity_score' or 'spearman', got {trustworthy_metric!r}")
     trustworthy = np.isfinite(gate_value) and gate_value >= fidelity_floor
-    report = dict(n_anchors=int(len(proxy_losses)), spearman=sp, kendall=kt,
+    report = dict(n_anchors=len(proxy_losses), spearman=sp, kendall=kt,
                   recall_at_k=recall, k=int(k),
                   # iter18: ``fidelity_floor`` is the canonical key for the gate threshold.
                   # ``spearman_floor`` is kept as a deprecated alias in the report so legacy

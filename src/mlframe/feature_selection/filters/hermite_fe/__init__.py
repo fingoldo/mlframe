@@ -48,12 +48,15 @@ except ImportError:
     _NUMBA_AVAILABLE = False
     # No-op decorators so the file imports without numba.
     def njit(*args, **kwargs):
+        """No-numba fallback: return the function unchanged (bare-decorator form) or a pass-through decorator (parametrized form)."""
         if len(args) == 1 and callable(args[0]):
             return args[0]
         def deco(fn):
+            """Pass-through decorator used when ``njit`` is called with arguments but numba is unavailable."""
             return fn
         return deco
     def prange(n):
+        """No-numba fallback: plain ``range``."""
         return range(n)
 
 
@@ -146,7 +149,7 @@ def plugin_mi_classif_batch_fast(X_cols: np.ndarray, y: np.ndarray, n_bins: int 
     when k is small (<= ~10) because the prange-overhead and per-thread
     argsort cost dominate at low column counts.
     """
-    n, k = X_cols.shape
+    _n, k = X_cols.shape
     y_i64 = np.asarray(y, dtype=np.int64)
     out = np.empty(k, dtype=np.float64)
     for j in range(k):
@@ -200,7 +203,7 @@ def _plugin_mi_regression_batch_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: 
 
 
 # Basis-eval kernels carved to a sibling module; re-exported so the registries below and external importers resolve unchanged.
-from ._hermite_basis_eval import (  # noqa: F401
+from ._hermite_basis_eval import (
     _hermeval_njit, _legval_njit, _chebval_njit, _lagval_njit,
     _hermeval_njit_parallel, _legval_njit_parallel, _chebval_njit_parallel, _lagval_njit_parallel,
     _build_basis_hermite, _build_basis_legendre, _build_basis_chebyshev, _build_basis_laguerre,
@@ -214,7 +217,7 @@ _CUDA_AVAILABLE = False
 _CUDA_KERNELS: dict = {}
 
 try:
-    import cupy as _cp  # noqa: F401
+    import cupy as _cp
     _CUDA_AVAILABLE = True
 except ImportError:
     pass
@@ -265,7 +268,7 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
     _cushion: Any = None
     try:
         from .._fe_gpu_vram import fe_gpu_has_vram_cushion as _cushion
-    except Exception:  # noqa: BLE001
+    except Exception:
         _cushion = None
     fits = []
     for d in range(ndev):
@@ -300,7 +303,7 @@ _NJIT_PAR_FUNCS = {
 }
 
 import os as _os
-from ._hermite_oracle import (  # noqa: E402,F401
+from ._hermite_oracle import (
     _CUDA_THRESHOLD,
     _PAR_THRESHOLD,
     _POLYEVAL_ORACLE_FN_NAME,
@@ -405,7 +408,7 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
 # robust path is GATED on a cheap per-column heavy-tail detector and is byte-identical to the legacy path on clean columns
 # (the gate stays OFF), so the wide byte-stability FE suite is untouched; it engages only where the raw scale is provably
 # corrupted. Default ON (the fastest-correct default); set MLFRAME_ROBUST_AXIS=0 (or pass legacy params) to replay legacy.
-from ._hermite_robust import (  # noqa: E402,F401
+from ._hermite_robust import (
     _ROBUST_AXIS_GAP,
     _ROBUST_AXIS_K,
     _ROBUST_AXIS_MAX_FRAC,
@@ -422,6 +425,7 @@ from ._hermite_robust import (  # noqa: E402,F401
 
 
 def _preprocess_zscore(x):
+    """Standardize ``x`` to z-scores; heavy-tailed columns use robust median/inner-quantile-range center/scale with a +/-6-sigma clip instead of the raw mean/std."""
     if _robust_axis_enabled() and _detect_heavy_tail(x):
         xf = x[np.isfinite(x)]
         # Robust centre/scale from the inner-quantile core; map outliers but CLAMP to the Hermite working domain so a
@@ -469,6 +473,7 @@ def _minmax_neg1_1_njit(x: np.ndarray):
 
 
 def _preprocess_minmax_neg1_1(x):
+    """Rescale ``x`` onto ``[-1, 1]``; heavy-tailed columns use robust inner-quantile bounds with clamping to +/-1 instead of the raw min/max."""
     if _robust_axis_enabled() and _detect_heavy_tail(x):
         # Min-max onto [-1, 1] from the inner-quantile bounds; clamp so clipped outliers pin to +/-1 (the basis domain edge)
         # instead of compressing the core toward 0. clip is implied (the [-1, 1] clamp), recorded so replay matches.
@@ -481,6 +486,7 @@ def _preprocess_minmax_neg1_1(x):
 
 
 def _preprocess_shift_nonneg(x):
+    """Shift ``x`` to be non-negative (Laguerre domain); heavy-tailed columns clamp the upper tail to the robust inner-quantile range instead of the raw max, avoiding an exploding ``L_n`` argument."""
     if _robust_axis_enabled() and _detect_heavy_tail(x):
         # Shift the inner-quantile lower bound to ~0 and clamp the upper tail to the inner-quantile range so a positive
         # spike does not push the Laguerre argument far out where L_n explodes. Upper clamp recorded for replay.
@@ -493,6 +499,7 @@ def _preprocess_shift_nonneg(x):
 
 
 def _apply_zscore(x, params):
+    """Replay a fitted ``_preprocess_zscore`` transform onto new data from its stored ``mean``/``std``/(optional)``clip`` params."""
     z = (x - params["mean"]) / max(params["std"], 1e-12)
     clip = params.get("clip")
     if clip is not None:
@@ -501,6 +508,7 @@ def _apply_zscore(x, params):
 
 
 def _apply_minmax(x, params):
+    """Replay a fitted ``_preprocess_minmax_neg1_1`` transform onto new data from its stored ``lo``/``hi``/(optional)``clip`` params."""
     span = params["hi"] - params["lo"] + 1e-12
     z = 2 * (x - params["lo"]) / span - 1
     clip = params.get("clip")
@@ -510,6 +518,7 @@ def _apply_minmax(x, params):
 
 
 def _apply_shift(x, params):
+    """Replay a fitted ``_preprocess_shift_nonneg`` transform onto new data from its stored ``lo``/(optional)``clip`` params."""
     z = x - params["lo"] + 1e-9
     clip = params.get("clip")
     if clip is not None:
@@ -520,6 +529,7 @@ def _apply_shift(x, params):
 def _make_dispatch(name):
     """Bind the basis name into a closure matching the (x, c) -> ndarray signature of eval / eval_njit."""
     def _d(x, c):
+        """Evaluate the ``name``-basis polynomial with coefficients ``c`` at ``x`` via the size-aware backend dispatcher."""
         return polyeval_dispatch(name, x, c)
     _d.__name__ = f"_polyeval_{name}_dispatched"
     return _d
@@ -721,7 +731,7 @@ def basis_route_by_moments(x: np.ndarray) -> str:
     # Single fused njit pass computes all six statistics without materialising the z / z2 / z3 / z4 temporaries the
     # legacy numpy body allocated (the ** vs chained-mul antipattern noted below is subsumed: the njit uses d*d / d2*d).
     x = np.ascontiguousarray(x)
-    mean, std, skew, kurt_excess, xmin, xmax = _moment_fingerprint_njit(x)
+    _mean, std, skew, kurt_excess, xmin, xmax = _moment_fingerprint_njit(x)
     rng = xmax - xmin
     spread_ratio = rng / std
     one_sided = (xmin >= 0) or (xmax <= 0)
@@ -743,7 +753,7 @@ def basis_route_by_moments(x: np.ndarray) -> str:
 # ``_hermite_fe_optimise.py`` and ``_hermite_fe_mi.py`` so this file
 # stays below the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._hermite_prewarp import (  # noqa: E402,F401
+from ._hermite_prewarp import (
     _L2_PENALTY_SATURATION_DEFAULT,
     _canonical_seeds,
     _ksg_mi_1d,
@@ -754,9 +764,9 @@ from ._hermite_prewarp import (  # noqa: E402,F401
     fit_pair_prewarp_als,
     warm_start_als_seed,
 )
-from .._hermite_fe_optimise import (  # noqa: E402,F401
+from .._hermite_fe_optimise import (
     _baseline_mi_pair, _eval_coef_pair, _run_cma_search, _select_diverse_topm, detect_pair_symmetry, optimise_hermite_pair, optimise_pair_multimode,
 )
-from .._hermite_fe_mi import (  # noqa: E402,F401
+from .._hermite_fe_mi import (
     _ensure_cuda_kernels, _plugin_mi_classif_batch_cuda, _plugin_mi_classif_batch_cuda_resident, _plugin_mi_classif_njit, _plugin_mi_from_binned_njit, _plugin_mi_regression_njit, plugin_mi_classif_batch_dispatch, plugin_mi_classif_dispatch, plugin_mi_classif_fast,
 )

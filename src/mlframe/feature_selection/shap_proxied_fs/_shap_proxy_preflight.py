@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 
 def _cv_score(estimator, X, y, classification):
+    """3-fold CV score of ``estimator`` (ROC-AUC for classification, R2 for regression); returns NaN
+    on any fit/scoring failure so a single degenerate fold can't crash the whole preflight gate."""
     scoring = "roc_auc" if classification else "r2"
     try:
         return float(np.mean(cross_val_score(estimator, X, y, cv=3, scoring=scoring)))

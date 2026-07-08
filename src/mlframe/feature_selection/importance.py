@@ -1,3 +1,5 @@
+"""Feature-importance computation, logging, and plotting: bar charts of per-feature importance, SHAP beeswarm plots, and sklearn permutation importance wrapped as a sorted polars frame."""
+
 from __future__ import annotations
 
 # *****************************************************************************************************************************************************
@@ -36,6 +38,7 @@ _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._ =\[\]@\-]+")
 
 
 def _sanitize_for_filename(s: str, max_len: int = 120) -> str:
+    """Strip anything not in the safe charset (letters, digits, ``._ =[]@-``) and clamp length so a model name is safe to embed directly in a filename."""
     cleaned = _SAFE_FILENAME_RE.sub("_", str(s)).strip(" .")
     return cleaned[:max_len] if cleaned else "unnamed"
 
@@ -45,7 +48,7 @@ def _sanitize_for_filename(s: str, max_len: int = 120) -> str:
 
 
 def show_shap_beeswarm_plot(model: object, df: pd.DataFrame, **kwargs):
-
+    """Render a SHAP beeswarm plot for a tree model over ``df`` using ``shap.TreeExplainer``; ``kwargs`` forward to ``shap.plots.beeswarm`` (e.g. ``ax``, ``show``, ``max_display``)."""
     shap.initjs()
 
     explainer = shap.TreeExplainer(model)
@@ -194,7 +197,7 @@ def plot_feature_importance(
     # fit on top of cal-plot wins.
     if plot_file == "" and show_plots:
         try:
-            _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+            _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]
         except NameError:
             import sys as _sys
             _is_interactive_session = hasattr(_sys, "ps1")
@@ -287,7 +290,7 @@ def plot_feature_importance(
                 # ``__IPYTHON__`` is defined only inside an IPython /
                 # Jupyter kernel (not in bare python or in a script
                 # that happened to import IPython transitively).
-                _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+                _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]
             except NameError:
                 _in_kernel = False
             _displayed_inline = False
@@ -340,7 +343,7 @@ def plot_feature_importance(
 
 
 def compute_permutation_importances(*sklearn_args, columns: list, **sklearn_kwargs) -> pl.DataFrame:
-
+    """Run ``sklearn.inspection.permutation_importance`` and assemble a polars frame sorted by a std-penalised mean importance (``mean - 0.2*std``), dropping features whose mean and std both landed at exactly 0."""
     result = permutation_importance(*sklearn_args, **sklearn_kwargs)
 
     # `result` is a Bunch; "importances" is 2D (n_features x n_repeats) and
@@ -364,6 +367,7 @@ def explain_top_feature_importances(
     save_chart: bool = True,
     figsize: tuple = (15, 20),
 ) -> None:
+    """Render + optionally save a SHAP beeswarm chart for ``model.model`` titled with the model name, iteration, and feature count; used as the top-level entry point for per-model SHAP diagnostics."""
     if beeswarm_plot_params is None:
         beeswarm_plot_params = dict(max_display=30, group_remaining_features=False)
     fig, ax = plt.subplots(figsize=figsize)

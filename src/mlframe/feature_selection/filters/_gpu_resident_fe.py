@@ -513,6 +513,7 @@ _PREWARP_CODE = {"hermite": 0, "legendre": 1, "chebyshev": 1, "laguerre": 2}
 
 
 def _get_prewarp_transform_kernel(cp):
+    """Lazily compiles and caches the fused prewarp min-max/z-score/shift+clip ``RawKernel`` (module-level singleton; pickle-safe)."""
     global _PREWARP_TRANSFORM_KERNEL
     if _PREWARP_TRANSFORM_KERNEL is None:
         _PREWARP_TRANSFORM_KERNEL = cp.RawKernel(_PREWARP_TRANSFORM_SRC, "prewarp_transform")
@@ -567,7 +568,7 @@ def _gpu_apply_prewarp(cp, x, spec):
         _get_prewarp_transform_kernel(cp)(((nrow + threads - 1) // threads,), (threads,),
             (xfc, np.int32(code), np.float64(lo), np.float64(span), np.float64(mean), np.float64(std_safe),
              np.float64(clip_lo), np.float64(clip_hi), np.int32(1 if has_clip else 0), np.int64(nrow), z))
-    except Exception:  # noqa: BLE001
+    except Exception:
         if basis in ("legendre", "chebyshev"):
             z = 2 * (xf - pp["lo"]) / (pp["hi"] - pp["lo"] + 1e-12) - 1
             if clip is not None:
@@ -642,6 +643,7 @@ def _binary_apply(xp, name, x, y):
 
 
 def _candidate_names(a_label: str = "a", b_label: str = "b") -> list[str]:
+    """Builds the human-readable ``bop(ua(a),ub(b))`` candidate name strings in the same nested-loop order as ``_COMBOS``/the candidate matrix columns."""
     return [f"{bop}({ua}({a_label}),{ub}({b_label}))" for ua in _MINIMAL_UNARY for ub in _MINIMAL_UNARY for bop in _MINIMAL_BINARY]
 
 
@@ -724,6 +726,7 @@ _FUSED_GEN_CM_KERNEL = None  # module-level singleton (lazy-compiled; pickle-saf
 
 
 def _get_fused_gen_kernel():
+    """Lazily compiles and caches the row-major fused-generation ``RawKernel`` (one launch fills the whole (n,K) candidate matrix)."""
     global _FUSED_GEN_KERNEL
     if _FUSED_GEN_KERNEL is None:
         import cupy as cp
@@ -732,6 +735,7 @@ def _get_fused_gen_kernel():
 
 
 def _get_fused_gen_cm_kernel():
+    """Lazily compiles and caches the column-major twin of ``_get_fused_gen_kernel`` (writes a (K,n) buffer for coalesced downstream reads)."""
     global _FUSED_GEN_CM_KERNEL
     if _FUSED_GEN_CM_KERNEL is None:
         import cupy as cp
@@ -825,6 +829,7 @@ _FUSED_GEN_BIN_HIST_KERNEL = None  # module-level singleton (lazy-compiled; pick
 
 
 def _get_fused_gen_bin_hist_kernel():
+    """Lazily compiles and caches the grand-fusion RawKernel that generates, bins, and joint-histograms every candidate against all y-vectors in one launch, without ever materialising the (n,K) candidate matrix."""
     global _FUSED_GEN_BIN_HIST_KERNEL
     if _FUSED_GEN_BIN_HIST_KERNEL is None:
         import cupy as cp
@@ -1026,7 +1031,7 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     unavailable (callers gate on :func:`fe_gpu_resident_enabled` + availability)."""
     import cupy as cp
 
-    from . import hermite_fe as _hf  # noqa: F401 -- full-init the parent first so the direct
+    from . import hermite_fe as _hf
     # ``_hermite_fe_mi`` import below can't trip the _ensure_cuda_kernels back-import cycle.
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 
@@ -1113,7 +1118,7 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
     the (Spearman ~0.999) approx MI."""
     import cupy as cp
 
-    from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before the _hermite_fe_mi import
+    from . import hermite_fe as _hf
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda
 
     a_gpu = cp.asarray(a, dtype=cp.float64)
@@ -1124,6 +1129,7 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
     ub_cache = {u: _unary_apply(cp, u, b_gpu) for u in _MINIMAL_UNARY}
 
     def _col(idx):
+        """Regenerates candidate column ``idx`` from the cached post-unary operand columns, scrubbing non-finite values to 0."""
         ua, ub, bop = _COMBOS[idx]
         return cp.nan_to_num(_binary_apply(cp, bop, ua_cache[ua], ub_cache[ub]), nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -1160,9 +1166,9 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
 # Rebind EVERY moved name (public AND underscore-private) into this namespace so all existing
 # ``from .._gpu_resident_fe import X`` paths still resolve byte-for-byte (production code + tests import
 # several private names by path). At the BOTTOM so the siblings' top-level back-imports resolve.
-from . import _gpu_resident_basis as _grb  # noqa: E402
-from . import _gpu_resident_select as _grs  # noqa: E402
-from . import _gpu_resident_k_chunk_ktc as _grk  # noqa: E402  (G3 KTC carve)
+from . import _gpu_resident_basis as _grb
+from . import _gpu_resident_select as _grs
+from . import _gpu_resident_k_chunk_ktc as _grk
 for _m in (_grb, _grs, _grk):
     for _n in dir(_m):
         if not _n.startswith("__") and _n not in globals():

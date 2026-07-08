@@ -42,7 +42,7 @@ def _cpsat_pack(works: list[int], speeds: list[float]) -> list[int] | None:
         return None
     B, D = len(works), len(speeds)
     mn = min(speeds)
-    sp = [max(1, int(round(s / mn * _SCALE))) for s in speeds]  # integer relative speeds, slowest == _SCALE
+    sp = [max(1, round(s / mn * _SCALE)) for s in speeds]  # integer relative speeds, slowest == _SCALE
     total = sum(int(w) for w in works)
     model = cp_model.CpModel()
     x = [[model.NewBoolVar(f"x_{b}_{d}") for d in range(D)] for b in range(B)]  # type: ignore[attr-defined]  # ortools CamelCase alias, still present at runtime

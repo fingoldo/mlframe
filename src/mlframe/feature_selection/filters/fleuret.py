@@ -67,6 +67,7 @@ def get_fleuret_criteria_confidence_parallel(
     dtype=np.int32,
     base_seed: int = 0,
 ) -> tuple:
+    """Joblib-parallel Fleuret permutation-confirmation: splits ``npermutations`` across workers (with independent-yet-reproducible per-worker seeds), forwarding the SU/Miller-Madow/JMIM scoring toggles into each worker thread."""
     if parallel_kwargs is None:
         parallel_kwargs = {}
     if entropy_cache is None:
@@ -284,7 +285,7 @@ def get_fleuret_criteria_confidence(
             for idx in x:
                 _lcg_state = np.uint64(_fleuret_shuffle_col_lcg(data_copy[:, idx], _lcg_state))
 
-        stopped_early, current_gain, k, sink_reasons = evaluate_gain(
+        _stopped_early, current_gain, _k, _sink_reasons = evaluate_gain(
             current_gain=LARGE_CONST,
             last_checked_k=-1,
             X=x,
