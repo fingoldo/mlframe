@@ -48,7 +48,7 @@ __all__ = [
 
 import logging
 import os
-from typing import Any, Callable, Iterator, Tuple
+from typing import Any, Callable, Iterator, Tuple, cast
 
 import numpy as np
 
@@ -213,7 +213,7 @@ def iter_group_segments(
         gmin = int(g.min())
         span = int(g.max()) - gmin
         if 0 <= span <= 4 * n + 1_000_000:
-            return _stable_counting_segments_int(g, gmin, span)
+            return cast(Tuple[np.ndarray, np.ndarray, np.ndarray], _stable_counting_segments_int(g, gmin, span))
 
     sort_idx = np.argsort(g, kind="stable")
     g_sorted = g[sort_idx]

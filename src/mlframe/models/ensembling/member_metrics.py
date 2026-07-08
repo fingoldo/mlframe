@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import os
 from functools import lru_cache
+from typing import cast
 
 import numpy as np
 
@@ -117,7 +118,7 @@ def _per_member_mae_std(arr: np.ndarray, median_preds: np.ndarray) -> tuple:
     # kernel_tuning_cache -> measured fallback).
     use_numba = _HAS_NUMBA_PER_MEMBER and arr.dtype == np.float64 and arr.ndim in (2, 3) and _per_member_use_numba(elements_per_member, K, arr.ndim)
     if use_numba:
-        return _per_member_mae_std_njit(arr, median_preds)
+        return cast(tuple, _per_member_mae_std_njit(arr, median_preds))
     # bench-attempt-rejected (2026-05-21, c0123 K=3 / N=200k): single-pass
     # variance via ``E[X^2] - E[X]^2`` (avoids the (K, N) squared-diff
     # intermediate) saved 15-26 % wall on numpy paths (2-D 7.5 -> 6.4 ms;

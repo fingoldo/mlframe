@@ -43,7 +43,7 @@ def recursion_code_version(kernel_name: str) -> str | None:
         from . import bayesian as _B
 
         fn = _B.bocpd_features if kernel_name == "fe_bocpd" else _B.online_bayesian_linear_regression
-        return compute_code_version(fn, salt=_RECURSION_SALT)
+        return str(compute_code_version(fn, salt=_RECURSION_SALT))
     except Exception:
         return None
 

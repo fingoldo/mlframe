@@ -302,7 +302,7 @@ def weak_segment_heatmap(
         row_labels = tuple(f"{ea[i]:.3g}..{ea[i + 1]:.3g}" for i in range(na))
         col_labels = tuple(f"{eb[i]:.3g}..{eb[i + 1]:.3g}" for i in range(nb))
         xlabel, ylabel = names[jb], names[ja]
-        split_features = (names[ja], names[jb])
+        split_features: Tuple[str, ...] = (names[ja], names[jb])
     else:
         counts = np.bincount(ia, minlength=na).astype(np.float64)
         sums = np.bincount(ia, weights=err, minlength=na)
@@ -313,9 +313,9 @@ def weak_segment_heatmap(
         worst = int(np.nanargmax(np.where(np.isfinite(mean_err), mean_err, -np.inf)))
         worst_cell = (float(ea[worst]), float(ea[worst + 1]), float("nan"), float("nan"), float(mean_err[worst]))
         row_labels = tuple(f"{ea[i]:.3g}..{ea[i + 1]:.3g}" for i in range(na))
-        col_labels = ("error",)
+        col_labels = tuple(["error"])
         xlabel, ylabel = "", names[ja]
-        split_features = (names[ja],)
+        split_features = tuple([names[ja]])
 
     heat = HeatmapPanelSpec(
         matrix=cell_error,

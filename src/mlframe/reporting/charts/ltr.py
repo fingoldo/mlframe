@@ -28,7 +28,7 @@ build, so the group sort and kernels run once per figure, not per panel.
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, cast
 
 import numpy as np
 
@@ -63,7 +63,7 @@ def _sorted_layout(
     group sort + float64 conversion run once per figure, not per panel.
     """
     if shared is not None and "layout" in shared:
-        return shared["layout"]
+        return cast(Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], shared["layout"])
     from mlframe.metrics.ranking import _iter_group_slices
 
     sorted_y_true, sorted_y_score, group_starts = _iter_group_slices(

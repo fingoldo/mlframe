@@ -7,7 +7,7 @@ save/record helpers so the per-(model, split) wiring stays consistent with the o
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 import numpy as np
 
@@ -18,7 +18,7 @@ def render_risk_coverage_diagnostic(
     *,
     y_true: np.ndarray,
     y_score: np.ndarray,
-    task: str = "binary",
+    task: Literal["binary", "multiclass", "regression"] = "binary",
     confidence: Optional[np.ndarray] = None,
     plot_outputs: str,
     base_path: str,
