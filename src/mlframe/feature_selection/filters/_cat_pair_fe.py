@@ -264,6 +264,7 @@ def score_cat_pairs_by_interaction_information(
     marginal_mi: dict[str, float] = {}
 
     def _codes(col: str) -> np.ndarray:
+        """Memoized dense integer codes (and cached cardinality) for column ``col``, computed once and reused across every pair that references it."""
         if col not in code_cache:
             _, c = np.unique(_column_to_str(X[col]), return_inverse=True)
             c = c.astype(np.int64)
@@ -272,6 +273,7 @@ def score_cat_pairs_by_interaction_information(
         return code_cache[col]
 
     def _mi_col(col: str) -> float:
+        """Memoized marginal MI ``I(col; y)``, reused across every pair involving ``col`` so it's computed at most once per column."""
         if col not in marginal_mi:
             marginal_mi[col] = float(_plug_in_mi(_codes(col), y_bin))
         return marginal_mi[col]
@@ -526,6 +528,7 @@ def apply_cat_pair_cross(
     lookup = te_lookup or {}
 
     def _value_for_pair(si, sj):
+        """Per-row cross-cell value for a category pair: target-encoded lookup (falling back to the global mean for unseen pairs/codes) when ``encoding=="target"``, else the raw joint-cell integer code (sentinel for unseen pairs)."""
         # The exact per-row semantics, factored out so the vectorized and
         # fallback paths are provably identical.
         if encoding == "target":

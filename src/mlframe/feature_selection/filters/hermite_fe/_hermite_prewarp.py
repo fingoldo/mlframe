@@ -244,6 +244,7 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
     # into one resident call; here the inner dim is ~4 and the sweep can't be unrolled across seeds without
     # restructuring the whole CMA-ES warm-start driver). Already at the CPU optimum (normal-eq, 1.24-1.84x over lstsq).
     def _als_solve(A: np.ndarray, b: np.ndarray) -> np.ndarray:
+        """Solve the small (degree+1)x(degree+1) normal-equations least-squares system ``A @ x ~= b`` for one ALS coordinate update, falling back to ``lstsq`` when the Gram matrix ``A.T @ A`` is singular."""
         AtA = A.T @ A
         try:
             return np.asarray(np.linalg.solve(AtA, A.T @ b))

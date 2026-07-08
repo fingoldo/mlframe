@@ -133,6 +133,7 @@ def multi_gpu_fe_batch_mi(
         cols_per_dev[dev_of_block[bi]].extend(range(s, e))
 
     def _score_on(dev_slot: int) -> None:
+        """Score this device's assigned column block via ``gpu_fe_batch_mi`` on its own GPU, writing results into ``out`` at the original column indices; run from the ThreadPoolExecutor so devices execute concurrently."""
         cols = cols_per_dev[dev_slot]
         if not cols:
             return

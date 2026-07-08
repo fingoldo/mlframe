@@ -72,22 +72,27 @@ __all__ = [
 
 
 def engineered_name_ratio(a: str, b: str) -> str:
+    """Canonical column name for the ``a / b`` ratio feature; must match the name recipes replay under."""
     return f"ratio__{a}__{b}"
 
 
 def engineered_name_log_ratio(a: str, b: str) -> str:
+    """Canonical column name for the ``log1p(|a|) - log1p(|b|)`` log-ratio feature."""
     return f"log_ratio__{a}__{b}"
 
 
 def engineered_name_grouped_delta_mean(num_col: str, group_col: str) -> str:
+    """Canonical column name for the ``num_col - mean(num_col | group_col)`` grouped-delta feature."""
     return f"grouped_delta_{num_col}__{group_col}"
 
 
 def engineered_name_grouped_delta_std(num_col: str, group_col: str) -> str:
+    """Canonical column name for the grouped z-score ``(num_col - mean) / std(num_col | group_col)`` feature."""
     return f"grouped_zscore_{num_col}__{group_col}"
 
 
 def engineered_name_lagged_diff(value_col: str, period: int) -> str:
+    """Canonical column name for the ``value_col_t - value_col_{t-period}`` lagged-difference feature."""
     return f"lagged_diff_{value_col}__period{int(period)}"
 
 
@@ -249,6 +254,7 @@ def _passes_redundancy(
 
 
 def apply_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
+    """Replay a fitted ratio recipe on new data: recompute ``a / b`` with the same sign-preserving safe division as fit time."""
     if not isinstance(X_test, pd.DataFrame):
         raise TypeError(f"apply_ratio: X_test must be a DataFrame; got {type(X_test).__name__}")
     if a not in X_test.columns or b not in X_test.columns:
@@ -260,6 +266,7 @@ def apply_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
 
 
 def apply_log_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
+    """Replay a fitted log-ratio recipe on new data: recompute ``log1p(|a|+eps) - log1p(|b|+eps)``."""
     if not isinstance(X_test, pd.DataFrame):
         raise TypeError(f"apply_log_ratio: X_test must be a DataFrame; got {type(X_test).__name__}")
     if a not in X_test.columns or b not in X_test.columns:
@@ -348,6 +355,7 @@ def grouped_delta_features(
 
 
 def apply_grouped_delta(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
+    """Replay a fitted grouped-delta/z-score recipe on new data using the TRAIN-time per-group mean/std lookups; unseen groups fall back to the stored global mean/std."""
     if not isinstance(X_test, pd.DataFrame):
         raise TypeError(f"apply_grouped_delta: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     group_col = recipe["group_col"]
@@ -434,6 +442,7 @@ def lagged_diff_features(
 
 
 def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
+    """Replay a fitted lagged-diff recipe on new data: resort ``X_test`` by ``time_col``, compute the ``period``-step diff, then unsort back to input row order (pure function of X_test alone, no fit-time state needed)."""
     if not isinstance(X_test, pd.DataFrame):
         raise TypeError(f"apply_lagged_diff: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
     time_col = recipe["time_col"]
@@ -648,6 +657,7 @@ def lagged_diff_with_recipes(
 
 
 def _coerce_X_for_pair(X, a: str, b: str, recipe_name: str) -> pd.DataFrame:
+    """Extract the two source columns ``a``/``b`` from an arbitrary carrier (pandas, polars, or structured ndarray) as a pandas DataFrame so ``apply_ratio``/``apply_log_ratio`` can run at recipe-replay time."""
     if isinstance(X, pd.DataFrame):
         return X
     try:
@@ -662,6 +672,7 @@ def _coerce_X_for_pair(X, a: str, b: str, recipe_name: str) -> pd.DataFrame:
 
 
 def _apply_pairwise_ratio_recipe(recipe, X) -> np.ndarray:
+    """Recipe-apply adapter (consumed by ``engineered_recipes.apply_recipe``): dispatches to ``apply_ratio`` or ``apply_log_ratio`` based on the recipe's stored ``kind``."""
     if len(recipe.src_names) != 2:
         raise ValueError(f"pairwise_ratio recipe '{recipe.name}' must have exactly 2 " f"src_names; got {len(recipe.src_names)}")
     a, b = recipe.src_names
@@ -676,6 +687,7 @@ def _apply_pairwise_ratio_recipe(recipe, X) -> np.ndarray:
 
 
 def _coerce_X_for_grouped_delta(X, group_col: str, num_col: str, recipe_name: str) -> pd.DataFrame:
+    """Extract ``group_col``/``num_col`` from an arbitrary carrier (pandas, polars, or structured ndarray) as a pandas DataFrame for ``apply_grouped_delta`` at recipe-replay time."""
     if isinstance(X, pd.DataFrame):
         return X
     try:
@@ -693,6 +705,7 @@ def _coerce_X_for_grouped_delta(X, group_col: str, num_col: str, recipe_name: st
 
 
 def _apply_grouped_delta_recipe(recipe, X) -> np.ndarray:
+    """Recipe-apply adapter (consumed by ``engineered_recipes.apply_recipe``): rebuilds the ``apply_grouped_delta`` recipe dict from the frozen ``recipe.extra`` payload and replays it on ``X``."""
     group_col = str(recipe.extra["group_col"])
     num_col = str(recipe.extra["num_col"])
     X_view = _coerce_X_for_grouped_delta(X, group_col, num_col, recipe.name)
@@ -711,6 +724,7 @@ def _apply_grouped_delta_recipe(recipe, X) -> np.ndarray:
 
 
 def _coerce_X_for_lagged_diff(X, time_col: str, value_col: str, recipe_name: str) -> pd.DataFrame:
+    """Extract ``time_col``/``value_col`` from an arbitrary carrier (pandas, polars, or structured ndarray) as a pandas DataFrame for ``apply_lagged_diff`` at recipe-replay time."""
     if isinstance(X, pd.DataFrame):
         return X
     try:
@@ -728,6 +742,7 @@ def _coerce_X_for_lagged_diff(X, time_col: str, value_col: str, recipe_name: str
 
 
 def _apply_lagged_diff_recipe(recipe, X) -> np.ndarray:
+    """Recipe-apply adapter (consumed by ``engineered_recipes.apply_recipe``): rebuilds the ``apply_lagged_diff`` recipe dict from the frozen ``recipe.extra`` payload and replays it on ``X``."""
     time_col = str(recipe.extra["time_col"])
     value_col = str(recipe.extra["value_col"])
     period = int(recipe.extra["period"])

@@ -113,6 +113,7 @@ def _connected_components(n: int, edges: list[tuple[int, int]]) -> list[list[int
     parent = list(range(n))
 
     def find(x: int) -> int:
+        """Union-find root lookup with path compression (halving), giving amortised near-constant-time find."""
         # Path compression for amortised near-constant find.
         while parent[x] != x:
             parent[x] = parent[parent[x]]

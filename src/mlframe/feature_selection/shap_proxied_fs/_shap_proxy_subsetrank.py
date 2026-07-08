@@ -174,6 +174,7 @@ def _gpu_min_subsets() -> int:
 
 
 def _total_subsets(n_features: int, min_card: int, max_card: int | None) -> int:
+    """Total number of feature subsets of cardinality in [min_card, max_card] out of ``n_features``, used to decide the CPU/GPU dispatch threshold."""
     max_card = n_features if max_card is None else min(max_card, n_features)
     return int(sum(math.comb(n_features, r) for r in range(min_card, max_card + 1)))
 

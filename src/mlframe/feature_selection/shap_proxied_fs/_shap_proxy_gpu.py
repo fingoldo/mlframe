@@ -70,6 +70,7 @@ void subset_loss(const double* phi, const double* base, const double* y,
 
 
 def gpu_available() -> bool:
+    """Report whether a CUDA device is usable for the subset-loss kernel, demoting to False (with a debug log, not a raised error) on any cupy/CUDA failure."""
     try:
         import cupy as cp
 
@@ -80,6 +81,7 @@ def gpu_available() -> bool:
 
 
 def _ensure_kernel():
+    """Lazily compile and cache the ``subset_loss`` RawKernel, double-checked-locking to avoid a compile race across concurrent callers."""
     global _SUBSET_LOSS_KERNEL
     if _SUBSET_LOSS_KERNEL is not None:
         return _SUBSET_LOSS_KERNEL
@@ -92,6 +94,7 @@ def _ensure_kernel():
 
 
 def _block_size() -> int:
+    """Look up a hardware-tuned CUDA block size for the subset-loss kernel from the shared kernel_tuning_cache, falling back to ``_DEFAULT_BLOCK_SIZE`` on any lookup failure."""
     try:
         from mlframe.feature_selection.filters import get_kernel_tuning_cache
 

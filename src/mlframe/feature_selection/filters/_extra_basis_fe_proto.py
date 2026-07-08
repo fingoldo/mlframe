@@ -28,11 +28,13 @@ __all__ = [
 
 
 def _to_unit(x: np.ndarray) -> np.ndarray:
+    """Affinely map ``x`` to [0, 1] using its own min/range; +1e-12 guards against a zero-range (constant) column."""
     c = np.asarray(x, dtype=np.float64)
     return np.asarray((c - c.min()) / (np.ptp(c) + 1e-12))
 
 
 def _to_pm1(x: np.ndarray) -> np.ndarray:
+    """Affinely map ``x`` to [-1, 1] (the domain Jacobi/Gegenbauer polynomials are defined on)."""
     return 2.0 * _to_unit(x) - 1.0
 
 

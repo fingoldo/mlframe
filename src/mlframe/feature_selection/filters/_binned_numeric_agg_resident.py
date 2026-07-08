@@ -133,12 +133,14 @@ def _get_fused_stats(cp) -> dict:
 
     @cp.fuse()
     def _mean_k(cnt, s1):
+        """Fused per-cell mean from raw moment ``s1`` (sum) and count; NaN where the cell is empty."""
         safe = cp.maximum(cnt, 1.0)
         mean = s1 / safe
         return cp.where(cnt > 0, mean, nan)
 
     @cp.fuse()
     def _std_k(cnt, s1, s2):
+        """Fused per-cell std from raw moments ``s1``/``s2`` and count, clamping the variance to >=0 against FP cancellation; NaN where the cell is empty."""
         safe = cp.maximum(cnt, 1.0)
         mean = s1 / safe
         m2 = cp.maximum(s2 / safe - mean * mean, 0.0)
@@ -147,6 +149,7 @@ def _get_fused_stats(cp) -> dict:
 
     @cp.fuse()
     def _skew_k(cnt, s1, s2, s3):
+        """Fused per-cell skewness from raw moments ``s1``-``s3``; guards against a near-zero std denominator (returns 0.0 rather than a blown-up ratio), NaN where the cell is empty."""
         safe = cp.maximum(cnt, 1.0)
         mean = s1 / safe
         m2 = cp.maximum(s2 / safe - mean * mean, 0.0)
@@ -157,6 +160,7 @@ def _get_fused_stats(cp) -> dict:
 
     @cp.fuse()
     def _kurt_k(cnt, s1, s2, s3, s4):
+        """Fused per-cell excess kurtosis from raw moments ``s1``-``s4``; guards against a near-zero variance denominator (returns 0.0), NaN where the cell is empty."""
         safe = cp.maximum(cnt, 1.0)
         mean = s1 / safe
         m2 = cp.maximum(s2 / safe - mean * mean, 0.0)

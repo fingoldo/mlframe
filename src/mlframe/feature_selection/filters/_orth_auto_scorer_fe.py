@@ -251,6 +251,7 @@ def select_best_scorer_per_column(
     eng_cols = list(engineered_X.columns)
 
     def _scorer_call(name, x_vec, y_vec, seed):
+        """Dispatch to the named dependence scorer (plug_in/ksg/copula/dcor/hsic) with this function's shared hyperparameters, so the bootstrap/LCB loop can call scorers generically by name."""
         if name == "plug_in":
             return _score_plug_in(x_vec, y_vec, nbins=int(nbins))
         if name == "ksg":

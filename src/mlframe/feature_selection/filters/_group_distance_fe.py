@@ -82,14 +82,17 @@ _VALID_DISTANCE_TYPES = ("zdist", "kl", "wasserstein")
 
 
 def engineered_name_group_zdist(num_col: str, group_col: str) -> str:
+    """Canonical name for the per-row z-scored-distance-from-group-mean feature of ``num_col`` within ``group_col``."""
     return f"gzdist({num_col}|{group_col})"
 
 
 def engineered_name_group_kl(num_col: str, group_col: str) -> str:
+    """Canonical name for the KL-divergence-from-global-histogram feature of ``num_col`` within ``group_col``."""
     return f"gkldist({num_col}|{group_col})"
 
 
 def engineered_name_group_wasserstein(num_col: str, group_col: str) -> str:
+    """Canonical name for the 1-D Wasserstein-distance-from-global-distribution feature of ``num_col`` within ``group_col``."""
     return f"gwdist({num_col}|{group_col})"
 
 
@@ -311,6 +314,7 @@ def apply_group_distance(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
 
 
 def _coerce_X(X, group_col: str, recipe_name: str) -> pd.DataFrame:
+    """Normalize a recipe-replay input (pandas/polars DataFrame or structured ndarray) to a pandas frame exposing ``group_col``; raises TypeError for anything the recipe cannot replay against."""
     if isinstance(X, pd.DataFrame):
         return X
     try:
@@ -378,6 +382,7 @@ def build_group_distance_recipe(
 
 
 def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
+    """Pick up to ``max_cols`` candidate grouping columns, preferring the shared detector (``detect_group_column_candidates``) and falling back to a plain low/medium-cardinality non-float scan if that import fails."""
     try:
         from ...training.composite import detect_group_column_candidates
         cands = detect_group_column_candidates(X)
@@ -402,6 +407,7 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
 def _auto_detect_num_cols(
     X: pd.DataFrame, group_cols: Sequence[str], max_cols: int = 8,
 ) -> list[str]:
+    """Pick up to ``max_cols`` numeric candidate columns to compute group-distance features for, excluding ``group_cols``: all float columns qualify, integer columns only if high-cardinality (>500 uniques, i.e. not really categorical)."""
     group_set = set(group_cols)
     out: list[str] = []
     for c in X.columns:

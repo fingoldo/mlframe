@@ -174,6 +174,7 @@ def _mm_mi_correct(mi_plugin: float, k_x: int, k_y: int, n: int) -> float:
 
 @njit(nogil=True, cache=True)
 def _mi_xy_njit(p_xy: np.ndarray) -> float:
+    """Plug-in MI from an already-normalised joint probability matrix ``p_xy`` (marginals derived by summation, not recomputed from raw counts)."""
     K_x, K_y = p_xy.shape
     # p_xy is already normalised joint.
     p_x = np.zeros(K_x, dtype=np.float64)

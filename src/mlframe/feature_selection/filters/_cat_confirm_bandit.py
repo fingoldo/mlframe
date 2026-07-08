@@ -83,6 +83,7 @@ def _confirm_pairs_bandit_ucb1(
     _single_merge_cache: dict = {}
 
     def _single_merge(idx: int):
+        """Memoized single-variable ``merge_vars`` classes/freqs for feature ``idx``, shared across every pair that contains it (bit-identical to a fresh call since the merge is deterministic per-feature)."""
         cached = _single_merge_cache.get(idx)
         if cached is None:
             cls, fq, _ = merge_vars(

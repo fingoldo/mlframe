@@ -176,6 +176,7 @@ def _components_from_pair_sus(
     parent: dict = {a: a for a in anchor_names}
 
     def find(x: str) -> str:
+        """Union-find root lookup with iterative path compression."""
         # Iterative path compression -- stays pickle/clone-safe (no closures
         # captured in stored data).
         root = x
@@ -189,6 +190,7 @@ def _components_from_pair_sus(
         return root
 
     def union(a: str, b: str) -> None:
+        """Merge the components containing ``a`` and ``b``, always attaching the lexicographically-larger root under the smaller one so the resulting root is deterministic regardless of edge processing order."""
         ra, rb = find(a), find(b)
         if ra == rb:
             return

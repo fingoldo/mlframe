@@ -243,10 +243,12 @@ class ModularHit:
 
     @property
     def margin_over_baseline(self) -> float:
+        """How much the modular-residue MI exceeds the best raw-combiner (smooth-basis) baseline MI; positive means the modular form adds real information."""
         return self.residue_mi - self.baseline_mi
 
     @property
     def responded(self) -> bool:
+        """Whether this hit clears both the baseline-margin and permutation-null gates (see ``_responded``)."""
         return _responded(self.residue_mi, self.baseline_mi, self.null_hi)
 
 
@@ -331,6 +333,7 @@ def cheap_modular_scan(
     from ._pairwise_modular_resident import combiner_mi_resident
 
     def _scan_one(op: str, cset: tuple[str, ...], c_arr: np.ndarray):
+        """Score one candidate combiner column ``c_arr`` (from operator ``op`` over ``cset``): compute its raw-combiner baseline MI, then probe modular residues against it, recording any that clear the response gate."""
         # SF2 :311 collapse (2026-06-30): the per-combiner baseline single-column upload (one (n,1) cp.asarray per
         # combiner at _orth_mi_backends:311) is built DEVICE-BORN from the resident combiner column + scored
         # through the SAME rank resident estimator host ``_mi`` uses. None -> the EXACT host ``_mi`` below.

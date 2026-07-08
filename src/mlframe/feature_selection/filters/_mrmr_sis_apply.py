@@ -33,6 +33,7 @@ def _apply_sis_screen(self, X, y):
     # pass through unchanged (float). The 2nd-moment channel will score nominal codes ~uninformatively, which
     # is acceptable -- categorical interaction is not what that channel targets.
     def _numeric_matrix(df):
+        """Coerce ``df`` to an all-float ndarray for the SIS scoring channels: numeric/bool-excluded columns pass through as float64, non-numeric columns are factorized to integer codes so they're scored (not silently dropped or crashed on)."""
         cols_out = []
         for c in df.columns:
             s = df[c]

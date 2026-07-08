@@ -94,6 +94,7 @@ def measure_feature_uplift(
                 continue
 
             def _score(Xfull, tr=tr, va=va):
+                """Fit a standardized logistic/linear probe on this fold's train rows of ``Xfull`` and return its held-out score (ROC-AUC for binary, otherwise the classifier/regressor's native scorer), closing over the current fold's ``tr``/``va`` indices via default args."""
                 sc = StandardScaler()
                 Xt = sc.fit_transform(Xfull[tr])
                 Xv = sc.transform(Xfull[va])

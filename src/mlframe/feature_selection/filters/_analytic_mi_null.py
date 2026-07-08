@@ -102,6 +102,7 @@ _ANALYTIC_NULL_MIN_EXPECTED_CELL_DEFAULT = 5.0
 
 
 def _min_expected_cell() -> float:
+    """Minimum per-cell expected count required for the analytic chi-square null to be valid (contingency-table sparsity gate); env-overridable via ``MLFRAME_MI_ANALYTIC_NULL_MIN_CELL``, falling back to the default on an unparsable or non-positive value."""
     raw = os.environ.get("MLFRAME_MI_ANALYTIC_NULL_MIN_CELL", "").strip()
     if raw:
         try:

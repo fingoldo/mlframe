@@ -562,6 +562,7 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
     code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
 
     def _parse_code_deg(s: str):
+        """Parse a leg-code token like ``He3``/``LL2``/``T1``/``L4`` into ``(basis name, degree)``, checking two-letter codes before single-letter ones so ``LL`` isn't mis-parsed as ``L``; returns ``(None, None)`` when ``s`` doesn't match any known code prefix."""
         for code in ("LL", "He", "T", "L"):
             if s.startswith(code):
                 rest = s[len(code) :]

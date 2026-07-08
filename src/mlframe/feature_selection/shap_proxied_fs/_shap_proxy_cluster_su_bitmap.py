@@ -58,6 +58,7 @@ def _popcount_u64(typingctx, x):
     sig = types.uint64(types.uint64)
 
     def codegen(context, builder, signature, args):
+        """Emit an LLVM ``llvm.ctpop.i64`` call for the numba-lowered signature, letting the backend select the hardware POPCNT instruction."""
         fnty = ir.FunctionType(ir.IntType(64), [ir.IntType(64)])
         fn = builder.module.declare_intrinsic("llvm.ctpop.i64", fnty=fnty)
         return builder.call(fn, [args[0]])

@@ -295,6 +295,7 @@ def optimise_hermite_pair(
         eval_pair_fn: Any
         if factory is not None:
             def _eval_dual(coef_a, coef_b, **kw):
+                """Evaluate a candidate (coef_a, coef_b) pair against a factory-based basis (each operand using its own eval_func/eval_func_b); returns -inf score on any non-finite basis output."""
                 from numpy import column_stack, ascontiguousarray, all as npall, isfinite
                 z_a_loc = kw["z_a"]
                 z_b_loc = kw["z_b"]
@@ -535,6 +536,7 @@ def optimise_hermite_pair(
         else:  # optuna
 
             def _optuna_obj(trial, _degree=degree, _ca_size=ca_size, _cb_size=cb_size, _eval_pair_fn=eval_pair_fn, _eval_kwargs=eval_kwargs):
+                """Optuna trial objective: sample a (coef_a, coef_b) pair, score it via the eval function, and stash bf_idx/raw_mi as trial user attrs for post-hoc inspection."""
                 coef_a = np.array([trial.suggest_float(f"a_{i}", *coef_range) for i in range(_ca_size)], dtype=np.float64)
                 coef_b = np.array([trial.suggest_float(f"b_{i}", *coef_range) for i in range(_cb_size)], dtype=np.float64)
                 score, raw_mi, bf_idx = (_eval_pair_fn or _eval_coef_pair)(
@@ -560,6 +562,7 @@ def optimise_hermite_pair(
             if early_stop_no_improve and early_stop_no_improve < n_trials:
                 stop_state = {"best": -np.inf, "since_improve": 0}
                 def _early_stop_cb(s, trial, _stop_state=stop_state):
+                    """Optuna study callback: stop the study once ``early_stop_no_improve`` consecutive trials fail to beat the running best."""
                     cur_best = s.best_value if s.best_trial is not None else -np.inf
                     if cur_best > _stop_state["best"]:
                         _stop_state["best"] = cur_best

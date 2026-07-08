@@ -64,6 +64,7 @@ def _column_arrays(X):
 
 
 def _is_all_nan(values: np.ndarray) -> bool:
+    """True iff every entry is missing (NaN for numeric/complex dtypes, ``pd.isna`` for object dtype); empty arrays are not considered all-NaN."""
     if values.dtype.kind in "fc":
         return bool(values.size) and bool(np.all(np.isnan(values)))
     # object / other: treat None / NaN-like as missing

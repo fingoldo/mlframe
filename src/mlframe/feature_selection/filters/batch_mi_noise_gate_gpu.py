@@ -632,6 +632,7 @@ def batch_mi_with_noise_gate_cuda(
         _NbPerfWarn = None
 
     def _counts_for(y_codes_host: np.ndarray) -> np.ndarray:
+        """Upload one target's discretized codes to device and launch the joint-histogram CUDA kernel across all K candidate columns, returning the flat per-column counts array copied back to host."""
         d_y = _nb_cuda.to_device(np.ascontiguousarray(y_codes_host, dtype=np.int32))
         d_counts = _nb_cuda.device_array(total_size, dtype=np.int64)
         d_counts[:] = 0

@@ -188,6 +188,7 @@ class HonestLossCache:
 
     @staticmethod
     def _key(idx, seed, template_id=None):
+        """Order-independent cache key: frozenset of column indices + seed + template_id, so subset permutations collide while distinct model-template variants (e.g. capped ``n_estimators``) never do."""
         # ``template_id`` namespaces cache entries by model-template variant. When refine retrains use
         # a capped ``n_estimators`` template (cheap ranking-only fits) the resulting losses are NOT
         # interchangeable with full-template entries from the same ``(cols, seed)`` -- a distinct
@@ -196,6 +197,7 @@ class HonestLossCache:
         return (frozenset(int(c) for c in idx), seed, template_id)
 
     def get(self, idx, seed, template_id=None):
+        """Thread-safe cache lookup for a prior ``_honest_loss`` result; increments ``hits``/``misses`` and returns None on a miss."""
         key = self._key(idx, seed, template_id)
         with self._lock:
             if key in self._store:
@@ -205,6 +207,7 @@ class HonestLossCache:
             return None
 
     def put(self, idx, seed, value, template_id=None):
+        """Thread-safe cache store of a computed ``_honest_loss`` result under the (cols, seed, template_id) key."""
         key = self._key(idx, seed, template_id)
         with self._lock:
             self._store[key] = value

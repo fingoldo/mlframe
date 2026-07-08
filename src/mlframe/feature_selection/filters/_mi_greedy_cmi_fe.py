@@ -58,12 +58,15 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
     _NbDict = None
 
     def prange(*a):  # no-op fallback (serial range) when numba is absent
+        """Serial ``range`` stand-in used when numba is unavailable so parallel loops still run correctly, just single-threaded."""
         return range(*a)
 
     def njit(*args, **kwargs):  # no-op fallback so the module imports
+        """No-op decorator stand-in for ``numba.njit`` when numba is unavailable; returns the function unmodified so the module still imports and runs (slower, pure Python)."""
         if len(args) == 1 and callable(args[0]):
             return args[0]
         def deco(fn):
+            """Identity decorator applied when ``njit`` is called with arguments (e.g. ``@njit(cache=True)``)."""
             return fn
         return deco
 
@@ -972,6 +975,7 @@ _ENT_NNZ_KERNEL = None
 
 
 def _get_ent_nnz_kernel(cp):
+    """Lazily compile and cache the fused entropy+nnz RawKernel (compiled once per process via NVRTC, ~30ms) so repeated calls pay only the ~30us launch cost."""
     global _ENT_NNZ_KERNEL
     if _ENT_NNZ_KERNEL is None:
         _ENT_NNZ_KERNEL = cp.RawKernel(_ENT_NNZ_SRC, "ent_nnz")
@@ -1031,6 +1035,7 @@ _CARD_MAX_CACHE: dict = {}
 
 
 def _cached_card(host_arr, dev_codes) -> int:
+    """Return ``max(dev_codes)+1``, memoized by a content-hash of ``host_arr`` (never the operand's ``id()`` -- an id can be reused after GC and silently return a too-small cardinality, corrupting the device joint-histogram kernels' shared-tile sizing)."""
     if dev_codes.size == 0:
         return 1
     ha = np.ascontiguousarray(np.asarray(host_arr).ravel())
@@ -1087,8 +1092,7 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False, kx: int = 0
     from ._fe_batched_mi import joint_entropy_gpu
 
     def _entc(codes, cards):
-        # FUSED histogram + plug-in entropy in ONE launch (shared-mem hist + entropy reduce) when the joint
-        # fits shared, else the two-kernel path. Same partition counts -> selection-equivalent.
+        """Joint entropy (fused histogram + plug-in entropy in ONE launch when the joint fits shared memory, else the two-kernel path); same partition counts as the unfused path -> selection-equivalent."""
         return joint_entropy_gpu(codes, cards, inv_n)
 
     # Content-cache the candidate cardinality on the host-input path: the same candidate is re-scored across
@@ -1176,8 +1180,7 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     from ._fe_batched_mi import joint_nnz_gpu
 
     def _nc(codes, cards):
-        # occupied-cell count fused into the histogram pass (atomicAdd 0->1 trick) -> ONE launch, vs
-        # joint_counts_gpu + _nnz_from_counts (two). Integer cardinality -> identical df.
+        """Occupied-cell count of the joint, fused into the histogram pass (atomicAdd 0->1 trick) in ONE launch, vs the two-launch ``joint_counts_gpu`` + ``_nnz_from_counts`` path; same integer cardinality -> identical analytic-null df."""
         return joint_nnz_gpu(codes, cards)
 
     # CROSS-CALL CACHE of the (y,z)-only cardinalities (launch-reduction). In the analytic-null df the gate
@@ -1228,8 +1231,7 @@ def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> floa
     inv_n = 1.0 / float(n)
 
     def _entc(codes, cards):
-        # FUSED histogram + plug-in entropy in ONE launch (shared-mem hist + entropy reduce) when the joint
-        # fits shared, else the two-kernel path. Same partition counts -> selection-equivalent.
+        """Joint entropy (fused histogram + plug-in entropy in ONE launch when the joint fits shared memory, else the two-kernel path); same partition counts as the unfused path -> selection-equivalent."""
         return joint_entropy_gpu(codes, cards, inv_n)
 
     Kx = (int(dx.max()) + 1) if dx.size else 1
@@ -1458,9 +1460,7 @@ def greedy_cmi_fe_construct(
     cand_bins: dict[str, np.ndarray] = {name: _quantile_bin(engineered[name].to_numpy(), nbins=nbins) for name in cand_names}
 
     def _bin_fingerprint(b: np.ndarray) -> bytes:
-        # Bytes of the int64 array -> hashable + cheap. Identical
-        # binned arrays (i.e. monotone-equivalent under equi-frequency
-        # quantization) collapse to one fingerprint.
+        """Hashable fingerprint of a binned candidate array; monotone-equivalent candidates (identical bin assignment under equi-frequency quantization) collapse to the same fingerprint for dedup against already-picked winners."""
         return b.tobytes()
 
     cand_fp: dict[str, bytes] = {name: _bin_fingerprint(cand_bins[name]) for name in cand_names}
@@ -1475,6 +1475,7 @@ def greedy_cmi_fe_construct(
     rng_floor = np.random.default_rng(0xC011)
 
     def _noise_floor_for_current_z() -> float:
+        """Permutation-based CMI noise floor for the CURRENT conditioning Z: shuffles y once, samples up to 24 candidates' CMI against the shuffled target, and returns the 95th percentile as the floor a real candidate must clear (combined with the user's ``min_cmi_gain`` via ``max()``). Recomputed as Z grows so the floor tracks the conditioning's fragmentation."""
         if not cand_names:
             return 0.0
         idx = rng_floor.permutation(y_bin.size)

@@ -197,6 +197,7 @@ def usability_greedy_gpu_resident(
             return np.asarray(cp.asnumpy(r))
 
         def _shortlist(sel_idx) -> list:
+            """Rank unselected candidates by |corr| with the fold-0 held-out residual of the currently-selected set (leakage-safe: fit on fold-0 train rows only), then return the top-scored candidates for the greedy round; raises ``_ResidentFallbackError`` on a singular selected design so the caller falls back to the exact CPU path rather than risk a wrong selection."""
             # HELD-OUT residual on fold-0 (mirrors the CPU path's leakage-safe design): fit the selected set
             # on the ~fold-0 train rows, score the |corr| on the held-out fold-0 residual. No selection ->
             # the mean residual over all rows (no fit -> no leakage).

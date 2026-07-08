@@ -107,6 +107,7 @@ _MIN_PAIRS_DEFAULT = 6
 
 
 def _fallback_keep_frac(n_pairs: int) -> float:
+    """Accuracy-safe default keep-fraction (always 1.0, i.e. no drop) used when no explicit opt-in and no kernel_tuning_cache entry are available."""
     # Accuracy-safe default: no fractional cut (no-drop). The screen only prunes when a caller
     # opts into an aggressive keep_frac explicitly (fe_rung_keep_frac / env / tuned cache).
     return 1.0
@@ -198,6 +199,7 @@ def apply_rung_schedule(
 
     # pair_mi lives in key[1] (the dict is keyed by (raw_vars_pair, pair_mi)).
     def _pm(key):
+        """Extract the pair MI (``key[1]``) used to rank/threshold pairs for the rung cut; returns 0.0 for a malformed key."""
         try:
             return float(key[1])
         except (TypeError, IndexError, ValueError):

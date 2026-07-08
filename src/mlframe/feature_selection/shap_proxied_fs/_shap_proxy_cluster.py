@@ -38,6 +38,7 @@ def _uf_labels(n: int, ei: np.ndarray, ej: np.ndarray) -> np.ndarray:
     parent = np.arange(n)
 
     def find(x):
+        """Union-find root lookup with path compression, flattening the chain from ``x`` to its root as a side effect."""
         root = x
         while parent[root] != root:
             root = parent[root]
@@ -77,6 +78,7 @@ def _standardize_columns(X: np.ndarray) -> np.ndarray:
 
 
 def _edges_dense_gpu(Z, threshold, edge_cap):
+    """Compute the full (f, f) correlation matrix on GPU in one shot and return above-threshold upper-triangle edges as ``(ei, ej)``; returns ``None`` when the edge count exceeds ``edge_cap`` so the caller falls back to the blocked/streaming path instead of materializing an unbounded edge list."""
     import cupy as cp
 
     n, f = Z.shape
@@ -277,6 +279,7 @@ def build_unit_matrix(
 
 
 def cluster_summary(unit_to_members: list[np.ndarray]) -> dict:
+    """Summarize the clustering outcome: unit/singleton/multi-cluster counts, the largest cluster size, and total feature count covered."""
     sizes = np.array([len(m) for m in unit_to_members], dtype=np.int64)
     return dict(
         n_units=len(unit_to_members),

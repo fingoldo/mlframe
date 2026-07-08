@@ -168,6 +168,7 @@ def _precompute_prescreen_fold_universes(self, *, X, y, groups, cv, full_feature
 
 
 def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, sample_weight: Union[np.ndarray, pd.Series, None] = None, **fit_params):
+    """Fit RFECV: densifies a sparse ``X`` (refusing inputs whose dense form would exceed ~2 GB), applies the optional prescreen, precomputes per-fold train-only prescreen universes, then drives the recursive elimination loop to select the final feature subset."""
     # scipy.sparse X is not first-class across the dense-frame-centric FS pipeline; densify at the boundary so the
     # existing ndarray path handles it. Gated on dense size per the project RAM rule -- a sparse matrix whose dense
     # form would exceed ~2 GB is refused with a clear error rather than silently doubling host memory.

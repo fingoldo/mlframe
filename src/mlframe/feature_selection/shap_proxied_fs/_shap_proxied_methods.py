@@ -143,6 +143,7 @@ class ShapProxiedMethodsMixin:
     # ------------------------------------------------------------------ helpers
     @staticmethod
     def _to_pandas(X):
+        """Coerce ``X`` to a pandas DataFrame for the booster/SHAP pipeline: polars frames go through the zero-copy Arrow view, plain ndarrays get synthetic ``f0..fN`` column names, pandas frames pass through unchanged."""
         try:
             import polars as pl
         except ImportError:
@@ -157,6 +158,7 @@ class ShapProxiedMethodsMixin:
         return pd.DataFrame(arr, columns=[f"f{i}" for i in range(arr.shape[1])])
 
     def _coerce_target(self, y):
+        """Coerce ``y`` to the 1D float64 target the booster + numba proxy-loss kernels require, rejecting multi-output ``y`` with a clear error (rather than an opaque numba TypingError downstream); for ``classification=True`` also validates exactly 2 classes and binarises against ``classes_``."""
         try:
             import polars as pl
             if isinstance(y, pl.Series):
@@ -203,6 +205,7 @@ class ShapProxiedMethodsMixin:
 
     # ------------------------------------------------------------------ transform
     def transform(self, X):
+        """Subset ``X`` to the fitted ``selected_features_`` columns; raises ``NotFittedError`` if called before ``fit``."""
         from sklearn.exceptions import NotFittedError
 
         if not hasattr(self, "selected_features_"):
@@ -215,9 +218,11 @@ class ShapProxiedMethodsMixin:
         return X[selected]
 
     def fit_transform(self, X, y=None, **fit_params):
+        """Fit the selector on ``(X, y)`` then return ``X`` subset to the selected features."""
         return self.fit(X, y).transform(X)
 
     def get_support(self, indices: bool = False):
+        """Boolean support mask over the original input columns (or, if ``indices=True``, the integer positions where it is True); raises ``NotFittedError`` if called before ``fit``."""
         from sklearn.exceptions import NotFittedError
 
         if not hasattr(self, "support_"):

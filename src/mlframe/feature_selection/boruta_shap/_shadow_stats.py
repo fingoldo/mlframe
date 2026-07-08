@@ -267,6 +267,7 @@ def isolation_forest(X):
     return preds
 
 def get_5_percent(num):
+    """5% of ``num``, rounded to the nearest integer -- the base step size for ``get_5_percent_splits``' sampling grid."""
     return round(5 / 100 * num)
 
 def get_5_percent_splits(self, length):
@@ -319,11 +320,13 @@ def binomial_H0_test(array, n, p, alternative):
     return [_binom_test_cached(int(x), n, p, alternative) for x in array]
 
 def symetric_difference_between_two_arrays(array_one, array_two):
+    """Elements present in exactly one of ``array_one`` / ``array_two`` (set symmetric difference), as an ndarray."""
     set_one = set(array_one)
     set_two = set(array_two)
     return np.array(list(set_one.symmetric_difference(set_two)))
 
 def find_index_of_true_in_array(array):
+    """Indices where ``array`` is truthy."""
     length = len(array)
     return list(filter(lambda x: array[x], range(length)))
 

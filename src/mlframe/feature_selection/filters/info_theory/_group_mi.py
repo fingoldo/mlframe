@@ -50,6 +50,7 @@ def _group_blocked_mi(
     size_weighted: bool,
     use_mm: bool,
 ) -> float:
+    """Compute per-group (block) MI(x, y) using the ``sort_idx``/``group_offsets`` partition from ``prepare_group_segments``, then combine into one group-blocked MI estimate (size-weighted average when ``size_weighted``); groups smaller than ``min_rows`` are skipped as too small for a reliable joint histogram."""
     n_groups = len(group_offsets) - 1
     joint = np.zeros((K_x, K_y), dtype=np.int64)
     mx = np.zeros(K_x, dtype=np.int64)

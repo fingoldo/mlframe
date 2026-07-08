@@ -63,9 +63,11 @@ try:
     from numba import njit
 except ImportError:  # pragma: no cover - numba is a hard dep in practice
     def njit(*args, **kwargs):  # no-op fallback so the module imports
+        """No-op stand-in for ``numba.njit`` when numba isn't installed, supporting both bare-decorator and decorator-with-args call forms."""
         if len(args) == 1 and callable(args[0]):
             return args[0]
         def deco(fn):
+            """Identity wrapper returning ``fn`` unchanged."""
             return fn
         return deco
 
@@ -156,6 +158,7 @@ def apply_digit_extract(x: np.ndarray, digit_position: int) -> np.ndarray:
 
 
 def _numeric_cols(X: pd.DataFrame, cols: Optional[Sequence[str]]) -> list[str]:
+    """Filter ``cols`` (or all of ``X``'s columns when None) down to those present in ``X`` with a numeric dtype."""
     candidates = list(cols) if cols is not None else list(X.columns)
     return [c for c in candidates if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
 

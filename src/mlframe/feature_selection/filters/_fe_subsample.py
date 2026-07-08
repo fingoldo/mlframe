@@ -33,7 +33,9 @@ except Exception:  # pragma: no cover - numba is a hard dep in this repo but sta
     _HAVE_NUMBA = False
 
     def njit(*args, **kwargs):
+        """No-op stand-in for ``numba.njit`` when numba is unavailable: returns the function unchanged so the decorated kernels still run (as plain Python) instead of raising at import time."""
         def _wrap(fn):
+            """Identity wrapper matching ``njit``'s call-with-kwargs-then-decorate form."""
             return fn
 
         if len(args) == 1 and callable(args[0]) and not kwargs:
@@ -229,6 +231,7 @@ def stratified_subsample_idx(rng, y, size: int, *, is_clf: bool) -> np.ndarray:
         return np.arange(n, dtype=np.int64)
 
     def _uniform() -> np.ndarray:
+        """Plain (non-stratified) random draw of ``size`` row indices, sorted for cache-friendly downstream gathers; the fallback used when stratification isn't applicable or fails."""
         return np.sort(rng.choice(n, size=size, replace=False)).astype(np.int64, copy=False)
 
     try:

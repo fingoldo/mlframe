@@ -73,6 +73,7 @@ _BUILD_OPCANDS_KERNEL = None
 
 
 def _get_build_opcands_kernel(cp):
+    """Lazily compile and cache the ``build_op_cands`` RawKernel (compiled once per process via NVRTC) so repeated calls pay only the launch cost."""
     global _BUILD_OPCANDS_KERNEL
     if _BUILD_OPCANDS_KERNEL is None:
         _BUILD_OPCANDS_KERNEL = cp.RawKernel(_BUILD_OPCANDS_SRC, "build_op_cands")

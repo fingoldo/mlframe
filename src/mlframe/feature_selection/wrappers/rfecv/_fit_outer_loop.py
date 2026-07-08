@@ -197,6 +197,7 @@ def run_outer_loop_iteration(
 
     # ``current_features`` and ``scores`` are passed as default args so they bind at def-time to the current outer-iter values; this is safe because the closure is created fresh each outer iter and consumed within that iter (sequentially or via joblib.Parallel).
     def _eval_fold(nfold, train_index, test_index, fold_seed, _current_features=current_features, _scores=scores):
+        """Evaluate a single CV fold at this outer iteration, forwarding the current subset/state to ``_eval_fold_body``; default args bind the outer-iter closure values at def-time (safe since a fresh closure is created every outer iteration)."""
         return _eval_fold_body(
             nfold, train_index, test_index, fold_seed,
             self=self,
@@ -230,6 +231,7 @@ def run_outer_loop_iteration(
         _orig_eval_fold = _eval_fold
 
         def _eval_fold_pinned(*args, _orig=_orig_eval_fold):
+            """Wraps ``_eval_fold`` to pin the outer estimator's thread count to 1 before each fold call, since ``force_parallel=True`` runs multiple multithreaded-estimator fits concurrently and each clone inherits the pinned setting."""
             # The closure clones the estimator inside its body so we can't reach in. Pin once on the OUTER estimator; clone() preserves params so each fold's clone inherits thread_count=1 / n_jobs=1.
             pin_threads_to_one(estimator)
             return _orig(*args)

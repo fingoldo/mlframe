@@ -1,3 +1,4 @@
+"""Feature-selector construction helpers built on the ``optbinning`` package's binning process."""
 from __future__ import annotations
 
 # ----------------------------------------------------------------------------------------------------------------------------

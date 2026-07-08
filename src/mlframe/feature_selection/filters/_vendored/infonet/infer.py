@@ -1,3 +1,5 @@
+"""Vendored InfoNet inference helpers: load a trained transformer-based mutual-information estimator and run it on rank-transformed 1-D or high-dimensional (sliced-MI) samples."""
+
 import torch
 import yaml
 import numpy as np
@@ -11,11 +13,13 @@ global device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def load_config(config_path):
+    """Load the model/training YAML config used to reconstruct the InfoNet architecture at load time."""
     with open(config_path, "r") as file:
         config = yaml.safe_load(file)
     return config
 
 def create_model(config):
+    """Build an uninitialized InfoNet model (Perceiver-style encoder + transformer query-gen + decoder) from a config dict and move it to the module-level ``device``."""
     encoder = Encoder(
         input_dim=config["model"]["input_dim"],
         latent_num=config["model"]["latent_num"],
@@ -38,6 +42,7 @@ def create_model(config):
     return model
 
 def load_model(config_path, checkpoint_path):
+    """Load a trained InfoNet from a config + checkpoint file and set it to eval mode; uses ``weights_only=True`` where available so a tampered checkpoint can't execute arbitrary code during unpickling."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     config = load_config(config_path)
     model = create_model(config)
@@ -53,6 +58,7 @@ def load_model(config_path, checkpoint_path):
     return model
 
 def estimate_mi(model, x, y):
+    """Estimate mutual information between two 1-D sequences by rank-normalizing both to [0,1] and feeding the resulting single sequence-pair batch through the model."""
     ## x and y are 1 dimensional sequences
     model.eval()
     x = rankdata(x)/len(x)
@@ -63,6 +69,7 @@ def estimate_mi(model, x, y):
     return mi_lb
 
 def infer(model, batch):
+    """Run the model on a batch of rank-normalized sequence-pairs and return the batch-mean MI lower bound as a numpy scalar."""
     ### batch has shape [batchsize, seq_len, 2]
     model.eval()
     batch = torch.tensor(batch, dtype=torch.float32, device=device)
@@ -74,6 +81,7 @@ def infer(model, batch):
     return MI.cpu().numpy()
 
 def compute_smi_mean(sample_x, sample_y, model, proj_num, seq_len, batchsize):
+    """Estimate high-dimensional dependence via sliced mutual information: project ``sample_x``/``sample_y`` onto random 1-D directions, rank-normalize each projection, run InfoNet on batches of projections, and average the per-projection MI over ``proj_num`` random directions."""
     ## we use sliced mutual information to estimate high dimensional correlation
     ## proj_num means the number of random projections you want to use, the larger the more accuracy but higher time cost
     ## seq_len means the number of samples used for the estimation
@@ -99,6 +107,7 @@ def compute_smi_mean(sample_x, sample_y, model, proj_num, seq_len, batchsize):
     return np.mean(np.array(results))
 
 def example_d_1():
+    """Demo: sweep bivariate-Gaussian correlations and compare InfoNet's MI estimate against the closed-form Gaussian MI ``-log(1-rho**2)/2``."""
     seq_len = 4781
     results = []
     real_MIs = []
@@ -114,6 +123,7 @@ def example_d_1():
         print("estimate mutual information is: ", result, "real MI is ", real_MI  )
 
 def example_highd():
+    """Demo: two independent 10-D Gaussian samples should yield a sliced-MI estimate near zero."""
     d = 10
     mu = np.zeros(d)
     sigma = np.eye(d)

@@ -33,6 +33,7 @@ def _is_cuda_teardown_error(exc) -> bool:
 
 
 def _unraisablehook(unraisable):
+    """Chained ``sys.unraisablehook``: swallows the cosmetic cupy/CUDA teardown-race error during interpreter finalization, chains to the previously-installed hook for everything else."""
     exc = getattr(unraisable, "exc_value", None)
     # Swallow the known cupy<->numba teardown race ONLY during interpreter finalization; never mid-fit.
     if sys.is_finalizing() and _is_cuda_teardown_error(exc):
@@ -42,6 +43,7 @@ def _unraisablehook(unraisable):
 
 
 def _excepthook(exc_type, exc_value, exc_tb):
+    """Chained ``sys.excepthook`` mirroring ``_unraisablehook`` for the synchronous exception path."""
     if sys.is_finalizing() and _is_cuda_teardown_error(exc_value):
         return
     if _prev_excepthook is not None:

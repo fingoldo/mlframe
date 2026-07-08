@@ -44,6 +44,7 @@ def resolve_metric(classification: bool, metric: str | None) -> str:
 
 @njit(cache=True, fastmath=True, inline="always")
 def _sigmoid(x: float) -> float:
+    """Numerically-stable logistic sigmoid (branches on the sign of ``x`` to avoid overflow in ``exp``), forced inline for the per-element hot loop."""
     # ``inline="always"`` ensures numba folds the branched-stable form into the per-element loops in
     # ``score_margin`` rather than emitting a function call (matters because this is the inner
     # hot path of Brier / log-loss scoring over hundreds of thousands of subsets per fit).

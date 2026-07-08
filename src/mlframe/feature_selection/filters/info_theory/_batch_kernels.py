@@ -811,6 +811,7 @@ def _run_batch_mi_kernel_sweep():
         return []
 
     def _make_inputs(dims):
+        """Build a synthetic (discretized candidates, y-classes, y-frequencies) fixture at the requested (n_rows, n_cols) grid point, using a shared a**2/b-derived base signal so v1/v2 see realistic non-degenerate MI."""
         n = int(dims["n_rows"]); K = int(dims["n_cols"]); nbins = 10
         rng = np.random.default_rng(0)
         a = rng.uniform(0.1, 1.1, n); b = rng.uniform(0.1, 1.1, n); base = a ** 2 / b
@@ -826,7 +827,9 @@ def _run_batch_mi_kernel_sweep():
         return (disc, np.full(K, nbins, dtype=np.int64), yc, fy)
 
     def _call(kernel):
+        """Bind a fixed permutation-MI call signature to ``kernel`` (v1 or v2) so ``sweep_backend_grid`` can invoke both with identical positional data args."""
         def _f(disc, fn, yc, fy):
+            """Invoke the bound kernel on one sweep-generated fixture with a fixed permutation/seed/threshold configuration."""
             return kernel(
                 disc_2d=disc, factors_nbins=fn, classes_y=yc, classes_y_safe=yc, freqs_y=fy,
                 npermutations=25, base_seed=np.uint64(0), min_nonzero_confidence=0.0, use_su=False,

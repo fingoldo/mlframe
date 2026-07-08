@@ -124,6 +124,7 @@ def _survivor_section(mrmr_self: Any) -> str:
     head = roster.head(_MAX_SURVIVOR_ROWS)
 
     def _attr(row: Any) -> str:
+        """Format one survivor row as ``name[origin]`` with an optional ``gain=...`` suffix, omitted when gain is NaN (unranked / not applicable)."""
         g = getattr(row, "gain_attr", float("nan"))
         try:
             gv = float(g)

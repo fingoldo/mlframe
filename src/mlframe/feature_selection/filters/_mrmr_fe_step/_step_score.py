@@ -260,10 +260,12 @@ def materialise_and_finalise_fe_candidates(
         import re as _re_gate
 
         def _bare_tokens(_nm: str) -> set:
+            """Extract bare single-token raw-variable references (``a`` / ``x12`` style) from an engineered feature name, excluding substrings inside function names."""
             # Single-token raw variable references (a-z / x_NN style), NOT substrings of function names.
             return set(_re_gate.findall(r"(?<![A-Za-z0-9_])([a-z](?:[a-z]?\d+)?)(?![A-Za-z0-9_])", _nm))
 
         def _gate_cols_in(_nm: str) -> list:
+            """List the gate-composite source columns (from ``_gate_src_vars_map``) whose name appears as a substring of ``_nm``."""
             return [_gc for _gc in _gate_src_vars_map if _gc in _nm]
 
         _all_names = []
@@ -397,6 +399,7 @@ def materialise_and_finalise_fe_candidates(
         import re as _re_fsc
 
         def _bare_tokens_fsc(_nm: str) -> set:
+            """Cross-group variant of ``_bare_tokens``: extract bare single-token raw-variable references from an engineered feature name."""
             return set(_re_fsc.findall(r"(?<![A-Za-z0-9_])([a-z](?:[a-z]?\d+)?)(?![A-Za-z0-9_])", _nm))
 
         _gmap_fsc = dict(getattr(self, "_gate_col_src_vars_", None) or {})
@@ -406,6 +409,7 @@ def materialise_and_finalise_fe_candidates(
                 _all_names_fsc.extend(_ncols)
 
         def _gate_cols_in_fsc(_nm: str) -> list:
+            """Cross-group variant of ``_gate_cols_in``: list gate-composite source columns whose name appears as a substring of ``_nm``."""
             return [_gc for _gc in _gmap_fsc if _gc in _nm]
 
         # Clean (non-gate) survivor coverage as a per-survivor list of bare-token sets, so "within one
@@ -655,6 +659,7 @@ def materialise_and_finalise_fe_candidates(
                         # continuous replay) and compute the frozen anchor so replay is
                         # byte-exact. Best-effort: None leaves the legacy refit path.
                         def _ls_anchor(_src_name, _nested, X=X):
+                            """Reconstruct the fit-time continuous operand (raw column or nested parent's replay) and compute the frozen ``smart_log`` shift anchor from it, so recipe replay reproduces the byte-exact fit-time log shift instead of recomputing a slice-dependent one."""
                             try:
                                 if _nested is not None:
                                     from ..engineered_recipes import apply_recipe as _ar

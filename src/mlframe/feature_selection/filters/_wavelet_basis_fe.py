@@ -241,6 +241,7 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
     # (it picks searchsorted-vs-quantile to MATCH the CPU _binned_mi decision). Falls back to cp.quantile
     # when the radix path is inapplicable/disabled.
     def _interior_edges(v):
+        """Compute equi-frequency bin-interior edges for ``v`` via the sort-free radix-select path when enabled (bit-identical to, but faster than, a comparison-sort quantile), falling back to ``cp.quantile`` when the radix path is disabled or unavailable."""
         try:
             from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
             if fe_gpu_radix_edges_enabled():

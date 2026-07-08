@@ -56,6 +56,7 @@ def _gram_projector(cp, B):
     except path -> host detector)."""
     G = B.T @ B                                                  # (k, k)
     def _proj(V):
+        """Project ``V`` onto span(B) via the pre-factored normal-equations Gram ``G``."""
         return B @ cp.linalg.solve(G, B.T @ V)
     return _proj
 
@@ -116,6 +117,7 @@ def _heldout_uplift_gpu(cp, xg, yg, tau: float, min_rows: int) -> float:
         return 0.0
 
     def _val_r2(with_relu: bool) -> float:
+        """Fit a linear (or linear+hinge-leg, when ``with_relu``) least-squares model on the train split and return its held-out R2 on the val split."""
         cols_tr = [cp.ones_like(x_tr), x_tr]
         cols_va = [cp.ones_like(x_va), x_va]
         if with_relu:

@@ -19,6 +19,7 @@ class _MRMRTransformMixin:
     support_: np.ndarray
 
     def transform(self, X):
+        """sklearn transformer protocol placeholder; the concrete MRMR class overrides this on the class body itself (see module docstring), so calling it on the mixin directly is a programming error."""
         raise NotImplementedError  # overridden on the concrete MRMR class body (see module docstring)
 
     def get_feature_names_out(self, input_features=None):
@@ -162,6 +163,7 @@ class _MRMRTransformMixin:
         return hasattr(self, "support_") and hasattr(self, "feature_names_in_")
 
     def get_support(self, indices: bool = False):
+        """sklearn ``SelectorMixin`` protocol: return the selected-feature boolean mask (or, when ``indices=True``, the integer positions), built from ``support_`` against ``n_features_in_``."""
         from sklearn.utils.validation import check_is_fitted
         check_is_fitted(self)
         mask = np.zeros(int(self.n_features_in_), dtype=bool)

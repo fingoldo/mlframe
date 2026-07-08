@@ -163,6 +163,7 @@ def adds_nonlinear_value_batch_gpu_resident(
         # Precompute the 6-function additive basis for EVERY distinct raw operand ONCE (resident, (n, 6) each),
         # so a candidate's design is two index lookups -- not a re-derivation/re-upload per candidate.
         def _basis(xcol):
+            """Standardize ``xcol`` and expand it into the 6-function additive basis (linear, square, cube, signed-sqrt, signed-log1p, reciprocal-magnitude) used to test whether a candidate adds nonlinear value over its raw operand."""
             xs = (xcol - xcol.mean()) / (xcol.std() + 1e-12)
             return cp.stack([
                 xs, xs * xs, xs * xs * xs,

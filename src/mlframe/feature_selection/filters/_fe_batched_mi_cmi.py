@@ -137,6 +137,7 @@ _ROWS_ENT_NNZ_SPLIT_KERNELS = None
 
 
 def _get_rows_ent_nnz_kernel(cp):
+    """Lazily compile (once per process) and cache the float64 ``rows_ent_nnz`` RawKernel; NVCC compilation is a ~30ms one-off, so callers pay it only on the first invocation."""
     global _ROWS_ENT_NNZ_KERNEL
     if _ROWS_ENT_NNZ_KERNEL is None:
         _ROWS_ENT_NNZ_KERNEL = cp.RawKernel(_ROWS_ENT_NNZ_SRC, "rows_ent_nnz")
@@ -144,6 +145,7 @@ def _get_rows_ent_nnz_kernel(cp):
 
 
 def _get_rows_ent_nnz_i32_kernel(cp):
+    """Lazily compile and cache the int32-count variant ``rows_ent_nnz_i32`` RawKernel (same source module, different entry point)."""
     global _ROWS_ENT_NNZ_I32_KERNEL
     if _ROWS_ENT_NNZ_I32_KERNEL is None:
         _ROWS_ENT_NNZ_I32_KERNEL = cp.RawKernel(_ROWS_ENT_NNZ_SRC, "rows_ent_nnz_i32")
@@ -151,6 +153,7 @@ def _get_rows_ent_nnz_i32_kernel(cp):
 
 
 def _get_rows_ent_nnz_split_kernels(cp):
+    """Lazily compile and cache the two-stage split/finish kernel pair (partial-sum + reduction) used when the row width exceeds what a single-block reduction can hold."""
     global _ROWS_ENT_NNZ_SPLIT_KERNELS
     if _ROWS_ENT_NNZ_SPLIT_KERNELS is None:
         mod = cp.RawModule(code=_ROWS_ENT_NNZ_SRC)
@@ -309,6 +312,7 @@ _JOINT_HIST_KERNELS = None
 
 
 def _get_joint_hist_kernels():
+    """Lazily compile and cache the single-pair (1-, 2-, 3-way) joint-histogram RawKernels from the shared source module."""
     global _JOINT_HIST_KERNELS
     if _JOINT_HIST_KERNELS is None:
         import cupy as cp
@@ -321,6 +325,7 @@ _BATCHED_JOINT_HIST_KERNELS = None
 
 
 def _get_batched_joint_hist_kernels():
+    """Lazily compile and cache the batched (int64 + int32-count) joint-histogram RawKernels used when many candidate columns are histogrammed against one target in a single launch."""
     global _BATCHED_JOINT_HIST_KERNELS
     if _BATCHED_JOINT_HIST_KERNELS is None:
         import cupy as cp
@@ -405,6 +410,7 @@ _BATCHED_JOINT_ENTROPY_SH_LIMIT = None
 
 
 def _get_batched_joint_entropy_kernel(cp):
+    """Lazily compile and cache the ``batched_joint_entropy2`` RawKernel, and probe+cache the device's max shared memory per block (used to decide when the kernel's histogram fits in shared memory vs needs the split-kernel fallback)."""
     global _BATCHED_JOINT_ENTROPY_KERNEL, _BATCHED_JOINT_ENTROPY_SH_LIMIT
     if _BATCHED_JOINT_ENTROPY_KERNEL is None:
         _BATCHED_JOINT_ENTROPY_KERNEL = cp.RawKernel(_BATCHED_JOINT_ENTROPY_SRC, "batched_joint_entropy2")
@@ -601,6 +607,7 @@ _JOINT_ENTROPY_SH_LIMIT = None
 
 
 def _get_joint_entropy_kernels():
+    """Lazily compile and cache the single-pair (1-, 2-, 3-way) joint-entropy RawKernels, and probe+cache the device's max shared memory per block for the fused-histogram fast path."""
     global _JOINT_ENTROPY_KERNELS, _JOINT_ENTROPY_SH_LIMIT
     if _JOINT_ENTROPY_KERNELS is None:
         import cupy as cp
@@ -834,6 +841,7 @@ _JOINT_NNZ_KERNELS = None
 
 
 def _get_joint_nnz_kernels():
+    """Lazily compile and cache the joint-histogram RawKernels' nnz-only entry points, reusing the same source module as ``_get_joint_hist_kernels``."""
     global _JOINT_NNZ_KERNELS
     if _JOINT_NNZ_KERNELS is None:
         import cupy as cp

@@ -119,6 +119,7 @@ def _choose_chunk_width(n_rows: int, p: int, free_bytes: int) -> int:
 # fusion + survivor-count rule
 # ----------------------------------------------------------------------------------------------------------
 def _zscore(a: np.ndarray) -> np.ndarray:
+    """Standardize ``a`` to zero mean / unit std; returns all-zeros (not NaN) when the array has zero spread, so a constant score column contributes nothing to ``fuse_scores`` instead of poisoning it."""
     a = np.asarray(a, dtype=np.float64)
     mu = float(a.mean()) if a.size else 0.0
     sd = float(a.std())

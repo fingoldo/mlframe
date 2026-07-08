@@ -119,6 +119,7 @@ def _power_grid_centered_gpu(cp, z, yc, y_ss: float, freqs_dev):
     c = cp.cos(ang)
 
     def _corr_sq_rows(plane):
+        """Squared-correlation-against-``yc`` power for each row (frequency) of ``plane`` (sin or cos basis), computed via batched raw moments with the same degeneracy guard as the per-frequency path."""
         sv = plane.sum(axis=1)  # (F,)
         vv = (plane * plane).sum(axis=1)  # (F,)
         vy = plane @ yc  # (F,)
@@ -139,6 +140,7 @@ def _refine_peak_freq_gpu(cp, z_tr, yc, y_ss: float, coarse_f: float) -> float:
     per-frequency scan (same powers, ``cp.argmax`` first-max ties matching the
     original strictly-greater earliest-wins order)."""
     def _scan(center: float, half_width: float, step: float):
+        """One local refinement scan around ``center``: builds the [center, swept-grid] candidate frequencies, powers them all in one batched GPU pass, and returns the argmax frequency (first-max on ties, matching the original strictly-greater earliest-wins order)."""
         lo_r = max(0.05, center - half_width)
         hi_r = center + half_width
         n_steps = round((hi_r - lo_r) / step) + 1

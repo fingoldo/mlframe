@@ -70,11 +70,13 @@ def set_auto_fit_n(n: int | None) -> None:
 
 
 def clear_auto_fit_n() -> None:
+    """Reset the AUTO fit-row-count gate; called in MRMR.fit's finally so a subsequent non-MRMR caller doesn't inherit a stale row count."""
     global _AUTO_FIT_N
     _AUTO_FIT_N = None
 
 
 def _auto_min_n() -> int:
+    """Row-count threshold above which the AUTO (unset-env) path engages STRICT GPU-resident FE; env-overridable via ``MLFRAME_FE_GPU_STRICT_AUTO_MIN_N``, falling back to ``_DEFAULT_AUTO_MIN_N`` on an unparsable value."""
     try:
         return int(os.environ.get("MLFRAME_FE_GPU_STRICT_AUTO_MIN_N", _DEFAULT_AUTO_MIN_N))
     except (ValueError, TypeError):

@@ -1,3 +1,5 @@
+"""Vendored InfoNet model: a transformer-based amortized mutual-information estimator (encoder/decoder + attention query generator) that maps a batch of paired samples directly to an MI lower-bound estimate."""
+
 from typing import Optional
 
 import torch
@@ -11,6 +13,7 @@ from .util import mutual_information
 #from .query import Query_Gen
 
 class infonet(nn.Module):
+    """Amortized MI estimator: encodes the input pair samples into latents, generates attention queries from the same input, decodes a smoothed density-ratio surface via a Gaussian-blur conv, then reduces it to a scalar MI lower bound."""
 
     def __init__(self, encoder: Encoder, decoder: Decoder, query_gen: Query_Gen_transformer, decoder_query_dim: int):
 
@@ -29,7 +32,7 @@ class infonet(nn.Module):
         input_mask: Optional[torch.Tensor] = None,
         query_mask: Optional[torch.Tensor] = None,
     ):
-
+        """Encode ``inputs`` into latents, decode a query-conditioned output surface, smooth it with a small Gaussian kernel, and return the resulting MI lower-bound estimate via ``mutual_information``."""
         latents = self.encoder(inputs, input_mask)
         query = self.query_gen(inputs)
 

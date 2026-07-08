@@ -72,6 +72,7 @@ def subset_redundancy_many(phi: np.ndarray, idx_list, *, phi_T: Optional[np.ndar
 
 
 def _features(proxy, card, redund):
+    """Build the calibration regressor's design matrix: [proxy_loss, cardinality, redundancy, proxy_loss*redundancy] (the last column is the bias-correction interaction term)."""
     proxy = np.asarray(proxy, dtype=np.float64)
     card = np.asarray(card, dtype=np.float64)
     redund = np.asarray(redund, dtype=np.float64)
@@ -89,6 +90,7 @@ class ProxyCorrector:
         self.fallback = fallback  # True -> identity on proxy_loss (rank-preserving)
 
     def predict(self, proxy, card, redund):
+        """Map (proxy_loss, cardinality, redundancy) to a calibrated honest-loss estimate; identity on ``proxy`` (rank-preserving) when in fallback mode or no model was fit."""
         if self.fallback or self.model is None:
             return np.asarray(proxy, dtype=np.float64)
         F = (_features(proxy, card, redund) - self.mean) / self.std

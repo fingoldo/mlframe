@@ -67,6 +67,7 @@ def _make_shufflegen_inputs(dims: dict):
 
 
 def _shufflegen_numpy(y, nperm):
+    """Reference numpy backend: generate ``nperm`` shuffles of ``y`` via a plain Python loop over ``rng.shuffle``, returning per-row sorted multisets for cross-backend equivalence checking."""
     rng = np.random.default_rng(12345)
     yp = y.copy()
     out = np.empty((int(nperm), y.shape[0]), dtype=y.dtype)
@@ -78,6 +79,7 @@ def _shufflegen_numpy(y, nperm):
 
 
 def _shufflegen_numba(y, nperm):
+    """Parallel-njit backend: generate ``nperm`` shuffles of ``y`` via ``_gen_target_shuffles_par_njit``, returning per-row sorted multisets for cross-backend equivalence checking against the numpy reference."""
     from ._permutation_null import _gen_target_shuffles_par_njit
 
     out = _gen_target_shuffles_par_njit(y, int(nperm), np.int64(777))

@@ -342,6 +342,7 @@ def _cuda_pair_hist_kernel_factory():
         counts_flat,  # (total_size,) int64 -- output, zeroed by host
         n,
     ):
+        """Device kernel: one CUDA block per column pair accumulates that pair's joint histogram into ``counts_flat`` via atomic adds, striding threads over rows."""
         p = _nb_cuda.blockIdx.x
         if p >= pair_posa.shape[0]:
             return
@@ -373,6 +374,7 @@ def _cuda_node_hist_kernel_factory():
         n,
         k,
     ):
+        """Device kernel: one CUDA block per column accumulates its marginal (or feature-target joint) histogram into ``counts_flat`` via atomic adds, striding threads over rows."""
         i = _nb_cuda.blockIdx.x
         if i >= k:
             return
@@ -430,6 +432,7 @@ def friend_graph_stats_cuda(
     nb_sel = nbins[sel_arr]
 
     def _launch_node(d_codes, col_off, total):
+        """Upload column offsets, allocate + zero the flat device counts buffer, launch ``_CUDA_NODE_KERNEL`` over ``k`` blocks, and pull the resulting per-column histograms back to host."""
         d_off = _nb_cuda.to_device(np.ascontiguousarray(col_off, dtype=np.int64))
         d_counts = _nb_cuda.device_array(int(total), dtype=np.int64)
         d_counts[:] = 0
@@ -605,6 +608,7 @@ def _run_friend_graph_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     def _vec(fn):
+        """Wrap a ``friend_graph_stats_*`` backend to return a flat numeric vector instead of a ``FriendGraphGPUStats`` struct, so ``sweep_backend_grid`` can compare backends for bit-identity by array equality."""
         return lambda *a: _stats_to_vector(fn(*a))
 
     variants = {

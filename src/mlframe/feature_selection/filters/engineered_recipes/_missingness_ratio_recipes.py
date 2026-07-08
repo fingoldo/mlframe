@@ -29,6 +29,7 @@ def _apply_mi_greedy_transform(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     from .._mi_greedy_fe import apply_mi_greedy_transform
 
     def _numeric_source(n: str) -> np.ndarray:
+        """Extract column ``n`` from ``X`` and coerce it to float64, raising a recipe-scoped ``ValueError`` (naming the column) instead of an opaque deep numpy error when the column isn't numeric."""
         col = _extract_column(X, n)
         try:
             return np.asarray(col, dtype=np.float64)

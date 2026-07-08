@@ -179,6 +179,7 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
     deg = max(1, int(degree))
 
     def _heldout_corr(vals_va) -> float:
+        """Absolute correlation between candidate values ``vals_va`` and the held-out (mean-centered) target ``y_va``, sanitizing non-finite inputs and returning 0.0 for a constant/degenerate candidate."""
         vals_va = np.nan_to_num(np.asarray(vals_va, dtype=np.float64), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
         if float(np.std(vals_va)) < 1e-12:
             return 0.0

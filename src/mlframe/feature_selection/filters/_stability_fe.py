@@ -303,6 +303,7 @@ class StabilityFESelector(BaseEstimator, TransformerMixin):
         self.random_state = random_state
 
     def fit(self, X, y):
+        """Run bootstrap-based stability selection to get the stable feature set, then fit ONE MRMR on the full data (not a subsample) so ``transform`` can replay auditable recipes rather than a subsample-shadowed variant."""
         result = stability_select_fe(
             X, y,
             base_mrmr_params=self.base_mrmr_params or {},
@@ -325,6 +326,7 @@ class StabilityFESelector(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
+        """Replay the full-data MRMR's recipes, then restrict engineered columns to those in ``stable_set_`` (stability AND full-data reproducibility both required); raw/non-engineered columns the full fit kept always pass through."""
         if not hasattr(self, "full_mrmr_"):
             raise RuntimeError("StabilityFESelector.transform called before fit; " "no full_mrmr_ recipes are available.")
         out = self.full_mrmr_.transform(X)
@@ -341,4 +343,5 @@ class StabilityFESelector(BaseEstimator, TransformerMixin):
         return out.loc[:, keep]
 
     def fit_transform(self, X, y=None, **fit_params):
+        """Fit then transform in one call."""
         return self.fit(X, y).transform(X)

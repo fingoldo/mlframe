@@ -61,6 +61,7 @@ class DataFingerprint:
 
     @classmethod
     def from_xy(cls, X, y) -> "DataFingerprint":
+        """Compute a ``DataFingerprint`` (shape, target type, numeric/high-card/constant column fractions, target correlation stats, NaN presence) from raw ``(X, y)``, used by ``suggest_configs`` to pick sensible defaults."""
         if hasattr(X, "shape"):
             n, p = int(X.shape[0]), int(X.shape[1])
         else:

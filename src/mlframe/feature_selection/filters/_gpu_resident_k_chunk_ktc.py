@@ -84,6 +84,7 @@ def gpu_resident_pair_candidate_mi_vram_fraction(
 
 
 def _make_gpu_k_chunk_inputs(dims: dict):
+    """Synthesize a (two continuous predictors + one 4-class label) workload of size ``dims["n_samples"]`` for the GPU-resident k-chunk VRAM-fraction sweep."""
     n = int(dims["n_samples"])
     rng = np.random.default_rng(0)
     a = rng.normal(size=n).astype(np.float64)

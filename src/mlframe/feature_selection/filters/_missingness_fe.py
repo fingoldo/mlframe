@@ -481,6 +481,7 @@ def missingness_count_with_recipes(
 
 
 def _apply_missing_indicator_recipe(recipe, X) -> np.ndarray:
+    """Recipe-apply adapter (consumed by ``engineered_recipes.apply_recipe``): coerces ``X`` to a pandas view of the single source column and replays ``apply_missing_indicator``."""
     if len(recipe.src_names) != 1:
         raise ValueError(f"missing_indicator recipe '{recipe.name}' must have exactly 1 " f"src_name; got {len(recipe.src_names)}")
     src = recipe.src_names[0]
@@ -529,12 +530,14 @@ def _coerce_X_to_pandas_with_cols(X, cols, recipe_name) -> pd.DataFrame:
 
 
 def _apply_missingness_count_recipe(recipe, X) -> np.ndarray:
+    """Recipe-apply adapter (consumed by ``engineered_recipes.apply_recipe``): coerces ``X`` to a pandas view of the recorded columns and replays ``apply_missingness_count``."""
     cols = tuple(recipe.extra.get("cols", ()))
     X_view = _coerce_X_to_pandas_with_cols(X, cols, recipe.name)
     return apply_missingness_count(X_view, {"cols": cols})
 
 
 def _apply_missingness_pattern_recipe(recipe, X) -> np.ndarray:
+    """Recipe-apply adapter (consumed by ``engineered_recipes.apply_recipe``): coerces ``X`` to a pandas view of the recorded columns and replays ``apply_missingness_pattern``."""
     cols = tuple(recipe.extra.get("cols", ()))
     X_view = _coerce_X_to_pandas_with_cols(X, cols, recipe.name)
     return apply_missingness_pattern(

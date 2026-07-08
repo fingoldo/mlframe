@@ -295,6 +295,7 @@ def _mdlp_recurse(
     min_split_size: int,
     max_depth: int,
 ) -> None:
+    """Legacy pure-Python MDLP recursive split search, kept only as an A/B reference for validating ``_mdlp_recurse_njit``'s bit-identity; not on the production path."""
     n = len(x)
     if n < 2 * min_split_size or depth >= max_depth:
         return

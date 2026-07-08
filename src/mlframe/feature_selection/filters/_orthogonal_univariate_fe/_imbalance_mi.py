@@ -58,14 +58,17 @@ except ImportError:  # pragma: no cover - numba is a hard dep in this repo
     _NUMBA_AVAILABLE = False
 
     def njit(*args, **kwargs):
+        """No-op ``numba.njit`` stand-in for the (hard-dep-violating) environment without numba: returns the function unchanged whether called bare (``@njit``) or with kwargs (``@njit(cache=True)``)."""
         if len(args) == 1 and callable(args[0]):
             return args[0]
 
         def deco(fn):
+            """Identity decorator used when ``njit`` is invoked with arguments."""
             return fn
         return deco
 
     def prange(n):
+        """Plain-Python fallback for ``numba.prange`` when numba is unavailable: behaves as ``range``."""
         return range(n)
 
 

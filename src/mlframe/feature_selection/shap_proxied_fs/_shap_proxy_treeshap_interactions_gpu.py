@@ -244,6 +244,7 @@ __device__ void treeshap_scan(
 
 
 def gpu_interactions_available() -> bool:
+    """True when cupy is importable and reports at least one CUDA device; False (with a debug log) on any import/runtime error."""
     try:
         import cupy as cp
 
@@ -254,6 +255,7 @@ def gpu_interactions_available() -> bool:
 
 
 def _block_size() -> int:
+    """Look up the CUDA block size for this kernel from the shared kernel_tuning_cache; falls back to ``_DEFAULT_BLOCK_SIZE`` when the cache is unavailable or has no tuned entry for this kernel."""
     try:
         from mlframe.feature_selection.filters import get_kernel_tuning_cache
 
@@ -268,6 +270,7 @@ def _block_size() -> int:
 
 
 def _ensure_kernel():
+    """Lazily compile (once, double-checked-locked) and cache the ``treeshap_interactions`` RawModule kernel, injecting the scratch-size #defines ahead of the device-scan and kernel source."""
     global _INTERACTION_KERNEL
     if _INTERACTION_KERNEL is not None:
         return _INTERACTION_KERNEL

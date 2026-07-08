@@ -203,6 +203,7 @@ def categorize_dataset(
 
     if _is_polars:
         def _is_pl_cat(dt):
+            """True if a polars dtype should be treated as categorical (string/categorical/boolean/enum) rather than numeric for discretization purposes."""
             return dt == pl.Utf8 or dt == pl.String or dt == pl.Categorical or dt == pl.Boolean or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
 
         numerical_cols = [name for name, dt in df.schema.items() if not _is_pl_cat(dt)]

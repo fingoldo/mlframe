@@ -67,6 +67,7 @@ def _parse(name: str):
     """Parse an op-name into a nested (op, [args]) / leaf-string tree. Returns the tree and
     the index after the parsed expression. Leaves are any maximal run not containing ``(),``."""
     def parse_expr(i: int):
+        """Recursive-descent parse of one expression starting at index ``i``; returns ``(node, next_index)`` where ``node`` is a leaf string or ``(op, [args])`` tuple."""
         # read an identifier / leaf token
         j = i
         while j < len(name) and name[j] not in "(),":
@@ -92,6 +93,7 @@ def _parse(name: str):
 
 
 def _render(node) -> str:
+    """Serialize a parsed (op, [args]) / leaf tree back into the ``op(arg1,arg2,...)`` name string."""
     if isinstance(node, str):
         return node
     op, args = node
@@ -99,6 +101,7 @@ def _render(node) -> str:
 
 
 def _simplify(node, sign_irrelevant: bool):
+    """Recursively simplify a parsed op tree: drops redundant/idempotent unary ops (e.g. a dead ``neg`` when the caller says the sign doesn't matter, or ``abs(abs(x))``-style collapses), returning an equivalent but shorter tree."""
     if isinstance(node, str):
         return node
     op, args = node

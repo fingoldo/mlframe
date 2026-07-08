@@ -94,6 +94,7 @@ def plot(self, X_rotation=90, X_size=8, figsize=(12, 8), y_scale="log", which_fe
 
 
 def box_plot(self, data, X_rotation, X_size, y_scale, figsize):
+    """Draw a per-feature box plot of importance z-scores, colored by BorutaShap decision (accepted/rejected/tentative/shadow), ordered by descending mean importance; shifts values positive before a log y-scale."""
     if y_scale == "log":
         minimum = data["value"].min()
         if minimum <= 0:
@@ -116,6 +117,7 @@ def box_plot(self, data, X_rotation, X_size, y_scale, figsize):
 
 
 def create_mapping_of_features_to_attribute(self, maps=None):
+    """Build a feature-name -> color dict for the box plot, assigning ``maps[0..3]`` to tentative/rejected/accepted/shadow feature groups respectively."""
     if maps is None:
         maps = []
     rejected = list(self.rejected)
@@ -135,20 +137,24 @@ def create_mapping_of_features_to_attribute(self, maps=None):
 
 
 def create_list(array, color):
+    """Repeat ``color`` once per element of ``array``, for use as a per-feature color list in the box-plot palette."""
     colors = [color for x in range(len(array))]
     return colors
 
 
 def filter_data(data, column, value):
+    """Return only rows matching ``value`` in ``column`` plus the "Shadow" rows, on a copy of ``data`` so the caller's frame is untouched."""
     data = data.copy()
     return data.loc[(data[column] == value) | (data[column] == "Shadow")]
 
 
 def has_numbers(inputString):
+    """Whether ``inputString`` contains at least one digit character."""
     return any(char.isdigit() for char in inputString)
 
 
 def check_if_which_features_is_correct(my_string):
+    """Validate that ``my_string`` (case-insensitive) is one of the accepted feature-selection filters; raises ``ValueError`` otherwise."""
     my_string = str(my_string).lower()
     if my_string in ["tentative", "rejected", "accepted", "all"]:
         pass
@@ -158,4 +164,5 @@ def check_if_which_features_is_correct(my_string):
 
 
 def to_dictionary(list_one, list_two):
+    """Zip two parallel lists (keys, values) into a dict."""
     return dict(zip(list_one, list_two))

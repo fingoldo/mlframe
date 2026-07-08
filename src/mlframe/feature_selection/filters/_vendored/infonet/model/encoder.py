@@ -1,3 +1,4 @@
+"""Perceiver-style latent-array encoder (vendored InfoNet component): cross-attends a fixed set of learned latent vectors onto the input sequence, then refines them through a stack of self-attention blocks."""
 from typing import Optional
 
 import torch
@@ -7,6 +8,8 @@ from .attention_block import CrossAttentionBlock, SelfAttentionBlock
 
 
 class Encoder(nn.Module):
+    """Perceiver encoder: a learned (latent_num, latent_dim) latent array attends to the (variable-length) input via one cross-attention block, then is refined by ``num_self_attn_per_block`` self-attention layers."""
+
     def __init__(
         self,
         input_dim: int,

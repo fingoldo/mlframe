@@ -125,10 +125,12 @@ _FREQ_BANDS = {"very_rare": 0, "rare": 1, "common": 2, "dominant": 3}
 
 
 def engineered_name_is_rare(col: str) -> str:
+    """Canonical engineered-feature name for the rare-category indicator derived from ``col``."""
     return f"is_rare__{col}"
 
 
 def engineered_name_freq_band(col: str) -> str:
+    """Canonical engineered-feature name for the frequency-band code derived from ``col``."""
     return f"freq_band__{col}"
 
 
@@ -656,6 +658,7 @@ def hybrid_conditional_residual_fe(
 
 
 def engineered_name_rankgauss(col: str) -> str:
+    """Canonical engineered-feature name for the rank-Gauss transform derived from ``col``."""
     return f"rankgauss__{col}"
 
 

@@ -357,6 +357,7 @@ def greedy_forward(phi, base, y, *, classification, metric=None, max_card=None, 
 
 
 def greedy_backward(phi, base, y, *, classification, metric=None, min_card=1, top_n=30):
+    """Classic backward hill-climb: start with all features, repeatedly drop the single feature whose removal most improves (or least hurts) loss, stopping when no drop improves or ``min_card`` is reached. Returns the evaluator's ``top_n`` best-loss subsets seen along the path."""
     phi, base, y, metric = _prep(phi, base, y, classification, metric)
     f = phi.shape[1]
     ev = _Evaluator(phi, base, y, metric)
@@ -425,6 +426,7 @@ def _local_search(ev, start: tuple[int, ...], f: int, max_card: int) -> tuple[in
 
 
 def multistart_local(phi, base, y, *, classification, metric=None, n_starts=10, max_card=None, rng=None, top_n=30):
+    """Run ``_local_search`` (add/drop/swap hill-climb) from ``n_starts`` random subsets to escape single-basin local optima; returns the evaluator's ``top_n`` best-loss subsets found across all starts."""
     phi, base, y, metric = _prep(phi, base, y, classification, metric)
     f = phi.shape[1]
     max_card = f if max_card is None else min(max_card, f)
@@ -438,6 +440,7 @@ def multistart_local(phi, base, y, *, classification, metric=None, n_starts=10, 
 
 
 def genetic(phi, base, y, *, classification, metric=None, pop_size=40, n_generations=30, mutation_rate=0.1, elitism=4, rng=None, max_card=None, top_n=30):
+    """Genetic-algorithm feature subset search: bit-mask population evolved via tournament selection, uniform crossover and bit-flip mutation, with elitism carrying the best individuals forward each generation; returns the evaluator's ``top_n`` best-loss subsets seen across all generations."""
     phi, base, y, metric = _prep(phi, base, y, classification, metric)
     f = phi.shape[1]
     max_card = f if max_card is None else min(max_card, f)
@@ -445,6 +448,7 @@ def genetic(phi, base, y, *, classification, metric=None, pop_size=40, n_generat
     ev = _Evaluator(phi, base, y, metric)
 
     def mask_to_idx(mask):
+        """Convert a binary population mask to a sorted feature-index tuple, guarding against an empty individual (falls back to one random feature) and truncating to ``max_card`` when the mask selects too many."""
         idx = tuple(np.flatnonzero(mask).tolist())
         if len(idx) == 0:  # never allow empty individual
             idx = (int(rng.integers(0, f)),)
@@ -461,6 +465,7 @@ def genetic(phi, base, y, *, classification, metric=None, pop_size=40, n_generat
         while len(new_pop) < pop_size:
             # tournament selection (size 3), lower loss wins
             def pick(pop=pop, losses=losses):
+                """Tournament-select one parent: sample 3 candidates and return the one with the lowest loss."""
                 cand = rng.integers(0, pop_size, size=3)
                 return pop[cand[np.argmin(losses[cand])]]
             p1, p2 = pick(), pick()

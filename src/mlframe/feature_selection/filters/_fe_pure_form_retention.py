@@ -120,6 +120,7 @@ def retain_usable_pure_forms(
         _CLF_COVER_CORR = 0.20
 
         def _clf_form_relevant(recipe) -> bool:
+            """Replay ``recipe`` and test whether its values are class-relevant (|point-biserial corr with the class indicator| >= ``_CLF_COVER_CORR``); used to distinguish a genuinely-usable existing pure-pair form from a lossy one that should not count as coverage."""
             try:
                 from .engineered_recipes import apply_recipe
                 vals = np.asarray(apply_recipe(recipe, X), dtype=np.float64).ravel()
@@ -175,6 +176,7 @@ def retain_usable_pure_forms(
         _raw_base_set = set(base_names)
 
         def _raw_operands(recipe) -> set:
+            """Resolve a recipe's ``src_names`` tokens down to the set of genuine raw base-column names they reference, so multi-step composite expressions (whose src_names are themselves nested formula strings) are classified by raw-operand arity rather than by entry count."""
             toks = set()
             for s in getattr(recipe, "src_names", ()) or ():
                 for t in _OPERAND_TOKEN_RE.split(str(s)):
@@ -317,6 +319,7 @@ def retain_usable_pure_forms(
         from sklearn.pipeline import make_pipeline
 
         def _abscorr(u, v):
+            """Absolute Pearson correlation between ``u`` and ``v``, returning 0.0 when either is (near-)constant to avoid a divide-by-zero."""
             u = u - u.mean(); v = v - v.mean()
             du, dv = float(np.sqrt((u * u).sum())), float(np.sqrt((v * v).sum()))
             if du <= 1e-12 or dv <= 1e-12:
@@ -324,8 +327,8 @@ def retain_usable_pure_forms(
             return abs(float((u * v).sum()) / (du * dv))
 
         def _single_operand_basis(x):
-            # a modest additive single-operand basis: any SEPARABLE function f(a)+g(b) lives in the span
-            # of [basis(a)] + [basis(b)], so a cross-pair form that merely sums two single-operand
+            """Build a small additive nonlinear basis (square/cube/signed-sqrt/signed-log1p/reciprocal) for a single standardized operand, spanning separable single-variable nonlinearities so a genuinely joint (non-separable) form can be told apart from a sum of per-operand transforms."""
+            # any SEPARABLE function f(a)+g(b) lives in the span of [basis(a)] + [basis(b)], so a cross-pair form that merely sums two single-operand
             # nonlinearities (a**3 + sqrt(d)) is reconstructed here with ~0 residual, while a genuine
             # NON-separable joint form (a**2/b is a ratio, log(c)*sin(d) a product) is not.
             xs = (x - x.mean()) / (x.std() + 1e-12)
@@ -338,6 +341,7 @@ def retain_usable_pure_forms(
         # forms, so the trap pre-check (has_cross_mix OR no-pure-pair) returns [] BEFORE this gate runs and the corr floor never fires (+0 retained at corr in
         # {0.08, 0.05, 0.0}). Bench: _benchmarks/fs_quality/qual23_pure_form_resid_corr.py. Not flipped; re-test on a dataset where the greedy traps a pure pair.
         def _adds_nonlinear_value(form_vals, nm_a, nm_b, min_resid_frac=min_resid_frac, min_resid_corr=min_resid_corr):
+            """Gate a candidate pure-pair form: regress it on the additive single-operand basis of both raw operands, and require the residual to be BOTH non-negligible (genuinely non-separable in its operands) AND correlated with the target (the nonlinearity is target-relevant) before treating the form as worth retaining."""
             try:
                 xa = _f64(_scrub(X_fit[nm_a].to_numpy()))
                 xb = _f64(_scrub(X_fit[nm_b].to_numpy()))

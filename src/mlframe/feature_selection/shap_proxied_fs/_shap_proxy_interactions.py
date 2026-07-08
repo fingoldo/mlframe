@@ -210,6 +210,7 @@ def interaction_margin(Phi: np.ndarray, base: np.ndarray, idx) -> np.ndarray:
 
 
 def interaction_subset_loss(Phi, base, y, idx, metric) -> float:
+    """Proxy-loss of the coalition margin for feature subset ``idx`` (base value plus its within-subset pairwise SHAP interactions), under ``metric``."""
     return proxy_loss(interaction_margin(Phi, base, idx), y, metric)
 
 
@@ -225,6 +226,7 @@ def interaction_top_n(
     cache: dict[tuple[int, ...], float] = {}
 
     def loss(idx):
+        """Cached ``interaction_subset_loss`` lookup keyed by the sorted feature-index tuple; empty subsets score ``+inf`` so they never win the ranking."""
         key = tuple(sorted(int(i) for i in idx))
         if not key:
             return float("inf")
@@ -436,6 +438,7 @@ def su_synergy_screen(
         return _column_marginal(raw, n_bins_hint=nb[col_a] * nb_b)
 
     def _pair_synergy(col_a, col_b, target_cls, target_freq):
+        """Symmetric uncertainty synergy of the pair ``(col_a, col_b)`` against the target: ``joint_SU - max(marginal SU_a, marginal SU_b)``; positive means the pair jointly informs the target more than either feature alone. Returns ``(synergy, joint_su)``, both 0.0 when the joint has at most one occupied cell."""
         jcls, jfreq = _joint_marg(col_a, col_b)
         if jfreq.size <= 1:
             return 0.0, 0.0

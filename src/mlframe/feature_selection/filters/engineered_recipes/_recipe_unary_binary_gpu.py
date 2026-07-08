@@ -197,6 +197,7 @@ def _materialise_recipe_gpu(recipe: EngineeredRecipe, X: Any, cp, dt):
     from .._fe_resident_operands import resident_operand
 
     def _operand_gpu(side_name, nested_parent):
+        """Resolve one operand of the recipe to a device array: recurse into ``_materialise_recipe_gpu`` (unquantized) for a nested-engineered parent, or pull the raw column from the fit-resident device cache."""
         # Nested-engineered operand: replay the parent WITHOUT quantization ON device (recurse). Raw operand:
         # ride the resident cache (uploaded once per fit, shared across every recipe reusing the column).
         if nested_parent is not None:

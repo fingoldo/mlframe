@@ -104,6 +104,7 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
 
 
 def _score_plug_in(x: np.ndarray, y_arr: np.ndarray, *, nbins_strategy: Optional[str], nbins_strategy_kwargs: Optional[Dict], miller_madow: bool) -> float:
+    """Plug-in MI estimator: bin ``x`` via the given ``nbins_strategy``, coerce a low-cardinality float ``y`` to integer label codes (avoiding the quantile-binning trap that collapses binary y to a single bin), and score the joint histogram MI."""
     from ._adaptive_nbins import per_feature_edges, _plug_in_mi
     strategy_kwargs = dict(nbins_strategy_kwargs or {})
     if nbins_strategy is None:
@@ -134,6 +135,7 @@ def _score_plug_in(x: np.ndarray, y_arr: np.ndarray, *, nbins_strategy: Optional
 
 
 def _score_aggregator(x: np.ndarray, y_arr: np.ndarray, *, kind: str, nbins_strategy: Optional[str], nbins_strategy_kwargs: Optional[Dict]) -> float:
+    """Score a pair via a panel of MI estimators (FD-binned, quantile-binned, mixed-KSG) combined by either the median or the Genie-style robust aggregator, per ``kind``."""
     from ._mi_aggregator import median_mi_panel, genie_mi_panel
     from ._ksg import mixed_ksg_mi
     estimators = {
