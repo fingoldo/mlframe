@@ -46,7 +46,7 @@ _NW_PARALLEL_MIN_QUERIES = int(os.environ.get("MLFRAME_NW_PARALLEL_MIN_QUERIES",
 def _kernel(u: float, kernel_code: int) -> float:
     """Kernel value at scaled distance ``u = |x - x_i| / h`` (u >= 0). 0=gaussian,1=epanechnikov,2=boxcar,3=tricube."""
     if kernel_code == 0:
-        return np.exp(-0.5 * u * u)
+        return float(np.exp(-0.5 * u * u))
     if kernel_code == 1:
         return 1.0 - u * u if u < 1.0 else 0.0
     if kernel_code == 2:
@@ -171,8 +171,8 @@ def nadaraya_watson_smooth(
         w = np.ones(1, dtype=np.float64)
     kernel_code = KERNELS.index(kernel)
     if xq.shape[0] >= _NW_PARALLEL_MIN_QUERIES:
-        return _nw_parallel(xq, x, y, w, kernel_code, h, use_w)
-    return _nw_serial(xq, x, y, w, kernel_code, h, use_w)
+        return np.asarray(_nw_parallel(xq, x, y, w, kernel_code, h, use_w))
+    return np.asarray(_nw_serial(xq, x, y, w, kernel_code, h, use_w))
 
 
 @njit(fastmath=False, cache=True)

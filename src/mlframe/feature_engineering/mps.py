@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union  # noqa: F401
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union, cast  # noqa: F401
 
 import numba
 import numpy as np
@@ -680,6 +680,8 @@ def compute_mps_targets(
 ) -> Optional[pl.DataFrame]:
 
     if fo_df is None:
+        if fpath is None:
+            raise ValueError("compute_mps_targets: either fpath or fo_df must be provided.")
         try:
             fo_df = (
                 pl.read_parquet(fpath, columns=[ts_field, group_field, price_field], allow_missing_columns=True)
@@ -688,7 +690,7 @@ def compute_mps_targets(
             )
         except Exception:
             logger.warning("Failed to read MPS parquet file %s", fpath, exc_info=True)
-            return
+            return None
 
     basic_expr = pl.col(price_field).fill_null(strategy="forward").fill_null(strategy="backward")
 
@@ -725,4 +727,4 @@ def compute_mps_targets(
                 )
             )
 
-    return pl.concat([el for el in targets_dfs if el is not None and len(el) > 0])
+    return cast(pl.DataFrame, pl.concat([el for el in targets_dfs if el is not None and len(el) > 0]))
