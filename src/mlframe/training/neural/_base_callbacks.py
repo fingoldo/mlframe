@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import operator  # picklable comparison functions (needed by ddp_spawn strategy)
-from typing import Optional
+from typing import Callable, Optional
 
 import lightning as L
 import torch
@@ -27,7 +27,14 @@ class NetworkGraphLoggingCallback(Callback):
 
 class AggregatingValidationCallback(Callback):
 
-    def __init__(self, metric_name: str, metric_fcn: object, on_epoch: bool = True, on_step: bool = False, prog_bar: bool = True):
+    # Constructor params, mirrored onto self by store_params_in_object() below.
+    metric_name: str
+    metric_fcn: Callable
+    on_epoch: bool
+    on_step: bool
+    prog_bar: bool
+
+    def __init__(self, metric_name: str, metric_fcn: Callable, on_epoch: bool = True, on_step: bool = False, prog_bar: bool = True):
         # Forward to Lightning's Callback base so any future state it sets in __init__ is populated (currently a no-op).
         super().__init__()
         params = get_parent_func_args()
@@ -190,20 +197,23 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
         """
         super().on_validation_end(trainer, pl_module)
 
-        current_score = trainer.callback_metrics.get(self.monitor)
+        if self.monitor is None:
+            return
+        raw_score = trainer.callback_metrics.get(self.monitor)
 
-        if current_score is None:
+        if raw_score is None:
             logger.warning(f"Monitor metric '{self.monitor}' not found in callback_metrics.")
             return
 
-        if isinstance(current_score, torch.Tensor):
-            current_score = current_score.item()
+        current_score: float = raw_score.item() if isinstance(raw_score, torch.Tensor) else float(raw_score)
 
-        if self.monitor_op(current_score, self.best_score):
+        # best_score is always set to +-inf in __init__ (never stays None past construction).
+        if self.best_score is not None and self.monitor_op(current_score, self.best_score):
             self.best_score = current_score
             self.best_epoch = trainer.current_epoch
-            # Also set on pl_module for DDP synchronization
-            pl_module.best_epoch = self.best_epoch
+            # Also set on pl_module for DDP synchronization; not a parameter/buffer registration,
+            # just a plain attribute stash, so nn.Module.__setattr__'s stub-typed overload doesn't apply.
+            pl_module.best_epoch = self.best_epoch  # type: ignore[assignment]
             # DEBUG (was INFO): per-epoch best-model bump produces O(epochs) log spam (~20-40 lines per MLP fit) without surfacing any actionable signal -- the final best_epoch lands in the model and the "Loaded weights from epoch N" line at end-of-fit reports it.
             logger.debug("New best model at epoch %s with %s=%.4f", self.best_epoch, self.monitor, self.best_score)
 
