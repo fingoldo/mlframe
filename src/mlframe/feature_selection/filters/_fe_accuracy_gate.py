@@ -93,7 +93,7 @@ def measure_feature_uplift(
             if classification and np.unique(y_enc[tr]).size < 2:
                 continue
 
-            def _score(Xfull):
+            def _score(Xfull, tr=tr, va=va):
                 sc = StandardScaler()
                 Xt = sc.fit_transform(Xfull[tr])
                 Xv = sc.transform(Xfull[va])

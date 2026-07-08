@@ -147,7 +147,7 @@ def format_suite_end_summary(
             from ..metrics_registry import metric_name_higher_is_better as _mhb_pick
             _direction_pick = _mhb_pick(primary_metric)
             _is_min_for_pick = True if _direction_pick is None else (not _direction_pick)
-            def _better(a: float | None, b: float | None) -> bool:
+            def _better(a: float | None, b: float | None, _is_min_for_pick: bool = _is_min_for_pick) -> bool:
                 if a is None or not np.isfinite(a):
                     return False
                 if b is None or not np.isfinite(b):

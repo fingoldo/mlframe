@@ -654,7 +654,7 @@ def materialise_and_finalise_fe_candidates(
                         # as replay does (raw column from X, or the nested parent's
                         # continuous replay) and compute the frozen anchor so replay is
                         # byte-exact. Best-effort: None leaves the legacy refit path.
-                        def _ls_anchor(_src_name, _nested):
+                        def _ls_anchor(_src_name, _nested, X=X):
                             try:
                                 if _nested is not None:
                                     from ..engineered_recipes import apply_recipe as _ar

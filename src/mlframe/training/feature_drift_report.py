@@ -730,7 +730,7 @@ def _compute_drift_invariant(
             }
             continue
 
-        def _z_for(other_df):
+        def _z_for(other_df, col=col, train_mean=train_mean, train_std=train_std):
             if other_df is None:
                 return float("nan")
             other = _col_to_numpy(other_df, col)

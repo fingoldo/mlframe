@@ -442,7 +442,7 @@ def predict_from_models(
                     # the function is now unit-testable in isolation.
                     _exp_list_for_fallback = list(_expected) if _expected is not None else None
 
-                    def _try_predict(fn, primary, fallback):
+                    def _try_predict(fn, primary, fallback, model=model, _exp_list_for_fallback=_exp_list_for_fallback, model_name=model_name):
                         return _try_predict_with_pp_fallback(
                             fn, primary, fallback,
                             model=model,

@@ -129,8 +129,8 @@ def _measure_per_member_crossover(ndim: int, grid: list, repeats: int, rng) -> t
         # Steady-state prewarm of BOTH variants on this exact array before timing.
         ref(arr, med)
         _per_member_mae_std_njit(arr, med)
-        t_np = timeit.timeit(lambda: ref(arr, med), number=repeats) / repeats
-        t_nb = timeit.timeit(lambda: _per_member_mae_std_njit(arr, med), number=repeats) / repeats
+        t_np = timeit.timeit(lambda arr=arr, med=med: ref(arr, med), number=repeats) / repeats
+        t_nb = timeit.timeit(lambda arr=arr, med=med: _per_member_mae_std_njit(arr, med), number=repeats) / repeats
         if not equivalent:
             logger.warning("per_member sweep ndim=%d e=%d K=%d: numba DIVERGES from numpy "
                            "(maxdiff=%.2e > tol) -> forcing numpy regardless of speed", ndim, e, _SWEEP_K, diff)

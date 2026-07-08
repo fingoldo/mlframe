@@ -412,7 +412,7 @@ def genetic(phi, base, y, *, classification, metric=None, pop_size=40, n_generat
         new_pop = [pop[order[e]].copy() for e in range(min(elitism, pop_size))]
         while len(new_pop) < pop_size:
             # tournament selection (size 3), lower loss wins
-            def pick():
+            def pick(pop=pop, losses=losses):
                 cand = rng.integers(0, pop_size, size=3)
                 return pop[cand[np.argmin(losses[cand])]]
             p1, p2 = pick(), pick()

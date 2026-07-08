@@ -587,11 +587,13 @@ ignore-names = ["F", "L", "_F"]
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "F403"]
 "tests/**" = ["N801"]
-"src/mlframe/training/_profile_*.py" = ["B023"]
+# B023 (loop-variable closure capture): profiling scripts define ad-hoc closures per
+# iteration purely to time/print that iteration's inputs immediately, never storing the
+# closure for later -- exactly the case B023 can't distinguish from a real deferred-call bug.
 # T201 (print found): CLI entry points and interactive profile/demo/showcase scripts print to
 # stdout by design -- that IS their interface, not a lint issue vs. converting to logger calls.
 "src/mlframe/system/kernel_tuning_cache/__init__.py" = ["T201"]
-"src/mlframe/**/_profile_*.py" = ["T201"]
+"src/mlframe/**/_profile_*.py" = ["B023", "T201"]
 "src/mlframe/**/_smoke_*.py" = ["T201"]
 "src/mlframe/**/_*_showcase.py" = ["T201"]
 # Vendored third-party model code -- left at upstream shape.

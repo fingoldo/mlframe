@@ -126,7 +126,7 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
         # First pass: collect nodes by nodeid so children can be resolved to global ids.
         nodes = {}
 
-        def _collect(node, depth):
+        def _collect(node, depth, nodes=nodes):
             nonlocal max_depth
             max_depth = max(max_depth, depth)
             nodes[node["nodeid"]] = node
@@ -473,7 +473,7 @@ def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
         # invariant ``_ensemble_expected_value`` relies on). Collect nodes, assigning each a global id.
         flat: list[dict] = []
 
-        def _collect(node, depth):
+        def _collect(node, depth, base=base, flat=flat):
             nonlocal max_depth
             max_depth = max(max_depth, depth)
             node["_gid"] = base + len(flat)
