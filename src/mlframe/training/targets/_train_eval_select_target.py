@@ -174,9 +174,11 @@ def select_target(
             else:
                 raise TypeError(f"target must be np.ndarray, pd.Series, or pl.Series, " f"got {type(target).__name__}")
             if isinstance(target, pl.Series):
+                assert isinstance(vlcnts, pl.DataFrame)
                 vlcnts = vlcnts.filter(pl.col(target.name) == 1)
                 perc = vlcnts["proportion"][0] if len(vlcnts) > 0 else 0
             else:
+                assert isinstance(vlcnts, pd.Series)
                 perc = vlcnts.loc[1] if 1 in vlcnts.index else 0
             model_name += f" BT={perc*100:.0f}%"
 

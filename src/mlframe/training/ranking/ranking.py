@@ -423,7 +423,7 @@ def _fit_lgb_ranker(
     model = LGBMRanker(**init_kwargs)
 
     # LGB uses callbacks for early stopping in newer versions.
-    callbacks = []
+    callbacks: list = []
     if early_stopping_rounds is not None and X_val is not None:
         try:
             from lightgbm import early_stopping as _es
@@ -747,7 +747,7 @@ def ensemble_ranker_scores(
 
     if method == "score_mean":
         out = np.mean(np.asarray(scores_per_model), axis=0)
-        return out
+        return np.asarray(out)
 
     # rrf and borda both work in rank-space (per-query).
     aggregate = np.zeros(n_rows, dtype=np.float64)

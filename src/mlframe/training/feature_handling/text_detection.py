@@ -209,7 +209,7 @@ def _column_to_string_list(df: Any, column: str, max_sample: int) -> List[str]:
                 idx = np.linspace(0, n - 1, max_sample).round().astype(np.int64)
                 idx = np.unique(idx)
                 ser = ser.iloc[idx]
-            return ser.tolist()
+            return list(ser.tolist())
     except ImportError:  # pragma: no cover
         pass
 
@@ -228,7 +228,7 @@ def _is_string_column(df: Any, column: str) -> bool:
         import pandas as pd
         if isinstance(df, pd.DataFrame):
             ser = df[column]
-            return pd.api.types.is_string_dtype(ser) or pd.api.types.is_object_dtype(ser)
+            return bool(pd.api.types.is_string_dtype(ser) or pd.api.types.is_object_dtype(ser))
     except ImportError:  # pragma: no cover
         pass
     return False
