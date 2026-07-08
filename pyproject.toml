@@ -724,8 +724,13 @@ no_implicit_optional = true
 
 # numba ships no py.typed marker, so mypy can't see njit/prange are real public attributes and
 # flags every `from numba import njit` as attr-defined -- not a real type error, just a stub gap.
+# "numba.*" (not just "numba"): the exact-name override didn't cover submodules like numba.cuda,
+# whose metaprogrammed @cuda.jit intrinsics (_Intrinsic.__call__, Dim3, grid/threadIdx/etc.) have
+# stub signatures mypy can't reconcile with real call sites -- Callable[[Dim3], Any] operator/
+# call-overload/call-arg noise across every GPU-kernel module (confirmed 2026-07-08, MyPy (full)
+# CI job: friend_graph_gpu.py, _batch_mi_noise_gate_kernels.py, _gpu_metrics.py, dtw.py, etc.).
 [[tool.mypy.overrides]]
-module = "numba"
+module = "numba.*"
 follow_imports = "skip"
 follow_imports_for_stubs = true
 
@@ -762,3 +767,21 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 warn_return_any = true
 no_implicit_optional = true
+
+# These two modules feature-detect newer lightning/torch APIs (WeightAveraging, added Lightning
+# ~2.5; get_ema_avg_fn's exact availability) via `try: from X import Y / except ImportError:` at
+# runtime, with a `# type: ignore[attr-defined]` on the import since older installs genuinely lack
+# the attribute. ranker.py's GroupBatchSampler.__init__ has the same story for torch's Sampler
+# base (older torch's stub requires `data_source`; newer torch's bare-object base doesn't).
+# Whether these ignores are "needed" is a property of the extras version resolved, not the code:
+# MyPy (full) CI resolves an older lightning/torch lacking these APIs (ignore needed, real error
+# without it); a newer dev environment that already has them makes the same ignore comment
+# "unused" under the global warn_unused_ignores ratchet. Exempt just these files rather than
+# weakening the ratchet project-wide.
+[[tool.mypy.overrides]]
+module = [
+    "mlframe.training.neural.base._base_fit",
+    "mlframe.training.neural.recurrent_dataset_helpers",
+    "mlframe.training.neural.ranker",
+]
+warn_unused_ignores = false

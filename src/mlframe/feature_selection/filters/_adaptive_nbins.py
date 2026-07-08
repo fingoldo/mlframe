@@ -104,7 +104,7 @@ def freedman_diaconis_nbins(x: np.ndarray) -> int:
         return sturges_nbins(n)
     nbins = int(math.ceil(span / h))
     cap = max(2, int(math.sqrt(n) * 4))
-    return max(1, min(nbins, cap))
+    return int(max(1, min(nbins, cap)))
 
 
 # -----------------------------------------------------------------------------
