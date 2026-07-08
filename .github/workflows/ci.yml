@@ -9,11 +9,15 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Only cancel superseded PR runs. Master gets pushed to very frequently (concurrent /loop
-  # sessions), and cancel-in-progress there meant no run ever survived long enough to finish
-  # and upload coverage -- codecov stayed at 0%/null across 50 consecutive push events (42
-  # cancelled, 7 failed, 0 succeeded). Push-to-master runs must be allowed to run to completion.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Reverted 2026-07-09: cancel-in-progress:false for push (kept only for PR) was meant to let a
+  # push-to-master run survive to completion so codecov gets an upload (0% codecov incident,
+  # 2026-0x-xx: 42 cancelled / 7 failed / 0 succeeded across 50 consecutive pushes). Under today's
+  # push volume that "fix" just traded one failure mode for a worse one: non-cancelling runs queue
+  # up FIFO behind the concurrency group with nothing to clear the backlog, so runs sit queued for
+  # 30+ minutes and STILL never reach completion -- 0% codecov either way, but now nothing finishes
+  # at all (confirmed on mypy-full.yml's identical pattern the same day). cancel-in-progress:true
+  # at least lets the latest commit's run actually start and finish instead of rotting in queue.
+  cancel-in-progress: true
 
 jobs:
   test:
