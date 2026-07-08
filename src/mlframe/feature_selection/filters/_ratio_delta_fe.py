@@ -120,7 +120,7 @@ def _map_group_keys(
     absent = ~s.isin(lookup.keys()).to_numpy()
     if absent.any():
         out[absent] = global_value
-    return out
+    return np.asarray(out)
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@ def _safe_div(a: np.ndarray, b: np.ndarray, eps: float) -> np.ndarray:
     b = np.asarray(b, dtype=np.float64)
     sign_b = np.where(b >= 0.0, 1.0, -1.0)
     denom = sign_b * np.maximum(np.abs(b), eps)
-    return a / denom
+    return np.asarray(a / denom)
 
 
 def pairwise_ratio_features(
@@ -256,7 +256,7 @@ def apply_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
     a_vals = np.asarray(X_test[a].to_numpy(), dtype=np.float64)
     b_vals = np.asarray(X_test[b].to_numpy(), dtype=np.float64)
     r = _safe_div(a_vals, b_vals, float(eps))
-    return np.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0)
+    return np.asarray(np.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0))
 
 
 def apply_log_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
@@ -267,7 +267,7 @@ def apply_log_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndar
     a_vals = np.asarray(X_test[a].to_numpy(), dtype=np.float64)
     b_vals = np.asarray(X_test[b].to_numpy(), dtype=np.float64)
     lr = np.log1p(np.abs(a_vals) + float(eps)) - np.log1p(np.abs(b_vals) + float(eps))
-    return np.nan_to_num(lr, nan=0.0, posinf=0.0, neginf=0.0)
+    return np.asarray(np.nan_to_num(lr, nan=0.0, posinf=0.0, neginf=0.0))
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +371,7 @@ def apply_grouped_delta(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         out = delta / per_row_std
     else:
         raise ValueError(f"apply_grouped_delta: unknown op {op!r}")
-    return np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+    return np.asarray(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0))
 
 
 # ---------------------------------------------------------------------------
