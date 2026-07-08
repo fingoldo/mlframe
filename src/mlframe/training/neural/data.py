@@ -121,7 +121,7 @@ class TorchDataset(Dataset):
             elif _arr.ndim == 2 and _arr.shape[1] == 1:
                 _arr = _arr.reshape(-1)  # collapse (N, 1) -> (N,) for single-label paths
             # 2-D ndarray with K>=2 passes through; ndim>=3 untouched (caller's responsibility)
-            self.labels = torch.tensor(_arr, dtype=labels_dtype, device=device)
+            self.labels: Optional[torch.Tensor] = torch.tensor(_arr, dtype=labels_dtype, device=device)
             # Same shared-memory promotion as features (labels are accessed per-batch alongside features).
             if self._share_memory and isinstance(self.labels, torch.Tensor) and self.labels.device.type == "cpu":
                 try:
@@ -151,7 +151,7 @@ class TorchDataset(Dataset):
                 sample_weight = np.asarray(sample_weight)
 
             sample_weight = np.asarray(sample_weight).reshape(-1)
-            self.sample_weight = torch.tensor(sample_weight, dtype=torch.float32, device=device)
+            self.sample_weight: Optional[torch.Tensor] = torch.tensor(sample_weight, dtype=torch.float32, device=device)
             if self._share_memory and isinstance(self.sample_weight, torch.Tensor) and self.sample_weight.device.type == "cpu":
                 try:
                     self.sample_weight.share_memory_()
@@ -316,7 +316,7 @@ class TorchDataModule(LightningDataModule):
         self.dataloader_params = dataloader_params or {}
 
         # For dynamic prediction data
-        self.predict_features = None
+        self.predict_features: Optional[Union[pd.DataFrame, np.ndarray, torch.Tensor]] = None
 
         self.batch_size = self.dataloader_params.get("batch_size", 64)
 
@@ -421,6 +421,8 @@ class TorchDataModule(LightningDataModule):
     def on_gpu(self) -> bool:
         """Check if current model runs on GPU."""
         try:
+            if self.trainer is None:
+                return False
             return type(self.trainer.accelerator).__name__ == "CUDAAccelerator"
         except (AttributeError, Exception):
             return False
@@ -503,7 +505,7 @@ class TorchDataModule(LightningDataModule):
             labels=labels,
             sample_weight=sample_weight,
             features_dtype=self.features_dtype,
-            labels_dtype=self.labels_dtype if labels is not None else None,
+            labels_dtype=self.labels_dtype,
             batch_size=batch_size,
             device=device,
         )
@@ -602,7 +604,7 @@ class TorchDataModule(LightningDataModule):
         features = self.train_features
 
         if isinstance(features, (pd.DataFrame, np.ndarray)):
-            return features.shape[1]
+            return int(features.shape[1])
         elif torch.is_tensor(features):
             return features.shape[1]
         else:
