@@ -42,7 +42,7 @@ def _conditioning_rows_per_cell(ctx, X: tuple) -> float:
     if n_samples == 0:
         return float("inf")
     n_cols = factors_data.shape[1] if factors_data.ndim == 2 else 0
-    cond_indices = []
+    cond_indices: list = []
     cond_indices.extend(int(c) for c in X)
     # Include the target Y: the conditional-MI estimator histograms (X, Y, Z).
     # In the standard MRMR setup ``targets_data is factors_data`` so y indexes
@@ -113,7 +113,7 @@ def _prefer_engineered_order(order, expected_gains, ctx) -> np.ndarray:
     """
     rel_eps = float(getattr(ctx, "prefer_engineered_rel_eps", 0.0) or 0.0)
     if rel_eps <= 0.0 or len(order) < 2:
-        return order
+        return np.asarray(order)
 
     gains = np.asarray(expected_gains, dtype=np.float64)
     top_idx = order[0]
@@ -121,7 +121,7 @@ def _prefer_engineered_order(order, expected_gains, ctx) -> np.ndarray:
     # Only meaningful when the leader carries a positive gain; near-ties at or
     # below zero are noise and must keep the legacy (index) ordering.
     if not (top_gain > 0.0):
-        return order
+        return np.asarray(order)
 
     factors_names = ctx.factors_names
     raw_names = getattr(ctx, "raw_feature_names", None)
@@ -144,7 +144,7 @@ def _prefer_engineered_order(order, expected_gains, ctx) -> np.ndarray:
             rest.append(cand_idx)
 
     if not engineered_in_band:
-        return order  # no engineered peer in the band -> clear winner, untouched
+        return np.asarray(order)  # no engineered peer in the band -> clear winner, untouched
 
     # Engineered band-members first (stable), then the raw band-members (stable),
     # then the untouched tail.
