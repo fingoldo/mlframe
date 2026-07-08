@@ -351,7 +351,7 @@ def _apply_recurrent_to_ensemble(
             "apply_recurrent_to_ensemble: rebuilt ensemble is empty for target %s " "(all members gated out); returning empty dict, not prior ensemble.",
             target_name,
         )
-    return rebuilt
+    return dict(rebuilt)
 
 
 def _rerun_ensemble_with_recurrent(
@@ -515,7 +515,7 @@ def train_recurrent_models(
                 # / RecurrentClassifierWrapper.fit, so every recurrent fit raised TypeError and the existing
                 # smoke test only survived via except-skip. The wrapper's _create_eval_dataset accepts a
                 # 2-tuple (features, labels) or 3-tuple (sequences, features, labels).
-                eval_set = None
+                eval_set: tuple | None = None
                 if val_target is not None:
                     if val_sequences is not None:
                         eval_set = (val_sequences, val_df_pd if val_df_pd is not None else None, val_target)

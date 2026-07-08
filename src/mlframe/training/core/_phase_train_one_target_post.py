@@ -17,6 +17,7 @@ own lazy imports moved with them so the parent-bottom re-export doesn't add hard
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 
@@ -142,7 +143,7 @@ def _evaluate_mlp_extreme_ar_gate(
                 cur_target_name,
                 _model_idx_in_run + 1,
                 _total_models_in_run,
-                float(_ea_lag1),
+                float(_ea_lag1) if _ea_lag1 is not None else float("nan"),
                 _mlp_ea_thr,
                 mlframe_model_name,
             )
@@ -191,8 +192,11 @@ def _run_per_model_post_train_tail(
                     if _ue_y.shape[0] == _ue_X.shape[0]:
                         import pandas as _ue_pd
 
+                        def _ue_predict_fn(Z: Any, _m: Any = _ue_model, _c: Any = list(_ue_cols)) -> np.ndarray:
+                            return np.asarray(_m.predict(_ue_pd.DataFrame(Z, columns=_c))).reshape(-1)
+
                         _ue_rep = evaluate_tta_quality(
-                            lambda Z, _m=_ue_model, _c=list(_ue_cols): np.asarray(_m.predict(_ue_pd.DataFrame(Z, columns=_c))).reshape(-1),
+                            _ue_predict_fn,
                             _ue_X,
                             _ue_y,
                         )
