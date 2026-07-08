@@ -105,7 +105,7 @@ def detect_memory_limit_bytes() -> int:
     cgroup_limit = _read_cgroup_memory_limit_bytes()
     if cgroup_limit is not None and cgroup_limit < psutil_total:
         return cgroup_limit
-    return psutil_total
+    return int(psutil_total)
 
 
 # ---------------------------------------------------------------------

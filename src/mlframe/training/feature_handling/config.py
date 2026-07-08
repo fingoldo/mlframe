@@ -500,7 +500,7 @@ class FeatureHandlingConfig(BaseConfig):
         # String shorthand: treat as method name with NoParams default.
         if isinstance(value, str):
             from mlframe.training.feature_handling.handlers import NoParams
-            return [spec_cls(method=value, params=NoParams(kind=value))]
+            return [spec_cls(method=value, params=NoParams(kind=value))]  # type: ignore[arg-type]  # string-shorthand method name; NoParams.kind's Literal set is validated by pydantic at construction
         raise TypeError(f"unsupported value type for {spec_cls.__name__}: {type(value).__name__}")
 
     def _effective_text_specs(self, model_kind: str) -> List[TextHandlerSpec]:
