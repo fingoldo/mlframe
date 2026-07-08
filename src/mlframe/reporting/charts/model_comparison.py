@@ -170,9 +170,9 @@ def _leaderboard_panel(
     if higher_is_better:
         order = order[::-1]
     # NaN sorts to one end via argsort; drop non-finite from the displayed bar so a metric-less model is not shown.
-    order = [int(i) for i in order if finite[i]]
-    cats = tuple(names[i] for i in order)
-    bar_vals = vals[order]
+    order_list = [int(i) for i in order if finite[i]]
+    cats = tuple(names[i] for i in order_list)
+    bar_vals = vals[order_list]
     ref = baseline if baseline is not None else float(bar_vals[0])
     ref_label = "baseline" if baseline is not None else "best"
     direction = "higher=better" if higher_is_better else "lower=better"
@@ -219,7 +219,7 @@ def _corr_heatmap_panel(per_model: Mapping[str, Mapping[str, Any]], subsample: i
     names = [n for n in per_model if _model_score(per_model[n]) is not None]
     if len(names) < 2:
         return AnnotationPanelSpec(text="Correlation heatmap needs >= 2 models\nwith predictions", title="Prediction correlation")
-    cols = [_model_score(per_model[n]) for n in names]
+    cols: List[np.ndarray] = [c for n in names if (c := _model_score(per_model[n])) is not None]
     n_rows = min(c.shape[0] for c in cols)
     cols = [c[:n_rows] for c in cols]
     mat = np.column_stack(cols)

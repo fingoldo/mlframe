@@ -130,7 +130,7 @@ class _ScoreSort:
         else:
             run_end = np.empty(0, dtype=bool)
         self._run_end = run_end
-        self._dtc = None
+        self._dtc: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
 
     def distinct_threshold_counts(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """(tps, fps, thresholds) at each DISTINCT score (descending) -- sklearn ``_binary_clf_curve`` shape.
@@ -633,7 +633,7 @@ def binary_decile_table(y_true, y_score, *, n_deciles: int = 10) -> Dict[str, np
 
 
 # Columns drawn in the decile table, in order: (table-header, source-key-or-None, value-formatter).
-_DECILE_TABLE_COLUMNS: Tuple[Tuple[str, Optional[str], Callable], ...] = (
+_DECILE_TABLE_COLUMNS: Tuple[Tuple[str, str, Callable], ...] = (
     ("decile", "decile", lambda v: f"{int(v)}"),
     ("n", "count", lambda v: f"{int(v):,}"),
     ("positives", "positives", lambda v: f"{int(v):,}"),
