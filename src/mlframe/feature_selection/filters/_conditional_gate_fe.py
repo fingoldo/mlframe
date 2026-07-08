@@ -159,7 +159,7 @@ def apply_row_argmax(X, cols: Sequence[str]) -> np.ndarray:
     nan_rows = ~np.isfinite(stk).all(axis=1)
     if nan_rows.any():
         out[nan_rows] = np.nan
-    return out
+    return np.asarray(out)
 
 
 def apply_conditional_gate(X, mode: str, cols: Sequence[str], tau: float) -> np.ndarray:
