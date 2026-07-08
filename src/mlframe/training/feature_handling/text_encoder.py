@@ -193,9 +193,9 @@ class TextColumnEncoder:
         """
         if not self._fitted:
             # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
-            from sklearn.exceptions import NotFittedError as _NFE
+            from sklearn.exceptions import NotFittedError
 
-            raise _NFE(f"TextColumnEncoder({self.column!r}) not fitted. " f"Call .fit(train_df) first.")
+            raise NotFittedError(f"TextColumnEncoder({self.column!r}) not fitted. " f"Call .fit(train_df) first.")
         if self._empty_vocab:
             return self._empty_matrix(df)
         texts = _column_to_string_iter(df, self.column)

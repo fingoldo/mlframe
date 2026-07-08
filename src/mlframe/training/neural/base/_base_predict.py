@@ -66,8 +66,8 @@ class _PredictMixin:
 
         if not hasattr(self, "model") or self.model is None:
             # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
-            from sklearn.exceptions import NotFittedError as _NFE
-            raise _NFE("Model has not been fitted yet. Call fit() before predict().")
+            from sklearn.exceptions import NotFittedError
+            raise NotFittedError("Model has not been fitted yet. Call fit() before predict().")
 
         if not hasattr(self, "prediction_datamodule") or self.prediction_datamodule is None:
             # Reaches here only when the estimator was reconstructed

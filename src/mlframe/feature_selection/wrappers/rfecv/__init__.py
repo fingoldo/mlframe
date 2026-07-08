@@ -740,8 +740,8 @@ class RFECV(BaseEstimator, TransformerMixin):
             # NotFittedError (ValueError-compatible subclass), so existing
             # ``except ValueError`` chains stay green AND
             # ``except NotFittedError`` discriminators work.
-            from sklearn.exceptions import NotFittedError as _NFE
-            raise _NFE("RFECV is not fitted; call fit() first.")
+            from sklearn.exceptions import NotFittedError
+            raise NotFittedError("RFECV is not fitted; call fit() first.")
         # sklearn ``_check_feature_names_in`` contract: when the caller passes input_features it MUST match the fitted width, else raise (column-drift detection). A correct-length input_features overrides the stored feature_names_in_ -- this lets a caller re-inject real names after an ndarray fit (which synthesized x0..xN placeholders).
         names_in = getattr(self, "feature_names_in_", None)
         if input_features is not None:
@@ -779,8 +779,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         derivation) relies on this method existing.
         """
         if not hasattr(self, "support_"):
-            from sklearn.exceptions import NotFittedError as _NFE
-            raise _NFE("RFECV is not fitted; call fit() first.")
+            from sklearn.exceptions import NotFittedError
+            raise NotFittedError("RFECV is not fitted; call fit() first.")
         n = int(getattr(self, "n_features_in_", len(self.support_)))
         support = np.asarray(self.support_)
         if support.size and isinstance(self.support_[0], (bool, np.bool_)):

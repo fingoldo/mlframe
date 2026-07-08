@@ -148,7 +148,8 @@ def tune_decision_threshold(
 
     if metric == "f1":
         from sklearn.metrics import f1_score
-        scorer = lambda yt, yp: f1_score(yt, yp, zero_division=0)
+        def scorer(yt, yp):
+            return f1_score(yt, yp, zero_division=0)
     elif metric == "balanced_accuracy":
         from mlframe.metrics.core import balanced_accuracy_binary
         scorer = balanced_accuracy_binary

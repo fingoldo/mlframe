@@ -578,6 +578,12 @@ ignore = [
     "UP015",  # redundant open() mode arg: project prefers the explicit "r"/"rb" mode over the implicit default
 ]
 
+[tool.ruff.lint.pep8-naming]
+# F/L are the universal, ecosystem-standard aliases for torch.nn.functional / lightning
+# (every PyTorch/Lightning tutorial and codebase uses them); flagging them as bad casing
+# would push this codebase away from a convention every contributor already expects.
+ignore-names = ["F", "L", "_F"]
+
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "F403"]
 "tests/**" = ["N801"]

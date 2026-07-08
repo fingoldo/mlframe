@@ -818,7 +818,7 @@ from ._io_plot import (  # noqa: E402,F401
     create_mapping_of_features_to_attribute as _create_mapping_func,
     create_list as _create_list_func,
     filter_data as _filter_data_func,
-    hasNumbers as _has_numbers_func,
+    has_numbers as _has_numbers_func,
     check_if_which_features_is_correct as _check_which_features_func,
     to_dictionary as _to_dictionary_func,
 )

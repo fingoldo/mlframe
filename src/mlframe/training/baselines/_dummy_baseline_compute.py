@@ -98,8 +98,8 @@ def _to_pandas_for_baseline(X: Any) -> pd.DataFrame | None:
         global _TO_PANDAS_BASELINE_CACHE
         # Lazy init to avoid OrderedDict import at module scope (already imported but cheap).
         if _TO_PANDAS_BASELINE_CACHE is None:
-            from collections import OrderedDict as _OD
-            _TO_PANDAS_BASELINE_CACHE = _OD()
+            from collections import OrderedDict
+            _TO_PANDAS_BASELINE_CACHE = OrderedDict()
         key = id(X)
         try:
             _cols = tuple(X.columns) if hasattr(X, "columns") else None

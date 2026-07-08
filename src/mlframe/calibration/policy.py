@@ -67,11 +67,11 @@ def _resample_matrix_max_bytes() -> int:
 
 
 try:
-    from numba import njit as _njit  # type: ignore
+    from numba import njit as _njit
     _HAS_NUMBA = True
 except Exception:  # pragma: no cover  -- numba is a hard dep, keep guard for static analysers
     _HAS_NUMBA = False
-    def _njit(*args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:  # type: ignore
+    def _njit(*args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
             return fn
         return _decorator
@@ -764,7 +764,8 @@ def pick_best_calibrator(
     classes = np.unique(oof_y_arr)
     stratify = oof_y_arr if classes.size == 2 else None
 
-    metric_fn = lambda _y, _p, _nb=n_bins: _ece_score(_y, _p, n_bins=_nb)
+    def metric_fn(_y: np.ndarray, _p: np.ndarray, _nb: int = n_bins) -> float:
+        return _ece_score(_y, _p, n_bins=_nb)
 
     # Build the stratified resample-index matrix ONCE: every candidate shares the
     # same n / stratify / seed and only differs in calibrated y_pred, so the

@@ -363,7 +363,7 @@ def train_mlframe_ranker_suite(
     # selection target; ranking._ranker_fs builds the standard selectors (target-type-aware) and fits them on the
     # TRAIN split, then every ranker trains on the selected subset. Core selector procedures are NOT modified.
     # -------------------------------------------------------------
-    from mlframe.training.configs import TargetTypes as _TT
+    from mlframe.training.configs import TargetTypes
 
     selected_features: Optional[list] = None
     if feature_selection_config is not None:
@@ -373,7 +373,7 @@ def train_mlframe_ranker_suite(
             X_tr, y_tr, g_tr,  # g_tr = per-query groups -> group-aware (per-query) relevance MI, the correct LtR signal
             feature_selection_config=feature_selection_config,
             rfecv_models=rfecv_models,
-            target_type=_TT.LEARNING_TO_RANK,
+            target_type=TargetTypes.LEARNING_TO_RANK,
             fs_random_seed=random_seed, verbose=verbose,
         )
         if selected_features:

@@ -444,8 +444,8 @@ def export_votenrank_leaderboards(
     if _leaderboards:
         ctx.metadata["votenrank_leaderboard"] = _leaderboards
         if data_dir:
-            from pathlib import Path as _P
-            _csv_path = _P(data_dir) / ".leaderboard.csv"
+            from pathlib import Path
+            _csv_path = Path(data_dir) / ".leaderboard.csv"
             # Only the CSV export (file I/O + pandas concat) stays broadly guarded:
             # an export failure must not abort the run, but the leaderboard payload
             # is already stamped into metadata above.

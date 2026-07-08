@@ -151,10 +151,10 @@ def compute_pair_mis_and_floor(
     _exhaustive_backend = None
     if _exhaustive_active:
         try:
-            from mlframe.feature_selection.filters.batch_pair_mi_gpu import _CUDA_AVAIL as _exh_cuda
+            from mlframe.feature_selection.filters.batch_pair_mi_gpu import _CUDA_AVAIL
         except Exception:
-            _exh_cuda = False
-        _exhaustive_backend = "cuda" if _exh_cuda else "njit_parallel"
+            _CUDA_AVAIL = False
+        _exhaustive_backend = "cuda" if _CUDA_AVAIL else "njit_parallel"
     if _BATCH_PRECOMPUTE_ENABLED and (_exhaustive_active or _k <= _MRMR_BATCH_PRECOMPUTE_MAX_K) and n_pairs >= _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS:
         try:
             from mlframe.feature_selection.filters.batch_pair_mi_gpu import dispatch_batch_pair_mi

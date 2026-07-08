@@ -529,7 +529,7 @@ def sparse_interaction_candidates(
 
     Returns ``([], {})`` when ``kept_pairs`` is empty (the SNR-gate no-op).
     """
-    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_heuristics as H
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_heuristics as heur
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 
@@ -584,5 +584,5 @@ def sparse_interaction_candidates(
             phi_aug, base_aug, y_aug, classification=classification, metric=metric, min_card=min_card, max_card=max_card_eff, top_n=top_n, parallel=(P >= 14)
         )
     else:
-        cands = H.greedy_forward(phi_aug, base_aug, y_aug, classification=classification, metric=metric, max_card=max_card_eff, top_n=top_n)
+        cands = heur.greedy_forward(phi_aug, base_aug, y_aug, classification=classification, metric=metric, max_card=max_card_eff, top_n=top_n)
     return cands, product_to_operands

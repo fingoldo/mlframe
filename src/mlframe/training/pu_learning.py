@@ -400,8 +400,8 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
         """
         if not hasattr(self, "base_estimator_"):
             # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
-            from sklearn.exceptions import NotFittedError as _NFE
-            raise _NFE("PULearningWrapper not fitted. Call fit() first.")
+            from sklearn.exceptions import NotFittedError
+            raise NotFittedError("PULearningWrapper not fitted. Call fit() first.")
 
         if self.strategy_ == "elkan_noto":
             g = self._predict_proba_pos(self.base_estimator_, X)

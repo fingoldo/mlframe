@@ -176,8 +176,8 @@ def _finalize_per_target_ensembling(
     # "auto" (default) tunes only when the val target is imbalanced and leaves 0.5 otherwise, True always tunes, False forces 0.5.
     # val is the biased ES detector and an allowed tuning surface; test is structurally untouched. The chosen path is stamped into metadata.
     try:
-        from ..configs import TargetTypes as _TT
-        _is_binary = (target_type == _TT.BINARY_CLASSIFICATION)
+        from ..configs import TargetTypes
+        _is_binary = (target_type == TargetTypes.BINARY_CLASSIFICATION)
         _mode = getattr(behavior_config, "tune_decision_threshold", "auto")
         if _is_binary and _mode is not False:
             _val_target = current_val_target

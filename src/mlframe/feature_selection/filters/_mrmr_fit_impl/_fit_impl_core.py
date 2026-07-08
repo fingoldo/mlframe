@@ -7203,7 +7203,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         try:
             from .._fe_raw_redundancy_drop import (
                 _is_pseudo_remix_child as _pcr_is_pseudo,
-                _PSEUDO_SRC_SPLIT as _pcr_split,
+                _PSEUDO_SRC_SPLIT,
                 raw_retains_signal_given_genuine_children as _pcr_keep,
             )
             from .._mi_greedy_cmi_fe import _quantile_bin as _pcr_qbin
@@ -7216,7 +7216,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # raw_name -> selected pseudo children consuming it.
                 _pcr_consumed: dict = {}
                 for _pi in _pcr_pseudo_sel:
-                    _toks = {t for t in _pcr_split.split(cols[_pi]) if t}
+                    _toks = {t for t in _PSEUDO_SRC_SPLIT.split(cols[_pi]) if t}
                     for _t in _toks:
                         if _t in _pcr_raw_set:
                             _pcr_consumed.setdefault(_t, []).append(_pi)
@@ -7235,7 +7235,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     logger.debug("suppressed in _fit_impl_core.py:7249: %s", e)
                     pass
                 _pcr_eng_cont = _eng_continuous_snapshot
-                from .._fe_raw_redundancy_drop import _TOKEN_SPLIT as _pcr_gtok
+                from .._fe_raw_redundancy_drop import _TOKEN_SPLIT
                 # PERMUTATION-SIGNIFICANCE GATE on the masked-raw rescue (2026-06-19, I4 noise
                 # admission). The keep-rule conditions on the GENUINE children only; when a raw's
                 # ONLY consumer is a pseudo binagg/gate/argmax re-mix the conditioning set is empty
@@ -7286,7 +7286,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # pseudo-mask) -> RESCUE.
                     _child_bins = []
                     for _gi in _pcr_genuine_eng:
-                        if _rn in {t for t in _pcr_gtok.split(cols[_gi]) if t}:
+                        if _rn in {t for t in _TOKEN_SPLIT.split(cols[_gi]) if t}:
                             _cont = _pcr_eng_cont.get(cols[_gi])
                             if _cont is not None and np.asarray(_cont).shape[0] == int(data.shape[0]):
                                 _child_bins.append(_pcr_qbin(np.asarray(_cont, dtype=np.float64), nbins=10))

@@ -74,10 +74,10 @@ def _is_regression_target_type(target_type: Any) -> bool:
     don't want at import-time for this hot file.
     """
     try:
-        from ..configs import TargetTypes as _TT
+        from ..configs import TargetTypes
     except Exception:
         return False
-    return bool(target_type == _TT.REGRESSION)
+    return bool(target_type == TargetTypes.REGRESSION)
 
 
 def _apply_loss_recommendation_in_place(

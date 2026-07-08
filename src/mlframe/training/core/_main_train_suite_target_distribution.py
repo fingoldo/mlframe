@@ -148,7 +148,7 @@ def _run_target_distribution_analyzer(
 
     try:
         from ..targets import analyze_target_distribution
-        from ..configs import TargetTypes as _TT
+        from ..configs import TargetTypes
 
         # Pick a representative target: prefer regression (the typical
         # scenario class), fall back to the first available type. ``target_by_type``
@@ -156,11 +156,11 @@ def _run_target_distribution_analyzer(
         _picked_target = None
         _picked_type_name = None
         _picked_target_name = None
-        for _tt_key in (_TT.REGRESSION, _TT.BINARY_CLASSIFICATION, _TT.MULTICLASS_CLASSIFICATION):
+        for _tt_key in (TargetTypes.REGRESSION, TargetTypes.BINARY_CLASSIFICATION, TargetTypes.MULTICLASS_CLASSIFICATION):
             _bag = target_by_type.get(_tt_key)
             if isinstance(_bag, dict) and _bag:
                 _picked_target_name, _picked_target = next(iter(_bag.items()))
-                _picked_type_name = "regression" if _tt_key == _TT.REGRESSION else "classification"
+                _picked_type_name = "regression" if _tt_key == TargetTypes.REGRESSION else "classification"
                 break
         if _picked_target is None:
             # Fallback: walk all keys, take the first non-empty target.

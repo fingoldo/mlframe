@@ -178,29 +178,29 @@ class ShapProxiedFitMixin:
                 phi, base, y, min_card=self.min_features, parallel=True, prefer_gpu=True,
                 classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n,
             )
-        from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_heuristics as H
+        from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_heuristics as heur
 
         if optimizer == "beam":
-            return H.beam_search(
+            return heur.beam_search(
                 phi, base, y, beam_width=self.beam_width, min_card=self.min_features,
                 classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n,
             )
         if optimizer == "greedy_forward":
-            return H.greedy_forward(phi, base, y, classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n)
+            return heur.greedy_forward(phi, base, y, classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n)
         if optimizer == "greedy_backward":
-            return H.greedy_backward(phi, base, y, classification=self.classification, metric=self.metric, min_card=self.min_features, top_n=self.top_n)
+            return heur.greedy_backward(phi, base, y, classification=self.classification, metric=self.metric, min_card=self.min_features, top_n=self.top_n)
         if optimizer == "multistart":
-            return H.multistart_local(
+            return heur.multistart_local(
                 phi, base, y, rng=self._rng,
                 classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n,
             )
         if optimizer == "genetic":
-            return H.genetic(
+            return heur.genetic(
                 phi, base, y, rng=self._rng,
                 classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n,
             )
         if optimizer == "annealing":
-            return H.simulated_annealing(
+            return heur.simulated_annealing(
                 phi, base, y, rng=self._rng,
                 classification=self.classification, metric=self.metric, max_card=self.max_features, top_n=self.top_n,
             )

@@ -229,7 +229,8 @@ def _bootstrap_block(
             from mlframe.metrics.scoring import fast_rmse as _rmse
 
             # RMSE = sqrt(mean(squared error)) -> exact O(n) algebraic jackknife via per-row squared errors + sqrt reduce.
-            _rmse_per_row = lambda yy, pp: (np.asarray(yy, dtype=np.float64) - np.asarray(pp, dtype=np.float64)) ** 2
+            def _rmse_per_row(yy, pp):
+                return (np.asarray(yy, dtype=np.float64) - np.asarray(pp, dtype=np.float64)) ** 2
             ci = bootstrap_metric(
                 y_true, p_pos, metric_fn=_rmse, n_bootstrap=1000, alpha=0.05, random_state=rng_seed,
                 jackknife_per_row=(_rmse_per_row, False, np.sqrt),

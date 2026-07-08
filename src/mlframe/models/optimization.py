@@ -354,7 +354,8 @@ class MBHOptimizer:
             # sometimes it's required to process samples in certain order (like in FE/RFECV tasks, it's better to start with higher number of features, to have more accurate estimates)
             # Wave 61 (2026-05-20): user-seeded inputs may be heterogeneous;
             # str-key fallback so mixed-type sets don't TypeError on sort.
-            _sort_key = lambda v: (v is None, str(v))
+            def _sort_key(v):
+                return (v is None, str(v))
             if init_evaluate_ascending:
                 sampled_inputs = sorted(sampled_inputs, key=_sort_key)
             else:

@@ -195,7 +195,7 @@ def run_composite_post_processing(
     if (composite_target_discovery_config.enabled
             and _ce_strategy != "off"
             and _build_for_raw_only):
-        from ..configs import TargetTypes as _TT
+        from ..configs import TargetTypes
 
         # Merge into a FRESH local dict; never mutate the metadata-owned
         # ``composite_target_specs`` (that dict can back the on-disk discovery
@@ -203,12 +203,12 @@ def run_composite_post_processing(
         # report()/predict()). Shallow-copy each per-target-type sub-dict so the
         # synthesised ``[]`` entries don't leak back into metadata either.
         _merged_specs: dict = {_tt_k: dict(_tt_v) for _tt_k, _tt_v in (composite_specs_by_target_type or {}).items()}
-        # ``TargetTypes`` is a ``StrEnum`` so ``_TT.REGRESSION`` and the
+        # ``TargetTypes`` is a ``StrEnum`` so ``TargetTypes.REGRESSION`` and the
         # ``str(...)``-flavoured key the discovery phase writes are
         # hash-equivalent; ``setdefault`` resolves to the existing regression
         # bucket (if any) rather than creating a duplicate.
-        _reg_specs_bucket = _merged_specs.setdefault(_TT.REGRESSION, {})
-        _reg_models = (models or {}).get(_TT.REGRESSION, {}) if models else {}
+        _reg_specs_bucket = _merged_specs.setdefault(TargetTypes.REGRESSION, {})
+        _reg_models = (models or {}).get(TargetTypes.REGRESSION, {}) if models else {}
         _n_synth = 0
         for _raw_tname, _entries in _reg_models.items():
             if _entries and not is_composite_target_name(str(_raw_tname)) and _raw_tname not in _reg_specs_bucket:
@@ -217,8 +217,8 @@ def run_composite_post_processing(
         # Drop an empty regression bucket we created but never populated so the
         # downstream ``if not _tt_specs: continue`` guard isn't tripped by an
         # accidental empty key on a no-regression-model suite.
-        if not _reg_specs_bucket and _TT.REGRESSION not in (composite_specs_by_target_type or {}):
-            _merged_specs.pop(_TT.REGRESSION, None)
+        if not _reg_specs_bucket and TargetTypes.REGRESSION not in (composite_specs_by_target_type or {}):
+            _merged_specs.pop(TargetTypes.REGRESSION, None)
         if _n_synth:
             # Rebind to the merged dict so the loop below sees both the
             # discovered specs AND the synthesised raw-only ``[]`` entries.

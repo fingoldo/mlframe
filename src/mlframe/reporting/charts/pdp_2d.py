@@ -56,7 +56,8 @@ def _default_pair(model: Any, X: Any, names: Optional[List[str]], n_cols: int) -
     """
     if n_cols < 2:
         return None
-    label = lambda i: (names[i] if names is not None and i < len(names) else i)
+    def label(i):
+        return names[i] if names is not None and i < len(names) else i
     try:
         from mlframe.reporting.charts.shap_interactions import shap_interaction_summary
 

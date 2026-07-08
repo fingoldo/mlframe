@@ -32,7 +32,7 @@ import polars as pl
 from pyutilz.strings import slugify
 from pyutilz.system import tqdmu_lazy_start
 
-from pathlib import Path as _P  # PATHLIB-IMPORT-PER-CALL: hoist to module scope (was paid per suite call)
+from pathlib import Path  # PATHLIB-IMPORT-PER-CALL: hoist to module scope (was paid per suite call)
 from ..extractors import FeaturesAndTargetsExtractor
 from ..feature_handling.fingerprint import reset_session as reset_fh_session
 from ..helpers import TrainMlframeSuitePrecomputed
@@ -623,7 +623,7 @@ def train_mlframe_models_suite(
     _discovery_cache_dir = None
     try:
         if data_dir:
-            _discovery_cache_dir = str(_P(data_dir) / ".discovery_cache")
+            _discovery_cache_dir = str(Path(data_dir) / ".discovery_cache")
     except (TypeError, OSError) as e:
         logger.debug("discovery cache dir disabled (data_dir=%r): %s", data_dir, e)
         _discovery_cache_dir = None

@@ -41,7 +41,9 @@ from scipy.stats import ks_1samp, cramervonmises, chisquare, entropy
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
 
-uniform_cdf = lambda x: x  # CDF of uniform distribution [0, 1]
+def uniform_cdf(x: np.ndarray) -> np.ndarray:
+    """CDF of uniform distribution [0, 1]."""
+    return x
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Helpers

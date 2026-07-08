@@ -115,9 +115,9 @@ class CustomHandler:
     def transform(self, df: Any) -> Any:
         if not self._fitted:
             # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
-            from sklearn.exceptions import NotFittedError as _NFE
+            from sklearn.exceptions import NotFittedError
 
-            raise _NFE(f"CustomHandler({self.column!r}) not fitted -- call .fit(train_df) first")
+            raise NotFittedError(f"CustomHandler({self.column!r}) not fitted -- call .fit(train_df) first")
         column_data = self._extract_column(df)
         return self.params.transformer.transform(column_data)
 

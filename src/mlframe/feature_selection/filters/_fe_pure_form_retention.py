@@ -215,7 +215,7 @@ def retain_usable_pure_forms(
         # by the raws, no pure form can help). a**2/b / log(c)*sin(d) / a*b leave large linear residual (low
         # R^2) -> proceed; y = sum(raws) + noise fits ~0.98 -> skip. One cheap fit vs a 200s pool build.
         try:
-            from sklearn.preprocessing import StandardScaler as _SS
+            from sklearn.preprocessing import StandardScaler
             from sklearn.pipeline import make_pipeline as _mp
 
             _ng = len(y_cont)
@@ -238,7 +238,7 @@ def retain_usable_pure_forms(
 
                 _ycodes_g = np.unique(_yg, return_inverse=True)[1]
                 if np.unique(_ycodes_g).size >= 2:
-                    _clf = _mp(_SS(), _LogR(max_iter=200)).fit(_Xg, _ycodes_g)
+                    _clf = _mp(StandardScaler(), _LogR(max_iter=200)).fit(_Xg, _ycodes_g)
                     if np.unique(_ycodes_g).size == 2:
                         _sc = float(_auc(_ycodes_g, _clf.predict_proba(_Xg)[:, 1]))
                     else:
@@ -247,9 +247,9 @@ def retain_usable_pure_forms(
                     if _sc >= 0.92:
                         return []  # raws already separate the classes -- nothing nonlinear to recover
             else:
-                from sklearn.linear_model import LinearRegression as _LR
+                from sklearn.linear_model import LinearRegression
 
-                _r2 = float(_mp(_SS(), _LR()).fit(_Xg, _yg).score(_Xg, _yg))
+                _r2 = float(_mp(StandardScaler(), LinearRegression()).fit(_Xg, _yg).score(_Xg, _yg))
                 if _r2 >= 0.92:
                     return []  # raws already fit y linearly -- no trapped nonlinear interaction to recover
         except Exception:  # nosec B110 - optional/best-effort path, rationale documented

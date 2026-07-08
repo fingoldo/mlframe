@@ -40,9 +40,9 @@ def recursion_code_version(kernel_name: str) -> str | None:
     salt. None if pyutilz/code-versioning is unavailable."""
     try:
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
-        from . import bayesian as _B
+        from . import bayesian
 
-        fn = _B.bocpd_features if kernel_name == "fe_bocpd" else _B.online_bayesian_linear_regression
+        fn = bayesian.bocpd_features if kernel_name == "fe_bocpd" else bayesian.online_bayesian_linear_regression
         return str(compute_code_version(fn, salt=_RECURSION_SALT))
     except Exception:
         return None
@@ -60,14 +60,16 @@ def _make_data(n_groups: int, rows_per_group: int, seed: int = 0):
 
 
 def _time_backend(kernel_name: str, backend: str, obs, X, well) -> float:
-    from . import bayesian as B
+    from . import bayesian
     # Select the backend via the explicit _force_backend arg rather than toggling the process-global
     # MLFRAME_FE_RECURSION_BACKEND env: the old set/del-in-finally globally flipped the backend that any
     # concurrently-running FE caller in another thread would read mid-computation.
     if kernel_name == "fe_bocpd":
-        fn = lambda: B.bocpd_features(obs, group_ids=well, hazard=1 / 250, _force_backend=backend)
+        def fn():
+            return bayesian.bocpd_features(obs, group_ids=well, hazard=1 / 250, _force_backend=backend)
     else:
-        fn = lambda: B.online_bayesian_linear_regression(obs, X, group_ids=well, _force_backend=backend)
+        def fn():
+            return bayesian.online_bayesian_linear_regression(obs, X, group_ids=well, _force_backend=backend)
     fn()  # warmup (jit compile)
     ts = []
     for _ in range(_N_ITERS):
@@ -142,9 +144,9 @@ if __name__ == "__main__":
 # (serial vs parallel njit; no GPU variant). Wrapped so a missing pyutilz /
 # circular import never breaks the dispatcher.
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
-from . import bayesian as _B
+from . import bayesian
 
-for _kn, _ref in (("fe_bocpd", _B.bocpd_features), ("fe_oblr", _B.online_bayesian_linear_regression)):
+for _kn, _ref in (("fe_bocpd", bayesian.bocpd_features), ("fe_oblr", bayesian.online_bayesian_linear_regression)):
     kernel_tuner(
         kernel_name=_kn,
         variant_fns=(_ref,),

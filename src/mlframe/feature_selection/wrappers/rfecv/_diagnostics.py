@@ -31,8 +31,8 @@ def selection_stability_(self, metric: str = "jaccard") -> float:
         at n_features_.
     """
     if not hasattr(self, "feature_importances_") or not hasattr(self, "n_features_"):
-        from sklearn.exceptions import NotFittedError as _NFE
-        raise _NFE("RFECV is not fitted; call fit() first.")
+        from sklearn.exceptions import NotFittedError
+        raise NotFittedError("RFECV is not fitted; call fit() first.")
     if self.n_features_ == 0:
         return float("nan")
     # Pull per-fold FI runs at the chosen N: keys are 'N_fold' strings.
@@ -123,8 +123,8 @@ def stability_vs_n_curve_(self, metric: str = "jaccard") -> dict:
     Nogueira & Brown 2018 (JMLR v18/17-514) on stability for FS evaluation.
     """
     if not hasattr(self, "feature_importances_") or not hasattr(self, "feature_names_in_"):
-        from sklearn.exceptions import NotFittedError as _NFE
-        raise _NFE("RFECV is not fitted; call fit() first.")
+        from sklearn.exceptions import NotFittedError
+        raise NotFittedError("RFECV is not fitted; call fit() first.")
     result: dict = {}
     # Bucket FI keys by N.
     by_n: dict = {}

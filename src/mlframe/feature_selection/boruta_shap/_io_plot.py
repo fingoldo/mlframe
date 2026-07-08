@@ -144,7 +144,7 @@ def filter_data(data, column, value):
     return data.loc[(data[column] == value) | (data[column] == "Shadow")]
 
 
-def hasNumbers(inputString):
+def has_numbers(inputString):
     return any(char.isdigit() for char in inputString)
 
 

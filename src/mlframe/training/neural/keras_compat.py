@@ -168,8 +168,8 @@ class KerasCompatibleMLP(BaseEstimator, RegressorMixin):
 
     def predict(self, X):
         if getattr(self, "model_", None) is None:
-            from sklearn.exceptions import NotFittedError as _NFE
-            raise _NFE("KerasCompatibleMLP has not been fitted yet.")
+            from sklearn.exceptions import NotFittedError
+            raise NotFittedError("KerasCompatibleMLP has not been fitted yet.")
         X = np.asarray(X, dtype=np.float32)
         preds = self.model_.predict(X, verbose=0)
         return preds.ravel()

@@ -210,7 +210,8 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
                 # Fast-path: cast to float32 and pass through unchanged.
                 processed_seqs = [np.asarray(s, dtype=np.float32) for s in sequences]
             else:
-                _preprocess = lambda s: _RecurrentWrapperBase._preprocess_sequence(s, mode=mode)
+                def _preprocess(s):
+                    return _RecurrentWrapperBase._preprocess_sequence(s, mode=mode)
                 # Threshold tuned for >100k sequences: ThreadPool overhead (thread spin-up + GIL
                 # contention on numpy ops that release the GIL) only pays back at ~100k+ sequences.
                 # Below that the synchronous loop is faster because the numpy std/mean kernels run
@@ -739,8 +740,8 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         """
         if self.model is None:
             # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
-            from sklearn.exceptions import NotFittedError as _NFE
-            raise _NFE("Model not trained. Call fit() first.")
+            from sklearn.exceptions import NotFittedError
+            raise NotFittedError("Model not trained. Call fit() first.")
 
         self._validate_inputs(features, sequences)
 
@@ -796,8 +797,8 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         # argmax would return 0..(k-1) positional indices, mislabelling any non-0..k-1 label set and breaking cross_val_predict / CalibratedClassifierCV / Stacking.
         classes_ = getattr(self, "classes_", None)
         if classes_ is None:
-            from sklearn.exceptions import NotFittedError as _NFE
-            raise _NFE("Model not trained. Call fit() first.")
+            from sklearn.exceptions import NotFittedError
+            raise NotFittedError("Model not trained. Call fit() first.")
         return np.asarray(classes_)[positions]
 
 
@@ -929,8 +930,8 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         """
         if self.model is None:
             # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
-            from sklearn.exceptions import NotFittedError as _NFE
-            raise _NFE("Model not trained. Call fit() first.")
+            from sklearn.exceptions import NotFittedError
+            raise NotFittedError("Model not trained. Call fit() first.")
 
         self._validate_inputs(features, sequences)
 

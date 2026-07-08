@@ -211,8 +211,8 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
             # For each suggested field, apply IFF the current attribute is at its constructor default.
             # We approximate "default" by comparing to the SearchConfig / FIConfig / RobustnessConfig
             # baseline defaults (no kwargs passed).
-            from ._configs import SearchConfig as _SC, FIConfig as _FIC, RobustnessConfig as _RC
-            _baselines = (_SC(), _FIC(), _RC())
+            from ._configs import SearchConfig, FIConfig, RobustnessConfig
+            _baselines = (SearchConfig(), FIConfig(), RobustnessConfig())
             _applied: dict = {}
             for _cfg, _baseline in zip((_sc, _fic, _rc), _baselines):
                 _set_fields = getattr(_cfg, "model_fields_set", None)
