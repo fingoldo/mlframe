@@ -146,7 +146,7 @@ def batch_mi_with_noise_gate_cupy_v1(
         # OPT-D: known-size bincount (skip cupy.bincount's host-sync validations);
         # byte-identical counts. ``total_size`` is exact, ``d_idx`` non-negative by construction.
         flat = _cupy_bincount_known_size(d_idx, total_size)
-        return cp.asnumpy(flat)  # (total_size,) int64 on host
+        return np.asarray(cp.asnumpy(flat))  # (total_size,) int64 on host
 
     # Original MI. Per-column MI reduction batched into one njit call (bit-identical).
     _col_off = offsets[:K]
@@ -555,18 +555,18 @@ def batch_mi_with_noise_gate_cuda_resident(
         if _NbPerfWarn is not None:
             _warnings.simplefilter("ignore", _NbPerfWarn)
         if _use_shared and _d_disc_cm is not None:
-            _CUDA_HIST_KERNEL_BATCHED_SHARED_CM[(K, P), threads_per_block, 0, _sh_bytes](
+            _CUDA_HIST_KERNEL_BATCHED_SHARED_CM[(K, P), threads_per_block, 0, _sh_bytes](  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
                 _d_disc_cm, d_off, d_nb, d_y, d_counts, n, K_y, total_size,
             )
         elif _use_shared:
-            _CUDA_HIST_KERNEL_BATCHED_SHARED[(K, P), threads_per_block, 0, _sh_bytes](
+            _CUDA_HIST_KERNEL_BATCHED_SHARED[(K, P), threads_per_block, 0, _sh_bytes](  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
                 d_disc, d_off, d_nb, d_y, d_counts, n, K_y, total_size,
             )
         else:
-            _CUDA_HIST_KERNEL_BATCHED[(K, P), threads_per_block](d_disc, d_off, d_y, d_counts, n, K_y, total_size)
+            _CUDA_HIST_KERNEL_BATCHED[(K, P), threads_per_block](d_disc, d_off, d_y, d_counts, n, K_y, total_size)  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
         _tot = K * P
         _blocks = (_tot + threads_per_block - 1) // threads_per_block
-        _CUDA_MI_KERNEL[_blocks, threads_per_block](
+        _CUDA_MI_KERNEL[_blocks, threads_per_block](  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
             d_counts, d_off, d_nb, d_freq, n, K_y, d_ref, total_size, P, d_out,
         )
     out_mi = d_out.copy_to_host()  # (P, K) -- the only sizeable D2H
@@ -638,8 +638,8 @@ def batch_mi_with_noise_gate_cuda(
         with _warnings.catch_warnings():
             if _NbPerfWarn is not None:
                 _warnings.simplefilter("ignore", _NbPerfWarn)
-            _CUDA_HIST_KERNEL[K, threads_per_block](d_disc, d_off, d_nb, d_y, d_counts, n, K_y)
-        return d_counts.copy_to_host()
+            _CUDA_HIST_KERNEL[K, threads_per_block](d_disc, d_off, d_nb, d_y, d_counts, n, K_y)  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
+        return np.asarray(d_counts.copy_to_host())
 
     _col_off = offsets[:K]
     _all_pos = np.ones(K, dtype=np.float64)  # original-y pass: compute every column
@@ -772,7 +772,7 @@ def _run_batch_mi_noise_gate_sweep() -> list:
     max_n = max(n_rows) if n_rows else 1
     fitting = [k for k in n_cols if max_n * int(k) * 8 * 3 <= budget]
     n_cols = fitting or [min(n_cols)]  # always keep at least the smallest column
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants,
         {"n_rows": n_rows, "n_cols": n_cols},
         _make_batch_mi_noise_gate_inputs,
