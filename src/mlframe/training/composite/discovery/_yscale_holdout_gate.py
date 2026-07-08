@@ -181,7 +181,7 @@ def apply_structural_fragility_gate(
     _tcol = getattr(self, "_target_col", None)
     for spec in kept_specs:
         base_col = getattr(spec, "base_column", "")
-        if not base_col or getattr(spec, "extra_base_columns", ()):  # single-base only
+        if not base_col or getattr(spec, "extra_base_columns", None):  # single-base only
             survivors.append(spec)
             continue
         # Causal-provenance exemption: a strictly-causal base (grouped-causal engineered / named lag) re-injects a REAL

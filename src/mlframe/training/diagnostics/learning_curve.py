@@ -416,7 +416,7 @@ def compute_learning_curve(
                 float(time_budget_s or 0.0), len(skipped_fracs), [round(f, 3) for f in skipped_fracs],
             )
     else:
-        run_counts = list(counts.tolist())
+        run_counts = counts.tolist()
         if len(run_counts) > 1 and n_jobs != 1:
             from joblib import Parallel, delayed
 

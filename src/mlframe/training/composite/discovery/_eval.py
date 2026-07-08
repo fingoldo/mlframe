@@ -500,6 +500,7 @@ def _eval_one_transform_impl(
             _x_pb_valid, t_screen, **_mi_kwargs,
         )
     else:
+        assert x_screen_valid is not None  # _x_prebinned is None in this branch, so x_screen_valid was built above
         mi_t = _mi_to_target(
             x_screen_valid, t_screen,
             n_neighbors=self.config.mi_n_neighbors,
@@ -532,6 +533,7 @@ def _eval_one_transform_impl(
                     _x_pb_valid, y_screen[valid_screen], **_mi_kwargs,
                 )
             else:
+                assert x_screen_valid is not None  # _x_prebinned is None in this branch, so x_screen_valid was built above
                 mi_y_compare = _mi_to_target(
                     x_screen_valid, y_screen[valid_screen],
                     n_neighbors=self.config.mi_n_neighbors,
@@ -592,6 +594,7 @@ def _eval_one_transform_impl(
                     )
                 else:
                     # Non-prebinned path is the only consumer of the float slice.
+                    assert x_screen_valid is not None
                     x_boot = x_screen_valid[idx_b]
                     mi_t_b = _mi_to_target(
                         x_boot, t_boot,

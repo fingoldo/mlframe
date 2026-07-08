@@ -266,7 +266,7 @@ def compute_label_distribution_drift(
     elif is_multiclass:
         # Discover class labels from the union of all three splits.
         all_arr = np.concatenate([a for a in (train, val, test) if a is not None and a.size > 0])
-        classes = list(np.unique(all_arr).tolist())
+        classes = np.unique(all_arr).tolist()
         for name, arr in (("train", train), ("val", val), ("test", test)):
             splits[name] = _multiclass_split_summary(arr, classes) if arr is not None else None
         train_rates = splits["train"]["rates"]

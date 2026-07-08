@@ -206,6 +206,7 @@ def discover_interaction_bases(
         op = rec["op"]
         pa, pb = rec["parents"]
         # mul/add are commutative -> dedup; div/sub are not.
+        key: tuple
         if op in ("mul", "add"):
             key = (op, tuple(sorted((str(pa), str(pb)))))
         else:
