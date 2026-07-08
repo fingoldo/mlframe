@@ -212,14 +212,14 @@ def _process_single_ensemble_method(
         return _train
 
     if not is_regression:
-        predictions = [_oof_or_train(el, "oof_probs", "train_probs", _i, _prefer_calibrated=_use_cal) for _i, el in enumerate(level_models_and_predictions)]
+        train_predictions = [_oof_or_train(el, "oof_probs", "train_probs", _i, _prefer_calibrated=_use_cal) for _i, el in enumerate(level_models_and_predictions)]
     elif _oof_or_train(level_models_and_predictions[0], "oof_preds", "train_preds", 0) is not None:
         # Re-walk so every member's fallback decision is recorded (probe call above counts index 0 only if it fell back; clear and re-probe symmetrically across all members).
         _fallback_used.clear()
-        predictions = [_oof_or_train(el, "oof_preds", "train_preds", _i) for _i, el in enumerate(level_models_and_predictions)]
-        predictions = [el.reshape(el.shape[0], -1) if (el is not None) else el for el in predictions]  # preserve row axis for multi-target (see val-branch note)
+        train_predictions = [_oof_or_train(el, "oof_preds", "train_preds", _i) for _i, el in enumerate(level_models_and_predictions)]
+        train_predictions = [el.reshape(el.shape[0], -1) if (el is not None) else el for el in train_predictions]  # preserve row axis for multi-target (see val-branch note)
     else:
-        predictions = []
+        train_predictions = []
 
     if _fallback_used:
         logger.warning(
@@ -233,12 +233,12 @@ def _process_single_ensemble_method(
     # train branch: ``predictions`` was built via ``_oof_or_train`` which preserves the per-member
     # order but may contain ``None`` entries when neither OOF nor train_* was available. Build the
     # alignment mask to slice precomputed_weights consistently with the per-split branches above.
-    _train_mask = [(p is not None) for p in predictions] if predictions else []
+    _train_mask = [(p is not None) for p in train_predictions] if train_predictions else []
     if not any(_train_mask):
         train_ensembled_predictions, train_confident_indices = None, None
     else:
         train_ensembled_predictions, _, train_confident_indices = ensemble_probabilistic_predictions(
-            *predictions,
+            *train_predictions,
             ensemble_method=ensemble_method,
             max_mae=max_mae,
             max_std=max_std,

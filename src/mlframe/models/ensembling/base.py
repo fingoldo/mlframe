@@ -33,7 +33,7 @@ logger = logging.getLogger("mlframe.models.ensembling")
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from scipy.stats import rankdata
 import psutil
@@ -324,6 +324,7 @@ class _WelfordAccumulator(StreamingAccumulator):
             self.min = arr.copy()
             self.max = arr.copy()
         else:
+            assert self.min is not None and self.max is not None
             np.minimum(self.min, arr, out=self.min)
             np.maximum(self.max, arr, out=self.max)
 
@@ -398,10 +399,10 @@ def batch_numaggs(predictions: np.ndarray, get_numaggs_names_len: int, numaggs_k
 
 def enrich_ensemble_preds_with_numaggs(
     predictions: np.ndarray,
-    models_names: Sequence = None,
+    models_names: Optional[Sequence] = None,
     means_only: bool = False,
     keep_probs: bool = True,
-    numaggs_kwds: dict = None,
+    numaggs_kwds: Optional[dict] = None,
     n_jobs: int = 1,
     only_physical_cores: bool = True,
 ) -> pd.DataFrame:
@@ -422,10 +423,7 @@ def enrich_ensemble_preds_with_numaggs(
     else:
         numaggs_names = list(get_numaggs_names(**numaggs_kwds))
 
-    if keep_probs:
-        probs_fields_names = models_names if models_names else [f"p{i}" for i in range(predictions.shape[1])]
-    else:
-        probs_fields_names = []
+    probs_fields_names: list = list(models_names) if models_names else ([f"p{i}" for i in range(predictions.shape[1])] if keep_probs else [])
 
     if n_jobs == -1:
         n_jobs = cpu_count_physical() if only_physical_cores else (psutil.cpu_count(logical=True) or 1)
@@ -442,7 +440,7 @@ def enrich_ensemble_preds_with_numaggs(
             idx = predictions.shape[1]
         else:
             idx = 0
-        row_features = np.empty(shape=(len(predictions), len(numaggs_names) + idx), dtype=np.float32)
+        row_features: Any = np.empty(shape=(len(predictions), len(numaggs_names) + idx), dtype=np.float32)
         row_features[:, idx:] = np.concatenate(batch_numaggs_results)
         if keep_probs:
             row_features[:, :idx] = predictions
@@ -738,7 +736,7 @@ def combine_probs(
         # Rank-average fusion (mean of per-member row-ranks). Lazy import breaks the base<->selection cycle. Like RRF it
         # is a scale-invariant RANK score (not a calibrated probability); ``weights_arr`` is honoured when supplied.
         from .selection import rank_average_blend
-        combined = rank_average_blend(stacked, normalise=True, weights=weights_arr)
+        combined = rank_average_blend(stacked, normalise=True, weights=weights_arr.tolist() if weights_arr is not None else None)
     else:
         # Unrecognised flavour -> arithmetic mean fallback (matches the legacy predict-side default).
         if weights_arr is not None:
