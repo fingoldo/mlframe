@@ -56,7 +56,7 @@ def _rank_to_uniform(x: np.ndarray) -> np.ndarray:
 def _probit(u: np.ndarray) -> np.ndarray:
     """Standard-normal inverse CDF (probit). ``scipy.special.ndtri`` is the bare kernel that ``scipy.stats.norm.ppf`` calls internally for the standard normal -- bit-identical output (incl. +/-inf at 0/1) at ~2.4x the speed (norm.ppf pays rv_continuous arg-broadcast / validation / masking overhead this finite-array path does not need)."""
     from scipy.special import ndtri
-    return ndtri(u)
+    return np.asarray(ndtri(u))
 
 
 def _silverman_bandwidth(n: int, sigma: float) -> float:
@@ -135,7 +135,7 @@ def _fft_conv_2d(samples: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     """FFT-based 2D convolution of a (M, M) sample-count histogram with the
     kernel. Wrap-around handled via padding-then-crop."""
     from scipy.signal import fftconvolve
-    return fftconvolve(samples, kernel, mode="same")
+    return np.asarray(fftconvolve(samples, kernel, mode="same"))
 
 
 # =============================================================================

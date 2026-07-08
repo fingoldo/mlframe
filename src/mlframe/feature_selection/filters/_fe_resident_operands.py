@@ -60,7 +60,7 @@ try:
         h ^= h >> _np.uint64(33)
         h *= _np.uint64(0xC4CEB9FE1A85EC53)
         h ^= h >> _np.uint64(33)
-        return h
+        return int(h)
 except Exception:  # numba optional: fall through to the tobytes hash below
     _njit_content_hash = None
 
@@ -83,7 +83,7 @@ except Exception:  # xxhash optional: correctness identical via the tobytes fall
 def _content_hash(host: Any) -> int:
     """O(n) content hash of a host operand, copy-free when possible (see module note on the collision domain)."""
     if _xxh3_64 is not None and host.flags["C_CONTIGUOUS"]:
-        return _xxh3_64(host)
+        return int(_xxh3_64(host))
     # xxhash-absent fallback: copy-free njit word hash (~3x the tobytes path) when the array is C-contiguous.
     if _njit_content_hash is not None and host.flags["C_CONTIGUOUS"]:
         b = host.view(_np.uint8).reshape(-1)

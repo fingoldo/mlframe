@@ -231,7 +231,7 @@ def _run_fe_parallelism_sweep() -> list:
         _materialise_chunk_njit_parallel(tv, a_cols, b_cols, ops, out)
         return out
 
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         {"serial": _serial, "parallel": _parallel},
         {"n_cols": list(_FE_PARALLELISM_SWEEP_COLS)},
         _make_fe_parallelism_inputs,
@@ -273,7 +273,7 @@ def _fe_use_parallel_kernels(n_cols: int, serial_main_thread: bool) -> bool:
     if not serial_main_thread:
         return False
     try:
-        return _FE_PARALLELISM_SPEC.choose(n_cols=int(n_cols)) == "parallel"
+        return bool(_FE_PARALLELISM_SPEC.choose(n_cols=int(n_cols)) == "parallel")
     except Exception:
         # Cache/pyutilz failure -> heuristic fallback (still gated on serial_main_thread).
         return _fe_parallelism_fallback_choice(int(n_cols)) == "parallel"
