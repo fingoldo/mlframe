@@ -53,7 +53,7 @@ import numpy as np
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
-def _floor_mean_from_nulls_dev(cp, nulls_dev, quantile: float):
+def _floor_mean_from_nulls_dev(cp, nulls_dev, quantile: float) -> tuple[float, float]:
     """Reduce a RESIDENT null-CMI vector to ``(floor, null_mean)`` fully on-device, one D2H for the pair.
 
     Implements the module's documented design (the quantile + mean are reduced ON DEVICE; only the two scalars
