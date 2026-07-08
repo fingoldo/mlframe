@@ -24,7 +24,7 @@ from ..phases import phase
 try:
     import polars as pl
 except ImportError:
-    pl = None
+    pl = None  # type: ignore[assignment]
 
 # 2026-05-21: wave-105 split-out forgot to mirror the parent's imports +
 # NamedTuple defs, so every call into ``_phase_fit_pipeline`` /
@@ -510,7 +510,7 @@ def _phase_train_val_test_split(
     # format-native ``df[calib_idx]`` / ``.iloc`` view, never a full-frame clone. The trainer transforms it through the
     # same fitted pre_pipeline as test and runs predict_proba so finalize can auto-calibrate.
     calib_df = None
-    if calib_idx is not None and len(calib_idx) > 0:
+    if calib_idx is not None and len(calib_idx) > 0 and df is not None:
         if isinstance(df, pl.DataFrame):
             calib_df = df[calib_idx]
         else:
@@ -614,7 +614,7 @@ def _phase_auto_detect_feature_types(
     _seen_cat: set[str] = set()
     raw_cat_features = [c for c in ((cat_features or []) + (cat_features_polars or []) + _post_flip_pandas_cats) if not (c in _seen_cat or _seen_cat.add(c))]  # type: ignore[func-returns-value]  # intentional order-preserving-dedup idiom: set.add()'s None return is used as the falsy side of `or`
     # Honor only strictly-user-declared pl.Categorical columns as already-assigned.
-    if was_polars_input:
+    if was_polars_input and detect_df is not None:
         user_polars_cats = [c for c, dt in zip(detect_df.columns, detect_df.dtypes) if dt == pl.Categorical]
     else:
         user_polars_cats = []
@@ -699,7 +699,7 @@ def _phase_auto_detect_feature_types(
     # val/test cast non-strict so OOV becomes null (matches the alignment semantics elsewhere
     # in the suite). pl.Categorical would widen the process-wide string cache (memory rule:
     # reference_polars_global_string_cache). Fixes audit B-P0-3 / Low-B11.
-    if was_polars_input and all_models_polars_native and pipeline_config.skip_categorical_encoding:
+    if was_polars_input and all_models_polars_native and pipeline_config.skip_categorical_encoding and train_df is not None:
         _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)
         _keep_as_string = text_emb_set
         _str_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes) if dt in _string_types and c not in _keep_as_string]

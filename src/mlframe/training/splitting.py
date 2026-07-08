@@ -39,7 +39,7 @@ def make_train_test_split(
     groups: Optional[np.ndarray] = None,
     calib_size: Optional[float] = None,
     return_calib: bool = False,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, str, str, str]:
+) -> Tuple:
     """
     Split data into train, validation, and test sets with flexible sequential/shuffled control.
 
@@ -582,6 +582,7 @@ def make_train_test_split(
         # Multilabel single greedy 3-way pass replaces two full O(n*K*iters) carves (no groups).
         _ml_3way_done = _use_multilabel_3way(_groups_arr, _stratify_active, test_size, val_size)
         if _ml_3way_done:
+            assert _stratify_active is not None  # guaranteed by _use_multilabel_3way's own not-None check
             train_idx, val_idx, test_idx = _stratified_split_3way(
                 all_idx, test_size=test_size, val_size=val_size,
                 stratify_y=_stratify_active, random_state=sklearn_seed,
