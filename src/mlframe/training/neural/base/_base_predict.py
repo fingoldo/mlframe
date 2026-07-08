@@ -9,7 +9,7 @@ them in unchanged.
 from __future__ import annotations
 
 import os
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 import torch
@@ -25,10 +25,14 @@ logger = __import__("logging").getLogger("mlframe.training.neural.base")
 class _PredictMixin:
     """Batched Lightning predict path + base predict / score for the estimator."""
 
-    # Provided by the composed estimator class; declared here so mypy can type-check the
-    # self.trainer reads/writes in this mixin (set/reset to None across fit/predict cycles).
+    # Provided by the composed estimator class (via the sibling _FitMixin/_FitPrepMixin in the
+    # MRO); declared here so mypy can type-check this mixin's reads/writes of them.
     trainer: Any
     trainer_params: Optional[dict]
+    model: Any
+    datamodule_class: Any
+    datamodule_params: dict
+    _apply_cat_codes: Any
 
     def _predict_raw(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
         """
@@ -209,7 +213,7 @@ class _PredictMixin:
         if getattr(self, "_is_multilabel", False):
             trainer_params["accelerator"] = "cpu"
             trainer_params.pop("precision", None)
-        prediction_trainer = L.Trainer(**trainer_params)
+        prediction_trainer = L.Trainer(**cast(dict, trainer_params))
 
         # F-G fix: cache the accelerator the current prediction_trainer
         # was built with so the next _predict_raw call (after
@@ -327,7 +331,7 @@ class _PredictMixin:
                     "enable_checkpointing": False,
                     "enable_progress_bar": False,
                 }
-                cpu_trainer = L.Trainer(**_cpu_params)
+                cpu_trainer = L.Trainer(**cast(dict, _cpu_params))
                 predictions = cpu_trainer.predict(
                     model=self.model,
                     datamodule=datamodule,
@@ -401,7 +405,7 @@ class _PredictMixin:
                             "enable_checkpointing": False,
                             "enable_progress_bar": False,
                         }
-                        cpu_trainer2 = L.Trainer(**_cpu_params2)
+                        cpu_trainer2 = L.Trainer(**cast(dict, _cpu_params2))
                         predictions = cpu_trainer2.predict(
                             model=self.model,
                             datamodule=datamodule,
@@ -425,21 +429,21 @@ class _PredictMixin:
 
         self.trainer = None
 
-        if len(predictions) == 0:
+        if predictions is None or len(predictions) == 0:
             raise RuntimeError("No predictions were generated. Check your data and model.")
 
         # Handle different return types from predict_step
+        result: np.ndarray
         if isinstance(predictions[0], torch.Tensor):
-            predictions = torch.cat(predictions, dim=0)
-            predictions = to_numpy_safe(predictions, cpu=True)
+            result = to_numpy_safe(torch.cat(cast(list, predictions), dim=0), cpu=True)
         elif isinstance(predictions[0], np.ndarray):
-            predictions = np.concatenate(predictions, axis=0)
+            result = np.concatenate(predictions, axis=0)
         else:
             raise TypeError(f"Unexpected prediction type: {type(predictions[0])}")
 
-        logger.info("Generated predictions with shape %s", predictions.shape)
+        logger.info("Generated predictions with shape %s", result.shape)
 
-        return predictions
+        return result
 
     def predict(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
         """
@@ -469,7 +473,7 @@ class _PredictMixin:
         """Returns the coefficient of determination R^2 for regression or accuracy for classification."""
         y_pred = self.predict(X)
         if isinstance(self, RegressorMixin):
-            return fast_r2_score(y, y_pred, sample_weight=sample_weight)
+            return float(fast_r2_score(y, y_pred, sample_weight=sample_weight))
         elif isinstance(self, ClassifierMixin):
             # y_pred is already class labels from PytorchLightningClassifier.predict()
             if sample_weight is None:
@@ -483,6 +487,12 @@ class _PredictMixin:
 
 class _ClassifierPredictMixin:
     """Classifier label + probability prediction overrides."""
+
+    # Provided by sibling mixins (_PredictMixin's _predict_raw, _FitMixin's label-encoder state)
+    # in the composed estimator's MRO; declared here so mypy can type-check this mixin's reads.
+    _predict_raw: Any
+    _label_encoder: Any
+    classes_: Any
 
     def predict(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
         """
@@ -529,10 +539,10 @@ class _ClassifierPredictMixin:
         # loaded from an older pickle that has classes_ but no encoder; the
         # final ``return idx`` covers multilabel / dropped-state cases.
         if getattr(self, "_label_encoder", None) is not None:
-            return self._label_encoder.inverse_transform(idx)
+            return np.asarray(self._label_encoder.inverse_transform(idx))
         if getattr(self, "classes_", None) is not None:
-            return self.classes_[idx]
-        return idx
+            return np.asarray(self.classes_[idx])
+        return np.asarray(idx)
 
     def predict_proba(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
         """
@@ -555,4 +565,4 @@ class _ClassifierPredictMixin:
         if getattr(self, "_binary_sigmoid_head", False):
             p1 = raw.reshape(-1)
             return np.column_stack([1.0 - p1, p1])
-        return raw
+        return np.asarray(raw)
