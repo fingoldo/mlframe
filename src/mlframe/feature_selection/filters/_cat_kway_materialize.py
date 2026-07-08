@@ -13,6 +13,7 @@ What lives here:
 """
 from __future__ import annotations
 
+from typing import Literal
 
 import numpy as np
 from numba import njit
@@ -82,7 +83,7 @@ def _greedy_expand_one_seed(
     max_kway_order: int,
     min_inc_ii: float,
     dtype,
-) -> tuple:
+) -> tuple | None:
     """Greedily extend ``seed_indices`` up to ``max_kway_order`` by picking the variable with the largest incremental II at each step.
 
     Returns ``(final_indices_tuple, final_classes, final_n_uniq, final_joint_mi)`` or ``None`` if no extension cleared ``min_inc_ii`` (in which case the seed pair
@@ -159,7 +160,7 @@ def _build_kway_chained_lookup(
     factors_data: np.ndarray,
     idx_tuple: tuple,  # k indices in sorted order
     nbins: np.ndarray,
-    unknown_strategy: str,
+    unknown_strategy: Literal["clip", "sentinel", "raise"],
     dtype,
 ) -> tuple:
     """Build a chain of ``k - 1`` pair lookup tables that together replay the full k-way merge on test data.
@@ -247,7 +248,7 @@ def _materialize_kway(
     nbins: np.ndarray,
     cols: list,
     dtype,
-    unknown_strategy: str,
+    unknown_strategy: Literal["clip", "sentinel", "raise"],
 ) -> tuple:
     """Materialise greedy k-way survivors. Returns ``(new_data_block, new_names, new_nbins, new_recipes)`` mirroring ``_materialize_pairs``. K-way recipes have
     ``src_names`` of length k and ``factorize_nbins`` of length k.
@@ -352,7 +353,7 @@ def _select_top_k_pairs(
     # top-K pairs across runs.
     masked_score = np.where(eligible, score, -np.inf)
     top_idx = np.lexsort((np.arange(len(masked_score)), -masked_score))[: cfg.top_k_pairs]
-    return top_idx
+    return np.asarray(top_idx)
 
 
 def _build_factorize_lookup(
@@ -362,7 +363,7 @@ def _build_factorize_lookup(
     nbins_a: int,
     nbins_b: int,
     classes_pair_post: np.ndarray,
-    unknown_strategy: str,
+    unknown_strategy: Literal["clip", "sentinel", "raise"],
 ) -> tuple:
     """Build the pre-prune -> post-prune lookup table that lets ``transform()`` replay the merge on test data.
 
@@ -417,7 +418,7 @@ def _materialize_pairs(
     nbins: np.ndarray,
     cols: list,
     dtype,
-    unknown_strategy: str = "clip",
+    unknown_strategy: Literal["clip", "sentinel", "raise"] = "clip",
 ) -> tuple:
     """For each selected pair, run ``merge_vars`` to produce the ordinal-encoded engineered column, build the lookup table that enables transform-replay, then assemble
     the ``EngineeredRecipe(kind="factorize")``.
