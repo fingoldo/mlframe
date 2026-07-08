@@ -9,7 +9,7 @@ import contextvars as _contextvars
 import copyreg as _copyreg
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sized, cast
 
 import lightning as L
 import torch
@@ -126,8 +126,8 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         # "multilabel" switches to per-label sigmoid. Regression/binary go through the dim==1 branch.
         self.task_type = task_type
 
-        self.training_step_outputs = []
-        self.validation_step_outputs = []
+        self.training_step_outputs: list = []
+        self.validation_step_outputs: list = []
 
         # F-38 (2026-05-31): CUDA-graph predict cache. Shape-keyed map of
         # (input_shape, dtype, device) -> (static_input_buffer, graphed_fn).
@@ -156,7 +156,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         self._apply_torch_compile()
 
         if hasattr(network, "example_input_array"):
-            self.example_input_array = network.example_input_array
+            self.example_input_array = cast(torch.Tensor, network.example_input_array)
         else:
             logger.debug("Network lacks 'example_input_array'; ONNX export may require manual input")
 
@@ -205,7 +205,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
 
     def forward(self, *args, **kwargs) -> torch.Tensor:
         """Forward pass through the network."""
-        return self.network(*args, **kwargs)
+        return cast(torch.Tensor, self.network(*args, **kwargs))
 
     def training_step(self, batch, batch_idx: int) -> Dict[str, torch.Tensor]:
         """Training step."""
@@ -472,10 +472,10 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
             steps_per_epoch = (
                 len(self.trainer.datamodule.train_dataloader())
                 if hasattr(self.trainer, "datamodule") and self.trainer.datamodule
-                else len(self.trainer.train_dataloader)
+                else len(cast(Sized, self.trainer.train_dataloader))
             )
 
-            total_steps = self.trainer.max_epochs * steps_per_epoch
+            total_steps = cast(int, self.trainer.max_epochs) * steps_per_epoch
 
             logger.info("OneCycleLR config:")
             logger.info("  - Steps per epoch: %s", steps_per_epoch)
@@ -542,7 +542,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
             return
 
         checkpoint_callback = None
-        for callback in self.trainer.callbacks:
+        for callback in self.trainer.callbacks:  # type: ignore[attr-defined]  # Trainer.callbacks is a real runtime attr, just not in the stub's public surface
             if isinstance(callback, ModelCheckpoint):
                 checkpoint_callback = callback
                 break

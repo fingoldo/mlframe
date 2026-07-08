@@ -29,7 +29,7 @@ import copy
 
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import lightning as L
@@ -332,7 +332,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
                 _gen_sampler = torch.Generator()
                 _gen_sampler.manual_seed(int(self.random_state))
                 sampler = WeightedRandomSampler(
-                    weights=sample_weights,
+                    weights=cast(Any, sample_weights),
                     num_samples=len(dataset),
                     replacement=True,
                     generator=_gen_sampler,
@@ -463,7 +463,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         trainer = L.Trainer(
             max_epochs=self._cfg.max_epochs,
             accelerator=safe_accelerator(self._cfg.accelerator),
-            precision=self._auto_precision(),
+            precision=cast(Any, self._auto_precision()),
             callbacks=callbacks,
             gradient_clip_val=self._cfg.gradient_clip_val,
             enable_progress_bar=True,
@@ -764,14 +764,14 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
 
         predict_trainer = L.Trainer(
             accelerator=self._cfg.accelerator,
-            precision=self._auto_precision(),
+            precision=cast(Any, self._auto_precision()),
             logger=False,
             enable_progress_bar=False,
             enable_model_summary=False,
         )
         predictions = predict_trainer.predict(self.model, loader)
 
-        result = torch.cat(predictions, dim=0).float().cpu().numpy().astype(np.float32)
+        result = torch.cat(cast(list, predictions), dim=0).float().cpu().numpy().astype(np.float32)
 
         self._prediction_cache[cache_key] = result
         return result
@@ -799,7 +799,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         if classes_ is None:
             from sklearn.exceptions import NotFittedError
             raise NotFittedError("Model not trained. Call fit() first.")
-        return np.asarray(classes_)[positions]
+        return np.asarray(np.asarray(classes_)[positions])
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -954,14 +954,14 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
 
         predict_trainer = L.Trainer(
             accelerator=self._cfg.accelerator,
-            precision=self._auto_precision(),
+            precision=cast(Any, self._auto_precision()),
             logger=False,
             enable_progress_bar=False,
             enable_model_summary=False,
         )
         predictions = predict_trainer.predict(self.model, loader)
 
-        result = torch.cat(predictions, dim=0).float().cpu().numpy().astype(np.float32)
+        result = torch.cat(cast(list, predictions), dim=0).float().cpu().numpy().astype(np.float32)
 
         self._prediction_cache[cache_key] = result
         return result
