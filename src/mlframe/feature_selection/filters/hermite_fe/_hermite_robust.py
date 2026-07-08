@@ -72,8 +72,8 @@ def _median_sorted_njit(a: np.ndarray) -> float:
     n = s.size
     m = n // 2
     if n & 1:
-        return s[m]
-    return 0.5 * (s[m - 1] + s[m])
+        return float(s[m])
+    return float(0.5 * (s[m - 1] + s[m]))
 
 
 @numba.njit(cache=True)
@@ -119,7 +119,7 @@ def _detect_heavy_tail_njit(x: np.ndarray) -> bool:
         xf = xf.astype(np.float64)
     verdict = _detect_heavy_tail_core_njit(xf, _ROBUST_AXIS_OUTER_K, _ROBUST_AXIS_GAP, _ROBUST_AXIS_MAX_FRAC)
     if verdict >= 0:
-        return verdict == 1
+        return bool(verdict == 1)
     # MAD collapsed: exact IQR-fallback scale, then the same gap test as the numpy body.
     med = float(np.median(xf))
     robust_scale = _robust_scale(xf, med)
@@ -187,7 +187,7 @@ def _detect_heavy_tail(x: np.ndarray) -> bool:
         _k = id(x)
         _hit = _cache.get(_k)
         if _hit is not None and _hit[0] is x:  # identity-verify -> collision-proof against id reuse
-            return _hit[1]
+            return bool(_hit[1])
     finite = np.isfinite(x)
     n_finite = int(np.count_nonzero(finite))
     if n_finite < 8:
