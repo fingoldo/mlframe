@@ -321,7 +321,7 @@ def batch_pair_mi_cuda(
     _CUDA_KERNEL[n_pairs, threads_per_block](
         d_data, d_pa, d_pb, d_nb, d_cy, d_fy, d_out, n_samples, n_classes_y,
     )
-    return d_out.copy_to_host()
+    return np.asarray(d_out.copy_to_host())
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +399,7 @@ def batch_pair_mi_cupy(
         log_term = cp.where(mask, cp.log(ratio), 0.0)
         out_dev[p] = (joint_freqs * log_term).sum()
 
-    return cp.asnumpy(out_dev)
+    return np.asarray(cp.asnumpy(out_dev))
 
 
 # ---------------------------------------------------------------------------
@@ -512,7 +512,7 @@ def _run_batch_pair_mi_sweep() -> list:
         variants["cuda"] = lambda *a: batch_pair_mi_cuda(*a)
     if _CUPY_AVAIL:
         variants["cupy"] = lambda *a: batch_pair_mi_cupy(*a)
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants,
         {"n_samples": _BPMI_SWEEP_N_SAMPLES, "n_pairs": _BPMI_SWEEP_N_PAIRS_GRID},
         _make_batch_pair_mi_inputs,
