@@ -220,7 +220,7 @@ def discrete_score_numpy(ZV: np.ndarray, ZV2: np.ndarray, Yc: np.ndarray) -> np.
     corr(col, indicator) = standardized_col . standardized_indicator, so |corr| is |ZV.T @ Yc|."""
     c1 = ZV.T @ Yc  # (p, K) = sum_c corr(V[:,j], 1[y=c])
     c2 = ZV2.T @ Yc  # (p, K) = sum_c corr(V2[:,j], 1[y=c])
-    return np.abs(c1).sum(axis=1) + np.abs(c2).sum(axis=1)
+    return np.asarray(np.abs(c1).sum(axis=1) + np.abs(c2).sum(axis=1))
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +259,7 @@ def _get_numba_fn():
 
 def discrete_score_numba(ZV: np.ndarray, ZV2: np.ndarray, Yc: np.ndarray) -> np.ndarray:
     fn = _get_numba_fn()
-    return fn(np.ascontiguousarray(ZV), np.ascontiguousarray(ZV2), np.ascontiguousarray(Yc))
+    return np.asarray(fn(np.ascontiguousarray(ZV), np.ascontiguousarray(ZV2), np.ascontiguousarray(Yc)))
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +273,7 @@ def discrete_score_cupy(ZV: np.ndarray, ZV2: np.ndarray, Yc: np.ndarray) -> np.n
     Ycd = cp.asarray(Yc)
     c1 = cp.abs(ZVd.T @ Ycd).sum(axis=1)
     c2 = cp.abs(ZV2d.T @ Ycd).sum(axis=1)
-    return cp.asnumpy(c1 + c2)
+    return np.asarray(cp.asnumpy(c1 + c2))
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +297,7 @@ def _gpu_available() -> bool:
     try:
         import cupy as cp
 
-        return cp.cuda.runtime.getDeviceCount() > 0
+        return bool(cp.cuda.runtime.getDeviceCount() > 0)
     except Exception:
         return False
 
@@ -329,7 +329,7 @@ def _run_sweep() -> list:
     variants = {"numpy": discrete_score_numpy}
     if _gpu_available():
         variants["cupy"] = discrete_score_cupy
-    return sweep_backend_crossover(
+    return sweep_backend_crossover(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants, _SWEEP_WORK, _make_inputs, "work",
         reference="numpy", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-8,
     )
