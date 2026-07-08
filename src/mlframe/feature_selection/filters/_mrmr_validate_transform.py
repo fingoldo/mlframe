@@ -223,6 +223,7 @@ def _validate_inputs(self, X, y):
             raise ValueError(f"MRMR.fit: duplicate column names not supported: {dups}")
     # Numeric-column extraction for NaN / Inf validation. Object-dtype frames (numeric + cat/string mixed) used to slip through because the whole frame was
     # converted to object-dtype where dtype.kind != "f"; scan numeric columns explicitly instead.
+    _arr: np.ndarray | None = None
     try:
         try:
             import polars as _pl
@@ -230,6 +231,7 @@ def _validate_inputs(self, X, y):
                 _num_cols = [n for n, d in X.schema.items() if d.is_numeric()]
                 if _num_cols:
                     _arr = X.select(_num_cols).to_numpy()
+                # else: no numeric columns -- _arr stays None, nothing to validate.
             elif hasattr(X, "select_dtypes"):
                 _arr = X.select_dtypes(include=["number"]).to_numpy()
             else:
