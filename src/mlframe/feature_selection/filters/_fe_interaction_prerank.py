@@ -65,7 +65,7 @@ def _abs_col_corr(M: np.ndarray, v: np.ndarray) -> np.ndarray:
     den = np.sqrt((Mc * Mc).sum(axis=0) * float(vc @ vc))
     with np.errstate(divide="ignore", invalid="ignore"):
         r = np.where(den > 0.0, num / den, 0.0)
-    return np.abs(np.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0))
+    return np.asarray(np.abs(np.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0)))
 
 
 _NOMINAL_MAX_CLASSES = 64  # at/below this many distinct y values, treat y as discrete (one-hot, relabel-invariant)
@@ -96,7 +96,7 @@ def _prep_values_y(values: np.ndarray, y):
 def _second_moment_core(V: np.ndarray, V2: np.ndarray, yf: np.ndarray, classes: np.ndarray, y_is_float: bool) -> np.ndarray:
     """The second-moment propensity score from the prepared (V, V2, yf, classes). See second_moment_propensity."""
     if classes.size > _NOMINAL_MAX_CLASSES and y_is_float:
-        return _abs_col_corr(V2, yf) + _abs_col_corr(V, yf * yf)  # genuine regression target
+        return np.asarray(_abs_col_corr(V2, yf) + _abs_col_corr(V, yf * yf))  # genuine regression target
     if classes.size > _NOMINAL_MAX_CLASSES:
         # high-cardinality NOMINAL/integer target: one-hot the _NOMINAL_MAX_CLASSES most FREQUENT classes
         # (covers the mass; relabel-invariant; O(K) bounded) instead of squaring arbitrary codes.
@@ -241,7 +241,7 @@ def fused_propensity(values: np.ndarray, y: np.ndarray, use_gbm: bool = True) ->
         if np.any(gbm > 0):
             ingredients.append(_rank_desc(gbm))
     min_rank = np.min(np.vstack(ingredients), axis=0)
-    return -min_rank
+    return np.asarray(-min_rank)
 
 
 _CRITERIA = {
