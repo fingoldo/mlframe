@@ -274,7 +274,7 @@ def _render_post_fit_diagnostics(
                 # A model with R^2 < 0 is worse than predicting the mean -> NO learnable structure to
                 # slice/explain. Trigger on R^2 < 0 regardless of prediction spread: the constant-collapse
                 # (pred_std ~ 0) AND the group-OOD-shift collapse (HIGH pred_std but predictions drift far
-                # off, e.g. address/diff on an extrapolating per-well base, R^2=-333) are both pathological.
+                # off, e.g. addres/diff on an extrapolating per-well base, R^2=-333) are both pathological.
                 _collapsed = (_ss_tot > 0) and (1.0 - _ss_res / _ss_tot < 0.0)
         except Exception:  # noqa: BLE001 -- collapse gate is a perf heuristic; never abort reporting
             _collapsed = False

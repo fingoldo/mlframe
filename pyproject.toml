@@ -495,7 +495,7 @@ skips = ["B101"]
 # short substring codespell matched inside a longer identifier/comment fragment
 # (strat/ser/clen/fo/anc/mis/numer/sav/bu/ans/ot/qest/OLL), or a hyphenated spelling
 # choice that is not a typo (re-use/re-used/re-using/re-uses).
-ignore-words-list = "nd,hist,te,ith,ba,thi,fpr,tre,strat,ser,clen,fo,anc,mis,als,mis,mape,lama,aci,coo,oll,ot,qest,ttest,disjointness,unparseable,numer,sav,bu,ans,re-use,re-used,re-using,re-uses,compilability,accreting,lightening"
+ignore-words-list = "nd,hist,te,ith,ba,thi,fpr,tre,strat,ser,clen,fo,anc,mis,als,mis,mape,lama,aci,coo,oll,ot,qest,ttest,disjointness,unparseable,numer,sav,bu,ans,re-use,re-used,re-using,re-uses,compilability,accreting,lightening,addres"
 
 # ---------------------------------------------------------------------------
 # Deptry (unused / missing / transitive dependency scan). NOT wired into CI yet -- a local
