@@ -39,7 +39,7 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
     try:
         from mlframe.training.pipeline import PreprocessingExtensionsBundle as _PEB
     except ImportError:
-        _PEB = None
+        _PEB = None  # type: ignore[assignment,misc]
     if _PEB is not None and isinstance(ext_pipeline, _PEB):
         if ext_pipeline.pysr is not None:
             df = ext_pipeline.pysr.transform(df)

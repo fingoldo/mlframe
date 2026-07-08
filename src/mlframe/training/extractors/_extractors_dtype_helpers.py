@@ -53,7 +53,7 @@ def get_dataframe_info(df: Union[pd.DataFrame, pl.DataFrame]) -> str:
         df.info(buf=buf, verbose=False)
         return buf.getvalue()
     elif isinstance(df, pl.DataFrame):
-        return polars_df_info(df)
+        return str(polars_df_info(df))
     raise TypeError(f"Unsupported DataFrame type: {type(df).__name__}. Expected pandas or Polars DataFrame.")
 
 
@@ -216,4 +216,4 @@ def get_sample_weights_by_recency(
     # base folds every loop-invariant term of ``min_weight + max_drop - (log(days_from_max) - log_min_age) * wdpy``
     # so the fused kernel only does the per-element ``base - log(d) * wdpy``.
     base = min_weight + max_drop + _log_min_age * weight_drop_per_year
-    return _recency_weights_fused(np.ascontiguousarray(_delta_secs, dtype=np.float64), base, _log_min_age, _min_age_days, weight_drop_per_year)
+    return np.asarray(_recency_weights_fused(np.ascontiguousarray(_delta_secs, dtype=np.float64), base, _log_min_age, _min_age_days, weight_drop_per_year))
