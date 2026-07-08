@@ -170,7 +170,7 @@ def _gpu_has_free_vram() -> bool:
         import cupy as cp
 
         free_b, _total = cp.cuda.runtime.memGetInfo()
-        return free_b >= _min_mb * 1024 * 1024
+        return bool(free_b >= _min_mb * 1024 * 1024)
     except Exception:
         return True
 
@@ -552,13 +552,13 @@ def _gpu_apply_prewarp(cp, x, spec):
     has_clip = clip is not None
     if basis in ("legendre", "chebyshev"):      # _apply_minmax
         lo = float(pp["lo"]); span = float(pp["hi"]) - float(pp["lo"]) + 1e-12; mean = 0.0; std_safe = 1.0
-        clip_lo = -float(clip) if has_clip else 0.0; clip_hi = float(clip) if has_clip else 0.0
+        clip_lo = -float(clip) if clip is not None else 0.0; clip_hi = float(clip) if clip is not None else 0.0
     elif basis == "hermite":                    # _apply_zscore
         lo = 0.0; span = 1.0; mean = float(pp["mean"]); std_safe = max(float(pp["std"]), 1e-12)
-        clip_lo = -float(clip) if has_clip else 0.0; clip_hi = float(clip) if has_clip else 0.0
+        clip_lo = -float(clip) if clip is not None else 0.0; clip_hi = float(clip) if clip is not None else 0.0
     else:                                        # laguerre: _apply_shift
         lo = float(pp["lo"]); span = 1.0; mean = 0.0; std_safe = 1.0
-        clip_lo = 0.0; clip_hi = (float(clip) + 1e-9) if has_clip else 0.0
+        clip_lo = 0.0; clip_hi = (float(clip) + 1e-9) if clip is not None else 0.0
     try:
         xfc = cp.ascontiguousarray(xf)
         nrow = int(xfc.size)
@@ -570,18 +570,18 @@ def _gpu_apply_prewarp(cp, x, spec):
     except Exception:  # noqa: BLE001
         if basis in ("legendre", "chebyshev"):
             z = 2 * (xf - pp["lo"]) / (pp["hi"] - pp["lo"] + 1e-12) - 1
-            if has_clip:
+            if clip is not None:
                 z = cp.clip(z, -float(clip), float(clip))
         elif basis == "hermite":
             z = (xf - pp["mean"]) / max(pp["std"], 1e-12)
-            if has_clip:
+            if clip is not None:
                 z = cp.clip(z, -float(clip), float(clip))
         else:
             z = xf - pp["lo"] + 1e-9
-            if has_clip:
+            if clip is not None:
                 z = cp.clip(z, 0.0, float(clip) + 1e-9)
-    coef = [float(v) for v in np.asarray(spec["coef"], dtype=np.float64).reshape(-1)]
-    return clen(cp, z, coef)
+    coef_list = [float(v) for v in np.asarray(spec["coef"], dtype=np.float64).reshape(-1)]
+    return clen(cp, z, coef_list)
 
 
 def _binary_apply(xp, name, x, y):
