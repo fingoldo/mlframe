@@ -57,6 +57,7 @@ from mlframe.training.feature_handling.fingerprint import (
     current_session,
 )
 from mlframe.training.feature_handling.handlers import (
+    CustomParams,
     TfidfParams,
 )
 from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder
@@ -264,13 +265,15 @@ def feature_handling_apply(
                 from mlframe.training.feature_handling.custom_handler import (
                     CustomHandler,
                 )
-                handler = CustomHandler(column=col, params=spec.params)
+                assert isinstance(spec.params, CustomParams), f"method='custom' requires CustomParams; got {type(spec.params).__name__}"
+                _custom_params = spec.params
+                handler = CustomHandler(column=col, params=_custom_params)
                 handler.fit(train_df, train_target)
                 tr_out = handler.transform(train_df)
                 tr_block = HandlerOutput(
                     column=col, method="custom", data=tr_out,
                     n_features=tr_out.shape[1] if hasattr(tr_out, "shape") else 0,
-                    output_kind=spec.params.output_kind,
+                    output_kind=_custom_params.output_kind,
                 )
                 train_blocks.append(tr_block)
                 if val_df is not None:
@@ -278,25 +281,25 @@ def feature_handling_apply(
                     val_blocks.append(HandlerOutput(
                         column=col, method="custom", data=v_out,
                         n_features=v_out.shape[1] if hasattr(v_out, "shape") else 0,
-                        output_kind=spec.params.output_kind,
+                        output_kind=_custom_params.output_kind,
                     ))
                 if test_df is not None:
                     t_out = handler.transform(test_df)
                     test_blocks.append(HandlerOutput(
                         column=col, method="custom", data=t_out,
                         n_features=t_out.shape[1] if hasattr(t_out, "shape") else 0,
-                        output_kind=spec.params.output_kind,
+                        output_kind=_custom_params.output_kind,
                     ))
                 continue
 
     # Cat axis (target encoders only -- ordinal/onehot/native handled
     # elsewhere in the existing pipeline path)
-    for spec in cat_specs:
-        target_cols = spec.apply_to_columns or cat_cols
+    for cat_spec in cat_specs:
+        target_cols = cat_spec.apply_to_columns or cat_cols
         for col in target_cols:
-            if spec.method.startswith("target_") or spec.method == "woe":
+            if cat_spec.method.startswith("target_") or cat_spec.method == "woe":
                 if train_target is None:
-                    raise ValueError(f"target encoder method={spec.method!r} on column " f"{col!r} requires train_target argument; got None.")
+                    raise ValueError(f"target encoder method={cat_spec.method!r} on column " f"{col!r} requires train_target argument; got None.")
                 # Target encoders are single-output by construction. Multi-output (multilabel /
                 # multi-regression) inputs slip through downstream sklearn's ``np.asarray(list(y))`` with
                 # shape (n, k); the LeakageSafeEncoder then crashes with an opaque length-mismatch trace.
@@ -309,12 +312,12 @@ def feature_handling_apply(
                     _shape = (len(_tt),) if _tt.ndim == 1 else None
                 if _shape is not None and len(_shape) > 1 and _shape[1] > 1:
                     raise ValueError(
-                        f"target encoder method={spec.method!r} on column {col!r}: train_target is "
+                        f"target encoder method={cat_spec.method!r} on column {col!r}: train_target is "
                         f"multi-output (shape={_shape}); collapse via mean / pick-target before passing in."
                     )
                 tr_block, val_block, te_block = _apply_target_encoder(
                     train_df=train_df, val_df=val_df, test_df=test_df,
-                    column=col, params=spec.params,
+                    column=col, params=cat_spec.params,
                     train_target=train_target,
                     cache=cache, session_id=sess.session_id,
                     train_id=train_id,
@@ -510,7 +513,7 @@ def _extract_column_values(df: Any, column: str) -> List:
     try:
         import pandas as pd
         if isinstance(df, pd.DataFrame):
-            return df[column].tolist()
+            return list(df[column].tolist())
     except ImportError:  # pragma: no cover
         pass
     return list(df)

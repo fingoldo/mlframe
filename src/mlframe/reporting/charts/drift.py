@@ -151,7 +151,7 @@ def compute_psi_matrix(
         keep = np.argsort(peak)[::-1][:max_features]
         keep = keep[np.argsort(keep)]  # preserve original feature order among the kept set
         matrix = matrix[keep]
-        names = tuple(names[i] for i in keep)
+        names = [names[i] for i in keep]
 
     col_labels = tuple(f"t{b}" for b in range(n_buckets))
     return matrix, tuple(names), col_labels
@@ -665,7 +665,7 @@ def adversarial_auc(
     X = np.vstack([Xa, Xb])
     y = np.concatenate([np.zeros(len(ia), dtype=np.int64), np.ones(len(ib), dtype=np.int64)])
 
-    params = dict(n_estimators=ADV_N_ESTIMATORS, num_leaves=31, learning_rate=0.05, subsample=0.8,
+    params: dict = dict(n_estimators=ADV_N_ESTIMATORS, num_leaves=31, learning_rate=0.05, subsample=0.8,
                   colsample_bytree=0.8, n_jobs=-1, random_state=seed, verbosity=-1, importance_type="gain")
     if lgbm_params:
         params.update(lgbm_params)

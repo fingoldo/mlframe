@@ -10,7 +10,7 @@ __all__ = [
 
 import logging
 import math
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -211,7 +211,7 @@ def _resolve_pandas_method(series_dt, method: str, dtype) -> pd.Series:
     if method == "week_of_year":
         return series_dt.isocalendar().week.astype(dtype)
     pd_name = _DATE_METHOD_ALIASES.get(method, (method, None))[0]
-    field = _MISSING_DT_FIELD
+    field: Any = _MISSING_DT_FIELD
     if pd_name is not None:
         field = getattr(series_dt, pd_name, _MISSING_DT_FIELD)
     if field is _MISSING_DT_FIELD:
@@ -237,7 +237,7 @@ def _resolve_polars_expr(col: str, method: str, pl_dtype: pl.DataType) -> pl.Exp
         if not hasattr(col_dt, method):
             raise ValueError(f"Unknown polars .dt accessor: {method!r}")
         pl_name = method
-    return getattr(col_dt, pl_name)().cast(pl_dtype).alias(col + "_" + method)
+    return cast(pl.Expr, getattr(col_dt, pl_name)().cast(pl_dtype).alias(col + "_" + method))
 
 
 def create_date_features(
@@ -312,7 +312,7 @@ def create_date_features(
 
     precomputed_bases: Dict[Tuple[str, str], np.ndarray] = {}
     if is_pandas:
-        df = df.copy(deep=False)
+        df = df.copy(deep=False)  # type: ignore[union-attr]  # is_pandas guards this to a pandas.DataFrame; mypy can't narrow the Union on a bool flag
         # Accumulate every derived field and insert them in ONE pd.concat instead of column-at-a-time
         # assignment (which fragments the block manager -> PerformanceWarning + ~O(n_cols^2) copies).
         new_cols: Dict[str, pd.Series] = {}
@@ -333,7 +333,7 @@ def create_date_features(
                 pl_dtype = _NP_TO_PL_DTYPE.get(np_dtype)
                 if pl_dtype is None:
                     raise ValueError(f"Unsupported dtype {np_dtype} for polars; supported: {list(_NP_TO_PL_DTYPE.keys())}")
-                all_exprs.append(_resolve_polars_expr(col, method, pl_dtype))
+                all_exprs.append(_resolve_polars_expr(col, method, pl_dtype()))
         df = df.with_columns(all_exprs)
 
     # ``add_cyclical`` MUST run before ``delete_original_cols`` drops the source datetimes -- the cyclical helper reads ``df[col].dt`` directly off the source column rather than recomputing from the just-emitted integer fields.
@@ -419,7 +419,7 @@ def add_cyclical_date_features(
     two_pi = float(2.0 * np.pi)
 
     if is_pandas:
-        df = df.copy(deep=False)
+        df = df.copy(deep=False)  # type: ignore[union-attr]  # is_pandas guards this to a pandas.DataFrame; mypy can't narrow the Union on a bool flag
         # Batch all sin/cos columns into one pd.concat (see create_date_features) to avoid
         # block-manager fragmentation from column-at-a-time assignment.
         new_cols: Dict[str, np.ndarray] = {}
@@ -559,7 +559,7 @@ def run_pysr_fe(
         rename_map[col] = candidate
 
     tmp_df = df.head(nsamples) if nsamples and nsamples > 0 else df
-    expr = cs.numeric() - cs.starts_with(target_columns_prefix)
+    expr: pl.Expr = cs.numeric() - cs.starts_with(target_columns_prefix)
     if fill_nans:
         expr = expr.fill_null(0).fill_nan(0)
 
