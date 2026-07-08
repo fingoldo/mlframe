@@ -8,6 +8,7 @@ un-fitted sklearn-compatible estimator classes or instances.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +197,7 @@ def _patch_dataset_constructors_with_logging() -> None:
     def _infer_callsite() -> str:
         # Walk up to find the first frame outside the library internals.
         try:
-            frame = _sys._getframe(2)
+            frame: Any = _sys._getframe(2)
             for _ in range(8):
                 if frame is None:
                     break
@@ -215,7 +216,7 @@ def _patch_dataset_constructors_with_logging() -> None:
         # MASKS the originating loop, defeating the INFO->DEBUG demotion. Scan the whole stack instead: if ANY ancestor
         # frame lives in one of those loop modules, demote. The main-model training path has no such ancestor -> stays INFO.
         try:
-            frame = _sys._getframe(2)
+            frame: Any = _sys._getframe(2)
             for _ in range(25):
                 if frame is None:
                     break
@@ -318,8 +319,8 @@ try:
     from xgboost import XGBClassifier, XGBRegressor
     from xgboost.callback import TrainingCallback as XGBTrainingCallback
 except ImportError:  # pragma: no cover
-    XGBClassifier = XGBRegressor = None  # type: ignore[assignment]
-    XGBTrainingCallback = object  # type: ignore[assignment]
+    XGBClassifier = XGBRegressor = None  # type: ignore[assignment,misc]
+    XGBTrainingCallback = object  # type: ignore[assignment,misc]
 
 # DMatrix-reuse shim (2026-04-24). Subclasses XGBClassifier / XGBRegressor
 # to cache QuantileDMatrix across consecutive ``.fit()`` calls on the same
@@ -333,7 +334,7 @@ try:
 
     _XGB_SHIM_AVAILABLE = True
 except ImportError:  # pragma: no cover
-    XGBClassifierWithDMatrixReuse = XGBRegressorWithDMatrixReuse = None  # type: ignore[assignment]
+    XGBClassifierWithDMatrixReuse = XGBRegressorWithDMatrixReuse = None  # type: ignore[assignment,misc]
     _XGB_SHIM_AVAILABLE = False
 
 # Dataset-reuse shim (2026-05-08). Mirror of the XGB shim above for
@@ -349,7 +350,7 @@ try:
 
     _LGB_SHIM_AVAILABLE = True
 except ImportError:  # pragma: no cover
-    LGBMClassifierWithDatasetReuse = LGBMRegressorWithDatasetReuse = None  # type: ignore[assignment]
+    LGBMClassifierWithDatasetReuse = LGBMRegressorWithDatasetReuse = None  # type: ignore[assignment,misc]
     _LGB_SHIM_AVAILABLE = False
 
 # ---------------------------------------------------------------------------
