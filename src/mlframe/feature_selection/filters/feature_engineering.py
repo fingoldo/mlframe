@@ -300,7 +300,7 @@ def _rebuild_full_survivor_col(
     param_b = _apply_unary(unary_b_name, var_b_idx, vals_b)
     col = binary_transformations[bin_func_name](param_a, param_b)
     np.nan_to_num(col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    return col.astype(np.float32, copy=False)
+    return np.asarray(col.astype(np.float32, copy=False))
 
 
 def _estimate_fe_shared_buffer_bytes(n_rows: int, max_n_combs: int, n_binary: int) -> int:
@@ -528,7 +528,7 @@ def compute_pairs_mis(
 def get_existing_feature_name(fe_tuple: tuple, cols_names: Sequence) -> str:
     fname = cols_names[fe_tuple[0]]
     if fe_tuple[1] == "identity":
-        return fname
+        return str(fname)
     else:
         return f"{fe_tuple[1]}({fname})"
 
