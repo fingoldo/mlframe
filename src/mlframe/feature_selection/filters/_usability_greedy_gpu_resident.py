@@ -178,15 +178,15 @@ def usability_greedy_gpu_resident(
             m = int(M.shape[0])
             out = cp.zeros(P, dtype=cp.float64)
             if m == 0:
-                return cp.asnumpy(out)
+                return np.asarray(cp.asnumpy(out))
             col_std = M.std(axis=0)  # (P,)
             v_std = float(rv.std())
             if v_std < 1e-12:
-                return cp.asnumpy(out)
+                return np.asarray(cp.asnumpy(out))
             vm = rv - rv.mean()
             ssv = float(cp.dot(vm, vm))
             if ssv <= 0.0:
-                return cp.asnumpy(out)
+                return np.asarray(cp.asnumpy(out))
             Mc = M - M.mean(axis=0, keepdims=True)
             num = Mc.T @ vm  # (P,) centered dot
             ssc = (Mc * Mc).sum(axis=0)  # (P,)
@@ -194,7 +194,7 @@ def usability_greedy_gpu_resident(
             valid = (col_std >= 1e-12) & (ssc > 0.0) & (denom > 0.0)
             r = cp.where(valid, num / cp.where(denom > 0.0, denom, 1.0), 0.0)
             r = cp.where(cp.isfinite(r), cp.abs(r), 0.0)
-            return cp.asnumpy(r)
+            return np.asarray(cp.asnumpy(r))
 
         def _shortlist(sel_idx) -> list:
             # HELD-OUT residual on fold-0 (mirrors the CPU path's leakage-safe design): fit the selected set
