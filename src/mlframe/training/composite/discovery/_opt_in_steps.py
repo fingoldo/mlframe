@@ -73,7 +73,7 @@ def _run_region_adaptive(
     seen_bases: set[str] = set()
     for spec in kept_specs:
         base_col = getattr(spec, "base_column", "")
-        if not base_col or getattr(spec, "extra_base_columns", ()):
+        if not base_col or getattr(spec, "extra_base_columns", None):
             continue
         if base_col not in seen_bases:
             seen_bases.add(base_col)

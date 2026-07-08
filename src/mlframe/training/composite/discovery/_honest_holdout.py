@@ -283,7 +283,7 @@ def rescore_specs_on_holdout(
             logger.debug("honest-holdout forward failed for %s: %s", spec.name, exc)
             return
         x_valid = x_remaining[valid]
-        _mi_kwargs = dict(nbins=nbins, aggregation=aggregation)
+        _mi_kwargs: dict[str, Any] = dict(nbins=nbins, aggregation=aggregation)
         mi_t = _mi_to_target(
             x_valid, t_holdout,
             n_neighbors=n_neighbors, random_state=random_state,
