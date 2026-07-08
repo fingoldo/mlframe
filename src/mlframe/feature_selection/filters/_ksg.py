@@ -96,7 +96,7 @@ def _mixed_ksg_aggregate(k: int, n: int, n_x: np.ndarray, n_y: np.ndarray) -> fl
     mi = psi_k + psi_n - s
     if mi < 0.0:
         mi = 0.0
-    return mi
+    return float(mi)
 
 
 def _query_knn_chebyshev(arr_2d: np.ndarray, k: int) -> np.ndarray:
@@ -108,7 +108,7 @@ def _query_knn_chebyshev(arr_2d: np.ndarray, k: int) -> np.ndarray:
     tree = KDTree(arr_2d.astype(np.float64), metric="chebyshev")
     # +1 because the closest is the point itself.
     d, _ = tree.query(arr_2d, k=k + 1)
-    return d[:, k].astype(np.float64)
+    return np.asarray(d[:, k].astype(np.float64))
 
 
 def _count_within_eps(arr_1d: np.ndarray, eps: np.ndarray) -> np.ndarray:
@@ -126,7 +126,7 @@ def _count_within_eps(arr_1d: np.ndarray, eps: np.ndarray) -> np.ndarray:
     hi_idx = np.searchsorted(sorted_arr, hi, side="right")
     counts = (hi_idx - lo_idx) - 1  # subtract 1 for self (always in band)
     np.maximum(counts, 0, out=counts)
-    return counts.astype(np.int64)
+    return np.asarray(counts.astype(np.int64))
 
 
 def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5, use_gpu: bool = False, intens: float = 1e-10, max_input_n: int = 50000, seed: int = 0) -> float:
@@ -323,7 +323,7 @@ def _kraskov1_aggregate(k: int, n: int, n_x: np.ndarray, n_y: np.ndarray, d: int
     for i in range(n):
         s += _digamma_scalar(float(n_x[i] + 1)) + _digamma_scalar(float(n_y[i] + 1))
     s /= float(n)
-    return psi_k - float(d - 1) / float(k) + float(d - 1) * psi_n - s
+    return float(psi_k - float(d - 1) / float(k) + float(d - 1) * psi_n - s)
 
 
 def ksg_lnc_mi(x: np.ndarray, y: np.ndarray, k: int = 5,

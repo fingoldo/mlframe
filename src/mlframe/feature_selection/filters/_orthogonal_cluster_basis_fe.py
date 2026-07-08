@@ -284,7 +284,7 @@ def compute_cluster_aggregate(
         raise ValueError(f"compute_cluster_aggregate: unknown aggregator {aggregator!r}; " f"expected one of {_VALID_AGGREGATORS}.")
     if not members:
         z = np.zeros(len(X), dtype=np.float64)
-        empty = {"member_mean": [], "member_std": [], "signs": [], "weights": None}
+        empty: dict = {"member_mean": [], "member_std": [], "signs": [], "weights": None}
         return (z, empty) if return_stats else z
     from ._cluster_aggregate import (
         _apply_method_nonlinear as _apply_nl,
@@ -627,15 +627,18 @@ def hybrid_orth_mi_cluster_basis_fe(
             members, basis, degree, aggregator, baseline_mi,
             engineered_mi, uplift]`` ordered by ``uplift`` descending.
     """
+    resolved_cluster_members: dict
     if cluster_members is None:
-        cluster_members = detect_clusters_by_correlation(
+        resolved_cluster_members = detect_clusters_by_correlation(
             X, cols,
             corr_threshold=corr_threshold,
             min_cluster_size=min_cluster_size,
             max_cluster_size=max_cluster_size,
         )
+    else:
+        resolved_cluster_members = cluster_members
     engineered, meta = generate_cluster_basis_features(
-        X, y, cluster_members,
+        X, y, resolved_cluster_members,  # type: ignore[arg-type]  # dict[str, list[str]] satisfies the Sequence-valued contract; dict invariance is over-strict here
         basis=basis,
         degrees=degrees,
         aggregator=aggregator,
@@ -799,4 +802,4 @@ def _apply_orth_cluster_basis(recipe, X) -> np.ndarray:
         frame, list(recipe.src_names), aggregator=aggregator,
         stats=agg_stats,
     )
-    return _evaluate_basis_column(agg, basis, degree, preprocess_params=basis_params)
+    return np.asarray(_evaluate_basis_column(agg, basis, degree, preprocess_params=basis_params))
