@@ -125,7 +125,7 @@ def _fit_surrogate_and_oof(
     Xtr, Xte = disc_X[tr], disc_X[te]
     ytr, yte = yv[tr], yv[te]
 
-    params = dict(
+    params: dict = dict(
         num_leaves=int(num_leaves),
         max_depth=int(max_depth),
         learning_rate=float(learning_rate),
@@ -152,7 +152,7 @@ def _fit_surrogate_and_oof(
     try:
         ds = lgb.Dataset(Xtr, label=ytr, free_raw_data=False)
         booster = lgb.train(params, ds, num_boost_round=int(n_estimators))
-        pred = booster.predict(Xte)
+        pred = np.asarray(booster.predict(Xte))
         if is_classification:
             if pred.ndim == 2:
                 yhat = np.argmax(pred, axis=1)
