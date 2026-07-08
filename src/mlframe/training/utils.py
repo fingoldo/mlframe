@@ -145,14 +145,14 @@ def drop_columns_from_dataframe(
     if not additional_columns_to_drop and not config_drop_columns:
         return df
 
-    all_cols_to_drop = []
+    _cols_to_drop_list = []
     if additional_columns_to_drop:
-        all_cols_to_drop.extend(additional_columns_to_drop)
+        _cols_to_drop_list.extend(additional_columns_to_drop)
     if config_drop_columns:
-        all_cols_to_drop.extend(config_drop_columns)
+        _cols_to_drop_list.extend(config_drop_columns)
 
     # Remove duplicates
-    all_cols_to_drop = set(all_cols_to_drop)
+    all_cols_to_drop = set(_cols_to_drop_list)
 
     if not all_cols_to_drop:
         return df
@@ -331,7 +331,7 @@ def compute_model_input_fingerprint(
     for col in sorted(df_at_fit.columns, key=str):
         try:
             if pl is not None and isinstance(df_at_fit, pl.DataFrame):
-                dt = df_at_fit.schema[col]
+                dt: Any = df_at_fit.schema[col]
             else:
                 dt = df_at_fit[col].dtype
         except Exception:
@@ -842,7 +842,7 @@ def save_series_or_df(
     if isinstance(obj, pd.DataFrame):
         obj.to_parquet(file, compression=compression)
     elif pl is not None and isinstance(obj, pl.DataFrame):
-        obj.write_parquet(file, compression=compression)
+        obj.write_parquet(file, compression=compression)  # type: ignore[arg-type]  # compression is a validated free-form str at the public API boundary; polars narrows to a Literal set at runtime
 
 
 from ._nan_processing import _process_special_values, process_nans, process_nulls, process_infinities, get_numeric_columns, get_categorical_columns, remove_constant_columns  # noqa: E402,F401
