@@ -329,10 +329,13 @@ class PartialFitESWrapper:
         lo, hi = self.budget_min, self.budget_max
         scores: dict[int, tuple[float, Any]] = {}  # budget -> (val_score, fitted_estimator)
 
+        assert self.budget_param is not None, "_fit_dichotomic requires budget_param to be set"
+        _budget_param = self.budget_param
+
         def score_at(budget: int) -> float:
             from sklearn.base import clone
             est = clone(self.estimator)
-            est.set_params(**{self.budget_param: int(budget)})
+            est.set_params(**{_budget_param: int(budget)})
             est.fit(X_tr, y_tr)
             if not self.is_classification:
                 pred = est.predict(X_val)
@@ -372,7 +375,8 @@ class PartialFitESWrapper:
         self.best_iter = int(best_budget)
         self.best_metric = float(best_score)
         self.stopped_via = "dichotomic"
-        self.history = sorted(scores.items())  # type: ignore[assignment]
+        _sorted_history: list = sorted(scores.items(), key=lambda kv: kv[0])
+        self.history = _sorted_history  # type: ignore[assignment]  # dichotomic path stores (budget, (score, estimator)) tuples, not the float sequence the class-level annotation declares
         if self.verbose > 0:
             logger.info("PartialFitESWrapper dichotomic: best %s = %s at %s=%d (tested %d budgets)",
                         metric_name, self.best_metric, self.budget_param, self.best_iter, len(scores))

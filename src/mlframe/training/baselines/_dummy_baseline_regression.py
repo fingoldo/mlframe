@@ -21,11 +21,11 @@ def _extract_col_1d(df: Any, col: str) -> np.ndarray:
     if df is None:
         return np.array([])
     if hasattr(df, "columns") and not hasattr(df, "schema"):
-        return df[col].to_numpy()
+        return np.asarray(df[col].to_numpy())
     if hasattr(df, "get_column"):
-        return df.get_column(col).to_numpy()
+        return np.asarray(df.get_column(col).to_numpy())
     if hasattr(df, "select"):
-        return df.select(col).to_numpy().reshape(-1)
+        return np.asarray(df.select(col).to_numpy().reshape(-1))
     return np.asarray(df[col])
 
 

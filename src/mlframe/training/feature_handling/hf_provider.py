@@ -336,6 +336,7 @@ class HuggingFaceProvider:
         # transform call.
         _recover_after_n_ok = 8
         consecutive_ok = 0
+        assert self._tokenizer is not None and self._model is not None, "HFProvider: encode() called before load()"
         while i < n:
             batch = texts[i : i + current_batch]
             try:
@@ -405,7 +406,7 @@ class HuggingFaceProvider:
                 raise
         if not outputs:
             return np.zeros((0, self._embedding_dim or 0), dtype=np.float32)
-        return np.concatenate(outputs, axis=0).astype(np.float32, copy=False)
+        return np.asarray(np.concatenate(outputs, axis=0).astype(np.float32, copy=False))
 
     @staticmethod
     def _pool(model_out, attention_mask, pool: str):

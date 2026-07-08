@@ -358,14 +358,14 @@ def audit_target_over_time(
         ts_for_picker = df[timestamp_col].to_list()
         chosen = _pick_granularity(ts_for_picker) if granularity == "auto" else granularity
         agg = _aggregate_by_time_polars(
-            df, timestamp_col, target_col, chosen, target_type=target_type,
+            df, timestamp_col, target_col, chosen, target_type=target_type,  # type: ignore[arg-type]  # granularity is a validated free-form str; the callee narrows to a Literal set at runtime
         )
     else:
         if not isinstance(df, pd.DataFrame):
             df = pd.DataFrame(df)
         chosen = _pick_granularity(df[timestamp_col]) if granularity == "auto" else granularity
         agg = _aggregate_by_time_pandas(
-            df, timestamp_col, target_col, chosen, target_type=target_type,
+            df, timestamp_col, target_col, chosen, target_type=target_type,  # type: ignore[arg-type]  # granularity is a validated free-form str; the callee narrows to a Literal set at runtime
         )
 
     return _audit_from_agg(
@@ -492,7 +492,7 @@ def audit_targets_over_time(
         chosen = _pick_granularity(ts_for_picker)
     else:
         # Caller forced granularity; no need to inspect the timestamps.
-        chosen = granularity
+        chosen = granularity  # type: ignore[assignment]  # granularity is a validated free-form str matching the Literal set at runtime
         # Still coerce non-polars/non-pandas inputs downstream consumers may not handle.
         if not (_HAS_POLARS and isinstance(df, pl.DataFrame)) and not isinstance(df, pd.DataFrame):
             df = pd.DataFrame(df)
