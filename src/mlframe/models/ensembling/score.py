@@ -61,14 +61,14 @@ logger = logging.getLogger("mlframe.models.ensembling")
 def score_ensemble(
     models_and_predictions: Sequence,
     ensemble_name: str,
-    target: pd.Series = None,
-    train_idx: np.ndarray = None,
-    test_idx: np.ndarray = None,
-    val_idx: np.ndarray = None,
-    df: pd.DataFrame = None,
-    train_target: pd.Series = None,
-    test_target: pd.Series = None,
-    val_target: pd.Series = None,
+    target: Optional[pd.Series] = None,
+    train_idx: Optional[np.ndarray] = None,
+    test_idx: Optional[np.ndarray] = None,
+    val_idx: Optional[np.ndarray] = None,
+    df: Optional[pd.DataFrame] = None,
+    train_target: Optional[pd.Series] = None,
+    test_target: Optional[pd.Series] = None,
+    val_target: Optional[pd.Series] = None,
     target_label_encoder: object = None,
     # Outlier-member-filter thresholds. The historical absolute defaults
     # (``max_mae=0.05``, ``max_std=0.06``) excluded all 6 members of a
@@ -86,12 +86,12 @@ def score_ensemble(
     ensembling_methods=SIMPLE_ENSEMBLING_METHODS,
     uncertainty_quantile: float = 0.1,
     normalize_stds_by_mean_preds: bool = False,
-    custom_ice_metric: Callable = None,
-    custom_rice_metric: Callable = None,
-    subgroups: dict = None,
+    custom_ice_metric: Optional[Callable] = None,
+    custom_rice_metric: Optional[Callable] = None,
+    subgroups: Optional[dict] = None,
     max_ensembling_level: int = 1,
-    n_features: int = None,
-    n_jobs: int = None,
+    n_features: Optional[int] = None,
+    n_jobs: Optional[int] = None,
     min_samples_for_parallel: int = 1_000_000,
     verbose: bool = True,
     flag_degenerate_conf_subset: bool = True,
@@ -448,7 +448,9 @@ def score_ensemble(
         else:
             # Sequential processing
             for ensemble_method in ensembling_methods:
-                internal_method, next_ens_results, conf_results = _process_single_ensemble_method(ensemble_method=ensemble_method, **common_params)
+                internal_method, next_ens_results, conf_results = _process_single_ensemble_method(
+                    ensemble_method=ensemble_method, **common_params  # type: ignore[arg-type]  # common_params is a heterogeneous dict(...) blob shared with the parallel loky path
+                )
                 res[internal_method] = next_ens_results
                 next_level_models_and_predictions.append(next_ens_results)
                 if conf_results is not None:
