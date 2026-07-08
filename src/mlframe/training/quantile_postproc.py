@@ -116,7 +116,7 @@ def fix_quantile_crossing(
         # Vectorised monotone-shortcut mask: rows already sorted ascending
         # skip the PAVA entirely. ``np.diff`` along axis=1.
         _is_mono = np.all(np.diff(preds64, axis=1) >= 0, axis=1)
-        return _isotonic_rows_pava(preds64, _is_mono, out)
+        return np.asarray(_isotonic_rows_pava(preds64, _is_mono, out))
 
     raise ValueError(f"fix_quantile_crossing mode must be sort/isotonic/none; " f"got {mode!r}")
 

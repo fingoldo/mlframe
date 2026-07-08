@@ -241,4 +241,4 @@ def _format_bin_label(ts: pd.Timestamp, granularity: Granularity) -> str:
     }[granularity]
     if granularity == "quarter":
         return f"{ts.year}-Q{(ts.month - 1) // 3 + 1}"
-    return ts.strftime(fmt)
+    return str(ts.strftime(fmt))

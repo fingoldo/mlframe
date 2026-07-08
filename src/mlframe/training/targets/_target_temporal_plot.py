@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 try:
     import polars as pl
 except ImportError:
-    pl = None
+    pl = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
