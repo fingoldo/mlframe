@@ -514,7 +514,7 @@ class ModelPipelineStrategy(ABC):
             "LinearModelStrategy": "linear",
         }
         flavor = flavor_map.get(type(self).__name__, "")
-        return _classif_objective_kwargs(flavor, target_type, n_classes)
+        return dict(_classif_objective_kwargs(flavor, target_type, n_classes))
 
     def wrap_multilabel(self, estimator, target_type, multilabel_config=None, n_labels: Optional[int] = None):
         """Multilabel dispatch: native vs wrapper vs chain ensemble.

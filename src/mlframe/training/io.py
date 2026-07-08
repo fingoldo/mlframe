@@ -654,7 +654,7 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
                 _LOAD_MODEL_CACHE[_cache_key] = model
                 while len(_LOAD_MODEL_CACHE) > _max_count:
                     _LOAD_MODEL_CACHE.popitem(last=False)
-        return model
+        return model  # type: ignore[no-any-return]  # dill/pickle-loaded model is Any at the type level; declared Optional[object] is the honest external contract
     except Exception as e:
         # logger.exception captures the traceback automatically so the
         # operator can see the unpickler / zstd error stack rather than

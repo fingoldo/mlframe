@@ -405,9 +405,9 @@ def analyze_feature_distribution(
                 "(|corr|>=%.2f): %s",
                 len(_top10), redundant_corr_threshold, _top10_str,
             )
-            for a, b, c in pairs:
-                _add_warning(a, f"redundant_with({b}, corr={c:.3f})")
-                _add_warning(b, f"redundant_with({a}, corr={c:.3f})")
+            for a, b, _corr in pairs:
+                _add_warning(a, f"redundant_with({b}, corr={_corr:.3f})")
+                _add_warning(b, f"redundant_with({a}, corr={_corr:.3f})")
 
     # --- target leakage (only if y supplied) ---
     if y is not None and len(candidate_numeric) > 0:

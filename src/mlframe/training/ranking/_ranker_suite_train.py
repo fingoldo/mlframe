@@ -619,7 +619,7 @@ def train_mlframe_ranker_suite(
             strategy, X_tr, y_tr, g_tr,
             X_val=X_va, y_val=y_va, group_ids_val=g_va,
             ranking_config=ranking_config,
-            cat_features=cat_features if cat_features else None,
+            cat_features=list(cat_features) if cat_features else None,  # type: ignore[arg-type]  # fit_ranker's list[str|int] is invariant-incompatible with list[str]; values are always str here
             model_kwargs=model_kwargs,
             early_stopping_rounds=early_stopping_rounds,
             verbose=verbose >= 2,

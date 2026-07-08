@@ -106,7 +106,7 @@ def _try_get_rss_gb() -> float:
     """Best-effort current process RSS in GB; 0.0 if psutil missing."""
     try:
         import psutil
-        return psutil.Process().memory_info().rss / (1024 ** 3)
+        return float(psutil.Process().memory_info().rss / (1024 ** 3))
     except Exception:
         return 0.0
 

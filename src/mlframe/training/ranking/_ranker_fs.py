@@ -169,7 +169,7 @@ def _binned_mi(x: np.ndarray, y: np.ndarray, bins: int = 8) -> float:
     ye = np.unique(np.quantile(y, np.linspace(0, 1, bins + 1)))
     if xe.size < 2 or ye.size < 2:
         return 0.0
-    return _mi_from_edges(x, y, xe, ye)
+    return float(_mi_from_edges(x, y, xe, ye))
 
 
 def group_aware_relevance(cols: list, arr: np.ndarray, y: np.ndarray, groups: np.ndarray, bins: int = 8) -> dict:

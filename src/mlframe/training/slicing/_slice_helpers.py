@@ -114,7 +114,7 @@ def _row_select(frame: Any, row_idx: np.ndarray) -> Any:
 def _aligned_select(arr: Any, row_idx: np.ndarray) -> np.ndarray | None:
     if arr is None:
         return None
-    return np.asarray(arr)[row_idx]
+    return np.asarray(np.asarray(arr)[row_idx])
 
 
 def _is_classification_target(y: np.ndarray) -> bool:

@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 try:
     import polars as pl
 except ImportError:
-    pl = None
+    pl = None  # type: ignore[assignment]
 
 # Parent package re-exports XGBoostStrategy AFTER TreeModelStrategy is bound, so this partial-package import resolves.
 from . import TreeModelStrategy

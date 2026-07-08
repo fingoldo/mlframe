@@ -147,7 +147,7 @@ def report_regression_model_perf(
         # back to pandas would crash at predict time with the identical
         # opaque TypeError (prod incident).
         from mlframe.training.trainer import _predict_with_fallback
-        preds = _predict_with_fallback(model, df, method="predict")
+        preds = np.asarray(_predict_with_fallback(model, df, method="predict"))
 
     if isinstance(targets, pd.Series):
         targets = targets.values
@@ -729,7 +729,7 @@ def report_regression_model_perf(
     if subgroups:
         fairness_report = compute_fairness_metrics(
             subgroups=subgroups,
-            subset_index=subset_index,
+            subset_index=subset_index,  # type: ignore[arg-type]  # compute_fairness_metrics handles None internally (see its subset_index is None branch)
             y_true=targets,
             y_pred=preds,
             metrics={"MAE": fast_mean_absolute_error, "RMSE": fast_root_mean_squared_error},
