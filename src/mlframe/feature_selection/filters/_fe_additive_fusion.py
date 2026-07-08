@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Any
 
 import numpy as np
 
@@ -109,7 +110,7 @@ def propose_additive_fusions(
     raw_name_set: set,
     cols: list,
     classes_y: np.ndarray,
-    X: object,
+    X: Any,
     nbins: int,
     seed: int = 0,
     verbose: int = 0,
@@ -146,7 +147,7 @@ def propose_additive_fusions(
         except Exception:
             _twin_ready = False
         if _twin_ready:
-            _dev_errs = []
+            _dev_errs: list = []
             try:
                 _dev_errs.append(np.linalg.LinAlgError)
                 import cupy as _cp  # type: ignore
