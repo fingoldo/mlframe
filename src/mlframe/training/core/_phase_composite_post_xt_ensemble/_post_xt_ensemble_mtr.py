@@ -57,7 +57,7 @@ class MTRPerColumnEqualMeanEnsemble:
         n_targets: int,
         *,
         strategy: str = "equal_mean",
-        weights: np.ndarray = None,
+        weights: np.ndarray | None = None,
     ):
         if not components:
             raise ValueError("MTRPerColumnEqualMeanEnsemble requires at least 1 component")
@@ -108,7 +108,7 @@ class MTRPerColumnEqualMeanEnsemble:
         (non-normalised) NNLS weights and do NOT sum to 1 (the optimal
         fit can need weights summing to >1; see the .fit rationale).
         Defensive copy."""
-        return self._weights.copy()
+        return np.asarray(self._weights.copy())
 
     def fit(self, X, y) -> "MTRPerColumnEqualMeanEnsemble":
         """E3: fit per-column NNLS weights from a held-out (X, y) set.
@@ -192,7 +192,7 @@ class MTRPerColumnEqualMeanEnsemble:
         # Uses einsum so the per-column weight is applied to the
         # matching column of each component's preds; equal-mean
         # collapses to stacked.mean(axis=0) by construction.
-        return np.einsum("cnk,ck->nk", stacked, self._weights)
+        return np.asarray(np.einsum("cnk,ck->nk", stacked, self._weights))
 
     def __repr__(self) -> str:
         return (

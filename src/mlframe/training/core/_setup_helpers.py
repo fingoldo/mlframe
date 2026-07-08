@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 import numpy as np
 import pandas as pd
+from pydantic import BaseModel
 
 try:
     import polars as pl
@@ -71,7 +72,7 @@ DEFAULT_PROBABILITY_THRESHOLD = 0.5
 # 0.35 is well clear of the 0.5 balanced point yet catches the moderate-skew regime where a fixed 0.5 already costs F1/balanced-acc.
 DECISION_THRESHOLD_IMBALANCE_FRACTION = 0.35
 
-ConfigT = TypeVar("ConfigT")
+ConfigT = TypeVar("ConfigT", bound="BaseModel")
 
 
 def is_target_imbalanced(y_true: np.ndarray, *, min_minority_fraction: float = DECISION_THRESHOLD_IMBALANCE_FRACTION) -> bool:
@@ -180,6 +181,8 @@ def get_decision_threshold(metadata: dict | None, target_key: str | None = None,
     if target_key is None:
         return float(default)
     val = table.get(target_key)
+    if val is None:
+        return float(default)
     try:
         thr = float(val)
     except (TypeError, ValueError):
@@ -191,7 +194,7 @@ def get_decision_threshold(metadata: dict | None, target_key: str | None = None,
 
 def _ensure_config(
     config: ConfigT | dict[str, Any] | None,
-    config_class: type,
+    config_class: type[ConfigT],
     kwargs: dict[str, Any],
 ) -> ConfigT:
     """Convert dict/None to Pydantic config object.
@@ -207,7 +210,7 @@ def _ensure_config(
         obj = config_class(**config)
         extras = getattr(obj, "model_extra", None) or {}
         if extras:
-            known = getattr(config_class, "_known_extras", frozenset()) or frozenset()
+            known: frozenset = getattr(config_class, "_known_extras", frozenset()) or frozenset()
             unknown = sorted(k for k in extras if k not in known)
             if unknown:
                 raise ValueError(

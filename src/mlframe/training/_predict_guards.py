@@ -178,8 +178,8 @@ def _recover_cb_feature_names(model: Any) -> tuple[list[str], list[str]]:
     """
     try:
         feat_names = list(getattr(model, "feature_names_", []) or [])
-        cat_idx = getattr(model, "_get_cat_feature_indices", lambda: [])() or []
-        text_idx = getattr(model, "_get_text_feature_indices", lambda: [])() or []
+        cat_idx: list = getattr(model, "_get_cat_feature_indices", lambda: [])() or []
+        text_idx: list = getattr(model, "_get_text_feature_indices", lambda: [])() or []
         if not feat_names:
             return [], []
         cat_feat = [feat_names[i] for i in cat_idx if 0 <= i < len(feat_names)]
@@ -296,7 +296,7 @@ def _apply_nan_guard(
         _has_nan = False
 
     if not _has_nan:
-        return fn(X)  # Let the real error surface
+        return np.asarray(fn(X))  # Let the real error surface
 
     # Persisted imputer/scaler shortcut -- transform-only, no leakage.
     _persisted_imp = getattr(model, "_mlframe_nan_imputer", None)
@@ -387,7 +387,7 @@ def _transform_with_persisted_stats(
         )
     else:
         X_clean = _arr
-    return fn(X_clean)
+    return np.asarray(fn(X_clean))
 
 
 def _fit_persist_and_transform(
@@ -486,7 +486,7 @@ def _fit_persist_and_transform(
         # internal pandas->numpy is the remaining unavoidable copy until the sklearn estimator
         # accepts numpy/polars directly.
         X_clean: Any = get_pandas_view_of_polars_df(df_std)
-        return fn(X_clean)
+        return np.asarray(fn(X_clean))
 
     if hasattr(X, "to_numpy"):
         # Polars: try the zero-copy Arrow bridge first; only fall back to the copy path on mixed-dtype frames where allow_copy=False raises.
@@ -527,7 +527,7 @@ def _fit_persist_and_transform(
         )
     else:
         X_clean = _arr_out
-    return fn(X_clean)
+    return np.asarray(fn(X_clean))
 
 
 def prime_nan_guard_stats(

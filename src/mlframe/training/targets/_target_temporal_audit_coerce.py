@@ -69,7 +69,7 @@ def coerce_timestamps_for_audit(
         # shifts the time-axis by 1000x and lands every row in the 1970 epoch.
         if arr.dtype != np.dtype("datetime64[ns]"):
             arr = arr.astype("datetime64[ns]")
-        return arr
+        return np.asarray(arr)
     if not (np.issubdtype(arr.dtype, np.integer) or np.issubdtype(arr.dtype, np.floating)):
         # Object / string / pd.Timestamp etc. -- let pandas figure it out.
         # If the input contains tz-aware pd.Timestamp entries,
@@ -104,7 +104,7 @@ def coerce_timestamps_for_audit(
                 "contract. If your data are not UTC-anchored, localise "
                 "BEFORE calling this helper."
             )
-        return _coerced.to_numpy().astype("datetime64[ns]")
+        return np.asarray(_coerced.to_numpy().astype("datetime64[ns]"))
 
     # pandas 2.0+ ``DatetimeIndex.to_numpy()`` can return ``datetime64[s]`` /
     # ``[ms]`` / ``[us]`` (preserved resolution) instead of always ``[ns]``.
@@ -112,8 +112,8 @@ def coerce_timestamps_for_audit(
     # read the raw integer in the original unit, not nanoseconds, and
     # epoch-second values collapse to 1970. Force ``datetime64[ns]`` so the
     # documented contract holds across pandas versions.
-    def _to_ns(_dti):
-        return _dti.to_numpy().astype("datetime64[ns]")
+    def _to_ns(_dti) -> np.ndarray:
+        return np.asarray(_dti.to_numpy().astype("datetime64[ns]"))
 
     if arr.size == 0:
         return _to_ns(pd.to_datetime(arr, unit=explicit_unit or "ns"))

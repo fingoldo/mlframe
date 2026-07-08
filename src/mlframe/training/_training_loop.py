@@ -381,7 +381,7 @@ def _train_model_with_fallback(
     # type for cat_feature ... =NaN`` (fuzz c0062). Mirror the polars
     # __MISSING__ sentinel for the pandas surface so the bug is patched
     # at the trainer boundary regardless of which upstream path led here.
-    if _is_pandas and model_type_name in CATBOOST_MODEL_TYPES:
+    if _is_pandas and model_type_name in CATBOOST_MODEL_TYPES and isinstance(train_df, pd.DataFrame):
         # CatBoost Pool rejects category-dtype columns absent from cat_features
         # with "has dtype 'category' but is not in cat_features list". The
         # ordinal-encoding auto-flip path narrows cat_features when text/
@@ -427,7 +427,7 @@ def _train_model_with_fallback(
                         _new_eval_set.append(pair)
                 fit_params["eval_set"] = _new_eval_set
 
-    if _is_pandas and model_type_name in CATBOOST_MODEL_TYPES and "cat_features" in fit_params and fit_params["cat_features"]:
+    if _is_pandas and model_type_name in CATBOOST_MODEL_TYPES and "cat_features" in fit_params and fit_params["cat_features"] and isinstance(train_df, pd.DataFrame):
         _cat_cols = [c for c in fit_params["cat_features"] if c in train_df.columns]
         if _cat_cols:
             for _c in _cat_cols:
@@ -688,8 +688,11 @@ def _train_model_with_fallback(
             # _predict_with_fallback.
             try:
                 model._mlframe_polars_fastpath_broken = True
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in _training_loop.py:688: %s", e)
+            except Exception as _mark_broken_err:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                # Deliberately NOT named `e`: this is nested inside the outer `except Exception as e:` handler,
+                # and Python implicitly `del`s the exception name at the end of its own except clause -- reusing
+                # `e` here would delete the OUTER `e` too, breaking the `raise e` re-raise further down.
+                logger.debug("suppressed in _training_loop.py:688: %s", _mark_broken_err)
                 pass
             schema_dump = _polars_schema_diagnostic(
                 train_df,
