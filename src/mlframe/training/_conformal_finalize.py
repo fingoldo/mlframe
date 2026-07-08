@@ -191,7 +191,7 @@ def conformal_classification_report(
         sorted_p = np.take_along_axis(probs, order, axis=1)
         csum = np.cumsum(sorted_p, axis=1)
         rank_of_true = np.argmax(order == true_idx[:, None], axis=1)
-        return csum[np.arange(probs.shape[0]), rank_of_true]
+        return np.asarray(csum[np.arange(probs.shape[0]), rank_of_true])
 
     if score == "aps":
         cal_scores = _aps_scores(cp, cal_true)

@@ -63,4 +63,4 @@ def predictive_entropy(mean_probs: np.ndarray, eps: float = 1e-12) -> np.ndarray
     """
     p = np.asarray(mean_probs, dtype=np.float64)
     p = np.clip(p, eps, 1.0)
-    return -np.sum(p * np.log(p), axis=1)
+    return np.asarray(-np.sum(p * np.log(p), axis=1))
