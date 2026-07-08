@@ -81,7 +81,7 @@ def _coerce_y_classes(y) -> np.ndarray:
         _key = (y_arr.shape, str(y_arr.dtype), hash(y_arr.tobytes()))
         _hit = _COERCE_Y_MEMO.get(_key)
         if _hit is not None:
-            return _hit.copy()
+            return np.asarray(_hit.copy())
     except Exception:
         _key = None
     _res = _coerce_y_classes_impl(y_arr)
