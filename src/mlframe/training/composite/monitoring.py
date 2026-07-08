@@ -51,7 +51,7 @@ _PSI_EPS: float = 1e-6
 def _finite_1d(arr: Any) -> np.ndarray:
     """Return a finite 1-D float64 view (non-finite rows dropped)."""
     a = np.asarray(arr, dtype=np.float64).reshape(-1)
-    return a[np.isfinite(a)]
+    return np.asarray(a[np.isfinite(a)])
 
 
 def _quantile_knots(values: np.ndarray, n_quantiles: int) -> np.ndarray:
@@ -81,7 +81,7 @@ def _bin_fractions(values: np.ndarray, edges: np.ndarray) -> np.ndarray:
         return np.full(n_bins, 1.0 / n_bins, dtype=np.float64)
     counts = np.histogram(v, bins=np.concatenate(([-np.inf], edges, [np.inf])))[0]
     frac = counts.astype(np.float64) + _PSI_EPS
-    return frac / frac.sum()
+    return np.asarray(frac / frac.sum())
 
 
 def _uniform_ref_fractions(edges: np.ndarray) -> np.ndarray:

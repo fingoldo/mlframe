@@ -360,7 +360,7 @@ class CompositeTargetTransformer(TransformerMixin, BaseEstimator):
                 "For variable-length inference use CompositeTargetEstimator (path 1) instead -- it "
                 "extracts base from X per call."
             )
-        return base_arr
+        return np.asarray(base_arr)
 
     # sklearn tag: this transformer is stateless w.r.t. the FEATURE matrix
     # (it transforms the target), so it must not be subjected to the

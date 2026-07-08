@@ -113,7 +113,7 @@ def _per_bin_from_fold_preds(
         return np.full(n_bins, float("nan"))
     per_bin_stack = np.stack(per_bin_arrays, axis=0)
     with np.errstate(invalid="ignore"):
-        return np.nanmean(per_bin_stack, axis=0)
+        return np.asarray(np.nanmean(per_bin_stack, axis=0))
 
 
 def _tiny_cv_rmse_y_scale(

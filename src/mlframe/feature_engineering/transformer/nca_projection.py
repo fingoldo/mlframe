@@ -103,7 +103,7 @@ def compute_nca_projection_features(
         if task == "binary":
             return (y_sub > 0.5).astype(int)
         threshold = np.quantile(y_sub, q_high)
-        return (y_sub >= threshold).astype(int)
+        return np.asarray((y_sub >= threshold).astype(int))
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
         y_bin = _binarize(y_t)
@@ -118,7 +118,7 @@ def compute_nca_projection_features(
             padded = np.zeros((Xq.shape[0], n_components), dtype=np.float32)
             padded[:, : proj.shape[1]] = proj
             proj = padded
-        return proj
+        return np.asarray(proj)
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
         return {f"{column_prefix}_c{j}": feats[:, j].astype(dtype, copy=False) for j in range(feats.shape[1])}

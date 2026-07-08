@@ -134,7 +134,7 @@ def _nystrom_extend(X_train: np.ndarray, X_query: np.ndarray, eigvals: np.ndarra
     embedding = raw * d_q_inv_sqrt[:, None]
     eigvals_safe = np.maximum(eigvals, 1e-6)
     embedding = embedding / eigvals_safe[None, :]
-    return embedding.astype(np.float32)
+    return np.asarray(embedding.astype(np.float32))
 
 
 def compute_spectral_attention(

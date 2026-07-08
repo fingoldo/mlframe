@@ -292,7 +292,7 @@ class CompositeGLMEstimator(BaseEstimator, RegressorMixin):
             X_inner = X
         margin = np.clip(_inner_raw_margin(self.estimator_, X_inner), -_MARGIN_CLIP, _MARGIN_CLIP)
         out = base_mean * np.exp(margin)
-        return np.maximum(out, 0.0)
+        return np.asarray(np.maximum(out, 0.0))
 
 
 # Variance-scaled split-conformal prediction intervals. Bound from

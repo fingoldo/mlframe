@@ -89,7 +89,7 @@ def _cluster_smote_synthesize(X_pos: np.ndarray, n_clusters: int, n_synthetic_to
         pieces.append(virtuals)
     if not pieces:
         return _smote_within_cluster(X_pos, n_synthetic_total, k_neighbors, seed)
-    return np.concatenate(pieces, axis=0).astype(np.float32)
+    return np.asarray(np.concatenate(pieces, axis=0).astype(np.float32))
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
@@ -162,7 +162,7 @@ def compute_cluster_smote_features(
         pos_d = _kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES))
         neg_d = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))
         log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
-        return np.concatenate([pos_d, log_gap], axis=1).astype(np.float32)
+        return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
         cols: dict[str, np.ndarray] = {}

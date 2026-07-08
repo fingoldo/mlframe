@@ -53,7 +53,7 @@ def _cutmix_synthesize(X_pos: np.ndarray, X_neg: np.ndarray, n_synthetic: int, c
     for i in range(n_synthetic):
         cut_axes = rng.choice(d, size=n_cut, replace=False)
         out[i, cut_axes] = X_neg[neg_idx[i], cut_axes]
-    return out.astype(np.float32)
+    return np.asarray(out.astype(np.float32))
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
@@ -126,7 +126,7 @@ def compute_cutmix_features(
         pos_d = _kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES))
         neg_d = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))
         log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
-        return np.concatenate([pos_d, log_gap], axis=1).astype(np.float32)
+        return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
         cols: dict[str, np.ndarray] = {}

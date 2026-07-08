@@ -133,7 +133,7 @@ def compute_multiscale_smote_features(
             log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
             all_feats.append(pos_d)
             all_feats.append(log_gap)
-        return np.concatenate(all_feats, axis=1).astype(np.float32)
+        return np.asarray(np.concatenate(all_feats, axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
         cols: dict[str, np.ndarray] = {}

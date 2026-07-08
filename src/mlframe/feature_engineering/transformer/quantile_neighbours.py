@@ -75,10 +75,12 @@ def _weighted_quantiles(y_neighbors: np.ndarray, weights: np.ndarray, qs: np.nda
 
     Returns (n_rows, n_qs) array of estimated quantiles.
     """
-    return _weighted_quantiles_njit(
-        np.ascontiguousarray(y_neighbors, dtype=np.float32),
-        np.ascontiguousarray(weights, dtype=np.float32),
-        np.ascontiguousarray(qs, dtype=np.float32),
+    return np.asarray(
+        _weighted_quantiles_njit(
+            np.ascontiguousarray(y_neighbors, dtype=np.float32),
+            np.ascontiguousarray(weights, dtype=np.float32),
+            np.ascontiguousarray(qs, dtype=np.float32),
+        )
     )
 
 

@@ -134,7 +134,7 @@ def _rank01(a: np.ndarray) -> np.ndarray:
             avg = (i + (j - 1)) / 2.0
             ranks[order[i:j]] = avg
         i = j
-    return ranks
+    return np.asarray(ranks)
 
 
 def _residual_to_gains(res: np.ndarray, group: np.ndarray) -> np.ndarray:
@@ -386,7 +386,7 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
         base = self._extract_base(X)
         inner = self.inner_score(X)
         if group is None:
-            return self.base_weight * _zscore(base) + _zscore(inner)
+            return np.asarray(self.base_weight * _zscore(base) + _zscore(inner))
         g = np.asarray(group).reshape(-1)
         out = np.empty(base.shape[0], dtype=np.float64)
         for gid in np.unique(g):
@@ -415,7 +415,7 @@ def _zscore(a: np.ndarray) -> np.ndarray:
     sd = a.std()
     if sd == 0 or not np.isfinite(sd):
         return np.zeros_like(a)
-    return (a - a.mean()) / sd
+    return np.asarray((a - a.mean()) / sd)
 
 
 def _ncols(X: Any) -> int:

@@ -56,7 +56,7 @@ def _performer_features(X: np.ndarray, W: np.ndarray) -> np.ndarray:
     log_phi = proj - 0.5 * x_norm_sq  # (n, M)
     # Stabilize: subtract row max before exp.
     log_phi -= log_phi.max(axis=1, keepdims=True)
-    return np.exp(log_phi).astype(np.float32)
+    return np.asarray(np.exp(log_phi).astype(np.float32))
 
 
 def compute_performer_attention_features(

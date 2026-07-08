@@ -651,7 +651,7 @@ class CompositeCrossTargetEnsemble:
         if cal is None:
             return raw_blend
         try:
-            return cal.predict(raw_blend)
+            return np.asarray(cal.predict(raw_blend))
         except Exception as exc:
             logger.warning(
                 "[CompositeCrossTargetEnsemble] output calibrator predict failed (%s); " "returning the raw blend for this batch.",
@@ -673,10 +673,10 @@ class CompositeCrossTargetEnsemble:
         w = np.asarray(self.weights, dtype=np.float64)
         if not getattr(self, "is_convex", True):
             intercept = float(getattr(self, "_linear_stack_intercept", 0.0))
-            return (M * w[None, :]).sum(axis=1) + intercept
+            return np.asarray((M * w[None, :]).sum(axis=1) + intercept)
         wsum = float(w.sum())
         w_norm = w / wsum if wsum > 0 else np.full_like(w, 1.0 / len(w))
-        return (M * w_norm[None, :]).sum(axis=1)
+        return np.asarray((M * w_norm[None, :]).sum(axis=1))
 
     def fit_output_calibrator(
         self,

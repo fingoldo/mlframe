@@ -313,7 +313,7 @@ class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
         import pandas as pd
 
         if isinstance(X, pd.DataFrame):
-            return X.to_numpy(dtype=np.float64)
+            return np.asarray(X.to_numpy(dtype=np.float64))
         return np.asarray(X, dtype=np.float64)
 
     def predict(self, X: Any) -> np.ndarray:
@@ -334,7 +334,7 @@ class CompositeSurvivalEstimator(BaseEstimator, RegressorMixin):
         else:
             resid_log = np.asarray(self.inner_.predict(X_feat), dtype=np.float64).reshape(-1)
         out = np.exp(base_log + resid_log)
-        return np.maximum(out, 0.0)
+        return np.asarray(np.maximum(out, 0.0))
 
     def _predict_aware_resid_log(self, X_feat: Any) -> np.ndarray:
         """Map the GBSA risk score to a residual log-time point estimate.

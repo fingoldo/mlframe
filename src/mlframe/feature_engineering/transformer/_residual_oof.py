@@ -59,4 +59,4 @@ def compute_oof_residual_within(
     size so tiny complements (rare with sane fold counts) still partition cleanly.
     """
     y_hat = compute_oof_yhat_within(X_sub, y_sub, task=task, make_aux=make_aux, aux_n_splits=aux_n_splits, seed=seed)
-    return (y_sub.astype(np.float32) - y_hat).astype(np.float32)
+    return np.asarray((y_sub.astype(np.float32) - y_hat).astype(np.float32))

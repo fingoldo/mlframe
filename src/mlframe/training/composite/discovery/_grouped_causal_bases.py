@@ -130,7 +130,7 @@ def _extract_raw(df: Any, col: str) -> np.ndarray:
     """Pull a single column as a raw 1-D ndarray (polars or pandas) WITHOUT a float cast -- group keys may be strings."""
     getcol = getattr(df, "get_column", None)
     if callable(getcol):  # polars
-        return df.get_column(col).to_numpy()
+        return np.asarray(df.get_column(col).to_numpy())
     return df[col].to_numpy() if hasattr(df[col], "to_numpy") else np.asarray(df[col])
 
 
@@ -156,7 +156,7 @@ def _segment_order(df: Any, codes: np.ndarray, time_column: str | None, n: int) 
     t = _extract_column(df, time_column)
     if t.shape[0] != n:
         raise ValueError(f"time column '{time_column}' length {t.shape[0]} != target length {n}")
-    return np.lexsort((t, codes))
+    return np.asarray(np.lexsort((t, codes)))
 
 
 def engineer_grouped_causal_bases(

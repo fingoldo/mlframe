@@ -88,7 +88,7 @@ def _take_rows(X: Any, idx: np.ndarray) -> Any:
 
 def _take_1d(y: Any, idx: np.ndarray) -> np.ndarray:
     arr = np.asarray(y)
-    return arr[idx]
+    return np.asarray(arr[idx])
 
 
 class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
@@ -297,16 +297,16 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         members = self._member_predictions(X)
         aggregation = getattr(self, "aggregation", "mean")
         if aggregation == "mean":
-            return members.mean(axis=0)
+            return np.asarray(members.mean(axis=0))
         if aggregation == "median":
-            return np.median(members, axis=0)
+            return np.asarray(np.median(members, axis=0))
         m = members.shape[0]
         k = int(np.floor(getattr(self, "trim_fraction", 0.1) * m))
         if k == 0:
             # Too few members to trim symmetrically -- the trimmed mean degenerates to the plain mean.
-            return members.mean(axis=0)
+            return np.asarray(members.mean(axis=0))
         ordered = np.sort(members, axis=0)
-        return ordered[k : m - k].mean(axis=0)
+        return np.asarray(ordered[k : m - k].mean(axis=0))
 
     def predict_std(self, X: Any) -> np.ndarray:
         """Across-member prediction spread -- an epistemic-uncertainty signal.
@@ -317,7 +317,7 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         and grows where the bootstrap members disagree (extrapolation regions).
         Always >= 0.
         """
-        return self._member_predictions(X).std(axis=0, ddof=0)
+        return np.asarray(self._member_predictions(X).std(axis=0, ddof=0))
 
     def predict_interval_epistemic(
         self, X: Any, z: float = 1.96,
@@ -345,4 +345,4 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
 
             raise NotFittedError("BaggedCompositeEstimator: feature_importances_ needs fit first.")
         mats = [np.asarray(e.feature_importances_, dtype=np.float64) for e in self.estimators_]
-        return np.mean(np.vstack(mats), axis=0)
+        return np.asarray(np.mean(np.vstack(mats), axis=0))

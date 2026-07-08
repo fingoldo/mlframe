@@ -98,7 +98,7 @@ def _ivap_envelope(w: np.ndarray, ysum: np.ndarray, aug: float) -> np.ndarray:
     """
     Wc = np.concatenate(([0.0], np.cumsum(w)))  # length g+1, corner X coords
     Yc = np.concatenate(([0.0], np.cumsum(ysum)))  # corner Y coords
-    return _ivap_saddle_njit(Wc, Yc, float(aug))
+    return np.asarray(_ivap_saddle_njit(Wc, Yc, float(aug)))
 
 
 @numba.njit(cache=True)

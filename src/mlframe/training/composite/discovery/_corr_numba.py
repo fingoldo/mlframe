@@ -152,11 +152,11 @@ def safe_abs_corr_all_dispatch(
     # with the hardcoded _MIN_ROWS / _MIN_COLS gate as the fallback + an env-var
     # force-override; bit-identical either way (borderline columns re-decided exactly).
     if not _HAS_NUMBA:
-        return reference_fn(y, X)
+        return np.asarray(reference_fn(y, X))
     from ._ktc_dispatch import choose_corr_backend
 
     if choose_corr_backend(n_rows, n_cols, min_rows=_MIN_ROWS, min_cols=_MIN_COLS) == "numpy":
-        return reference_fn(y, X)
+        return np.asarray(reference_fn(y, X))
 
     y_finite = np.isfinite(y)
     n_finite = int(y_finite.sum())
@@ -185,7 +185,7 @@ def safe_abs_corr_all_dispatch(
     if borderline.any():
         for j in np.nonzero(borderline)[0]:
             out[j] = _safe_corr_single(y_dev, var_y, X_f[:, j])
-    return out
+    return np.asarray(out)
 
 
 def _warm_corr_kernel() -> None:

@@ -235,7 +235,7 @@ class CompositeDistributionEstimator(BaseEstimator, RegressorMixin):
         # lowest quantile no level is satisfied -> max of an all-zero slice = 0.
         level_if = np.where(leq, levels[None, :, None], 0.0)  # (n, K, G)
         cdf = level_if.max(axis=1)  # (n, G)
-        return cdf
+        return np.asarray(cdf)
 
     # ------------------------------------------------------------------
     # Sampling (inverse-CDF / probability integral transform)
@@ -266,7 +266,7 @@ class CompositeDistributionEstimator(BaseEstimator, RegressorMixin):
         # whole (n_rows, n) PIT inversion instead of an n_rows-long np.interp loop.
         levels_f = np.ascontiguousarray(levels, dtype=np.float64)
         qmat_f = np.ascontiguousarray(qmat, dtype=np.float64)
-        return _interp_rows_shared_x(u, levels_f, qmat_f, out)
+        return np.asarray(_interp_rows_shared_x(u, levels_f, qmat_f, out))
 
     # ------------------------------------------------------------------
     # CRPS (proper score, quantile decomposition)

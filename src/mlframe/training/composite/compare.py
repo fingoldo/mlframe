@@ -67,21 +67,21 @@ def _as_1d(a: Any) -> np.ndarray:
 def _per_row_loss(y_true: np.ndarray, y_pred: np.ndarray, metric: str) -> np.ndarray:
     """Per-row loss vector for a named metric (lower = better, always)."""
     if metric in ("rmse", "mse"):
-        return (y_true - y_pred) ** 2
+        return np.asarray((y_true - y_pred) ** 2)
     if metric == "mae":
-        return np.abs(y_true - y_pred)
+        return np.asarray(np.abs(y_true - y_pred))
     if metric == "accuracy":
         # 0/1 per-row loss; predictions may be soft -> threshold at 0.5.
         pred_lbl = (y_pred >= 0.5).astype(y_true.dtype) if not np.array_equal(y_pred, y_pred.astype(int)) else y_pred
-        return (pred_lbl != y_true).astype(np.float64)
+        return np.asarray((pred_lbl != y_true).astype(np.float64))
     if metric == "logloss":
         eps = 1e-15
         p = np.clip(y_pred, eps, 1.0 - eps)
-        return -(y_true * np.log(p) + (1.0 - y_true) * np.log(1.0 - p))
+        return np.asarray(-(y_true * np.log(p) + (1.0 - y_true) * np.log(1.0 - p)))
     if metric == "r2":
         # r2 has no clean per-row decomposition; use squared error as the
         # paired loss and report r2 only as the aggregate score.
-        return (y_true - y_pred) ** 2
+        return np.asarray((y_true - y_pred) ** 2)
     raise ValueError(f"unknown metric {metric!r}; pass a callable for custom metrics")
 
 

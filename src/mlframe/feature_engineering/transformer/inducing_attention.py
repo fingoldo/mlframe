@@ -56,7 +56,7 @@ def _fit_anchors_kmeans(X: np.ndarray, M: int, seed: int) -> np.ndarray:
         warnings.simplefilter("ignore")
         km = KMeans(n_clusters=M_eff, random_state=seed, n_init=5, max_iter=100)
         km.fit(X)
-    return km.cluster_centers_.astype(np.float32, copy=False)
+    return np.asarray(km.cluster_centers_.astype(np.float32, copy=False))
 
 
 def _softmax_with_temp(scores: np.ndarray, temp: float) -> np.ndarray:
@@ -64,7 +64,7 @@ def _softmax_with_temp(scores: np.ndarray, temp: float) -> np.ndarray:
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
-    return e / e.sum(axis=-1, keepdims=True)
+    return np.asarray(e / e.sum(axis=-1, keepdims=True))
 
 
 def _squared_dists(A: np.ndarray, B: np.ndarray) -> np.ndarray:
@@ -76,7 +76,7 @@ def _squared_dists(A: np.ndarray, B: np.ndarray) -> np.ndarray:
     b_sq = np.einsum("ij,ij->i", B, B)[None, :]
     d = a_sq - 2.0 * (A @ B.T) + b_sq
     np.maximum(d, 0.0, out=d)
-    return d
+    return np.asarray(d)
 
 
 def _stage_a_anchor_to_train(

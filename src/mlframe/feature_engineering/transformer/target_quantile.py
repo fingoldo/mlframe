@@ -144,12 +144,12 @@ def compute_target_quantile_attention(
             c_norms = np.linalg.norm(centroids, axis=1, keepdims=True)
             a_safe = np.maximum(a_norms, 1e-12)
             c_safe = np.maximum(c_norms, 1e-12)
-            return (X_anchor / a_safe) @ (centroids / c_safe).T
+            return np.asarray((X_anchor / a_safe) @ (centroids / c_safe).T)
         # RBF: exp(-gamma * ||x - c||^2). Vectorise via the identity ||x-c||^2 = ||x||^2 + ||c||^2 - 2 x.c.
         a_sq = np.einsum("ij,ij->i", X_anchor, X_anchor)
         c_sq = np.einsum("ij,ij->i", centroids, centroids)
         dist_sq = a_sq[:, None] + c_sq[None, :] - 2.0 * (X_anchor @ centroids.T)
-        return np.exp(-rbf_gamma * np.maximum(dist_sq, 0.0))
+        return np.asarray(np.exp(-rbf_gamma * np.maximum(dist_sq, 0.0)))
 
     if X_query is None:
         # Mode A: OOF. Scaler is refit per fold on the fold's train rows so the held-out rows' X-distribution never leaks into their own fold's scaler stats.

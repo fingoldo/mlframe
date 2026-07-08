@@ -77,7 +77,7 @@ def _extract_base(X: Any, base_column: str) -> np.ndarray:
                 "If feature selection (MRMR/RFECV) is dropping it, add base_column to "
                 "forced_keep_columns in the feature selection config."
             )
-        return X.get_column(base_column).to_numpy().astype(np.float64, copy=False)
+        return np.asarray(X.get_column(base_column).to_numpy().astype(np.float64, copy=False))
     # pandas
     if hasattr(X, "columns"):
         if base_column not in X.columns:
@@ -251,4 +251,4 @@ class OrthogonalizedCompositeEstimator(BaseEstimator, RegressorMixin):
         base = _extract_base(X, self.base_column)
         X_inner = _drop_base_column(X, self.base_column)
         inner_pred = _to_1d_numpy(self.inner_.predict(X_inner))
-        return self.base_coef_ * base + inner_pred
+        return np.asarray(self.base_coef_ * base + inner_pred)
