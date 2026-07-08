@@ -61,11 +61,11 @@ def ksg_mi_with_target(
         from sklearn.feature_selection import mutual_info_regression as _mi_func
 
     X_sub = X[:, list(feature_indices)] if X.ndim == 2 else X.reshape(-1, 1)
-    return _mi_func(
+    return np.asarray(_mi_func(
         X_sub, y,
         n_neighbors=n_neighbors,
         random_state=random_state,
-    )
+    ))
 
 
 def ksg_mi_pair(
@@ -180,8 +180,8 @@ def ksg_mi_with_significance(
 def nsb_mi(
     classes_x: np.ndarray,
     classes_y: np.ndarray,
-    nbins_x: int = None,
-    nbins_y: int = None,
+    nbins_x: int | None = None,
+    nbins_y: int | None = None,
 ) -> float:
     """Nemenman-Shafee-Bialek Bayesian MI estimate (optional dep ``ndd``).
 
