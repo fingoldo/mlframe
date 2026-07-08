@@ -135,7 +135,7 @@ def infer_classification(y: np.ndarray) -> bool:
         _key = (y.shape, str(y.dtype), hash(y.tobytes()))
         _hit = _INFER_CLS_MEMO.get(_key)
         if _hit is not None:
-            return _hit
+            return bool(_hit)
     except Exception:
         _key = None
     finite = y[np.isfinite(y)] if y.dtype.kind == "f" else y
