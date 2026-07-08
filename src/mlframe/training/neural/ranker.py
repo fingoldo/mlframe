@@ -627,7 +627,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         if isinstance(X, pd.DataFrame):
             # Defence-in-depth: caller should already have removed qid/target columns.
             X = X.select_dtypes(include=[np.number])
-            return X.to_numpy(dtype=np.float32, copy=False)
+            return np.asarray(X.to_numpy(dtype=np.float32, copy=False))
         return np.asarray(X, dtype=np.float32)
 
     def _fit_imputer(self, X_arr: np.ndarray) -> None:
@@ -663,7 +663,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         # Broadcast the (n_features,) mean vector across rows; only NaN/Inf cells
         # are replaced so legitimate finite values pass through untouched.
         X_out[bad] = np.broadcast_to(means, X_arr.shape)[bad]
-        return X_out
+        return np.asarray(X_out)
 
     def _fit_scaler(self, X_arr: np.ndarray) -> None:
         # NeuralNetStrategy.requires_scaling=True for a reason: AdamW + softplus
@@ -688,7 +688,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         std = getattr(self, "_scaler_std_", None)
         if mean is None or std is None:
             return X_arr
-        return ((X_arr - mean) / std).astype(np.float32, copy=False)
+        return np.asarray(((X_arr - mean) / std).astype(np.float32, copy=False))
 
     def fit(
         self,
@@ -871,7 +871,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         with torch.no_grad():
             x_t = torch.as_tensor(X_arr, dtype=torch.float32, device=device)
             scores = self.module_.forward(x_t).cpu().numpy()
-        return scores.ravel()
+        return np.asarray(scores.ravel())
 
 
 __all__ = [

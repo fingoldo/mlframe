@@ -77,14 +77,14 @@ def to_numpy_safe(tensor: torch.Tensor, cpu: bool = False) -> np.ndarray:
     return t.numpy()
 
 
-def _ensure_numpy(arr, dtype: np.dtype = np.float32) -> np.ndarray | None:
+def _ensure_numpy(arr, dtype: type = np.float32) -> np.ndarray | None:
     """Convert DataFrame/Series/array-like to numpy array; passes None through."""
     if arr is None:
         return None
     if hasattr(arr, "to_numpy"):  # Polars DataFrame/Series
-        return arr.to_numpy().astype(dtype)
+        return np.asarray(arr.to_numpy().astype(dtype))
     if hasattr(arr, "values"):  # Pandas DataFrame/Series
-        return arr.values.astype(dtype)
+        return np.asarray(arr.values.astype(dtype))
     return np.asarray(arr, dtype=dtype)
 
 
@@ -147,6 +147,6 @@ def safe_accelerator(requested: str | None = "auto") -> str:
     ``'auto'`` / ``'cuda'`` / ``'gpu'`` are downgraded to ``'cpu'`` when the
     CUDA probe fails. Anything else (``'cpu'``, ``'mps'``, ``'tpu'``) passes
     through unchanged so callers can still force a specific device by name."""
-    if requested in (None, "auto", "cuda", "gpu"):
+    if requested is None or requested in ("auto", "cuda", "gpu"):
         return "cuda" if _probe_cuda_is_usable() else "cpu"
     return requested

@@ -9,6 +9,7 @@ the PyTorch-Lightning-based `mlframe.training.neural.flat.generate_mlp`.
 from __future__ import annotations
 
 import importlib.util
+from typing import Optional
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
@@ -27,7 +28,7 @@ def build_keras_mlp(
     regularizer_l2: float = 0.001,
     dropout_rate: float = 0.3,
     loss: str = "mean_squared_logarithmic_error",
-    input_dim: int = None,
+    input_dim: Optional[int] = None,
 ):
     """Build a Sequential Dense+BatchNorm+Dropout stack (regressor)."""
     if not _HAS_TF:
@@ -170,6 +171,7 @@ class KerasCompatibleMLP(BaseEstimator, RegressorMixin):
         if getattr(self, "model_", None) is None:
             from sklearn.exceptions import NotFittedError
             raise NotFittedError("KerasCompatibleMLP has not been fitted yet.")
+        assert self.model_ is not None
         X = np.asarray(X, dtype=np.float32)
         preds = self.model_.predict(X, verbose=0)
         return preds.ravel()

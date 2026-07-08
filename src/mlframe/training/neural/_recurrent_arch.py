@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import cast
 
 import numpy as np
 import torch
@@ -89,6 +90,10 @@ class PositionalEncoding(nn.Module):
     Adds position information to input embeddings since Transformers have no inherent notion of sequence order.
     """
 
+    # Registered via register_buffer() below; declared here so mypy sees it as a plain Tensor
+    # rather than the register_buffer stub's broad Tensor|Module return.
+    pe: torch.Tensor
+
     def __init__(self, d_model: int, max_len: int = 5000, dropout: float = 0.1) -> None:
         super().__init__()
         # Sinusoidal PE requires interleaved sin/cos pairs; d_model<2 has no cos
@@ -111,7 +116,7 @@ class PositionalEncoding(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Add positional encoding to input. x: (batch, seq_len, d_model)"""
         x = x + self.pe[:, : x.size(1), :]
-        return self.dropout(x)
+        return cast(torch.Tensor, self.dropout(x))
 
 
 class TransformerSequenceEncoder(nn.Module):
@@ -191,7 +196,7 @@ class TransformerSequenceEncoder(nn.Module):
 
         x = self.transformer(x, src_key_padding_mask=padding_mask)
 
-        return x[:, 0, :]  # (batch, hidden_size) - CLS token output
+        return cast(torch.Tensor, x[:, 0, :])  # (batch, hidden_size) - CLS token output
 
 
 class MLPHead(nn.Module):
@@ -228,4 +233,4 @@ class MLPHead(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass returning logits/predictions."""
-        return self.mlp(x)
+        return cast(torch.Tensor, self.mlp(x))
