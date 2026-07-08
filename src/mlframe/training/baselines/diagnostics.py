@@ -233,6 +233,14 @@ class BaselineDiagnostics:
     quick LightGBM models on a fresh sample.
     """
 
+    # Bound onto this class after definition (see bottom of module) from sibling modules so
+    # each stays under the LOC budget; declared here so mypy resolves the attribute reads/calls above.
+    _make_quick_model: Any
+    _fit_quick_and_score: Any
+    _run_ablation: Any
+    _fit_init_score_baseline: Any
+    _build_recommendation: Any
+
     def __init__(self, config: Any) -> None:
         # Accept either a BaselineDiagnosticsConfig or a dict; dict path
         # is a thin convenience for callers that don't want to import
