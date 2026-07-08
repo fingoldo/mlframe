@@ -158,7 +158,7 @@ class PlotlyRenderer:
                 if c >= len(row) or row[c] is None:
                     row_specs.append({})  # empty cell
                 else:
-                    cell = {"type": "xy"}
+                    cell: dict = {"type": "xy"}
                     if isinstance(row[c], LinePanelSpec) and _line_uses_secondary_y(row[c]):
                         cell["secondary_y"] = True
                     row_specs.append(cell)
@@ -321,7 +321,7 @@ class PlotlyRenderer:
             if color_arr is not None and len(color_arr) == n:
                 color_arr = color_arr[idx]
 
-        marker = dict(opacity=p.point_alpha)
+        marker: dict = dict(opacity=p.point_alpha)
         # ScatterPanelSpec.point_size follows matplotlib's ``s=`` (area in pt^2); plotly marker.size is the
         # DIAMETER in px. Without conversion large mpl areas blow up to giant circles and the auto-axis range
         # goes haywire. Conversion: plotly_diameter_px = sqrt(mpl_area_pt2) * 1.33.
@@ -372,12 +372,12 @@ class PlotlyRenderer:
 
         # Emphasised subset (worst-K errors): resolve indices against the ORIGINAL arrays (pre-downsample).
         if p.highlight_indices is not None:
-            hi = np.asarray(p.highlight_indices, dtype=np.int64)
+            hi_idx = np.asarray(p.highlight_indices, dtype=np.int64)
             ox, oy = np.asarray(p.x), np.asarray(p.y)
-            hi = hi[(hi >= 0) & (hi < len(ox))]
-            if hi.size:
+            hi_idx = hi_idx[(hi_idx >= 0) & (hi_idx < len(ox))]
+            if hi_idx.size:
                 fig.add_trace(
-                    go.Scatter(x=ox[hi], y=oy[hi], mode="markers",
+                    go.Scatter(x=ox[hi_idx], y=oy[hi_idx], mode="markers",
                                marker=dict(symbol="circle-open", size=12,
                                            line=dict(color=p.highlight_color, width=2)),
                                name="worst-K", showlegend=True),
@@ -503,6 +503,7 @@ class PlotlyRenderer:
                 if overlay_x_lo is None:
                     vals = np.asarray(p.values)
                     overlay_x_lo, overlay_x_hi = float(np.min(vals)), float(np.max(vals))
+                assert overlay_x_hi is not None
                 x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
                 normal_pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
                 label = p.overlay_label or f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
