@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import os
 import tempfile
@@ -51,7 +51,7 @@ class _LazyModule:
 
     def __init__(self, name: str):
         self._lm_name = name
-        self._lm_mod = None
+        self._lm_mod: Optional[Any] = None
 
     def __getattr__(self, attr):
         if self._lm_mod is None:
@@ -118,7 +118,7 @@ def replay_cv_results(fname: str, trusted_root: Optional[str] = None):
     return cv_results
 
 
-def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: object, cv_results: dict = None, possible_pipeline_blocks: dict = None, constants: dict = None, output_dir: Optional[str] = None):
+def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: Any, cv_results: Optional[dict] = None, possible_pipeline_blocks: Optional[dict] = None, constants: Optional[dict] = None, output_dir: Optional[str] = None):
     """For a given dataset, checks all possible combinations of the pipeline blocks,
     starting from the least comp. expensive: no FS, no HPT, no OD.
     Saves results on each cycle, summarizes by desired params like estimator type (even over different CVs) etc.
@@ -209,7 +209,7 @@ def compare_cv_metrics(cv_results: dict, metric: str = "root_mean_squared_error"
     return fig
 
 
-def compute_ml_metrics(y_true, y_preds, scorers: Sequence, storage: dict = None) -> dict:
+def compute_ml_metrics(y_true, y_preds, scorers: Sequence, storage: Optional[dict] = None) -> dict:
     """Score predictions against every callable in ``scorers``, keyed by the scorer's ``__name__``.
 
     Returns a ``{scorer_name: score}`` dict. When ``storage`` is given, each score is also appended to
@@ -232,7 +232,7 @@ def visualize_prediction_vs_truth(
     y_preds,
     samples=(1, 50, 75),
     title="",
-    metrics: dict = None,
+    metrics: Optional[dict] = None,
 ):
     """Plot predicted vs. true target series for a few selected samples side by side.
 
