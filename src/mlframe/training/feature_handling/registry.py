@@ -41,7 +41,7 @@ import weakref
 from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ _REGISTRY: weakref.WeakValueDictionary[str, _ProviderEntry] = weakref.WeakValueD
 _LRU_HARD: OrderedDict[str, _ProviderEntry] = OrderedDict()
 _REGISTRY_LOCK = threading.Lock()
 _PREWARM_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mlframe-prewarm")
-_PREWARM_FUTURES: dict = {}  # signature -> Future
+_PREWARM_FUTURES: "dict[str, Future]" = {}  # signature -> Future
 
 
 def shutdown_prewarm_executor(wait: bool = False) -> None:
@@ -366,16 +366,16 @@ def shutdown_all() -> None:
         # in the LRU because they were just created or recently
         # evicted).
         for signature in list(_REGISTRY.keys()):
-            entry = _REGISTRY.get(signature)
-            if entry is None:
+            weak_entry = _REGISTRY.get(signature)
+            if weak_entry is None:
                 continue
-            with entry.lock:
-                if entry.is_loaded:
+            with weak_entry.lock:
+                if weak_entry.is_loaded:
                     try:
-                        entry.provider.release()
+                        weak_entry.provider.release()
                     except Exception as e:  # pragma: no cover
                         logger.warning("shutdown: release(%s) raised: %s", signature, e)
-                    entry.is_loaded = False
+                    weak_entry.is_loaded = False
 
     _PREWARM_FUTURES.clear()
 
@@ -386,7 +386,7 @@ def provider_status() -> dict:
     Round-3 U-R2-24: background warmup errors must be surface-able
     via the FHC API.
     """
-    out = {}
+    out: dict[str, dict[str, Any]] = {}
     for signature, entry in list(_LRU_HARD.items()):
         out[signature] = {
             "loaded": entry.is_loaded,
@@ -396,12 +396,12 @@ def provider_status() -> dict:
     for signature in list(_REGISTRY.keys()):
         if signature in out:
             continue
-        entry = _REGISTRY.get(signature)
-        if entry is None:
+        weak_entry = _REGISTRY.get(signature)
+        if weak_entry is None:
             continue
         out[signature] = {
-            "loaded": entry.is_loaded,
-            "refcount": entry.refcount,
+            "loaded": weak_entry.is_loaded,
+            "refcount": weak_entry.refcount,
             "in_lru_tier": False,
         }
     # Surface pre-warm errors
