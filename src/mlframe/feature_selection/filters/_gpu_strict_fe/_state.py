@@ -71,6 +71,7 @@ class ResidentFEState:
                 st._operands[p.device] = cp.asarray(ops_h)  # ONE bulk H2D per device
                 st._y_codes[p.device] = cp.asarray(yc_h)
                 if ycont_h is not None:
+                    assert st._y_cont is not None  # default_factory=dict guarantees this
                     st._y_cont[p.device] = cp.asarray(ycont_h)
         return st
 
