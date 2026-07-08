@@ -103,7 +103,7 @@ def shap_interaction_summary(
     stratified to keep the high-|score-proxy| tail. Degenerate inputs (<2 features, non-tree, empty)
     return a result with ``skipped`` set and no figures.
     """
-    import shap  # noqa: F401  required dep; let ImportError surface to the caller
+    import shap
 
     carrier, vals, names = _as_frame_and_names(X, feature_names)
     n, f = vals.shape
@@ -120,7 +120,7 @@ def shap_interaction_summary(
     X_sample = _row_subset(carrier, idx)
 
     mat = _mean_abs_interaction(model, X_sample)
-    pairs, pair_names, pair_strength = _rank_pairs(mat, names, top_pairs)
+    _pairs, pair_names, pair_strength = _rank_pairs(mat, names, top_pairs)
 
     if plt is None:
         return ShapInteractionResult(pair_names=pair_names, pair_strength=pair_strength, matrix=mat, skipped="matplotlib unavailable")
@@ -146,6 +146,7 @@ def shap_interaction_summary(
 
 
 def _render_top_pairs_bar(pair_names: Sequence[str], strengths: np.ndarray) -> Any:
+    """Horizontal bar chart of the top feature-pair interaction strengths, strongest pair on top."""
     fig, ax = plt.subplots(figsize=(8.0, max(3.0, 0.45 * len(pair_names) + 1.0)))
     y = np.arange(len(pair_names))[::-1]  # strongest on top
     ax.barh(y, strengths, color="#3b528b")
@@ -158,6 +159,7 @@ def _render_top_pairs_bar(pair_names: Sequence[str], strengths: np.ndarray) -> A
 
 
 def _render_heatmap(mat: np.ndarray, names: Sequence[str]) -> Any:
+    """Feature x feature interaction-strength heatmap, diagonal zeroed so the colour scale is driven by off-diagonal interaction, not main effects."""
     # Zero the diagonal so the colour scale is driven by interaction (off-diagonal), not main effects.
     off = mat.copy()
     np.fill_diagonal(off, 0.0)
@@ -191,6 +193,7 @@ def _save_figure(fig: Any, base: str, plot_outputs: Optional[str]) -> List[str]:
 
 
 def _base_for(plot_file: str, suffix: str) -> str:
+    """Insert ``_suffix`` before the extension of ``plot_file`` (e.g. for naming the bar/heatmap sibling outputs)."""
     root, ext = os.path.splitext(plot_file)
     return f"{root}_{suffix}{ext}"
 

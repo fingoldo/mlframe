@@ -42,7 +42,7 @@ try:
 except ImportError:  # plt-using paths are guarded; matplotlib-less envs skip plotting
     plt = None  # type: ignore[assignment]
 
-from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels  # noqa: F401  (pack_panels re-exported for grid composers / parity with pdp_ice)
+from mlframe.reporting.charts._layout import figsize_for_grid, pack_panels
 from mlframe.reporting.charts._sampling import subsample_preserving_extremes
 
 logger = logging.getLogger(__name__)

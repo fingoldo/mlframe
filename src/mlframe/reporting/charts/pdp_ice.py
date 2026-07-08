@@ -56,6 +56,7 @@ def _predict_fn(model: Any) -> Tuple[Callable[[np.ndarray], Optional[np.ndarray]
     proba = getattr(model, "predict_proba", None)
     if callable(proba):
         def fn(arr: np.ndarray) -> Optional[np.ndarray]:
+            """Positive-class probability column, or ``None`` when the shape/error signals a fallback to ``predict``."""
             # A bound ``predict_proba`` is not proof the model is a classifier: mlframe's PartialFitESWrapper always defines the method and only raises at CALL time when wrapping a regressor (no predict_proba / decision_function underneath). Treat that raise like the multiclass case -> return None so _scalar_predict falls back to predict, instead of failing the whole PDP/ICE diagnostic.
             try:
                 p = np.asarray(proba(arr))
@@ -81,6 +82,7 @@ def _scalar_predict(model: Any) -> Tuple[Callable[[np.ndarray], np.ndarray], str
     predict = getattr(model, "predict", None)
 
     def call(arr: np.ndarray) -> np.ndarray:
+        """Scalar per-row prediction: the proba column when ``fn`` resolves one, else ``predict`` on ``arr``."""
         out = fn(arr)
         if out is None:
             if not callable(predict):
@@ -133,6 +135,7 @@ def _coerce_float_2d(vals: np.ndarray) -> np.ndarray:
 
 
 def _resolve_feature_index(feature: Union[int, str], names: Optional[List[str]], n_cols: int) -> int:
+    """Resolve a ``feature`` (positional int index or column name) to a validated column index."""
     if isinstance(feature, (int, np.integer)):
         idx = int(feature)
         if not (0 <= idx < n_cols):
@@ -163,6 +166,8 @@ def _feature_grid(col: np.ndarray, grid: int) -> Tuple[np.ndarray, bool]:
 
 
 def _subsample_idx(n: int, sample: int, seed: int) -> np.ndarray:
+    """Sorted row indices for a size-``sample`` random subsample (all ``n`` rows if ``n<=sample``); sorted so
+    downstream native row-subsetting preserves original row order."""
     if n <= sample:
         return np.arange(n, dtype=np.int64)
     return np.sort(np.random.default_rng(seed).choice(n, size=sample, replace=False))
@@ -384,7 +389,7 @@ def compute_pdp_2d(
     # is done on the NATIVE carrier (preserving category dtype so categorical models predict), falling back to the
     # float block for a bare-ndarray carrier.
     inner_col = np.tile(grid1, m)  # (m*g1,)
-    inner_values = np.array([_cat1_labels[int(round(c))] for c in inner_col], dtype=object) if _cat1_labels is not None else inner_col
+    inner_values = np.array([_cat1_labels[round(c)] for c in inner_col], dtype=object) if _cat1_labels is not None else inner_col
     surface = np.empty((g0, g1), dtype=np.float64)
     if isinstance(carrier, np.ndarray):
         tiled = np.repeat(base, g1, axis=0)
@@ -405,6 +410,8 @@ def compute_pdp_2d(
 
 
 def _feat_label(feature: Union[int, str], names: Optional[List[str]], idx: int) -> str:
+    """Display label for a panel title/axis: the given name if ``feature`` is already a string, else the resolved
+    column name, else a positional fallback ``f{idx}``."""
     if isinstance(feature, str):
         return feature
     if names is not None and 0 <= idx < len(names):

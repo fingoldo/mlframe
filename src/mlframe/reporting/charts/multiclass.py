@@ -142,7 +142,7 @@ def _stratified_subsample(y_pos: np.ndarray, cap: int, seed: int = 0) -> np.ndar
     out: List[np.ndarray] = []
     for c in np.unique(y_pos):
         idx_c = np.flatnonzero(y_pos == c)
-        take = max(1, int(round(len(idx_c) * frac)))
+        take = max(1, round(len(idx_c) * frac))
         take = min(take, len(idx_c))
         out.append(rng.choice(idx_c, size=take, replace=False))
     return np.sort(np.concatenate(out)).astype(np.int64)

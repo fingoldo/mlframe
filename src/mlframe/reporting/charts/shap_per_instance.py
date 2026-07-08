@@ -172,6 +172,7 @@ def shap_worst_errors_explanation(
 
 
 def _skip(reason: str) -> ShapPerInstanceResult:
+    """Build an empty ``ShapPerInstanceResult`` carrying ``reason`` so callers can distinguish a deliberate skip from a genuine explanation."""
     return ShapPerInstanceResult(None, [], np.empty(0, dtype=int), np.empty(0), [], skipped=reason)
 
 

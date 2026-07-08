@@ -122,7 +122,7 @@ def _per_bin_ece(
     if yt.size == 0:
         return [], ["no finite (label, score, feature) rows"]
 
-    codes, edges, labels = _quantile_bin_codes(fv, n_feature_bins)
+    codes, _edges, labels = _quantile_bin_codes(fv, n_feature_bins)
     if codes is None:
         return [], ["constant feature: a single quantile bin spans the whole range"]
 

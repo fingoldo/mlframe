@@ -60,6 +60,7 @@ def get_render_failure_stats() -> "Dict[str, int]":
 
 
 def reset_render_failure_stats() -> None:
+    """Zero the module-level render-failure counters read by ``get_render_failure_stats``. Call at the start of a suite so failure counts don't accumulate across independent runs in the same process."""
     global _RENDER_FAILURE_COUNT, _RENDER_TIMEOUT_COUNT, _RENDER_EXCEPTION_COUNT
     _RENDER_FAILURE_COUNT = 0
     _RENDER_TIMEOUT_COUNT = 0
@@ -67,6 +68,7 @@ def reset_render_failure_stats() -> None:
 
 
 def _record_render_failure(timed_out: bool) -> None:
+    """Increment the shared failure counters for one dropped chart, bucketing into the timeout or exception sub-count depending on how the backend thread failed."""
     global _RENDER_FAILURE_COUNT, _RENDER_TIMEOUT_COUNT, _RENDER_EXCEPTION_COUNT
     _RENDER_FAILURE_COUNT += 1
     if timed_out:
@@ -108,7 +110,7 @@ def _detect_interactive_session() -> bool:
         # silently treating as True — operator typo shouldn't accidentally
         # force inline display.
     try:
-        return bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+        return bool(__IPYTHON__)  # type: ignore[name-defined]
     except NameError:
         import sys
         return hasattr(sys, "ps1")
@@ -212,6 +214,7 @@ def render_and_save(
     # display hooks are not thread-friendly).
 
     def _do_backend(backend: str, fmts) -> "Tuple[str, Any]":
+        """Render ``spec`` once on ``backend`` and save it to every format in ``fmts``; runs on a worker thread so multiple backends render+save concurrently (see the note above on GIL release during Agg/write_html)."""
         renderer = get_renderer(backend)
         # plotly legends default off (hover identifies series interactively); enable them when a static format
         # is in this backend's save set since a png/svg/pdf export has no hover (INV-28).

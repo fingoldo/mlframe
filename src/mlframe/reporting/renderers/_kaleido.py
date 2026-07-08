@@ -53,12 +53,14 @@ def get_kaleido_oneshot_stats() -> Tuple[int, float]:
 
 
 def reset_kaleido_oneshot_stats() -> None:
+    """Zero the cumulative oneshot-fallback counters (call/wall-time), typically between test runs or suite invocations."""
     global _KALEIDO_ONESHOT_CALL_COUNT, _KALEIDO_ONESHOT_TOTAL_WALL_S
     _KALEIDO_ONESHOT_CALL_COUNT = 0
     _KALEIDO_ONESHOT_TOTAL_WALL_S = 0.0
 
 
 def record_kaleido_oneshot_call(wall_s: float) -> None:
+    """Accumulate one oneshot-fallback write's wall time into the process-global stats used by the suite-end summary."""
     global _KALEIDO_ONESHOT_CALL_COUNT, _KALEIDO_ONESHOT_TOTAL_WALL_S
     _KALEIDO_ONESHOT_CALL_COUNT += 1
     _KALEIDO_ONESHOT_TOTAL_WALL_S += wall_s
@@ -72,6 +74,7 @@ _KALEIDO_PERSISTENT_TIMEOUT_S = 30.0
 
 
 def _is_kaleido_persistent_burned() -> bool:
+    """True once the persistent-server path has been given up on for this process (fail threshold crossed or force-burned)."""
     return _KALEIDO_PERSISTENT_BURNED
 
 
@@ -133,7 +136,7 @@ def _ensure_kaleido_server_started() -> bool:
     if _KALEIDO_SERVER_STARTED:
         return True
     try:
-        import kaleido  # noqa: F401
+        import kaleido
     except ImportError:
         return False
     try:
@@ -145,6 +148,7 @@ def _ensure_kaleido_server_started() -> bool:
         # to unclean kill browser" warning at interpreter shutdown.
         import atexit
         def _stop():
+            """Stop the kaleido sync server at interpreter shutdown so the Chromium subprocess exits cleanly."""
             try:
                 kaleido.stop_sync_server(silence_warnings=True)
             except Exception:  # nosec B110 - optional dependency import guard
@@ -210,6 +214,7 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
         _exc: list = [None]
 
         def _do_persistent():
+            """Run the persistent-server write on a worker thread so the caller can enforce a hard timeout on a hung kaleido server."""
             try:
                 _kal.write_fig_sync(fig, path, opts={"format": fmt})
             except Exception as ee:

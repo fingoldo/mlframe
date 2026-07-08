@@ -856,7 +856,7 @@ def render_shap_per_instance_diagnostic(
 
 
 # comparison/decile/model-card/stability/split render helpers carved to _diagnostics_dispatch_extra.py (1k-LOC ceiling).
-from ._diagnostics_dispatch_extra import (  # noqa: E402, F401
+from ._diagnostics_dispatch_extra import (
     _entry_score,
     _flat_scalar_metrics,
     _split_entry_arrays,

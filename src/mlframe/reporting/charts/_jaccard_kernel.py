@@ -33,6 +33,7 @@ if _NUMBA_AVAILABLE:
         y_true: np.ndarray,  # (N, K) int8
         y_proba: np.ndarray,  # (N, K) float32
     ) -> np.ndarray:
+        """Parallel per-row Jaccard score kernel (see module docstring for the numpy-equivalent formula and empty-set convention)."""
         n = y_true.shape[0]
         K = y_true.shape[1]
         out = np.empty(n, dtype=np.float64)

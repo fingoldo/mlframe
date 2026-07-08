@@ -17,7 +17,7 @@ def _thin_tick_positions(n: int, max_ticks: int = _HEATMAP_MAX_TICKS):
     """Evenly-spaced tick indices for an axis of ``n`` labels, always including the first and last."""
     if n <= max_ticks:
         return list(range(n))
-    return sorted({int(round(i * (n - 1) / (max_ticks - 1))) for i in range(max_ticks)})
+    return sorted({round(i * (n - 1) / (max_ticks - 1)) for i in range(max_ticks)})
 
 
 def _finite_range(mat):

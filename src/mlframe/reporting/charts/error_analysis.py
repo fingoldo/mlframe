@@ -55,6 +55,7 @@ DEFAULT_TAIL_FRACTION: float = 0.05
 
 
 def _as_float_1d(a: np.ndarray) -> np.ndarray:
+    """Coerce ``a`` to a flat float64 array."""
     return np.asarray(a, dtype=np.float64).ravel()
 
 

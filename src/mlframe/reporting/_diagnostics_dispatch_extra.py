@@ -45,21 +45,27 @@ DIAG_MAX_FEATURES: int = 200
 # instead: importing this module no longer triggers the parent at import time, so either load order works
 # and the helpers resolve (from the module cache) on first actual call.
 def _record(*args, **kwargs):
+    """Lazy delegate to the parent module's chart-outcome recorder (see the module docstring for the
+    mutual-import reason this isn't a top-level import); appends a saved/failed entry to the ``charts`` dict."""
     from .diagnostics_dispatch import _record as _f
     return _f(*args, **kwargs)
 
 
 def _record_path(*args, **kwargs):
+    """Lazy delegate to the parent module's helper that records a successfully rendered chart's output path."""
     from .diagnostics_dispatch import _record_path as _f
     return _f(*args, **kwargs)
 
 
 def _save_figure(*args, **kwargs):
+    """Lazy delegate to the parent module's matplotlib-figure saver (writes per ``plot_outputs``, returns success)."""
     from .diagnostics_dispatch import _save_figure as _f
     return _f(*args, **kwargs)
 
 
 def _save_spec(*args, **kwargs):
+    """Lazy delegate to the parent module's chart-spec saver (renders a composed spec through the active
+    backend(s) and writes it per ``plot_outputs``, returns success)."""
     from .diagnostics_dispatch import _save_spec as _f
     return _f(*args, **kwargs)
 
@@ -451,6 +457,7 @@ def render_target_dist_overlay(
 
 
 def _column_names(*args, **kwargs):
+    """Lazy delegate to the parent module's frame-agnostic (pandas/polars) column-name lister."""
     from .diagnostics_dispatch import _column_names as _f
     return _f(*args, **kwargs)
 

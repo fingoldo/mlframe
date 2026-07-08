@@ -134,7 +134,7 @@ def compose_fairness_calibration_figure(
             figsize=figsize or (8.0, 5.0),
         )
 
-    codes, labels, supports = _prepare_group_codes(grp, max_groups)
+    codes, labels, _supports = _prepare_group_codes(grp, max_groups)
 
     centers = (np.arange(n_bins) + 0.5) / n_bins  # shared bin-centre grid for the overlay diagonal series
     curve_x: list[np.ndarray] = [centers]

@@ -92,7 +92,7 @@ def _reliability_panel(y_true, preds_NK, alphas) -> LinePanelSpec:
     where y <= q_k (the cumulative coverage at that quantile level).
     Perfect calibration draws on the diagonal (y = x).
     """
-    from mlframe.metrics.quantile import _fast_coverage  # noqa: F401 (import for jit warmup)
+    from mlframe.metrics.quantile import _fast_coverage
 
     y = np.asarray(y_true, dtype=np.float64).ravel()
     P = np.asarray(preds_NK, dtype=np.float64)
@@ -469,6 +469,7 @@ def _pinball_decomp_panel(y_true, preds_NK, alphas) -> PanelSpec:
     n = y.shape[0]
 
     def _plain_pinball_bar() -> PanelSpec:
+        """Bar chart of raw per-tau pinball loss, used as the fallback when the CORP isotonic decomposition can't run (no finite rows)."""
         if n == 0:
             return AnnotationPanelSpec(
                 text="Pinball decomposition skipped: no finite (y, q) rows",
@@ -622,7 +623,7 @@ def _fan_chart_panel(y_true, preds_NK, alphas) -> PanelSpec:
         # Darker gray for pairs nearer the median (smaller depth) communicates the band nesting on
         # backends that draw only the single outermost filled band. Hex grayscale so both matplotlib
         # and plotly accept it (plotly rejects matplotlib's bare "0.25" fractional-gray string).
-        level = int(round(min(0.7, 0.25 + 0.12 * depth) * 255))
+        level = round(min(0.7, 0.25 + 0.12 * depth) * 255)
         gray = f"#{level:02x}{level:02x}{level:02x}"
         for c_idx in (lo, hi):
             series.append(q_bucketed[:, c_idx])

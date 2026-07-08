@@ -51,11 +51,13 @@ def _bin_codes(values: np.ndarray, edges: np.ndarray) -> np.ndarray:
 
 
 def _edge_labels(edges: np.ndarray) -> Tuple[str, ...]:
+    """Half-open interval labels per bin (``[lo, hi)``), with the last bin closed on the right (``]``) so the max value is included."""
     nb = edges.size - 1
     return tuple(f"[{edges[i]:.3g}, {edges[i + 1]:.3g}{')' if i < nb - 1 else ']'}" for i in range(nb))
 
 
 def _traffic_light(worst: float) -> str:
+    """Classify the worst-cell calibration gap into a green/amber/red verdict using the module's ``_GREEN``/``_RED`` thresholds; ``"n/a"`` when ``worst`` is non-finite (empty/degenerate grid)."""
     if not np.isfinite(worst):
         return "n/a"
     if worst < _GREEN:

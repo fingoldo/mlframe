@@ -170,6 +170,7 @@ def _regression_verdict(m: Dict[str, float], y_std: float) -> ModelCardVerdict:
 
 
 def _verdict_color_hex(color: str) -> str:
+    """Map a verdict color name ("green"/"amber"/"red") to its hex swatch; unknown names fall back to red."""
     return {"green": _GREEN, "amber": _AMBER, "red": _RED}.get(color, _RED)
 
 
@@ -216,6 +217,7 @@ def _headline_bar(metric_fmt: List[Tuple[str, float, bool]], verdict_color: str)
 
 
 def _mini_roc(sort: _ScoreSort) -> PanelSpec:
+    """Decimated ROC-curve sparkline reused from the shared score sort; a text annotation when only one class is present."""
     if sort.n_pos == 0 or sort.n_neg == 0:
         return AnnotationPanelSpec(text="ROC n/a\n(one class)", title="mini ROC")
     tps, fps, _ = sort.distinct_threshold_counts()
@@ -231,6 +233,7 @@ def _mini_roc(sort: _ScoreSort) -> PanelSpec:
 
 
 def _mini_score_dist(sort: _ScoreSort, yt: np.ndarray, ys: np.ndarray) -> PanelSpec:
+    """Score-distribution sparkline: overlaid density histograms of the positive- and negative-class scores."""
     if sort.n == 0:
         return AnnotationPanelSpec(text="score dist n/a", title="mini score dist")
     lo, hi = float(ys.min()), float(ys.max())
@@ -249,6 +252,7 @@ def _mini_score_dist(sort: _ScoreSort, yt: np.ndarray, ys: np.ndarray) -> PanelS
 
 
 def _mini_gain(sort: _ScoreSort) -> PanelSpec:
+    """Decimated cumulative-gain curve sparkline; a text annotation when there are no positives to capture."""
     if sort.n_pos == 0:
         return AnnotationPanelSpec(text="gain n/a\n(no positives)", title="mini gain")
     pop = np.arange(1, sort.n + 1, dtype=np.float64) / sort.n
@@ -265,6 +269,7 @@ def _mini_gain(sort: _ScoreSort) -> PanelSpec:
 
 
 def _mini_resid_vs_pred(yt: np.ndarray, yp: np.ndarray) -> PanelSpec:
+    """Residual-vs-prediction scatter sparkline (subsampled to ``_MINI_SCATTER_SAMPLE`` points) for a quick heteroscedasticity glance."""
     resid = yt - yp
     n = resid.size
     if n == 0:
@@ -282,6 +287,7 @@ def _mini_resid_vs_pred(yt: np.ndarray, yp: np.ndarray) -> PanelSpec:
 
 
 def _mini_resid_hist(yt: np.ndarray, yp: np.ndarray) -> PanelSpec:
+    """Residual-distribution density histogram sparkline (subsampled above 20k points for plotting speed)."""
     resid = yt - yp
     if resid.size == 0:
         return AnnotationPanelSpec(text="resid n/a", title="mini residual hist")
@@ -295,6 +301,7 @@ def _mini_resid_hist(yt: np.ndarray, yp: np.ndarray) -> PanelSpec:
 
 
 def _mini_pred_vs_actual(yt: np.ndarray, yp: np.ndarray) -> PanelSpec:
+    """Predicted-vs-actual scatter sparkline with a perfect-fit reference line (subsampled to ``_MINI_SCATTER_SAMPLE`` points)."""
     n = yt.size
     if n == 0:
         return AnnotationPanelSpec(text="pred-vs-actual n/a", title="mini pred-vs-actual")
@@ -311,6 +318,7 @@ def _mini_pred_vs_actual(yt: np.ndarray, yp: np.ndarray) -> PanelSpec:
 
 
 def _degenerate_card(model_name: str, split: str, text: str, figsize: Tuple[float, float]) -> FigureSpec:
+    """Single-panel fallback card that honestly reports why metrics could not be computed (e.g. single-class / no finite pairs), instead of drawing a misleading chart."""
     ann = AnnotationPanelSpec(text=f"{model_name}  --  {split}\n\n{text}", title="MODEL CARD", fontsize=11)
     return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
 

@@ -33,6 +33,7 @@ try:
 
     @numba.njit(cache=True, fastmath=False)
     def _accumulate_group_time(group_codes: np.ndarray, time_codes: np.ndarray, y: np.ndarray, n_groups: int, n_time: int):
+        """njit variant: accumulate per-(group, time)-cell ``sum(y)`` and row ``count`` in one length-n pass; returns ``(sums, counts)``."""
         # Single length-n pass building the per-cell (sum of y, count) over the group x time grid. Row-order float64
         # accumulation, so the sums are bit-identical to a two-``np.bincount`` walk on the flattened cell index.
         sums = np.zeros((n_groups, n_time), dtype=np.float64)
@@ -49,6 +50,7 @@ except Exception:  # numba unavailable: fall back to a flattened two-bincount nu
     _HAS_NUMBA = False
 
     def _accumulate_group_time(group_codes, time_codes, y, n_groups, n_time):
+        """numpy fallback (no numba): same ``(sums, counts)`` accumulate via two ``np.bincount`` calls over the flattened cell index."""
         flat = group_codes * n_time + time_codes
         ncells = n_groups * n_time
         counts = np.bincount(flat, minlength=ncells).astype(np.float64)

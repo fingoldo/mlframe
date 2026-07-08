@@ -207,7 +207,7 @@ def _ndcg_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = No
         bmean, blo, bhi = bootstrap_ndcg_ci(vals_v[m])
         categories.append(f"{label} (n={int(m.sum()):_}, CI[{blo:.2f},{bhi:.2f}])")
         means.append(bmean)
-    omean, olo, ohi = bootstrap_ndcg_ci(vals_v)
+    _omean, olo, ohi = bootstrap_ndcg_ci(vals_v)
     return BarPanelSpec(
         categories=tuple(categories),
         values=np.asarray(means),

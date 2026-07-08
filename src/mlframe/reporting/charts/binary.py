@@ -112,7 +112,7 @@ class _ScoreSort:
         n_pos / n_neg : totals
     """
 
-    __slots__ = ("scores_desc", "cum_tp", "cum_fp", "n_pos", "n_neg", "n", "_run_end", "_dtc")
+    __slots__ = ("_dtc", "_run_end", "cum_fp", "cum_tp", "n", "n_neg", "n_pos", "scores_desc")
 
     def __init__(self, y_true: np.ndarray, y_score: np.ndarray):
         order = np.argsort(y_score, kind="stable")[::-1]
@@ -672,6 +672,7 @@ def binary_decile_table_figure(
     n_pos = int(yt.sum()) if n else 0
 
     def _annotated(msg: str):
+        """Render a bare, title-only figure carrying a centered explanatory message in place of a table (degenerate-input fallback)."""
         fig = Figure(figsize=figsize or (8.0, 2.4))
         FigureCanvasAgg(fig)
         ax = fig.add_subplot(111)

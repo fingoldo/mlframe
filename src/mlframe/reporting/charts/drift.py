@@ -410,7 +410,7 @@ def cusum_residual_drift(
         x_full = np.arange(n, dtype=np.float64)
         x_is_time = False
 
-    n_ic = max(4, int(round(in_control_frac * n)))
+    n_ic = max(4, round(in_control_frac * n))
     ic = resid[:n_ic]
     center = float(np.median(ic))
     mad = float(np.median(np.abs(ic - center)))

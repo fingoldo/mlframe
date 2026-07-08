@@ -45,6 +45,8 @@ try:
 
     @numba.njit(cache=True, fastmath=False)
     def _fused_sum_count(flat: np.ndarray, err: np.ndarray, ncells: int):
+        """Single-pass per-cell (sum of ``err``, count) reduction over pre-flattened combo cell ids ``flat``,
+        replacing two separate ``np.bincount`` walks with one row-order loop."""
         sums = np.zeros(ncells, dtype=np.float64)
         counts = np.zeros(ncells, dtype=np.float64)
         for i in range(flat.shape[0]):
@@ -55,6 +57,7 @@ try:
 
     @numba.njit(cache=True, fastmath=False)
     def _fused_sum_count_2col(c0: np.ndarray, c1: np.ndarray, stride0: int, err: np.ndarray, ncells: int):
+        """Arity-2 fused flatten + per-cell (sum, count) reduction; see the note below on why this avoids materialising ``flat``."""
         # Arity-2 fast path (the dominant slice-finder regime: thousands of feature pairs). Fuses the mixed-radix
         # flatten ``c0*stride0 + c1`` into the same row pass as the per-cell (sum_error, count) reduction, so the
         # length-n ``flat`` int64 array is never materialised. The two code columns are passed pre-gathered and
@@ -70,6 +73,7 @@ try:
 
     @numba.njit(parallel=True, cache=True, fastmath=False)
     def _batched_pair_sum_count(codes_t: np.ndarray, err: np.ndarray, f0_arr: np.ndarray, f1_arr: np.ndarray, stride0_arr: np.ndarray, max_cells: int):
+        """Parallel (``prange``) per-cell (sum, count) reduction for ALL feature pairs at once; see the note below for why this beats the serial per-pair loop."""
         # One parallel pass over ALL feature pairs (the dominant slice-finder regime: thousands of pairs, each an
         # independent O(n) reduction that the serial loop ran one-at-a-time on a single core -> "CPU not loaded").
         # ``codes_t`` is the transposed (p, n) C-contiguous code matrix so ``codes_t[f]`` is a contiguous row -> the
@@ -95,11 +99,13 @@ except Exception:  # numba unavailable: fall back to the two-bincount numpy path
     _HAS_NUMBA_SLICE = False
 
     def _fused_sum_count(flat, err, ncells):
+        """Numpy fallback for :func:`_fused_sum_count` when numba is unavailable: two ``bincount`` passes instead of one fused loop."""
         counts = np.bincount(flat, minlength=ncells).astype(np.float64)
         sums = np.bincount(flat, weights=err, minlength=ncells)
         return sums, counts
 
     def _fused_sum_count_2col(c0, c1, stride0, err, ncells):
+        """Numpy fallback for :func:`_fused_sum_count_2col`: materialises ``flat`` then delegates to the two-bincount path."""
         flat = c0 * stride0 + c1
         counts = np.bincount(flat, minlength=ncells).astype(np.float64)
         sums = np.bincount(flat, weights=err, minlength=ncells)
@@ -369,9 +375,11 @@ def find_weak_slices(
     order = np.argsort(np.asarray(rec_mean), kind="stable")[::-1][:top_k]
     # Build the expensive bounds / features labels ONLY for the displayed top_k rows (see the deferral note above).
     def _features_for(i: int) -> Tuple[str, ...]:
+        """Feature names for candidate row ``i``'s combo -- built only for the displayed top-k rows (see the deferral note above)."""
         return tuple(names[f] for f in rec_combo[i])
 
     def _bounds_for(i: int) -> str:
+        """Human-readable ``"feature [lo..hi] & feature2 [lo..hi]"`` bound string for candidate row ``i`` -- built only for the displayed top-k rows."""
         combo_i = rec_combo[i]
         bins_i = rec_bins[i]
         return " & ".join(f"{names[combo_i[k]]} {_bin_label(all_edges[combo_i[k]], int(bins_i[k]))}" for k in range(len(combo_i)))
