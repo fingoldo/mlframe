@@ -9,7 +9,7 @@ The public surface below mirrors exactly the names ``mlframe.metrics.core`` (and
 
 from __future__ import annotations
 
-from ._calibration_plot import (  # noqa: F401
+from ._calibration_plot import (
     DEFAULT_TITLE_METRICS_TOKENS,
     render_title_metric_token,
     fast_calibration_binning,
@@ -19,7 +19,7 @@ from ._calibration_plot import (  # noqa: F401
     _show_plots_unless_agg,
 )
 
-from ._calibration_metrics import (  # noqa: F401
+from ._calibration_metrics import (
     calibration_metrics_from_freqs,
     compute_brier_decomposition_debiased,
     compute_ece_and_brier_decomposition,

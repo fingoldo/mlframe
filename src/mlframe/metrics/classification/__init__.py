@@ -10,7 +10,7 @@ The public surface below mirrors exactly the names ``mlframe.metrics.core`` re-e
 
 from __future__ import annotations
 
-from ._classification_report import (  # noqa: F401
+from ._classification_report import (
     CalibrationReport,
     format_classification_report,
     _compute_pr_recall_f1_metrics_seq,
@@ -22,7 +22,7 @@ from ._classification_report import (  # noqa: F401
     predictions_time_instability,
 )
 
-from ._classification_extras import (  # noqa: F401
+from ._classification_extras import (
     ks_statistic,
     matthews_corrcoef_binary,
     cohen_kappa_binary,
@@ -45,25 +45,25 @@ from ._classification_extras import (  # noqa: F401
     accuracy_ratio,
 )
 
-from ._threshold_optimization import (  # noqa: F401
+from ._threshold_optimization import (
     optimal_threshold,
     THRESHOLD_METRICS,
 )
 
-from ._gains_lift import (  # noqa: F401
+from ._gains_lift import (
     cumulative_gains_curve,
     lift_curve,
     gains_table,
     exploss,
 )
 
-from ._weighted_kappa import (  # noqa: F401
+from ._weighted_kappa import (
     quadratic_weighted_kappa,
     weighted_kappa,
     KAPPA_WEIGHTS,
 )
 
-from ._ordinal_cutpoints import (  # noqa: F401
+from ._ordinal_cutpoints import (
     optimal_ordinal_cutpoints,
     apply_cutpoints,
     CUTPOINT_METRICS,

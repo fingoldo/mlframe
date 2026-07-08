@@ -47,6 +47,7 @@ CLASSIFICATION_METRIC_KEYS = _BINARY_METRIC_KEYS  # back-compat alias for the co
 
 
 def _as_1d(arr) -> np.ndarray:
+    """Squeeze a ``(n, 1)`` array to 1-D; other shapes pass through unchanged."""
     a = np.asarray(arr)
     if a.ndim == 2 and a.shape[1] == 1:
         a = a[:, 0]
@@ -54,6 +55,7 @@ def _as_1d(arr) -> np.ndarray:
 
 
 def _nan_dict(keys) -> dict:
+    """All-``nan`` placeholder metrics dict, used when a metric can't be computed (e.g. degenerate input)."""
     return {k: float("nan") for k in keys}
 
 
@@ -155,7 +157,7 @@ def _multiclass_metrics(y_true: np.ndarray, y_score: np.ndarray, n_classes: Opti
         out["log_loss"] = float(ll)
 
     y_pred = np.argmax(ys, axis=1).astype(np.int64)
-    _hits, _misses, accuracy, bal_acc, supports, _precisions, _recalls, _f1s, macro, weighted = fast_classification_report(yt, y_pred, nclasses=k)
+    _hits, _misses, accuracy, bal_acc, _supports, _precisions, _recalls, _f1s, macro, weighted = fast_classification_report(yt, y_pred, nclasses=k)
     out["accuracy"] = float(accuracy)
     out["balanced_accuracy"] = float(bal_acc)
     out["macro_precision"], out["macro_recall"], out["macro_f1"] = (float(macro[0]), float(macro[1]), float(macro[2]))
@@ -195,6 +197,7 @@ def _multilabel_metrics(y_true: np.ndarray, y_score: np.ndarray, nbins: int) -> 
 
 
 def _regression_metrics(y_true: np.ndarray, y_score: np.ndarray) -> dict:
+    """Compute the standard regression metric dict (MAE/MSE/RMSE/MaxError/R2) for one iteration's predictions."""
     from .regression import (
         fast_max_error,
         fast_mean_absolute_error,

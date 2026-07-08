@@ -26,6 +26,7 @@ __all__ = ["cumulative_gains_curve", "lift_curve", "gains_table", "exploss"]
 
 
 def _sorted_cumulative(y_true: np.ndarray, y_score: np.ndarray):
+    """Sort ``y_true`` by descending ``y_score`` and return the cumulative sum of the sorted labels (shared by gains/lift/gains-table)."""
     yt = np.ascontiguousarray(y_true, dtype=np.float64)
     ys = np.ascontiguousarray(y_score, dtype=np.float64)
     if yt.shape[0] != ys.shape[0]:

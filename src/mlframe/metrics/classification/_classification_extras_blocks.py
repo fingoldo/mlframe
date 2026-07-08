@@ -34,7 +34,7 @@ import numpy as np
 from .._numba_params import _PARALLEL_REDUCTION_THRESHOLD, NUMBA_NJIT_PARAMS, _check_equal_length
 
 # ---------- helpers ----------
-from ._classification_extras import _confusion_counts_binary_par, _multiclass_confusion_kernel  # noqa: E402 (cycle-safe)
+from ._classification_extras import _confusion_counts_binary_par, _multiclass_confusion_kernel
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -113,6 +113,7 @@ def fast_binary_confusion_metrics_block(
 
     # F-beta family - precision/recall reused
     def _fb(b: float) -> float:
+        """F-beta from the already-computed ``precision``/``tpr`` closure variables; ``0.0`` on the zero-denominator degenerate case instead of raising."""
         b2 = b * b
         d = b2 * precision + tpr
         return 0.0 if d == 0 else (1.0 + b2) * precision * tpr / d
@@ -178,6 +179,7 @@ def _binary_probability_block_kernel_seq(
 def _binary_probability_block_kernel_par(
     y_true: np.ndarray, y_score: np.ndarray, n_threads: int,
 ):
+    """Parallel counterpart to ``_binary_probability_block_kernel_seq``: splits the array into ``n_threads`` chunks accumulated independently via ``prange``, then reduced by the caller -- same fused (Brier, log-loss, Spiegelhalter, base-rate) accumulators, used above ``_PARALLEL_REDUCTION_THRESHOLD``."""
     n = y_true.shape[0]
     chunk = (n + n_threads - 1) // n_threads
     l_brier = np.zeros(n_threads, dtype=np.float64)

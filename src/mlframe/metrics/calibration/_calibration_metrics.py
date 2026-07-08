@@ -145,7 +145,7 @@ def compute_ece_and_brier_decomposition(
     # datasets / resamples because the boundaries do not depend on the sample's observed min/max.
     for i in range(n):
         p = y_pred[i]
-        ind = int(floor(p * nbins))
+        ind = floor(p * nbins)
         if ind >= nbins:
             ind = nbins - 1
         elif ind < 0:
@@ -208,7 +208,7 @@ def compute_ece_debiased(
 
     for i in range(n):
         p = y_pred[i]
-        ind = int(floor(p * nbins))
+        ind = floor(p * nbins)
         if ind >= nbins:
             ind = nbins - 1
         elif ind < 0:
@@ -285,7 +285,7 @@ def compute_brier_decomposition_debiased(
 
     for i in range(n):
         p = y_pred[i]
-        ind = int(floor(p * nbins))
+        ind = floor(p * nbins)
         if ind >= nbins:
             ind = nbins - 1
         elif ind < 0:
@@ -357,7 +357,7 @@ def compute_ece_brier_full_and_debiased(
 
     for i in range(n):
         p = y_pred[i]
-        ind = int(floor(p * nbins))
+        ind = floor(p * nbins)
         if ind >= nbins:
             ind = nbins - 1
         elif ind < 0:
@@ -424,7 +424,7 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     # Call the serial njit binning kernel directly: ``fast_calibration_binning`` is a plain-Python size dispatcher (not njit), so referencing it from inside this nopython body fails type inference. This wrapper is a one-shot small-n convenience path, so the serial kernel is the right njit-callable choice.
     freqs_predicted, freqs_true, hits = _fast_calibration_binning_serial(y_true, y_pred, nbins)
     if verbose:
-        print(freqs_predicted, freqs_true)  # noqa: T201 -- inside @njit nopython mode, logging isn't supported here
+        print(freqs_predicted, freqs_true)
     return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights)
 
 

@@ -60,6 +60,7 @@ _MAX_ERROR_PAR_THRESHOLD: int = int(os.environ.get("MLFRAME_MAX_ERROR_PAR_THRESH
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_mae_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Sequential (single-thread) MAE kernel: mean of ``|y_true - y_pred|``. Wins over the parallel variant below ``_PARALLEL_REDUCTION_THRESHOLD``, where prange spawn overhead dominates."""
     n = len(y_true)
     s = 0.0
     for i in range(n):
@@ -69,6 +70,7 @@ def _fast_mae_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_mae_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Parallel (``prange``) MAE kernel, same computation as :func:`_fast_mae_seq`. Wins at large n where per-thread work amortises the spawn overhead."""
     n = len(y_true)
     s = 0.0
     for i in numba.prange(n):
@@ -78,6 +80,7 @@ def _fast_mae_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_mse_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Sequential (single-thread) MSE kernel: mean of squared residuals."""
     n = len(y_true)
     s = 0.0
     for i in range(n):
@@ -88,6 +91,7 @@ def _fast_mse_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_mse_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Parallel (``prange``) MSE kernel, same computation as :func:`_fast_mse_seq`."""
     n = len(y_true)
     s = 0.0
     for i in numba.prange(n):
@@ -98,6 +102,7 @@ def _fast_mse_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_max_error_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Sequential (single-thread) max-error kernel: ``max(|y_true - y_pred|)``."""
     n = len(y_true)
     m = 0.0
     for i in range(n):
@@ -109,8 +114,11 @@ def _fast_max_error_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_max_error_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Parallel (``prange``) max-error kernel, bit-identical to :func:`_fast_max_error_seq`.
+
     # ``max`` of |diff| is an order-invariant comparison reduction: numba recognises the ``m = max(m, ...)`` form as a
     # prange reduction, and max has no FP reordering (only > comparisons), so this is BIT-IDENTICAL to the serial scan.
+    """
     n = len(y_true)
     m = 0.0
     for i in numba.prange(n):
@@ -140,6 +148,7 @@ def _fast_r2_score_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_r2_score_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Parallel (``prange``) two-pass R2 kernel, same computation as :func:`_fast_r2_score_seq`."""
     n = len(y_true)
     ymean = 0.0
     for i in numba.prange(n):
@@ -177,6 +186,7 @@ def _fast_r2_variance_seq(y_true: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_mae_weighted_seq(y_true, y_pred, w):
+    """Sequential (single-thread) sample-weighted MAE kernel: ``sum(w*|res|) / sum(w)``; NaN when total weight is non-positive."""
     n = len(y_true)
     s = 0.0
     wsum = 0.0
@@ -190,6 +200,7 @@ def _fast_mae_weighted_seq(y_true, y_pred, w):
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_mae_weighted_par(y_true, y_pred, w):
+    """Parallel (``prange``) sample-weighted MAE kernel, same computation as :func:`_fast_mae_weighted_seq`."""
     n = len(y_true)
     s = 0.0
     wsum = 0.0
@@ -203,6 +214,7 @@ def _fast_mae_weighted_par(y_true, y_pred, w):
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_mse_weighted_seq(y_true, y_pred, w):
+    """Sequential (single-thread) sample-weighted MSE kernel: ``sum(w*res^2) / sum(w)``; NaN when total weight is non-positive."""
     n = len(y_true)
     s = 0.0
     wsum = 0.0
@@ -217,6 +229,7 @@ def _fast_mse_weighted_seq(y_true, y_pred, w):
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_mse_weighted_par(y_true, y_pred, w):
+    """Parallel (``prange``) sample-weighted MSE kernel, same computation as :func:`_fast_mse_weighted_seq`."""
     n = len(y_true)
     s = 0.0
     wsum = 0.0
@@ -231,6 +244,7 @@ def _fast_mse_weighted_par(y_true, y_pred, w):
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_r2_score_weighted_seq(y_true, y_pred, w):
+    """Sequential (single-thread) sample-weighted two-pass R2 kernel: weighted mean of ``y_true``, then weighted SS_res/SS_tot; NaN when total weight is non-positive."""
     n = len(y_true)
     ymean = 0.0
     wsum = 0.0
@@ -254,6 +268,7 @@ def _fast_r2_score_weighted_seq(y_true, y_pred, w):
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_r2_score_weighted_par(y_true, y_pred, w):
+    """Parallel (``prange``) sample-weighted two-pass R2 kernel, same computation as :func:`_fast_r2_score_weighted_seq`."""
     n = len(y_true)
     ymean = 0.0
     wsum = 0.0
@@ -747,6 +762,7 @@ def _fused_regression_pass2_seq(y_true: np.ndarray, y_mean: float) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fused_regression_pass2_par(y_true: np.ndarray, y_mean: float) -> float:
+    """Parallel (``prange``) pass 2, same computation as :func:`_fused_regression_pass2_seq`: centred sum-of-squares around the pre-computed mean."""
     n = y_true.shape[0]
     ss = 0.0
     for i in numba.prange(n):

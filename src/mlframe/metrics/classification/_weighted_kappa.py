@@ -23,6 +23,7 @@ KAPPA_WEIGHTS = ("quadratic", "linear")
 
 @njit(fastmath=False, cache=True, nogil=True)
 def _confusion_matrix(y_true, y_pred, n):
+    """Build the raw n x n observed-count confusion matrix O_ij (rows=true, cols=pred) for integer-coded labels in ``[0, n)``, feeding the expected-vs-observed disagreement sum in weighted kappa."""
     obs = np.zeros((n, n), dtype=np.float64)
     for k in range(y_true.shape[0]):
         obs[y_true[k], y_pred[k]] += 1.0

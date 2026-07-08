@@ -10,7 +10,7 @@ The public surface below mirrors exactly the names ``mlframe.metrics.core`` re-e
 
 from __future__ import annotations
 
-from ._regression_metrics import (  # noqa: F401
+from ._regression_metrics import (
     _fast_mae_seq, _fast_mae_par, _fast_mse_seq, _fast_mse_par,
     _fast_max_error_seq, _fast_r2_score_seq, _fast_r2_score_par,
     _fast_r2_variance_seq,
@@ -25,7 +25,7 @@ from ._regression_metrics import (  # noqa: F401
     fast_regression_metrics_block,
 )
 
-from ._regression_extras import (  # noqa: F401
+from ._regression_extras import (
     fast_rmsle,
     fast_mape_mean,
     fast_smape,
@@ -48,14 +48,14 @@ from ._regression_extras import (  # noqa: F401
     fast_tweedie_deviance,
 )
 
-from ._regression_deviance import (  # noqa: F401
+from ._regression_deviance import (
     _maybe_warn_tweedie,
     _tweedie_deviance_gamma_kernel,
     _tweedie_deviance_general_kernel,
     _tweedie_deviance_poisson_kernel,
 )
 
-from ._regression_benchmark import (  # noqa: F401
+from ._regression_benchmark import (
     fast_epsilon_band_accuracy,
     fast_rel_mae,
     fast_mrae,

@@ -291,7 +291,7 @@ def compute_probabilistic_multiclass_error(
 
         if method == "multicrit":
             if verbose:
-                brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, metrics_string, fig = fast_calibration_report(
+                _brier_loss, _calibration_mae, _calibration_std, _calibration_coverage, _roc_auc, _pr_auc, ice, _ll, *_, metrics_string, _fig = fast_calibration_report(
                     y_true=correct_class, y_pred=y_pred, use_weights=use_weighted_calibration, nbins=nbins,
                     show_plots=False, verbose=False,
                     mae_weight=mae_weight, std_weight=std_weight, brier_loss_weight=brier_loss_weight,
@@ -373,6 +373,7 @@ class ICE:
         self.nruns = 0
 
     def is_max_optimal(self):
+        """CatBoost custom-metric protocol hook: whether a higher value is better."""
         return self.higher_is_better
 
     def __sklearn_clone__(self):
@@ -392,6 +393,7 @@ class ICE:
         return self
 
     def evaluate(self, approxes, target, weight):
+        """CatBoost custom-metric protocol hook: convert raw logits to probabilities, compute the integral calibration error, and periodically log/plot the calibration report."""
         output_weight = 1  # weight is not used
 
         # to avoid expensive train set metric evaluation, we simply return 0 for any input larger than max_arr_size
@@ -434,6 +436,7 @@ class ICE:
         return total_error, output_weight
 
     def get_final_error(self, error, weight):
+        """CatBoost custom-metric protocol hook: the per-iteration error IS the final error (no cross-batch aggregation needed)."""
         return error
 
 
@@ -460,14 +463,14 @@ class ICE:
 # ``_clone_parametrized``'s identity check entirely. ICE retains its
 # default deepcopy/pickle behaviour, so save/load is unaffected.
 def _install_catboost_sklearn_clone_patch() -> None:
+    """Monkeypatch ``__sklearn_clone__`` onto ``CatBoostClassifier``/``CatBoostRegressor`` so ``sklearn.base.clone()`` reuses the caller's ``eval_metric`` instance instead of tripping on CatBoost's internal deep-copy (see the module comment above for the full identity-check failure mode)."""
     try:
         from catboost import CatBoostClassifier, CatBoostRegressor
     except ImportError:
         return
 
     def _cb_sklearn_clone(self):
-        # Reuse the SAME eval_metric instance to bypass CB's internal
-        # deep-copy of eval_metric on __init__ that breaks identity.
+        """``__sklearn_clone__`` replacement: reuse the SAME eval_metric instance to bypass CB's internal deep-copy of eval_metric on ``__init__`` that breaks identity."""
         params = self.get_params(deep=False)
         eval_metric = getattr(self, "_init_params", {}).get("eval_metric")
         if eval_metric is None:

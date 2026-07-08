@@ -95,6 +95,7 @@ class LogUniform:
         self.base = base
 
     def rvs(self, size=None, random_state=None):
+        """Draw samples uniformly on the exponent, then raise ``base`` to that power, so the result is log-uniform over ``[base**a, base**b]``."""
         myuniform = uniform(loc=self.loc, scale=self.scale)
         if size is None:
             return np.power(self.base, myuniform.rvs(random_state=random_state))

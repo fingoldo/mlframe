@@ -18,6 +18,7 @@ from ..rank_correlation import spearmanr_scalar_dispatch
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _pearson_corr_kernel(x: np.ndarray, y: np.ndarray) -> float:
+    """Compiled single-pass Pearson correlation coefficient between ``x`` and ``y``."""
     n = x.shape[0]
     if n < 2:
         return np.nan

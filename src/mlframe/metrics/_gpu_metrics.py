@@ -152,6 +152,7 @@ def _get_numba_rmse_kernel():
 
         @cuda.jit
         def _rmse_partial_sum(y, p, partial, N, M):
+            """CUDA kernel: accumulate per-block squared-error sums into ``partial[block, col]`` via atomic add, one thread per (row, column) pair."""
             # y: (N,) broadcast across M cols; p: (N, M); partial: (grid_x, M) per-block accumulator.
             j = cuda.blockIdx.y
             i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
@@ -491,6 +492,7 @@ def _run_batch_metric_sweep(metric: str) -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     def _cpu(y_true, y_pred):
+        """Reference CPU implementation of the sweep's metric (per-column RMSE or ROC-AUC), used as the ``equiv`` baseline the GPU variant is checked against."""
         if metric == "rmse":
             yt = y_true[:, np.newaxis] if y_true.ndim == 1 else y_true
             return np.sqrt(np.mean((yt - y_pred) ** 2.0, axis=0))
@@ -504,6 +506,7 @@ def _run_batch_metric_sweep(metric: str) -> list:
     variants = {"cpu": _cpu}
     if is_gpu_metrics_available():
         def _gpu(y_true, y_pred):
+            """GPU counterpart of ``_cpu``; for the AUC metric it also pays the full ROC+PR compute cost (mirroring real usage) while still returning only ROC for the equivalence check."""
             import cupy as cp
             if metric == "rmse":
                 return cp.asnumpy(gpu_multiple_rmse_scores(y_true, y_pred))

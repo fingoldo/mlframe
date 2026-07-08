@@ -76,6 +76,8 @@ def _rmsle_kernel_seq(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[float, in
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _rmsle_kernel_par(y_true: np.ndarray, y_pred: np.ndarray, nthr: int) -> Tuple[float, int]:
+    """Parallel (prange) variant of ``_rmsle_kernel_seq``: per-thread partial sums/counts, reduced at the end. Same
+    negative-row skip semantics and (RMSLE, count_of_negatives) return contract."""
     n = y_true.shape[0]
     sums = np.zeros(nthr, dtype=np.float64)
     negs = np.zeros(nthr, dtype=np.int64)
@@ -162,6 +164,8 @@ def _mape_mean_kernel_seq(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[float
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _mape_mean_kernel_par(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[float, int]:
+    """Parallel (prange) variant of ``_mape_mean_kernel_seq``; same eps-clamped denominator and
+    (mean_APE, count_zero_y_true) return contract."""
     eps = np.finfo(np.float64).eps
     n = y_true.shape[0]
     s = 0.0
@@ -353,6 +357,7 @@ def fast_mase(
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _mean_bias_error_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Mean of (y_pred - y_true); sign carries the bias direction, see ``fast_mean_bias_error``."""
     s = 0.0
     for i in range(y_true.shape[0]):
         s += y_pred[i] - y_true[i]
@@ -521,6 +526,7 @@ def fast_adjusted_r2_score(y_true: np.ndarray, y_pred: np.ndarray, n_predictors:
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _huber_loss_kernel(y_true: np.ndarray, y_pred: np.ndarray, delta: float) -> float:
+    """Mean Huber loss: quadratic below ``delta``, linear (shifted to stay continuous) above it. See ``fast_huber_loss``."""
     s = 0.0
     for i in range(y_true.shape[0]):
         r = abs(y_true[i] - y_pred[i])
@@ -551,7 +557,7 @@ def fast_huber_loss(
 # ============================================================================
 
 
-from ._regression_corr import (  # noqa: F401  re-export: rank/correlation metrics carved to a sibling
+from ._regression_corr import (
     _pearson_corr_kernel,
     fast_pearson_corr,
     fast_spearman_corr,
@@ -846,7 +852,7 @@ def fast_regression_metrics_block_extended(
         "_n_zero_y": int(n_zero_y),
     }
 
-from ._regression_deviance import (  # noqa: F401,E402
+from ._regression_deviance import (
     _maybe_warn_tweedie,
     _tweedie_deviance_gamma_kernel,
     _tweedie_deviance_general_kernel,

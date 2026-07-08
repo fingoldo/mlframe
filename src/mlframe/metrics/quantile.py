@@ -492,4 +492,4 @@ __all__ = [
 
 
 # Late-bound type alias to avoid touching the typing import line.
-from typing import Any  # noqa: E402  (kept at bottom for reduced churn)
+from typing import Any

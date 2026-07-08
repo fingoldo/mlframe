@@ -96,6 +96,7 @@ def _split_by_group(
 def _dcg_batch_kernel(
     boundaries: np.ndarray, y_true: np.ndarray, y_score: np.ndarray, k: int, exp_gain: bool,
 ):
+    """Sum DCG@k over every group delimited by ``boundaries`` (CSR-style row offsets) in one njit call; returns (total, n_nonempty_groups) for the caller's mean."""
     n_groups = boundaries.shape[0] - 1
     total = 0.0
     counted = 0
@@ -113,6 +114,7 @@ def _dcg_batch_kernel(
 def _err_batch_kernel(
     boundaries: np.ndarray, y_true: np.ndarray, y_score: np.ndarray, k: int, max_grade: float,
 ):
+    """Sum Expected Reciprocal Rank@k over every group delimited by ``boundaries`` in one njit call; returns (total, n_nonempty_groups) for the caller's mean."""
     n_groups = boundaries.shape[0] - 1
     total = 0.0
     counted = 0
@@ -130,6 +132,7 @@ def _err_batch_kernel(
 def _hit_batch_kernel(
     boundaries: np.ndarray, y_true: np.ndarray, y_score: np.ndarray, k: int,
 ):
+    """Sum Hit@k over every group delimited by ``boundaries`` in one njit call; returns (total, n_nonempty_groups) for the caller's mean."""
     n_groups = boundaries.shape[0] - 1
     total = 0.0
     counted = 0
@@ -147,6 +150,7 @@ def _hit_batch_kernel(
 def _precision_batch_kernel(
     boundaries: np.ndarray, y_true: np.ndarray, y_score: np.ndarray, k: int,
 ):
+    """Sum Precision@k over every group delimited by ``boundaries`` in one njit call; returns (total, n_nonempty_groups) for the caller's mean."""
     n_groups = boundaries.shape[0] - 1
     total = 0.0
     counted = 0

@@ -37,6 +37,7 @@ _NJIT = dict(fastmath=False, cache=True, nogil=True)
 
 @njit(**_NJIT)
 def _epsilon_band_accuracy_kernel(y_true, y_pred, eps):
+    """njit inner loop: fraction of points with |y_true - y_pred| <= eps, or NaN on empty input."""
     n = y_true.shape[0]
     if n == 0:
         return np.nan
@@ -64,6 +65,7 @@ def fast_epsilon_band_accuracy(y_true: np.ndarray, y_pred: np.ndarray, epsilon: 
 
 @njit(**_NJIT)
 def _rel_mae_kernel(y_true, y_pred, y_bench):
+    """njit inner loop: ratio of summed absolute errors (model vs benchmark); NaN when the benchmark is exact everywhere."""
     num = 0.0
     den = 0.0
     for i in range(y_true.shape[0]):
@@ -88,6 +90,7 @@ def fast_rel_mae(y_true: np.ndarray, y_pred: np.ndarray, y_benchmark: np.ndarray
 
 @njit(**_NJIT)
 def _mrae_kernel(y_true, y_pred, y_bench, eps):
+    """njit inner loop: mean of per-point |y-pred|/max(|y-bench|, eps); the eps floor guards near-perfect benchmark points from dominating."""
     n = y_true.shape[0]
     if n == 0:
         return np.nan
@@ -116,6 +119,7 @@ def fast_mrae(y_true: np.ndarray, y_pred: np.ndarray, y_benchmark: np.ndarray, *
 
 @njit(**_NJIT)
 def _percent_better_kernel(y_true, y_pred, y_bench):
+    """njit inner loop: fraction of points where the model's absolute error is strictly less than the benchmark's."""
     n = y_true.shape[0]
     if n == 0:
         return np.nan
@@ -141,6 +145,7 @@ def fast_percent_better(y_true: np.ndarray, y_pred: np.ndarray, y_benchmark: np.
 
 @njit(**_NJIT)
 def _logcosh_kernel(y_true, y_pred):
+    """njit inner loop: mean log(cosh(pred-true)) via the overflow-safe |z| + log((1+e^{-2|z|})/2) identity."""
     n = y_true.shape[0]
     if n == 0:
         return np.nan
@@ -167,6 +172,7 @@ def fast_logcosh_loss(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 @njit(**_NJIT)
 def _rmspe_kernel(y_true, y_pred):
+    """njit inner loop: sqrt of mean squared relative error, skipping points where y_true == 0 (ratio undefined)."""
     n = y_true.shape[0]
     s = 0.0
     cnt = 0

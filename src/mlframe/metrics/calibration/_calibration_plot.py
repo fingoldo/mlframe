@@ -231,6 +231,7 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_calibration_binning_serial(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
+    """Single-threaded njit calibration binning: bucket predictions into ``nbins`` equal-width pockets over the observed prediction range and accumulate per-bin counts/sums. Used below the ``_CALIB_BINNING_PRANGE_THRESHOLD`` size where parallel dispatch overhead would exceed the win."""
     pockets_predicted = np.zeros(nbins, dtype=np.int64)
     pockets_true = np.zeros(nbins, dtype=np.int64)
     pockets_pred_sum = np.zeros(nbins, dtype=np.float64)
@@ -249,7 +250,7 @@ def _fast_calibration_binning_serial(y_true: np.ndarray, y_pred: np.ndarray, nbi
     if span > 0:
         multiplier = (nbins - 1) / span
         for true_class, predicted_prob in zip(y_true, y_pred):
-            ind = int(floor((predicted_prob - min_val) * multiplier))
+            ind = floor((predicted_prob - min_val) * multiplier)
             if ind < 0:
                 ind = 0
             elif ind >= nbins:
@@ -332,7 +333,7 @@ def _fast_calibration_binning_prange(y_true: np.ndarray, y_pred: np.ndarray, nbi
             lo = t * chunk
             hi = min(lo + chunk, n)
             for i in range(lo, hi):
-                ind = int(floor((y_pred[i] - min_val) * multiplier))
+                ind = floor((y_pred[i] - min_val) * multiplier)
                 if ind < 0:
                     ind = 0
                 elif ind >= nbins:
@@ -480,7 +481,7 @@ def _close_unless_interactive(figs, was_shown: bool) -> None:
     feature_importance.py and training/evaluation.py.
     """
     try:
-        is_interactive = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+        is_interactive = bool(__IPYTHON__)  # type: ignore[name-defined]
     except NameError:
         is_interactive = hasattr(sys, "ps1")
     if is_interactive and was_shown:
@@ -630,7 +631,7 @@ def show_calibration_plot(
     # backends will pick up the figure.
     if show_plots and not plot_file:
         try:
-            _is_interactive = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+            _is_interactive = bool(__IPYTHON__)  # type: ignore[name-defined]
         except NameError:
             _is_interactive = hasattr(sys, "ps1")
         if not _is_interactive:
@@ -666,6 +667,7 @@ def show_calibration_plot(
     if backend == "matplotlib":
         # Function to format hits values with B, M, K suffixes
         def format_population(n):
+            """Human-readable population count with B/M/K suffix (e.g. 1_500_000 -> "1.5M") for the matplotlib calibration plot's bin-size labels."""
             if n >= 1e9:
                 return f"{n/1e9:.1f}B"
             elif n >= 1e6:

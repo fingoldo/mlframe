@@ -230,7 +230,7 @@ def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) ->
         # the same warning fires 4-15 times per training run with identical
         # content. Once is enough to alert the user that MAPE is mathematically
         # unreliable on their target; the rest is noise.
-        _key = (int(n_zero), int(len(y_true)))
+        _key = (int(n_zero), len(y_true))
         if _key not in _MAPE_ZERO_WARN_SEEN:
             _MAPE_ZERO_WARN_SEEN.add(_key)
             logger.warning(

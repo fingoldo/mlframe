@@ -452,7 +452,7 @@ def f_beta_score(
 
     Returns 0.0 when both precision and recall are 0.
     """
-    tp, fp, tn, fn = _confusion_counts_binary_dispatch(y_true, y_pred)
+    tp, fp, _tn, fn = _confusion_counts_binary_dispatch(y_true, y_pred)
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
     b2 = beta * beta
@@ -673,6 +673,7 @@ def _rps_kernel(y_true: np.ndarray, probs_NK: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _rps_kernel_par(y_true: np.ndarray, probs_NK: np.ndarray) -> float:
+    """Parallel (prange) Ranked Probability Score over ``n`` samples and ``K`` ordinal classes; ``nan`` when ``K < 2``."""
     n, K = probs_NK.shape
     if K < 2:
         return np.nan
@@ -740,12 +741,12 @@ def ranked_probability_score(
 
 
 # binary/multiclass confusion+probability block kernels carved to _classification_extras_blocks.py (1k-LOC ceiling).
-from ._classification_calibration import (  # noqa: F401,E402
+from ._classification_calibration import (
     _hosmer_lemeshow_kernel,
     accuracy_ratio,
     hosmer_lemeshow_test,
 )
-from ._classification_extras_blocks import (  # noqa: E402, F401
+from ._classification_extras_blocks import (
     _binary_confusion_block_kernel_seq,
     _binary_probability_block_kernel_par,
     _binary_probability_block_kernel_seq,
