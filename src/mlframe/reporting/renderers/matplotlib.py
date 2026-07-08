@@ -105,7 +105,7 @@ class MatplotlibRenderer:
         # constrained_layout reserves space for the suptitle. The ~800 ms
         # cost only fires when caller actually asked for a suptitle.
         layout = "constrained" if (spec.constrained_layout or spec.suptitle or spec.caption) else None
-        fig_kwargs = {"figsize": spec.figsize, "layout": layout}
+        fig_kwargs: dict[str, Any] = {"figsize": spec.figsize, "layout": layout}
         if spec.dpi is not None:
             fig_kwargs["dpi"] = spec.dpi
         fig = Figure(**fig_kwargs)
@@ -121,7 +121,7 @@ class MatplotlibRenderer:
         col_axes: dict[int, list] = {}
         axes_grid: list[list] = []
         for r, row in enumerate(spec.panels):
-            row_axes = []
+            row_axes: list = []
             for c, panel in enumerate(row):
                 if panel is None:
                     row_axes.append(None)
@@ -203,8 +203,9 @@ class MatplotlibRenderer:
             if not matplotlib.is_interactive():
                 return
             manager = plt.figure().canvas.manager
-            manager.canvas.figure = fig
-            fig.set_canvas(manager.canvas)
+            if manager is not None:
+                manager.canvas.figure = fig
+                fig.set_canvas(manager.canvas)
             plt.show()
         except Exception as e:
             logger.debug("MatplotlibRenderer.show() no-op (no interactive display): %s: %s", type(e).__name__, e)
@@ -270,7 +271,7 @@ class MatplotlibRenderer:
             xerr = _err_to_mpl(p.x_err)
             ax.errorbar(x, y, yerr=yerr, xerr=xerr, fmt="none", ecolor="gray", elinewidth=1.0, capsize=3, alpha=0.7, zorder=1)
 
-        kw = {"alpha": p.point_alpha, "rasterized": rasterized}
+        kw: dict[str, Any] = {"alpha": p.point_alpha, "rasterized": rasterized}
         kw["s"] = size_arr if size_arr is not None else float(p.point_size)
         if color_arr is not None:
             kw["c"] = color_arr
@@ -282,12 +283,12 @@ class MatplotlibRenderer:
         # Emphasised subset (worst-K errors): drawn on top, larger + colored. Indices are positions into the
         # ORIGINAL arrays, so resolve against the pre-subsample data (``p.x`` / ``p.y``), not the capped ``x``/``y``.
         if p.highlight_indices is not None:
-            hi = np.asarray(p.highlight_indices, dtype=np.int64)
+            hi_idx = np.asarray(p.highlight_indices, dtype=np.int64)
             ox, oy = np.asarray(p.x), np.asarray(p.y)
-            hi = hi[(hi >= 0) & (hi < len(ox))]
-            if hi.size:
+            hi_idx = hi_idx[(hi_idx >= 0) & (hi_idx < len(ox))]
+            if hi_idx.size:
                 base_s = float(p.point_size) if size_arr is None else float(np.median(np.asarray(p.point_size)))
-                ax.scatter(ox[hi], oy[hi], s=base_s * 4.0, facecolors="none", edgecolors=p.highlight_color, linewidths=1.5, zorder=5, label="worst-K")
+                ax.scatter(ox[hi_idx], oy[hi_idx], s=base_s * 4.0, facecolors="none", edgecolors=p.highlight_color, linewidths=1.5, zorder=5, label="worst-K")
 
         if p.trend_line is not None and n > 1:
             from mlframe.reporting.renderers._trend import robust_fit_endpoints
@@ -371,6 +372,7 @@ class MatplotlibRenderer:
                 colors_kw = {"color": cm((np.asarray(p.bar_colors) - _h_min) / (_h_max - _h_min))}
             ax.bar(bin_centers, heights, width=width, align="center", edgecolor="white", linewidth=0.5, **colors_kw)
             if len(bin_centers) > 0:
+                assert width is not None
                 overlay_x_lo = float(bin_centers[0] - width / 2.0)
                 overlay_x_hi = float(bin_centers[-1] + width / 2.0)
         else:
@@ -389,6 +391,7 @@ class MatplotlibRenderer:
                 if overlay_x_lo is None:
                     vals = np.asarray(p.values)
                     overlay_x_lo, overlay_x_hi = float(np.min(vals)), float(np.max(vals))
+                assert overlay_x_hi is not None
                 x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
                 normal_pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
                 label = p.overlay_label or f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"

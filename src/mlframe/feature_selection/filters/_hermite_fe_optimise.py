@@ -301,7 +301,7 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
     best_idx = -1
     best_coefs = None
     n_evals = 0
-    history = [] if track_history else None
+    history: list | None = [] if track_history else None
 
     # Warm-start batch: evaluate canonical seeds in one batch call.
     if warm_start_seeds:
@@ -316,7 +316,7 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
             if not np.isfinite(sc):
                 continue
             if track_history and ws_idxs[j] >= 0:
-                history.append((float(sc), float(ws_raws[j]), int(ws_idxs[j]), ws_a[j].copy(), ws_b[j].copy()))
+                history.append((float(sc), float(ws_raws[j]), int(ws_idxs[j]), ws_a[j].copy(), ws_b[j].copy()))  # type: ignore[union-attr]  # guarded by track_history, which is True exactly when history was allocated non-None
             if sc > best_score:
                 best_score = sc
                 best_raw = ws_raws[j]
@@ -368,7 +368,7 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
             if not np.isfinite(sc):
                 continue
             if track_history and idxs_batch[j] >= 0:
-                history.append((float(sc), float(raws_batch[j]), int(idxs_batch[j]), ca_batch[j].copy(), cb_batch[j].copy()))
+                history.append((float(sc), float(raws_batch[j]), int(idxs_batch[j]), ca_batch[j].copy(), cb_batch[j].copy()))  # type: ignore[union-attr]  # guarded by track_history, which is True exactly when history was allocated non-None
             if sc > best_score:
                 best_score = sc
                 best_raw = raws_batch[j]
@@ -434,7 +434,7 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     best_idx = -1
     best_coefs = None
     n_evals = 0
-    history = [] if track_history else None
+    history: list | None = [] if track_history else None
     sigma = perturb_sigma_frac * (coef_range[1] - coef_range[0])
     n_iters = max(1, int(np.ceil(n_trials / max(1, batch_size))))
 
@@ -451,7 +451,7 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
             if not np.isfinite(sc):
                 continue
             if track_history and ws_idxs[j] >= 0:
-                history.append((float(sc), float(ws_raws[j]), int(ws_idxs[j]), ws_a[j].copy(), ws_b[j].copy()))
+                history.append((float(sc), float(ws_raws[j]), int(ws_idxs[j]), ws_a[j].copy(), ws_b[j].copy()))  # type: ignore[union-attr]  # guarded by track_history, which is True exactly when history was allocated non-None
             if sc > best_score:
                 best_score = sc
                 best_raw = ws_raws[j]
@@ -495,7 +495,7 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
         if track_history:
             for j in range(eff_batch):
                 if np.isfinite(scores_batch[j]) and idxs_batch[j] >= 0:
-                    history.append((float(scores_batch[j]), float(raws_batch[j]), int(idxs_batch[j]), coefs_a_batch[j].copy(), coefs_b_batch[j].copy()))
+                    history.append((float(scores_batch[j]), float(raws_batch[j]), int(idxs_batch[j]), coefs_a_batch[j].copy(), coefs_b_batch[j].copy()))  # type: ignore[union-attr]  # guarded by track_history, which is True exactly when history was allocated non-None
 
     if best_coefs is None:
         return None
@@ -579,7 +579,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     best_idx = -1
     best_coefs = None
     n_evals = 0
-    history = [] if track_history else None
+    history: list | None = [] if track_history else None
     if warm_start_seeds:
         for ws in warm_start_seeds:
             ws = np.asarray(ws, dtype=np.float64)
@@ -590,7 +590,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
             )
             n_evals += 1
             if track_history and bf_idx >= 0 and np.isfinite(score):
-                history.append((float(score), float(raw_mi), int(bf_idx), coef_a.copy(), coef_b.copy()))
+                history.append((float(score), float(raw_mi), int(bf_idx), coef_a.copy(), coef_b.copy()))  # type: ignore[union-attr]  # guarded by track_history, which is True exactly when history was allocated non-None
             if score > best_score:
                 best_score = score
                 best_raw = raw_mi
@@ -654,7 +654,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
             )
             n_evals += 1
             if track_history and bf_idx >= 0 and np.isfinite(score):
-                history.append((float(score), float(raw_mi), int(bf_idx), coef_a.copy(), coef_b.copy()))
+                history.append((float(score), float(raw_mi), int(bf_idx), coef_a.copy(), coef_b.copy()))  # type: ignore[union-attr]  # guarded by track_history, which is True exactly when history was allocated non-None
             if score > best_score:
                 best_score = score
                 best_raw = raw_mi
@@ -722,7 +722,7 @@ def optimise_pair_multimode(
     top_m: int = 3,
     min_l2_distance: float = 0.3,
     discrete_target: bool = True,
-    bin_funcs: dict = None,
+    bin_funcs: dict | None = None,
     max_degree: int = 4,
     min_degree: int = 2,
     n_trials: int = 200,
@@ -867,7 +867,7 @@ def optimise_pair_multimode(
         deg = deg_lookup.get((tuple(coef_a), tuple(coef_b)), len(coef_a) - 1)
         results.append(HermiteResult(
             coef_a=coef_a, coef_b=coef_b,
-            bin_func_name=bf_name, bin_func=bin_funcs[bf_name],
+            bin_func_name=bf_name, bin_func=bin_funcs[bf_name],  # type: ignore[arg-type]  # bin_funcs values are the callables per bf_name; _DEFAULT_BIN_FUNCS' inferred dict-value type is imprecise
             mi=raw_mi, baseline_mi=baseline,
             uplift=raw_mi / max(baseline, 1e-12),
             degree_a=deg, degree_b=deg,

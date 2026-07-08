@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -23,7 +23,7 @@ def optimise_hermite_pair(
     y: np.ndarray,
     *,
     discrete_target: bool = True,
-    bin_funcs: dict = None,
+    bin_funcs: dict | None = None,
     max_degree: int = 4,
     min_degree: int = 2,
     n_trials: int = 200,
@@ -120,8 +120,8 @@ def optimise_hermite_pair(
     # without optuna can still use ``cma`` / ``cma_batch`` / ``random_batch``
     # / ``numba_kernel`` optimisers. The error message is preserved for the
     # actual Optuna path.
-    optuna = None  # type: ignore[assignment]
-    TPESampler = None  # type: ignore[assignment]
+    optuna: Any = None
+    TPESampler: Any = None
     if optimizer == "optuna":
         try:
             import optuna  # noqa: F811  late-bind for optional dep
@@ -159,6 +159,7 @@ def optimise_hermite_pair(
     # Saves ~4us/call closure overhead, ~5ms over 1000+ trials.
     n_eval = z_a.shape[0]
     factory_top = basis_info.get("eval_njit_factory")
+    eval_func: Any
     if factory_top is not None:
         # Non-polynomial basis with data-dependent eval (RBF/Sigmoid). Factory is invoked below per-feature.
         eval_func = None
@@ -291,6 +292,7 @@ def optimise_hermite_pair(
 
         # Shared kwargs for both Optuna and CMA paths. When eval_func differs per feature (factory-based bases
         # like RBF), wrap _eval_coef_pair to use both eval_func and eval_func_b.
+        eval_pair_fn: Any
         if factory is not None:
             def _eval_dual(coef_a, coef_b, **kw):
                 from numpy import column_stack, ascontiguousarray, all as npall, isfinite
@@ -327,7 +329,7 @@ def optimise_hermite_pair(
                         mi_arr = mutual_info_classif(X_batch, kw["y"], n_neighbors=kw["n_neighbors"], random_state=42, discrete_features=False)
                     else:
                         mi_arr = mutual_info_regression(X_batch, kw["y"], n_neighbors=kw["n_neighbors"], random_state=42, discrete_features=False)
-                penalty = 0.0 if kw.get("direction_only") else _l2_penalty_value(coef_a, coef_b, kw["l2_penalty"], kw.get("l2_penalty_saturation"))
+                penalty = 0.0 if kw.get("direction_only") else _l2_penalty_value(coef_a, coef_b, kw["l2_penalty"], float(kw["l2_penalty_saturation"]))
                 best_score = -np.inf
                 best_raw = 0.0
                 best_idx = -1
@@ -608,7 +610,7 @@ def optimise_hermite_pair(
         bf_name = bf_names_global[bf_idx_best]
         cand = HermiteResult(
             coef_a=coef_a_best, coef_b=coef_b_best,
-            bin_func_name=bf_name, bin_func=bin_funcs[bf_name],
+            bin_func_name=bf_name, bin_func=bin_funcs[bf_name],  # type: ignore[arg-type]  # bin_funcs values are the callables per bf_name; _DEFAULT_BIN_FUNCS' inferred dict-value type is imprecise
             mi=raw_mi_best, baseline_mi=baseline,
             uplift=raw_mi_best / max(baseline, 1e-12),
             degree_a=degree, degree_b=degree,
