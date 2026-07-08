@@ -1,6 +1,8 @@
 """``Leaderboard``: aggregates a model x task score table into a consensus ranking via social-choice methods (mean, Borda, Copeland, minimax, etc.), with support for partial tables and grouped two-step rankings."""
 from __future__ import annotations
 
+import itertools
+
 from pyutilz.system import tqdmu as tqdm
 import pandas as pd
 import numpy as np
@@ -212,7 +214,7 @@ class Leaderboard:
         insert_nan=True,
     ):
         """Rank models within each ``task_groups`` group (a partition of ``self.tasks``) via ``ranking_method``, then wrap the per-group scores as a new :class:`Leaderboard`."""
-        group_merged: list = sum(list(task_groups.values()), start=[])
+        group_merged: list = list(itertools.chain.from_iterable(task_groups.values()))
         group_set, group_counts = np.unique(group_merged, return_counts=True)
         # Wave 31 (2026-05-20): assert -> ValueError. SILENT-CORRECTNESS
         # bug under -O: partition violations produced wrong meta-tables.

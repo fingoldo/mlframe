@@ -28,7 +28,7 @@ from mlframe.reporting.spec import (
 # Kaleido lifecycle + static-image write plumbing lives in the sibling module; re-exported here so
 # ``from mlframe.reporting.renderers.plotly import get_kaleido_oneshot_stats`` (and the recovery-test
 # imports of ``_restart_kaleido_server`` etc.) keep resolving from the same place.
-from ._kaleido import (  # noqa: F401
+from ._kaleido import (
     _ensure_kaleido_server_started,
     _is_kaleido_persistent_burned,
     _mark_kaleido_persistent_burned,
@@ -40,7 +40,7 @@ from ._kaleido import (  # noqa: F401
     write_image_via_kaleido,
 )
 from ._plotly_interactivity import apply_interactivity, html_config
-from ._plotly_color import _MPL_TO_PLOTLY, _axis_ref, _rgba, _mpl_to_plotly_cmap  # noqa: F401
+from ._plotly_color import _MPL_TO_PLOTLY, _axis_ref, _rgba, _mpl_to_plotly_cmap
 from ._shared_helpers import _finite_range, _thin_tick_positions
 
 logger = logging.getLogger(__name__)
@@ -78,6 +78,7 @@ def _wrap_text(text: str, width: int, *, sep: str = "<br>") -> str:
 
 
 def _truncate_label(label: str, maxlen: int = _BAR_XTICK_MAXLEN) -> str:
+    """Shorten a bar-category label to ``maxlen`` chars (ellipsis-suffixed) so long feature names don't crowd bar-chart tick axes."""
     s = str(label)
     return s if len(s) <= maxlen else s[: maxlen - 1] + "..."
 
@@ -95,6 +96,7 @@ _HEATMAP_CELL_TEXT_MAX = 400
 
 
 def _warn_scatter_downsample(n: int) -> None:
+    """Log once per process that a scatter panel with ``n`` raw points got downsampled to ``_SCATTER_MAX_POINTS`` to keep the HTML output responsive."""
     global _SCATTER_DOWNSAMPLE_WARNED
     if not _SCATTER_DOWNSAMPLE_WARNED:
         logger.warning(
@@ -117,6 +119,7 @@ def _per_series_flags(flag, n: int):
 
 
 def _line_uses_secondary_y(p) -> bool:
+    """True if any series in a ``LinePanelSpec`` requests the secondary y-axis; drives whether the subplot cell must be created with ``secondary_y=True``."""
     n = len(p.y) if isinstance(p.y, tuple) else 1
     return any(_per_series_flags(p.secondary_y, n))
 
@@ -131,6 +134,12 @@ def _err_to_plotly(err):
 
 
 class PlotlyRenderer:
+    """Renders a ``FigureSpec`` to a plotly ``go.Figure`` and handles save/show for the interactive HTML backend.
+
+    Panel-type dispatch mirrors the matplotlib renderer one-for-one (scatter/histogram/heatmap/confusion-margins/
+    bar/line/violin/network/annotation), so both backends produce visually equivalent output from the same spec.
+    """
+
     backend = "plotly"
 
     def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
@@ -248,6 +257,7 @@ class PlotlyRenderer:
         return fig
 
     def save(self, fig: Any, path: str, fmt: str) -> None:
+        """Write ``fig`` to ``path`` in ``fmt`` (case-insensitive): ``html`` via ``write_html``, ``json`` via ``to_json``, ``png/svg/pdf`` via kaleido (falls back to html with a WARN if kaleido is missing). Raises ``ValueError`` on an unsupported format."""
         fmt = fmt.lower()
         if fmt == "html":
             fig.write_html(path, include_plotlyjs="cdn", auto_open=False, config=html_config())
@@ -260,6 +270,7 @@ class PlotlyRenderer:
             raise ValueError(f"plotly doesn't support format {fmt!r}; " "supported: html/png/svg/pdf/json")
 
     def show(self, fig: Any) -> None:
+        """Open ``fig`` in the default renderer (browser/notebook); any display-backend failure is swallowed and logged at debug level rather than raised."""
         try:
             fig.show()
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
@@ -271,6 +282,7 @@ class PlotlyRenderer:
     # ------------------------------------------------------------------
 
     def _render_panel(self, fig, panel, row: int, col: int) -> None:
+        """Dispatch a single panel spec to its type-specific ``_<kind>`` renderer at subplot cell ``(row, col)``; raises ``TypeError`` for an unrecognised panel spec class."""
         if isinstance(panel, ScatterPanelSpec):
             self._scatter(fig, panel, row, col)
         elif isinstance(panel, HistogramPanelSpec):
@@ -293,6 +305,7 @@ class PlotlyRenderer:
             raise TypeError(f"unknown panel type: {type(panel).__name__}")
 
     def _annotation(self, fig, p: AnnotationPanelSpec, row: int, col: int) -> None:
+        """Render a text-only panel (no axes): centers ``p.text`` in the subplot cell and hides both axes so the cell reads as a plain note/caption."""
         fig.add_annotation(text=p.text.replace("\n", "<br>"), x=0.5, y=0.5,
                            xref="x domain", yref="y domain", showarrow=False,
                            font=dict(size=p.fontsize), align="center",
@@ -301,6 +314,7 @@ class PlotlyRenderer:
         fig.update_yaxes(visible=False, row=row, col=col)
 
     def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
+        """Render a scatter panel: downsamples above ``_SCATTER_MAX_POINTS`` (extremes-preserving), converts mpl marker-area sizing to plotly pixel-diameter, switches to WebGL above ``_SCATTER_WEBGL_THRESHOLD`` points (unless error bars are present, which Scattergl doesn't support), and layers optional highlight points, trend line, uncertainty band, overlay line, and a perfect-fit y=x diagonal on top."""
         go = _go()
 
         x = np.asarray(p.x)
@@ -446,6 +460,7 @@ class PlotlyRenderer:
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
 
     def _histogram(self, fig, p: HistogramPanelSpec, row: int, col: int) -> None:
+        """Render a histogram panel: uses spec-supplied ``bin_centers`` directly, pre-bins raw values above ``_HIST_PREBIN_THRESHOLD`` (avoids embedding huge raw arrays into HTML), else falls back to plotly's own ``go.Histogram`` binning; optionally overlays a fitted Normal PDF curve spanning the bin range."""
         go = _go()
 
         # ``overlay_x_lo/hi`` anchors the Normal-overlay grid. When we pre-bin (here or upstream) they come from
@@ -519,6 +534,7 @@ class PlotlyRenderer:
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid, type="log" if p.yscale == "log" else "linear")
 
     def _confusion_margins(self, fig, p: ConfusionMarginsPanelSpec, row: int, col: int) -> None:
+        """Render a confusion matrix with row/column margins folded into the axis tick labels (predicted-class columns get volume, true-class rows get support), then delegates the actual grid to ``_heatmap``."""
         # Plotly subplot cells cannot host nested marginal axes the way the matplotlib subgridspec does, so the
         # margins are folded into the axis tick labels: each predicted-class column header carries its volume and
         # each true-class row header its support. The heatmap itself reuses the HeatmapPanelSpec renderer.
@@ -533,6 +549,7 @@ class PlotlyRenderer:
         self._heatmap(fig, heat, row, col)
 
     def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
+        """Render a ``go.Heatmap`` panel: draws per-cell text via individual ``add_annotation`` calls (luminance-flipped color, skipped above ``_HEATMAP_CELL_TEXT_MAX`` cells to avoid an unreadable/slow grid), optional iso-value threshold contour overlays, an optional robust trend line, and thins x/y tick labels to a readable subset on dense grids."""
         go = _go()
         from mlframe.reporting.colors import resolve_heatmap_cmap
         cmap_name = resolve_heatmap_cmap(p.colormap)
@@ -609,6 +626,7 @@ class PlotlyRenderer:
                          tickmode="array", tickvals=[p.row_labels[i] for i in _yt])
 
     def _bar(self, fig, p: BarPanelSpec, row: int, col: int) -> None:
+        """Render a bar panel (grouped when ``p.values`` is a tuple of series), with an optional reference line perpendicular to the bars and long category-label truncation/thinning/rotation on the value-orthogonal axis."""
         go = _go()
 
         from mlframe.reporting.colors import line_color
@@ -616,6 +634,7 @@ class PlotlyRenderer:
         cats = list(p.categories)
 
         def _add_bar(values, color, label, show):
+            """Add one ``go.Bar`` trace for ``values`` with the given ``color``/legend ``label``/``show`` (showlegend) flag, oriented per the enclosing panel's horizontal/vertical setting."""
             if horizontal:
                 # Categories on y, values on x; reverse so the first category sits on top (worst-first reads down).
                 fig.add_trace(
@@ -663,7 +682,7 @@ class PlotlyRenderer:
             tickangle = -p.xtick_rotation if p.xtick_rotation else 0
             needs_trunc = any(len(str(c)) > _BAR_XTICK_MAXLEN for c in cats)
             if n_cat > _BAR_XTICK_THIN_THRESHOLD:
-                step = int(math.ceil(n_cat / _BAR_XTICK_KEEP))
+                step = math.ceil(n_cat / _BAR_XTICK_KEEP)
                 sel = list(range(0, n_cat, step))
                 fig.update_xaxes(tickmode="array",
                                  tickvals=[cats[i] for i in sel],
@@ -680,6 +699,7 @@ class PlotlyRenderer:
             fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
 
     def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
+        """Render a multi-series line panel: per-series style/color/secondary-y/fill-to-baseline, an optional uncertainty band, vspans/vlines (datetime-safe), and point markers; secondary-y series get their own right-hand axis when any series requests it."""
         go = _go()
         from mlframe.reporting.colors import line_color
 
@@ -695,6 +715,7 @@ class PlotlyRenderer:
         _STYLE_MAP = {"-": "solid", "--": "dash", ":": "dot", "-.": "dashdot"}
 
         def _xi(i):
+            """Return the x-values for series ``i``: per-series ``p.x[i]`` when the spec carries a tuple of x-arrays, else the single shared ``p.x``."""
             v = p.x[i] if xs_per_series else p.x
             return np.asarray(v) if isinstance(v, np.ndarray) else v
 
@@ -774,6 +795,7 @@ class PlotlyRenderer:
 
     @staticmethod
     def _is_datetime_like(v) -> bool:
+        """True if ``v`` is a ``numpy.datetime64`` or a stdlib ``datetime``/``date``; gates the datetime-safe vline path since ``fig.add_vline`` raises ``TypeError`` on datetime x."""
         import datetime as _dt
         if isinstance(v, (np.datetime64,)):
             return True
@@ -789,7 +811,7 @@ class PlotlyRenderer:
         temporal change-point markers that previously fell back to vspans now render as true vlines)."""
         if self._is_datetime_like(vx):
             import pandas as pd
-            x_coord = pd.Timestamp(vx) if not isinstance(vx, np.datetime64) else pd.Timestamp(vx)
+            x_coord = pd.Timestamp(vx)
             fig.add_shape(
                 type="line", x0=x_coord, x1=x_coord, y0=0, y1=1, yref="y domain", xref="x", line=dict(color=vcolor, dash="dot", width=1.2), row=row, col=col
             )
@@ -799,6 +821,7 @@ class PlotlyRenderer:
             fig.add_vline(x=vx, line=dict(color=vcolor, dash="dot", width=1.2), annotation_text=vlabel or None, annotation_position="top", row=row, col=col)
 
     def _violin(self, fig, p: ViolinPanelSpec, row: int, col: int) -> None:
+        """Render one ``go.Violin`` trace per group in ``p.groups`` (tab10 color cycle for cross-backend parity with matplotlib), with an optional inner box overlay."""
         go = _go()
         from mlframe.reporting.colors import line_color
 
@@ -826,6 +849,7 @@ class PlotlyRenderer:
     _NETWORK_MAX_ARROWS = 500
 
     def _network(self, fig, p: NetworkPanelSpec, row: int, col: int) -> None:
+        """Render a network/graph panel: edges are binned by weight into a handful of width/color buckets and drawn as one ``Scattergl`` line trace per bucket (keeps trace count O(bins) regardless of edge count), plus an invisible edge-midpoint marker trace carrying the continuous weight colorbar and hover text, optional directed-edge arrowheads as data-space annotations (capped at ``_NETWORK_MAX_ARROWS``, silently skipped on axis-ref resolution failure), and a node marker trace with mpl-style area-based sizing."""
         go = _go()
 
         node_x = np.asarray(p.node_x, dtype=float)

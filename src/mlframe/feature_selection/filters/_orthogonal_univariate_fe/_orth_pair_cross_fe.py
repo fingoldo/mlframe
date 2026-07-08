@@ -64,18 +64,20 @@ def _pair_sources_from_engineered_name(name: str, raw_names):
     return None, None
 
 
-def _pair_eng_col_name(col_i: str, col_j: str, basis: str, deg_a: int, deg_b: int) -> str:
-    """Stable naming: ``"{col_i}*{col_j}__He{a}_He{b}"``.
+def _pair_eng_col_name(col_i: str, col_j: str, basis_a: str, basis_b: str, deg_a: int, deg_b: int) -> str:
+    """Stable naming: ``"{col_i}*{col_j}__He{a}_He{b}"`` when both legs share one basis code, else ``"{col_i}*{col_j}__He{a}_T{b}"`` when ``basis="auto"`` routes each column to a different family.
 
-    Both legs share the same basis code (e.g. He_a * He_b). The cross-basis
-    enumeration intentionally fixes one basis family per pair -- mixing
-    families (He_a * T_b) blows up combinatorially without measurable signal
-    gain on the standard XOR / saddle / circle targets.
+    The cross-basis enumeration intentionally fixes one basis family per pair when possible -- mixing
+    families (He_a * T_b) blows up combinatorially without measurable signal gain on the standard
+    XOR / saddle / circle targets -- but ``basis="auto"`` routes each column independently by its own
+    moments, so the two legs CAN still land on different families; the name must reflect the family
+    actually used for each leg rather than silently mislabeling leg b's basis as leg a's.
     """
     from . import _BASIS_CODE
 
-    code = _BASIS_CODE.get(basis, basis)
-    return f"{col_i}*{col_j}__{code}{deg_a}_{code}{deg_b}"
+    code_a = _BASIS_CODE.get(basis_a, basis_a)
+    code_b = _BASIS_CODE.get(basis_b, basis_b)
+    return f"{col_i}*{col_j}__{code_a}{deg_a}_{code_b}{deg_b}"
 
 
 def generate_pair_cross_basis_features(
@@ -188,7 +190,7 @@ def generate_pair_cross_basis_features(
                     if key_b not in cache:
                         cache[key_b] = _evaluate_basis_column(x_j, basis_j, deg_b)
                     h_b = cache[key_b]
-                    name = _pair_eng_col_name(col_i, col_j, basis_i if basis_i == basis_j else basis_i, deg_a, deg_b)
+                    name = _pair_eng_col_name(col_i, col_j, basis_i, basis_j, deg_a, deg_b)
                     out_cols[name] = h_a * h_b
                 except Exception as exc:
                     logger.warning(
@@ -563,6 +565,7 @@ def hybrid_orth_mi_pair_fe_with_recipes(
                 )
                 continue
             def _parse_code_deg(s: str):
+                """Split an engineered-name leg like ``He3`` into its (basis, degree) pair; try codes longest-first ("LL" before "L") to avoid mis-splitting the shorter prefix."""
                 for code in ("LL", "He", "T", "L"):
                     if s.startswith(code):
                         rest = s[len(code) :]

@@ -656,9 +656,12 @@ ignore = [
 ]
 
 [tool.ruff.lint.mccabe]
-# Advisory-first threshold: mlframe has several legitimately complex dispatch/config functions
-# (trainer setup, FE recipe builders). Start loose; tighten once the initial findings are triaged.
-max-complexity = 20
+# Raised 2026-07-09 after triage: threshold=20 flagged 246 functions (median complexity in this
+# codebase is 30 -- half the codebase would be "too complex" at 20, pure noise). threshold=40 keeps
+# 70 findings, including the genuinely pathological outliers (_fit_impl at 1227, materialise_and_
+# finalise_fe_candidates at 141, _score_one_pair at 117) without flagging routine 20-40 dispatch/
+# config functions that are complex by the nature of a config-driven ML pipeline, not by neglect.
+max-complexity = 40
 
 [tool.ruff.lint.pep8-naming]
 # F/L are the universal, ecosystem-standard aliases for torch.nn.functional / lightning

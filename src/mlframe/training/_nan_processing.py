@@ -102,7 +102,7 @@ def _process_special_values(
             # Filter to non-zero and convert to DataFrame
             nerrors_series = nerrors_series[nerrors_series > 0].sort_values(ascending=False)
             errors_df = pd.DataFrame({"column": nerrors_series.index.tolist(), "nerrors": nerrors_series.values})
-        nrows, ncols = df.shape
+        _nrows, ncols = df.shape
 
     # Log and handle errors
     if len(errors_df) > 0:
@@ -111,7 +111,7 @@ def _process_special_values(
             logger.info("\n%s", errors_df)
 
         if drop_columns:
-            cols_to_drop = errors_df["column"].to_list() if is_polars else errors_df["column"].to_list()
+            cols_to_drop = errors_df["column"].to_list()
             if cols_to_drop:
                 from .utils import filter_existing  # lazy: breaks cycle with .utils
                 # Only drop columns that actually exist in the dataframe

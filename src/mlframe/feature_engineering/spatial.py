@@ -431,7 +431,7 @@ def local_density_features(
         raise ValueError(f"need >= k+1 ({k+1}) finite refs; got {ref.shape[0]}")
     tree = KDTree(ref, leaf_size=leaf_size)
     q_clean = np.where(np.isfinite(q), q, 0.0)
-    q_k = k + 1 if (q_group_ids is not None and ref_group_ids is not None) else k + 1
+    q_k = k + 1  # overwritten below (overquery to k*4+1) when group filtering is active
     if q_group_ids is not None and ref_group_ids is not None:
         # overquery to filter same-group
         q_k = min(ref.shape[0], k * 4 + 1)
