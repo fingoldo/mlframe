@@ -588,7 +588,7 @@ def _run_fe_step(
     # spec fit in any prior iteration stays available for recipe construction. Seeded
     # from the accumulator and written back after each call; specs are keyed by
     # cols-space var index, which is stable across iterations (no cat reorder mid-fit).
-    _prewarp_specs: dict = getattr(self, "_prewarp_specs_accum_", None)
+    _prewarp_specs: dict | None = getattr(self, "_prewarp_specs_accum_", None)
     if _prewarp_specs is None:
         _prewarp_specs = {}
         self._prewarp_specs_accum_ = _prewarp_specs
@@ -609,7 +609,7 @@ def _run_fe_step(
     _multi_emit_max = int(getattr(self, "fe_multi_emit_max_per_pair", 1))
     _multi_emit_floor = float(getattr(self, "fe_multi_emit_mi_floor", 0.5))
     _multi_emit_div_corr = float(getattr(self, "fe_multi_emit_diversity_corr", 0.90))
-    _gate_med_specs: dict = getattr(self, "_gate_med_specs_accum_", None)
+    _gate_med_specs: dict | None = getattr(self, "_gate_med_specs_accum_", None)
     if _gate_med_specs is None:
         _gate_med_specs = {}
         self._gate_med_specs_accum_ = _gate_med_specs

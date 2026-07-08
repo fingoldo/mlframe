@@ -204,7 +204,7 @@ def apply_missing_indicator(
         raise TypeError(f"apply_missing_indicator: X_test must be a DataFrame; " f"got {type(X_test).__name__}")
     if col not in X_test.columns:
         raise KeyError(f"apply_missing_indicator: column {col!r} missing from X_test")
-    return X_test[col].isna().to_numpy().astype(np.int8, copy=False)
+    return np.asarray(X_test[col].isna().to_numpy().astype(np.int8, copy=False))
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +278,7 @@ def _row_pattern_signature(isna_block: np.ndarray) -> np.ndarray:
         return np.zeros(n, dtype=np.int64)
     if k <= 63:
         # Bit-pack: each column j contributes bit j. Fused njit prange avoids the two (n, k) int64 broadcast temporaries the numpy form allocates.
-        return _bitpack_rows_njit(np.ascontiguousarray(arr))
+        return np.asarray(_bitpack_rows_njit(np.ascontiguousarray(arr)))
     # Fallback: per-row tuple hash. Determinism guaranteed by sorting cols
     # caller-side before passing the block in.
     out = np.empty(n, dtype=np.int64)
