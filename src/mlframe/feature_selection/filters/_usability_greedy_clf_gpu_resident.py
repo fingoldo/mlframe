@@ -317,13 +317,13 @@ def usability_greedy_clf_gpu_resident(
             out = cp.zeros(P, dtype=cp.float64)
             m = int(M.shape[0])
             if m == 0:
-                return cp.asnumpy(out)
+                return np.asarray(cp.asnumpy(out))
             if float(resid_dev.std()) < 1e-12:
-                return cp.asnumpy(out)
+                return np.asarray(cp.asnumpy(out))
             vm = resid_dev - resid_dev.mean()
             ssv = float(cp.dot(vm, vm))
             if ssv <= 0.0:
-                return cp.asnumpy(out)
+                return np.asarray(cp.asnumpy(out))
             Mc = M - M.mean(axis=0, keepdims=True)
             num = Mc.T @ vm
             ssc = (Mc * Mc).sum(axis=0)
@@ -332,7 +332,7 @@ def usability_greedy_clf_gpu_resident(
             valid = (col_std >= 1e-12) & (ssc > 0.0) & (denom > 0.0)
             r = cp.where(valid, num / cp.where(denom > 0.0, denom, 1.0), 0.0)
             r = cp.where(cp.isfinite(r), cp.abs(r), 0.0)
-            return cp.asnumpy(r)
+            return np.asarray(cp.asnumpy(r))
 
         def _shortlist(sel_idx) -> list:
             if sel_idx:
