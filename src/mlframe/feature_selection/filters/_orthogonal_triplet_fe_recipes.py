@@ -57,7 +57,7 @@ def _apply_orth_triplet_cross(recipe: "EngineeredRecipe", X: Any) -> np.ndarray:
     h_a = _eval_orth_basis_column(vals_i, basis_i, deg_a, preprocess_params=pp_i)
     h_b = _eval_orth_basis_column(vals_j, basis_j, deg_b, preprocess_params=pp_j)
     h_c = _eval_orth_basis_column(vals_k, basis_k, deg_c, preprocess_params=pp_k)
-    return h_a * h_b * h_c
+    return np.asarray(h_a * h_b * h_c)
 
 
 def build_orth_triplet_cross_recipe(
