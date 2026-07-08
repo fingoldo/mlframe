@@ -96,7 +96,7 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0) -> bool:
     tiny = int(total_b * _TINY_CARD_CUSHION_FRACTION)
     if tiny > 0:
         cushion_b = min(cushion_b, tiny)
-    return (free_b - int(bytes_needed)) >= cushion_b
+    return bool((free_b - int(bytes_needed)) >= cushion_b)
 
 
 def ensure_fe_gpu_pool_limit() -> bool:
