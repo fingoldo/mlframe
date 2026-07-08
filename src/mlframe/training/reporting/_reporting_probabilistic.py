@@ -209,10 +209,10 @@ def report_probabilistic_model_perf(
             # bubbles to the outer except and hits the predict() fallback
             # path below -- with the same Polars fallback wrapping so we
             # don't retry into the same dispatcher miss.
-            probs = _predict_with_fallback(model, df, method="predict_proba")
+            probs = np.asarray(_predict_with_fallback(model, df, method="predict_proba"))
         except (AttributeError, TypeError, NotImplementedError):
             logger.warning("predict_proba not available for %s, using predict() instead", type(model).__name__, exc_info=True)
-            preds_fallback = _predict_with_fallback(model, df, method="predict")
+            preds_fallback = np.asarray(_predict_with_fallback(model, df, method="predict"))
 
             if model is not None and hasattr(model, "classes_"):
                 n_classes = len(model.classes_)
