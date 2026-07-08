@@ -53,7 +53,7 @@ def pool_table_use_resident(n_rows: int, npairs: int, n_combos: int) -> bool:
         choice = _POOLRES_SPEC.choose(n_rows=int(n_rows), npairs=int(pb), n_combos=int(cb))
     except Exception:
         return False
-    return choice == "resident"
+    return bool(choice == "resident")
 
 
 def _make_pooltable_inputs(dims: dict):
@@ -112,7 +112,7 @@ def _run_pooltable_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"njit": _pooltable_njit, "resident": _pooltable_resident}
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants,
         {"n_rows": _POOLRES_SWEEP_N, "npairs": _POOLRES_SWEEP_NPAIRS, "n_combos": _POOLRES_SWEEP_NCOMBOS},
         _make_pooltable_inputs,
