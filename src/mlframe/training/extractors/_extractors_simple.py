@@ -148,7 +148,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
             self.ftextractor_emitted_columns[self.ts_field] = _derived
         return df
 
-    def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Dict[str, Dict[str, Any]]:
+    def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Dict[TargetTypes, Dict[str, Any]]:
         """Build regression and classification targets from DataFrame columns.
 
         Args:
@@ -160,9 +160,11 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         Raises:
             KeyError: If a required target column is not found in the DataFrame.
         """
-        target_by_type = {}
+        target_by_type: Dict[TargetTypes, Dict[str, Any]] = {}
         is_pandas = isinstance(df, pd.DataFrame)
         is_polars = isinstance(df, pl.DataFrame)
+        if self.columns_to_drop is None:
+            self.columns_to_drop = set()
         df_columns = set(df.columns)
 
         if self.classification_targets:
@@ -303,7 +305,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         Returns:
             Dict with enabled weight schemes. Empty dict if no weighting enabled.
         """
-        weights = {}
+        weights: Dict[str, Any] = {}
 
         if self.use_uniform_weighting:
             weights["uniform"] = None
