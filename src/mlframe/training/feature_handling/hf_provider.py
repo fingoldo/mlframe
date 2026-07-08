@@ -179,7 +179,11 @@ class HuggingFaceProvider:
                 stacklevel=2,
             )
 
-        revision = params.get("revision")  # None resolves to "main"
+        # bandit B615 (unpinned from_pretrained revision): `revision` is a caller-supplied
+        # param on this general-purpose provider, not a hardcoded model reference -- callers
+        # who need supply-chain pinning pass an explicit commit SHA via params["revision"].
+        # None resolving to HF's "main" is the documented, expected default for this API.
+        revision = params.get("revision")  # nosec B615
         device = _resolve_device(params.get("device", "auto"))
         dtype_str = params.get("dtype", "fp16")
         torch_dtype = torch.float16 if dtype_str == "fp16" else torch.float32

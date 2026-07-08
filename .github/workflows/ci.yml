@@ -213,6 +213,37 @@ jobs:
         run: uvx ruff check src/mlframe
         continue-on-error: true
 
+      # Advisory-only: cyclomatic complexity (mccabe). Not a blocking gate -- at ruff's
+      # default threshold this repo has ~850 findings, dominated by the monolith files
+      # CLAUDE.md's "Build new code in focused submodules" section already tracks
+      # (_fit_impl_core, _mrmr_class). This makes that existing carve-before-900-LOC
+      # discipline measurable rather than adding a new hard requirement.
+      - name: Ruff mccabe complexity (advisory)
+        run: uvx ruff check src/mlframe --select C90 --statistics
+        continue-on-error: true
+
+      # Advisory: prose typo scan. This codebase carries an unusually large volume of
+      # long inline rationale comments (CLAUDE.md's 160-char-comment convention) --
+      # real hit-surface for genuine typos. codespell-ignore-words-list below seeds
+      # legitimate ML/numeric jargon that would otherwise false-positive.
+      - name: Codespell (advisory)
+        run: uvx codespell src/mlframe --ignore-words-list=nd,hist,te,ith,ba,thi,fpr,tre
+        continue-on-error: true
+
+      # deptry NOT wired in as a CI step yet: a local dry run against [tool.deptry] below
+      # produced ~37k DEP001 findings, dominated by PyPI-name-vs-import-name mismatches
+      # (scikit-learn -> sklearn, etc.) deptry needs an explicit package_module_name_map
+      # for -- broken signal, not advisory noise. [tool.deptry] config is left in
+      # pyproject.toml so `uvx deptry .` is available for a deliberate local tuning pass;
+      # add the CI step once that mapping exists and the finding count is sane.
+
+      # Advisory: general YAML style/schema hygiene, complementary to actionlint's
+      # GH-Actions-semantic checks (contexts, expressions) which don't cover generic
+      # indentation/duplicate-key/trailing-whitespace issues.
+      - name: yamllint workflow files (advisory)
+        run: uvx yamllint .github/workflows .pre-commit-config.yaml
+        continue-on-error: true
+
       # MyPy strict-mode beachhead moved to its own workflow (mypy.yml) so it gets
       # an independent, honest badge instead of being buried as a step inside this
       # combined lint job.

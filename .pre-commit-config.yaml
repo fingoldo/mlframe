@@ -69,11 +69,20 @@ repos:
   # Black: formatting pass with line-length=160 (project standard, see
   # [tool.black] in pyproject.toml). target-version matches setup.cfg /
   # pyproject (py39-py313).
+  #
+  # MANUAL-stage only, same as the ruff auto-fixers above: raw/unfiltered black
+  # applies two diff classes the project explicitly excludes (arg/collection-list
+  # explosion, blank-line insertion -- see CLAUDE.md "Black repo-wide reformat").
+  # Missing `stages: [manual]` here previously meant this hook ran on every
+  # commit and would silently reapply both excluded classes. Use
+  # `scripts/black_filtered_apply.py --write <files>` for the sanctioned,
+  # filtered formatting pass instead of `pre-commit run --hook-stage manual black`.
   - repo: https://github.com/psf/black
     rev: 25.1.0
     hooks:
       - id: black
         language_version: python3
+        stages: [manual]
 
   # Mypy: scoped strictly to src/mlframe/calibration/ (the Wave 5 strict
   # beachhead per [tool.mypy.overrides] in pyproject.toml). Expanding this

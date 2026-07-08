@@ -485,7 +485,11 @@ show_missing = true
 skips = ["B101"]
 
 # ---------------------------------------------------------------------------
-# Deptry (unused / missing / transitive dependency scan, advisory)
+# Deptry (unused / missing / transitive dependency scan). NOT wired into CI yet -- a local
+# `uvx deptry .` dry run (2026-07-08) produced ~37k DEP001 findings, almost entirely PyPI-name
+# vs. import-name mismatches (e.g. scikit-learn -> sklearn) deptry needs an explicit
+# [tool.deptry.package_module_name_map] for. Config kept here so the tool is available for a
+# deliberate local tuning pass; see the ci.yml lint job comment for the deferred-CI-step note.
 # ---------------------------------------------------------------------------
 [tool.deptry]
 exclude = ["tests", "scripts", "legacy", "benchmarks", "_benchmarks", "profiling", ".venv", "build", "dist"]
