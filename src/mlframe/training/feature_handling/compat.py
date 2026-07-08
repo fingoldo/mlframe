@@ -199,12 +199,12 @@ def validate_fhc_handlers(
                 )
             except ValueError as e:
                 errors.append(f"  - {model_kind} text: {e}")
-        for spec in cat_specs_per_model.get(model_kind, []):
+        for cat_spec in cat_specs_per_model.get(model_kind, []):
             try:
                 validate_handler_for_model(
                     model_kind=model_kind,
                     axis=Axis.CAT,
-                    method=spec.method,
+                    method=cat_spec.method,
                 )
             except ValueError as e:
                 errors.append(f"  - {model_kind} cat: {e}")

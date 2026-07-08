@@ -97,7 +97,7 @@ class LearnableEmbeddingParams(FrozenEmbeddingParams):
     rejects it elsewhere.
     """
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["learnable_text_embedding"] = "learnable_text_embedding"
+    kind: Literal["learnable_text_embedding"] = "learnable_text_embedding"  # type: ignore[assignment]  # intentional discriminator override for this pydantic subclass
     finetune_lr_mult: float = 0.1
 
 

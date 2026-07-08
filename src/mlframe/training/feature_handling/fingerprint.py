@@ -385,10 +385,10 @@ def fingerprint_df(
                         h_outer = xxhash.xxh3_64()
                         for c in cols_sorted:
                             try:
-                                buf = sub[c].to_numpy().tobytes()
+                                col_bytes = sub[c].to_numpy().tobytes()
                             except Exception:
-                                buf = str(sub[c].to_list()).encode("utf-8")
-                            h_outer.update(xxhash.xxh3_64(buf).digest())
+                                col_bytes = str(sub[c].to_list()).encode("utf-8")
+                            h_outer.update(xxhash.xxh3_64(col_bytes).digest())
                         payload_parts.append(h_outer.digest())
                     else:
                         # xxhash-absent pandas fallback. CSV-encoding

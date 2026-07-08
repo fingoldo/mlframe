@@ -201,6 +201,7 @@ class TextColumnEncoder:
         texts = _column_to_string_iter(df, self.column)
         # sklearn's TfidfVectorizer.transform / HashingVectorizer.transform
         # both return scipy.sparse.csr_matrix.
+        assert self._vectorizer is not None, "TextColumnEncoder: _vectorizer must be fitted before transform"
         return self._vectorizer.transform(texts)
 
     def fit_transform(self, train_df: Any) -> sp.csr_matrix:

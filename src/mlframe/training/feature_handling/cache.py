@@ -206,6 +206,7 @@ class FeatureCache:
         # 4. Store
         write_xref = self._cfg.persistence in ("auto", "read_write") and disk_key is not None
         if write_xref:
+            assert disk_key is not None  # guaranteed by the write_xref construction above
             self._write_to_disk(disk_key, value)
         self._insert_in_memory(
             in_mem_key, value, recompute_time_s=recompute_time_s,

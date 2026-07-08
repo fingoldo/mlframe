@@ -215,7 +215,7 @@ class EmbeddingProvider(BaseModel):
         model_part = unquote(model_part)
         if not model_part:
             raise ValueError(f"empty model name in URI {uri!r}")
-        return cls(kind=kind, model=model_part, params=params)
+        return cls(kind=kind, model=model_part, params=params)  # type: ignore[arg-type]  # kind is resolved from _URI_KIND_ALIAS, whose values are always one of the Literal set
 
     # ------------------------------------------------------------------
     # Signature
