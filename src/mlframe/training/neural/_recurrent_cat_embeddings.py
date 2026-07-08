@@ -81,6 +81,8 @@ class _RecurrentCatEmbeddingMixin:
         code_maps = getattr(self, "_cat_code_maps_", None)
         if not code_maps or features is None or not hasattr(features, "columns"):
             return features
+        if self._cat_cols_ is None or self._cat_cardinalities_ is None:
+            return features
         encoded_cols: dict = {}
         for col, card in zip(self._cat_cols_, self._cat_cardinalities_):
             if col not in features.columns:
@@ -165,4 +167,4 @@ class _RecurrentCatEmbeddingMixin:
                 _update(str(seq.shape).encode())
                 _update(seq.dtype.str.encode())
                 _update(_arr.tobytes())
-        return _digest()
+        return bytes(_digest())

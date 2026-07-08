@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -91,7 +92,7 @@ class RecurrentDataset(Dataset):
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         item: dict[str, torch.Tensor] = {"labels": self.labels[idx]}
 
-        if self._has_sequences:
+        if self._has_sequences and self.sequences is not None:
             # F-H fix (2026-05-31, audit follow-up): torch.as_tensor on a
             # contiguous float32 numpy array does a ZERO-COPY view that
             # shares storage with self.sequences[idx]. If ANY downstream
@@ -233,8 +234,8 @@ class RecurrentDataModule(LightningDataModule):
         self._pin_memory = torch.cuda.is_available() and accelerator in ("auto", "gpu", "cuda")
 
         # For dynamic prediction
-        self.predict_sequences = None
-        self.predict_features = None
+        self.predict_sequences: list[np.ndarray] | None = None
+        self.predict_features: np.ndarray | None = None
 
     def _worker_kwargs(self) -> dict:
         """F-52: extra DataLoader kwargs that only apply when num_workers > 0.
@@ -264,6 +265,8 @@ class RecurrentDataModule(LightningDataModule):
 
     def train_dataloader(self) -> DataLoader:
         """Return training DataLoader."""
+        if self.train_labels is None:
+            raise ValueError("train_dataloader() requires train_labels to be set.")
         dataset = RecurrentDataset(
             sequences=self.train_sequences,
             aux_features=self.train_features,
@@ -288,7 +291,7 @@ class RecurrentDataModule(LightningDataModule):
                 label_to_weight = {int(lbl): 1.0 / int(cnt) for lbl, cnt in zip(unique_labels, class_counts)}
                 sample_weights = np.array([label_to_weight[int(lbl)] for lbl in labels], dtype=np.float64)
                 sampler = WeightedRandomSampler(
-                    weights=sample_weights,
+                    weights=cast(Any, sample_weights),
                     num_samples=len(dataset),
                     replacement=True,
                 )
@@ -364,8 +367,10 @@ class RecurrentDataModule(LightningDataModule):
         # in that case returns the wrong length or AttributeError when features is None.
         if self.predict_sequences is not None:
             n_samples = len(self.predict_sequences)
-        else:
+        elif self.predict_features is not None:
             n_samples = len(self.predict_features)
+        else:
+            raise ValueError("predict_dataloader() requires predict_sequences or predict_features to be set.")
         dummy_labels = np.zeros(n_samples, dtype=np.float32 if self.is_regression else np.int64)
 
         dataset = RecurrentDataset(
