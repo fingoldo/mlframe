@@ -44,7 +44,7 @@ __all__ = [
 ]
 
 import math
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -365,7 +365,7 @@ def _per_group_anchor_loop(
     label: np.ndarray,
     is_anchor: np.ndarray,
     group_ids: Optional[np.ndarray],
-    per_segment_fn,
+    per_segment_fn: Callable[..., dict],
 ) -> dict:
     """Shared per-group dispatch for the anchor-feature family."""
     label = np.ascontiguousarray(label, dtype=np.float64)
@@ -387,7 +387,7 @@ def _per_group_anchor_loop(
     return out_keys
 
 
-def _run_anchor_numba_2out(label, is_anchor, group_ids, runner, key1, key2):
+def _run_anchor_numba_2out(label, is_anchor, group_ids, runner, key1, key2) -> dict:
     """Per-group dispatch for a 2-output numba anchor core. ``runner`` is a
     closure ``(seg_label, seg_anchor, out1_slice, out2_slice) -> None`` that
     invokes the njit core with its captured K / half-life / window params.

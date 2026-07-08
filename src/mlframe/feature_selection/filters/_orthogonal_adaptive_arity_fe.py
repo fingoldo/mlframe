@@ -217,7 +217,7 @@ def generate_adaptive_arity_cross_basis(
     tuple_best: dict[int, dict[frozenset, tuple[float, tuple[int, ...], str, np.ndarray]]] = {k: {} for k in range(2, max_arity + 1)}
 
     def _all_deg_combos(k: int) -> list[tuple[int, ...]]:
-        combos = [()]
+        combos: list[tuple[int, ...]] = [()]
         for _ in range(k):
             combos = [c + (d,) for c in combos for d in range(1, max_d + 1)]
         return combos
@@ -444,6 +444,7 @@ def score_adaptive_arity_cross_basis(
         raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins)
         raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
         eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
+    assert raw_mi_map is not None  # set by either the device-born path or the host fallback above
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
         head = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
