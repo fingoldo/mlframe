@@ -91,10 +91,10 @@ def _run_perm_kernel_sweep() -> list:
     variants = {"cpu_serial": _cpu_serial, "cpu_parallel": _cpu_parallel}
     if _CUPY_AVAIL:
         def _gpu(*a):
-            return _count_nfailed_joint_indep_cupy(*a, base_seed=_seed)
+            return _count_nfailed_joint_indep_cupy(*a, base_seed=_seed)  # type: ignore[misc]  # mypy can't count *a's arity (10 positional args from _make_perm_kernel_inputs); verified correct at runtime
         variants["cupy"] = _gpu
 
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants,
         {"n_samples": _PERM_SWEEP_N_SAMPLES, "n_perms": _PERM_SWEEP_N_PERMS_GRID},
         _make_perm_kernel_inputs,
