@@ -151,9 +151,9 @@ def mine_mi(
     mi_trace = []
     for epoch in range(int(n_epochs)):
         # Sample joint (x, y) and marginal (x, y_shuffled).
-        idx = torch.randperm(n, device=dev)[:effective_batch]
-        x_b = x_t[idx]
-        y_b = y_t[idx]
+        idx_t = torch.randperm(n, device=dev)[:effective_batch]
+        x_b = x_t[idx_t]
+        y_b = y_t[idx_t]
         idx_shuf = torch.randperm(effective_batch, device=dev)
         y_shuf = y_b[idx_shuf]
         joint = torch.cat([x_b, y_b], dim=1)
@@ -213,7 +213,7 @@ _INFONET_CACHE_DIR = Path(os.environ.get(
     "MLFRAME_INFONET_CACHE",
     str(Path.home() / ".cache" / "mlframe" / "infonet"),
 ))
-_INFONET_MODEL_CACHE = {}
+_INFONET_MODEL_CACHE: dict = {}
 # Guards the lazy double-checked init of the neural-MI model / calibration caches below: without it two
 # threads missing concurrently both run the (slow, side-effectful) load/calibration and race the dict write.
 # Reentrant because the calibration path acquires it and then calls _get_mist_hf_model, which re-acquires.
@@ -321,7 +321,7 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
 # =============================================================================
 
 
-_MIST_MODEL_CACHE = {}  # loss -> MISTForHF (one-time download + load)
+_MIST_MODEL_CACHE: dict = {}  # loss -> MISTForHF (one-time download + load)
 
 
 def _get_mist_hf_model(loss: str = "mse", device: str = "auto"):
@@ -353,7 +353,7 @@ def _get_mist_hf_model(loss: str = "mse", device: str = "auto"):
         return model
 
 
-_MIST_CALIBRATION_CACHE = {}
+_MIST_CALIBRATION_CACHE: dict = {}
 
 
 def _calibrate_mist(device: str = "auto", N: int = 2000, seed: int = 42, n_calibration_per_rho: int = 3, y_kind: str = "continuous") -> tuple:
@@ -379,11 +379,11 @@ def _calibrate_mist(device: str = "auto", N: int = 2000, seed: int = 42, n_calib
     """
     cache_key = (device, y_kind)
     if cache_key in _MIST_CALIBRATION_CACHE:
-        return _MIST_CALIBRATION_CACHE[cache_key]
+        return tuple(_MIST_CALIBRATION_CACHE[cache_key])
     with _NEURAL_MI_CACHE_LOCK:
         if cache_key in _MIST_CALIBRATION_CACHE:
-            return _MIST_CALIBRATION_CACHE[cache_key]
-        return _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho, y_kind)
+            return tuple(_MIST_CALIBRATION_CACHE[cache_key])
+        return tuple(_compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho, y_kind))
 
 
 def _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho, y_kind) -> tuple:
