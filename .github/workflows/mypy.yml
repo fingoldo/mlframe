@@ -24,14 +24,19 @@ jobs:
 
       # Mirrors the pre-commit mypy hook's strict-mode beachhead (see
       # [tool.mypy.overrides] in pyproject.toml) so a commit that passes locally
-      # cannot silently regress once pushed. numpy pinned <2.5 to match the
-      # pre-commit hook's additional_dependencies -- 2.5+'s bundled .pyi stubs use
-      # PEP 695 `type` statements that mypy rejects under python_version="3.10"
-      # ("Type statement is only supported in Python 3.12 and greater"), and
-      # uvx --with resolves unpinned deps fresh each run.
+      # cannot silently regress once pushed. Every dep here (including mypy
+      # itself) is EXACT-pinned, not range-pinned: `uvx --with` re-resolves
+      # "latest compatible" fresh on every single run with no lockfile, so an
+      # unpinned range (even "numpy<2.5") drifts silently over time and made
+      # this gate genuinely flaky -- the exact same source could pass or fail
+      # purely depending on what happened to resolve that moment (observed
+      # 2026-07-08: identical command gave 178 errors in CI but 0 locally,
+      # traced to a different numpy/scipy/scikit-learn/pydantic/mypy
+      # combination each side resolved). Versions below match the project's
+      # real dev env (confirmed clean against these exact files/dirs).
       - name: MyPy (strict-mode beachhead)
         run: >
-          uvx --with "numpy<2.5" --with scipy --with scikit-learn --with pydantic mypy
+          uvx --with "numpy==2.3.5" --with "scipy==1.17.1" --with "scikit-learn==1.8.0" --with "pydantic==2.13.4" mypy==2.1.0
           src/mlframe/system/_gpu_guard.py
           src/mlframe/metrics/_numba_params.py
           src/mlframe/metrics/rank_correlation.py
