@@ -67,7 +67,7 @@ def _reporting_field_default(field_name: str):
 try:
     from IPython.display import display as _ipython_display
 except ImportError:  # pragma: no cover
-    _ipython_display = None
+    _ipython_display = None  # type: ignore[assignment]
 
 
 def _maybe_display(obj):
@@ -103,7 +103,7 @@ def _frame_to_text(obj) -> Optional[str]:
     if not callable(to_string):
         return None
     try:
-        return to_string()
+        return str(to_string())
     except Exception:
         return None
 
@@ -126,7 +126,7 @@ def _style_with_caption(df, caption: str):
         return df
 
 
-def _labels_are_arange(classes: Sequence | None, probs: np.ndarray) -> bool:
+def _labels_are_arange(classes: Sequence | np.ndarray | None, probs: np.ndarray) -> bool:
     """True when class labels are exactly 0..K-1, so the batched-kernel per-class ICE
     (indicator ``targets == column_index``) is bit-identical to the report's per-class
     recompute (``targets == class_name``) and can be indexed by class_id. Non-0-indexed
@@ -171,13 +171,13 @@ def _canonical_multilabel_y(targets) -> np.ndarray:
             except Exception:
                 # Unstackable (jagged / mixed shape) — leave as-is so the
                 # caller's exception path surfaces the underlying issue.
-                return targets_arr
+                return np.asarray(targets_arr)
 
     # Coerce float-indicator multilabel to int via threshold.
     if targets_arr.ndim == 2 and targets_arr.dtype.kind == "f":
         targets_arr = (targets_arr >= 0.5).astype(np.int64)
 
-    return targets_arr
+    return np.asarray(targets_arr)
 
 
 def _unwrap_booster(model: Any) -> Any:
@@ -390,7 +390,7 @@ def report_model_perf(
         fi_kwargs = {}
 
     # Common parameters shared by both classification and regression
-    common_params = dict(
+    common_params: dict[str, Any] = dict(
         targets=targets,
         columns=columns,
         model_name=model_name,
