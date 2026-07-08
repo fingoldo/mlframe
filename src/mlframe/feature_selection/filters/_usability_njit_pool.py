@@ -670,7 +670,7 @@ def _run_usability_sweep() -> list:
     # GPU sort/bincount/log reassociate at the last bit -> the per-combo MI agrees with the CPU njit
     # to fp64 round-off, not bit-for-bit. The retention ranking only needs the ORDER preserved, so a
     # loosened equiv tol on the GPU cell is the documented deviation (see the GPU section docstring).
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants,
         {"n_rows": list(_USABILITY_SWEEP_ROWS), "n_combos": list(_USABILITY_SWEEP_COMBOS)},
         _make_usability_inputs,
@@ -711,7 +711,7 @@ def _usability_backend_choice(n_rows: int, n_combos: int) -> str:
     if forced == "gpu":
         return "gpu"
     try:
-        return _USABILITY_PARALLELISM_SPEC.choose(n_rows=int(n_rows), n_combos=int(n_combos))
+        return str(_USABILITY_PARALLELISM_SPEC.choose(n_rows=int(n_rows), n_combos=int(n_combos)))
     except Exception:
         return _usability_fallback_choice(int(n_rows), int(n_combos))
 
