@@ -108,6 +108,7 @@ def prewarm_numba_cache():
 
 
 def _prewarm_numba_cache_body():
+    """Trigger JIT compilation of every numba-backed metric kernel by importing them (module-level ``@njit`` decoration compiles on first import/call), while kicking off the loky physical-core-count probe on a background thread so its ~1.5s wmic subprocess overlaps the JIT wait instead of stacking after it."""
     from .core import (
         fast_roc_auc, fast_aucs, fast_calibration_binning, fast_calibration_metrics,
         brier_score_loss, fast_brier_score_loss, fast_log_loss,
@@ -139,6 +140,7 @@ def _prewarm_numba_cache_body():
         import threading
 
         def _kick_cpu_count():
+            """Background-thread prefetch of joblib's cached physical-core-count probe so its cost overlaps the numba JIT warmup instead of being paid later on the suite's first ``cpu_count()`` call."""
             try:
                 from joblib.parallel import cpu_count as _cc
                 _cc()

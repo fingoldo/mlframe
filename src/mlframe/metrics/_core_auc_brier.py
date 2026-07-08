@@ -369,10 +369,12 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray):
             y_base = np.ascontiguousarray(y_int.astype(np.int64))
 
             def _resampler_grouped(idx: np.ndarray) -> float:
+                """Fast bootstrap AUC resampler for tied scores: groups by distinct score value so ties are counted correctly without re-sorting the resampled indices."""
                 return float(_fused_resample_auc_grouped(idx, group_of_base, y_base, ngroups))
             return _resampler_grouped
 
         def _resampler_exact(idx: np.ndarray) -> float:
+            """Fallback bootstrap AUC resampler: recomputes AUC exactly on the resampled (index-gathered) y_true/y_score, used when the fast fused path isn't applicable."""
             return fast_roc_auc_unstable(y_true[idx], y_score[idx])
         return _resampler_exact
 
@@ -383,6 +385,7 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray):
     y_by_rank = np.ascontiguousarray(y_true[asc_order].astype(np.int64))
 
     def _resampler_fast(idx: np.ndarray) -> float:
+        """Fast bootstrap AUC resampler for the no-ties case: reuses the pre-computed base ranking so each resample avoids a fresh full sort."""
         return float(_fused_resample_auc(idx, base_rank, y_by_rank, n))
 
     return _resampler_fast
@@ -826,6 +829,7 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_brier_score_loss_seq(y_true: np.ndarray, y_prob: np.ndarray) -> float:
+    """Sequential Brier score (mean squared error between labels and predicted probabilities); the small-N counterpart of ``_fast_brier_score_loss_par``."""
     return float(np.mean((y_true - y_prob) ** 2))
 
 

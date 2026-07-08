@@ -118,6 +118,7 @@ _TWEEDIE_WARN_SEEN: set = set()
 
 
 def _maybe_warn_tweedie(name: str, invalid: int, total: int) -> None:
+    """Emit a once-per-(name, invalid, total) RuntimeWarning when a Tweedie/Poisson/Gamma deviance skipped out-of-support rows; deduped via ``_TWEEDIE_WARN_SEEN`` so repeated calls with the same counts don't spam."""
     if invalid <= 0:
         return
     key = (name, int(invalid), int(total))

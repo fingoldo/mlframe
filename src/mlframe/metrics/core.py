@@ -1,3 +1,5 @@
+"""Shared helpers for the metrics package: optional plotly import gate for interactive plot paths."""
+
 from __future__ import annotations
 
 import logging

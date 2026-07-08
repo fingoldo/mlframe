@@ -33,6 +33,7 @@ def apply_cutpoints(y_pred: np.ndarray, thresholds: np.ndarray, n_classes: int) 
 
 
 def _score(y_true, labels, n_classes, metric):
+    """Evaluate the requested objective (QWK or plain accuracy) of digitized ``labels`` against ``y_true``."""
     if metric == "qwk":
         return quadratic_weighted_kappa(y_true, labels, n_classes=n_classes)
     return float(np.mean(labels == y_true))
@@ -107,6 +108,7 @@ def optimal_ordinal_cutpoints(
         from scipy.optimize import minimize
 
         def neg(t):
+            """Negated objective for scipy's minimizer (Powell maximizes nothing, so flip the sign)."""
             return -_score(yt, apply_cutpoints(yp, t, n_classes), n_classes, metric)
 
         res = minimize(neg, thr, method="Powell")

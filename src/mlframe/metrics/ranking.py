@@ -548,6 +548,7 @@ def _nan_mean_seq(vals: np.ndarray) -> float:
 
 
 def _nan_mean(vals: np.ndarray) -> float:
+    """Plain-float wrapper around the njit ``_nan_mean_seq`` kernel, for callers that don't need the numba-typed return."""
     return float(_nan_mean_seq(vals))
 
 

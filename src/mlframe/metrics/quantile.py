@@ -95,6 +95,7 @@ if _NUMBA_AVAILABLE:
 
     @numba.njit(**_NJIT_KW)
     def _fast_coverage(y: np.ndarray, q_lo: np.ndarray, q_hi: np.ndarray) -> float:
+        """Fraction of rows where ``y`` falls within [q_lo, q_hi] inclusive; 0.0 on empty input."""
         n = y.shape[0]
         if n == 0:
             return 0.0
@@ -180,18 +181,22 @@ if _NUMBA_AVAILABLE:
 else:
     # Numpy fallbacks (slow path; identical contract).
     def _fast_pinball(y, q, alpha):
+        """Numpy fallback for the njit ``_fast_pinball``: mean pinball (quantile) loss at a single alpha."""
         e = y - q
         return float(np.mean(np.maximum(alpha * e, (alpha - 1.0) * e)))
 
     def _fast_pinball_per_alpha(y, P, alphas):
+        """Numpy fallback for the njit ``_fast_pinball_per_alpha``: mean pinball loss per alpha column of ``P``."""
         e = y[:, None] - P
         out = np.maximum(alphas[None, :] * e, (alphas[None, :] - 1.0) * e)
         return out.mean(axis=0)
 
     def _fast_coverage(y, q_lo, q_hi):
+        """Numpy fallback for the njit ``_fast_coverage``: fraction of rows with ``y`` inside [q_lo, q_hi]."""
         return float(np.mean((y >= q_lo) & (y <= q_hi)))
 
     def _fast_winkler(y, q_lo, q_hi, alpha_miscov):
+        """Numpy fallback for the njit ``_fast_winkler``: mean Winkler interval score."""
         width = q_hi - q_lo
         below = (y < q_lo) * (2.0 / max(alpha_miscov, 1e-12)) * (q_lo - y)
         above = (y > q_hi) * (2.0 / max(alpha_miscov, 1e-12)) * (y - q_hi)

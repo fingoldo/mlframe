@@ -26,6 +26,7 @@ _METRIC_CODE = {m: i for i, m in enumerate(THRESHOLD_METRICS)}
 
 @njit(fastmath=False, cache=True, nogil=True)
 def _score_from_counts(tp: float, fp: float, tn: float, fn: float, code: int) -> float:
+    """Compute one of ``THRESHOLD_METRICS`` (selected by its integer ``code``, matching ``_METRIC_CODE``) from confusion-matrix counts at a single threshold; degenerate zero-denominator cases return 0.0 rather than raising."""
     if code == 0:  # f1
         denom = 2.0 * tp + fp + fn
         return 2.0 * tp / denom if denom > 0.0 else 0.0
