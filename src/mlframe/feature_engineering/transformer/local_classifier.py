@@ -124,7 +124,7 @@ def compute_local_classifier_features(
     ridge: float = 0.1,
     standardize: bool = True,
     column_prefix: str = "loccls",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Locally-weighted classifier (binary) or regressor (regression) features per row.
 
@@ -206,10 +206,10 @@ def compute_local_classifier_features(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out_f1 = np.zeros(n_train, dtype=dtype)
-    out_f2 = np.zeros(n_train, dtype=dtype)
-    out_f3 = np.zeros(n_train, dtype=dtype)
-    out_f4 = np.zeros(n_train, dtype=dtype)
+    out_f1: np.ndarray = np.zeros(n_train, dtype=dtype)
+    out_f2: np.ndarray = np.zeros(n_train, dtype=dtype)
+    out_f3: np.ndarray = np.zeros(n_train, dtype=dtype)
+    out_f4: np.ndarray = np.zeros(n_train, dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         f1, f2, f3, f4 = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx])

@@ -31,7 +31,7 @@ def build_random_projections(
     n_heads: int,
     head_dim: int,
     seed: int,
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> np.ndarray:
     """Construct ``n_heads`` independent random Gaussian projection matrices.
 
@@ -48,7 +48,7 @@ def build_random_projections(
     scale = float(1.0 / np.sqrt(head_dim))
     ss = np.random.SeedSequence(seed)
     head_seeds = ss.spawn(n_heads)
-    out = np.empty((n_heads, d_input, head_dim), dtype=dtype)
+    out: np.ndarray = np.empty((n_heads, d_input, head_dim), dtype=dtype)
     # Generate in float64 then downcast once at the end; ``standard_normal(dtype=...)`` only supports float32/64 across all numpy versions we care about, but
     # generating in float64 then converting keeps the code uniform across fp16/fp32/fp64 outputs and the cost (~10% extra compute) is dwarfed by downstream use.
     for h, hs in enumerate(head_seeds):
@@ -65,7 +65,7 @@ def build_importance_weighted_projection(
     n_heads: int,
     head_dim: int,
     seed: int,
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
     aux_n_estimators: int = 50,
     aux_max_depth: int = 4,
 ) -> np.ndarray:
@@ -111,10 +111,10 @@ def build_importance_weighted_projection(
     scale = float(1.0 / np.sqrt(head_dim))
     ss = np.random.SeedSequence(seed)
     head_seeds = ss.spawn(n_heads)
-    out = np.empty((n_heads, d_input, head_dim), dtype=dtype)
+    out: np.ndarray = np.empty((n_heads, d_input, head_dim), dtype=dtype)
     for h, hs in enumerate(head_seeds):
         rng_h = np.random.default_rng(hs)
-        samples = rng_h.standard_normal((d_input, head_dim)).astype(dtype, copy=False)
+        samples: np.ndarray = rng_h.standard_normal((d_input, head_dim)).astype(dtype, copy=False)
         # Row-wise scaling: each input column j's projection direction is scaled by sqrt(w_j).
         samples = samples * weights[:, None]
         samples *= scale
@@ -128,7 +128,7 @@ def build_shap_weighted_projection(
     n_heads: int,
     head_dim: int,
     seed: int,
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
     aux_n_estimators: int = 50,
     aux_max_depth: int = 4,
     shap_subsample: int = 500,
@@ -177,10 +177,10 @@ def build_shap_weighted_projection(
     scale = float(1.0 / np.sqrt(head_dim))
     ss = np.random.SeedSequence(seed)
     head_seeds = ss.spawn(n_heads)
-    out = np.empty((n_heads, d_input, head_dim), dtype=dtype)
+    out: np.ndarray = np.empty((n_heads, d_input, head_dim), dtype=dtype)
     for h, hs in enumerate(head_seeds):
         rng_h = np.random.default_rng(hs)
-        samples = rng_h.standard_normal((d_input, head_dim)).astype(dtype, copy=False)
+        samples: np.ndarray = rng_h.standard_normal((d_input, head_dim)).astype(dtype, copy=False)
         samples = samples * weights[:, None]
         samples *= scale
         out[h] = samples
@@ -193,7 +193,7 @@ def build_nca_projection(
     n_heads: int,
     head_dim: int,
     seed: int,
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
     nca_max_iter: int = 50,
     head_noise_scale: float = 0.05,
     q_high: float = 0.8,
@@ -260,7 +260,7 @@ def build_nca_projection(
     # NCA's transformation_ is the learned W: shape (n_components, d_input). We want (d_input, head_dim) to be consistent with build_random_projections.
     W_base = nca.components_.T.astype(dtype)  # (d_input, n_components_eff)
     if W_base.shape[1] < head_dim:
-        padded = np.zeros((d_input, head_dim), dtype=dtype)
+        padded: np.ndarray = np.zeros((d_input, head_dim), dtype=dtype)
         padded[:, : W_base.shape[1]] = W_base
         W_base = padded
 
@@ -268,7 +268,7 @@ def build_nca_projection(
     scale = float(1.0 / np.sqrt(head_dim))
     ss = np.random.SeedSequence(seed)
     head_seeds = ss.spawn(n_heads)
-    out = np.empty((n_heads, d_input, head_dim), dtype=dtype)
+    out: np.ndarray = np.empty((n_heads, d_input, head_dim), dtype=dtype)
     for h, hs in enumerate(head_seeds):
         rng_h = np.random.default_rng(hs)
         noise = rng_h.standard_normal((d_input, head_dim)).astype(dtype, copy=False) * head_noise_scale * scale
@@ -282,7 +282,7 @@ def build_supervised_projections_pls(
     n_heads: int,
     head_dim: int,
     seed: int,
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
     noise_scale: float = 0.05,
 ) -> np.ndarray:
     """Target-aware projection matrices via partial least squares (PLS).
@@ -332,11 +332,11 @@ def build_supervised_projections_pls(
     # Per-head noise perturbation. Noise scale relative to per-column std (which is ~1/sqrt(d_input) for normalised PLS columns).
     ss = np.random.SeedSequence(seed)
     head_seeds = ss.spawn(n_heads)
-    out = np.empty((n_heads, d_input, head_dim), dtype=dtype)
+    out: np.ndarray = np.empty((n_heads, d_input, head_dim), dtype=dtype)
     noise_std = float(noise_scale / np.sqrt(d_input))
     for h, hs in enumerate(head_seeds):
         rng_h = np.random.default_rng(hs)
-        noise = (rng_h.standard_normal((d_input, head_dim)) * noise_std).astype(dtype, copy=False)
+        noise: np.ndarray = (rng_h.standard_normal((d_input, head_dim)) * noise_std).astype(dtype, copy=False)
         # Combine base + noise, then re-normalise so each column is unit-norm again.
         perturbed = base_proj + noise
         perturbed_norms = np.linalg.norm(perturbed, axis=0, keepdims=True)

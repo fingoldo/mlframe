@@ -96,7 +96,7 @@ def compute_focal_lgb_features(
     n_estimators: int = 300,
     max_depth: int = 5,
     column_prefix: str = "focal",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Focal-loss LightGBM predictions as features for downstream boostings.
 
@@ -127,8 +127,8 @@ def compute_focal_lgb_features(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out_proba = np.zeros(n_train, dtype=dtype)
-    out_logit = np.zeros(n_train, dtype=dtype)
+    out_proba: np.ndarray = np.zeros(n_train, dtype=dtype)
+    out_logit: np.ndarray = np.zeros(n_train, dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         X_tr = X_train_f[train_idx]

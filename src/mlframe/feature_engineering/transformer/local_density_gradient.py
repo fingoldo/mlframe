@@ -57,7 +57,7 @@ def compute_local_density_gradient_features(
     k_neighbors: int = 32,
     standardize: bool = True,
     column_prefix: str = "ldgrad",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Local density gradient features.
 
@@ -172,7 +172,7 @@ def compute_local_density_gradient_features(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_features), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_features), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx])

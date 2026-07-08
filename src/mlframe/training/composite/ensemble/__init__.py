@@ -392,7 +392,7 @@ def _compute_oof_with_external_holdout(
             _surviving_n, _total_n, _total_n - _surviving_n, _dropped,
         )
     if not holdout_cols:
-        _empty = (np.zeros((0, 0)), np.zeros(0), [])
+        _empty: np.ndarray = (np.zeros((0, 0)), np.zeros(0), [])
         if full_key is not None:
             _oof_cache_put(full_key, _empty)
         return _empty
@@ -664,7 +664,7 @@ def compute_oof_holdout_predictions(
                 buf[fold_holdout_idx] = preds
         if not oof_preds_by_name or not survived_set:
             # Shape consistency -- match the (0, 0) tiny-data short-circuit. No components survived.
-            _empty = (np.zeros((0, 0)), np.zeros(0), [])
+            _empty: np.ndarray = (np.zeros((0, 0)), np.zeros(0), [])
             if _full_key is not None:
                 _oof_cache_put(_full_key, _empty)
             return _empty

@@ -141,7 +141,7 @@ def compute_rf_proximity_attention(
     k: int = 32,
     softmax_temp: float = 1.0,
     column_prefix: str = "rfprox",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """RF/GBDT-proximity attention features.
 
@@ -181,8 +181,8 @@ def compute_rf_proximity_attention(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    y_mean_out = np.zeros(n_train, dtype=dtype)
-    y_std_out = np.zeros(n_train, dtype=dtype)
+    y_mean_out: np.ndarray = np.zeros(n_train, dtype=dtype)
+    y_std_out: np.ndarray = np.zeros(n_train, dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         X_tr = X_train_f[train_idx]

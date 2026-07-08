@@ -120,7 +120,7 @@ def _mdl_bin_edges(x: np.ndarray, y_class: np.ndarray, n_classes: int, max_bins=
     ``tests/feature_engineering/transformer/test_mdl_binning_split_kernel.py``); not recursive
     despite ``max_bins``/``depth`` naming -- ``_split`` is only ever invoked once, over the full range.
     """
-    edges = []
+    edges: list = []
 
     def _split(lo, hi, depth):
         if hi - lo < 2 * min_size or len(edges) >= max_bins - 1:

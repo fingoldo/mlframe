@@ -95,7 +95,7 @@ def compute_local_lift_features(
     k: int = 32,
     standardize: bool = True,
     column_prefix: str = "loclift",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Local lift / PR_AUC / top1-y features.
 
@@ -141,9 +141,9 @@ def compute_local_lift_features(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out_lift = np.zeros(n_train, dtype=dtype)
-    out_pr = np.zeros(n_train, dtype=dtype)
-    out_top1 = np.zeros(n_train, dtype=dtype)
+    out_lift: np.ndarray = np.zeros(n_train, dtype=dtype)
+    out_pr: np.ndarray = np.zeros(n_train, dtype=dtype)
+    out_top1: np.ndarray = np.zeros(n_train, dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         X_tr = X_train_f[train_idx]

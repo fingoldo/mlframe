@@ -47,7 +47,7 @@ def compute_stacked_row_attention(
     projection: Literal["random", "pls"] = "random",
     return_all_layers: bool = True,
     column_prefix: str = "stack",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Run row-attention ``n_layers`` times, feeding each layer's output as the next layer's input.
 
@@ -84,7 +84,7 @@ def compute_stacked_row_attention(
         layer_head_dim = min(head_dim, max(2, current_X_train.shape[1] - 1))
         # Mode A: OOF y_mean for X_train. Pass caller dtype through so .to_numpy() yields the requested dtype directly; the trailing astype(..., copy=False) is
         # then a no-op identity. Without dtype= the inner default is float32 -- callers using float64 paid a full-buffer float32->float64 copy per layer.
-        out_train = compute_row_attention(
+        out_train: np.ndarray = compute_row_attention(
             X_train=current_X_train, y_train=y_train, X_query=None, splitter=splitter,
             seed=layer_seed, n_heads=n_heads, head_dim=layer_head_dim, k=k,
             softmax_temp=softmax_temp, aggregate=("y_mean",), standardize=standardize,
@@ -95,7 +95,7 @@ def compute_stacked_row_attention(
 
         if X_query is not None:
             # Mode B for X_query (single-pass with full layer-current_X_train bank).
-            out_query = compute_row_attention(
+            out_query: np.ndarray = compute_row_attention(
                 X_train=current_X_train, y_train=y_train, X_query=current_X_query, splitter=splitter,
                 seed=layer_seed, n_heads=n_heads, head_dim=layer_head_dim, k=k,
                 softmax_temp=softmax_temp, aggregate=("y_mean",), standardize=standardize,

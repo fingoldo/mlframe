@@ -43,7 +43,7 @@ def compute_stacked_quantile_neighbours(
     softmax_temp: float = 1.0,
     standardize: bool = True,
     column_prefix: str = "sqnn",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Stacked quantile-neighbours: apply qnn to (X || qnn_features).
 

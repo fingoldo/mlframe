@@ -102,7 +102,7 @@ def compute_autoencoder_features(
     bottleneck_dim: int = 4,
     max_iter: int = 200,
     column_prefix: str = "ae",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Auto-encoder bottleneck latent features (unsupervised beyond-frozen).
 
@@ -132,7 +132,7 @@ def compute_autoencoder_features(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, bottleneck_dim), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, bottleneck_dim), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         feats = _process(X_train_f[train_idx], X_train_f[val_idx], int(seed) + fold_idx * 23)
