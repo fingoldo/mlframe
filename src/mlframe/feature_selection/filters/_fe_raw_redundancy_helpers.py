@@ -298,7 +298,7 @@ def _residualize(target: np.ndarray, design: np.ndarray) -> Optional[np.ndarray]
         resid = target - X @ coef
         if not np.all(np.isfinite(resid)):
             return None
-        return resid
+        return np.asarray(resid)
     except Exception:
         return None
 
