@@ -270,13 +270,20 @@ def get_categorical_columns(df: pl.DataFrame | pd.DataFrame, include_string: boo
             # feature column``. Surfaced default-seed c0043 / c0049 / c0050
             # (hgb / pl.Enum cat columns + confidence_analysis_cfg=True).
             return [name for name, dtype in df.schema.items() if dtype == pl.Categorical or (hasattr(pl, "Enum") and isinstance(dtype, pl.Enum))]
-    else:
+    elif isinstance(df, pd.DataFrame):
         # Function-local import (see note above) -- breaks strategies↔utils cycle.
         from .strategies import PANDAS_CATEGORICAL_SELECT_DTYPES
         if include_string:
             return df.select_dtypes(include=list(PANDAS_CATEGORICAL_SELECT_DTYPES)).columns.tolist()
         else:
             return df.select_dtypes(include=["category"]).columns.tolist()
+    else:
+        # A bare ndarray (or any other non-DataFrame carrier) has no column names/dtypes to inspect --
+        # e.g. a pre_pipeline that outputs numpy (sklearn's default array output) reaches confidence-
+        # analysis with a transformed ndarray test split. No categorical columns are determinable
+        # without frame metadata, so return empty rather than crash (fuzz c0097: 'numpy.ndarray' object
+        # has no attribute 'select_dtypes').
+        return []
 
 
 def remove_constant_columns(df: pl.DataFrame | pd.DataFrame, verbose: int = 1) -> pl.DataFrame | pd.DataFrame:
