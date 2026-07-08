@@ -260,3 +260,28 @@ class TestTargetLeakage:
         assert rep.leakage_candidates == []
         # And no "leakage" pathology.
         assert not any("leakage" in p for p in rep.pathologies)
+
+
+# ---------------------------------------------------------------------------
+# Embedding columns: unhashable-per-row object dtype
+# ---------------------------------------------------------------------------
+
+
+class TestEmbeddingColumn:
+    def test_embedding_column_high_cardinality_check_does_not_crash(self):
+        """An embedding column (object dtype, one ndarray per row) is neither numeric nor bool, so
+        _normalise_X classifies it as "categorical" -- but its values are themselves unhashable, so
+        the high-cardinality nunique() check raised TypeError: unhashable type: 'numpy.ndarray' and
+        aborted the whole analyzer (surfaced as a caught-but-silent [mini-HPT] warning in the suite,
+        fuzz c0030). The column must be skipped from the cardinality check, not crash it."""
+        rng = np.random.default_rng(60)
+        n = 60
+        df = pd.DataFrame({
+            "num_0": rng.standard_normal(n),
+            "cat_0": np.array(["a", "b"] * (n // 2)),
+            "emb_0": [rng.standard_normal(4) for _ in range(n)],
+        })
+        y = rng.integers(0, 2, size=n)
+        rep = analyze_feature_distribution(df, y=y, target_type="classification")
+        assert rep.n_features == 3
+        assert "emb_0" not in rep.diagnostics.get("high_cardinality_features", [])

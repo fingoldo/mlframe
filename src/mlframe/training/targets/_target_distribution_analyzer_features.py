@@ -331,7 +331,16 @@ def analyze_feature_distribution(
     # --- categorical: high cardinality ---
     high_card_features: list[str] = []
     for c in categorical_cols:
-        n_unique = int(df[c].nunique(dropna=False))
+        try:
+            n_unique = int(df[c].nunique(dropna=False))
+        except TypeError:
+            # An object column whose values are themselves unhashable (e.g. an embedding column
+            # storing one ndarray per row) was classified "categorical" by the numeric/bool dtype
+            # dispatch above (it's neither), but nunique() needs hashable values. Not meaningfully
+            # "high cardinality" in the categorical sense -- skip it from this check rather than
+            # crash the whole analyzer (fuzz c0030: caught upstream by a blanket except, but this
+            # is the actual unhashable site -- fix it here instead of leaving it to the catch-all).
+            continue
         if n_unique > high_cardinality_max:
             high_card_features.append(c)
             _add_warning(c, f"high_cardinality(n_unique={n_unique} > {high_cardinality_max})")
