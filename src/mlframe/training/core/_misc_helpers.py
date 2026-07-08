@@ -84,7 +84,7 @@ def _augment_with_dropped_high_card_cols(
 
     Test is never OD-filtered. Returns ``(train_df, val_df, test_df, added_col_names)``.
     """
-    added = []
+    added: list = []
     if not dropped_data:
         return train_df, val_df, test_df, added
 
@@ -445,7 +445,7 @@ def _validate_input_columns_against_metadata(
                     "current serving frame."
                 )
             if soft_width_changes or soft_family_changes:
-                lines = []
+                lines: list = []
                 if soft_width_changes:
                     lines.extend(s.strip() for s in soft_width_changes)
                 if soft_family_changes:
@@ -539,6 +539,7 @@ def _auto_detect_feature_types(
     # "Dictionary size is 0" (text_feature_estimators.cpp). Fraction (not count) scales with dataset size.
     min_non_null_frac = getattr(feature_types_config, "min_non_null_fraction_for_text_promotion", 0.01)
     if use_meta:
+        assert pandas_meta is not None  # guaranteed by the ``use_meta`` construction above
         total_rows = int(pandas_meta["shape"][0])
     else:
         total_rows = df.height if hasattr(df, "height") else len(df)
@@ -635,6 +636,7 @@ def _auto_detect_feature_types(
         # the same promotion logic; only the source of column-list / dtype-string / n_unique / non-null /
         # embedding-shape-sniff differs.
         if use_meta:
+            assert pandas_meta is not None  # guaranteed by the ``use_meta`` construction above
             _columns = pandas_meta["columns"]
             _dtypes = pandas_meta["dtypes"]
             _meta_n_unique = pandas_meta.get("n_unique", {})
@@ -685,7 +687,7 @@ def _auto_detect_feature_types(
                 # only consult the precomputed list; the legacy fallback path still probes the live series.
                 if dtype_name.startswith("object"):
                     if use_meta:
-                        _is_embedding = col in _meta_embed_obj
+                        _is_embedding = _meta_embed_obj is not None and col in _meta_embed_obj
                     else:
                         _series = df[col]
                         try:
@@ -816,7 +818,7 @@ def _build_tier_dfs(
     strategy,
     text_features: list,
     embedding_features: list,
-    tier_cache: dict,
+    tier_cache: dict[Any, dict],
     verbose: bool = False,
 ) -> dict:
     """Get or create tier-specific DataFrames with unsupported columns removed; returns dict with train/val/test_df trimmed for tier."""
