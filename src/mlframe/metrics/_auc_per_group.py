@@ -15,7 +15,7 @@ What lives here:
 """
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import numba
@@ -49,10 +49,11 @@ def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.n
     it. The presort path is up to ~56x faster on fine-grained group_ids (bench
     ``_benchmarks/bench_fast_aucs_per_group_dispatch.py``).
     """
-    return fast_aucs_per_group_optimized(y_true, y_score, group_ids)
+    roc_auc, pr_auc, group_auc_map = fast_aucs_per_group_optimized(y_true, y_score, group_ids)
+    return float(roc_auc), float(pr_auc), dict(group_auc_map)
 
 
-def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.ndarray = None, return_order: bool = False, return_ks: bool = False):
+def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group_ids: Optional[np.ndarray] = None, return_order: bool = False, return_ks: bool = False):
     """
     More memory-efficient version that groups data by group first.
     Better for cases with many groups and reasonable group sizes.
@@ -155,7 +156,7 @@ def compute_grouped_group_aucs(sorted_group_ids: np.ndarray, sorted_y_true: np.n
     dominates. Bench preserved at
     ``profiling/bench_grouped_aucs_parallel.py``.
     """
-    group_aucs = {}
+    group_aucs: Dict[int, Tuple[float, float]] = {}
     n = len(sorted_group_ids)
 
     if n == 0:
