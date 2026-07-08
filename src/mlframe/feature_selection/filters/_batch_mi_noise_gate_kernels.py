@@ -185,7 +185,7 @@ def _fisher_yates_shuffle(classes_y_safe: np.ndarray, base_seed: np.uint64, perm
         tmp = local[j]
         local[j] = local[kk]
         local[kk] = tmp
-    return local
+    return np.asarray(local)
 
 
 def _cuda_mi_from_counts_kernel_factory():
