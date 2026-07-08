@@ -54,7 +54,7 @@ def main():
 
     print("=== Calling train_mlframe_models_suite ===")
     try:
-        models, metadata = train_mlframe_models_suite(
+        _models, metadata = train_mlframe_models_suite(
             df=df,
             target_name="y_reg",
             model_name="smoke",

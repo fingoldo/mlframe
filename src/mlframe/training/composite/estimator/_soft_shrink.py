@@ -200,7 +200,7 @@ def shrink_base(
     is unavailable -- both are bit-identical.
     """
     b2 = base_arr if base_arr.ndim == 2 else base_arr.reshape(-1, 1)
-    n, K = b2.shape
+    n, _K = b2.shape
     if _HAS_NUMBA:
         b2c = np.ascontiguousarray(b2, dtype=np.float64)
         base_eff2 = b2c.copy()

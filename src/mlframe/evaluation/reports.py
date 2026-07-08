@@ -333,9 +333,10 @@ def evaluate_estimators(
                         logger.info("classification report:\n%s", classification_report_text)
 
                         if results_log:
-                            hits, misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_avgs, weighted_avgs = (
+                            _hits, _misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_avgs, weighted_avgs = (
                                 fast_classification_report(y_test_test, preds, nclasses=nclasses)
                             )
+                            total_support = int(supports.sum())
                             classification_report_dict = {
                                 str(_tn[i] if _tn else i): {
                                     "precision": float(precisions[i]),
@@ -346,6 +347,18 @@ def evaluate_estimators(
                                 for i in range(nclasses)
                             }
                             classification_report_dict["accuracy"] = float(accuracy)
+                            # balanced_accuracy/macro_avgs/weighted_avgs were computed by fast_classification_report
+                            # but pre-fix silently dropped here (only accuracy + per-class rows reached the dict) --
+                            # mirror sklearn.metrics.classification_report's "macro avg"/"weighted avg" summary rows.
+                            classification_report_dict["balanced_accuracy"] = float(balanced_accuracy)
+                            classification_report_dict["macro avg"] = {
+                                "precision": float(macro_avgs[0]), "recall": float(macro_avgs[1]),
+                                "f1-score": float(macro_avgs[2]), "support": total_support,
+                            }
+                            classification_report_dict["weighted avg"] = {
+                                "precision": float(weighted_avgs[0]), "recall": float(weighted_avgs[1]),
+                                "f1-score": float(weighted_avgs[2]), "support": total_support,
+                            }
 
                             log_result(results_log, "classification_report_dict", classification_report_dict)
                             log_result(results_log, "classification_report_text", classification_report_text)
@@ -434,12 +447,12 @@ def evaluate_grouped(
         all_cats = {}
 
     def _report_dict(y_true, y_pred) -> dict:
-        """output_dict-style report (per-label + 'weighted avg') via our fast kernel.
+        """output_dict-style report (per-label + 'balanced_accuracy'/'macro avg'/'weighted avg') via our fast kernel.
 
         Remaps the observed labels to 0..K-1 (fast_classification_report indexes by
         contiguous class id), computes per-class precision/recall/f1/support, and
         assembles the sklearn-shaped dict the callers below read ('support', 'precision',
-        'recall' per label plus the 'weighted avg' aggregate)."""
+        'recall' per label plus the 'accuracy'/'balanced_accuracy'/'macro avg'/'weighted avg' aggregates)."""
         yt = np.asarray(y_true)
         yp = np.asarray(y_pred)
         labels_arr = np.unique(np.concatenate([yt.ravel(), yp.ravel()])) if yt.size or yp.size else np.array([])
@@ -449,7 +462,7 @@ def evaluate_grouped(
         pos = {lab: i for i, lab in enumerate(labels_arr)}
         yt_pos = np.array([pos[v] for v in yt.ravel()], dtype=np.int64)
         yp_pos = np.array([pos[v] for v in yp.ravel()], dtype=np.int64)
-        (hits, misses, accuracy, balanced_accuracy, supports, precisions,
+        (_hits, _misses, accuracy, balanced_accuracy, supports, precisions,
          recalls, f1s, macro_avgs, weighted_avgs) = fast_classification_report(yt_pos, yp_pos, nclasses=K)
         out: dict = {}
         for i, lab in enumerate(labels_arr):
@@ -460,6 +473,15 @@ def evaluate_grouped(
                 "support": int(supports[i]),
             }
         out["accuracy"] = float(accuracy)
+        # balanced_accuracy/macro_avgs were computed but pre-fix silently dropped here (only
+        # accuracy + per-class rows + weighted avg reached the dict).
+        out["balanced_accuracy"] = float(balanced_accuracy)
+        out["macro avg"] = {
+            "precision": float(macro_avgs[0]),
+            "recall": float(macro_avgs[1]),
+            "f1-score": float(macro_avgs[2]),
+            "support": int(supports.sum()),
+        }
         out["weighted avg"] = {
             "precision": float(weighted_avgs[0]),
             "recall": float(weighted_avgs[1]),
@@ -617,7 +639,7 @@ def plot_pr_curve(
     recall, precision = _decimate_curve_vertices((recall, precision))
     # The dummy (constant-prediction) PR baseline is analytic: a single threshold gives precision [prevalence, 1], recall [1, 0],
     # and AP = positive-class prevalence. Running precision_recall_curve on np.full(n, mode) wasted a full-n pass for 2 points.
-    classes, counts = np.unique(y, return_counts=True)
+    _classes, counts = np.unique(y, return_counts=True)
     prevalence = float(counts[-1]) / float(counts.sum())
     dummy_precision = np.array([prevalence, 1.0])
     dummy_recall = np.array([1.0, 0.0])

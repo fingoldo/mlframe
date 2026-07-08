@@ -127,7 +127,7 @@ def _pointwise_lpd(
         # Pinball loss -> higher (less negative) log-score for sharper, better-calibrated quantile predictions.
         under = resid >= 0.0
         pinball = np.where(under, quantile * resid, (quantile - 1.0) * resid)
-        return -pinball
+        return np.asarray(-pinball)
 
     if sample_weight is None:
         sigma = np.sqrt((resid * resid).mean(axis=0))

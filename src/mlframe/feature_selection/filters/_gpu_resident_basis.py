@@ -738,7 +738,7 @@ def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis, heavy_host
     routing sweep) computes it ONCE and passes it in -- avoiding the 4x redundant cp.median/percentile
     reduction _gpu_detect_heavy_tail_batched would otherwise run per basis. Bit-identical (same M -> same
     verdict)."""
-    n, K = M.shape
+    _n, K = M.shape
     if heavy_host is None:
         if robust_axis:
             heavy_host = cp.asnumpy(_gpu_detect_heavy_tail_batched(cp, M))
@@ -1490,7 +1490,7 @@ def gpu_resident_pair_recipes(
 
     # Route through the dispatcher so this works on ANY backend (GPU-resident in the sweet spot, CPU
     # otherwise) -- recipe emission is backend-agnostic.
-    names, mi = pair_candidate_mi_dispatch(a_vals, b_vals, y_codes, nbins=nbins)
+    _names, mi = pair_candidate_mi_dispatch(a_vals, b_vals, y_codes, nbins=nbins)
     a64 = np.ascontiguousarray(a_vals, dtype=np.float64)
     b64 = np.ascontiguousarray(b_vals, dtype=np.float64)
     cols = list(cols_names)

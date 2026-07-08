@@ -361,7 +361,7 @@ def pit_values(y_true, preds_NK, alphas: Sequence[float]) -> np.ndarray:
             out[i] = float(sorted_a[-1])
         else:
             out[i] = float(np.interp(y[i], sorted_q, sorted_a))
-    return np.clip(out, 0.0, 1.0)
+    return np.asarray(np.clip(out, 0.0, 1.0))
 
 
 def quantile_summary(

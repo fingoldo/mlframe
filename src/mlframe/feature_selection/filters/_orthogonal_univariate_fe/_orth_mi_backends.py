@@ -462,7 +462,7 @@ def _mi_classif_batch_balanced(X: np.ndarray, y: np.ndarray, class_w, *, nbins: 
         from ._imbalance_mi import _class_balanced_mi_batch_njit
     except Exception:
         return None
-    n, p = X.shape
+    _n, p = X.shape
     y_i64 = np.ascontiguousarray(y, dtype=np.int64)
     class_w = np.ascontiguousarray(class_w, dtype=np.float64)
     mis = np.zeros(p, dtype=np.float64)

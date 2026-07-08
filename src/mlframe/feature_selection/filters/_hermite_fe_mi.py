@@ -434,7 +434,7 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     from .hermite_fe import _CUDA_AVAILABLE, _plugin_mi_classif_batch_njit
     from ._gpu_policy import gpu_globally_disabled
     forced = os.environ.get("MLFRAME_MI_BACKEND", "")
-    n, k = X_cols.shape
+    _n, _k = X_cols.shape
     if forced == "njit":
         return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
     # Honor the global GPU off-switch (MLFRAME_DISABLE_GPU / CUDA_VISIBLE_DEVICES="") -- cupy's own

@@ -467,7 +467,7 @@ def compute_pairs_mis(
         # check that every element of a pair has computed its MI with target
         for var in raw_vars_pair:
             if (var,) not in cached_confident_MIs and (var,) not in cached_MIs:
-                mi, conf = mi_direct(
+                mi, _conf = mi_direct(
                     data,
                     x=(var,),
                     y=target_indices,
@@ -490,7 +490,7 @@ def compute_pairs_mis(
         if raw_vars_pair not in cached_confident_MIs and raw_vars_pair not in cached_MIs:
             ind_elems_mi_sum = cached_MIs[(raw_vars_pair[0],)] + cached_MIs[(raw_vars_pair[1],)]
             if ind_elems_mi_sum > fe_min_pair_mi:
-                mi, conf = mi_direct(
+                mi, _conf = mi_direct(
                     data,
                     x=raw_vars_pair,
                     y=target_indices,

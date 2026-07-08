@@ -69,7 +69,7 @@ def _process_special_values(
                 errors_df = pl.DataFrame({"column": qos_df.columns, "nerrors": qos_df.row(0)}).filter(pl.col("nerrors") > 0).sort("nerrors", descending=True)
             else:
                 errors_df = pl.DataFrame({"column": [], "nerrors": []}, schema={"column": pl.String, "nerrors": pl.Int64})
-        nrows, ncols = df.shape
+        _nrows, ncols = df.shape
     else:
         # Pandas: different handling
         if drop_columns:

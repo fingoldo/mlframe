@@ -58,7 +58,9 @@ def residual_correlation_matrix(
         # ``np.corrcoef`` on a single column returns a 0-D scalar; return a proper 1x1 matrix for downstream consumers expecting ``.shape[0]``.
         return np.array([[1.0]], dtype=np.float64), names
     with np.errstate(invalid="ignore"):
-        return np.corrcoef(M[finite_rows], rowvar=False), names
+        # np.corrcoef's return type is unioned with float64 (the degenerate 1-column case); K>=2 is
+        # already guaranteed above, so this is always a real (K, K) matrix -- np.asarray narrows it back.
+        return np.asarray(np.corrcoef(M[finite_rows], rowvar=False)), names
 
 
 def max_off_diagonal_correlation(corr_matrix: np.ndarray) -> float:

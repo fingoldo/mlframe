@@ -394,7 +394,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
 
         for cand_idx, X, nexisting in feasible_candidates:
 
-            current_gain, sink_reasons = evaluate_candidate(
+            current_gain, _sink_reasons = evaluate_candidate(
                 cand_idx=cand_idx,
                 X=X,
                 y=y,

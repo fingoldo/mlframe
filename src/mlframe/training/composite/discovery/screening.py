@@ -722,7 +722,7 @@ def _mi_per_feature_y_fixed_per_col(
     (``< min_finite``) returns 0.0 for that column only (never NaN, never
     pulling rows out from under its neighbours).
     """
-    n_rows, n_cols = feature_matrix.shape
+    _n_rows, n_cols = feature_matrix.shape
     out = np.zeros(n_cols, dtype=np.float64)
     if n_cols == 0:
         return out

@@ -195,7 +195,7 @@ def _chatgpt_mi_one_target(
     data: np.ndarray, target_idx: int, n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
 ) -> np.ndarray:  # shape (n_samples, n_cols), int8
     """Vector of MI(target, every feature)."""
-    n_rows, n_cols = data.shape
+    _n_rows, n_cols = data.shape
     y = data[:, target_idx]
     out = np.empty(n_cols, dtype=out_dtype)
 

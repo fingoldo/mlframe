@@ -358,6 +358,7 @@ class ICE:
     higher_is_better: bool
     calibration_plot_period: int
     max_arr_size: int
+    plot_file: Optional[str]
 
     def __init__(
         self,
@@ -365,6 +366,7 @@ class ICE:
         higher_is_better: bool,
         calibration_plot_period: int = 0,
         max_arr_size: int = 0,
+        plot_file: Optional[str] = None,
     ) -> None:
 
         # save params
@@ -424,14 +426,23 @@ class ICE:
 
         if self.calibration_plot_period and (self.calibration_plot_period > 0 and (self.nruns % self.calibration_plot_period == 0)):
             y_true = (target == class_id).astype(np.int8)
-            brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, metrics_string, fig = fast_calibration_report(
+            # fast_calibration_report shows/saves the plot itself (show_plots defaults True, plot_file
+            # opts into a disk copy); ``fig`` here is only the resulting Figure handle. Pre-fix it was
+            # silently discarded -- harmless for the show/save side effect (already done internally) but
+            # the unclosed Figure object leaked memory every ``calibration_plot_period`` training
+            # iterations over a long run. Always close it once logged.
+            _, _, _, _, _, _, _, _, *_, metrics_string, fig = fast_calibration_report(
                 y_true=y_true,
                 y_pred=y_pred,
                 title=f"{len(approxes[0]):_} records of class {class_id}, integral error={total_error:.4f}, nruns={self.nruns:_}\r\n",
                 use_weights=True,
                 verbose=False,
+                plot_file=self.plot_file or "",
             )
             logger.info(metrics_string)
+            if fig is not None:
+                import matplotlib.pyplot as _plt
+                _plt.close(fig)
 
         return total_error, output_weight
 

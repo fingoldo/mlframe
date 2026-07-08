@@ -379,7 +379,7 @@ def ksg_lnc_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
     y = y + intens * rng.standard_normal(n)
     xy = np.column_stack([x, y]).astype(np.float64)
     tree_xy = KDTree(xy, metric="chebyshev")
-    d_k, idx_k = tree_xy.query(xy, k=k + 1)
+    _d_k, idx_k = tree_xy.query(xy, k=k + 1)
     # Per-axis marginal distances d_x, d_y to k-th nearest neighbour in joint
     # (NOT the joint L-inf radius). Reference lines 128-131.
     dvec_x = np.zeros(n, dtype=np.float64)

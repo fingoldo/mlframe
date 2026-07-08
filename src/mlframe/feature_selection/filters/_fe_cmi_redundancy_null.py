@@ -152,7 +152,7 @@ def _conditional_perm_null(
                 xy, _ = _renumber_joint(_xh, y)
                 _, k_x = _entropy_from_classes(_xh)
                 _, k_y = _entropy_from_classes(y)
-                _, k_xy = _entropy_from_classes(xy)
+                _, _k_xy = _entropy_from_classes(xy)
                 _df = (int(k_x) - 1) * (int(k_y) - 1)
                 _cells = max(1, int(k_x) * int(k_y))
             else:
