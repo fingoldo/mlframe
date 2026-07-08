@@ -29,7 +29,7 @@ __all__ = [
 
 def _to_unit(x: np.ndarray) -> np.ndarray:
     c = np.asarray(x, dtype=np.float64)
-    return (c - c.min()) / (np.ptp(c) + 1e-12)
+    return np.asarray((c - c.min()) / (np.ptp(c) + 1e-12))
 
 
 def _to_pm1(x: np.ndarray) -> np.ndarray:

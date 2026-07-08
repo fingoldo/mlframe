@@ -95,7 +95,7 @@ def _u_centered_distance_matrix(z: np.ndarray) -> np.ndarray:
     row_mean = a.mean(axis=1, keepdims=True)
     col_mean = a.mean(axis=0, keepdims=True)
     grand_mean = a.mean()
-    return a - row_mean - col_mean + grand_mean
+    return np.asarray(a - row_mean - col_mean + grand_mean)
 
 
 def _subsample_indices(

@@ -165,7 +165,7 @@ def _factorize_pack(*cols: np.ndarray) -> np.ndarray:
         radix *= cmax
         key = key * cmax + c64
     codes, _ = pd.factorize(key, sort=False)
-    return codes.astype(np.int64, copy=False)
+    return np.asarray(codes.astype(np.int64, copy=False))
 
 
 def _quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
