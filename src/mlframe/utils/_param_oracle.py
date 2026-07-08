@@ -363,6 +363,7 @@ def bucketize_fingerprint(fp: Mapping[str, Any]) -> dict:
 # ---------------------------------------------------------------------------
 
 def _rss_mb() -> Optional[float]:
+    """Current process RSS in MB, or ``None`` if ``psutil`` is unavailable."""
     try:
         import psutil
         return float(psutil.Process().memory_info().rss / (1024.0 * 1024.0))
@@ -435,6 +436,7 @@ class ParamOracle:
         min_observations: int = 3,
         rng: Optional[random.Random] = None,
     ):
+        """Bind the oracle to its store (resolving a bare filename under :func:`default_store_dir`) and validate its mode/objective settings."""
         if os.path.basename(store_path) == store_path:
             store_path = os.path.join(default_store_dir(), store_path)
         self.store = _ParquetStore(store_path)
@@ -459,6 +461,7 @@ class ParamOracle:
     # ----- param-space enumeration -----
 
     def _all_combos(self) -> list[dict]:
+        """Cartesian product of ``self.param_space`` as a list of param-combo dicts."""
         keys = list(self.param_space.keys())
         if not keys:
             return [{}]
@@ -468,6 +471,7 @@ class ParamOracle:
     # ----- objective comparison -----
 
     def _metric_name(self) -> str:
+        """Name of the objective metric being optimised (``self.minimize`` or ``self.maximize``, exactly one is set)."""
         # __init__ guarantees exactly one of minimize/maximize is non-None (defaults minimize="elapsed_s" when both omitted).
         metric = self.minimize if self.minimize is not None else self.maximize
         assert metric is not None
@@ -480,6 +484,7 @@ class ParamOracle:
         return a < b
 
     def _score_of(self, objective: Mapping[str, float]) -> Optional[float]:
+        """Extract the finite numeric optimisation metric from an objective dict, or ``None`` if missing/non-numeric/non-finite."""
         v = objective.get(self._metric_name())
         if v is None or not isinstance(v, (int, float)) or isinstance(v, bool):
             return None
@@ -823,6 +828,7 @@ class ParamOracle:
 # ---------------------------------------------------------------------------
 
 def _default_objective(output: Any, elapsed_s: float, rss_delta_mb: Optional[float]) -> dict:
+    """Default objective: record elapsed wall time and, if measured, RSS delta."""
     obj = {"elapsed_s": float(elapsed_s)}
     if rss_delta_mb is not None:
         obj["rss_delta_mb"] = float(rss_delta_mb)
@@ -830,15 +836,18 @@ def _default_objective(output: Any, elapsed_s: float, rss_delta_mb: Optional[flo
 
 
 def _utc_now_iso() -> str:
+    """Current UTC timestamp, ISO-8601, second precision."""
     import datetime as _dt
     return _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
 
 
 def _combo_key(combo: Mapping[str, Any]) -> tuple:
+    """Hashable, order-independent key for a param-combo dict."""
     return tuple(sorted(combo.items()))
 
 
 def _loads(s: Optional[str]) -> dict:
+    """Lenient JSON-object load: ``{}`` on empty/invalid input."""
     if not s:
         return {}
     try:
@@ -853,6 +862,7 @@ def loads_json(s: Optional[str]) -> dict:
 
 
 def _euclidean_buckets(a: Mapping[str, Any], b: Mapping[str, Any]) -> float:
+    """Euclidean distance between two bucketed fingerprints over the continuous dims."""
     acc = 0.0
     for dim in _CONTINUOUS_FP_DIMS:
         av = a.get(dim, 0.0)

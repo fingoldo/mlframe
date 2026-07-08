@@ -160,12 +160,14 @@ def preserve_global_rng() -> Iterator[None]:
 
 
 def get_pipeline_last_element(clf) -> object:
+    """Return the last step's estimator from a fitted sklearn ``Pipeline``."""
     for _elem_name, elem in clf.named_steps.items():  # noqa: B007 -- last-iteration value used after the loop, below
         pass
     return elem
 
 
 def get_full_classifier_name(clf: Any) -> str:
+    """Build a human-readable name for ``clf``, unwrapping ``TransformedTargetRegressor``/``Pipeline``/``MultiOutputRegressor``/``Dummy*`` wrappers to include their inner estimator."""
     clf_name = type(clf).__name__
     if clf_name == "TransformedTargetRegressor":
         regressor_name = get_full_classifier_name(clf.regressor)
@@ -202,13 +204,14 @@ def get_full_classifier_name(clf: Any) -> str:
 
 
 def is_cuda_available() -> bool:
+    """Whether numba can see a usable CUDA device."""
     from numba import cuda
 
     return bool(cuda.is_available())
 
 
 def check_cpu_flag(flag: str = "avx2") -> bool:
-
+    """Whether the host CPU reports ``flag`` (e.g. ``"avx2"``) in its feature set."""
     import cpuinfo
 
     info = cpuinfo.get_cpu_info()

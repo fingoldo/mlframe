@@ -1,3 +1,4 @@
+"""A/B experiment and route lookups against the product experiments DB (SQL fields allowlisted against injection)."""
 from __future__ import annotations
 
 
@@ -39,7 +40,7 @@ def create_experiment(product_id: str, variants: list) -> None:
     pass
 
 def get_experiments(product_name: str, fields: Union[str, Sequence[str]] = "id,name,started_at,finished_at") -> list:
-    # if there are active experiments currently, get them
+    """Fetch the single currently-active (started, not finished) experiment for ``product_name``, if any."""
     safe_fields = _validate_and_join_fields(fields, _ALLOWED_EXPERIMENT_FIELDS)
     return list(safe_execute(
         f"select {safe_fields} from experiments where started_at is not null and finished_at is null and product_id=(select id from products where name =%s) limit 1",  # nosec B608 - safe_fields validated by _validate_and_join_fields() against an allowlist above; product_name is %s-parameterized, not interpolated
@@ -48,7 +49,7 @@ def get_experiments(product_name: str, fields: Union[str, Sequence[str]] = "id,n
 
 
 def get_experiment_routes(experiment_id: str, fields: Union[str, Sequence[str]] = "id,name,audience,type") -> list:
-    # if there are active experiments currently, get them
+    """Fetch all routes belonging to ``experiment_id``."""
     safe_fields = _validate_and_join_fields(fields, _ALLOWED_ROUTE_FIELDS)
     routes = safe_execute(
         f"select {safe_fields} from experiments_routes where experiment_id =%s",  # nosec B608 - safe_fields validated by _validate_and_join_fields() against an allowlist above; experiment_id is %s-parameterized, not interpolated
@@ -57,11 +58,13 @@ def get_experiment_routes(experiment_id: str, fields: Union[str, Sequence[str]] 
     return list(routes)
 
 def read_experiment(experiment) -> tuple:
+    """Unpack a raw ``get_experiments`` row into ``(id, name, started_at, finished_at)``."""
     experiment_id, experiment_name, experiment_started_at, experiment_finished_at, *_ = experiment
 
     return experiment_id,experiment_name,experiment_started_at,experiment_finished_at
 
 def read_route(route) -> tuple:
+    """Unpack a raw ``get_experiment_routes`` row into ``(id, name, audience_set, type)``, normalizing a null audience to an empty set."""
     route_id, route_name, route_audience, route_type, *_ = route
     if route_audience is None:
         route_audience = []
@@ -70,7 +73,7 @@ def read_route(route) -> tuple:
     return route_id, route_name, route_audience, route_type
 
 def update_routes_audiences(records) -> None:
-
+    """Bulk-update the ``audience`` JSONB column of ``experiments_routes`` for each ``(experiment_id, audience)`` in ``records``."""
     safe_execute_values(
         "with data (experiment_id,audience) as (VALUES %s) update experiments_routes set audience=data.audience::jsonb from data where id=data.experiment_id::uuid",
         records,

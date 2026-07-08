@@ -92,6 +92,7 @@ _HASH_DIGEST_BYTES = 16
 
 
 def _hasher() -> Any:
+    """New blake2b hasher truncated to ``_HASH_DIGEST_BYTES``."""
     return hashlib.blake2b(digest_size=_HASH_DIGEST_BYTES)
 
 
@@ -260,6 +261,7 @@ class DiskCache:
         cache_dir: Union[str, Path],
         max_size_bytes: int = _DEFAULT_MAX_SIZE_BYTES,
     ):
+        """Create (or reuse) a disk cache rooted at ``cache_dir`` with an LRU cap of ``max_size_bytes``."""
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.max_size_bytes = int(max_size_bytes)
@@ -270,6 +272,7 @@ class DiskCache:
         self.evictions = 0
 
     def _key_path(self, key: str) -> Path:
+        """File path under ``cache_dir`` for ``key``."""
         return self.cache_dir / f"{key}.pkl"
 
     def get(self, key: str) -> Optional[Any]:

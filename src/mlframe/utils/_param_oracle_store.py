@@ -25,6 +25,7 @@ _STORE_COLUMNS = (
 
 
 def _stable_json(obj: Any) -> str:
+    """Canonical sort-keys JSON encoding of ``obj``."""
     return orjson.dumps(obj, option=orjson.OPT_SORT_KEYS, default=str).decode("utf-8")
 
 
@@ -49,12 +50,14 @@ class _ParquetStore:
     """
 
     def __init__(self, store_path: str):
+        """Bind the store to ``store_path``, creating its parent directory."""
         self._path = store_path
         os.makedirs(os.path.dirname(os.path.abspath(store_path)), exist_ok=True)
 
     # ---- low-level read ----
 
     def read_rows(self) -> list[dict]:
+        """Read all rows from the parquet store, or ``[]`` if it doesn't exist yet or fails to parse."""
         if not os.path.isfile(self._path):
             return []
         try:
@@ -68,6 +71,7 @@ class _ParquetStore:
     # ---- low-level write ----
 
     def _write_rows(self, rows: list[dict], dest: str) -> None:
+        """Atomically write ``rows`` to ``dest`` (temp file + ``os.replace``)."""
         import pyarrow as pa
         import pyarrow.parquet as pq
         cols = {c: [r.get(c) for r in rows] for c in _STORE_COLUMNS}
@@ -153,6 +157,7 @@ class _ParquetStore:
 
 
 def _median(vals: Sequence[float]) -> float:
+    """Median of ``vals``, or ``nan`` if empty."""
     s = sorted(vals)
     n = len(s)
     if n == 0:
