@@ -109,13 +109,13 @@ class SAM(Optimizer):
     def param_groups(self, value: List[dict]) -> None:
         self.base_optimizer.param_groups = value
 
-    @property
+    @property  # type: ignore[override]  # SAM wraps base_optimizer and intentionally delegates state as a property
     def state(self) -> dict:
         return self.base_optimizer.state
 
     @state.setter
     def state(self, value: dict) -> None:
-        self.base_optimizer.state = value
+        self.base_optimizer.state = value  # type: ignore[assignment]  # torch's Optimizer.state stub is narrower (defaultdict[Tensor, Any]) than the plain dict this setter accepts
 
     def add_param_group(self, param_group: dict) -> None:
         self.base_optimizer.add_param_group(param_group)

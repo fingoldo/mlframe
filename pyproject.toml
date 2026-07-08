@@ -786,5 +786,10 @@ module = [
     "mlframe.training.neural.base._base_fit",
     "mlframe.training.neural.recurrent_dataset_helpers",
     "mlframe.training.neural.ranker",
+    "mlframe.training.neural.base",
+    "mlframe.feature_engineering.transformer.apriori_itemsets",
+    "mlframe.training.neural._sam_optimizer",
+    "mlframe.training.neural._lookahead_optimizer",
+    "mlframe.preprocessing.cluster",
 ]
 warn_unused_ignores = false

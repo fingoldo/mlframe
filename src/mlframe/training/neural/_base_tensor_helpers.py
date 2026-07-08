@@ -74,7 +74,7 @@ def to_numpy_safe(tensor: torch.Tensor, cpu: bool = False) -> np.ndarray:
     elif t.dtype == torch.complex32:
         t = t.to(torch.complex64)
 
-    return t.numpy()
+    return np.asarray(t.numpy())
 
 
 def _ensure_numpy(arr, dtype: type = np.float32) -> np.ndarray | None:
