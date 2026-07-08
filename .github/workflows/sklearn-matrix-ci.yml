@@ -28,21 +28,23 @@ on:
   push:
     branches: [master, main]
     paths:
-      - "src/mlframe/training/composite.py"
-      - "src/mlframe/training/composite_diagnostics.py"
+      - "src/mlframe/training/composite/**"
+      - "src/mlframe/training/_composite_target_discovery_config*.py"
       - "src/mlframe/training/configs.py"
-      - "src/mlframe/training/baseline_diagnostics.py"
+      - "src/mlframe/training/baselines/_baseline_diagnostics*.py"
       - "tests/training/test_composite*.py"
+      - "tests/training/composite/**"
       - "pyproject.toml"
       - ".github/workflows/sklearn-matrix-ci.yml"
   pull_request:
     branches: [master, main]
     paths:
-      - "src/mlframe/training/composite.py"
-      - "src/mlframe/training/composite_diagnostics.py"
+      - "src/mlframe/training/composite/**"
+      - "src/mlframe/training/_composite_target_discovery_config*.py"
       - "src/mlframe/training/configs.py"
-      - "src/mlframe/training/baseline_diagnostics.py"
+      - "src/mlframe/training/baselines/_baseline_diagnostics*.py"
       - "tests/training/test_composite*.py"
+      - "tests/training/composite/**"
       - "pyproject.toml"
       - ".github/workflows/sklearn-matrix-ci.yml"
   workflow_dispatch:
