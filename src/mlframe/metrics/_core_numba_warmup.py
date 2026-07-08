@@ -100,11 +100,11 @@ def prewarm_numba_cache():
     """
     if getattr(prewarm_numba_cache, "_in_progress", False):
         return
-    prewarm_numba_cache._in_progress = True
+    prewarm_numba_cache._in_progress = True  # type: ignore[attr-defined]  # process-local re-entrancy sentinel stamped on the function object
     try:
         _prewarm_numba_cache_body()
     finally:
-        prewarm_numba_cache._in_progress = False
+        prewarm_numba_cache._in_progress = False  # type: ignore[attr-defined]
 
 
 def _prewarm_numba_cache_body():
@@ -215,9 +215,9 @@ def _prewarm_numba_cache_body():
             nbins=10, array_size=len(y_true), use_weights=True,
         )
 
-    for dtype in [np.int32, np.int64]:
-        y_true_int = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=dtype)
-        y_pred_int = np.array([0, 1, 0, 1, 0, 1, 0, 1, 1, 0], dtype=dtype)
+    for int_dtype in (np.int32, np.int64):
+        y_true_int = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=int_dtype)
+        y_pred_int = np.array([0, 1, 0, 1, 0, 1, 0, 1, 1, 0], dtype=int_dtype)
         _ = fast_classification_report(y_true_int, y_pred_int, nclasses=2)
         _ = fast_precision(y_true_int, y_pred_int, nclasses=2)
         _ = compute_pr_recall_f1_metrics(y_true_int, y_pred_int)

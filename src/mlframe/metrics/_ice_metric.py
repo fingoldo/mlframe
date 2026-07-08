@@ -17,7 +17,7 @@ What lives here:
 from __future__ import annotations
 
 import logging
-from typing import Callable, Sequence, Union
+from typing import Callable, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 def compute_probabilistic_multiclass_error(
     y_true: Union[pd.Series, pd.DataFrame, np.ndarray],
     y_score: Union[pd.Series, pd.DataFrame, np.ndarray, Sequence],
-    labels: np.ndarray = None,
+    labels: Optional[np.ndarray] = None,
     method: str = "multicrit",
     mae_weight: float = 3,
     std_weight: float = 2,
@@ -97,8 +97,8 @@ def compute_probabilistic_multiclass_error(
         y_true = y_true.to_numpy()
     if isinstance(y_score, (pd.Series, pd.DataFrame)):
         y_score = y_score.to_numpy()
-    if labels is not None and isinstance(labels, (pd.Series, pd.DataFrame)):
-        labels = labels.to_numpy()
+    if labels is not None and hasattr(labels, "to_numpy"):
+        labels = labels.to_numpy()  # type: ignore[union-attr]  # labels: Optional[np.ndarray] annotation doesn't capture callers passing a pd.Series/DataFrame
 
     if isinstance(y_score, Sequence):
         probs = y_score
@@ -351,6 +351,13 @@ class ICE:
     """Custom probabilistic prediction error metric balancing predictive power with calibration.
     Can regularly create a calibration plot.
     """
+
+    # __init__ params are set on self dynamically via store_params_in_object(); declared here so
+    # mypy can type-check the reads in is_max_optimal() / evaluate().
+    metric: Callable
+    higher_is_better: bool
+    calibration_plot_period: int
+    max_arr_size: int
 
     def __init__(
         self,
