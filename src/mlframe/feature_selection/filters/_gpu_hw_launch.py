@@ -89,7 +89,7 @@ def _max_active_blocks_per_sm(block: int, regs_per_thread: int, static_smem: int
     by_smem = (props["shared_per_sm"] // smem_per_block) if smem_per_block > 0 else props["max_blocks_per_sm"]
     # hard block-count cap
     by_blocks = props["max_blocks_per_sm"]
-    return max(0, min(by_threads, by_regs, by_smem, by_blocks))
+    return int(max(0, min(by_threads, by_regs, by_smem, by_blocks)))
 
 
 def occupancy_block_candidates(
@@ -147,4 +147,4 @@ def fill_grid_1d(n_work: int, block: int, *, regs_per_thread: int = 32, static_s
         return max(1, cover)
     mab = _max_active_blocks_per_sm(block, regs_per_thread, static_smem, dyn_smem, props)
     fill = props["sm_count"] * max(mab, 1)
-    return max(1, cover, fill)
+    return int(max(1, cover, fill))
