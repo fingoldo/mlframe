@@ -441,6 +441,7 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
         n, K = int(X.shape[0]), int(X.shape[1])
         M = int(Kx) * int(Kb)
         ker = _get_batched_joint_entropy_kernel(cp)
+        assert _BATCHED_JOINT_ENTROPY_SH_LIMIT is not None  # populated by _get_batched_joint_entropy_kernel above
         # shared = M uint32 hist + 2*256 f64 reduction scratch (the sh_h/sh_k arrays are static, not counted here);
         # gate the dynamic hist against the device per-block limit (leave headroom for the static doubles).
         if M <= 0 or M * 4 + 4096 > int(_BATCHED_JOINT_ENTROPY_SH_LIMIT):
@@ -624,6 +625,7 @@ def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]
         M *= int(kc)
     M = int(max(M, 1))
     kers = _get_joint_entropy_kernels()
+    assert _JOINT_ENTROPY_SH_LIMIT is not None  # populated by _get_joint_entropy_kernels above
     # static shared (sh_h+sh_k = 256*8*2 = 4096 B) + dynamic hist (M*4 B) must clear the per-block limit.
     if M * 4 + 4096 <= _JOINT_ENTROPY_SH_LIMIT:
         try:
@@ -642,7 +644,7 @@ def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]
             return float(-hk[0]), int(round(hk[1]))
         except Exception:  # noqa: BLE001  # nosec B110 - best-effort/optional path, no module logger
             pass
-    return _ent_nnz_1d(joint_counts_gpu(codes, cards), inv_n)
+    return _ent_nnz_1d(joint_counts_gpu(codes, cards), inv_n)  # type: ignore[no-any-return]
 
 
 # FUSED four-joint conditional-CMI entropies in ONE launch (launch-reduction, 2026-06-26). The conditional
@@ -700,6 +702,7 @@ def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int
 
     global _CMI_JOINT_ENTROPIES_KERNEL
     _get_joint_entropy_kernels()  # ensures _JOINT_ENTROPY_SH_LIMIT is populated
+    assert _JOINT_ENTROPY_SH_LIMIT is not None
     Mmax = int(Kx) * int(ky) * int(kz)
     if Mmax <= 0 or Mmax * 4 + 4096 > int(_JOINT_ENTROPY_SH_LIMIT):
         return None
@@ -768,6 +771,7 @@ def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) 
 
     global _MARGINAL_MI_ENTROPIES_KERNEL
     _get_joint_entropy_kernels()  # ensures _JOINT_ENTROPY_SH_LIMIT is populated
+    assert _JOINT_ENTROPY_SH_LIMIT is not None
     Mmax = int(Kx) * int(ky)
     if Mmax <= 0 or Mmax * 4 + 4096 > int(_JOINT_ENTROPY_SH_LIMIT):
         return None
