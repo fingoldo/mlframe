@@ -247,4 +247,4 @@ def apply_unary_binary_gpu(recipe: EngineeredRecipe, X: Any) -> Optional[np.ndar
     if out_gpu is None:
         return None
     # The ONE legitimate output transfer: the materialised engineered column D2H.
-    return cp.asnumpy(out_gpu)
+    return np.asarray(cp.asnumpy(out_gpu))
