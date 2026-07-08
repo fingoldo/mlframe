@@ -172,7 +172,7 @@ def _apply_plot_style_overrides(
                 "[plot_style] matplotlib import failed (%s); matplotlib " "style override skipped.",
                 _imp_err,
             )
-            plt = None
+            plt = None  # type: ignore[assignment]
         if plt is not None:
             if matplotlib_style is not None:
                 try:
@@ -378,6 +378,7 @@ def _phase_global_outlier_detection(ctx: TrainingContext) -> None:
         if isinstance(_named, dict):
             for _tn, _tv in _named.items():
                 _targets_flat_for_classbalance[f"{_tt}/{_tn}"] = _tv
+    assert ctx.train_idx is not None, "_setup_outlier_detection: ctx.train_idx must be set before outlier detection"
     filtered_train_df, filtered_val_df, filtered_train_idx, filtered_val_idx, train_od_idx, val_od_idx = _apply_outlier_detection_global(
         train_df=train_df_pd,
         val_df=val_df_pd,
@@ -385,7 +386,7 @@ def _phase_global_outlier_detection(ctx: TrainingContext) -> None:
         val_idx=ctx.val_idx,
         outlier_detector=outlier_detector,
         od_val_set=ctx.od_val_set,
-        verbose=verbose,
+        verbose=bool(verbose),
         baseline_rss_mb=ctx.baseline_rss_mb,
         df_size_mb=ctx.df_size_mb,
         targets_for_classbalance=_targets_flat_for_classbalance or None,
@@ -401,8 +402,8 @@ def _phase_global_outlier_detection(ctx: TrainingContext) -> None:
         n_val_pre_od = len(val_df_pd) if val_df_pd is not None else None
         n_train_post_od = int(train_od_idx.sum()) if train_od_idx is not None else n_train_pre_od
         n_val_post_od = int(val_od_idx.sum()) if val_od_idx is not None else n_val_pre_od
-        n_train_dropped = (n_train_pre_od - n_train_post_od) if n_train_pre_od is not None else 0
-        n_val_dropped = (n_val_pre_od - n_val_post_od) if (n_val_pre_od is not None and val_od_idx is not None) else 0
+        n_train_dropped = (n_train_pre_od - n_train_post_od) if (n_train_pre_od is not None and n_train_post_od is not None) else 0
+        n_val_dropped = (n_val_pre_od - n_val_post_od) if (n_val_pre_od is not None and n_val_post_od is not None and val_od_idx is not None) else 0
         ctx.metadata["outlier_detection"] = {
             "applied": True,
             "n_outliers_dropped_train": int(n_train_dropped),
@@ -677,6 +678,7 @@ def _phase_load_and_preprocess(
     if verbose:
         log_phase("PHASE 1: Data Loading & Preprocessing")
 
+    assert ctx.df is not None and ctx.preprocessing_config is not None, "_phase_load_and_preprocess: ctx.df/ctx.preprocessing_config must be set"
     t0_phase1 = timer()
     with phase("load_and_prepare_dataframe"):
         df = load_and_prepare_dataframe(ctx.df, ctx.preprocessing_config, verbose=verbose)
@@ -713,7 +715,7 @@ def _phase_load_and_preprocess(
         elif verbose:
             logger.warning("recurrent_models specified but no sequences provided or extracted")
 
-    baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-FTE")
+    baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=bool(verbose), reason="post-FTE")
     if verbose:
         log_ram_usage()
 
