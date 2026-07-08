@@ -120,6 +120,8 @@ class _FitPrepMixin:
             return X
         if not hasattr(X, "columns"):
             return X
+        if self._cat_cols_ is None or self._cat_cardinalities_ is None:
+            return X
         encoded_cols: dict = {}
         for col, card in zip(self._cat_cols_, self._cat_cardinalities_):
             if col not in X.columns:

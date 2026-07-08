@@ -86,7 +86,7 @@ try:
             from lightning_fabric.utilities import registry as _lfs_registry
             if _lfs_registry is not _lf_registry:
                 _lfs_registry._load_external_callbacks = _load_external_callbacks_cached
-                _lfs_registry._mlframe_callback_cache_installed = True
+                _lfs_registry._mlframe_callback_cache_installed = True  # type: ignore[attr-defined]  # dynamic monkeypatch marker on a third-party module
         except ImportError:
             pass
         # Rebind in every Lightning module that imported the original by name.
@@ -111,11 +111,11 @@ try:
             if _local_ref is None or _local_ref is _load_external_callbacks_cached:
                 continue
             try:
-                _mod._load_external_callbacks = _load_external_callbacks_cached
+                _mod._load_external_callbacks = _load_external_callbacks_cached  # type: ignore[attr-defined]  # dynamic monkeypatch on an arbitrary imported module
             except Exception:  # nosec B110 - non-trivial body
                 # Frozen / immutable module objects: skip silently.
                 pass
-        _lf_registry._mlframe_callback_cache_installed = True
+        _lf_registry._mlframe_callback_cache_installed = True  # type: ignore[attr-defined]  # dynamic monkeypatch marker on a third-party module
 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
     logger.debug("suppressed in __init__.py:119: %s", e)
     pass
@@ -175,7 +175,7 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
     def __setstate__(self, state: dict) -> None:
         self.__dict__.update(state)
         # Rebuilt lazily on the next predict(); start clean.
-        self._prediction_trainer_cache = {}
+        self._prediction_trainer_cache: dict = {}
 
     def __init__(
         self,
@@ -186,15 +186,15 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
         datamodule_params: dict,
         trainer_params: object,
         use_swa: bool = False,
-        swa_params: dict = None,
+        swa_params: Optional[dict] = None,
         use_ema: bool = False,
-        ema_params: dict = None,
+        ema_params: Optional[dict] = None,
         label_smoothing: float = 0.0,
         focal_loss_gamma: Optional[float] = None,
         focal_loss_alpha: float = 0.25,
         tune_params: bool = False,
         tune_batch_size: bool = False,
-        float32_matmul_precision: str = None,
+        float32_matmul_precision: Optional[str] = None,
         early_stopping_rounds: int = 100,
         # Monotonic strict-decline overfitting stop, COMPLEMENTARY to ``early_stopping_rounds`` patience:
         # stop once val_<metric> strictly worsens for this many consecutive epochs since the best (a

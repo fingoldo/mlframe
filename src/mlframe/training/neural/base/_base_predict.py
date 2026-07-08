@@ -28,7 +28,7 @@ class _PredictMixin:
     # Provided by the composed estimator class (via the sibling _FitMixin/_FitPrepMixin in the
     # MRO); declared here so mypy can type-check this mixin's reads/writes of them.
     trainer: Any
-    trainer_params: Optional[dict]
+    trainer_params: dict
     model: Any
     datamodule_class: Any
     datamodule_params: dict

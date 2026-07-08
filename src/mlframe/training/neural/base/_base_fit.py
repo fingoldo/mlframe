@@ -55,8 +55,8 @@ class _FitMixin(_FitPrepMixin):
     trainer_params: dict
     use_swa: bool
     use_ema: bool
-    swa_params: dict
-    ema_params: dict
+    swa_params: Optional[dict]
+    ema_params: Optional[dict]
     model_params: dict
     model_class: Any
     early_stopping_rounds: int
@@ -64,6 +64,12 @@ class _FitMixin(_FitPrepMixin):
     focal_loss_alpha: Any
     tune_params: Any
     tune_batch_size: Any
+    # Runtime state (not constructor params) shared with _PredictMixin -- declared identically
+    # there and here so mypy sees one consistent type across the composed estimator's MRO.
+    model: Any
+    trainer: Any
+    _label_encoder: Any
+    classes_: Any
 
     def _fit_common(
         self,
