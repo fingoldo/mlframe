@@ -393,4 +393,4 @@ def build_basis_matrix(basis: str, z: np.ndarray, max_degree: int) -> np.ndarray
             f"build_basis_matrix: basis {basis!r} not in " f"{sorted(_BASIS_BUILDERS)}; factory-based bases must use " f"the per-call eval_func path."
         )
     z_c = np.ascontiguousarray(z, dtype=np.float64)
-    return builder(z_c, int(max_degree))
+    return np.asarray(builder(z_c, int(max_degree)))
