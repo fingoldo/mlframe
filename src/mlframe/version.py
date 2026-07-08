@@ -1,3 +1,4 @@
+"""Single source of truth for the package version string, read by setup.py and importable at runtime without pulling in the package's dependencies."""
 from __future__ import annotations
 
 # Store the version here so:

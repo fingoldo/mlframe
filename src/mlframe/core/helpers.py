@@ -1,3 +1,4 @@
+"""Small standalone utility functions shared across mlframe: infinity sanitisation for pandas/polars/numpy frames, ES-related model introspection, and interactive diagnostic printers (BLAS/LAPACK install check, sklearn classifier listing, system RAM usage)."""
 from __future__ import annotations
 
 # *****************************************************************************************************************************************************
@@ -34,21 +35,24 @@ import pyutilz.polarslib as pllib
 
 
 def MakeSureBlasAndLaPackAreInstalled():
+    """Print numpy's detected BLAS/LAPACK backend info (interactive diagnostic to confirm numpy is linked against an optimized linear-algebra library rather than the slow reference implementation)."""
     from numpy.distutils.system_info import get_info
 
-    print(get_info("blas_opt"))  # noqa: T201 -- interactive diagnostic utility, this IS the function's job
-    print(get_info("lapack_opt"))  # noqa: T201
+    print(get_info("blas_opt"))
+    print(get_info("lapack_opt"))
 
 
 def ListAllSkLearnClassifiers():
+    """Print module path + name of every registered sklearn estimator whose name contains "Class" (interactive discovery helper for classifier-family estimators)."""
     from sklearn.utils.testing import all_estimators
 
     for name, Class in all_estimators():
         if name.find("Class") > 0:
-            print(Class.__module__, name)  # noqa: T201 -- interactive diagnostic utility, this IS the function's job
+            print(Class.__module__, name)
 
 
 def has_early_stopping_support(model_type: str) -> bool:
+    """Return True if ``model_type`` is one of the XGBoost / LightGBM / CatBoost model-type strings, i.e. a booster family that supports validation-set early stopping (as opposed to sklearn-style estimators that don't)."""
     if model_type in XGBOOST_MODEL_TYPES + LGBM_MODEL_TYPES + CATBOOST_MODEL_TYPES:
         return True
     else:
@@ -121,6 +125,7 @@ def ensure_no_infinity_np(arr: np.ndarray, nans_filler: float = 0, verbose: int 
 
 
 def ensure_no_infinity(df: "pd.DataFrame | pl.DataFrame | np.ndarray", num_cols_only: bool = True) -> "pd.DataFrame | pl.DataFrame | np.ndarray | None":
+    """Dispatch to the pandas / polars / numpy specific ``ensure_no_infinity_*`` implementation based on the runtime type of ``df``. Raises ``TypeError`` for any other carrier type."""
     if isinstance(df, pd.DataFrame):
         return ensure_no_infinity_pd(df=df, num_cols_only=num_cols_only)
     elif isinstance(df, pl.DataFrame):
@@ -131,6 +136,7 @@ def ensure_no_infinity(df: "pd.DataFrame | pl.DataFrame | np.ndarray", num_cols_
 
 
 def ensure_no_infinity_pl(df: pl.DataFrame, num_cols_only: bool = True, nans_filler: float = 0, verbose: int = 1) -> pl.DataFrame:
+    """``ensure_no_infinity`` for a polars DataFrame: replace ±inf with ``nans_filler`` in the columns selected by ``num_cols_only`` (numeric-only by default), warn once with the affected column names, and return a new frame (polars ``with_columns`` is not in-place)."""
     cols = cs.all() if not num_cols_only else cs.numeric()
     inf_mask = df.select(cols.is_infinite().any())
     # No matching columns (e.g. an all-categorical / all-text frame with num_cols_only=True) -> nothing can hold infinity.
@@ -224,11 +230,12 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
 
 
 def show_sys_ram_usage():
+    """Print total/available/used/free system RAM (GB) and used-percentage via ``psutil.virtual_memory`` (interactive diagnostic for spotting OOM risk before a large fit)."""
 
     mem = psutil.virtual_memory()
 
-    print(f"Total: {mem.total / 1e9:.2f} GB")  # noqa: T201 -- interactive diagnostic utility, this IS the function's job
-    print(f"Available: {mem.available / 1e9:.2f} GB")  # noqa: T201
-    print(f"Used: {mem.used / 1e9:.2f} GB")  # noqa: T201
-    print(f"Free: {mem.free / 1e9:.2f} GB")  # noqa: T201
-    print(f"Memory Usage: {mem.percent}%")  # noqa: T201
+    print(f"Total: {mem.total / 1e9:.2f} GB")
+    print(f"Available: {mem.available / 1e9:.2f} GB")
+    print(f"Used: {mem.used / 1e9:.2f} GB")
+    print(f"Free: {mem.free / 1e9:.2f} GB")
+    print(f"Memory Usage: {mem.percent}%")

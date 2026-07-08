@@ -254,6 +254,7 @@ _DEFAULT_CATEGORIES_MEDIUM = [f"v{i}" for i in range(30)] + ["__MISSING__"]
 
 
 def _size_tuple(n_rows: Union[int, Tuple[int, int]]) -> Tuple[int, int]:
+    """Normalise a row-count spec to a ``(min, max)`` range; a bare int is treated as a fixed, non-random size."""
     return n_rows if isinstance(n_rows, tuple) else (n_rows, n_rows)
 
 
@@ -347,8 +348,8 @@ def prod_like_frame(
             "timestamp", dtype=pl.Datetime,
             # naive datetimes are the intended dtype under test here (pl.Datetime default is tz-naive)
             strategy=st.datetimes(
-                min_value=dt.datetime(2023, 1, 1),  # noqa: DTZ001
-                max_value=dt.datetime(2024, 12, 31),  # noqa: DTZ001
+                min_value=dt.datetime(2023, 1, 1),
+                max_value=dt.datetime(2024, 12, 31),
             ),
             allow_null=False,
         ))
@@ -383,8 +384,8 @@ def prod_like_frame_small(
             dtype=pl.Datetime,
             # naive datetimes are the intended dtype under test here (pl.Datetime default is tz-naive)
             strategy=st.datetimes(
-                min_value=dt.datetime(2024, 1, 1),  # noqa: DTZ001
-                max_value=dt.datetime(2024, 2, 1),  # noqa: DTZ001 -- 1 month, enough for wholeday disabled
+                min_value=dt.datetime(2024, 1, 1),
+                max_value=dt.datetime(2024, 2, 1),
             ),
             allow_null=False,
         ),

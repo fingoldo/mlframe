@@ -6,4 +6,4 @@ Public surface re-exports the shared cupy import guard so cross-package callers 
 """
 from __future__ import annotations
 
-from ._gpu_guard import try_import_cupy  # noqa: F401
+from ._gpu_guard import try_import_cupy

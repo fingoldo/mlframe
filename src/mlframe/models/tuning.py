@@ -1,3 +1,11 @@
+"""Hyperparameter candidate sampling/filtering utilities plus a CatBoost-specific ML-guided trial suggestion system.
+
+Provides a rule-based constraint DSL (``check_condition``/``check_rules``) for filtering out invalid hyperparameter
+combinations produced by sklearn's ``ParameterSampler`` (``generate_valid_candidates``), and ``ParamsOptimizer`` /
+``CatboostParamsOptimizer``, which learn from past trial results stored in a DB (via ``pyutilz.db``) to bias future
+candidate sampling toward promising regions of CatBoost's hyperparameter space using a CatBoost surrogate model.
+"""
+
 from __future__ import annotations
 
 # ****************************************************************************************************************************
@@ -35,6 +43,8 @@ from enum import Enum, auto
 
 # MLTaskType = Enum("MLTaskType", ["Regression", "Multiregression", "Classification", "Multiclassification", "MultilabelClassification", "Ranking"])
 class MLTaskType(Enum):
+    """ML task types supported by the params optimizer's loss/eval-metric selection logic (see ``create_ctr_params`` comments)."""
+
     Regression = auto()
     Multiregression = auto()
     Classification = auto()
@@ -47,11 +57,23 @@ trained_models: dict = {}
 
 
 class HashableDict(dict):
+    """A dict subclass usable as a dict key (e.g. grouping rule conditions in ``skip_if_values_or``/``allow_if_values_or``/``allow_if_values_and``).
+
+    Plain ``dict`` is unhashable, so this recipe hashes the tuple of its sorted ``(key, value)`` items instead.
+    """
+
     def __hash__(self):  # type: ignore[override]  # intentional: dict.__hash__ is None (unhashable); this recipe makes it hashable
         return hash(tuple(sorted(self.items())))
 
 
 def check_condition(condition, params: dict) -> bool:
+    """Evaluate a single rule condition against a candidate ``params`` dict.
+
+    If ``condition`` is a (Hashable)dict, it maps field names to expected values (or lists of expected values);
+    the condition holds (returns True) as soon as ANY field/expected-value pair matches ``params`` (OR semantics
+    across fields, and OR semantics across a list of expected values for one field). If ``condition`` is not a
+    dict, it is treated as a plain boolean (e.g. a precomputed flag like ``GPU_ENABLED``).
+    """
     if isinstance(condition, (dict, HashableDict)):
         # must hold on all the conditions!
         for cond_field, cond_value in condition.items():
@@ -68,10 +90,32 @@ def check_condition(condition, params: dict) -> bool:
 
 
 def value_by_key(dct: dict, key, expected_value) -> bool:
+    """Return True if ``dct[key]`` equals ``expected_value`` (False if ``key`` is missing)."""
     return bool(dct.get(key) == expected_value)
 
 
 def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_values_or=None, allow_if_values_or=None, allow_if_values_and=None):
+    """Apply the constraint-filtering rule DSL to a single candidate ``params`` dict, mutating it and/or vetoing it.
+
+    Encodes the real inter-parameter compatibility constraints of an estimator (e.g. CatBoost) that
+    ``ParameterSampler`` cannot express on its own:
+
+    - ``drop_if_rules``: for each rule, if ANY of its ``conditions`` holds (per ``check_condition``), delete
+      each of the rule's ``fields`` from ``params`` (in place). Used when a field is simply irrelevant/invalid
+      under some other setting.
+    - ``drop_if_not_rules``: same, but deletes the fields when the condition does NOT hold (the field is only
+      meaningful in the presence of some other setting).
+    - ``skip_if_values_or``: maps a tuple of gating ``conditions`` (all must hold, AND) to a list of ``fields``
+      conditions; if the gate holds and ANY field condition also holds (OR), the whole candidate is rejected
+      (returns False) - encodes "value X is forbidden when gate Y is active".
+    - ``allow_if_values_or``: same gating (AND), but the candidate is rejected unless AT LEAST ONE of the field
+      conditions holds (OR) - encodes "when gate Y is active, field must be one of these values".
+    - ``allow_if_values_and``: same gating (AND), but the candidate is rejected unless ALL of the field
+      conditions hold (AND) - encodes "when gate Y is active, all of these companion settings must also hold".
+
+    Returns False as soon as any veto rule rejects the candidate; True if the candidate survives all rules
+    (params may still have been mutated by the drop rules along the way).
+    """
     if drop_if_rules:
         for rule in drop_if_rules:
             for condition in rule.get("conditions", []):
@@ -170,6 +214,15 @@ def generate_valid_candidates(
     max_iters: int = 1000,
     random_state: Union[int, np.random.Generator, None] = None,
 ):
+    """Rejection-sample ``n`` valid hyperparameter candidates from ``params`` via sklearn's ``ParameterSampler``.
+
+    Repeatedly draws batches from ``ParameterSampler``, resolves any nested distributions via
+    ``double_check_dist_params``, and keeps only candidates that pass ``check_rules`` (the drop/skip/allow rule
+    DSL). If a whole batch yields zero approvals, the next batch size is doubled (capped at
+    ``max(n * 8, 64)``) so the search doesn't stall on a sparsely-valid space. Stops once ``n`` candidates are
+    approved or ``max_iters`` total draws have been attempted; returns whatever was approved so far in the
+    latter case (may be fewer than ``n``).
+    """
     rng = np.random.default_rng(random_state)
     logger.info("Generating %s valid candidates...", n)
     approved = []
@@ -203,12 +256,22 @@ def generate_valid_candidates(
 
 
 def preprocess_df(df, cat_features):
+    """Fill NaN with an empty string in each of ``cat_features`` columns of ``df`` (in place); CatBoost requires categorical columns to have no missing values."""
 
     for var in cat_features:
         df[var] = df[var].fillna("")
 
 
 def prepare_trials_dataset(experiment_name: str, objective_name: str) -> pd.DataFrame:
+    """Load historical trial params + results for one experiment/objective from the DB and build a training dataframe.
+
+    Fetches every trial row for ``experiment_name`` whose ``results`` include ``objective_name``, attaches the
+    objective value as a ``target`` column, and returns a dataframe of the raw params (one row per trial) plus
+    the list of its categorical feature columns. Constant columns (same value across all trials) and a few
+    known-noisy CatBoost params (``grow_policy``, ``model_shrink_mode``, ``verbose``, ``boost_from_average``)
+    are dropped, and categorical columns are NaN-filled via ``preprocess_df``. Returns an empty dataframe and
+    empty cat_features list when no matching trials exist yet.
+    """
     logger.info("Getting trials for experiment %s...", experiment_name)
     res = []
     for _id, _node, params, results in db.safe_execute("select id,node,params,results from experiments where  project=%s", (experiment_name,)):
@@ -234,6 +297,7 @@ def prepare_trials_dataset(experiment_name: str, objective_name: str) -> pd.Data
 
 
 def normalize_probs(probs: np.ndarray):
+    """Normalize ``probs`` in place to sum to 1; falls back to a uniform distribution when the sum is non-positive or non-finite."""
     total = probs.sum()
     if total <= 0 or not np.isfinite(total):
         probs[:] = 1.0 / len(probs)
@@ -320,6 +384,15 @@ def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFram
 
 
 def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv: int, scoring: str, min_score: float, max_new_trials: int = 10, random_state: Union[int, np.random.Generator, None] = None):
+    """Fit (or reuse a cached) CatBoost surrogate model predicting trial objectives from trial params.
+
+    Caches by ``(experiment_name, cat_features, feature_cols)`` in the module-level ``trained_models`` dict.
+    A cached model is reused as-is only if: the scoring metric matches, its cross-validated score was already
+    >= ``min_score`` AND fewer than ``max_new_trials`` new trials have arrived since it was fit; or its score
+    was below ``min_score`` AND no new trials have arrived at all (retrying would be pointless without new
+    data). Otherwise the model is refit on the current ``trials`` via ``justify_estimator``. Returns
+    ``(fitted_model_or_None, model_columns, y)`` where ``fitted_model`` is None if the CV gate rejected it.
+    """
     # trained_models[cache_key]=[fitted_model,len(trials),ml_scoring,expected_performance]
     # Include a signature of the trial feature columns (the columns the surrogate is actually fit on) in the
     # cache key. Keying on experiment_name + cat_features alone let two callers that share an experiment name
@@ -377,6 +450,16 @@ def justify_estimator(
     random_state: Union[int, np.random.Generator, None] = None,
     early_stopping_rounds: Optional[int] = 50,
 ):
+    """Cross-validate ``est`` on ``(X, y)`` as a gate on whether there is enough signal to use ML-guided sampling; refit on full data if the gate passes.
+
+    Runs ``cross_validate`` with ``cv`` folds (an int ``cv`` is turned into a seeded shuffled ``KFold`` so the
+    whole function is reproducible under one ``random_state``) and takes the nanmean of the fold scores
+    (robust to occasional degenerate folds returning NaN, e.g. under class imbalance). If the mean score is
+    >= ``min_score``, ML is deemed usable: when ``refit`` is True the estimator is fit on the full data (for
+    CatBoost, with an early-stopping eval split) and returned fitted; otherwise ``est`` is returned unfitted.
+    If the mean score is below ``min_score``, returns ``(None, mean_score)`` - the caller should fall back to
+    random sampling. Always returns ``(estimator_or_None, mean_score)``.
+    """
 
     logger.info("Checking if ML gains some predictive power already on %s samples...", f"{len(y):_}")
 
@@ -430,6 +513,15 @@ def justify_estimator(
 # mismatched default silently emitted GPU-only ctr vocab (FeatureFreq / FloatTargetMeanValue / Median borders)
 # into params destined for a CPU CatBoost fit, which CatBoost then rejects or silently reinterprets.
 def create_ctr_params(GPU_ENABLED: bool = False, params: Optional[dict] = None, stdlib_rng: Optional[_stdlib_random.Random] = None, random_state: Union[int, np.random.Generator, None] = None) -> Optional[list]:
+    """Randomly generate CatBoost's ``simple_ctr``/``combinations_ctr`` categorical-feature-encoding config strings.
+
+    For each applicable CTR type (device-dependent: ``Borders Buckets BinarizedTargetMeanValue Counter`` on
+    CPU, ``Borders Buckets FeatureFreq FloatTargetMeanValue`` on GPU), with 50% probability samples valid
+    border-count/border-type sub-options (via ``generate_valid_candidates``, itself GPU/CPU-gated) and appends
+    them as a colon-separated ``"Type:Key=Value:..."`` string, skipping target-border options that are
+    unsupported for ``Counter``/``FeatureFreq`` or for the ``CrossEntropy`` loss function. Returns None if no
+    lines were generated (matching CatBoost's "unset" convention), else the list of config strings.
+    """
     if params is None:
         params = {}
     if stdlib_rng is None:
@@ -467,6 +559,15 @@ def create_ctr_params(GPU_ENABLED: bool = False, params: Optional[dict] = None, 
 
 
 class ParamsOptimizer:
+    """Base class for ML-guided (or random) hyperparameter trial suggestion.
+
+    Subclasses (e.g. ``CatboostParamsOptimizer``) set ``self.params`` (the sklearn-distribution search space)
+    and the rule-DSL attributes (``drop_if_rules``, ``drop_if_not_rules``, ``skip_if_values_or``,
+    ``allow_if_values_or``, ``allow_if_values_and``) in their ``__init__``. ``suggest_trials`` is the main
+    entry point; ``create_study``/``report_trial_results`` are no-op extension-point stubs for a future study/
+    result persistence backend.
+    """
+
     # Set by subclasses (e.g. CatboostParamsOptimizer) in their __init__, not here.
     params: dict
     drop_if_rules: list
@@ -508,6 +609,20 @@ class ParamsOptimizer:
         ml_scoring: str = "r2",
         ml_min_score: float = 0.6,
     ):
+        """Suggest ``n`` hyperparameter candidates, either uniformly at random or scored/reweighted by a fitted ML surrogate.
+
+        With ``sampler='random'``, simply returns ``n`` valid candidates from ``generate_valid_candidates``.
+        With ``sampler='ml'`` (default): loads historical trials for ``experiment_name``/``objective_name``; if
+        there are none, falls back to random. Otherwise, up to ``max_attempts`` times, it draws a much larger
+        pool of valid candidates (``max(n * search_space_multiplier, search_space_minsize)``), and if there are
+        enough historical trials (``>= min_samples_for_ml``), scores that pool with a fitted CatBoost surrogate
+        (``get_model``) turning predictions into sampling weights (``objective_to_sampling_weights`` +
+        ``normalize_probs``) - biased toward ``minimize``, and optionally zeroing out candidates not predicted
+        to improve on the observed band by at least ``improving_by_atleast``. When ``favor_unexplored`` is set,
+        ``favorize_unexplored`` further boosts weight on candidates touching yet-unseen categorical values.
+        Finally samples ``n`` candidates from the pool without replacement according to the resulting
+        probabilities. Raises ``ValueError`` if ``sampler`` is not ``'random'`` or ``'ml'``.
+        """
 
         # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix typo
         # silently skipped both branches under -O.
@@ -515,6 +630,7 @@ class ParamsOptimizer:
             raise ValueError(f"sampler must be 'random' or 'ml'; got {sampler!r}.")
 
         def get_n_cands(n):
+            """Closure over ``self``'s search space + rule-DSL attributes: generate ``n`` valid candidates."""
             return generate_valid_candidates(
                 params=self.params,
                 drop_if_rules=self.drop_if_rules,
@@ -611,6 +727,13 @@ class ParamsOptimizer:
 
 
 class CatboostParamsOptimizer(ParamsOptimizer):
+    """Concrete ``ParamsOptimizer`` for CatBoost.
+
+    Builds a large parameter-distribution search space spanning CatBoost's float/int/categorical/bool
+    hyperparameters plus CTR (categorical-feature encoding) config, along with the full drop/skip/allow rule
+    set encoding CatBoost's real parameter-compatibility constraints. See ``__init__`` for the details.
+    """
+
     def __init__(
         self,
         GPU_ENABLED: bool = False,
@@ -621,6 +744,17 @@ class CatboostParamsOptimizer(ParamsOptimizer):
         delete_params: Optional[Sequence] = None,
         random_state: Union[int, np.random.Generator, None] = None,
     ):
+        """Build the CatBoost hyperparameter search space + compatibility rule set.
+
+        Populates ``self.params`` with distributions spanning CatBoost's float/int/categorical/bool
+        hyperparameters (device-gated where CPU/GPU support differs) plus randomly-generated CTR encoding
+        strings (``simple_ctr``/``combinations_ctr`` via ``create_ctr_params``), then ``params_override``
+        (merged on top) and ``delete_params`` (removed) are applied. Also builds ``self.drop_if_rules``,
+        ``self.drop_if_not_rules``, ``self.skip_if_values_or``, ``self.allow_if_values_or`` and
+        ``self.allow_if_values_and``, encoding CatBoost's real parameter-compatibility constraints (e.g.
+        ``posterior_sampling`` requires Constant Model Shrink Mode + Langevin boosting; MVS bootstrap supports
+        only per-object sampling; Newton leaf estimation is unsupported for MAE/MAPE/Quantile losses).
+        """
 
         super().__init__(random_state=random_state)
         if params_override is None:

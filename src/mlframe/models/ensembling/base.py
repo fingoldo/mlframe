@@ -195,7 +195,7 @@ except Exception:  # pragma: no cover
     _rrf_aggregate_probs_njit = None
 
 
-from mlframe.system import try_import_cupy  # noqa: E402
+from mlframe.system import try_import_cupy
 
 _, _HAS_CUPY = try_import_cupy()  # pragma: no cover -- env-dependent
 
@@ -966,7 +966,7 @@ def _emit_pairs_above_threshold(
     return pairs, split_used
 
 
-from .member_metrics import (  # noqa: E402,F401
+from .member_metrics import (
     _PER_MEMBER_KERNEL_NAME,
     _PER_MEMBER_NUMBA_FLOOR_ELEMENTS,
     _per_member_mae_std,

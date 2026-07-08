@@ -23,7 +23,7 @@ from sklearn.ensemble import IsolationForest
 # broken against new sklearn (parse_version moved). `reject_outliers` imports
 # it lazily so the rest of the module stays usable.
 try:
-    from imblearn import FunctionSampler  # noqa: F401
+    from imblearn import FunctionSampler
     from imblearn.pipeline import Pipeline as _ImbPipeline
     _HAS_IMBLEARN = True
 except Exception:  # pragma: no cover
@@ -83,7 +83,9 @@ except ImportError:
     numba = None
 
     def njit(*args, **kwargs):  # pragma: no cover
+        """Fallback ``numba.njit`` stub used when numba is unavailable: returns the function unmodified (or a passthrough decorator when called with keyword options), so the module still imports and runs in pure Python."""
         def wrap(fn):
+            """Passthrough decorator returned by the ``njit`` fallback when invoked with options (e.g. ``@njit(parallel=True)``); returns ``fn`` unchanged."""
             return fn
 
         if args and callable(args[0]):

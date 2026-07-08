@@ -74,7 +74,7 @@ def required_n_for_proportion(half_width: float, *, confidence: float = 0.95, p:
     if not (0.0 <= p <= 1.0):
         raise ValueError("required_n_for_proportion: p must be in [0, 1].")
     z = z_for_confidence(confidence)
-    return int(math.ceil(z * z * p * (1.0 - p) / (half_width * half_width)))
+    return math.ceil(z * z * p * (1.0 - p) / (half_width * half_width))
 
 
 def proportions_significantly_different(m1: int, n1: int, m2: int, n2: int, *, confidence: float = 0.95) -> bool:

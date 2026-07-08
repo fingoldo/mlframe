@@ -60,7 +60,7 @@ class MonotonicDeclineStopper:
         for lower-is-better metrics (loss, RMSE, error). Drives the sign of every compare.
     """
 
-    __slots__ = ("patience", "mode", "_greater_is_better", "best", "prev", "streak", "stopped")
+    __slots__ = ("_greater_is_better", "best", "mode", "patience", "prev", "stopped", "streak")
 
     def __init__(self, patience: int | None, mode: str = "max") -> None:
         if mode not in ("max", "min"):
@@ -79,6 +79,7 @@ class MonotonicDeclineStopper:
 
     @property
     def enabled(self) -> bool:
+        """Whether this stopper has a positive ``patience`` and will actually fire."""
         return self.patience is not None
 
     def update(self, value: float) -> bool:

@@ -76,6 +76,11 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
         self.es_fit_param_name = es_fit_param_name
 
     def _transform_y(self, y):
+        """Validate ``y`` and apply the fitted ``transformer_``, squeezing a (n, 1) result back to 1D.
+
+        Used both by ``fit`` (to transform the target before feeding the inner regressor) and to
+        transform any early-stopping eval-set targets found in ``fit_params[es_fit_param_name]``.
+        """
         y = check_array(
             y,
             input_name="y",
@@ -202,6 +207,7 @@ class PdOrdinalEncoder(OrdinalEncoder):
         super().__init__(categories=categories,dtype=dtype,handle_unknown=handle_unknown,unknown_value=unknown_value,encoded_missing_value=encoded_missing_value,min_frequency=min_frequency,max_categories=max_categories)
 
     def transform(self, X):
+        """Ordinal-encode ``X``, returning a DataFrame with original columns if given one, else an ndarray of int32 codes."""
         if isinstance(X, pd.DataFrame):
             col_names = X.columns.tolist()
         else:
@@ -239,6 +245,7 @@ class PdKBinsDiscretizer(KBinsDiscretizer):
         super().__init__(n_bins=n_bins, encode=encode, strategy=strategy, dtype=dtype, subsample=subsample, random_state=random_state)
 
     def transform(self, X):
+        """Discretize ``X`` into bins, densifying sparse onehot output and returning int32 codes (DataFrame if input was one)."""
         if isinstance(X, pd.DataFrame):
             col_names = X.columns.tolist()
         else:
@@ -268,6 +275,7 @@ class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
         self.nprobs = nprobs
 
     def fit(self, X, y):
+        """Validate ``nprobs`` against the actual feature count and record ``classes_``/``n_features_in_``; does no real training."""
         X = check_array(X)
         # ``nprobs`` columns are averaged in predict_proba; a value exceeding the
         # available feature count would silently average an empty / short slice
@@ -279,11 +287,13 @@ class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def predict(self, X):
+        """Return the argmax class over ``predict_proba``'s two columns."""
         check_is_fitted(self)
         X = check_array(X)
         return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
 
     def predict_proba(self, X):
+        """Average the first ``nprobs`` columns of ``X`` (clipped to [0, 1]) into P(class=1) and return ``[1-p, p]``."""
         check_is_fitted(self)
         X = check_array(X)
         # X carries pre-computed probability columns; clip into [0, 1] so a stray
@@ -305,6 +315,7 @@ class GeomAvgClassifier(BaseEstimator, ClassifierMixin):
         self.nprobs = nprobs
 
     def fit(self, X, y):
+        """Validate ``nprobs`` against the actual feature count and record ``classes_``/``n_features_in_``; does no real training."""
         X = check_array(X)
         if self.nprobs is None or self.nprobs < 1 or self.nprobs > X.shape[1]:
             raise ValueError(f"nprobs must be in [1, n_features={X.shape[1]}]; got {self.nprobs!r}.")
@@ -313,11 +324,13 @@ class GeomAvgClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def predict(self, X):
+        """Return the argmax class over ``predict_proba``'s two columns."""
         check_is_fitted(self)
         X = check_array(X)
         return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
 
     def predict_proba(self, X):
+        """Geometrically average the first ``nprobs`` columns of ``X`` (log-space, clipped to [0, 1]) into P(class=1)."""
         check_is_fitted(self)
         X = check_array(X)
         # Geometric mean is undefined on negatives, and ``a ** (1/n)`` returns
@@ -350,6 +363,7 @@ class PureRandomClassifier(BaseEstimator, ClassifierMixin):
         self.random_state = random_state
 
     def fit(self, X, y):
+        """Record ``classes_``/``n_features_in_`` and derive a fixed predict-time RNG seed from ``random_state``."""
         X = np.asarray(X)
         y = np.asarray(y)
         self.random_state_ = check_random_state(self.random_state)
@@ -362,10 +376,12 @@ class PureRandomClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def predict(self, X):
+        """Return the argmax class over ``predict_proba``'s random draws."""
         proba = self.predict_proba(X)
         return self.classes_[np.argmax(proba, axis=1)]
 
     def predict_proba(self, X):
+        """Draw random class probabilities from a fixed per-instance seed (uniform for binary, Dirichlet-like for multiclass)."""
         check_is_fitted(self, "_predict_seed_")
         rng = np.random.RandomState(self._predict_seed_)  # fresh each call -> deterministic given X
         n = len(X)
@@ -385,6 +401,7 @@ class MyDecorrelator(BaseEstimator, TransformerMixin):
         self.threshold = threshold
 
     def fit(self, X, y=None):
+        """Compute pairwise correlations and mark later-indexed columns of any pair exceeding ``threshold`` for dropping."""
         X = pd.DataFrame(X)
         corr_matrix = X.corr()
         # Vectorized upper-triangle (k=1) decorrelation: a column is dropped when its absolute correlation
@@ -398,6 +415,7 @@ class MyDecorrelator(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None, **kwargs):
+        """Drop the columns flagged as correlated in ``fit``, without wrapping the input into a fresh DataFrame."""
         check_is_fitted(self)
         # Drop correlated columns without wrapping the whole input into a fresh DataFrame
         # on every call: a DataFrame already supports ``.drop`` directly, and an ndarray's
@@ -635,6 +653,7 @@ class IdentityEstimator(BaseEstimator):
         self.feature_indices = feature_indices
 
     def fit(self, X, y, **fit_params):
+        """Record sorted ``classes_`` from ``y`` when acting as a classifier; no other state is learned."""
         if isinstance(self, ClassifierMixin):
             # Wave 61 (2026-05-20): object-dtype label set with mixed types
             # (None + str) would TypeError on Python sorted(); use np.sort
@@ -647,6 +666,7 @@ class IdentityEstimator(BaseEstimator):
         return self
 
     def predict(self, X):
+        """Return the selected feature column(s) from ``X`` verbatim, by name or positional index."""
         if isinstance(X, (pd.DataFrame, pd.Series)):
             if self.feature_names:
                 return X.loc[:, self.feature_names].to_numpy()
@@ -680,6 +700,7 @@ class IdentityClassifier(IdentityEstimator, ClassifierMixin):
     """
 
     def predict_proba(self, X):
+        """Coerce the selected feature column(s) into a valid, clipped, row-normalised class-probability matrix."""
         last_class_probs = self.predict(X)
         if len(self.classes_) == 2 and last_class_probs.ndim == 1:
             return np.vstack([1 - last_class_probs, last_class_probs]).T

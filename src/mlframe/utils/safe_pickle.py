@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 from pyutilz.core.safe_pickle import (
     PickleVerificationError,
-    _sha256_of_file,  # noqa: F401 -- re-exported for estimators/pipelines.py and inference/predict.py
+    _sha256_of_file,
     safe_dump,
     write_sidecar,
 )

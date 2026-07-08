@@ -34,7 +34,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # Leaf helpers, constants, classes, numba probe.
-from .base import (  # noqa: E402,F401
+from .base import (
     SIMPLE_ENSEMBLING_METHODS,
     RANK_FUSION_METHODS,
     StreamingAccumulator,
@@ -52,18 +52,18 @@ from .base import (  # noqa: E402,F401
     compute_high_correlation_pairs,
 )
 # Siblings.
-from .quality_gate import compute_member_quality_gate  # noqa: E402,F401
-from .predict import (  # noqa: E402,F401
+from .quality_gate import compute_member_quality_gate
+from .predict import (
     ensemble_probabilistic_predictions,
     ensemble_probabilistic_predictions_streaming,
 )
-from .process_method import _process_single_ensemble_method  # noqa: E402,F401
-from .score import score_ensemble  # noqa: E402,F401
-from .float_aggregation import (  # noqa: E402,F401
+from .process_method import _process_single_ensemble_method
+from .score import score_ensemble
+from .float_aggregation import (
     combine_float_predictions,
     robust_float_ensemble,
 )
-from .selection import (  # noqa: E402,F401
+from .selection import (
     caruana_greedy_selection,
     CaruanaSelectionResult,
     rank_average_blend,

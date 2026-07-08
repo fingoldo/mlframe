@@ -47,4 +47,4 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["make_all_scalers", "ALL_SCALERS"]  # noqa: F822  (ALL_SCALERS provided lazily via module __getattr__)
+__all__ = ["make_all_scalers", "ALL_SCALERS"]

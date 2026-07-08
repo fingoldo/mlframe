@@ -1,3 +1,5 @@
+"""MLflow logging helpers: flatten/report sklearn classification_report dicts, embed HTML in the run UI, and idempotently get-or-create runs by name."""
+
 from __future__ import annotations
 
 # *****************************************************************************************************************************************************
@@ -29,6 +31,7 @@ _USERINFO_RE = re.compile(r"(?i)([a-z][a-z0-9+\-.]*://)[^/@\s]+@")
 
 
 def _strip_userinfo(text: object) -> str:
+    """Redact any ``scheme://user:password@`` userinfo from ``text`` before it is logged, so tracking-server credentials embedded in a raised exception don't leak into log files."""
     return _USERINFO_RE.sub(r"\1***@", str(text))
 
 ########################################################################################################################################################################################################################################
@@ -36,6 +39,12 @@ def _strip_userinfo(text: object) -> str:
 ########################################################################################################################################################################################################################################
 
 def flatten_classification_report(cr: dict, separate_metrics=("accuracy","balanced_accuracy","brier_score_loss","roc_auc"),source:str="")->dict:
+    """Flatten a sklearn ``classification_report(output_dict=True)`` into a single flat dict of MLflow-metric-name -> value.
+
+    Scalar metrics named in ``separate_metrics`` (e.g. ``accuracy``) are popped out under ``source + metric``; every
+    remaining per-class / averaged sub-dict is expanded to ``source + <"class "+label or "macro avg"/"weighted avg">
+    + "_" + metric``, matching MLflow's flat metric-name requirement (no nested structures).
+    """
     res={}
     for metric in separate_metrics:
         if metric in cr:
@@ -84,6 +93,7 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
     # Escape embedded double-quotes/backslashes so user-controlled run_name can't
     # break out of the mlflow DSL filter literal.
     def _dsl_escape(s: object) -> str:
+        """Escape backslashes and double-quotes so ``s`` is safe to embed inside an mlflow search-runs DSL string literal."""
         return str(s).replace("\\", "\\\\").replace('"', '\\"')
 
     filter_string = f'run_name = "{_dsl_escape(run_name)}"'
@@ -136,6 +146,11 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
         return run, False
 
 def create_mlflow_run_label(params: Optional[dict] = None, category: Optional[str] = None) -> str:
+    """Build a compact, human-readable run label like ``"category:key1=val1,key2=val2"`` from a params dict, skipping falsy values.
+
+    ``Enum`` values render as their member name and bare ``type`` values render as the class name, so the label stays
+    short and readable instead of showing Python's default ``repr``.
+    """
     if params is None:
         params = {}
     label_parts = []

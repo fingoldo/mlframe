@@ -109,6 +109,7 @@ def rank_average_blend(
 
 
 def _default_metric_is_auc(metric: Optional[Callable]) -> bool:
+    """Whether the caller left ``metric`` unset, meaning the ROC-AUC default in :func:`_score_blend` applies."""
     return metric is None
 
 
@@ -144,7 +145,7 @@ class CaruanaSelectionResult:
         Total number of greedy additions (bag size).
     """
 
-    __slots__ = ("weights", "counts", "order", "score", "n_picks")
+    __slots__ = ("counts", "n_picks", "order", "score", "weights")
 
     def __init__(self, weights, counts, order, score, n_picks):
         self.weights = weights
@@ -224,6 +225,7 @@ def caruana_greedy_selection(
     sign = 1.0 if greater_is_better else -1.0
 
     def _better(a: float, b: float) -> bool:
+        """Whether candidate score ``a`` beats the current-best ``b`` by more than ``tol``, in the direction ``sign`` implies."""
         # ``a`` improves over ``b`` by more than ``tol`` in the direction implied by greater_is_better.
         return sign * (a - b) > tol
 

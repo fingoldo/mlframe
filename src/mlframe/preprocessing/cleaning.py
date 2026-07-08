@@ -64,7 +64,7 @@ DATEFRACTS_MULTIPLIERS = [24, 60, 60, 1000, 1000, 1000]
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-from ._cleaning_kernels import (  # noqa: F401  re-export: lazy njit kernel factories carved to a sibling
+from ._cleaning_kernels import (
     _get_count_distinct_njit,
     _get_count_distinct_rounded_njit,
     _get_outlier_mask_njit,
@@ -73,6 +73,7 @@ from ._cleaning_kernels import (  # noqa: F401  re-export: lazy njit kernel fact
 
 
 def _get_nunique(vals: np.ndarray, skip_nan: bool = True, skip_vals: Optional[tuple] = None) -> int:
+    """Count distinct values in ``vals``, optionally excluding NaN and up to two ``skip_vals``. Float arrays take a sort+njit-count fast path that avoids materializing the unique-value array; non-float/object arrays fall back to ``np.unique``."""
     # Float fast path: the caller only ever uses the COUNT, never the unique values, so np.unique's
     # unique-array materialization + the trailing ``unique_vals != val`` boolean-mask passes are pure waste.
     # Sort once + count distinct in a single njit pass (skipping NaN + skip_vals inline). Bit-identical to the
@@ -107,6 +108,7 @@ def _get_nunique(vals: np.ndarray, skip_nan: bool = True, skip_vals: Optional[tu
 def _update_sub_df_col(
     df: pd.DataFrame, sub_df: pd.DataFrame, col: str, col_unique_values: pd.DataFrame, nunique: int, analyse_mask: Optional[np.ndarray] = None
 ) -> tuple:
+    """Refresh ``col``'s value_counts (and nunique) for the analysed sub-frame, re-slicing ``df`` via ``analyse_mask`` first when provided. Called after a column has been narrowed to the analysis subset so the cardinality stats reflect that subset, not the full frame."""
     if analyse_mask is not None:
         # Unconditionally refresh from df.loc[...]: heuristics based on
         # ``values.base`` were unreliable across pandas <2 / >=2 copy-on-write
@@ -129,6 +131,7 @@ def _clean_cat_and_obj_columns(
     head: Optional[pd.DataFrame] = None,
     verbose: bool = True,
 ):
+    """Apply cleaning functions and/or value-replacement maps to a dataframe's categorical and object/string columns in place, mutating ``df`` column-by-column. ``head`` (a small sample, typically ``df.head(1)``) is used only to discover which columns exist and their dtypes, avoiding a full-frame dtype scan on huge frames."""
     if head is None:
         head = df.head(1)
 
@@ -462,6 +465,7 @@ _DEFRAG_COPY_MAX_BYTES = 2 * 1024**3
 
 
 def fragment_df_on_ram_usage_increase(df: pd.DataFrame, prev_mem_usage: float, max_increase_percent: float = 0.5) -> tuple:
+    """Defragment ``df`` (via ``.copy()``) when process RAM usage grew by more than ``max_increase_percent`` since ``prev_mem_usage``, which is the usual symptom of pandas fragmenting a frame after many in-place column assignments. Skipped when the frame exceeds ``_DEFRAG_COPY_MAX_BYTES`` since a copy would double peak RAM on a huge frame. Returns ``(df, mem_usage_to_compare_against_next_time)``."""
     new_mem_usage = get_own_memory_usage()
     if prev_mem_usage:
         if new_mem_usage >= prev_mem_usage * (1 + max_increase_percent):

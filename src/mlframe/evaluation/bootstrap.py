@@ -57,6 +57,7 @@ def _ci_from_samples(
     hi_pct = (1.0 - alpha / 2.0) * 100.0
 
     def _pct_pair(p_lo: float, p_hi: float) -> tuple[float, float]:
+        """Fetch both percentile cut-points from ``samples`` in a single ``np.percentile`` call (see rationale below)."""
         # CPX24: one np.percentile call over the [lo, hi] vector instead of two
         # separate calls. Each np.percentile internally np.partition's the array;
         # two calls partition the SAME samples twice. The vectorised single call

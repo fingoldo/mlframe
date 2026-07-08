@@ -375,7 +375,7 @@ def _rss_mb() -> Optional[float]:
 # Persistence (append-only, stat-only, concurrency-safe)
 # ---------------------------------------------------------------------------
 
-from ._param_oracle_store import (  # noqa: F401,E402
+from ._param_oracle_store import (
     SCHEMA_VERSION,
     _ParquetStore,
     _STORE_COLUMNS,
@@ -678,6 +678,7 @@ class ParamOracle:
         return default
 
     def _caller_default(self) -> dict:
+        """Fallback param combo when no observation history matches: the first combo in the declared sweep grid (or empty dict if the grid itself is empty), used as the last-resort default."""
         combos = self._all_combos()
         return combos[0] if combos else {}
 
@@ -753,6 +754,7 @@ class ParamOracle:
         return results
 
     def _run_one(self, fn: Callable, args: Sequence[Any], kwargs: Mapping[str, Any], combo: Mapping[str, Any]) -> tuple[dict, Any]:
+        """Call ``fn`` once with ``combo`` merged into ``kwargs``, timing wall-clock and RSS delta, then run ``objective_fn`` on the result to produce the recorded objective dict; returns ``(objective, raw_call_output)``."""
         call_kwargs = dict(kwargs)
         call_kwargs.update(combo)
         rss_before = _rss_mb()

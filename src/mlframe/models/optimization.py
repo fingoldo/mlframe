@@ -61,6 +61,8 @@ BIG_VALUE = 1e6
 # Callers that drive the optimizer in a loop must NOT terminate on _NOT_READY -- it means "try again after
 # submitting more evaluations", whereas None means "every candidate has been checked / suggested".
 class _SearchNotReady:
+    """Sentinel type for :data:`NOT_READY`; see the module comment above for the NOT_READY-vs-None contract."""
+
     __slots__ = ()
     def __repr__(self):
         return "NOT_READY"
@@ -73,11 +75,15 @@ NOT_READY = _SearchNotReady()
 
 
 class OptimizationDirection(Enum):
+    """Whether the optimizer is hunting for the highest or lowest evaluation."""
+
     Minimize = auto()
     Maximize = auto()
 
 
 class CandidateSamplingMethod(Enum):
+    """Strategy for picking the initial (pre-surrogate) exploration candidates."""
+
     Random = auto()
     Equidistant = auto()
     Fibonacci = auto()
@@ -85,6 +91,8 @@ class CandidateSamplingMethod(Enum):
 
 
 class OptimizationProgressPlotting(Enum):
+    """How often ``MBHOptimizer`` renders its diagnostic plot during the search loop."""
+
     No = auto()
     Final = auto()  # Plotting is done once, after the search finishes
     OnScoreImprovement = auto()  # Plotting is done on every improving candidate
@@ -151,10 +159,12 @@ class _ETRWithStd:
         self._base = base
 
     def fit(self, X, y):
+        """Delegate straight to the wrapped ExtraTreesRegressor; returns self for chaining."""
         self._base.fit(X, y)
         return self
 
     def predict(self, X, return_std: bool = False):
+        """Predict; when ``return_std`` also returns the per-tree-prediction std across the ensemble as the uncertainty estimate."""
         if not return_std:
             return self._base.predict(X)
         per_tree = np.array([t.predict(X) for t in self._base.estimators_])
@@ -615,6 +625,12 @@ class MBHOptimizer:
                         return next_candidate
 
     def submit_evaluations(self, candidates: Sequence, evaluations: Sequence, durations: Sequence):
+        """Record a batch of (candidate, evaluation, duration) results, update best/worst tracking, and append to the known-candidates history.
+
+        Also clears the corresponding entries from ``suggested_candidates`` / ``pre_seeded_candidates`` bookkeeping and, depending on
+        ``self.plotting``, triggers a progress plot. ``durations[i] is None`` falls back to the elapsed wall time since that candidate
+        was suggested (via the ``suggested_candidates`` start-timestamp), when available.
+        """
 
         # if duration_seconds is None, it's computed automatically using timestamp of suggesting that particular candidate to that particular worker
 
@@ -939,6 +955,10 @@ def plot_search_state(
     expected_fitness_color: str = "green",
     legend_location: str = "lower right",
 ):
+    """Render the current optimizer state: known evaluations, the surrogate's predicted fitness (+ std band when available), and the just-suggested candidate, on a dual-axis matplotlib figure.
+
+    Purely diagnostic -- called from :meth:`MBHOptimizer.submit_evaluations` when ``plotting`` requests it (``OnScoreImprovement`` / ``Regular``); never affects the search itself.
+    """
 
     # ---------------------------------------------------------------------------------------------------------------
     # Plot expected fitness of the points

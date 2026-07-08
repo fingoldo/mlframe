@@ -161,7 +161,7 @@ def preserve_global_rng() -> Iterator[None]:
 
 def get_pipeline_last_element(clf) -> object:
     """Return the last step's estimator from a fitted sklearn ``Pipeline``."""
-    for _elem_name, elem in clf.named_steps.items():  # noqa: B007 -- last-iteration value used after the loop, below
+    for _elem_name, elem in clf.named_steps.items():
         pass
     return elem
 

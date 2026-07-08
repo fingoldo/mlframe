@@ -28,6 +28,7 @@ from mlframe.metrics.core import format_classification_report
 
 
 def init_model_instance(model_class: Any, params: dict) -> Any:
+    """Instantiate ``model_class`` with ``params``, recursing into each step's params when it is an imblearn ``Pipeline``."""
     from imblearn.pipeline import Pipeline  # pylint: disable=import-outside-toplevel
     if isinstance(model_class, Pipeline):
         modified_steps = []

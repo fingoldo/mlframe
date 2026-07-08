@@ -1,3 +1,4 @@
+"""Reporting/evaluation helpers: classifier/regression performance summaries, calibration displays, and CV-split utilities."""
 from __future__ import annotations
 
 # ****************************************************************************************************************************
@@ -53,6 +54,7 @@ try:
     from finance.backtesting import show_classifier_calibration
 except ImportError:  # pragma: no cover - depends on private sibling pkg
     def show_classifier_calibration(*args, **kwargs):
+        """Stub raised when the private ``finance`` sibling package is not installed; the real implementation lives there."""
         raise ImportError(
             "show_classifier_calibration() requires the private `finance` package " "(github.com/fingoldo/finance); install it from source before calling."
         )
@@ -67,6 +69,7 @@ from catboost import Pool
 
 
 def train_test_split_from_generator(gen: Any, X=None, y=None, groups=None):
+    """Take the FIRST train/test split from a sklearn-style CV splitter's ``.split()`` generator (logs group overlap when ``groups`` is given)."""
     for train_indices, test_indices in gen.split(X=X, y=y, groups=groups):
         if groups is not None:
             grouped_train = set(groups[train_indices])
@@ -101,6 +104,7 @@ def get_predicted_classes(predictions: np.ndarray, thresholds: Optional[np.ndarr
 
 
 def regression_stats(y_test, preds, fmt: str = "_.8f") -> str:
+    """Format MAE/MSE/R2 as a single ``"metric: value, ..."`` string for compact logging."""
     mes = []
     for func in (fast_mean_absolute_error, fast_mean_squared_error, fast_r2_score):
         res = "{:{fmt}}".format(func(y_test, preds), fmt=fmt)
@@ -517,6 +521,7 @@ def predictions_beautify_linear(preds: np.ndarray, known_outcomes: np.ndarray, a
 
 
 def _precision_at_top_decile(y_true: np.ndarray, preds: np.ndarray) -> float:
+    """Fraction of positives among the top-10%-by-predicted-score rows (ties broken by original row position)."""
     y_true = np.asarray(y_true)
     preds = np.asarray(preds, dtype=float)
     n = len(preds)

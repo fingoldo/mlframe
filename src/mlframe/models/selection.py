@@ -1,3 +1,5 @@
+"""Cross-validation split strategies for model selection (group-aware time-series splitting)."""
+
 from __future__ import annotations
 
 import numpy as np

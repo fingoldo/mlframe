@@ -20,6 +20,7 @@ def _get_count_distinct_njit():
 
         @numba.njit(cache=True)
         def _count_distinct_sorted_float(sorted_vals, skip0, skip1):
+            """Count distinct finite values in a pre-sorted array, ignoring NaN and up to two skip sentinels."""
             # sorted ascending; NaNs sort to the end for float arrays. Counts distinct finite values excluding skip0/skip1 (NaN-coded skip = "no skip").
             n = sorted_vals.shape[0]
             count = 0
@@ -57,6 +58,7 @@ def _get_count_distinct_rounded_njit():
 
         @numba.njit(cache=True)
         def _count_distinct_rounded_sorted(sorted_vals, ndigits, skip0, skip1):
+            """Count distinct values of a pre-sorted array after rounding to ``ndigits`` in one pass, ignoring NaN and up to two skip sentinels."""
             scale = 10.0**ndigits
             n = sorted_vals.shape[0]
             count = 0
@@ -95,6 +97,7 @@ def _get_outlier_mask_njit():
 
         @numba.njit(cache=True, parallel=True)
         def _outlier_mask(values, lo, r):
+            """Fused parallel pass: keep-mask for ``lo <= v <= r`` plus counts of values below ``lo`` and above ``r``."""
             n = values.shape[0]
             idx = np.empty(n, dtype=np.bool_)
             n_less_l = 0
@@ -128,6 +131,7 @@ def _get_span_fence_njit():
 
         @numba.njit(cache=True, parallel=True)
         def _span_fence(values, q0, q1, lo, hi):
+            """Fused parallel pass: in-span keep-mask for ``[q0, q1]`` plus counts of values outside the ``[lo, hi]`` fence."""
             n = values.shape[0]
             mask = np.empty(n, dtype=np.bool_)
             n_below = 0

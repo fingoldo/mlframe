@@ -62,6 +62,8 @@ _WARM_START_N_ATTRS = ("n_estimators", "max_iter")
 
 
 class EarlyStoppingWrapper(BaseEstimator):
+    """sklearn-compatible meta-estimator adding held-out-validation early stopping (see module docstring for the three backends)."""
+
     # __init__ params are set on self dynamically via store_params_in_object(); fit()-time state is
     # set the same way / directly on self without a preceding class-scope assignment. Declared here
     # so mypy can type-check the reads in _resolve_scoring() / partial_fit() that run before fit().
@@ -107,7 +109,7 @@ class EarlyStoppingWrapper(BaseEstimator):
         """
         scoring = self.scoring
         if self._is_regressor and scoring is accuracy_ratio:
-            scoring = lambda _yt, _yp: -float(fast_root_mean_squared_error(_yt, _yp))  # noqa: E731
+            scoring = lambda _yt, _yp: -float(fast_root_mean_squared_error(_yt, _yp))
         return scoring
 
     def _split(self, X, y):
@@ -195,6 +197,7 @@ class EarlyStoppingWrapper(BaseEstimator):
     # ------------------------------------------------------------------ backends
 
     def _fit_partial(self, X_train, y_train, X_val, y_val, y, scoring, deadline):
+        """Drive ``partial_fit`` one mini-epoch at a time, scoring the val fold after each call and stopping via ``_consider``."""
         pf_kwargs = {} if self._is_regressor else {"classes": np.unique(y)}
         for i in range(1, self.max_iter + 1):
             if time.monotonic() > deadline:
@@ -268,6 +271,11 @@ class EarlyStoppingWrapper(BaseEstimator):
     # ------------------------------------------------------------------ public API
 
     def fit(self, X, y):
+        """Clone ``base_model``, hold out a validation fold, pick an early-stopping backend, and fit ``best_model_``.
+
+        Never mutates ``base_model`` itself (see the inline note below); on completion ``best_model_`` holds the
+        best-scoring snapshot found and ``best_score_`` / ``n_iterations_`` record the outcome.
+        """
         # sklearn contract: never mutate the caller-supplied ``base_model``. Under clone / GridSearchCV every
         # clone shares the SAME ``base_model`` object, so fitting it in place would train an already-fitted
         # estimator on a later fold (and leave the user's instance fitted). Operate on a fresh clone instead.
@@ -319,10 +327,12 @@ class EarlyStoppingWrapper(BaseEstimator):
         return self
 
     def predict(self, X):
+        """Delegate to ``best_model_`` (the best-scoring snapshot found during ``fit``), not the final-iteration estimator."""
         check_is_fitted(self, "best_model_")
         return self.best_model_.predict(X)
 
     def predict_proba(self, X):
+        """Delegate to ``best_model_`` (the best-scoring snapshot found during ``fit``), not the final-iteration estimator."""
         check_is_fitted(self, "best_model_")
         return self.best_model_.predict_proba(X)
 
@@ -342,4 +352,4 @@ if __name__ == "__main__":
     early_stopping_model.fit(X_train, y_train)
     y_pred = early_stopping_model.predict(X_test)
 
-    print(f"Accuracy: {accuracy_ratio(y_test, y_pred)}")  # noqa: T201 -- __main__ demo/smoke block, not library code
+    print(f"Accuracy: {accuracy_ratio(y_test, y_pred)}")

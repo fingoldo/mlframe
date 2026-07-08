@@ -312,6 +312,7 @@ def catastrophic_drop_k2(
                         _label_value: str = _re_label
 
                         def _replace_label(_m, _v: str = _label_value) -> str:
+                            """Regex-sub callback: replace the matched ensemble-label span with the recomputed kept-tags label."""
                             return _v
 
                         ensemble_name = _ENSEMBLE_LABEL_RE.sub(

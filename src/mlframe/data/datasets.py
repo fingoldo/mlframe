@@ -1,3 +1,5 @@
+"""Synthetic and showcase dataset generators used for benchmarking mlframe's feature-selection and training pipelines."""
+
 from __future__ import annotations
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -24,7 +26,7 @@ import numpy as np, pandas as pd
 
 
 def indicator(cond: np.ndarray) -> np.ndarray:
-    # Indicator function
+    """Cast a boolean condition array to 0/1 ints, for use inside `DataFrame.eval` expressions that need a step function."""
     return cond.astype(int)
 
 
@@ -68,6 +70,7 @@ def get_sapp_dataset(
 
 
 def showcase_pycaret_datasets():
+    """Return the 20 largest built-in pycaret example datasets, sorted ascending by instance count, for quick manual browsing."""
 
     from pycaret.datasets import get_data
 

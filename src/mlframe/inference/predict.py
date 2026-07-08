@@ -36,6 +36,7 @@ _ALLOWED_MODEL_EXTENSIONS = frozenset({".dump", ".joblib", ".pkl", ".pickle"})
 
 
 def _sha256_of_file(path: str, chunk: int = 1 << 20) -> str:
+    """Back-compat shim delegating to :func:`mlframe.utils.safe_pickle._sha256_of_file`."""
     return str(_safe_pickle_sha256_of_file(path, chunk=chunk))
 
 

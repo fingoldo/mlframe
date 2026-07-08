@@ -1,3 +1,9 @@
+"""Sklearn-compatible wrappers that retrofit early stopping onto estimators requiring a fixed eval_set (CatBoost, LightGBM, XGBoost).
+
+Carves an internal validation split from the fit-time X/y inside ``fit`` itself, so the wrapped estimator can live
+inside a plain sklearn ``Pipeline``/``GridSearchCV`` without the caller having to pre-split data or manage eval_set wiring.
+"""
+
 from __future__ import annotations
 
 import inspect
@@ -21,7 +27,7 @@ class EstimatorWithEarlyStopping(BaseEstimator):
         self.test_size, self.train_size, self.random_state, self.shuffle, self.stratify = test_size, train_size, random_state, shuffle, stratify
 
     def fit(self, X, y, **fit_params):
-
+        """Carve an internal validation split from ``X``/``y`` and fit the cloned base estimator with early stopping via ``eval_set``."""
         X = check_array(X)
 
         random_state = check_random_state(self.random_state)
@@ -79,7 +85,7 @@ class EstimatorWithEarlyStopping(BaseEstimator):
         return self
 
     def predict(self, X):
-
+        """Delegate prediction to the fitted base estimator."""
         check_is_fitted(self)
         X = check_array(X)
 
@@ -104,10 +110,12 @@ class ClassifierWithEarlyStopping(EstimatorWithEarlyStopping, ClassifierMixin):
     """
 
     def predict_proba(self, X):
+        """Delegate class-probability prediction to the fitted base estimator."""
         check_is_fitted(self)
         return self.fitted_estimator_.predict_proba(X)
 
     def decision_function(self, X):
+        """Delegate decision-function scoring to the fitted base estimator (raises if it doesn't support one)."""
         check_is_fitted(self)
         if not hasattr(self.fitted_estimator_, "decision_function"):
             raise AttributeError(f"Wrapped estimator {type(self.fitted_estimator_).__name__} has no decision_function")

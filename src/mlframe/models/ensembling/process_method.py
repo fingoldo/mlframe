@@ -105,6 +105,7 @@ def _process_single_ensemble_method(
     _pcw_full = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1) if precomputed_weights is not None else None
 
     def _slice_weights(mask: list[bool]) -> Optional[np.ndarray]:
+        """Slice ``_pcw_full`` down to the members present in this split (dropping ``None``-prediction members), returning ``None`` when there are no precomputed weights or the mask length doesn't match (weights not aligned to this call's member set)."""
         if _pcw_full is None:
             return None
         if _pcw_full.shape[0] != len(mask):
@@ -191,6 +192,7 @@ def _process_single_ensemble_method(
     _fallback_used: list[int] = []
 
     def _oof_or_train(el, oof_attr, train_attr, _idx, _prefer_calibrated: bool = False):
+        """Return this member's OOF predictions (preferring the AP12-calibrated variant when requested), falling back to in-sample train predictions when OOF is absent -- recording ``_idx`` in ``_fallback_used`` so the leaked-row fallback can be surfaced in a single WARN below."""
         # Prefer AP12-calibrated OOF / train probs when the knob is on; transparent fall-through to raw when the
         # stamp is missing (legacy / opt-out callers). OOF is the calibrator's fit source so most members will not
         # carry calibrated_oof_probs -- that's expected; the lookup is a no-op for them.
@@ -311,6 +313,7 @@ def _process_single_ensemble_method(
     _caller_compute_testset_metrics = bool(kwargs_copy.pop("compute_testset_metrics", True))
 
     def _has_split_predictions(_kwargs: dict, _split: str) -> bool:
+        """True when ``_kwargs`` carries either raw predictions or probabilities for ``_split`` (e.g. "train"/"val"/"test") -- used to decide whether that split's metrics can be computed at all."""
         return _kwargs.get(f"{_split}_preds") is not None or _kwargs.get(f"{_split}_probs") is not None
 
     # Build config objects from flat params

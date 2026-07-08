@@ -86,7 +86,7 @@ def argmax_classes_safe(
     if probs.ndim != 2:
         raise ValueError(f"{context}: expected 1-D or 2-D probs; got shape={probs.shape}")
 
-    n_rows, n_cols = probs.shape
+    n_rows, _n_cols = probs.shape
     if n_rows == 0:
         return np.empty(0, dtype=np.int64)
 
