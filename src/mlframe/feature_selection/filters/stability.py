@@ -89,7 +89,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         n_bootstraps: int = 20,
         sample_fraction: float = 0.5,
         support_threshold: float = 0.6,
-        random_state: int = None,
+        random_state: int | None = None,
         n_jobs: int = 1,
         stratify: bool = True,
     ):
@@ -155,6 +155,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
 
         def _stratified_indices(local_rng) -> np.ndarray:
             # Draw round(sample_fraction * n_class) rows from each class (>=1 per present class) so no class is dropped; the global floor of 2 total rows still holds.
+            assert _class_groups is not None  # only called when _class_groups was populated above
             parts = []
             for grp in _class_groups:
                 k = max(1, int(round(self.sample_fraction * grp.size)))

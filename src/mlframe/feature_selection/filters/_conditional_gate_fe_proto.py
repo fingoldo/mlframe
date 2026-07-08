@@ -68,7 +68,7 @@ def apply_conditional_gate(a: np.ndarray, b: np.ndarray, c: np.ndarray, tau: flo
 def apply_row_argmax(cols: list[np.ndarray]) -> np.ndarray:
     """``argmax`` over a row's columns -> the integer index of the largest. Pure function of X (no y); leak-free at replay."""
     stk = np.stack([np.asarray(c, dtype=np.float64) for c in cols], axis=1)
-    return np.argmax(stk, axis=1).astype(np.float64)
+    return np.asarray(np.argmax(stk, axis=1).astype(np.float64))
 
 
 def _perm_null_hi(feat: np.ndarray, yi: np.ndarray, nbins: int, n_perm: int, rng, z: float = 3.0) -> float:
@@ -111,7 +111,7 @@ def scan_conditional_gate(
             if budget <= 0:
                 break
             floor = raw_mi[a]
-            best = (-1.0, None)
+            best: tuple[float, float | None] = (-1.0, None)
             for tau in taus:
                 feat = apply_conditional_gate(arrs[a], arrs[a], cv, tau, "mask")
                 mi = _mi(feat, yi, nbins=nbins)
@@ -120,6 +120,7 @@ def scan_conditional_gate(
             budget -= 1
             if best[0] < floor + min_margin:
                 continue
+            assert best[1] is not None  # best[0] cleared the floor, so a tau improved it above
             feat = apply_conditional_gate(arrs[a], arrs[a], cv, best[1], "mask")
             null_hi = _perm_null_hi(feat, yi, nbins, n_perm, rng)
             if best[0] <= null_hi:
@@ -140,6 +141,7 @@ def scan_conditional_gate(
                 budget -= 1
                 if best[0] < floor + min_margin:
                     continue
+                assert best[1] is not None  # best[0] cleared the floor, so a tau improved it above
                 feat = apply_conditional_gate(arrs[a], arrs[b], cv, best[1], "select")
                 null_hi = _perm_null_hi(feat, yi, nbins, n_perm, rng)
                 if best[0] <= null_hi:
