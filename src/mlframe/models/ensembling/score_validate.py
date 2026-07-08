@@ -57,6 +57,7 @@ def _validate_score_ensemble_inputs(
     # inspected member[0]; member[1] could disagree with no error. Validate up front.
     if level_models_and_predictions:
         def _has_probs(m) -> bool:
+            """Classifier-like check: True if ANY of oof/val/test/train probs is populated on ``m``, so a member is not mis-classified as a regressor just because its val_probs happens to be None."""
             # ``oof_probs`` MUST be inspected too: a member with val_probs=None but oof_probs
             # populated (rare: trainer stamped OOF but disabled val-metric computation; or
             # cross_val_predict-only fits) is classifier-like, not regressor-like. Pre-fix the

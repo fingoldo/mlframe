@@ -47,6 +47,7 @@ _gate_cache_order: list = []
 
 
 def _clear_gate_cache() -> None:
+    """Empty the module-level outlier-gate LRU cache and its eviction-order tracker (used by tests / callers that need a clean-slate gate computation)."""
     _gate_cache.clear()
     _gate_cache_order.clear()
 

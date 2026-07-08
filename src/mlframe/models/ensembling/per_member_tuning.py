@@ -77,6 +77,7 @@ def per_member_code_version() -> str | None:
 
 
 def _numpy_2d(arr, med):
+    """2-D (K, N) numpy reference: per-member MAE and std of |arr - med| across the N axis, matching the njit 2-D branch."""
     diffs = np.abs(arr - med)
     return diffs.mean(axis=1), np.sqrt(np.var(diffs, axis=1))
 
@@ -130,9 +131,11 @@ def _measure_per_member_crossover(ndim: int, grid: list, repeats: int, rng) -> t
         ref(arr, med)
         _per_member_mae_std_njit(arr, med)
         def _call_ref(arr: np.ndarray = arr, med: np.ndarray = med):
+            """Zero-arg thunk timing the numpy reference on this grid point's arrays (params default-bound to capture the loop-current ``arr``/``med``)."""
             return ref(arr, med)
 
         def _call_nb(arr: np.ndarray = arr, med: np.ndarray = med):
+            """Zero-arg thunk timing the njit kernel on this grid point's arrays (params default-bound to capture the loop-current ``arr``/``med``)."""
             return _per_member_mae_std_njit(arr, med)
 
         t_np = timeit.timeit(_call_ref, number=repeats) / repeats

@@ -428,6 +428,7 @@ def apply_quality_gate_kn(
                 _label_value: str = _re_label
 
                 def _replace_bracket(_m: "_re_mod.Match[str]", _v: str = _label_value) -> str:
+                    """Regex-sub replacement callable returning the label verbatim, so any backslash/group-reference-like characters in the label are never reinterpreted by ``re.sub``'s string-replacement escaping."""
                     return _v
 
                 ensemble_name = _re_mod.sub(

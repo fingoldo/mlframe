@@ -61,6 +61,7 @@ try:  # pragma: no cover -- env-dependent
     # the prange parallelism still gives the speedup we want.
     @_numba.njit(parallel=True, fastmath=False, cache=True)
     def _per_member_mae_std_njit(arr, median_preds):
+        """Per-member MAE and std of |arr[k] - median_preds| via a two-pass (mean, then sum-of-squared-deviations) reduction, parallel over K members; supports both 2-D (K, N) and 3-D (K, N, C) input, the latter averaging per-column stats over C."""
         K = arr.shape[0]
         N = arr.shape[1]
         out_mae = np.empty(K, dtype=np.float64)
@@ -276,9 +277,11 @@ class StreamingAccumulator:
     """
 
     def push(self, arr: np.ndarray) -> None:
+        """Consume one (N, K) probability matrix, updating the accumulator's running statistics in place."""
         raise NotImplementedError
 
     def result(self) -> dict:
+        """Return the accumulated statistics as a dict (e.g. 'mean', 'std', 'min', 'max')."""
         raise NotImplementedError
 
 
@@ -312,6 +315,7 @@ class _WelfordAccumulator(StreamingAccumulator):
         self._dtype = dtype
 
     def push(self, arr: np.ndarray) -> None:
+        """Elementwise Welford update: advance mean/M2 (and running min/max) with one new (N, K) sample."""
         if arr.shape != self.mean.shape:
             raise ValueError(f"_WelfordAccumulator.push: expected shape {self.mean.shape}, " f"got {arr.shape}")
         arr = arr.astype(self._dtype, copy=False)
@@ -329,6 +333,7 @@ class _WelfordAccumulator(StreamingAccumulator):
             np.maximum(self.max, arr, out=self.max)
 
     def result(self) -> dict:
+        """Finalize mean/var(ddof=1)/std/min/max from the accumulated Welford state; returns all-None fields when no data was pushed."""
         if self.n == 0:
             return {"mean": None, "std": None, "var": None, "min": None, "max": None, "n": 0}
         var = self.M2 / max(self.n - 1, 1)  # sample variance (ddof=1)
@@ -781,6 +786,7 @@ def build_predictive_kwargs(train_data, test_data, val_data, is_regression: bool
     """
 
     def process(data, flatten=False):
+        """Normalize one of train/test/val prediction inputs to a plain array: unpacks a (preds, indices) tuple/list, applies the index subset, and optionally flattens for regression targets."""
         # Case 1: None -> None
         if data is None:
             return None
@@ -952,6 +958,7 @@ def _emit_pairs_above_threshold(
     threshold: float,
     split_used: Optional[str],
 ) -> tuple[list[dict], Optional[str]]:
+    """Scan the upper triangle of ``corr_matrix`` (indexed via ``idx_use``, the non-skipped members) and collect member-tag pairs whose absolute correlation exceeds ``threshold`` into report dicts."""
     pairs: list[dict] = []
     K = corr_matrix.shape[0]
     for ii in range(K):

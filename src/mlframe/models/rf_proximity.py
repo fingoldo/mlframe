@@ -48,6 +48,7 @@ if _HAS_NUMBA:
 
     @numba.njit(cache=True, parallel=True, nogil=True)
     def _proximity_kernel(leaves: np.ndarray) -> np.ndarray:
+        """Parallel njit computation of the Breiman proximity matrix: for each row pair, the fraction of trees whose leaf index agrees."""
         n, t = leaves.shape
         out = np.empty((n, n), dtype=np.float64)
         inv_t = 1.0 / t
@@ -65,6 +66,7 @@ if _HAS_NUMBA:
 else:
 
     def _proximity_kernel(leaves: np.ndarray) -> np.ndarray:
+        """Pure-numpy fallback for the Breiman proximity matrix (used when numba is unavailable): same fraction-of-agreeing-leaves computation, O(n^2 * t) in plain Python loops."""
         n, t = leaves.shape
         out = np.eye(n, dtype=np.float64)
         for i in range(n):
