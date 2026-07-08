@@ -667,7 +667,7 @@ def _rank_to_gauss(ranks: np.ndarray, n: int) -> np.ndarray:
     u = (np.asarray(ranks, dtype=np.float64) + 0.5) / float(max(n, 1))
     u = np.clip(u, 1e-6, 1.0 - 1e-6)
     # ndtri == norm.ppf for the standard normal (bit-identical), ~2.4x faster -- skips the rv_continuous broadcast/validation wrapper.
-    return ndtri(u).astype(np.float64)
+    return np.asarray(ndtri(u).astype(np.float64))
 
 
 def _avg_tie_rank(fit_sorted: np.ndarray, vals: np.ndarray) -> np.ndarray:
