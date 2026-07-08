@@ -177,7 +177,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     # is left populated for provenance/audit only; it is replay-irrelevant because
     # the downstream MRMR fit discretises the fit-time column for its OWN MI matrix
     # via ``_mrmr_fe_step`` (a separate code path, unaffected by this choice).
-    return out
+    return np.asarray(out)
 
 
 def build_unary_binary_recipe(
