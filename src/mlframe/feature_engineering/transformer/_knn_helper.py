@@ -166,9 +166,11 @@ def _run_knn_sweep() -> list:
     variants = {"exact": lambda xs, xq, k: knn_search(xs, xq, k, prefer_hnsw_at_n=10**12)[0]}
     if _check_hnsw_available():
         variants["hnsw"] = lambda xs, xq, k: knn_search(xs, xq, k, prefer_hnsw_at_n=1)[0]
-    return sweep_backend_grid(
-        variants, {"n_subset": _KNN_SWEEP_N, "d": _KNN_SWEEP_D}, _make_knn_inputs,
-        reference="exact", equiv_rtol=float("inf"), equiv_atol=float("inf"), repeats=3,
+    return list(
+        sweep_backend_grid(
+            variants, {"n_subset": _KNN_SWEEP_N, "d": _KNN_SWEEP_D}, _make_knn_inputs,
+            reference="exact", equiv_rtol=float("inf"), equiv_atol=float("inf"), repeats=3,
+        )
     )
 
 

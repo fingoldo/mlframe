@@ -62,7 +62,7 @@ _UNARY_BASE_SENTINEL = ""
 
 
 def fit(
-    self,
+    self: "CompositeTargetDiscovery",  # noqa: F821 -- forward ref to parent class
     df: Any,
     target_col: str,
     feature_cols: Sequence[str],
@@ -330,7 +330,7 @@ def fit(
     if _use_lazy_prebin:
         # Defer column extraction: never materialise the (n, F) float plane.
         _full_x_matrix = None
-        _full_x_prebinned = _prebin_feature_columns_lazy(
+        _full_x_prebinned: np.ndarray | None = _prebin_feature_columns_lazy(
             df,
             _usable_features_list,
             train_idx_screen,
@@ -423,6 +423,7 @@ def fit(
                 _rem_cols = _x_prebinned.shape[1] if _x_prebinned is not None else 0
                 x_remaining_matrix = np.empty((0, _rem_cols), dtype=np.float32)
             else:
+                assert _full_x_matrix is not None  # built above whenever not _use_lazy_prebin
                 x_remaining_matrix = np.delete(_full_x_matrix, _drop_idx, axis=1)
             # Original-column indices that survive base-drop (used to derive the knn mi_y baseline from the
             # precomputed base-invariant per-feature vector); dedup prunes this in lockstep with x_remaining_matrix.
@@ -518,6 +519,7 @@ def fit(
     if _use_lazy_prebin:
         _full_width = _full_x_prebinned.shape[1] if _full_x_prebinned is not None else 0
         _unary_full_x = np.empty((0, _full_width), dtype=np.float32)
+    assert _unary_full_x is not None  # built above whenever not _use_lazy_prebin
     _unary_ctx = build_unary_base_context(
         full_x_matrix=_unary_full_x,
         full_x_prebinned=_full_x_prebinned,
@@ -773,7 +775,7 @@ def fit(
                 if _spec.base_column not in _pool_cols:
                     _pool_cols.append(_spec.base_column)
                 # Materialise arrays once (the pool stores arrays).
-                _pool_arrays = {c: self._auto_base_pool.get(c) for c in _pool_cols if self._auto_base_pool.get(c) is not None}
+                _pool_arrays = {c: v for c in _pool_cols if (v := self._auto_base_pool.get(c)) is not None}
                 if _spec.base_column not in _pool_arrays:
                     _pool_arrays[_spec.base_column] = _extract_column_array(df, _spec.base_column)[train_idx]
                 _pool_arrays_cache[_cache_key] = _pool_arrays

@@ -94,7 +94,7 @@ def _is_numeric_column(df: Any, col: str) -> bool:
                     pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64,
                 }
         if isinstance(df, pd.DataFrame):
-            return pd.api.types.is_numeric_dtype(df[col])
+            return bool(pd.api.types.is_numeric_dtype(df[col]))
     except Exception:
         return False
     return False

@@ -181,7 +181,7 @@ def bootstrap_gain_p_value(boot_gains: np.ndarray) -> float:
     if n == 0:
         return 1.0
     n_le0 = int(np.count_nonzero(g <= 0.0))
-    return (n_le0 + 1.0) / (n + 1.0)
+    return float((n_le0 + 1.0) / (n + 1.0))
 
 
 def benjamini_hochberg_reject(p_values, alpha: float) -> np.ndarray:

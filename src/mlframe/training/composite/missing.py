@@ -110,7 +110,7 @@ class MissingAwareComposite(BaseEstimator, RegressorMixin):
                 raise ValueError(
                     "MissingAwareComposite: multi-base composites are not " f"supported (got base_columns={cols!r}); wrap a single-base " "composite."
                 )
-            return cols[0]
+            return str(cols[0])
         bc = getattr(comp, "base_column", "")
         if not bc:
             raise ValueError("MissingAwareComposite: the inner composite has no base_column / " "base_columns configured; nothing to impute.")

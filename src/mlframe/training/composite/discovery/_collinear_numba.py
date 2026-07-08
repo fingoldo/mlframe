@@ -251,7 +251,7 @@ def _ref_pair_corr(a: np.ndarray, b: np.ndarray) -> float | None:
     vb = float(np.dot(b_dev, b_dev))
     if va < _VAR_FLOOR or vb < _VAR_FLOOR:
         return None
-    return abs(float(np.dot(a_dev, b_dev)) / np.sqrt(va * vb))
+    return float(abs(float(np.dot(a_dev, b_dev)) / np.sqrt(va * vb)))
 
 
 def _recheck_column_exact(

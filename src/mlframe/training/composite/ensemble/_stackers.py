@@ -72,7 +72,7 @@ def _validate_sample_weight(
             f"meta-stacker: sample_weight must be finite and non-negative; got "
             f"{int((~np.isfinite(sw)).sum())} non-finite and {int((sw < 0).sum())} negative entries (min={float(np.nanmin(sw))})."
         )
-    return sw[finite]
+    return np.asarray(sw[finite])
 
 
 def fit_ridge_meta_stacker(
