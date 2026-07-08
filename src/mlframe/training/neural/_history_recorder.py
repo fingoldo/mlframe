@@ -121,7 +121,7 @@ class IterationMetricsRecorder(Callback):
         if a.ndim == 2 and a.shape[1] >= 2:
             a = a - a.max(axis=1, keepdims=True)
             e = np.exp(a)
-            return e / e.sum(axis=1, keepdims=True)
+            return np.asarray(e / e.sum(axis=1, keepdims=True))
         flat = a[:, 0] if a.ndim == 2 else a
         return 1.0 / (1.0 + np.exp(-flat))
 

@@ -116,7 +116,7 @@ class Lookahead(Optimizer):
 
     @state.setter
     def state(self, value: dict) -> None:
-        self.base_optimizer.state = value
+        self.base_optimizer.state = value  # type: ignore[assignment]  # torch's Optimizer.state stub is narrower (defaultdict[Tensor, Any]) than the plain dict this setter accepts
 
     def add_param_group(self, param_group: dict) -> None:
         """F-C fix (2026-05-31, audit follow-up): when a new param group

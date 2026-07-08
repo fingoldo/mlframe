@@ -53,7 +53,7 @@ additional lift on most settings.
 """
 from __future__ import annotations
 
-from typing import Callable, List
+from typing import Callable, List, cast
 
 import torch
 from torch.optim import Optimizer
@@ -115,7 +115,7 @@ class SAM(Optimizer):
 
     @state.setter
     def state(self, value: dict) -> None:
-        self.base_optimizer.state = value
+        self.base_optimizer.state = value  # type: ignore[assignment]  # torch's Optimizer.state stub is narrower (defaultdict[Tensor, Any]) than the plain dict this setter accepts
 
     def add_param_group(self, param_group: dict) -> None:
         self.base_optimizer.add_param_group(param_group)
@@ -156,7 +156,7 @@ class SAM(Optimizer):
                 norms.append(g.norm(p=2).to(device))
         if not norms:
             return torch.tensor(0.0)
-        return torch.norm(torch.stack(norms), p=2)
+        return cast(torch.Tensor, torch.norm(torch.stack(norms), p=2))
 
     @torch.no_grad()
     def first_step(self, zero_grad: bool = False) -> None:

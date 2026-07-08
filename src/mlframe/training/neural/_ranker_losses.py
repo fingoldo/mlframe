@@ -9,6 +9,8 @@ ranker.py re-exports the public symbols.
 """
 from __future__ import annotations
 
+from typing import cast
+
 import torch
 import torch.nn.functional as F
 
@@ -217,7 +219,7 @@ def ranknet_pairwise_loss_precomputed(
         scores = scores.view(-1)
     if i_idx is None or j_idx is None or i_idx.numel() == 0:
         return scores.new_zeros(())
-    return _ranknet_loss_precomputed_core(scores, i_idx, j_idx)
+    return cast(torch.Tensor, _ranknet_loss_precomputed_core(scores, i_idx, j_idx))
 
 
 def listnet_top1_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torch.Tensor:

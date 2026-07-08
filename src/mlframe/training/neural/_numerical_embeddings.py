@@ -26,7 +26,7 @@ and sigma to 24 / 0.05 respectively for tabular.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, cast
 
 import math
 import torch
@@ -115,7 +115,7 @@ class PeriodicLinearEmbedding(nn.Module):
         else:
             per_feat = torch.cat([sines, cosines], dim=-1)  # (N, D, 2K)
         flat = per_feat.flatten(1)  # (N, D * (2K[+1]))
-        return self.activation(self.proj(flat))  # (N, D * embed_dim)
+        return cast(torch.Tensor, self.activation(self.proj(flat)))  # (N, D * embed_dim)
 
     def extra_repr(self) -> str:
         return (

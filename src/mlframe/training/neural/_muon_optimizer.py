@@ -29,7 +29,7 @@ can audit/bench it against AdamW directly without an external dep.
 """
 from __future__ import annotations
 
-from typing import List
+from typing import List, cast
 
 import torch
 from torch.optim import Optimizer
@@ -60,7 +60,7 @@ def _zeropower_via_newtonschulz5(G: torch.Tensor, steps: int = 5) -> torch.Tenso
         X = a * X + B @ X
     if transposed:
         X = X.transpose(-2, -1)
-    return X.to(dtype=G.dtype)
+    return cast(torch.Tensor, X.to(dtype=G.dtype))
 
 
 def _newton_schulz_dispatch(G: torch.Tensor, steps: int = 5) -> torch.Tensor:

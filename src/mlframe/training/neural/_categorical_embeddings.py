@@ -24,7 +24,7 @@ def default_embed_dim(cardinality: int) -> int:
     Grows sub-linearly with cardinality and caps at 50 so a very-high-card column doesn't blow up the parameter count. ``card`` here is the
     number of distinct categories (NOT counting the reserved unknown row); the floor of 1 keeps a binary / constant column at a usable width.
     """
-    return max(1, min(50, round(1.6 * (max(1, cardinality) ** 0.56))))
+    return int(max(1, min(50, round(1.6 * (max(1, cardinality) ** 0.56)))))
 
 
 class CategoricalEmbedding(nn.Module):

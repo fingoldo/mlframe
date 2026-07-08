@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Callable, Optional
+from typing import Callable, Optional, cast
 
 import torch
 
@@ -190,7 +190,7 @@ def _build_triton_ns_fn() -> Optional[Callable]:
             X = a * X + B @ X
         if transposed:
             X = X.transpose(0, 1)
-        return X.to(dtype=G.dtype)
+        return cast(torch.Tensor, X.to(dtype=G.dtype))
 
     return _newton_schulz_triton
 
@@ -312,7 +312,7 @@ def maybe_newton_schulz_triton(
             return None
 
     try:
-        return fn(G, steps)
+        return cast(Optional[torch.Tensor], fn(G, steps))
     except Exception as _run_err:
         logger.warning(
             "Muon Triton Newton-Schulz failed at runtime (%s); falling back " "to eager torch.matmul.",
