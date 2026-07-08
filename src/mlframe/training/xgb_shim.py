@@ -451,7 +451,7 @@ class _DMatrixReuseMixin:
         # raise "Inconsistent max_bin"). Without max_bin in the key the
         # module-level cross-clone cache hands a 256-bin matrix to a model
         # configured for a different bin count.
-        _max_bin = self.get_params().get("max_bin")
+        _max_bin = self.get_params().get("max_bin")  # type: ignore[attr-defined]  # provided by the XGBModel sklearn base this mixin is combined with
         train_key = (_signature_of(X), _max_bin)
         dtrain = None
         _cache_source: str = "miss"
@@ -483,7 +483,7 @@ class _DMatrixReuseMixin:
         else:
             dtrain = _build_quantile_dmatrix(
                 X, y, sample_weight,
-                enable_categorical=self.get_params().get("enable_categorical", True),
+                enable_categorical=self.get_params().get("enable_categorical", True),  # type: ignore[attr-defined]  # provided by the XGBModel sklearn base this mixin is combined with
                 max_bin=_max_bin,
             )
             self._cached_train_dmatrix = dtrain
@@ -546,7 +546,7 @@ class _DMatrixReuseMixin:
                     dval = _build_quantile_dmatrix(
                         X_val, y_val, w_val,
                         ref_dmatrix=dtrain,
-                        enable_categorical=self.get_params().get("enable_categorical", True),
+                        enable_categorical=self.get_params().get("enable_categorical", True),  # type: ignore[attr-defined]  # provided by the XGBModel sklearn base this mixin is combined with
                         max_bin=_max_bin,
                     )
                     self._cached_val_dmatrix = dval
@@ -566,18 +566,18 @@ class _DMatrixReuseMixin:
         # ``get_xgb_params()`` excludes sklearn-only fields (n_estimators,
         # missing handling, etc) and returns the C++-level booster param
         # dict. ``n_estimators`` becomes ``num_boost_round`` for native API.
-        params: dict = self.get_xgb_params()
+        params: dict = self.get_xgb_params()  # type: ignore[attr-defined]  # provided by the XGBModel sklearn base this mixin is combined with
         # Wave 14 P1 (re-opened 2026-05-20): pre-fix `or 100` silently
         # rewrote n_estimators=0 (legitimate xgboost intent: "construct
         # an untrained booster; predict returns base score") to 100.
         # The shim ran 100 boost rounds when the user wanted 0.
-        _n_est_raw = self.get_params().get("n_estimators", 100)
+        _n_est_raw = self.get_params().get("n_estimators", 100)  # type: ignore[attr-defined]  # provided by the XGBModel sklearn base this mixin is combined with
         n_estimators = 100 if _n_est_raw is None else _n_est_raw
 
         # Translate a couple of sklearn-only kwargs into native form:
         # (a) ``early_stopping_rounds`` → callback or kwarg below;
         # (b) ``eval_metric`` is already in params dict via get_xgb_params.
-        early_stopping_rounds = self.get_params().get("early_stopping_rounds")
+        early_stopping_rounds = self.get_params().get("early_stopping_rounds")  # type: ignore[attr-defined]  # provided by the XGBModel sklearn base this mixin is combined with
 
         callbacks = list(fit_kwargs.pop("callbacks", []) or [])
         if early_stopping_rounds and evals and not any(isinstance(cb, xgb.callback.EarlyStopping) for cb in callbacks):
@@ -601,7 +601,7 @@ class _DMatrixReuseMixin:
         # Per-iteration full-metric-suite capture (meta-learning / HPO-from-early-observation). The val DMatrix can be
         # re-predicted directly via iteration_range; capture every stride round + always the final round.
         _iter_metrics_cb = None
-        if capture_iteration_metrics and _iter_metrics_dval is not None:
+        if capture_iteration_metrics and _iter_metrics_dval is not None and _iter_metrics_yval is not None:
             from sklearn.base import is_classifier as _sk_is_classifier
             from .callbacks.iteration_metrics import make_xgb_iteration_metrics_callback
             _ncls = getattr(self, "n_classes_", None) or getattr(self, "_n_classes", None)
