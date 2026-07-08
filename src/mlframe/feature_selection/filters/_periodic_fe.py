@@ -184,7 +184,7 @@ def apply_modular(x: np.ndarray, period: float, op: str) -> np.ndarray:
         raise ValueError(f"modular op must be one of {_VALID_OPS}; got {op!r}")
     arr = np.ascontiguousarray(x, dtype=np.float64)
     op_code = 0 if op == "mod" else (1 if op == "sin" else 2)
-    return _modular_njit(arr, p, op_code)
+    return np.asarray(_modular_njit(arr, p, op_code))
 
 
 def _numeric_cols(X: pd.DataFrame, cols: Optional[Sequence[str]]) -> list[str]:
