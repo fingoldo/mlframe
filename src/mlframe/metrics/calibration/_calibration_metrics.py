@@ -32,7 +32,6 @@ def calibration_metrics_from_freqs(
     freqs_true: np.ndarray,
     hits: np.ndarray,
     nbins: int,
-    array_size: int,  # TODO: accepted by all callers (len(y_true)) but not read in this kernel body
     use_weights: bool = True,
     use_log_weighting: bool = False,
     use_sqrt_weighting: bool = False,
@@ -427,7 +426,7 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     if verbose:
         print(freqs_predicted, freqs_true)  # noqa: T201 -- inside @njit nopython mode, logging isn't supported here
     return calibration_metrics_from_freqs(
-        freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, array_size=len(y_true), use_weights=use_weights
+        freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights
     )
 
 
