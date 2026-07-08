@@ -17,7 +17,7 @@ import numpy as np
 from sklearn.linear_model import Ridge, RidgeCV
 
 try:
-    import polars as pl  # type: ignore
+    import polars as pl
     _HAS_POLARS = True
 except Exception:  # pragma: no cover
     pl = None  # type: ignore

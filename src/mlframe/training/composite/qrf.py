@@ -63,7 +63,7 @@ try:
 
     _HAS_NUMBA = True
 except ImportError:  # pragma: no cover - numba is a project dep but guard anyway
-    numba = None  # type: ignore
+    numba = None
     _HAS_NUMBA = False
 
 

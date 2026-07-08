@@ -199,7 +199,7 @@ class SAM(Optimizer):
             self.zero_grad(set_to_none=False)
 
     @torch.no_grad()
-    def step(self, closure: Callable | None = None):  # type: ignore[override]
+    def step(self, closure: Callable | None = None):
         """One-shot SAM step. ``closure`` MUST be supplied and re-evaluate
         the loss + backward; this method calls it twice (once at the
         original params, once at the perturbed params).

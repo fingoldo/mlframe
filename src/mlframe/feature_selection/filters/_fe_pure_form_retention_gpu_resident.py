@@ -110,11 +110,11 @@ def adds_nonlinear_value_batch_gpu_resident(
     # plain RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling back to
     # the exact CPU path. getattr so an absent symbol can't break the tuple builder.
     try:
-        from cupy_backends.cuda.libs import cusolver as _cusolver  # type: ignore
+        from cupy_backends.cuda.libs import cusolver as _cusolver
         _e = getattr(_cusolver, "CUSOLVERError", None)
         if _e is not None:
             _dev_errs.append(_e)
-        from cupy_backends.cuda.libs import cublas as _cublas  # type: ignore
+        from cupy_backends.cuda.libs import cublas as _cublas
         _e = getattr(_cublas, "CUBLASError", None)
         if _e is not None:
             _dev_errs.append(_e)

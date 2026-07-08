@@ -376,7 +376,7 @@ class PartialFitESWrapper:
         self.best_metric = float(best_score)
         self.stopped_via = "dichotomic"
         _sorted_history: list = sorted(scores.items(), key=lambda kv: kv[0])
-        self.history = _sorted_history  # type: ignore[assignment]  # dichotomic path stores (budget, (score, estimator)) tuples, not the float sequence the class-level annotation declares
+        self.history = _sorted_history
         if self.verbose > 0:
             logger.info("PartialFitESWrapper dichotomic: best %s = %s at %s=%d (tested %d budgets)",
                         metric_name, self.best_metric, self.budget_param, self.best_iter, len(scores))

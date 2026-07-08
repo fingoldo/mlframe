@@ -79,7 +79,7 @@ def is_gpu_metrics_available() -> bool:
     if _GPU_AVAILABLE is not None:
         return _GPU_AVAILABLE
     try:
-        import cupy as cp  # type: ignore
+        import cupy as cp
         if cp.cuda.runtime.getDeviceCount() < 1:
             _GPU_AVAILABLE = False
             return False
@@ -99,7 +99,7 @@ def _is_numba_cuda_available() -> bool:
     if _NUMBA_CUDA_AVAILABLE is not None:
         return _NUMBA_CUDA_AVAILABLE
     try:
-        from numba import cuda  # type: ignore
+        from numba import cuda
         if cuda.is_available():
             _NUMBA_CUDA_AVAILABLE = True
             return True
@@ -112,7 +112,7 @@ def _is_numba_cuda_available() -> bool:
 def _require_cupy():
     """Lazy cupy import; raise ImportError with install hint if missing."""
     try:
-        import cupy as cp  # type: ignore
+        import cupy as cp
         return cp
     except ImportError as e:
         raise ImportError(
@@ -148,7 +148,7 @@ def _get_numba_rmse_kernel():
     """Build (or return cached) numba.cuda kernel that computes per-block, per-column SSE via atomic.add. Final reduction + sqrt happens in cupy."""
     global _NUMBA_RMSE_KERNEL
     if _NUMBA_RMSE_KERNEL is None:
-        from numba import cuda  # type: ignore
+        from numba import cuda
 
         @cuda.jit
         def _rmse_partial_sum(y, p, partial, N, M):

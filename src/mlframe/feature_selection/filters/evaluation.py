@@ -549,10 +549,10 @@ def evaluate_candidate(
                     x=tuple(X),
                     y=tuple(y),
                     factors_nbins=factors_nbins,
-                    classes_y=classes_y,  # type: ignore[arg-type]  # caller always supplies these together when use_gpu is set
-                    classes_y_safe=classes_y_safe,  # type: ignore[arg-type]
-                    freqs_y=freqs_y,  # type: ignore[arg-type]
-                    freqs_y_safe=freqs_y_safe,  # type: ignore[arg-type]
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    freqs_y_safe=freqs_y_safe,
                     min_nonzero_confidence=0.0,
                     max_failed=_bnp,
                     npermutations=_bnp,

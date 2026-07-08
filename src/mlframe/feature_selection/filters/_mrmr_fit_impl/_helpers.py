@@ -69,12 +69,12 @@ def _dispatch_default_scorer(
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "jmim":
-        from .._orthogonal_jmim_fe import (  # type: ignore[assignment]
+        from .._orthogonal_jmim_fe import (
             hybrid_orth_mi_jmim_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "tc":
-        from .._orthogonal_total_correlation_fe import (  # type: ignore[assignment]
+        from .._orthogonal_total_correlation_fe import (
             hybrid_orth_mi_tc_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)

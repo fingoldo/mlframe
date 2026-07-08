@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 try:
-    import polars as pl  # type: ignore
+    import polars as pl
     _HAS_POLARS = True
 except ImportError:  # pragma: no cover - polars optional dep
     pl = None  # type: ignore

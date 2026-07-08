@@ -402,7 +402,7 @@ class _DMatrixReuseMixin:
     # Override .fit() — the cache + native xgb.train() path
     # ------------------------------------------------------------------
 
-    def fit(  # type: ignore[override]
+    def fit(
         self,
         X,
         y,

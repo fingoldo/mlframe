@@ -17,7 +17,7 @@ import numpy as np
 try:
     import pandas as pd
 except ImportError:  # pragma: no cover
-    pd = None  # type: ignore[assignment]
+    pd = None
 
 from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _extract_column

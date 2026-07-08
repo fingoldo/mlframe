@@ -122,7 +122,7 @@ class DiscoveryCache:
     def _maybe_filelock(lock_path: str):
         """Return a ``filelock.FileLock`` instance if the dep is present, else a no-op context."""
         try:
-            from filelock import FileLock as _FileLock  # type: ignore[import-untyped]
+            from filelock import FileLock as _FileLock
             return _FileLock(lock_path, timeout=30)
         except ImportError:  # pragma: no cover
             global _FILELOCK_WARNED

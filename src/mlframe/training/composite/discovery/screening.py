@@ -13,11 +13,11 @@ try:
 
     _HAS_NUMBA = True
 except Exception:  # pragma: no cover - numba is a hard dep; allow graceful skip.
-    _numba = None  # type: ignore
+    _numba = None
     _HAS_NUMBA = False
 
 try:
-    import polars as pl  # type: ignore
+    import polars as pl
     _HAS_POLARS = True
 except Exception:  # pragma: no cover
     pl = None  # type: ignore

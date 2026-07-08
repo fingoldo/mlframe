@@ -189,7 +189,7 @@ class CompositeFeatureGenerator(BaseEstimator, TransformerMixin):
         """Append ``values`` to ``X`` as ``column_name_`` (polars zero-copy / pandas copy)."""
         vals = np.asarray(values, dtype=np.float64).reshape(-1)
         try:
-            import polars as pl  # type: ignore
+            import polars as pl
 
             if isinstance(X, pl.DataFrame):
                 return X.with_columns(pl.Series(name=self.column_name_, values=vals))

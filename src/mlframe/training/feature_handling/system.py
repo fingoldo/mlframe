@@ -146,7 +146,7 @@ def classify_cuda_error(exc: BaseException) -> CudaErrorClass:
 
     # Stage 1: typed check (most reliable)
     try:
-        import torch  # type: ignore
+        import torch
         if isinstance(exc, torch.cuda.OutOfMemoryError):
             return CudaErrorClass.OUT_OF_MEMORY
     except ImportError:  # pragma: no cover

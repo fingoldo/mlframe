@@ -24,7 +24,7 @@ import pandas as pd
 try:
     from scipy.stats import rankdata
 except ImportError:  # pragma: no cover - scipy is a hard dep in pyproject; allow graceful fallback
-    rankdata = None  # type: ignore[assignment]
+    rankdata = None
 
 from ..spec import CompositeSpec
 from .auto_detect import (

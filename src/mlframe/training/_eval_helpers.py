@@ -23,7 +23,7 @@ import polars as pl
 try:
     from catboost import CatBoostRegressor
 except ImportError:
-    CatBoostRegressor = None  # type: ignore[assignment]  # only used when CB is the chosen model; guarded at call site
+    CatBoostRegressor = None
 
 # CUDA_IS_AVAILABLE / get_categorical_columns / _maybe_clean_ram all sit in modules that ALSO import from this file -- lazy local imports at call sites.
 

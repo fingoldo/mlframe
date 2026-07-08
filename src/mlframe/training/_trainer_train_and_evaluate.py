@@ -40,7 +40,7 @@ except ImportError:  # pragma: no cover
 try:
     from catboost import CatBoostRegressor, CatBoostClassifier
 except ImportError:  # pragma: no cover
-    CatBoostRegressor = CatBoostClassifier = None  # type: ignore[assignment]
+    CatBoostRegressor = CatBoostClassifier = None
 try:
     from lightgbm import LGBMClassifier, LGBMRegressor
 except ImportError:  # pragma: no cover

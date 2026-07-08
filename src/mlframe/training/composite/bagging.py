@@ -50,7 +50,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 logger = logging.getLogger(__name__)
 
 try:
-    import polars as pl  # type: ignore
+    import polars as pl
 
     _HAS_POLARS = True
 except Exception:  # pragma: no cover - polars optional

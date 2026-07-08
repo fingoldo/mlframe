@@ -36,7 +36,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoosting
 try:
     from catboost import CatBoostRegressor, CatBoostClassifier
 except ImportError:  # pragma: no cover
-    CatBoostRegressor = CatBoostClassifier = None  # type: ignore[assignment]
+    CatBoostRegressor = CatBoostClassifier = None
 try:
     from lightgbm import LGBMClassifier, LGBMRegressor
 except ImportError:  # pragma: no cover
@@ -94,8 +94,8 @@ from ._model_factories import (  # noqa: E402,F401
 try:
     from ngboost import NGBClassifier, NGBRegressor
 except ImportError:
-    NGBClassifier = None  # type: ignore[assignment]
-    NGBRegressor = None  # type: ignore[assignment]
+    NGBClassifier = None
+    NGBRegressor = None
 
 
 logger = logging.getLogger("mlframe.training.trainer")

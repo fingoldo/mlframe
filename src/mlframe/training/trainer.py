@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover
 try:
     from catboost import CatBoostRegressor, CatBoostClassifier
 except ImportError:  # pragma: no cover
-    CatBoostRegressor = CatBoostClassifier = None  # type: ignore[assignment]
+    CatBoostRegressor = CatBoostClassifier = None
 try:
     from lightgbm import LGBMClassifier, LGBMRegressor
 except ImportError:  # pragma: no cover
@@ -135,8 +135,8 @@ except (ImportError, OSError):  # OSError covers Windows DLL load failures (WinE
 try:
     from ngboost import NGBClassifier, NGBRegressor
 except ImportError:
-    NGBClassifier = None  # type: ignore[assignment]
-    NGBRegressor = None  # type: ignore[assignment]
+    NGBClassifier = None
+    NGBRegressor = None
 
 from .configs import (
     DataConfig, TrainingControlConfig, MetricsConfig, ReportingConfig,

@@ -475,7 +475,7 @@ def _detect_fourier_freqs_for_col(
     # default (flag-off) path is byte-identical and a GPU fault never breaks a fit. See the bench-note: this twin
     # is EXPECTED slower on small-n / sequential-loop HW and that is a PASS by the residency contract.
     try:
-        from .._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _fourier_resident_flag_on  # type: ignore
+        from .._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _fourier_resident_flag_on
     except Exception:
         _fourier_resident_flag_on = None  # type: ignore
     if _fourier_resident_flag_on is not None and _fourier_resident_flag_on():
@@ -492,15 +492,15 @@ def _detect_fourier_freqs_for_col(
             _dev_errs: list = []
             try:
                 _dev_errs.append(np.linalg.LinAlgError)
-                import cupy as _cp  # type: ignore
+                import cupy as _cp
                 _dev_errs.append(_cp.cuda.runtime.CUDARuntimeError)
                 _dev_errs.append(_cp.cuda.memory.OutOfMemoryError)
                 # FIX4 (2026-06-28): cuSOLVER/cuBLAS faults from cp.linalg.solve/lstsq subclass plain
                 # RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling
                 # back. getattr so an absent symbol can't break the tuple builder.
-                from cupy_backends.cuda.libs import cusolver as _cusolver  # type: ignore
+                from cupy_backends.cuda.libs import cusolver as _cusolver
                 _dev_errs.append(getattr(_cusolver, "CUSOLVERError", None))
-                from cupy_backends.cuda.libs import cublas as _cublas  # type: ignore
+                from cupy_backends.cuda.libs import cublas as _cublas
                 _dev_errs.append(getattr(_cublas, "CUBLASError", None))
             except Exception:  # nosec B110 - optional dependency import guard
                 pass

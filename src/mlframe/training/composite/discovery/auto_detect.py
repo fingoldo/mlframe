@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 try:
-    import polars as pl  # type: ignore
+    import polars as pl
     _HAS_POLARS = True
 except ImportError:  # pragma: no cover
     pl = None  # type: ignore
@@ -189,7 +189,7 @@ def detect_group_column_candidates(
         if candidate_columns is None:
             # Mirror the pandas branch: keep non-numeric columns AND low-cardinality integer columns so the
             # int-as-cat heuristic (memory project_mlframe_int_as_cat_detector) treats both frame flavours the same.
-            import polars as pl_local  # type: ignore
+            import polars as pl_local
             int_dtypes = {pl_local.Int8, pl_local.Int16, pl_local.Int32, pl_local.Int64, pl_local.UInt8, pl_local.UInt16, pl_local.UInt32, pl_local.UInt64}
             cand: list[str] = []
             for c in df.columns:
@@ -379,7 +379,7 @@ def detect_cat_columns(
     if _is_polars_df(df):
         if candidate_columns is None:
             # Mirror the pandas branch: non-numeric cols + low-cardinality integer cols (int-as-cat heuristic), minus temporal dtypes whose target-encoding is a time-leak trap.
-            import polars as pl_local  # type: ignore
+            import polars as pl_local
             int_dtypes = {pl_local.Int8, pl_local.Int16, pl_local.Int32, pl_local.Int64, pl_local.UInt8, pl_local.UInt16, pl_local.UInt32, pl_local.UInt64}
             temporal_dtypes = {pl_local.Date, pl_local.Datetime, pl_local.Duration, pl_local.Time}
             cand: list[str] = []

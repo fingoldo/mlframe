@@ -85,7 +85,7 @@ except ImportError:
     lgb = None  # type: ignore
     LGBMClassifier = object  # type: ignore
     LGBMRegressor = object  # type: ignore
-    _LGBMLabelEncoder = None  # type: ignore
+    _LGBMLabelEncoder = None
     _EvalFunctionWrapper = None  # type: ignore
 
 
@@ -389,7 +389,7 @@ class _DatasetReuseMixin:
     # Override .fit() -- the cache + native lgb.train() path
     # ------------------------------------------------------------------
 
-    def fit(  # type: ignore[override]
+    def fit(
         self,
         X,
         y,

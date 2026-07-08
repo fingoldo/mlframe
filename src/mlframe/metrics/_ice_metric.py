@@ -98,7 +98,7 @@ def compute_probabilistic_multiclass_error(
     if isinstance(y_score, (pd.Series, pd.DataFrame)):
         y_score = y_score.to_numpy()
     if labels is not None and hasattr(labels, "to_numpy"):
-        labels = labels.to_numpy()  # type: ignore[union-attr]  # labels: Optional[np.ndarray] annotation doesn't capture callers passing a pd.Series/DataFrame
+        labels = labels.to_numpy()
 
     if isinstance(y_score, Sequence):
         probs = y_score

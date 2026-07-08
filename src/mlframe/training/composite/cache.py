@@ -48,10 +48,10 @@ import numpy as np
 import pandas as pd
 
 try:
-    import numba as _numba  # type: ignore[import-untyped]
+    import numba as _numba
     _HAS_NUMBA = True
 except Exception:  # pragma: no cover - numba is a core dep but allow graceful skip
-    _numba = None  # type: ignore[assignment]
+    _numba = None
     _HAS_NUMBA = False
 
 # Threshold below which the numpy path wins (JIT call overhead + bytes-shuffling dominates the
@@ -64,7 +64,7 @@ _COL_STATS_NUMBA_MIN_N: int = 50_000
 
 if _HAS_NUMBA:
     @_numba.njit(cache=True, fastmath=False, parallel=False)
-    def _col_stats_float_numba_kernel(arr):  # type: ignore[no-untyped-def]
+    def _col_stats_float_numba_kernel(arr):
         # Serial reduction: a `prange` parallel reduction over (min, max) needs atomics that
         # numba doesn't lend itself to without explicit blocking. The serial loop is still
         # >100x faster than the numpy fancy-index path at n=500k (bench: bench_arch_d) because
@@ -89,7 +89,7 @@ if _HAS_NUMBA:
         return mn, mx, n_null
 
 try:
-    import polars as pl  # type: ignore
+    import polars as pl
     _HAS_POLARS = True
 except Exception:  # pragma: no cover
     pl = None  # type: ignore

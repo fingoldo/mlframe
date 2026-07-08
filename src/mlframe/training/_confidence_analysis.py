@@ -24,7 +24,7 @@ import polars as pl
 try:
     from catboost import CatBoostRegressor
 except ImportError:
-    CatBoostRegressor = None  # type: ignore[assignment]  # only used when CB is the chosen model; guarded at call site
+    CatBoostRegressor = None
 
 logger = logging.getLogger(__name__)
 

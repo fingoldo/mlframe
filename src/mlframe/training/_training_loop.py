@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 def _in_interactive_notebook() -> bool:
     """True only inside an IPython/Jupyter kernel where CB's live plot makes sense."""
     try:
-        from IPython import get_ipython  # type: ignore
+        from IPython import get_ipython
 
         ip = get_ipython()
         return ip is not None and type(ip).__name__ == "ZMQInteractiveShell"

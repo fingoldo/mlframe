@@ -14,10 +14,10 @@ from typing import Any, Sequence
 import numpy as np
 
 try:
-    import numba as _numba  # type: ignore
+    import numba as _numba
     _HAS_NUMBA = True
 except Exception:  # pragma: no cover
-    _numba = None  # type: ignore
+    _numba = None
     _HAS_NUMBA = False
 
 logger = logging.getLogger("mlframe.training.composite_transforms")

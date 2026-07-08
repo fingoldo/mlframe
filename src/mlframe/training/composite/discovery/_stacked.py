@@ -136,7 +136,7 @@ def fit_stacked(
         X_train = df.iloc[_train_idx_arr].reset_index(drop=True)
     else:
         try:
-            import polars as _pl  # type: ignore
+            import polars as _pl
             if isinstance(df, _pl.DataFrame):
                 mask = np.zeros(df.height, dtype=bool)
                 mask[_train_idx_arr] = True

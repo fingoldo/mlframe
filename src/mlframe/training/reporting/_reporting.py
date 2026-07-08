@@ -30,7 +30,7 @@ try:
     # can be patched/observed on one module while the gate is exercised via this module's logger.
     from sklearn.metrics import classification_report
 except ImportError:
-    classification_report = None  # type: ignore[assignment]
+    classification_report = None
 
 from pyutilz.pythonlib import get_human_readable_set_size
 

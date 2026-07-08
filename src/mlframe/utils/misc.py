@@ -63,7 +63,7 @@ def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed:
             torch.manual_seed(seed)
             torch.cuda.manual_seed(seed)
             torch.cuda.manual_seed_all(seed)
-            torch.backends.cudnn.deterministic = True  # type: ignore
+            torch.backends.cudnn.deterministic = True
         except (ImportError, ModuleNotFoundError, RuntimeError):
             pass
 

@@ -14,10 +14,10 @@ from typing import (
 import numpy as np
 
 try:
-    import numba as _numba  # type: ignore
+    import numba as _numba
     _HAS_NUMBA = True
 except Exception:  # pragma: no cover
-    _numba = None  # type: ignore
+    _numba = None
     _HAS_NUMBA = False
 
 logger = logging.getLogger(__name__)
@@ -56,8 +56,8 @@ if _HAS_NUMBA:
             out[i] = (t_f[i] - lag_sum) * inv_w0
         return out
 else:
-    _ewma_kernel = None  # type: ignore
-    _frac_diff_inverse_kernel = None  # type: ignore
+    _ewma_kernel = None
+    _frac_diff_inverse_kernel = None
 
 
 # Soft-cap MAD floor: when MAD(T_train) is below

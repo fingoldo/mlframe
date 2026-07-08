@@ -24,7 +24,7 @@ from ._estimator_helpers import (  # noqa: E402,F401
 )
 
 try:
-    import polars as pl  # type: ignore
+    import polars as pl
     _HAS_POLARS = True
 except ImportError:
     pl = None  # type: ignore

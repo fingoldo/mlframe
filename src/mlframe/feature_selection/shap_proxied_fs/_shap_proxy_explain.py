@@ -353,7 +353,7 @@ def compute_phi_rank_stability(per_fold_phi_mean, top_k: int = 80) -> float:
     # Rank within each fold (higher mean |phi| -> lower numeric rank). Use scipy if available for the
     # standard tie-handling, else fall back to argsort-of-argsort which is fine for non-tied magnitudes.
     try:
-        from scipy.stats import rankdata, spearmanr  # type: ignore
+        from scipy.stats import rankdata, spearmanr
         ranks = np.vstack([rankdata(-sub[f], method="average") for f in range(n_folds)])
         # spearmanr on the matrix returns the full pairwise correlation; extract upper-triangle.
         corr, _ = spearmanr(ranks, axis=1)

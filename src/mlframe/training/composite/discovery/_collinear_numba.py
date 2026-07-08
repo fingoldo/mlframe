@@ -44,7 +44,7 @@ try:
 
     _HAS_NUMBA = True
 except Exception:  # pragma: no cover - numba is a hard dep; allow graceful skip.
-    _numba = None  # type: ignore
+    _numba = None
     _HAS_NUMBA = False
 
 # Per-suite keep-mask cache. The keep-mask is a pure function of the (base-dropped)
@@ -97,7 +97,7 @@ _VAR_FLOOR: float = 1e-24
 if _HAS_NUMBA:
 
     @_numba.njit(cache=True, fastmath=False, parallel=True)
-    def _column_stats_allfinite(fm):  # type: ignore[no-untyped-def]
+    def _column_stats_allfinite(fm):
         """Per-column mean + centred sum-of-squares for an all-finite matrix.
 
         One parallel pass over the (n, B) matrix; ``var[j]`` is the centred
@@ -122,7 +122,7 @@ if _HAS_NUMBA:
         return mean, var
 
     @_numba.njit(cache=True, fastmath=False)
-    def _keep_mask_kernel_allfinite(fm, mean, var, thr, band):  # type: ignore[no-untyped-def]
+    def _keep_mask_kernel_allfinite(fm, mean, var, thr, band):
         """All-finite fast path: single cross-term pass per kept pair.
 
         Equivalent to :func:`_keep_mask_kernel` when every row is finite, but
@@ -170,7 +170,7 @@ if _HAS_NUMBA:
         return keep, borderline
 
     @_numba.njit(cache=True, fastmath=False)
-    def _keep_mask_kernel(fm, finite, thr, band):  # type: ignore[no-untyped-def]
+    def _keep_mask_kernel(fm, finite, thr, band):
         """Walk columns left to right, return (keep, borderline) int8 arrays.
 
         ``keep[j]`` is 1 when column j survives the kernel's own decision.
@@ -352,7 +352,7 @@ def near_collinear_keep_mask_fast(
 
 if _HAS_NUMBA:
     @_numba.njit(cache=True)
-    def _block_gather_kernel(arr, perm, block_len):  # type: ignore[no-untyped-def]
+    def _block_gather_kernel(arr, perm, block_len):
         # Materialise a block-permuted copy of ``arr`` in one pass: emit each permuted block's
         # real (in-bounds) elements in order, dropping the trailing short block's padding. This
         # fuses the index build + gather of the prior numpy path (broadcast (n_blocks, block_len)

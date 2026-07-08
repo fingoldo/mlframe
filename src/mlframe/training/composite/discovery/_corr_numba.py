@@ -46,7 +46,7 @@ try:
 
     _HAS_NUMBA = True
 except Exception:  # pragma: no cover - numba is a hard dep; allow graceful skip.
-    _numba = None  # type: ignore
+    _numba = None
     _HAS_NUMBA = False
 
 # Numba wins the per-column variance + cross-product walk only once BOTH the row
@@ -72,7 +72,7 @@ _VAR_FLOOR: float = 1e-24
 if _HAS_NUMBA:
 
     @_numba.njit(cache=True, fastmath=False, parallel=True)
-    def _abs_corr_all_kernel(X, y_dev, var_y, band):  # type: ignore[no-untyped-def]
+    def _abs_corr_all_kernel(X, y_dev, var_y, band):
         """Per-column ``|corr(y, X[:, j])|`` + a borderline flag, over a pre-centred ``y``.
 
         ``y_dev`` is ``y - mean(y)`` (computed once by the wrapper) and ``var_y`` is

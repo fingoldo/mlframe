@@ -425,7 +425,7 @@ def retain_usable_pure_forms(
                 from ._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled
             except Exception:
                 try:
-                    from ._gpu_strict_fe import fe_gpu_strict_resident_enabled  # type: ignore
+                    from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
                 except Exception:
                     fe_gpu_strict_resident_enabled = None  # type: ignore
             if fe_gpu_strict_resident_enabled is not None and fe_gpu_strict_resident_enabled():

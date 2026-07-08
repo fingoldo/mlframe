@@ -123,7 +123,7 @@ def reset_cmi_forder_cache() -> None:
         _FORDER_CACHE.clear()
 
 # Module-level kernel singleton (pickle-safe: never stored on instances).
-_cmi_joint_hist_cuda = None  # type: ignore[assignment]
+_cmi_joint_hist_cuda = None
 _KERNEL_LOCK = threading.Lock()
 _CUPY_OK: Optional[bool] = None
 

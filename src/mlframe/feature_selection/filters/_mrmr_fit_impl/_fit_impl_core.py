@@ -5605,7 +5605,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             freqs_y=_freqs_y,
             categorical_vars=categorical_vars,
             cfg=cat_fe_cfg,
-            streaming_cache=_prev_cache,  # type: ignore[arg-type]
+            streaming_cache=_prev_cache,
             numeric_raw_values=_num_raw_values,
             dtype=dtype, verbose=verbose,
         )

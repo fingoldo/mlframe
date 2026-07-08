@@ -88,7 +88,7 @@ try:
 except Exception:  # numba unavailable: numpy two-pass reduction with the same pooled-covariance Mahalanobis formula.
     _HAS_NUMBA = False
 
-    def _fisher_2d(z0, z1, y):  # type: ignore[misc]
+    def _fisher_2d(z0, z1, y):
         mask1 = y > 0.5
         n1 = int(mask1.sum())
         n0 = int(y.shape[0] - n1)

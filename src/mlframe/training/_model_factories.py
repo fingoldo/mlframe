@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # ``_lgb_classifier_cls`` / ``_lgb_regressor_cls``. Placed here
 # (not inside the functions) so the ``is None`` fast-path on
 # subsequent calls works.
-LGBMClassifier = LGBMRegressor = None  # type: ignore[assignment]
+LGBMClassifier = LGBMRegressor = None
 
 
 def _patch_lgb_feature_names_in_setter() -> None:
@@ -439,7 +439,7 @@ def _lgb_regressor_cls():
 try:
     from ngboost import NGBClassifier, NGBRegressor
 except ImportError:  # pragma: no cover
-    NGBClassifier = NGBRegressor = None  # type: ignore[assignment]
+    NGBClassifier = NGBRegressor = None
 
 
 try:
@@ -462,8 +462,8 @@ except (ImportError, OSError):  # pragma: no cover
 # fit via ``_get_neural_components()`` so typical users / fuzz tests
 # don't pay the cost. Sentinel ``None`` here; the getter populates the
 # tuple lazily on first call and caches.
-MLPNeuronsByLayerArchitecture = None  # type: ignore[assignment]
-PytorchLightningRegressor = PytorchLightningClassifier = None  # type: ignore[assignment]
+MLPNeuronsByLayerArchitecture = None
+PytorchLightningRegressor = PytorchLightningClassifier = None
 
 
 def _get_neural_components():

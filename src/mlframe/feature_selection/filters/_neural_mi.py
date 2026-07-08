@@ -248,7 +248,7 @@ def _get_infonet_model(device: str = "auto"):
         vendored = str(pkg_root / "_vendored" / "infonet")
         if vendored not in sys.path:
             sys.path.insert(0, vendored)
-        from infer import load_model  # type: ignore
+        from infer import load_model
         model = load_model(str(config_path), str(ckpt_path))
         _INFONET_MODEL_CACHE[cache_key] = model
         return model
@@ -311,7 +311,7 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
     vendored = str(pkg_root / "_vendored" / "infonet")
     if vendored not in sys.path:
         sys.path.insert(0, vendored)
-    from infer import estimate_mi  # type: ignore
+    from infer import estimate_mi
     mi = estimate_mi(model, xr, yr).squeeze().cpu().numpy()
     return max(0.0, float(mi))
 

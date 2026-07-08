@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 try:
-    import polars as pl  # type: ignore
+    import polars as pl
     _HAS_POLARS = True
 except Exception:  # pragma: no cover
     pl = None  # type: ignore

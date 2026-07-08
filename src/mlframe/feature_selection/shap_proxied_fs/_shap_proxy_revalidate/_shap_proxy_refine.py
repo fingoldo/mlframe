@@ -638,8 +638,8 @@ def within_cluster_refine(
         threshold = base + parsimony_tol * abs(base)
     else:
         # Sentinel: Stage 2a will compute ``rank_base`` and seed ``base`` from it.
-        base = None  # type: ignore[assignment]
-        threshold = None  # type: ignore[assignment]
+        base = None
+        threshold = None
 
     # ---- Stage 1: per-cluster collapse (one parallel probe per multi-cluster).
     # Skip when member_groups is missing OR has too few multi-member groups to pay the stage-1 toll

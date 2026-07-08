@@ -66,7 +66,7 @@ def composite_predictions_as_feature(
         n = len(df)
         preds = np.full(n, float(fallback_value), dtype=np.float64)
     try:
-        import polars as pl  # type: ignore
+        import polars as pl
         _is_polars = isinstance(df, pl.DataFrame)
     except ImportError:
         pl = None  # type: ignore
@@ -158,7 +158,7 @@ def composite_oof_predictions(
         kf = KFold(n_splits=int(n_splits), shuffle=True, random_state=int(random_state))
     indices = np.arange(n)
     try:
-        import polars as pl  # type: ignore
+        import polars as pl
         _HAS_POLARS = True
     except ImportError:
         pl = None  # type: ignore

@@ -52,7 +52,7 @@ def _oof_subsample_positions(n: int, groups, cap: int, seed: int):
 def _slice_frame_rows(frame, pos):
     """Row-subset a polars / pandas / ndarray frame by integer positions (REDUCES rows -- never a full copy)."""
     try:
-        import polars as pl  # type: ignore
+        import polars as pl
         if isinstance(frame, pl.DataFrame):
             mask = np.zeros(frame.height, dtype=bool)
             mask[pos] = True

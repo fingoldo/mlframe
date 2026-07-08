@@ -291,13 +291,13 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     # falls back to CPU, while a ValueError/IndexError (real OOB / logic bug) propagates to surface.
     _dev_errs: list = [np.linalg.LinAlgError]
     try:
-        import cupy as _cp_e  # type: ignore
+        import cupy as _cp_e
 
         _dev_errs.append(_cp_e.cuda.runtime.CUDARuntimeError)
         _dev_errs.append(_cp_e.cuda.memory.OutOfMemoryError)
-        from cupy_backends.cuda.libs import cusolver as _cusolver_e  # type: ignore
+        from cupy_backends.cuda.libs import cusolver as _cusolver_e
         _dev_errs.append(getattr(_cusolver_e, "CUSOLVERError", None))
-        from cupy_backends.cuda.libs import cublas as _cublas_e  # type: ignore
+        from cupy_backends.cuda.libs import cublas as _cublas_e
         _dev_errs.append(getattr(_cublas_e, "CUBLASError", None))
     except Exception:  # nosec B110 - optional dependency import guard
         pass
@@ -373,7 +373,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     # candidate) may reach this CPU fallback on a genuine device fault -> bring the operands back to host so the
     # njit / sklearn path actually runs instead of crashing on ``np.asarray(cupy)``. Host inputs pass through.
     try:
-        import cupy as _cp_fb  # type: ignore
+        import cupy as _cp_fb
         if isinstance(X, _cp_fb.ndarray):
             X = _cp_fb.asnumpy(X)
         if isinstance(y, _cp_fb.ndarray):

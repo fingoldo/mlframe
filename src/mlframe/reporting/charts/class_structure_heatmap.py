@@ -48,7 +48,7 @@ try:
 except Exception:  # numba unavailable: fall back to a flattened two-bincount numpy accumulate.
     _HAS_NUMBA = False
 
-    def _accumulate_group_time(group_codes, time_codes, y, n_groups, n_time):  # type: ignore[misc]
+    def _accumulate_group_time(group_codes, time_codes, y, n_groups, n_time):
         flat = group_codes * n_time + time_codes
         ncells = n_groups * n_time
         counts = np.bincount(flat, minlength=ncells).astype(np.float64)

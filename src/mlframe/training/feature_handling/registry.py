@@ -114,7 +114,7 @@ def _resolve_keep_n(cache_cfg) -> int:
         return val
     # "auto"
     try:
-        import torch  # type: ignore
+        import torch
         if not torch.cuda.is_available():
             return 2
         free, _ = torch.cuda.mem_get_info()

@@ -39,10 +39,10 @@ import numpy as np
 import orjson
 
 try:
-    import xxhash  # type: ignore[import-untyped]
+    import xxhash
     _HAVE_XX = True
 except ImportError:  # pragma: no cover -- optional accel
-    xxhash = None  # type: ignore[assignment]
+    xxhash = None
     _HAVE_XX = False
 
 

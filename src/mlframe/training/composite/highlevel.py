@@ -153,7 +153,7 @@ def _select_rows(df: Any, idx: np.ndarray) -> Any:
     only pull the narrow base + feature columns they need).
     """
     try:
-        import polars as pl  # type: ignore
+        import polars as pl
 
         if isinstance(df, pl.DataFrame):
             return df[idx]
@@ -361,7 +361,7 @@ def _select_cols(frame: Any, cols: Sequence[str]) -> Any:
     """
     cols = list(cols)
     try:
-        import polars as pl  # type: ignore
+        import polars as pl
 
         if isinstance(frame, pl.DataFrame):
             return frame.select(cols)

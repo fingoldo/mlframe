@@ -42,7 +42,7 @@ def _slice_rows_by_idx(X: Any, idx: np.ndarray) -> Any:
         sub = X.iloc[idx]
         return sub.reset_index(drop=True) if hasattr(sub, "reset_index") else sub
     if hasattr(X, "filter") and hasattr(X, "slice"):
-        import polars as pl  # type: ignore
+        import polars as pl
         return X[idx.tolist()] if hasattr(X, "__getitem__") else X.filter(pl.Series(np.isin(np.arange(len(X)), idx)))
     return X[idx]
 

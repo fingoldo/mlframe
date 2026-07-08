@@ -27,7 +27,7 @@ import numpy as np
 try:
     from scipy.stats import rankdata
 except ImportError:
-    rankdata = None  # type: ignore[assignment]
+    rankdata = None
 
 from ._causal_lag import is_causal_base_name
 from ._collinear_numba import block_shuffle_gather

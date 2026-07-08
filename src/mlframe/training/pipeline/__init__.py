@@ -174,7 +174,7 @@ def _build_dim_reducer(name: str, n_components: int, random_state: int):
         import importlib.util as _ilu
         if _ilu.find_spec("umap") is None:
             raise ImportError("UMAP requires `pip install umap-learn`")
-        import umap  # type: ignore
+        import umap
         return umap.UMAP(n_components=n_components, random_state=random_state)
     from sklearn.decomposition import PCA, KernelPCA, NMF, TruncatedSVD, FastICA
     from sklearn.manifold import Isomap

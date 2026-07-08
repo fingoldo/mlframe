@@ -736,7 +736,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         """
 
         # history_x is promoted from ndarray to DataFrame by run() before TentativeRoughFix is ever called.
-        hx: pd.DataFrame = self.history_x  # type: ignore[assignment]
+        hx: pd.DataFrame = self.history_x
         median_tentaive_values = hx[self.tentative].median(axis=0).values
         median_max_shadow = hx["Max_Shadow"].median(axis=0)
 

@@ -61,7 +61,7 @@ try:
 except Exception:  # numba unavailable: two-bincount numpy fallback (bit-identical accumulation, just slower).
     _HAS_NUMBA = False
 
-    def _level_counts_njit(codes: np.ndarray, y: np.ndarray, n_levels: int):  # type: ignore[misc]
+    def _level_counts_njit(codes: np.ndarray, y: np.ndarray, n_levels: int):
         keep = codes >= 0
         kc = codes[keep]
         tot = np.bincount(kc, minlength=n_levels).astype(np.float64)

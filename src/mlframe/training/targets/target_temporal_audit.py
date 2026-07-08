@@ -501,19 +501,19 @@ def audit_targets_over_time(
     #    fallback runs per-target (less efficient but correct).
     if _HAS_POLARS and isinstance(df, pl.DataFrame):
         agg = _aggregate_by_time_polars_multi(
-            df, timestamp_col, target_specs, chosen,  # type: ignore[arg-type]
+            df, timestamp_col, target_specs, chosen,
         )
     else:
         # Pandas fallback: still N passes, but at least one place to
         # change later if we add a multi-agg pandas path.
         agg = _aggregate_by_time_pandas(
-            df, timestamp_col, target_specs[0][0], chosen,  # type: ignore[arg-type]
+            df, timestamp_col, target_specs[0][0], chosen,
             target_type=target_specs[0][1],
         )
         agg = agg.rename(columns={"target_rate": target_specs[0][2]})
         for col, ttype, alias in target_specs[1:]:
             sub = _aggregate_by_time_pandas(
-                df, timestamp_col, col, chosen, target_type=ttype,  # type: ignore[arg-type]
+                df, timestamp_col, col, chosen, target_type=ttype,
             )
             agg[alias] = sub["target_rate"].values
 
@@ -533,7 +533,7 @@ def audit_targets_over_time(
             target_name=name,
             target_type=ttype,
             timestamp_col=timestamp_col,
-            granularity=chosen,  # type: ignore[arg-type]
+            granularity=chosen,
             min_bin_fraction=min_bin_fraction,
             method=method,
             pelt_model=pelt_model,

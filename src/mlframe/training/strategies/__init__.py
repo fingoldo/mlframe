@@ -162,21 +162,21 @@ def get_strategy(model_name) -> ModelPipelineStrategy:
 def _catboost_classes():
     if importlib.util.find_spec("catboost") is None:
         return ()
-    from catboost import CatBoostClassifier, CatBoostRegressor  # type: ignore
+    from catboost import CatBoostClassifier, CatBoostRegressor
     return (CatBoostClassifier, CatBoostRegressor)
 
 
 def _lightgbm_classes():
     if importlib.util.find_spec("lightgbm") is None:
         return ()
-    from lightgbm import LGBMClassifier, LGBMRegressor  # type: ignore
+    from lightgbm import LGBMClassifier, LGBMRegressor
     return (LGBMClassifier, LGBMRegressor)
 
 
 def _xgboost_classes():
     if importlib.util.find_spec("xgboost") is None:
         return ()
-    from xgboost import XGBClassifier, XGBRegressor  # type: ignore
+    from xgboost import XGBClassifier, XGBRegressor
     return (XGBClassifier, XGBRegressor)
 
 

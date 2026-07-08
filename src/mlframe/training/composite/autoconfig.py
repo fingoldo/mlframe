@@ -286,7 +286,7 @@ def _sample_view(df: Any, cols: Sequence[str], sample_idx: np.ndarray) -> Any:
     Never copies columns outside ``cols`` and never materialises the full frame.
     """
     try:
-        import polars as pl  # type: ignore
+        import polars as pl
         if isinstance(df, pl.DataFrame):
             return df.select(list(cols))[sample_idx]
     except ImportError:  # pragma: no cover - polars optional

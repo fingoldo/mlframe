@@ -28,7 +28,7 @@ import numpy as np  # noqa: F401  (incidental re-export preserved)
 try:
     import pandas as pd  # noqa: F401  (incidental re-export preserved)
 except ImportError:  # pragma: no cover
-    pd = None  # type: ignore[assignment]
+    pd = None
 
 try:
     import polars as pl  # noqa: F401  (incidental re-export preserved)

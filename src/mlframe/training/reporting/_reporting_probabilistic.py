@@ -28,7 +28,7 @@ except ImportError:
 try:
     from sklearn.metrics import classification_report
 except ImportError:
-    classification_report = None  # type: ignore[assignment]
+    classification_report = None
 
 from pyutilz.pythonlib import get_human_readable_set_size
 from sklearn.base import ClassifierMixin

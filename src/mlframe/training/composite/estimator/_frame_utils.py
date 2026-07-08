@@ -20,7 +20,7 @@ import pandas as pd
 from . import _is_polars_df
 
 try:
-    import polars as pl  # type: ignore
+    import polars as pl
 except ImportError:  # pragma: no cover - polars optional
     pl = None  # type: ignore
 

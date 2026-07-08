@@ -94,12 +94,12 @@ try:
 except Exception:  # numba unavailable: fall back to the two-bincount numpy path.
     _HAS_NUMBA_SLICE = False
 
-    def _fused_sum_count(flat, err, ncells):  # type: ignore[misc]
+    def _fused_sum_count(flat, err, ncells):
         counts = np.bincount(flat, minlength=ncells).astype(np.float64)
         sums = np.bincount(flat, weights=err, minlength=ncells)
         return sums, counts
 
-    def _fused_sum_count_2col(c0, c1, stride0, err, ncells):  # type: ignore[misc]
+    def _fused_sum_count_2col(c0, c1, stride0, err, ncells):
         flat = c0 * stride0 + c1
         counts = np.bincount(flat, minlength=ncells).astype(np.float64)
         sums = np.bincount(flat, weights=err, minlength=ncells)

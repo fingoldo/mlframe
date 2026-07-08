@@ -442,7 +442,7 @@ def _run_search(
     optuna = None
     if prefer_optuna:
         try:
-            import optuna as _optuna  # type: ignore
+            import optuna as _optuna
             optuna = _optuna
         except ImportError:
             optuna = None

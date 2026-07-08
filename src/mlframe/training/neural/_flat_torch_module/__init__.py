@@ -166,7 +166,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
     # as runtime fast-path acceleration -- drop them on serialise so save_load /
     # stdlib pickle bundles round-trip cleanly. The next predict_step on the
     # restored object lazily re-captures the graph or re-compiles the path.
-    def __getstate__(self):  # type: ignore[no-untyped-def]
+    def __getstate__(self):
         state = self.__dict__.copy()
         state["_cuda_graph_predict_cache"] = {}
         state["_compiled_predict_fn"] = None
@@ -184,7 +184,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
             state["optimizer"] = ("__optimizer_class_ref__", _opt.__module__, _opt.__qualname__)
         return state
 
-    def __setstate__(self, state):  # type: ignore[no-untyped-def]
+    def __setstate__(self, state):
         _opt_ref = state.get("optimizer")
         if isinstance(_opt_ref, tuple) and len(_opt_ref) == 3 and _opt_ref[0] == "__optimizer_class_ref__":
             try:

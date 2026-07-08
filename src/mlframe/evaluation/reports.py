@@ -50,9 +50,9 @@ from IPython.display import display, Markdown
 # reporting path; guard the import so consumers without finance installed
 # can still load mlframe.evaluation.reports for the rest of its surface.
 try:
-    from finance.backtesting import show_classifier_calibration  # type: ignore
+    from finance.backtesting import show_classifier_calibration
 except ImportError:  # pragma: no cover - depends on private sibling pkg
-    def show_classifier_calibration(*args, **kwargs):  # type: ignore[no-redef]
+    def show_classifier_calibration(*args, **kwargs):
         raise ImportError(
             "show_classifier_calibration() requires the private `finance` package " "(github.com/fingoldo/finance); install it from source before calling."
         )
