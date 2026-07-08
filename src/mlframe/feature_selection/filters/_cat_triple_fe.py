@@ -542,4 +542,4 @@ def apply_cat_triple_cross(
             vals[i] = global_mean if code is None else float(lookup.get(code, global_mean))
         else:
             vals[i] = float(mapping.get(triple, sentinel))
-    return vals[cell_codes]
+    return np.asarray(vals[cell_codes])
