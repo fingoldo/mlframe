@@ -64,7 +64,7 @@ def _compute_metrics_table(
     rows: list[dict[str, Any]] = []
     baseline_names = sorted(set(val_preds.keys()) | set(test_preds.keys()))
 
-    if target_type == "quantile_regression" and (extras or {}).get("quantile_alphas"):
+    if target_type == "quantile_regression" and extras is not None and extras.get("quantile_alphas"):
         # Per-alpha pinball-loss table. Predictions are 2D (N, K). Headline =
         # mean pinball over non-boundary alpha (alpha in [0.05, 0.95]).
         alphas = list(extras["quantile_alphas"])

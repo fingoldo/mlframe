@@ -350,7 +350,7 @@ def _wrap_predict_result(result: Any, method: str = "predict", classes_: Any = N
     if method == "predict_proba" and isinstance(result, list):
         from .._classif_helpers import _canonical_predict_proba_shape
 
-        return _canonical_predict_proba_shape(result, classes_=classes_)
+        return np.asarray(_canonical_predict_proba_shape(result, classes_=classes_))
     return np.asarray(result)
 
 

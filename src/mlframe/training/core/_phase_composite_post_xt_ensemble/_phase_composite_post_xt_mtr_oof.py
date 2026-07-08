@@ -124,7 +124,7 @@ def compute_mtr_oof_nnls_weights(
                     excluded[ci] = f"fold refit raised ({exc})"
         # Non-finite OOF cells exclude their component (not the whole weighting).
         # Components already excluded for a raise have NaN rows and are skipped here.
-        finite_per_comp = np.isfinite(oof).all(axis=(1, 2))  # (n_comp,)
+        finite_per_comp = np.asarray(np.isfinite(oof).all(axis=(1, 2)))  # (n_comp,)
         for ci in range(n_comp):
             if ci not in excluded and not bool(finite_per_comp[ci]):
                 n_bad = int((~np.isfinite(oof[ci])).sum())

@@ -90,7 +90,7 @@ def _fit_quick_and_score(
             init_score_va_local = None
 
     model = self._make_quick_model(target_type, n_jobs=inner_n_jobs)
-    fit_kwargs = {}
+    fit_kwargs: dict = {}
     if cat_features:
         usable = [c for c in cat_features if c in X.columns]
         if usable:

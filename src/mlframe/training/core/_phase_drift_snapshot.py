@@ -53,7 +53,7 @@ def _log_cardinality_and_drift_snapshot(
             else:
                 pairs = []
         else:
-            pairs = [(c, int(train_df[c].nunique(dropna=False))) for c in cols_present]
+            pairs = [(c, int(train_df[c].nunique(dropna=False))) for c in cols_present]  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
         pairs.sort(key=lambda x: -x[1])
         summary = ", ".join(f"{c}:{n:_}" for c, n in pairs)
         logger.info("  Categorical cardinalities (train, n_unique, desc): %s", summary)
