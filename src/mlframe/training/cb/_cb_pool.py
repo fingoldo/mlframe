@@ -337,12 +337,26 @@ def _recover_cb_feature_names(model: Any) -> tuple[list[str], list[str]]:
         return [], []
 
 
+def _wrap_predict_result(result: Any) -> np.ndarray | list:
+    """Normalise a ``predict``/``predict_proba`` return value without destroying list-of-arrays shape.
+
+    ``MultiOutputClassifier.predict_proba`` returns a Python ``list`` of per-label ``(N, 2)`` arrays --
+    the label dimension is deliberately NOT stacked into an ndarray axis. A blind ``np.asarray(result)``
+    on a list of same-shape arrays silently stacks it into ``(n_labels, N, 2)``, which downstream code
+    (``_canonical_predict_proba_shape``'s ``isinstance(probs, list)`` branch) can no longer recognise as
+    the list form -- it falls through to the ndim==3 case and raises. Keep genuine lists as lists.
+    """
+    if isinstance(result, list):
+        return result
+    return np.asarray(result)
+
+
 def _predict_with_fallback(
     model: Any,
     X: Any,
     method: str = "predict",
     verbose: bool = False,
-) -> np.ndarray:
+) -> np.ndarray | list:
     """Call ``model.{method}(X)`` with guards for common edge-cases.
 
     Guards (ordered by cost, cheapest first):
@@ -413,7 +427,7 @@ def _predict_with_fallback(
                     method,
                 )
                 with phase(method, model=_model_type, n_rows=n_rows):
-                    return np.asarray(fn(_hit))
+                    return _wrap_predict_result(fn(_hit))
         except (AttributeError, KeyError, TypeError, ValueError) as _exc:
             logger.debug(
                 "[cb-val-pool-reuse] %s cache probe failed (%s: %s); "
@@ -426,7 +440,7 @@ def _predict_with_fallback(
     if _pl_df is not type(None) and isinstance(X, _pl_df) and _is_cb and getattr(model, "_mlframe_polars_fastpath_broken", False):
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
         with phase(method, model=_model_type, n_rows=n_rows):
-            return np.asarray(fn(X_pd))
+            return _wrap_predict_result(fn(X_pd))
 
     # ── 4. Normal path (with NaN guard + CB Polars fallback) ──────────
     try:
@@ -443,12 +457,12 @@ def _predict_with_fallback(
                     "one-shot imputation + scaling before retry.",
                     _model_type, method,
                 )
-                return np.asarray(_apply_nan_guard(model, X, fn, n_rows))
-        return np.asarray(result)
+                return _wrap_predict_result(_apply_nan_guard(model, X, fn, n_rows))
+        return _wrap_predict_result(result)
     except ValueError as e:
         if "NaN" not in str(e) and "contains NaN" not in str(e):
             raise
-        return np.asarray(_apply_nan_guard(model, X, fn, n_rows))
+        return _wrap_predict_result(_apply_nan_guard(model, X, fn, n_rows))
     except TypeError as e:
         if not (_is_cb and _pl_df is not type(None) and isinstance(X, _pl_df) and "No matching signature found" in str(e)):
             raise
@@ -463,7 +477,7 @@ def _predict_with_fallback(
             pass
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
         with phase(method, model=_model_type, n_rows=n_rows):
-            return np.asarray(fn(X_pd))
+            return _wrap_predict_result(fn(X_pd))
 
 
 # Fix 9.4.3 + Fix Orch-1: process-wide CatBoost Pool cache. Keys: tuple
