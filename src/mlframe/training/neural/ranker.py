@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 # from mlframe.training.neural.ranker import ranknet_pairwise_loss callers
 # keep working unchanged.
 # ---------------------------------------------------------------------------
-from ._ranker_losses import (  # noqa: F401, E402
+from ._ranker_losses import (
     _RANKNET_MAX_PAIRS_PER_QUERY,
     _RANKNET_PAIR_CACHE_MAX_N,
     _RANKNET_PAIR_CACHE_SIZE,
@@ -128,6 +128,13 @@ class GroupBatchSampler(Sampler):
             self._query_slices.append(indices)
 
     def set_epoch(self, epoch: int) -> None:
+        """Advance the sampler's internal epoch counter so ``shuffle=True`` reshuffles queries per epoch.
+
+        Lightning only auto-calls ``set_epoch`` on torch's ``DistributedSampler``; this sampler is advanced
+        explicitly by ``_SamplerSetEpochCallback.on_train_epoch_start``. Without it, every epoch would replay
+        the SAME random query order (seeded once at construction), which stalls training in a local optimum.
+        Also clears the OPT-7 multi-query ``_batch_partition`` cache since a new shuffle order invalidates it.
+        """
         self._epoch = int(epoch)
         # OPT-7: drop last epoch's partition entries -- yields fresh order so
         # batch composition changes.
@@ -420,6 +427,9 @@ def _ranker_passthrough_collate(batch):
 
 
 def _import_lightning() -> Any:
+    """Lazily import PyTorch Lightning, tolerating either the new ``lightning.pytorch`` or the legacy
+    ``pytorch_lightning`` package name, so the ``lightning`` dependency stays optional for callers that never
+    train an MLPRanker (import only fails when a ranker is actually instantiated/fit)."""
     L: Any
     try:
         import lightning.pytorch as L
@@ -461,12 +471,25 @@ class MLPRankerLightningModule(_L_MODULE.LightningModule):  # type: ignore[name-
         self.save_hyperparameters(ignore=["network"])
 
     def forward(self, x):
+        """Run the wrapped MLP on a batch of row features and return 1-D per-row relevance scores.
+
+        ``self.network(x)`` yields a ``(batch, 1)`` output (single regression head); ``.view(-1)`` flattens it
+        to ``(batch,)`` so downstream loss functions and ``MLPRanker.predict`` see a plain score vector.
+        """
         return self.network(x).view(-1)
 
     def _compute_loss(self, batch, scores):
+        """Dispatch to the configured ranking loss (RankNet pairwise or ListNet listwise) for one query batch.
+
         # 4-tuple shape ``(X, y, i_idx, j_idx)`` is the precomputed-pairs fast
         # path installed by ``_RankerDataset.install_pair_index_cache``; the
         # 2-tuple ``(X, y)`` shape stays valid for the legacy in-loss cache.
+        For ``loss_name == "ranknet"``: uses the precomputed ``(i_idx, j_idx)`` pair-index tensors when the
+        batch carries them (fast path, no device sync), else falls back to ``ranknet_pairwise_loss`` which
+        builds pairs from raw relevance on the fly. For ``loss_name == "listnet"``: computes the ListNet
+        top-1 softmax cross-entropy between predicted and relevance-induced distributions. Raises
+        ``ValueError`` for any other ``loss_name``.
+        """
         if self.loss_name == "ranknet":
             if len(batch) == 4:
                 _, _, i_idx, j_idx = batch
@@ -477,6 +500,13 @@ class MLPRankerLightningModule(_L_MODULE.LightningModule):  # type: ignore[name-
         raise ValueError(f"unknown loss_name {self.loss_name!r}")
 
     def training_step(self, batch, batch_idx):
+        """Compute one training step's loss for a grouped-ranking batch (one query, or a packed multi-query
+        union under OPT-7) yielded by ``GroupBatchSampler`` + ``_RankerDataset``.
+
+        ``batch`` is either the 2-tuple ``(X, y)`` or the 4-tuple ``(X, y, i_idx, j_idx)`` shape produced by
+        ``_ranker_passthrough_collate``. Runs the forward pass then ``_compute_loss`` (RankNet or ListNet).
+        Lightning backpropagates the returned loss and steps the optimizer.
+        """
         x = batch[0]
         scores = self.forward(x)
         loss = self._compute_loss(batch, scores)
@@ -486,6 +516,12 @@ class MLPRankerLightningModule(_L_MODULE.LightningModule):  # type: ignore[name-
         return loss
 
     def validation_step(self, batch, batch_idx):
+        """Compute and log ``val_loss`` for one validation query batch, driving Lightning's EarlyStopping.
+
+        Mirrors ``training_step`` (same batch shapes, same ``_compute_loss`` dispatch) but runs under
+        ``torch.no_grad()`` and logs the per-epoch aggregated loss under the ``"val_loss"`` key that
+        ``_EarlyStopping(monitor="val_loss", ...)`` watches.
+        """
         x = batch[0]
         with torch.no_grad():
             scores = self.forward(x)
@@ -494,6 +530,8 @@ class MLPRankerLightningModule(_L_MODULE.LightningModule):  # type: ignore[name-
         return loss
 
     def predict_step(self, batch, batch_idx):
+        """Return per-row relevance scores for a prediction batch, accepting either a bare feature tensor or
+        a ``(X, ...)`` tuple/list (the shapes ``training_step``/``validation_step`` receive)."""
         if isinstance(batch, (tuple, list)):
             x = batch[0]
         else:
@@ -502,6 +540,8 @@ class MLPRankerLightningModule(_L_MODULE.LightningModule):  # type: ignore[name-
             return self.forward(x)
 
     def configure_optimizers(self):
+        """Build the optimizer used for training: plain AdamW at the configured ``self.learning_rate``, no
+        LR scheduler (early stopping on ``val_loss`` governs training length instead)."""
         return torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
 
 
@@ -524,7 +564,10 @@ class _SamplerSetEpochCallback(_L_MODULE.Callback):  # type: ignore[name-defined
         super().__init__()
         self._sampler = sampler
 
-    def on_train_epoch_start(self, trainer, pl_module) -> None:  # noqa: D401
+    def on_train_epoch_start(self, trainer, pl_module) -> None:
+        """Lightning hook fired at the start of every training epoch; forwards ``trainer.current_epoch`` to
+        the wrapped sampler's ``set_epoch`` so ``GroupBatchSampler`` reshuffles queries each epoch (correct
+        behaviour under both single-process and DDP/multi-epoch training)."""
         if hasattr(self._sampler, "set_epoch"):
             self._sampler.set_epoch(trainer.current_epoch)
 
@@ -626,6 +669,12 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         self.trainer_ = None
 
     def _x_to_array(self, X) -> np.ndarray:
+        """Coerce a sklearn-style feature input (DataFrame or array-like) to a float32 numpy array.
+
+        For a ``pd.DataFrame``, selects only numeric dtypes as defence-in-depth against callers that forgot
+        to strip qid/target columns upstream. Any other array-like is passed through ``np.asarray`` with a
+        float32 cast (matching the dtype the torch tensors in ``_RankerDataset`` are built from).
+        """
         if isinstance(X, pd.DataFrame):
             # Defence-in-depth: caller should already have removed qid/target columns.
             X = X.select_dtypes(include=[np.number])
@@ -633,6 +682,8 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         return np.asarray(X, dtype=np.float32)
 
     def _fit_imputer(self, X_arr: np.ndarray) -> None:
+        """Fit per-column mean imputation statistics on the training array, storing them in ``self._impute_means_``.
+
         # Tree rankers (CB/XGB/LGB) handle NaN/Inf natively; MLP doesn't. Without
         # this, even one NaN in the input scrambles the forward pass to NaN, the
         # loss becomes NaN, Lightning's NaN-guard halts training after epoch 0,
@@ -642,6 +693,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         # Per-column mean imputation matches sklearn SimpleImputer semantics;
         # all-NaN columns fall back to zero so the model still trains on the
         # remaining feature axes.
+        """
         finite_mask = np.isfinite(X_arr)
         col_has_any = finite_mask.any(axis=0)
         sums = np.where(finite_mask, X_arr, 0.0).sum(axis=0)
@@ -650,6 +702,11 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         self._impute_means_ = means.astype(np.float32, copy=False)
 
     def _apply_imputer(self, X_arr: np.ndarray) -> np.ndarray:
+        """Replace NaN/Inf cells in ``X_arr`` with the per-column means fitted by ``_fit_imputer``.
+
+        No-op (returns the input unchanged) if the imputer hasn't been fitted or if the array is already
+        fully finite. Always copies before mutating so the caller's buffer is never aliased/corrupted.
+        """
         means = getattr(self, "_impute_means_", None)
         if means is None:
             return X_arr
@@ -668,6 +725,12 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         return np.asarray(X_out)
 
     def _fit_scaler(self, X_arr: np.ndarray) -> None:
+        """Fit per-column standard scaling (mean/std z-score) statistics on the (already-imputed) training array.
+
+        Stores ``self._scaler_mean_``/``self._scaler_std_``; constant columns (std==0) get std=1.0 so scaling
+        is a no-op there instead of producing inf/NaN. Must be fitted train-only and applied identically to
+        train/val/predict inputs via ``_apply_scaler`` so all splits share the same transform.
+
         # NeuralNetStrategy.requires_scaling=True for a reason: AdamW + softplus
         # on raw-magnitude features (one binary 0/1 column next to a float column
         # spanning [1e3, 1e6]) bounces gradients across orders of magnitude per
@@ -677,6 +740,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         # The ranker_suite caller never threads scaler= through to _fit_mlp_ranker,
         # so MLP gets unscaled features in production paths too. Standardise here
         # so the contract matches CB/XGB/LGB ("hand us any numeric tabular X").
+        """
         mean = X_arr.mean(axis=0)
         std = X_arr.std(axis=0)
         # Constant columns -> std=0; substitute 1.0 so the divide is a no-op
@@ -686,6 +750,10 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         self._scaler_std_ = std.astype(np.float32, copy=False)
 
     def _apply_scaler(self, X_arr: np.ndarray) -> np.ndarray:
+        """Apply the z-score transform (``(X - mean) / std``) fitted by ``_fit_scaler``.
+
+        No-op (returns the input unchanged) if the scaler hasn't been fitted yet.
+        """
         mean = getattr(self, "_scaler_mean_", None)
         std = getattr(self, "_scaler_std_", None)
         if mean is None or std is None:

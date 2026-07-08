@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 
 
 def _auto_base(
-    self: "CompositeTargetDiscovery",  # noqa: F821 -- forward ref to parent class
+    self: "CompositeTargetDiscovery",
     df: Any,
     usable_features: Sequence[str],
     y_train: np.ndarray,
@@ -438,6 +438,8 @@ def _auto_base(
                 block_len = max(1, int(np.sqrt(n_screen)))
 
         def _block_shuffle(arr: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+            """Permute arr in contiguous blocks of block_len (not element-wise) so the null draw preserves
+            short-range autocorrelation; falls back to a plain element shuffle when block_len<=1."""
             if block_len <= 1:
                 out = arr.copy()
                 rng.shuffle(out)
@@ -596,7 +598,7 @@ def _auto_base(
                 with np.errstate(invalid="ignore", divide="ignore"):
                     _corr = np.where(_xden > 0, _num / (_xden * _yden), 0.0)
                 _abs_corr_to_y = {c: abs(float(_corr[j])) for j, c in enumerate(usable_features)}
-    except Exception:  # noqa: BLE001 -- corr is a heuristic gate; never abort discovery on it
+    except Exception:
         _abs_corr_to_y = {}
 
     _boost_corr_gate = float(getattr(self.config, "auto_base_structural_boost_corr_gate", 0.98))
@@ -675,6 +677,7 @@ def _auto_base(
         _mrmr_cache: dict[tuple[int, int], float] = {}
 
         def _mrmr_redundancy(i: int, j: int) -> float:
+            """Symmetric, cached pairwise bin-MI redundancy between candidate columns i and j for mrmr_rank_bases."""
             key = (i, j) if i < j else (j, i)
             val = _mrmr_cache.get(key)
             if val is None:
@@ -730,6 +733,8 @@ def _auto_base(
         _pc_perm = np.random.default_rng(int(getattr(self.config, "random_state", 0) or 0)).permutation(_pc_rows.size)
 
         def _near_copy_residual_is_learnable(_c: str) -> bool:
+            """True when the linear residual of y on candidate base _c still carries signal from some
+            OTHER feature beyond the bin-MI noise floor (estimated via a permutation null on the residual)."""
             _j = _nc_idx.get(_c)
             if _j is None or _pc_rows.size < 5 * _nbins or _pc_X.shape[1] < 2:
                 return False
@@ -751,6 +756,8 @@ def _auto_base(
             return (_best_real - _best_null) >= _precheck_mi_thresh
 
         def _is_near_copy(_c: str) -> bool:
+            """True when candidate _c should be excluded as a fragile near-copy of y: correlation exceeds the
+            gate AND it is not causally-provenanced AND (if precheck is on) its residual carries no other signal."""
             if _abs_corr_to_y.get(_c, 0.0) <= _ct:
                 return False
             if _causal_exempt and is_causal_base_name(_c, _tcol):

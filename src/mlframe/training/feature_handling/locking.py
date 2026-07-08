@@ -33,7 +33,7 @@ import psutil
 logger = logging.getLogger(__name__)
 
 try:
-    import filelock as _filelock_mod  # noqa: F401
+    import filelock as _filelock_mod
     from filelock import FileLock as _BaseFileLock, Timeout
     _FILELOCK_AVAILABLE = True
 except ImportError:  # pragma: no cover -- optional dep until D phase wires cache layer

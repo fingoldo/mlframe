@@ -877,15 +877,15 @@ __all__ = [
 # ``_pipeline_extensions.py`` and ``_pipeline_fit_transform.py`` so this
 # file stays below the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._pipeline_extensions import (  # noqa: E402,F401
+from ._pipeline_extensions import (
     _apply_pysr_fe, apply_preprocessing_extensions, sparse_df_from_spmatrix,
 )
-from ._pipeline_fit_transform import (  # noqa: E402,F401
+from ._pipeline_fit_transform import (
     fit_and_transform_pipeline,
 )
 
 # Public package surface for the pre-pipeline application + cache helpers. These were historically imported as ``from mlframe.training._pipeline_helpers import ...`` / ``_pipeline_cache``; the package re-exports them so importers resolve from the documented package path.
-from ._pipeline_helpers import (  # noqa: E402,F401
+from ._pipeline_helpers import (
     _test_df_is_raw_pipeline_input,
     _prepare_test_split,
     _extract_feature_selector,
@@ -895,7 +895,7 @@ from ._pipeline_helpers import (  # noqa: E402,F401
     _passthrough_cols_fit_transform,
     _apply_pre_pipeline_transforms,
 )
-from ._pipeline_cache import (  # noqa: E402,F401
+from ._pipeline_cache import (
     _PRE_PIPELINE_CACHE,
     _PRE_PIPELINE_CACHE_LOCK,
     _PRE_PIPELINE_CACHE_MAX,

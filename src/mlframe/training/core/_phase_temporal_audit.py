@@ -11,8 +11,8 @@ from pyutilz.strings import slugify
 from ..targets import (
     audit_targets_over_time as _audit_targets_over_time,
     coerce_timestamps_for_audit as _coerce_timestamps_for_audit_lib,
-    format_temporal_audit_report as _format_temporal_audit_report,  # noqa: F401
-    plot_target_over_time as _plot_target_over_time,  # noqa: F401
+    format_temporal_audit_report as _format_temporal_audit_report,
+    plot_target_over_time as _plot_target_over_time,
 )
 
 logger = logging.getLogger(__name__)

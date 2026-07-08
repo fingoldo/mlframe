@@ -39,7 +39,7 @@ from ..strategies import get_strategy, get_polars_cat_columns
 from ..pipeline import (
     apply_preprocessing_extensions, fit_and_transform_pipeline,
 )
-from ._phase_helpers_fit_split import FitPipelineResult  # noqa: E402
+from ._phase_helpers_fit_split import FitPipelineResult
 
 logger = logging.getLogger("mlframe.training.core._phase_helpers_fit_split")
 
@@ -179,6 +179,7 @@ def _phase_fit_pipeline(
     # Datetime columns must be decomposed BEFORE the pre-pipeline clone, otherwise the
     # cloned frames retain raw datetimes and reach downstream where numpy/sklearn/CB raise.
     def _detect_datetime_cols(df_):
+        """List column names with a datetime/date dtype in ``df_`` (polars or pandas); empty list for a None frame or one exposing neither a polars schema nor pandas dtypes."""
         if df_ is None:
             return []
         if isinstance(df_, pl.DataFrame):
@@ -196,6 +197,7 @@ def _phase_fit_pipeline(
     if _fte_owned_dt_sources:
         # FTE already produced derived cols for these; the raw datetime source must still be dropped so downstream model libs don't choke on a Datetime64 column. Match the ``delete_original_cols=True`` behaviour of the suite's own create_date_features call below.
         def _drop_source_cols(_frame, _cols):
+            """Drop the given columns from ``_frame`` (whichever of them are actually present), format-agnostic across polars and pandas; returns ``_frame`` unchanged when it is None or none of ``_cols`` are present."""
             if _frame is None:
                 return _frame
             _present = [c for c in _cols if c in _frame.columns]

@@ -62,7 +62,7 @@ def _extract_column(X: Any, name: str) -> Optional[np.ndarray]:
         cols = getattr(X, "columns", None)
         if cols is not None and name in cols:  # pandas
             return np.asarray(X[name].to_numpy())
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     return None
 
@@ -142,7 +142,7 @@ def build_volatility_lag_router(
     try:
         raw_val = np.asarray(trained.predict(filtered_val_df), dtype=np.float64)
         lag_val = np.asarray(lag_component.predict(filtered_val_df), dtype=np.float64)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.info("[VolatilityLagRouter] val predict failed (%s); routing skipped.", exc)
         return trained
     if raw_val.shape != yv.shape or lag_val.shape != yv.shape:

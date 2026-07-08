@@ -167,7 +167,7 @@ class TargetDistributionReport:
 # the threshold constants are bound, so the siblings can ``from
 # ._target_distribution_analyzer import <constant>`` at their module top.
 # ----------------------------------------------------------------------
-from ._target_distribution_analyzer_stats import (  # noqa: E402,F401
+from ._target_distribution_analyzer_stats import (
     _check_within_group_ordering,
     _excess_kurtosis,
     _lag1_autocorr,
@@ -176,15 +176,15 @@ from ._target_distribution_analyzer_stats import (  # noqa: E402,F401
     _max_abs_lag_autocorr,
     _skewness,
 )
-from ._target_distribution_analyzer_modes import (  # noqa: E402,F401
+from ._target_distribution_analyzer_modes import (
     _classify_target_type,
     _detect_multi_modal,
     _within_between_group_variance_ratio,
 )
-from ._target_distribution_analyzer_target_fn import (  # noqa: E402,F401
+from ._target_distribution_analyzer_target_fn import (
     analyze_target_distribution,
 )
-from ._target_distribution_analyzer_features import (  # noqa: E402,F401
+from ._target_distribution_analyzer_features import (
     FeatureDistributionReport,
     _normalise_X,
     _pairwise_redundant_features,

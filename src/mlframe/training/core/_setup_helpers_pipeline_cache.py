@@ -16,7 +16,7 @@ import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ._training_context import TrainingContext  # noqa: F401
+    from ._training_context import TrainingContext
 
 
 _PARENT_MODULE = "mlframe.training.core._setup_helpers"
@@ -49,6 +49,7 @@ def _parent_attr(name: str, default):
 
 
 def _parent_set(name: str, value) -> None:
+    """Mirror a state write onto the parent facade module (when loaded) so pre-split callers reading ``sh.<name>`` see current values; no-op if the parent isn't imported."""
     parent = sys.modules.get(_PARENT_MODULE)
     if parent is not None:
         setattr(parent, name, value)
@@ -226,6 +227,7 @@ class _PolarsDsPipelineJsonProxy:
 
     @property
     def pipeline(self):
+        """The wrapped polars-ds ``Pipeline`` instance, for callers that need the raw object rather than proxied attribute access."""
         return self._pipeline
 
     def __reduce__(self):
@@ -238,6 +240,7 @@ class _PolarsDsPipelineJsonProxy:
         return (_polars_ds_pipeline_from_json, (self._pipeline.to_json(),))
 
     def transform(self, df):
+        """Explicit passthrough to the wrapped Pipeline's ``transform`` (kept alongside ``__getattr__`` forwarding so ``transform`` is discoverable without triggering ``__getattr__``)."""
         return self._pipeline.transform(df)
 
     def __getattr__(self, name):

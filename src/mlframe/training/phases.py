@@ -34,7 +34,10 @@ logger = logging.getLogger(__name__)
 
 
 class _PhaseRegistry:
-    __slots__ = ("_lock", "_totals", "_counts", "_ram_deltas_gb")
+    """Process-local, thread-safe accumulator of per-phase-name total duration, call count, and
+    cumulative RAM delta. A single module-level instance backs all `phase(...)` context managers."""
+
+    __slots__ = ("_counts", "_lock", "_ram_deltas_gb", "_totals")
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -48,6 +51,7 @@ class _PhaseRegistry:
         self._ram_deltas_gb: dict[str, float] = {}
 
     def record(self, name: str, seconds: float, ram_delta_gb: float = 0.0) -> None:
+        """Accumulate one call's duration (and optional RAM delta) into the running totals for name."""
         with self._lock:
             self._totals[name] = self._totals.get(name, 0.0) + seconds
             self._counts[name] = self._counts.get(name, 0) + 1
@@ -55,6 +59,8 @@ class _PhaseRegistry:
                 self._ram_deltas_gb[name] = self._ram_deltas_gb.get(name, 0.0) + ram_delta_gb
 
     def snapshot(self) -> list[tuple[str, float, int]]:
+        """Return ``(name, total_seconds, call_count)`` tuples for every recorded phase, sorted
+        by total duration descending so the biggest time sinks come first."""
         with self._lock:
             return sorted(
                 ((n, self._totals[n], self._counts[n]) for n in self._totals),
@@ -71,6 +77,7 @@ class _PhaseRegistry:
             ))
 
     def reset(self) -> None:
+        """Wipe all accumulated totals/counts/RAM deltas; called once at the start of a fresh suite run."""
         with self._lock:
             self._totals.clear()
             self._counts.clear()

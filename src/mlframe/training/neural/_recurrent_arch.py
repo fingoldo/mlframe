@@ -36,7 +36,7 @@ class AttentionPooling(nn.Module):
         Returns:
             Context vector (batch, hidden)
         """
-        batch_size, max_len, hidden_size = rnn_output.size()
+        _batch_size, max_len, _hidden_size = rnn_output.size()
         device = rnn_output.device
 
         # F-50 (2026-05-31): investigated rewrite via F.scaled_dot_product_attention.

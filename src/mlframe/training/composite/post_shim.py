@@ -108,6 +108,7 @@ class PrePipelinePredictShim(BaseEstimator):
         self.name = name
 
     def _transform(self, X: Any) -> Any:
+        """Apply the fitted ``pre_pipeline`` to ``X``, or pass it through unchanged when no pipeline is set."""
         if self.pre_pipeline is None:
             return X
         try:
@@ -126,6 +127,7 @@ class PrePipelinePredictShim(BaseEstimator):
             ) from exc
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None, **kwargs: Any) -> "PrePipelinePredictShim":
+        """Fit ``model`` on ``pre_pipeline``-transformed ``X`` (the pipeline itself is treated as already-fit and never re-fit here)."""
         X_in = self._transform(X)
         # Signature-gate sample_weight rather than an ``except TypeError`` retry.
         # The retry mis-attributed a TypeError raised DEEP inside a weight-AWARE
@@ -142,6 +144,7 @@ class PrePipelinePredictShim(BaseEstimator):
         return self
 
     def predict(self, X: Any) -> Any:
+        """Predict on ``pre_pipeline``-transformed ``X``, mirroring the scaling applied during ``fit``."""
         return self.model.predict(self._transform(X))
 
     @available_if(_inner_has_predict_quantile)
@@ -202,6 +205,7 @@ class PrePipelinePredictShim(BaseEstimator):
 
     @property
     def estimator_(self) -> Any:
+        """Forward the inner ``estimator_`` (e.g. from a nested ``CompositeTargetEstimator``) so ``clone(model.estimator_)`` keeps working through the shim."""
         # OOF composite-path does ``clone(model.estimator_)`` when ``isinstance(model, CompositeTargetEstimator)``. Forwarding ``estimator_`` from the inner keeps that path working when the composite wrapper is nested inside a shim.
         inner = self.model
         return getattr(inner, "estimator_", inner)

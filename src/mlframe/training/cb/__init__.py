@@ -15,7 +15,7 @@ module.
 """
 from __future__ import annotations
 
-from ._cb_pool import (  # noqa: F401
+from ._cb_pool import (
     _predict_with_fallback,
     _maybe_get_or_build_cb_pool,
     _maybe_rewrite_eval_set_as_cb_pool,

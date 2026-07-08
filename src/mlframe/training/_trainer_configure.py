@@ -46,8 +46,8 @@ try:
 except ImportError:  # pragma: no cover
     XGBClassifier = XGBRegressor = None  # type: ignore[assignment,misc]
 
-from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
-from .pipeline import (  # noqa: E402,F401
+from ._predict_guards import _CB_VAL_POOL_CACHE
+from .pipeline import (
     _PRE_PIPELINE_CACHE, _PRE_PIPELINE_CACHE_LOCK, _PRE_PIPELINE_CACHE_MAX,
     _apply_pre_pipeline_transforms, _extract_feature_selector,
     _is_fitted, _multilabel_target_to_1d_for_supervised_encoders,
@@ -55,7 +55,7 @@ from .pipeline import (  # noqa: E402,F401
     _pre_pipeline_cache_clear, _pre_pipeline_cache_get,
     _pre_pipeline_cache_set, _prepare_test_split,
 )
-from .cb import (  # noqa: E402,F401
+from .cb import (
     _cached_gpu_info, _maybe_get_or_build_cb_pool,
     _maybe_rewrite_eval_set_as_cb_pool,
     _polars_df_has_null_in_categorical,
@@ -64,20 +64,20 @@ from .cb import (  # noqa: E402,F401
     _polars_schema_diagnostic,
     _predict_with_fallback,
 )
-from ._eval_helpers import (  # noqa: E402,F401
+from ._eval_helpers import (
     _align_xgb_cat_categories, _append_split_rate_suffix,
     _compute_split_metrics, _decategorise_float_cat_columns,
     _filter_categorical_features, run_confidence_analysis,
 )
-from ._training_loop import (  # noqa: E402,F401
+from ._training_loop import (
     _SigmoidAdapter, _PostHocCalibratedModel,
     _PostHocMultiCalibratedModel, _PerClassIsotonicCalibrator,
     _maybe_apply_posthoc_calibration, _train_model_with_fallback,
 )
-from ._data_helpers import (  # noqa: E402,F401
+from ._data_helpers import (
     _setup_eval_set, _setup_early_stopping_callback,
 )
-from ._model_factories import (  # noqa: E402,F401
+from ._model_factories import (
     GPU_VRAM_SAFE_FREE_LIMIT_GB, GPU_VRAM_SAFE_SATURATION_LIMIT,
     MODELS_SUBDIR, USE_LGB_DATASET_REUSE_SHIM, USE_XGB_DMATRIX_REUSE_SHIM,
     _get_neural_components,
@@ -602,9 +602,9 @@ def configure_training_params(
         _n_train_for_mlp = None
         try:
             if train_df is not None:
-                _n_train_for_mlp = int(len(train_df))
+                _n_train_for_mlp = len(train_df)
             elif train_target is not None:
-                _n_train_for_mlp = int(len(train_target))
+                _n_train_for_mlp = len(train_target)
         except (TypeError, ValueError):
             _n_train_for_mlp = None
         mlp_params = _configure_mlp_params(

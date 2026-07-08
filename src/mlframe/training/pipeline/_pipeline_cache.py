@@ -482,7 +482,7 @@ def _pipeline_signature_for_cache(pipeline) -> str:
     parts = []
     steps = getattr(pipeline, "steps", None)
     if steps is None:
-        return f"single:{type(pipeline).__name__}:{repr(pipeline)}"
+        return f"single:{type(pipeline).__name__}:{pipeline!r}"
     for name, step in steps:
         kls = type(step).__name__
         try:

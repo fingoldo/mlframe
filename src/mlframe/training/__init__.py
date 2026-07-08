@@ -277,7 +277,7 @@ def __getattr__(name):
 # train_and_evaluate_model is now in trainer.py and loaded via _LAZY_IMPORTS
 
 
-from ._partial_fit_es_wrapper import PartialFitESWrapper  # noqa: E402, F401
+from ._partial_fit_es_wrapper import PartialFitESWrapper
 
 __all__ = [
     # Core functions
@@ -405,12 +405,12 @@ __all__ = [
 
 
 # Public uncertainty / calibration / conformal utilities (predict-time helpers callable directly).
-from ._conformal_finalize import (  # noqa: E402,F401
+from ._conformal_finalize import (
     conformal_classification_report,
     conformal_regression_report,
     infer_split_structure,
 )
-from ._regression_calibration import (  # noqa: E402,F401
+from ._regression_calibration import (
     DistributionalRecalibrator,
     PointRecalibrator,
     RecalibratedRegressor,
@@ -418,10 +418,10 @@ from ._regression_calibration import (  # noqa: E402,F401
     fit_point_recalibrator,
     smearing_predict,
 )
-from ._tta import tta_predict, tta_predict_spread  # noqa: E402,F401
-from ._uncertainty_eval import evaluate_tta_quality  # noqa: E402,F401
-from ._mc_dropout import mc_dropout_predict, predictive_entropy  # noqa: E402,F401
-from ._noise_ensemble import NoiseAugmentedEnsemble  # noqa: E402,F401
+from ._tta import tta_predict, tta_predict_spread
+from ._uncertainty_eval import evaluate_tta_quality
+from ._mc_dropout import mc_dropout_predict, predictive_entropy
+from ._noise_ensemble import NoiseAugmentedEnsemble
 
 __all__ += [
     "conformal_regression_report",

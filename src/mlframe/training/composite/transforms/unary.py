@@ -47,6 +47,7 @@ _YJ_INV_BASE_FLOOR: float = 1e-12
 if _HAS_NUMBA:
     @_numba.njit(cache=True, fastmath=True, parallel=True)
     def _yj_forward_numba_kernel(y, lam):
+        """Parallel numba kernel computing the Yeo-Johnson forward transform elementwise (branching on sign(y) and the lambda~0 / lambda~2 special cases), used by ``_yj_forward`` for n >= ``_YJ_NUMBA_MIN_N``."""
         n = y.shape[0]
         out = np.empty(n, dtype=np.float64)
         lam_is_zero = abs(lam) < 1e-12
@@ -74,6 +75,7 @@ if _HAS_NUMBA:
     # 5-10x speedup target cares about).
     @_numba.njit(cache=True, fastmath=False, parallel=True)
     def _yj_inverse_numba_kernel(t, lam):
+        """Parallel numba kernel computing the closed-form Yeo-Johnson inverse elementwise, flooring the intermediate power base at ``_YJ_INV_BASE_FLOOR`` so out-of-range ``t`` saturates instead of producing NaN. Used by ``_yj_inverse`` for n >= ``_YJ_NUMBA_MIN_N``; runs with ``fastmath=False`` for bit-exact match against the numpy reference."""
         n = t.shape[0]
         out = np.empty(n, dtype=np.float64)
         lam_is_zero = abs(lam) < 1e-12
@@ -246,6 +248,7 @@ def log_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndar
 
 
 def _yj_forward_scalar(y: float, lam: float) -> float:
+    """Scalar (non-vectorised) reference implementation of the Yeo-Johnson forward transform, used by ``yeo_johnson_y_fit``'s Brent search where the objective is evaluated at a single ``lam``."""
     if y >= 0.0:
         if abs(lam) < 1e-12:
             return float(np.log1p(y))
@@ -256,6 +259,7 @@ def _yj_forward_scalar(y: float, lam: float) -> float:
 
 
 def _yj_inverse_scalar(t: float, lam: float) -> float:
+    """Scalar (non-vectorised) reference implementation of the closed-form Yeo-Johnson inverse, base-floored at ``_YJ_INV_BASE_FLOOR`` to avoid NaN near the lambda-dependent asymptote."""
     if t >= 0.0:
         if abs(lam) < 1e-12:
             return float(np.expm1(t))
@@ -268,6 +272,7 @@ def _yj_inverse_scalar(t: float, lam: float) -> float:
 
 
 def _yj_forward_numpy(y: np.ndarray, lam: float) -> np.ndarray:
+    """Vectorised numpy reference implementation of the Yeo-Johnson forward transform (fancy-indexed split on sign(y)); used by ``_yj_forward`` below the numba size threshold or when numba is unavailable."""
     out = np.empty_like(y, dtype=np.float64)
     nonneg = y >= 0.0
     pos = y[nonneg]
@@ -284,6 +289,7 @@ def _yj_forward_numpy(y: np.ndarray, lam: float) -> np.ndarray:
 
 
 def _yj_inverse_numpy(t: np.ndarray, lam: float) -> np.ndarray:
+    """Vectorised numpy reference implementation of the closed-form Yeo-Johnson inverse (fancy-indexed split on sign(t), base-floored via ``np.maximum`` to avoid NaN near the asymptote); used by ``_yj_inverse`` below the numba size threshold or when numba is unavailable."""
     out = np.empty_like(t, dtype=np.float64)
     nonneg = t >= 0.0
     pos = t[nonneg]
@@ -332,6 +338,7 @@ def yeo_johnson_y_fit(y: np.ndarray) -> Dict[str, Any]:
     n = float(finite.size)
 
     def neg_loglik(lam: float) -> float:
+        """YJ profile negative log-likelihood at ``lam`` (variance term minus the log-Jacobian correction); the objective minimised by Brent search to fit lambda."""
         t = _yj_forward(finite, lam)
         var = float(t.var())
         if var <= 0.0:

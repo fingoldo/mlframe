@@ -40,7 +40,7 @@ from ..transforms import (
     compose_target_name,
     get_transform,
 )
-from ._fit_ram import _phase_ram_report, _process_mem_mb  # noqa: F401 -- _process_mem_mb re-exported for back-compat
+from ._fit_ram import _phase_ram_report, _process_mem_mb
 from ._eval import build_unary_base_context, eval_one_transform
 from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail, no_base_candidates_report_entry
 from ._eval_stats import (
@@ -62,7 +62,7 @@ _UNARY_BASE_SENTINEL = ""
 
 
 def fit(
-    self: "CompositeTargetDiscovery",  # noqa: F821 -- forward ref to parent class
+    self: "CompositeTargetDiscovery",
     df: Any,
     target_col: str,
     feature_cols: Sequence[str],
@@ -72,7 +72,7 @@ def fit(
     time_ordering: Any = None,
     val_df: Any = None,
     val_y: np.ndarray | None = None,
-) -> "CompositeTargetDiscovery":  # noqa: F821 -- forward ref to parent class
+) -> "CompositeTargetDiscovery":
     """Discover composite-target specs.
 
     Parameters
@@ -117,6 +117,7 @@ def fit(
         raise TypeError("train_idx must be integer positions or a boolean mask, got dtype %r" % train_idx.dtype)
 
     def _normalise_idx(idx: Any, name: str) -> np.ndarray:
+        """Apply the same boolean-mask-to-positions normalisation used for train_idx above to val_idx/test_idx, raising loudly on non-integer, non-boolean dtypes."""
         arr = np.asarray(idx)
         if arr.dtype == bool:
             return np.flatnonzero(arr)
@@ -746,7 +747,7 @@ def fit(
                             "residual would add no orthogonal signal and double the inverse's base-shift "
                             "amplification.", float(_off.mean()), _pool_corr_thresh,
                         )
-            except Exception:  # noqa: BLE001 -- the corr guard is a heuristic; never abort discovery on it
+            except Exception:
                 _multibase_pool_corr_skip = False
     if kept_specs and getattr(self.config, "multi_base_enabled", False) and getattr(self, "_auto_base_pool", None) and not _multibase_pool_corr_skip:
         _multi_max_k = int(getattr(self.config, "multi_base_max_k", 3))
@@ -989,7 +990,7 @@ def fit(
         from ..cache import data_signature as _data_signature
 
         self._fit_data_signature = _data_signature(df, target_col, feature_cols)
-    except Exception:  # noqa: BLE001 -- signature is an optimisation, never load-bearing
+    except Exception:
         self._fit_data_signature = ""
 
     # Bookkeeping. (target_col + df_ref + train_idx already stashed.)

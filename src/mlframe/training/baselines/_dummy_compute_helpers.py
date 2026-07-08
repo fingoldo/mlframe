@@ -136,8 +136,8 @@ def _compute_ltr_baselines(
         return val_preds, test_preds, extras
 
     extras["n_groups_train"] = int(n_groups_train)
-    extras["n_groups_val"] = int(len(np.unique(g_val))) if len(g_val) > 0 else 0
-    extras["n_groups_test"] = int(len(np.unique(g_test))) if len(g_test) > 0 else 0
+    extras["n_groups_val"] = len(np.unique(g_val)) if len(g_val) > 0 else 0
+    extras["n_groups_test"] = len(np.unique(g_test)) if len(g_test) > 0 else 0
 
     n_val = len(g_val)
     n_test = len(g_test)
@@ -208,7 +208,7 @@ def _compute_ltr_baselines(
                 val_unseen_pct = float(np.mean(val_pop == 0) * 100)
                 test_unseen_pct = float(np.mean(test_pop == 0) * 100)
                 extras["popularity_diagnostics"] = {
-                    "n_unique_docs_train": int(len(pop_counts)),
+                    "n_unique_docs_train": len(pop_counts),
                     "val_cold_start_pct": val_unseen_pct,
                     "test_cold_start_pct": test_unseen_pct,
                 }

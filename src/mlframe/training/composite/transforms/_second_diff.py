@@ -56,21 +56,21 @@ def _second_diff_bases(base: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 def _second_diff_fit(
     y: np.ndarray, base: np.ndarray,
-    sample_weight: np.ndarray | None = None,  # noqa: ARG001 - API symmetry; parameter-free transform
+    sample_weight: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """No fitted parameters: the two lag columns fully define the algebra."""
     return {}
 
 
 def _second_diff_forward(
-    y: np.ndarray, base: np.ndarray, params: dict[str, Any],  # noqa: ARG001
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     b1, b2 = _second_diff_bases(base)
     return np.asarray(np.asarray(y, dtype=np.float64) - 2.0 * b1 + b2)
 
 
 def _second_diff_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],  # noqa: ARG001
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     b1, b2 = _second_diff_bases(base)
     return np.asarray(np.asarray(t_hat, dtype=np.float64) + 2.0 * b1 - b2)

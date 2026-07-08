@@ -44,7 +44,7 @@ from ..phases import phase
 # so by the time Python resolves these names ``_reporting`` is partially
 # loaded and the symbols are already there. No circular-load failure,
 # AND a single source of truth (no constant duplication across siblings).
-from ._reporting import (  # noqa: E402  # type: ignore[has-type]  # intentional circular import (see comment above); mypy can't follow the runtime load-order guarantee
+from ._reporting import (
     DEFAULT_CALIB_REPORT_NDIGITS,
     DEFAULT_FIGSIZE,
     DEFAULT_NBINS,
@@ -97,7 +97,7 @@ def report_probabilistic_model_perf(
     subgroups: dict[str, np.ndarray] | None = None,
     subset_index: np.ndarray | None = None,
     report_ndigits: int = DEFAULT_REPORT_NDIGITS,
-    figsize: tuple[int, int] = DEFAULT_FIGSIZE,  # type: ignore[has-type]  # intentional circular import (see comment above)
+    figsize: tuple[int, int] = DEFAULT_FIGSIZE,
     report_title: str = "",
     use_weights: bool = True,
     calib_report_ndigits: int = DEFAULT_CALIB_REPORT_NDIGITS,
@@ -524,7 +524,7 @@ def report_probabilistic_model_perf(
                 brier_loss, calibration_mae, calibration_std, calibration_coverage,
                 ece, brier_reliability, brier_resolution, brier_uncertainty,
                 roc_auc, pr_auc, ice, ll, precision, recall, f1,
-                metrics_string, _fig,
+                _metrics_string, _fig,
             ) = fast_calibration_report(**_fcr_kwargs)
 
         if print_report:
@@ -842,6 +842,7 @@ def report_probabilistic_model_perf(
         if probs.shape[1] == 2:
 
             def _fair_roc_auc(y_true, y_pred):
+                """Per-subgroup ROC-AUC binarized against ``_pos_label``, extracting the positive-class column from a 2-D probability matrix."""
                 y_bin = (np.asarray(y_true) == _pos_label).astype(np.int8)
                 y_score = y_pred[:, 1] if getattr(y_pred, "ndim", 1) == 2 else y_pred
                 return fast_roc_auc(y_bin, y_score)
@@ -894,7 +895,7 @@ def report_probabilistic_model_perf(
 
 
 # calibration/fairness render helpers carved to _reporting_probabilistic_calib.py (1k-LOC ceiling).
-from ._reporting_probabilistic_calib import (  # noqa: E402, F401
+from ._reporting_probabilistic_calib import (
     _render_calibration_by_feature,
     _render_calibration_heatmap_2d,
     _render_fairness_calibration,

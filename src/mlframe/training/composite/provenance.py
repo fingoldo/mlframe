@@ -259,10 +259,12 @@ def _join_base_columns(base_column: str, fitted_params: dict[str, Any]) -> str:
 
 
 def _f_diff(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'diff': target is simply base subtracted from the raw target; inverse adds the base back to the residual prediction."""
     return (f"T = {t} - {b}", f"y_hat = T_hat + {b}")
 
 
 def _f_additive_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'additive_residual': residual after subtracting the base feature and a fitted constant offset (alpha fixed at 1)."""
     beta = _fmt(p.get("beta"))
     return (
         f"T = {t} - {b} - ({beta})",
@@ -271,6 +273,7 @@ def _f_additive_residual(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_median_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'median_residual': residual after subtracting the per-bin median of the target within quantile bins of the base."""
     return (
         f"T = {t} - median({t} | quantile_bin({b}))",
         f"y_hat = T_hat + bin_median[bin({b})]  (per-bin lookup, edge-bin fallback)",
@@ -278,6 +281,7 @@ def _f_median_residual(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_y_quantile_clip(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'y_quantile_clip': target clipped to its train 0.5%/99.5% quantiles to bound the downstream model's effective range; inverse re-clips the prediction to the same bounds."""
     q_lo = _fmt(p.get("q_lo"))
     q_hi = _fmt(p.get("q_hi"))
     return (
@@ -287,6 +291,7 @@ def _f_y_quantile_clip(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_ratio(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'ratio': target predicts the multiplicative factor relating target to base feature; inverse multiplies the predicted ratio back by the base."""
     eps = float(p.get("eps", 1e-12))
     return (
         f"T = {t} / {b}  (with |{b}| >= {eps:.3g})",
@@ -295,6 +300,7 @@ def _f_ratio(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_logratio(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'logratio': target predicts the log-ratio of target to base feature (heavy-tail stabilising); inverse soft-caps the prediction then exponentiates and rescales by the base."""
     median_t = float(p.get("median_t", 0.0))
     mad_eff = float(p.get("mad_eff", 0.0))
     k = float(p.get("soft_cap_k", 10.0))
@@ -305,6 +311,7 @@ def _f_logratio(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_linear_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'linear_residual': residual after subtracting a fitted linear contribution (alpha*base + beta) of the base feature."""
     alpha = float(p.get("alpha", 0.0))
     beta = float(p.get("beta", 0.0))
     return (
@@ -314,6 +321,7 @@ def _f_linear_residual(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_linear_residual_multi(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'linear_residual_multi': residual after subtracting a fitted linear combination of several base features (alphas dotted with the bases, plus beta)."""
     bases = _join_base_columns(b, p)
     beta = _fmt(p.get("beta"))
     if p.get("collinear_fallback"):
@@ -327,6 +335,7 @@ def _f_linear_residual_multi(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_linear_residual_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'linear_residual_grouped': residual after subtracting a per-group linear contribution of the base (James-Stein shrunk toward the reported global alpha/beta)."""
     a_g = _fmt(p.get("alpha_global"))
     b_g = _fmt(p.get("beta_global"))
     return (
@@ -336,6 +345,7 @@ def _f_linear_residual_grouped(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_quantile_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'quantile_residual': heteroscedasticity-standardised residual, per-bin median removed then divided by per-bin IQR."""
     return (
         f"T = ({t} - median_bin({t})) / IQR_bin({t})  (quantile bins of {b})",
         "y_hat = T_hat * IQR_bin + median_bin  (sparse/constant bins -> global)",
@@ -343,6 +353,7 @@ def _f_quantile_residual(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_monotonic_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'monotonic_residual': residual after subtracting a fitted monotone (PCHIP) function of the base feature."""
     return (
         f"T = {t} - g({b})  (g = monotone PCHIP fitted on quantile-knot medians)",
         f"y_hat = T_hat + g({b})  (out-of-range {b} clips to edge knot)",
@@ -350,6 +361,7 @@ def _f_monotonic_residual(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_ewma_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'ewma_residual': residual after subtracting an exponentially-weighted moving average of the base feature (chronological order required)."""
     k = int(p.get("k", 7))
     alpha = 2.0 / (k + 1.0)
     return (
@@ -359,6 +371,7 @@ def _f_ewma_residual(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_rolling_quantile_ratio(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'rolling_quantile_ratio': ratio of target to a rolling median of the base feature (local multiplicative level, look-ahead centred window)."""
     k = int(p.get("k", 0))
     eps = float(p.get("eps", 0.0))
     return (
@@ -368,6 +381,7 @@ def _f_rolling_quantile_ratio(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_frac_diff(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'frac_diff': fractionally-differenced target (Lopez de Prado long-memory-preserving stationarising transform); inverse reconstructs iteratively from the fitted weights."""
     d = _fmt(p.get("d"))
     lags = int(p.get("lags", 0))
     return (
@@ -377,10 +391,12 @@ def _f_frac_diff(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_cbrt_y(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'cbrt_y': target predicts the signed cube root of the raw target, compressing heavy tails without breaking sign; inverse cubes the prediction."""
     return (f"T = sign({t}) * |{t}|^(1/3)", "y_hat = T_hat^3")
 
 
 def _f_log_y(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'log_y': target predicts the shifted log of the raw target, compressing right-skew; inverse exponentiates and removes the shift."""
     offset = _fmt(p.get("offset"))
     return (
         f"T = log({t} + {offset})  (offset fitted so min({t}_train) + offset > 0)",
@@ -389,6 +405,7 @@ def _f_log_y(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_yeo_johnson_y(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'yeo_johnson_y': target predicts the Yeo-Johnson power transform of the raw target (lambda fitted by MLE), normalising mixed-sign targets."""
     lam = _fmt(p.get("lambda"))
     return (
         f"T = YeoJohnson({t}; lambda={lam})  (lambda fitted by MLE, clipped to [-2, 4])",
@@ -397,6 +414,7 @@ def _f_yeo_johnson_y(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_quantile_normal_y(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'quantile_normal_y': target mapped through its empirical CDF into a standard Normal; inverse maps back via the train empirical-CDF knots."""
     return (
         f"T = Phi^-1(rank({t}) / (n+1))  (empirical-CDF -> standard Normal via knots)",
         "y_hat = empirical_CDF_inverse(Phi(T_hat))  (knot interpolation, scale lost)",
@@ -404,6 +422,7 @@ def _f_quantile_normal_y(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_asinh_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'asinh_residual': residual after subtracting a fitted linear contribution of the base in arcsinh space (signed-base logratio)."""
     alpha = _fmt(p.get("alpha"))
     beta = _fmt(p.get("beta"))
     return (
@@ -413,6 +432,7 @@ def _f_asinh_residual(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_centered_ratio(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'centered_ratio': ratio of target to a shifted base feature (ratio extended to signed bases via a fitted shift c so base+c>0)."""
     c = _fmt(p.get("c"))
     eps = float(p.get("eps", 0.0))
     return (
@@ -422,6 +442,7 @@ def _f_centered_ratio(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_polynomial_residual_deg2(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'polynomial_residual_deg2': residual after subtracting a fitted quadratic (degree-2) function of the base feature."""
     a1 = _fmt(p.get("alpha1"))
     a2 = _fmt(p.get("alpha2"))
     beta = _fmt(p.get("beta"))
@@ -432,6 +453,7 @@ def _f_polynomial_residual_deg2(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_rank_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'rank_residual': distribution-free rank-space linear residual of the target against the base feature; inverse looks up the recovered rank in the train sorted-y array."""
     alpha = _fmt(p.get("alpha"))
     beta = _fmt(p.get("beta"))
     return (
@@ -441,6 +463,7 @@ def _f_rank_residual(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_smoothing_spline_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'smoothing_spline_residual': residual after subtracting a fitted smoothing spline (UnivariateSpline) of the base feature."""
     s = _fmt(p.get("s"))
     return (
         f"T = {t} - g({b})  (g = UnivariateSpline, smoothing s={s})",
@@ -449,6 +472,7 @@ def _f_smoothing_spline_residual(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_reciprocal_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'reciprocal_residual': residual of 1/target against 1/base (reciprocal-scale dynamics)."""
     eps_y = float(p.get("eps_y", 0.0))
     eps_b = float(p.get("eps_b", 0.0))
     return (
@@ -458,6 +482,7 @@ def _f_reciprocal_residual(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_geometric_mean_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'geometric_mean_residual': ratio of target to the geometric mean of several positive base features."""
     bases = _join_base_columns(b, p)
     return (
         f"T = {t} / geomean({bases})  (requires every base > 0)",
@@ -466,6 +491,7 @@ def _f_geometric_mean_residual(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_pairwise_interaction_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'pairwise_interaction_residual': residual after subtracting a fitted multiple of the product of several base features."""
     bases = _join_base_columns(b, p)
     alpha = _fmt(p.get("alpha"))
     beta = _fmt(p.get("beta"))
@@ -476,11 +502,13 @@ def _f_pairwise_interaction_residual(t: str, b: str, p: dict) -> tuple[str, str]
 
 
 def _f_linear_residual_robust(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'linear_residual_robust': delegates to ``_f_linear_residual`` since both fit the same linear form once alpha/beta are computed, just with an outlier-robust (trimmed-LS) estimator."""
     # Same forward/inverse algebra as linear_residual once (alpha, beta) fitted.
     return _f_linear_residual(t, b, p)
 
 
 def _f_theilsen_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'theilsen_residual': same linear forward/inverse algebra as linear_residual, but alpha is the high-breakdown robust Theil-Sen median-of-pairwise-slopes and beta the median intercept."""
     # Same forward/inverse algebra as linear_residual once the Theil-Sen
     # (median-of-pairwise-slopes) alpha + median-intercept beta are fitted.
     alpha = float(p.get("alpha", 0.0))
@@ -492,6 +520,7 @@ def _f_theilsen_residual(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_causal_anchor_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'causal_anchor_residual': residual after subtracting a robust shrink coefficient (alpha, clamped to [0,1]) times the base anchor."""
     # Pure-additive shrink: single fitted alpha clamped to [0,1], no beta.
     alpha = float(p.get("alpha", 0.0))
     return (
@@ -500,7 +529,8 @@ def _f_causal_anchor_residual(t: str, b: str, p: dict) -> tuple[str, str]:
     )
 
 
-def _f_second_diff(t: str, b: str, p: dict) -> tuple[str, str]:  # noqa: ARG001 - parameter-free algebra
+def _f_second_diff(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'second_diff': second difference of the target (level and linear drift removed via the lag-1 and lag-2 anchors); parameter-free."""
     # b1 = lag-1 anchor (base_prev), b2 = lag-2 anchor (base_prev2).
     return (
         f"T = {t} - 2*{b}_lag1 + {b}_lag2  (second difference; no fitted params)",
@@ -508,7 +538,8 @@ def _f_second_diff(t: str, b: str, p: dict) -> tuple[str, str]:  # noqa: ARG001 
     )
 
 
-def _f_rank_ecdf_residual(t: str, b: str, p: dict) -> tuple[str, str]:  # noqa: ARG001 - knots stored, not scalar
+def _f_rank_ecdf_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'rank_ecdf_residual': empirical-CDF (rank-space) residual between target and base, robust to monotone / heavy-tailed distortion."""
     return (
         f"T = ecdf_y({t}) - ecdf_base({b})  (train empirical-CDF / rank space)",
         f"y_hat = quantile_y(T_hat + ecdf_base({b}))  (inverse-ECDF of train y)",
@@ -516,6 +547,7 @@ def _f_rank_ecdf_residual(t: str, b: str, p: dict) -> tuple[str, str]:  # noqa: 
 
 
 def _f_chain_linres_cbrt(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'chain_linres_cbrt': cube-root of the linear-residual of the target (linear base absorber then tail compression), a two-stage chain."""
     bp = p.get("bivariate_params", {}) or {}
     alpha = _fmt(bp.get("alpha"))
     beta = _fmt(bp.get("beta"))
@@ -526,6 +558,7 @@ def _f_chain_linres_cbrt(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_chain_linres_yj(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'chain_linres_yj': Yeo-Johnson transform of the linear-residual of the target, a two-stage chain."""
     bp = p.get("bivariate_params", {}) or {}
     up = p.get("unary_params", {}) or {}
     alpha = _fmt(bp.get("alpha"))
@@ -538,6 +571,7 @@ def _f_chain_linres_yj(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_chain_monres_cbrt(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'chain_monres_cbrt': cube-root of the monotone-residual of the target, a two-stage chain."""
     return (
         f"T1 = {t} - g({b}) (monotone PCHIP); T = sign(T1) * |T1|^(1/3)",
         f"T1_hat = T_hat^3; y_hat = T1_hat + g({b})",
@@ -545,6 +579,7 @@ def _f_chain_monres_cbrt(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_chain_monres_yj(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'chain_monres_yj': Yeo-Johnson transform of the monotone-residual of the target, a two-stage chain."""
     up = p.get("unary_params", {}) or {}
     lam = _fmt(up.get("lambda"))
     return (
@@ -554,6 +589,7 @@ def _f_chain_monres_yj(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_chain_linres_cbrt_qn(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'chain_linres_cbrt_qn': quantile-normalised cube-root of the linear-residual of the target, a 3-stage chain (linear residual, then cube root, then quantile-normal)."""
     bp = p.get("bivariate_params", {}) or {}
     alpha = _fmt(bp.get("alpha"))
     beta = _fmt(bp.get("beta"))
@@ -564,6 +600,7 @@ def _f_chain_linres_cbrt_qn(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_signed_power_y(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'signed_power_y': signed power of the target, |y|^p with p fitted to minimise skew, symmetrising a heavy-tailed target."""
     pw = _fmt(p.get("p"))
     return (
         f"T = sign({t}) * |{t}|^p  (p={pw}, fitted to minimise skew)",
@@ -572,6 +609,7 @@ def _f_signed_power_y(t: str, b: str, p: dict) -> tuple[str, str]:
 
 
 def _f_target_encoding_residual(t: str, b: str, p: dict) -> tuple[str, str]:
+    """Formula strings for 'target_encoding_residual': residual after subtracting the empirical-Bayes smoothed per-category mean of the target."""
     sm = _fmt(p.get("smoothing"))
     return (
         f"T = {t} - cat_mean(group)  (empirical-Bayes smoothed per-category mean, " f"smoothing={sm}; unseen categories use the global mean)",
@@ -638,6 +676,7 @@ def register_chain_provenance(chain_name: str, residual_name: str, unary_name: s
     _TRANSFORM_DESCRIPTIONS[chain_name] = f"two-stage chain -- {un_desc}, applied to the residual that {res_desc}"
 
     def _builder(t: str, b: str, p: dict, _r: str = residual_name, _u: str = unary_name) -> tuple[str, str]:
+        """Per-call formula-string builder for one dynamically registered two-stage chain transform (residual stage then tail-unary stage)."""
         return (
             f"T = {_u}( {_r}({t}, {b}) )  (residual then tail-compression)",
             f"y_hat = {_r}^-1( {_u}^-1(T_hat) )",

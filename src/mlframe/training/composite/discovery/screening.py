@@ -587,6 +587,7 @@ def _mi_per_feature_knn(
 
 
 def _aggregate_mi_per_feature(per_feat: np.ndarray | None, aggregation: str) -> float:
+    """Reduce per-feature MI values to a scalar screening score via ``sum`` or (default) ``mean``; 0.0 when empty/``None``."""
     if per_feat is None or per_feat.size == 0:
         return 0.0
     if aggregation == "sum":
@@ -642,7 +643,7 @@ def _mi_to_target_prebinned(
 
 
 # Pair-MI kernel lives in sibling ``_screening_mi_pair``; re-exported here.
-from ._screening_mi_pair import (  # noqa: F401, E402
+from ._screening_mi_pair import (
     _mi_from_binned_pair,
     _mi_from_binned_pair_njit_kernel,
     _mi_from_binned_pair_numpy,
@@ -845,7 +846,7 @@ def _mi_to_target(
 
 
 # Tiny-model RMSE / CV helpers live in sibling ``_screening_tiny``; re-exported here.
-from ._screening_tiny import (  # noqa: F401, E402
+from ._screening_tiny import (
     _silence_tiny_model_output,
     _build_tiny_model,
     _tiny_cv_rmse_raw_y,

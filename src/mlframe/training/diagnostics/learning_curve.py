@@ -349,7 +349,7 @@ def compute_learning_curve(
 
     rng = np.random.default_rng(random_state)
     shuffled = rng.permutation(n)
-    n_hold = max(1, int(round(holdout * n)))
+    n_hold = max(1, round(holdout * n))
     n_hold = min(n_hold, n - 2)  # leave >=2 rows for the pool
     hold_idx = np.sort(shuffled[:n_hold])
     pool_idx = np.sort(shuffled[n_hold:])

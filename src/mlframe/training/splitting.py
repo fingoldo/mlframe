@@ -177,8 +177,8 @@ def make_train_test_split(
             _ts_sorted = _ts.sort_values().reset_index(drop=True)
             _n = len(_ts_sorted)
             if _n >= 3:
-                _n_test = max(1, int(round(_n * test_size))) if test_size > 0 else 0
-                _n_val = max(1, int(round(_n * val_size)))
+                _n_test = max(1, round(_n * test_size)) if test_size > 0 else 0
+                _n_val = max(1, round(_n * val_size))
                 _train_end_pos = _n - _n_test - _n_val
                 _val_end_pos = _n - _n_test
                 _t_train_max = _ts_sorted.iloc[max(0, _train_end_pos - 1)]
@@ -350,12 +350,14 @@ def make_train_test_split(
         # Timestamp.__hash__ != np.datetime64.__hash__ on pandas 3.0; every
         # label_lut entry stayed -1 and every split came out empty.
         def _as_ns_int(_d):
+            """Normalises a single date-like value to an int64-nanosecond key, falling back to the raw value if it isn't Timestamp-convertible."""
             try:
                 return int(pd.Timestamp(_d).value)
             except (ValueError, TypeError, OverflowError):
                 return _d
 
         def _ns_keys(_arr):
+            """Batch-converts an array of date-likes to int64-ns keys via ``DatetimeIndex.asi8``, falling back to per-element ``_as_ns_int`` for non-datetime-convertible arrays."""
             # Vectorised datetime -> int64-ns keys. ``pd.DatetimeIndex(...).asi8``
             # is the batch equivalent of the per-element ``int(pd.Timestamp(_d).value)``
             # (verified identical), ~10x faster on a 50k-date span by avoiding one
@@ -385,6 +387,7 @@ def make_train_test_split(
         test_idx = np.flatnonzero(labels == 2)
 
         def _dates_to_idx(dates_subset):
+            """Maps a subset of dates to row positional indices via the shared ``date_to_code``/``codes`` LUT built above; returns ``None`` when ``dates_subset`` is ``None`` (no sequential portion requested)."""
             if dates_subset is None:
                 return None
             subset_mask = np.zeros(len(uniq_index), dtype=bool)
@@ -406,6 +409,7 @@ def make_train_test_split(
         # ``_fmt_ts`` helper defined inside ``_build_details``. (Promoted
         # to module-private if more sites grow this need; for now inline.)
         def _fmt_ts(value):
+            """Formats a timestamp as ``YYYY-MM-DD``, falling back to ``str()`` for non-datetime (e.g. numeric) timestamp values that the format spec would otherwise crash on."""
             try:
                 return format(value, "%Y-%m-%d")
             except (ValueError, TypeError):
@@ -457,6 +461,7 @@ def make_train_test_split(
         # Build detail strings (same NaT-on-empty guard as above; also
         # numeric-ts safe via the inline ``_fmt_ts`` fallback).
         def _fmt_ts(value):
+            """Formats a timestamp as ``YYYY-MM-DD``, falling back to ``str()`` for non-datetime (e.g. numeric) timestamp values that the format spec would otherwise crash on."""
             try:
                 return format(value, "%Y-%m-%d")
             except (ValueError, TypeError):
@@ -498,7 +503,7 @@ def make_train_test_split(
             _strat_arr = np.asarray(stratify_y)
             if _strat_arr.ndim == 2:
                 try:
-                    from iterstrat.ml_stratifiers import (  # noqa: F401
+                    from iterstrat.ml_stratifiers import (
                         MultilabelStratifiedGroupKFold,
                     )
                     _multilabel_group_strat = True
@@ -596,7 +601,7 @@ def make_train_test_split(
                 # the first fold as test (groups + class proportions
                 # preserved by construction).
                 from sklearn.model_selection import StratifiedGroupKFold
-                _n_splits_test = max(2, int(round(1.0 / max(test_size, 1e-9))))
+                _n_splits_test = max(2, round(1.0 / max(test_size, 1e-9)))
                 sgkf = StratifiedGroupKFold(
                     n_splits=_n_splits_test, shuffle=True, random_state=sklearn_seed,
                 )
@@ -638,7 +643,7 @@ def make_train_test_split(
                 # interpreted as a fraction of the REMAINING train pool
                 # (matching the existing GroupShuffleSplit semantics).
                 from sklearn.model_selection import StratifiedGroupKFold
-                _n_splits_val = max(2, int(round(1.0 / max(val_size, 1e-9))))
+                _n_splits_val = max(2, round(1.0 / max(val_size, 1e-9)))
                 _train_groups = _groups_arr[train_idx]
                 _train_strat = _stratify_active[train_idx]
                 sgkf_val = StratifiedGroupKFold(
@@ -851,7 +856,7 @@ def make_train_test_split(
 
 __all__ = ["make_train_test_split", "_carve_calib_from_train"]
 
-from ._split_helpers import (  # noqa: F401,E402
+from ._split_helpers import (
     _carve_calib_from_train,
     _deleak_tied_boundaries,
     _stratified_split,

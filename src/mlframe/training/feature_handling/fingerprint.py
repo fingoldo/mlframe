@@ -58,6 +58,7 @@ except ImportError:  # pragma: no cover -- optional accel
 # Jupyter sessions that loop dozens of suites with many transient frame ids can override via
 # ``MLFRAME_FP_CACHE_MAX`` so they don't thrash; default stays 128.
 def _fp_cache_max_default() -> int:
+    """Resolve the fingerprint memo's max entry count from ``MLFRAME_FP_CACHE_MAX``, falling back to 128 on unset/invalid/non-positive values."""
     _raw = os.environ.get("MLFRAME_FP_CACHE_MAX")
     if _raw:
         try:
@@ -99,6 +100,7 @@ def _fp_cache_key(df: Any) -> "Optional[Tuple[int, int, int]]":
 
 
 def _fp_cache_get(df: Any) -> "Optional[ContentFingerprint]":
+    """Look up ``df`` in the fingerprint memo by its ``(id, n_cols, columns_signature)`` key; bumps LRU order on hit, returns ``None`` on miss."""
     key = _fp_cache_key(df)
     if key is None:
         return None
@@ -110,6 +112,7 @@ def _fp_cache_get(df: Any) -> "Optional[ContentFingerprint]":
 
 
 def _fp_cache_put(df: Any, fp: "ContentFingerprint") -> None:
+    """Store ``fp`` under ``df``'s cache key, moving it to MRU position and evicting the LRU entry once over ``_FP_CACHE_MAX``."""
     key = _fp_cache_key(df)
     if key is None:
         return

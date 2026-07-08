@@ -30,6 +30,7 @@ import sys
 
 
 def _synth_regression(n, seed=0):
+    """Build a small synthetic regression frame (base column ``b``, extra feature ``feat``, monotone timestamp ``ts``) whose target is a noisy linear combination -- deterministic given ``seed`` so profile runs are reproducible."""
     import numpy as np
     import pandas as pd
     rng = np.random.default_rng(seed)
@@ -41,6 +42,7 @@ def _synth_regression(n, seed=0):
 
 
 def _profile(label, fn, top=12):
+    """Run ``fn`` once under cProfile, print its top-``top`` cumulative-time frames labelled with ``label``."""
     pr = cProfile.Profile()
     pr.enable()
     fn()
@@ -52,6 +54,7 @@ def _profile(label, fn, top=12):
 
 
 def main(argv):
+    """CLI entrypoint: build the synthetic dataset (size from ``argv[1]``, default 20k) and profile the four composite-pipeline stages -- discovery, plain regression fit+predict, conformal calibration, and base-margin classification."""
     import numpy as np
     from sklearn.linear_model import LinearRegression
     from .estimator import CompositeTargetEstimator
@@ -65,19 +68,23 @@ def main(argv):
     Xy = X.assign(y=y)  # discovery expects the target as a column of the frame
 
     def disco():
+        """Profile target-discovery's time-aware MI screen + rerank on the synthetic frame."""
         cfg = CompositeTargetDiscoveryConfig(enabled=True, mi_sample_n=min(4000, n), base_candidates=["b"], time_column="ts")
         CompositeTargetDiscovery(cfg).fit(Xy, "y", ["b", "feat"], np.arange(n), time_ordering=X["ts"].to_numpy())
 
     def reg_fit_predict():
+        """Profile a plain composite regression fit + predict (no conformal/interval machinery)."""
         est = CompositeTargetEstimator(base_estimator=LinearRegression(), transform_name="linear_residual", base_column="b").fit(X, y)
         est.predict(X)
 
     def conformal():
+        """Profile a fit/calibrate/predict-interval cycle exercising the CQR conformal path on a held-out calibration half."""
         est = CompositeTargetEstimator(base_estimator=LinearRegression(), transform_name="linear_residual", base_column="b").fit(X.iloc[: n // 2], y[: n // 2])
         est.calibrate_conformal(X.iloc[n // 2 :], y[n // 2 :], 0.1)
         est.predict_interval(X, 0.1)
 
     def classify():
+        """Profile base-margin classification (LightGBM init-score fit + softmax); no-ops if lightgbm isn't installed."""
         try:
             import lightgbm as lgb
         except Exception:

@@ -59,6 +59,7 @@ except Exception:  # pragma: no cover - polars optional
 
 
 def _is_polars_df(x: Any) -> bool:
+    """True iff ``x`` is a polars DataFrame and polars is importable in this environment."""
     return _HAS_POLARS and isinstance(x, pl.DataFrame)
 
 
@@ -87,6 +88,7 @@ def _take_rows(X: Any, idx: np.ndarray) -> Any:
 
 
 def _take_1d(y: Any, idx: np.ndarray) -> np.ndarray:
+    """Gather a bootstrap-resampled 1D target array at ``idx`` (with repeats), coercing any array-like ``y`` to ndarray first."""
     arr = np.asarray(y)
     return np.asarray(arr[idx])
 
@@ -240,7 +242,7 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         n = _n_rows(X)
         if n == 0:
             raise ValueError("BaggedCompositeEstimator.fit: X has 0 rows.")
-        n_draw = max(1, int(round(self.max_samples * n)))
+        n_draw = max(1, round(self.max_samples * n))
         rng = np.random.RandomState(self.random_state)
         sw_arr = None if sample_weight is None else np.asarray(sample_weight)
 

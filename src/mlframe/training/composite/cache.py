@@ -65,6 +65,7 @@ _COL_STATS_NUMBA_MIN_N: int = 50_000
 if _HAS_NUMBA:
     @_numba.njit(cache=True, fastmath=False, parallel=False)
     def _col_stats_float_numba_kernel(arr):
+        """Single-pass (min, max, non-finite count) reduction over a float column, treating NaN/+-inf as null."""
         # Serial reduction: a `prange` parallel reduction over (min, max) needs atomics that
         # numba doesn't lend itself to without explicit blocking. The serial loop is still
         # >100x faster than the numpy fancy-index path at n=500k (bench: bench_arch_d) because
@@ -616,9 +617,11 @@ class PrebinCache:
 
     @property
     def max_bytes(self) -> int:
+        """Effective per-entry byte ceiling: the constructor override if given, else the env-configurable process default."""
         return self._max_bytes_override if self._max_bytes_override is not None else _prebin_cache_max_bytes()
 
     def get(self, signature: str) -> Optional[np.ndarray]:
+        """Look up a cached code matrix by content signature; ``None`` on miss. Touches LRU order on hit."""
         with self._lock:
             val = self._store.get(signature)
             if val is None:
@@ -648,6 +651,7 @@ class PrebinCache:
         return True
 
     def clear(self) -> None:
+        """Drop all cached entries; counters (hits/misses/stores/skipped_oversize) are left intact."""
         with self._lock:
             self._store.clear()
 
@@ -674,7 +678,7 @@ def get_prebin_cache() -> PrebinCache:
 # The disk-backed ``DiscoveryCache`` store + its byte-total helper live in the sibling
 # ``cache_store.py``. Re-exported here so existing imports
 # (``from mlframe.training.composite.cache import DiscoveryCache``) keep resolving.
-from .cache_store import (  # noqa: E402,F401
+from .cache_store import (
     DiscoveryCache,
     _discovery_cache_bytes_total,
 )

@@ -72,7 +72,7 @@ def _carve_group_disjoint(sample_idx: np.ndarray, groups_sample: np.ndarray, hol
     """
     uniq = np.unique(groups_sample)
     perm = rng.permutation(uniq.size)
-    n_eval_groups = max(1, int(round(uniq.size * holdout_frac)))
+    n_eval_groups = max(1, round(uniq.size * holdout_frac))
     eval_groups = set(uniq[perm[:n_eval_groups]].tolist())
     eval_mask = np.array([g in eval_groups for g in groups_sample], dtype=bool)
     return sample_idx[~eval_mask], sample_idx[eval_mask]
@@ -192,7 +192,7 @@ def apply_structural_fragility_gate(
             continue
         try:
             base = _extract_column_array(df, base_col, rows=rows).astype(np.float64)
-        except Exception:  # noqa: BLE001
+        except Exception:
             survivors.append(spec)
             continue
         s = _inverse_base_sensitivity(spec, base)
@@ -361,7 +361,7 @@ def apply_yscale_holdout_gate(
     try:
         raw_pred = _fit_predict(y_fit)
         raw_rmse = _rmse(y_eval, raw_pred)
-    except Exception as exc:  # noqa: BLE001 -- baseline failure -> can't gate, keep all
+    except Exception as exc:
         logger.warning("[CompositeTargetDiscovery.yscale_gate] raw-y baseline fit failed (%s); gate skipped.", exc)
         return kept_specs
     if not np.isfinite(raw_rmse) or raw_rmse <= 0:
@@ -386,7 +386,7 @@ def apply_yscale_holdout_gate(
             valid = np.asarray(transform.domain_check(y_fit, base_fit), dtype=bool)
             if valid.shape != y_fit.shape:
                 valid = np.ones(y_fit.shape, dtype=bool)
-        except Exception:  # noqa: BLE001
+        except Exception:
             valid = np.ones(y_fit.shape, dtype=bool)
         if int(valid.sum()) < 50:
             survivors.append(spec)
@@ -394,7 +394,7 @@ def apply_yscale_holdout_gate(
         base_fit_v = base_fit[valid] if base_fit.ndim == 1 else base_fit[valid, :]
         try:
             t_fit = np.asarray(transform.forward(y_fit[valid], base_fit_v, params), dtype=np.float64)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("[yscale_gate] forward failed for %s: %s", spec.name, exc)
             survivors.append(spec)
             continue
@@ -407,7 +407,7 @@ def apply_yscale_holdout_gate(
             model.fit(x_fit[valid], t_fit)
             t_hat = np.asarray(model.predict(x_eval), dtype=np.float64)
             y_hat = np.asarray(transform.inverse(t_hat, base_eval, params), dtype=np.float64)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("[yscale_gate] fit/inverse failed for %s: %s", spec.name, exc)
             survivors.append(spec)
             continue

@@ -166,6 +166,7 @@ def _shrink_base_numpy(
 if _HAS_NUMBA:
     @_numba.njit(cache=True, parallel=True)  # fastmath OFF: the isfinite gate must survive (non-finite base = domain violation).
     def _shrink_base_kernel(b2, lo, hi, iqr, base_eff2, d_row):  # pragma: no cover - compiled
+        """Parallel njit core of the soft base-shrink: per-row IQR-relative clip of ``b2`` into ``[lo, hi]``, writing the shrunk base into ``base_eff2`` and the max relative distance into ``d_row``."""
         n, K = b2.shape
         for i in _numba.prange(n):
             dmax = 0.0
@@ -269,13 +270,14 @@ def _resolve_lag_values(self, X, base_raw: np.ndarray, n: int) -> np.ndarray | N
     try:
         from . import _extract_base
         vals = np.asarray(_extract_base(X, lag_col), dtype=np.float64).reshape(-1)
-    except Exception as exc:  # noqa: BLE001 - a missing/odd lag column must not break predict.
+    except Exception as exc:
         logger.debug("[soft_base_shrink] lag column %r extraction failed (%r); using fallback_predict.", lag_col, exc)
         return None
     return vals if vals.size == n else None
 
 
 def _median_constant(self, params: dict[str, Any]) -> float:
+    """Finite-median fallback constant used when no other prediction source is available."""
     from ._predict import _finite_median_fallback
     return _finite_median_fallback(params)
 

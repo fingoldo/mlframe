@@ -120,7 +120,7 @@ def honest_oof_reconstruction_rmse(
         raw_model.fit(x_fit, y_fit)
         raw_rmse = _rmse(y_eval, np.asarray(raw_model.predict(x_eval), dtype=np.float64))
         self._honest_oof_raw_rmse = float(raw_rmse) if np.isfinite(raw_rmse) else float("nan")
-    except Exception as exc:  # noqa: BLE001 -- baseline failure -> no ranking key produced
+    except Exception as exc:
         logger.warning("[CompositeTargetDiscovery.honest_oof_select] raw-y baseline fit failed (%s); selector skipped.", exc)
         return out
 
@@ -134,7 +134,7 @@ def honest_oof_reconstruction_rmse(
             lag_eval = _extract_column_array(df, lag_col, rows=eval_idx).astype(np.float64)
             lag_rmse = causal_lag_predict_rmse(lag_eval, y_eval)
             self._honest_oof_lag_rmse = float(lag_rmse)
-        except Exception as exc:  # noqa: BLE001 -- lag probe failure -> no lag floor (raw floor still applies)
+        except Exception as exc:
             logger.debug("[honest_oof_select] lag floor probe failed for %s: %s", lag_col, exc)
 
     def _score_one(spec) -> tuple[str, float | None]:
@@ -150,14 +150,14 @@ def honest_oof_reconstruction_rmse(
             valid = np.asarray(transform.domain_check(y_fit, base_fit), dtype=bool)
             if valid.shape != y_fit.shape:
                 valid = np.ones(y_fit.shape, dtype=bool)
-        except Exception:  # noqa: BLE001
+        except Exception:
             valid = np.ones(y_fit.shape, dtype=bool)
         if int(valid.sum()) < 50:
             return spec.name, None
         base_fit_v = base_fit[valid] if base_fit.ndim == 1 else base_fit[valid, :]
         try:
             t_fit = np.asarray(transform.forward(y_fit[valid], base_fit_v, params), dtype=np.float64)
-        except Exception as exc:  # noqa: BLE001 -- cannot transform -> fall back
+        except Exception as exc:
             logger.debug("[honest_oof_select] forward failed for %s: %s", spec.name, exc)
             return spec.name, None
         try:
@@ -165,7 +165,7 @@ def honest_oof_reconstruction_rmse(
             model.fit(x_fit[valid], t_fit)
             t_hat = np.asarray(model.predict(x_eval), dtype=np.float64)
             y_hat = np.asarray(transform.inverse(t_hat, base_eval, params), dtype=np.float64)
-        except Exception as exc:  # noqa: BLE001 -- fit/inverse blew up -> fall back
+        except Exception as exc:
             logger.debug("[honest_oof_select] fit/inverse failed for %s: %s", spec.name, exc)
             return spec.name, None
         finite = np.isfinite(y_hat)

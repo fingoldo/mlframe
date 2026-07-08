@@ -758,7 +758,7 @@ def _build_cross_target_ensemble_for_target(
                 _y_for_stack = np.asarray(_oof_y_full)[filtered_train_idx]
                 # Preallocate (n_rows, K) to skip np.column_stack's per-entry copy doubling peak RAM.
                 _frame_key2 = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
-                _n_rows = int(len(_y_for_stack))
+                _n_rows = len(_y_for_stack)
                 _pred_matrix = np.empty((_n_rows, len(_oof_components)), dtype=np.float64)
                 for _ci, (_comp, _name) in enumerate(zip(_oof_components, _oof_names)):
                     _pred_matrix[:, _ci] = _get_train_pred(_comp, _frame_key2)
@@ -868,7 +868,7 @@ def _build_cross_target_ensemble_for_target(
                             _deployed, _oof_components[_oof_names.index("lag_predict")],
                             _ytr, filtered_val_df, _yv, composite_target_discovery_config,
                         )
-                    except Exception as _rr_err:  # noqa: BLE001 -- routing is advisory; keep the trained model
+                    except Exception as _rr_err:
                         logger.info("[CompositeCrossTargetEnsemble] target='%s' OOD-lag routing skipped (%s).", _orig_tname, _rr_err)
                     # Per-row VOLATILITY-lag routing: on a strong-AR target the lag-wins groups are IN-range but locally
                     # SMOOTH, which the range rule above cannot catch. Route rows whose MD-local target volatility is low
@@ -887,7 +887,7 @@ def _build_cross_target_ensemble_for_target(
                             getattr(composite_target_discovery_config, "time_column", None),
                             composite_target_discovery_config,
                         )
-                    except Exception as _vr_err:  # noqa: BLE001 -- advisory; keep whatever we have
+                    except Exception as _vr_err:
                         logger.info("[CompositeCrossTargetEnsemble] target='%s' volatility-lag routing skipped (%s).", _orig_tname, _vr_err)
                     _ensemble = _deployed
                     _lag_failsafe_taken = True
@@ -1091,4 +1091,4 @@ def _build_cross_target_ensemble_for_target(
         )
 
 
-from ._post_xt_ensemble_mtr import MTRPerColumnEqualMeanEnsemble  # noqa: F401,E402
+from ._post_xt_ensemble_mtr import MTRPerColumnEqualMeanEnsemble

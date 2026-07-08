@@ -497,11 +497,12 @@ def _phase_pandas_conversion_and_cat_prep(
     _CAT_SIZE_SAFETY_FACTOR = 1.5
 
     def _cat_heavy_size(df, raw_bytes):
+        """Inflate a polars frame's raw byte size by up to ``_CAT_SIZE_SAFETY_FACTOR`` proportional to its categorical-column fraction, approximating the pandas-conversion size increase; non-polars frames pass through unchanged."""
         try:
             if not isinstance(df, pl.DataFrame):
                 return raw_bytes
             cat_cols = [c for c in (cat_features or []) if c in df.columns]
-            n_cols = max(int(len(df.columns)), 1)
+            n_cols = max(len(df.columns), 1)
             cat_frac = float(len(cat_cols)) / n_cols
             # Linear interp between 1.0x (no cat cols) and 1.5x (>=50% cat).
             scale = 1.0 + (_CAT_SIZE_SAFETY_FACTOR - 1.0) * min(cat_frac / 0.5, 1.0)
@@ -655,7 +656,7 @@ def _phase_pandas_conversion_and_cat_prep(
 # and _phase_train_val_test_split moved to sibling _phase_helpers_fit_split.py.
 # Re-exported below so existing callers
 # (`from ._phase_helpers import _phase_fit_pipeline`, etc.) keep working.
-from ._phase_helpers_fit_split import (  # noqa: F401, E402
+from ._phase_helpers_fit_split import (
     _phase_auto_detect_feature_types,
     _phase_fit_pipeline,
     _phase_train_val_test_split,
@@ -846,4 +847,4 @@ def _maybe_dispatch_to_ltr_ranker_suite(
     )
 
 
-from ._phase_drift_snapshot import _log_cardinality_and_drift_snapshot  # noqa: F401, E402
+from ._phase_drift_snapshot import _log_cardinality_and_drift_snapshot

@@ -284,6 +284,7 @@ def analyze_feature_distribution(
         )
 
     def _add_warning(col: str, msg: str) -> None:
+        """Append ``msg`` to the per-column warning list, creating the list on first use for ``col``."""
         feature_warnings.setdefault(col, []).append(msg)
 
     # --- numeric: low-variance + nan fraction ---

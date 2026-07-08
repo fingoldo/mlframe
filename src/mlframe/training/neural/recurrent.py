@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Recurrent neural network models for sequence classification and regression.
 
@@ -22,6 +20,8 @@ Classes:
     TransformerSequenceEncoder: Transformer encoder for sequences
 """
 
+from __future__ import annotations
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 from typing import TYPE_CHECKING
 
 try:
-    import xxhash as _xxhash  # noqa: F401  module-top for hot cache-key path
+    import xxhash as _xxhash
     _HAS_XXHASH = True
 except ImportError:
     _HAS_XXHASH = False
@@ -77,10 +77,10 @@ __all__ = [
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-from .base import _ensure_numpy  # noqa: E402,F401  shared with _recurrent_data
-from ._recurrent_config import RNNType, InputMode, RecurrentConfig  # noqa: E402,F401
-from ._recurrent_data import RecurrentDataset, recurrent_collate_fn, RecurrentDataModule  # noqa: E402,F401
-from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSequenceEncoder, MLPHead  # noqa: E402,F401
+from .base import _ensure_numpy
+from ._recurrent_config import RNNType, InputMode, RecurrentConfig
+from ._recurrent_data import RecurrentDataset, recurrent_collate_fn, RecurrentDataModule
+from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSequenceEncoder, MLPHead
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Lightning Module
@@ -92,7 +92,7 @@ from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSe
 # monolith threshold. Re-exported below so existing callers
 # (`from mlframe.training.neural.recurrent import RecurrentTorchModel`)
 # keep working.
-from ._recurrent_torch_model import RecurrentTorchModel  # noqa: F401, E402
+from ._recurrent_torch_model import RecurrentTorchModel
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Sklearn Wrappers + EarlyStopping monitor-direction helper -- carved to
@@ -102,7 +102,7 @@ from ._recurrent_torch_model import RecurrentTorchModel  # noqa: F401, E402
 # _monitor_mode / _DEFAULT_SEQ_INPUT_SIZE) callers keep working.
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from .recurrent_dataset_helpers import (  # noqa: E402, F401
+from .recurrent_dataset_helpers import (
     _DEFAULT_SEQ_INPUT_SIZE,
     _MONITOR_MIN_KEYS,
     _MONITOR_MAX_KEYS,
@@ -117,7 +117,7 @@ from .recurrent_dataset_helpers import (  # noqa: E402, F401
 # ``from .recurrent import extract_sequences`` callers keep working.
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from ._recurrent_sequences import (  # noqa: E402, F401
+from ._recurrent_sequences import (
     extract_sequences,
     extract_sequences_chunked,
 )

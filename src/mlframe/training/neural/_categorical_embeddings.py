@@ -86,10 +86,16 @@ class CategoricalEmbedding(nn.Module):
 
     @property
     def out_features(self) -> int:
+        """Total output width: sum of per-cat embedding dims plus the trailing numeric column count (0 until ``set_num_numeric`` is called)."""
         num_numeric = self._num_numeric if self._num_numeric is not None else 0
         return self._cat_out + num_numeric
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Embed the leading ``n_cat`` code columns of ``x`` and concatenate with the untouched trailing numeric columns.
+
+        Codes are cast to ``long`` and clamped to ``[0, cardinality]`` so an unseen-at-fit or out-of-range code lands
+        on the reserved last embedding row instead of raising ``IndexError`` at inference time.
+        """
         if x.dim() != 2:
             raise ValueError(f"CategoricalEmbedding expects 2-D input (N, D); got shape {tuple(x.shape)}")
         if x.shape[1] < self.n_cat:
@@ -107,6 +113,7 @@ class CategoricalEmbedding(nn.Module):
         return torch.cat(outs, dim=1)
 
     def extra_repr(self) -> str:
+        """Extra fields shown by ``nn.Module.__repr__`` (cardinalities, embed dims, numeric width, resolved out_features) for quick model-summary inspection."""
         return (
             f"n_cat={self.n_cat}, cardinalities={self.cardinalities}, "
             f"embed_dims={self.embed_dims}, num_numeric={self._num_numeric}, "

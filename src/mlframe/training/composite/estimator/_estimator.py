@@ -16,7 +16,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 # Module-level helpers carved to _estimator_helpers.py (1k-LOC house limit); re-exported so call sites + tests that
 # import them from this module keep working.
-from ._estimator_helpers import (  # noqa: E402,F401
+from ._estimator_helpers import (
     _callable_accepts_param,
     _carry_forward_fill,
     _estimator_fit_accepts_sample_weight,
@@ -854,8 +854,8 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
 
 
 # Method rebinding from sibling carves. Done at module bottom so the parent class is fully constructed; identity preserved (parent.X is sibling.X) which keeps isinstance / hasattr / sklearn introspection unchanged.
-from . import _utils as _utils  # noqa: E402
-from . import _predict as _pred  # noqa: E402
+from . import _utils as _utils
+from . import _predict as _pred
 
 # ``_require_fitted`` / ``_require_inner_attr`` (private helpers used by the
 # delegated-attribute property bodies) and ``_predict_unclipped`` (private, used
@@ -865,22 +865,22 @@ CompositeTargetEstimator._require_fitted = _utils._require_fitted
 CompositeTargetEstimator._require_inner_attr = _utils._require_inner_attr
 CompositeTargetEstimator._predict_unclipped = _pred._predict_unclipped
 # Frame-flavour helpers carved to ``_frame_utils.py`` (1k-LOC limit): all three are flavour-preserving (polars / pandas / ndarray) and bind as staticmethods. ``_subset_rows`` / ``_drop_columns`` are used in ``fit``; ``_count_feature_columns`` backs the monotone-constraint length check.
-from . import _frame_utils as _frame_utils  # noqa: E402
+from . import _frame_utils as _frame_utils
 CompositeTargetEstimator._subset_rows = staticmethod(_frame_utils._subset_rows)
 CompositeTargetEstimator._drop_columns = staticmethod(_frame_utils._drop_columns)
 CompositeTargetEstimator._count_feature_columns = staticmethod(_frame_utils._count_feature_columns)
 # Monotonic-constraint passthrough carved to ``_monotone.py``. ``_apply_monotone_constraints`` takes ``self`` first so it binds as a normal method; reached only from ``fit`` when ``monotone_constraints`` is set.
-from . import _monotone as _monotone  # noqa: E402
+from . import _monotone as _monotone
 CompositeTargetEstimator._apply_monotone_constraints = _monotone._apply_monotone_constraints
 # Rich Jupyter HTML repr carved to a sibling (transform / base col(s) / headline fitted params / n_train_valid / conformal+CQR state).
-from . import _repr as _repr  # noqa: E402
+from . import _repr as _repr
 CompositeTargetEstimator._repr_html_ = _repr._repr_html_
 
 # Split-conformal prediction intervals. Bound from ``composite/conformal.py``
 # (which imports nothing from estimator, so no cycle). calibrate_conformal(X_cal,
 # y_cal, alpha) fits the radius from a held-out set; predict_interval(X, alpha)
 # returns the (lower, upper) y-scale band of marginal coverage >= 1-alpha.
-from ..conformal import (  # noqa: E402
+from ..conformal import (
     calibrate_conformal as _calibrate_conformal,
     predict_interval as _predict_interval,
     calibrate_conformal_cqr as _calibrate_conformal_cqr,
@@ -908,7 +908,7 @@ CompositeTargetEstimator.calibrate_conformal_weighted = _calibrate_conformal_wei
 CompositeTargetEstimator.predict_interval_weighted = _predict_interval_weighted
 
 # Adaptive Conformal Inference (ACI, Gibbs & Candes): online controller that adjusts alpha_t after each (x, y) so long-run coverage tracks 1-alpha under residual-scale drift that the frozen split-conformal band mis-covers. State under ``self._aci_state_`` (runtime only). ``conformal_online`` imports nothing from estimator, so no cycle.
-from ..conformal_online import (  # noqa: E402
+from ..conformal_online import (
     init_aci as _init_aci,
     update_conformal as _update_conformal,
     predict_interval_online as _predict_interval_online,

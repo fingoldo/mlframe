@@ -64,6 +64,7 @@ if _HAS_NUMBA:
 
     @numba.njit(cache=True, fastmath=True)
     def _softmax_rows_njit(elpd: np.ndarray) -> np.ndarray:  # pragma: no cover - exercised via dispatch
+        """Numba row-wise softmax with the max-subtraction stability trick."""
         B, K = elpd.shape
         out = np.empty((B, K), dtype=np.float64)
         for b in range(B):
@@ -82,12 +83,14 @@ if _HAS_NUMBA:
 
 
 def _row_softmax(elpd: np.ndarray) -> np.ndarray:
+    """Row-wise softmax, dispatching to the njit kernel when numba is available."""
     if _HAS_NUMBA:
         return np.asarray(_softmax_rows_njit(np.ascontiguousarray(elpd)))
     return _softmax_rows(elpd)
 
 
 def _validate_inputs(oof_preds: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Validate and coerce ``oof_preds``/``y`` to float64 arrays, raising if ``oof_preds`` isn't 2-D."""
     P = np.asarray(oof_preds, dtype=np.float64)
     if P.ndim != 2:
         raise ValueError(f"pseudo_bma_weights: oof_preds must be 2-D (n, K); got shape {P.shape}.")
@@ -115,7 +118,7 @@ def _pointwise_lpd(
     the row-level elpd reduction applies weights in :func:`pseudo_bma_weights` / the BB draws.
     """
     P, yv = oof_preds, y
-    n, K = P.shape
+    _n, _K = P.shape
     resid = yv[:, None] - P  # (n, K)
 
     if quantile is not None:

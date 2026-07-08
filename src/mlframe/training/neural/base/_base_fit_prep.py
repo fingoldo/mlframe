@@ -82,7 +82,7 @@ class _FitPrepMixin:
         for col in present:
             codes, uniques = pd.factorize(X[col], sort=False)
             # ``factorize`` returns -1 for NaN; remap to the reserved unknown row (``card``) so the embedding sees a valid index, not -1.
-            card = int(len(uniques))
+            card = len(uniques)
             value_to_code = {val: i for i, val in enumerate(uniques)}
             code_maps[col] = value_to_code
             cardinalities.append(card)

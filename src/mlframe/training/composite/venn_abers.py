@@ -103,6 +103,7 @@ def _ivap_envelope(w: np.ndarray, ysum: np.ndarray, aug: float) -> np.ndarray:
 
 @numba.njit(cache=True)
 def _ivap_saddle_njit(Wc: np.ndarray, Yc: np.ndarray, aug: float) -> np.ndarray:
+    """Compute the exact per-bin IVAP saddle value ``max_lo min_r slope(lo, r)`` via an incrementally-maintained suffix lower convex hull, for the isotonic-envelope calibration."""
     g = Wc.shape[0] - 1
     out = np.empty(g, dtype=np.float64)
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Sklearn-compatible recurrent model wrappers + EarlyStopping monitor-direction
 helper, carved verbatim out of ``recurrent.py`` to keep that facade under the
@@ -12,6 +10,8 @@ callers keep working. The LightningModule (``RecurrentTorchModel``) and the
 Dataset/collate (``RecurrentDataset`` / ``recurrent_collate_fn``) live in their
 own siblings and are imported here.
 """
+
+from __future__ import annotations
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
@@ -211,6 +211,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
                 processed_seqs = [np.asarray(s, dtype=np.float32) for s in sequences]
             else:
                 def _preprocess(s):
+                    """Apply ``_preprocess_sequence`` under ``mode`` to a single sequence; module-level target for the optional ThreadPoolExecutor fan-out below."""
                     return _RecurrentWrapperBase._preprocess_sequence(s, mode=mode)
                 # Threshold tuned for >100k sequences: ThreadPool overhead (thread spin-up + GIL
                 # contention on numpy ops that release the GIL) only pays back at ~100k+ sequences.
@@ -395,10 +396,12 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         )
 
     def _auto_precision(self) -> str:
+        """Resolve the configured precision string to the actual value Lightning's ``Trainer`` should use (e.g. mixed-precision auto-detection)."""
         from ._recurrent_perf import auto_precision
         return auto_precision(self._cfg.precision)
 
     def _maybe_enable_cudnn_rnn_autotune(self) -> None:
+        """Turn on cuDNN's RNN autotuner when the configured RNN type benefits from it; no-op otherwise."""
         from ._recurrent_perf import maybe_enable_cudnn_rnn_autotune
         maybe_enable_cudnn_rnn_autotune(self._cfg.rnn_type)
 

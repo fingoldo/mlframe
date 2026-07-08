@@ -110,7 +110,7 @@ def format_metric(value: Any, ndigits: int = 2) -> str:
     # log10(0.05) = -1.30 -> floor = -2 -> 1 leading zero  ("0.05")
     # log10(0.005) = -2.30 -> floor = -3 -> 2 leading zeros ("0.005")
     try:
-        leading_zeros = max(0, -int(math.floor(math.log10(abs_v))) - 1)
+        leading_zeros = max(0, -math.floor(math.log10(abs_v)) - 1)
     except (ValueError, OverflowError):  # pragma: no cover
         leading_zeros = 0
     # F4 fix (2026-05-11): cap the decimal-widening at 4 leading zeros (= 6 d.p. for ndigits=2). Beyond that switch to scientific notation -- ``MTRESID=0.000000029`` (8 d.p., 11 chars of useless precision) becomes ``MTRESID=2.9e-08`` (7 chars, immediately readable as ~0).

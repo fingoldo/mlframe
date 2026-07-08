@@ -346,6 +346,7 @@ class TailCompositeEstimator(BaseEstimator, RegressorMixin):
         }
 
     def _check_fitted(self) -> None:
+        """Raise ``NotFittedError`` unless ``fit`` has already run (probed via presence of ``body_estimator_``)."""
         if not hasattr(self, "body_estimator_"):
             from sklearn.exceptions import NotFittedError
 

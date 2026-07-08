@@ -148,6 +148,7 @@ def format_suite_end_summary(
             _direction_pick = _mhb_pick(primary_metric)
             _is_min_for_pick = True if _direction_pick is None else (not _direction_pick)
             def _better(a: float | None, b: float | None, _is_min_for_pick: bool = _is_min_for_pick) -> bool:
+                """Direction-aware comparison for the primary metric: ``a`` beats ``b`` if lower (min metrics) or higher (max metrics); a non-finite ``b`` always loses so the first candidate wins."""
                 if a is None or not np.isfinite(a):
                     return False
                 if b is None or not np.isfinite(b):

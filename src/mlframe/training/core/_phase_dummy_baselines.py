@@ -65,6 +65,12 @@ def run_dummy_baselines(
     # degraded to regression-style dummy + the LTR baseline table came
     # back blank with extras["ltr_skip_reason"] = "group_ids missing".
 ) -> dict:
+    """Compute the trivial-baseline floor(s) for one target and report the strongest one via `report_model_perf`, updating `metadata` in place.
+
+    Composite targets get BOTH the T-scale dummies and a y-scale inversion (via the composite spec's ``transform.inverse``) so the suite-end
+    verdict can compare the wrapped model's y-scale RMSE against a comparable baseline instead of apples-to-oranges. No-ops (returns `metadata`
+    unchanged) when dummy baselines are disabled or this target type is not in `dummy_baselines_config.apply_to_target_types`.
+    """
     try:
         if not (dummy_baselines_config.enabled and (str(target_type) in dummy_baselines_config.apply_to_target_types)):
             return metadata
@@ -142,7 +148,7 @@ def run_dummy_baselines(
                     "run_dummy_baselines: failed to slice group_ids to split indices " "(%s); LTR-popularity baseline will be skipped.",
                     _gid_err,
                 )
-        with phase(f"dummy_baselines:{str(target_type)}", target=cur_target_name):
+        with phase(f"dummy_baselines:{target_type!s}", target=cur_target_name):
             _db_report = compute_dummy_baselines(
                 target_type=str(target_type),
                 target_name=cur_target_name,

@@ -73,8 +73,8 @@ from mlframe.training.feature_handling.text_detection import (
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    import pandas as pd  # noqa: F401
-    import polars as pl  # noqa: F401
+    import pandas as pd
+    import polars as pl
 
 
 # =====================================================================
@@ -400,6 +400,7 @@ def _apply_text_encoder(
         )
 
         def _fit():
+            """Build and fit a fresh text encoder on ``train_df``; passed to ``cache.get_or_compute`` so an identical-key encoder is fit only once and shared across models."""
             enc = build_text_encoder(column=column, params=params)
             enc.fit(train_df)
             return enc
@@ -455,6 +456,7 @@ def _apply_target_encoder(
     method = params.kind  # target_mean / target_m_estimate / ...
 
     def _fit():
+        """Build and OOF-fit a fresh :class:`LeakageSafeEncoder` on ``train_df``/``train_target``; passed to ``cache.get_or_compute`` so an identical-key encoder is fit only once and shared across models."""
         enc = LeakageSafeEncoder(
             method=method,
             smoothing=params.smoothing,

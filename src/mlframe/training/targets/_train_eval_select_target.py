@@ -39,7 +39,7 @@ def _n_classes_from_target(target, target_type):
         arr = np.asarray(target)
         if arr.ndim != 1:
             return None
-        return int(len(np.unique(arr)))
+        return len(np.unique(arr))
     return None
 
 
@@ -105,6 +105,7 @@ def select_target(
         return target_arr[idx]
 
     def _to_arr(t):
+        """Coerce a polars/pandas Series (or anything array-like) to a plain ndarray, passing None through, so downstream numeric ops don't need to special-case the source library."""
         if t is None:
             return None
         if isinstance(t, pl.Series):

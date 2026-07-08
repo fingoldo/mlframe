@@ -22,12 +22,12 @@ logger = logging.getLogger(__name__)
 # parents/siblings finish their top-level loading BEFORE this module is
 # pulled in via the parent's bottom-of-file re-export, so the partial-load
 # imports below resolve cleanly. Single source of truth.
-from .target_temporal_audit import (  # noqa: E402
+from .target_temporal_audit import (
     TemporalAuditResult,
     TimeBin,
     _format_bin_label,
 )
-from ._target_temporal_changepoint import (  # noqa: E402
+from ._target_temporal_changepoint import (
     find_change_points_pelt,
     find_change_points_zscore,
     _segments_from_change_points,

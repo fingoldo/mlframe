@@ -238,7 +238,7 @@ def _carve_calib_from_train(
 
     Returns ``(new_train_idx, calib_idx)`` (both unsorted; caller sorts).
     """
-    n_calib_target = int(round(n_total * calib_size))
+    n_calib_target = round(n_total * calib_size)
     if n_calib_target <= 0 or len(train_idx) == 0:
         return train_idx, np.array([], dtype=train_idx.dtype)
     n_calib_target = min(n_calib_target, len(train_idx))

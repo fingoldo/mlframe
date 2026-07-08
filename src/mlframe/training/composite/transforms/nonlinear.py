@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from . import Transform
 
 # Parent-resident constants referenced as default-arg values in signatures below. Signature defaults evaluate at module load, so these MUST be top-level (a lazy in-body import wouldn't see them). The parent defines all five BEFORE its bottom-of-module sibling import, so this static cycle resolves at runtime. Whitelisted in tests/test_meta/test_no_import_cycles.py.
-from . import (  # noqa: E402
+from . import (
     _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
     _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N,
     _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS,
@@ -371,6 +371,7 @@ def _quantile_residual_assign_bins(base: np.ndarray, edges: np.ndarray) -> np.nd
 def _quantile_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Apply ``T = (y - median_bin(base)) / IQR_bin(base)``: bin-conditional median-centring scaled by the bin's IQR."""
     edges = np.asarray(params["bin_edges"], dtype=np.float64)
     medians = np.asarray(params["bin_medians"], dtype=np.float64)
     iqrs = np.asarray(params["bin_iqrs"], dtype=np.float64)
@@ -379,6 +380,7 @@ def _quantile_residual_forward(
 def _quantile_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Undo the transform: ``y = T_hat * IQR_bin(base) + median_bin(base)``."""
     edges = np.asarray(params["bin_edges"], dtype=np.float64)
     medians = np.asarray(params["bin_medians"], dtype=np.float64)
     iqrs = np.asarray(params["bin_iqrs"], dtype=np.float64)
@@ -387,6 +389,7 @@ def _quantile_residual_inverse(
 def _quantile_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     if y is None:
         return base_ok
@@ -552,14 +555,17 @@ def _monotonic_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarra
 def _monotonic_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Apply ``T = y - g(base)`` where ``g`` is the fitted monotone PCHIP spline."""
     return np.asarray(np.asarray(y, dtype=np.float64) - _monotonic_residual_g(base, params))
 def _monotonic_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Undo the transform: ``y = T_hat + g(base)``."""
     return np.asarray(np.asarray(t_hat, dtype=np.float64) + _monotonic_residual_g(base, params))
 def _monotonic_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     if y is None:
         return base_ok
@@ -799,18 +805,21 @@ def _frac_diff_inverse_compute_batched(
 def _ewma_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Apply ``T = y - EWMA_k(base)``, recomputing the EWMA trace from the fitted ``k``/mean-anchor at call time."""
     return np.asarray(np.asarray(y, dtype=np.float64) - _ewma_compute(
         base, int(params["k"]), float(params["anchor"]),
     ))
 def _ewma_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Undo the transform: ``y = T_hat + EWMA_k(base)``, using :func:`_ewma_anchor` to pick the mean- vs tail-anchor seed."""
     return np.asarray(np.asarray(t_hat, dtype=np.float64) + _ewma_compute(
         base, int(params["k"]), _ewma_anchor(params),
     ))
 def _ewma_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     if y is None:
         return base_ok
@@ -949,6 +958,7 @@ def _make_chain_transform(
     unary_tup = (unary_fit, unary_forward, unary_inverse)
 
     def _fit(y, base):
+        """Fit the bivariate half then the unary half on its output, per :func:`_chain_fit_raw`."""
         return _chain_fit_raw(
             y=y, base=base,
             bivariate_fit=bivariate_fit,
@@ -957,6 +967,7 @@ def _make_chain_transform(
         )
 
     def _forward(y, base, params):
+        """Apply bivariate forward then unary forward, per :func:`_chain_forward_raw`."""
         return _chain_forward_raw(
             y=y, base=base, params=params,
             bivariate_forward=bivariate_forward,
@@ -964,6 +975,7 @@ def _make_chain_transform(
         )
 
     def _inverse(t_hat, base, params):
+        """Undo unary then bivariate (reverse order), per :func:`_chain_inverse_raw`."""
         return _chain_inverse_raw(
             t2=t_hat, base=base, params=params,
             bivariate_inverse=bivariate_inverse,
@@ -971,6 +983,7 @@ def _make_chain_transform(
         )
 
     def _domain(y, base):
+        """Delegate the domain check to the bivariate half; the unary half has no base-dependent constraint."""
         return bivariate_domain(y, base)
 
     return Transform(
@@ -993,6 +1006,7 @@ def _make_multi_chain_transform(
     from . import TAG_EXTENDED, TAG_REGRESSION, Transform, _chain_multi_fit_raw, _chain_multi_forward_raw, _chain_multi_inverse_raw
 
     def _fit(y, base):
+        """Fit the bivariate half then each unary stage in order on its predecessor's output, per :func:`_chain_multi_fit_raw`."""
         return _chain_multi_fit_raw(
             y=y, base=base,
             bivariate_fit=bivariate_fit,
@@ -1001,6 +1015,7 @@ def _make_multi_chain_transform(
         )
 
     def _forward(y, base, params):
+        """Apply bivariate forward then every unary stage in order, per :func:`_chain_multi_forward_raw`."""
         return _chain_multi_forward_raw(
             y=y, base=base, params=params,
             bivariate_forward=bivariate_forward,
@@ -1008,6 +1023,7 @@ def _make_multi_chain_transform(
         )
 
     def _inverse(t_hat, base, params):
+        """Undo the unary stages in reverse order, then the bivariate half, per :func:`_chain_multi_inverse_raw`."""
         return _chain_multi_inverse_raw(
             t_final=t_hat, base=base, params=params,
             bivariate_inverse=bivariate_inverse,
@@ -1015,6 +1031,7 @@ def _make_multi_chain_transform(
         )
 
     def _domain(y, base):
+        """Delegate the domain check to the bivariate half; the unary stages have no base-dependent constraint."""
         return bivariate_domain(y, base)
 
     return Transform(

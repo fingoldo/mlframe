@@ -105,7 +105,7 @@ def _robust_slope(base_f: np.ndarray, y_f: np.ndarray) -> float:
 
 def _causal_anchor_residual_fit(
     y: np.ndarray, base: np.ndarray,
-    sample_weight: np.ndarray | None = None,  # noqa: ARG001 - API symmetry; median-based fit ignores weights
+    sample_weight: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Fit the ``[0, 1]``-clamped anchor-shrink coefficient ``alpha``.
 

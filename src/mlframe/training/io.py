@@ -555,7 +555,7 @@ def validate_load_meta_sidecar(
 # in-memory unpickled form is typically larger still and a 4 GB CatBoost model would exhaust
 # the inference host's RAM if cached.
 _LOAD_MODEL_CACHE: "OrderedDict[tuple, object]" = OrderedDict()
-import threading as _threading  # noqa: E402
+import threading as _threading
 # Guards every mutation of _LOAD_MODEL_CACHE (get+move_to_end / store / popitem). A long-lived inference
 # service calls load_mlframe_model concurrently from request threads; without this, concurrent move_to_end /
 # popitem can raise "OrderedDict mutated during iteration" or corrupt the LRU order.
@@ -702,4 +702,4 @@ __all__ = [
 # helpers (logger / _LEAN_STRIP_FIELDS / atomic_write_bytes / _write_save_meta_sidecar) from this
 # module at its top; importing it HERE (after those helpers are defined) keeps the public
 # ``mlframe.training.io.save_mlframe_model`` API byte-for-byte unchanged without an import cycle.
-from mlframe.training._io_save import save_mlframe_model  # noqa: E402
+from mlframe.training._io_save import save_mlframe_model

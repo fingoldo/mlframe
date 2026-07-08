@@ -96,6 +96,7 @@ def _build_triton_ns_fn() -> Optional[Callable]:
         stride_am, stride_ak,
         BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr,
     ):
+        """Triton GPU kernel computing the upper triangle of ``A = X @ X.T`` for a tile grid, skipping tiles strictly below the diagonal (the caller mirrors the result to fill the lower triangle)."""
         # 2-D grid over (M, N) tiles of the output A.
         pid_m = tl.program_id(0)
         pid_n = tl.program_id(1)

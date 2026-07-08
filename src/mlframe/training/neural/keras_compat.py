@@ -144,6 +144,7 @@ class KerasCompatibleMLP(BaseEstimator, RegressorMixin):
         self.model_.set_weights(weights)
 
     def fit(self, X, y):
+        """Build and train a fresh Keras MLP on (X, y), replacing any previously fitted `model_`."""
         if not _HAS_TF:
             raise ImportError(_INSTALL_MSG)
         X = np.asarray(X, dtype=np.float32)
@@ -168,6 +169,7 @@ class KerasCompatibleMLP(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X):
+        """Return raveled Keras predictions for X; raises `NotFittedError` if `fit` was never called."""
         if getattr(self, "model_", None) is None:
             from sklearn.exceptions import NotFittedError
             raise NotFittedError("KerasCompatibleMLP has not been fitted yet.")

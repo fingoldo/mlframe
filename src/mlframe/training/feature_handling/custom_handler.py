@@ -80,10 +80,13 @@ class CustomHandler:
 
     @property
     def is_fitted(self) -> bool:
+        """Whether ``fit``/``fit_transform`` has run successfully at least once."""
         return self._fitted
 
     @property
     def output_kind(self) -> Literal["dense", "sparse", "embedding"]:
+        """The assembler routing hint from ``params.output_kind`` -- which block (dense/sparse/embedding) the
+        transform output lands in."""
         return self.params.output_kind
 
     def signature(self) -> str:
@@ -94,6 +97,8 @@ class CustomHandler:
         return f"custom:{self.column}:{type(self.params.transformer).__name__}:{self.params.output_kind}"
 
     def fit(self, df: Any, y: Optional[Any] = None) -> CustomHandler:
+        """Fit the wrapped transformer on the extracted ``(n, 1)`` column, forwarding ``y`` when supplied and
+        retrying with an unsupervised ``fit(X)`` call if the transformer's ``fit`` rejects the ``y`` argument."""
         column_data = self._extract_column(df)
         if y is not None:
             try:
@@ -113,6 +118,7 @@ class CustomHandler:
         return self
 
     def transform(self, df: Any) -> Any:
+        """Apply the fitted transformer to the extracted column; raises ``NotFittedError`` if ``fit`` hasn't run."""
         if not self._fitted:
             # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
             from sklearn.exceptions import NotFittedError
@@ -122,6 +128,9 @@ class CustomHandler:
         return self.params.transformer.transform(column_data)
 
     def fit_transform(self, df: Any, y: Optional[Any] = None) -> Any:
+        """Prefer the transformer's own ``fit_transform`` (with the same ``y``-signature-mismatch retry as
+        :meth:`fit`); falls back to a plain ``fit`` then ``transform`` when the transformer has no
+        ``fit_transform`` method at all."""
         column_data = self._extract_column(df)
         transformer = self.params.transformer
         if not hasattr(transformer, "fit_transform") or not callable(getattr(transformer, "fit_transform", None)):

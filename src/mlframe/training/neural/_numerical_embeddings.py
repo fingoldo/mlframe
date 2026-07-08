@@ -101,6 +101,7 @@ class PeriodicLinearEmbedding(nn.Module):
         self.example_input_array = torch.zeros(1, in_features)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Embed each raw numeric feature into ``embed_dim`` dims via learned per-feature periodic frequencies: sin/cos of the feature's angle at each frequency (plus the raw value if ``include_raw``), then a single block-structured Linear projection."""
         # x: (N, in_features)
         if x.dim() != 2:
             raise ValueError(f"PLR embedding expects 2-D input (N, D); got shape {tuple(x.shape)}")
@@ -118,6 +119,7 @@ class PeriodicLinearEmbedding(nn.Module):
         return cast(torch.Tensor, self.activation(self.proj(flat)))  # (N, D * embed_dim)
 
     def extra_repr(self) -> str:
+        """Extra constructor-arg summary shown in ``repr(module)`` / ``print(module)``, per the standard ``nn.Module`` hook."""
         return (
             f"in_features={self.in_features}, embed_dim={self.embed_dim}, "
             f"n_frequencies={self.n_frequencies}, "

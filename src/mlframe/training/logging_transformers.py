@@ -50,8 +50,10 @@ def log_resources(
     """
 
     def decorator(func):
+        """Wrap ``func`` (a bound method) with the wall-time/ΔRSS logging body."""
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
+            """Time and RSS-sample the call, log a structured record in ``finally`` so the record fires even on exception."""
             proc = psutil.Process()
             rss0 = proc.memory_info().rss / 1024**2
             t0 = time.perf_counter()
@@ -105,6 +107,7 @@ def log_methods(*method_names: str, stage_prefix: str = ""):
     """
 
     def decorator(cls):
+        """Patch each named method of ``cls`` in place with its ``log_resources``-wrapped version."""
         for name in method_names:
             orig = getattr(cls, name, None)
             if orig is None:
@@ -185,7 +188,9 @@ def wrap_with_logging(
                 # Bind name per-iteration via default args to avoid the
                 # classic lambda-in-loop late-binding pitfall.
                 def _make(_name: str):
+                    """Build a forwarding method bound to ``_name`` (captured as a default-free closure arg, not the loop variable)."""
                     def _call(self, *a, **kw):
+                        """Delegate the call to the wrapped inner instance's method of the same name."""
                         return getattr(self._inner, _name)(*a, **kw)
 
                     _call.__name__ = _name

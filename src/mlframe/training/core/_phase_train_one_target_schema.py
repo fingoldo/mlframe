@@ -198,7 +198,7 @@ def _build_and_record_model_schema(
                 "native" if (hasattr(strategy, "supports_native_multilabel") and strategy.supports_native_multilabel) else "wrapper"
             )
         elif target_type == _TargetTypes.MULTICLASS_CLASSIFICATION:
-            _record["n_classes"] = int(len(np.unique(np.asarray(train_y)))) if hasattr(train_y, "shape") else None
+            _record["n_classes"] = len(np.unique(np.asarray(train_y))) if hasattr(train_y, "shape") else None
             _record["multilabel_strategy"] = None
         else:
             _record["n_classes"] = None

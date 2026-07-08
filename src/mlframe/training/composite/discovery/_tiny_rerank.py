@@ -772,7 +772,7 @@ def _tiny_model_rerank(
                     # UNPASSABLE and silently rejects every spec. Require the
                     # statistically-minimum seed count; below it, skip the
                     # Wilcoxon rejection (threshold gate still applies) and warn.
-                    _min_seeds_wilcoxon = int(math.ceil(math.log2(1.0 / max(gate_alpha, 1e-12))))
+                    _min_seeds_wilcoxon = math.ceil(math.log2(1.0 / max(gate_alpha, 1e-12)))
                     # Composite and raw per-seed arrays are fixed-length
                     # NaN-padded on the SAME seed schedule, so pair by seed
                     # INDEX and keep only positions finite on both sides. A

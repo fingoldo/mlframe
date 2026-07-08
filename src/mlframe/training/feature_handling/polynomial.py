@@ -97,6 +97,7 @@ class PolynomialFeatureExpander:
         eff_interaction = bool(self.interaction_only)
 
         def _project(d: int, io: bool) -> int:
+            """Projected output column count for degree ``d`` / ``interaction_only=io``, including the bias column if enabled."""
             p = _projected_output_cols(_n_features_in, d, io)
             if self.include_bias:
                 p += 1
@@ -173,6 +174,8 @@ class PolynomialFeatureExpander:
         return self
 
     def transform(self, X: Any) -> np.ndarray:
+        """Apply the fitted expansion to ``X``, or return it unchanged (cast to float32) when ``fit`` skipped
+        the expansion entirely because even degree=1 exceeded ``max_features_out``."""
         if not self._fitted:
             # Wave 37 P1 fix (2026-05-20): sklearn convention is
             # NotFittedError. Pipeline / cross-val machinery catches
@@ -187,14 +190,17 @@ class PolynomialFeatureExpander:
         return np.asarray(self._impl.transform(X_np).astype(np.float32, copy=False))
 
     def fit_transform(self, X: Any, feature_names: Optional[List[str]] = None) -> np.ndarray:
+        """Convenience: ``fit`` then ``transform`` on the same ``X`` (fits and expands the same array)."""
         return self.fit(X, feature_names=feature_names).transform(X)
 
     @property
     def is_fitted(self) -> bool:
+        """Whether ``fit`` has been called (true even when the cap forced a full skip -- see ``self._skipped``)."""
         return self._fitted
 
     @property
     def n_features_in(self) -> int:
+        """Number of input columns seen at ``fit``; raises ``NotFittedError`` if not yet fitted."""
         if self._n_features_in is None:
             from sklearn.exceptions import NotFittedError
             raise NotFittedError("PolynomialFeatureExpander not fitted yet")
@@ -202,6 +208,7 @@ class PolynomialFeatureExpander:
 
     @property
     def feature_names_out(self) -> List[str]:
+        """Output column names after expansion (or the untouched input names when the cap forced a skip)."""
         if not self._fitted:
             from sklearn.exceptions import NotFittedError
             raise NotFittedError("PolynomialFeatureExpander not fitted yet")

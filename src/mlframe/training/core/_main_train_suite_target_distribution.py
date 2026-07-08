@@ -84,6 +84,7 @@ def _maybe_auto_drop_after_feature_analyzer(
         return train_df, val_df, test_df, []
 
     def _drop(df, cols):
+        """Drop ``cols`` (intersected with the frame's actual columns) from ``df``, tolerating either the polars or the pandas ``.drop`` call signature and a ``None`` frame."""
         if df is None:
             return df
         present = [c for c in cols if c in getattr(df, "columns", [])]

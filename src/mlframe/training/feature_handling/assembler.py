@@ -55,7 +55,7 @@ from mlframe.training.feature_handling.routing import (
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    import scipy.sparse as sp  # noqa: F401
+    import scipy.sparse as sp
 
 
 # =====================================================================
@@ -135,10 +135,12 @@ class AssembledMatrix:
 
     @property
     def is_two_track(self) -> bool:
+        """True when the assembly kept a separate sparse block alongside the dense block (a sparse-aware model target), rather than SVD-collapsing everything into one dense matrix."""
         return self.sparse_block is not None and self.dense_block is not None
 
     @property
     def n_features(self) -> int:
+        """Total feature count across both blocks (matches ``len(feature_names)``, the final concatenated column order)."""
         return len(self.feature_names)
 
 

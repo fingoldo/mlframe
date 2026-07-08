@@ -62,6 +62,7 @@ def _clean_oof_matrix(
 def _validate_sample_weight(
     sample_weight: np.ndarray | None, n_rows: int, finite: np.ndarray,
 ) -> np.ndarray | None:
+    """Validate ``sample_weight`` shape/finiteness/non-negativity against the raw row count, then restrict it to the rows that survived the OOF-matrix ``finite`` filter."""
     if sample_weight is None:
         return None
     sw = np.asarray(sample_weight, dtype=np.float64).reshape(-1)

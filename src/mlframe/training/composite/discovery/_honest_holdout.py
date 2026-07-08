@@ -71,7 +71,7 @@ def split_screening_holdout(
         )
         return train_idx, None
     n = train_idx.size
-    n_holdout = int(round(n * float(holdout_frac)))
+    n_holdout = round(n * float(holdout_frac))
     if n_holdout < min_holdout_rows or (n - n_holdout) < min_screen_rows:
         logger.info(
             "[CompositeTargetDiscovery] honest_holdout_frac=%.3f on %d train rows would "
@@ -189,7 +189,7 @@ def apply_honest_holdout(
         rescore_specs_on_holdout(
             self, df, target_col, kept_specs, usable_features, holdout_idx, y_full,
         )
-    except Exception as ho_err:  # noqa: BLE001 -- diagnostic, never load-bearing
+    except Exception as ho_err:
         logger.warning(
             "[CompositeTargetDiscovery] honest-holdout re-score failed (%s); specs keep " "honest_holdout_gain=None, in-screen mi_gain unaffected.",
             ho_err,
@@ -231,6 +231,7 @@ def rescore_specs_on_holdout(
     y_holdout = y_full[holdout_idx]
 
     def _rescore_one(spec) -> None:
+        """Recompute one spec's honest MI gain on the held-out rows and write it back onto the frozen spec in place via ``object.__setattr__``; any failure (unknown transform, empty remaining-feature matrix) leaves the spec's honest fields untouched."""
         try:
             transform = get_transform(spec.transform_name)
         except UnknownTransformError:
@@ -254,7 +255,7 @@ def rescore_specs_on_holdout(
         # identical row population (else mi_t / mi_y compare different rows).
         try:
             valid = np.asarray(transform.domain_check(y_h, base_arg), dtype=bool)
-        except Exception as exc:  # noqa: BLE001 -- degenerate holdout for this spec
+        except Exception as exc:
             logger.debug("honest-holdout domain_check failed for %s: %s", spec.name, exc)
             return
         if valid.shape != y_h.shape:
@@ -266,7 +267,7 @@ def rescore_specs_on_holdout(
                 valid_fitted = np.asarray(_dcf(y_h, base_arg, params), dtype=bool)
                 if valid_fitted.shape == valid.shape:
                     valid = valid & valid_fitted
-            except Exception as e:  # noqa: BLE001 -- treat as no refinement
+            except Exception as e:
                 logger.debug("swallowed exception in _honest_holdout.py: %s", e)
                 pass
         n_valid = int(valid.sum())
@@ -279,7 +280,7 @@ def rescore_specs_on_holdout(
         base_valid = base_arg[valid] if base_arg.ndim == 1 else base_arg[valid, :]
         try:
             t_holdout = transform.forward(y_h[valid], base_valid, params)
-        except Exception as exc:  # noqa: BLE001 -- transform raised on holdout rows
+        except Exception as exc:
             logger.debug("honest-holdout forward failed for %s: %s", spec.name, exc)
             return
         x_valid = x_remaining[valid]

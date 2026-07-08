@@ -160,6 +160,7 @@ class FeatureSelectionConfig(BaseConfig):
     @field_validator("mrmr_identity_cache_scope")
     @classmethod
     def _validate_mrmr_identity_cache_scope(cls, v: str) -> str:
+        """Restricts the MRMR fit-cache scope to the two supported values, catching typos before they silently disable caching."""
         if v not in {"ctx", "process"}:
             raise ValueError(f"FeatureSelectionConfig.mrmr_identity_cache_scope must be 'ctx' or 'process', got {v!r}")
         return v
@@ -167,6 +168,7 @@ class FeatureSelectionConfig(BaseConfig):
     @field_validator("mrmr_kwargs")
     @classmethod
     def _validate_mrmr_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Rejects any key in ``mrmr_kwargs`` that ``MRMR.__init__`` does not accept, catching config-time typos before they'd otherwise surface as a fit-time ``TypeError``."""
         if not v:
             return v
         import inspect
@@ -181,6 +183,7 @@ class FeatureSelectionConfig(BaseConfig):
     @field_validator("rfecv_kwargs")
     @classmethod
     def _validate_rfecv_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Whitelists ``RFECV.__init__`` params plus ``cv_n_splits`` (consumed separately by ``get_training_configs``); deliberately excludes the registry cluster-reduce keys since the suite forwards this dict verbatim to ``RFECV(**kwargs)``."""
         if not v:
             return v
         import inspect
@@ -201,6 +204,7 @@ class FeatureSelectionConfig(BaseConfig):
     @field_validator("boruta_shap_kwargs")
     @classmethod
     def _validate_boruta_shap_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Whitelists ``BorutaShap.__init__`` params plus the registry cluster-reduce keys, since BorutaShap is instantiated through ``registry._instantiate_boruta_shap`` which pops those keys before construction."""
         if not v:
             return v
         import inspect
@@ -215,6 +219,7 @@ class FeatureSelectionConfig(BaseConfig):
     @field_validator("shap_proxied_fs_kwargs")
     @classmethod
     def _validate_shap_proxied_fs_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Rejects any key in ``shap_proxied_fs_kwargs`` that ``ShapProxiedFS.__init__`` does not accept."""
         if not v:
             return v
         import inspect
@@ -229,6 +234,7 @@ class FeatureSelectionConfig(BaseConfig):
     @field_validator("ace_kwargs")
     @classmethod
     def _validate_ace_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Rejects any key in ``ace_kwargs`` that ``ACESelector.__init__`` does not accept."""
         if not v:
             return v
         import inspect
@@ -243,6 +249,7 @@ class FeatureSelectionConfig(BaseConfig):
     @field_validator("rfecv_cluster_corr_method")
     @classmethod
     def _validate_rfecv_cluster_corr_method(cls, v: str) -> str:
+        """Restricts the RFECV cluster-reduce correlation method to the supported set."""
         if v not in {"pearson", "spearman", "kendall", "su"}:
             raise ValueError(f"FeatureSelectionConfig.rfecv_cluster_corr_method must be one of pearson/spearman/kendall/su, got {v!r}")
         return v

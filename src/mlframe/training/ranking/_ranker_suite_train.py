@@ -412,7 +412,7 @@ def train_mlframe_ranker_suite(
             # those land in cat_features and the downstream LGB ranker can
             # cast them to pandas Categorical before fit.
             _dn = str(_dt)
-            _is_str_like = _dt == object or _dn in ("string", "str") or "string" in _dn.lower()  # noqa: E721 -- pandas dtype `== object` comparison is intended
+            _is_str_like = _dt == object or _dn in ("string", "str") or "string" in _dn.lower()
             if _is_str_like:
                 _probe = X_tr[col].dropna()
                 if len(_probe) == 0:
@@ -858,9 +858,9 @@ def train_mlframe_ranker_suite(
         "target_name": target_name,
         "model_name": model_name,
         "ranking_config_dump": ranking_config.model_dump() if hasattr(ranking_config, "model_dump") else dict(vars(ranking_config)),
-        "n_train_queries": int(len(np.unique(g_tr))),
-        "n_val_queries": int(len(np.unique(g_va))),
-        "n_test_queries": int(len(np.unique(g_te))),
+        "n_train_queries": len(np.unique(g_tr)),
+        "n_val_queries": len(np.unique(g_va)),
+        "n_test_queries": len(np.unique(g_te)),
         "per_model_test_metrics": {f: models_dict[f]["test_metrics"] for f in flavor_order},
         # Schema-compatible keys so the fuzz suite's metadata-shape
         # assertions (`columns`, `cat_features`, `outlier_detection`,

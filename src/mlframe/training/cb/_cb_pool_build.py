@@ -86,6 +86,7 @@ def _maybe_get_or_build_cb_pool(
         _df_cols = None
 
     def _filter_to_df(feats):
+        """Fetch ``fit_params[feats]`` and drop any column name no longer present in ``train_df``, so a stale CB feature list can't raise CatBoost's Pool ``ValueError``."""
         raw = fit_params.get(feats) or []
         if _df_cols is None:
             return tuple(sorted(raw))
@@ -141,11 +142,11 @@ def _maybe_get_or_build_cb_pool(
     # lists. Callers may rely on the same fit_params dict downstream; we
     # only narrow, never widen.
     if _df_cols is not None:
-        if "cat_features" in fit_params and fit_params["cat_features"]:
+        if fit_params.get("cat_features"):
             fit_params["cat_features"] = list(cat_features)
-        if "text_features" in fit_params and fit_params["text_features"]:
+        if fit_params.get("text_features"):
             fit_params["text_features"] = list(text_features)
-        if "embedding_features" in fit_params and fit_params["embedding_features"]:
+        if fit_params.get("embedding_features"):
             fit_params["embedding_features"] = list(embedding_features)
 
     if not _cb_reuse_capable():

@@ -727,9 +727,9 @@ __all__ = [
 # helpers live in ``_predict_main.py`` / ``_predict_pre_pipeline.py`` so
 # this file stays below the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._predict_main import (  # noqa: E402,F401
+from ._predict_main import (
     predict_from_models, predict_mlframe_models_suite,
 )
-from ._predict_pre_pipeline import (  # noqa: E402,F401
+from ._predict_pre_pipeline import (
     _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _try_predict_with_pp_fallback,
 )

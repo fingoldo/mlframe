@@ -725,7 +725,7 @@ if _XGB_AVAILABLE:
             ``classes_`` is a read-only property returning
             ``np.arange(n_classes_)`` in modern XGBoost — no separate
             assignment needed."""
-            self.n_classes_ = int(len(np.unique(np.asarray(y))))
+            self.n_classes_ = len(np.unique(np.asarray(y)))
 
     class XGBRegressorWithDMatrixReuse(_DMatrixReuseMixin, XGBRegressor):
         """XGBRegressor with cached QuantileDMatrix across fits.

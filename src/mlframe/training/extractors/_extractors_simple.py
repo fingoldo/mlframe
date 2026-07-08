@@ -138,6 +138,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         self.use_recency_weighting = use_recency_weighting
 
     def add_features(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Union[pd.DataFrame, pl.DataFrame]:
+        """Derive datetime features from ``ts_field`` (if configured) and record the emitted column names so the suite skips re-decomposing the same timestamp column downstream."""
         if self.ts_field and self.datetime_features:
             if self.verbose:
                 logger.info("create_date_features %s over column %s...", self.datetime_features, self.ts_field)

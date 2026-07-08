@@ -383,6 +383,7 @@ def plot_best_dummy_baseline_overlay(
     plot_sample = 20_000
 
     def _maybe_subsample(y, p):
+        """Randomly subsample paired (y, pred) arrays down to ``plot_sample`` rows so rendering stays fast on multi-million-row targets; passes through untouched otherwise."""
         if y is None or p is None:
             return None, None
         n = min(len(y), len(p))
@@ -501,7 +502,7 @@ def plot_best_dummy_baseline_overlay(
     # Agg).
     if show:
         try:
-            _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+            _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]
         except NameError:
             _in_kernel = False
         if _in_kernel:

@@ -303,7 +303,7 @@ def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
             minl = int(hls[-1])
             consec = (first / minl) if minl > 0 else 1.0
             out.setdefault("network_params", {})
-            out["network_params"]["nlayers"] = int(len(hls))
+            out["network_params"]["nlayers"] = len(hls)
             out["network_params"]["first_layer_num_neurons"] = first
             out["network_params"]["min_layer_neurons"] = minl
             out["network_params"]["consec_layers_neurons_ratio"] = float(consec)
@@ -731,6 +731,7 @@ def _compute_drift_invariant(
             continue
 
         def _z_for(other_df, col=col, train_mean=train_mean, train_std=train_std):
+            """Z-score of `other_df[col]`'s mean against the train-set mean/std; NaN when the frame/column is absent or has fewer than 2 finite values."""
             if other_df is None:
                 return float("nan")
             other = _col_to_numpy(other_df, col)

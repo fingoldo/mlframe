@@ -283,6 +283,7 @@ class _DatasetReuseMixin:
     _CACHE_KEY_ATTRS: tuple = ("_cached_train_key", "_cached_val_key")
 
     def _init_cache(self) -> None:
+        """Reset all cache pointer/key attributes to None; called from __init__ and after unpickling since the pointer attrs cannot survive a pickle round-trip."""
         for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
             setattr(self, _attr, None)
 

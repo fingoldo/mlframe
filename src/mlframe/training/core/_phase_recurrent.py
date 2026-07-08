@@ -258,6 +258,7 @@ def _apply_recurrent_to_ensemble(
         # the wrong rows. Route Series through .iloc for positional semantics; ndarray / pl.Series keep
         # __getitem__ semantics which ARE positional. Mirrors the guard in _phase_train_one_target:895-899.
         def _slice_positional(values, idx):
+            """Positional row slice for target-value containers; routes pandas Series through ``.iloc`` since bare ``[idx]`` is label-indexed on a non-default index."""
             if values is None or idx is None:
                 return None
             if isinstance(values, pd.Series):
@@ -484,6 +485,7 @@ def train_recurrent_models(
                 # mirror the isinstance(...) guard used in _phase_train_one_target:895-899 so non-default
                 # indices don't silently produce label-indexed (wrong-row) slices.
                 def _pos_slice(values, idx):
+                    """Positional row slice for target-value containers; routes pandas Series through ``.iloc`` since bare ``[idx]`` is label-indexed on a non-default index."""
                     if values is None or idx is None:
                         return None
                     if isinstance(values, pd.Series):

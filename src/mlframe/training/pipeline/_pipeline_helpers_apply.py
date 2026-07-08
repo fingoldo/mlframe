@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # the 1k-line monolith threshold. Re-exported here so existing callers
 # (`from ._pipeline_helpers import _content_fingerprint_for_cache`, etc.)
 # keep working.
-from ._pipeline_cache import (  # noqa: F401, E402
+from ._pipeline_cache import (
     _PRE_PIPELINE_CACHE,
     _PRE_PIPELINE_CACHE_LOCK,
     _PRE_PIPELINE_CACHE_MAX,
@@ -53,7 +53,7 @@ from ._pipeline_cache import (  # noqa: F401, E402
 )
 
 # Parent helpers used by the moved bodies (defined before the parent's bottom re-export, so this top-level import is cycle-safe).
-from ._pipeline_helpers import (  # noqa: E402
+from ._pipeline_helpers import (
     _extract_feature_selector, _is_fitted, _is_stale_fit_state_value_error,
     _multilabel_target_to_1d_for_supervised_encoders, _passthrough_cols_fit_transform,
     _raise_pre_pipeline_rowcount_change,

@@ -253,6 +253,7 @@ def _fit_cb_ranker(
     obj_kwargs, model_kwargs, cat_features,
     *, early_stopping_rounds, verbose,
 ) -> dict:
+    """Sorts inputs into CatBoost's required group-contiguous order, fills NA categoricals, and fits a ``CatBoostRanker`` via its Pool API."""
     from catboost import CatBoostRanker
 
     X_tr, y_tr, g_tr, sort_idx_tr = prepare_cb_inputs(X_train, y_train, group_ids_train)
@@ -265,6 +266,7 @@ def _fit_cb_ranker(
     _CB_NA = "__MLFRAME_NA__"
 
     def _fill_obj_cat_nones(_df):
+        """Replaces Python ``None`` in object-dtype declared cat columns with the sentinel so CatBoost's Pool doesn't choke on it."""
         if not isinstance(_df, pd.DataFrame) or not cat_features:
             return _df
         _upd = {}
@@ -330,6 +332,7 @@ def _fit_xgb_ranker(
     obj_kwargs, model_kwargs, cat_features,
     *, early_stopping_rounds, verbose,
 ) -> dict:
+    """Builds per-row qid arrays (no sort required), coerces declared categoricals to a shared category universe, and fits an ``XGBRanker``."""
     from xgboost import XGBRanker
 
     X_tr, y_tr, qid_tr = prepare_xgb_inputs(X_train, y_train, group_ids_train)
@@ -378,6 +381,7 @@ def _fit_xgb_ranker(
                 _xgb_cat_dtypes[_c] = _CatDtype(categories=sorted(_levels, key=str))
 
     def _apply_xgb_cats(_df):
+        """Casts declared cat columns to the fit-time ``CategoricalDtype`` union so train/eval/predict agree on category codes."""
         if not isinstance(_df, pd.DataFrame) or not _xgb_cat_dtypes:
             return _df
         _upd = {_c: _df[_c].astype(_dt) for _c, _dt in _xgb_cat_dtypes.items() if _c in _df.columns}
@@ -404,6 +408,7 @@ def _fit_lgb_ranker(
     obj_kwargs, model_kwargs, cat_features,
     *, early_stopping_rounds, verbose,
 ) -> dict:
+    """Groups rows into contiguous group-size runs, casts declared categoricals (LightGBM rejects raw object/string dtype), and fits an ``LGBMRanker``."""
     from lightgbm import LGBMRanker
 
     X_tr, y_tr, group_sizes_tr, sort_idx_tr = prepare_lgb_inputs(X_train, y_train, group_ids_train)
@@ -440,6 +445,7 @@ def _fit_lgb_ranker(
         # codes view. Same coercion applied to eval_set if present.
         import pandas as _pd
         def _coerce_cats(_df):
+            """Casts declared cat columns with object/string dtype to pandas ``category`` so LightGBM's dtype pre-check accepts them."""
             if not isinstance(_df, _pd.DataFrame):
                 return _df
             _to_cast = {}

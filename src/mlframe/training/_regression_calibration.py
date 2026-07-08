@@ -40,6 +40,7 @@ class PointRecalibrator:
         self._identity = False
 
     def fit(self, y_pred_cal: np.ndarray, y_cal: np.ndarray) -> "PointRecalibrator":
+        """Fit the monotone map on a held-out (yhat, y) calibration slice; falls back to identity on <10 finite pairs or a constant predictor."""
         yp = np.asarray(y_pred_cal, dtype=np.float64).reshape(-1)
         yt = np.asarray(y_cal, dtype=np.float64).reshape(-1)
         if yp.shape != yt.shape:
@@ -65,6 +66,7 @@ class PointRecalibrator:
         return self
 
     def transform(self, y_pred: np.ndarray) -> np.ndarray:
+        """Apply the fitted monotone map to raw predictions; raises if called before ``fit``."""
         if not self._fitted:
             raise RuntimeError("PointRecalibrator.transform called before fit")
         yp = np.asarray(y_pred, dtype=np.float64).reshape(-1)
@@ -81,6 +83,7 @@ def fit_point_recalibrator(y_pred_cal: np.ndarray, y_cal: np.ndarray, method: st
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """RMSE over finite residuals only; returns ``inf`` when nothing is finite so a degenerate slice can't look artificially good."""
     d = np.asarray(y_true, dtype=np.float64).reshape(-1) - np.asarray(y_pred, dtype=np.float64).reshape(-1)
     finite = np.isfinite(d)
     if not finite.any():
@@ -168,6 +171,7 @@ class DistributionalRecalibrator:
     """
 
     def fit(self, pit_cal: np.ndarray) -> "DistributionalRecalibrator":
+        """Fit ``R`` as the isotonic map from calibration PIT values to their empirical CDF levels; falls back to identity below 10 finite PIT samples."""
         from sklearn.isotonic import IsotonicRegression
 
         p = np.asarray(pit_cal, dtype=np.float64).reshape(-1)
@@ -204,6 +208,7 @@ class RecalibratedRegressor:
         self.recalibrator = recalibrator
 
     def predict(self, X, *args, **kwargs) -> np.ndarray:
+        """Predict with the base model, then push the raw prediction through the fitted monotone recalibrator."""
         raw = np.asarray(self.base_model.predict(X, *args, **kwargs)).reshape(-1)
         return self.recalibrator.transform(raw)
 

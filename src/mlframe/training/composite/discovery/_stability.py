@@ -138,7 +138,7 @@ def _subsample_indices(
     n = int(train_idx.size)
     if frac >= 1.0:
         return train_idx
-    sub_n = max(2, int(round(frac * n)))
+    sub_n = max(2, round(frac * n))
     sub_n = min(sub_n, n)
     if sub_n >= n:
         return train_idx
@@ -159,7 +159,7 @@ def _pull_group_column(df: Any, col: str) -> np.ndarray | None:
         if callable(getcol):
             return np.asarray(getcol(col).to_numpy())
         return np.asarray(df[col].to_numpy())
-    except Exception as exc:  # noqa: BLE001 -- missing/odd column must not abort the screen
+    except Exception as exc:
         logger.warning("[stability_select_specs] group_column %r unreadable: %s", col, exc)
         return None
 
@@ -208,7 +208,7 @@ def _subsample_groups(
     n_groups = int(uniq.size)
     if n_groups < 2:
         return train_idx
-    sub_g = max(1, int(round(frac * n_groups)))
+    sub_g = max(1, round(frac * n_groups))
     sub_g = min(sub_g, n_groups)
     if sub_g >= n_groups:
         return train_idx
@@ -327,7 +327,7 @@ def stability_select_specs(
     if group_aware is None or (group_aware and group_ids is None and not group_column):
         try:
             probe = discovery_factory()
-        except Exception as exc:  # noqa: BLE001 -- probe is best-effort; loop still runs
+        except Exception as exc:
             logger.warning("[stability_select_specs] probe factory() failed: %s", exc)
     if group_aware is None:
         group_aware = bool(getattr(getattr(probe, "config", None), "stability_group_aware", True))
@@ -354,7 +354,7 @@ def stability_select_specs(
         try:
             discovery = discovery_factory()
             discovery.fit(df, target, list(feature_cols), sub_idx)
-        except Exception as exc:  # noqa: BLE001 -- one bad replicate must not abort the screen
+        except Exception as exc:
             logger.warning(
                 "[stability_select_specs] replicate %d/%d failed: %s",
                 i + 1, n_replicates, exc,

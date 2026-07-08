@@ -57,7 +57,7 @@ class _Float32CastTransformer(TransformerMixin, BaseEstimator):
         tags.input_tags.allow_nan = True
         return tags
 
-    def fit(self, X, y=None):  # noqa: ARG002 -- sklearn signature
+    def fit(self, X, y=None):
         # Stamp the standard fitted attributes so ``check_is_fitted`` succeeds
         # AND sklearn's pipeline name-tracker (which calls
         # ``get_feature_names_out(input_features=None)`` on each step in turn,
@@ -74,7 +74,7 @@ class _Float32CastTransformer(TransformerMixin, BaseEstimator):
     def transform(self, X):
         return _cast_numeric_to_float32(X)
 
-    def fit_transform(self, X, y=None):  # noqa: ARG002
+    def fit_transform(self, X, y=None):
         self.fit(X)
         return _cast_numeric_to_float32(X)
 
@@ -110,7 +110,7 @@ class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
         tags.input_tags.allow_nan = True
         return tags
 
-    def fit(self, X, y=None):  # noqa: ARG002 -- sklearn signature
+    def fit(self, X, y=None):
         import numpy as _np
         if hasattr(X, "columns"):
             self.feature_names_in_ = _np.asarray(list(X.columns))
@@ -133,7 +133,7 @@ class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
     def transform(self, X):
         return self._replace(X)
 
-    def fit_transform(self, X, y=None):  # noqa: ARG002
+    def fit_transform(self, X, y=None):
         self.fit(X)
         return self._replace(X)
 

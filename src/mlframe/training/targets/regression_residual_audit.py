@@ -696,8 +696,8 @@ def plot_residual_diagnostics(
         return audit
 
     try:
-        import matplotlib.pyplot as plt  # noqa: F401
-        from matplotlib.lines import Line2D  # noqa: F401
+        import matplotlib.pyplot as plt
+        from matplotlib.lines import Line2D
     except ImportError:
         logger.warning("matplotlib not installed; residual diagnostic plot skipped.")
         return audit

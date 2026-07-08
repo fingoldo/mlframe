@@ -67,6 +67,7 @@ _MAX_PAIRS_PER_GROUP = 4096
 
 
 def _is_polars_df(x: Any) -> bool:
+    """True iff ``x`` is a ``polars.DataFrame`` (polars import is optional; treated as False if unavailable)."""
     try:
         import polars as pl
 
@@ -259,7 +260,7 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
     def _make_default_inner(self) -> tuple[Any, str]:
         """Default inner + its kind: lambdarank when available, else pairwise."""
         try:
-            import lightgbm as lgb  # noqa: F401
+            import lightgbm as lgb
 
             return (
                 __import__("lightgbm").LGBMRanker(objective="lambdarank", n_estimators=200, verbose=-1),
@@ -272,6 +273,8 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
 
     @staticmethod
     def _is_lambdarank_inner(est: Any) -> bool:
+        """True iff a caller-supplied ``base_estimator`` is a ``LGBMRanker`` (routes ``fit``/``inner_score`` down the
+        lambdarank path, matching the auto-selected default's routing when lightgbm is importable)."""
         return type(est).__name__ == "LGBMRanker"
 
     # -- pairwise fallback ------------------------------------------------------
@@ -318,6 +321,10 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
 
     # -- sklearn API ------------------------------------------------------------
     def fit(self, X: Any, y: Any, group: Any | None = None) -> "CompositeRankEstimator":
+        """Fit the composite ranker: residualize ``y`` against the base score within each ``group``, then fit the
+        inner (lambdarank or pairwise-logistic) on that residual per the class docstring's algorithm. Raises if
+        ``group`` is omitted (required despite the default-``None`` signature -- see the inline comment) or if
+        ``residual_mode`` is invalid."""
         # ``group`` keyword with a None default so ``clone(est).fit(X, y)`` works (sklearn's clone/check path calls fit positionally with X, y only).
         if group is None:
             raise ValueError("CompositeRankEstimator.fit requires the per-item ``group`` argument.")
@@ -411,6 +418,7 @@ class CompositeRankEstimator(BaseEstimator, RegressorMixin):
 
 
 def _zscore(a: np.ndarray) -> np.ndarray:
+    """Standard-score ``a`` (zero mean, unit std); returns all-zeros for a constant/degenerate (std 0 or non-finite) input."""
     a = np.asarray(a, dtype=np.float64)
     sd = a.std()
     if sd == 0 or not np.isfinite(sd):
@@ -419,10 +427,11 @@ def _zscore(a: np.ndarray) -> np.ndarray:
 
 
 def _ncols(X: Any) -> int:
+    """Column count of ``X`` across ndarray / pandas / polars carriers, for ``n_features_in_``."""
     if hasattr(X, "shape") and len(getattr(X, "shape", ())) == 2:
         return int(X.shape[1])
     if hasattr(X, "columns"):
-        return int(len(X.columns))
+        return len(X.columns)
     return int(np.asarray(X).shape[1])
 
 

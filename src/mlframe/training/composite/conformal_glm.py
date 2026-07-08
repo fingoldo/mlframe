@@ -81,7 +81,7 @@ def standardized_conformal_quantile(
     n = int(scores.size)
     if n == 0:
         return float("inf")
-    rank = int(math.ceil((n + 1) * (1.0 - alpha)))
+    rank = math.ceil((n + 1) * (1.0 - alpha))
     if rank > n:
         return float("inf")
     return float(np.sort(scores)[rank - 1])

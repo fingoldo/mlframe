@@ -82,6 +82,7 @@ def _default_cache_dir() -> str:
 
 
 def _default_bytes_limit() -> int:
+    """Operator-overridable bytes budget; falls back to ``DEFAULT_BYTES_LIMIT`` on unset / non-integer env var."""
     raw = os.environ.get(DEFAULT_BYTES_LIMIT_ENV, "").strip()
     if not raw:
         return DEFAULT_BYTES_LIMIT
@@ -199,12 +200,15 @@ class SuiteArtefactCache:
     # ----- internal helpers ----------------------------------------------------
 
     def _path(self, key: str) -> str:
+        """Full on-disk path for a given cache key's pickle file."""
         return os.path.join(self.cache_dir, f"{key}.pkl")
 
     def _ensure_dir(self) -> None:
+        """Create the cache directory (and parents) if missing; no-op otherwise."""
         Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
 
     def _file_size(self, path: str) -> int:
+        """Byte size of ``path``, or 0 if it does not exist / is unreadable -- never raises."""
         try:
             return os.path.getsize(path)
         except OSError:
@@ -237,7 +241,10 @@ class SuiteArtefactCache:
         self._lru_initialised = True
 
     def _total_bytes_locked(self) -> int:
-        # Authoritative byte count from disk; the in-memory LRU only tracks access order. Counts both .pkl and the .pkl.sha256 sidecar so the budget check reflects the FULL on-disk footprint. Pre-fix this summed only .pkl, leaving the per-entry ~64-byte sidecar unaccounted -- at N=1000 entries that's a 64 KB blind spot and the operator's budget check was systematically optimistic.
+        """Directory-scan byte total (.pkl + .pkl.sha256); caller must already hold ``self._lock``.
+
+        Authoritative byte count from disk; the in-memory LRU only tracks access order. Counts both .pkl and the .pkl.sha256 sidecar so the budget check reflects the FULL on-disk footprint. Pre-fix this summed only .pkl, leaving the per-entry ~64-byte sidecar unaccounted -- at N=1000 entries that's a 64 KB blind spot and the operator's budget check was systematically optimistic.
+        """
         total = 0
         try:
             with os.scandir(self.cache_dir) as it:
@@ -481,7 +488,10 @@ def cache_artefact(
     """
 
     def _default_key_builder(*args: Any, **kwargs: Any) -> str:
-        # Coarse fallback: hash the args/kwargs repr. Adequate for cheap-to-rebuild artefacts; callers needing precise content-keying provide their own builder.
+        """Hash the call args/kwargs repr into a ``SuiteKeyBuilder`` digest; see the ``key_builder`` param doc above.
+
+        Coarse fallback: hash the args/kwargs repr. Adequate for cheap-to-rebuild artefacts; callers needing precise content-keying provide their own builder.
+        """
         try:
             blob = _canonical_dump({"args": [repr(a) for a in args], "kwargs": {k: repr(v) for k, v in sorted(kwargs.items())}})
         except Exception:
@@ -490,10 +500,12 @@ def cache_artefact(
         return SuiteKeyBuilder.build(df_fp=df_fp, config_canonical={"name": name})
 
     def _decorator(fn: Callable) -> Callable:
+        """Bind ``fn`` to the resolved ``key_builder`` and wrap it with the memoising ``_wrapper``."""
         kb = key_builder or _default_key_builder
 
         @functools.wraps(fn)
         def _wrapper(*args: Any, **kwargs: Any) -> Any:
+            """Look up the artefact cache before calling ``fn``; on miss, compute + best-effort persist, never raising on a cache failure."""
             c = cache if cache is not None else get_default_cache()
             try:
                 key = kb(*args, **kwargs)

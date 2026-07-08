@@ -622,12 +622,12 @@ def report_model_perf(
 # below the 1k-line monolith threshold. Re-exported below so existing
 # callers (`from .._reporting import report_probabilistic_model_perf`)
 # keep working.
-from ._reporting_probabilistic import report_probabilistic_model_perf  # noqa: F401, E402
+from ._reporting_probabilistic import report_probabilistic_model_perf
 # report_regression_model_perf (~650 lines) moved to sibling file
 # _reporting_regression.py for the same 1k-line monolith threshold;
 # re-exported below.
-from ._reporting_regression import report_regression_model_perf  # noqa: F401, E402
-from ._reporting_diagnostics import (  # noqa: F401, E402
+from ._reporting_regression import report_regression_model_perf
+from ._reporting_diagnostics import (
     _binary_positive_score,
     _build_learning_curve,
     _extract_training_history,

@@ -131,6 +131,7 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
         return train_df, val_df, test_df
 
     def _ensure_copy(df, flag):
+        """Return a shallow (buffer-sharing) copy of ``df`` and mark it with ``flag`` the first time a mutation is about to happen, so repeated alignment passes on the same frame don't re-copy it on every column."""
         if df is None:
             return df
         if not getattr(df, flag, False):
@@ -207,6 +208,7 @@ def _decategorise_float_cat_columns(train_df, val_df=None, test_df=None):
     """
 
     def _decat(df):
+        """Scan one frame for categorical columns whose category levels are floats and cast them back to plain numeric columns; returns ``df`` unchanged if it is None, not a pandas DataFrame, or has nothing to decategorise."""
         if df is None or not isinstance(df, pd.DataFrame):
             return df
         decat_cols = []
@@ -667,4 +669,4 @@ def _render_split_diagnostics(
             )
 
 
-from ._confidence_analysis import run_confidence_analysis  # noqa: F401
+from ._confidence_analysis import run_confidence_analysis

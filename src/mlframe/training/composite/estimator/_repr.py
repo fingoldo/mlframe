@@ -72,6 +72,7 @@ def _repr_html_(self: Any) -> str:
 
 
 def _build_repr_html(self: Any) -> str:
+    """Assemble the actual HTML body for the notebook repr (config, resolved base column(s), fitted-state summary); split out so the public `_repr_html_` wrapper can catch any failure here and degrade to an error div instead of raising."""
     transform_name = getattr(self, "transform_name", "?")
     # Resolved base column(s): prefer the canonical resolver so the multi-base
     # path and the single-column legacy alias both render correctly.

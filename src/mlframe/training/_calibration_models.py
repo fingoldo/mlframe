@@ -38,6 +38,7 @@ class _SigmoidAdapter:
         self.lr = lr
 
     def predict(self, x):
+        """Returns positive-class probabilities for a 1-D score column, matching IsotonicRegression's ``.predict`` signature."""
         import numpy as _np
 
         return self.lr.predict_proba(_np.asarray(x).reshape(-1, 1))[:, 1]
@@ -77,6 +78,7 @@ class _SigmoidLogitAdapter:
         self.lr = lr
 
     def predict(self, x):
+        """Maps a probability column through logit -> fitted logistic and returns calibrated positive-class probabilities."""
         import numpy as _np
 
         eps = 1e-6
@@ -122,6 +124,7 @@ class _PostHocCalibratedModel:
         object.__setattr__(self, "_calibrator", state["_calibrator"])
 
     def predict_proba(self, X):
+        """Runs the base classifier's ``predict_proba`` then remaps the positive-class column through the fitted calibrator, renormalizing both columns to sum to 1; non-binary output passes through unchanged."""
         import numpy as _np
 
         raw = self.base.predict_proba(X)
@@ -134,6 +137,7 @@ class _PostHocCalibratedModel:
         return raw
 
     def predict(self, X):
+        """Thresholds the calibrated positive-class probability at 0.5 to recover a class label, falling back to the base model's own ``predict`` when probabilities aren't binary-shaped."""
         import numpy as _np
 
         probs = self.predict_proba(X)
@@ -326,6 +330,7 @@ class _PostHocMultiCalibratedModel:
             object.__setattr__(self, k, v)
 
     def predict_proba(self, X):
+        """Normalises the base model's raw output into an (N, K) probability matrix aligned to ``classes_``, then applies the per-class isotonic calibrator."""
         from .helpers import _canonical_predict_proba_shape
 
         raw = self.base.predict_proba(X)
@@ -334,6 +339,7 @@ class _PostHocMultiCalibratedModel:
         return self._calibrator.predict_proba(probs_NK)
 
     def predict(self, X):
+        """Derives hard labels from the calibrated probabilities, respecting the target type (multiclass argmax vs multilabel per-class threshold)."""
         from .helpers import _predict_from_probs
 
         probs = self.predict_proba(X)

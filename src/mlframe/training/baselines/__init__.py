@@ -16,7 +16,7 @@ live in the ``_dummy_*`` and ``_baseline_diagnostics_*`` submodules.
 """
 from __future__ import annotations
 
-from .dummy import (  # noqa: F401
+from .dummy import (
     compute_dummy_baselines,
     format_suite_end_summary,
     format_unified_target_verdict_table,
@@ -25,7 +25,7 @@ from .dummy import (  # noqa: F401
     _baseline_inputs_hash,
     _warmup_numba_kernels,
 )
-from .diagnostics import (  # noqa: F401
+from .diagnostics import (
     BaselineDiagnostics,
     BaselineDiagnosticsReport,
     AblationEntry,

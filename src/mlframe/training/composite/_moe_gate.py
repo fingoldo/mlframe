@@ -120,6 +120,7 @@ __all__ = ["MoESelectionGate"]
 
 
 def _as1d(a: Any) -> np.ndarray:
+    """Coerce ``a`` to a C-contiguous 1-D float64 array."""
     return np.ascontiguousarray(np.asarray(a, dtype=np.float64).reshape(-1))
 
 
@@ -159,6 +160,7 @@ def _grouped_sse_bincount(codes, w, y, P, n_groups, n_experts, lag_idx):
     all_ok = base & finite_P.all(axis=1)
 
     def _reduce(mask):
+        """Bincount-reduce rows selected by ``mask`` into per-group row counts, weight totals, and per-expert weighted SSE."""
         cv = codes[mask]
         wv = w[mask]
         yv = y[mask]
@@ -176,6 +178,7 @@ def _grouped_sse_bincount(codes, w, y, P, n_groups, n_experts, lag_idx):
 
 
 def _grouped_sse(codes, w, y, P, n_groups, n_experts, lag_idx):
+    """Dispatch to the numba fused kernel (``_grouped_sse_njit``) when available, else the vectorized bincount fallback (``_grouped_sse_bincount``); both return the same 6-tuple of matched-row counts / weight totals / weighted SSE for the full and no-lag matched sets."""
     if _HAVE_NUMBA:
         return _grouped_sse_njit(np.ascontiguousarray(codes, dtype=np.int64), w, y, np.ascontiguousarray(P), n_groups, n_experts, lag_idx)
     return _grouped_sse_bincount(codes, w, y, P, n_groups, n_experts, lag_idx)
@@ -350,6 +353,7 @@ class MoESelectionGate:
         return min(cand, key=lambda k: rmse[k])
 
     def _pick_per_group(self, rows_all, W_all, sse_all, rows_nl, W_nl, sse_nl) -> np.ndarray:
+        """Per-group expert choice: use the fully-matched (tier-1) set when it has >= ``min_group_rows``, else fall back to the no-lag (tier-2) set, else defer to the global fallback expert."""
         choice = np.empty(self._n_groups, dtype=np.int64)
         m = self.min_group_rows
         for g in range(self._n_groups):
@@ -402,6 +406,7 @@ class MoESelectionGate:
         return out
 
     def _empty_guarantee(self) -> dict:
+        """Vacuous guarantee dict for an empty fit (no rows / no groups): trivially not-worse-than-lag since nothing was matched."""
         return {
             "pooled_rmse_per_expert": {}, "pooled_rmse_gate": None,
             "not_worse_than_lag": True, "not_worse_than_best_single": True,
@@ -436,6 +441,7 @@ class MoESelectionGate:
         return np.asarray(names[idx])
 
     def _choice_idx_per_row(self, codes: np.ndarray) -> np.ndarray:
+        """Map per-row fitted group codes to a chosen-expert column index, using ``group_choice_idx_`` for seen groups and ``_global_idx`` for unseen/negative codes."""
         seen = (codes >= 0) & (codes < self._n_groups)
         idx = np.full(codes.shape[0], self._global_idx, dtype=np.int64)
         if seen.any():

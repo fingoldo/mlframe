@@ -59,6 +59,7 @@ def _is_polars_df(x: Any) -> bool:
 
 
 def _to_1d_numpy(y: Any) -> np.ndarray:
+    """Coerce any array-like target to a flat float64 ndarray."""
     return np.asarray(y, dtype=np.float64).ravel()
 
 
@@ -207,6 +208,7 @@ class CompositePanelEstimator(BaseEstimator, RegressorMixin):
 
     # -- sklearn API -------------------------------------------------------
     def fit(self, X: Any, y: Any, entity_id: Optional[Any] = None) -> "CompositePanelEstimator":
+        """Compute shrunken per-entity offsets from ``y``, demean the target by them, and fit ``inner_estimator`` on the within-entity residual."""
         y_arr = _to_1d_numpy(y)
         n = y_arr.shape[0]
         ids = _resolve_entity_ids(X, self.entity_column, entity_id, n)
@@ -226,6 +228,7 @@ class CompositePanelEstimator(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X: Any, entity_id: Optional[Any] = None) -> np.ndarray:
+        """Predict the within-entity component via ``inner_``, then add back the entity's (shrunken) fixed-effect offset, falling back to the global mean for unseen entities."""
         if not hasattr(self, "inner_"):
             raise NotFittedError("CompositePanelEstimator: call fit before predict.")
         n = getattr(X, "shape", (0, 0))[0]

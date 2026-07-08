@@ -40,8 +40,8 @@ from mlframe.training.feature_handling.system import detect_memory_limit_bytes
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    import pandas as pd  # noqa: F401
-    import polars as pl  # noqa: F401
+    import pandas as pd
+    import polars as pl
 
 
 # =====================================================================
@@ -281,7 +281,7 @@ class FeatureHandlingConfig(BaseConfig):
     cache: CacheConfig = Field(default_factory=CacheConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     pricing: PricingConfig = Field(default_factory=PricingConfig)
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)  # noqa: A003
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
     repro: ReproConfig = Field(default_factory=ReproConfig)
 
     # === Auto-derived (filled by validator at construction)

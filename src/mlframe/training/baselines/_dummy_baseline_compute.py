@@ -210,6 +210,7 @@ def _per_group_predict_polars(
     # 20.96s; reusing the joined frame drops 1 redundant val_X join (~1s)
     # + 2 is_in scans (~0.5s each).
     def _predict_with_join(side_X: Any):
+        """Left-join ``side_X``'s category column onto ``stats_df`` to attach per-group mean/size; unmatched groups get null stats (filled by the caller)."""
         return side_X.select(cat_col).join(stats_df, on=cat_col, how="left")
 
     train_joined = _predict_with_join(train_X)
@@ -332,7 +333,7 @@ def _per_group_predict(
         "val_coverage_pct": float(val_coverage),
         "test_coverage_pct": float(test_coverage),
         "repeat_entity_rate": float(val_high_overlap),
-        "n_groups_train": int(len(train_groups)),
+        "n_groups_train": len(train_groups),
         "global_fallback": global_mean,
     }
 
@@ -518,6 +519,7 @@ def compute_dummy_baselines(
         _cls_sorted = unique_classes
         if len(_cls_sorted) and not np.array_equal(_cls_sorted, np.arange(len(_cls_sorted))):
             def _enc(_y):
+                """Remap raw class labels to their sorted-position index via searchsorted; passthrough on already-0..K-1 labels, None-safe for optional splits."""
                 if _y is None:
                     return None
                 return np.searchsorted(_cls_sorted, np.asarray(_y)).astype(np.int64)

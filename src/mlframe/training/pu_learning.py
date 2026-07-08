@@ -289,6 +289,8 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
     # Strategy: unbiased_only
     # ------------------------------------------------------------------
     def _fit_unbiased_only(self, X, y, is_unbiased, **fit_params):
+        """Discard all biased rows and fit the base estimator directly on the unbiased subset;
+        the simplest strategy, works well when the unbiased subset is large enough on its own."""
         X_ub = self._subset(X, is_unbiased)
         y_ub = y[is_unbiased]
         self.base_estimator_ = clone(self.base_estimator)
@@ -327,6 +329,9 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
     # Strategy: elkan_noto
     # ------------------------------------------------------------------
     def _fit_elkan_noto(self, X, y, is_unbiased, **fit_params):
+        """Elkan & Noto (2008) PU strategy: fit a proxy classifier g(x) on the "is labeled" indicator
+        s, then estimate the label frequency c = P(s=1|y=1) from unbiased true positives and recover
+        f(x) = g(x)/c at inference time. Optionally class-balances the proxy target via sample_weight."""
         # Construct proxy label: s=1 if biased OR (unbiased AND y=1)
         s = ((y == 1) | (~is_unbiased)).astype(np.int8)
 
@@ -424,9 +429,11 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
         return np.column_stack([1.0 - f, f])
 
     def predict(self, X: Any, threshold: float = 0.5) -> np.ndarray:
+        """Hard label from the strategy-recovered P(y=1|x), thresholded at 0.5 by default."""
         return (self.predict_proba(X)[:, 1] >= threshold).astype(np.int8)
 
     def decision_function(self, X: Any) -> np.ndarray:
+        """Score used by sklearn utilities expecting a decision_function; here just P(y=1|x)."""
         return self.predict_proba(X)[:, 1]
 
     @staticmethod

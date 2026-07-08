@@ -72,7 +72,7 @@ from mlframe.training.io import atomic_write_bytes
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    import scipy.sparse  # noqa: F401
+    import scipy.sparse
 
 
 # =====================================================================
@@ -135,6 +135,7 @@ class FeatureCache:
     # ------------------------------------------------------------------
 
     def stats(self) -> Dict[str, Any]:
+        """Snapshot of current cache size/hit-rate counters, consumed by ``fhc.describe()``."""
         with self._lock:
             ram_bytes = sum(e.size_bytes for e in self._mem.values())
             return {
@@ -228,6 +229,7 @@ class FeatureCache:
         size_estimator: Optional[Callable[[Any], int]],
         disk_key: Optional[DiskKey] = None,
     ) -> None:
+        """Wrap ``value`` in a ``_CacheEntry``, insert/refresh it at the MRU end, and evict if the tier is now over budget."""
         size = (size_estimator or _default_size_estimator)(value)
         entry = _CacheEntry(
             value=value,
@@ -317,9 +319,11 @@ class FeatureCache:
         return d
 
     def _path_for(self, disk_key: DiskKey) -> str:
+        """Resolve the on-disk cache file path for a given ``DiskKey``."""
         return os.path.join(self._disk_dir(), disk_key.filename())
 
     def _read_from_disk(self, disk_key: DiskKey) -> Optional[Any]:
+        """Read and deserialise the disk-tier entry for ``disk_key``, returning None on any miss (missing file or corrupt payload)."""
         path = self._path_for(disk_key)
         # Wave 48 (2026-05-20): the prior exists-then-deserialize was redundant
         # (the except Exception already handled missing-file). Drop the precheck
@@ -338,6 +342,7 @@ class FeatureCache:
             return None
 
     def _write_to_disk(self, disk_key: DiskKey, value: Any) -> None:
+        """Atomically serialise ``value`` to the disk tier; a write failure is logged and swallowed since the in-memory tier already has the value."""
         path = self._path_for(disk_key)
         allow_pickle = bool(getattr(self._cfg, "allow_pickle", False))
         try:

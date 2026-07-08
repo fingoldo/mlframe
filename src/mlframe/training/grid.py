@@ -17,6 +17,7 @@ GridEntry = Union[Dict[str, Any], Tuple[str, Dict[str, Any]]]
 
 
 def _label_for(entry: GridEntry, idx: int) -> tuple[str, dict[str, Any]]:
+    """Normalize one grid entry to ``(label, kwargs)``: a bare dict gets an auto label ``variant_{idx}``; a ``(label, dict)`` tuple is validated and returned as-is."""
     if isinstance(entry, tuple):
         if len(entry) != 2 or not isinstance(entry[0], str) or not isinstance(entry[1], dict):
             raise TypeError(f"grid entry {idx} must be dict or (label, dict); got {type(entry).__name__}")
@@ -64,7 +65,7 @@ def run_grid(
         logger.info("[run_grid] variant %d/%s -- %s", idx + 1, label, sorted(overrides.keys()))
         try:
             results[label] = suite_fn(**merged)
-        except Exception as exc:  # noqa: BLE001 -- we deliberately keep going
+        except Exception as exc:
             logger.exception("[run_grid] variant %s raised %s", label, type(exc).__name__)
             if stop_on_error:
                 raise

@@ -31,7 +31,7 @@ class _RingBuffer:
     capacity keeps only its last ``capacity`` rows).
     """
 
-    __slots__ = ("_store", "_view", "_head", "_count", "capacity")
+    __slots__ = ("_count", "_head", "_store", "_view", "capacity")
 
     def __init__(self, capacity: int) -> None:
         self.capacity = max(int(capacity), 1)

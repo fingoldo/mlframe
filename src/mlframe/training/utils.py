@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 
-from ._ram_helpers import _caller_logger, log_ram_usage, maybe_clean_ram_adaptive, clean_ram_and_gpu, estimate_df_size_mb, get_process_rss_mb, should_clean_ram, maybe_clean_ram_and_gpu  # noqa: E402,F401
+from ._ram_helpers import _caller_logger, log_ram_usage, maybe_clean_ram_adaptive, clean_ram_and_gpu, estimate_df_size_mb, get_process_rss_mb, should_clean_ram, maybe_clean_ram_and_gpu
 from pyutilz.system import get_own_memory_usage
 
 
@@ -350,6 +350,7 @@ def compute_model_input_fingerprint(
     # are reduced via ``model_dump``; ndarrays / lists are summarised by
     # (length, first/middle/last) to keep the hash O(1).
     def _idx_digest(idx) -> str:
+        """Summarise an index-like array as ``n<size>:first:mid:last`` in O(1), avoiding a full-array hash."""
         if idx is None:
             return "none"
         try:
@@ -363,6 +364,7 @@ def compute_model_input_fingerprint(
             return f"unhashable_{type(idx).__name__}"
 
     def _config_digest(cfg) -> str:
+        """Reduce a config object (pydantic model, dict, or arbitrary object) to a stable blake2b digest over its sorted-key JSON payload."""
         if cfg is None:
             return "none"
         try:
@@ -382,7 +384,7 @@ def compute_model_input_fingerprint(
             return "uncached"
 
     try:
-        n_rows = int(len(df_at_fit))
+        n_rows = len(df_at_fit)
     except Exception:
         n_rows = -1
 
@@ -602,6 +604,7 @@ def get_pandas_view_of_polars_df(
                 _MAX_DTYPE_REPR = 80
                 _MAX_COLS_SHOWN = 3
                 def _truncate_dtype(s: str) -> str:
+                    """Cap a dtype repr at ``_MAX_DTYPE_REPR`` chars so a large ``pl.Enum`` category list doesn't flood the log."""
                     if len(s) <= _MAX_DTYPE_REPR:
                         return s
                     return s[:_MAX_DTYPE_REPR - 5] + "...)"
@@ -845,4 +848,4 @@ def save_series_or_df(
         obj.write_parquet(file, compression=compression)  # type: ignore[arg-type]  # compression is a validated free-form str at the public API boundary; polars narrows to a Literal set at runtime
 
 
-from ._nan_processing import _process_special_values, process_nans, process_nulls, process_infinities, get_numeric_columns, get_categorical_columns, remove_constant_columns  # noqa: E402,F401
+from ._nan_processing import _process_special_values, process_nans, process_nulls, process_infinities, get_numeric_columns, get_categorical_columns, remove_constant_columns

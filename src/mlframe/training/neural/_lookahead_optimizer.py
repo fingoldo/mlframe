@@ -104,18 +104,22 @@ class Lookahead(Optimizer):
 
     @property
     def param_groups(self) -> List[dict]:
+        """Delegate to ``base_optimizer.param_groups`` so Lightning's scheduler attachment sees the wrapped optimizer's real param groups."""
         return self.base_optimizer.param_groups
 
     @param_groups.setter
     def param_groups(self, value: List[dict]) -> None:
+        """Forward a param_groups assignment to the wrapped optimizer."""
         self.base_optimizer.param_groups = value
 
     @property  # type: ignore[override]  # Lookahead wraps base_optimizer and intentionally delegates state as a property
     def state(self) -> dict:
+        """Delegate to ``base_optimizer.state`` (Lookahead keeps its own slow-weight state separately in ``_slow_weights``, not here)."""
         return self.base_optimizer.state
 
     @state.setter
     def state(self, value: dict) -> None:
+        """Forward a state assignment to the wrapped optimizer."""
         self.base_optimizer.state = value  # type: ignore[assignment]  # torch's Optimizer.state stub is narrower (defaultdict[Tensor, Any]) than the plain dict this setter accepts
 
     def add_param_group(self, param_group: dict) -> None:
@@ -173,6 +177,7 @@ class Lookahead(Optimizer):
         }
 
     def load_state_dict(self, state_dict: dict) -> None:
+        """Restore base-optimizer state, step count, and slow weights from ``state_dict`` (the format written by ``state_dict``), re-binding slow weights to current params by (group_idx, param_idx) and moving each tensor to the matching param's device/dtype. Entries for params no longer present (architecture mismatch) are silently dropped and fall through to lazy-snapshot on the next ``step``."""
         self.base_optimizer.load_state_dict(state_dict["base"])
         self._step_count = state_dict.get("step_count", 0)
         # F-A: re-bind slow weights to current params by group/param index.
@@ -194,12 +199,14 @@ class Lookahead(Optimizer):
             )
 
     def zero_grad(self, set_to_none: bool = True) -> None:
+        """Forward ``zero_grad`` to the wrapped base optimizer."""
         self.base_optimizer.zero_grad(set_to_none=set_to_none)
 
     # ---- The actual lookahead logic ----------------------------------
 
     @torch.no_grad()
     def step(self, closure=None):
+        """Run one base-optimizer step, then every ``k``-th call interpolate the slow-weight anchor toward the fast weights (``slow += alpha * (fast - slow)``) and copy the result back into the live params (``fast <- slow``) per Zhang 2019 Algorithm 1. Params with no existing slow-weight entry (added after construction) are snapshotted at their current fast value instead of interpolated. Returns whatever ``closure`` returned from the base step."""
         loss = self.base_optimizer.step(closure)
         self._step_count += 1
         if self._step_count % self.k != 0:

@@ -94,7 +94,7 @@ def shutdown_prewarm_executor(wait: bool = False) -> None:
 # Register the shutdown so interpreter exit reliably reclaims the executor's
 # worker threads even if a hot-reload path didn't call shutdown_prewarm_executor
 # explicitly. ``wait=False`` so the exit isn't delayed by in-flight prewarms.
-import atexit as _atexit  # noqa: E402 -- module-level state block
+import atexit as _atexit
 _atexit.register(shutdown_prewarm_executor, wait=False)
 
 
@@ -265,6 +265,7 @@ def prewarm(provider: FrozenFeaturizerProvider) -> Future:
     signature = provider.signature
 
     def _do_load():
+        """Submitted to the prewarm executor: register/find the entry and eagerly ``acquire()`` it, dropping the entry from the registry on failure so a subsequent ``acquire_provider`` gets a fresh provider instead of repeating the same dead one."""
         # acquire_provider is a context manager; for prewarm we want
         # to load weights but NOT bump refcount (we have no consumer
         # yet). Call provider.acquire() under the registry lock
@@ -310,6 +311,7 @@ def prewarm(provider: FrozenFeaturizerProvider) -> Future:
         # would be silently retained. Attach a done-callback so an unawaited failure
         # at least logs once.
         def _log_unhandled(_fut: "Future") -> None:
+            """Done-callback: log a prewarm exception once if the caller never called ``wait_prewarm`` to surface it themselves."""
             try:
                 exc = _fut.exception(timeout=0)
             except Exception:

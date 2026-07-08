@@ -61,7 +61,7 @@ def conformal_set_threshold(scores: np.ndarray, alpha: float) -> float:
         raise ValueError(f"conformal alpha must be in (0, 1), got {alpha!r}")
     if n == 0:
         return float("inf")
-    rank = int(math.ceil((n + 1) * (1.0 - alpha)))
+    rank = math.ceil((n + 1) * (1.0 - alpha))
     if rank > n:
         return float("inf")
     return float(np.sort(s)[rank - 1])
@@ -80,7 +80,7 @@ def _aps_true_label_scores(proba: np.ndarray, y_enc: np.ndarray) -> np.ndarray:
     of probabilities of every label ranked at least as likely as the true one,
     INCLUDING the true label itself (the non-randomised APS score).
     """
-    n, k = proba.shape
+    n, _k = proba.shape
     order = np.argsort(-proba, axis=1, kind="stable")  # most -> least likely
     sorted_p = np.take_along_axis(proba, order, axis=1)
     cum = np.cumsum(sorted_p, axis=1)

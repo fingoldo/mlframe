@@ -33,6 +33,7 @@ class OODLagRouter:
         self.hi = float(hi)
 
     def predict(self, X: Any) -> np.ndarray:
+        """Blend trained-model and lag-baseline predictions: rows whose finite lag falls outside ``[lo, hi]`` take the lag value, everything else keeps the trained prediction."""
         raw = np.asarray(self.trained.predict(X), dtype=np.float64)
         lag = np.asarray(self.lag_component.predict(X), dtype=np.float64)
         out = raw.copy()
@@ -47,6 +48,7 @@ class OODLagRouter:
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """RMSE over the finite-paired subset; returns NaN below 50 usable pairs so routing decisions never trust a noisy few-sample estimate."""
     f = np.isfinite(y_true) & np.isfinite(y_pred)
     if int(f.sum()) < 50:
         return float("nan")
@@ -87,7 +89,7 @@ def build_ood_lag_router(
     try:
         raw_val = np.asarray(trained.predict(filtered_val_df), dtype=np.float64)
         lag_val = np.asarray(lag_component.predict(filtered_val_df), dtype=np.float64)
-    except Exception as exc:  # noqa: BLE001 -- a component that cannot predict on val -> no routing
+    except Exception as exc:
         logger.info("[OODLagRouter] val predict failed (%s); routing skipped.", exc)
         return trained
     if raw_val.shape != yv.shape or lag_val.shape != yv.shape:

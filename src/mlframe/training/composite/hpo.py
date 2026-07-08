@@ -85,7 +85,7 @@ class HPOSpace:
         if self.kind == "int":
             if self.log:
                 lo, hi = math.log(max(self.low, 1e-12)), math.log(self.high)
-                return int(round(math.exp(rng.uniform(lo, hi))))
+                return round(math.exp(rng.uniform(lo, hi)))
             return rng.randint(int(self.low), int(self.high))
         if self.kind == "float":
             if self.log:
@@ -252,7 +252,7 @@ def _cv_score_candidate(
             est.fit(X_tr, y_tr)
             pred = np.asarray(est.predict(X_te), dtype=np.float64)
             fold_scores.append(float(scorer(y_te, pred)))
-        except Exception as err:  # noqa: BLE001 -- penalise, don't crash search
+        except Exception as err:
             logger.debug("optimize_composite: candidate %r/%r fold failed: %r", transform_name, inner_params, err)
             fold_scores.append(float("inf"))
     if not fold_scores:

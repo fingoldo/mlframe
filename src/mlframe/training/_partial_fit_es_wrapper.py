@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 
 
 def _split_train_val(X, y, val_size: float, random_state: int | None):
+    """Split ``(X, y)`` into train/val via a plain ``sklearn.train_test_split`` (random shuffle, no time-order preserved).
+
+    Returns ``(X_tr, X_val, y_tr, y_val)`` matching sklearn's ``train_test_split`` order.
+    """
     from sklearn.model_selection import train_test_split
     # ``random_state=None`` deliberately falls through to sklearn's global RNG so the
     # internal ES split varies with the outer seed instead of being pinned to a fixed
@@ -79,6 +83,7 @@ def _binary_or_multiclass_log_loss() -> Callable:
     from mlframe.metrics.core import fast_log_loss_binary
 
     def _log_loss(y, p):
+        """Compute log-loss: the fast binary kernel for (n,) positive-class proba, sklearn's multiclass ``log_loss`` for (n,C>2) proba matrices."""
         p = np.asarray(p)
         if p.ndim == 1:
             return float(fast_log_loss_binary(np.asarray(y), p))
@@ -94,6 +99,7 @@ def _binary_or_multiclass_auc() -> Callable:
     from mlframe.metrics.core import fast_roc_auc
 
     def _auc(y, p):
+        """Compute ROC-AUC: the fast binary kernel for (n,) positive-class proba, sklearn one-vs-rest ``roc_auc_score`` for (n,C>2) proba matrices."""
         p = np.asarray(p)
         if p.ndim == 1:
             return float(fast_roc_auc(np.asarray(y), p))
@@ -188,6 +194,11 @@ class PartialFitESWrapper:
     # -- sklearn-style API ----------------------------------------------------
 
     def get_params(self, deep: bool = True) -> dict:
+        """Return the wrapper's own constructor hyperparameters (not the wrapped estimator's) as a dict, per the sklearn estimator protocol.
+
+        ``deep`` is accepted for signature compatibility but unused: the wrapped ``estimator`` is returned as-is (not
+        recursively expanded into its own params), so callers that need its sub-params must call ``self.estimator.get_params()``.
+        """
         return dict(estimator=self.estimator, metric=self.metric, patience=self.patience,
                     min_delta=self.min_delta, val_size=self.val_size,
                     random_state=self.random_state, max_iter=self.max_iter,
@@ -196,11 +207,23 @@ class PartialFitESWrapper:
                     verbose=self.verbose)
 
     def set_params(self, **kw) -> "PartialFitESWrapper":
+        """Set wrapper attributes directly via ``setattr`` for each keyword, per the sklearn estimator protocol.
+
+        No validation against the constructor's known param names; unrecognised keywords are simply set as new
+        instance attributes rather than raising.
+        """
         for k, v in kw.items():
             setattr(self, k, v)
         return self
 
     def fit(self, X, y, *, X_val=None, y_val=None, **_unused) -> "PartialFitESWrapper":
+        """Fit the wrapped estimator with early stopping, dispatching to the partial_fit or dichotomic strategy by capability.
+
+        Resolves the val set (explicit kwargs > ``external_X_val``/``external_y_val`` > internal split), resolves the
+        metric via ``_resolve_metric``, then routes to ``_fit_partial`` when ``estimator`` exposes ``partial_fit``,
+        else to ``_fit_dichotomic`` when ``budget_param`` names an existing estimator hyperparameter. Raises
+        ``ValueError`` if neither ES strategy is applicable. Sets ``self._fitted = True`` and returns ``self``.
+        """
         # Resolution order for the val set used by the ES callback:
         #   1. explicit X_val= / y_val= kwargs win,
         #   2. external_X_val / external_y_val supplied at construction,
@@ -229,9 +252,16 @@ class PartialFitESWrapper:
         return self
 
     def predict(self, X):
+        """Delegate directly to the wrapped (post-ES) estimator's ``predict``, no pre/post-processing."""
         return self.estimator.predict(X)
 
     def predict_proba(self, X):
+        """Return class probabilities, delegating to the wrapped estimator's ``predict_proba`` when available.
+
+        Falls back to synthesising probabilities from ``decision_function`` via sigmoid (binary) or softmax
+        (multiclass) for estimators that only expose a decision function (e.g. ``RidgeClassifier``, ``LinearSVC``).
+        Raises ``AttributeError`` if neither is available.
+        """
         if hasattr(self.estimator, "predict_proba"):
             return self.estimator.predict_proba(X)
         # Fallback for estimators with decision_function only (e.g. RidgeClassifier, LinearSVC).
@@ -248,6 +278,7 @@ class PartialFitESWrapper:
         raise AttributeError("Underlying estimator has no predict_proba or decision_function")
 
     def score(self, X, y):
+        """Delegate directly to the wrapped estimator's own ``score`` method (its native scoring convention, e.g. R^2 or accuracy), not the ES metric."""
         return self.estimator.score(X, y)
 
     def __getattr__(self, name: str) -> Any:
@@ -269,6 +300,15 @@ class PartialFitESWrapper:
     # -- internal: partial_fit strategy ---------------------------------------
 
     def _fit_partial(self, X_tr, y_tr, X_val, y_val, metric_fn, metric_name, mode) -> None:
+        """Run the partial_fit epoch loop with patience-based early stopping via a ``UniversalCallback``.
+
+        Each epoch calls ``estimator.partial_fit`` once over the FULL ``X_tr``/``y_tr`` (passing ``classes=`` on the
+        first call for classification, since some sklearn ``partial_fit`` implementations require it up front), then
+        evaluates the metric on ``X_val``/``y_val`` via ``_predict_for_eval`` and feeds it to the callback. Stops when
+        ``cb.should_stop()`` fires (patience/curve-shape exhausted, ``stopped_via = "patience"``) or after
+        ``max_iter`` epochs (``stopped_via = "max_iter_hit"``). Sets ``self.best_iter``/``self.best_metric`` from the
+        callback and appends each epoch's metric to ``self.history``.
+        """
         from .callbacks import UniversalCallback
         # partial_fit on classification often needs the class list on first call.
         classes = np.unique(y_tr) if self.is_classification else None
@@ -333,6 +373,7 @@ class PartialFitESWrapper:
         _budget_param = self.budget_param
 
         def score_at(budget: int) -> float:
+            """Clone the estimator, refit from scratch at ``budget_param=budget`` on the full train set, evaluate the val metric, and cache ``(score, fitted_estimator)`` in ``scores[budget]`` for the bisection loop / final winner lookup."""
             from sklearn.base import clone
             est = clone(self.estimator)
             est.set_params(**{_budget_param: int(budget)})

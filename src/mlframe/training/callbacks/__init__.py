@@ -15,13 +15,13 @@ documented package path.
 """
 from __future__ import annotations
 
-from ._callbacks import (  # noqa: F401
+from ._callbacks import (
     UniversalCallback,
     LightGBMCallback,
     XGBoostCallback,
     CatBoostCallback,
 )
-from .stop_file import (  # noqa: F401
+from .stop_file import (
     stop_file,
     CatBoostStopFileCallback,
     LightGBMStopFileCallback,

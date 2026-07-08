@@ -26,6 +26,7 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
     """
 
     def fit(self, X, y, **fit_params):
+        """Fit the target transformer on ``y``, transform any ``eval_set`` y-values through it, stash y-train clip bounds for the predict-time defensive clip, then delegate to the parent ``fit`` (which refits the transformer and the inner regressor)."""
         # Fit the transformer FIRST on y so we have the same scale to apply to eval_set's y_val. Mirrors what ``TransformedTargetRegressor.fit`` does internally.
         y_arr = np.asarray(y, dtype=np.float64)
         if y_arr.ndim == 1:

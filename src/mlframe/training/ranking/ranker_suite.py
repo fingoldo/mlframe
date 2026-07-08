@@ -191,4 +191,4 @@ __all__ = ["train_mlframe_ranker_suite", "rrf_fuse", "borda_fuse"]
 # body lives in ``_ranker_suite_train.py`` so this file stays below the
 # 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._ranker_suite_train import train_mlframe_ranker_suite  # noqa: E402,F401
+from ._ranker_suite_train import train_mlframe_ranker_suite

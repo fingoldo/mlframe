@@ -227,6 +227,7 @@ class HeteroscedasticCompositeEstimator(BaseEstimator, RegressorMixin):
 
     # ------------------------------------------------------------------
     def _check_fitted(self) -> None:
+        """Raise sklearn's NotFittedError if fit() has not populated mean_estimator_ yet, guarding predict/score-style entry points."""
         if not hasattr(self, "mean_estimator_"):
             from sklearn.exceptions import NotFittedError
 

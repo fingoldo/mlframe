@@ -313,7 +313,7 @@ class CompositeTargetDiscovery:
         # subsample is meaningless for fitting transform params, so fall back to
         # the full train_idx in that pathological case.
         _frac = float(subsample_fraction)
-        _sub_n = _n_train if _frac >= 1.0 else max(2, int(round(_frac * _n_train)))
+        _sub_n = _n_train if _frac >= 1.0 else max(2, round(_frac * _n_train))
         _sub_n = min(_sub_n, _n_train)
         keep_counter: Counter = Counter()
         spec_by_name: dict[str, CompositeSpec] = {}
@@ -583,11 +583,11 @@ class CompositeTargetDiscovery:
 # binding here makes ``CompositeTargetDiscovery._tiny_model_rerank`` resolve
 # to that function so ``self._tiny_model_rerank(...)`` call sites keep
 # working unchanged.
-from ._tiny_rerank import _tiny_model_rerank as _tiny_model_rerank_impl  # noqa: E402
-from ._auto_base import _auto_base as _auto_base_impl  # noqa: E402
-from ._fit import fit as _fit_impl  # noqa: E402
-from ._filter import _filter_features as _filter_features_impl  # noqa: E402
-from ._stacked import (  # noqa: E402
+from ._tiny_rerank import _tiny_model_rerank as _tiny_model_rerank_impl
+from ._auto_base import _auto_base as _auto_base_impl
+from ._fit import fit as _fit_impl
+from ._filter import _filter_features as _filter_features_impl
+from ._stacked import (
     fit_stacked as _fit_stacked_impl,
     fit_stacked_on_residual as _fit_stacked_on_residual_impl,
 )
@@ -606,28 +606,28 @@ CompositeTargetDiscovery.fit_stacked_on_residual = _fit_stacked_on_residual_impl
 # sub-module import (`mlframe.training.composite_auto_detect`) for
 # clearer dependency boundaries.
 # ----------------------------------------------------------------------
-from .auto_detect import (  # noqa: E402,F401
+from .auto_detect import (
     _GROUP_DETECT_DEFAULT_MIN_UNIQUE,
     _GROUP_DETECT_DEFAULT_MAX_UNIQUE,
     _GROUP_DETECT_DEFAULT_MIN_SIZE_RATIO,
 )
-from ..cache import (  # noqa: E402,F401
+from ..cache import (
     _DISCOVERY_SIGNATURE_SAMPLE_N,
 )
-from ..transforms.interaction_bases import (  # noqa: E402,F401
+from ..transforms.interaction_bases import (
     _INTERACTION_OPS_DEFAULT,
 )
 
 # Dependent helper re-exports.
-from .forward_stepwise import (  # noqa: E402,F401
+from .forward_stepwise import (
     _MULTI_BASE_DEFAULT_MAX_K,
     _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN,
 )
-from ..streaming import (  # noqa: E402,F401
+from ..streaming import (
     _STREAMING_DEFAULT_Z_THRESHOLD,
     _STREAMING_DEFAULT_MIN_BUFFER_N,
 )
-from .bayesian import (  # noqa: E402,F401
+from .bayesian import (
     _BAYESIAN_ALPHA_DEFAULT_N_BOOTSTRAP,
     _BAYESIAN_ALPHA_DEFAULT_CI_LEVEL,
 )
@@ -637,7 +637,7 @@ from .bayesian import (  # noqa: E402,F401
 # discovery result on an appended frame without reaching into the private
 # sibling. Train-only / no frame copy (the helper reads only a bounded row sample
 # via narrow column pulls).
-from ._incremental import (  # noqa: E402,F401
+from ._incremental import (
     IncrementalDecision,
     incremental_discovery_check,
 )

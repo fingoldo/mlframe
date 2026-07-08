@@ -159,6 +159,7 @@ def fit_and_transform_pipeline(
         # that hash() raises on, crashing category_encoders.OrdinalEncoder's
         # internal .unique() call. Detect and exclude via first-cell shape.
         def _looks_embedding(_series):
+            """True iff an object-dtype column's cells look like embedding vectors (ndarray-like, non-str/bytes) rather than scalar categoricals, sampled from the first up-to-8 non-null values."""
             if _series.dtype != object:
                 return False
             try:
@@ -183,6 +184,7 @@ def fit_and_transform_pipeline(
         _SAMPLE_SIZE = 5000
 
         def _looks_text(_series):
+            """True iff a string-like column looks like free text rather than a categorical: cardinality above ``_CAT_CARDINALITY_LIMIT`` measured on a cheap ``_SAMPLE_SIZE``-row sample (so million-row frames stay fast)."""
             dtype_name = _series.dtype.name
             # Include "str" for pandas-3.0 future.infer_string dtype.
             if dtype_name not in ("object", "string", "string[pyarrow]", "large_string[pyarrow]", "str"):

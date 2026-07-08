@@ -22,6 +22,7 @@ except Exception:
 
 
 def _probe_xgb_gpu_support() -> bool:
+    """True only when a CUDA device is visible AND the installed XGBoost binary was built with ``USE_CUDA``; avoids the per-fit GPU-fallback warning XGB emits when asked for a device it cannot use."""
     if not CUDA_IS_AVAILABLE:
         return False
     try:
@@ -33,6 +34,7 @@ def _probe_xgb_gpu_support() -> bool:
 
 
 def _probe_lgb_gpu_support() -> bool:
+    """Conservative LightGBM CUDA-support probe: cannot cheaply detect a CUDA-enabled LGB build without a real training run, so defaults to ``False`` and only returns ``True`` when the caller opts in via ``MLFRAME_TRUST_LGB_CUDA=1``."""
     if not CUDA_IS_AVAILABLE:
         return False
     try:

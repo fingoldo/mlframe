@@ -51,7 +51,7 @@ def _sorted_quantile_radius(r_sorted: Sequence[float], m: int, alpha: float) -> 
         return float("inf")
     if alpha >= 1.0:
         return 0.0
-    rank = int(math.ceil((m + 1) * (1.0 - alpha)))
+    rank = math.ceil((m + 1) * (1.0 - alpha))
     if rank > m:
         return float("inf")
     return float(r_sorted[rank - 1])
@@ -75,7 +75,7 @@ def _rolling_quantile_radius(residuals: np.ndarray, alpha: float) -> float:
         return float("inf")
     if alpha >= 1.0:
         return 0.0
-    rank = int(math.ceil((m + 1) * (1.0 - alpha)))
+    rank = math.ceil((m + 1) * (1.0 - alpha))
     if rank > m:
         return float("inf")
     r_sorted = np.sort(r)

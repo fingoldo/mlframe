@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 # =============================================================================
 # Used across pipeline.py, trainer.py, utils.py, core.py to detect categoricals; import these instead of hardcoding type lists.
 # ``PANDAS_CATEGORICAL_DTYPES`` is the single source of truth in ``base``; re-exported here (and in ``__all__``) so callers don't duplicate the set.
-from .base import (  # noqa: F401
+from .base import (
     PANDAS_CATEGORICAL_DTYPES,
     PANDAS_CATEGORICAL_SELECT_DTYPES,
     ModelPipelineStrategy,
@@ -66,10 +66,10 @@ def get_polars_cat_columns(df: "pl.DataFrame") -> list:
     return [name for name, dtype in df.schema.items() if is_polars_categorical(dtype)]
 
 
-from .tree_cb import TreeModelStrategy, CatBoostStrategy  # noqa: E402, F401
-from .xgboost import XGBoostStrategy  # noqa: E402, F401
-from .hgb import HGBStrategy  # noqa: E402, F401
-from .neural import (  # noqa: E402, F401
+from .tree_cb import TreeModelStrategy, CatBoostStrategy
+from .xgboost import XGBoostStrategy
+from .hgb import HGBStrategy
+from .neural import (
     NeuralNetStrategy,
     LinearModelStrategy,
     RecurrentModelStrategy,
@@ -300,7 +300,7 @@ def is_neural_model(entry: Any) -> bool:
     return isinstance(get_strategy(entry), (NeuralNetStrategy, RecurrentModelStrategy))
 
 
-from .pipeline_cache import (  # noqa: E402, F401
+from .pipeline_cache import (
     PipelineCache,
     _resolve_pipeline_cache_budget,
     _estimate_slot_nbytes,

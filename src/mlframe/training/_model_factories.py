@@ -500,8 +500,8 @@ GPU_VRAM_SAFE_FREE_LIMIT_GB: float = 0.1
 
 
 # 2026-05-13 refactor: extracted modules
-from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
-from .pipeline import (  # noqa: E402,F401
+from ._predict_guards import _CB_VAL_POOL_CACHE
+from .pipeline import (
     _apply_pre_pipeline_transforms,
     _extract_feature_selector,
     _is_fitted,
@@ -509,14 +509,14 @@ from .pipeline import (  # noqa: E402,F401
     _passthrough_cols_fit_transform,
     _prepare_test_split,
 )
-from .cb import (  # noqa: E402,F401
+from .cb import (
     _cached_gpu_info,
     _maybe_get_or_build_cb_pool,
     _maybe_rewrite_eval_set_as_cb_pool,
     _polars_fill_null_in_categorical,
     _polars_schema_diagnostic,
 )
-from ._eval_helpers import (  # noqa: E402,F401
+from ._eval_helpers import (
     _align_xgb_cat_categories,
     _append_split_rate_suffix,
     _compute_split_metrics,

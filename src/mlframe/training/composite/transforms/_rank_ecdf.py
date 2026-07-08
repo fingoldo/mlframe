@@ -73,7 +73,7 @@ def _ecdf_knots(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 def _rank_ecdf_residual_fit(
     y: np.ndarray, base: np.ndarray,
-    sample_weight: np.ndarray | None = None,  # noqa: ARG001 - API symmetry; ECDF is unweighted
+    sample_weight: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Store train ECDF knots for ``y`` (invertible) and ``base`` (forward-only)."""
     y_knots, y_cdf = _ecdf_knots(y)
@@ -89,6 +89,11 @@ def _rank_ecdf_residual_fit(
 def _rank_ecdf_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Map ``y`` and ``base`` to their train-fitted ECDF ranks and return the rank residual ``u_y - u_base``.
+
+    The residual lives on a bounded, distribution-free ``[-1, 1]``-ish scale regardless of ``y``'s raw units, which is
+    the point of the transform: it isolates rank movement of ``y`` relative to ``base`` instead of raw magnitude.
+    """
     y_knots = np.asarray(params["y_knots"], dtype=np.float64)
     y_cdf = np.asarray(params["y_cdf"], dtype=np.float64)
     base_knots = np.asarray(params["base_knots"], dtype=np.float64)
@@ -101,6 +106,12 @@ def _rank_ecdf_residual_forward(
 def _rank_ecdf_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Invert a predicted rank residual ``t_hat`` back to the raw ``y`` scale via the train-fitted quantile function.
+
+    Recovers ``u_y`` from ``t_hat + u_base`` then reads the y-quantile at that rank; a recovered rank outside the
+    train ``[u_min, u_max]`` support clamps to the train y-range (``np.interp`` extrapolation behaviour), so
+    out-of-sample residuals never invert to an unbounded value.
+    """
     y_knots = np.asarray(params["y_knots"], dtype=np.float64)
     y_cdf = np.asarray(params["y_cdf"], dtype=np.float64)
     base_knots = np.asarray(params["base_knots"], dtype=np.float64)
@@ -115,6 +126,7 @@ def _rank_ecdf_residual_inverse(
 def _rank_ecdf_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Boolean mask of rows usable by the transform: finite ``base`` (and finite ``y`` when supplied, i.e. fit-time)."""
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64))
     if y is None:
         return base_ok

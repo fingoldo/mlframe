@@ -63,15 +63,19 @@ def detect_time_column_candidates(
         # prior local re-import was dead code that obscured the
         # dependency from static analysers.
         def get_col(c):
+            """Polars column accessor for the scan loop below."""
             return df.get_column(c)
         def get_dtype(c):
+            """Polars dtype-as-string accessor for the scan loop below."""
             return str(df.schema[c])
     elif isinstance(df, pd.DataFrame):
         if candidate_columns is None:
             candidate_columns = list(df.columns)
         def get_col(c):
+            """Pandas column accessor for the scan loop below."""
             return df[c]
         def get_dtype(c):
+            """Pandas dtype-as-string accessor for the scan loop below."""
             return str(df[c].dtype)
     else:
         raise TypeError(f"detect_time_column_candidates: unsupported df type {type(df).__name__}")
@@ -205,8 +209,11 @@ def detect_group_column_candidates(
                     cand.append(c)
             candidate_columns = cand
         def get_col(c):
-            # Polars Series.to_numpy() already returns an ndarray -- the
-            # earlier np.asarray wrapper allocated a redundant view.
+            """Polars column-as-ndarray accessor for the group-scan loop below.
+
+            Polars Series.to_numpy() already returns an ndarray -- the
+            earlier np.asarray wrapper allocated a redundant view.
+            """
             return df.get_column(c).to_numpy()
     elif isinstance(df, pd.DataFrame):
         if candidate_columns is None:
@@ -218,6 +225,7 @@ def detect_group_column_candidates(
                 or (pd.api.types.is_integer_dtype(df[c]) and df[c].nunique() <= max_unique)
             ]
         def get_col(c):
+            """Pandas column-as-ndarray accessor for the group-scan loop below."""
             return df[c].to_numpy()
     else:
         raise TypeError(f"detect_group_column_candidates: unsupported df type {type(df).__name__}")
@@ -398,6 +406,7 @@ def detect_cat_columns(
                     cand.append(c)
             candidate_columns = cand
         def get_col(c):
+            """Polars column-as-ndarray accessor for the categorical-scan loop below."""
             return df.get_column(c).to_numpy()
     elif isinstance(df, pd.DataFrame):
         if candidate_columns is None:
@@ -417,6 +426,7 @@ def detect_cat_columns(
                 )
             ]
         def get_col(c):
+            """Pandas column-as-ndarray accessor for the categorical-scan loop below."""
             return df[c].to_numpy()
     else:
         raise TypeError(f"detect_cat_columns: unsupported df type {type(df).__name__}")

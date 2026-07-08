@@ -58,7 +58,7 @@ if TYPE_CHECKING:
 import numpy as np
 
 try:
-    import polars as pl  # noqa: F401
+    import polars as pl
     _HAS_POLARS = True
 except ImportError:
     _HAS_POLARS = False
@@ -69,7 +69,7 @@ except ImportError:
 # the time Python resolves these names the parent is partially loaded
 # and the symbols are already bound -- single source of truth, no
 # duplication.
-from .target_temporal_audit import (  # noqa: E402
+from .target_temporal_audit import (
     DEFAULT_ZSCORE_THRESHOLD,
     DEFAULT_PELT_MODEL,
     DEFAULT_PELT_MIN_SEGMENT_SIZE,

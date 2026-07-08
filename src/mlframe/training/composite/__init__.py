@@ -75,13 +75,13 @@ logger = logging.getLogger(__name__)
 # composite_discovery). Re-export below preserves callers doing
 # ``from mlframe.training.composite import CompositeSpec``.
 # ----------------------------------------------------------------------
-from .spec import CompositeSpec  # noqa: F401
+from .spec import CompositeSpec
 
 # Re-export everything from composite_transforms for full back-compat.
 # Existing callers ``from mlframe.training.composite import Transform,
 # _TRANSFORMS_REGISTRY, get_transform, ...`` keep working unchanged.
 # ----------------------------------------------------------------------
-from .transforms import (  # noqa: E402,F401
+from .transforms import (
     DomainViolationError,
     UnknownTransformError,
     Transform,
@@ -134,7 +134,7 @@ from .transforms import (  # noqa: E402,F401
 # Re-export CompositeTargetEstimator + helpers from composite_estimator
 # for full back-compat (callers import from this module).
 # ----------------------------------------------------------------------
-from .estimator import (  # noqa: E402,F401
+from .estimator import (
     CompositeTargetEstimator,
     _Y_CLIP_LOW_FRAC,
     _Y_CLIP_HIGH_FRAC,
@@ -150,7 +150,7 @@ from .estimator import (  # noqa: E402,F401
 # ----------------------------------------------------------------------
 # Re-export CompositeProvenance + report_to_markdown.
 # ----------------------------------------------------------------------
-from .provenance import (  # noqa: E402,F401
+from .provenance import (
     CompositeProvenance,
     _format_transform_formulas,
     report_to_markdown,
@@ -159,7 +159,7 @@ from .provenance import (  # noqa: E402,F401
 # ----------------------------------------------------------------------
 # Re-export ensemble + OOF + util symbols.
 # ----------------------------------------------------------------------
-from .ensemble import (  # noqa: E402,F401
+from .ensemble import (
     CompositeCrossTargetEnsemble,
     compute_oof_holdout_predictions,
     derive_seeds,
@@ -171,7 +171,7 @@ from .ensemble import (  # noqa: E402,F401
 # ----------------------------------------------------------------------
 # Re-export screening helpers.
 # ----------------------------------------------------------------------
-from .discovery.screening import (  # noqa: E402,F401
+from .discovery.screening import (
     _extract_column_array,
     _is_numeric_column,
     _safe_corr,
@@ -192,7 +192,7 @@ from .discovery.screening import (  # noqa: E402,F401
 # ----------------------------------------------------------------------
 # Re-export independent + dependent helper modules.
 # ----------------------------------------------------------------------
-from .discovery.auto_detect import (  # noqa: E402,F401
+from .discovery.auto_detect import (
     detect_time_column_candidates,
     sort_df_by_time_column,
     detect_group_column_candidates,
@@ -200,35 +200,35 @@ from .discovery.auto_detect import (  # noqa: E402,F401
     _GROUP_DETECT_DEFAULT_MAX_UNIQUE,
     _GROUP_DETECT_DEFAULT_MIN_SIZE_RATIO,
 )
-from .cache import (  # noqa: E402,F401
+from .cache import (
     DiscoveryCache,
     data_signature,
     make_discovery_cache_key,
 )
-from .ensemble.stacking import (  # noqa: E402,F401
+from .ensemble.stacking import (
     residual_correlation_matrix,
     max_off_diagonal_correlation,
     stacking_aware_gate,
     residual_dedup_indices,
 )
-from .transforms.interaction_bases import (  # noqa: E402,F401
+from .transforms.interaction_bases import (
     generate_interaction_bases,
 )
-from .streaming import (  # noqa: E402,F401
+from .streaming import (
     streaming_alpha_check_and_refit,
     _STREAMING_DEFAULT_Z_THRESHOLD,
     _STREAMING_DEFAULT_MIN_BUFFER_N,
 )
-from .discovery.bayesian import (  # noqa: E402,F401
+from .discovery.bayesian import (
     bayesian_alpha_fit,
     bayesian_alpha_fit_bootstrap,
 )
-from .discovery.forward_stepwise import (  # noqa: E402,F401
+from .discovery.forward_stepwise import (
     forward_stepwise_multi_base,
     _MULTI_BASE_DEFAULT_MAX_K,
     _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN,
 )
-from .ensemble.feature_stacking import (  # noqa: E402,F401
+from .ensemble.feature_stacking import (
     composite_predictions_as_feature,
     composite_oof_predictions,
 )
@@ -236,91 +236,91 @@ from .ensemble.feature_stacking import (  # noqa: E402,F401
 # ----------------------------------------------------------------------
 # Re-export CompositeTargetDiscovery.
 # ----------------------------------------------------------------------
-from .discovery import CompositeTargetDiscovery  # noqa: E402,F401
+from .discovery import CompositeTargetDiscovery
 
 # Re-export the config alongside the discovery class so a single import
 # location serves both; same module path the lazy dict-config path uses.
-from ..configs import CompositeTargetDiscoveryConfig  # noqa: E402,F401
+from ..configs import CompositeTargetDiscoveryConfig
 
 # Classification composite (base-margin residual modelling) + split-conformal
 # prediction interval helper -- the two FUTURE extensions.
-from .classification import CompositeClassificationEstimator  # noqa: E402,F401
-from .conformal import conformal_quantile  # noqa: E402,F401
+from .classification import CompositeClassificationEstimator
+from .conformal import conformal_quantile
 
 # Purged/embargoed time-series CV + base-target-leakage detection.
-from .cv import PurgedTimeSeriesSplit, make_purged_cv  # noqa: E402,F401
-from .discovery._leakage import detect_base_target_leakage  # noqa: E402,F401
+from .cv import PurgedTimeSeriesSplit, make_purged_cv
+from .discovery._leakage import detect_base_target_leakage
 
 # Unified explainability report + composite-vs-raw meta-stacker.
-from .report import composite_report  # noqa: E402,F401
-from .meta import CompositeOrRawStacker  # noqa: E402,F401
+from .report import composite_report
+from .meta import CompositeOrRawStacker
 
 # Full predictive-distribution composite (CRPS), joint HPO, model card.
-from .distributional import CompositeDistributionEstimator  # noqa: E402,F401
-from .hpo import optimize_composite  # noqa: E402,F401
-from .model_card import composite_model_card  # noqa: E402,F401
+from .distributional import CompositeDistributionEstimator
+from .hpo import optimize_composite
+from .model_card import composite_model_card
 
 # Auto temporal base engineering, bagged (epistemic) composite, survival/AFT.
-from .discovery._base_engineering import engineer_temporal_bases  # noqa: E402,F401
-from .bagging import BaggedCompositeEstimator  # noqa: E402,F401
-from .survival import CompositeSurvivalEstimator  # noqa: E402,F401
+from .discovery._base_engineering import engineer_temporal_bases
+from .bagging import BaggedCompositeEstimator
+from .survival import CompositeSurvivalEstimator
 
 # Dependency-light serving export of a fitted composite.
-from .serving import export_serving_spec, load_serving_spec  # noqa: E402,F401
+from .serving import export_serving_spec, load_serving_spec
 
 # Champion-challenger comparison, double-ML orthogonalized composite, ranking.
-from .compare import compare_models, should_promote  # noqa: E402,F401
-from .orthogonal import OrthogonalizedCompositeEstimator  # noqa: E402,F401
-from .ranking import CompositeRankEstimator  # noqa: E402,F401
+from .compare import compare_models, should_promote
+from .orthogonal import OrthogonalizedCompositeEstimator
+from .ranking import CompositeRankEstimator
 
 # Panel/longitudinal (entity fixed-effects) composite + extreme-value tail composite.
-from .panel import CompositePanelEstimator  # noqa: E402,F401
-from .extremes import TailCompositeEstimator  # noqa: E402,F401
+from .panel import CompositePanelEstimator
+from .extremes import TailCompositeEstimator
 
 # Missing-aware composite, OOF feature generator, spec stability selection.
-from .missing import MissingAwareComposite  # noqa: E402,F401
-from .suite_features import CompositeFeatureGenerator  # noqa: E402,F401
-from .discovery._stability import stability_select_specs  # noqa: E402,F401
+from .missing import MissingAwareComposite
+from .suite_features import CompositeFeatureGenerator
+from .discovery._stability import stability_select_specs
 
 # Compositional (simplex) target composite + quantile-regression-forest distribution.
-from .simplex import CompositeSimplexEstimator, aitchison_distance  # noqa: E402,F401
-from .qrf import CompositeQRFEstimator  # noqa: E402,F401
+from .simplex import CompositeSimplexEstimator, aitchison_distance
+from .qrf import CompositeQRFEstimator
 
 # Conformal classification prediction SETS (LAC / APS), base-vs-residual
 # attribution, and deployed-model drift monitoring.
-from .attribution import explain_prediction, attribution_summary  # noqa: E402,F401
-from .monitoring import CompositeDriftMonitor  # noqa: E402,F401
+from .attribution import explain_prediction, attribution_summary
+from .monitoring import CompositeDriftMonitor
 
 # GLM-family composite (log-link Poisson / Gamma / Tweedie residual over a base mean).
-from .glm import CompositeGLMEstimator  # noqa: E402,F401
+from .glm import CompositeGLMEstimator
 
 # Native pinball-quantile composite: one inner per quantile fit on the transform
 # T, inverted to y-scale, non-crossing enforced per row.
-from .quantile import CompositeQuantileEstimator  # noqa: E402,F401
+from .quantile import CompositeQuantileEstimator
 
 # Multi-output composite: one CompositeTargetEstimator per column of a vector
 # target (n, K), each with its own transform + base; predict returns (n, K).
-from .multi_output import (  # noqa: E402,F401
+from .multi_output import (
     CompositeMultiOutputEstimator,
     make_per_column_specs,
 )
-from .sklearn_compat import (  # noqa: E402,F401
+from .sklearn_compat import (
     make_composite_regressor,
     CompositeTargetTransformer,
 )
-from .autoconfig import suggest_discovery_config  # noqa: E402,F401
-from .highlevel import discover_and_wrap, DiscoverAndWrapResult  # noqa: E402,F401
+from .autoconfig import suggest_discovery_config
+from .highlevel import discover_and_wrap, DiscoverAndWrapResult
 
 # Composite VALUE report (per-group did-it-help), the not-worse-than-lag MoE selection gate, and the Winkler interval score.
-from ._value_report import build_composite_value_report, render_composite_value_report  # noqa: E402,F401
-from ._moe_gate import MoESelectionGate  # noqa: E402,F401
-from ._regime_headroom import regime_headroom_map, render_regime_headroom_map  # noqa: E402,F401
-from ._winkler import (  # noqa: E402,F401
+from ._value_report import build_composite_value_report, render_composite_value_report
+from ._moe_gate import MoESelectionGate
+from ._regime_headroom import regime_headroom_map, render_regime_headroom_map
+from ._winkler import (
     winkler_interval_score, winkler_score_per_row, winkler_score_per_group,
     mean_coverage, interval_quality_summary,
 )
-from ._heteroscedastic import HeteroscedasticCompositeEstimator  # noqa: E402,F401
-from ._pseudo_bma import pseudo_bma_weights, blend as pseudo_bma_blend  # noqa: E402,F401
+from ._heteroscedastic import HeteroscedasticCompositeEstimator
+from ._pseudo_bma import pseudo_bma_weights, blend as pseudo_bma_blend
 
 # Curated public surface for ``from ...composite import *`` -- excludes the
 # submodule names + stdlib leakage (logging / annotations) that bare star-import

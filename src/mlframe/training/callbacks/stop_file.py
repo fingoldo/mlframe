@@ -28,7 +28,7 @@ def stop_file(fpath: str) -> Callable[[], bool]:
 # ----------------------------------------------------------------------------------------------------------------------------
 
 try:
-    import catboost  # noqa: F401
+    import catboost
 
     _HAS_CATBOOST = True
 except ImportError:
@@ -45,12 +45,15 @@ if _HAS_CATBOOST:
             self._check = stop_file(fpath)
 
         def after_iteration(self, info):  # pragma: no cover — exercised in smoke test
+            """Called by CatBoost after every boosting iteration; returning False stops training."""
             # CatBoost convention: return False to stop training.
             return not self._check()
 
 else:  # pragma: no cover
 
     class CatBoostStopFileCallback:  # type: ignore[no-redef]  # optional-dependency fallback stub; only one branch is ever live
+        """Stub raised when catboost is not installed; see the real class above."""
+
         def __init__(self, *args, **kwargs):
             raise ImportError("catboost is not installed; cannot use CatBoostStopFileCallback")
 
@@ -60,7 +63,7 @@ else:  # pragma: no cover
 # ----------------------------------------------------------------------------------------------------------------------------
 
 try:
-    import lightgbm  # noqa: F401
+    import lightgbm
 
     _HAS_LIGHTGBM = True
 except ImportError:
@@ -87,6 +90,8 @@ if _HAS_LIGHTGBM:
 else:  # pragma: no cover
 
     class LightGBMStopFileCallback:  # type: ignore[no-redef]  # optional-dependency fallback stub; only one branch is ever live
+        """Stub raised when lightgbm is not installed; see the real class above."""
+
         def __init__(self, *args, **kwargs):
             raise ImportError("lightgbm is not installed; cannot use LightGBMStopFileCallback")
 
@@ -96,7 +101,7 @@ else:  # pragma: no cover
 # ----------------------------------------------------------------------------------------------------------------------------
 
 try:
-    import xgboost as _xgb  # noqa: F401
+    import xgboost as _xgb
 
     _HAS_XGBOOST = True
 except ImportError:
@@ -115,12 +120,15 @@ if _HAS_XGBOOST:
             self._check = stop_file(fpath)
 
         def after_iteration(self, model, epoch, evals_log):  # pragma: no cover
+            """Called by XGBoost after every boosting iteration; returning True stops training."""
             # XGBoost convention: return True to stop training.
             return bool(self._check())
 
 else:  # pragma: no cover
 
     class XGBoostStopFileCallback:  # type: ignore[no-redef]  # optional-dependency fallback stub; only one branch is ever live
+        """Stub raised when xgboost is not installed; see the real class above."""
+
         def __init__(self, *args, **kwargs):
             raise ImportError("xgboost is not installed; cannot use XGBoostStopFileCallback")
 
@@ -157,6 +165,7 @@ class LightningStopFileCallback:
         self._check = stop_file(fpath)
 
     def on_train_epoch_end(self, trainer, pl_module):  # pragma: no cover
+        """Called by Lightning after every training epoch; sets trainer.should_stop when the stop-file exists."""
         if self._check():
             trainer.should_stop = True
 

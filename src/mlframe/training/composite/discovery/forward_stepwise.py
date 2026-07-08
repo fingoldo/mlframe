@@ -158,6 +158,7 @@ def forward_stepwise_multi_base(
             kf = KFold(n_splits=int(cv_folds), shuffle=True, random_state=int(random_state))
 
         def _iter_splits():
+            """Dispatch to the group-aware or plain split call depending on whether GroupKFold was selected above, so callers don't need to branch on `_use_groups` themselves."""
             if _use_groups:
                 return kf.split(np.arange(_n), groups=_groups_eff)
             return kf.split(np.arange(_n))

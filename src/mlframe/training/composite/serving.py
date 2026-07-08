@@ -78,22 +78,26 @@ _MULTI_BASE["linear_residual_multi"] = True
 # ----------------------------------------------------------------------
 
 def _inv_diff(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
+    """Inverts the ``diff`` transform: ``y = t_hat + base`` (mirrors ``transforms/simple.py::_diff_inverse``)."""
     # transforms/simple.py::_diff_inverse -> t + base
     return np.asarray(t_hat + base)
 
 
 def _inv_additive_residual(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
+    """Inverts ``additive_residual``: ``y = t_hat + base + beta`` (mirrors ``_additive_residual_inverse``)."""
     # _additive_residual_inverse -> t + base + beta
     return np.asarray(t_hat + base + float(p.get("beta", 0.0)))
 
 
 def _inv_linear_residual(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
+    """Inverts ``linear_residual``/``linear_residual_robust``/``theilsen_residual``: ``y = t_hat + alpha*base + beta``."""
     # _linear_residual_inverse -> t + alpha*base + beta. Shared by linear_residual,
     # linear_residual_robust, theilsen_residual (all return {alpha, beta}).
     return t_hat + float(p["alpha"]) * base + float(p["beta"])
 
 
 def _inv_linear_residual_multi(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
+    """Inverts ``linear_residual_multi``: ``y = t_hat + base @ alphas + beta`` (multi-column base)."""
     # _linear_residual_multi_inverse -> t + base @ alphas + beta.
     if base.ndim == 1:
         base = base.reshape(-1, 1)
@@ -107,6 +111,7 @@ def _inv_linear_residual_multi(t_hat: np.ndarray, base: np.ndarray, p: dict[str,
 
 
 def _inv_ratio(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
+    """Inverts ``ratio``: ``y = t_hat * safe_base``, flooring near-zero base at ``eps`` to match the forward transform exactly."""
     # _ratio_inverse -> t * safe_base, with the SAME eps-floor as the forward so
     # the round-trip is exact on in-domain near-zero base rows.
     eps = float(p["eps"])
@@ -115,6 +120,7 @@ def _inv_ratio(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.nda
 
 
 def _inv_logratio(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
+    """Inverts ``logratio``: ``y = base * exp(soft_cap(t_hat))``, clipping ``t_hat`` to ``median_t +/- soft_cap_k*mad_eff`` first."""
     # _logratio_inverse -> base * exp(softcap(t)) centred on median_t.
     median_t = float(p["median_t"])
     mad = float(p["mad_eff"])
@@ -139,15 +145,18 @@ _INVERSE_TABLE: dict[str, Callable[[np.ndarray, np.ndarray, dict[str, Any]], np.
 # domain_check with y=None). Rows failing this route to the fallback at serve
 # time, exactly as the live predict path does. Default: finite base.
 def _domain_finite(base: np.ndarray) -> np.ndarray:
+    """Default base-domain predicate: every row (or every column of a multi-base row) must be finite."""
     return np.asarray(np.isfinite(base) if base.ndim == 1 else np.all(np.isfinite(base), axis=1))
 
 
 def _domain_ratio(base: np.ndarray) -> np.ndarray:
+    """Base-domain predicate for ``ratio``: finite and non-zero (mirrors ``_ratio_domain`` with ``y=None``)."""
     # _ratio_domain (y=None) -> finite & |base| > 0.
     return np.asarray(np.isfinite(base) & (np.abs(base) > 0))
 
 
 def _domain_logratio(base: np.ndarray) -> np.ndarray:
+    """Base-domain predicate for ``logratio``: finite and strictly positive (mirrors ``_logratio_domain`` with ``y=None``)."""
     # _logratio_domain (y=None) -> finite & base > 0.
     return np.asarray(np.isfinite(base) & (base > 0))
 
@@ -322,6 +331,7 @@ def load_serving_spec(
     fallback_const = float(_med) if np.isfinite(_med) else 0.0
 
     def predict(base: Any, inner_raw_pred: Any) -> np.ndarray:
+        """Applies T-clip -> domain-aware inverse -> y-clip/fallback to reproduce ``CompositeTargetEstimator.predict`` in pure numpy."""
         # When an inner_predict hook was supplied, the 2nd arg is the raw feature
         # matrix X; route it through the hook to obtain the T-scale prediction.
         if inner_predict is not None:

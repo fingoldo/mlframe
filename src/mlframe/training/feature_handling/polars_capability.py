@@ -158,6 +158,7 @@ class PolarsNativeDispatcher:
         return op in self._caps
 
     def get_version(self) -> Optional[str]:
+        """Return the detected ``polars_ds`` version string, or ``None`` if polars-ds is unavailable / capability detection was skipped."""
         for c in self._caps:
             if c.startswith("polars_ds:"):
                 return c.split(":", 1)[1]

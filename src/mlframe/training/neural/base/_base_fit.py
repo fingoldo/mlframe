@@ -755,7 +755,7 @@ class _FitMixin(_FitPrepMixin):
                     _tt, _ncls = "multilabel_classification", None
                 elif isinstance(self, ClassifierMixin):
                     _classes = getattr(self, "classes_", None)
-                    _ncls = int(len(_classes)) if _classes is not None else 2
+                    _ncls = len(_classes) if _classes is not None else 2
                     _tt = "binary_classification" if _ncls <= 2 else "multiclass_classification"
                 else:
                     _tt, _ncls = "regression", None

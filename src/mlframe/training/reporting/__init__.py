@@ -16,7 +16,7 @@ documented package path; the reporting config classes stay in the flat
 """
 from __future__ import annotations
 
-from ._reporting import (  # noqa: F401
+from ._reporting import (
     report_model_perf,
     report_regression_model_perf,
     report_probabilistic_model_perf,

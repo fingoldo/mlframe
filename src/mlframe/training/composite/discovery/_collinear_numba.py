@@ -353,6 +353,7 @@ def near_collinear_keep_mask_fast(
 if _HAS_NUMBA:
     @_numba.njit(cache=True)
     def _block_gather_kernel(arr, perm, block_len):
+        """Gather ``arr`` into a block-permuted copy per ``perm``, fusing index-build + gather into one pass (see comment below) and dropping the trailing short block's padding."""
         # Materialise a block-permuted copy of ``arr`` in one pass: emit each permuted block's
         # real (in-bounds) elements in order, dropping the trailing short block's padding. This
         # fuses the index build + gather of the prior numpy path (broadcast (n_blocks, block_len)

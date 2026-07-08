@@ -291,6 +291,7 @@ class XGBoostStrategy(TreeModelStrategy):
         out: Dict[str, pl.Enum] = {}
 
         def _batched_unique(df: "pl.DataFrame") -> "Dict[str, list]":
+            """Extract per-column unique values for all candidate categorical columns in one lazy collect() instead of one collect per column; on failure (bad cast, etc.) falls back to a per-column loop so a single poisoned column doesn't blank out the whole frame's categories."""
             cols_present = [c for c in candidate_cols if c in df.columns]
             if not cols_present:
                 return {}

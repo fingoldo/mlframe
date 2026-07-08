@@ -37,6 +37,10 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
     @field_validator("screening", mode="before")
     @classmethod
     def _normalise_screening(cls, v: str) -> str:
+        """Case-fold and validate the ``screening`` mode: ``"mi"`` (pairwise MI-gain ranking only), ``"tiny_model"``
+        (tiny-booster consensus only), or ``"hybrid"`` (MI screening followed by tiny-model rerank of the survivors).
+        Raises ``ValueError`` on any other value; no aliasing besides case-folding.
+        """
         v_lower = str(v).lower()
         valid = {"mi", "tiny_model", "hybrid"}
         if v_lower not in valid:
@@ -46,6 +50,9 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
     @field_validator("mi_estimator", mode="before")
     @classmethod
     def _normalise_mi_estimator(cls, v: str) -> str:
+        """Case-fold and validate the ``mi_estimator``: ``"knn"`` (Kraskov k-NN estimator) or ``"bin"`` (equi-frequency
+        binned MI, bias-free under monotone transforms and the project default). Raises ``ValueError`` otherwise.
+        """
         v_lower = str(v).lower()
         valid = {"knn", "bin"}
         if v_lower not in valid:
@@ -55,6 +62,10 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
     @field_validator("mi_sample_strategy", mode="before")
     @classmethod
     def _normalise_mi_sample_strategy(cls, v: str) -> str:
+        """Case-fold and validate ``mi_sample_strategy``: how the MI-screening sample is drawn from train rows --
+        ``"random"`` (uniform subsample) or ``"stratified_quantile"`` (sampled to preserve the target's quantile
+        distribution, avoiding a subsample that misses a whole regime of y). Raises ``ValueError`` otherwise.
+        """
         v_lower = str(v).lower()
         valid = {"random", "stratified_quantile"}
         if v_lower not in valid:
@@ -64,6 +75,10 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
     @field_validator("tiny_screening_models", mode="before")
     @classmethod
     def _normalise_tiny_screening_models(cls, v: str) -> str:
+        """Case-fold and validate ``tiny_screening_models``: ``"single_lgbm"`` (one small LightGBM per candidate,
+        cheapest) or ``"per_family"`` (a tiny model per transform-family, more expensive but catches transform-
+        specific effects a single booster can miss). Raises ``ValueError`` otherwise.
+        """
         v_lower = str(v).lower()
         valid = {"single_lgbm", "per_family"}
         if v_lower not in valid:
@@ -73,6 +88,10 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
     @field_validator("tiny_consensus", mode="before")
     @classmethod
     def _normalise_tiny_consensus(cls, v: str) -> str:
+        """Case-fold and validate ``tiny_consensus``: how tiny-model verdicts across candidates are combined --
+        ``"union"`` (keep a candidate if ANY tiny model favours it) or ``"borda"`` (rank-aggregate across tiny
+        models via Borda count, penalising candidates only some models like). Raises ``ValueError`` otherwise.
+        """
         v_lower = str(v).lower()
         valid = {"union", "borda"}
         if v_lower not in valid:
@@ -490,6 +509,11 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
     @field_validator("cross_target_ensemble_strategy", mode="before")
     @classmethod
     def _normalise_ensemble_strategy(cls, v: str) -> str:
+        """Case-fold and validate ``cross_target_ensemble_strategy``: ``"off"`` (no ensemble built), ``"mean"``
+        (equal-weight average of all raw+composite components), ``"oof_weighted"`` (gain-over-baseline weighting
+        from per-component RMSE), ``"linear_stack"`` (Ridge regression on component predictions), or
+        ``"nnls_stack"`` (non-negative least squares stacking, the project default). Raises ``ValueError`` otherwise.
+        """
         v_lower = str(v).lower()
         valid = {"off", "mean", "oof_weighted", "linear_stack", "nnls_stack"}
         if v_lower not in valid:
@@ -499,6 +523,11 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
     @field_validator("oof_holdout_source", mode="before")
     @classmethod
     def _normalise_oof_holdout_source(cls, v: str) -> str:
+        """Case-fold and validate ``oof_holdout_source``: ``"kfold"`` (true train-K-fold OOF, the default -- never
+        reuses the early-stopping val surface for stack weighting), ``"external_val"`` (cheaper single fit that
+        predicts on the suite's val frame, but the weights end up optimistically biased toward val-overfit
+        components), or ``"train_tail"`` (legacy single trailing-slice carve). Raises ``ValueError`` otherwise.
+        """
         v_lower = str(v).lower()
         valid = {"kfold", "external_val", "train_tail"}
         if v_lower not in valid:
@@ -508,6 +537,11 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
     @field_validator("fail_on_no_gain", mode="before")
     @classmethod
     def _normalise_fail_mode(cls, v: str) -> str:
+        """Case-fold and validate ``fail_on_no_gain``: behaviour when no candidate clears ``eps_mi_gain`` --
+        ``"fallback_raw"`` (warn and emit no composite targets, caller trains on raw target only, the default),
+        ``"raise"`` (raise ``RuntimeError``, useful for CI/scripted modes to flag degenerate inputs), or ``"warn"``
+        (warn but still emit the best-of-bad candidates). Raises ``ValueError`` on any other value.
+        """
         v_lower = str(v).lower()
         valid = {"fallback_raw", "raise", "warn"}
         if v_lower not in valid:
@@ -517,6 +551,12 @@ class CompositeTargetDiscoveryConfig(CompositeTargetDiscoveryConfigBase):
     @field_validator("multilabel_strategy", mode="before")
     @classmethod
     def _normalise_multilabel_strategy(cls, v: str) -> str:
+        """Case-fold and validate ``multilabel_strategy`` for 2-D (multi-output) regression targets: ``"per_target"``
+        (default -- expand into ``n_outputs`` independent 1-D targets named ``{name}_out{j}``, each discovered
+        separately), ``"skip"`` (legacy -- mark with metadata, produce no composites), or
+        ``"multi_target_regression"`` (keep the (N, K) target joint for a shared-trunk multi-output model instead
+        of expanding). Raises ``ValueError`` on any other value.
+        """
         v_lower = str(v).lower()
         # "multi_target_regression" keeps
         # (N, K) regression targets joint under

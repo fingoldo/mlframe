@@ -76,6 +76,7 @@ _MAX_BASE_CANDIDATES = 4
 
 
 def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """RMSE, or ``nan`` if the result is non-finite (e.g. empty input)."""
     d = np.asarray(y_true, dtype=np.float64) - np.asarray(y_pred, dtype=np.float64)
     rmse = float(np.sqrt(np.mean(d * d)))
     return rmse if np.isfinite(rmse) else float("nan")
@@ -111,7 +112,7 @@ def _numeric_feature_matrix(df: Any, feature_cols: Sequence[str], target_col: st
             continue
         try:
             arr = _extract_column_array(df, c, rows=rows).astype(np.float64, copy=False)
-        except Exception as e:  # noqa: BLE001 -- a single unreadable column must not abort the precheck
+        except Exception as e:
             logger.debug("swallowed exception in _achievable_ceiling.py: %s", e)
             continue
         if arr.shape[0] != rows.shape[0]:
@@ -145,7 +146,7 @@ def _group_disjoint_split(group_ids: np.ndarray, holdout_frac: float, rng: np.ra
     uniq = np.unique(group_ids)
     if uniq.size < max(2, min_groups):
         return None
-    n_hold = int(round(uniq.size * holdout_frac))
+    n_hold = round(uniq.size * holdout_frac)
     n_hold = max(1, min(n_hold, uniq.size - 1))
     hold_groups = rng.permutation(uniq)[:n_hold]
     hold_mask = np.isin(group_ids, hold_groups)
@@ -157,7 +158,8 @@ def _group_disjoint_split(group_ids: np.ndarray, holdout_frac: float, rng: np.ra
 
 
 def _random_split(n: int, holdout_frac: float, rng: np.random.Generator):
-    n_hold = int(round(n * holdout_frac))
+    """Random fit/holdout index split (sorted output), clamping the holdout size to ``[1, n-1]``."""
+    n_hold = round(n * holdout_frac)
     n_hold = max(1, min(n_hold, n - 1))
     perm = rng.permutation(n)
     return np.sort(perm[n_hold:]), np.sort(perm[:n_hold])
@@ -177,7 +179,7 @@ def _pick_base_candidates(df: Any, feature_cols: Sequence[str], target_col: str,
             continue
         try:
             col = _extract_column_array(df, c, rows=rows_sub).astype(np.float64, copy=False)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.debug("swallowed exception in _achievable_ceiling.py: %s", e)
             continue
         if col.shape != y_sub.shape:
@@ -208,7 +210,7 @@ def _composite_rmse_for_base(
         model = model_factory()
         model.fit(x_fit[fit_ok], t_fit[fit_ok])
         t_hat = np.asarray(model.predict(x_hold), dtype=np.float64)
-    except Exception as exc:  # noqa: BLE001 -- a composite fit that blows up is not evidence discovery would; fall back
+    except Exception as exc:
         logger.debug("[achievable_ceiling] composite fit failed: %s", exc)
         return float("inf")
     y_hat = t_hat + alpha * base_hold + beta
@@ -222,6 +224,7 @@ def _composite_rmse_for_base(
 
 
 def _verdict(*, raw_rmse, lag_rmse, best_composite_rmse, best_base, floor_rmse, headroom, decision, reason, margin, n_fit, n_hold, lag1_ar) -> dict:
+    """Assemble the achievable-ceiling diagnostic's final verdict dict from its computed RMSEs/decision/metadata."""
     return {
         "raw_rmse": float(raw_rmse),
         "lag_rmse": float(lag_rmse),
@@ -271,6 +274,7 @@ def measure_achievable_ceiling(
     rng = np.random.default_rng(int(random_state))
 
     def _proceed(reason: str, **kw) -> dict:
+        """Build a conservative default 'proceed' verdict (nan-filled measurements) for early-exit paths, overridable via ``kw``."""
         base = dict(raw_rmse=float("nan"), lag_rmse=float("nan"), best_composite_rmse=float("nan"),
                     best_base=None, floor_rmse=float("nan"), headroom=float("nan"), n_fit=0, n_hold=0,
                     lag1_ar=None)
@@ -313,15 +317,16 @@ def measure_achievable_ceiling(
     y_hold = y_sub[hold_pos]
     y_hold_std = float(np.std(y_hold))
 
-    x_fit, used_cols = _numeric_feature_matrix(df, feature_cols, target_col, rows_fit)
+    x_fit, _used_cols = _numeric_feature_matrix(df, feature_cols, target_col, rows_fit)
     x_hold, _ = _numeric_feature_matrix(df, feature_cols, target_col, rows_hold)
     if x_fit is None or x_hold is None or x_fit.shape[1] == 0:
         return _proceed("no numeric feature columns to fit a raw baseline", lag1_ar=lag1_ar, n_fit=fit_pos.size, n_hold=hold_pos.size)
 
     def _model_factory():
+        """Build the tiny probe model: LightGBM if available, else a plain linear fallback."""
         try:
             return _build_tiny_model("lgb", n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate, random_state=int(random_state))
-        except Exception:  # noqa: BLE001 -- lightgbm unavailable -> Ridge proxy (always present via sklearn)
+        except Exception:
             return _build_tiny_model("linear", n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate, random_state=int(random_state))
 
     # (a) raw-y tiny-model baseline.
@@ -329,7 +334,7 @@ def measure_achievable_ceiling(
         raw_model = _model_factory()
         raw_model.fit(x_fit, y_fit)
         raw_rmse = _rmse(y_hold, np.asarray(raw_model.predict(x_hold), dtype=np.float64))
-    except Exception as exc:  # noqa: BLE001 -- cannot measure the raw baseline -> no confident floor -> proceed
+    except Exception as exc:
         logger.debug("[achievable_ceiling] raw baseline fit failed: %s", exc)
         return _proceed(f"raw baseline fit failed ({exc})", lag1_ar=lag1_ar, n_fit=fit_pos.size, n_hold=hold_pos.size)
     if not np.isfinite(raw_rmse):
@@ -346,7 +351,7 @@ def measure_achievable_ceiling(
         try:
             lag_hold = _extract_column_array(df, lag_col, rows=rows_hold).astype(np.float64, copy=False)
             lag_rmse = causal_lag_predict_rmse(lag_hold, y_hold)
-        except Exception as exc:  # noqa: BLE001 -- lag probe failure -> no lag floor (raw floor still applies)
+        except Exception as exc:
             logger.debug("[achievable_ceiling] lag probe failed for %s: %s", lag_col, exc)
 
     # (c) OPTIMISTIC achievable-composite ceiling: best (min-RMSE) linear-residual reconstruction over candidate bases.
@@ -357,7 +362,7 @@ def measure_achievable_ceiling(
         try:
             base_fit = _extract_column_array(df, bcol, rows=rows_fit).astype(np.float64, copy=False)
             base_hold = _extract_column_array(df, bcol, rows=rows_hold).astype(np.float64, copy=False)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.debug("swallowed exception in _achievable_ceiling.py: %s", e)
             continue
         if base_fit.shape != y_fit.shape or base_hold.shape != y_hold.shape:
@@ -449,6 +454,7 @@ def run_achievable_ceiling_precheck(
 
 
 def _profile_main() -> None:  # pragma: no cover -- manual cProfile harness (see module docstring)
+    """Manual cProfile harness: run ``measure_achievable_ceiling`` on a synthetic grouped dataset and print the top hotspots."""
     import cProfile
     import pstats
 

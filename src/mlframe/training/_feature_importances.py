@@ -135,6 +135,7 @@ def _permutation_feature_importances(
     # on predict's dtype keeps both paths working without the caller
     # threading a task hint.
     def _adaptive_scorer(estimator, X, y):
+        """Score ``estimator`` on a private, writeable copy of ``X`` using r2/accuracy chosen from the predictions' dtype, for wrappers lacking a sklearn-style ``.score()``."""
         try:
             # CatBoost.predict() flips its input ndarray to read-only; sklearn reuses one X_permuted buffer and
             # shuffles it in place across n_repeats, so predicting on it directly makes the next shuffle raise

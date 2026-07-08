@@ -59,7 +59,7 @@ def conformal_quantile(residuals: np.ndarray, alpha: float) -> float:
     if not (0.0 < alpha < 1.0):
         raise ValueError(f"conformal alpha must be in (0, 1), got {alpha!r}")
     # 1-indexed rank of the order statistic that bounds 1-alpha mass.
-    rank = int(math.ceil((n + 1) * (1.0 - alpha)))
+    rank = math.ceil((n + 1) * (1.0 - alpha))
     if rank > n:
         # Not enough calibration points to certify this level at finite n.
         return float("inf")
@@ -293,7 +293,7 @@ def _signed_finite_sample_quantile(scores: np.ndarray, alpha: float) -> float:
         return float("inf")
     if not (0.0 < alpha < 1.0):
         raise ValueError(f"conformal alpha must be in (0, 1), got {alpha!r}")
-    rank = int(math.ceil((n + 1) * (1.0 - alpha)))
+    rank = math.ceil((n + 1) * (1.0 - alpha))
     if rank > n:
         return float("inf")
     return float(np.sort(s)[rank - 1])

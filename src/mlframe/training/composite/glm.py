@@ -66,6 +66,7 @@ _MARGIN_CLIP = 80.0
 
 
 def _is_polars_df(x: Any) -> bool:
+    """Return True iff ``x`` is a polars DataFrame; False (never raises) if polars is absent or ``x`` is any other type."""
     try:
         import polars as pl
         return isinstance(x, pl.DataFrame)
@@ -206,6 +207,7 @@ class CompositeGLMEstimator(BaseEstimator, RegressorMixin):
 
     # -- base mean extraction ---------------------------------------------------
     def _default_base_mean_estimator(self):
+        """Family-matched default base-mean regressor: GammaRegressor for strictly-positive 'gamma', PoissonRegressor otherwise (tolerates zeros)."""
         from sklearn.linear_model import GammaRegressor, PoissonRegressor
         # GammaRegressor rejects zero / non-positive y, so only 'gamma' (strictly
         # positive target) uses it; 'poisson' and 'tweedie' (zero-inflated) use the
@@ -220,6 +222,7 @@ class CompositeGLMEstimator(BaseEstimator, RegressorMixin):
         return np.maximum(mean, _BASE_MEAN_FLOOR)
 
     def _extract_mean_column(self, X: Any) -> np.ndarray:
+        """Pull the precomputed base-mean column out of X (polars or pandas) as a floored positive ndarray."""
         col = self.base_mean_column
         if hasattr(X, "get_column"):  # polars
             arr = np.asarray(X.get_column(col).to_numpy(), dtype=np.float64).reshape(-1)
@@ -228,6 +231,7 @@ class CompositeGLMEstimator(BaseEstimator, RegressorMixin):
         return np.maximum(arr, _BASE_MEAN_FLOOR)
 
     def _drop_mean_column(self, X: Any) -> Any:
+        """Strip ``base_mean_column`` from X (polars or pandas) before it is passed to the inner estimator."""
         col = self.base_mean_column
         if hasattr(X, "drop") and hasattr(X, "get_column"):  # polars
             return X.drop(col) if col in X.columns else X
@@ -237,6 +241,7 @@ class CompositeGLMEstimator(BaseEstimator, RegressorMixin):
 
     # -- sklearn API ------------------------------------------------------------
     def fit(self, X: Any, y: Any, sample_weight=None) -> "CompositeGLMEstimator":
+        """Validate the family/target, derive the log-mean offset from the base predictor (or offset column), and fit the inner GBDT on the residual with the matching deviance objective."""
         if self.family not in _FAMILY_OBJECTIVE:
             raise ValueError(f"CompositeGLMEstimator: unknown family {self.family!r}; " f"choose one of {sorted(_FAMILY_OBJECTIVE)}.")
         if self.family == "tweedie" and not (1.0 < float(self.tweedie_power) < 2.0):
@@ -300,7 +305,7 @@ class CompositeGLMEstimator(BaseEstimator, RegressorMixin):
 # calibrate_conformal_glm(X_cal, y_cal, alpha) fits the standardized radius from a
 # held-out set; predict_interval_glm(X, alpha) returns a heteroscedastic band whose
 # width scales with sqrt(V(mu_hat)) and is clipped non-negative.
-from .conformal_glm import (  # noqa: E402
+from .conformal_glm import (
     calibrate_conformal_glm as _calibrate_conformal_glm,
     predict_interval_glm as _predict_interval_glm,
 )

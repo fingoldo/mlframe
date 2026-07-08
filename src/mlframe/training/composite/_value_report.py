@@ -93,6 +93,7 @@ __all__ = [
 
 
 def _as1d(a: Any) -> np.ndarray:
+    """Coerce any array-like (list, pandas Series, polars Series, ndarray) to a flat float64 ndarray for the reduction kernels."""
     return np.asarray(a, dtype=np.float64).reshape(-1)
 
 
@@ -124,6 +125,11 @@ def _factorize(group_ids: Any) -> tuple[np.ndarray, list]:
 
 
 def _verdict(comp: float, ref: float, rtol: float) -> str:
+    """Classify the composite's RMSE against a reference (raw or lag) RMSE for ONE group: "helped" if comp is below
+    ref by more than ``rtol``, "hurt" if above by more than ``rtol``, else "tied". A non-positive/zero-data ``ref``
+    (no valid rows) reads as "tied" unless the composite itself is positive, in which case it is "hurt" (there is
+    no baseline to beat, but a non-zero composite error still counts against it).
+    """
     if not (ref > 0):
         return "tied" if comp <= 0 else "hurt"
     if comp < ref * (1.0 - rtol):
@@ -289,6 +295,11 @@ def build_composite_value_report(
 
 
 def _empty_report(n: int, has_lag: bool, tie_rtol: float, n_groups_total: int) -> dict:
+    """Build the degenerate report returned when there are zero input rows, zero groups, or every group has zero
+    valid (finite, matched) rows. Preserves the same schema as a normal :func:`build_composite_value_report` result
+    so downstream code (JSON consumers, :func:`render_composite_value_report`) never needs a separate empty-case
+    branch; ``n_groups_no_data`` is set to the full group count and ``net_verdict`` reads "no data".
+    """
     return {
         "n_groups": 0,
         "n_groups_no_data": int(n_groups_total),
@@ -315,6 +326,10 @@ def _empty_report(n: int, has_lag: bool, tie_rtol: float, n_groups_total: int) -
 
 
 def _tally(rmse_comp: np.ndarray, rmse_ref: np.ndarray, valid: np.ndarray, rtol: float) -> dict:
+    """Vectorized aggregate counterpart to :func:`_verdict`: bucket every valid group into helped/hurt/tied (via the
+    same ``rtol`` band) against a reference RMSE array (raw or lag), and return counts plus their fractions of the
+    valid-group total (``None`` fractions when there are zero valid groups, to keep the report JSON-null-safe).
+    """
     helped = valid & (rmse_comp < rmse_ref * (1.0 - rtol))
     hurt = valid & (rmse_comp > rmse_ref * (1.0 + rtol))
     tied = valid & ~helped & ~hurt
@@ -331,6 +346,11 @@ def _tally(rmse_comp: np.ndarray, rmse_ref: np.ndarray, valid: np.ndarray, rtol:
 
 
 def _net_lift(rmse_ref: np.ndarray, rmse_comp: np.ndarray, W: np.ndarray, valid: np.ndarray) -> Optional[float]:
+    """Row-weighted (not group-averaged) relative lift of composite over a reference RMSE across all valid groups
+    with positive reference RMSE. Weighting by group total weight ``W`` means a group with many rows dominates the
+    net verdict correctly, rather than letting a small group with a big per-group lift skew a simple mean. Returns
+    ``None`` when no group qualifies (all-zero reference RMSE or nothing valid).
+    """
     idx = np.nonzero(valid & (rmse_ref > 0))[0]
     if idx.size == 0:
         return None
@@ -340,11 +360,20 @@ def _net_lift(rmse_ref: np.ndarray, rmse_comp: np.ndarray, W: np.ndarray, valid:
 
 
 def _pooled_rmse(sse: np.ndarray, W: np.ndarray, valid: np.ndarray) -> Optional[float]:
+    """Single overall RMSE pooled across all valid groups: sqrt(total weighted SSE / total weight), i.e. as if every
+    row from every group were one big dataset. Distinct from averaging per-group RMSEs (which would over-weight
+    small/noisy groups); ``None`` when total weight is zero (no valid rows anywhere).
+    """
     wsum = float(W[valid].sum())
     return float(np.sqrt(float(sse[valid].sum()) / wsum)) if wsum > 0 else None
 
 
 def _aggregate(rmse_raw, rmse_comp, rmse_lag, W, sse_raw, sse_comp, sse_lag, valid, uniq, has_lag, rtol) -> dict:
+    """Roll the per-group RMSE arrays into the top-level aggregate block: helped/hurt/tied tallies (vs raw and,
+    when available, vs lag), pooled RMSE and pooled lift per baseline, the row-weighted net lift, the list of groups
+    where the composite is WORSE than the lag failsafe (sorted by label, for the "should not have deployed here"
+    signal), and the overall ``net_verdict`` string derived from whether the net lift over raw clears ``rtol``.
+    """
     vs_raw = _tally(rmse_comp, rmse_raw, valid, rtol)
     vs_lag = _tally(rmse_comp, rmse_lag, valid, rtol) if has_lag else None
 
@@ -389,6 +418,13 @@ def _aggregate(rmse_raw, rmse_comp, rmse_lag, W, sse_raw, sse_comp, sse_lag, val
 
 
 def _expected_vs_realized(aggregate, *, expected_lift, expected_rmse, expected_tol) -> Optional[dict]:
+    """Compare the target selector's PREDICTED lift/RMSE against what the report actually realized, so a caller can
+    judge whether the selector's estimate was calibrated. Returns ``None`` when neither ``expected_lift`` nor
+    ``expected_rmse`` was supplied (selector calibration not requested). The lift gap is bucketed into "optimistic"
+    (selector over-promised, realized fell short by more than ``expected_tol``), "pessimistic" (realized beat the
+    promise by more than ``expected_tol``), or "on-target"; the RMSE gap is reported as a raw delta only (no verdict
+    bucket, since "expected RMSE" units/scale vary more than lift fractions do).
+    """
     if expected_lift is None and expected_rmse is None:
         return None
     realized_lift = aggregate["net_weighted_lift_over_raw"]
@@ -417,10 +453,12 @@ def _expected_vs_realized(aggregate, *, expected_lift, expected_rmse, expected_t
 
 
 def _pct(x: Optional[float]) -> str:
+    """Format a fraction as a signed percentage for the rendered text block (``None`` -> ``"n/a"``)."""
     return "n/a" if x is None else f"{100.0 * x:+.2f}%"
 
 
 def _num(x: Optional[float]) -> str:
+    """Format a metric (RMSE, gap) at 6 significant digits for the rendered text block (``None`` -> ``"n/a"``)."""
     return "n/a" if x is None else f"{x:.6g}"
 
 

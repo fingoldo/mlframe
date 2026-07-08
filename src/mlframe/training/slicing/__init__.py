@@ -15,12 +15,12 @@ documented package path.
 """
 from __future__ import annotations
 
-from ._slice_helpers import (  # noqa: F401
+from ._slice_helpers import (
     SliceEvalSet,
     build_slice_eval_sets,
     effective_patience,
 )
-from ._slice_pareto_plot import generate_pareto_artifact  # noqa: F401
+from ._slice_pareto_plot import generate_pareto_artifact
 
 __all__ = [
     "SliceEvalSet",

@@ -22,6 +22,16 @@ logger = logging.getLogger(__name__)
 
 
 class MLPNeuronsByLayerArchitecture(Enum):
+    """Per-layer neuron-count progression pattern consumed by ``generate_mlp``.
+
+    ``Constant`` keeps every hidden layer at ``first_layer_num_neurons``;
+    ``Declining``/``Expanding`` scale each successive layer by
+    ``consec_layers_neurons_ratio`` (down/up); ``ExpandingThenDeclining``
+    grows to the middle layer then shrinks (a "bottleneck-inverted" shape);
+    ``Autoencoder`` shrinks to the middle then grows back (the classic
+    encoder/decoder bottleneck shape).
+    """
+
     Constant = auto()
     Declining = auto()
     Expanding = auto()
@@ -30,6 +40,12 @@ class MLPNeuronsByLayerArchitecture(Enum):
 
 
 def get_valid_num_groups(num_channels, preferred_num_groups):
+    """Finds the largest divisor of ``num_channels`` not exceeding ``preferred_num_groups``.
+
+    ``nn.GroupNorm`` requires ``num_channels % num_groups == 0``; layer widths chosen by the
+    architecture-progression logic are rarely divisible by an arbitrary preferred group count.
+    Falls back to 1 group (LayerNorm-equivalent behaviour) when no larger divisor exists.
+    """
     for g in range(preferred_num_groups, 0, -1):
         if num_channels % g == 0:
             return g
@@ -62,12 +78,14 @@ class Snake(nn.Module):
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Applies the Snake activation elementwise (shape-preserving)."""
         # x + (1/alpha) * sin^2(alpha * x) = x + (1 - cos(2*alpha*x)) / (2*alpha)
         # Latter form is numerically stabler for small alpha.
         a = self.alpha
         return x + (1.0 - torch.cos(2.0 * a * x)) / (2.0 * a + 1e-12)
 
     def extra_repr(self) -> str:
+        """Reports the current ``alpha`` value for ``print(module)`` / ``repr``."""
         return f"alpha={float(self.alpha):.4g}"
 
 
@@ -110,6 +128,7 @@ class _BoundedTanhOutput(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Applies the bounded-tanh output head: ``tanh(x) * scale + center``."""
         # F-37 (2026-05-31): always use the separate-op form
         # ``tanh(x) * scale + center``. Pre-fix this had a ``if x.is_cuda:
         # return addcmul(...)`` data-dependent branch — measured 1.5-2.4x
@@ -129,6 +148,7 @@ class _BoundedTanhOutput(nn.Module):
         return torch.tanh(x) * self.scale + self.center
 
     def extra_repr(self) -> str:
+        """Reports the current ``scale``/``center`` for ``print(module)`` / ``repr``."""
         return f"scale={float(self.scale):.4g}, center={float(self.center):.4g}"
 
 
@@ -182,9 +202,11 @@ class _ResidualLinearBlock(nn.Module):
         self.skip = nn.Identity() if in_dim == out_dim else nn.Linear(in_dim, out_dim, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Runs Linear -> [norm] -> activation -> [dropout], then adds the (identity or projected) skip connection."""
         return cast(torch.Tensor, self.dropout(self.act(self.norm(self.linear(x)))) + self.skip(x))
 
     def extra_repr(self) -> str:
+        """Reports in/out widths and skip-connection kind (identity vs. bias-free linear projection)."""
         return f"in={self.linear.in_features}, out={self.linear.out_features}, " f"skip={'identity' if isinstance(self.skip, nn.Identity) else 'linear'}"
 
 
@@ -374,6 +396,7 @@ def generate_mlp(
     # (R^2=-326, R^2=-30) that motivated the bounded-output and
     # envelope-clip defences become geometrically impossible.
     def _maybe_sn(module: nn.Module) -> nn.Module:
+        """Wraps ``module`` with ``nn.utils.spectral_norm`` when ``spectral_norm`` is enabled, else returns it unchanged."""
         if not spectral_norm:
             return module
         return nn.utils.spectral_norm(
@@ -580,6 +603,7 @@ def generate_mlp(
                     total_weights += module.bias.numel()
 
         def format_num(n):
+            """Formats a neuron/weight count as e.g. ``7.6k`` above 1000, else the plain integer string."""
             if n >= 1000:
                 return f"{n/1000:.1f}k"
             return str(n)
@@ -631,6 +655,7 @@ def generate_mlp(
     if weights_init_fcn:
 
         def init_weights(m):
+            """Applies ``weights_init_fcn`` to Linear/BatchNorm1d weights and biases, falling back to N(1.0, 0.02) for BatchNorm gamma when the init fn is Xavier/Kaiming (which require >=2D tensors and would raise on BN's 1D gamma)."""
             if isinstance(m, (nn.Linear, nn.BatchNorm1d)):
                 if isinstance(weights_init_fcn, partial):
                     func_to_check = weights_init_fcn.func
@@ -731,4 +756,4 @@ def generate_mlp(
 
 
 # MLPTorchModel carved to ``_flat_torch_module``; re-exported below.
-from ._flat_torch_module import MLPTorchModel  # noqa: F401, E402
+from ._flat_torch_module import MLPTorchModel

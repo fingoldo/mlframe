@@ -57,18 +57,22 @@ __all__ = [
 # ----------------------------------------------------------------------
 
 def _diff_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
+    """No learnable parameters: ``diff`` is a fixed alpha=1/beta=0 transform, so fitting is a no-op returning an empty params dict."""
     return {}
 
 
 def _diff_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    """Apply the fixed transform ``T = y - base``."""
     return np.asarray(y - base)
 
 
 def _diff_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    """Undo the fixed transform: ``y = T_hat + base``."""
     return np.asarray(t_hat + base)
 
 
 def _diff_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
+    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
     base_ok = np.isfinite(base)
     if y is None:
         return np.asarray(base_ok)
@@ -85,7 +89,10 @@ def _diff_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
 def _additive_residual_fit(
     y: np.ndarray, base: np.ndarray, _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
+    """Learn the constant offset ``beta = mean(y - base)`` over finite rows (0.0 if none are finite).
+
     # Optional precomputed joint finite mask: a caller that already knows the (y, base) finite mask can pass it to skip the per-call np.isfinite. No current call site supplies it (discovery fits plain (y, base)); the recompute below is the live path.
+    """
     finite = _finite_mask if _finite_mask is not None else (np.isfinite(y) & np.isfinite(base))
     if not finite.any():
         return {"beta": 0.0}
@@ -96,18 +103,21 @@ def _additive_residual_fit(
 def _additive_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Apply ``T = y - base - beta`` using the beta learned at fit time."""
     return np.asarray(y - base - float(params.get("beta", 0.0)))
 
 
 def _additive_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Undo the transform: ``y = T_hat + base + beta``."""
     return np.asarray(t_hat + base + float(params.get("beta", 0.0)))
 
 
 def _additive_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
     base_ok = np.isfinite(base)
     if y is None:
         return np.asarray(base_ok)
@@ -168,6 +178,7 @@ def _median_residual_per_bin_medians(
 def _median_residual_fit(
     y: np.ndarray, base: np.ndarray, _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
+    """Learn per-quantile-bin medians of ``y`` conditioned on ``base``: quantile-bin edges over ``base``, plus the median of ``y`` within each bin (fallback median for empty bins)."""
     finite = _finite_mask if _finite_mask is not None else (np.isfinite(y) & np.isfinite(base))
     if not finite.any():
         return {
@@ -200,6 +211,7 @@ def _median_residual_fit(
 
 
 def _median_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    """Look up the fitted per-bin median of ``y`` for each row's ``base`` value, digitizing into the fitted bin edges."""
     bin_edges = np.asarray(params["bin_edges"], dtype=np.float64)
     bin_medians = np.asarray(params["bin_medians"], dtype=np.float64)
     fallback = float(params.get("fallback_median", 0.0))
@@ -213,18 +225,21 @@ def _median_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
 def _median_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Apply ``T = y - median(y | bin(base))`` using the fitted per-bin medians."""
     return np.asarray(y - _median_residual_g(base, params))
 
 
 def _median_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Undo the transform: ``y = T_hat + median(y | bin(base))``."""
     return np.asarray(t_hat + _median_residual_g(base, params))
 
 
 def _median_residual_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
     base_ok = np.isfinite(base)
     if y is None:
         return np.asarray(base_ok)
@@ -247,7 +262,10 @@ _Y_QUANTILE_CLIP_HI: float = 0.995
 def _y_quantile_clip_fit(
     y: np.ndarray, base: np.ndarray, _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
+    """Learn the [q_lo, q_hi] clip bounds as the ``_Y_QUANTILE_CLIP_LO``/``_Y_QUANTILE_CLIP_HI`` quantiles of ``y``.
+
     # Unary y-only transform; an optional caller-supplied ``_finite_mask`` is treated as the y-side finite gate (the base argument is ignored either way). No current call site supplies it.
+    """
     finite = _finite_mask if _finite_mask is not None else np.isfinite(y)
     if not finite.any():
         return {"q_lo": 0.0, "q_hi": 0.0}
@@ -260,6 +278,7 @@ def _y_quantile_clip_fit(
 def _y_quantile_clip_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Clip ``y`` to the fitted [q_lo, q_hi] range; ``base`` is ignored (unary transform)."""
     q_lo = float(params.get("q_lo", -np.inf))
     q_hi = float(params.get("q_hi", np.inf))
     return np.clip(y.astype(np.float64), q_lo, q_hi)
@@ -268,6 +287,7 @@ def _y_quantile_clip_forward(
 def _y_quantile_clip_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Identity-like inverse: clipping is lossy so the inverse just re-clips ``t_hat`` to [q_lo, q_hi] rather than truly inverting."""
     q_lo = float(params.get("q_lo", -np.inf))
     q_hi = float(params.get("q_hi", np.inf))
     return np.clip(np.asarray(t_hat, dtype=np.float64), q_lo, q_hi)
@@ -276,6 +296,7 @@ def _y_quantile_clip_inverse(
 def _y_quantile_clip_domain(
     y: np.ndarray | None, base: np.ndarray | None,
 ) -> np.ndarray:
+    """Return the boolean mask of rows where the transform is defined: finite ``y`` when provided, else all-True sized off ``base`` (unary transform ignores ``base`` content)."""
     if y is None:
         # ``y_quantile_clip`` is ``requires_base=False`` and ignores ``base``; at predict-time the wrapper passes ``base=None``, so size the all-True mask from whichever array is present (never call ``np.isfinite`` on ``None``).
         n = len(base) if base is not None and hasattr(base, "__len__") else 1
@@ -290,6 +311,7 @@ def _y_quantile_clip_domain(
 def _ratio_fit(
     y: np.ndarray, base: np.ndarray, _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
+    """Learn an eps floor (relative to the median |base|) used to keep ``y / base`` numerically safe near zero."""
     # eps relative to the typical scale of base on train -- small enough not to bias the transform but large enough to keep division numerically clean.
     # Stored in params so predict time uses the SAME eps (no train/test drift). An optional caller-supplied ``_finite_mask`` skips the np.isfinite recompute on base; no current call site supplies it.
     if _finite_mask is not None:
@@ -306,19 +328,24 @@ def _ratio_fit(
 
 
 def _ratio_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    """Apply ``T = y / base``, flooring ``|base|`` at the fitted eps (sign-preserving) to avoid division blowup."""
     eps = float(params["eps"])
     safe_base = np.where(np.abs(base) < eps, np.sign(base + 1e-300) * eps, base)
     return np.asarray(y / safe_base)
 
 
 def _ratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    """Undo the transform: ``y = T_hat * base`` (eps-floored, mirroring forward).
+
     # Mirror the forward eps-floor so the round-trip is exact on in-domain near-zero base rows (0<|base|<eps would otherwise yield unbounded relative error).
+    """
     eps = float(params["eps"])
     safe_base = np.where(np.abs(base) < eps, np.sign(base + 1e-300) * eps, base)
     return np.asarray(t_hat * safe_base)
 
 
 def _ratio_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
+    """Return the boolean mask of rows where the transform is defined: finite, non-zero ``base`` (and finite ``y`` when provided)."""
     base_ok = np.isfinite(base) & (np.abs(base) > 0)
     if y is None:
         return np.asarray(base_ok)
@@ -355,6 +382,7 @@ def _rolling_quantile_ratio_fit(
 def _rolling_quantile_ratio_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Apply ``T = y / max(RollingQ50_k(base), eps)``, the centred rolling median of ``base`` over window ``k``."""
     # Lazy import: ``_rolling_median`` lives in the nonlinear sibling, which
     # imports the parent at top, so this top-level import would cycle.
     from .nonlinear import _rolling_median
@@ -369,6 +397,7 @@ def _rolling_quantile_ratio_forward(
 def _rolling_quantile_ratio_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Undo the transform: ``y = T_hat * max(RollingQ50_k(base), eps)``."""
     from .nonlinear import _rolling_median
     k = int(params["k"])
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
@@ -382,6 +411,7 @@ def _rolling_quantile_ratio_inverse(
 def _rolling_quantile_ratio_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Return the boolean mask of rows where the transform is defined: finite ``base`` (and finite ``y`` when provided)."""
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     if y is None:
         return base_ok

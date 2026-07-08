@@ -134,7 +134,7 @@ def _resolve_train_idx(df: Any, train_idx: Any) -> np.ndarray:
     discovery's ``fit`` enforces, surfaced one level earlier for a clearer
     error).
     """
-    n = int(len(df))
+    n = len(df)
     if train_idx is None:
         return np.arange(n, dtype=np.int64)
     arr = np.asarray(train_idx)

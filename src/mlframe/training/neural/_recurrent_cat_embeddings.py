@@ -16,7 +16,7 @@ from sklearn.preprocessing import StandardScaler
 from .base import _ensure_numpy
 
 try:
-    import xxhash as _xxhash  # noqa: F401  module-top for hot cache-key path
+    import xxhash as _xxhash
     _HAS_XXHASH = True
 except ImportError:
     _HAS_XXHASH = False
@@ -54,7 +54,7 @@ class _RecurrentCatEmbeddingMixin:
         encoded_cols: dict = {}
         for col in present:
             codes, uniques = _pd.factorize(features[col], sort=False)
-            card = int(len(uniques))
+            card = len(uniques)
             code_maps[col] = {val: i for i, val in enumerate(uniques)}
             cardinalities.append(card)
             codes = codes.astype(np.float32)

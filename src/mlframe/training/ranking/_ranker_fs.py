@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 def _to_pandas_features(X) -> pd.DataFrame:
+    """Coerce a feature matrix (pandas, polars, or array-like) to a pandas ``DataFrame``, passing pandas frames through untouched."""
     if isinstance(X, pd.DataFrame):
         return X
     if hasattr(X, "to_pandas"):  # polars

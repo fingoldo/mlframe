@@ -21,11 +21,19 @@ logger = logging.getLogger(__name__)
 
 
 class NetworkGraphLoggingCallback(Callback):
+    """Logs the model's computation graph to the active Lightning logger once training finishes."""
+
     def on_train_end(self, trainer, pl_module):
+        """Log the trained model's computation graph via the Lightning logger's ``log_graph`` hook."""
         pl_module.logger.log_graph(model=pl_module)
 
 
 class AggregatingValidationCallback(Callback):
+    """Accumulates per-batch validation predictions/labels and logs a single epoch-level metric.
+
+    Some metrics (e.g. AUC, correlation) are not decomposable into a per-batch average, so this callback
+    buffers all validation-batch outputs and computes ``metric_fcn`` once over the concatenated epoch data.
+    """
 
     # Constructor params, mirrored onto self by store_params_in_object() below.
     metric_name: str
@@ -42,15 +50,18 @@ class AggregatingValidationCallback(Callback):
         self.init_accumulators()
 
     def init_accumulators(self):
+        """Reset the per-epoch prediction/label buffers (called at construction and after each epoch's log)."""
         self.batched_predictions = []
         self.batched_labels = []
 
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
+        """Buffer this validation batch's ``(predictions, labels)`` pair for the end-of-epoch metric computation."""
         predictions, labels = outputs
         self.batched_labels.append(labels)
         self.batched_predictions.append(predictions)
 
     def on_validation_epoch_end(self, trainer, pl_module):
+        """Concatenate the buffered batches, compute ``metric_fcn`` once, log it, and reset the buffers."""
         labels = torch.concat(self.batched_labels).detach().cpu().numpy()
         predictions = torch.concat(self.batched_predictions).detach().cpu().float().numpy()
         metric_value = self.metric_fcn(y_true=labels, y_score=predictions)
@@ -91,6 +102,7 @@ class ValLossDivergenceCallback(Callback):
         self._warned: bool = False
 
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        """Latch the epoch-1 monitored value as baseline, then WARN once if a later epoch exceeds it by ``divergence_factor``."""
         if self._warned:
             return
         metrics = trainer.callback_metrics
@@ -151,6 +163,7 @@ class MonotonicDeclineStopCallback(Callback):
         self._stopper = MonotonicDeclineStopper(patience, mode=mode)
 
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        """Feed the monitored metric to the shared ``MonotonicDeclineStopper`` and set ``trainer.should_stop`` on a confirmed strict-decline streak."""
         if not self._stopper.enabled:
             return
         metrics = trainer.callback_metrics
@@ -219,6 +232,11 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
 
 
 class PeriodicLearningRateFinder(LearningRateFinder):
+    """Re-runs Lightning's LR-finder sweep every ``period`` epochs instead of only once at fit start.
+
+    Useful for long training runs where the optimal learning rate shifts as the loss landscape flattens.
+    """
+
     def __init__(self, period: int, *args, **kwargs):
         if not isinstance(period, int) or isinstance(period, bool):
             raise TypeError(f"period must be an int, got {type(period).__name__}")
@@ -228,6 +246,7 @@ class PeriodicLearningRateFinder(LearningRateFinder):
         self.period = period
 
     def on_train_epoch_start(self, trainer, pl_module):
+        """Re-run the LR-finder sweep and update ``pl_module.learning_rate`` when the current epoch is a multiple of ``period``."""
         if (trainer.current_epoch % self.period) == 0 or trainer.current_epoch == 0:
             logger.info("Finding optimal learning rate. Current rate=%s", pl_module.learning_rate)
             self.lr_find(trainer, pl_module)

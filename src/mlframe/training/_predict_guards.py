@@ -473,7 +473,7 @@ def _fit_persist_and_transform(
             scaler.var_ = _stds_post.copy() ** 2
             scaler.n_features_in_ = len(cols)
             scaler.feature_names_in_ = np.array(list(cols), dtype=object)
-            scaler.n_samples_seen_ = int(len(X))
+            scaler.n_samples_seen_ = len(X)
             model._mlframe_nan_imputer = imputer
             model._mlframe_nan_scaler = scaler
         except (AttributeError, TypeError):

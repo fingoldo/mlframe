@@ -155,7 +155,7 @@ def _n_classes_from_target(target, target_type: Optional[TargetTypes]) -> Option
         arr = np.asarray(target)
         if arr.ndim != 1:
             return None
-        return int(len(np.unique(arr)))
+        return len(np.unique(arr))
     return None
 
 
@@ -226,7 +226,7 @@ def optimize_model_for_storage(
 
 
 # select_target carved to ``_train_eval_select_target``; re-exported below.
-from .targets import select_target  # noqa: F401, E402
+from .targets import select_target
 
 
 def _call_train_evaluate_with_configs(

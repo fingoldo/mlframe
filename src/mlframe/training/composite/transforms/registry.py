@@ -185,16 +185,20 @@ def _make_unary_registry_adapter(
     ``None`` the returned 5th element is ``None`` and the registry entry leaves
     ``domain_check_fitted`` unset (params-free ``domain_check`` is exact)."""
 
-    def _fit(y, base):  # noqa: ARG001
+    def _fit(y, base):
+        """Registry-shaped fit adapter: drop ``base``, delegate to the unary ``fit_fn(y)``."""
         return fit_fn(y)
 
-    def _forward(y, base, params):  # noqa: ARG001
+    def _forward(y, base, params):
+        """Registry-shaped forward adapter: drop ``base``, delegate to the unary ``forward_fn(y, params)``."""
         return forward_fn(y, params)
 
-    def _inverse(t_hat, base, params):  # noqa: ARG001
+    def _inverse(t_hat, base, params):
+        """Registry-shaped inverse adapter: drop ``base``, delegate to the unary ``inverse_fn(t_hat, params)``."""
         return inverse_fn(t_hat, params)
 
-    def _domain(y, base):  # noqa: ARG001
+    def _domain(y, base):
+        """Registry-shaped domain adapter: params-free unary domain at fit time, all-True at predict time (no base constraint for unary transforms)."""
         # The unary helper accepts (y) or (y, params); the registry
         # contract is domain_check(y, base) at fit-time and (None, base)
         # at predict-time. Predict-side call passes y=None so we cannot
@@ -207,7 +211,8 @@ def _make_unary_registry_adapter(
     if domain_fitted_fn is None:
         return _fit, _forward, _inverse, _domain, None
 
-    def _domain_fitted(y, base, params):  # noqa: ARG001
+    def _domain_fitted(y, base, params):
+        """Registry-shaped fitted-domain adapter: params-aware unary domain at fit time, all-True at predict time (see docstring below)."""
         # Fitted-domain for unary: no base constraint, so at predict time
         # (y is None) the per-row domain cannot be re-checked from base
         # alone (e.g. log_y's ``y + offset > 0`` needs y). Return all-True

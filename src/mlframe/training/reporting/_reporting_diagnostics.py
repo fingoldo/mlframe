@@ -276,7 +276,7 @@ def _render_post_fit_diagnostics(
                 # (pred_std ~ 0) AND the group-OOD-shift collapse (HIGH pred_std but predictions drift far
                 # off, e.g. addres/diff on an extrapolating per-well base, R^2=-333) are both pathological.
                 _collapsed = (_ss_tot > 0) and (1.0 - _ss_res / _ss_tot < 0.0)
-        except Exception:  # noqa: BLE001 -- collapse gate is a perf heuristic; never abort reporting
+        except Exception:
             _collapsed = False
     if _collapsed and getattr(cfg, "skip_expensive_diagnostics_on_collapse", True):
         logger.info(

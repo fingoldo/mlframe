@@ -67,6 +67,7 @@ def _run_ablation(
     # init_from_np2d ~10x). See _benchmarks/bench_ablation_shared_dataset.py +
     # test_ablation_shared_dataset_rejected.py.
     def _one_drop(rank: int, idx: int, feat: str, kept: list[str], cat_kept: list[str]):
+        """Refit a quick model with ``feat`` dropped (``kept`` columns only) and score the metric delta for that feature's ablation entry."""
         X_drop = X.loc[:, kept]
         try:
             metric_drop, _ = self._fit_quick_and_score(

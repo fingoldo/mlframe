@@ -19,19 +19,19 @@ This is enforced as a meta-test: see ``tests/test_meta/test_no_production_unders
 from __future__ import annotations
 
 # Back-compat for tests that read these via ``mlframe.training.core.X`` before monkeypatching them at submodule level.
-from sklearn.base import clone  # noqa: F401
-from ..pipeline import fit_and_transform_pipeline  # noqa: F401
+from sklearn.base import clone
+from ..pipeline import fit_and_transform_pipeline
 
-from .main import train_mlframe_models_suite  # noqa: F401
+from .main import train_mlframe_models_suite
 
-from .predict import (  # noqa: F401
+from .predict import (
     predict_mlframe_models_suite,
     predict_from_models,
     load_mlframe_suite,
 )
 
 # Legacy back-compat: tests + downstream composite modules import some of these directly from ``mlframe.training.core``.
-from .utils import (  # noqa: F401
+from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,
     _ensure_logging_visible,
     _entry_metric,

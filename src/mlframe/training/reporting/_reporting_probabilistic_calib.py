@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-from ._reporting_probabilistic import _slugify_class  # noqa: E402 (defined before parent's bottom re-export -> cycle-safe)
+from ._reporting_probabilistic import _slugify_class
 
 
 def _render_fairness_calibration(

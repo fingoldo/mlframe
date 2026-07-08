@@ -72,6 +72,7 @@ __all__ = [
 
 
 def _as1d(a: Any) -> np.ndarray:
+    """Coerce any array-like input to a contiguous 1-D float64 array (accepts pandas/polars Series, lists, ndarrays)."""
     return np.asarray(a, dtype=np.float64).reshape(-1)
 
 
@@ -314,6 +315,9 @@ def _summarize(bins: list[dict], help_rtol: float) -> dict:
 
 
 def _empty_report(n_bins: int, has_lag: bool, help_rtol: float) -> dict:
+    """The zero-rows/zero-valid-bins report shape: same schema as a real report but with empty ``bins`` and an
+    all-``None`` summary, so downstream consumers (JSON serialization, ``render_regime_headroom_map``) never branch
+    on a missing key."""
     return {
         "n_bins": 0,
         "n_bins_requested": int(n_bins),
@@ -332,10 +336,12 @@ def _empty_report(n_bins: int, has_lag: bool, help_rtol: float) -> dict:
 
 
 def _pct(x: Optional[float]) -> str:
+    """Format a fraction as a signed percentage string for the ASCII report, or ``"n/a"`` for a ``None`` (no-data) cell."""
     return "n/a" if x is None else f"{100.0 * x:+.2f}%"
 
 
 def _num(x: Optional[float]) -> str:
+    """Format a float to 6 significant digits for the ASCII report, or ``"n/a"`` for a ``None`` (no-data) cell."""
     return "n/a" if x is None else f"{x:.6g}"
 
 

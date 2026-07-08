@@ -24,6 +24,7 @@ import pandas as pd
 
 
 def _make_frame(n=1500, p=20, seed=0):
+    """Build a synthetic binary-classification frame (``p`` gaussian features, the first three informative via a linear-logit rule) sized to keep MRMR fit time low while still exercising the FS-integration code paths."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, p)).astype(np.float64)
     logits = 2.0 * X[:, 0] - 1.5 * X[:, 1] + 0.8 * X[:, 2] + 0.1 * rng.standard_normal(n)
@@ -33,6 +34,7 @@ def _make_frame(n=1500, p=20, seed=0):
 
 
 def _run_once():
+    """Run one full train+predict cycle through ``train_mlframe_models_suite`` with MRMR feature selection enabled, so the profiler attributes time to selector fit_transform / report build / pickle / predict-time reuse rather than to the harness itself. Predict failures are swallowed and printed (not fatal to the profile)."""
     from mlframe.training.core import train_mlframe_models_suite, predict_from_models
     from mlframe.training import FeatureSelectionConfig, OutputConfig
     from tests.training.shared import SimpleFeaturesAndTargetsExtractor
@@ -68,6 +70,7 @@ def _run_once():
 
 
 def main():
+    """Profile ``_run_once`` under cProfile and print the top-30 cumulative-time and top-20 self-time (tottime) frames -- the standard entry point for rerunning this harness from the command line."""
     pr = cProfile.Profile()
     pr.enable()
     _run_once()

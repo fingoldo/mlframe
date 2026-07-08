@@ -378,7 +378,7 @@ class CompositeMultiOutputEstimator(MultiOutputMixin, RegressorMixin, BaseEstima
 # calibrate_conformal(X_cal, y_cal, alpha) fits one radius PER output column on
 # its own held-out residuals; predict_interval(X, alpha) returns (lower, upper)
 # arrays of shape (n, K) with marginal coverage >= 1-alpha per column.
-from .multi_output_conformal import (  # noqa: E402
+from .multi_output_conformal import (
     calibrate_conformal as _calibrate_conformal,
     predict_interval as _predict_interval,
 )

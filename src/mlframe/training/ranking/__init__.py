@@ -16,7 +16,7 @@ the documented package path.
 """
 from __future__ import annotations
 
-from .ranking import (  # noqa: F401
+from .ranking import (
     fit_ranker,
     predict_ranker_scores,
     ensemble_ranker_scores,
@@ -25,7 +25,7 @@ from .ranking import (  # noqa: F401
     prepare_xgb_inputs,
     prepare_lgb_inputs,
 )
-from .ranker_suite import (  # noqa: F401
+from .ranker_suite import (
     train_mlframe_ranker_suite,
     rrf_fuse,
     borda_fuse,

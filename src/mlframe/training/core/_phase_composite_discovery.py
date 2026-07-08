@@ -35,7 +35,7 @@ from .utils import (
 
 logger = logging.getLogger(__name__)
 
-from ._phase_composite_discovery_helpers import (  # noqa: F401
+from ._phase_composite_discovery_helpers import (
     _render_composite_discovery_diagnostics,
     _build_disc_df_for_target,
     _discovery_config_signature,
@@ -356,7 +356,7 @@ def run_composite_target_discovery(
                     y_train=_y_train_aligned,
                     group_ids_train=_grp_train,
                 )
-            except Exception as _pc_err:  # noqa: BLE001 -- a precheck failure must never abort discovery
+            except Exception as _pc_err:
                 logger.info(
                     "[CompositeTargetDiscovery] achievable-ceiling precheck raised for target='%s' (%s); discovery proceeds.",
                     _tname_disc, _pc_err,
@@ -495,7 +495,7 @@ def run_composite_target_discovery(
                                 "[CompositeTargetDiscovery] cache replay re-registered %d auto-chain transform(s): %s",
                                 len(_rereg), sorted(_rereg),
                             )
-                    except Exception as _rereg_err:  # noqa: BLE001
+                    except Exception as _rereg_err:
                         logger.warning(
                             "[CompositeTargetDiscovery] cache replay auto-chain re-registration failed: %s", _rereg_err,
                         )
@@ -639,7 +639,7 @@ def run_composite_target_discovery(
                                 if hasattr(val_df_pd, "__len__") and len(val_df_pd) == len(_vy):
                                     _disc_val_df = val_df_pd
                                     _disc_val_y = _vy
-                        except Exception:  # noqa: BLE001 -- val gate is best-effort; fall back to train-group holdout
+                        except Exception:
                             _disc_val_df, _disc_val_y = None, None
                         _disc = _disc_instance.fit(
                             df=_disc_df,
@@ -699,7 +699,7 @@ def run_composite_target_discovery(
             if _ceiling_verdict is not None:
                 try:
                     _disc.composite_precheck_verdict_ = _ceiling_verdict
-                except Exception as e:  # noqa: BLE001 -- exotic/read-only _disc; the verdict already lives in metadata
+                except Exception as e:
                     logger.debug("swallowed exception in _phase_composite_discovery.py: %s", e)
                     pass
 

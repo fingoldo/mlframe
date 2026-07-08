@@ -84,23 +84,24 @@ def compute_val_veto(
         return None
     try:
         yv = np.asarray(oof_y_full)[filtered_val_idx].astype(np.float64)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     cache: dict[int, float] = {}
 
     def _val_rmse_of(ci: int) -> float:
+        """Val-set RMSE of OOF component `ci`, memoised across repeated lookups; NaN if the component can't predict on val or has fewer than 50 finite pairs to score."""
         if ci in cache:
             return cache[ci]
         try:
             pv = np.asarray(oof_components[ci].predict(filtered_val_df), dtype=np.float64)
             f = np.isfinite(pv) & np.isfinite(yv)
             r = float(np.sqrt(np.mean((pv[f] - yv[f]) ** 2))) if int(f.sum()) >= 50 else float("nan")
-        except Exception:  # noqa: BLE001 -- a component that cannot predict on val yields no veto signal
+        except Exception:
             r = float("nan")
         cache[ci] = r
         return r
 
     try:
         return decide_ar1_failsafe_val_veto(oof_names, oof_rmses, lag_failsafe_tol, _val_rmse_of)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None

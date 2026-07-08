@@ -36,8 +36,8 @@ try:
 except ImportError:  # pragma: no cover
     XGBClassifier = XGBRegressor = None  # type: ignore[assignment,misc]
 
-from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
-from .pipeline import (  # noqa: E402,F401
+from ._predict_guards import _CB_VAL_POOL_CACHE
+from .pipeline import (
     _PRE_PIPELINE_CACHE, _PRE_PIPELINE_CACHE_LOCK, _PRE_PIPELINE_CACHE_MAX,
     _apply_pre_pipeline_transforms, _extract_feature_selector,
     _is_fitted, _multilabel_target_to_1d_for_supervised_encoders,
@@ -45,7 +45,7 @@ from .pipeline import (  # noqa: E402,F401
     _pre_pipeline_cache_clear, _pre_pipeline_cache_get,
     _pre_pipeline_cache_set, _prepare_test_split,
 )
-from .cb import (  # noqa: E402,F401
+from .cb import (
     _cached_gpu_info, _maybe_get_or_build_cb_pool,
     _maybe_rewrite_eval_set_as_cb_pool,
     _polars_df_has_null_in_categorical,
@@ -54,20 +54,20 @@ from .cb import (  # noqa: E402,F401
     _polars_schema_diagnostic,
     _predict_with_fallback,
 )
-from ._eval_helpers import (  # noqa: E402,F401
+from ._eval_helpers import (
     _align_xgb_cat_categories, _append_split_rate_suffix,
     _compute_split_metrics, _decategorise_float_cat_columns,
     _filter_categorical_features, run_confidence_analysis,
 )
-from ._training_loop import (  # noqa: E402,F401
+from ._training_loop import (
     _SigmoidAdapter, _PostHocCalibratedModel,
     _PostHocMultiCalibratedModel, _PerClassIsotonicCalibrator,
     _maybe_apply_posthoc_calibration, _train_model_with_fallback,
 )
-from ._data_helpers import (  # noqa: E402,F401
+from ._data_helpers import (
     _setup_eval_set, _setup_early_stopping_callback,
 )
-from ._model_factories import (  # noqa: E402,F401
+from ._model_factories import (
     GPU_VRAM_SAFE_FREE_LIMIT_GB, GPU_VRAM_SAFE_SATURATION_LIMIT,
     MODELS_SUBDIR, USE_LGB_DATASET_REUSE_SHIM, USE_XGB_DMATRIX_REUSE_SHIM,
     _get_neural_components,
@@ -118,10 +118,10 @@ def _xgb_regressor_cls() -> type:
     if USE_XGB_DMATRIX_REUSE_SHIM and _XGBRegressorWithDMatrixReuse is not None:
         return _XGBRegressorWithDMatrixReuse
     return XGBRegressor
-from mlframe.metrics.core import create_fairness_subgroups, create_fairness_subgroups_indices, fast_roc_auc  # noqa: F401 -- re-exported for ._trainer_configure's runtime `from .trainer import ...`
-from mlframe.feature_selection.wrappers import RFECV  # noqa: F401 -- re-exported, see above
-from pyutilz.pandaslib import get_df_memory_consumption  # noqa: F401 -- re-exported, see above
-from .models import create_linear_model  # noqa: F401 -- re-exported, see above
+from mlframe.metrics.core import create_fairness_subgroups, create_fairness_subgroups_indices, fast_roc_auc
+from mlframe.feature_selection.wrappers import RFECV
+from pyutilz.pandaslib import get_df_memory_consumption
+from .models import create_linear_model
 
 try:
     import torch
@@ -142,12 +142,12 @@ from .configs import (
     DataConfig, TrainingControlConfig, MetricsConfig, ReportingConfig,
     FeatureImportanceConfig, OutputConfig, NamingConfig,
     ConfidenceAnalysisConfig, PredictionsContainer,
-    LinearModelConfig, VALID_LINEAR_MODEL_TYPES as LINEAR_MODEL_TYPES, TargetTypes,  # noqa: F401 -- re-exported for ._trainer_configure's runtime `from .trainer import ...`
-    MultilabelDispatchConfig,  # noqa: F401 -- re-exported for ._trainer_configure's runtime `from .trainer import ...`
+    LinearModelConfig, VALID_LINEAR_MODEL_TYPES as LINEAR_MODEL_TYPES, TargetTypes,
+    MultilabelDispatchConfig,
 )
-from .helpers import get_training_configs, parse_catboost_devices  # noqa: F401 -- re-exported for ._trainer_configure's runtime `from .trainer import ...`
+from .helpers import get_training_configs, parse_catboost_devices
 
-from ._data_helpers import (  # noqa: E402,F401
+from ._data_helpers import (
     _disable_xgboost_early_stopping_if_needed, _extract_target_subset,
     _extract_targets_from_indices, _initialize_mutable_defaults,
     _normalize_multilabel_target, _prepare_df_for_model,
@@ -166,7 +166,7 @@ from ._data_helpers import (  # noqa: E402,F401
 # silently cleared an empty dict and the real cache kept its stale Pool entries.
 # Aliasing here so the existing clear-callers route through to the real cache without
 # code changes; new code should import _CB_POOL_CACHE from mlframe.training._cb_pool directly.
-from mlframe.training.cb import _CB_POOL_CACHE  # noqa: E402,F401
+from mlframe.training.cb import _CB_POOL_CACHE
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +252,7 @@ def _compute_oof_preds(
             method=method,
             n_jobs=1,
         )
-    except (ValueError, TypeError, RuntimeError, NotImplementedError) as exc:  # noqa: BLE001
+    except (ValueError, TypeError, RuntimeError, NotImplementedError) as exc:
         logger.info("OOF prediction skipped: %s", exc)
         return None, None
 
@@ -295,7 +295,7 @@ def _compute_oof_preds_timeseries(*, estimator, train_df, train_target, method: 
                 oof_proba[te_idx] = p
             else:
                 oof_pred[te_idx] = np.asarray(est.predict(_row(train_df, te_idx))).ravel()
-    except (ValueError, TypeError, RuntimeError, NotImplementedError) as exc:  # noqa: BLE001
+    except (ValueError, TypeError, RuntimeError, NotImplementedError) as exc:
         logger.info("Time-aware OOF prediction skipped: %s", exc)
         return None, None
 
@@ -952,5 +952,5 @@ __all__ = [
 # ``_trainer_configure.py`` (~557 LOC) so this file stays below the
 # 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._trainer_train_and_evaluate import train_and_evaluate_model  # noqa: E402,F401
-from ._trainer_configure import configure_training_params  # noqa: E402,F401
+from ._trainer_train_and_evaluate import train_and_evaluate_model
+from ._trainer_configure import configure_training_params

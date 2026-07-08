@@ -83,6 +83,7 @@ class BaselineReport(NamedTuple):
         # pd.DataFrame iter rows yields numpy scalars on numeric columns.
         # Cast every numpy floating to native float after the finite-check.
         def _scrub(v: Any) -> Any:
+            """Cast a numpy scalar to a JSON-serializable native Python type, mapping non-finite floats to ``None``."""
             if isinstance(v, np.floating):
                 if not np.isfinite(v):
                     return None
@@ -173,7 +174,7 @@ class BaselineReport(NamedTuple):
             tie_suffix = ""
             paired = self.extras.get("paired_bootstrap") if isinstance(self.extras, dict) else None
             if paired and paired.get("p_strongest_beats") is not None:
-                pct = int(round(paired["p_strongest_beats"] * 100))
+                pct = round(paired["p_strongest_beats"] * 100)
                 if self.extras.get("tie"):
                     tie_suffix = f" (beats runner-up in {pct}% of resamples - TIE, treat as noise)"
             lines.append(
@@ -195,12 +196,12 @@ class BaselineReport(NamedTuple):
                         f"[DUMMY_BASELINES] target='{self.target_name}'"
                         f" Delta_{metric_short} vs runner-up ({ru}) = {delta:+.4f}"
                         f" [95% bootstrap CI: {ci[0]:+.4f}, {ci[1]:+.4f}];"
-                        f" beats runner-up in {int(round(p * 100))}% of resamples"
+                        f" beats runner-up in {round(p * 100)}% of resamples"
                     )
             # Bootstrap CI line when present (small-n grounding).
             ci = self.extras.get("bootstrap_ci") if isinstance(self.extras, dict) else None
             if ci and "val" in ci:
-                lo, point, hi = ci["val"]
+                lo, _point, hi = ci["val"]
                 lines.append(
                     f"[DUMMY_BASELINES] target='{self.target_name}'"
                     f" strongest val 95% bootstrap CI: [{lo:.4f}, {hi:.4f}]"

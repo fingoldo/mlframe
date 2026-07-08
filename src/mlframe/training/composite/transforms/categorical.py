@@ -48,9 +48,9 @@ _TARGET_ENCODING_DEFAULT_SMOOTHING: float = 20.0
 
 def _target_encoding_residual_fit(
     y: np.ndarray,
-    base: np.ndarray,  # noqa: ARG001 -- unused; encoding is category-driven
+    base: np.ndarray,
     groups: np.ndarray | None = None,
-    sample_weight: np.ndarray | None = None,  # noqa: ARG001 -- see note below
+    sample_weight: np.ndarray | None = None,
     smoothing: float = _TARGET_ENCODING_DEFAULT_SMOOTHING,
 ) -> dict[str, Any]:
     """Fit per-category smoothed means on TRAIN rows only.
@@ -151,7 +151,7 @@ def _category_encoding_lookup(
 
 
 def _target_encoding_residual_forward(
-    y: np.ndarray, base: np.ndarray, params: dict[str, Any],  # noqa: ARG001
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
     groups: np.ndarray | None = None,
 ) -> np.ndarray:
     """T = y - smoothed_category_mean(cat)."""
@@ -162,7 +162,7 @@ def _target_encoding_residual_forward(
 
 
 def _target_encoding_residual_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],  # noqa: ARG001
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
     groups: np.ndarray | None = None,
 ) -> np.ndarray:
     """y_hat = T_hat + smoothed_category_mean(cat). Unseen cats -> global mean."""
@@ -173,7 +173,7 @@ def _target_encoding_residual_inverse(
 
 
 def _target_encoding_residual_domain(
-    y: np.ndarray | None, base: np.ndarray,  # noqa: ARG001
+    y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
     """Valid rows: finite y (base is unused). At predict (y is None) every row
     is in-domain -- unseen categories are handled by the global-mean fallback,

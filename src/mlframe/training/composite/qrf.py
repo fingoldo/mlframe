@@ -244,6 +244,7 @@ class _LeafResidualForest:
         self.random_state = random_state
 
     def get_params(self, deep: bool = True) -> dict[str, Any]:
+        """sklearn-compatible constructor-param dict (``deep`` accepted for signature parity, unused: no nested estimators)."""
         return {
             "n_estimators": self.n_estimators,
             "forest_kind": self.forest_kind,
@@ -254,11 +255,14 @@ class _LeafResidualForest:
         }
 
     def set_params(self, **params: Any) -> "_LeafResidualForest":
+        """sklearn-compatible bulk attribute setter (used by ``clone`` / grid-search)."""
         for k, v in params.items():
             setattr(self, k, v)
         return self
 
     def fit(self, X: Any, y: Any, sample_weight: np.ndarray | None = None, **kw: Any) -> "_LeafResidualForest":
+        """Fit the underlying forest on ``T`` and cache per-tree leaf memberships + the packed inverse-leaf-size table
+        that :meth:`_leaf_weights` needs. ``**kw`` is accepted for inner-contract parity with other backends but unused."""
         Xa = np.asarray(X, dtype=np.float64)
         ya = np.asarray(y, dtype=np.float64).reshape(-1)
         cls = ExtraTreesRegressor if self.forest_kind == "et" else RandomForestRegressor
@@ -410,14 +414,17 @@ class _QuantileForestAdapter(BaseEstimator, RegressorMixin):  # pragma: no cover
         self.model = model
 
     def fit(self, X: Any, y: Any, sample_weight: np.ndarray | None = None, **kw: Any) -> "_QuantileForestAdapter":
+        """Delegate fit to the wrapped ``RandomForestQuantileRegressor``."""
         self.model.fit(np.asarray(X, dtype=np.float64), np.asarray(y, dtype=np.float64).reshape(-1), sample_weight=sample_weight)
         return self
 
     def predict(self, X: Any) -> np.ndarray:
+        """Median (0.5-quantile) point prediction, matching the inner contract's plain ``predict``."""
         out = self.model.predict(np.asarray(X, dtype=np.float64), quantiles=[0.5])
         return np.asarray(out, dtype=np.float64).reshape(-1)
 
     def predict_quantile(self, X: Any, alpha: float | Sequence[float] | np.ndarray = 0.5) -> np.ndarray:
+        """Map onto the package's ``predict(X, quantiles=...)``; scalar ``alpha`` -> ``(n,)``, vector -> ``(n, K)``."""
         scalar = np.isscalar(alpha)
         levels = list(np.atleast_1d(np.asarray(alpha, dtype=np.float64)))
         out = np.asarray(self.model.predict(np.asarray(X, dtype=np.float64), quantiles=levels), dtype=np.float64)
@@ -525,6 +532,7 @@ class CompositeQRFEstimator(BaseEstimator, RegressorMixin):
         return self
 
     def _check_fitted(self) -> None:
+        """Raise ``NotFittedError`` if :meth:`fit` has not run yet (no ``estimator_`` attribute)."""
         if not hasattr(self, "estimator_"):
             from sklearn.exceptions import NotFittedError
 

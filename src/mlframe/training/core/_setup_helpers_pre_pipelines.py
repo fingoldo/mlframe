@@ -13,7 +13,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from mlframe.feature_selection.filters import MRMR  # noqa: F401
+    from mlframe.feature_selection.filters import MRMR
 
 logger = logging.getLogger(__name__)
 

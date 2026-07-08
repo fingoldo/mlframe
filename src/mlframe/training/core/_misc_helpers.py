@@ -125,6 +125,7 @@ def _augment_with_dropped_high_card_cols(
         return train_df, val_df, test_df, added
 
     def _attach(frame, extras):
+        """Concat the dropped high-cardinality columns back onto ``frame`` as one block (polars: ``with_columns``; pandas: single ``pd.DataFrame`` concat to avoid per-column fragmentation)."""
         if frame is None or not extras:
             return frame
         if isinstance(frame, pl.DataFrame):
@@ -543,7 +544,7 @@ def _auto_detect_feature_types(
         total_rows = int(pandas_meta["shape"][0])
     else:
         total_rows = df.height if hasattr(df, "height") else len(df)
-    min_non_null_abs = max(1, int(round(total_rows * min_non_null_frac)))
+    min_non_null_abs = max(1, round(total_rows * min_non_null_frac))
     # Size-aware effective promotion threshold: a flat 300-uniq floor is wrong at both ends of the data-size axis
     # (on 100-row data every string column stays "cat"; on 10M-row data 300 is still a sliver). pct=0 keeps legacy
     # behaviour (effective == absolute). The 50-uniq floor prevents pathologically tiny effective thresholds.
@@ -575,6 +576,7 @@ def _auto_detect_feature_types(
         _int_inner_dtypes = (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
 
         def _is_embedding_dtype(dt) -> bool:
+            """True when ``dt`` is a polars dtype that represents an embedding row: variable-length float/int list, or a fixed-size ``pl.Array``."""
             # Variable-length float embedding (legacy path).
             if dt == pl.List(pl.Float32) or dt == pl.List(pl.Float64):
                 return True
@@ -736,6 +738,7 @@ def _auto_detect_feature_types(
                         auto_detected_high_card_to_drop.append(col)
 
     def _fmt_with_cardinality(names):
+        """Format each name as ``name:n_unique`` (thousands-separated) when a cardinality was recorded, else the bare name, for log messages."""
         parts = []
         for n in names:
             nu = cardinalities.get(n)
@@ -907,7 +910,7 @@ def _compute_neural_max_time(non_neural_train_times):
     if non_neural_train_times is None or len(non_neural_train_times) == 0:
         return None
     p95 = float(np.percentile(non_neural_train_times, 95))
-    total = max(int(round(p95)), 300)
+    total = max(round(p95), 300)
     days, rem = divmod(total, 86400)
     hours, rem = divmod(rem, 3600)
     minutes, seconds = divmod(rem, 60)

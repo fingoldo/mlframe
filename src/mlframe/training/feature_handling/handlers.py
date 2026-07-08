@@ -31,11 +31,11 @@ from mlframe.training.feature_handling.axis import (
 )
 
 if TYPE_CHECKING:
-    from mlframe.training.feature_handling.providers import EmbeddingProvider  # noqa: F401
+    from mlframe.training.feature_handling.providers import EmbeddingProvider
 
 # Eager import for pydantic v2 -- forward ref resolution at module load
 # rather than via ``model_rebuild()`` which can fail if order changes.
-from mlframe.training.feature_handling.providers import EmbeddingProvider  # noqa: E402
+from mlframe.training.feature_handling.providers import EmbeddingProvider
 
 # =====================================================================
 # Per-method TypedDict params
@@ -53,6 +53,8 @@ from mlframe.training.feature_handling.providers import EmbeddingProvider  # noq
 
 
 class TfidfParams(BaseModel):
+    """Params for ``method="tfidf"``: sklearn ``TfidfVectorizer`` knobs exposed to the text-handling config."""
+
     model_config = ConfigDict(extra="forbid")
     kind: Literal["tfidf"] = "tfidf"
     max_features: int = 5000
@@ -67,6 +69,8 @@ class TfidfParams(BaseModel):
 
 
 class HashingParams(BaseModel):
+    """Params for ``method="hashing"``: sklearn ``HashingVectorizer`` knobs exposed to the text-handling config."""
+
     model_config = ConfigDict(extra="forbid")
     kind: Literal["hashing"] = "hashing"
     n_features: int = 2**18
@@ -188,6 +192,7 @@ class TextHandlerSpec(BaseModel, HandlerSpec):
 
     @classmethod
     def axis(cls) -> Axis:
+        """This spec handles the text axis."""
         return Axis.TEXT
 
     def model_post_init(self, __context: Any) -> None:
@@ -253,6 +258,7 @@ class CatHandlerSpec(BaseModel, HandlerSpec):
 
     @classmethod
     def axis(cls) -> Axis:
+        """This spec handles the categorical axis."""
         return Axis.CAT
 
     def model_post_init(self, __context: Any) -> None:

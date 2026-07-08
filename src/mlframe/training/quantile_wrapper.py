@@ -143,6 +143,7 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
     # ------------------------------------------------------------------
 
     def fit(self, X, y, sample_weight=None):
+        """Fit one cloned ``base_estimator`` per alpha in parallel (or serially when ``n_jobs == 1`` or there's a single alpha), storing the fitted list in ``self.estimators_``."""
         if y is None:
             raise ValueError("_QuantileMultiOutputWrapper requires non-None y.")
         y_raw = np.asarray(y)
@@ -156,6 +157,7 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
         from joblib import Parallel, delayed
 
         def _fit_one(alpha):
+            """Clone the base estimator, set its alpha-quantile param, and fit it on ``(X, y_arr)``, falling back to unweighted fit if ``sample_weight`` is unsupported."""
             est = clone(self.base_estimator)
             est.set_params(**{alpha_param: float(alpha)})
             if sample_weight is not None:
@@ -194,6 +196,7 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X) -> np.ndarray:
+        """Predict all fitted alpha-quantile estimators and stack their per-alpha predictions column-wise into ``(N, K)``."""
         if not hasattr(self, "estimators_") or not self.estimators_:
             from sklearn.exceptions import NotFittedError
 

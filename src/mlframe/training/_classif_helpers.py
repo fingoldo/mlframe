@@ -466,6 +466,10 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         self.proba_aggregation = proba_aggregation
 
     def fit(self, X, y, **fit_params):
+        """Fit ``n_chains`` independent ``ClassifierChain`` instances (fresh label orders per chain), imputing any
+        NaN cells column-wise first since sklearn's ``ClassifierChain`` rejects them pre-base-estimator, and prime
+        the predict-time NaN guard with train-frame stats. Drops early-stopping ``fit_params`` (eval_set etc.) that
+        don't apply to chain fitting."""
         # Validate required state at fit-time (defaults on __init__ are for
         # sklearn introspection compliance; actually fitting with None
         # base_estimator / n_labels is a contract violation we surface
@@ -576,6 +580,7 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         return self
 
     def predict_proba(self, X):
+        """Average each chain's independent per-label probabilities across chains using ``self.proba_aggregation`` (defaults to legacy ``'arithmetic'`` for pre-flip pickles lacking the attribute)."""
         # Each chain returns (N, K) of INDEPENDENT per-label P(label_j=1) (multilabel; columns do not sum to 1), so
         # the geometric blend renormalises per-label against its complement, not across labels (simplex=False).
         per_chain = [chain.predict_proba(X) for chain in self.chains_]
@@ -584,6 +589,7 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         return aggregate_member_probas(stacked, method=method, simplex=False)
 
     def predict(self, X, threshold=0.5):
+        """Threshold the aggregated per-label probabilities into a multilabel binary indicator matrix."""
         proba = self.predict_proba(X)
         return (proba >= threshold).astype(np.int8)
 

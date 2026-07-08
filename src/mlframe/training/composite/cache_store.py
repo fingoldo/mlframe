@@ -116,6 +116,7 @@ class DiscoveryCache:
     # falls back to the racy behaviour with a one-time WARN.
 
     def _lock_path(self) -> str:
+        """Path of the cross-process filelock guarding the ``.lru`` sidecar and eviction sweep."""
         return self._lru_path + ".lock"
 
     @staticmethod
@@ -136,6 +137,7 @@ class DiscoveryCache:
             return contextlib.nullcontext()
 
     def _load_lru(self) -> Dict[str, float]:
+        """Read the ``.lru`` sidecar JSON from disk into a ``{key: access_timestamp}`` dict; returns ``{}`` on a missing or corrupt file (fail-open, since LRU is a hint, not a correctness requirement)."""
         if not os.path.exists(self._lru_path):
             return {}
         try:
@@ -148,6 +150,7 @@ class DiscoveryCache:
         return {}
 
     def _save_lru(self, lru: Dict[str, float]) -> None:
+        """Persist ``lru`` to the ``.lru`` sidecar via tmp-file + fsync + atomic ``os.replace``, tracking fd ownership so a failure between ``mkstemp`` and ``os.fdopen`` doesn't leak the descriptor."""
         # Same atomic-rename + fsync discipline as the value writes - LRU
         # corruption would silently break eviction order.
         fd, tmp_path = tempfile.mkstemp(dir=self.cache_dir, prefix=".lru.", suffix=".tmp")
@@ -215,6 +218,7 @@ class DiscoveryCache:
         return self._entry_sizes
 
     def _entry_size_on_disk(self, stem: str) -> int:
+        """Sum the byte size of ``<stem>.pkl`` plus its ``.sha256`` sidecar (0 for either that doesn't exist)."""
         path = os.path.join(self.cache_dir, f"{stem}.pkl")
         size = 0
         try:
@@ -254,6 +258,7 @@ class DiscoveryCache:
             pass
 
     def _touch_lru(self, key: str) -> None:
+        """Record ``key`` as accessed now in the in-memory LRU ledger and mark it dirty (disk write deferred to the next flush point)."""
         # ``time.time()`` is wall-clock (subject to NTP step-back) but we deliberately do NOT use
         # ``time.monotonic()`` here -- the LRU sidecar is shared across processes, and monotonic
         # clock values are not comparable across processes (each process's monotonic clock starts
@@ -271,6 +276,7 @@ class DiscoveryCache:
         self._lru_dirty = True
 
     def _path(self, key: str) -> str:
+        """On-disk ``.pkl`` path for ``key`` after sanitisation via ``_safe_key``."""
         safe_key = self._safe_key(key)
         return os.path.join(self.cache_dir, f"{safe_key}.pkl")
 
@@ -379,6 +385,7 @@ class DiscoveryCache:
         return f"{digest}__h{len(key.encode('utf-8'))}"
 
     def _entry_size_bytes(self, safe_key: str) -> int:
+        """Byte size of the ``.pkl`` file for an already-sanitised ``safe_key`` (0 if missing); unlike ``_entry_size_on_disk`` this does NOT include the ``.sha256`` sidecar."""
         path = os.path.join(self.cache_dir, f"{safe_key}.pkl")
         try:
             return os.path.getsize(path)
@@ -454,6 +461,7 @@ class DiscoveryCache:
         return removed
 
     def _evict_to_caps_locked(self) -> int:
+        """Body of ``_evict_to_caps`` run while already holding the cross-process filelock: sweeps orphan tmp files, then removes entries oldest-access-first until both the entry-count and byte-size caps are satisfied. Returns the number of entries removed."""
         # Best-effort orphan sweep before sizing: a crashed/interrupted ``set`` or ``_save_lru``
         # can leave a ``*.tmp`` in cache_dir that ``glob("*.pkl")`` never sees, so eviction's
         # byte cap silently under-counts the true footprint. The filelock around eviction

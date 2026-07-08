@@ -35,17 +35,20 @@ class _LagPredictDeployableModel:
         self.lag_column = str(lag_column)
         self._impute_value: float | None = None
 
-    def get_params(self, deep: bool = True) -> dict:  # noqa: ARG002 - sklearn API
+    def get_params(self, deep: bool = True) -> dict:
+        """Returns the single constructor arg so ``sklearn.clone`` can rebuild an equivalent instance."""
         return {"lag_column": self.lag_column}
 
     def set_params(self, **params: Any) -> "_LagPredictDeployableModel":
+        """Sets ``lag_column`` in place (sklearn API); rejects any other key so silent typos fail loudly instead of being ignored."""
         for k, v in params.items():
             if k != "lag_column":
                 raise ValueError(f"_LagPredictDeployableModel has no parameter {k!r}; " f"valid: ['lag_column']")
             self.lag_column = str(v)
         return self
 
-    def fit(self, X: Any, y: Any = None, **fit_params: Any) -> "_LagPredictDeployableModel":  # noqa: ARG002
+    def fit(self, X: Any, y: Any = None, **fit_params: Any) -> "_LagPredictDeployableModel":
+        """Computes the train-median imputation anchor from ``X``; ignores ``y`` since the model has no trainable parameters."""
         # Anchor for non-finite lag rows (group starts / deploy-time NaN): a finite train-median, else 0.0. Fitted attr (not in get_params) so clone re-fits per OOF fold (train-only).
         col = self._extract_lag_array(X)
         med = float(np.nanmedian(col)) if col.size else float("nan")
@@ -53,6 +56,7 @@ class _LagPredictDeployableModel:
         return self
 
     def _extract_lag_array(self, X: Any) -> np.ndarray:
+        """Pulls the lag column out of ``X`` as a flat float64 array, trying polars then pandas/array-like access; raises ``KeyError`` if neither works."""
         # polars get_column is 1-D zero-copy for numerics; sidesteps the prior select().to_numpy().reshape that built a (N,1) frame first.
         if hasattr(X, "get_column"):
             try:
@@ -71,6 +75,7 @@ class _LagPredictDeployableModel:
         raise KeyError(f"_LagPredictDeployableModel: column {self.lag_column!r} not found on X (type={type(X).__name__})")
 
     def predict(self, X: Any) -> np.ndarray:
+        """Returns the lag column verbatim, filling non-finite entries with the fitted train-median (or a fresh median/0.0 if unfitted)."""
         col = self._extract_lag_array(X)
         nonfinite = ~np.isfinite(col)
         if nonfinite.any():

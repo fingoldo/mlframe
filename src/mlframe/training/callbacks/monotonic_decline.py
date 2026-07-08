@@ -142,6 +142,8 @@ def _make_xgb_monotonic_callback(patience: Optional[int] = 7, monitor_dataset: O
         return None
 
     class _XGBMonotonicDeclineStop(xgb.callback.TrainingCallback):
+        """XGBoost ``TrainingCallback`` that stops on a fixed-N monotone strict-decline streak of the monitored metric, stamping ``best_iteration``/``best_score`` on the booster since XGBoost keeps the full post-best tail unlike LightGBM's truncating ``EarlyStopException``."""
+
         _is_mlframe_monotonic_decline = True  # sentinel for de-dup at the shim wiring site
 
         def __init__(self) -> None:
@@ -154,6 +156,7 @@ def _make_xgb_monotonic_callback(patience: Optional[int] = 7, monitor_dataset: O
             self._best_value: Optional[float] = None
 
         def after_iteration(self, model, epoch, evals_log) -> bool:
+            """Feed the latest monitored metric value to the shared stopper; on trigger, stamp best-iteration attrs on ``model`` and return True to stop XGBoost training."""
             if not evals_log:
                 return False
             ds = self._monitor_dataset or next(iter(evals_log))
@@ -236,6 +239,7 @@ class CBMonotonicDeclineStop:
         self._stopper: Optional[MonotonicDeclineStopper] = None
 
     def after_iteration(self, info) -> bool:
+        """Feed the latest monitored metric value to the shared stopper; returns False to stop CatBoost training once the strict-decline streak fires, True otherwise."""
         metrics = getattr(info, "metrics", None)
         if not metrics:
             return True

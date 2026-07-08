@@ -144,6 +144,7 @@ class CompositeOrRawStacker(BaseEstimator, RegressorMixin):
     # -- builders -----------------------------------------------------------
 
     def _make_composite(self) -> CompositeTargetEstimator:
+        """Build a fresh, unfitted ``CompositeTargetEstimator`` from this stacker's constructor params."""
         kw = dict(self.composite_kwargs or {})
         return CompositeTargetEstimator(
             base_estimator=clone(self.base_estimator) if self.base_estimator is not None else None,
@@ -155,6 +156,7 @@ class CompositeOrRawStacker(BaseEstimator, RegressorMixin):
         )
 
     def _make_raw(self) -> Any:
+        """Build a fresh, unfitted raw (non-composite) estimator sharing the same learner family as the composite path."""
         if self.base_estimator is None:
             # Mirror CompositeTargetEstimator's default inner so both paths share a learner family.
             from sklearn.ensemble import HistGradientBoostingRegressor
@@ -165,6 +167,7 @@ class CompositeOrRawStacker(BaseEstimator, RegressorMixin):
     # -- fit ----------------------------------------------------------------
 
     def fit(self, X: Any, y: Any) -> "CompositeOrRawStacker":
+        """Fit both the composite and raw estimators, computing OOF predictions from each and NNLS-blending them into ``weights_``."""
         y_arr = _as_1d_y(y)
         n = y_arr.shape[0]
 
@@ -208,6 +211,7 @@ class CompositeOrRawStacker(BaseEstimator, RegressorMixin):
     # -- predict ------------------------------------------------------------
 
     def predict(self, X: Any) -> np.ndarray:
+        """Predict as the NNLS-weighted blend of the full-data composite and raw estimators' predictions."""
         if not hasattr(self, "weights_"):
             from sklearn.exceptions import NotFittedError
 

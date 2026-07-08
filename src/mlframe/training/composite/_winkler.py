@@ -50,6 +50,7 @@ try:
 
     @numba.njit(**_NJIT_KW)
     def _weighted_winkler_njit(y, lo, hi, w, alpha_miscov):
+        """Single fused pass: weighted mean Winkler score (width + one-sided miss penalty scaled by ``2/alpha``)."""
         n = y.shape[0]
         two_over_a = 2.0 / max(alpha_miscov, 1e-12)
         s = 0.0
@@ -68,6 +69,7 @@ try:
 
     @numba.njit(**_NJIT_KW)
     def _weighted_coverage_njit(y, lo, hi, w):
+        """Single pass: weighted fraction of rows with ``y`` inside ``[lo, hi]``."""
         n = y.shape[0]
         s = 0.0
         wsum = 0.0
@@ -80,6 +82,7 @@ try:
 
     @numba.njit(**_NJIT_KW)
     def _per_row_winkler_njit(y, lo, hi, alpha_miscov):
+        """Single pass: unweighted per-row Winkler score (width + one-sided miss penalty), no aggregation."""
         n = y.shape[0]
         out = np.empty(n, dtype=np.float64)
         two_over_a = 2.0 / max(alpha_miscov, 1e-12)
@@ -136,6 +139,7 @@ __all__ = [
 
 
 def _prep(y_true, q_lo, q_hi):
+    """Coerce ``y_true``/``q_lo``/``q_hi`` to contiguous float64 1-D arrays and check they share a shape."""
     y = np.ascontiguousarray(np.asarray(y_true, dtype=np.float64).reshape(-1))
     lo = np.ascontiguousarray(np.asarray(q_lo, dtype=np.float64).reshape(-1))
     hi = np.ascontiguousarray(np.asarray(q_hi, dtype=np.float64).reshape(-1))
@@ -145,6 +149,7 @@ def _prep(y_true, q_lo, q_hi):
 
 
 def _check_alpha(alpha: float) -> float:
+    """Validate ``alpha`` (nominal miscoverage) is strictly inside ``(0, 1)`` and coerce to plain ``float``."""
     if not (0.0 < alpha < 1.0):
         raise ValueError(f"alpha (nominal miscoverage) must be in (0, 1); got {alpha}")
     return float(alpha)
@@ -255,6 +260,8 @@ def winkler_score_per_group(
 
 
 def _grouped_winkler_bincount(codes, y, lo, hi, w, alpha, n_groups):
+    """Numpy fallback for :func:`_grouped_winkler_njit` when numba is unavailable: per-group sums via ``np.bincount``
+    instead of the single fused njit sweep, same (S, Wd, W, cov, cnt) accumulators."""
     two_over_a = 2.0 / alpha
     width = hi - lo
     pen = np.where(y < lo, lo - y, 0.0) + np.where(y > hi, y - hi, 0.0)

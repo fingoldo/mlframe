@@ -97,7 +97,7 @@ from sklearn.preprocessing import LabelEncoder
 # to a thin wrapper around ``mean_squared_error``. The other sklearn / fast-*
 # metric imports the module used to carry were dead and were removed.
 try:
-    from sklearn.metrics import root_mean_squared_error  # noqa: F401
+    from sklearn.metrics import root_mean_squared_error
 except ImportError:
     from mlframe.metrics.core import fast_mean_squared_error
 
@@ -118,7 +118,7 @@ except ImportError:
         return np.average(output_errors, weights=multioutput)
 
 
-from .reporting import (  # noqa: E402,F401
+from .reporting import (
     _canonical_multilabel_y,
     report_model_perf,
     report_regression_model_perf,
@@ -129,7 +129,7 @@ from .reporting import (  # noqa: E402,F401
 # this file below the 1k-LOC monolith threshold. Re-exported here so
 # existing ``from mlframe.training.evaluation import
 # plot_model_feature_importances`` callers keep working unchanged.
-from ._feature_importances import (  # noqa: E402,F401
+from ._feature_importances import (
     DEFAULT_FI_FIGSIZE,
     _captum_integrated_gradients_importance,
     _cuda_batched_permutation_importance,

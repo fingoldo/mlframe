@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 def _sigmoid(z: np.ndarray) -> np.ndarray:
+    """Numerically stable logistic sigmoid: splits on sign of ``z`` so ``exp`` never overflows on large-magnitude margins."""
     # Numerically stable logistic.
     out = np.empty_like(z, dtype=np.float64)
     pos = z >= 0
@@ -48,6 +49,7 @@ def _sigmoid(z: np.ndarray) -> np.ndarray:
 
 
 def _softmax(z: np.ndarray) -> np.ndarray:
+    """Row-wise numerically stable softmax for the multiclass ``(n, K)`` margin (max-subtraction before exp)."""
     # Row-wise stable softmax for the multiclass (n, K) margin.
     z = z - z.max(axis=1, keepdims=True)
     e = np.exp(z)
@@ -141,12 +143,14 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
         return np.log(proba)
 
     def _extract_margin_column(self, X: Any) -> np.ndarray:
+        """Pull the precomputed base-margin column out of ``X`` as a flat float64 array (polars or pandas)."""
         col = self.base_margin_column
         if hasattr(X, "get_column"):  # polars
             return np.asarray(X.get_column(col).to_numpy(), dtype=np.float64).reshape(-1)
         return np.asarray(X[col].to_numpy(), dtype=np.float64).reshape(-1)
 
     def _drop_margin_column(self, X: Any) -> Any:
+        """Return ``X`` with the base-margin column removed (polars or pandas), so it never leaks into the inner as a feature."""
         col = self.base_margin_column
         if hasattr(X, "drop") and hasattr(X, "get_column"):  # polars
             return X.drop(col) if col in X.columns else X
@@ -156,6 +160,7 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
 
     # -- sklearn API ------------------------------------------------------------
     def fit(self, X: Any, y: Any, sample_weight=None) -> "CompositeClassificationEstimator":
+        """Fit the base margin (or extract it from ``base_margin_column``), then fit the inner booster on the residual log-odds via its native init-score hook."""
         y_arr = np.asarray(y).reshape(-1)
         self.classes_ = np.unique(y_arr)
         self.n_classes_ = int(self.classes_.size)
@@ -200,6 +205,7 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
         return self
 
     def decision_function(self, X: Any) -> np.ndarray:
+        """Total margin = base margin (from the column or the fitted base estimator) + the inner's raw residual margin."""
         if not hasattr(self, "estimator_"):
             from sklearn.exceptions import NotFittedError
             raise NotFittedError("CompositeClassificationEstimator.predict called before fit.")
@@ -212,6 +218,7 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
         return np.asarray(base_margin + _inner_raw_margin(self.estimator_, X_inner))
 
     def predict_proba(self, X: Any) -> np.ndarray:
+        """Convert the total margin to class probabilities: sigmoid for binary, softmax for multiclass."""
         if not hasattr(self, "estimator_"):
             from sklearn.exceptions import NotFittedError
             raise NotFittedError("CompositeClassificationEstimator.predict_proba called before fit.")
@@ -222,6 +229,7 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
         return _softmax(np.asarray(margin, dtype=np.float64))
 
     def predict(self, X: Any) -> np.ndarray:
+        """Argmax class label over ``predict_proba``, mapped back through ``classes_``."""
         proba = self.predict_proba(X)
         return np.asarray(self.classes_[np.argmax(proba, axis=1)])
 
@@ -265,7 +273,7 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
 # (which imports nothing from this module, so no cycle). calibrate_conformal_set(
 # X_cal, y_cal, alpha, score) fits the threshold from a held-out set; predict_set(
 # X, alpha, score) returns per-row coverage-guaranteed label sets.
-from .conformal_classification import (  # noqa: E402
+from .conformal_classification import (
     calibrate_conformal_set as _calibrate_conformal_set,
     predict_set as _predict_set,
 )
@@ -278,7 +286,7 @@ CompositeClassificationEstimator.predict_set = _predict_set
 # fits the two isotonic envelopes on a held-out set; predict_proba_interval(X)
 # returns the calibrated [p_low, p_high] multiprobability; predict_proba_venn_abers(X)
 # returns the regularised calibrated (n, 2) predict_proba.
-from .venn_abers import (  # noqa: E402
+from .venn_abers import (
     calibrate_venn_abers as _calibrate_venn_abers,
     predict_proba_interval as _predict_proba_interval,
     predict_proba_venn_abers as _predict_proba_venn_abers,

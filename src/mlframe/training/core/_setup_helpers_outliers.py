@@ -23,13 +23,13 @@ from .._ram_helpers import maybe_clean_ram_and_gpu
 from ..utils import log_ram_usage
 
 if TYPE_CHECKING:
-    from ..configs import (  # noqa: F401
+    from ..configs import (
         PreprocessingBackendConfig,
         PreprocessingConfig,
         TrainingBehaviorConfig,
         TrainingSplitConfig,
     )
-    from ._training_context import TrainingContext  # noqa: F401
+    from ._training_context import TrainingContext
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +109,7 @@ def _apply_outlier_detection_global(
     # would require asserting train+val schemas match, but val can legitimately have different dtypes (e.g. early-rare-category never seen in train);
     # the per-call schema iteration is ~us on typical column counts so the cache adds maintenance burden without measurable wall gain.
     def _numeric_only_view(df_):
+        """Select numeric/boolean columns for whichever frame flavour is passed; returns the input unchanged when it's already all-numeric (no copy)."""
         if isinstance(df_, pl.DataFrame):
             numeric_cols = [name for name, dt in df_.schema.items() if dt.is_numeric() or dt == pl.Boolean]
             return df_.select(numeric_cols) if len(numeric_cols) != len(df_.columns) else df_
@@ -151,6 +152,7 @@ def _apply_outlier_detection_global(
     filtered_train_idx = train_idx
 
     def _filter_df_by_mask(_df, mask):
+        """Boolean-mask row filter, dispatched per frame flavour (polars ``.filter`` vs pandas ``.loc``)."""
         if isinstance(_df, pl.DataFrame):
             return _df.filter(pl.Series(mask))
         return _df.loc[mask]

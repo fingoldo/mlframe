@@ -115,6 +115,7 @@ def _n_features(X: Any) -> int:
 
 
 def _to_1d_numpy(y: Any) -> np.ndarray:
+    """Coerce any array-like (pandas/polars Series, list, 2-D column vector) to a flat float64 ndarray."""
     return np.asarray(y, dtype=np.float64).ravel()
 
 
@@ -190,6 +191,7 @@ class OrthogonalizedCompositeEstimator(BaseEstimator, RegressorMixin):
 
     # -- internals ---------------------------------------------------------
     def _resolve_nuisance(self, attr: Any) -> Any:
+        """Clone a caller-supplied nuisance estimator, or default to a fresh ``Ridge()`` when none was given."""
         return clone(attr) if attr is not None else Ridge()
 
     @staticmethod
@@ -204,6 +206,9 @@ class OrthogonalizedCompositeEstimator(BaseEstimator, RegressorMixin):
 
     # -- sklearn API -------------------------------------------------------
     def fit(self, X: Any, y: Any) -> "OrthogonalizedCompositeEstimator":
+        """Double-ML / FWL fit: cross-fit ``E[base|X]`` and ``E[y|X]`` on the base-dropped features, residualize both,
+        recover the debiased ``base_coef_`` from the residualized regression, then fit the inner estimator on
+        ``y - base_coef_ * base`` (also base-dropped) so it only models the orthogonal structure in X."""
         if self.n_folds < 2:
             raise ValueError("OrthogonalizedCompositeEstimator: n_folds must be >= 2 for cross-fitting.")
         y_arr = _to_1d_numpy(y)
@@ -246,6 +251,8 @@ class OrthogonalizedCompositeEstimator(BaseEstimator, RegressorMixin):
         return self
 
     def predict(self, X: Any) -> np.ndarray:
+        """Reconstruct the prediction as ``base_coef_ * base + inner_prediction`` (the FWL decomposition, not a
+        single black-box model), on the base-dropped feature set the inner was fitted on."""
         if not hasattr(self, "inner_"):
             raise NotFittedError("OrthogonalizedCompositeEstimator: call fit before predict.")
         base = _extract_base(X, self.base_column)

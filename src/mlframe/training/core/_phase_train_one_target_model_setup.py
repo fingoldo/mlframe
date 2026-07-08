@@ -70,6 +70,7 @@ def _render_per_target_diagnostics(
     task = "classification" if ("class" in tt or "label" in tt) else "regression"
 
     def _arr(v):
+        """Coerce ``v`` to a plain ndarray for plotting (via ``.to_numpy()`` when available), returning ``None`` on ``None`` input or any conversion failure."""
         if v is None:
             return None
         try:

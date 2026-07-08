@@ -113,7 +113,7 @@ def iter_extra_metrics(target_type: TargetTypes, y_true, probs_NK, preds_NK) -> 
             # tight aging window), pinball on shape mismatch (quantile preds vs
             # scalar y_true).
             try:
-                _n = int(len(y_true)) if y_true is not None else 0
+                _n = len(y_true) if y_true is not None else 0
             except TypeError:
                 _n = -1  # un-sized iterator etc.
             logger.warning(
@@ -317,17 +317,21 @@ def metric_name_higher_is_better(name: str) -> Optional[bool]:
 
 
 def _register_builtin_multilabel():
+    """Register the core multilabel metrics (hamming/subset/jaccard) at import time."""
     from mlframe.metrics.core import (
         hamming_loss, subset_accuracy, jaccard_score_multilabel,
     )
 
     def _ham(y_true, probs_NK, preds_NK):
+        """Hamming loss: fraction of individual (sample, label) entries mispredicted, averaged over the whole indicator matrix."""
         return hamming_loss(y_true, preds_NK)
 
     def _sub(y_true, probs_NK, preds_NK):
+        """Subset accuracy: fraction of samples whose FULL predicted label set exactly matches the true set (all-or-nothing per row)."""
         return subset_accuracy(y_true, preds_NK)
 
     def _jac(y_true, probs_NK, preds_NK):
+        """Sample-averaged Jaccard index: mean over rows of |true ∩ pred| / |true ∪ pred| between the true and predicted label sets."""
         return jaccard_score_multilabel(y_true, preds_NK)
 
     register_metric(
@@ -368,6 +372,13 @@ def _register_builtin_classification():
     )
 
     def _encode_ordinal(y_true, preds):
+        """Joint-encode true and predicted labels to contiguous ``0..C-1`` ordinal codes.
+
+        Both arrays are ravelled, then the union of their unique values is sorted and used as the
+        code table via ``searchsorted`` so that both y_true and preds land on the SAME code scale
+        (required for kappa's weight matrix, which is indexed by absolute code distance). Numeric
+        label order is preserved since the union is sorted before assigning codes.
+        """
         yt = _np.asarray(y_true).ravel()
         yp = _np.asarray(preds).ravel()
         uniq = _np.unique(_np.concatenate([yt, yp]))
@@ -376,14 +387,17 @@ def _register_builtin_classification():
         return yt_code, yp_code, int(uniq.shape[0])
 
     def _qwk(y_true, probs_NK, preds_NK):
+        """Quadratic weighted kappa: chance-corrected ordinal agreement penalising large-distance misclassifications quadratically more than adjacent-class ones. Operates on jointly-encoded integer codes, not raw labels."""
         yt, yp, nc = _encode_ordinal(y_true, preds_NK)
         return _qwk_fn(yt, yp, n_classes=nc)
 
     def _wk(y_true, probs_NK, preds_NK):
+        """Linear weighted kappa: chance-corrected ordinal agreement penalising misclassifications proportionally to class distance (milder than quadratic weighting). Operates on jointly-encoded integer codes."""
         yt, yp, nc = _encode_ordinal(y_true, preds_NK)
         return _wk_fn(yt, yp, weights="linear", n_classes=nc)
 
     def _exp(y_true, probs_NK, preds_NK):
+        """Exponential proper scoring loss on the positive-class probability column (sklearn column-1 convention); y_true is binarised against the second sorted label before scoring."""
         probs = _np.asarray(probs_NK, dtype=_np.float64)
         pos = probs[:, 1] if probs.ndim == 2 and probs.shape[1] >= 2 else probs.ravel()
         yt = _np.asarray(y_true).ravel()
@@ -424,24 +438,31 @@ def _register_builtin_multilabel_extras():
     )
 
     def _lrap(y_true, probs_NK, preds_NK):
+        """Label Ranking Average Precision: for each true label, the fraction of higher-or-equal-ranked labels that are also true, averaged over samples and labels."""
         return label_ranking_average_precision(y_true, probs_NK)
 
     def _cov(y_true, probs_NK, preds_NK):
+        """Coverage error: average number of top-ranked-by-score labels one must scan down through to include every true label of a sample."""
         return coverage_error(y_true, probs_NK)
 
     def _rloss(y_true, probs_NK, preds_NK):
+        """Ranking loss: average fraction of (relevant, irrelevant) label pairs per sample that are ordered incorrectly by predicted score."""
         return label_ranking_loss(y_true, probs_NK)
 
     def _oneerr(y_true, probs_NK, preds_NK):
+        """One-error: fraction of samples whose single highest-scored label is not among the true labels."""
         return one_error(y_true, probs_NK)
 
     def _f1ma(y_true, probs_NK, preds_NK):
+        """Macro-averaged multilabel F1: per-label F1 computed independently then averaged with equal weight per label, regardless of label frequency."""
         return multilabel_f1_macro(y_true, preds_NK)
 
     def _f1mi(y_true, probs_NK, preds_NK):
+        """Micro-averaged multilabel F1: true/false positives and negatives pooled across all labels before computing a single F1, so frequent labels dominate."""
         return multilabel_f1_micro(y_true, preds_NK)
 
     def _f1w(y_true, probs_NK, preds_NK):
+        """Support-weighted multilabel F1: per-label F1 averaged with weight proportional to each label's positive count."""
         return multilabel_f1_weighted(y_true, preds_NK)
 
     register_metric(
@@ -487,9 +508,11 @@ def _register_builtin_multilabel_extras():
     )
 
     def _auc_ma(y_true, probs_NK, preds_NK):
+        """Macro-averaged per-label ROC AUC: AUC computed independently per label column, then averaged with equal weight per label."""
         return multilabel_auc_macro(y_true, probs_NK)
 
     def _auc_wt(y_true, probs_NK, preds_NK):
+        """Support-weighted per-label ROC AUC: per-label AUC averaged with weight proportional to each label's positive support."""
         return multilabel_auc_weighted(y_true, probs_NK)
 
     register_metric(
@@ -544,34 +567,41 @@ def _register_builtin_multi_target_regression():
         return yt, pr
 
     def _rmse_macro(y_true, probs_NK, preds_NK):
+        """Mean of per-target-column RMSE (equal weight per target, regardless of each column's scale)."""
         yt, pr = _coerce_nk(y_true, preds_NK)
         per_col = _np.sqrt(_mse_fn(yt, pr, multioutput="raw_values"))
         return float(per_col.mean())
 
     def _rmse_micro(y_true, probs_NK, preds_NK):
+        """RMSE pooled across all (N*K) elements as one flat vector; scale-sensitive since columns with larger magnitude dominate the pooled squared error."""
         yt, pr = _coerce_nk(y_true, preds_NK)
         return float(_np.sqrt(_mse_fn(yt.ravel(), pr.ravel())))
 
     def _rmse_max(y_true, probs_NK, preds_NK):
+        """Worst-case per-target-column RMSE; surfaces the single weakest target rather than averaging it away."""
         yt, pr = _coerce_nk(y_true, preds_NK)
         per_col = _np.sqrt(_mse_fn(yt, pr, multioutput="raw_values"))
         return float(per_col.max())
 
     def _mae_macro(y_true, probs_NK, preds_NK):
+        """Mean of per-target-column MAE (equal weight per target)."""
         yt, pr = _coerce_nk(y_true, preds_NK)
         per_col = _mae_fn(yt, pr, multioutput="raw_values")
         return float(per_col.mean())
 
     def _mae_max(y_true, probs_NK, preds_NK):
+        """Worst-case per-target-column MAE; surfaces the single weakest target rather than averaging it away."""
         yt, pr = _coerce_nk(y_true, preds_NK)
         per_col = _mae_fn(yt, pr, multioutput="raw_values")
         return float(per_col.max())
 
     def _r2_macro(y_true, probs_NK, preds_NK):
+        """Mean of per-target-column R^2 (sklearn ``multioutput='uniform_average'``): equal weight per target regardless of its variance."""
         yt, pr = _coerce_nk(y_true, preds_NK)
         return float(_r2_fn(yt, pr, multioutput="uniform_average"))
 
     def _r2_min(y_true, probs_NK, preds_NK):
+        """Worst-case per-target-column R^2; exposes the laggard target that a macro average would mask."""
         yt, pr = _coerce_nk(y_true, preds_NK)
         per_col = _r2_fn(yt, pr, multioutput="raw_values")
         return float(per_col.min())

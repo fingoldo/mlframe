@@ -113,6 +113,7 @@ def coerce_timestamps_for_audit(
     # epoch-second values collapse to 1970. Force ``datetime64[ns]`` so the
     # documented contract holds across pandas versions.
     def _to_ns(_dti) -> np.ndarray:
+        """Force a ``DatetimeIndex`` to ``datetime64[ns]`` so downstream ``.view('int64')`` callers get true nanoseconds regardless of pandas' preserved-resolution ``to_numpy()`` unit."""
         return np.asarray(_dti.to_numpy().astype("datetime64[ns]"))
 
     if arr.size == 0:

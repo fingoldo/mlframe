@@ -327,7 +327,7 @@ class TorchDataModule(LightningDataModule):
             if hasattr(features, "shape") and len(features.shape) >= 2:
                 return int(features.shape[1])
             if hasattr(features, "columns"):
-                return int(len(features.columns))
+                return len(features.columns)
         except Exception:
             return None
         return None

@@ -31,7 +31,7 @@ def _is_polars_df(x: Any) -> bool:
 from ..estimator import CompositeTargetEstimator
 from ..post_shim import PrePipelinePredictShim
 from ..transforms import get_transform
-from ._oof_split import (  # noqa: F401
+from ._oof_split import (
     _align_fit_sw,
     _carve_inner_eval_split,
     _slice_rows,
@@ -471,7 +471,7 @@ def compute_oof_holdout_predictions(
             round(float(holdout_frac), 6),
             int(time_ordering is not None),
             int(external_holdout_X is not None),
-            (int(len(external_holdout_y)) if external_holdout_y is not None else -1),
+            (len(external_holdout_y) if external_holdout_y is not None else -1),
             _group_fp,
         )
         _hit = _oof_cache_get(_full_key)
@@ -721,7 +721,7 @@ def compute_oof_holdout_predictions(
                 "discarding the time signal)."
             )
 
-    n_holdout = max(int(round(n_train * holdout_frac)), 1)
+    n_holdout = max(round(n_train * holdout_frac), 1)
     # Group-aware outer holdout: carve WHOLE groups so no group spans the refit-train and holdout slices (a random row permutation lets same-group rows leak across the split, inflating the OOF surface). Only when group_ids covers all rows with enough distinct groups and we are not on the explicit time-split path.
     _group_holdout = None
     if not use_time_split and group_ids is not None:
@@ -905,9 +905,9 @@ def compute_oof_holdout_predictions(
     return _final
 
 
-from ._cross_target import CompositeCrossTargetEnsemble  # noqa: F401, E402
-from ._calibration import OutputCalibrator, fit_output_calibrator  # noqa: F401, E402
-from ._stackers import (  # noqa: F401, E402
+from ._cross_target import CompositeCrossTargetEnsemble
+from ._calibration import OutputCalibrator, fit_output_calibrator
+from ._stackers import (
     META_STACKER_KINDS,
     build_meta_stack_ensemble,
     fit_gbm_meta_stacker,

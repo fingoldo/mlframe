@@ -157,7 +157,7 @@ def suggest_discovery_config(
     rationale: Dict[str, str] = {}
     suggested: Dict[str, Any] = {"enabled": True}
 
-    n_rows = int(len(df))
+    n_rows = len(df)
 
     # ---- mi_sample_n: scale to frame size ----------------------------------
     if n_rows < _MI_SAMPLE_SMALL_N:

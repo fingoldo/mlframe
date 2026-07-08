@@ -75,6 +75,7 @@ def _resolve_base_str(estimator: Any) -> str:
 
 
 def _is_fitted(estimator: Any) -> bool:
+    """True iff the composite estimator has completed a fit: both ``fitted_params_`` is populated and the inner ``estimator_`` attribute exists."""
     return getattr(estimator, "fitted_params_", None) is not None and hasattr(estimator, "estimator_")
 
 
@@ -207,6 +208,7 @@ def _interval_coverage(estimator: Any, X: Any, y: Any, facts: dict[str, Any]) ->
 # ---------------------------------------------------------------------------
 
 def _render_markdown(facts: dict[str, Any]) -> str:
+    """Render the facts collected by ``_gather`` into a human-readable Markdown explainability report (status, provenance/formula, coverage, and every other optional section present in ``facts``)."""
     L: list[str] = []
     L.append(f"# Composite explainability report: `{facts['transform_name']}`")
     L.append("")

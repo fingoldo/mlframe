@@ -121,7 +121,7 @@ class _PredictMixin:
                         if hasattr(X, "shape") and len(X.shape) >= 2:
                             _n_features = int(X.shape[1])
                         elif hasattr(X, "columns"):
-                            _n_features = int(len(X.columns))
+                            _n_features = len(X.columns)
                     except Exception:
                         _n_features = None
                     pred_batch_size = resolve_mlp_predict_batch_size(

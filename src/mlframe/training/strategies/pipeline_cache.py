@@ -110,6 +110,7 @@ def _estimate_slot_nbytes(slot: Any) -> int:
 
 
 def _estimate_entry_nbytes(entry: Tuple[Any, Any, Any]) -> int:
+    """Sum the per-slot byte estimates of a cache entry's tuple (e.g. transformed train/val/test frames) for LRU eviction accounting."""
     return sum(_estimate_slot_nbytes(s) for s in entry)
 
 

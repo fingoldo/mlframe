@@ -19,14 +19,14 @@ import polars as pl
 
 from pyutilz.pythonlib import get_parent_func_args, store_params_in_object
 
-from ._extractors_dtype_helpers import (  # noqa: F401  -- re-export
+from ._extractors_dtype_helpers import (
     _safe_int_cast_numpy,
     _smallest_safe_int_dtype,
     get_dataframe_info,
     get_sample_weights_by_recency,
     intize_targets,
 )
-from ._extractors_showcase import showcase_features_and_targets  # noqa: F401  -- re-export
+from ._extractors_showcase import showcase_features_and_targets
 from ..utils import get_pandas_view_of_polars_df, log_ram_usage
 
 logger = logging.getLogger(__name__)
@@ -315,7 +315,7 @@ class FeaturesAndTargetsExtractor:
         )
 
 
-from ._extractors_simple import SimpleFeaturesAndTargetsExtractor  # noqa: E402, F401
+from ._extractors_simple import SimpleFeaturesAndTargetsExtractor
 
 __all__ = [
     # Helper functions

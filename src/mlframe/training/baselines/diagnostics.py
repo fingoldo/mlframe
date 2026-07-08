@@ -139,7 +139,7 @@ class BaselineDiagnosticsReport:
         }
 
 
-from ..utils import coerce_to_1d_numpy as _to_1d_numpy  # noqa: E402,F401
+from ..utils import coerce_to_1d_numpy as _to_1d_numpy
 # Local name preserved for downstream importers (``dummy`` imports ``_to_1d_numpy`` from here).
 
 
@@ -494,15 +494,15 @@ def format_baseline_diagnostics_report(
     return "\n".join(lines)
 
 
-from ._baseline_diagnostics_quick_model import (  # noqa: E402
+from ._baseline_diagnostics_quick_model import (
     _fit_quick_and_score as _fit_quick_and_score,
     _make_quick_model as _make_quick_model,
 )
-from ._baseline_diagnostics_ablation import _run_ablation as _run_ablation  # noqa: E402
-from ._baseline_diagnostics_init_score import (  # noqa: E402
+from ._baseline_diagnostics_ablation import _run_ablation as _run_ablation
+from ._baseline_diagnostics_init_score import (
     _fit_init_score_baseline as _fit_init_score_baseline,
 )
-from ._baseline_diagnostics_recommend import (  # noqa: E402
+from ._baseline_diagnostics_recommend import (
     _build_recommendation as _build_recommendation,
 )
 

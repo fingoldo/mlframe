@@ -21,7 +21,7 @@ from __future__ import annotations
 import numpy as np
 
 try:
-    from numba import njit, prange  # noqa: F401
+    from numba import njit, prange
     _NUMBA_AVAILABLE = True
 except ImportError:
     _NUMBA_AVAILABLE = False

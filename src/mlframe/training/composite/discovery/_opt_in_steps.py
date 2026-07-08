@@ -82,6 +82,7 @@ def _run_region_adaptive(
         return []
 
     def _fit_one(base_col: str):
+        """Fit region-adaptive per one base column; returns ``None`` (logged, non-fatal) on a degenerate base so one bad base cannot abort the whole discovery step."""
         try:
             base_screen = _extract_column_array(df, base_col, rows=screen_idx)
             return fit_region_adaptive(
@@ -89,7 +90,7 @@ def _run_region_adaptive(
                 base_column=base_col, target_col=target_col,
                 k=k, random_state=rs,
             )
-        except Exception as exc:  # noqa: BLE001 -- a degenerate base must not abort fit
+        except Exception as exc:
             logger.warning(
                 "[CompositeTargetDiscovery.region_adaptive] base=%s failed: %s",
                 base_col, exc,
@@ -189,6 +190,7 @@ def _run_auto_chain(
     col_index = {c: i for i, c in enumerate(feat_cols)}
 
     def _chains_for_base(base_col: str):
+        """Discover chains for one base column, deriving its per-base feature matrix from the shared ``x_full`` via column deletion instead of re-gathering from the source frame."""
         # x_cols == feat_cols minus this base; empty only when the base is the sole feature.
         if len(feat_cols) == 1 and feat_cols[0] == base_col:
             return base_col, []
@@ -206,7 +208,7 @@ def _run_auto_chain(
                 top_k=int(getattr(self.config, "auto_chain_top_k", 2)),
             )
             return base_col, chains
-        except Exception as exc:  # noqa: BLE001 -- a degenerate base must not abort fit
+        except Exception as exc:
             logger.warning(
                 "[CompositeTargetDiscovery.auto_chain] base=%s failed: %s",
                 base_col, exc,

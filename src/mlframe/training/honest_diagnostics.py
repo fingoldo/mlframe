@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 def _safe_arr(x: Any) -> Optional[np.ndarray]:
+    """Coerce ``x`` to a numpy array, returning ``None`` on ``None`` input, empty result, or a failed coercion (never raises)."""
     if x is None:
         return None
     try:
@@ -56,6 +57,7 @@ def _safe_arr(x: Any) -> Optional[np.ndarray]:
 
 
 def _is_binary_classif(y: np.ndarray) -> bool:
+    """True when ``y`` (after dropping non-finite entries for float/complex dtypes) has exactly the two labels {0, 1}."""
     if y is None:
         return False
     try:
@@ -139,9 +141,11 @@ def _bootstrap_block(
             # identical (same values), and the dispatcher hits the same
             # (float64,float64) fast path the prior code wanted.
             def _brier(yy, pp):
+                """Bootstrap-resample Brier score via the numba-fast kernel (see the surrounding perf note)."""
                 return float(_fast_brier(yy, pp))
 
             def _ll(yy, pp):
+                """Bootstrap-resample log-loss via the numba-fast kernel (see the surrounding perf note)."""
                 return float(_fast_ll(yy, pp))
 
             metric_fns["brier"] = _brier
@@ -153,11 +157,13 @@ def _bootstrap_block(
             # dtype-eps clip so the per-row cross-entropy equals the kernel's; requires_both_classes=True mirrors
             # log-loss's single-class NaN (Brier is defined on any set).
             def _ll_per_row(yy, pp):
+                """Per-row cross-entropy contribution, used by the BCa jackknife's O(n) exact-algebraic leave-one-out formula for log-loss."""
                 _eps = np.finfo(np.asarray(pp).dtype).eps
                 _pc = np.clip(pp, _eps, 1.0 - _eps)
                 return np.where(np.asarray(yy) == 1, -np.log(_pc), -np.log(1.0 - _pc))
 
             def _brier_per_row(yy, pp):
+                """Per-row squared-error contribution, used by the BCa jackknife's O(n) exact-algebraic leave-one-out formula for Brier score."""
                 _d = np.asarray(pp, dtype=np.float64) - np.asarray(yy, dtype=np.float64)
                 return _d * _d
 
@@ -230,6 +236,7 @@ def _bootstrap_block(
 
             # RMSE = sqrt(mean(squared error)) -> exact O(n) algebraic jackknife via per-row squared errors + sqrt reduce.
             def _rmse_per_row(yy, pp):
+                """Per-row squared error; the jackknife reduces it via mean+sqrt to get the exact O(n) leave-one-out RMSE."""
                 return (np.asarray(yy, dtype=np.float64) - np.asarray(pp, dtype=np.float64)) ** 2
             ci = bootstrap_metric(
                 y_true, p_pos, metric_fn=_rmse, n_bootstrap=1000, alpha=0.05, random_state=rng_seed,
@@ -346,6 +353,7 @@ def _provenance_block(metadata: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _resolve_reports_dir(ctx: Any) -> Optional[str]:
+    """Build+create ``<data_dir>/<models_dir>/honest_diagnostics`` for disk artefacts; returns ``None`` when either dir is unset or creation fails."""
     data_dir = getattr(ctx, "data_dir", "") or ""
     models_dir = getattr(ctx, "models_dir", "") or ""
     if not data_dir or not models_dir:

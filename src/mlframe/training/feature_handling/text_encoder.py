@@ -52,9 +52,9 @@ from mlframe.training.feature_handling.polars_capability import (
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    import pandas as pd  # noqa: F401
-    import polars as pl  # noqa: F401
-    import scipy.sparse as sp  # noqa: F401
+    import pandas as pd
+    import polars as pl
+    import scipy.sparse as sp
 
 
 def _column_to_string_iter(
@@ -79,6 +79,7 @@ def _column_to_string_iter(
             # the resulting list in a generator instead of returning the list lets garbage collection
             # release each str right after it's consumed by the vectoriser (saves the peak: list+vocab).
             def _gen():
+                """Yields each polars cell as str, coercing None to "" and non-str values via ``str()``."""
                 for v in ser.to_list():
                     if v is None:
                         yield ""
@@ -95,6 +96,7 @@ def _column_to_string_iter(
         if isinstance(df, pd.DataFrame):
             ser = df[column]
             def _gen():
+                """Yields each pandas cell as str, coercing None/NaN to "" and non-str values via ``str()``."""
                 # itertuples / iterating .values yields cells without an upfront list allocation.
                 for v in ser.values:
                     if v is None or (isinstance(v, float) and np.isnan(v)):
@@ -157,10 +159,12 @@ class TextColumnEncoder:
 
     @property
     def is_fitted(self) -> bool:
+        """Whether ``fit`` / ``fit_transform`` has been called."""
         return self._fitted
 
     @property
     def n_features_out(self) -> Optional[int]:
+        """Fitted output column count, or ``None`` before fitting (TF-IDF may be smaller than ``max_features``; hashing is always exact)."""
         return self._n_features_out
 
     @property
@@ -205,6 +209,7 @@ class TextColumnEncoder:
         return self._vectorizer.transform(texts)
 
     def fit_transform(self, train_df: Any) -> sp.csr_matrix:
+        """Fit the vectoriser on ``train_df[self.column]`` and return its transform in one pass (avoids re-tokenising train text)."""
         texts = _column_to_string_iter(train_df, self.column)
         out = self._fit_vectorizer(texts, also_transform=True)
         self._fitted = True
@@ -219,6 +224,11 @@ class TextColumnEncoder:
         texts: Sequence[str],
         also_transform: bool = False,
     ):
+        """Constructs the sklearn vectoriser from ``self.params``, fits it on ``texts``, and optionally transforms in the same pass.
+
+        Degrades an all-empty/all-missing TF-IDF corpus (sklearn's "empty vocabulary" ValueError) to a faithful 0-width
+        matrix instead of raising, so tiny inner-CV folds with a blank text column don't abort the whole fit.
+        """
         # TODO 2026-05-21: when polars-ds ships native TF-IDF / hashing,
         # branch here via self._dispatcher.has() and feed the polars-native
         # path. For now sklearn is the only impl.
@@ -282,6 +292,7 @@ class TextColumnEncoder:
 
     @staticmethod
     def _row_count(df: Any) -> int:
+        """Row count for polars (``.height``, avoids the pandas ``len()`` fallback misfiring on lazy frames) or pandas/other via ``len()``."""
         try:
             import polars as pl
             if isinstance(df, pl.DataFrame):
@@ -291,10 +302,12 @@ class TextColumnEncoder:
         return len(df)
 
     def _empty_matrix_from_count(self, n_rows: int):
+        """Builds the degraded 0-width CSR matrix for an empty-vocabulary TF-IDF fit, given a known row count."""
         import scipy.sparse as _sp
         return _sp.csr_matrix((n_rows, 0), dtype=np.float64)
 
     def _empty_matrix(self, df: Any):
+        """Builds the degraded 0-width CSR matrix for an empty-vocabulary TF-IDF transform, deriving the row count from ``df``."""
         return self._empty_matrix_from_count(self._row_count(df))
 
     def __repr__(self) -> str:

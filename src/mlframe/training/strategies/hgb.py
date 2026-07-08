@@ -16,6 +16,7 @@ def _polars_categorical_dtypes():
 
 
 def _is_polars_categorical(dtype) -> bool:
+    """True for any polars string-like/categorical dtype (Categorical, Utf8, String, or an Enum instance) that HGB must cast before training."""
     if dtype in _polars_categorical_dtypes():
         return True
     import polars as pl
@@ -25,6 +26,7 @@ def _is_polars_categorical(dtype) -> bool:
 
 
 def _get_polars_cat_columns(df: "pl.DataFrame") -> list:
+    """Column names in ``df`` whose dtype is categorical/string-like per ``_is_polars_categorical``."""
     return [name for name, dtype in df.schema.items() if _is_polars_categorical(dtype)]
 
 
@@ -168,6 +170,7 @@ class HGBStrategy(ModelPipelineStrategy):
         out: Dict[str, pl.Enum] = {}
 
         def _batched_unique(df: "pl.DataFrame") -> "Dict[str, list]":
+            """Collect distinct string values for every candidate column in one lazy ``.select`` + ``.collect()`` instead of one collect per column; falls back to a per-column loop on any error so a single bad cast doesn't poison the whole batch."""
             cols_present = [c for c in candidate_cols if c in df.columns]
             if not cols_present:
                 return {}

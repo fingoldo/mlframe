@@ -149,7 +149,7 @@ def _rescore_spec_gain(
             vf = np.asarray(_dcf(y, base, spec.fitted_params), dtype=bool)
             if vf.shape == valid.shape:
                 valid = valid & vf
-        except Exception as e:  # noqa: BLE001 -- treat as no refinement
+        except Exception as e:
             logger.debug("swallowed exception in _incremental.py: %s", e)
             pass
     if int(valid.sum()) < 50:
@@ -159,7 +159,7 @@ def _rescore_spec_gain(
     base_v = None if base is None else base[valid].astype(np.float64)
     try:
         t = transform.forward(y_v, base_v, spec.fitted_params)
-    except Exception as _err:  # noqa: BLE001 -- a spec that can no longer forward is invalid on the new data
+    except Exception as _err:
         logger.debug("incremental: spec %s forward failed: %s", spec.name, _err)
         return float("nan")
     x_v = x_matrix[valid]

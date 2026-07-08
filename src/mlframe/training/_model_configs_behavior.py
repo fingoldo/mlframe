@@ -584,6 +584,7 @@ class QuantileRegressionConfig(BaseConfig):
 
     @model_validator(mode="after")
     def _validate_alphas(self) -> "QuantileRegressionConfig":
+        """Enforce that ``alphas`` is a non-empty, strictly-increasing, unique set of quantile levels in (0, 1), and that ``crossing_fix`` names a supported strategy."""
         alphas = self.alphas
         if not alphas:
             raise ValueError("QuantileRegressionConfig.alphas must be non-empty.")

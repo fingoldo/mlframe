@@ -443,6 +443,7 @@ def predict_from_models(
                     _exp_list_for_fallback = list(_expected) if _expected is not None else None
 
                     def _try_predict(fn, primary, fallback, model=model, _exp_list_for_fallback=_exp_list_for_fallback, model_name=model_name):
+                        """Call ``fn`` (predict / predict_proba) on ``primary``, retrying on ``fallback`` when the post-pipeline frame trips a pre-pipeline-only estimator (e.g. an isnan-on-strings TypeError from a sklearn encoder)."""
                         return _try_predict_with_pp_fallback(
                             fn, primary, fallback,
                             model=model,

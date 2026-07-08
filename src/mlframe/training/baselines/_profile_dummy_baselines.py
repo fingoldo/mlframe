@@ -53,6 +53,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
 def _make_regression(n_train: int, n_val: int, n_test: int, *, ts: bool = True, seed: int = 0):
+    """Synthesize a regression profiling fixture with trend + weekly seasonality + noise (so TS-aware baselines actually fire) and a low-cardinality categorical; ``ts=True`` also attaches hourly ``timestamps_*`` splits."""
     rng = np.random.default_rng(seed)
     n = n_train + n_val + n_test
     # Synth: trend + weekly seasonality + noise — TS baselines should fire.
@@ -89,6 +90,7 @@ def _make_regression(n_train: int, n_val: int, n_test: int, *, ts: bool = True, 
 
 
 def _make_binary(n_train: int, n_val: int, n_test: int, seed: int = 0):
+    """Synthesize a binary-classification profiling fixture (random 0/1 labels, one numeric + one low-cardinality categorical feature) with a fitted ``target_label_encoder``."""
     rng = np.random.default_rng(seed)
     y_tr = rng.integers(0, 2, n_train)
     y_va = rng.integers(0, 2, n_val)
@@ -106,6 +108,7 @@ def _make_binary(n_train: int, n_val: int, n_test: int, seed: int = 0):
 
 
 def _make_multiclass(n_train: int, n_val: int, n_test: int, n_classes: int = 8, seed: int = 0):
+    """Synthesize a multiclass-classification profiling fixture with ``n_classes`` random labels and a fitted ``target_label_encoder``."""
     rng = np.random.default_rng(seed)
     y_tr = rng.integers(0, n_classes, n_train)
     y_va = rng.integers(0, n_classes, n_val)
@@ -122,6 +125,7 @@ def _make_multiclass(n_train: int, n_val: int, n_test: int, n_classes: int = 8, 
 
 
 def _make_multilabel(n_train: int, n_val: int, n_test: int, K: int = 10, seed: int = 0):
+    """Synthesize a multilabel-classification profiling fixture: ``(n, K)`` random binary label matrices for train/val/test."""
     rng = np.random.default_rng(seed)
     return {
         "target_type": "multilabel_classification", "target_name": "ml",
@@ -135,6 +139,7 @@ def _make_multilabel(n_train: int, n_val: int, n_test: int, K: int = 10, seed: i
 
 
 def _make_ltr(n_train: int, n_val: int, n_test: int, group_size: int = 10, seed: int = 0):
+    """Synthesize a learning-to-rank profiling fixture: random relevance grades (0-4) plus fixed-size ``group_ids_*`` query groups for train/val/test."""
     rng = np.random.default_rng(seed)
     return {
         "target_type": "learning_to_rank", "target_name": "ltr",
@@ -151,6 +156,7 @@ def _make_ltr(n_train: int, n_val: int, n_test: int, group_size: int = 10, seed:
 
 
 def _profile_call(args_dict: dict, label: str, top_n: int = 30) -> tuple[float, str]:
+    """Run ``compute_dummy_baselines`` under cProfile for one target-type fixture, print a one-line result summary, and return ``(wall_seconds, top_n_cumulative_stats_text)``."""
     cfg = DummyBaselinesConfig()
     profiler = cProfile.Profile()
     t0 = time.perf_counter()
@@ -167,6 +173,7 @@ def _profile_call(args_dict: dict, label: str, top_n: int = 30) -> tuple[float, 
 
 
 def main():
+    """CLI entry point: parse ``--n-train``/``--n-val``/``--n-test``/``--target``/``--top``, profile each requested target-type fixture via ``_profile_call``, and print the per-target + total wall-time summary."""
     p = argparse.ArgumentParser()
     p.add_argument("--n-train", type=int, default=500_000)
     p.add_argument("--n-val", type=int, default=50_000)

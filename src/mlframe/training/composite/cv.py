@@ -108,6 +108,7 @@ class PurgedTimeSeriesSplit:
         return int(np.floor(float(self.embargo) * n_samples))
 
     def _resolve_n_samples(self, X: Any, n_samples: int | None) -> int:
+        """Return the explicit ``n_samples`` if given, else derive it from ``X.shape[0]`` (falling back to ``len(X)`` for non-array-like inputs)."""
         if n_samples is not None:
             return int(n_samples)
         if X is None:
@@ -115,7 +116,7 @@ class PurgedTimeSeriesSplit:
         try:
             return int(X.shape[0])
         except AttributeError:
-            return int(len(X))
+            return len(X)
 
     def split(
         self,

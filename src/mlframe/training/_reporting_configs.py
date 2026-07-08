@@ -306,6 +306,7 @@ class ReportingConfig(BaseConfig):
     @field_validator("title_metrics_template")
     @classmethod
     def _validate_title_template(cls, v: str) -> str:
+        """Validate ``title_metrics_template`` tokens against the allowed set, reject duplicates, and reject the mutually-exclusive BR/BR_DECOMP pair."""
         toks = [t.strip().upper() for t in v.split() if t.strip()]
         unknown = [t for t in toks if t not in _REPORTING_ALLOWED_TITLE_TOKENS]
         if unknown:
@@ -320,6 +321,7 @@ class ReportingConfig(BaseConfig):
     @field_validator("plot_outputs")
     @classmethod
     def _validate_plot_outputs(cls, v: str) -> str:
+        """Validate ``plot_outputs`` at construction time by parsing it with the real DSL parser (raises on malformed/unsupported/duplicate clauses)."""
         # Defer to the DSL parser; it raises ValueError on any malformed
         # / unsupported / duplicate clause. We don't store the parsed
         # spec on the config -- callers re-parse at render time (cheap;
@@ -334,6 +336,7 @@ class ReportingConfig(BaseConfig):
     )
     @classmethod
     def _validate_panel_template(cls, v: str, info) -> str:
+        """Validate a ``*_panels`` field's tokens against that report type's ALLOWED_*_PANEL_TOKENS set, reject unknown tokens and duplicates."""
         # Source the allowed token sets from the chart modules' own
         # ALLOWED_*_PANEL_TOKENS frozensets (the single source of truth that
         # the composers also key off), so any new builder token is valid here
@@ -403,6 +406,7 @@ class ReportingConfig(BaseConfig):
 
     @model_validator(mode="after")
     def _populate_title_tokens(self) -> "ReportingConfig":
+        """Derive the cached ``title_metrics_tokens`` tuple from ``title_metrics_template`` after every construction/assignment, bypassing ``validate_assignment`` to avoid re-entrant validation."""
         toks = tuple(t.strip().upper() for t in self.title_metrics_template.split() if t.strip())
         # Bypass validate_assignment for this derived field so we don't recurse.
         object.__setattr__(self, "title_metrics_tokens", toks)

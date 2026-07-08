@@ -497,8 +497,8 @@ def _predict_with_fallback(
 # 2026-05-13 refactor: _CB_VAL_POOL_CACHE lives in _predict_guards.py
 # (shared between fit-time populate in _maybe_get_or_build_cb_pool and
 # predict-time lookup in _predict_with_fallback).
-from .._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
-from ..pipeline import (  # noqa: E402,F401
+from .._predict_guards import _CB_VAL_POOL_CACHE
+from ..pipeline import (
     _apply_pre_pipeline_transforms,
     _extract_feature_selector,
     _is_fitted,
@@ -778,4 +778,4 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
 # body lives in ``_cb_pool_build.py`` so this file stays below the
 # 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
-from ._cb_pool_build import _maybe_get_or_build_cb_pool  # noqa: E402,F401
+from ._cb_pool_build import _maybe_get_or_build_cb_pool

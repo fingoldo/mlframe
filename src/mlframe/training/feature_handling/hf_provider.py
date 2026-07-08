@@ -54,7 +54,7 @@ from mlframe.training.feature_handling.system import (
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    import torch  # noqa: F401
+    import torch
 
 
 # Models that require an instruction prefix for the embedding to make

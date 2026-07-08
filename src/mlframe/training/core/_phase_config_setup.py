@@ -47,7 +47,7 @@ def _detect_interactive_mode() -> bool:
     attribute read.
     """
     try:
-        return bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+        return bool(__IPYTHON__)  # type: ignore[name-defined]
     except NameError:
         return hasattr(sys, "ps1")
 
@@ -120,6 +120,7 @@ def setup_configuration(
     _setup_t_start = _setup_t_prev
 
     def _step_done(label: str) -> None:
+        """Log the elapsed time since the previous checkpoint under ``label``, promoting slow (>=2s) steps to INFO so they surface in prod logs."""
         nonlocal _setup_t_prev
         if not _setup_timing_on or not verbose:
             return
@@ -284,7 +285,7 @@ def setup_configuration(
                     if _bk == "plotly" and (set(_fmts) & {"png", "svg", "pdf"}):
                         _plotly_kaleido = True
                         break
-            except Exception:  # noqa: BLE001 -- parse failure -> fall back to the substring heuristic
+            except Exception:
                 _plotly_kaleido = "plotly" in _po and ("png" in _po or "svg" in _po or "pdf" in _po)
         if _plotly_kaleido:
             logger.warning(

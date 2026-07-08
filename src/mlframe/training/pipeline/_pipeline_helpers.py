@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # the 1k-line monolith threshold. Re-exported here so existing callers
 # (`from ._pipeline_helpers import _content_fingerprint_for_cache`, etc.)
 # keep working.
-from ._pipeline_cache import (  # noqa: F401, E402
+from ._pipeline_cache import (
     _PRE_PIPELINE_CACHE,
     _PRE_PIPELINE_CACHE_LOCK,
     _PRE_PIPELINE_CACHE_MAX,
@@ -554,6 +554,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
             raise
 
     def _run_and_empty_check(_fn, _arg, _target_arg):
+        """Run the (possibly fit-)transform and, if it fails with numpy's "need at least one array to concatenate" (a transformer that dropped every column), swallow it and return an empty frame/array of matching row count so downstream 0-feature guards see a consistent shape instead of a raw crash."""
         try:
             return _call_fit(_fn, _arg, _target_arg) if fit else _fn(_arg)
         except ValueError as _exc:
@@ -638,7 +639,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
 
 
 # _apply_pre_pipeline_transforms / _validate_pre_pipeline_output_against_model carved to _pipeline_helpers_apply.py (1k-LOC ceiling).
-from ._pipeline_helpers_apply import (  # noqa: E402, F401
+from ._pipeline_helpers_apply import (
     _apply_pre_pipeline_transforms,
     _validate_pre_pipeline_output_against_model,
 )

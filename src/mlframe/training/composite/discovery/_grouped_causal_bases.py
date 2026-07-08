@@ -56,6 +56,7 @@ def _njit(func):
 
 
 def _grouped_lag_impl(y_sorted, offsets, k, fill_group):
+    """Per-group lag-``k`` of ``y_sorted`` (already segment-sorted by group via ``offsets``); rows before the k-th in-group position fall back to the group's first value (``fill_group``) or NaN."""
     n = y_sorted.shape[0]
     out = np.empty(n, dtype=np.float64)
     n_groups = offsets.shape[0] - 1
@@ -74,6 +75,7 @@ def _grouped_lag_impl(y_sorted, offsets, k, fill_group):
 
 
 def _grouped_expanding_impl(y_sorted, offsets, fill_group):
+    """Per-group expanding (strictly-prior) mean via an O(n) running sum, no per-row rescan; first row per group uses ``fill_group``/NaN."""
     n = y_sorted.shape[0]
     out = np.empty(n, dtype=np.float64)
     n_groups = offsets.shape[0] - 1
@@ -95,6 +97,7 @@ def _grouped_expanding_impl(y_sorted, offsets, fill_group):
 
 
 def _grouped_trailing_impl(y_sorted, offsets, window, fill_group):
+    """Per-group trailing mean over up to ``window`` strictly-prior in-group rows, via an O(n) running-window sum."""
     # Trailing mean over the up-to-``window`` in-group rows STRICTLY BEFORE each row, via an O(n) running-window sum
     # (add the current element, drop the one leaving the window) -- no per-row O(window) rescan.
     n = y_sorted.shape[0]
@@ -230,10 +233,12 @@ def engineer_grouped_causal_bases(
 
 
 def _is_polars(df: Any) -> bool:
+    """Duck-types ``df`` as a polars frame by presence of ``with_columns``/``get_column`` (avoids a hard polars import)."""
     return callable(getattr(df, "with_columns", None)) and callable(getattr(df, "get_column", None))
 
 
 def _frame_columns(df: Any) -> list[str]:
+    """Returns ``df.columns`` as a plain list, or ``[]`` for frame-like objects that expose no ``columns`` attribute."""
     cols = getattr(df, "columns", None)
     return list(cols) if cols is not None else []
 
@@ -331,6 +336,7 @@ def maybe_add_grouped_causal_bases(
 
 
 def _profile_main() -> None:  # pragma: no cover -- manual cProfile harness (see module docstring for the recorded verdict)
+    """Runs ``engineer_grouped_causal_bases`` under cProfile at a representative shape (200k rows / 500 groups) and prints the top-cumtime frames."""
     import cProfile
     import pstats
 

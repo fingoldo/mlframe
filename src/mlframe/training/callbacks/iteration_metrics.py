@@ -26,10 +26,16 @@ logger = logging.getLogger(__name__)
 
 
 def _should_capture(round_idx: int, stride: int) -> bool:
+    """True when ``round_idx`` falls on a stride boundary (``stride <= 1`` captures every round)."""
     return stride <= 1 or (round_idx % stride) == 0
 
 
 def _store(iteration_metrics: dict, round_idx: int, y_true, y_score, target_type: str, n_classes: Optional[int]) -> None:
+    """Compute the full metric suite for one round and record it into ``iteration_metrics[round_idx]``.
+
+    Metric computation is wrapped in a broad try/except: a single bad round (e.g. degenerate scores early in
+    training) must WARN and be skipped, never abort the booster's ``fit`` call.
+    """
     from mlframe.metrics import compute_all_metrics
 
     try:
@@ -83,6 +89,8 @@ def make_xgb_iteration_metrics_callback(
         return None
 
     class _XGBIterationMetrics(xgb.callback.TrainingCallback):
+        """XGBoost ``TrainingCallback`` closing over ``dval`` / ``y_val`` / ``target_type`` from the factory scope."""
+
         _is_mlframe_iteration_metrics = True
 
         def __init__(self) -> None:
@@ -93,6 +101,8 @@ def make_xgb_iteration_metrics_callback(
             self._target_type = str(target_type)
 
         def after_iteration(self, model, epoch, evals_log) -> bool:
+            """Capture the val metric suite for ``epoch`` when it lands on a stride boundary. Always returns
+            ``False`` (never requests early stopping) -- this callback is metric capture only."""
             if not (_should_capture(epoch, self._stride)):
                 # last round handled in after_training; capture stride rounds here.
                 return False
@@ -101,6 +111,8 @@ def make_xgb_iteration_metrics_callback(
             return False
 
         def after_training(self, model):
+            """Ensure the final round is captured even when the stride skipped it, then return ``model`` unchanged
+            (xgboost's ``TrainingCallback`` protocol requires ``after_training`` to return the model)."""
             # Always capture the final round even if stride skipped it (the best/last round is the meta-learning anchor).
             try:
                 last = int(model.num_boosted_rounds()) - 1
@@ -132,6 +144,8 @@ class CBIterationMetricsCallback:
         self.iteration_metrics_: dict[int, dict[str, float]] = {}
 
     def after_iteration(self, info) -> bool:
+        """Capture the val metric suite for the current round when it lands on a stride boundary. Always
+        returns ``True`` (CatBoost's convention: ``True`` means continue training, this callback never stops it)."""
         it = int(getattr(info, "iteration", 0))
         round_idx = it - 1  # normalise to 0-based to match lgb / xgb
         if round_idx < 0 or not _should_capture(round_idx, self.stride):
@@ -145,6 +159,9 @@ class CBIterationMetricsCallback:
         return True
 
     def _predict(self, model, ntree_end: int) -> Optional[Any]:
+        """Score ``self.val_pool`` through round ``ntree_end``, collapsing binary probabilities to the positive
+        class column. Returns ``None`` (rather than raising) on any predict failure so a single bad round is
+        skipped instead of aborting training."""
         try:
             is_reg = "regression" in self.target_type
             if is_reg:

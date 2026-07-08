@@ -6,7 +6,7 @@ import logging
 # ``deque`` is re-exported here as the module-level binding the bound ``update()``
 # rolling-buffer method resolves (pinned by test_m1_update_uses_module_level_deque
 # -- it must NOT be a lazy local reimport).
-from collections import deque  # noqa: F401
+from collections import deque
 from typing import (
     Any, Optional, Sequence, Tuple,
 )
@@ -73,7 +73,7 @@ def _y_train_clip_bounds(y_train: np.ndarray) -> tuple[float, float]:
     return low, high
 
 
-from ...utils import coerce_to_1d_numpy as _to_1d_numpy  # noqa: E402,F401
+from ...utils import coerce_to_1d_numpy as _to_1d_numpy
 
 
 def _extract_base(X: Any, base_column: str) -> np.ndarray:
@@ -177,7 +177,7 @@ def _extract_base_matrix(X: Any, base_columns: Sequence[str]) -> np.ndarray:
 # TOP of this file) from the partial-module state -- safe because this
 # re-export at the BOTTOM triggers the sibling load AFTER those helpers
 # have already been bound.
-from ._estimator import CompositeTargetEstimator  # noqa: F401, E402
+from ._estimator import CompositeTargetEstimator
 
 # ----------------------------------------------------------------------
 # Per-quantile ensemble blending

@@ -94,9 +94,11 @@ class RegionAdaptiveSpec:
 
     @property
     def k(self) -> int:
+        """Number of regions this spec was fitted with (``len(edges) + 1``)."""
         return len(self.region_transforms)
 
     def forward(self, y: np.ndarray, base: np.ndarray) -> np.ndarray:
+        """Apply each row's region-specific transform to ``y``, producing the single composite-target array ``T`` a downstream learner trains on. Rows are bucketed via ``assign_regions`` on ``base`` (mirroring fit-time routing), so the same row always uses the same region's transform at both fit and predict time."""
         y = np.asarray(y, dtype=np.float64)
         base = np.asarray(base, dtype=np.float64)
         reg = assign_regions(base, self.edges)
@@ -110,6 +112,7 @@ class RegionAdaptiveSpec:
         return out
 
     def inverse(self, t_hat: np.ndarray, base: np.ndarray) -> np.ndarray:
+        """Invert ``forward``: reconstruct ``y`` from a predicted composite-target array ``t_hat``, routing each row through its region's inverse transform (same region assignment as ``forward``, derived from ``base``)."""
         t_hat = np.asarray(t_hat, dtype=np.float64)
         base = np.asarray(base, dtype=np.float64)
         reg = assign_regions(base, self.edges)

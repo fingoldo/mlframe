@@ -11,8 +11,8 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 import psutil  # used for n_jobs=cpu_count(logical=False) in XGB_GENERAL_PARAMS
-from xgboost.callback import TrainingCallback  # noqa: F401
-from sklearn.metrics import roc_auc_score  # noqa: F401
+from xgboost.callback import TrainingCallback
+from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
 
 from ._gpu_probe import CUDA_IS_AVAILABLE, LGB_GPU_AVAILABLE, XGB_GPU_AVAILABLE
@@ -151,6 +151,7 @@ def get_training_configs(
         early_stopping_rounds = max(2, iterations // 3)
 
     def neg_ovr_roc_auc_score(*args, **kwargs):
+        """Negated one-vs-rest ROC-AUC, for use as an XGBoost minimization ``eval_metric``."""
         return -roc_auc_score(*args, **kwargs, multi_class="ovr")
 
     # Build defaults, then let caller's kwargs override any of them
@@ -169,6 +170,7 @@ def get_training_configs(
     # Resolve via strategy so a CatBoost passed as an estimator INSTANCE (stringifies to "catboostclassifier()", missed by a
     # name-only check) still enables the CB-GPU probe; otherwise an instance-passed CB silently defaults to task_type="CPU".
     def _is_cb(m) -> bool:
+        """True if ``m`` (a model name string or an estimator instance) resolves to CatBoost."""
         if isinstance(m, str):
             return m.lower() in ("cb", "catboost")
         from .strategies import get_strategy, CatBoostStrategy
@@ -367,6 +369,8 @@ def get_training_configs(
         """
 
         def robust_metric(y_true: np.ndarray, y_score: np.ndarray, *args, **kwargs):
+            """Evaluate ``metric_fn`` on consecutive time splits and combine via mean +/- std*std_coeff, falling back to
+            the full-data metric when there isn't enough data / valid splits for the robustness estimate."""
             n = len(y_true)
 
             # Fallback 1: Not enough data for any splits
@@ -442,6 +446,7 @@ def get_training_configs(
     if subgroups:
 
         def final_integral_calibration_error(y_true: np.ndarray, y_score: np.ndarray, *args, **kwargs):  # partial won't work with xgboost
+            """``integral_calibration_error`` averaged across ``subgroups`` via ``robust_mlperf_metric`` (subgroup-aware variant)."""
             return robust_mlperf_metric(
                 y_true,
                 y_score,
@@ -467,6 +472,8 @@ def get_training_configs(
         )
 
     def fs_and_hpt_integral_calibration_error(*args, verbose: bool = True, **kwargs):
+        """Positional-args variant of ``integral_calibration_error`` for feature-selection / HPT callers that pass
+        ``y_true``/``y_score`` positionally instead of by keyword."""
         err = compute_probabilistic_multiclass_error(
             *args,
             **kwargs,  # type: ignore[misc]  # caller (xgboost/lgbm eval callback) never passes these names in kwargs
@@ -488,6 +495,8 @@ def get_training_configs(
     XGB_CALIB_CLASSIF.update({"eval_metric": final_integral_calibration_error})
 
     def lgbm_integral_calibration_error(y_true, y_score):
+        """Adapt ``final_integral_calibration_error`` to LightGBM's custom-metric contract: returns
+        ``(metric_name, value, higher_is_better)`` instead of a bare float."""
         metric_name = "integral_calibration_error"
         value = final_integral_calibration_error(y_true, y_score)
         higher_is_better = False
@@ -579,6 +588,8 @@ def get_training_configs(
     # NGB_GENERAL_PARAMS path, no torch) even though ngb shares NeuralNetStrategy. So gate on the recurrent strategy (covers the
     # lstm/gru/rnn/transformer aliases the old literal "recurrent" check missed) OR an explicit mlp alias / torch-MLP instance.
     def _needs_mlp_config(m) -> bool:
+        """True if ``m`` needs the torch-backed MLP config block: a recurrent-strategy model, the ``"mlp"`` alias
+        string, or an instance whose class name mentions PytorchLightning/MLP."""
         from .strategies import get_strategy, RecurrentModelStrategy
         if isinstance(get_strategy(m), RecurrentModelStrategy):
             return True

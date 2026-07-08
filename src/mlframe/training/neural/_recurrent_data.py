@@ -12,7 +12,7 @@ from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from lightning.pytorch import LightningDataModule
 
 from .base import _ensure_numpy
-from ._recurrent_config import InputMode  # noqa: F401  # re-exported for callers
+from ._recurrent_config import InputMode  # re-exported for callers
 
 
 class RecurrentDataset(Dataset):
@@ -23,7 +23,7 @@ class RecurrentDataset(Dataset):
     Supports both classification (integer labels) and regression (float labels).
     """
 
-    __slots__ = ("sequences", "aux_features", "labels", "sample_weights", "_has_sequences", "_is_regression")
+    __slots__ = ("_has_sequences", "_is_regression", "aux_features", "labels", "sample_weights", "sequences")
 
     def __init__(
         self,

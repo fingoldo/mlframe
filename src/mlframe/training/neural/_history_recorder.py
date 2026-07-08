@@ -38,6 +38,7 @@ class TrainingHistoryRecorder(Callback):
         self._best = float("inf") if mode == "min" else float("-inf")
 
     def _record_split(self, metrics) -> None:
+        """Route ``train_*``/``val_*`` entries from ``trainer.callback_metrics`` into ``evals_result_[split][metric]``, ignoring keys without either prefix."""
         for key, value in metrics.items():
             k = str(key)
             if k.startswith("val_"):
@@ -53,6 +54,7 @@ class TrainingHistoryRecorder(Callback):
             self.evals_result_.setdefault(split, {}).setdefault(metric, []).append(v)
 
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        """Record this epoch's train/val metrics and update ``best_iteration_`` when the monitored metric improves (skips the pre-training sanity-check pass)."""
         if getattr(trainer, "sanity_checking", False):
             return
         metrics = dict(trainer.callback_metrics)
@@ -101,6 +103,7 @@ class IterationMetricsRecorder(Callback):
         return None, None
 
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0) -> None:
+        """Buffer this batch's predictions/labels for aggregation at epoch end (skips the pre-training sanity-check pass)."""
         if getattr(trainer, "sanity_checking", False):
             return
         predictions, labels = self._extract(outputs)
@@ -126,6 +129,7 @@ class IterationMetricsRecorder(Callback):
         return 1.0 / (1.0 + np.exp(-flat))
 
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        """Concatenate the epoch's buffered predictions/labels, compute the full metric suite, and store it under ``iteration_metrics_[epoch]``; a capture failure is logged and swallowed so it never aborts training."""
         preds, labels = self._batched_predictions, self._batched_labels
         self._batched_predictions, self._batched_labels = [], []
         if getattr(trainer, "sanity_checking", False) or not preds:

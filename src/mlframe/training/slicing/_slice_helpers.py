@@ -296,4 +296,4 @@ def effective_patience(patience: int, k: int) -> int:
     """
     if k <= 1:
         return patience
-    return int(math.ceil(patience * (1.0 + 1.0 / math.sqrt(k - 1))))
+    return math.ceil(patience * (1.0 + 1.0 / math.sqrt(k - 1)))

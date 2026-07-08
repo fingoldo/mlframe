@@ -323,6 +323,7 @@ def _build_cache_stats(ctx) -> dict:
     _discovery = _aggregate_discovery_cache_stats(ctx.metadata or {})
 
     def _with_rate(block: dict) -> dict:
+        """Add hit_rate to a {hits, misses} block; None (not 0.0) when the block was never accessed."""
         _h = int(block.get("hits", 0))
         _m = int(block.get("misses", 0))
         _total = _h + _m
@@ -419,6 +420,7 @@ def _recalibrate_regression_on_calib_slice(ctx: "TrainingContext") -> None:
     min_gain = float(getattr(_cfg, "min_gain", 0.0)) if _cfg is not None else 0.0
 
     def _arr(v):
+        """Coerce a pandas Series/ndarray/None to a flat float64 array, or None if empty/missing."""
         if v is None:
             return None
         a = v.values if hasattr(v, "values") else v
@@ -512,6 +514,7 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
     structure = _conformal_finalize_structure(ctx)
 
     def _arr(v):
+        """Coerce a pandas Series/ndarray/None to a flat float64 array, or None if empty/missing."""
         if v is None:
             return None
         a = v.values if hasattr(v, "values") else v
@@ -519,6 +522,7 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
         return a if a.size else None
 
     def _raw1d(v):
+        """Like _arr but preserves the original dtype (needed for classification labels, not just floats)."""
         if v is None:
             return None
         a = _np.asarray(v.values if hasattr(v, "values") else v).reshape(-1)

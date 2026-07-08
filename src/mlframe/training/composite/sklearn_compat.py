@@ -310,6 +310,7 @@ class CompositeTargetTransformer(TransformerMixin, BaseEstimator):
     # ---- internals ----------------------------------------------------
 
     def _fitted_transform_name(self) -> str:
+        """Fit-frozen ``transform_name_`` when available (clone-safe), else the constructor arg for pre-fit introspection."""
         # Prefer the fit-frozen name (clone safety) but fall back to the
         # constructor arg so a not-yet-fitted introspection still resolves.
         return getattr(self, "transform_name_", self.transform_name)
@@ -366,4 +367,5 @@ class CompositeTargetTransformer(TransformerMixin, BaseEstimator):
     # (it transforms the target), so it must not be subjected to the
     # feature-X validation sklearn runs on standard transformers.
     def _more_tags(self) -> dict[str, Any]:
+        """Tell sklearn's estimator checks this transformer acts on ``y``, not ``X``, so it is exempt from the standard feature-matrix validation."""
         return {"stateless": True, "requires_y": True, "no_validation": True}

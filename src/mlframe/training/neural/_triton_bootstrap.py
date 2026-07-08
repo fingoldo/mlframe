@@ -51,7 +51,7 @@ def ensure_triton_loaded() -> bool:
         return True
 
     try:
-        import triton  # noqa: F401
+        import triton
         _triton_loaded = True
         return True  # already importable, no bootstrap needed
     except ImportError:
@@ -84,7 +84,7 @@ def ensure_triton_loaded() -> bool:
                     pyd,
                 )
                 # Verify the import actually works now.
-                import triton  # noqa: F401
+                import triton
                 _triton_loaded = True
                 return True
             except Exception as _preload_err:

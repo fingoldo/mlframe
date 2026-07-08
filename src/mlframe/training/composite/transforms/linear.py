@@ -28,7 +28,7 @@ logger = logging.getLogger("mlframe.training.composite_transforms")
 # The parent defines all four BEFORE its bottom-of-module sibling import,
 # so this static cycle resolves at runtime. Whitelisted in
 # tests/test_meta/test_no_import_cycles.py.
-from . import (  # noqa: E402
+from . import (
     _GROUPED_MIN_GROUP_SIZE,
     _LINRES_ROBUST_MAD_K,
     _LINRES_ROBUST_MIN_KEEP_FRAC,
@@ -40,6 +40,11 @@ logger = logging.getLogger("mlframe.training.composite_transforms")
 
 
 def _logratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
+    """Fit the log-ratio transform ``T = log(y) - log(base)``: median/MAD of ``T_train`` plus a degeneracy-floored MAD.
+
+    Returns a dict of ``median_t``/``mad_train``/``mad_eff``/``soft_cap_k`` consumed by :func:`_logratio_inverse`
+    to soft-cap out-of-distribution predictions around ``median_t`` rather than zero.
+    """
     # T_train computed in the valid domain (caller has already filtered).
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
@@ -62,8 +67,10 @@ def _logratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
         "soft_cap_k": _MAD_SOFT_CAP_K,
     }
 def _logratio_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    """Compute ``log(y) - log(base)`` (``params`` unused; forward is stateless given the domain filter)."""
     return np.asarray(np.log(y) - np.log(base))
 def _logratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    """Invert the log-ratio transform, soft-capping ``t_hat`` to ``median_t +/- soft_cap_k*mad_eff`` before exponentiating."""
     median_t = float(params["median_t"])
     mad = float(params["mad_eff"])
     k = float(params["soft_cap_k"])
@@ -75,6 +82,7 @@ def _logratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any
     t_capped = np.clip(t_hat, median_t - cap, median_t + cap)
     return np.asarray(base * np.exp(t_capped))
 def _logratio_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
+    """Return the boolean row mask where ``base`` (and ``y``, if given) are finite and strictly positive (loggable)."""
     base_ok = np.isfinite(base) & (base > 0)
     if y is None:
         return np.asarray(base_ok)
@@ -218,16 +226,19 @@ def _linear_residual_fit_batched(
 def _linear_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Compute the OLS residual ``T = y - alpha*base - beta`` from fitted ``params``."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
     return y - alpha * base - beta
 def _linear_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Invert the linear residual: ``y_hat = t_hat + alpha*base + beta``."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
     return t_hat + alpha * base + beta
 def _linear_residual_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
+    """Return the boolean row mask where ``base`` (and ``y``, if given) are finite; no positivity constraint (unlike logratio)."""
     base_ok = np.isfinite(base)
     if y is None:
         return np.asarray(base_ok)
@@ -496,6 +507,7 @@ def _linear_residual_multi_fit(
 def _linear_residual_multi_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Compute the joint-OLS residual ``T = y - base @ alphas - beta``; raises if ``base``'s column count doesn't match ``alphas``."""
     if base.ndim == 1:
         base = base.reshape(-1, 1)
     alphas = np.asarray(params["alphas"], dtype=np.float64)
@@ -506,6 +518,7 @@ def _linear_residual_multi_forward(
 def _linear_residual_multi_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
+    """Invert the joint-OLS residual: ``y_hat = t_hat + base @ alphas + beta``."""
     if base.ndim == 1:
         base = base.reshape(-1, 1)
     alphas = np.asarray(params["alphas"], dtype=np.float64)
@@ -518,6 +531,7 @@ def _linear_residual_multi_inverse(
 def _linear_residual_multi_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Return the boolean row mask where every column of ``base`` (and ``y``, if given) is finite."""
     if base.ndim == 1:
         base = base.reshape(-1, 1)
     base_ok = np.all(np.isfinite(base), axis=1)
@@ -699,6 +713,7 @@ def _linear_residual_grouped_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
     groups: np.ndarray | None = None,
 ) -> np.ndarray:
+    """Compute the per-group residual using each row's group-specific (shrunk) alpha/beta; requires ``groups``."""
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
@@ -712,6 +727,7 @@ def _linear_residual_grouped_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
     groups: np.ndarray | None = None,
 ) -> np.ndarray:
+    """Invert the per-group residual using each row's group-specific (shrunk) alpha/beta; requires ``groups``."""
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
@@ -724,4 +740,5 @@ def _linear_residual_grouped_inverse(
 def _linear_residual_grouped_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
+    """Delegate to :func:`_linear_residual_domain`; grouping does not add its own domain restriction."""
     return _linear_residual_domain(y, base)

@@ -47,7 +47,7 @@ from ._screening_tiny import (
     _build_tiny_model,
     _cached_kfold_splits,
     _silence_tiny_model_output,
-)  # noqa: E402 (cycle-safe: defined before parent's bottom re-export)
+)
 
 
 def _per_bin_rmse(
