@@ -113,7 +113,16 @@ def _test_df_is_raw_pipeline_input(pre_pipeline, test_df, passthrough_cols, skip
     _sel = _extract_feature_selector(pre_pipeline)
     _out_cols = _selector_output_columns(_sel)
     if _out_cols is not None:
-        return _effective_width > len(_out_cols)
+        # A selector's OUTPUT width is its selected base columns PLUS any engineered-recipe columns it
+        # appends (MRMR fits both a support_ subset AND feature-engineering recipes; the transformed
+        # frame carries both). Counting only support_ under-reports the true output width, so an
+        # already-transformed frame whose engineered columns pad it back up to (or past) the base
+        # count is misjudged as "still raw" and gets double-transformed through the fitted pipeline --
+        # which was fit on the raw INPUT width, not this reduced+engineered width -- raising
+        # category_encoders' "Unexpected input dimension" (fuzz c0018/c0111: MRMR selected 2 base + 4
+        # engineered = 6 actual output cols, but the support_-only count of 2 made 6 > 2 look raw).
+        _n_engineered = len(getattr(_sel, "_engineered_recipes_", None) or [])
+        return _effective_width > (len(_out_cols) + _n_engineered)
 
     # Fallback: input-width heuristic. The estimator whose input width matters is the one the transform feeds: the feature selector under
     # skip_preprocessing, else the whole pipeline.
