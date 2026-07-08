@@ -148,10 +148,10 @@ def _float_canonical_tokens(arr: np.ndarray) -> np.ndarray:
         # All-NaN input under factorize yields empty uniques + all -1 codes; gather would IndexError.
         # Caller's NaN mask overwrites every cell with the sentinel, so the placeholder value is irrelevant.
         return np.full(arr.shape[0], _NULL_SENTINEL, dtype=object)
-    return toks[codes]
+    return np.asarray(toks[codes])
 
 
-def _categorical_to_string_array(values: Sequence) -> np.ndarray:
+def _categorical_to_string_array(values: Sequence | np.ndarray | pd.Series) -> np.ndarray:
     """Coerce a sequence of category values to a numpy string array of object dtype. Handles None / NaN
     by mapping them to a sentinel ``"__NULL__"`` so they form their own category rather than being
     silently dropped.
@@ -302,7 +302,7 @@ def _objectwise_isnull(arr: np.ndarray) -> np.ndarray:
         try:
             is_none = _pd.isna(arr).astype(bool)
             # pandas.isna already covers NaN for floats; return early.
-            return is_none
+            return np.asarray(is_none)
         except Exception as _e_pd:
             raise ValueError(
                 f"_objectwise_isnull: both per-row `is None` ({_e_none}) and "
@@ -321,7 +321,7 @@ def _objectwise_isnull(arr: np.ndarray) -> np.ndarray:
             is_nan = _pd.isna(arr).astype(bool)
         except Exception as _e_pd:
             raise ValueError(f"_objectwise_isnull: per-row NaN check failed ({_e_nan}) and " f"pandas.isna fallback also failed ({_e_pd}).") from _e_pd
-    return is_none | is_nan
+    return np.asarray(is_none | is_nan)
 
 
 def _coerce_y_to_float64(y) -> np.ndarray:
@@ -339,7 +339,7 @@ def _coerce_y_to_float64(y) -> np.ndarray:
     try:
         import pandas as pd
         if isinstance(y, (pd.Series, pd.DataFrame)):
-            return y.to_numpy(dtype=np.float64, copy=False).ravel()
+            return np.asarray(y.to_numpy(dtype=np.float64, copy=False)).ravel()
     except ImportError:
         pass
     try:
@@ -389,7 +389,7 @@ def _smoothed_mean(
 ) -> np.ndarray:
     """Standard smoothed mean: pulls rare-category encodings toward
     the global prior."""
-    return (counts * means + smoothing * prior) / (counts + smoothing)
+    return np.asarray((counts * means + smoothing * prior) / (counts + smoothing))
 
 
 # =====================================================================
@@ -838,10 +838,11 @@ class LeakageSafeEncoder:
     def _encode_vectorised(self, cats: np.ndarray, pd) -> np.ndarray:
         codes, uniq = pd.factorize(cats, sort=False)
         per_uniq = self._encode_per_row(uniq)
-        return per_uniq[codes]
+        return np.asarray(per_uniq[codes])
 
     def _encode_per_row(self, cats: np.ndarray) -> np.ndarray:
         out = np.empty(len(cats), dtype=np.float64)
+        assert self._global_prior is not None, "_encode_per_row: fit() must populate _global_prior before transform"
         prior = self._global_prior
         if self.method == "woe":
             # Unseen-category fallback uses the prior log-odds, not 0. ``0.0`` was misread as "no evidence"
@@ -856,6 +857,7 @@ class LeakageSafeEncoder:
             # OR zero negatives in train yields p==0 or q==0; np.log(0)=-inf and the
             # subtraction becomes nan. Clip with the same Laplace cushion the kfold
             # path uses so caller-visible features stay finite.
+            assert self._woe_pos is not None and self._woe_neg is not None, "_encode_per_row(woe): fit() must populate _woe_pos/_woe_neg before transform"
             for i, c in enumerate(cats):
                 p = self._woe_pos.get(c)
                 q = self._woe_neg.get(c)
@@ -866,6 +868,7 @@ class LeakageSafeEncoder:
                     q_safe = float(min(max(q, 1e-12), 1.0 - 1e-12))
                     out[i] = float(np.log(p_safe) - np.log(q_safe))
             return out
+        assert self._category_counts is not None and self._category_means is not None, "_encode_per_row: fit() must populate _category_counts/_category_means before transform"
         for i, c in enumerate(cats):
             n_c = self._category_counts.get(c, 0)
             if n_c == 0:

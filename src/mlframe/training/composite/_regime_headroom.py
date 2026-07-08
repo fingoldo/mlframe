@@ -229,7 +229,7 @@ def regime_headroom_map(
         failsafe = rr if not has_lag else min(rr, rl if rl is not None else rr)
         headroom = ((failsafe - rc) / failsafe) if failsafe > 0 else None
         cands = [("raw", rr), ("composite", rc)]
-        if has_lag:
+        if has_lag and rl is not None:
             cands.append(("lag", rl))
         cands.sort(key=lambda kv: kv[1])
         winner = cands[0][0]

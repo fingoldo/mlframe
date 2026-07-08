@@ -111,4 +111,4 @@ def _mi_from_binned_pair(
     if not _HAS_NUMBA:
         return _mi_from_binned_pair_numpy(x_idx, y_idx, nbins=nbins)
     # The njit kernel indexes element-by-element (``int(x_idx[i])``) so it consumes a strided slice / any integer dtype directly; the prior ``np.ascontiguousarray`` forced a full O(n) copy of every strided ``feature_binned[:, j]`` column on each of the ~2.4k hot-loop calls -- pure waste, bit-identical to the contiguous path (verified across nbins x {int16,int32,int64}). Pass straight through.
-    return float(_mi_from_binned_pair_njit_kernel(x_idx, y_idx, int(nbins)))
+    return float(_mi_from_binned_pair_njit_kernel(x_idx, y_idx, int(nbins)))  # type: ignore[misc]  # redefined to a real njit kernel under `if _HAS_NUMBA:` above; only None when the early return already fired

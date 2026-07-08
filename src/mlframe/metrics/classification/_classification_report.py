@@ -243,7 +243,7 @@ def fast_calibration_report(
     title: str = "",
     use_weights: bool = True,
     verbose: bool = False,
-    group_ids: np.ndarray = None,
+    group_ids: Optional[np.ndarray] = None,
     binary_threshold: float = 0.5,
     _precomputed_aucs: Optional[Tuple[float, float]] = None,
     dpi: Optional[int] = None,
@@ -283,7 +283,7 @@ def fast_calibration_report(
     if backend not in ("plotly", "matplotlib"):
         raise ValueError(f"backend must be 'plotly' or 'matplotlib'; got {backend!r}.")
 
-    def _degenerate_result():
+    def _degenerate_result() -> "CalibrationReport":
         """Empty / all-non-finite input: degenerate metrics, no crash.
 
         roc_auc is PINNED at 0.5 here (the no-skill / coin-flip AUC) and precision/recall/f1 at 0.0.
@@ -389,8 +389,8 @@ def fast_calibration_report(
     )
 
     # Use fast numba version (returns nan for single-class data)
-    ll = fast_log_loss(y_true, y_pred)
-    if np.isnan(ll):
+    ll: Optional[float] = fast_log_loss(y_true, y_pred)
+    if ll is not None and np.isnan(ll):
         ll = None
 
     _y_pred_thr = y_pred >= binary_threshold

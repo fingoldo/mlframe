@@ -134,7 +134,7 @@ def calibrate_conformal_set(self, X_cal, y_cal, alpha=0.1, score: str = "lac"):
         self._conformal_set_q_ = {}
     table = self._conformal_set_q_.setdefault(score, {})
     for a in alphas:
-        table[round(float(a), 6)] = conformal_set_threshold(scores, float(a))
+        table[round(float(a), 6)] = conformal_set_threshold(scores, float(a))  # type: ignore[arg-type]  # a is a scalar drawn from alphas (float | Sequence[float])
     self._conformal_set_n_cal_ = int(proba.shape[0])
     return self
 

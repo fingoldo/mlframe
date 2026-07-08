@@ -148,8 +148,7 @@ class PurgedTimeSeriesSplit:
         # Mirror TimeSeriesSplit when test_size is default: first test starts at
         # n - n_splits*test_size; otherwise evenly space within [test_size, n].
         if self.test_size is None:
-            test_starts = range(test_size, n - test_size + 1, test_size)
-            test_starts = list(test_starts)[-self.n_splits :]
+            test_starts: list[int] = list(range(test_size, n - test_size + 1, test_size))[-self.n_splits :]
         else:
             first = n - self.n_splits * test_size
             if first < 1:

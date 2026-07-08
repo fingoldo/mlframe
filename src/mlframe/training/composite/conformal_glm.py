@@ -114,8 +114,8 @@ def calibrate_conformal_glm(self, X_cal, y_cal, alpha=0.1):
     if not hasattr(self, "_glm_conformal_q_") or self._glm_conformal_q_ is None:
         self._glm_conformal_q_ = {}
     for a in alphas:
-        self._glm_conformal_q_[round(float(a), 6)] = standardized_conformal_quantile(
-            residuals, std, float(a),
+        self._glm_conformal_q_[round(float(a), 6)] = standardized_conformal_quantile(  # type: ignore[arg-type]  # a is a scalar drawn from alphas (float | Sequence[float])
+            residuals, std, float(a),  # type: ignore[arg-type]  # a is a scalar drawn from alphas (float | Sequence[float])
         )
     self._glm_conformal_n_cal_ = int(np.isfinite(residuals / std).sum())
     return self
