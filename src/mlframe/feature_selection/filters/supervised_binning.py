@@ -124,7 +124,7 @@ def _entropy_from_labels(y: np.ndarray) -> float:
         return 0.0
     _, counts = np.unique(y, return_counts=True)
     p = counts / counts.sum()
-    return -(p * np.log(p)).sum()
+    return float(-(p * np.log(p)).sum())
 
 
 # =============================================================================
@@ -332,6 +332,7 @@ def _mdlp_recurse(
 
     if best_split is None or best_gain <= 0:
         return
+    assert best_left_idx is not None  # set together with best_split whenever gain > best_gain (initial -inf)
 
     # MDL stopping criterion (Fayyad-Irani 1993).
     n_classes_full = len(np.unique(y))
@@ -395,7 +396,7 @@ def optimal_bin_edges(
 def apply_bin_edges(
     x: np.ndarray,
     edges: np.ndarray,
-    dtype: type = None,
+    dtype: type | None = None,
 ) -> np.ndarray:
     """Apply pre-fit bin edges to discretise an array.
 
@@ -430,7 +431,7 @@ def apply_bin_edges(
     else:
         # Caller forced a dtype - validate it can hold n_codes.
         try:
-            _info_max = int(np.iinfo(np.dtype(dtype)).max)
+            _info_max = int(np.iinfo(np.dtype(dtype)).max)  # type: ignore[type-var]  # caller may pass a non-integer dtype; guarded by the except below
         except (TypeError, ValueError):
             _info_max = None
         if _info_max is not None and n_codes > _info_max:
@@ -442,7 +443,7 @@ def apply_bin_edges(
             )
     arr = np.asarray(x, dtype=np.float64)
     _nan_mask = np.isnan(arr) if arr.dtype.kind == "f" else None
-    codes = np.searchsorted(edges[1:-1], arr, side="right").astype(dtype)
+    codes: np.ndarray = np.searchsorted(edges[1:-1], arr, side="right").astype(dtype)
     if _nan_mask is not None and _nan_mask.any():
         # NaN rows get a dedicated sentinel at n_codes (one past max
         # real bin). Caller's downstream code needs to treat this
