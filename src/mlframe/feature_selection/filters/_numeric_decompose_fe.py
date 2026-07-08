@@ -152,7 +152,7 @@ def apply_digit_extract(x: np.ndarray, digit_position: int) -> np.ndarray:
     # Fused single-pass njit: floor(x*10^k) mod 10, NaN/inf -> 0 (matches the
     # nan_to_num scrubbing the rest of the FE pipeline applies). ~12x over the
     # numpy mul->floor->mod->nan_to_num 4-pass.
-    return _digit_extract_njit(arr, 10.0**k)
+    return np.asarray(_digit_extract_njit(arr, 10.0**k))
 
 
 def _numeric_cols(X: pd.DataFrame, cols: Optional[Sequence[str]]) -> list[str]:
