@@ -16,6 +16,7 @@ behavior changed.
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import numpy as np
 
@@ -491,7 +492,7 @@ def _get_transpose_int_kernel(itemsize: int):
     return _TRANSPOSE_I16_KERNEL
 
 
-def transpose_codes_to_cm(disc_gpu: object) -> object:
+def transpose_codes_to_cm(disc_gpu: Any) -> Any:
     """Return a (K, n) C-contiguous (== column-major over the original (n,K)) copy of the row-major narrow
     int ``disc_gpu`` (int8 / int16 bin codes) via the coalesced tiled-transpose kernel -- the int analogue
     of ``_transpose_to_cm``, replacing ``cp.ascontiguousarray(disc.T)`` (uncoalesced) for the resident
