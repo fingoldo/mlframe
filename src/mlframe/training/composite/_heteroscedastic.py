@@ -284,9 +284,9 @@ class HeteroscedasticCompositeEstimator(BaseEstimator, RegressorMixin):
         a = self.alpha if alpha is None else alpha
         z = _z_for_alpha(a)
         lo, hi = self.predict_interval(X, alpha=a)
-        return (hi - lo) / (2.0 * z)
+        return np.asarray((hi - lo) / (2.0 * z))
 
     def predict_var(self, X: Any, alpha: float | None = None) -> np.ndarray:
         """Per-row predictive variance on the y-scale (square of :meth:`predict_std`)."""
         std = self.predict_std(X, alpha=alpha)
-        return std * std
+        return np.asarray(std * std)

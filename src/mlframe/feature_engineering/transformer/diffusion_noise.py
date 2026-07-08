@@ -57,7 +57,7 @@ def _diffusion_synthesize(X_pos: np.ndarray, n_virtuals_per_pos: int, noise_scal
     # Repeat each positive n_virtuals_per_pos times.
     base = np.repeat(X_pos, n_virtuals_per_pos, axis=0)
     noise = rng.standard_normal((n_synthetic, d)).astype(np.float32) * noise_scale * sigma_per_feature[None, :]
-    return (base + noise).astype(np.float32)
+    return np.asarray((base + noise).astype(np.float32))
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
@@ -135,7 +135,7 @@ def compute_diffusion_noise_features(
             log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
             all_feats.append(pos_d)
             all_feats.append(log_gap)
-        return np.concatenate(all_feats, axis=1).astype(np.float32)
+        return np.asarray(np.concatenate(all_feats, axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
         cols: dict[str, np.ndarray] = {}

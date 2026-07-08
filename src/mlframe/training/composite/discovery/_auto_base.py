@@ -438,7 +438,7 @@ def _auto_base(
             if block_len <= 1:
                 out = arr.copy()
                 rng.shuffle(out)
-                return out
+                return np.asarray(out)
             m = arr.size
             n_blocks = (m + block_len - 1) // block_len
             # Permute whole blocks, then gather each permuted block's real (in-bounds) elements in

@@ -74,7 +74,7 @@ def _density_weighted_smote_synthesize(X_minority: np.ndarray, n_synthetic: int,
         nbr[i] = candidates[rng.integers(0, candidates.size)]
         alpha[i] = rng.random()
     x_src = X_minority[src]
-    return (x_src + alpha[:, None] * (X_minority[nbr] - x_src)).astype(np.float32)
+    return np.asarray((x_src + alpha[:, None] * (X_minority[nbr] - x_src)).astype(np.float32))
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
@@ -145,7 +145,7 @@ def compute_density_weighted_smote_features(
         pos_d = _kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES))
         neg_d = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))
         log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
-        return np.concatenate([pos_d, log_gap], axis=1).astype(np.float32)
+        return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
         cols: dict[str, np.ndarray] = {}

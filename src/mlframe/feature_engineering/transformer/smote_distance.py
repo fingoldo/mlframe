@@ -48,7 +48,7 @@ def _smote_synthesize(X_minority: np.ndarray, n_synthetic: int, k_neighbors: int
     """
     n_min = X_minority.shape[0]
     if n_min < 2:
-        return X_minority.copy()
+        return np.asarray(X_minority.copy())
     from sklearn.neighbors import NearestNeighbors
     k_used = min(k_neighbors + 1, n_min)
     nn = NearestNeighbors(n_neighbors=k_used).fit(X_minority)
@@ -136,7 +136,7 @@ def compute_smote_distance_features(
         pos_d = _kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES))
         neg_d = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))
         log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
-        return np.concatenate([pos_d, log_gap], axis=1).astype(np.float32)
+        return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
         cols: dict[str, np.ndarray] = {}

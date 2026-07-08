@@ -44,7 +44,7 @@ def _fit_bgmm_and_sample(X_class: np.ndarray, n_synthetic: int, n_components: in
     from sklearn.mixture import BayesianGaussianMixture
     n_rows = X_class.shape[0]
     if n_rows < n_components + 1:
-        return X_class[np.random.default_rng(seed).integers(0, n_rows, size=n_synthetic)].copy().astype(np.float32)
+        return np.asarray(X_class[np.random.default_rng(seed).integers(0, n_rows, size=n_synthetic)].copy().astype(np.float32))
     bgm = BayesianGaussianMixture(
         n_components=n_components,
         covariance_type="full",
@@ -62,7 +62,7 @@ def _fit_bgmm_and_sample(X_class: np.ndarray, n_synthetic: int, n_components: in
             logger.info("bgmm_quantile_bands: BGM fit failed (%s); fallback bootstrap.", exc)
             rng = np.random.default_rng(seed)
             samples = X_class[rng.integers(0, n_rows, size=n_synthetic)]
-    return samples.astype(np.float32)
+    return np.asarray(samples.astype(np.float32))
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:

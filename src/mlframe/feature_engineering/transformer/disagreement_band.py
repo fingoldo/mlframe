@@ -42,7 +42,7 @@ def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
-    return e / e.sum(axis=-1, keepdims=True)
+    return np.asarray(e / e.sum(axis=-1, keepdims=True))
 
 
 def _fit_3baselines_in_sample(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int) -> np.ndarray:

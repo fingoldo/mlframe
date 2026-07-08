@@ -88,7 +88,7 @@ def _extract_bottleneck(ae, scaler, X: np.ndarray, bottleneck_dim: int) -> np.nd
         cols = min(bottleneck.shape[1], bottleneck_dim)
         pad[:, :cols] = bottleneck[:, :cols]
         bottleneck = pad
-    return bottleneck.astype(np.float32)
+    return np.asarray(bottleneck.astype(np.float32))
 
 
 def compute_autoencoder_features(

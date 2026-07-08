@@ -43,7 +43,7 @@ def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
-    return e / e.sum(axis=-1, keepdims=True)
+    return np.asarray(e / e.sum(axis=-1, keepdims=True))
 
 
 def compute_band_conditional_anchor_features(

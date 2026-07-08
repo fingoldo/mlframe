@@ -60,7 +60,7 @@ def _fit_bgmm_and_sample(
     n_min = X_minority.shape[0]
     if n_min < n_components + 1:
         # Fall back: replicate real minority rows (no synthesis possible).
-        return X_minority[np.random.default_rng(seed).integers(0, n_min, size=n_synthetic)].copy().astype(np.float32)
+        return np.asarray(X_minority[np.random.default_rng(seed).integers(0, n_min, size=n_synthetic)].copy().astype(np.float32))
     bgm = BayesianGaussianMixture(
         n_components=n_components,
         covariance_type="full",
@@ -78,7 +78,7 @@ def _fit_bgmm_and_sample(
             logger.info("bgmm_virtual: BGM fit failed (%s); falling back to bootstrap.", exc)
             rng = np.random.default_rng(seed)
             samples = X_minority[rng.integers(0, n_min, size=n_synthetic)]
-    return samples.astype(np.float32)
+    return np.asarray(samples.astype(np.float32))
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
@@ -151,7 +151,7 @@ def compute_bgmm_virtual_features(
         pos_d = _kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES))
         neg_d = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))
         log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
-        return np.concatenate([pos_d, log_gap], axis=1).astype(np.float32)
+        return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
         cols: dict[str, np.ndarray] = {}

@@ -36,7 +36,7 @@ def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
-    return e / e.sum(axis=-1, keepdims=True)
+    return np.asarray(e / e.sum(axis=-1, keepdims=True))
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
@@ -58,7 +58,7 @@ def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int,
         )
         model.fit(Xt, y_t)
         preds = model.predict(Xt).astype(np.float32)
-    return preds
+    return np.asarray(preds)
 
 
 def _topk_within_subset(values: np.ndarray, subset_idx: np.ndarray, k: int) -> np.ndarray:
@@ -68,7 +68,7 @@ def _topk_within_subset(values: np.ndarray, subset_idx: np.ndarray, k: int) -> n
     sub_values = values[subset_idx]
     # Wave 62 (2026-05-20): lexsort tiebreak for deterministic top-K within subset.
     sub_top = np.lexsort((np.arange(len(sub_values)), -sub_values))[:k_eff]
-    return subset_idx[sub_top]
+    return np.asarray(subset_idx[sub_top])
 
 
 def compute_multi_temp_cbhr_features(

@@ -105,10 +105,10 @@ def _predict_proba(model, X: np.ndarray, task: str, focal: bool = False) -> np.n
         if focal:
             # Focal LGB returns raw logits via .predict.
             logits = np.clip(model.predict(X), -30.0, 30.0)
-            return (1.0 / (1.0 + np.exp(-logits))).astype(np.float32)
+            return np.asarray((1.0 / (1.0 + np.exp(-logits))).astype(np.float32))
         # LGBMClassifier / XGBClassifier — predict_proba.
-        return model.predict_proba(X)[:, 1].astype(np.float32)
-    return model.predict(X).astype(np.float32)
+        return np.asarray(model.predict_proba(X)[:, 1].astype(np.float32))
+    return np.asarray(model.predict(X).astype(np.float32))
 
 
 def compute_multi_aux_features(

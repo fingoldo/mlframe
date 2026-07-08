@@ -94,7 +94,7 @@ def _extract_entity(X: Any, entity_column: str) -> np.ndarray:
                 "If feature selection (MRMR/RFECV) is dropping it, add entity_column to "
                 "forced_keep_columns in the feature selection config."
             )
-        return X.get_column(entity_column).to_numpy().astype(object)
+        return np.asarray(X.get_column(entity_column).to_numpy().astype(object))
     if hasattr(X, "columns"):
         if entity_column not in X.columns:
             raise KeyError(f"CompositePanelEstimator: entity column '{entity_column}' missing from X.")
@@ -235,4 +235,4 @@ class CompositePanelEstimator(BaseEstimator, RegressorMixin):
         X_inner = _drop_entity_column(X, self.entity_column) if self.entity_column is not None else X
         inner_pred = _to_1d_numpy(self.inner_.predict(X_inner))
         # Add the entity level back: within-entity prediction + the (shrunken) fixed effect.
-        return inner_pred + offsets
+        return np.asarray(inner_pred + offsets)

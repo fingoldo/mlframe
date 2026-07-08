@@ -43,7 +43,7 @@ def _fit_bgmm_and_sample(X_class: np.ndarray, n_synthetic: int, n_components: in
     from sklearn.mixture import BayesianGaussianMixture
     n_rows = X_class.shape[0]
     if n_rows < n_components + 1:
-        return X_class[np.random.default_rng(seed).integers(0, n_rows, size=n_synthetic)].copy().astype(np.float32)
+        return np.asarray(X_class[np.random.default_rng(seed).integers(0, n_rows, size=n_synthetic)].copy().astype(np.float32))
     bgm = BayesianGaussianMixture(
         n_components=n_components,
         covariance_type="full",
@@ -61,7 +61,7 @@ def _fit_bgmm_and_sample(X_class: np.ndarray, n_synthetic: int, n_components: in
             logger.info("bgmm_dual_class: BGM fit failed (%s); fallback to bootstrap.", exc)
             rng = np.random.default_rng(seed)
             samples = X_class[rng.integers(0, n_rows, size=n_synthetic)]
-    return samples.astype(np.float32)
+    return np.asarray(samples.astype(np.float32))
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
@@ -144,7 +144,7 @@ def compute_bgmm_dual_class_features(
         log_gap_virtneg = np.log(np.maximum(neg_d_virtual, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
         # Mixed-side ratio: how much the BGMM augmentation shifts the neg-side distance (real-neg vs virtual-neg). Distinct from log_gap_*, which both contrast a neg distance against the SAME pos_d; this contrasts the two neg distances against each other, so it isolates the synthetic-augmentation effect on the negative manifold.
         mixed_ratio = np.log(np.maximum(neg_d_real, 1e-9)) - np.log(np.maximum(neg_d_virtual, 1e-9))
-        return np.concatenate([pos_d, neg_d_virtual, log_gap_realneg, log_gap_virtneg, mixed_ratio], axis=1).astype(np.float32)
+        return np.asarray(np.concatenate([pos_d, neg_d_virtual, log_gap_realneg, log_gap_virtneg, mixed_ratio], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
         cols: dict[str, np.ndarray] = {}

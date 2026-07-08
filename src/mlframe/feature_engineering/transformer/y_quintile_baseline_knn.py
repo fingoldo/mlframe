@@ -59,11 +59,11 @@ def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, Xall: np.ndarray, tas
     if task == "binary":
         m = lgb.LGBMClassifier(n_estimators=100, max_depth=5, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m.fit(Xt, y_t.astype(np.int32))
-        return m.predict_proba(Xall)[:, 1].astype(np.float32)
+        return np.asarray(m.predict_proba(Xall)[:, 1].astype(np.float32))
     else:
         m = lgb.LGBMRegressor(n_estimators=100, max_depth=5, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m.fit(Xt, y_t)
-        return m.predict(Xall).astype(np.float32)
+        return np.asarray(m.predict(Xall).astype(np.float32))
 
 
 def _knn_pred_stats(X_stratum: np.ndarray, pred_stratum: np.ndarray, X_query: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:

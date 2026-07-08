@@ -70,7 +70,7 @@ def conformal_set_threshold(scores: np.ndarray, alpha: float) -> float:
 def _lac_true_label_scores(proba: np.ndarray, y_enc: np.ndarray) -> np.ndarray:
     """LAC calibration scores: ``1 - p_hat(true label)`` per calibration row."""
     rows = np.arange(proba.shape[0])
-    return 1.0 - proba[rows, y_enc]
+    return np.asarray(1.0 - proba[rows, y_enc])
 
 
 def _aps_true_label_scores(proba: np.ndarray, y_enc: np.ndarray) -> np.ndarray:
@@ -86,7 +86,7 @@ def _aps_true_label_scores(proba: np.ndarray, y_enc: np.ndarray) -> np.ndarray:
     cum = np.cumsum(sorted_p, axis=1)
     # rank position of the true label within each row's ordering.
     rank_of_true = (order == y_enc[:, None]).argmax(axis=1)
-    return cum[np.arange(n), rank_of_true]
+    return np.asarray(cum[np.arange(n), rank_of_true])
 
 
 def _proba_matrix(self, X) -> np.ndarray:

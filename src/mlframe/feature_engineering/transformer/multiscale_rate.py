@@ -41,7 +41,7 @@ def _classify_or_quantile_indicator(y: np.ndarray, task: str, q_high: float = 0.
     if task == "binary":
         return (y > 0.5).astype(np.float32)
     threshold = np.quantile(y, q_high)
-    return (y >= threshold).astype(np.float32)
+    return np.asarray((y >= threshold).astype(np.float32))
 
 
 def compute_multiscale_rate_features(

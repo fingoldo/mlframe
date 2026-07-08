@@ -262,7 +262,7 @@ class MissingAwareComposite(BaseEstimator, RegressorMixin):
             bad = missing_mask & ~np.isfinite(pred)
             if bad.any():
                 pred[bad] = self.y_train_median_
-        return pred
+        return np.asarray(pred)
 
     # ------------------------------------------------------------------
     # Inner-attribute delegation (feature_importances_, etc.).

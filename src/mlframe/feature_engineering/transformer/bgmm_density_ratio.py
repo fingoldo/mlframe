@@ -64,7 +64,7 @@ def _fit_bgmm_and_score(X_fit: np.ndarray, X_score: np.ndarray, n_components: in
         warnings.simplefilter("ignore")
         try:
             bgm.fit(X_fit)
-            return bgm.score_samples(X_score).astype(np.float32)
+            return np.asarray(bgm.score_samples(X_score).astype(np.float32))
         except Exception as exc:
             logger.info("bgmm_density_ratio: BGM fit failed at K=%d (%s); returning low log-density.", n_components, exc)
             return np.full(X_score.shape[0], -30.0, dtype=np.float32)

@@ -96,14 +96,14 @@ def _extract_base(X: Any, base_column: str) -> np.ndarray:
         # Polars Series.to_numpy() already returns an ndarray; the prior
         # np.asarray wrapper allocated a redundant view. astype(copy=False)
         # avoids a second copy when the dtype already matches.
-        return X.get_column(base_column).to_numpy().astype(np.float64, copy=False)
+        return np.asarray(X.get_column(base_column).to_numpy().astype(np.float64, copy=False))
     if isinstance(X, pd.DataFrame):
         if base_column not in X.columns:
             raise KeyError(
                 f"CompositeTargetEstimator: base column '{base_column}' missing from X. "
                 "Columns: " + ", ".join(map(str, X.columns[:8])) + ("..." if len(X.columns) > 8 else "")
             )
-        return X[base_column].to_numpy(dtype=np.float64)
+        return np.asarray(X[base_column].to_numpy(dtype=np.float64))
     raise TypeError(f"CompositeTargetEstimator: unsupported X type {type(X).__name__}; " "pass a pandas or polars DataFrame.")
 
 
@@ -119,11 +119,11 @@ def _extract_groups(X: Any, group_column: str) -> np.ndarray:
             raise KeyError(f"CompositeTargetEstimator: group column '{group_column}' " f"missing from X.")
         # Polars Series.to_numpy() already returns an ndarray; the prior
         # np.asarray wrapper allocated a redundant view.
-        return X.get_column(group_column).to_numpy()
+        return np.asarray(X.get_column(group_column).to_numpy())
     if isinstance(X, pd.DataFrame):
         if group_column not in X.columns:
             raise KeyError(f"CompositeTargetEstimator: group column '{group_column}' " f"missing from X.")
-        return X[group_column].to_numpy()
+        return np.asarray(X[group_column].to_numpy())
     raise TypeError(f"CompositeTargetEstimator: unsupported X type {type(X).__name__}; " "pass pandas / polars DataFrame.")
 
 
@@ -155,7 +155,7 @@ def _extract_base_matrix(X: Any, base_columns: Sequence[str]) -> np.ndarray:
                 "to forced_keep_columns in the feature selection config."
             )
         arr = X.select(cols_list).to_numpy()
-        return arr.astype(np.float64, copy=False) if arr.dtype != np.float64 else arr
+        return np.asarray(arr.astype(np.float64, copy=False) if arr.dtype != np.float64 else arr)
     if isinstance(X, pd.DataFrame):
         missing = [c for c in cols_list if c not in X.columns]
         if missing:
@@ -163,7 +163,7 @@ def _extract_base_matrix(X: Any, base_columns: Sequence[str]) -> np.ndarray:
                 f"CompositeTargetEstimator: base columns {missing!r} missing from X. "
                 "Columns: " + ", ".join(map(str, X.columns[:8])) + ("..." if len(X.columns) > 8 else "")
             )
-        return X.loc[:, cols_list].to_numpy(dtype=np.float64, copy=False)
+        return np.asarray(X.loc[:, cols_list].to_numpy(dtype=np.float64, copy=False))
     # Fallback: route per-column for unknown X type (preserves prior behaviour).
     cols = [_extract_base(X, c) for c in cols_list]
     return np.column_stack(cols)

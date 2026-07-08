@@ -48,7 +48,7 @@ def _squared_dists(X: np.ndarray, anchors: np.ndarray) -> np.ndarray:
     a_sq = np.einsum("ij,ij->i", anchors, anchors)[None, :]
     d = x_sq - 2.0 * (X @ anchors.T) + a_sq
     np.maximum(d, 0.0, out=d)
-    return d
+    return np.asarray(d)
 
 
 def _fit_anchors(X: np.ndarray, n_anchors: int, seed: int) -> np.ndarray:
@@ -60,7 +60,7 @@ def _fit_anchors(X: np.ndarray, n_anchors: int, seed: int) -> np.ndarray:
     else:
         km = KMeans(n_clusters=n_anchors, random_state=seed, n_init=5, max_iter=100)
     km.fit(X)
-    return km.cluster_centers_.astype(np.float32, copy=False)
+    return np.asarray(km.cluster_centers_.astype(np.float32, copy=False))
 
 
 def _compute_anchor_aggregates(y_train: np.ndarray, assignments: np.ndarray, n_anchors: int, aggregates: tuple[str, ...]) -> dict[str, np.ndarray]:

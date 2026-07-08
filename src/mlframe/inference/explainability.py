@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import Tuple
+from typing import Any, Optional, Tuple
 
 import numpy as np, pandas as pd
 from pyutilz.system import tqdmu
@@ -27,7 +27,7 @@ from mlframe.calibration.quality import make_custom_calibration_plot as show_cus
 from mlframe.metrics.core import format_classification_report
 
 
-def init_model_instance(model_class: object, params: dict) -> object:
+def init_model_instance(model_class: Any, params: dict) -> Any:
     from imblearn.pipeline import Pipeline  # pylint: disable=import-outside-toplevel
     if isinstance(model_class, Pipeline):
         modified_steps = []
@@ -44,21 +44,21 @@ def init_model_instance(model_class: object, params: dict) -> object:
 
 
 def compute_shap_on_cv(
-    X: object,
-    y: object,
-    model_class: object,
+    X: Any,
+    y: Any,
+    model_class: Any,
     model_params: dict,
-    cv: object,
+    cv: Any,
     groups=None,
     catboost_native_feature_importance: bool = False,
     show_oos_metrics: bool = True,
     show_classification_report: bool = False,
-    oos_ts_max_size: int = None,
-    display_labels: dict = None,
-    gen_params: object = None,
+    oos_ts_max_size: Optional[int] = None,
+    display_labels: Optional[dict] = None,
+    gen_params: Optional[Any] = None,
     plot: bool = True,
     shap_oof: bool = False,
-) -> Tuple[np.ndarray]:
+) -> Tuple[np.ndarray, ...]:
     """Also computes oos Performance.
 
     ``shap_oof`` controls the SHAP-explain row set. Default ``False`` keeps the legacy contract: each fold explains the ENTIRE X under that fold's
@@ -76,20 +76,25 @@ def compute_shap_on_cv(
     from catboost import EFstrType, Pool  # pylint: disable=import-outside-toplevel
     from imblearn.pipeline import Pipeline  # pylint: disable=import-outside-toplevel
 
-    values, base_values, interaction_values, interaction_base_values, predictions, expected_values = [], [], [], [], [], []
+    values: list = []
+    base_values: list = []
+    interaction_values: list = []
+    interaction_base_values: list = []
+    predictions: list = []
+    expected_values: list = []
     _X = Pool(X, cat_features=model_params.get("cat_features"))
 
     # OOF SHAP assembly (shap_oof=True): each fold contributes only its held-out test rows; we slot them back by original row position.
-    oof_shap = [None] * len(X) if shap_oof else None
-    oof_base = [None] * len(X) if shap_oof else None
+    oof_shap: Optional[list] = [None] * len(X) if shap_oof else None
+    oof_base: Optional[list] = [None] * len(X) if shap_oof else None
 
     do_ts_oos = False
+    all_probs: list = []
+    all_true_values: Any = []
     if show_oos_metrics:
         if "TimeSeries" in type(cv).__name__:
             # We have free OOS data each time. Let's compute metrics on it.
             do_ts_oos = True
-            all_probs = []
-            all_true_values = []
             L = len(X)
     for train_ind, test_ind in tqdmu(cv.split(X, groups=groups)):
         X_train, X_test = X.iloc[train_ind, :], X.iloc[test_ind, :]
@@ -152,6 +157,7 @@ def compute_shap_on_cv(
             expected_values.append(explainer.expected_value)
             logger.info("Getting shap values...")
             if shap_oof:
+                assert oof_shap is not None and oof_base is not None
                 shap_values = explainer(X_test)
                 fold_vals = shap_values.values
                 fold_base = shap_values.base_values
