@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 import copy
 import time
 
-from typing import Callable
+from typing import Callable, Optional
 
 import numpy as np
 from sklearn.base import BaseEstimator, is_regressor, clone
@@ -74,9 +74,9 @@ class EarlyStoppingWrapper(BaseEstimator):
         self,
         base_model: object,
         start_iter: int = 1,
-        max_iter: int = None,
+        max_iter: Optional[int] = None,
         # stopping conditions
-        max_runtime_mins: float = None,
+        max_runtime_mins: Optional[float] = None,
         patience: int = 5,
         # Monotonic strict-decline overfitting stop, COMPLEMENTARY to ``patience``: stop once the val
         # score has STRICTLY worsened for this many CONSECUTIVE iterations since the global best (a
@@ -90,8 +90,8 @@ class EarlyStoppingWrapper(BaseEstimator):
         # CV
         validation_fraction: float = 0.1,
         scoring: Callable = accuracy_ratio,
-        warm_start_step: int = None,
-        random_state: int = None,
+        warm_start_step: Optional[int] = None,
+        random_state: Optional[int] = None,
     ):
         store_params_in_object(obj=self, params=get_parent_func_args())
 
