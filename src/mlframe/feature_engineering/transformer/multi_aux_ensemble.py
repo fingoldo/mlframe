@@ -122,7 +122,7 @@ def compute_multi_aux_features(
     n_estimators: int = 200,
     max_depth: int = 4,
     column_prefix: str = "multiaux",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Multi-aux ensemble predictions + disagreement features.
 
@@ -165,7 +165,7 @@ def compute_multi_aux_features(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, 6), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, 6), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 10)

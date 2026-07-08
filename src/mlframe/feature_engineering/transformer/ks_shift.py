@@ -104,7 +104,7 @@ def compute_ks_shift_features(
     k: int = 32,
     standardize: bool = True,
     column_prefix: str = "ksshift",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Local KS-test + moment-shift features.
 
@@ -169,7 +169,7 @@ def compute_ks_shift_features(
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
     feat_names = ["mean_shift", "log_var_ratio"] + (["ks", "w1"] if task == "regression" else [])
-    out_arrays = {name: np.zeros(n_train, dtype=dtype) for name in feat_names}
+    out_arrays: np.ndarray = {name: np.zeros(n_train, dtype=dtype) for name in feat_names}
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx])

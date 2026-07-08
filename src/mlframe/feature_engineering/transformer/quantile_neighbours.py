@@ -94,7 +94,7 @@ def compute_quantile_neighbours(
     softmax_temp: float = 1.0,
     standardize: bool = True,
     column_prefix: str = "qnn",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Quantile-regression neighbours features.
 
@@ -140,14 +140,14 @@ def compute_quantile_neighbours(
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)
         quantiles = _process(X_train_f, Xq, y_train_f)
-        cols = {f"{column_prefix}_q{int(round(qs[j] * 100))}": quantiles[:, j].astype(dtype, copy=False) for j in range(qs.shape[0])}
+        cols: dict = {f"{column_prefix}_q{int(round(qs[j] * 100))}": quantiles[:, j].astype(dtype, copy=False) for j in range(qs.shape[0])}
         return pl.DataFrame(cols)
 
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
     n_qs = qs.shape[0]
-    out = np.zeros((n_train, n_qs), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_qs), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         X_tr = X_train_f[train_idx]

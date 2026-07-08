@@ -342,7 +342,7 @@ def vram_required_gb(
     head_dim: int,
     n_heads: int,
     k: int,
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
     *,
     keep_key_bank_on_gpu: bool = False,
 ) -> float:

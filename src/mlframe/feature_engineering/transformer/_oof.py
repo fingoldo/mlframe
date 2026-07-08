@@ -60,7 +60,7 @@ def kfold_attention_loop(
     ann_ef_search: int,
     num_threads: int | None,
     stage4_callable: Callable[..., None],
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
     projection: str = "random",
 ) -> dict[str, np.ndarray]:
     """Run the per-fold OOF loop and return the assembled output dict keyed by ``{aggregate}_h{head}``.

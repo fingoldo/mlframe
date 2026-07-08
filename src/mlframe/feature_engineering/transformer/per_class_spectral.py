@@ -66,7 +66,7 @@ def compute_per_class_spectral_attention(
     k_graph: int = 10,
     standardize: bool = True,
     column_prefix: str = "pcspec",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Per-class spectral attention (binary classification only).
 
@@ -103,7 +103,7 @@ def compute_per_class_spectral_attention(
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)
         emb = _process(X_train_f, Xq, y_train_f)
-        cols = {}
+        cols: dict = {}
         for j in range(n_eigvecs_per_class):
             cols[f"{column_prefix}_pos_e{j}"] = emb[:, j].astype(dtype, copy=False)
         for j in range(n_eigvecs_per_class):
@@ -113,7 +113,7 @@ def compute_per_class_spectral_attention(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, 2 * n_eigvecs_per_class), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, 2 * n_eigvecs_per_class), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         emb = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx])

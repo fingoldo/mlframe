@@ -85,7 +85,7 @@ def compute_multi_temp_cbhr_features(
     baseline_max_depth: int = 3,
     standardize: bool = True,
     column_prefix: str = "mtcbhrattn",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Multi-temperature class-balanced hard-row attention.
 
@@ -207,7 +207,7 @@ def compute_multi_temp_cbhr_features(
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
     total_features = n_temps * features_per_temp
-    out = np.zeros((n_train, total_features), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, total_features), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)

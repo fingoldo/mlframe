@@ -129,7 +129,7 @@ def compute_anchor_attention(
     aggregate: tuple[str, ...] = ("y_mean", "y_std"),
     standardize: bool = True,
     column_prefix: str = "anchor",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Anchor-based attention features.
 

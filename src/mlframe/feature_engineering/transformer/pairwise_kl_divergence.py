@@ -89,7 +89,7 @@ def compute_pairwise_kl_features(
     task: Literal["binary", "regression"] = "regression",
     standardize: bool = True,
     column_prefix: str = "pwkl",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Pairwise KL divergence features between 3 baselines.
 
@@ -149,7 +149,7 @@ def compute_pairwise_kl_features(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_features), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_features), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)

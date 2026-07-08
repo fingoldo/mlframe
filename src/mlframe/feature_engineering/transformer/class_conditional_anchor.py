@@ -112,7 +112,7 @@ def compute_class_conditional_anchor_attention(
     softmax_temp: float = 1.0,
     standardize: bool = True,
     column_prefix: str = "ccanchor",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Class-conditional anchor attention features.
 
@@ -177,9 +177,9 @@ def compute_class_conditional_anchor_attention(
     n_anch_pos = min(n_anchors_per_class, max(2, min_n_pos_per_fold // 2))
     n_anch_neg = min(n_anchors_per_class, max(2, min_n_neg_per_fold // 2))
 
-    out_pos = np.zeros((n_train, n_anch_pos), dtype=dtype)
-    out_neg = np.zeros((n_train, n_anch_neg), dtype=dtype)
-    out_mass = np.zeros(n_train, dtype=dtype)
+    out_pos: np.ndarray = np.zeros((n_train, n_anch_pos), dtype=dtype)
+    out_neg: np.ndarray = np.zeros((n_train, n_anch_neg), dtype=dtype)
+    out_mass: np.ndarray = np.zeros(n_train, dtype=dtype)
 
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         X_tr = X_train_f[train_idx]

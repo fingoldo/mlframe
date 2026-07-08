@@ -124,7 +124,7 @@ def compute_inducing_attention_features(
     temp_b: float = 1.0,
     standardize: bool = True,
     column_prefix: str = "indattn",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Set Transformer-style inducing-point attention features.
 
@@ -183,7 +183,7 @@ def compute_inducing_attention_features(
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_anchors + 3), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_anchors + 3), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)

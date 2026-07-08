@@ -148,7 +148,7 @@ def compute_spectral_attention(
     k_graph: int = 10,
     standardize: bool = True,
     column_prefix: str = "spec",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Spectral attention: Laplacian eigenvectors of kNN graph as global manifold features.
 
@@ -186,13 +186,13 @@ def compute_spectral_attention(
     if X_query is not None:
         X_query_f = np.asarray(X_query, dtype=np.float32)
         embedding = _process_train_query(X_train_f, X_query_f)
-        cols = {f"{column_prefix}_e{j}": embedding[:, j].astype(dtype, copy=False) for j in range(n_eigvecs)}
+        cols: dict = {f"{column_prefix}_e{j}": embedding[:, j].astype(dtype, copy=False) for j in range(n_eigvecs)}
         return pl.DataFrame(cols)
 
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_eigvecs), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_eigvecs), dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         X_tr = X_train_f[train_idx]
