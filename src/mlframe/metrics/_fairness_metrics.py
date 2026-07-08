@@ -392,8 +392,8 @@ def compute_fairness_metrics(
                 n_finite = int(np.sum(~np.isnan(performances)))
                 line["metric_std"] = float(np.nanstd(performances, ddof=ddof)) if n_finite > ddof else np.nan
 
-                l = len(metric_perf)
-                real_top_n = min(l // 2, top_n)
+                lo = len(metric_perf)
+                real_top_n = min(lo // 2, top_n)
 
                 for i, (bin_name, metric_value) in enumerate(metric_perf.items()):
                     if metric_value < min_boundary or metric_value > max_boundary:
@@ -405,11 +405,11 @@ def compute_fairness_metrics(
                             line["bin-worst-" + str(i + 1)] = f"{bin_name}: {metric_value:.3f}{postfix}"
                         else:
                             line["bin-best-" + str(i + 1)] = f"{bin_name}: {metric_value:.3f}{postfix}"
-                    elif i >= l - real_top_n:
+                    elif i >= lo - real_top_n:
                         if metrics_higher_is_better[metric_name]:
-                            line["bin-best-" + str(l - i)] = f"{bin_name}: {metric_value:.3f}{postfix}"
+                            line["bin-best-" + str(lo - i)] = f"{bin_name}: {metric_value:.3f}{postfix}"
                         else:
-                            line["bin-worst-" + str(l - i)] = f"{bin_name}: {metric_value:.3f}{postfix}"
+                            line["bin-worst-" + str(lo - i)] = f"{bin_name}: {metric_value:.3f}{postfix}"
 
                 res.append(line)
         if res:
@@ -443,16 +443,16 @@ def robust_mlperf_metric(
     weights_sum = whole_set_weight
     total_metric_value = metric(y_true, y_score) * whole_set_weight
 
-    l = len(y_true)
-    if subgroups and l in subgroups:
+    lo = len(y_true)
+    if subgroups and lo in subgroups:
 
-        for group_name, group_params in subgroups[l].items():
+        for _group_name, group_params in subgroups[lo].items():
 
             bins = group_params.get("bins")
             bin_weight = group_params.get("weight", 1.0)
 
             perfs: list = []
-            for bin_name, bin_indices in bins.items():
+            for _bin_name, bin_indices in bins.items():
                 if len(bin_indices) < min_group_size:
                     continue
                 if isinstance(y_score, Sequence):

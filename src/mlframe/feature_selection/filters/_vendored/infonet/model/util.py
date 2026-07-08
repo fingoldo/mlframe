@@ -26,7 +26,7 @@ def mutual_information(batch, matrix, num_resampling=5):
         t = t.unsqueeze(0)
 
     log_mean_exp_et = 0
-    for i in range(num_resampling):
+    for _i in range(num_resampling):
         perm = torch.randperm(batch.shape[1])
         marginal = torch.cat((batch[:, :, 0].unsqueeze(2), batch[:, perm, 1].unsqueeze(2)), dim=2)
         et = lookup_value_grid(matrix, marginal, "bilinear")

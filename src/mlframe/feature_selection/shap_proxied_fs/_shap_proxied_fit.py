@@ -56,7 +56,7 @@ def _apply_min_selected_ratio(candidates, n_proxy_cols: int, min_selected_ratio:
     so the candidates pass through unfiltered.
     """
     if min_selected_ratio > 0 and n_proxy_cols > 0:
-        filtered = [(l, c) for l, c in candidates if len(c) / n_proxy_cols >= min_selected_ratio]
+        filtered = [(lo, c) for lo, c in candidates if len(c) / n_proxy_cols >= min_selected_ratio]
         return filtered or candidates
     return candidates
 
@@ -650,10 +650,10 @@ class ShapProxiedFitMixin:
                 Phi, ibase, y_phi, classification=self.classification, metric=self.metric,
                 min_card=self.min_features, max_card=self.max_features, top_n=self.top_n,
                 exhaustive_max=self.max_interaction_features)
-            merged = {tuple(sorted(c)): l for l, c in candidates}
-            for l, c in icands:
-                merged.setdefault(tuple(sorted(c)), l)
-            candidates = sorted(((l, c) for c, l in merged.items()), key=lambda t: t[0])
+            merged = {tuple(sorted(c)): lo for lo, c in candidates}
+            for lo, c in icands:
+                merged.setdefault(tuple(sorted(c)), lo)
+            candidates = sorted(((lo, c) for c, lo in merged.items()), key=lambda t: t[0])
             report["interaction_aware"] = dict(applied=True, n_proxy=int(phi.shape[1]), n_interaction_candidates=len(icands))
 
         # proxy_mode="interaction" (OPT-IN): re-score the additive search's candidates under the
@@ -681,13 +681,13 @@ class ShapProxiedFitMixin:
                         min_card=self.min_features, max_card=self.max_features, top_n=self.top_n,
                         interaction_top_k=int(self.interaction_proxy_top_k),
                         candidate_subsets=[c for _l, c in candidates])
-                    merged = {tuple(sorted(c)): l for l, c in candidates}
-                    for l, c in icands:
+                    merged = {tuple(sorted(c)): lo for lo, c in candidates}
+                    for lo, c in icands:
                         key = tuple(sorted(c))
-                        if key not in merged or l < merged[key]:
-                            merged[key] = l
+                        if key not in merged or lo < merged[key]:
+                            merged[key] = lo
                             n_int_cands += 1
-                    candidates = sorted(((l, c) for c, l in merged.items()), key=lambda t: t[0])
+                    candidates = sorted(((lo, c) for c, lo in merged.items()), key=lambda t: t[0])
                     applied = True
                 except Exception as exc:  # unsupported model / tensor failure -> additive fallback
                     logger.warning("proxy_mode=interaction fell back to additive: %s", exc)
@@ -727,8 +727,8 @@ class ShapProxiedFitMixin:
                         rng=np.random.default_rng(int(self.random_state) + 7919))
                     # Expand augmented-index candidates back into phi-column space: a product index is
                     # replaced by its two operand phi-columns (selecting the product recovers both).
-                    merged = {tuple(sorted(c)): l for l, c in candidates}
-                    for l, c in icands_sparse:
+                    merged = {tuple(sorted(c)): lo for lo, c in candidates}
+                    for lo, c in icands_sparse:
                         expanded: set[int] = set()
                         for idx in c:
                             idx = int(idx)
@@ -741,8 +741,8 @@ class ShapProxiedFitMixin:
                         if not expanded:
                             continue
                         key = tuple(sorted(expanded))
-                        if key not in merged or l < merged[key]:
-                            merged[key] = l
+                        if key not in merged or lo < merged[key]:
+                            merged[key] = lo
                             n_seed_cands += 1
                     # Always inject the bare operand pair of EVERY surviving synergistic pair as a
                     # candidate coalition (so even when the augmented search prefers larger subsets,
@@ -753,7 +753,7 @@ class ShapProxiedFitMixin:
                     _inject_operand_pairs(
                         merged, usable_pairs, name_to_phi_idx, phi=phi, base=base, y_phi=y_phi, classification=self.classification, metric=self.metric
                     )
-                    candidates = sorted(((l, c) for c, l in merged.items()), key=lambda t: t[0])
+                    candidates = sorted(((lo, c) for c, lo in merged.items()), key=lambda t: t[0])
                 report["su_seeded_interactions"] = dict(
                     applied=True,
                     n_proxy=int(phi.shape[1]),
@@ -928,7 +928,7 @@ class ShapProxiedFitMixin:
                 cols = sorted(int(i) for i in idx)
             return [str(self.feature_names_in_[i]) for i in cols]
 
-        report["candidates"] = [dict(proxy_loss=float(l), features=_cand_names(c)) for l, c in candidates[: self.top_n]]
+        report["candidates"] = [dict(proxy_loss=float(lo), features=_cand_names(c)) for lo, c in candidates[: self.top_n]]
 
         # Honest re-validation of the top-N on the disjoint holdout (active-learning variant when the
         # corrector anchors are available, else the static top-N retrain).

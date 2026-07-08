@@ -383,7 +383,7 @@ class DiskCache:
         if total <= self.max_size_bytes:
             return
         files.sort(key=lambda r: r[0])  # oldest first
-        for mtime, size, fpath in files:
+        for _mtime, size, fpath in files:
             if total <= self.max_size_bytes:
                 break
             if protect is not None and fpath.resolve() == protect.resolve():

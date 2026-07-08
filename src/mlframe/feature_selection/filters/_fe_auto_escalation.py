@@ -669,7 +669,7 @@ def run_fe_auto_escalation(
 
     existing_names = set(cols) | set(admitted_pool)
     candidates: list[dict] = []
-    for pair, pair_mi, na, nb in eligible:
+    for pair, _pair_mi, na, nb in eligible:
         x_a = _resolve_operand(X, na, eng_cont)
         x_b = _resolve_operand(X, nb, eng_cont)
         if x_a is None or x_b is None or x_a.size != n_rows or x_b.size != n_rows:

@@ -47,7 +47,7 @@ def _winner_from_per_candidate(per_candidate, candidates, member_cols, lambda_st
     when ``adaptive_n_models=True``. Returns ``None`` when ``per_candidate`` is empty.
     """
     ranked = []
-    for ci, (proxy_loss_val, idx) in enumerate(candidates):
+    for ci, (_proxy_loss_val, idx) in enumerate(candidates):
         if ci not in per_candidate or not per_candidate[ci]:
             continue
         scores = np.asarray(per_candidate[ci], dtype=np.float64)
@@ -670,7 +670,7 @@ def within_cluster_refine(
             # Each probe is evaluated against the ORIGINAL base/threshold (cluster collapses are
             # measured independently, not against each other). Accepted probes' drops accumulate.
             accepted_drops: set[int] = set()
-            for (probe_cols, ci, drops), ls in zip(probes, losses):
+            for (_probe_cols, _ci, drops), ls in zip(probes, losses):
                 if ls <= threshold:
                     accepted_drops.update(drops)
             if accepted_drops:
@@ -697,7 +697,7 @@ def within_cluster_refine(
                         # Cumulative drop hurts beyond tol: accept only the single best-loss cluster
                         # collapse (the safest individual drop set), defer the rest to stage 2.
                         best_ci, best_loss = -1, float("inf")
-                        for (probe_cols, ci, drops), ls in zip(probes, losses):
+                        for (_probe_cols, ci, _drops), ls in zip(probes, losses):
                             if ls <= threshold and ls < best_loss:
                                 best_ci, best_loss = ci, float(ls)
                         if best_ci >= 0:

@@ -513,19 +513,19 @@ class TestCalibration:
 
         # Test log weighting
         mae_log, _, _ = calibration_metrics_from_freqs(
-            freqs_pred, freqs_true, hits, nbins=10, array_size=800,
+            freqs_pred, freqs_true, hits, nbins=10,
             use_weights=True, use_log_weighting=True, use_sqrt_weighting=False, use_power_weighting=False
         )
 
         # Test sqrt weighting
         mae_sqrt, _, _ = calibration_metrics_from_freqs(
-            freqs_pred, freqs_true, hits, nbins=10, array_size=800,
+            freqs_pred, freqs_true, hits, nbins=10,
             use_weights=True, use_log_weighting=False, use_sqrt_weighting=True, use_power_weighting=False
         )
 
         # Test power weighting
         mae_power, _, _ = calibration_metrics_from_freqs(
-            freqs_pred, freqs_true, hits, nbins=10, array_size=800,
+            freqs_pred, freqs_true, hits, nbins=10,
             use_weights=True, use_log_weighting=False, use_sqrt_weighting=False, use_power_weighting=True
         )
 
@@ -1456,7 +1456,7 @@ class TestFastAucsOverallParity:
         brier = fast_brier_score_loss(y_true=y_true, y_prob=y_score)
         freqs_p, freqs_t, hits = fast_calibration_binning(y_true=y_true, y_pred=y_score, nbins=10)
         cal_mae, cal_std, cal_cov = calibration_metrics_from_freqs(
-            freqs_predicted=freqs_p, freqs_true=freqs_t, hits=hits, nbins=10, array_size=len(y_true), use_weights=True,
+            freqs_predicted=freqs_p, freqs_true=freqs_t, hits=hits, nbins=10, use_weights=True,
         )
         roc_auc, pr_auc = fast_aucs(y_true=y_true, y_score=y_score)
         expected = integral_calibration_error_from_metrics(

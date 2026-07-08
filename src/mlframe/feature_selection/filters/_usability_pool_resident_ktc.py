@@ -72,7 +72,7 @@ def _make_pooltable_inputs(dims: dict):
     ub_codes = list(range(nu))
     bn_codes = list(range(nb))
     operands = []
-    for p in range(npairs):
+    for _p in range(npairs):
         x1 = np.ascontiguousarray(rng.standard_normal(n))
         x2 = np.ascontiguousarray(rng.exponential(1.2, n))
         operands.append((x1, x2))

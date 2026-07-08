@@ -501,7 +501,7 @@ def _pack_bins_for_kernel(
     constant_mask = np.empty(n_features, dtype=np.bool_)
 
     total_freqs = 0
-    for i, (_classes_unused, freqs) in enumerate(marginals):
+    for _i, (_classes_unused, freqs) in enumerate(marginals):
         total_freqs += int(freqs.shape[0])
     freqs_packed = np.empty(total_freqs, dtype=np.float64)
     offset = 0

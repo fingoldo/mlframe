@@ -217,7 +217,7 @@ def estimate_features_relevancy(
 
     # Actual permutations
 
-    for permutation_id in tqdmu(range(num_randomized_permutations), desc="Permutation", leave=leave_progressbar):
+    for _permutation_id in tqdmu(range(num_randomized_permutations), desc="Permutation", leave=leave_progressbar):
 
         # ``arr`` aliases the caller's ``bins.to_numpy(allow_copy=True)``; shuffling ``arr[:, idx]``
         # (a view under basic indexing) in place would leave the caller's target columns permanently

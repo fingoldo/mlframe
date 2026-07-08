@@ -132,7 +132,7 @@ def _prefer_engineered_order(order, expected_gains, ctx) -> np.ndarray:
 
     leading, engineered_in_band, rest = [], [], []
     seen_band = True
-    for pos, cand_idx in enumerate(order):
+    for _pos, cand_idx in enumerate(order):
         if seen_band and (top_gain - gains[cand_idx]) <= tol:
             # Within the relative-eps band of the leader.
             if _candidate_is_engineered(candidates[cand_idx], factors_names, raw_names):

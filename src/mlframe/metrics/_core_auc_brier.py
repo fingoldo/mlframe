@@ -614,11 +614,11 @@ def fast_numba_auc_nonw(y_true: np.ndarray, y_score: np.ndarray, desc_score_indi
     tps, fps = 0, 0
     auc = 0
 
-    l = len(y_true) - 1
-    for i in range(l + 1):
+    lo = len(y_true) - 1
+    for i in range(lo + 1):
         tps += y_true[i]
         fps += 1 - y_true[i]
-        if i == l or y_score[i + 1] != y_score[i]:
+        if i == lo or y_score[i + 1] != y_score[i]:
             auc += (fps - last_counted_fps) * (last_counted_tps + tps)
             last_counted_fps = fps
             last_counted_tps = tps
@@ -647,12 +647,12 @@ def fast_numba_auc_weighted(y_true: np.ndarray, y_score: np.ndarray, sample_weig
     fps = 0.0
     auc = 0.0
 
-    l = len(y_true) - 1
-    for i in range(l + 1):
+    lo = len(y_true) - 1
+    for i in range(lo + 1):
         wi = w[i]
         tps += y_true[i] * wi
         fps += (1.0 - y_true[i]) * wi
-        if i == l or y_score[i + 1] != y_score[i]:
+        if i == lo or y_score[i + 1] != y_score[i]:
             auc += (fps - last_counted_fps) * (last_counted_tps + tps)
             last_counted_fps = fps
             last_counted_tps = tps

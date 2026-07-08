@@ -295,9 +295,9 @@ def greedy_forward(phi, base, y, *, classification, metric=None, max_card=None, 
     while remaining and len(current) < max_card:
         cand_best, cand_loss, cand_margin = None, float("inf"), None
         for j in remaining:
-            l, _, m = ev.loss_from_parent(current, cur_margin, j)
-            if l < cand_loss:
-                cand_loss, cand_best, cand_margin = l, j, m
+            lo, _, m = ev.loss_from_parent(current, cur_margin, j)
+            if lo < cand_loss:
+                cand_loss, cand_best, cand_margin = lo, j, m
         if cand_best is None or cand_loss >= best_loss:
             break
         # Re-derive the sorted key (cheap; len <= max_card) and reuse the chosen child's margin.
@@ -318,9 +318,9 @@ def greedy_backward(phi, base, y, *, classification, metric=None, min_card=1, to
         cand_best, cand_loss = None, float("inf")
         for j in current:
             trial = tuple(x for x in current if x != j)
-            l = ev.loss(trial)
-            if l < cand_loss:
-                cand_loss, cand_best = l, j
+            lo = ev.loss(trial)
+            if lo < cand_loss:
+                cand_loss, cand_best = lo, j
         if cand_best is None or cand_loss >= best_loss:
             break
         current = tuple(x for x in current if x != cand_best)
@@ -347,17 +347,17 @@ def _local_search(ev, start: tuple[int, ...], f: int, max_card: int) -> tuple[in
             for j in range(f):
                 if j in cur_set:
                     continue
-                l, child_key, child_margin = ev.loss_from_parent(current, cur_margin, j)
-                if l < best:
-                    best, current, cur_margin, improved = l, child_key, child_margin, True
+                lo, child_key, child_margin = ev.loss_from_parent(current, cur_margin, j)
+                if lo < best:
+                    best, current, cur_margin, improved = lo, child_key, child_margin, True
                     break
             if improved:
                 continue
         if len(current) > 1:
             for j in current:
-                l, child_key, child_margin = ev.loss_from_parent_drop(current, cur_margin, j)
-                if l < best:
-                    best, current, cur_margin, improved = l, child_key, child_margin, True
+                lo, child_key, child_margin = ev.loss_from_parent_drop(current, cur_margin, j)
+                if lo < best:
+                    best, current, cur_margin, improved = lo, child_key, child_margin, True
                     break
             if improved:
                 continue
@@ -366,9 +366,9 @@ def _local_search(ev, start: tuple[int, ...], f: int, max_card: int) -> tuple[in
             for inn in range(f):
                 if inn in cur_set:
                     continue
-                l, child_key, child_margin = ev.loss_from_parent_swap(current, cur_margin, out, inn)
-                if l < best:
-                    best, current, cur_margin, improved = l, child_key, child_margin, True
+                lo, child_key, child_margin = ev.loss_from_parent_swap(current, cur_margin, out, inn)
+                if lo < best:
+                    best, current, cur_margin, improved = lo, child_key, child_margin, True
                     stop = True
                     break
             if stop:

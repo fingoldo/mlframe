@@ -133,7 +133,7 @@ def _fe_structure(X, y=None) -> dict:
         return out
 
     n_cat = 0
-    for name, arr in cols:
+    for _name, arr in cols:
         n = arr.shape[0]
         if n == 0:
             continue

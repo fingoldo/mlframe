@@ -534,7 +534,7 @@ def _resid_acf_panel(
         )
     band = significance_band(n_used)
     lags = np.arange(1, acf_lags.size + 1)
-    cats = tuple(str(int(l)) for l in lags)
+    cats = tuple(str(int(lo)) for lo in lags)
     sig = int(np.sum(np.abs(acf_lags) > band))
     return BarPanelSpec(
         categories=cats,

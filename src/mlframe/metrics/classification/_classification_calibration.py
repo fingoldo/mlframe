@@ -40,17 +40,17 @@ def _hosmer_lemeshow_kernel(
     for g in range(n_groups):
         size = base + (1 if g < rem else 0)
         end = start + size
-        O = 0
+        obs = 0
         E = 0.0
         for j in range(start, end):
             if y_true_sorted[j] != 0:
-                O += 1
+                obs += 1
             E += y_score_sorted[j]
         # Per-Hosmer-Lemeshow denominator. When E or (N-E) collapse to 0
         # the term blows up; skip those groups (rare for n_groups<=10).
         denom_inner = E * (size - E) / size if size > 0 else 0.0
         if denom_inner > 0.0:
-            diff = O - E
+            diff = obs - E
             chi2 += diff * diff / denom_inner
             counted += 1
         start = end

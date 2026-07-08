@@ -103,22 +103,22 @@ def compute_candidates_exploration_scores(search_space: Sequence, known_candidat
 
     distances = np.zeros(len(search_space))  # distances to closest checked points
     if len(known_candidates) == 0:
-        # No checked points yet -> every search-space point is maximally far; the loop below would leave r/l unbound.
+        # No checked points yet -> every search-space point is maximally far; the loop below would leave r/lo unbound.
         return distances
     indices = {}
     for i, el in enumerate(search_space):
         indices[el] = i
 
-    l = None
+    lo = None
     for i in sorted(known_candidates):
         r = indices[i]
-        if l is None:
+        if lo is None:
             distances[:r] = np.abs(search_space[0:r] - search_space[r])
         else:
-            m = (l + r) // 2
-            distances[l:m] = np.abs(search_space[l:m] - search_space[l])
+            m = (lo + r) // 2
+            distances[lo:m] = np.abs(search_space[lo:m] - search_space[lo])
             distances[m:r] = np.abs(search_space[m:r] - search_space[r])
-        l = r
+        lo = r
     distances[r:] = np.abs(search_space[r:] - search_space[r])
 
     return distances

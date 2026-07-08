@@ -212,7 +212,7 @@ def _prewarm_numba_cache_body():
         freqs_p, freqs_t, hits = fast_calibration_binning(y_true, y_pred, nbins=10)
         _ = calibration_metrics_from_freqs(
             freqs_predicted=freqs_p, freqs_true=freqs_t, hits=hits,
-            nbins=10, array_size=len(y_true), use_weights=True,
+            nbins=10, use_weights=True,
         )
 
     for int_dtype in (np.int32, np.int64):

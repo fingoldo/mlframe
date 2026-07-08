@@ -135,7 +135,7 @@ def _run_bootstraps(
     MRMR = _resolve_mrmr_cls()
     n = len(X)
     per_boot: list[dict[str, str]] = []
-    for b in range(n_bootstraps):
+    for _b in range(n_bootstraps):
         idx = _bootstrap_indices(n, sample_fraction, rng)
         Xb = X.iloc[idx].reset_index(drop=True)
         yb = y.iloc[idx].reset_index(drop=True)

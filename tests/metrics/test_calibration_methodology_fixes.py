@@ -74,7 +74,7 @@ def test_sa17_coverage_stable_under_tiny_perturbation():
     hits = np.full(nbins, 100, dtype=np.float64)
 
     def cov(fp):
-        return calibration_metrics_from_freqs(fp, freqs_true, hits, nbins=nbins, array_size=1000)[2]
+        return calibration_metrics_from_freqs(fp, freqs_true, hits, nbins=nbins)[2]
 
     base = cov(freqs_predicted)
     perturbed = cov(freqs_predicted + 2e-3)  # nudge across the .x5 rounding boundaries

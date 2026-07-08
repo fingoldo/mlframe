@@ -81,7 +81,7 @@ def compute_smi_mean(sample_x, sample_y, model, proj_num, seq_len, batchsize):
     dx = sample_x.shape[1]
     dy = sample_y.shape[1]
     results = []
-    for i in range(proj_num // batchsize):
+    for _i in range(proj_num // batchsize):
         batch = np.zeros((batchsize, seq_len, 2))
         for j in range(batchsize):
             theta = np.random.randn(dx)

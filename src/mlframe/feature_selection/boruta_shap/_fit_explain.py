@@ -623,7 +623,7 @@ def explain(self):
             self.shap_values = _raw_shap
             class_inds = range(len(self.shap_values))
             shap_imp = np.zeros(self.shap_values[0].shape[1])
-            for i, ind in enumerate(class_inds):
+            for _i, ind in enumerate(class_inds):
                 shap_imp += np.abs(self.shap_values[ind]).mean(0)
             # Final aggregated per-feature importance (averaged across classes).
             self.shap_values = shap_imp / len(class_inds)

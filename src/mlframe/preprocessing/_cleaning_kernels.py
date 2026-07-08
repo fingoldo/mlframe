@@ -94,14 +94,14 @@ def _get_outlier_mask_njit():
         import numba
 
         @numba.njit(cache=True, parallel=True)
-        def _outlier_mask(values, l, r):
+        def _outlier_mask(values, lo, r):
             n = values.shape[0]
             idx = np.empty(n, dtype=np.bool_)
             n_less_l = 0
             n_more_r = 0
             for i in numba.prange(n):
                 x = values[i]
-                below = x < l
+                below = x < lo
                 above = x > r
                 idx[i] = (not below) and (not above)
                 if below:

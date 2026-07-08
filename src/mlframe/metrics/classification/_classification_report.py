@@ -331,7 +331,7 @@ def fast_calibration_report(
         logger.debug("freqs_true=%s", freqs_true)
     min_hits, max_hits = (np.min(hits), np.max(hits)) if len(hits) > 0 else (0, 0)
     calibration_mae, calibration_std, calibration_coverage = calibration_metrics_from_freqs(
-        freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, array_size=len(y_true), use_weights=use_weights
+        freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights
     )
 
     # Always compute ECE + Brier decomposition. Same data-adaptive bin grid as
@@ -732,7 +732,7 @@ def fast_ice_only(
     brier_loss = fast_brier_score_loss(y_true=y_true, y_prob=y_pred)
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
     cal_mae, cal_std, cal_cov = calibration_metrics_from_freqs(
-        freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, array_size=len(y_true), use_weights=use_weights,
+        freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights,
     )
     roc_auc, pr_auc, _ = fast_aucs_per_group_optimized(y_true=y_true, y_score=y_pred, group_ids=None)
     return float(integral_calibration_error_from_metrics(

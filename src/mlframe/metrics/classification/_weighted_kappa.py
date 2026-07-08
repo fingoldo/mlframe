@@ -23,10 +23,10 @@ KAPPA_WEIGHTS = ("quadratic", "linear")
 
 @njit(fastmath=False, cache=True, nogil=True)
 def _confusion_matrix(y_true, y_pred, n):
-    O = np.zeros((n, n), dtype=np.float64)
+    obs = np.zeros((n, n), dtype=np.float64)
     for k in range(y_true.shape[0]):
-        O[y_true[k], y_pred[k]] += 1.0
-    return O
+        obs[y_true[k], y_pred[k]] += 1.0
+    return obs
 
 
 def weighted_kappa(y_true: np.ndarray, y_pred: np.ndarray, *, weights: str = "quadratic", n_classes: int | None = None) -> float:
@@ -61,17 +61,17 @@ def weighted_kappa(y_true: np.ndarray, y_pred: np.ndarray, *, weights: str = "qu
     if n < 2:
         return 1.0  # single class, ratings trivially agree
 
-    O = _confusion_matrix(yt, yp, n)
-    total = O.sum()
-    hist_true = O.sum(axis=1)
-    hist_pred = O.sum(axis=0)
-    E = np.outer(hist_true, hist_pred) / total  # expected counts under independence, same total as O
+    obs = _confusion_matrix(yt, yp, n)
+    total = obs.sum()
+    hist_true = obs.sum(axis=1)
+    hist_pred = obs.sum(axis=0)
+    E = np.outer(hist_true, hist_pred) / total  # expected counts under independence, same total as obs
 
     idx = np.arange(n, dtype=np.float64)
     diff = np.abs(idx[:, None] - idx[None, :])
     W = (diff / (n - 1)) ** 2 if weights == "quadratic" else diff / (n - 1)
 
-    num = float((W * O).sum())
+    num = float((W * obs).sum())
     den = float((W * E).sum())
     if den == 0.0:
         return 0.0

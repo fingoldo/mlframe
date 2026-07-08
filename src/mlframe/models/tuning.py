@@ -211,7 +211,7 @@ def preprocess_df(df, cat_features):
 def prepare_trials_dataset(experiment_name: str, objective_name: str) -> pd.DataFrame:
     logger.info("Getting trials for experiment %s...", experiment_name)
     res = []
-    for _id, node, params, results in db.safe_execute("select id,node,params,results from experiments where  project=%s", (experiment_name,)):
+    for _id, _node, params, results in db.safe_execute("select id,node,params,results from experiments where  project=%s", (experiment_name,)):
         if objective_name in results:
             params["target"] = results[objective_name]
             res.append(params)

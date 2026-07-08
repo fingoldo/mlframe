@@ -429,13 +429,13 @@ def suggest_non_outlying_data_indices(values: np.ndarray, var: Optional[str] = N
     tukey_fences_multiplier = get_tukey_fences_multiplier_for_quantile(quantile=use_quantile,)
 
     iqr = calculated_quantiles[1] - calculated_quantiles[0]
-    l = calculated_quantiles[0] - tukey_fences_multiplier * iqr
+    lo = calculated_quantiles[0] - tukey_fences_multiplier * iqr
     r = calculated_quantiles[1] + tukey_fences_multiplier * iqr
 
     if getattr(values, "dtype", None) is not None and values.dtype.kind == "f" and values.ndim == 1:
-        idx, n_less_l, n_more_r = _get_outlier_mask_njit()(values, l, r)
+        idx, n_less_l, n_more_r = _get_outlier_mask_njit()(values, lo, r)
     else:
-        idx_l = values < l
+        idx_l = values < lo
         idx_r = values > r
         n_less_l = (idx_l).sum()
         n_more_r = (idx_r).sum()
@@ -444,7 +444,7 @@ def suggest_non_outlying_data_indices(values: np.ndarray, var: Optional[str] = N
     if logger.isEnabledFor(logging.DEBUG) and var:
         # Lazy guard: the four nanmin/nanmax scans only run when DEBUG is on (was an eager print of all four every call).
         logger.debug(
-            "%s: from %s to %s, outliers: l=%s, r=%s, after cleaning: from %s to %s",
+            "%s: from %s to %s, outliers: lo=%s, r=%s, after cleaning: from %s to %s",
             var,
             f"{np.nanmin(values):_.2f}",
             f"{np.nanmax(values):_.2f}",

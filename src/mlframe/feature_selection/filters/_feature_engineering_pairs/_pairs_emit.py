@@ -369,7 +369,7 @@ def _emit_pair_features(
                 else:
                     for _pb_vals in _ev_param_bs:
                         param_b = _pb_vals
-                        for valid_bin_func_name, valid_bin_func in binary_transformations.items():
+                        for _valid_bin_func_name, valid_bin_func in binary_transformations.items():
 
                             valid_vals = valid_bin_func(param_a, param_b)
 
@@ -549,7 +549,7 @@ def _emit_pair_features(
             this_pair_features,
             key=lambda _cj: get_new_feature_name(fe_tuple=_cj[0], cols_names=cols),
         )
-        for idx, (config, j) in enumerate(_ordered_pair_features):
+        for _idx, (config, j) in enumerate(_ordered_pair_features):
             new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
             transformations_pair, bin_func_name, i = config
 

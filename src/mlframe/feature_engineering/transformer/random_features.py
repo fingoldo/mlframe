@@ -179,7 +179,7 @@ def compute_rff_features(
         n = X_arr.shape[0]
         # F-contiguous for zero-copy column slices in the DataFrame builder (see _rff_project).
         out: np.ndarray = np.zeros((n, n_features), dtype=dtype, order="F")
-        for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_arr)):
+        for _fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_arr)):
             _state = _rff_fit_state(X_arr[train_idx], seed=seed, n_features=n_features, sigma=sigma, standardize=standardize, column_prefix=column_prefix, dtype=dtype)
             out[val_idx] = _rff_project(_state, X_arr[val_idx], use_gpu=use_gpu, gpu_threshold=gpu_threshold, batch_rows=batch_rows, release_memory_after=release_memory_after)
         return pl.DataFrame({name: out[:, idx] for idx, name in enumerate(col_names)})

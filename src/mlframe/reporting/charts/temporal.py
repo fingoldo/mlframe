@@ -176,7 +176,7 @@ def _target_acf_panel(y: np.ndarray, *, nlags: int = MAX_ACF_LAGS) -> PanelSpec:
     lags = np.arange(1, acf_lags.size + 1)
     sig = int(np.sum(np.abs(acf_lags) > band))
     return BarPanelSpec(
-        categories=tuple(str(int(l)) for l in lags),
+        categories=tuple(str(int(lo)) for lo in lags),
         values=acf_lags.astype(np.float64),
         title=f"Target ACF (n={n_used:,}; {sig} of {acf_lags.size} lags beyond +-{band:.3f})",
         xlabel="Lag",
@@ -203,7 +203,7 @@ def _target_pacf_panel(y: np.ndarray, *, nlags: int = MAX_ACF_LAGS) -> PanelSpec
     lags = np.arange(1, pacf_lags.size + 1)
     sig = int(np.sum(np.abs(pacf_lags) > band))
     return BarPanelSpec(
-        categories=tuple(str(int(l)) for l in lags),
+        categories=tuple(str(int(lo)) for lo in lags),
         values=pacf_lags.astype(np.float64),
         title=f"Target PACF (n={n_used:,}; {sig} of {pacf_lags.size} lags beyond +-{band:.3f})",
         xlabel="Lag",

@@ -39,7 +39,7 @@ def test_fast_calibration_metrics_is_njit_callable_and_matches_dispatcher():
     fp, ft, hits = fast_calibration_binning(y_true, y_pred, nbins=10)
     ref = calibration_metrics_from_freqs(
         freqs_predicted=fp, freqs_true=ft, hits=hits,
-        nbins=10, array_size=len(y_true), use_weights=False,
+        nbins=10, use_weights=False,
     )
     assert out == ref, f"fast_calibration_metrics output {out} != dispatcher path {ref}"
 

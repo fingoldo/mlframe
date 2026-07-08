@@ -62,7 +62,7 @@ def compute_fca_closed_concepts_features(
             top_concepts = []
         # Evaluate concept-membership on query rows (does query row satisfy concept's intent?)
         top_indicators_q = np.zeros((Xq.shape[0], top_k), dtype=np.float32)
-        for k, (extent, intent) in enumerate(top_concepts):
+        for k, (_extent, intent) in enumerate(top_concepts):
             if not intent:
                 top_indicators_q[:, k] = 1.0
                 continue

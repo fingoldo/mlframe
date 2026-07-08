@@ -393,7 +393,7 @@ def _random_batch_one_pair_njit(
     n_cursor = 0
     dim = ca_size + cb_size
 
-    for it in range(n_iters):
+    for _it in range(n_iters):
         # Phase 1: sample batch_size candidates uniformly from coef_range.
         for i in range(batch_size):
             for j in range(ca_size):

@@ -245,7 +245,7 @@ class BaggedCompositeEstimator(BaseEstimator, RegressorMixin):
         sw_arr = None if sample_weight is None else np.asarray(sample_weight)
 
         estimators: List[Any] = []
-        for m in range(int(self.n_estimators)):
+        for _m in range(int(self.n_estimators)):
             if self.bootstrap:
                 idx = rng.randint(0, n, size=n_draw)
             else:

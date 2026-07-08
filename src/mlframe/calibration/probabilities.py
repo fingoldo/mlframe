@@ -44,10 +44,10 @@ def _generate_probs_from_outcomes_kernel(
             flip_indices = indices[:flip_size]
             outcomes[flip_indices] = 1 - outcomes[flip_indices]
 
-    l = 0  # left border
+    lo = 0  # left border
     for idx in range(n // chunk_size):  # traverse randomly selected chunks/subsets of original data
         r = (idx + 1) * chunk_size  # right border
-        freq = outcomes[l:r].mean()  # find real event occurring frequency in current chunk of observation
+        freq = outcomes[lo:r].mean()  # find real event occurring frequency in current chunk of observation
 
         # add pregenerated offset for particular bin. Clamp bin_idx to nbins-1 so that
         # freq==1.0 (int(1.0*nbins) == nbins) does not index out of bounds.
@@ -57,18 +57,18 @@ def _generate_probs_from_outcomes_kernel(
         freq = freq + bin_offsets[bin_idx]
 
         # add small symmetric random noise. it must be higher when freq approaches [0;1] borders.
-        probs[l:r] = freq + (noise[l:r] - 0.5) * scale * np.abs(freq - 0.5)
+        probs[lo:r] = freq + (noise[lo:r] - 0.5) * scale * np.abs(freq - 0.5)
 
-        l = r
+        lo = r
 
-    # Residual tail rows ``[l:n]`` the chunked loop skipped when ``n % chunk_size != 0``.
-    if l < n:
-        freq = outcomes[l:n].mean()
+    # Residual tail rows ``[lo:n]`` the chunked loop skipped when ``n % chunk_size != 0``.
+    if lo < n:
+        freq = outcomes[lo:n].mean()
         bin_idx = int(freq * nbins)
         if bin_idx >= nbins:
             bin_idx = nbins - 1
         freq = freq + bin_offsets[bin_idx]
-        probs[l:n] = freq + (noise[l:n] - 0.5) * scale * np.abs(freq - 0.5)
+        probs[lo:n] = freq + (noise[lo:n] - 0.5) * scale * np.abs(freq - 0.5)
 
     return np.clip(probs, 0.0, 1.0)
 

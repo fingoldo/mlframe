@@ -240,29 +240,29 @@ def bin_predictions(
     pockets_predicted, pockets_true = np.zeros(nbins, dtype=np.float64), np.zeros(nbins, dtype=np.float64)
     data = np.zeros((nbins, 4), dtype=np.float64)
     s = len(y_pred)
-    l = 0
+    lo = 0
     bin_size = s // nbins
     for i in range(nbins):
         if i == nbins - 1:
             r = s
         else:
-            r = l + bin_size
+            r = lo + bin_size
         # Wave 21 P2: nanmean so a NaN in y_pred/y_true within a bin doesn't
         # poison the (avg_x, avg_y) pair -> propagates into ECE/MCE numbers
         # reported on the calibration chart. Operator may spot the NaN bin
         # but the numeric metrics would be silently wrong.
         # bench-attempt-rejected (2026-07): fusing these two np.nanmean passes into a single scalar
-        # nan-aware loop over indices[l:r] was bit-identical but SLOWER at typical n: the vectorized
-        # y_pred[indices[l:r]] gather feeds np.nanmean a contiguous SIMD-friendly buffer, whereas the
+        # nan-aware loop over indices[lo:r] was bit-identical but SLOWER at typical n: the vectorized
+        # y_pred[indices[lo:r]] gather feeds np.nanmean a contiguous SIMD-friendly buffer, whereas the
         # fused loop does two random-access gathers per element (poor cache locality). n=1e6/nbins=20
         # 15.3ms->27.7ms (0.55x), n=1e5/nbins=20+10%NaN 0.58ms->1.27ms (0.46x). Only wins when nbins
         # is large vs n (per-call nanmean overhead dominates), which is not the ECE common case.
-        avg_x = np.nanmean(y_pred[indices[l:r]])
-        avg_y = np.nanmean(y_true[indices[l:r]])
+        avg_x = np.nanmean(y_pred[indices[lo:r]])
+        avg_y = np.nanmean(y_true[indices[lo:r]])
         pockets_predicted[i] = avg_x
         pockets_true[i] = avg_y
-        data[i, :] = np.array([avg_x, avg_y * (r - l), r - l, avg_y], dtype=np.float64)
-        l = r
+        data[i, :] = np.array([avg_x, avg_y * (r - lo), r - lo, avg_y], dtype=np.float64)
+        lo = r
     return pockets_predicted, pockets_true, data
 
 
@@ -344,7 +344,7 @@ def show_classifier_calibration(
 
     s = len(y_true)
     step = s // nintervals
-    l = 0
+    lo = 0
 
     if ax is None:
         ax = plt
@@ -359,17 +359,17 @@ def show_classifier_calibration(
         if i == nintervals - 1:
             r = s
         else:
-            r = l + step
+            r = lo + step
 
         try:
             x, y, data, performances = estimate_calibration_quality_binned(
-                y_true[l:r], y_pred[l:r], nbins=nbins, indices=indices, metrics_to_show=metrics_to_show
+                y_true[lo:r], y_pred[lo:r], nbins=nbins, indices=indices, metrics_to_show=metrics_to_show
             )
         except (ValueError, ZeroDivisionError, IndexError):
             # Expected data-shape / empty-interval failures from binning: log and abort this call, returning None.
             # Narrowed from a bare ``except Exception`` so genuinely unexpected errors (bugs, KeyboardInterrupt,
             # programming errors) propagate instead of being silently swallowed into a None return.
-            logger.exception("estimate_calibration_quality_binned failed for slice [%d:%d]", l, r)
+            logger.exception("estimate_calibration_quality_binned failed for slice [%d:%d]", lo, r)
             return None
         all_performances.append(performances)
 
@@ -383,7 +383,7 @@ def show_classifier_calibration(
                 ax.plot(x, y, alpha=alpha, label=metrics_formatted, markersize=marker_size, marker="o")
             else:
                 ax.scatter(x, y, alpha=alpha, label=metrics_formatted, s=marker_size)
-            l = r
+            lo = r
     # Derived from title only; needed by the show_table branch too, so it must be bound even when
     # skip_plotting short-circuits the plotting block below.
     is_profit = "profit" in title.lower()

@@ -462,7 +462,7 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                 else:
                     best_coefs = (ws_a[j].copy(), ws_b[j].copy())
 
-    for it in range(n_iters):
+    for _it in range(n_iters):
         if n_evals >= n_trials:
             break
         eff_batch = min(batch_size, n_trials - n_evals)

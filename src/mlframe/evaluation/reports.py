@@ -476,7 +476,7 @@ def evaluate_grouped(
             rp = _report_dict(y_test[idx], preds)
 
             failed = False
-            for label, stats in rp.items():
+            for _label, stats in rp.items():
                 if type(stats) is dict:
                     if stats.get("support", 0) < min_population:
                         failed = True

@@ -138,7 +138,7 @@ def cluster_stability_selection(
     # by the number of subsamples). Track and surface n_effective / n_failed.
     n_success = 0
     n_failed = 0
-    for b in range(int(n_bootstrap)):
+    for _b in range(int(n_bootstrap)):
         idx = rng.permutation(n)[:half]
         try:
             sel = selector_fn(X.iloc[idx] if _is_df else X[idx], y[idx])
@@ -219,7 +219,7 @@ def complementary_pairs_stability(
     # frequencies divide by the effective sample size (see the cluster variant).
     n_success = 0
     n_failed = 0
-    for b in range(int(n_pairs)):
+    for _b in range(int(n_pairs)):
         idx = rng.permutation(n)
         idx_b = idx[:half]
         # 2026-06-03 (audit hierarchy-stability-8): the complement must be the

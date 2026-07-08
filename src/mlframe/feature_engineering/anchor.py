@@ -380,7 +380,7 @@ def _per_group_anchor_loop(
         seg_anchor = is_anchor[idx_seg]
         seg_out = per_segment_fn(seg_label, seg_anchor, idx_seg)
         if not out_keys:
-            for k, v in seg_out.items():
+            for k, _v in seg_out.items():
                 out_keys[k] = np.full(label.size, np.nan, dtype=np.float64)
         for k, v in seg_out.items():
             out_keys[k][idx_seg] = v

@@ -155,7 +155,7 @@ def compute_target_quantile_attention(
     if X_query is None:
         # Mode A: OOF. Scaler is refit per fold on the fold's train rows so the held-out rows' X-distribution never leaks into their own fold's scaler stats.
         out = np.zeros((X_tr_s.shape[0], n_quantiles), dtype=dtype)
-        for fold_idx, (tr_idx, va_idx) in enumerate(splitter.split(X_tr_s)):
+        for _fold_idx, (tr_idx, va_idx) in enumerate(splitter.split(X_tr_s)):
             if standardize:
                 fold_scaler = RobustScaler().fit(X_train[tr_idx])
                 X_tr_fold = fold_scaler.transform(X_train[tr_idx]).astype(dtype, copy=False)

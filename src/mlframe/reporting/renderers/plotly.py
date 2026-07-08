@@ -152,7 +152,7 @@ class PlotlyRenderer:
         # panel that requests a secondary y-axis must declare ``secondary_y=True`` at subplot-creation time (plotly
         # can't add a right axis after the grid is built), so detect that here.
         sub_specs: List[List[dict]] = []
-        for r, row in enumerate(spec.panels):
+        for _r, row in enumerate(spec.panels):
             row_specs: List[dict] = []
             for c in range(cols):
                 if c >= len(row) or row[c] is None:

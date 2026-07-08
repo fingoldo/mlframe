@@ -330,7 +330,7 @@ class CompositeMultiOutputEstimator(MultiOutputMixin, RegressorMixin, BaseEstima
         # fall back to len(X) when every column failed (all-constant output).
         cols: List[Optional[np.ndarray]] = []
         n_rows: Optional[int] = None
-        for k, est in enumerate(self.estimators_):
+        for _k, est in enumerate(self.estimators_):
             if est is None:
                 cols.append(None)
                 continue

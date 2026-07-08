@@ -108,7 +108,7 @@ def compute_adversarial_flip_features(
                 pred_all = model.predict_proba(stack)[:, 1].astype(np.float32).reshape(n_combo, n_q)
             else:
                 pred_all = model.predict(stack).astype(np.float32).reshape(n_combo, n_q)
-            for c, (j, scale, sign) in enumerate(combos):
+            for c, (j, scale, _sign) in enumerate(combos):
                 pred_pert = pred_all[c]
                 if task == "binary":
                     flipped = (pred_pert > 0.5).astype(np.float32) != orig_class

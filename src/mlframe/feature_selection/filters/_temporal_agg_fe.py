@@ -517,7 +517,7 @@ def generate_lag_features(
     entity_cols, value_cols = _validate(
         X, entity_cols, value_cols, time_col, "generate_lag_features",
     )
-    lags = [int(l) for l in (lags or []) if int(l) >= 1]
+    lags = [int(lo) for lo in (lags or []) if int(lo) >= 1]
     encoded: dict[str, np.ndarray] = {}
     raw_recipes: dict[str, dict] = {}
     if not entity_cols or not value_cols or not lags:

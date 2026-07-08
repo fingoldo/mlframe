@@ -134,7 +134,7 @@ def _pr_f1_panel(y_true, y_proba, labels) -> BarPanelSpec:
     y_pred = (y_proba >= 0.5).astype(np.int8)
     p_arr, r_arr, f_arr = _per_label_prf1(y_true, y_pred)
     return BarPanelSpec(
-        categories=tuple(str(l) for l in labels),
+        categories=tuple(str(lo) for lo in labels),
         values=(p_arr, r_arr, f_arr),
         series_labels=("precision", "recall", "F1"),
         title="Per-label P / R / F1",
@@ -282,7 +282,7 @@ def _cooccurrence_panel(y_true, y_proba, labels) -> HeatmapPanelSpec:
     matrix = np.zeros((K, K), dtype=np.float64)
     nz = n_true > 0
     matrix[nz] = counts[nz] / n_true[nz, None]
-    label_strs = tuple(str(l) for l in labels)
+    label_strs = tuple(str(lo) for lo in labels)
     return HeatmapPanelSpec(
         matrix=matrix,
         row_labels=label_strs,

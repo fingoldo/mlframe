@@ -106,11 +106,11 @@ def _ivap_saddle_njit(Wc: np.ndarray, Yc: np.ndarray, aug: float) -> np.ndarray:
     g = Wc.shape[0] - 1
     out = np.empty(g, dtype=np.float64)
 
-    # Bin i value = max_{l<=i} min_{r>i} slope(l, r). The inner ``min over r`` is the
-    # tangent from left corner l to the suffix's lower convex hull of the SHIFTED right
+    # Bin i value = max_{lo<=i} min_{r>i} slope(lo, r). The inner ``min over r`` is the
+    # tangent from left corner lo to the suffix's lower convex hull of the SHIFTED right
     # corners. Maintain that suffix hull incrementally (right-to-left); for each i scan
-    # left corners l=i..0 and take the max of their hull tangents. The hull keeps the
-    # inner min cheap; the explicit l-scan is the exact saddle (no separability shortcut).
+    # left corners lo=i..0 and take the max of their hull tangents. The hull keeps the
+    # inner min cheap; the explicit lo-scan is the exact saddle (no separability shortcut).
     hull = np.empty(g + 1, dtype=np.int64)
     hstart = g + 1  # hull vertices occupy hull[hstart : g+1], increasing x
     for i in range(g - 1, -1, -1):
@@ -134,10 +134,10 @@ def _ivap_saddle_njit(Wc: np.ndarray, Yc: np.ndarray, aug: float) -> np.ndarray:
         hull[hstart] = j
 
         best = -np.inf
-        for l in range(i, -1, -1):
-            Wl = Wc[l]
-            Yl = Yc[l]
-            # min over r>i: tangent from l to the convex-from-below suffix hull (unimodal).
+        for lo in range(i, -1, -1):
+            Wl = Wc[lo]
+            Yl = Yc[lo]
+            # min over r>i: tangent from lo to the convex-from-below suffix hull (unimodal).
             inner = np.inf
             for t in range(hstart, g + 1):
                 vid = hull[t]

@@ -22,12 +22,12 @@ _EMPTY_INT32_MASK = np.array([], np.int32)
 
 
 @njit(fastmath=_MINMAX_FASTMATH, cache=True)
-def arrayMinMax(x, l=0, r=0):
+def arrayMinMax(x, lo=0, r=0):
     n = len(x)
     if r == 0:
         r = n
     # Empty-range guard: return NaN sentinels (numba-friendly: no Python exceptions)
-    if n == 0 or r <= l:
+    if n == 0 or r <= lo:
         return (np.nan, np.nan)
     # NaN-aware seeding/comparison: a NaN seed (e.g. a leading-NaN column) would otherwise stick as
     # both min and max, and a non-leading NaN would be silently dropped -- both poison the uniform
@@ -37,7 +37,7 @@ def arrayMinMax(x, l=0, r=0):
     minimum = np.nan
     maximum = np.nan
     seeded = False
-    for v in x[l:r]:
+    for v in x[lo:r]:
         if v == v:  # NaN != NaN; cheap, no np.isfinite dispatch
             if not seeded:
                 minimum = v
@@ -57,17 +57,17 @@ def arrayMinMax(x, l=0, r=0):
 # finite-gate at the wrapper level, or all-NaN / NaN-bearing columns will get a garbage range instead of the
 # NaN sentinel the callers' ``_rng<=0 / NaN`` guards rely on.
 @njit(fastmath=True, parallel=True, cache=True)
-def arrayMinMaxParallel(array, l=0, r=0, maxThreads=8):
+def arrayMinMaxParallel(array, lo=0, r=0, maxThreads=8):
     arrLen = len(array)
     if r == 0:
         r = arrLen
-    nElemsToProcess = r - l
+    nElemsToProcess = r - lo
     nThreads = min(max(nElemsToProcess, 1), maxThreads)
     chunkSize = nElemsToProcess // nThreads
     minMaxData = np.empty((nThreads, 2), array.dtype)
     for k in prange(nThreads):
-        lBound = l + chunkSize * k
-        rBound = l + chunkSize * (k + 1)
+        lBound = lo + chunkSize * k
+        rBound = lo + chunkSize * (k + 1)
         if k == nThreads - 1:
             rBound = r
         minMaxData[k, :] = arrayMinMax(array, lBound, rBound)
@@ -91,7 +91,7 @@ def arrayCountingSort(array, maxval):
         count[a] += 1  # count occurrences
     i = 0
     for a in range(m):  # emit
-        for c in range(count[a]):  # - emit 'count[a]' copies of 'a'
+        for _c in range(count[a]):  # - emit 'count[a]' copies of 'a'
             res[i] = a
             i += 1
     return res
@@ -106,16 +106,16 @@ def emptyListOfInts():
 
 
 @njit(fastmath=True, cache=True)
-def BinByUniqueValues(array, l, r, m, mask):
+def BinByUniqueValues(array, lo, r, m, mask):
     groupedIndices = [emptyListOfInts() for k in range(m)]
     if len(mask) > 0:
-        i = l
+        i = lo
         while i < r:
             ind = mask[i]
             groupedIndices[array[ind]].append(ind)
             i += 1
     else:
-        i = l
+        i = lo
         while i < r:
             groupedIndices[array[i]].append(i)
             i += 1
