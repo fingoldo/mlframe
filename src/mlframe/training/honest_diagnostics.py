@@ -72,7 +72,7 @@ def _derive_seed(master_seed: int, key: str) -> int:
     run is reproducible from the one master seed, while distinct targets don't share a single fixed-0 seed. Kept in the
     int32 range for sklearn / numpy splitter compatibility.
     """
-    h = hashlib.blake2b(f"{int(master_seed)}|{key}".encode("utf-8"), digest_size=4).digest()
+    h = hashlib.blake2b(f"{int(master_seed)}|{key}".encode(), digest_size=4).digest()
     return int.from_bytes(h, "big") % (2**31 - 1)
 
 

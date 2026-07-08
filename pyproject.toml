@@ -573,6 +573,9 @@ ignore = [
     "F405",   # name may be undefined / from star-import: consequence of intentional F403, not a bug
     "B904",   # raise ... from inside except: stylistic, not a correctness issue
     "B009",   # getattr(x, "const"): stylistic
+    "UP035",  # collections.abc import modernization: 640 hits, pure import-source churn, no correctness value
+    "N815",   # mixedCase class-scope variable: flags domain-abbreviation names like cached_MIs (MIs = mutual informations)
+    "UP015",  # redundant open() mode arg: project prefers the explicit "r"/"rb" mode over the implicit default
 ]
 
 [tool.ruff.lint.per-file-ignores]

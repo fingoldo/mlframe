@@ -323,10 +323,10 @@ def post_calibrate_model(
         # use_ap12_calibrated_probs, honest diagnostics, dashboards) can consume the AP12-calibrated surface
         # without re-running the calibrator. RRF is rank-based and intentionally bypasses this on the read side.
         try:
-            setattr(model, "calibrated_val_probs", meta_val_probs)
-            setattr(model, "calibrated_test_probs", meta_test_probs)
-            setattr(wrapped_model, "calibrated_val_probs", meta_val_probs)
-            setattr(wrapped_model, "calibrated_test_probs", meta_test_probs)
+            model.calibrated_val_probs = meta_val_probs
+            model.calibrated_test_probs = meta_test_probs
+            wrapped_model.calibrated_val_probs = meta_val_probs
+            wrapped_model.calibrated_test_probs = meta_test_probs
         except (AttributeError, TypeError):
             # Slot-only / read-only model objects (rare) just skip the stamp; the ensembling
             # read-side falls back to raw .<split>_probs without crashing.
@@ -486,8 +486,8 @@ def post_calibrate_model(
     # ensembling read-side falls back to raw probs when the attribute is absent; RRF is rank-based and is
     # intentionally bypassed on the consume side (scale-invariant).
     try:
-        setattr(model, "calibrated_val_probs", meta_val_probs)
-        setattr(model, "calibrated_test_probs", meta_test_probs)
+        model.calibrated_val_probs = meta_val_probs
+        model.calibrated_test_probs = meta_test_probs
     except (AttributeError, TypeError):
         pass
 

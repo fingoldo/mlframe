@@ -22,7 +22,7 @@ def make_gauss_var(size, nsig, c_i):
 
 class GaussConv(nn.Module):
     def __init__(self, size, nsig, channels, padding="same"):
-        super(GaussConv, self).__init__()
+        super().__init__()
         self.padding = padding
         self.kernel = make_gauss_var(size, nsig, channels)
 

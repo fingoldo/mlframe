@@ -403,7 +403,7 @@ def fingerprint_df(
                                 parts.append(sub[c].to_numpy().tobytes())
                             except Exception:
                                 parts.append(str(sub[c].to_list()).encode("utf-8"))
-                            parts.append(f"|{c}|".encode("utf-8"))
+                            parts.append(f"|{c}|".encode())
                         payload_parts.append(b"".join(parts))
             except ImportError:  # pragma: no cover
                 pass

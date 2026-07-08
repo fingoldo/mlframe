@@ -127,7 +127,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Load model from config and checkpoint')
     parser.add_argument('--config', type=str, required=False, default='configs/config.yaml', help='Path to the config file')
     parser.add_argument('--checkpoint', type=str, required=False, default="saved/uniform/model_5000_32_1000-720--0.16.pt", help='Path to the model checkpoint')
-    
+
     args = parser.parse_args()
 
     model = load_model(args.config, args.checkpoint)

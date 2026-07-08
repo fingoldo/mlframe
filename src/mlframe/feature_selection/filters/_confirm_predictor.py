@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from timeit import default_timer as timer
-from typing import Optional, Sequence
+from typing import Sequence
 
 import numba
 import numpy as np

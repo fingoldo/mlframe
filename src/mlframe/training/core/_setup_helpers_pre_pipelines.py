@@ -145,9 +145,9 @@ def _build_pre_pipelines(
                     try:
                         _seed_set(random_state=int(fs_random_seed))
                     except (ValueError, TypeError):
-                        setattr(_rfecv_instance, "random_state", int(fs_random_seed))
+                        _rfecv_instance.random_state = int(fs_random_seed)
                 else:
-                    setattr(_rfecv_instance, "random_state", int(fs_random_seed))
+                    _rfecv_instance.random_state = int(fs_random_seed)
             # Cluster-medoid pre-reduction for the suite's RFECV. The suite builds RFECV directly (above,
             # via configure_training_params) rather than through ``registry._instantiate_rfecv``, so the
             # registry's default-ON wrap never reached the suite RFECV path. Apply it HERE so the documented
@@ -168,10 +168,10 @@ def _build_pre_pipelines(
             # Suite-internal markers stamped on the OUTER object that enters pre_pipelines (the wrapper when
             # cluster-reduce is on, else the bare RFECV): ``_selector_kind`` reads them off this object directly
             # and the weight-aware fit driver / sklearn.clone sticky-attr forwarding operate on it.
-            setattr(_selector_obj, "_mlframe_use_sample_weights_in_fs_", bool(use_sample_weights_in_fs))
+            _selector_obj._mlframe_use_sample_weights_in_fs_ = bool(use_sample_weights_in_fs)
             # Dedicated dispatch marker so downstream report-build / cache code can identify the selector
             # kind without class-name string matching or abusing the weight-marker as a type tag.
-            setattr(_selector_obj, "_mlframe_selector_kind_", "RFECV")
+            _selector_obj._mlframe_selector_kind_ = "RFECV"
             _rfecv_instance = _selector_obj
         pre_pipelines.append(_rfecv_instance)
         pre_pipeline_names.append(f"{rfecv_model_name} ")
@@ -197,13 +197,13 @@ def _build_pre_pipelines(
         # group-naive feature RANKING. An operator who wants the hard stop can still pass ``strict_groups=True`` in
         # ``mrmr_kwargs`` explicitly.
         _mrmr = _mrmr_spec.instantiate(**mrmr_kwargs)
-        setattr(_mrmr, "_mlframe_use_sample_weights_in_fs_", bool(use_sample_weights_in_fs))
-        setattr(_mrmr, "_mlframe_selector_kind_", "MRMR")
+        _mrmr._mlframe_use_sample_weights_in_fs_ = bool(use_sample_weights_in_fs)
+        _mrmr._mlframe_selector_kind_ = "MRMR"
         # When the suite caller passes a ctx-scoped cache dict (default per FeatureSelectionConfig.mrmr_identity_cache_scope="ctx"),
         # stamp it on the MRMR instance so fit-time identity-cache reads/writes route to the suite-bounded dict instead of the
         # process-global module-level cache. None falls back to the module-level cache (mrmr_identity_cache_scope="process").
         if mrmr_identity_cache is not None:
-            setattr(_mrmr, "_mlframe_identity_cache_override_", _NonPicklingCacheView(mrmr_identity_cache))
+            _mrmr._mlframe_identity_cache_override_ = _NonPicklingCacheView(mrmr_identity_cache)
         pre_pipelines.append(_mrmr)
         pre_pipeline_names.append("MRMR ")
 
@@ -227,7 +227,7 @@ def _build_pre_pipelines(
             _is_regression = "regression" in _tt_str
             _bs_kwargs["classification"] = not _is_regression
         _bs = _bs_spec.instantiate(**_bs_kwargs)
-        setattr(_bs, "_mlframe_selector_kind_", "BorutaShap")
+        _bs._mlframe_selector_kind_ = "BorutaShap"
         pre_pipelines.append(_bs)
         pre_pipeline_names.append("BorutaShap ")
 
@@ -246,7 +246,7 @@ def _build_pre_pipelines(
             _is_regression = "regression" in str(target_type).lower()
             _sp_kwargs["classification"] = not _is_regression
         _sp = _sp_spec.instantiate(**_sp_kwargs)
-        setattr(_sp, "_mlframe_selector_kind_", "ShapProxiedFS")
+        _sp._mlframe_selector_kind_ = "ShapProxiedFS"
         pre_pipelines.append(_sp)
         pre_pipeline_names.append("ShapProxiedFS ")
 
@@ -262,7 +262,7 @@ def _build_pre_pipelines(
         if fs_random_seed is not None and "random_state" not in _ace_kwargs:
             _ace_kwargs["random_state"] = int(fs_random_seed)
         _ace = _ace_spec.instantiate(**_ace_kwargs)
-        setattr(_ace, "_mlframe_selector_kind_", "ACE")
+        _ace._mlframe_selector_kind_ = "ACE"
         pre_pipelines.append(_ace)
         pre_pipeline_names.append("ACE ")
 

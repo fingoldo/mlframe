@@ -372,7 +372,7 @@ def _maybe_apply_posthoc_calibration(model, fit_params, model_type_name, verbose
     """
     is_posthoc = _model_probs_are_posthoc_calibrated(model)
     try:
-        setattr(model, "_mlframe_probs_posthoc_calibrated", is_posthoc)
+        model._mlframe_probs_posthoc_calibrated = is_posthoc
     except (AttributeError, TypeError):
         # Slot-only / read-only estimators refuse new attrs; metadata consumers fall back to getattr(..., None).
         pass

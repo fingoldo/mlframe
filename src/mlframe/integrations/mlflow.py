@@ -45,7 +45,7 @@ def flatten_classification_report(cr: dict, separate_metrics=("accuracy","balanc
         for metric, value in metrics_dict.items():
             res[source + prefix + "_" + metric] = value
     return res
-            
+
 def log_classification_report_to_mlflow(cr: dict, step: int,separate_metrics=("accuracy",),source:str=""):
     """Logging all metrics from a dict-like classification_report as flat MLFlow entries."""
 
@@ -134,7 +134,7 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
                 mlflow.end_run()
                 break
         return run, False
-    
+
 def create_mlflow_run_label(params: Optional[dict] = None, category: Optional[str] = None) -> str:
     if params is None:
         params = {}

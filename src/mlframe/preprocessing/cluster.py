@@ -16,7 +16,7 @@ def list_cluster_members(labels:Sequence,true_lables:Sequence)->None:
 
 def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusterizer:Optional[Any]=None,dim_reducer:Optional[Any]=None,
                show_plot:Optional[bool]=True,show_metrics:Optional[bool]=True,list_members:Optional[bool]=True,title:Optional[str]=None):
-    
+
     from sklearn import metrics
     from sklearn.datasets import make_blobs
     from sklearn.preprocessing import StandardScaler
@@ -88,5 +88,5 @@ def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusteri
 
         if true_labels is not None:
             if list_members: list_cluster_members(labels,true_labels)
-    
+
     return labels

@@ -474,8 +474,8 @@ def _fit_persist_and_transform(
             scaler.n_features_in_ = len(cols)
             scaler.feature_names_in_ = np.array(list(cols), dtype=object)
             scaler.n_samples_seen_ = int(len(X))
-            setattr(model, "_mlframe_nan_imputer", imputer)
-            setattr(model, "_mlframe_nan_scaler", scaler)
+            model._mlframe_nan_imputer = imputer
+            model._mlframe_nan_scaler = scaler
         except (AttributeError, TypeError):
             pass
         # Audit D P1-5 (2026-05-18): this is a 1-hop savings, not zero-copy end-to-end. The
@@ -514,8 +514,8 @@ def _fit_persist_and_transform(
     _arr_out = scaler.fit_transform(_arr_imp)
 
     try:
-        setattr(model, "_mlframe_nan_imputer", imputer)
-        setattr(model, "_mlframe_nan_scaler", scaler)
+        model._mlframe_nan_imputer = imputer
+        model._mlframe_nan_scaler = scaler
     except (AttributeError, TypeError):
         pass
 
@@ -577,7 +577,7 @@ def prime_nan_guard_stats(
     imputer = SimpleImputer(strategy="mean", keep_empty_features=True).fit(_arr)
     scaler = StandardScaler().fit(imputer.transform(_arr))
     try:
-        setattr(model, "_mlframe_nan_imputer", imputer)
-        setattr(model, "_mlframe_nan_scaler", scaler)
+        model._mlframe_nan_imputer = imputer
+        model._mlframe_nan_scaler = scaler
     except (AttributeError, TypeError):
         pass

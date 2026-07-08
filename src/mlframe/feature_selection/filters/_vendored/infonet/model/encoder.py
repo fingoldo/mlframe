@@ -48,7 +48,7 @@ class Encoder(nn.Module):
                 dropout=dropout
             ) for _ in range(num_self_attn_per_block)
         ])
-    
+
     def forward(self, x: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
         """
         Args:
