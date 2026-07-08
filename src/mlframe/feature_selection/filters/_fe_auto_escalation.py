@@ -87,11 +87,11 @@ def _finite_filled(x: np.ndarray) -> np.ndarray:
     x = np.asarray(x, dtype=np.float64)
     finite = np.isfinite(x)
     if finite.all():
-        return x
+        return np.asarray(x)
     fill = float(np.mean(x[finite])) if finite.any() else 0.0
     out = x.copy()
     out[~finite] = fill
-    return out
+    return np.asarray(out)
 
 
 def _identity_prewarp_spec(x: np.ndarray) -> dict | None:
@@ -124,7 +124,7 @@ def _candidate_values(x_a: np.ndarray, spec_a: dict, x_b: np.ndarray, spec_b: di
     out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
     if not np.all(np.isfinite(out)) or float(np.std(out)) < 1e-12:
         return None
-    return out
+    return np.asarray(out)
 
 
 def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_margin: float = 1.15):
@@ -455,7 +455,7 @@ def find_underdelivering_pairs(
     from ._fe_cmi_redundancy_gate import _conditional_perm_null
     from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
 
-    out = []
+    out: list = []
     n = int(len(X))
     if n <= 0:
         return out
@@ -509,6 +509,7 @@ def find_underdelivering_pairs(
                     best_mi, best_codes, best_vals = mij, cj, vj
             if best_codes is None or best_mi <= 0.0:
                 continue
+            assert best_vals is not None  # set together with best_codes above
             leftover = float(_cmi_from_binned(joint, y_dense, best_codes))
             floor, null_mean = _conditional_perm_null(
                 joint, y_dense, best_codes,

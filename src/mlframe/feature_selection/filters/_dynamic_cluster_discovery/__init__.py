@@ -289,6 +289,7 @@ def _carry_forward_dcd_bookkeeping(state: "DCDState", existing_state: "DCDState"
         if prev_mask is not None:
             prev_mask = np.asarray(prev_mask, dtype=bool)
             keep = min(int(prev_mask.shape[0]), int(p_new))
+            assert state.pool_pruned_mask is not None  # this carry-forward path requires a populated new-state mask
             state.pool_pruned_mask[:keep] = prev_mask[:keep]
         state.cluster_anchors = {int(k): set(int(v) for v in vs) for k, vs in (existing_state.cluster_anchors or {}).items()}
         state.member_to_anchor = {int(k): int(v) for k, v in (existing_state.member_to_anchor or {}).items()}
@@ -308,7 +309,7 @@ def _carry_forward_dcd_bookkeeping(state: "DCDState", existing_state: "DCDState"
         # reuse the prior pass's exact draws.
         _ps = getattr(existing_state, "_perm_seed", None)
         if _ps is not None:
-            state._perm_seed = int(_ps)
+            state._perm_seed = int(_ps)  # type: ignore[attr-defined]
     except Exception as exc:
         logger.warning("DCD: failed to carry forward prior-pass bookkeeping: %r", exc)
 
@@ -711,6 +712,7 @@ def reattach_raw_representative_after_aggregate_swap(
         best_idx = min(int(m) for m in members)
     # Un-prune so the raw stand-in is a legitimate selected column, and record
     # it in selected_vars right after the aggregate.
+    assert state.pool_pruned_mask is not None, "DCD requires a populated DCDState.pool_pruned_mask"
     if 0 <= best_idx < state.pool_pruned_mask.shape[0]:
         state.pool_pruned_mask[best_idx] = False
     if best_idx not in sel:

@@ -148,7 +148,7 @@ def _run_radix_f32_variant_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {v: (lambda cand, _v=v: _radix_edges_with_f32_variant(cand, 20, _v)) for v in _RADIX_F32_VARIANTS}
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants,
         {"n_samples": _RADIX_THREADS_SWEEP_N_SAMPLES},
         _make_radix_inputs,
@@ -205,7 +205,7 @@ def _run_radix_threads_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {f"th_{t}": (lambda cand, _t=t: _radix_edges_with_threads(cand, 20, _t)) for t in _RADIX_THREADS_VARIANTS}
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants,
         {"n_samples": _RADIX_THREADS_SWEEP_N_SAMPLES},
         _make_radix_inputs,

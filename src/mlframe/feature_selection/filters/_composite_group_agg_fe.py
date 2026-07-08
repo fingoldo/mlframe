@@ -208,9 +208,9 @@ def _broadcast_lookup(
         out = np.array(
             [lookup.get(str(_k), global_value) for _k in keys], dtype=np.float64,
         )
-    return np.nan_to_num(
+    return np.asarray(np.nan_to_num(
         out, nan=global_value, posinf=global_value, neginf=global_value,
-    )
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -413,12 +413,12 @@ def apply_composite_group_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         global_std = float(recipe.get("global_std", 1.0)) or 1.0
         per_row_std = _broadcast_lookup(keys, lookup_std, global_std)
         per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
-        return np.nan_to_num(
+        return np.asarray(np.nan_to_num(
             (x - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,
-        )
+        ))
     if op == "ratio":
         denom = np.where(np.abs(per_row_mean) > 1e-12, per_row_mean, np.nan)
-        return np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0)
+        return np.asarray(np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0))
     raise ValueError(f"apply_composite_group_agg: unknown op {op!r}")
 
 
@@ -499,7 +499,7 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
         _l87_detect = None
     if _l87_detect is not None:
         try:
-            return _l87_detect(X, max_cols=max_cols)
+            return list(_l87_detect(X, max_cols=max_cols))
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed in _composite_group_agg_fe.py:503: %s", e)
             pass
