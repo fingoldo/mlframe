@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Callable
+from typing import Callable, cast
 
 import numpy as np
 from numba import njit, prange
@@ -427,7 +427,7 @@ def batch_mi_with_noise_gate(
     # codes are in ``[0, n_dense) <= n_bins``, so int16 holds any realistic nbins (<32768) and HALVES
     # this (n, K) buffer vs the old int32 default for EVERY caller (not just those that opted into int8),
     # value-identical. Callers with a known-narrower disc dtype (int8) still pass it and win further.
-    classes_dense = np.zeros((n, K), dtype=classes_dtype)
+    classes_dense: np.ndarray = np.zeros((n, K), dtype=classes_dtype)
     freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)
     kx = np.zeros(K, dtype=np.int64)
     original_mi = np.zeros(K, dtype=np.float64)
@@ -548,7 +548,7 @@ def batch_mi_with_noise_gate_v2(
         if nb_k > max_nbins:
             max_nbins = nb_k
 
-    classes_dense = np.zeros((n, K), dtype=classes_dtype)
+    classes_dense: np.ndarray = np.zeros((n, K), dtype=classes_dtype)
     freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)
     kx = np.zeros(K, dtype=np.int64)
     original_mi = np.zeros(K, dtype=np.float64)
@@ -776,9 +776,9 @@ def select_batch_mi_kernel(n_rows: int, n_cols: int) -> Callable:
     fused, measured-faster, bit-identical kernel) on any miss/failure so an un-tuned host gets the win."""
     _env = os.environ.get("MLFRAME_BATCH_MI_KERNEL", "").strip().lower()
     if _env == "v1":
-        return batch_mi_with_noise_gate
+        return cast(Callable, batch_mi_with_noise_gate)
     if _env == "v2":
-        return batch_mi_with_noise_gate_v2
+        return cast(Callable, batch_mi_with_noise_gate_v2)
     choice = "v2"
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
@@ -797,7 +797,7 @@ def select_batch_mi_kernel(n_rows: int, n_cols: int) -> Callable:
             choice = str(res.get("kernel_choice", "v2"))
     except Exception:
         choice = "v2"
-    return batch_mi_with_noise_gate if choice == "v1" else batch_mi_with_noise_gate_v2
+    return cast(Callable, batch_mi_with_noise_gate if choice == "v1" else batch_mi_with_noise_gate_v2)
 
 
 def _run_batch_mi_kernel_sweep():

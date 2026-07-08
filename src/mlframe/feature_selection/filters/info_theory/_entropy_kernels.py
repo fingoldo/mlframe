@@ -1,6 +1,8 @@
 """Core entropy / mutual-information kernels: Shannon entropy, Miller-Madow bias correction, MI, Symmetric Uncertainty, and the conditional variants."""
 from __future__ import annotations
 
+from typing import Optional
+
 import numpy as np
 from numba import njit
 
@@ -15,7 +17,7 @@ def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
         freqs = freqs[freqs >= min_occupancy]
     else:
         freqs = freqs[freqs > 0]
-    return -(np.log(freqs) * freqs).sum()
+    return float(-(np.log(freqs) * freqs).sum())
 
 
 @njit(cache=True)
@@ -81,8 +83,8 @@ def _entropy_xz_fused(factors_data, indices, factors_nbins, dtype=np.int32) -> f
     general ``_merge_vars_freqs`` fast path. Bit-identical to ``entropy(merge_vars(...)[1])`` by construction
     (same freqs, same ``entropy`` reduction)."""
     if len(indices) == 2:
-        return entropy(joint_freqs_2var(factors_data, indices[0], indices[1], factors_nbins[indices[0]], factors_nbins[indices[1]]))
-    return entropy(_merge_vars_freqs(factors_data, indices, factors_nbins, dtype))
+        return float(entropy(joint_freqs_2var(factors_data, indices[0], indices[1], factors_nbins[indices[0]], factors_nbins[indices[1]])))
+    return float(entropy(_merge_vars_freqs(factors_data, indices, factors_nbins, dtype)))
 
 
 @njit(cache=True)
@@ -105,7 +107,7 @@ def _entropy_x_onto_classes(factors_data, xi, final_classes, current_nclasses, n
         newclass = final_classes[sample_row] + factors_data[sample_row, xi] * current_nclasses
         freqs[newclass] += 1
     nz = freqs[freqs > 0]
-    return entropy(nz / n_rows)
+    return float(entropy(nz / n_rows))
 
 
 @njit(cache=True)
@@ -136,8 +138,8 @@ def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float
     # Plug-in entropy is exact at k <= 1 (deterministic distribution),
     # so return h_plugin (which is 0) directly.
     if k <= 1:
-        return h_plugin
-    return h_plugin + (k - 1) / (2.0 * n_samples)
+        return float(h_plugin)
+    return float(h_plugin + (k - 1) / (2.0 * n_samples))
 
 
 @njit(cache=True)
@@ -211,7 +213,7 @@ def mi(
     if verbose:
         print(f"entropy_xy={entropy_xy}, nclasses_x={len(freqs_xy)} ({classes_xy.min()} to {classes_xy.max()})")  # noqa: T201 -- inside @njit nopython mode, logging isn't supported here
 
-    return entropy_x + entropy_y - entropy_xy
+    return float(entropy_x + entropy_y - entropy_xy)
 
 
 @njit(cache=True)
@@ -253,7 +255,7 @@ def mi_miller_madow(
     k_x = len(freqs_x[freqs_x > 0])
     k_y = len(freqs_y[freqs_y > 0])
     n_samples = factors_data.shape[0] if factors_data.ndim > 1 else len(factors_data)
-    return mi_miller_madow_correct(mi_plugin, k_x, k_y, n_samples)
+    return float(mi_miller_madow_correct(mi_plugin, k_x, k_y, n_samples))
 
 
 @njit(nogil=True, cache=True)
@@ -315,7 +317,7 @@ def symmetric_uncertainty(
     # Floor the plug-in numerator at 0: on near-deterministic columns float round-off in ``H(X)+H(Y)-H(XY)`` can leave ``mi_xy`` slightly negative, yielding a tiny negative SU treated as a valid low relevance instead of 0.
     if mi_xy < 0.0:
         mi_xy = 0.0
-    return 2.0 * mi_xy / denom
+    return float(2.0 * mi_xy / denom)
 
 
 @njit(nogil=True, cache=True)
@@ -412,7 +414,7 @@ def _cmi_miller_madow_bias(factors_data, x, y, z, factors_nbins, dtype) -> float
     k_xz = np.count_nonzero(fxz)
     k_yz = np.count_nonzero(fyz)
     k_xyz = np.count_nonzero(fxyz)
-    return (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
+    return float((k_xyz + k_z - k_xz - k_yz) / (2.0 * n))
 
 
 @njit(cache=True)
@@ -427,7 +429,7 @@ def conditional_mi(
     entropy_xz: float = -1.0,
     entropy_yz: float = -1.0,
     entropy_xyz: float = -1.0,
-    entropy_cache: dict = None,
+    entropy_cache: Optional[dict] = None,
     can_use_x_cache: bool = False,
     can_use_y_cache: bool = False,
     dtype=np.int32,

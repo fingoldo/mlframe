@@ -132,10 +132,10 @@ def mi_or_su(factors_data, x, y, factors_nbins, verbose=False, dtype=np.int32) -
     """Dispatch raw MI / SU / Miller-Madow-corrected MI based on the thread-local toggles. Cheap path
     when all are off: a one-call delegation to ``mi`` (which is njit-cached)."""
     if use_su_normalization():
-        return symmetric_uncertainty(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype)
+        return float(symmetric_uncertainty(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype))
     if use_mi_miller_madow():
-        return mi_miller_madow(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype)
-    return mi(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype)
+        return float(mi_miller_madow(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype))
+    return float(mi(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype))
 
 
 def cmi_or_csu(factors_data, x, y, z, factors_nbins, dtype=np.int32, **mi_kwargs) -> float:
@@ -144,5 +144,5 @@ def cmi_or_csu(factors_data, x, y, z, factors_nbins, dtype=np.int32, **mi_kwargs
     are bypassed because the SU denominator is path-dependent on the same entropies, so
     caching the unconditional CMI would silently desync."""
     if use_su_normalization():
-        return conditional_symmetric_uncertainty(factors_data, x, y, z, factors_nbins, dtype=dtype)
-    return conditional_mi(factors_data, x, y, z, factors_nbins=factors_nbins, dtype=dtype, **mi_kwargs)
+        return float(conditional_symmetric_uncertainty(factors_data, x, y, z, factors_nbins, dtype=dtype))
+    return float(conditional_mi(factors_data, x, y, z, factors_nbins=factors_nbins, dtype=dtype, **mi_kwargs))
