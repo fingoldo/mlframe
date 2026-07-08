@@ -225,14 +225,14 @@ def run_composite_target_discovery(
                     "CT_ENSEMBLE pool will carry the AR signal. Disable "
                     "via composite_target_discovery_config."
                     "extreme_ar_group_aware_skip=False.",
-                    _tname_disc, float(_lag1_eff), (" [recomputed]" if _recomputed_lag1 else ""), _extreme_ar_threshold,
+                    _tname_disc, float(_lag1_eff) if _lag1_eff is not None else float("nan"), (" [recomputed]" if _recomputed_lag1 else ""), _extreme_ar_threshold,
                 )
                 metadata["composite_target_failures"].setdefault(
                     str(_tt_disc), {})[_tname_disc] = [{
                         "name": _tname_disc, "kept": False, "rejected": True,
                         "reason": (
                             f"extreme_ar_group_aware_skip=True + "
-                            f"lag1_autocorr_per_group={float(_lag1_eff):.4f}"
+                            f"lag1_autocorr_per_group={(float(_lag1_eff) if _lag1_eff is not None else float('nan')):.4f}"
                             f"{' (recomputed)' if _recomputed_lag1 else ''} "
                             f">= threshold {_extreme_ar_threshold}"
                         ),
@@ -514,12 +514,12 @@ def run_composite_target_discovery(
                 class _CacheReplay:
                     specs_ = _cached_specs
 
-                _disc = _CacheReplay()
+                _disc: Any = _CacheReplay()
             else:
                 try:
                     _disc_instance = CompositeTargetDiscovery(_disc_cfg)
                     if _use_hint and _diag is not None and _hint_strengths:
-                        _disc_instance._hint_strengths_pct = _hint_strengths
+                        _disc_instance._hint_strengths_pct = _hint_strengths  # type: ignore[attr-defined]  # CompositeTargetDiscovery duck-typed extension point (owned by training/composite)
                     # Group-aware tiny-rerank: when the production split
                     # is group-aware, the tiny-CV rerank must use
                     # GroupKFold or it ranks specs by a metric that
@@ -531,7 +531,7 @@ def run_composite_target_discovery(
                     # rerank sees the same groups the discovery loop
                     # samples from.
                     if _grp_filtered_slice is not None:
-                        _disc_instance._group_ids_for_rerank = _grp_filtered_slice
+                        _disc_instance._group_ids_for_rerank = _grp_filtered_slice  # type: ignore[attr-defined]  # CompositeTargetDiscovery duck-typed extension point (owned by training/composite)
                         logger.info(
                             "[CompositeTargetDiscovery] target='%s' "
                             "tiny-rerank will use GroupKFold "
