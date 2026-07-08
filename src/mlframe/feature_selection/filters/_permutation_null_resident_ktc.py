@@ -49,7 +49,7 @@ def permnull_use_resident(n: int, ncand: int, nperm: int) -> bool:
         choice = _PERMNULL_SPEC.choose(n_samples=int(n), ncand=int(nb), nperm=int(pb))
     except Exception:
         return False
-    return choice == "resident"
+    return bool(choice == "resident")
 
 
 def _make_permnull_inputs(dims: dict):
@@ -105,7 +105,7 @@ def _run_permnull_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"njit": _permnull_njit, "resident": _permnull_resident}
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants,
         {"n_samples": _PERMNULL_SWEEP_N, "ncand": _PERMNULL_SWEEP_NCAND, "nperm": _PERMNULL_SWEEP_NPERM},
         _make_permnull_inputs,

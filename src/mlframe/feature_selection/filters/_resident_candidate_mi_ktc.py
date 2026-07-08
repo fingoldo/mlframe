@@ -46,7 +46,7 @@ def rescand_use_resident(n: int, k: int) -> bool:
         choice = _RESCAND_SPEC.choose(n_samples=int(n), k=int(k_bucket))
     except Exception:
         return False
-    return choice == "resident"
+    return bool(choice == "resident")
 
 
 def _make_rescand_inputs(dims: dict):
@@ -87,7 +87,7 @@ def _run_rescand_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"njit": _rescand_njit, "resident": _rescand_resident}
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants,
         {"n_samples": _RESCAND_SWEEP_N_SAMPLES, "k": _RESCAND_SWEEP_K},
         _make_rescand_inputs,

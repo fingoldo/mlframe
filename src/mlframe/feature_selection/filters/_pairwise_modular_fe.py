@@ -190,7 +190,7 @@ def _is_integer_col(x: np.ndarray) -> bool:
     if not np.issubdtype(a.dtype, np.floating):
         return False
     finite = a[np.isfinite(a)]
-    return finite.size > 0 and np.all(finite == np.floor(finite))
+    return bool(finite.size > 0 and np.all(finite == np.floor(finite)))
 
 
 def _combine(arrs: Sequence[np.ndarray], op: str) -> np.ndarray:
@@ -474,7 +474,7 @@ def apply_pairwise_modular(X, op: str, cols: Sequence[str], modulus: int) -> np.
         out = np.mod(c_arr, m).astype(np.float64)
     if bad.any():
         out[bad] = np.nan
-    return out
+    return np.asarray(out)
 
 
 def build_pairwise_modular_recipe(*, name: str, op: str, cols: Sequence[str], modulus: int):

@@ -81,7 +81,7 @@ def _run_unary_sweep() -> list:
     variants = {"numpy": _unary_numpy}
     if _HAS_CUPY:
         variants["cupy"] = _unary_cupy
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants,
         {"n_samples": _UNARY_SWEEP_N},
         _make_unary_inputs,
@@ -109,7 +109,7 @@ def unary_elementwise_backend_choice(n_samples: int, location: str = "host") -> 
     the spec's one-call choose() (env -> code-version-checked cache -> on-miss sweep
     -> the _unary_fallback_choice heuristic; memoized per dims). The caller MUST
     still gate a "cupy" result on live CUDA + per-op compatibility before GPU."""
-    return _UNARY_SPEC.choose(n_samples=int(n_samples), location=location)
+    return str(_UNARY_SPEC.choose(n_samples=int(n_samples), location=location))
 
 
 # Register with the kernel-tuner registry so retune_all / mlframe-tune-kernels

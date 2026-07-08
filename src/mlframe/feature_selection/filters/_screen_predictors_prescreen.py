@@ -87,7 +87,7 @@ def compute_fdr_gain_floor(
     """
     if not (screen_fdr_null_permutations and int(screen_fdr_null_permutations) > 0):
         return 0.0
-    _fdr_pool = sorted(x) if isinstance(x, set) else list(x)
+    _fdr_pool = np.asarray(sorted(x) if isinstance(x, set) else list(x))
     from ._permutation_null import (
         pooled_permutation_null_gain_floor,
         target_oversplit_floor_applies,
