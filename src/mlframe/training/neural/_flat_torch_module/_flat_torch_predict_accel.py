@@ -10,10 +10,19 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import torch
 
 logger = logging.getLogger("mlframe.training.neural.flat")
+
+# Mixed into MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule) -- the real nn.Module
+# base (and hence .training/.eval()/__call__) comes from LightningModule at runtime. This
+# TYPE_CHECKING-only base lets mypy see those without changing the runtime MRO (plain `object` there).
+if TYPE_CHECKING:
+    _PredictAccelBase = torch.nn.Module
+else:
+    _PredictAccelBase = object
 
 # Max number of CAPTURED CUDA graphs retained per model instance. Each entry pins ~2 device buffers
 # (static in + static out) + the graph object, so an inference run over many distinct batch shapes (ragged
@@ -22,12 +31,17 @@ logger = logging.getLogger("mlframe.training.neural.flat")
 _CUDA_GRAPH_PREDICT_CACHE_MAX = max(1, int(os.environ.get("MLFRAME_CUDA_GRAPH_PREDICT_CACHE_MAX", "16")))
 
 
-class _PredictAccelMixin:
+class _PredictAccelMixin(_PredictAccelBase):
     """torch.compile + CUDA-graph predict fast paths and the predict_step dispatch."""
 
     # Provided by the composed class (MLPTorchModel); declared here so mypy can type-check
     # the self.network reads/writes in this mixin without a self-referential inference cycle.
     network: torch.nn.Module
+    hparams: Any
+    task_type: Any
+    _cuda_graph_predict_cache: dict
+    _compiled_predict_fn: Optional[Any]
+    _compile_predict_failed: bool
 
     def _evict_cuda_graph_cache_if_needed(self) -> None:
         """Bound the captured-graph count, reclaiming VRAM from the least-recently-used graph.
@@ -99,7 +113,7 @@ class _PredictAccelMixin:
                 logger.debug("torch._logging.set_logs failed: %s", _dbg_err)
 
         try:
-            self.network = torch.compile(self.network, mode=self.hparams.compile_network)
+            self.network = cast(torch.nn.Module, torch.compile(self.network, mode=self.hparams.compile_network))
             logger.info("Applied torch.compile with mode='%s'", self.hparams.compile_network)
         except Exception:
             logger.warning("Failed to apply torch.compile. Using uncompiled network.", exc_info=True)
@@ -128,7 +142,7 @@ class _PredictAccelMixin:
             self._compiled_predict_fn = None
             self._compile_predict_failed = False
 
-    def _maybe_compile_predict_forward(self, x: torch.Tensor) -> torch.Tensor:
+    def _maybe_compile_predict_forward(self, x: torch.Tensor) -> Optional[torch.Tensor]:
         """torch.compile(mode="reduce-overhead") fast path for the inference
         forward. Strictly more powerful than the manual CUDA-graph path --
         Inductor fuses elementwise chains (BN+act+Dropout) in addition to
@@ -188,7 +202,7 @@ class _PredictAccelMixin:
                 )
                 return None
         try:
-            return self._compiled_predict_fn(x)
+            return cast(torch.Tensor, self._compiled_predict_fn(x))
         except Exception as _exec_err:
             self._compile_predict_failed = True
             self._compiled_predict_fn = None
@@ -198,7 +212,7 @@ class _PredictAccelMixin:
             )
             return None
 
-    def _maybe_cuda_graph_forward(self, x: torch.Tensor) -> torch.Tensor:
+    def _maybe_cuda_graph_forward(self, x: torch.Tensor) -> Optional[torch.Tensor]:
         """CUDA-graph fast path for the inference forward via the LOW-LEVEL
         torch.cuda.CUDAGraph() API.
 
@@ -261,27 +275,27 @@ class _PredictAccelMixin:
         # MLFRAME_CUDA_GRAPH_PREDICT=1.
         _env = os.environ.get("MLFRAME_CUDA_GRAPH_PREDICT", "0").lower()
         if _env in ("0", "false", "off", "no", ""):
-            return self(x)
+            return cast(torch.Tensor, self(x))
         if not torch.cuda.is_available():
-            return self(x)
+            return cast(torch.Tensor, self(x))
         if not isinstance(x, torch.Tensor) or not x.is_cuda:
-            return self(x)
+            return cast(torch.Tensor, self(x))
         # Skip if the underlying network contains recurrent modules
         # (same anti-pattern as the torch.compile guard).
         _net = getattr(self.network, "_orig_mod", self.network)
         try:
             _recurrent = (torch.nn.LSTM, torch.nn.GRU, torch.nn.RNN)
             if any(isinstance(m, _recurrent) for m in _net.modules()):
-                return self(x)
+                return cast(torch.Tensor, self(x))
         except Exception:
-            return self(x)
+            return cast(torch.Tensor, self(x))
 
         _key = (tuple(x.shape), x.dtype, x.device)
         _cached = self._cuda_graph_predict_cache.get(_key)
         if _cached is False:
             # Previous capture attempt failed for this shape; permanent
             # eager fallback to avoid retry storms.
-            return self(x)
+            return cast(torch.Tensor, self(x))
         if _cached is not None:
             # Defensive: replay can fail if model state changed
             # (parameters swapped by an EMA callback between predict
@@ -299,7 +313,7 @@ class _PredictAccelMixin:
                 # Mark most-recently-used (move to the end of the dict) so the LRU-cap evicts cold shapes,
                 # not this hot one.
                 self._cuda_graph_predict_cache[_key] = self._cuda_graph_predict_cache.pop(_key)
-                return _static_out.clone()
+                return cast(torch.Tensor, _static_out.clone())
             except Exception as _replay_err:
                 logger.warning(
                     "CUDA-graph replay failed for shape=%s (%s); " "evicting cache entry + falling back to eager.",
@@ -307,7 +321,7 @@ class _PredictAccelMixin:
                     _replay_err,
                 )
                 self._cuda_graph_predict_cache.pop(_key, None)
-                return self(x)
+                return cast(torch.Tensor, self(x))
 
         # First time seeing this shape on this device + dtype. Try a
         # capture via the LOW-LEVEL CUDAGraph() API (non-destructive).
@@ -351,7 +365,7 @@ class _PredictAccelMixin:
             # capture so _static_out has the actual computed values for this
             # batch, AND the cache is primed for subsequent same-shape calls.
             _g.replay()
-            return _static_out.clone()
+            return cast(torch.Tensor, _static_out.clone())
         except Exception as _graph_err:
             self._cuda_graph_predict_cache[_key] = False
             logger.warning(
@@ -359,7 +373,7 @@ class _PredictAccelMixin:
                 tuple(x.shape),
                 _graph_err,
             )
-            return self(x)
+            return cast(torch.Tensor, self(x))
 
     def predict_step(self, batch, batch_idx: int) -> torch.Tensor:
         """
