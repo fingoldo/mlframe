@@ -91,7 +91,7 @@ def _process_special_values(
     else:
         # Pandas: matching telemetry on the same numeric subset. NaN is the pandas null surrogate (np.nan), so ``.isna()`` covers both null and NaN; inf is a
         # separate np.isinf check on the float subset (integers cannot carry inf).
-        num_cols = df.select_dtypes(include="number").columns
+        num_cols = df.select_dtypes(include="number").columns  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
         if len(num_cols) > 0:
             if verbose:
                 num_view = df[num_cols]
@@ -117,7 +117,7 @@ def _process_special_values(
             # Restrict inf -> NaN to floats: integer columns cannot hold inf and pandas .replace on int dtypes would coerce them to float unnecessarily.
             float_cols = _pandas_float_like_columns(df)
             if float_cols:
-                df[float_cols] = df[float_cols].replace([float("inf"), float("-inf")], float("nan"))
+                df[float_cols] = df[float_cols].replace([float("inf"), float("-inf")], float("nan"))  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
     return df
 
 
@@ -241,15 +241,16 @@ def load_and_prepare_dataframe(
           with tail=100 gives the last 100 of the first 1000 rows, not the last 100 of the file.
     """
     # Load from file if path provided
-    if isinstance(df, str):
+    _df: pl.DataFrame | pl.LazyFrame | str = df
+    if isinstance(_df, str):
         if verbose:
-            logger.info("Loading dataframe from %s with Polars...", df)
+            logger.info("Loading dataframe from %s with Polars...", _df)
 
-        if not df.lower().endswith(".parquet"):
-            raise ValueError(f"Only parquet format supported, got: {df}")
+        if not _df.lower().endswith(".parquet"):
+            raise ValueError(f"Only parquet format supported, got: {_df}")
 
         # Build efficient loading parameters
-        load_params = {"parallel": "columns"}
+        load_params: dict[str, Any] = {"parallel": "columns"}
 
         # Use n_rows at load time for efficiency
         if config.n_rows:
@@ -267,10 +268,10 @@ def load_and_prepare_dataframe(
         # and does not accept `parallel="columns"` or `columns=`). Otherwise scan lazily and let
         # Polars collect once downstream - keeps memory low for wide files.
         if config.columns or config.n_rows:
-            df = pl.read_parquet(df, **load_params)
+            _df = pl.read_parquet(_df, **load_params)
         else:
             # scan_parquet rejects `parallel="columns"` (only valid on eager read_parquet).
-            df = pl.scan_parquet(df)
+            _df = pl.scan_parquet(_df)
 
     # Apply tail if specified (after loading). For a LazyFrame produced by scan_parquet,
     # collect via the streaming engine so the OS only ever needs (tail_size + per-batch buffer)
@@ -280,19 +281,21 @@ def load_and_prepare_dataframe(
     if config.tail:
         if verbose:
             logger.info("Taking last %s rows...", config.tail)
-        df = df.tail(config.tail)
+        _df = _df.tail(config.tail)
 
-    if isinstance(df, pl.LazyFrame):
+    if isinstance(_df, pl.LazyFrame):
+        _lf = _df
         try:
-            df = df.collect(streaming=True)
+            _df = _lf.collect(streaming=True)  # type: ignore[call-overload]  # older polars stubs only; runtime TypeError fallback below covers newer polars that dropped this kwarg
         except TypeError:
             # polars version without the streaming kwarg falls back to default collect.
-            df = df.collect()
+            _df = _lf.collect()
 
     if verbose:
         log_ram_usage()
 
-    return df
+    assert isinstance(_df, pl.DataFrame)
+    return _df
 
 
 def preprocess_dataframe(
@@ -527,9 +530,9 @@ def create_split_dataframes(
         val_df = df[val_idx] if len(val_idx) > 0 else pl.DataFrame()
         test_df = df[test_idx] if len(test_idx) > 0 else pl.DataFrame()
     else:
-        train_df = df.iloc[train_idx]
-        val_df = df.iloc[val_idx] if len(val_idx) > 0 else pd.DataFrame()
-        test_df = df.iloc[test_idx] if len(test_idx) > 0 else pd.DataFrame()
+        train_df = df.iloc[train_idx]  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
+        val_df = df.iloc[val_idx] if len(val_idx) > 0 else pd.DataFrame()  # type: ignore[union-attr]
+        test_df = df.iloc[test_idx] if len(test_idx) > 0 else pd.DataFrame()  # type: ignore[union-attr]
 
     return train_df, val_df, test_df
 
