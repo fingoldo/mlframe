@@ -93,11 +93,15 @@ repos:
     hooks:
       - id: mypy
         files: '^src/mlframe/calibration/'
-        # numpy is pinned <2.5: 2.5+'s bundled .pyi stubs use PEP 695 `type` statements,
-        # which mypy rejects under our [tool.mypy] python_version="3.10" ("Type statement
-        # is only supported in Python 3.12 and greater") -- an unpinned resolve in this
-        # isolated hook env picked up 2.5.1 while the project's real env still runs 2.3.x.
-        additional_dependencies: ['numpy<2.5', 'scipy', 'scikit-learn', 'pydantic']
+        # Every dep here is EXACT-pinned, not range-pinned: an unpinned/range-pinned resolve
+        # in this isolated hook env drifts silently over time (observed 2026-07-06: picked up
+        # numpy 2.5.1, whose bundled .pyi stubs use PEP 695 `type` statements that mypy rejects
+        # under our [tool.mypy] python_version="3.10" -- "Type statement is only supported in
+        # Python 3.12 and greater" -- while the project's real env ran 2.3.x; observed again
+        # 2026-07-08 via the mirrored mypy.yml CI step: identical command, 178 errors in CI vs.
+        # 0 locally, traced to a different numpy/scipy/scikit-learn/pydantic/mypy combination
+        # each side resolved). Versions below match the project's real dev env.
+        additional_dependencies: ['numpy==2.3.5', 'scipy==1.17.1', 'scikit-learn==1.8.0', 'pydantic==2.13.4']
 
   - repo: local
     hooks:
