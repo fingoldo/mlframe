@@ -606,6 +606,7 @@ def mi_direct(
                 factors_data=factors_data, vars_indices=y,
                 var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
             )
+        assert freqs_y is not None  # the None branch above always sets classes_y/freqs_y together
         _n_rows = int(factors_data.shape[0])
         _by = int(freqs_y.shape[0])
         # FUSED single-var fast path (wasted-per-call-work audit, 2026-07-05): the analytic branch
