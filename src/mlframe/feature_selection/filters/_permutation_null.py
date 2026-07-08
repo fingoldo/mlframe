@@ -463,7 +463,7 @@ def _pairwise_occupied_joint_k(
     pa = np.ascontiguousarray(pair_a, dtype=np.int64)
     pb = np.ascontiguousarray(pair_b, dtype=np.int64)
     nb = np.ascontiguousarray(nbins, dtype=np.int64)
-    return _pairwise_occupied_joint_k_njit(factors_data, pa, pb, nb)
+    return np.asarray(_pairwise_occupied_joint_k_njit(factors_data, pa, pb, nb))
 
 
 def pooled_pair_permutation_null_joint_mi_floor(
