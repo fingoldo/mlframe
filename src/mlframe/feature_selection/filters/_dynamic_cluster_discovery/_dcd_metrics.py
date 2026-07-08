@@ -259,7 +259,7 @@ def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = Non
                 "feature support; using symmetric uncertainty (SU) for pruning "
                 "instead. Set dcd_distance to 'su'/'vi'/'auto' to silence this."
             )
-            state._warned_sotoca_membership = True
+            state._warned_sotoca_membership = True  # type: ignore[attr-defined]
         from ..info_theory import symmetric_uncertainty
         # iter616 caching pattern (fn_arr + pair_buf scratch) retained.
         fn_arr = state._fn_arr_cached
