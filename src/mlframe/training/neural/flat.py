@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from enum import Enum, auto
 from functools import partial
-from typing import Callable, Optional
+from typing import Callable, Optional, cast
 
 import torch
 import torch.nn as nn
@@ -95,6 +95,11 @@ class _BoundedTanhOutput(nn.Module):
     optimizer (they are fixed properties of the train target).
     """
 
+    # Declared here (register_buffer() below sets them) so mypy sees plain Tensors rather than
+    # the register_buffer stub's broad Tensor|Module return.
+    scale: torch.Tensor
+    center: torch.Tensor
+
     def __init__(self, scale: float, center: float) -> None:
         super().__init__()
         self.register_buffer(
@@ -148,6 +153,9 @@ class _ResidualLinearBlock(nn.Module):
     drop-in to ``generate_mlp``).
     """
 
+    # norm is one of BatchNorm1d / LayerNorm / Identity depending on the constructor flags below.
+    norm: nn.Module
+
     def __init__(
         self,
         in_dim: int,
@@ -174,7 +182,7 @@ class _ResidualLinearBlock(nn.Module):
         self.skip = nn.Identity() if in_dim == out_dim else nn.Linear(in_dim, out_dim, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.dropout(self.act(self.norm(self.linear(x)))) + self.skip(x)
+        return cast(torch.Tensor, self.dropout(self.act(self.norm(self.linear(x)))) + self.skip(x))
 
     def extra_repr(self) -> str:
         return f"in={self.linear.in_features}, out={self.linear.out_features}, " f"skip={'identity' if isinstance(self.skip, nn.Identity) else 'linear'}"
@@ -184,7 +192,7 @@ def generate_mlp(
     num_features: int,
     num_classes: int,
     nlayers: int = 1,
-    first_layer_num_neurons: int = None,
+    first_layer_num_neurons: Optional[int] = None,
     min_layer_neurons: int = 1,
     neurons_by_layer_arch: MLPNeuronsByLayerArchitecture = MLPNeuronsByLayerArchitecture.Constant,
     consec_layers_neurons_ratio: float = 1.1,
@@ -201,9 +209,9 @@ def generate_mlp(
     categorical_cardinalities: Optional[list] = None,
     categorical_embed_dim: Optional[int] = None,
     groupnorm_num_groups: int = 0,
-    layer_norm_kwargs: dict = None,
-    batch_norm_kwargs: dict = None,
-    group_norm_kwargs: dict = None,
+    layer_norm_kwargs: Optional[dict] = None,
+    batch_norm_kwargs: Optional[dict] = None,
+    group_norm_kwargs: Optional[dict] = None,
     output_activation: str = "linear",
     output_activation_scale: Optional[float] = None,
     output_activation_center: Optional[float] = None,
@@ -372,7 +380,7 @@ def generate_mlp(
             module, n_power_iterations=spectral_norm_n_power_iterations,
         )
 
-    layers = []
+    layers: list[nn.Module] = []
     layer_sizes = [num_features]  # tracked for verbose logging
 
     # Learnable categorical entity embeddings. When ``categorical_cardinalities`` is set, the FIRST ``k`` input columns are integer category
@@ -425,9 +433,9 @@ def generate_mlp(
     mid_layer = nlayers // 2
 
     prev_layer_neurons = num_features
-    cur_layer_neurons = first_layer_num_neurons
-    cur_layer_virt_neurons = first_layer_num_neurons
-    prev_layer_virt_neurons = first_layer_num_neurons  # carries over into the if/elif chain on iterations >= 1
+    cur_layer_neurons: int = first_layer_num_neurons
+    cur_layer_virt_neurons: float = first_layer_num_neurons
+    prev_layer_virt_neurons: float = first_layer_num_neurons  # carries over into the if/elif chain on iterations >= 1
 
     for layer in range(nlayers):
 
@@ -460,7 +468,7 @@ def generate_mlp(
                 # Other architectures: stop adding layers once below minimum.
                 break
             else:
-                cur_layer_neurons = effective_min_neurons
+                cur_layer_neurons = int(effective_min_neurons)
 
         if use_residual:
             # C6 (F-31): residual block bundles the Linear+norm+act+dropout
