@@ -82,7 +82,7 @@ def _rank_to_uniform(x: np.ndarray) -> np.ndarray:
     if n == 0:
         return arr
     r = rankdata(arr, method="average")
-    return r / float(n + 1)
+    return np.asarray(r / float(n + 1))
 
 
 def _bin_mi_uniform_pair(
@@ -217,6 +217,7 @@ def _copula_mi_batch(
         finite = y_finite & np.isfinite(col)
         if finite.all():
             u = _rank_to_uniform(col)
+            assert v_full is not None  # finite.all() implies y_finite.all(), so v_full was computed above
             v = v_full
         elif finite.sum() >= 2:
             u = _rank_to_uniform(col[finite])

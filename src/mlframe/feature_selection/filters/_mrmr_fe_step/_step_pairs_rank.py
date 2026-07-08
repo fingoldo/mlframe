@@ -75,7 +75,7 @@ def score_prospective_pairs(
     sort_dict_by_value,
 ):
     """Rank the gate-surviving candidate pairs; return (prospective_pairs, _prevalence_failed_synergy)."""
-    vars_usage_counter = defaultdict(int)
+    vars_usage_counter: defaultdict = defaultdict(int)
     prospective_pairs = {}
     # PREVALENCE-FAILED SYNERGY RESCUE LEDGER (2026-06-12, F2 a**2/b miss): a synergy
     # pair (>=1 bootstrap-added operand) whose JOINT MI cleared the order-2 maxT floor
@@ -392,11 +392,11 @@ def score_prospective_pairs(
                 _admit_via_usability = False
                 if (not (_passes_prevalence and _passes_maxt)) and pair_mi > 0 and bool(getattr(self, "fe_pair_usability_admission_enable", True)):
                     try:
-                        _yc = getattr(self, "_fe_prewarp_y_continuous_", None)
+                        _yc_cont = getattr(self, "_fe_prewarp_y_continuous_", None)
                         _o0 = _usability_operand_continuous(self, X, cols, raw_vars_pair[0])
                         _o1 = _usability_operand_continuous(self, X, cols, raw_vars_pair[1])
-                        if _yc is not None and _o0 is not None and _o1 is not None and len(_yc) == data.shape[0] == _o0.shape[0] == _o1.shape[0]:
-                            _ya = np.asarray(_yc, dtype=np.float64).reshape(-1)
+                        if _yc_cont is not None and _o0 is not None and _o1 is not None and len(_yc_cont) == data.shape[0] == _o0.shape[0] == _o1.shape[0]:
+                            _ya = np.asarray(_yc_cont, dtype=np.float64).reshape(-1)
                             _min_corr = float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6))
                             _margin = float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05))
                             _rank_frac = float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7))
