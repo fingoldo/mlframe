@@ -19,7 +19,7 @@ import pandas as pd
 try:
     import polars as pl
 except ImportError:
-    pl = None
+    pl = None  # type: ignore[assignment]
 
 # 2026-05-21: wave-105 split-out forgot to mirror the parent's imports +
 # NamedTuple defs, so every call into ``_phase_fit_pipeline`` /
@@ -266,7 +266,7 @@ def _phase_fit_pipeline(
     # encoder later sees additional strings. Downstream rebindings of ``train_df_polars_pre`` (via
     # ``_drop_cols_df`` at L645 / ``_precast_strings`` at L674) all return NEW frames and reassign,
     # so the aliased input is never mutated either.
-    if was_polars_input:
+    if was_polars_input and isinstance(train_df, pl.DataFrame):
         train_df_polars_pre = train_df
         val_df_polars_pre = val_df if isinstance(val_df, pl.DataFrame) else None
         test_df_polars_pre = test_df if isinstance(test_df, pl.DataFrame) else None

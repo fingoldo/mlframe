@@ -185,7 +185,7 @@ def _persist_chosen_ensemble_flavours(ctx: "TrainingContext") -> None:
                 _added.append((_tt_str, _tname_str, _flavour))
     if _root:
         ctx.metadata["ensembles_chosen"] = _root
-    if _added and getattr(ctx, "verbose", 0):
+    if _added and getattr(ctx, "verbose", 0):  # type: ignore[arg-type]  # mypy misresolves the getattr overload against the local `_added` list annotation in this scope
         logger.info("[ensembles_chosen] finalize backfilled %d flavour entry/entries: %s", len(_added), _added)
 
 
@@ -245,7 +245,7 @@ def _stamp_ensemble_composition(ctx: "TrainingContext") -> None:
                 continue
             _entry = _entries[0]
             _ensemble = getattr(_entry, "model", _entry)
-            if not hasattr(_ensemble, "export_metadata"):
+            if _ensemble is None or not hasattr(_ensemble, "export_metadata"):
                 continue
             try:
                 _exp = _ensemble.export_metadata()

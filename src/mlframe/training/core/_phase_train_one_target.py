@@ -57,7 +57,7 @@ def _cached_slugify(name: str) -> str:
     """SLUGIFY-PER-TGT: memoize the pure slugify() helper so the per-target call is O(1) after the
     first hit. Bounded LRU prevents accidental unbounded growth in long-lived processes that
     re-train the suite on rotating target names."""
-    return _slugify_raw(name)
+    return str(_slugify_raw(name))
 
 
 # ----------------------------------------------------------------------
@@ -77,7 +77,7 @@ def _is_regression_target_type(target_type: Any) -> bool:
         from ..configs import TargetTypes as _TT
     except Exception:
         return False
-    return target_type == _TT.REGRESSION
+    return bool(target_type == _TT.REGRESSION)
 
 
 def _apply_loss_recommendation_in_place(

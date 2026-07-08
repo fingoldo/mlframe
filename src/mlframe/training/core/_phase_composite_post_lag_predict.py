@@ -57,14 +57,14 @@ class _LagPredictDeployableModel:
         if hasattr(X, "get_column"):
             try:
                 col = X.get_column(self.lag_column).to_numpy()
-                return col.astype(np.float64, copy=False).reshape(-1)
+                return np.asarray(col.astype(np.float64, copy=False).reshape(-1))
             except Exception:  # nosec B110 - best-effort path
                 pass
         if hasattr(X, "loc") or hasattr(X, "__getitem__"):
             try:
                 col = X[self.lag_column]
                 if hasattr(col, "to_numpy"):
-                    return col.to_numpy().astype(np.float64, copy=False).reshape(-1)
+                    return np.asarray(col.to_numpy().astype(np.float64, copy=False).reshape(-1))
                 return np.asarray(col, dtype=np.float64).reshape(-1)
             except (KeyError, TypeError):
                 pass
