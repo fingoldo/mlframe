@@ -163,7 +163,7 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
             _signif_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
             _redundancy_frac = float(os.environ.get("MLFRAME_MRMR_FALLBACK_REDUNDANCY_FRAC", "0.5"))
             _q_dtype = getattr(self, "quantization_dtype", np.int32)
-            _accepted = []  # input-space indices accepted into the rescue
+            _accepted: list = []  # input-space indices accepted into the rescue
             _accepted_cols = []  # their cols-space indices (for redundancy MI)
             # ENGINEERED-SURVIVOR CONDITIONING (2026-06-08): seed the redundancy-dedup
             # conditioning set with the cols-space indices of every SURVIVING engineered
@@ -217,7 +217,7 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
                 # Significance gate (#1): keep only candidates that sit ABOVE their permutation null. Pure-noise legs sit within it (p >= alpha) and are dropped.
                 try:
                     _sig = _mi_direct_fb(
-                        data, x=np.array([_cols_idx], dtype=np.int64), y=target_indices,
+                        data, x=np.array([_cols_idx], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]  # mi_direct (permutation.py, sibling-owned) accepts this call shape at runtime; its x/y annotation (tuple) is stricter than actual usage
                         factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
                         return_null_mean=True, parallelism="none", dtype=_q_dtype, prefer_gpu=False,
                     )
