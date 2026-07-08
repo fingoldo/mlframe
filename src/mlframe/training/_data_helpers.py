@@ -29,7 +29,7 @@ from .callbacks import LightGBMCallback, CatBoostCallback, XGBoostCallback
 try:
     from xgboost.callback import TrainingCallback as XGBTrainingCallback
 except ImportError:
-    XGBTrainingCallback = None  # type: ignore[assignment]  # only used when xgboost is the chosen backend
+    XGBTrainingCallback = None  # type: ignore[assignment,misc]  # only used when xgboost is the chosen backend
 
 from .utils import filter_existing
 
@@ -129,6 +129,8 @@ def _extract_target_subset(
         )
     elif isinstance(target, pl.Series):
         return target.gather(idx)
+    if target is None:
+        return None
     # numpy: ``target[idx]`` is already fast — 0.033s vs np.take 0.049s
     return target[idx]
 
@@ -631,6 +633,7 @@ def _setup_eval_set(
     # one eval per element; LGB tuple-only path is upgraded to list (LGB accepts both).
     use_shards = extra_eval_sets is not None and len(extra_eval_sets) > 0
     if use_shards:
+        assert extra_eval_sets is not None  # guaranteed by use_shards construction above
         eval_list: list[tuple[Any, Any]] = [(val_df, val_target)]
         for shard in extra_eval_sets:
             eval_list.append((shard.X, shard.y))
@@ -650,17 +653,17 @@ def _setup_eval_set(
         # Parallel-aligned arrays for boosters that read them via separate kwargs.
         if model_category in ("xgb", "lgb", "cb"):
             if sample_weight_val is not None:
-                sw_list = [sample_weight_val]
+                sw_list: list[Any] = [sample_weight_val]
                 for shard in extra_eval_sets:
                     sw_list.append(shard.sample_weight if shard.sample_weight is not None else None)
                 fit_params["sample_weight_eval_set"] = sw_list
             if base_margin_val is not None and model_category == "xgb":
-                bm_list = [base_margin_val]
+                bm_list: list[Any] = [base_margin_val]
                 for shard in extra_eval_sets:
                     bm_list.append(shard.base_margin if shard.base_margin is not None else None)
                 fit_params["base_margin_eval_set"] = bm_list
             if group_ids_val is not None:
-                grp_list = [group_ids_val]
+                grp_list: list[Any] = [group_ids_val]
                 for shard in extra_eval_sets:
                     grp_list.append(shard.group_ids if shard.group_ids is not None else None)
                 if model_category == "xgb":
@@ -674,7 +677,8 @@ def _setup_eval_set(
         elif value_format == "list_of_tuples":
             fit_params[param_name] = [(val_df, val_target)]
         elif value_format == "list_of_tuples_values":
-            fit_params[param_name] = [(val_df.values, val_target.values if hasattr(val_target, "values") else val_target)]
+            _val_df_values = val_df.values if hasattr(val_df, "values") else val_df
+            fit_params[param_name] = [(_val_df_values, val_target.values if hasattr(val_target, "values") else val_target)]
         elif value_format == "separate":
             fit_params["X_val"] = val_df
             fit_params["y_val"] = val_target
@@ -900,6 +904,7 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
         _cap_iter = bool(callback_params.pop("capture_iteration_metrics"))
         _iter_stride = int(callback_params.pop("iteration_metrics_stride", 1))
 
+    es_callback: LightGBMCallback | CatBoostCallback | XGBoostCallback
     if model_category == "lgb":
         es_callback = LightGBMCallback(**callback_params)
         fit_params["callbacks"].append(es_callback)
