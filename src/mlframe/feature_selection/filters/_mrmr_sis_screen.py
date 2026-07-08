@@ -133,7 +133,7 @@ def fuse_scores(mi: np.ndarray, prop: np.ndarray) -> np.ndarray:
     Max (not sum) so a feature strong on EITHER signal survives -- a pure-interaction operand (MI~0,
     high propensity) is not diluted by its low MI, and a main effect (high MI, modest propensity) is not
     diluted by its propensity. Both classes surface."""
-    return np.maximum(_zscore(mi), _zscore(prop))
+    return np.asarray(np.maximum(_zscore(mi), _zscore(prop)))
 
 
 def survivor_count(
