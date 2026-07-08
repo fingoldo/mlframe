@@ -150,7 +150,7 @@ def mm_debiased_prevalence_ratio(
     # clamp at 0 so the ratio cannot turn negative and spuriously "pass" / "fail".
     if num_mm < 0.0:
         num_mm = 0.0
-    return num_mm / den_mm
+    return float(num_mm / den_mm)
 
 
 def _gate_med_apply(vals: np.ndarray, median: float) -> np.ndarray:
