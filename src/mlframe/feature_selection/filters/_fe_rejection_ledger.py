@@ -237,4 +237,4 @@ def get_fe_rejection_report(mrmr_self: Any) -> str:
     header_parts = [f"{gate}={count}" for gate, count in by_gate.items()]
     header = "MRMR FE rejection ledger: " + ", ".join(header_parts)
     table = led.to_string(index=False)
-    return header + "\n" + table
+    return str(header + "\n" + table)
