@@ -283,7 +283,7 @@ def data_signature(
             # columns without going through the lossy str-uniques path.
             try:
                 # ``null=0`` instead of an ``nuniq`` full ``np.unique`` sort: numpy int/bool dtypes hold no NaN so the null count is structurally zero (mirrors the polars int digest; drops the per-int-column O(n log n) sort -- one-time on-disk cache invalidation).
-                return (f"intmin={int(np.min(arr))};" f"intmax={int(np.max(arr))};" f"null=0").encode()
+                return (f"intmin={int(np.min(arr))};" f"intmax={int(np.max(arr))};" f"null=0").encode("utf-8")
             except Exception:
                 return b"int_opaque"
         if kind == "f":
@@ -294,14 +294,14 @@ def data_signature(
             if _HAS_NUMBA and arr.size >= _COL_STATS_NUMBA_MIN_N and arr.dtype == np.float64:
                 mn_v, mx_v, n_null = _col_stats_float_numba_kernel(arr)
                 if not np.isfinite(mn_v):
-                    return f"all_null:{int(n_null)}".encode()
-                return (f"min={float(mn_v):.12g};" f"max={float(mx_v):.12g};" f"null={int(n_null)}").encode()
+                    return f"all_null:{int(n_null)}".encode("utf-8")
+                return (f"min={float(mn_v):.12g};" f"max={float(mx_v):.12g};" f"null={int(n_null)}").encode("utf-8")
             isnan = ~np.isfinite(arr)
             n_null = int(isnan.sum())
             finite = arr[~isnan]
             if finite.size == 0:
-                return f"all_null:{n_null}".encode()
-            return (f"min={float(np.min(finite)):.12g};" f"max={float(np.max(finite)):.12g};" f"null={n_null}").encode()
+                return f"all_null:{n_null}".encode("utf-8")
+            return (f"min={float(np.min(finite)):.12g};" f"max={float(np.max(finite)):.12g};" f"null={n_null}").encode("utf-8")
         # Generic numeric fallback (datetime / timedelta / complex via float coerce).
         try:
             arr_f = arr.astype(np.float64, copy=False)
@@ -309,14 +309,14 @@ def data_signature(
             n_null = int(isnan.sum())
             finite = arr_f[~isnan]
             if finite.size == 0:
-                return f"all_null:{n_null}".encode()
-            return (f"fmin={float(np.min(finite)):.12g};" f"fmax={float(np.max(finite)):.12g};" f"null={n_null}").encode()
+                return f"all_null:{n_null}".encode("utf-8")
+            return (f"fmin={float(np.min(finite)):.12g};" f"fmax={float(np.max(finite)):.12g};" f"null={n_null}").encode("utf-8")
         except (TypeError, ValueError):
             pass
         # Object / string dtype: hash a fingerprint of distinct values.
         try:
             u = np.unique(arr.astype(str, copy=False))
-            return (f"uniq={int(u.size)};first={u[0] if u.size else ''};" f"last={u[-1] if u.size else ''}").encode()
+            return (f"uniq={int(u.size)};first={u[0] if u.size else ''};" f"last={u[-1] if u.size else ''}").encode("utf-8")
         except Exception:
             return b"opaque"
 
@@ -361,7 +361,7 @@ def data_signature(
                     mn = _stats_row[i]
                     mx = _stats_row[i + n]
                     nc = _stats_row[i + 2 * n]
-                    h.update(f"strmin={mn};strmax={mx};null={int(nc) if nc is not None else 0}".encode())
+                    h.update(f"strmin={mn};strmax={mx};null={int(nc) if nc is not None else 0}".encode("utf-8"))
                     # Sample bytes via gather (O(sample_n), no full materialisation).
                     # Hash the string CONTENT, not the object array's pointer bytes:
                     # ``.to_numpy()`` on a Utf8 column yields an object array whose
@@ -400,14 +400,14 @@ def data_signature(
                     kind = "f" if dt in (pl.Float32, pl.Float64) else ("i" if dt.is_integer() else "u")
                     if kind == "f":
                         if mn is None or mx is None:
-                            h.update(f"all_null:{nc}".encode())
+                            h.update(f"all_null:{nc}".encode("utf-8"))
                         else:
-                            h.update(f"min={float(mn):.12g};max={float(mx):.12g};null={nc}".encode())
+                            h.update(f"min={float(mn):.12g};max={float(mx):.12g};null={nc}".encode("utf-8"))
                     else:
                         if mn is None or mx is None:
-                            h.update(f"all_null:{nc}".encode())
+                            h.update(f"all_null:{nc}".encode("utf-8"))
                         else:
-                            h.update(f"intmin={int(mn)};intmax={int(mx)};null={nc}".encode())
+                            h.update(f"intmin={int(mn)};intmax={int(mx)};null={nc}".encode("utf-8"))
                     # Sample bytes via gather (O(sample_n) materialisation only).
                     sampled = df.get_column(c).gather(sample_idx).to_numpy()
                     h.update(np.ascontiguousarray(sampled).tobytes())

@@ -8,7 +8,7 @@ def preprocess_glue(glue, head=None):
     for model, count in glue["Model"].value_counts().items():
         if count == 1:
             break
-        to_add = pd.Series(glue["Model"][glue["Model"] == model].reset_index(drop=True).index + 1).apply(lambda x: f"_{x}")
+        to_add = pd.Series((glue["Model"][glue["Model"] == model].reset_index(drop=True).index + 1)).apply(lambda x: f"_{x}")
         mask = glue["Model"] == model
         glue.loc[mask, "Model"] = glue.loc[mask, "Model"] + to_add.values
 
@@ -41,7 +41,7 @@ def preprocess_sglue(sglue):
     for model, count in sglue["Model"].value_counts().items():
         if count == 1:
             break
-        to_add = pd.Series(sglue["Model"][sglue["Model"] == model].reset_index(drop=True).index + 1).apply(lambda x: f"_{x}")
+        to_add = pd.Series((sglue["Model"][sglue["Model"] == model].reset_index(drop=True).index + 1)).apply(lambda x: f"_{x}")
         mask = sglue["Model"] == model
         sglue.loc[mask, "Model"] = sglue.loc[mask, "Model"] + to_add.values
 

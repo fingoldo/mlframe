@@ -5,8 +5,8 @@ from typing import Optional
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class Query_Gen_transformer(nn.Module):
-    def __init__(self, input_dim, dim, max_batch=64, num_filters=128, hidden_dim=512, dropout=0.0):
-        super().__init__()
+    def __init__(self, input_dim, dim, max_batch=64, num_filters=128, hidden_dim=512, dropout=float(0.0)):
+        super(Query_Gen_transformer, self).__init__()
 
         self.dim = dim
         self.num_filters = num_filters
@@ -70,8 +70,8 @@ def PositionalEmbedding(input):  # noqa: A002 -- vendored third-party code, matc
 
 
 class Query_Gen_transformer_PE(nn.Module):
-    def __init__(self, input_dim, dim, num_filters=128, hidden_dim=512, dropout=0.0):
-        super().__init__()
+    def __init__(self, input_dim, dim, num_filters=128, hidden_dim=512, dropout=float(0.0)):
+        super(Query_Gen_transformer_PE, self).__init__()
 
         self.dim = dim
         self.num_filters = num_filters
@@ -198,5 +198,5 @@ model = Query_Gen_transformer_PE(input_dim, batch_size, dim)
 input_data = torch.rand(1, batch_size, input_dim)
 
 output = model(input_data)
-print(output.shape)
+print(output.shape)  
 """

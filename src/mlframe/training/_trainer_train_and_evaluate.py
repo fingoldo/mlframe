@@ -659,7 +659,7 @@ def train_and_evaluate_model(
                         _ckpt_dir = os.path.splitext(model_file_name)[0]
                         _inner = getattr(model, "regressor", model)
                         if hasattr(_inner, "trainer_params"):
-                            _inner.checkpoint_dir_override = _ckpt_dir
+                            setattr(_inner, "checkpoint_dir_override", _ckpt_dir)
                 except Exception as e:
                     logger.debug("swallowed exception in _trainer_train_and_evaluate.py: %s", e)
                     pass
@@ -727,9 +727,9 @@ def train_and_evaluate_model(
                     )
                     try:
                         if _oof_preds is not None:
-                            model.oof_preds = _oof_preds
+                            setattr(model, "oof_preds", _oof_preds)
                         if _oof_probs is not None:
-                            model.oof_probs = _oof_probs
+                            setattr(model, "oof_probs", _oof_probs)
                             # Stamp the train-aligned target so post-hoc OOF
                             # calibration pairs each OOF prob with its OWN row's
                             # label. cross_val_predict returns predictions in
@@ -739,7 +739,7 @@ def train_and_evaluate_model(
                             # target_series slice that is correct only when train
                             # is the leading contiguous block (wrong under
                             # shuffled / group-aware splits).
-                            model.oof_target = _y_arr
+                            setattr(model, "oof_target", _y_arr)
                     except AttributeError:
                         # Some frozen-attribute estimators (sklearn 1.4+ slots) refuse new attrs; stamp on the wrapper carrier instead.
                         pass

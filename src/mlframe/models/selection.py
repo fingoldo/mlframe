@@ -79,7 +79,7 @@ class GroupTimeSeriesSplit(_BaseKFold):
             else:
                 group_dict[g] = [idx]
         if n_folds > n_groups:
-            raise ValueError(f"Cannot have number of folds={n_folds} greater than" f" the number of groups={n_groups}")
+            raise ValueError(("Cannot have number of folds={0} greater than" " the number of groups={1}").format(n_folds, n_groups))
         group_test_size = n_groups // n_folds
         group_test_starts = range(n_groups - n_splits * group_test_size, n_groups, group_test_size)
         # group_test_start is strictly increasing, so the train prefix unique_groups[:group_test_start] only grows each fold.
