@@ -32,8 +32,8 @@ def get_training_configs(
     validation_fraction: float = 0.1,
     use_explicit_early_stopping: bool = True,
     has_time: bool = True,
-    has_gpu: bool = None,
-    subgroups: dict = None,
+    has_gpu: bool | None = None,
+    subgroups: dict | None = None,
     learning_rate: float = 0.1,
     # 2026-05-26 (user request): default flipped from "MAE" to "RMSE"
     # for unified ES surface across CB / LGB / XGB / MLP. RMSE is the
@@ -82,12 +82,12 @@ def get_training_configs(
     # ----------------------------------------------------------------------------------------------------------------------------
     # model-specific params
     # ----------------------------------------------------------------------------------------------------------------------------
-    cb_kwargs: dict = None,
-    hgb_kwargs: dict = None,
-    lgb_kwargs: dict = None,
-    xgb_kwargs: dict = None,
-    mlp_kwargs: dict = None,
-    ngb_kwargs: dict = None,
+    cb_kwargs: dict | None = None,
+    hgb_kwargs: dict | None = None,
+    lgb_kwargs: dict | None = None,
+    xgb_kwargs: dict | None = None,
+    mlp_kwargs: dict | None = None,
+    ngb_kwargs: dict | None = None,
     # First-class predict-time MLP batch override. When None (default) the
     # wrapper auto-adapts to memory + input width. Plumbed in from
     # ``ModelHyperparamsConfig.mlp_predict_batch_size`` so callers don't
@@ -96,14 +96,14 @@ def get_training_configs(
     # ----------------------------------------------------------------------------------------------------------------------------
     # featureselectors
     # ----------------------------------------------------------------------------------------------------------------------------
-    rfecv_kwargs: dict = None,
+    rfecv_kwargs: dict | None = None,
     # ----------------------------------------------------------------------------------------------------------------------------
     # Skip MLP-config build (incl. ~14s pytorch / lightning import on first
     # call) when MLP isn't in the requested model list. Default ``None``
     # preserves legacy behaviour (build all configs).
     # ----------------------------------------------------------------------------------------------------------------------------
     enabled_models: Optional[Sequence[str]] = None,
-) -> tuple:
+) -> SimpleNamespace:
     """Returns comparable training configs for different types of models,
     based on general params supplied like learning rate, task type, time budget.
     Useful for more or less fair comparison between different models on the same data/task, and their upcoming ensembling.
@@ -348,7 +348,7 @@ def get_training_configs(
         )
         if verbose:
             logger.debug("integral_calibration_error=%s (n=%d)", err, len(y_true))
-        return err
+        return float(err)
 
     def make_robust_ts_metric(
         metric_fn,
@@ -449,7 +449,7 @@ def get_training_configs(
                 metric=integral_calibration_error,
                 higher_is_better=False,
                 subgroups=subgroups,
-                **kwargs,
+                **kwargs,  # type: ignore[misc]  # caller (xgboost/lgbm eval callback) never passes these names in kwargs
             )
 
     else:
@@ -469,7 +469,7 @@ def get_training_configs(
     def fs_and_hpt_integral_calibration_error(*args, verbose: bool = True, **kwargs):
         err = compute_probabilistic_multiclass_error(
             *args,
-            **kwargs,
+            **kwargs,  # type: ignore[misc]  # caller (xgboost/lgbm eval callback) never passes these names in kwargs
             mae_weight=mae_weight,
             std_weight=std_weight,
             brier_loss_weight=brier_loss_weight,
@@ -729,7 +729,7 @@ def get_training_configs(
         if mlp_kwargs:
             mlp_dataloader_params.update(mlp_kwargs.get("dataloader_params", {}))
 
-        mlp_datamodule_params = dict(
+        mlp_datamodule_params: dict = dict(
             read_fcn=None, data_placement_device=None,
             features_dtype=torch.float32, labels_dtype=labels_dtype,
             dataloader_params=mlp_dataloader_params,
