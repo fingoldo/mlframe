@@ -552,7 +552,6 @@ def apply_cmi_redundancy_gate(
                 # analytic floor/null for all candidates from the batched cards (matches _conditional_perm_null)
                 try:
                     from ._analytic_mi_null import _HAVE_CHI2, _chi2, _min_expected_cell, analytic_null_enabled
-                    from ._mi_greedy_cmi_fe import _cmi_analytic_null_min_n
                     if _HAVE_CHI2 and analytic_null_enabled() and n_rows >= _cmi_analytic_null_min_n():
                         _nf = float(max(1, n_rows)); _mincell = _min_expected_cell()
                         for _j, _nm in enumerate(_rem_list):
