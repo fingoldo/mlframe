@@ -122,6 +122,7 @@ class LGBMonotonicDeclineStop:
                 "consecutive rounds since best @%d.", env.iteration, ds, mt, self._stopper.streak,
                 self._best_iter,
             )
+            assert self._best_value is not None  # set above once the stopper is enabled
             raise lgb.callback.EarlyStopException(self._best_iter, [(ds, mt, self._best_value, self._stopper.mode == "max")])
 
 
@@ -188,7 +189,7 @@ def _make_xgb_monotonic_callback(patience: Optional[int] = 7, monitor_dataset: O
                     "[xgb monotonic-decline] stopping at iteration %d: %s/%s strictly worsened for %d "
                     "consecutive rounds since best @%d.", epoch, ds, mt, self._stopper.streak, self._best_iter,
                 )
-                if model is not None:
+                if model is not None and self._best_value is not None:
                     # ``best_iteration`` is 0-based; predict uses ``(0, best_iteration + 1)``.
                     model.set_attr(best_iteration=str(int(self._best_iter)), best_score=str(float(self._best_value)))
                 return True
@@ -248,7 +249,7 @@ class CBMonotonicDeclineStop:
             return True
         value = float(series[-1])
         if self._stopper is None:
-            resolved = _resolve_mode(mt, self._mode)
+            resolved = _resolve_mode(mt or "", self._mode)
             if resolved == _UNKNOWN_DIRECTION:
                 self._stopper = MonotonicDeclineStopper(None)  # disabled: unknown direction, never stops
                 return True

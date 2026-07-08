@@ -450,7 +450,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
         if isinstance(proba, list):
             proba = proba[0]
         if proba.ndim == 1:
-            return proba
+            return np.asarray(proba)
         if proba.shape[1] == 2:
-            return proba[:, 1]
-        return proba[:, -1]
+            return np.asarray(proba[:, 1])
+        return np.asarray(proba[:, -1])

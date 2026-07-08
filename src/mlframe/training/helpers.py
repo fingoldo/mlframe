@@ -69,7 +69,7 @@ except (ImportError, AttributeError, ModuleNotFoundError):
 # available for CatBoost). Probe each binary's actual GPU support ONCE at
 # module-import so the helpers never set device='cuda'
 
-def parse_catboost_devices(devices: str, all_gpus: list = None) -> List[Dict]:
+def parse_catboost_devices(devices: str, all_gpus: list | None = None) -> List[Dict]:
     """
     Parses a GPU devices string and returns a list of GPU info dicts
     corresponding to the specified device indices.

@@ -52,8 +52,8 @@ def tta_predict(
         preds.append(np.asarray(predict_fn(Xf + noise)))
     stacked = np.stack(preds, axis=0)
     if agg == "median":
-        return np.median(stacked, axis=0)
-    return np.mean(stacked, axis=0)
+        return np.asarray(np.median(stacked, axis=0))
+    return np.asarray(np.mean(stacked, axis=0))
 
 
 def tta_predict_spread(
@@ -81,7 +81,7 @@ def tta_predict_spread(
     for pass_rng in child_rngs:
         noise = pass_rng.standard_normal(Xf.shape) * (sigma_scale * feature_std)
         preds.append(np.asarray(predict_fn(Xf + noise)))
-    return np.std(np.stack(preds, axis=0), axis=0)
+    return np.asarray(np.std(np.stack(preds, axis=0), axis=0))
 
 
 def tta_point_mean_spread(

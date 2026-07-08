@@ -73,7 +73,7 @@ def _ensure_ctx_artifacts(ctx) -> dict:
     assignments can land ``None`` on the slot. Calling .setdefault() then AttributeErrors before
     the helper has a chance to install its key.
     """
-    artifacts = ctx.artifacts
+    artifacts: dict = ctx.artifacts
     if artifacts is None:
         artifacts = {}
         ctx.artifacts = artifacts
@@ -82,7 +82,8 @@ def _ensure_ctx_artifacts(ctx) -> dict:
 
 def _ensure_feature_side_cache(ctx) -> dict:
     """Return the (creating-if-needed) suite-scoped feature-side cache off ctx.artifacts."""
-    return _ensure_ctx_artifacts(ctx).setdefault(_FEATURE_SIDE_CACHE_KEY, {})
+    result: dict = _ensure_ctx_artifacts(ctx).setdefault(_FEATURE_SIDE_CACHE_KEY, {})
+    return result
 
 
 def _ensure_dataset_reuse_cache(ctx) -> dict:
@@ -95,7 +96,8 @@ def _ensure_dataset_reuse_cache(ctx) -> dict:
     are dicts of ``_DATASET_REUSE_CACHE_ATTRS`` -> value captured from the prior target's fitted
     model template before _maybe_clear_shim_cache nuked it.
     """
-    return _ensure_ctx_artifacts(ctx).setdefault(_DATASET_REUSE_CACHE_KEY, {})
+    result: dict = _ensure_ctx_artifacts(ctx).setdefault(_DATASET_REUSE_CACHE_KEY, {})
+    return result
 
 
 def _dataset_reuse_cache_key(mlframe_model_name: str, pp_name: str | None) -> tuple:
