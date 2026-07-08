@@ -163,8 +163,8 @@ def _score_one_pair(
 
     combs = pair_combs[raw_vars_pair]
 
-    best_config, best_mi = None, -1
-    this_pair_features = set()
+    best_config, best_mi = None, -1.0
+    this_pair_features: set = set()
     var_pairs_perf = {}
     # Pre-warp uplift tracking (2026-06-02): the best engineered MI achievable
     # with ONLY the elementary library unaries (no ``prewarp`` operand) vs the
@@ -268,7 +268,7 @@ def _score_one_pair(
     else:
         final_transformed_vals = final_transformed_vals_shared
     _col_buf_1d: np.ndarray | None = np.empty(len(X), dtype=np.float32) if _need_recompute_map else None
-    _config_by_i: dict[int, tuple] = {} if _need_recompute_map else None
+    _config_by_i: dict[int, tuple] | None = {} if _need_recompute_map else None
 
     def _resolve_col(_buf_col):
         """Continuous candidate column ``_buf_col`` for the intermediate (subsample) scoring reads.
@@ -284,7 +284,7 @@ def _score_one_pair(
         if _cached is not None:
             return _cached
         import cupy as cp
-        from .._gpu_resident_fe import _fe_materialise_block_gpu, _resident_operand_table
+        from .._gpu_resident_fe import _fe_materialise_block_gpu, _resident_operand_table  # type: ignore[attr-defined]  # dynamically re-exported via globals() from _gpu_resident_materialise
         if chunk_state["tv_gpu"] is None:
             # per-step weakref-cached operand table (shared with gpu_materialise) -> one H2D/step
             chunk_state["tv_gpu"] = _resident_operand_table(cp, transformed_vars)
@@ -337,6 +337,7 @@ def _score_one_pair(
             # replay's ``_fe_mi_arr[_ci]`` lookup is correct without re-indexing.
             _fe_mi_arr = _fe_mi_by_col
         else:
+            assert final_transformed_vals is not None  # _use_batch_disc with no _chunk_entry implies the buffer is filled (see _use_batch_disc definition above)
             # bench-attempt-rejected (2026-06-23, MRMR FE wall /loop iter10): the F2 100k cProfile
             # attributes ~40s tottime to THIS function and ~6.6s to ``_safe_div``, suggesting "Python
             # per-candidate orchestration overhead". A line_profiler pass (line-by-line, F2 100k warm)
@@ -423,7 +424,7 @@ def _score_one_pair(
                     if _K > 0 and _fe_gpu_binning_enabled(final_transformed_vals.shape[0], _K):
                         _code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)
                         _start = timer()
-                        from .._gpu_resident_fe import gpu_materialise_discretize_codes_host
+                        from .._gpu_resident_fe import gpu_materialise_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals()
                         _disc_2d = gpu_materialise_discretize_codes_host(
                             transformed_vars,
                             np.asarray(_a_cols, dtype=np.int64),
@@ -505,7 +506,7 @@ def _score_one_pair(
                 # the non-analytic branch (SU / sparse / small-n) -> falls through to the CPU dispatch.
                 if _fe_gpu_discretize_enabled(final_transformed_vals.shape[0], i):
                     try:
-                        from .._gpu_resident_fe import gpu_pairs_fe_mi
+                        from .._gpu_resident_fe import gpu_pairs_fe_mi  # type: ignore[attr-defined]  # dynamically re-exported via globals()
                         _fe_mi_arr = gpu_pairs_fe_mi(
                             final_transformed_vals[:, :i], int(quantization_nbins),
                             classes_y, classes_y_safe, freqs_y,
@@ -528,7 +529,7 @@ def _score_one_pair(
                         try:
                             from ._pairs_core import _fe_gpu_binning_enabled
                             if _fe_gpu_binning_enabled(final_transformed_vals.shape[0], i):
-                                from .._gpu_resident_fe import gpu_discretize_codes_host
+                                from .._gpu_resident_fe import gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals()
                                 # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
                                 # whose resident-CUDA gate consumes the DEVICE codes in place (take_resident_codes)
                                 # and only triggers the lazy host fill (ensure_host_codes_filled) on a host-reading
@@ -567,6 +568,7 @@ def _score_one_pair(
                 # path by n*K via the kernel_tuning_cache (no hardcoded threshold).
                 # Skipped when the GPU pair-MI path above already produced ``_fe_mi_arr``.
                 if _fe_mi_arr is None:
+                    assert _disc_2d is not None  # populated by the GPU-fused/GPU-binning path or the CPU discretize_2d_quantile_batch fallback above
                     _fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
                         disc_2d=_disc_2d,
                         quantization_nbins=quantization_nbins,
@@ -592,6 +594,7 @@ def _score_one_pair(
                 config = (transformations_pair, bin_func_name, _ci)
                 var_pairs_perf[config] = fe_mi
                 if _need_recompute_map:
+                    assert _config_by_i is not None
                     _config_by_i[_ci] = (transformations_pair[0], transformations_pair[1], bin_func_name)
 
                 if fe_mi > best_mi:
@@ -642,6 +645,7 @@ def _score_one_pair(
                             # bin_func returns a fresh ndarray; copy into the scratch
                             # so downstream nan_to_num + discretize see contiguous
                             # data. Avoids accumulating one alloc per inner iter.
+                            assert _col_buf_1d is not None  # recompute fallback only reached when _need_recompute_map allocated it
                             _col_buf_1d[:] = bin_func(param_a, param_b)
                             _col_view = _col_buf_1d
                     except Exception:
@@ -681,6 +685,7 @@ def _score_one_pair(
                         if _need_recompute_map:
                             # Map i -> (a_key, b_key, bin_func_name) for downstream
                             # rebuild; bin_func is looked up via the original dict.
+                            assert _config_by_i is not None
                             _config_by_i[i] = (transformations_pair[0], transformations_pair[1], bin_func_name)
 
                         if fe_mi > best_mi:
