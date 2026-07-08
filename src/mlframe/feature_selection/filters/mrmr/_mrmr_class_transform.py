@@ -13,6 +13,14 @@ import numpy as np
 class _MRMRTransformMixin:
     """sklearn transform-protocol helpers for :class:`MRMR` (see module docstring)."""
 
+    # Set by the concrete MRMR class (fit()) / sklearn base classes in the MRO; declared here so this
+    # mixin type-checks on its own without requiring the full MRMR class body.
+    n_features_in_: int
+    support_: np.ndarray
+
+    def transform(self, X):
+        raise NotImplementedError  # overridden on the concrete MRMR class body (see module docstring)
+
     def get_feature_names_out(self, input_features=None):
         """sklearn-1.x transformer protocol. Returns the names of selected features as an ndarray of str,
         matching transform() output cols. When ``self._engineered_recipes_`` is non-empty, their names are
