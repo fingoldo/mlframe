@@ -655,6 +655,7 @@ def apply_preprocessing_extensions(
         and train.shape[0] > 0
         and n_features > 0
     ):
+        assert _byte_cap is not None  # guaranteed by the ``_byte_cap not in (None, 0)`` check above
         from mlframe.training.feature_handling.polynomial import _projected_output_cols
         _n_samples = train.shape[0]
         _eff_degree = int(config.polynomial_degree)
