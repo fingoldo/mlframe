@@ -1353,3 +1353,11 @@ New or edited code must type-check under strict mypy the first time, not after a
 
 This is a general engineering-discipline rule, not a project-specific one — it applies to every new function and every edit to an existing one, in both `mlframe` and `pyutilz`.
 
+## Never hand-wave a discovered gap as "time constraints" (CRITICAL, 2026-07-09)
+
+There is no time limit on a turn. Do not write, think, or act on "given the time constraints" (or "budget"/"effort constraints") as a reason to ship a shallow fix, skip investigating WHY something is wrong, or leave a discovered gap undesigned. If this phrase shows up in reasoning, it is the signal to stop and do the full fix instead.
+
+**Why:** caught live (2026-07-09) — found `calib_test_metrics` in `mlframe/calibration/post.py` computed by `compare_postcalibrators` and then silently discarded (only `test_calibrators` reached the caller). The first instinct was to just log+return the `None` value, reasoning "given the time constraints" not to dig further. The user caught the leaked phrase and pushed back: there is no time limit, solve it properly. Digging in found the REAL bug: the only in-repo caller always passed `oos_probs=None`, which made `compare_postcalibrators` skip ALL metric computation unconditionally — the value wasn't just dropped by the caller, it was **never computed at all**. The proper fix added a self-evaluation-on-calib-set fallback so the metric is actually real, not a `None` plumbed through more visibly. A shallow "log the None" fix would have shipped a no-op improvement.
+
+**How to apply:** when you find a variable/value that looks wrong (always `None`, always empty, always the default), trace it to its ROOT cause by testing the actual runtime behavior — don't assume from reading the code once. The temptation to stop early because "there's already a lot of work done this turn" is exactly the moment to keep going, not wrap up. This pairs with the existing "always full fix" and "drive every discovery to resolution" rules above — this one specifically targets self-imposed time-pressure framing as the trigger to self-correct.
+
