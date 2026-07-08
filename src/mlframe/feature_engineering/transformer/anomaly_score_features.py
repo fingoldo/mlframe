@@ -86,6 +86,7 @@ def compute_anomaly_score_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()  # not actually used; kept for API parity
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Optionally standardize on ``Xt`` and delegate to ``_fit_anomaly_predict`` for the two-IsolationForest anomaly scores of ``Xq``."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -97,6 +98,7 @@ def compute_anomaly_score_features(
         return _fit_anomaly_predict(Xt_s, Xq_s, seed=fold_seed)
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Map the fixed iso1/iso2/mean/std anomaly-score columns of ``feats`` to their ``{column_prefix}_*`` output names."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_iso1"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_iso2"] = feats[:, 1].astype(dtype, copy=False)

@@ -28,7 +28,7 @@ __all__ = [
 # drift. Numba reads these as module globals at @njit-decoration time
 # (which happens BELOW this import block), so the bindings are visible
 # in time for kernel compilation.
-from ._numerical_constants import (  # noqa: E402
+from ._numerical_constants import (
     NUMBA_NJIT_PARAMS,
     LARGE_CONST,
     GEOMEAN_OVERFLOW_HI,

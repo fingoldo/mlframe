@@ -47,6 +47,19 @@ if _NUMBA_AVAILABLE:
 
     @_numba.njit(cache=True, fastmath=_FASTMATH)
     def _bocpd_inner(seg, hazard, mu0, kappa0, alpha0, beta0, out_p_change, out_expected_rl, out_max_rl, max_run_length):
+        """Adams & MacKay (2007) BOCPD forward recursion over one contiguous segment.
+
+        Maintains a Normal-Inverse-Gamma (NIG) conjugate posterior per candidate run length: at each step every live
+        run length gets a Student-t predictive log-likelihood for the new observation (closed-form from the NIG
+        params), the run-length posterior is updated via the hazard-weighted growth/change-point recursion
+        (``P(r_t=r_{t-1}+1) ~ (1-hazard)``, ``P(r_t=0) ~ hazard``), and the NIG sufficient stats (mu, kappa, alpha,
+        beta) are updated per surviving run length via the standard conjugate-update formulas. ``max_run_length``
+        caps the run-length vector at ``cap`` elements, truncating the lowest-probability tail and renormalising, so
+        state and per-step work stay O(max_run_length) instead of growing unboundedly with T. NaN observations trigger
+        a predict-only branch (run lengths still grow, no likelihood update). Writes per-row summaries into
+        ``out_p_change`` (P(change-point) = P(run_length=0)), ``out_expected_rl`` (posterior mean run length), and
+        ``out_max_rl`` (MAP run length).
+        """
         T = seg.size
         # Run-length posterior grows by 1 per step (O(T) state, O(T^2) total). ``max_run_length`` caps it: when
         # cur_len would exceed the cap, the (lowest-probability) tail of large run lengths is dropped and the
@@ -136,6 +149,16 @@ if _NUMBA_AVAILABLE:
 
     @_numba.njit(cache=True, fastmath=_FASTMATH)
     def _oblr_inner(y_arr, X_arr, prior_precision, noise_sigma, out_pred_mean, out_pred_var, out_log_marg):
+        """Recursive Bayesian linear regression (NIG-conjugate) forward pass over one contiguous segment.
+
+        Maintains a Gaussian posterior ``N(mu, Sigma)`` over the regression coefficients, initialised from an
+        isotropic prior ``Sigma_0 = I / prior_precision``. At each step: predicts ``y_t`` from ``x_t @ mu`` with
+        variance ``x_t @ Sigma @ x_t + noise_var`` (one-step-ahead predictive), then -- if ``y_t`` is finite -- applies
+        a Kalman-gain-style rank-1 update (``Sx = Sigma @ x_t``, gain ``K = Sx / pred_var``, ``mu += K * innovation``,
+        ``Sigma -= outer(K, Sx)``), equivalent to the recursive least-squares / conjugate-Bayes update for fixed noise
+        variance. NaN ``y_t`` skips the update (predict-only). Writes per-row predictive mean, predictive variance,
+        and incremental log-marginal-likelihood (log-evidence contribution of that row) into the output arrays.
+        """
         n, k = X_arr.shape
         mu = np.zeros(k, dtype=np.float64)
         Sigma = np.eye(k, dtype=np.float64) / prior_precision
@@ -177,6 +200,13 @@ if _NUMBA_AVAILABLE:
 
     @_numba.njit(cache=True)
     def _bocpd_groups_serial(obs_sorted, starts, ends, hazard, mu0, kappa0, alpha0, beta0, out_p, out_ex, out_max, max_run_length):
+        """Serial group driver for ``_bocpd_inner``: runs each group's segment through the BOCPD recursion one at a time.
+
+        ``obs_sorted``/outputs are group-contiguous (sorted by ``iter_group_segments``); ``starts``/``ends`` are
+        per-group slice bounds. Each group gets a fresh NIG prior (``mu0``/``kappa0``/``alpha0``/``beta0``), so no
+        state bleeds across group boundaries. Used when the group count is too small (or total work too small) for
+        ``prange`` spawn overhead to pay off; see ``_bocpd_groups_parallel`` and ``dispatch_recursion_backend``.
+        """
         for g in range(starts.size):
             s = starts[g]
             e = ends[g]
@@ -184,6 +214,14 @@ if _NUMBA_AVAILABLE:
 
     @_numba.njit(parallel=True, cache=True)
     def _bocpd_groups_parallel(obs_sorted, starts, ends, hazard, mu0, kappa0, alpha0, beta0, out_p, out_ex, out_max, max_run_length):
+        """Parallel group driver for ``_bocpd_inner``: ``numba.prange`` over independent groups, each group serial internally.
+
+        The per-group BOCPD recursion (``_bocpd_inner``) is inherently sequential in time, but distinct groups (e.g.
+        wells / panels) are statistically independent, so the parallel axis is across groups rather than across time
+        steps. Each ``prange`` iteration writes to a disjoint output slice (``out_p[s:e]`` etc.), so there is no
+        cross-thread contention. Chosen over the serial driver when group count / total work is large enough to
+        amortise thread-spawn overhead; see ``dispatch_recursion_backend``.
+        """
         for g in _numba.prange(starts.size):
             s = starts[g]
             e = ends[g]
@@ -191,6 +229,12 @@ if _NUMBA_AVAILABLE:
 
     @_numba.njit(cache=True)
     def _oblr_groups_serial(y_sorted, X_sorted, starts, ends, prior_precision, noise_sigma, out_pm, out_pv, out_lm):
+        """Serial group driver for ``_oblr_inner``: runs each group's segment through the OBLR recursion one at a time.
+
+        Mirrors ``_bocpd_groups_serial``: group-contiguous inputs/outputs sliced by ``starts``/``ends``, each group
+        re-initialised from the same isotropic prior (``prior_precision``) so no posterior state bleeds across group
+        boundaries. Used for small group counts / total work, where ``prange`` spawn overhead would not pay off.
+        """
         for g in range(starts.size):
             s = starts[g]
             e = ends[g]
@@ -198,6 +242,13 @@ if _NUMBA_AVAILABLE:
 
     @_numba.njit(parallel=True, cache=True)
     def _oblr_groups_parallel(y_sorted, X_sorted, starts, ends, prior_precision, noise_sigma, out_pm, out_pv, out_lm):
+        """Parallel group driver for ``_oblr_inner``: ``numba.prange`` over independent groups, each group serial internally.
+
+        Same parallelisation strategy as ``_bocpd_groups_parallel`` -- groups are independent regression problems, so
+        the recursive (sequential-in-time) OBLR update runs within each ``prange`` iteration while iterations
+        themselves scale across cores, each writing a disjoint output slice. Selected over the serial driver by
+        ``dispatch_recursion_backend`` once group count / total work is large enough to amortise thread-spawn cost.
+        """
         for g in _numba.prange(starts.size):
             s = starts[g]
             e = ends[g]
@@ -208,6 +259,17 @@ if _NUMBA_AVAILABLE:
     # explicit isfinite NaN predict-only branch also needs nnan OFF).
     @_numba.njit(cache=True, fastmath=False)
     def _kf_inner(observations, prior_traj, Q, R, initial_variance):
+        """Numba-jitted 1D linear-Gaussian Kalman filter recurrence: predict/update loop over one segment.
+
+        Standard scalar KF: predict step adds the prior-trajectory drift (``prior_traj[t] - prior_traj[t-1]``) to the
+        state mean and process noise variance ``Q`` to the state variance; update step (only when ``observations[t]``
+        is finite) computes the innovation, Kalman gain ``K = var_pred / (var_pred + R)``, and the standard mean/
+        variance posterior update, plus the per-row Gaussian log-likelihood of the innovation. Non-finite observations
+        take a predict-only branch (state carries forward with no correction). ``fastmath=False`` keeps exact IEEE op
+        order so results are bit-identical to the pure-Python reference in ``_kf_single_segment`` -- the explicit
+        ``isfinite`` NaN-gate branch also requires ``nnan`` to stay off. Returns a ``(T, 5)`` array of
+        (mean, var, innovation, innovation_var, log_lik) per timestep.
+        """
         T = observations.size
         out = np.full((T, 5), np.nan, dtype=np.float64)
         if T == 0:
@@ -548,6 +610,7 @@ def kalman_filter_posterior_1d(
     out_log_lik = np.full(n, np.nan, dtype=np.float64)
 
     def _write(idx_seg, res):
+        """Scatter a single segment's ``(T, 5)`` KF result columns into the shared per-row output arrays at ``idx_seg``."""
         out_mean[idx_seg] = res[:, 0]
         out_var[idx_seg] = res[:, 1]
         out_innov[idx_seg] = res[:, 2]
@@ -617,6 +680,13 @@ def kalman_smoother_posterior_1d(
     Q = transition_sigma**2
 
     def _run(idx_seg: np.ndarray) -> None:
+        """Run forward KF + backward RTS smoothing over one segment and scatter smoothed mean/var into the outputs.
+
+        Forward pass mirrors ``_kf_single_segment`` (predict + update, storing both filtered and predicted
+        mean/var per step); backward pass applies the RTS smoother recursion
+        ``G = f_var[t] / p_var[t+1]``, ``s_mean[t] = f_mean[t] + G * (s_mean[t+1] - p_mean[t+1])``, propagating
+        future evidence backward through the filtered estimates. O(T) total.
+        """
         seg_obs = obs[idx_seg]
         seg_prior = prior_arr[idx_seg]
         T = seg_obs.size
@@ -712,6 +782,13 @@ def bocpd_features(
     out_max_rl = np.full(n, np.nan, dtype=np.float64)
 
     def _run(idx_seg: np.ndarray) -> None:
+        """Run the BOCPD recursion over one segment, dispatching to the njit ``_bocpd_inner`` kernel when available.
+
+        Falls back to an equivalent pure-NumPy implementation of the same Adams-MacKay recursion (vectorised over run
+        length via array concatenation) when numba is unavailable, applying the same ``max_run_length`` truncation +
+        renormalisation. Used for the ``group_ids is None`` path and as the no-numba group fallback; the numba-group
+        path routes through ``_bocpd_groups_serial``/``_bocpd_groups_parallel`` instead.
+        """
         seg = np.ascontiguousarray(obs[idx_seg], dtype=np.float64)
         T = seg.size
         if T == 0:
@@ -850,6 +927,12 @@ def online_bayesian_linear_regression(
     out_log_marg = np.full(n, np.nan, dtype=np.float64)
 
     def _run(idx_seg: np.ndarray) -> None:
+        """Run the OBLR recursion over one segment, dispatching to the njit ``_oblr_inner`` kernel when available.
+
+        Falls back to an equivalent pure-NumPy Sherman-Morrison-style covariance update when numba is unavailable.
+        Used for the ``group_ids is None`` path and as the no-numba group fallback; the numba-group path routes
+        through ``_oblr_groups_serial``/``_oblr_groups_parallel`` instead.
+        """
         idx = np.ascontiguousarray(idx_seg, dtype=np.int64)
         if idx.size == 0:
             return

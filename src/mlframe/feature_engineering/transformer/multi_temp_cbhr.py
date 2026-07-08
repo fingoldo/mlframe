@@ -33,6 +33,7 @@ _DEFAULT_TEMPS: tuple[float, ...] = (0.3, 1.0, 3.0)
 
 
 def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Temperature-scaled softmax over the last axis, with a max-subtraction for numerical stability and a temperature floor to avoid division by zero."""
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
@@ -40,6 +41,7 @@ def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
+    """Fit a small in-fold LightGBM baseline on ``(Xt, y_t)`` and return its in-sample predictions (probability for binary, raw value for regression), used to derive hard-row residuals for anchor selection."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -62,6 +64,7 @@ def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int,
 
 
 def _topk_within_subset(values: np.ndarray, subset_idx: np.ndarray, k: int) -> np.ndarray:
+    """Indices (into ``values``) of the top-``k`` largest values restricted to ``subset_idx``, deterministically tiebroken by position; returns empty when the subset is empty."""
     if subset_idx.size == 0:
         return np.array([], dtype=np.int64)
     k_eff = min(k, subset_idx.size)
@@ -105,6 +108,7 @@ def compute_multi_temp_cbhr_features(
     features_per_temp = n_total_anchors + 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the baseline + hard-anchor selection on ``(Xt, y_t)``, then compute the multi-temperature attention feature block for query rows ``Xq``; used per-fold (Mode A) or once on the full train set against ``X_query`` (Mode B)."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -181,6 +185,7 @@ def compute_multi_temp_cbhr_features(
         return out_blocks
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Label the flat ``(n_query, n_temps * features_per_temp)`` feature block into named columns (per-temperature weights, entropy, and per-side y/residual aggregates)."""
         cols: dict[str, np.ndarray] = {}
         for ti, t in enumerate(temps_list):
             base = ti * features_per_temp

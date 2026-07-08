@@ -127,6 +127,7 @@ def compute_nn_oof_target_mean_features(
     n_features = 3 * len(k_list)
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Embed Xt/Xq via 3 baseline models, find each query's k nearest training neighbours in embedding space, then for every k in k_list compute the neighbours' target mean/std/above-threshold-fraction."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -159,6 +160,7 @@ def compute_nn_oof_target_mean_features(
         return out
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Name the 3 stats (mean/std/fraction-above) per k value into distinct output columns."""
         cols: dict[str, np.ndarray] = {}
         for ki, k in enumerate(k_list):
             base = ki * 3

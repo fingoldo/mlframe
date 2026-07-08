@@ -251,4 +251,4 @@ __all__ = [
 ]
 
 # Public re-export so cross-package consumers can avoid reaching into ``transformer._utils``. The underscore-prefixed source remains the implementation; this is the documented public surface.
-from ._utils import is_gpu_available  # noqa: E402, F401
+from ._utils import is_gpu_available

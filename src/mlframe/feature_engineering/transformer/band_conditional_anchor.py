@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 
 def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Temperature-scaled, numerically stable softmax over the last axis (subtracts the row max before exponentiating)."""
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
@@ -78,6 +79,7 @@ def compute_band_conditional_anchor_features(
     effective_n_bands = 2 if task == "binary" else n_bands
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit per-band K-means anchors on one train fold and score one query batch against all bands' anchors."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -171,6 +173,7 @@ def compute_band_conditional_anchor_features(
     n_features = n_anchors_total + 1 + 1 + 1 + effective_n_bands + 1 + 1  # weights + 4 scalars + band-masses + 2 argmax
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the flat feature matrix into named columns (per-anchor weights, entropy, flat/band aggregates, argmaxes)."""
         cols: dict[str, np.ndarray] = {}
         # weights[a]
         for a in range(n_anchors_total):

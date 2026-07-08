@@ -103,6 +103,12 @@ def _filter_boundary_virtuals(X_train: np.ndarray, y_train: np.ndarray, virtuals
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
+    """Distances from each query row to its 1st/3rd/5th/10th (``_K_SCALES``) nearest neighbor in ``X_subset``.
+
+    Returns an ``(n_query, len(_K_SCALES))`` matrix. If ``X_subset`` is empty, returns a large sentinel
+    distance (1e6) for every scale so downstream log-gap arithmetic stays finite. When ``X_subset`` has
+    fewer rows than a requested ``k``, falls back to the farthest available neighbor for that scale.
+    """
     from sklearn.neighbors import NearestNeighbors
     n_sub = X_subset.shape[0]
     if n_sub == 0:
@@ -146,6 +152,7 @@ def compute_active_virtual_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split rows into (positive-cloud, negative-cloud) subsets: class masks for binary, ``q_high``/``1-q_high`` quantile tails for regression."""
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
@@ -154,6 +161,12 @@ def compute_active_virtual_features(
         return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Run one fold/mode pass: standardize, SMOTE + boundary-filter the positive cloud, then compute per-query k-NN distances and log-gaps.
+
+        Returns an ``(n_query, 2 * len(_K_SCALES))`` matrix: k-NN distances to the boundary-augmented positive
+        cloud followed by the signed log-gap vs the negative cloud. Falls back to all-zero features when either
+        cloud has fewer than 2 rows (insufficient support to fit the aux LGB or run SMOTE).
+        """
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -177,6 +190,7 @@ def compute_active_virtual_features(
         return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Name and cast the ``_process`` output columns to the output ``dtype``, prefixed with ``column_prefix``."""
         cols: dict[str, np.ndarray] = {}
         for j, k in enumerate(_K_SCALES):
             cols[f"{column_prefix}_pos_k{k}"] = feats[:, j].astype(dtype, copy=False)

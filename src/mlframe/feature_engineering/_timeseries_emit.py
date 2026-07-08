@@ -91,6 +91,8 @@ def _emit_differences(
     var, raw_vals, numaggs_kwds, dataset_name, captions_vars_sep,
     row_features, features_names, create_features_names,
 ):
+    """First-difference block. return_profit_factor is forced on since differences are the
+    natural series for gain/loss ratio stats (unlike the raw level series)."""
     differences = np.diff(raw_vals, 1)
     custom_numaggs_kwds_diffs = numaggs_kwds.copy()
     custom_numaggs_kwds_diffs["return_profit_factor"] = True
@@ -104,6 +106,8 @@ def _emit_ratios(
     dataset_name, captions_vars_sep,
     row_features, features_names, create_features_names,
 ):
+    """Lag-1 ratio block (raw_vals[t]/raw_vals[t-1]) via smart_ratios, which handles
+    zero/near-zero denominators with span_correction and na_fill instead of producing inf/NaN."""
     ratios = smart_ratios(
         raw_vals[1:],
         raw_vals[:-1],
@@ -122,6 +126,8 @@ def _emit_wavelets(
     dataset_name, captions_vars_sep,
     row_features, features_names, create_features_names,
 ):
+    """Emit one numagg block per wavelet name in waveletnames, over the flattened
+    multi-level wavedec coefficients (approximation + all detail levels concatenated)."""
     custom_numaggs_kwds_wave = numaggs_kwds.copy()
     custom_numaggs_kwds_wave.update(wavelets_correction_numaggs_kwds)
     for waveletname in waveletnames:
@@ -158,6 +164,8 @@ def _emit_ewma(
     dataset_name, captions_vars_sep,
     row_features, features_names, create_features_names,
 ):
+    """Exponentially-weighted moving average block, one numagg group per alpha in ewma_alphas.
+    Empty raw_vals pads with zeros rather than calling ewma_numba on a zero-length array."""
     for alpha in ewma_alphas:
         if len(raw_vals) > 0:
             row_features.extend(compute_numaggs(ewma_numba(raw_vals.astype(np.float32), alpha), **numaggs_kwds))
@@ -194,6 +202,8 @@ def _emit_nonlinear(
     dataset_name, captions_vars_sep,
     row_features, features_names, create_features_names,
 ):
+    """Apply each callable in nonlinear_transforms (e.g. log, sqrt, square) to raw_vals and emit
+    a numagg block per transform; the transform's __name__ becomes part of the feature caption."""
     for nonlinear_func in nonlinear_transforms:
         transform_name = nonlinear_func.__name__
         row_features.extend(compute_numaggs(nonlinear_func(raw_vals), **numaggs_kwds))

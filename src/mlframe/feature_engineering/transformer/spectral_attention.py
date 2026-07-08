@@ -169,6 +169,8 @@ def compute_spectral_attention(
     X_train_f = np.asarray(X_train, dtype=np.float32)
 
     def _process_train_query(Xt: np.ndarray, Xq: np.ndarray) -> np.ndarray:
+        """Fits the k-NN graph Laplacian eigenbasis on ``Xt`` and Nystrom-extends it onto ``Xq``, optionally
+        robust-scaling both with a scaler fit only on ``Xt`` to avoid leaking query statistics into training."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)

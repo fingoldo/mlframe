@@ -145,6 +145,7 @@ def _dispatch_kde(v_sorted, starts, ends, scheme_code, param, bandwidth, n_grid,
 
 
 def _sort_into_groups(values, group_ids, order):
+    """Stable-sort values/group_ids by (group_ids, order) so each group occupies a contiguous slice, returning the sorted arrays plus per-group [start, end) boundaries the KDE kernels iterate over."""
     values = np.ascontiguousarray(values, dtype=np.float64)
     group_ids = np.ascontiguousarray(group_ids)
     n = values.shape[0]
@@ -166,6 +167,7 @@ def _sort_into_groups(values, group_ids, order):
 
 
 def _scatter(per_group, sort_idx, starts, ends, n, broadcast):
+    """When broadcast is requested, expand each group's scalar result back to one value per original row (undoing the sort from `_sort_into_groups`); otherwise pass the per-group array through unchanged."""
     if not broadcast:
         return per_group
     # Vectorized: expand each group's value to its (sorted-order) rows via repeat, then invert the sort.

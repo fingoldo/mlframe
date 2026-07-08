@@ -142,7 +142,7 @@ def compute_quantile_neighbours(
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)
         quantiles = _process(X_train_f, Xq, y_train_f)
-        cols: dict = {f"{column_prefix}_q{int(round(qs[j] * 100))}": quantiles[:, j].astype(dtype, copy=False) for j in range(qs.shape[0])}
+        cols: dict = {f"{column_prefix}_q{round(qs[j] * 100)}": quantiles[:, j].astype(dtype, copy=False) for j in range(qs.shape[0])}
         return pl.DataFrame(cols)
 
     if splitter is None:
@@ -159,5 +159,5 @@ def compute_quantile_neighbours(
         out[val_idx] = quantiles.astype(dtype, copy=False)
         logger.info("quantile_neighbours: fold %d/%d done (n_train=%d, n_val=%d, k=%d, n_quantiles=%d)", fold_idx + 1, len(splits), len(train_idx), len(val_idx), k, n_qs)
 
-    cols = {f"{column_prefix}_q{int(round(qs[j] * 100))}": out[:, j] for j in range(n_qs)}
+    cols = {f"{column_prefix}_q{round(qs[j] * 100)}": out[:, j] for j in range(n_qs)}
     return pl.DataFrame(cols)

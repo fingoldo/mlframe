@@ -106,6 +106,7 @@ def compute_baseline_disagreement_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Standardize (if requested), fit the 3 baselines on (Xt, y_t), predict on Xq, and stack the 8 disagreement features as columns."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -124,6 +125,7 @@ def compute_baseline_disagreement_features(
         return np.column_stack([p1, p2, p3, mean, std, rng, lgb_diff, lgb_vs_linear])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the (n, 8) feature matrix into named, dtype-cast columns for the output polars frame."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_p_lgbd3"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_p_lgbd5"] = feats[:, 1].astype(dtype, copy=False)

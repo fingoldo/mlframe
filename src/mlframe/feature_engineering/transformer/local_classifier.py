@@ -145,6 +145,7 @@ def compute_local_classifier_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """For each query row, fit a Gaussian-kernel-weighted local logistic/linear model on its k nearest training neighbours and return the local prediction plus fit diagnostics; falls back to a majority-vote shortcut when all neighbours share one class (degenerate local regression)."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -184,6 +185,7 @@ def compute_local_classifier_features(
         return f1, f2, f3, f4
 
     def _make_df(f1: np.ndarray, f2: np.ndarray, f3: np.ndarray, f4: np.ndarray) -> dict[str, np.ndarray]:
+        """Name the four local-model outputs according to task (proba/logit/etc. for binary vs pred/slope-based diagnostics for regression)."""
         if task == "binary":
             return {
                 f"{column_prefix}_proba": f1.astype(dtype, copy=False),

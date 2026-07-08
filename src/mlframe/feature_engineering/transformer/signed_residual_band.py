@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Temperature-scaled softmax over the last axis, max-subtracted for numerical stability; ``temp`` is floored at 1e-9 to avoid a division blow-up."""
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
@@ -46,6 +47,7 @@ def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
+    """Fit a small in-fold LightGBM baseline (classifier for ``task='binary'``, else regressor) and return its in-sample predictions used to derive signed residuals."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -97,6 +99,7 @@ def compute_signed_residual_band_features(
     effective_n_bands = n_bands
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the baseline on ``Xt``/``y_t``, bin train rows into signed-residual bands, then score ``Xq`` against the band centroids to produce the softmax attention weights + entropy + aggregate y stats + best-band index."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -143,6 +146,7 @@ def compute_signed_residual_band_features(
         return np.column_stack([weights, entropy, agg_y_mean, agg_y_std, best_band])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the stacked ``_process`` output columns into the named ``{column_prefix}_*`` feature dict, cast to ``dtype``."""
         cols: dict[str, np.ndarray] = {}
         # SR1..SR5: signed-residual bands, lowest (most negative / over-prediction) → highest (most positive / under-prediction)
         for b in range(effective_n_bands):

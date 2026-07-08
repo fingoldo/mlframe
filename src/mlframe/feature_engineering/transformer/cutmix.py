@@ -45,7 +45,7 @@ def _cutmix_synthesize(X_pos: np.ndarray, X_neg: np.ndarray, n_synthetic: int, c
         return np.zeros((0, X_pos.shape[1] if n_pos > 0 else X_neg.shape[1]), dtype=np.float32)
     rng = np.random.default_rng(seed)
     d = X_pos.shape[1]
-    n_cut = max(1, int(round(cut_fraction * d)))
+    n_cut = max(1, round(cut_fraction * d))
     pos_idx = rng.integers(0, n_pos, size=n_synthetic)
     neg_idx = rng.integers(0, n_neg, size=n_synthetic)
     out = X_pos[pos_idx].copy()
@@ -57,6 +57,11 @@ def _cutmix_synthesize(X_pos: np.ndarray, X_neg: np.ndarray, n_synthetic: int, c
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
+    """Distances from each query row to its k-th nearest neighbor in ``X_subset``, for every k in ``_K_SCALES``.
+
+    Falls back to a large sentinel distance (1e6) when ``X_subset`` is empty, and clamps the requested k to the
+    subset size so small folds don't raise.
+    """
     from sklearn.neighbors import NearestNeighbors
     n_sub = X_subset.shape[0]
     if n_sub == 0:
@@ -101,6 +106,7 @@ def compute_cutmix_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split rows into (positive-like, negative-like) subsets: y>0.5 vs rest for binary, or the q_high/1-q_high tail quantiles for regression."""
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
@@ -109,6 +115,7 @@ def compute_cutmix_features(
         return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Standardize, generate CutMix virtuals from the fold's pos/neg slices, then emit the 8 distance/log-gap features for every query row against the combined real+virtual positive pool."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -129,6 +136,7 @@ def compute_cutmix_features(
         return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the flat ``_process`` output into named distance/log-gap columns keyed by k-scale."""
         cols: dict[str, np.ndarray] = {}
         for j, k in enumerate(_K_SCALES):
             cols[f"{column_prefix}_pos_k{k}"] = feats[:, j].astype(dtype, copy=False)

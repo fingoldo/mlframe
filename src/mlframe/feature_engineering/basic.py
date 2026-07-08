@@ -25,9 +25,11 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
     prange = range
 
     def njit(*args, **kwargs):  # no-op fallback so the module imports
+        """Stand-in for ``numba.njit`` when numba is missing: strips the decorator so callers still import and run (plain-Python speed, no JIT)."""
         if len(args) == 1 and callable(args[0]):
             return args[0]
         def deco(fn):
+            """Identity decorator returned for the ``@njit(...)`` (keyword-args) call form."""
             return fn
         return deco
 
@@ -39,6 +41,7 @@ _CYCLICAL_PAR_THRESHOLD = int(os.environ.get("MLFRAME_CYCLICAL_PAR_THRESHOLD", "
 
 @njit(cache=True)
 def _cyclical_sincos_serial(base: np.ndarray, scale: float):
+    """Single-threaded fused sin/cos of ``base*scale`` into float32 outputs; used below ``_CYCLICAL_PAR_THRESHOLD`` where prange's thread-launch floor would dominate."""
     n = base.size
     s = np.empty(n, dtype=np.float32)
     c = np.empty(n, dtype=np.float32)
@@ -51,6 +54,7 @@ def _cyclical_sincos_serial(base: np.ndarray, scale: float):
 
 @njit(parallel=True, cache=True)
 def _cyclical_sincos_parallel(base: np.ndarray, scale: float):
+    """``prange``-parallel twin of ``_cyclical_sincos_serial``; bit-identical since each output element is independent, used at/above ``_CYCLICAL_PAR_THRESHOLD``."""
     n = base.size
     s = np.empty(n, dtype=np.float32)
     c = np.empty(n, dtype=np.float32)

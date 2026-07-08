@@ -34,7 +34,7 @@ class RFFState:
     Returned by ``compute_rff_features(..., return_state=True)`` so a caller can apply the SAME train-fitted projection to held-out / predict frames via ``rff_apply_state`` -- the leakage-safe contract (fit on train, apply to query). The state is small (``W`` is d x m float32) and picklable for predict-time replay.
     """
 
-    __slots__ = ("scaler", "W", "b", "scale", "n_features", "column_prefix", "dtype")
+    __slots__ = ("W", "b", "column_prefix", "dtype", "n_features", "scale", "scaler")
 
     def __init__(self, scaler, W, b, scale, n_features, column_prefix, dtype):
         self.scaler = scaler

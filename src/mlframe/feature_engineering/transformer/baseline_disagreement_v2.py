@@ -116,6 +116,7 @@ def compute_baseline_disagreement_v2_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the 4 baseline models on (Xt, y_t), predict on Xq, and derive disagreement stats (mean/std/range plus pairwise diffs) that signal where the baselines diverge."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -136,6 +137,7 @@ def compute_baseline_disagreement_v2_features(
         return np.column_stack([p1, p2, p3, p4, mean, std, rng, lgb_diff, lgb_vs_linear, lgb_vs_et, et_vs_linear])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Map the fixed-order 11-column disagreement matrix onto named output columns (predictions, spread stats, pairwise diffs)."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_p_lgbd3"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_p_lgbd5"] = feats[:, 1].astype(dtype, copy=False)

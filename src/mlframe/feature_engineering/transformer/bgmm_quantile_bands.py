@@ -41,6 +41,7 @@ _DEFAULT_N_BANDS = 5
 
 
 def _fit_bgmm_and_sample(X_class: np.ndarray, n_synthetic: int, n_components: int, seed: int, max_iter: int = 50) -> np.ndarray:
+    """Fit a Dirichlet-process BGM on one y-band's rows and draw ``n_synthetic`` virtual samples from it; falls back to a bootstrap resample of the band when there are too few rows to fit (``n_rows < n_components + 1``) or the BGM fit raises."""
     from sklearn.mixture import BayesianGaussianMixture
     n_rows = X_class.shape[0]
     if n_rows < n_components + 1:
@@ -138,6 +139,7 @@ def compute_bgmm_quantile_bands_features(
     effective_n_bands = 2 if task == "binary" else n_bands
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Standardize, split into y-quantile bands, fit+sample a BGM per band, and return the concatenated per-band k-NN distance features for the query rows against each band's real+virtual point cloud."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -161,6 +163,7 @@ def compute_bgmm_quantile_bands_features(
         return np.concatenate(all_dists, axis=1).astype(np.float32)
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Name each column of the flat ``feats`` matrix as ``{prefix}_{band_tag}_k{k}`` (band tag is ``Q1..Qn`` for regression or ``pos``/``neg`` for binary) and cast to the output ``dtype``."""
         cols: dict[str, np.ndarray] = {}
         col_idx = 0
         for b in range(effective_n_bands):

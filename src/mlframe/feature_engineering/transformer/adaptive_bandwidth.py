@@ -73,6 +73,7 @@ def compute_adaptive_bandwidth_attention(
     from sklearn.preprocessing import RobustScaler
 
     def _build_projections(X_fold: np.ndarray, y_fold: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Build the per-fold projection matrices for the requested ``projection`` mode, refit on the fold's own train rows to avoid leakage in Mode A OOF."""
         if projection == "random":
             return build_random_projections(d_input=d_input, n_heads=n_heads, head_dim=head_dim, seed=fold_seed, dtype=dtype)
         if projection == "pls":
@@ -82,6 +83,7 @@ def compute_adaptive_bandwidth_attention(
         raise ValueError(f"projection must be 'random', 'pls', or 'importance'; got {projection!r}.")
 
     def _run_attention(X_anchor: np.ndarray, X_pool: np.ndarray, y_pool: np.ndarray, projections: np.ndarray) -> dict[str, np.ndarray]:
+        """Run one head's kNN lookup + adaptive-bandwidth attention for every projection head, returning the requested aggregate arrays keyed by ``{agg}_h{head}``."""
         k_proj_pool = apply_projection(X_pool, projections, l2_normalize=True)  # (n_heads, |pool|, head_dim)
         q_proj_anchor = apply_projection(X_anchor, projections, l2_normalize=True)  # (n_heads, |anchor|, head_dim)
         n_anchor = X_anchor.shape[0]

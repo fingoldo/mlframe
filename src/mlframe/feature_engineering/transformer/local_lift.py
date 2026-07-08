@@ -116,6 +116,7 @@ def compute_local_lift_features(
     y_global_mean = float(y_train_f.mean()) if y_train_f.size > 0 else 0.0
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, global_mean: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Standardize (optional) and kNN-search ``Xq`` against ``Xt``, then reduce each query's neighbor labels to (lift, pr_auc/spearman, top1) via ``_local_lift_and_pr_auc``. Shared by both the train-only (self-kNN) and train+query call sites below."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)

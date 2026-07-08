@@ -92,6 +92,7 @@ def _smote_synthesize_from(X_minority: np.ndarray, n_synthetic: int, k_neighbors
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
+    """Distance from each query row to its k-th nearest neighbor in ``X_subset``, for every ``k`` in ``_K_SCALES``; ``1e6`` sentinel columns when ``X_subset`` is empty."""
     from sklearn.neighbors import NearestNeighbors
     n_sub = X_subset.shape[0]
     if n_sub == 0:
@@ -135,6 +136,7 @@ def compute_borderline_smote_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Split rows into positive/negative subsets: ``y > 0.5`` for binary tasks, top-``q_high``-quantile for regression."""
         if task == "binary":
             pos_mask = y_sub > 0.5
         else:
@@ -143,6 +145,7 @@ def compute_borderline_smote_features(
         return X_sub[pos_mask], X_sub[~pos_mask], pos_mask
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Detect borderline positives, SMOTE-synthesize virtual positives around them, and return per-query distances to the virtual-positive cloud plus signed log-gaps versus the negatives."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -151,7 +154,7 @@ def compute_borderline_smote_features(
         else:
             Xt_s = Xt
             Xq_s = Xq
-        Xt_pos, Xt_neg, pos_mask = _slice(Xt_s, y_t)
+        Xt_pos, Xt_neg, _pos_mask = _slice(Xt_s, y_t)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
             return np.zeros((Xq_s.shape[0], 2 * len(_K_SCALES)), dtype=np.float32)
         # Find borderline positives.
@@ -174,6 +177,7 @@ def compute_borderline_smote_features(
         return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Name and dtype-cast the raw ``_process`` feature columns into the output dict."""
         cols: dict[str, np.ndarray] = {}
         for j, k in enumerate(_K_SCALES):
             cols[f"{column_prefix}_pos_k{k}"] = feats[:, j].astype(dtype, copy=False)

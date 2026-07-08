@@ -56,6 +56,7 @@ def compute_persistence_diagram_features(
     n_features_out = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> np.ndarray:
+        """For each query row, gather its k nearest train neighbors, build a Vietoris-Rips complex over that neighborhood, and extract the H0 persistence-bar summary statistics (row stays zeros on any gudhi failure)."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -101,6 +102,7 @@ def compute_persistence_diagram_features(
         return out
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the (n, 5) persistence-diagram feature matrix into named, dtype-cast columns for the output polars frame."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_max_persistence"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_n_significant"] = feats[:, 1].astype(dtype, copy=False)

@@ -44,7 +44,7 @@ _BANDWIDTHS = (0.5, 1.0, 2.0, 4.0)
 
 def _silverman_h(X: np.ndarray) -> float:
     """Silverman's rule-of-thumb bandwidth: h = (4 σ⁵ / 3 N)^(1/5). Returns scalar averaged across features."""
-    n, d = X.shape
+    n, _d = X.shape
     if n < 2:
         return 1.0
     sigma = X.std(axis=0).mean()
@@ -110,6 +110,7 @@ def compute_density_ratio_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split rows into positive/negative subsets: ``y > 0.5`` for binary tasks, top/bottom ``q_high``/``q_low`` quantile tails for regression."""
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
@@ -118,6 +119,7 @@ def compute_density_ratio_features(
         return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> np.ndarray:
+        """Per-query log-density-ratio between the positive and negative KDEs, at each Silverman-scaled bandwidth multiplier."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -139,6 +141,7 @@ def compute_density_ratio_features(
         return feats
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Name and dtype-cast the raw ``_process`` feature columns into the output dict."""
         return {f"{column_prefix}_b{j}": feats[:, j].astype(dtype, copy=False) for j in range(feats.shape[1])}
 
     if X_query is not None:

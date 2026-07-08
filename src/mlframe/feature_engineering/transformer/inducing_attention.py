@@ -142,6 +142,7 @@ def compute_inducing_attention_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """K-means anchors on ``Xt``, stage-A attention pools ``y_t`` onto anchors, stage-B attends ``Xq`` to anchors, and returns padded weights + entropy + aggregated y-mean/std for ``Xq``."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -167,6 +168,7 @@ def compute_inducing_attention_features(
         return np.column_stack([weights_padded, entropy, agg_y_mean, agg_y_std])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Map the ``n_anchors`` weight columns plus entropy/y_mean/y_std of ``feats`` to their ``{column_prefix}_*`` output names."""
         cols: dict[str, np.ndarray] = {}
         for j in range(n_anchors):
             cols[f"{column_prefix}_w{j}"] = feats[:, j].astype(dtype, copy=False)

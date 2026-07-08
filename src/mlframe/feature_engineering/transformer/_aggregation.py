@@ -214,7 +214,7 @@ def compute_extra_aggregates(
     Why these specifically: CatBoost computes ``y_mean`` analogue internally (ordered target statistics) so our base row-attention output partly overlaps with
     its native features. These three aggregates are NOT in CatBoost's internal feature set and capture different aspects of the kNN neighbourhood structure.
     """
-    n_queries, k_count = topk_ids.shape
+    _n_queries, k_count = topk_ids.shape
 
     # Recompute softmax weights from the same logits the fused kernel used (cosine similarity / softmax_temp). Vectorised gather + einsum + row-wise stable softmax
     # over all queries at once: at n_queries up to 100k (validation-fold size, called once per head per fold) the per-query Python loop dominated this function.

@@ -32,7 +32,7 @@ def _ensure_ann_available(backend: Literal["pynndescent", "hnswlib"]) -> Any:
     """
     if backend == "pynndescent":
         try:
-            import pynndescent  # noqa: F401
+            import pynndescent
         except ImportError as exc:  # pragma: no cover - environment-dependent
             raise ImportError(
                 "pynndescent is required for the default ANN backend. Install via `pip install 'mlframe[transformer-ann]'` "
@@ -41,7 +41,7 @@ def _ensure_ann_available(backend: Literal["pynndescent", "hnswlib"]) -> Any:
         return pynndescent
     if backend == "hnswlib":
         try:
-            import hnswlib  # noqa: F401
+            import hnswlib
         except ImportError as exc:  # pragma: no cover - environment-dependent
             raise ImportError(
                 "hnswlib is required when ann_backend='hnswlib'. Note: hnswlib wheels on Windows with numpy 2 frequently segfault at import "
@@ -90,7 +90,7 @@ class _AnnIndex:
 
     Holds the underlying backend object plus the metric / dimensions for the disk-cache fingerprint.
     """
-    __slots__ = ("backend", "obj", "metric", "head_dim")
+    __slots__ = ("backend", "head_dim", "metric", "obj")
 
     def __init__(self, backend: str, obj: Any, metric: str, head_dim: int) -> None:
         self.backend = backend

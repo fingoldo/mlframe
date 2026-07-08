@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 def _focal_obj(gamma: float = 2.0):
     """Focal-loss custom objective for LightGBM (rare-class-emphasized cross-entropy)."""
     def objective(preds, train_data):
+        """LightGBM custom-objective signature: raw logits + Dataset -> (grad, hess) for the focal loss above."""
         labels = train_data.get_label()
         preds_clipped = np.clip(preds, -30.0, 30.0)
         p = 1.0 / (1.0 + np.exp(-preds_clipped))
@@ -61,6 +62,12 @@ def _focal_obj(gamma: float = 2.0):
 
 
 def _fit_aux_lgb(X: np.ndarray, y: np.ndarray, *, task: str, seed: int, focal: bool = False, n_estimators: int = 200, max_depth: int = 4):
+    """Fit one small auxiliary LightGBM model (depth 4, 200 trees by default) on ``(X, y)``.
+
+    ``focal=True`` (binary only) trains via ``lgb.train`` with the custom :func:`_focal_obj` objective (gamma=2),
+    returning a raw ``Booster`` whose ``.predict`` emits logits. ``focal=False`` uses the sklearn wrapper
+    (``LGBMClassifier``/``LGBMRegressor``) so ``.predict_proba``/``.predict`` are directly usable downstream.
+    """
     import lightgbm as lgb
     if focal and task == "binary":
         train_data = lgb.Dataset(X, label=y)
@@ -85,6 +92,8 @@ def _fit_aux_lgb(X: np.ndarray, y: np.ndarray, *, task: str, seed: int, focal: b
 
 
 def _fit_aux_xgb(X: np.ndarray, y: np.ndarray, *, task: str, seed: int, n_estimators: int = 200, max_depth: int = 4):
+    """Fit one small auxiliary XGBoost model (a different histogram / regularization scheme than the LGB aux models,
+    which is the point -- its errors are decorrelated from the LGB aux models' errors)."""
     import xgboost as xgb
     if task == "binary":
         model = xgb.XGBClassifier(
@@ -101,6 +110,8 @@ def _fit_aux_xgb(X: np.ndarray, y: np.ndarray, *, task: str, seed: int, n_estima
 
 
 def _predict_proba(model, X: np.ndarray, task: str, focal: bool = False) -> np.ndarray:
+    """Uniform positive-class-probability (binary) / value (regression) reader across the three aux model flavours:
+    raw focal-LGB ``Booster`` (logit -> sigmoid), sklearn classifier (``predict_proba``), sklearn regressor (``predict``)."""
     if task == "binary":
         if focal:
             # Focal LGB returns raw logits via .predict.
@@ -139,6 +150,9 @@ def compute_multi_aux_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the 3 aux models on ``(Xt, y_t)`` and return the ``(n_q, 6)`` prediction+disagreement block for ``Xq``.
+        ``fold_seed``, ``fold_seed+1``, ``fold_seed+2`` seed the LGB / focal-LGB / XGB fits respectively so the three
+        models never share exact randomness even within one fold."""
         # Three aux models.
         m_lgb = _fit_aux_lgb(Xt, y_t, task=task, seed=fold_seed, focal=False, n_estimators=n_estimators, max_depth=max_depth)
         m_focal = _fit_aux_lgb(Xt, y_t, task=task, seed=fold_seed + 1, focal=True, n_estimators=n_estimators, max_depth=max_depth)
@@ -154,6 +168,7 @@ def compute_multi_aux_features(
         return np.column_stack([p1, p2, p3, mean, std, rng]).astype(np.float32)
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Map the ``(n, 6)`` feature block's columns onto ``{column_prefix}_{name}`` keys at the output ``dtype``."""
         names = ["proba_lgb", "proba_focal", "proba_xgb", "proba_mean", "proba_std", "proba_range"]
         return {f"{column_prefix}_{name}": feats[:, j].astype(dtype, copy=False) for j, name in enumerate(names)}
 

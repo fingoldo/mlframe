@@ -127,6 +127,7 @@ def compute_baseline_disagreement_smote_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the three SMOTE-augmented baselines on ``Xt``/``y_t`` and derive the 8 predictions/disagreement statistics for ``Xq``."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -145,6 +146,7 @@ def compute_baseline_disagreement_smote_features(
         return np.column_stack([p1, p2, p3, mean, std, rng, lgb_diff, lgb_vs_linear])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Map the fixed 8-column layout of ``feats`` (3 baseline predictions + 5 disagreement stats) to their ``{column_prefix}_*`` output names."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_p_lgbd3"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_p_lgbd5"] = feats[:, 1].astype(dtype, copy=False)

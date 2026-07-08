@@ -129,7 +129,7 @@ def predictor_pairwise_abs_diffs(preds: np.ndarray) -> np.ndarray:
     aggregating into IQR or variance throws this away.
     """
     arr = _coerce_preds(preds)
-    n, k = arr.shape
+    _n, k = arr.shape
     iu, ju = np.triu_indices(k, k=1)
     # Vectorised gather: shape (n, n_pairs)
     return np.asarray(np.abs(arr[:, iu] - arr[:, ju]))
@@ -152,11 +152,13 @@ def _bin_counts(arr: np.ndarray, n_bins: int) -> np.ndarray:
 
 
 def _entropy_from_counts(counts: np.ndarray) -> np.ndarray:
+    """Per-row Shannon entropy of a histogram-counts matrix (normalizes each row to a probability distribution first)."""
     probs = counts / counts.sum(axis=1, keepdims=True)
     return np.asarray(-np.sum(probs * np.log(probs + 1e-12), axis=1))
 
 
 def _top2_gap_from_counts(counts: np.ndarray, k: int) -> np.ndarray:
+    """Per-row gap between the two largest bin counts, normalized by ``k`` predictors -- how dominant the modal bin is over the runner-up."""
     sorted_counts = -np.sort(-counts, axis=1)
     return np.asarray((sorted_counts[:, 0] - sorted_counts[:, 1]) / float(k))
 
@@ -233,7 +235,7 @@ def predictor_consensus_trimmed_stats(
     Returns ``(trimmed_mean, mad_scale)`` per row.
     """
     arr = _coerce_preds(preds)
-    n, k = arr.shape
+    _n, k = arr.shape
     if not (0.0 <= trim_frac < 0.5):
         raise ValueError(f"trim_frac must be in [0, 0.5), got {trim_frac}")
     n_trim = int(np.floor(trim_frac * k))
@@ -309,6 +311,7 @@ def predictor_quantile_spread(
     sorted_arr = np.sort(arr, axis=1)
     nc = sorted_arr.shape[1]
     def _q(q):
+        """Linear-interpolated quantile ``q`` across the sorted per-row predictor values."""
         p = q * (nc - 1)
         fi, ff = int(p), p - int(p)
         return sorted_arr[:, fi] * (1 - ff) + sorted_arr[:, min(fi + 1, nc - 1)] * ff

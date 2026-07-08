@@ -20,6 +20,10 @@ def compute_conformal_coverage_failure_features(
     X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
     k_neighbors=20, alpha=0.2, standardize=True, column_prefix="ccf", dtype=np.float32,
 ):
+    """Split-conformal coverage-failure signal: for each query, how often (and in which direction) its K nearest
+    calibration-half neighbours violated their own α-level conformal interval. Returns 5 columns:
+    frac_covered, mean_signed_miscov, std_covered, n_uncovered, baseline_pred.
+    """
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -35,6 +39,7 @@ def compute_conformal_coverage_failure_features(
     n_features_out = 5
 
     def _process(Xt, Xq, y_t, fold_seed):
+        """Fit the conformal model on train-half h1, build the coverage bank on held-out half h2, and score one query batch against its kNN neighbours in that bank."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -78,6 +83,7 @@ def compute_conformal_coverage_failure_features(
         return np.column_stack([frac_covered, mean_signed_miscov, std_covered, n_uncov, preds_query])
 
     def _make_df(feats):
+        """Assign column names to the 5 feature slots produced by ``_process``."""
         cols = {}
         cols[f"{column_prefix}_frac_covered"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_mean_signed_miscov"] = feats[:, 1].astype(dtype, copy=False)

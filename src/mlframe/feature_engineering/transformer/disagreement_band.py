@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Temperature-scaled softmax over the last axis, with a max-subtraction for numerical stability; ``temp`` is floored to avoid divide-by-zero."""
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
@@ -109,6 +110,7 @@ def compute_disagreement_band_features(
     effective_n_bands = n_bands
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Standardize, fit the 3 in-sample baselines to get per-row disagreement, bucket train rows into disagreement-quintile bands, then soft-assign query rows to bands (by centroid distance) and aggregate each band's y/std/disagreement into the final feature row."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -157,6 +159,7 @@ def compute_disagreement_band_features(
         return np.column_stack([weights, entropy, agg_y, agg_y_std, agg_dis, best_band])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Name the flat ``feats`` columns: per-band attention weights ``{prefix}_w_D{b}`` followed by the fixed entropy/y_mean/y_std/disagreement/best_band summary columns, cast to the output ``dtype``."""
         cols: dict[str, np.ndarray] = {}
         for b in range(effective_n_bands):
             band_tag = f"D{b+1}"

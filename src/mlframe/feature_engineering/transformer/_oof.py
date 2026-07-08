@@ -246,5 +246,6 @@ def apply_dedupe(
 
 
 def _now() -> float:
+    """Monotonic wall-clock reading used for stage-duration logging in ``kfold_attention_loop``; local import keeps ``time`` off the module's hot import path."""
     import time
     return time.perf_counter()

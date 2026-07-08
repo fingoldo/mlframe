@@ -118,10 +118,12 @@ def compute_autoencoder_features(
     X_train_f = np.asarray(X_train, dtype=np.float32)
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the autoencoder on Xt and extract bottleneck latents for Xq; fold_seed varies per CV fold so folds don't share identical init weights."""
         ae, scaler = _fit_autoencoder(Xt, hidden_size=hidden_size, bottleneck_dim=bottleneck_dim, max_iter=max_iter, seed=fold_seed)
         return _extract_bottleneck(ae, scaler, Xq, bottleneck_dim=bottleneck_dim)
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Wrap the (n, bottleneck_dim) latent matrix into the {prefix}_z{j} named-column dict expected by pl.DataFrame."""
         return {f"{column_prefix}_z{j}": feats[:, j].astype(dtype, copy=False) for j in range(feats.shape[1])}
 
     if X_query is not None:

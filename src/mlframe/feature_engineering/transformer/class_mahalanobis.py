@@ -97,6 +97,7 @@ def compute_class_mahalanobis_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Optionally standardize the train/query blocks and compute per-class Mahalanobis distances for one fold."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)

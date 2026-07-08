@@ -54,6 +54,7 @@ def compute_quantile_spread_fan_features(
     n_features_out = 5
 
     def _process(Xt, Xq, y_t, fold_seed):
+        """Fit three quantile-flavored LightGBM models on ``Xt``/``y_t`` and derive q10/q50/q90/spread/skew_proxy for ``Xq``."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -88,6 +89,7 @@ def compute_quantile_spread_fan_features(
         return np.column_stack([q10, q50, q90, spread, skew_proxy])
 
     def _make_df(feats):
+        """Map each of the 5 fan columns of ``feats`` to its ``{column_prefix}_{suffix}`` output name."""
         cols = {}
         suffix_set = ["q10", "q50", "q90", "spread", "skew_proxy"]
         for i, suff in enumerate(suffix_set):

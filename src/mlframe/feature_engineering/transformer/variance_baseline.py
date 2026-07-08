@@ -59,6 +59,7 @@ def compute_variance_baseline_features(
     n_features_out = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the mu_hat baseline, fit a second baseline on the squared residual to get sigma2_hat, then derive the 5 heteroscedasticity features on the query rows."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -93,6 +94,7 @@ def compute_variance_baseline_features(
         return np.column_stack([mu_query, sigma2_query, log_sigma2, snr_proxy, rel_sigma2])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the (n, 5) variance-baseline feature matrix into named, dtype-cast columns for the output polars frame."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_mu"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_sigma2"] = feats[:, 1].astype(dtype, copy=False)

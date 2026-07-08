@@ -22,10 +22,12 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
     prange = range
 
     def njit(*args, **kwargs):  # no-op fallback so the module imports
+        """Stand-in for ``numba.njit`` when numba is missing: returns the function/decorator unmodified so callers keep working, just without JIT speedup."""
         if len(args) == 1 and callable(args[0]):
             return args[0]
 
         def deco(fn):
+            """Identity decorator matching numba's ``@njit(...)(fn)`` call shape."""
             return fn
 
         return deco
@@ -40,6 +42,7 @@ _NONFINITE_PAR_THRESHOLD = int(os.environ.get("MLFRAME_NONFINITE_PAR_THRESHOLD",
 
 @njit(cache=True)
 def _count_nonfinite_serial(Xf: np.ndarray) -> int:
+    """Single-threaded fused NaN/+/-Inf counter; selected below ``_NONFINITE_PAR_THRESHOLD`` elements to avoid prange spawn overhead."""
     flat = Xf.ravel()
     total = 0
     for i in range(flat.size):
@@ -53,6 +56,7 @@ def _count_nonfinite_serial(Xf: np.ndarray) -> int:
 
 @njit(cache=True, parallel=True)
 def _count_nonfinite_parallel(Xf: np.ndarray) -> int:
+    """Prange-parallel twin of ``_count_nonfinite_serial``; selected at/above ``_NONFINITE_PAR_THRESHOLD`` elements where the multi-core scaling amortises spawn cost."""
     flat = Xf.ravel()
     n = flat.size
     total = 0

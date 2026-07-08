@@ -111,6 +111,11 @@ def _fit_aux_lgb_and_filter(X_train: np.ndarray, y_train: np.ndarray, virtuals: 
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
+    """Distances from each query row to its k-th nearest neighbor in ``X_subset``, for every k in ``_K_SCALES``.
+
+    Falls back to a large sentinel distance (1e6) when ``X_subset`` is empty, and clamps the requested k to the
+    subset size so small folds don't raise.
+    """
     from sklearn.neighbors import NearestNeighbors
     n_sub = X_subset.shape[0]
     if n_sub == 0:
@@ -154,6 +159,7 @@ def compute_pseudo_smote_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split rows into (positive-like, negative-like) subsets: y>0.5 vs rest for binary, or the q_high/1-q_high tail quantiles for regression."""
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
@@ -162,6 +168,7 @@ def compute_pseudo_smote_features(
         return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Run the full per-fold pipeline: standardize, generate a liberal SMOTE pool, filter it via the aux LGB confidence gate, then emit the 8 distance/log-gap features for every query row against the combined real+filtered-virtual positive pool."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -186,6 +193,7 @@ def compute_pseudo_smote_features(
         return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the flat ``_process`` output into named distance/log-gap columns keyed by k-scale."""
         cols: dict[str, np.ndarray] = {}
         for j, k in enumerate(_K_SCALES):
             cols[f"{column_prefix}_pos_k{k}"] = feats[:, j].astype(dtype, copy=False)

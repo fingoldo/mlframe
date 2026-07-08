@@ -52,6 +52,7 @@ def compute_decision_region_depth_features(
     n_features_out = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit a shallow model on (Xt, y_t), then for each query row and each of ``n_probes`` random directions binary/coarse-search (at scales 0.5/1/2/max_scale sigma) the smallest perturbation that flips the prediction, returning the min/max/median/mean/std of the flip distances."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -111,6 +112,7 @@ def compute_decision_region_depth_features(
         return np.column_stack([min_d, max_d, median_d, mean_d, std_d])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the (n, 5) probe-distance matrix into named, dtype-cast columns for the output polars frame."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_min_dist"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_max_dist"] = feats[:, 1].astype(dtype, copy=False)

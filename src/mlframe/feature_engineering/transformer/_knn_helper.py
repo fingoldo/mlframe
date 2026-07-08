@@ -51,7 +51,7 @@ def _check_hnsw_available() -> bool:
             logger.info("[_knn_helper] MLFRAME_DISABLE_HNSW set; using exact sklearn NearestNeighbors " "(hnswlib import skipped).")
             return _HNSW_AVAILABLE
         try:
-            import hnswlib  # noqa: F401
+            import hnswlib
             _HNSW_AVAILABLE = True
         except ImportError:
             _HNSW_AVAILABLE = False
@@ -128,6 +128,8 @@ def knn_search(
 
 
 def _sklearn_fallback(X_subset: np.ndarray, X_query: np.ndarray, k: int) -> Tuple[np.ndarray, np.ndarray]:
+    """Exact k-NN via sklearn, used both as the default backend below the hnsw crossover and as the
+    error-recovery path when hnswlib is unavailable or its approximate query raises."""
     from sklearn.neighbors import NearestNeighbors
     nn = NearestNeighbors(n_neighbors=k, algorithm="auto", n_jobs=-1).fit(X_subset)
     dists, ids = nn.kneighbors(X_query)

@@ -18,8 +18,12 @@ def compute_fca_closed_concepts_features(
     X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
     top_k=8, standardize=True, column_prefix="fca", dtype=np.float32,
 ):
+    """Formal Concept Analysis membership features: emits per-query indicators for the top-K closed concepts
+    (by extent size) of a boolean context built from median-thresholded train attributes, plus n_matched
+    and n_concepts summary columns. top_k + 2 features total.
+    """
     try:
-        import concepts as _concepts  # noqa: F401 -- probe import to fail fast with a clear error if concepts is missing
+        import concepts as _concepts
     except ImportError as exc:
         raise ImportError("fca_closed_concepts requires concepts library") from exc
 
@@ -32,6 +36,7 @@ def compute_fca_closed_concepts_features(
     n_features_out = top_k + 2
 
     def _process(Xt, Xq, y_t):
+        """Build the FCA context from a 200-row subsample of Xt, extract the top-K closed concepts, and score the query rows against each concept's intent."""
         d = Xt.shape[1]
         medians = np.median(Xt, axis=0)
         # Boolean attributes: x_j > median(x_j)
@@ -73,6 +78,7 @@ def compute_fca_closed_concepts_features(
         return np.column_stack([top_indicators_q, n_matched, np.full(Xq.shape[0], float(len(top_concepts)), dtype=np.float32)])
 
     def _make_df(feats):
+        """Assign column names to the per-concept indicator, n_matched, and n_concepts feature slots."""
         cols = {}
         for k in range(top_k):
             cols[f"{column_prefix}_concept{k}"] = feats[:, k].astype(dtype, copy=False)

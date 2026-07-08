@@ -70,6 +70,7 @@ def compute_pred_augmented_attention(
         task = "binary" if len(unique_y) == 2 else "regression"
 
     def _make_aux():
+        """Construct a fresh small aux LGBM (classifier or regressor per ``task``) with the shared hyperparameters, used both for the OOF fit and the full-train fit."""
         common = dict(
             n_estimators=aux_n_estimators, max_depth=aux_max_depth, learning_rate=0.05,
             random_state=seed, verbose=-1, n_jobs=-1, num_leaves=min(2 ** aux_max_depth, 63),
@@ -77,9 +78,11 @@ def compute_pred_augmented_attention(
         return lgb.LGBMClassifier(**common) if task == "binary" else lgb.LGBMRegressor(**common)
 
     def _augment(X_base: np.ndarray, y_hat: np.ndarray) -> np.ndarray:
+        """Append the aux model's ``y_hat`` as one extra trailing column to ``X_base``, producing the (X || y_hat) augmented representation attention runs on."""
         return np.concatenate([X_base.astype(dtype, copy=False), y_hat.reshape(-1, 1).astype(dtype, copy=False)], axis=1)
 
     def _yhat_full(X_fit: np.ndarray, y_fit: np.ndarray, X_pred: np.ndarray) -> np.ndarray:
+        """Fit a fresh aux model on the FULL ``(X_fit, y_fit)`` bank and predict on ``X_pred``; used for query rows, which are disjoint from the train bank so this is leakage-safe (unlike the train-side OOF path)."""
         model = _make_aux()
         model.fit(X_fit, y_fit)
         if task == "binary":

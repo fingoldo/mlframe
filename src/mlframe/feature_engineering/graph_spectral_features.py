@@ -46,6 +46,7 @@ GRAPH_SPECTRAL_SCALARS = (
 
 
 def _dense_adjacency(n_nodes: int, edges: np.ndarray, weights: np.ndarray | None):
+    """Build a symmetric dense ``n_nodes x n_nodes`` weighted adjacency matrix from an edge list."""
     e = np.ascontiguousarray(edges, dtype=np.int64).reshape(-1, 2)
     if e.size and (e.min() < 0 or e.max() >= n_nodes):
         raise ValueError("graph_spectral_features: edge endpoints out of range [0, n_nodes).")

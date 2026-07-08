@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 
 def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Temperature-scaled, numerically stable softmax over the last axis (subtracts the row max before exponentiating)."""
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
@@ -114,6 +115,7 @@ def compute_residual_band_attention_features(
     effective_n_bands = n_bands
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the residual-band baseline and centroids on one train fold, then score one query batch against the bands."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -161,6 +163,7 @@ def compute_residual_band_attention_features(
         return np.column_stack([weights, entropy, agg_y_mean, agg_y_std, best_band])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Name the flat feature matrix's columns: per-band weights, entropy, aggregate y stats, and best-band index."""
         cols: dict[str, np.ndarray] = {}
         for b in range(effective_n_bands):
             band_tag = f"R{b+1}"  # R1 = easy, R5 = hardest

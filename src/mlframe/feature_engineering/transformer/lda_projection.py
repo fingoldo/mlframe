@@ -98,6 +98,7 @@ def compute_lda_projection_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split rows into the two class-conditional groups feeding Fisher LDA: pos/neg for binary, top/bottom quintile of y for regression."""
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
@@ -106,6 +107,7 @@ def compute_lda_projection_features(
         return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> np.ndarray:
+        """Fit the Fisher LDA direction on one train fold and project one query batch onto it (raw/signed/magnitude)."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -124,6 +126,7 @@ def compute_lda_projection_features(
         return np.column_stack([raw, signed, magnitude]).astype(np.float32)
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Name the 3 projection columns (raw, signed, magnitude) with the configured column prefix."""
         names = ["raw", "signed", "magnitude"]
         return {f"{column_prefix}_{name}": feats[:, j].astype(dtype, copy=False) for j, name in enumerate(names)}
 

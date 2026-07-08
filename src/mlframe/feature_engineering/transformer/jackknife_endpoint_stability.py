@@ -20,6 +20,7 @@ def compute_jackknife_endpoint_stability_features(
     X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
     n_subsamples=10, subsample_drop=0.05, standardize=True, column_prefix="jkep", dtype=np.float32,
 ):
+    """Fit K jackknife-subsample upper/lower quantile-endpoint models (dropping ``subsample_drop`` of rows each run) and emit per-query spread (std) and location (mean) of both endpoints plus the resulting interval width, in OOF (Mode A, ``splitter``) or direct-query (Mode B, ``X_query``) mode."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -33,6 +34,7 @@ def compute_jackknife_endpoint_stability_features(
     n_features_out = 5
 
     def _process(Xt, Xq, y_t, fold_seed):
+        """Run ``n_subsamples`` jackknife fits (dropping a random ``subsample_drop`` fraction of rows each time) of upper/lower quantile-endpoint models, then return the per-query std/mean of both endpoints and their interval width."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -70,6 +72,7 @@ def compute_jackknife_endpoint_stability_features(
         return np.column_stack([upper_std, lower_std, upper_mean, lower_mean, interval_width])
 
     def _make_df(feats):
+        """Name the 5 flat ``feats`` columns (upper/lower std, upper/lower mean, interval width) as ``{prefix}_<name>`` and cast to the output ``dtype``."""
         cols = {}
         cols[f"{column_prefix}_upper_std"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_lower_std"] = feats[:, 1].astype(dtype, copy=False)

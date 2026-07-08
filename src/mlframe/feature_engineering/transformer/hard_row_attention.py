@@ -40,6 +40,11 @@ logger = logging.getLogger(__name__)
 
 
 def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Temperature-scaled softmax over the last axis, numerically stabilized by subtracting the row-wise max before exponentiating.
+
+    ``temp`` is floored at 1e-9 so a caller-supplied ``temp=0`` cannot divide by zero; a very small temp approaches
+    a hard argmax over the anchors, while a large temp flattens the distribution toward uniform weights.
+    """
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)

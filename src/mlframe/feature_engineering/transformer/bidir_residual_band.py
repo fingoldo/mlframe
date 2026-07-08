@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Temperature-scaled softmax over the last axis, numerically stabilized by subtracting the per-row max before exponentiating."""
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
@@ -45,6 +46,7 @@ def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
+    """Fit a shallow LightGBM baseline on (Xt, y_t) and return its IN-SAMPLE predictions, used downstream to compute residuals for band assignment."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -97,6 +99,7 @@ def compute_bidir_residual_band_features(
     effective_n_bands = n_bands
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the baseline, assign train rows to |residual| quintile bands, compute per-band centroid/y-stats/signed-residual-mean, then attend each query row to the bands via softmax(-squared-distance)."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -148,6 +151,7 @@ def compute_bidir_residual_band_features(
         return np.column_stack([weights, entropy, agg_y_mean, agg_y_std, agg_signed_residual, best_band])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the flat ``_process`` output (per-band weights + aggregate stats) into named columns."""
         cols: dict[str, np.ndarray] = {}
         for b in range(effective_n_bands):
             band_tag = f"R{b+1}"

@@ -80,6 +80,7 @@ def compute_local_density_gradient_features(
     n_features = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> np.ndarray:
+        """Build a kNN index on Xt, estimate log-density for Xt and Xq, then finite-difference the density and y gradients over each query's neighborhood and return the 5 output columns."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -156,6 +157,7 @@ def compute_local_density_gradient_features(
         ])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the (n, 5) density-gradient feature matrix into named, dtype-cast columns for the output polars frame."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_log_density"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_grad_norm"] = feats[:, 1].astype(dtype, copy=False)

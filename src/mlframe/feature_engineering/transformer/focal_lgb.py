@@ -36,6 +36,8 @@ def _focal_loss_obj(gamma: float):
     Returns (grad, hess) given preds (raw logits) and labels. gamma=2 is the published default.
     """
     def objective(preds, train_data):
+        """LightGBM-conforming ``(grad, hess)`` callable closing over ``gamma``; converts raw logits to
+        probabilities via a clipped sigmoid before applying the focal modulating factor."""
         labels = train_data.get_label()
         # Clip raw preds before sigmoid to avoid float overflow in exp(-preds).
         preds_clipped = np.clip(preds, -30.0, 30.0)

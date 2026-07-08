@@ -66,6 +66,7 @@ if _NUMBA_AVAILABLE:
 
     @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)
     def _anchor_rmse_core(label, is_anchor, K_slope, K_rmse, residual_out, rmse_out):
+        """Numba core for ``anchor_residual_rmse_features``: walks one segment once, maintaining a growing window of up to ``K_slope`` past anchors to compute a leave-one-out linear-extrapolation residual at each new anchor, and a rolling RMSE over the last ``K_rmse`` such residuals. Writes ``residual_out``/``rmse_out`` in place (last-known-value carried forward between anchors)."""
         m = label.size
         pos = np.empty(m, dtype=np.float64)
         val = np.empty(m, dtype=np.float64)
@@ -111,6 +112,7 @@ if _NUMBA_AVAILABLE:
 
     @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)
     def _anchor_quadratic_core(label, is_anchor, K_window, accel_out, quad_out):
+        """Numba core for ``anchor_quadratic_extrapolation_features``: fits a quadratic ``y = a + b*dx + c*dx^2`` (dx centred on the most recent anchor) via the 3x3 normal equations over the last ``K_window`` anchors, solved by closed-form Cramer's rule, and writes the acceleration coefficient ``c`` and the extrapolated prediction at each row. No-ops (leaves NaN) while fewer than 3 anchors are available or the normal-equations matrix is singular."""
         m = label.size
         pos = np.empty(m, dtype=np.float64)
         val = np.empty(m, dtype=np.float64)
@@ -155,6 +157,7 @@ if _NUMBA_AVAILABLE:
 
     @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)
     def _anchor_ewm_core(label, is_anchor, half_life, ewm_val_out, ewm_slope_out):
+        """Numba core for ``anchor_ewm_features``: O(1)-per-row exponentially-weighted anchor mean + weighted-OLS slope, using the recurrence documented below (decay-then-shift of five running accumulators S0/Sy/Su/Suy/Suu) instead of an O(A) resum over all anchors at every row."""
         # O(1)-per-step EWMA recurrence. Instead of recomputing decayed sums over
         # ALL anchors at every row (O(A) per row => O(A^2) per segment), keep
         # running accumulators in coordinates centred on the CURRENT row i, so the
@@ -204,6 +207,7 @@ if _NUMBA_AVAILABLE:
 
     @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)
     def _anchor_density_core(is_anchor, window_rows, count_out, gap_out):
+        """Numba core for ``anchor_density_features``: sliding-window (two-pointer) count of anchors within the trailing ``window_rows`` and the mean gap between them, O(n) total via a monotonic head index instead of rescanning the window at each row."""
         m = is_anchor.size
         pos = np.empty(m, dtype=np.float64)
         n_anch = 0
@@ -439,6 +443,7 @@ def anchor_residual_rmse_features(
         raise ValueError(f"K_slope >= 2 and K_rmse >= 1; got {K_slope}, {K_rmse}")
 
     def _seg(seg_label: np.ndarray, seg_anchor: np.ndarray, _idx: np.ndarray) -> dict:
+        """Pure-Python fallback (used when numba is unavailable) mirroring ``_anchor_rmse_core`` for a single segment."""
         m = seg_label.size
         anchor_positions: list = []
         anchor_values: list = []
@@ -511,6 +516,7 @@ def anchor_quadratic_extrapolation_features(
         raise ValueError(f"K_window must be >= 3, got {K_window}")
 
     def _seg(seg_label: np.ndarray, seg_anchor: np.ndarray, _idx: np.ndarray) -> dict:
+        """Pure-Python fallback (used when numba is unavailable) mirroring ``_anchor_quadratic_core`` for a single segment, via ``np.linalg.lstsq`` instead of the closed-form Cramer solve."""
         m = seg_label.size
         anchor_positions: list = []
         anchor_values: list = []
@@ -575,6 +581,7 @@ def anchor_ewm_features(
         raise ValueError(f"half_life_rows must be > 0, got {half_life_rows}")
 
     def _seg(seg_label: np.ndarray, seg_anchor: np.ndarray, _idx: np.ndarray) -> dict:
+        """Pure-Python fallback (used when numba is unavailable) mirroring ``_anchor_ewm_core`` for a single segment, recomputing the weighted mean/slope from scratch each row instead of the O(1) recurrence."""
         m = seg_label.size
         anchor_positions: list = []
         anchor_values: list = []
@@ -637,6 +644,7 @@ def anchor_density_features(
     n = is_anchor.size
 
     def _seg(seg_anchor: np.ndarray, idx_seg: np.ndarray) -> tuple:
+        """Pure-Python fallback (used when numba is unavailable) mirroring ``_anchor_density_core`` for a single segment; ``idx_seg`` is unused (kept for signature symmetry with other ``_seg`` fallbacks)."""
         m = seg_anchor.size
         count_out = np.zeros(m, dtype=np.float64)
         gap_out = np.full(m, np.nan, dtype=np.float64)
@@ -709,6 +717,7 @@ def rows_until_next_anchor(
         return out
 
     def _seg(idx_seg: np.ndarray) -> None:
+        """Right-to-left pass over one segment writing rows-until-next-anchor into ``out[idx_seg]`` in place."""
         seg = is_anchor[idx_seg]
         m = seg.size
         # Walk RIGHT TO LEFT, track rows-until-next-anchor.

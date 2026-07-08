@@ -65,6 +65,7 @@ def _fit_bgmm_and_sample(X_class: np.ndarray, n_synthetic: int, n_components: in
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
+    """Distance from each query row to its 1/3/5/10-th nearest neighbour in ``X_subset``; returns 1e6 sentinel columns when ``X_subset`` is empty and clamps ``k`` to the subset size otherwise."""
     from sklearn.neighbors import NearestNeighbors
     n_sub = X_subset.shape[0]
     if n_sub == 0:
@@ -109,6 +110,7 @@ def compute_bgmm_dual_class_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split rows into (positive-class, negative-class) subsets: binary threshold at 0.5, regression via ``q_high``/``1-q_high`` quantile tails."""
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
@@ -117,6 +119,7 @@ def compute_bgmm_dual_class_features(
         return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit dual-class BGMs on the train slice, sample pos/neg virtuals, and assemble the 20-column (5 groups x 4 k-scales) feature block for the query rows."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -147,6 +150,7 @@ def compute_bgmm_dual_class_features(
         return np.asarray(np.concatenate([pos_d, neg_d_virtual, log_gap_realneg, log_gap_virtneg, mixed_ratio], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Slice the flat ``feats`` array into named per-k-scale columns, in the same 5-group order ``_process`` concatenated them."""
         cols: dict[str, np.ndarray] = {}
         for j, k in enumerate(_K_SCALES):
             cols[f"{column_prefix}_pos_k{k}"] = feats[:, j].astype(dtype, copy=False)

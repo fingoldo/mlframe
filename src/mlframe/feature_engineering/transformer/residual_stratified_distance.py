@@ -168,6 +168,7 @@ def compute_residual_stratified_distance_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Per-fold worker: standardize, compute OOF residuals, split into easy/hard bands by median residual, and return the stacked distance/residual features for the query rows."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -194,6 +195,7 @@ def compute_residual_stratified_distance_features(
         return np.column_stack([d_easy, d_hard, log_ratio, mean_r_easy, mean_r_hard])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Map the fixed 11-column ``feats`` layout to prefixed, dtype-cast named columns for the output frame."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_d_easy_k1"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_d_easy_k3"] = feats[:, 1].astype(dtype, copy=False)

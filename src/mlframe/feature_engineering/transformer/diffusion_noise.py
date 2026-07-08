@@ -61,6 +61,7 @@ def _diffusion_synthesize(X_pos: np.ndarray, n_virtuals_per_pos: int, noise_scal
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
+    """Distance from each query row to its 1/3/5/10-th nearest neighbour in ``X_subset``; returns 1e6 sentinel columns when ``X_subset`` is empty and clamps ``k`` to the subset size otherwise."""
     from sklearn.neighbors import NearestNeighbors
     n_sub = X_subset.shape[0]
     if n_sub == 0:
@@ -104,6 +105,7 @@ def compute_diffusion_noise_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split rows into (positive-class, negative-class) subsets: binary threshold at 0.5, regression via ``q_high``/``1-q_high`` quantile tails."""
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
@@ -112,6 +114,7 @@ def compute_diffusion_noise_features(
         return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Synthesize positive virtuals at each noise scale, compute distance + log-gap-vs-negative features for the query rows, and concatenate across scales."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -138,6 +141,7 @@ def compute_diffusion_noise_features(
         return np.asarray(np.concatenate(all_feats, axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Name the flat ``feats`` columns per (noise_scale, k) pair, in the same order ``_process`` concatenated them."""
         cols: dict[str, np.ndarray] = {}
         col_idx = 0
         for ns in noise_scales:

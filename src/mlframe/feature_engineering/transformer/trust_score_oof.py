@@ -61,6 +61,7 @@ def compute_trust_score_oof_features(
     n_features_out = 5
 
     def _process(Xt, Xq, y_t, fold_seed):
+        """Fit a small in-sample baseline, split train rows into correct/incorrect (and positive-correct/negative-correct) subsets, then compute per-query kNN-distance and neighborhood-correctness-fraction trust features against those subsets."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -89,6 +90,7 @@ def compute_trust_score_oof_features(
 
         # kNN distances to "correct" subsets
         def _nn_dist(target_idx_mask, X_query):
+            """Mean and nearest-neighbor kNN distance from each row of ``X_query`` to the train subset selected by ``target_idx_mask``; returns sentinel fill values (mean=1.0, nearest=0.0) when the subset is empty."""
             idx = np.where(target_idx_mask)[0]
             if idx.size == 0:
                 return np.full(X_query.shape[0], 1.0, dtype=np.float32), np.full(X_query.shape[0], 0.0, dtype=np.float32)
@@ -109,6 +111,7 @@ def compute_trust_score_oof_features(
         return np.column_stack([d_pos_min, log_trust_ratio, d_corr_mean, d_incorr_mean, frac_correct])
 
     def _make_df(feats):
+        """Name the 5 flat ``feats`` columns (nearest-positive dist, log trust ratio, correct/incorrect mean dist, top-k correctness fraction) as ``{prefix}_<name>`` and cast to the output ``dtype``."""
         cols = {}
         cols[f"{column_prefix}_nearest_pos_dist"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_log_trust_ratio"] = feats[:, 1].astype(dtype, copy=False)

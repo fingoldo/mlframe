@@ -87,6 +87,7 @@ def compute_residual_attention(
         task = "binary" if len(unique_y) == 2 else "regression"
 
     def _make_aux():
+        """Build the auxiliary LightGBM estimator used to compute residual-attention weights, sized/typed for the resolved ``task``."""
         common = dict(
             n_estimators=aux_n_estimators, max_depth=aux_max_depth, learning_rate=aux_learning_rate,
             random_state=seed, verbose=-1, n_jobs=-1, num_leaves=min(2 ** aux_max_depth, 63),

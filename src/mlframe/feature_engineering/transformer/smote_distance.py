@@ -68,6 +68,7 @@ def _smote_synthesize(X_minority: np.ndarray, n_synthetic: int, k_neighbors: int
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
+    """For each query row, return the distance to its k-th nearest neighbor in ``X_subset`` for every ``k`` in ``_K_SCALES`` (one column per scale). ``k`` is clamped to the available subset size, and an empty subset returns a large sentinel distance (1e6) instead of raising."""
     from sklearn.neighbors import NearestNeighbors
     n_sub = X_subset.shape[0]
     if n_sub == 0:
@@ -110,6 +111,7 @@ def compute_smote_distance_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split ``X_sub`` into (positive, negative) rows: binary task uses the ``y>0.5`` label; regression uses the top/bottom ``q_high`` quantile of ``y`` as pseudo-positive/negative classes."""
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
@@ -118,6 +120,7 @@ def compute_smote_distance_features(
         return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit on training fold ``Xt``/``y_t`` and score query rows ``Xq``: optionally standardize, build a SMOTE-synthesized virtual-positive cloud, then return per-query distances to that cloud plus the signed log-gap against real-negative distances. Returns an all-zero feature block when either class has fewer than 2 rows (too sparse to fit neighbors)."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -139,6 +142,7 @@ def compute_smote_distance_features(
         return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the flat ``(pos_distances | log_gaps)`` feature block from ``_process`` into named columns (``{prefix}_pos_k{k}`` / ``{prefix}_loggap_k{k}``), cast to the output ``dtype``."""
         cols: dict[str, np.ndarray] = {}
         for j, k in enumerate(_K_SCALES):
             cols[f"{column_prefix}_pos_k{k}"] = feats[:, j].astype(dtype, copy=False)

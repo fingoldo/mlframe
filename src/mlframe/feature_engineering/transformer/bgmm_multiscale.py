@@ -63,6 +63,11 @@ def _fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components:
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
+    """Compute, for each row of ``X_query``, the distance to its k-th nearest neighbor in ``X_subset`` for every k in ``_K_SCALES``.
+
+    Falls back to a large constant (1e6) when ``X_subset`` is empty (e.g. no negatives/positives after slicing), and clips
+    the effective k to the available subset size when ``X_subset`` has fewer than ``k_max`` rows so small folds don't error.
+    """
     from sklearn.neighbors import NearestNeighbors
     n_sub = X_subset.shape[0]
     if n_sub == 0:
@@ -105,6 +110,7 @@ def compute_bgmm_multiscale_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split rows into (positive, negative) groups: label>0.5 for binary tasks, or the top/bottom ``q_high`` quantile tails for regression."""
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
@@ -113,6 +119,11 @@ def compute_bgmm_multiscale_features(
         return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit one BGM per scale on ``Xt``'s positives, then emit per-query [pos_dist, log_gap] blocks for each scale, concatenated in ``component_counts`` order.
+
+        Optionally standardizes with a ``RobustScaler`` fit on ``Xt`` only (fold-local, no leakage). Returns an all-zeros
+        block when either class has fewer than 2 rows in this fold (too little signal to fit a mixture or compute k-NN).
+        """
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -138,6 +149,7 @@ def compute_bgmm_multiscale_features(
         return np.asarray(np.concatenate(all_feats, axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Label the flat ``feats`` column block with ``{prefix}_K{n_comp}_{pos|loggap}_k{k}`` names, matching the emission order of ``_process``."""
         cols: dict[str, np.ndarray] = {}
         col_idx = 0
         for n_comp in component_counts:

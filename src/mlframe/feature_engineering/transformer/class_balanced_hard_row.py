@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Temperature-scaled, max-shifted softmax along the last axis; the shift keeps ``exp`` numerically stable for large negative-squared-distance scores."""
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
@@ -52,6 +53,7 @@ def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
+    """Fit a shallow LightGBM baseline (classifier or regressor per ``task``) and return its IN-SAMPLE predictions, used only to rank rows by |residual| hardness."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -115,6 +117,7 @@ def compute_class_balanced_hard_row_features(
     n_total_anchors = 2 * n_hard_per_side
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the baseline, pick the class-balanced (or y-extreme-balanced) hardest anchors, and compute softmax-attention features against the query rows."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -194,6 +197,7 @@ def compute_class_balanced_hard_row_features(
         ])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Name the flat ``feats`` columns; anchor-weight columns are tagged pos/neg for binary or topy/boty for regression, matching the two anchor sides `_process` built."""
         cols: dict[str, np.ndarray] = {}
         # pos weights
         for a in range(n_hard_per_side):

@@ -18,11 +18,21 @@ def compute_apriori_itemsets_features(
     X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
     n_bins=5, top_k=8, min_support=0.05, max_len=3, standardize=True, column_prefix="apri", dtype=np.float32,
 ):
+    """Mine frequent itemsets on quantile-discretized X and emit top-K target-lift-ranked itemset membership as boolean features.
+
+    Per fold: discretize each train-fold feature into ``n_bins`` quantile bins, mine frequent itemsets (up to ``max_len``
+    items, support >= ``min_support``) via FP-growth, score each itemset by its lift against the target (conditional mean
+    ratio for binary, conditional-vs-global mean gap normalized by y std for regression), then for each query row emit
+    a 0/1 membership indicator for the top-K highest-lift itemsets plus the match count and the total number of frequent
+    itemsets found. Falls back to all-zero indicators when FP-growth finds no frequent itemsets (e.g. min_support too high).
+
+    Output: top_k boolean-membership columns + n_matched + n_frequent_total = top_k + 2 features.
+    """
     # numpy>=2.0 removed in1d; mlxtend still uses it. Monkey-patch before import.
     if not hasattr(np, "in1d"):
         np.in1d = np.isin
     try:
-        import mlxtend  # noqa: F401 -- probe import to fail fast with a clear error if mlxtend is missing
+        import mlxtend
         from mlxtend.frequent_patterns import fpgrowth
     except ImportError as exc:
         raise ImportError("apriori_itemsets requires mlxtend") from exc
@@ -37,6 +47,7 @@ def compute_apriori_itemsets_features(
     n_features_out = top_k + 2
 
     def _discretize(X_ref: np.ndarray, X_target: np.ndarray, n_bins: int):
+        """One-hot quantile-bin ``X_target`` using bin edges computed from ``X_ref``; all-NaN columns emit all-zero bin columns instead of propagating NaN."""
         d = X_ref.shape[1]
         bin_cols = []
         for j in range(d):
@@ -58,6 +69,7 @@ def compute_apriori_itemsets_features(
         return np.array(bin_cols, dtype=bool).T  # (n_rows, d*n_bins)
 
     def _process(Xt, Xq, y_t):
+        """Discretize the fold, mine frequent itemsets on the train slice, rank by target lift, and emit top-K membership indicators for the query rows."""
         # Discretize
         bin_matrix_train = _discretize(Xt, Xt, n_bins)
         bin_matrix_query = _discretize(Xt, Xq, n_bins)
@@ -113,6 +125,7 @@ def compute_apriori_itemsets_features(
         return np.column_stack([top_indicators_q, n_matched, np.full(Xq.shape[0], float(len(frequent)), dtype=np.float32)])
 
     def _make_df(feats):
+        """Split the flat ``_process`` output into named itemset-membership/count columns."""
         cols = {}
         for k in range(top_k):
             cols[f"{column_prefix}_itemset{k}"] = feats[:, k].astype(dtype, copy=False)

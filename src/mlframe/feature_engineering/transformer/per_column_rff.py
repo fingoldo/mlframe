@@ -90,7 +90,7 @@ def compute_per_column_rff(
     else:
         X_std = X
 
-    n, d_input = X_std.shape
+    _n, d_input = X_std.shape
     m = d_embed_per_column
     rng = np.random.default_rng(seed)
     # Per-column W_j and b_j.

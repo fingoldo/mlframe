@@ -24,7 +24,7 @@ import polars.selectors as cs
 try:
     import polars_talib as plta
 except ImportError:
-    plta = None  # noqa: F841 - guarded use inside the TA-indicator functions
+    plta = None
 
 import pyutilz.polarslib as pllib
 from pyutilz.system import clean_ram

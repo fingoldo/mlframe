@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 def _fit_3baselines(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int):
+    """Fit 3 structurally different baselines (shallow LGBM, deeper LGBM, linear) so their gradient directions can be compared.
+
+    The linear baseline (LogisticRegression / Ridge) can fail to converge on pathological folds; on failure ``m3`` is
+    ``None`` and the caller substitutes a zero gradient rather than aborting the whole feature.
+    """
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -38,6 +43,7 @@ def _fit_3baselines(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int):
 
 
 def _predict(model, X: np.ndarray, is_binary: bool) -> np.ndarray:
+    """Return the model's scalar score per row: positive-class probability for binary tasks, raw prediction otherwise."""
     if is_binary:
         return np.asarray(model.predict_proba(X)[:, 1].astype(np.float32))
     else:
@@ -88,6 +94,7 @@ def compute_gradient_direction_agreement_features(
     n_features_out = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the 3 baselines on ``Xt``/``y_t``, compute their gradients at ``Xq``, and return the 5 pairwise-cosine columns."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -105,6 +112,7 @@ def compute_gradient_direction_agreement_features(
             g3 = np.zeros_like(g1)
 
         def _cos(a, b):
+            """Row-wise cosine similarity between two (n, d) gradient matrices; epsilon-padded norms avoid div-by-zero on flat gradients."""
             na = np.sqrt((a * a).sum(axis=1)) + 1e-9
             nb = np.sqrt((b * b).sum(axis=1)) + 1e-9
             return ((a * b).sum(axis=1) / (na * nb)).astype(np.float32)
@@ -117,6 +125,7 @@ def compute_gradient_direction_agreement_features(
         return np.column_stack([cos12, cos23, cos13, mean_cos, min_cos])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Cast the 5 raw-float32 cosine columns to the output ``dtype`` and name them ``{column_prefix}_<stat>``."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_cos12"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_cos23"] = feats[:, 1].astype(dtype, copy=False)

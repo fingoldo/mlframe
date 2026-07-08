@@ -104,6 +104,7 @@ def _nw_at(xq, x_sorted, y, w, kernel_code, h, use_w):
 
 @njit(fastmath=False, cache=True)
 def _nw_serial(x_query, x, y, w, kernel_code, h, use_w):
+    """Single-threaded Nadaraya-Watson evaluation over all query points; preferred for small query sets where prange spawn overhead would dominate."""
     out = np.empty(x_query.shape[0], dtype=np.float64)
     for q in range(x_query.shape[0]):
         out[q] = _nw_at(x_query[q], x, y, w, kernel_code, h, use_w)
@@ -112,6 +113,7 @@ def _nw_serial(x_query, x, y, w, kernel_code, h, use_w):
 
 @njit(fastmath=False, cache=True, parallel=True)
 def _nw_parallel(x_query, x, y, w, kernel_code, h, use_w):
+    """Multi-core Nadaraya-Watson evaluation via ``prange`` over query points; wins once the per-point work amortises the thread-spawn cost."""
     out = np.empty(x_query.shape[0], dtype=np.float64)
     for q in prange(x_query.shape[0]):
         out[q] = _nw_at(x_query[q], x, y, w, kernel_code, h, use_w)

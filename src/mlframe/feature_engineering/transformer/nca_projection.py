@@ -51,6 +51,12 @@ logger = logging.getLogger(__name__)
 
 
 def _fit_nca(X: np.ndarray, y_binary: np.ndarray, *, n_components: int, max_iter: int, seed: int):
+    """Standardize ``X`` then fit sklearn's L-BFGS NCA on it, returning both the fitted projector and the scaler needed to transform future rows.
+
+    ``n_components`` is clamped to ``X.shape[1]`` since NCA cannot project onto more dimensions than the input has. Init is PCA-based for stable
+    convergence (random init can converge to a poor local optimum), and fit warnings (e.g. L-BFGS line-search convergence chatter) are suppressed
+    since they are expected on small per-fold data and would otherwise flood logs.
+    """
     from sklearn.neighbors import NeighborhoodComponentsAnalysis
     from sklearn.preprocessing import StandardScaler
     scaler = StandardScaler().fit(X)
@@ -100,12 +106,19 @@ def compute_nca_projection_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _binarize(y_sub: np.ndarray) -> np.ndarray:
+        """Reduce ``y_sub`` to the binary label NCA requires: pass through thresholded binary targets as-is, or for regression flag the top ``q_high`` quantile as the positive class."""
         if task == "binary":
             return (y_sub > 0.5).astype(int)
         threshold = np.quantile(y_sub, q_high)
         return np.asarray((y_sub >= threshold).astype(int))
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit NCA on the train rows and project the query rows, degrading gracefully when the fold's binarized labels are degenerate.
+
+        Returns an all-zero projection when either class has fewer than 2 members (NCA cannot learn a meaningful metric from a single-class or
+        near-empty class), and zero-pads the output when sklearn returns fewer components than requested (can happen when the input has fewer
+        features than ``n_components``), so the caller always gets a fixed-width ``(n_query, n_components)`` array regardless of fold degeneracy.
+        """
         y_bin = _binarize(y_t)
         # NCA needs at least 2 classes with non-empty members.
         if y_bin.sum() < 2 or (1 - y_bin).sum() < 2:
@@ -121,6 +134,7 @@ def compute_nca_projection_features(
         return np.asarray(proj)
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split a dense ``(n_rows, n_components)`` projection array into a column dict named ``{column_prefix}_c{j}``, casting each column to the output ``dtype`` without copying when the dtype already matches."""
         return {f"{column_prefix}_c{j}": feats[:, j].astype(dtype, copy=False) for j in range(feats.shape[1])}
 
     if X_query is not None:

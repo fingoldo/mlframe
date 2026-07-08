@@ -78,6 +78,7 @@ def compute_multiscale_rate_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> np.ndarray:
+        """Fit kNN on ``Xt``/``y_t`` and compute all ``k_scales`` rates for ``Xq`` via one cumulative-sum pass over the largest neighborhood."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -101,6 +102,7 @@ def compute_multiscale_rate_features(
         return out
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Map each ``k_scales`` column of ``feats`` to its ``{column_prefix}_k{k}`` output name."""
         return {f"{column_prefix}_k{k}": feats[:, j].astype(dtype, copy=False) for j, k in enumerate(k_scales)}
 
     if X_query is not None:

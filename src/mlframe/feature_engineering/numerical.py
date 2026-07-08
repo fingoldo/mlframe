@@ -46,6 +46,7 @@ _astropy_resolved = False
 
 
 def _resolve_astropy_histogram():
+    """Lazily import and cache ``astropy.stats.histogram``, resolving it only once per process."""
     global _astropy_histogram, _astropy_resolved
     if not _astropy_resolved:
         try:
@@ -175,6 +176,7 @@ default_dist_responses = dict(levy_l=(np.nan, np.nan), logistic=(np.nan, np.nan)
 
 
 def get_distributions_features_names() -> list:
+    """Return the flat list of feature names emitted by the distribution-fitting features (per-distribution params + KS stat/pvalue)."""
     distributions_features_names = []
     for dist in distributions:
         for i in range(len(default_dist_responses[dist.name])):
@@ -211,6 +213,7 @@ def _make_compute_simple_stats(use_kahan: bool, use_fastmath: bool):
 
     @numba.njit(**njit_kwargs)
     def kernel(arr: np.ndarray) -> tuple:  # pragma: no cover
+        """Compiled reduction: single pass min/max/argmin/argmax + moment accumulators, honoring the KAHAN/fastmath settings closed over above."""
         minval, maxval, argmin, argmax = 0.0, 0.0, 0, 0
         for i, next_value in enumerate(arr):
             if np.isfinite(next_value):
@@ -305,6 +308,7 @@ def compute_simple_stats_numba_arr(arr: np.ndarray, dtype=np.float32, compensate
 
 
 def get_simple_stats_names() -> list:
+    """Return the feature names matching the tuple order returned by ``compute_simple_stats_numba``."""
     return "min,max,argmin,argmax,mean,std".split(",")
 
 
@@ -312,7 +316,7 @@ def get_simple_stats_names() -> list:
 # _numerical_numba.py (along with its @numba.njit(cache=False) decorator,
 # which is needed because numba's AOT cache corrupts on the function's
 # bool-kwarg-heavy signature on Windows + Python 3.11 + numba 0.59).
-from ._numerical_numba import compute_numerical_aggregates_numba  # noqa: F401, E402
+from ._numerical_numba import compute_numerical_aggregates_numba
 
 def get_basic_feature_names(
     weights: Optional[np.ndarray] = None,
@@ -365,7 +369,7 @@ def get_basic_feature_names(
     return res
 
 
-from ._numerical_counts import (  # noqa: F401  re-export: count / crossing / quantile kernels carved to a sibling
+from ._numerical_counts import (
     _fused_nunique_modes_quantiles_kernel,
     _fused_nunique_modes_quantiles,
     compute_nunique_modes_quantiles_numpy,
@@ -376,7 +380,7 @@ from ._numerical_counts import (  # noqa: F401  re-export: count / crossing / qu
 )
 
 
-from ._numerical_numba import (  # noqa: F401, E402
+from ._numerical_numba import (
     _make_compute_moments_slope_mi,
     compute_moments_slope_mi,
     _compute_moments_slope_mi_compensated,
@@ -385,6 +389,7 @@ from ._numerical_numba import (  # noqa: F401, E402
 )
 
 def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = _EMPTY_FLOAT32) -> float:
+    """KNN-based mutual information between ``arr`` and ``xvals`` (or ``arr``'s row index when ``xvals`` is empty)."""
     if len(xvals):
         mi = mutual_info_regression(xvals.reshape(-1, 1), arr, n_neighbors=2)
     else:

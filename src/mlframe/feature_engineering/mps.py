@@ -1,3 +1,6 @@
+"""Maximum Profit System (MPS): compute the optimal long/flat/short position sequence over a price series
+via dynamic programming, net of transaction costs, and derive per-bar realised-profit targets from it.
+"""
 from __future__ import annotations
 
 __all__ = [
@@ -28,7 +31,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union, cast  # noqa: F401
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
 
 import numba
 import numpy as np
@@ -74,6 +77,7 @@ FASTMATH: bool = False
 
 @numba.njit(fastmath=FASTMATH, cache=True)
 def _state_index(pos):  # pragma: no cover
+    """Map a position (-1/0/+1) to its DP state array index (0/1/2)."""
     # map position to state index: -1 -> 0, 0 -> 1, +1 -> 2
     if pos == -1:
         return 0
@@ -85,6 +89,7 @@ def _state_index(pos):  # pragma: no cover
 
 @numba.njit(fastmath=FASTMATH, cache=True)
 def _index_state(idx):  # pragma: no cover
+    """Inverse of :func:`_state_index`: map a DP state array index (0/1/2) back to a position (-1/0/+1)."""
     # inverse mapping
     if idx == 0:
         return -1
@@ -96,6 +101,7 @@ def _index_state(idx):  # pragma: no cover
 
 @numba.njit(fastmath=FASTMATH, cache=True)
 def _trade_count(prev_pos, new_pos):  # pragma: no cover
+    """Number of trades executed when switching from ``prev_pos`` to ``new_pos`` (0, 1, or 2)."""
     # Number of trades executed when switching prev_pos -> new_pos.
     # Critical: continuing the same non-zero position is ZERO trades. The previous version
     # returned 1 in that branch (closing-previous counted but the opening was skipped via `pass`),
@@ -113,6 +119,7 @@ def _trade_count(prev_pos, new_pos):  # pragma: no cover
 
 @numba.njit(fastmath=FASTMATH, cache=True)
 def _trade_cost(price_t, trades, tc, tc_mode_is_fraction):  # pragma: no cover
+    """Transaction cost for ``trades`` executions at ``price_t``: ``price_t*tc*trades`` if fraction-mode, else ``tc*trades``."""
     if trades == 0:
         return 0.0
     if tc_mode_is_fraction:
@@ -123,6 +130,10 @@ def _trade_cost(price_t, trades, tc, tc_mode_is_fraction):  # pragma: no cover
 
 @numba.njit(fastmath=FASTMATH, cache=True)
 def compute_area_profits(prices, positions):  # pragma: no cover
+    """Per-bar running relative profit within each held-position run, for every consecutive same-position run in ``positions``.
+
+    Bars where ``prices`` is non-positive contribute 0 (division guard); trailing bars past the position array default to 0.
+    """
     # Output is sized to ``prices.shape[0]`` for backward-compatibility with callers that do ``profits[:-1]``; position-array indexing must use ``positions.shape[0]`` (which is typically ``n_prices - 1`` in the DP caller but may equal ``n_prices`` for direct callers). Using ``n_prices`` as the position-loop bound was a latent OOB under strict Python bounds-checking (visible only under NUMBA_DISABLE_JIT=1 since the JIT relaxes bounds-checks and silently terminated the inner ``while``).
     n_prices = prices.shape[0]
     n_pos = positions.shape[0]
@@ -567,7 +578,11 @@ def show_mps_regions(
     show_chart: bool = True,
     title: str = "Optimal Position",
 ) -> dict:
+    """Compute (or reuse) the optimal MPS position sequence, annotate the title with profit-quantile stats, and optionally plot it.
 
+    Returns a dict with ``profit_quantile`` / ``max_profit`` plus the ``find_maximum_profit_system`` result keys
+    (``positions`` / ``profits``) merged in.
+    """
     profits = None
     profit_quantile_value = None
     max_profit = None
@@ -603,7 +618,8 @@ def show_mps_regions(
     return dict(profit_quantile=profit_quantile_value, max_profit=max_profit, **res)
 
 
-def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=datetime(2024, 1, 1), base_volume=5000, random_seed: int = 42) -> tuple:  # noqa: DTZ001 -- synthetic demo price series, a naive calendar date is the right default here
+def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=datetime(2024, 1, 1), base_volume=5000, random_seed: int = 42) -> tuple:
+    """Generate a synthetic daily (dates, prices, volumes) series with trend, mean reversion, occasional news-event jumps, and volume that spikes on big price moves. For demos/tests, not real market data."""
     # Wave 49 (2026-05-20): switch to local Generator instead of mutating the
     # global RNG (which broke determinism for any sibling code running in the
     # same process). Falls back to entropy-seeded Generator when random_seed
@@ -650,7 +666,7 @@ def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=da
 
 
 def safely_compute_mps(f, **kwargs):
-
+    """Wrap :func:`compute_mps_targets` with existence-check + broad exception handling, returning ``None`` on any failure instead of raising (for batch pipelines over many files)."""
     if not exists(f):
         return None
     try:
@@ -678,7 +694,12 @@ def compute_mps_targets(
     optimize_consecutive_regions: bool = True,
     final_price_alias: str = "final_price",
 ) -> Optional[pl.DataFrame]:
+    """Compute per-instrument MPS optimal positions/profits as a target frame, from a parquet path or a pre-loaded polars frame.
 
+    Groups rows by ``group_field``, smooths ``price_field`` (SMA or EWM) to derive the price series the DP optimizes over
+    while keeping the raw price for profit realisation, then concatenates each group's :func:`find_best_mps_sequence`
+    output (dropping the last, positionless timestamp) into one long-format target frame.
+    """
     if fo_df is None:
         if fpath is None:
             raise ValueError("compute_mps_targets: either fpath or fo_df must be provided.")

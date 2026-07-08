@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 
 def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Temperature-scaled softmax over the last axis, numerically stabilized by subtracting the per-row max before exponentiating."""
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
@@ -86,6 +87,7 @@ def _fit_3baselines_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: in
 
 
 def _topk_within_subset(values: np.ndarray, subset_idx: np.ndarray, k: int) -> np.ndarray:
+    """Return the (row-)indices in ``subset_idx`` with the top-k largest ``values``, deterministic on ties via index tiebreak."""
     if subset_idx.size == 0:
         return np.array([], dtype=np.int64)
     k_eff = min(k, subset_idx.size)
@@ -125,6 +127,7 @@ def compute_multi_baseline_hard_row_features(
     n_total_anchors = 2 * n_hard_per_side
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the 3 baselines, compute the combined (max-of-z-scored |residual|) hardness, pick the K/2 hardest anchors per class/quintile side, then attend each query row to those anchors via softmax(-squared-distance)."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -201,6 +204,7 @@ def compute_multi_baseline_hard_row_features(
         ])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the flat ``_process`` output (per-anchor weights + aggregate stats) into named columns."""
         cols: dict[str, np.ndarray] = {}
         for a in range(n_hard_per_side):
             tag = "pos" if task == "binary" else "topy"

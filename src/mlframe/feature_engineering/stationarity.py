@@ -254,6 +254,7 @@ def ewma_residual(
             raise ValueError(f"half_life must be > 0, got {h}")
 
     def _ewma_single(seg: np.ndarray, hl: float) -> np.ndarray:
+        """Compute the EWMA residual for one contiguous segment and one half-life: NaN/inf are zero-filled before the recurrence, then (optionally) bias-corrected via the pandas ``adjust`` convention before subtracting the EWMA from the raw segment."""
         alpha = 1.0 - 2.0 ** (-1.0 / hl)
         seg_f = np.where(np.isfinite(seg), seg, 0.0)
         ewma = _ewma_recurrence_njit(seg_f, alpha)
@@ -322,6 +323,7 @@ def local_linear_detrend(
     out_slope = np.full(n, fill_value, dtype=np.float64)
 
     def _fit_segment(seg: np.ndarray) -> tuple:
+        """Rolling-OLS residual + slope for one contiguous segment via a vectorized sliding-window covariance formula (no explicit per-row solve): returns ``(residual, slope)`` arrays, NaN-filled for the first ``window_K - 1`` rows and any segment shorter than ``window_K``."""
         # For each row r >= K-1: fit on rows [r-K+1, r].
         seg_f = np.where(np.isfinite(seg), seg, 0.0)
         m = seg.size
@@ -404,6 +406,7 @@ def cusum_features(
     threshold = float(threshold)
 
     def _walk(idx_seg: np.ndarray) -> None:
+        """Run the two-sided CUSUM recurrence over one group's row indices (relative to the segment's own mean) and scatter the resulting pos/neg CUSUM, rows-since-reset, and reset-count back into the full-length output arrays at ``idx_seg``."""
         if idx_seg.size == 0:
             return
         seg = arr[idx_seg]

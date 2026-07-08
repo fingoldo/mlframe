@@ -18,7 +18,10 @@ except ImportError:  # pragma: no cover
     _HAS_NUMBA = False
 
     def njit(*args, **kwargs):
+        """No-op numba.njit shim used when numba is unavailable: returns the function unchanged."""
+
         def wrap(fn):
+            """Identity decorator (numba absent): returns ``fn`` as-is."""
             return fn
 
         if args and callable(args[0]):
@@ -96,12 +99,14 @@ def _best_mdl_split_kernel(y_sorted, x_sorted, n_classes, min_size):
 
 
 def _entropy_binary(p: float) -> float:
+    """Binary entropy in bits for a class-1 proportion ``p``; 0 at the degenerate p<=0 or p>=1 extremes."""
     if p <= 0 or p >= 1:
         return 0.0
     return float(-p * np.log2(p) - (1 - p) * np.log2(1 - p))
 
 
 def _entropy_multi(y_subset: np.ndarray, n_classes: int) -> float:
+    """Multi-class entropy in bits over ``y_subset`` (pure-Python/numpy reference for ``_entropy_from_counts``)."""
     if y_subset.size == 0:
         return 0.0
     counts = np.bincount(y_subset.astype(np.int32), minlength=n_classes).astype(np.float64)
@@ -123,6 +128,7 @@ def _mdl_bin_edges(x: np.ndarray, y_class: np.ndarray, n_classes: int, max_bins=
     edges: list = []
 
     def _split(lo, hi, depth):
+        """Evaluate the single best MDL split over ``x[lo:hi]`` and append its threshold to ``edges`` if it passes the MDL stop criterion; no-op (and not recursed) otherwise."""
         if hi - lo < 2 * min_size or len(edges) >= max_bins - 1:
             return
         sub_x = x[lo:hi]
@@ -156,6 +162,13 @@ def compute_mdl_binning_pairwise_features(
     X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
     max_bins_per_feat=8, top_k_pairs=10, standardize=True, column_prefix="mdlbin", dtype=np.float32,
 ):
+    """Fit MDL bin edges per feature on train, then emit per-query aggregate bin/co-occurrence features.
+
+    Mode A (no ``X_query``): out-of-fold via ``splitter`` - each fold's edges are fit on the train part and applied to
+    its held-out val part, avoiding leakage. Mode B (``X_query`` given): edges fit once on the full ``X_train`` and
+    applied to ``X_query`` directly (e.g. train->test scoring). Emits 5 columns: max/sum of per-row bin indices, the
+    train-frequency of the (feature0, feature1) bin combo each query row falls into, and totals (n_edges, n_unique_combos).
+    """
     seed = require_seed(seed)
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
     if X_query is not None:
@@ -165,6 +178,7 @@ def compute_mdl_binning_pairwise_features(
     n_features_out = 5
 
     def _process(Xt, Xq, y_t):
+        """Fit MDL bin edges on ``(Xt, y_t)`` and compute the 5 aggregate features for each row of ``Xq``."""
         d = Xt.shape[1]
         # Discretize y for MDL: regression → quintile bin; binary → as-is
         if y_t.dtype != np.int32:
@@ -215,6 +229,7 @@ def compute_mdl_binning_pairwise_features(
         ])
 
     def _make_df(feats):
+        """Wrap the ``(n, 5)`` feature array from ``_process`` into a named, dtype-cast column dict for ``pl.DataFrame``."""
         cols = {}
         cols[f"{column_prefix}_max_bin"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_sum_bins"] = feats[:, 1].astype(dtype, copy=False)
