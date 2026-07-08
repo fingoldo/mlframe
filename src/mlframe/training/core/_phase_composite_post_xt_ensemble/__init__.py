@@ -566,7 +566,7 @@ def _build_cross_target_ensemble_for_target(
             _oof_pred_matrix, _oof_y_holdout, _surviving = (
                 None, None, [],
             )
-        if _oof_pred_matrix is not None and _oof_pred_matrix.shape[1] > 0:
+        if _oof_pred_matrix is not None and _oof_y_holdout is not None and _oof_pred_matrix.shape[1] > 0:
             # Re-align to the surviving set returned by the OOF helper.
             _surviving_set = set(_surviving)
             _oof_components = [c for c, n in zip(_components, _component_names) if n in _surviving_set]
@@ -601,7 +601,7 @@ def _build_cross_target_ensemble_for_target(
                 )
                 return
             _oof_rmses = _rmse_arr
-        if _oof_pred_matrix is not None and _oof_pred_matrix.shape[1] > 0:
+        if _oof_pred_matrix is not None and _oof_y_holdout is not None and _oof_pred_matrix.shape[1] > 0:
             logger.info(
                 "[CompositeCrossTargetEnsemble] target='%s' using " "honest OOF holdout (frac=%.2f, n=%d) for ensemble " "weights / stacking.",
                 _orig_tname,
@@ -672,6 +672,7 @@ def _build_cross_target_ensemble_for_target(
         # OOF residuals so redundancy is measured on the same surface the stacker fits.
         if (bool(getattr(composite_target_discovery_config, "ct_ensemble_dedup_enabled", False))
                 and _oof_pred_matrix is not None
+                and _oof_y_holdout is not None
                 and _oof_pred_matrix.shape[1] > 2):
             try:
                 from ...composite import residual_dedup_indices
@@ -709,7 +710,7 @@ def _build_cross_target_ensemble_for_target(
             )
         elif _ce_strategy in ("linear_stack", "nnls_stack"):
             # Honest OOF preds if available, else biased train-set preds.
-            if _oof_pred_matrix is not None and _oof_pred_matrix.shape[1] > 0:
+            if _oof_pred_matrix is not None and _oof_y_holdout is not None and _oof_pred_matrix.shape[1] > 0:
                 _pred_matrix = _oof_pred_matrix
                 _y_for_stack = _oof_y_holdout
                 # Stacking-aware gate (opt-in) -- drop components whose NNLS weight on the honest OOF preds falls below the configured threshold BEFORE running the actual stacker.
@@ -731,13 +732,13 @@ def _build_cross_target_ensemble_for_target(
                             _gate_preds, _y_for_stack, min_weight=_gate_min,
                         )
                         if 2 <= len(_survivors) < len(_oof_names):
-                            _keep_mask = np.array([n in set(_survivors) for n in _oof_names], dtype=bool)
-                            _pred_matrix = _pred_matrix[:, _keep_mask]
+                            _keep_mask_arr = np.array([n in set(_survivors) for n in _oof_names], dtype=bool)
+                            _pred_matrix = _pred_matrix[:, _keep_mask_arr]
                             # Keep _oof_pred_matrix aligned with the pruned weights so the OOF gate + AR(1) failsafe below still match column-for-column (mirrors the dedup block).
-                            _oof_pred_matrix = _oof_pred_matrix[:, _keep_mask]
-                            _oof_components = [c for c, k in zip(_oof_components, _keep_mask) if k]
-                            _oof_names = [n for n, k in zip(_oof_names, _keep_mask) if k]
-                            _oof_rmses = _oof_rmses[_keep_mask]
+                            _oof_pred_matrix = _oof_pred_matrix[:, _keep_mask_arr]
+                            _oof_components = [c for c, k in zip(_oof_components, _keep_mask_arr) if k]
+                            _oof_names = [n for n, k in zip(_oof_names, _keep_mask_arr) if k]
+                            _oof_rmses = _oof_rmses[_keep_mask_arr]
                             logger.info(
                                 "[CompositeCrossTargetEnsemble] target='%s' " "stacking_aware_gate kept %d of %d components " "(min_weight=%.3f).",
                                 _orig_tname,
@@ -752,9 +753,9 @@ def _build_cross_target_ensemble_for_target(
                             _gate_err,
                         )
             else:
-                _y_for_stack = np.asarray(_oof_y_full)[filtered_train_idx] if _oof_y_full is not None else None
-                if _y_for_stack is None:
+                if _oof_y_full is None:
                     raise RuntimeError("stacking requires train target alignment")
+                _y_for_stack = np.asarray(_oof_y_full)[filtered_train_idx]
                 # Preallocate (n_rows, K) to skip np.column_stack's per-entry copy doubling peak RAM.
                 _frame_key2 = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
                 _n_rows = int(len(_y_for_stack))
@@ -1017,7 +1018,7 @@ def _build_cross_target_ensemble_for_target(
                     _ens_train_envelope = compute_train_envelope_stats(_ens_y_train)
             except Exception:
                 _ens_train_envelope = None
-            _ens_common = dict(
+            _ens_common: dict[str, Any] = dict(
                 columns=_ens_columns,
                 df=None, model=None,
                 model_name=_ens_model_name,

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 from typing import (
+    TYPE_CHECKING,
     Any,
 )
 
@@ -19,6 +20,9 @@ except Exception:  # pragma: no cover
     _HAS_NUMBA = False
 
 logger = logging.getLogger("mlframe.training.composite_transforms")
+
+if TYPE_CHECKING:
+    from . import Transform
 
 # Parent-resident constants referenced as default-arg values in signatures below. Signature defaults evaluate at module load, so these MUST be top-level (a lazy in-body import wouldn't see them). The parent defines all five BEFORE its bottom-of-module sibling import, so this static cycle resolves at runtime. Whitelisted in tests/test_meta/test_no_import_cycles.py.
 from . import (  # noqa: E402
@@ -143,6 +147,9 @@ _MAD_SOFT_CAP_K: float = 10.0
 
 
 logger = logging.getLogger("mlframe.training.composite_transforms")
+
+if TYPE_CHECKING:
+    from . import Transform
 
 def _james_stein_shrinkage_factor(
     per_group_alphas: np.ndarray,
@@ -933,7 +940,7 @@ def _make_chain_transform(
     bivariate_fit, bivariate_forward, bivariate_inverse, bivariate_domain,
     unary_fit, unary_forward, unary_inverse,
     description: str,
-):
+) -> "Transform":
     """Create a registry Transform for ``chain(bivariate, unary)``.
 
     The chain inherits ``requires_base=True`` from the bivariate half (it still needs a base column at fit + predict). At fit-time it first fits the bivariate, applies forward to get T1, then fits the unary on T1; the joint params dict stores both. Forward / inverse run in the matching order. Domain check delegates to the bivariate's check since the unary half has no base-dependent constraint at predict.

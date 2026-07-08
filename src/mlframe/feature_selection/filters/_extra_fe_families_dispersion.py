@@ -237,13 +237,13 @@ def _zscore_from_bins(
     the same order) and ~3.5-6.2x faster at n=10k..1M -- this is the top tottime
     frame in ``generate_conditional_dispersion_features``, called once per ordered
     (x_i, x_j) pair. Bench: ``_benchmarks/bench_dispersion_zscore_njit.py``."""
-    return _zscore_from_bins_njit(
+    return np.asarray(_zscore_from_bins_njit(
         np.ascontiguousarray(xi, dtype=np.float64),
         np.ascontiguousarray(codes_j),
         np.ascontiguousarray(bin_mean, dtype=np.float64),
         np.ascontiguousarray(bin_std, dtype=np.float64),
         _DISPERSION_SIGMA_FLOOR,
-    )
+    ))
 
 
 def _emit_kind(z: np.ndarray, kind: str) -> np.ndarray:
@@ -251,9 +251,9 @@ def _emit_kind(z: np.ndarray, kind: str) -> np.ndarray:
     if kind == "z":
         return z
     if kind == "absz":
-        return np.abs(z)
+        return np.asarray(np.abs(z))
     if kind == "z2":
-        return z * z
+        return np.asarray(z * z)
     raise ValueError(f"conditional_dispersion: unknown kind {kind!r}")
 
 
@@ -445,11 +445,11 @@ def _dual_uplift_filter(
     y_bin = _coerce_y_classes(y)
     # MI of the candidate dispersion columns.
     cand_arr = enc_df[list(winners)].to_numpy(dtype=np.float64)
-    cand_mi = np.asarray(_mi_classif_batch(cand_arr, y_bin, nbins=n_bins), dtype=np.float64)
-    cand_mi = {nm: float(cand_mi[j]) for j, nm in enumerate(winners)}
+    cand_mi_arr = np.asarray(_mi_classif_batch(cand_arr, y_bin, nbins=n_bins), dtype=np.float64)
+    cand_mi: dict = {nm: float(cand_mi_arr[j]) for j, nm in enumerate(winners)}
 
     # Distinct (x_i, x_j) pairs among winners -> raw x_i MI + mean-residual sibling MI.
-    pairs = {}
+    pairs: dict = {}
     for nm in winners:
         rec = raw_recipes.get(nm, {})
         pairs[(rec.get("x_i"), rec.get("x_j"))] = None
@@ -601,23 +601,25 @@ def hybrid_conditional_dispersion_fe(
         # emission-fold STRUCTURE is bit-identical to the host; only the per-row f64 divide differs at ULP (the
         # per-bin moments are the SAME host-stored recipe constants). ``None`` (no cupy / non-strict / any GPU
         # failure) -> exact host gate.
-        winners = None
+        winners_gated: list | None = None
         try:
             from ._gpu_strict_fe import fe_gpu_device_born_dispersion_enabled
             if fe_gpu_device_born_dispersion_enabled():
                 from ._extra_fe_families_dispersion_resident import local_mi_gate_dispersion_resident
-                winners = local_mi_gate_dispersion_resident(
+                winners_gated = local_mi_gate_dispersion_resident(
                     enc_df, y, raw_X=X, recipes=raw_recipes,
                     top_k=_gate_top_k, reject_sink=reject_sink,
                 )
         except Exception:
-            winners = None
-        if winners is None:
+            winners_gated = None
+        if winners_gated is None:
             winners = local_mi_gate(
                 enc_df, y, raw_X=X,
                 top_k=_gate_top_k,
                 reject_sink=reject_sink,
             )
+        else:
+            winners = winners_gated
         # DUAL-UPLIFT GATE (backlog #12): a dispersion column earns its keep ONLY
         # if it carries MI BEYOND both (a) its raw source x_i and (b) its
         # Family-B mean-residual sibling x_i - E[x_i|bin(x_j)]. On homoscedastic
