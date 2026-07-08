@@ -19,7 +19,13 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Unlike ci.yml's `test` job (which deliberately keeps push-to-master runs alive to completion
+  # so codecov actually gets an upload -- see that job's comment), this is a pure lint/type gate
+  # with no artifact dependent on a specific run finishing. Under heavy concurrent push volume a
+  # non-cancelling queue serializes every push's run one-at-a-time behind the group and can back
+  # up for 30+ minutes (observed 2026-07-08) with nothing to show for the wait -- only the latest
+  # commit's result matters, so always cancel a superseded in-progress/queued run.
+  cancel-in-progress: true
 
 jobs:
   mypy-full:
