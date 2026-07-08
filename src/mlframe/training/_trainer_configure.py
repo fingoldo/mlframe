@@ -40,11 +40,11 @@ except ImportError:  # pragma: no cover
 try:
     from lightgbm import LGBMClassifier, LGBMRegressor
 except ImportError:  # pragma: no cover
-    LGBMClassifier = LGBMRegressor = None  # type: ignore[assignment]
+    LGBMClassifier = LGBMRegressor = None  # type: ignore[assignment,misc]
 try:
     from xgboost import XGBClassifier, XGBRegressor
 except ImportError:  # pragma: no cover
-    XGBClassifier = XGBRegressor = None  # type: ignore[assignment]
+    XGBClassifier = XGBRegressor = None  # type: ignore[assignment,misc]
 
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
 from .pipeline import (  # noqa: E402,F401
@@ -191,17 +191,17 @@ def configure_training_params(
     train_target: pd.Series = None,
     test_target: pd.Series = None,
     val_target: pd.Series = None,
-    train_idx: np.ndarray = None,
-    val_idx: np.ndarray = None,
-    test_idx: np.ndarray = None,
-    cat_features: list = None,
-    text_features: list = None,
-    embedding_features: list = None,
-    fairness_features: Sequence = None,
+    train_idx: np.ndarray | None = None,
+    val_idx: np.ndarray | None = None,
+    test_idx: np.ndarray | None = None,
+    cat_features: list | None = None,
+    text_features: list | None = None,
+    embedding_features: list | None = None,
+    fairness_features: Sequence | None = None,
     cont_nbins: int = 6,
     fairness_min_pop_cat_thresh: float | int = 1000,
     use_robust_eval_metric: bool = False,
-    sample_weight: np.ndarray = None,
+    sample_weight: np.ndarray | None = None,
     prefer_gpu_configs: bool = True,
     nbins: int = 10,
     use_regression: bool = False,
@@ -210,22 +210,22 @@ def configure_training_params(
     prefer_cpu_for_lightgbm: bool = True,
     prefer_cpu_for_xgboost: bool = False,
     xgboost_verbose: int | bool = False,
-    cb_fit_params: dict = None,
+    cb_fit_params: dict | None = None,
     prefer_calibrated_classifiers: bool = True,
-    default_regression_scoring: dict = None,
-    default_classification_scoring: dict = None,
+    default_regression_scoring: dict | None = None,
+    default_classification_scoring: dict | None = None,
     train_details: str = "",
     val_details: str = "",
     test_details: str = "",
-    group_ids: np.ndarray = None,
+    group_ids: np.ndarray | None = None,
     model_name: str = "",
-    common_params: dict = None,
-    config_params: dict = None,
-    metamodel_func: Callable = None,
-    _precomputed_fairness_subgroups: dict = None,
-    mlframe_models: list = None,
-    linear_model_config: LinearModelConfig = None,
-    callback_params: dict = None,
+    common_params: dict | None = None,
+    config_params: dict | None = None,
+    metamodel_func: Callable | None = None,
+    _precomputed_fairness_subgroups: dict | None = None,
+    mlframe_models: list | None = None,
+    linear_model_config: LinearModelConfig | None = None,
+    callback_params: dict | None = None,
     train_df_size_bytes: float | None = None,
     val_df_size_bytes: float | None = None,
     target_type: TargetTypes | None = None,
@@ -342,6 +342,7 @@ def configure_training_params(
                 nlabels = target_arr.shape[1] + 1  # treat as ">2" -> multiclass-style metrics
             elif _is_object_of_arrays:
                 try:
+                    assert target_arr is not None
                     _first = target_arr[0]
                     nlabels = (len(_first) if hasattr(_first, "__len__") else int(np.asarray(_first).size)) + 1
                 except Exception:
@@ -373,7 +374,7 @@ def configure_training_params(
                 )
                 break
 
-    if use_robust_eval_metric and subgroups is not None:
+    if use_robust_eval_metric and subgroups is not None and train_idx is not None and val_idx is not None and test_idx is not None:
         indexed_subgroups = create_fairness_subgroups_indices(
             subgroups=subgroups, train_idx=train_idx, val_idx=val_idx, test_idx=test_idx, group_weights={}, cont_nbins=cont_nbins
         )
@@ -433,7 +434,7 @@ def configure_training_params(
     _xgb_gpu_eligible = (models_set is None or "xgb" in models_set) and not prefer_cpu_for_xgboost
     _no_gpu_model_needed = not (_cb_requested or _xgb_gpu_eligible)
     if not prefer_gpu_configs or cb_task_type == "CPU" or _no_gpu_model_needed:
-        all_gpus = {}
+        all_gpus: list = []
         data_fits_gpu_ram = False
         data_fits_cb_gpu_ram = False
     else:
@@ -527,7 +528,7 @@ def configure_training_params(
             params = estimator.get_params()
         except Exception:
             params = {}
-        _patch = {}
+        _patch: dict = {}
         if "early_stopping_rounds" in params and params.get("early_stopping_rounds") is not None:
             _patch["early_stopping_rounds"] = None
         # XGB sklearn >=2 uses callbacks for early stopping too; strip them.
@@ -652,7 +653,7 @@ def configure_training_params(
     for model_type in linear_models_needed:
         # Build config by merging: config_params -> linear_model_config -> model_type
         # This allows config_params_override["iterations"] to work for linear models
-        linear_config_kwargs = {"model_type": model_type}
+        linear_config_kwargs: dict[str, Any] = {"model_type": model_type}
         # Apply config_params first (includes iterations from config_params_override)
         if config_params:
             # Only include keys that LinearModelConfig recognizes
