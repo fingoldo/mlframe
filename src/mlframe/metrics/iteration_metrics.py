@@ -242,17 +242,18 @@ def compute_all_metrics(
     degenerate rounds (single-class val, NaN scores, empty arrays).
     """
     tt = str(target_type)
-    if tt.endswith("binary_classification") or tt == "binary":
-        return _binary_metrics(y_true, y_score, nbins)
-    if tt.endswith("multiclass_classification") or tt == "multiclass":
-        return _multiclass_metrics(y_true, y_score, n_classes, nbins)
-    if tt.endswith("multilabel_classification") or tt == "multilabel":
-        return _multilabel_metrics(y_true, y_score, nbins)
-    if "regression" in tt:
-        return _regression_metrics(y_true, y_score)
-    # Unknown / learning_to_rank: best-effort regression block on a 1-D score, else nothing.
+    yt = np.asarray(y_true)
     ys = np.asarray(y_score)
+    if tt.endswith("binary_classification") or tt == "binary":
+        return _binary_metrics(yt, ys, nbins)
+    if tt.endswith("multiclass_classification") or tt == "multiclass":
+        return _multiclass_metrics(yt, ys, n_classes, nbins)
+    if tt.endswith("multilabel_classification") or tt == "multilabel":
+        return _multilabel_metrics(yt, ys, nbins)
+    if "regression" in tt:
+        return _regression_metrics(yt, ys)
+    # Unknown / learning_to_rank: best-effort regression block on a 1-D score, else nothing.
     if ys.ndim == 1 or (ys.ndim == 2 and ys.shape[1] == 1):
-        return _regression_metrics(y_true, y_score)
+        return _regression_metrics(yt, ys)
     logger.debug("compute_all_metrics: unsupported target_type=%r with %dD y_score; returning empty dict.", tt, ys.ndim)
     return {}
