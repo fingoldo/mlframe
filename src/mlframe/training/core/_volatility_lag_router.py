@@ -97,7 +97,7 @@ class VolatilityLagRouter:
         route = np.isfinite(vol) & (vol <= self.threshold) & np.isfinite(lag)
         out = raw.copy()
         out[route] = lag[route]
-        return out
+        return np.asarray(out)
 
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
         return f"VolatilityLagRouter(group={self.group_column!r}, order={self.order_column!r}, " f"threshold={self.threshold:.4g})"

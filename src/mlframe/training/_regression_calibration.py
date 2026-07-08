@@ -15,6 +15,8 @@ identity on honest holdout -- ``recalibration_rmse_gain`` is the gate (REJECTED 
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 _VALID_METHODS = ("isotonic", "linear")
@@ -197,7 +199,7 @@ class RecalibratedRegressor:
     also lets downstream code keep treating the entry as a regressor.
     """
 
-    def __init__(self, base_model: object, recalibrator: PointRecalibrator) -> None:
+    def __init__(self, base_model: Any, recalibrator: PointRecalibrator) -> None:
         self.base_model = base_model
         self.recalibrator = recalibrator
 

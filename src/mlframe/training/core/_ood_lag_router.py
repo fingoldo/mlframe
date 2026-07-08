@@ -40,7 +40,7 @@ class OODLagRouter:
         # missing lag never overwrites a valid trained prediction with NaN.
         ood = np.isfinite(lag) & ((lag < self.lo) | (lag > self.hi))
         out[ood] = lag[ood]
-        return out
+        return np.asarray(out)
 
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
         return f"OODLagRouter(lo={self.lo:.4g}, hi={self.hi:.4g})"
