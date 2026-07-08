@@ -417,7 +417,7 @@ def propose_gradient_interaction_pairs(
         return numeric_vars_to_consider, gradient_added_idx
 
     # target column: first target index (read the discretised ordinal target from ``data``)
-    t0 = int(_target_idx_set and min(_target_idx_set) or 0)
+    t0 = int(min(_target_idx_set) if _target_idx_set else 0)
     try:
         Xfull = np.asarray(X_continuous, dtype=np.float64)  # RAW continuous features
         X = Xfull[:, pool]
