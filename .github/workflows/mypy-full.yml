@@ -42,13 +42,18 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
-      - name: Clone & install pyutilz + mlframe[all,dev] in one uv resolution
-        # Mirrors ci.yml's `test` job install step exactly -- see its comment for why uv (not
-        # pip) is required here (pip's backtracking resolver hits resolution-too-deep on this
-        # graph on py3.13/3.14; uv has no depth ceiling and resolves ~10x faster).
+      - name: Clone & install pyutilz + mlframe[all,dev,gpu] in one uv resolution
+        # Mirrors ci.yml's `test` job install step, PLUS [gpu] (cupy/numba.cuda) -- unlike
+        # ci.yml's test matrix, mypy needs cupy/numba.cuda's real stubs to type-check the GPU-
+        # optional code paths (``try: import cupy as cp / except ImportError: cp = None``);
+        # without them every such module mis-resolves the fallback branch as a type error
+        # (confirmed 2026-07-08: 48 errors in 21 files, all numba.cuda/cupy-shaped, with [gpu]
+        # excluded). cupy imports fine on a GPU-less CPU runner -- it only fails when you
+        # actually touch the device (see gpu-extras-install-matrix.yml) -- so this is safe on
+        # ubuntu-latest despite there being no GPU here.
         run: |
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
-          uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
+          uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev,gpu]"
           uv pip install --system mypy==2.1.0
 
       - name: MyPy (whole project)
