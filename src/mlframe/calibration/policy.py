@@ -72,6 +72,7 @@ try:
 except Exception:  # pragma: no cover  -- numba is a hard dep, keep guard for static analysers
     _HAS_NUMBA = False
     def _njit(*args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """No-op stand-in for ``numba.njit`` when numba is unavailable; the decorated function runs as plain Python."""
         def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
             return fn
         return _decorator
@@ -310,6 +311,7 @@ def _fit_calibrator(name: str, calib_p: np.ndarray, calib_y: np.ndarray) -> Opti
             clf = LogisticRegression(C=1e10, solver="lbfgs")
             clf.fit(p, y)
             def _apply_sigmoid(probs: np.ndarray) -> np.ndarray:
+                """Apply the fitted Platt/logistic sigmoid calibrator to (2-col or raveled) positive-class probabilities."""
                 q = np.asarray(probs, dtype=np.float64)
                 if q.ndim == 2 and q.shape[1] >= 2:
                     q = q[:, 1]
@@ -320,6 +322,7 @@ def _fit_calibrator(name: str, calib_p: np.ndarray, calib_y: np.ndarray) -> Opti
             iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
             iso.fit(p.ravel(), y)
             def _apply_iso(probs: np.ndarray) -> np.ndarray:
+                """Apply the fitted isotonic-regression calibrator to (2-col or raveled) positive-class probabilities."""
                 q = np.asarray(probs, dtype=np.float64)
                 if q.ndim == 2 and q.shape[1] >= 2:
                     q = q[:, 1]
@@ -334,6 +337,7 @@ def _fit_calibrator(name: str, calib_p: np.ndarray, calib_y: np.ndarray) -> Opti
             beta = BetaCalibration(parameters="abm")
             beta.fit(p, y)
             def _apply_beta(probs: np.ndarray) -> np.ndarray:
+                """Apply the fitted Beta calibrator (Kull 2017) to (2-col or raveled) positive-class probabilities."""
                 q = np.asarray(probs, dtype=np.float64)
                 if q.ndim == 2 and q.shape[1] >= 2:
                     q = q[:, 1]
@@ -349,6 +353,7 @@ def _fit_calibrator(name: str, calib_p: np.ndarray, calib_y: np.ndarray) -> Opti
             spline = mli.SplineCalib()
             spline.fit(p.ravel(), y)
             def _apply_spline(probs: np.ndarray) -> np.ndarray:
+                """Apply the fitted spline calibrator (ml_insights SplineCalib) to (2-col or raveled) positive-class probabilities."""
                 q = np.asarray(probs, dtype=np.float64)
                 if q.ndim == 2 and q.shape[1] >= 2:
                     q = q[:, 1]
@@ -765,6 +770,7 @@ def pick_best_calibrator(
     stratify = oof_y_arr if classes.size == 2 else None
 
     def metric_fn(_y: np.ndarray, _p: np.ndarray, _nb: int = n_bins) -> float:
+        """ECE metric closure over the outer ``n_bins`` default, passed to the bootstrap/jackknife machinery."""
         return _ece_score(_y, _p, n_bins=_nb)
 
     # Build the stratified resample-index matrix ONCE: every candidate shares the

@@ -1,3 +1,4 @@
+"""Post-hoc probability calibration: fits a zoo of third-party calibrators on a disjoint calib split, compares them, and persists the fitted objects."""
 from __future__ import annotations
 
 # *****************************************************************************************************************************************************
@@ -136,6 +137,7 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         return _VA is not None and isinstance(calibrator, _VA)
 
     def _transform_probs(self, probs: np.ndarray) -> np.ndarray:
+        """Reduce a 2D ``(n, 2)`` prob matrix to the positive-class column for wrapped calibrators that expect 1D input; pass 2D-expecting calibrators through unchanged."""
         if probs.ndim == 2 and not self._calibrator_needs_2d_probs(self.calibrator):
             probs = probs[:, 1]
         return probs
@@ -145,7 +147,7 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         calib_probs: np.ndarray,
         calib_target: np.ndarray,
     ) -> "BinaryPostCalibrator":
-
+        """Fit the wrapped calibrator on calib-set probabilities/targets, resolving its transform method name once (predict/transform/venn-abers) for reuse in ``postcalibrate_probs``."""
         # sklearn ClassifierMixin tooling (CalibratedClassifierCV, cross_val_predict, check_is_fitted) expects
         # ``classes_`` and ``n_features_in_`` after fit. We set them from the raw inputs BEFORE the prob reshape so a
         # 2D (n, n_classes) prob matrix reports its real feature width.
@@ -172,7 +174,7 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         return self
 
     def postcalibrate_probs(self, probs: np.ndarray) -> np.ndarray:
-
+        """Map raw probabilities through the fitted calibrator, always returning a 2D ``(n_samples, 2)`` matrix."""
         probs = self._transform_probs(probs)
         if not self._is_venn_abers(self.calibrator):
             # Use method resolved at fit-time; fall back gracefully if fit() wasn't called.
@@ -214,6 +216,7 @@ class NamedCalibrator:
     lib: Optional[str] = None
 
     def full_name(self) -> str:
+        """Build the ``lib.Name[param_str]`` display identifier used as the row key when comparing calibrators."""
         base_name = self.name or self._extract_calibrator_class_name()
         # Prepend lib only if not already in name (case-insensitive)
         if self.lib and self.lib.lower() not in base_name.lower():
@@ -223,6 +226,7 @@ class NamedCalibrator:
         return base_name
 
     def _extract_calibrator_class_name(self) -> str:
+        """Class name of the wrapped calibrator, unwrapping a ``BinaryPostCalibrator`` adapter to reach the underlying third-party object."""
         obj = getattr(self.calibrator, "calibrator", self.calibrator)
         return obj.__class__.__name__
 
@@ -269,9 +273,9 @@ def get_postcalibrators(calib_target: np.ndarray, num_bins: int) -> list[NamedCa
     Returns the list used by ``compare_postcalibrators``.
     """
     import netcal, pycalib
-    from pycalib import models  # noqa: F401  used via pycalib.models.LogisticCalibration in named_calibrator chains
-    from netcal import binning  # noqa: F401  exercised through netcal.binning.BBQ etc.
-    from netcal import scaling  # noqa: F401
+    from pycalib import models
+    from netcal import binning
+    from netcal import scaling
     import ml_insights as mli
     from betacal import BetaCalibration
     import calibration as verified_calibration
@@ -350,9 +354,13 @@ def compare_postcalibrators(
     include_patterns: Optional[list] = None,
     skip_patterns: Optional[list] = None,  # r"BetaCalibration\[variant=ab\]"
 ) -> tuple[Optional[pd.DataFrame], dict]:
-    """Given calibration and OOS probabilities and true targets,
-    fits a number of calibrator models  on the calib set and computes ML metrics on the OOS set.
-    returns a pandas dataframe of ML metrics by calibrator name.
+    """Given calibration and (optionally) OOS probabilities and true targets, fits a number of
+    calibrator models on the calib set and computes ML metrics on the OOS set. When ``oos_probs``/
+    ``oos_target`` are ``None``, falls back to a SELF-EVALUATION on the calib set itself (optimistic --
+    each calibrator is scored on the exact data it was fit on -- but still a real signal; pre-fix this
+    case skipped metric computation entirely and always returned ``None``). Returns a pandas dataframe
+    of ML metrics by calibrator name (``None`` only if every candidate was filtered out by
+    ``include_patterns``/``skip_patterns``).
     """
     if include_patterns is None:
         include_patterns = []
@@ -372,22 +380,31 @@ def compare_postcalibrators(
     metrics: dict[str, Any] = {"oos": {}}
     fit_calibrators = {}
 
-    if oos_probs is not None:
-        _, _ = report_model_perf(
-            targets=oos_target,
-            columns=columns,
-            df=None,
-            model_name=f"{model_name}",
-            model=None,
-            target_label_encoder=None,
-            preds=None,
-            probs=oos_probs,
-            plot_file=plot_file,
-            report_title="OOS",
-            metrics=metrics["oos"],
-            group_ids=None,
-            **report_params,
-        )
+    # No separate OOS set (the ONLY current caller, train_postcalibrators, never supplies one -- see
+    # its docstring: calibrator FITTING and honest EVALUATION are deliberately split across different
+    # rows/splits). Fall back to a self-evaluation on the calib set itself: optimistic (the calibrator
+    # is evaluated on the exact data it was fit on) but still a real, useful sanity signal -- pre-fix
+    # this whole metrics path was skipped entirely whenever oos_probs was None, so `metrics_df` came
+    # back `None` on every real call, silently discarding the comparison this function exists to make.
+    _eval_probs = oos_probs if oos_probs is not None else calib_probs
+    _eval_target = oos_target if oos_target is not None else calib_target
+    _eval_label = "OOS" if oos_probs is not None else "CALIB (self-eval, optimistic)"
+
+    _, _ = report_model_perf(
+        targets=_eval_target,
+        columns=columns,
+        df=None,
+        model_name=f"{model_name}",
+        model=None,
+        target_label_encoder=None,
+        preds=None,
+        probs=_eval_probs,
+        plot_file=plot_file,
+        report_title=_eval_label,
+        metrics=metrics["oos"],
+        group_ids=None,
+        **report_params,
+    )
 
     calibrators = get_postcalibrators(calib_target=calib_target, num_bins=num_bins)
 
@@ -419,16 +436,13 @@ def compare_postcalibrators(
 
             fitting_time = timer() - start
 
-            if oos_probs is None:
-                continue
-
             start = timer()
-            calibrated_probs = clf.postcalibrate_probs(oos_probs)
+            calibrated_probs = clf.postcalibrate_probs(_eval_probs)
             predicting_time = timer() - start
 
         metrics[calibrator_name] = {}
         _, _ = report_model_perf(
-            targets=oos_target,
+            targets=_eval_target,
             columns=columns,
             df=None,
             model_name=f"{model_name} {calibrator_name} {calib_type}",
@@ -437,7 +451,7 @@ def compare_postcalibrators(
             preds=None,
             probs=calibrated_probs,
             plot_file=plot_file,
-            report_title="OOS",
+            report_title=_eval_label,
             metrics=metrics[calibrator_name],
             group_ids=None,
             **report_params,
@@ -446,7 +460,10 @@ def compare_postcalibrators(
         metrics[calibrator_name]["predicting_time"] = predicting_time
 
     metrics_df: Optional[pd.DataFrame]
-    if oos_probs is None:
+    if len(metrics) <= 1:
+        # Only the "oos"/baseline row was ever populated -- every calibrator was skipped by
+        # should_run's include/skip patterns (an empty calibrator zoo, not the oos_probs=None
+        # case anymore, since that now self-evaluates above).
         metrics_df = None
     else:
         metrics_df = pd.DataFrame(metrics).T
@@ -501,6 +518,13 @@ def train_postcalibrators(
     ``ensembling_method`` defaults to the suite-chosen flavour from
     ``metadata["ensembles_chosen"]`` (per target). Pass an explicit string to override; pass
     ``None`` and supply ``metadata`` to inherit the suite winner.
+
+    Returns
+    -------
+    dict
+        ``{"calibrators": {name: fitted_calibrator, ...}, "metrics": {name: calib_set_metrics, ...}}``.
+        ``metrics`` is the ``compare_postcalibrators`` comparison table on the calib set (the same
+        data used to pick which calibrators to keep); also logged at INFO level.
     """
     if include_patterns is None:
         include_patterns = [r"SplineCalib", r"pycalib.BetaCalibration"]
@@ -607,6 +631,7 @@ def train_postcalibrators(
         calib_type="calib",
         include_patterns=include_patterns,
     )
+    logger.info("train_postcalibrators: calib-set comparison metrics for %s: %s", model_name, calib_test_metrics)
 
     # Wave 46 (2026-05-20): raw caller-supplied target/featureset/task/model names
     # plumbed into os.path.join is a path-traversal vector (one absolute component
@@ -642,4 +667,9 @@ def train_postcalibrators(
                 "through to back-compat.", calib_fpath, _meta_e,
             )
 
-    return test_calibrators
+    # Return BOTH the fitted calibrator objects and the calib-set comparison metrics that picked them:
+    # pre-fix, calib_test_metrics was computed by compare_postcalibrators and then silently discarded
+    # (only test_calibrators reached the caller), so nothing downstream could see WHICH calibrator won
+    # on calib-set metrics or by how much -- only that some calibrators exist. No in-repo caller
+    # currently unpacks this return value directly (checked), so widening the shape is safe here.
+    return {"calibrators": test_calibrators, "metrics": calib_test_metrics}

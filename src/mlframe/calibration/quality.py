@@ -622,7 +622,7 @@ def chi_square_statistic(pit_values: np.ndarray, bins: int = 10) -> float:
     # (0/0); mirror the n==0 guard in anderson_darling_statistic and surface NaN explicitly.
     if len(pit_values) == 0:
         return float("nan")
-    observed, bin_edges = np.histogram(pit_values, bins=bins, range=(0, 1))
+    observed, _bin_edges = np.histogram(pit_values, bins=bins, range=(0, 1))
     expected = np.ones_like(observed) * len(pit_values) / bins
     chi2_stat, _ = chisquare(f_obs=observed, f_exp=expected)
     return float(chi2_stat)
