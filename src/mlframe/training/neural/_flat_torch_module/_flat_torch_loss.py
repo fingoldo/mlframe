@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, cast
 
 import numpy as np
 import torch
@@ -12,9 +12,23 @@ from ..base import to_numpy_safe
 
 logger = logging.getLogger("mlframe.training.neural.flat")
 
+# Mixed into MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule) -- .log() is a
+# LightningModule method the mixin only gets through that sibling base at runtime.
+if TYPE_CHECKING:
+    _LossBase = torch.nn.Module
+else:
+    _LossBase = object
 
-class _LossMixin:
+
+class _LossMixin(_LossBase):
     """Batch unpacking, sample-weighted loss, and metric computation for ``MLPTorchModel``."""
+
+    # Provided by the composed class (MLPTorchModel) / sibling mixins in the MRO; declared here
+    # so mypy can type-check this mixin's reads of them.
+    loss_fn: Any
+    metrics: Any
+    task_type: Any
+    log: Any
 
     def _unpack_batch(self, batch) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """Unpack batch into features, labels, and optional sample_weight."""
@@ -40,12 +54,12 @@ class _LossMixin:
             prev = self.loss_fn.reduction
             try:
                 self.loss_fn.reduction = "none"
-                return self.loss_fn(predictions, labels)
+                return cast(torch.Tensor, self.loss_fn(predictions, labels))
             finally:
                 self.loss_fn.reduction = prev
         # Functional / lambda loss: try kwarg, fall back to CE/MSE shape-guess.
         try:
-            return self.loss_fn(predictions, labels, reduction="none")
+            return cast(torch.Tensor, self.loss_fn(predictions, labels, reduction="none"))
         except TypeError:
             if predictions.dim() == 2 and predictions.shape[1] > 1:
                 return F.cross_entropy(predictions, labels, reduction="none")
@@ -77,7 +91,7 @@ class _LossMixin:
             labels = labels.squeeze(-1)
 
         if sample_weight is None:
-            return self.loss_fn(predictions, labels)
+            return cast(torch.Tensor, self.loss_fn(predictions, labels))
 
         # Honour self.loss_fn if it supports reduction='none' (every
         # torch.nn.*Loss does); the previous hard-coded CE/MSE branch silently
@@ -142,9 +156,9 @@ class _LossMixin:
             predictions_and_labels: List of (raw_predictions, labels) tuples from each batch (on CPU)
             prefix: Logging prefix ('train' or 'val')
         """
-        raw_predictions, labels = zip(*predictions_and_labels)
-        raw_predictions = torch.cat(raw_predictions)
-        labels = torch.cat(labels)
+        _raw_predictions_parts, _labels_parts = zip(*predictions_and_labels)
+        raw_predictions: torch.Tensor = torch.cat(_raw_predictions_parts)
+        labels: torch.Tensor = torch.cat(_labels_parts)
 
         need_argmax = any(m.requires_argmax for m in self.metrics)
         need_softmax = any(m.requires_probs for m in self.metrics)
@@ -155,7 +169,7 @@ class _LossMixin:
         # garbage from raw_predictions.argmax(dim=1); guard explicitly.
         _is_multiclass = raw_predictions.dim() == 2 and raw_predictions.shape[1] > 1 and self.task_type != "multilabel"
 
-        preds_dict = {}
+        preds_dict: dict[str, Optional[torch.Tensor]] = {}
         if need_argmax:
             if _is_multiclass:
                 preds_dict["argmax"] = raw_predictions.argmax(dim=1)
@@ -208,6 +222,8 @@ class _LossMixin:
                 # argmax requested but logits aren't multi-class; skip silently to avoid garbage.
                 continue
 
+            preds_np: Any
+            labels_np: Any
             if metric.requires_cpu:
                 if preds_tag not in cpu_cache:
                     cpu_cache[preds_tag] = to_numpy_safe(preds, cpu=False)
