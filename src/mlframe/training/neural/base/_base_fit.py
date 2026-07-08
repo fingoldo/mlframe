@@ -8,7 +8,7 @@ dropped on pickle by the estimator's ``__getstate__`` (see ``base``).
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -16,6 +16,7 @@ import torch
 import lightning as L
 from lightning.pytorch.tuner import Tuner
 from lightning.pytorch.callbacks import (
+    Callback,
     LearningRateMonitor,
     StochasticWeightAveraging,
     TQDMProgressBar,
@@ -43,6 +44,27 @@ class _FitMixin(_FitPrepMixin):
     live in :class:`._base_fit_prep._FitPrepMixin`, inherited here.
     """
 
+    # Constructor params, mirrored onto self by store_params_in_object() in the composed
+    # estimator's __init__; declared here so mypy can type-check this mixin's reads of them.
+    random_state: Optional[int]
+    class_weight: Any
+    float32_matmul_precision: Optional[str]
+    datamodule_class: Any
+    datamodule_params: dict
+    network_params: dict
+    trainer_params: dict
+    use_swa: bool
+    use_ema: bool
+    swa_params: dict
+    ema_params: dict
+    model_params: dict
+    model_class: Any
+    early_stopping_rounds: int
+    focal_loss_gamma: Any
+    focal_loss_alpha: Any
+    tune_params: Any
+    tune_batch_size: Any
+
     def _fit_common(
         self,
         X,
@@ -50,7 +72,7 @@ class _FitMixin(_FitPrepMixin):
         eval_set: tuple = (None, None),
         is_partial_fit: bool = False,
         classes: Optional[np.ndarray] = None,
-        fit_params: dict = None,
+        fit_params: Optional[dict] = None,
         sample_weight=None,
     ):
         """Common logic for fit and partial_fit."""
@@ -599,7 +621,7 @@ class _FitMixin(_FitPrepMixin):
                         _prof_err,
                     )
 
-        callbacks = [checkpointing]
+        callbacks: list[Callback] = [checkpointing]
         # Lightning raises ``MisconfigurationException`` when both
         # ``enable_progress_bar=False`` is in trainer_params AND a
         # ``TQDMProgressBar`` is registered in callbacks. Only attach the
@@ -802,9 +824,12 @@ class _FitMixin(_FitPrepMixin):
                 tuner.scale_batch_size(model=self.model, datamodule=dm, mode="binsearch", init_val=self.datamodule_params.get("batch_size", 32))
 
             lr_finder = tuner.lr_find(self.model, datamodule=dm, num_training=300)
-            new_lr = lr_finder.suggestion()
-            logger.info("Using suggested LR=%s", new_lr)
-            self.model.hparams.learning_rate = new_lr
+            if lr_finder is not None:
+                new_lr = lr_finder.suggestion()
+                logger.info("Using suggested LR=%s", new_lr)
+                self.model.hparams.learning_rate = new_lr
+            else:
+                logger.warning("tuner.lr_find returned no suggestion; keeping the configured learning_rate.")
 
             if is_partial_fit:
                 self._tuned = True
@@ -814,7 +839,7 @@ class _FitMixin(_FitPrepMixin):
         # Expose per-epoch train/val history (booster ``evals_result_`` shape) + the best epoch so the
         # reporting layer's training-curve chart picks it up with no neural-specific code (it already
         # consumes ``evals_result_``/``best_iteration_`` for lgb/xgb/cb).
-        for callback in trainer.callbacks:
+        for callback in trainer.callbacks:  # type: ignore[attr-defined]  # Trainer.callbacks is a real runtime attr, just not in the stub's public surface
             if isinstance(callback, TrainingHistoryRecorder):
                 if callback.evals_result_:
                     self.evals_result_ = callback.evals_result_
@@ -822,7 +847,7 @@ class _FitMixin(_FitPrepMixin):
                         self.best_iteration_ = callback.best_iteration_
                 break
         from .._history_recorder import IterationMetricsRecorder
-        for callback in trainer.callbacks:
+        for callback in trainer.callbacks:  # type: ignore[attr-defined]  # Trainer.callbacks is a real runtime attr, just not in the stub's public surface
             if isinstance(callback, IterationMetricsRecorder):
                 if callback.iteration_metrics_:
                     self.iteration_metrics_ = callback.iteration_metrics_
@@ -835,7 +860,7 @@ class _FitMixin(_FitPrepMixin):
             logger.info("Best epoch recorded: %s", self.best_epoch)
         else:
             # Fallback to callback for backward compatibility
-            for callback in trainer.callbacks:
+            for callback in trainer.callbacks:  # type: ignore[attr-defined]  # Trainer.callbacks is a real runtime attr, just not in the stub's public surface
                 if isinstance(callback, BestEpochModelCheckpoint):
                     self.best_epoch = callback.best_epoch
                     if self.best_epoch is not None:
