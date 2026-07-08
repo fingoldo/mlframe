@@ -363,7 +363,7 @@ def _quantile_residual_assign_bins(base: np.ndarray, edges: np.ndarray) -> np.nd
         return np.zeros(base_f.size, dtype=np.intp)
     # ``edges[1:-1]`` are the INNER cut points; searchsorted returns 0..n_bins.
     if _HAS_NUMBA:
-        return np.asarray(_quantile_assign_bins_kernel()(
+        return np.asarray(_quantile_assign_bins_kernel(
             np.ascontiguousarray(base_f), np.ascontiguousarray(edges[1:-1]), n_bins,
         ))
     bin_idx = np.searchsorted(edges[1:-1], base_f, side="right")
