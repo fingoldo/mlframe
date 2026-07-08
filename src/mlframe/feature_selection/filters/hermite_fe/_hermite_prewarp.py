@@ -175,7 +175,7 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
         except Exception:
             _twin_ready = False
         if _twin_ready:
-            _dev_errs = []
+            _dev_errs: list = []
             try:
                 _dev_errs.append(np.linalg.LinAlgError)
                 import cupy as _cp  # type: ignore
@@ -246,10 +246,10 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
     def _als_solve(A: np.ndarray, b: np.ndarray) -> np.ndarray:
         AtA = A.T @ A
         try:
-            return np.linalg.solve(AtA, A.T @ b)
+            return np.asarray(np.linalg.solve(AtA, A.T @ b))
         except np.linalg.LinAlgError:
             coef, *_ = np.linalg.lstsq(A, b, rcond=None)
-            return coef
+            return np.asarray(coef)
 
     try:
         # Initialise g(b) from a plain 1-D least-squares fit on the b-basis.
