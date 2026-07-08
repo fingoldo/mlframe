@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------------------------------------------------------------
 
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import lightning as L
 import torch
@@ -124,6 +124,12 @@ class RecurrentTorchModel(L.LightningModule):
     - FEATURES_ONLY: MLP on tabular features
     - HYBRID: Both combined
     """
+
+    # Set by _setup_loss_functions() to one of MSELoss/BCEWithLogitsLoss/CrossEntropyLoss
+    # depending on is_regression/task_type; declared nn.Module here since the concrete type
+    # varies per branch.
+    _loss_fn_unreduced: nn.Module
+    _loss_fn_mean: nn.Module
 
     def __init__(
         self,
@@ -251,7 +257,7 @@ class RecurrentTorchModel(L.LightningModule):
             else:
                 K = self.config.num_classes
                 if K > 2:
-                    task_str = "multiclass"
+                    task_str: Literal["binary", "multiclass", "multilabel"] = "multiclass"
                     self.train_acc = Accuracy(task=task_str, num_classes=K)
                     self.val_acc = Accuracy(task=task_str, num_classes=K)
                     self.val_auroc = AUROC(task=task_str, num_classes=K, average="macro")
@@ -323,7 +329,7 @@ class RecurrentTorchModel(L.LightningModule):
         else:
             combined = features_list[0]
 
-        return self.mlp_head(combined)
+        return cast(torch.Tensor, self.mlp_head(combined))
 
     def _encode_sequences(
         self,
@@ -332,7 +338,7 @@ class RecurrentTorchModel(L.LightningModule):
     ) -> torch.Tensor:
         """Encode sequences through RNN or Transformer."""
         if self._use_transformer:
-            return self.transformer_encoder(sequences, lengths)
+            return cast(torch.Tensor, self.transformer_encoder(sequences, lengths))
 
         # RNN path: pack_padded_sequence skips compute on padded steps; enforce_sorted=False lets us pass unsorted lengths.
         # pack_padded_sequence dispatches length-sort on CPU even when the data is on GPU.
@@ -358,7 +364,7 @@ class RecurrentTorchModel(L.LightningModule):
         safe_lengths = lengths.clamp(min=1) if (lengths <= 0).any() else lengths
 
         if self.config.use_attention:
-            return self.attention(rnn_out, safe_lengths)
+            return cast(torch.Tensor, self.attention(rnn_out, safe_lengths))
         else:
             return self._get_last_hidden(
                 rnn_out, safe_lengths,
@@ -505,7 +511,7 @@ class RecurrentTorchModel(L.LightningModule):
                 self.train_acc(preds, batch["labels"])
                 self.log("train_acc", self.train_acc, prog_bar=True, on_step=False, on_epoch=True)
 
-        return loss
+        return cast(torch.Tensor, loss)
 
     def validation_step(self, batch: dict, batch_idx: int) -> None:
         """Validation step."""
@@ -569,11 +575,11 @@ class RecurrentTorchModel(L.LightningModule):
 
     def _forward_batch(self, batch: dict) -> torch.Tensor:
         """Helper to forward a batch dict."""
-        return self(
+        return cast(torch.Tensor, self(
             sequences=batch.get("sequences"),
             lengths=batch.get("lengths"),
             aux_features=batch.get("aux_features"),
-        )
+        ))
 
     def _compute_weighted_loss(
         self,
@@ -599,8 +605,8 @@ class RecurrentTorchModel(L.LightningModule):
             if sample_weights is not None:
                 losses = self._loss_fn_unreduced(preds, labels)
                 w_sum = sample_weights.sum().clamp(min=_w_eps)
-                return (losses * sample_weights).sum() / w_sum
-            return self._loss_fn_mean(preds, labels)
+                return cast(torch.Tensor, (losses * sample_weights).sum() / w_sum)
+            return cast(torch.Tensor, self._loss_fn_mean(preds, labels))
         elif self.task_type == "multilabel":
             # BCEWithLogitsLoss expects float labels (same dtype as logits).
             labels_f = labels.to(logits.dtype)
@@ -610,14 +616,14 @@ class RecurrentTorchModel(L.LightningModule):
                 # Per-label mean across K, then weighted mean across N.
                 per_sample = losses.mean(dim=-1)
                 w_sum = sample_weights.sum().clamp(min=_w_eps)
-                return (per_sample * sample_weights).sum() / w_sum
-            return self._loss_fn_mean(logits, labels_f)
+                return cast(torch.Tensor, (per_sample * sample_weights).sum() / w_sum)
+            return cast(torch.Tensor, self._loss_fn_mean(logits, labels_f))
         else:
             if sample_weights is not None:
                 losses = self._loss_fn_unreduced(logits, labels)
                 w_sum = sample_weights.sum().clamp(min=_w_eps)
-                return (losses * sample_weights).sum() / w_sum
-            return self._loss_fn_mean(logits, labels)
+                return cast(torch.Tensor, (losses * sample_weights).sum() / w_sum)
+            return cast(torch.Tensor, self._loss_fn_mean(logits, labels))
 
     def configure_optimizers(self):
         """Configure AdamW with OneCycleLR scheduler.
@@ -643,8 +649,8 @@ class RecurrentTorchModel(L.LightningModule):
         # CPU+EMA on a CUDA-available host: Lightning auto-promotes
         # 16-mixed -> bf16-mixed on CPU, then crashes on the first step.
         _safe_for_fused = torch.cuda.is_available() and "mixed" not in precision
-        _fused_kwarg = {"fused": True} if _safe_for_fused else {}
-        optimizer = torch.optim.AdamW(
+        _fused_kwarg: dict[str, Any] = {"fused": True} if _safe_for_fused else {}
+        optimizer: torch.optim.Optimizer = torch.optim.AdamW(
             self.parameters(),
             lr=self.config.learning_rate,
             weight_decay=self.config.weight_decay,
@@ -665,7 +671,7 @@ class RecurrentTorchModel(L.LightningModule):
             scheduler = torch.optim.lr_scheduler.OneCycleLR(
                 optimizer,
                 max_lr=self.config.learning_rate,
-                total_steps=self.trainer.estimated_stepping_batches,
+                total_steps=int(self.trainer.estimated_stepping_batches),
                 pct_start=0.1,
             )
             return {
