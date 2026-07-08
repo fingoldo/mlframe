@@ -193,7 +193,7 @@ def apply_count_encoding(
     # (a real key), so pd.factorize never emits its -1 NaN sentinel here.
     codes, uniques = pd.factorize(cats)
     vals = np.array([int(lookup.get(u, default)) for u in uniques], dtype=np.int64)
-    return vals[codes]
+    return np.asarray(vals[codes])
 
 
 def apply_frequency_encoding(
@@ -216,7 +216,7 @@ def apply_frequency_encoding(
     # beats both an np.unique(sort) map on string columns and an njit gather.
     codes, uniques = pd.factorize(cats)
     vals = np.array([float(lookup.get(u, default)) for u in uniques], dtype=np.float64)
-    return vals[codes]
+    return np.asarray(vals[codes])
 
 
 # ---------------------------------------------------------------------------
