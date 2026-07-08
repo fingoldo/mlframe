@@ -78,7 +78,7 @@ def intercept_(self) -> float:
 
     Raises ``NotFittedError`` before ``fit`` and ``AttributeError`` if the fitted inner has none.
     """
-    return self._require_inner_attr("intercept_")
+    return float(self._require_inner_attr("intercept_"))
 
 
 def get_booster(self):
