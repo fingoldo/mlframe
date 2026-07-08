@@ -143,7 +143,7 @@ def _overfit_verdict(task: str, per_metrics: Mapping[str, Dict[str, float]]) -> 
     Needs both 'train' and 'test' present; if either is missing it falls back to the widest available pair
     (first vs last split in canonical order) so a train+oof or val+test pairing still gets a verdict.
     """
-    ordered = _order_splits(per_metrics.keys())
+    ordered = _order_splits(list(per_metrics.keys()))
     lo = "train" if "train" in per_metrics else (ordered[0] if ordered else None)
     hi = "test" if "test" in per_metrics else (ordered[-1] if ordered else None)
     if lo is None or hi is None or lo == hi:
@@ -330,7 +330,7 @@ def compose_split_comparison_figure(
         )
         return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
 
-    splits = _order_splits(per_metrics.keys())
+    splits = _order_splits(list(per_metrics.keys()))
     verdict = _overfit_verdict(t, per_metrics)
     bar = _grouped_bar_panel(t, splits, per_metrics, verdict.color)
     table = _delta_table_panel(t, splits, per_metrics, verdict)

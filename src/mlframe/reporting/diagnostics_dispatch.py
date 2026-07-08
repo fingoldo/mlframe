@@ -198,7 +198,7 @@ def render_split_error_diagnostics(
             yt if n <= DIAG_ROW_CAP else yt[sample_idx],
             yp if n <= DIAG_ROW_CAP else yp[sample_idx],
             task=task, k=worst_k, feature_names=names, feature_importances=feature_importances,
-            timestamps=(timestamps[:n] if timestamps is not None and n <= DIAG_ROW_CAP else None),
+            timestamps=(list(timestamps[:n]) if timestamps is not None and n <= DIAG_ROW_CAP else None),
         )
         out["worst_k_table"] = wk.table
         # Map subsample-local indices back to original positions when subsampled.
@@ -218,8 +218,8 @@ def render_split_error_diagnostics(
         _record(charts, "weak_segments", False)
 
     try:
-        res = error_bias_per_feature(sub_df, yt_s, yp_s, feature_names=names)
-        ok = _save_spec(res.figure, plot_outputs, base_path + "_error_bias")
+        eb_res = error_bias_per_feature(sub_df, yt_s, yp_s, feature_names=names)
+        ok = _save_spec(eb_res.figure, plot_outputs, base_path + "_error_bias")
         _record(charts, "error_bias", ok)
     except Exception:
         logger.exception("diagnostics_dispatch: error_bias_per_feature failed; continuing.")

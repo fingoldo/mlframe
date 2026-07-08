@@ -172,7 +172,7 @@ def compose_calibration_heatmap_2d_figure(
     O(n): two ``np.searchsorted`` for cell assignment + three weighted ``np.bincount`` (one pass); huge inputs subsampled.
     """
     res = compute_calibration_heatmap_2d(
-        y_true, y_score, feat_x, feat_y, n_bins=n_bins, random_state=random_state,
+        y_true, y_score, np.asarray(feat_x), np.asarray(feat_y), n_bins=n_bins, random_state=random_state,
     )
     title = f"2D calibration ECE: {feat_x_name} x {feat_y_name}"
     skipped = res["skipped"]
