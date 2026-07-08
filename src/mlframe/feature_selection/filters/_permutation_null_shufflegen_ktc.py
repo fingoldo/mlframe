@@ -54,7 +54,7 @@ def shufflegen_use_numba(n: int, nperm: int) -> bool:
         choice = _SHUFFLEGEN_SPEC.choose(n_samples=int(n), nperm=int(pb))
     except Exception:
         return False
-    return choice == "numba"
+    return bool(choice == "numba")
 
 
 def _make_shufflegen_inputs(dims: dict):
@@ -129,7 +129,7 @@ def shufflegen_use_gpu(n: int, nperm: int) -> bool:
         choice = _SHUFFLEGEN_SPEC.choose(n_samples=int(n), nperm=int(pb))
     except Exception:
         return False
-    return choice == "gpu"
+    return bool(choice == "gpu")
 
 
 def _run_shufflegen_sweep() -> list:
@@ -139,7 +139,7 @@ def _run_shufflegen_sweep() -> list:
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"numpy": _shufflegen_numpy, "numba": _shufflegen_numba, "gpu": _shufflegen_gpu}
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         variants,
         {"n_samples": _SHUFFLEGEN_SWEEP_N, "nperm": _SHUFFLEGEN_SWEEP_NPERM},
         _make_shufflegen_inputs,
