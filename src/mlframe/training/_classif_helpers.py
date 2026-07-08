@@ -32,17 +32,17 @@ def aggregate_member_probas(stacked: np.ndarray, method: str = "geometric", *, s
     per-label geometric mean of (p, 1-p) and renormalise WITHIN each label, never across labels).
     """
     if method == "arithmetic":
-        return stacked.mean(axis=0)
+        return np.asarray(stacked.mean(axis=0))
     if method != "geometric":
         raise ValueError(f"aggregate_member_probas: unknown method {method!r} (expected 'arithmetic' or 'geometric').")
     clipped = np.clip(stacked, eps, 1.0)
     geo = np.exp(np.log(clipped).mean(axis=0))
     if simplex:
         geo /= geo.sum(axis=-1, keepdims=True)
-        return geo
+        return np.asarray(geo)
     # Multilabel: renormalise each label independently against its own complement geometric mean.
     comp = np.exp(np.log(np.clip(1.0 - stacked, eps, 1.0)).mean(axis=0))
-    return geo / (geo + comp)
+    return np.asarray(geo / (geo + comp))
 
 
 def _canonical_predict_proba_shape(probs, classes_=None):
@@ -179,11 +179,11 @@ def _predict_from_probs(probs_NK, target_type, classes_=None, threshold=0.5):
     if target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
         # Per-label thresholds: scalar broadcasts; (K,) array applied
         # column-wise. NaN-safe: treats NaN probabilities as "below threshold".
-        thr = np.asarray(threshold, dtype=np.float64)
-        if thr.ndim == 0:
-            thr = np.broadcast_to(thr, (arr.shape[1],))
+        thr_arr = np.asarray(threshold, dtype=np.float64)
+        if thr_arr.ndim == 0:
+            thr_arr = np.broadcast_to(thr_arr, (arr.shape[1],))
         out = np.zeros_like(arr, dtype=np.int8)
-        np.greater_equal(arr, thr, out=out, where=~np.isnan(arr))
+        np.greater_equal(arr, thr_arr, out=out, where=~np.isnan(arr))
         return out
 
     raise ValueError(f"_predict_from_probs: target_type {target_type!r} is not a " "classification type (REGRESSION has no decision rule).")
