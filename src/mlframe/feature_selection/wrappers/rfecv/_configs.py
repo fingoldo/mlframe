@@ -209,10 +209,10 @@ else:
         def model_dump(self) -> dict:
             return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
 
-    class FIConfig(SearchConfig):  # type: ignore[no-redef, misc]
+    class FIConfig(SearchConfig):  # type: ignore[no-redef]  # optional-dependency fallback stub; only one branch is ever live
         pass
 
-    class RobustnessConfig(SearchConfig):  # type: ignore[no-redef, misc]
+    class RobustnessConfig(SearchConfig):  # type: ignore[no-redef]  # optional-dependency fallback stub; only one branch is ever live
         pass
 
 

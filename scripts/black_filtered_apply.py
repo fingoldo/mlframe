@@ -182,8 +182,12 @@ def main():
         for path in files:
             try:
                 changed, _, _ = process_one(path, config_path)
-            except RuntimeError as e:
-                print(f"ERROR: {path}: {e}", file=sys.stderr)
+            except Exception as e:
+                # Broadened from RuntimeError-only: process_one's own file read (encoding="utf-8")
+                # can raise UnicodeDecodeError, and any other per-file I/O/subprocess hiccup should
+                # not abort the whole --check run -- report it and keep going, same as the
+                # RuntimeError case black itself raises.
+                print(f"ERROR: {path}: {type(e).__name__}: {e}", file=sys.stderr)
                 changed = True
             if changed:
                 changed_files.append(path)

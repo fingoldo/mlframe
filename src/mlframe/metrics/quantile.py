@@ -38,7 +38,7 @@ try:
     _NUMBA_AVAILABLE = True
 except ImportError:
     _NUMBA_AVAILABLE = False
-    numba = None  # type: ignore
+    numba = None
 
 # Mirror metrics.py NUMBA_NJIT_PARAMS pattern.
 _NJIT_KW = dict(fastmath=False, cache=True, nogil=True)
@@ -197,7 +197,7 @@ else:
         above = (y > q_hi) * (2.0 / max(alpha_miscov, 1e-12)) * (y - q_hi)
         return float(np.mean(width + below + above))
 
-    _fast_pit = None  # type: ignore  # numpy fallback handled inline in pit_values
+    _fast_pit = None  # numpy fallback handled inline in pit_values
 
 
 # ----------------------------------------------------------------------------

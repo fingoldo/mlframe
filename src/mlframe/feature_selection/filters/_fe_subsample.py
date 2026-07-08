@@ -32,7 +32,7 @@ try:
 except Exception:  # pragma: no cover - numba is a hard dep in this repo but stay safe
     _HAVE_NUMBA = False
 
-    def njit(*args, **kwargs):  # type: ignore
+    def njit(*args, **kwargs):
         def _wrap(fn):
             return fn
 

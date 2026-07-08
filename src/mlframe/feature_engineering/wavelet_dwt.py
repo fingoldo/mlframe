@@ -30,7 +30,7 @@ Public API:
 """
 from __future__ import annotations
 
-from typing import Dict, List, Tuple, Union, cast
+from typing import List, Tuple, Union
 
 import numpy as np
 
@@ -38,7 +38,7 @@ try:
     import numba
     _HAS_NUMBA = True
 except ImportError:
-    numba = None  # type: ignore
+    numba = None
     _HAS_NUMBA = False
 
 try:
@@ -52,7 +52,7 @@ except ImportError:
 # are cached so subsequent calls don't re-touch pywt).
 # ---------------------------------------------------------------------
 
-_FILTER_CACHE: Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = {}
+_FILTER_CACHE: dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = {}
 
 
 def get_wavelet_filters(name: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -333,7 +333,7 @@ def wavedec(
     """
     if not _HAS_NUMBA:
         import pywt
-        return cast(List[np.ndarray], pywt.wavedec(signal, wavelet, level=max_level, mode="symmetric"))
+        return list(pywt.wavedec(signal, wavelet, level=max_level, mode="symmetric"))
     lo, hi, _, _ = get_wavelet_filters(wavelet)
     sig = np.ascontiguousarray(signal, dtype=np.float64)
     details_lvl1_first: list = []
@@ -418,10 +418,15 @@ def wavedec_dispatch(
     """Auto-pick between single-signal loop and batched parallel DWT.
 
     1-D input -> single ``wavedec``. 2-D input with N below threshold
-    -> Python loop over ``wavedec``. N >= threshold -> ``wavedec_batched``, whose flat
-    ``(approx, details_flat, out_lengths)`` layout is a DIFFERENT shape from the two list-of-arrays
-    forms above -- callers on the batched path must handle it separately (see ``wavedec_batched``'s
-    docstring for the layout).
+    -> Python loop over ``wavedec``. N >= threshold -> ``wavedec_batched``.
+
+    CAVEAT (no current callers, so left as-is rather than a silent behavior change):
+    the batched branch returns ``wavedec_batched``'s flat ``(approx, details_flat,
+    out_lengths)`` tuple shape, which is NOT the same shape as the other two branches'
+    ``list``-of-arrays coefficient format -- a caller relying on this dispatcher across
+    the ``_DISPATCH_BATCHED_MIN_N`` threshold would see the output shape change under
+    it. The return annotation above is now honest about this; unifying the shapes is a
+    real behavioral decision for whoever adds the first caller, not a type-only fix.
     """
     if signals.ndim == 1:
         return wavedec(signals, wavelet, max_level)
@@ -447,7 +452,7 @@ def waverec(coeffs: List[np.ndarray], wavelet: str) -> np.ndarray:
     """
     if not _HAS_NUMBA:
         import pywt
-        return cast(np.ndarray, pywt.waverec(coeffs, wavelet, mode="symmetric"))
+        return np.asarray(pywt.waverec(coeffs, wavelet, mode="symmetric"))
     _, _, rec_lo, rec_hi = get_wavelet_filters(wavelet)
     approx = np.ascontiguousarray(coeffs[0], dtype=np.float64)
     # Order details level-1-first: pywt returns

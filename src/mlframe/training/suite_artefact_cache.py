@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 try:
-    import orjson  # type: ignore[import-not-found]
+    import orjson
     _HAS_ORJSON = True
 except ImportError:  # pragma: no cover - orjson is a project dep but allow fallback
     import json as _json_fallback

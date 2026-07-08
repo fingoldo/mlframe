@@ -23,7 +23,7 @@ def try_import_cupy() -> Tuple[Any, bool]:
     hand-rolled guards it replaces, so callers keep their CPU fallback path.
     """
     try:
-        import cupy as cp  # type: ignore
+        import cupy as cp
 
         return cp, True
     except Exception:

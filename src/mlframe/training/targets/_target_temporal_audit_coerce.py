@@ -20,7 +20,7 @@ def _import_ruptures():
     extensions; ~150ms cold). ``ImportError`` propagates to the caller; the
     z-score path is dependency-free and the obvious fallback.
     """
-    import ruptures as rpt  # type: ignore[import-not-found]
+    import ruptures as rpt
     return rpt
 
 

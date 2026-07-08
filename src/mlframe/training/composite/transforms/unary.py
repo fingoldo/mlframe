@@ -30,7 +30,7 @@ try:
     import numba as _numba
     _HAS_NUMBA = True
 except Exception:  # pragma: no cover - numba is a hard dep but allow graceful skip
-    _numba = None  # type: ignore
+    _numba = None
     _HAS_NUMBA = False
 
 # numba JIT'd YJ forward/inverse beats numpy fancy-indexing from n>=~10k
@@ -46,7 +46,7 @@ _YJ_INV_BASE_FLOOR: float = 1e-12
 
 if _HAS_NUMBA:
     @_numba.njit(cache=True, fastmath=True, parallel=True)
-    def _yj_forward_numba_kernel(y, lam):  # type: ignore[no-untyped-def]
+    def _yj_forward_numba_kernel(y, lam):
         n = y.shape[0]
         out = np.empty(n, dtype=np.float64)
         lam_is_zero = abs(lam) < 1e-12
@@ -73,7 +73,7 @@ if _HAS_NUMBA:
     # the forward path only, so dropping fastmath here costs nothing the
     # 5-10x speedup target cares about).
     @_numba.njit(cache=True, fastmath=False, parallel=True)
-    def _yj_inverse_numba_kernel(t, lam):  # type: ignore[no-untyped-def]
+    def _yj_inverse_numba_kernel(t, lam):
         n = t.shape[0]
         out = np.empty(n, dtype=np.float64)
         lam_is_zero = abs(lam) < 1e-12

@@ -29,13 +29,13 @@ import numpy as np
 
 try:
     import numba
-    from numba import njit, prange  # type: ignore[attr-defined]  # numba ships no type stubs for its dynamic njit/prange exports
+    from numba import njit, prange  # numba ships no type stubs for its dynamic njit/prange exports
 
     _HAS_NUMBA = True
 except ImportError:
-    numba = None  # type: ignore
-    njit = None  # type: ignore
-    prange = range  # type: ignore
+    numba = None
+    njit = None
+    prange = range
     _HAS_NUMBA = False
 
 from ._numba_params import NUMBA_NJIT_PARAMS

@@ -13,7 +13,7 @@ try:
 
     _HAS_NUMBA = True
 except ImportError:  # pragma: no cover
-    _numba = None  # type: ignore
+    _numba = None
     _HAS_NUMBA = False
 
 
@@ -43,12 +43,12 @@ def _mi_from_binned_pair_numpy(
     return max(0.0, float((pxy * log_terms).sum()))
 
 
-_mi_from_binned_pair_njit_kernel = None  # type: ignore[assignment]
+_mi_from_binned_pair_njit_kernel = None
 
 
 if _HAS_NUMBA:
     @_numba.njit(cache=True, fastmath=False, nogil=True)
-    def _mi_from_binned_pair_njit_kernel(x_idx, y_idx, nbins):  # type: ignore[no-untyped-def,no-redef]
+    def _mi_from_binned_pair_njit_kernel(x_idx, y_idx, nbins):
         # Single-pass joint histogram + marginals, then MI = sum pxy*log(pxy/(px*py)).
         # Reproduces the numpy reference's arithmetic term-for-term: the joint counts are
         # integer-exact (no FP), px/py are the same row/col sums, and each non-zero cell adds

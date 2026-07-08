@@ -54,8 +54,8 @@ class Leaderboard:
         self.models = self.table.index.tolist()
         self.n_models = len(self.models)
 
-        self.ranks: pd.DataFrame = None  # type: ignore[assignment]  # set for real by build_ranks() below before any use
-        self.max_ranks: pd.DataFrame = None  # type: ignore[assignment]
+        self.ranks: pd.DataFrame = None  # set for real by build_ranks() below before any use
+        self.max_ranks: pd.DataFrame = None
         self.majority_graph: Optional[pd.DataFrame] = None
 
         self.build_ranks()

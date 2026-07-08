@@ -38,7 +38,7 @@ except ImportError:
     logger.warning(
         "_univariate_ht: numba is not available; falling back to pure-Python kernels " "(~10-30x slower on rank/U/H/tau). Install numba for the fast path."
     )
-    def njit(*args, **kwargs):  # type: ignore
+    def njit(*args, **kwargs):
         if args and callable(args[0]):
             return args[0]
         def _dec(f):

@@ -27,11 +27,11 @@ import numpy as np
 logger = logging.getLogger("mlframe.feature_selection.filters.feature_engineering")
 
 try:
-    import cupy as _cp  # type: ignore
+    import cupy as _cp
 
     _HAS_CUPY = True
 except Exception:
-    _cp = None  # type: ignore
+    _cp = None
     _HAS_CUPY = False
 
 # Source-code default GPU breakeven (cells) for DRAM-resident input, used until a
@@ -81,7 +81,7 @@ def _run_unary_sweep() -> list:
     variants = {"numpy": _unary_numpy}
     if _HAS_CUPY:
         variants["cupy"] = _unary_cupy
-    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
+    return list(sweep_backend_grid(
         variants,
         {"n_samples": _UNARY_SWEEP_N},
         _make_unary_inputs,
@@ -90,7 +90,7 @@ def _run_unary_sweep() -> list:
         repeats=5,
         equiv_rtol=1e-4,
         equiv_atol=1e-5,
-    )
+    ))
 
 
 def _unary_fallback_choice(n_samples: int, location: str) -> str:

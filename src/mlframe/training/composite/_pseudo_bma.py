@@ -45,7 +45,7 @@ try:
 
     _HAS_NUMBA = True
 except Exception:  # pragma: no cover
-    numba = None  # type: ignore
+    numba = None
     _HAS_NUMBA = False
 
 

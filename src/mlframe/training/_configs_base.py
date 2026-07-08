@@ -32,7 +32,7 @@ else:
     # models.get(enum_key)).
     from enum import Enum
 
-    class StrEnum(str, Enum):  # type: ignore[no-redef]
+    class StrEnum(str, Enum):
         def __str__(self) -> str:
             return str(self.value)
 

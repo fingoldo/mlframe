@@ -28,7 +28,7 @@ try:
     _HAS_IMBLEARN = True
 except Exception:  # pragma: no cover
     _HAS_IMBLEARN = False
-    _ImbPipeline = None  # type: ignore
+    _ImbPipeline = None
 
 from sklearn.impute import SimpleImputer
 

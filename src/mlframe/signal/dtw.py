@@ -44,10 +44,10 @@ from mlframe.system import try_import_cupy
 cp, _HAS_CUPY = try_import_cupy()
 
 try:
-    from numba import cuda as _nb_cuda  # type: ignore
+    from numba import cuda as _nb_cuda
     _HAS_NB_CUDA = bool(_nb_cuda.is_available())
 except Exception:
-    _nb_cuda = None  # type: ignore
+    _nb_cuda = None
     _HAS_NB_CUDA = False
 
 

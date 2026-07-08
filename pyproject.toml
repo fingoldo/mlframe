@@ -477,6 +477,26 @@ precision = 2
 show_missing = true
 
 # ---------------------------------------------------------------------------
+# Bandit
+# ---------------------------------------------------------------------------
+[tool.bandit]
+# B101 (assert_used): assertions throughout this codebase police internal invariants, not a
+# security boundary -- 85 of 89 current findings are this single, non-actionable class.
+skips = ["B101"]
+
+# ---------------------------------------------------------------------------
+# Deptry (unused / missing / transitive dependency scan, advisory)
+# ---------------------------------------------------------------------------
+[tool.deptry]
+exclude = ["tests", "scripts", "legacy", "benchmarks", "_benchmarks", "profiling", ".venv", "build", "dist"]
+
+[tool.deptry.per_rule_ignores]
+# DEP002 (unused declared dependency): many optional extras are declared for callers who reach
+# the underlying package directly (or via a lazily-imported code path deptry's static scan can't
+# always follow through the optional-dependency try/except gates used throughout mlframe).
+DEP002 = ["catboost", "xgboost", "lightgbm", "torch", "pytorch-lightning", "cupy", "shap", "optuna"]
+
+# ---------------------------------------------------------------------------
 # Black
 # ---------------------------------------------------------------------------
 [tool.black]
@@ -564,6 +584,9 @@ warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
 check_untyped_defs = true
+# Ratchet added 2026-07-08 after the mypy sweep closed the error backlog to ~0: flags now-dead
+# `# type: ignore` comments (zero true-positive burden today; guards against future drift).
+warn_unused_ignores = true
 exclude = "(legacy|benchmarks|profiling)/"
 
 [[tool.mypy.overrides]]
