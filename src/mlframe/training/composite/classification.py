@@ -51,7 +51,7 @@ def _softmax(z: np.ndarray) -> np.ndarray:
     # Row-wise stable softmax for the multiclass (n, K) margin.
     z = z - z.max(axis=1, keepdims=True)
     e = np.exp(z)
-    return e / e.sum(axis=1, keepdims=True)
+    return np.asarray(e / e.sum(axis=1, keepdims=True))
 
 
 def _inner_raw_margin(model: Any, X: Any) -> np.ndarray:
@@ -209,7 +209,7 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
         else:
             base_margin = self._margin_from_estimator(self.base_margin_estimator_, X)
             X_inner = X
-        return base_margin + _inner_raw_margin(self.estimator_, X_inner)
+        return np.asarray(base_margin + _inner_raw_margin(self.estimator_, X_inner))
 
     def predict_proba(self, X: Any) -> np.ndarray:
         if not hasattr(self, "estimator_"):
@@ -223,7 +223,7 @@ class CompositeClassificationEstimator(BaseEstimator, ClassifierMixin):
 
     def predict(self, X: Any) -> np.ndarray:
         proba = self.predict_proba(X)
-        return self.classes_[np.argmax(proba, axis=1)]
+        return np.asarray(self.classes_[np.argmax(proba, axis=1)])
 
     def calibration_report(self, X: Any, y: Any, n_bins: int = 10) -> dict:
         """Top-label reliability diagram + Expected Calibration Error (ECE).

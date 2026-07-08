@@ -181,10 +181,10 @@ def winkler_score_per_row(y_true, q_lo, q_hi, alpha: float) -> np.ndarray:
     if y.shape[0] == 0:
         return np.empty(0, dtype=np.float64)
     if _HAVE_NUMBA:
-        return _per_row_winkler_njit(y, lo, hi, alpha)
+        return np.asarray(_per_row_winkler_njit(y, lo, hi, alpha))
     width = hi - lo
     pen = np.where(y < lo, lo - y, 0.0) + np.where(y > hi, y - hi, 0.0)
-    return width + (2.0 / alpha) * pen
+    return np.asarray(width + (2.0 / alpha) * pen)
 
 
 def mean_coverage(y_true, q_lo, q_hi, sample_weight: Any = None) -> float:

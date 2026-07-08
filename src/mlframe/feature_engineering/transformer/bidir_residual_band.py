@@ -41,7 +41,7 @@ def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
-    return e / e.sum(axis=-1, keepdims=True)
+    return np.asarray(e / e.sum(axis=-1, keepdims=True))
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
@@ -63,7 +63,7 @@ def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int,
         )
         model.fit(Xt, y_t)
         preds = model.predict(Xt).astype(np.float32)
-    return preds
+    return np.asarray(preds)
 
 
 def compute_bidir_residual_band_features(

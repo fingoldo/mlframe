@@ -87,7 +87,7 @@ def _fit_nnls_2col(oof: np.ndarray, y: np.ndarray) -> np.ndarray:
     total = w.sum()
     if not np.isfinite(total) or total <= 0:
         return np.array([0.5, 0.5])
-    return w / total
+    return np.asarray(w / total)
 
 
 class CompositeOrRawStacker(BaseEstimator, RegressorMixin):
@@ -222,4 +222,4 @@ class CompositeOrRawStacker(BaseEstimator, RegressorMixin):
         bad = ~np.isfinite(blended)
         if bad.any():
             blended[bad] = raw_pred[bad]
-        return blended
+        return np.asarray(blended)

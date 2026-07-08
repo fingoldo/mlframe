@@ -213,7 +213,7 @@ def _weighted_quantiles(values: np.ndarray, weights: np.ndarray, levels: np.ndar
     cum = np.cumsum(w_s)
     # Centered plotting positions in [0, 1]; flat endpoints below/above the extremes.
     pos = (cum - 0.5 * w_s) / total
-    return np.interp(lv, pos, v_s, left=v_s[0], right=v_s[-1])
+    return np.asarray(np.interp(lv, pos, v_s, left=v_s[0], right=v_s[-1]))
 
 
 class _LeafResidualForest:
@@ -578,7 +578,7 @@ class CompositeQRFEstimator(BaseEstimator, RegressorMixin):
         t = np.asarray(y_grid, dtype=np.float64).reshape(-1)
         leq = qmat[:, :, None] <= t[None, None, :]  # (n, K, G)
         level_if = np.where(leq, levels[None, :, None], 0.0)
-        return level_if.max(axis=1)
+        return np.asarray(level_if.max(axis=1))
 
     def crps(self, X: Any, y_true: Any, reduce: str = "mean") -> Any:
         """CRPS from the QRF quantile representation (quantile decomposition).

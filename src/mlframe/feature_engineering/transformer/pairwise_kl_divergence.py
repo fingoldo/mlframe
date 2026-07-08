@@ -25,13 +25,13 @@ logger = logging.getLogger(__name__)
 def _bernoulli_kl(p: np.ndarray, q: np.ndarray) -> np.ndarray:
     p_c = np.clip(p, 1e-6, 1 - 1e-6)
     q_c = np.clip(q, 1e-6, 1 - 1e-6)
-    return p_c * np.log(p_c / q_c) + (1 - p_c) * np.log((1 - p_c) / (1 - q_c))
+    return np.asarray(p_c * np.log(p_c / q_c) + (1 - p_c) * np.log((1 - p_c) / (1 - q_c)))
 
 
 def _gaussian_kl(mu_i: np.ndarray, mu_j: np.ndarray, sigma_i: float, sigma_j: float) -> np.ndarray:
     var_i = sigma_i**2 + 1e-9
     var_j = sigma_j**2 + 1e-9
-    return np.log(sigma_j / sigma_i) + (var_i + (mu_i - mu_j) ** 2) / (2.0 * var_j) - 0.5
+    return np.asarray(np.log(sigma_j / sigma_i) + (var_i + (mu_i - mu_j) ** 2) / (2.0 * var_j) - 0.5)
 
 
 def _fit_3baselines_with_sigma(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int):

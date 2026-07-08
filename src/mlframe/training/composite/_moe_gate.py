@@ -421,7 +421,7 @@ class MoESelectionGate:
             raise ValueError(f"group_ids length {labels.shape[0]} != prediction length {n}")
         if _HAVE_PANDAS:
             mapped = pd.Series(labels).map(self._label_to_code)
-            return mapped.fillna(-1).to_numpy(dtype=np.int64)
+            return np.asarray(mapped.fillna(-1).to_numpy(dtype=np.int64))
         return np.array([self._label_to_code.get(v, -1) for v in labels], dtype=np.int64)
 
     def route_labels(self, group_ids: Any = None, *, n: Optional[int] = None) -> np.ndarray:
@@ -433,7 +433,7 @@ class MoESelectionGate:
         codes = self._codes_for(group_ids, n)
         idx = self._choice_idx_per_row(codes)
         names = np.asarray(self.expert_names_, dtype=object)
-        return names[idx]
+        return np.asarray(names[idx])
 
     def _choice_idx_per_row(self, codes: np.ndarray) -> np.ndarray:
         seen = (codes >= 0) & (codes < self._n_groups)
@@ -461,4 +461,4 @@ class MoESelectionGate:
                 take = bad & np.isfinite(P[:, k])
                 out[take] = P[take, k]
                 bad &= ~take
-        return out
+        return np.asarray(out)

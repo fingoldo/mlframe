@@ -67,7 +67,7 @@ def _mahalanobis(X: np.ndarray, mean: np.ndarray, inv_cov: np.ndarray) -> np.nda
     result is FP-reduction-order equivalent (selection-safe), not a regression.
     """
     diff = X - mean
-    return (np.matmul(diff, inv_cov) * diff).sum(axis=1).astype(np.float32)
+    return np.asarray((np.matmul(diff, inv_cov) * diff).sum(axis=1).astype(np.float32))
 
 
 def compute_class_mahalanobis_features(

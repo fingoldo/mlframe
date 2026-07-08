@@ -41,7 +41,7 @@ def _fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components:
     from sklearn.mixture import BayesianGaussianMixture
     n_min = X_minority.shape[0]
     if n_min < n_components + 1:
-        return X_minority[np.random.default_rng(seed).integers(0, n_min, size=n_synthetic)].copy().astype(np.float32)
+        return np.asarray(X_minority[np.random.default_rng(seed).integers(0, n_min, size=n_synthetic)].copy().astype(np.float32))
     bgm = BayesianGaussianMixture(
         n_components=n_components,
         covariance_type="full",
@@ -59,7 +59,7 @@ def _fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components:
             logger.info("bgmm_multiscale: BGM fit failed at K=%d (%s); falling back to bootstrap.", n_components, exc)
             rng = np.random.default_rng(seed)
             samples = X_minority[rng.integers(0, n_min, size=n_synthetic)]
-    return samples.astype(np.float32)
+    return np.asarray(samples.astype(np.float32))
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
@@ -135,7 +135,7 @@ def compute_bgmm_multiscale_features(
             log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
             all_feats.append(pos_d)
             all_feats.append(log_gap)
-        return np.concatenate(all_feats, axis=1).astype(np.float32)
+        return np.asarray(np.concatenate(all_feats, axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
         cols: dict[str, np.ndarray] = {}

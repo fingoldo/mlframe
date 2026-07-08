@@ -65,12 +65,12 @@ def _extract_column_array(df: Any, col: str, rows: np.ndarray | None = None) -> 
         s = df.get_column(col)
         if rows is not None:
             s = s.gather(rows)
-        return s.to_numpy().astype(np.float32, copy=False)
+        return np.asarray(s.to_numpy().astype(np.float32, copy=False))
     if isinstance(df, pd.DataFrame):
         # na_value=np.nan so pandas nullable extension dtypes (Int64/Float64/boolean) holding NA cast to float32 instead of raising; no-op on plain numpy dtypes.
         if rows is not None:
-            return df[col].iloc[rows].to_numpy(dtype=np.float32, na_value=np.nan)
-        return df[col].to_numpy(dtype=np.float32, na_value=np.nan)
+            return np.asarray(df[col].iloc[rows].to_numpy(dtype=np.float32, na_value=np.nan))
+        return np.asarray(df[col].to_numpy(dtype=np.float32, na_value=np.nan))
     raise TypeError(f"CompositeTargetDiscovery: unsupported df type {type(df).__name__}")
 
 
@@ -201,7 +201,7 @@ def _residualise(y: np.ndarray, x: np.ndarray) -> np.ndarray:
     if finite.sum() < 3 or np.std(x[finite]) < 1e-12:
         out = y.astype(np.float64).copy()
         out -= float(np.mean(out[finite])) if finite.any() else 0.0
-        return out
+        return np.asarray(out)
     X = np.column_stack([x[finite].astype(np.float64), np.ones(int(finite.sum()))])
     coef, *_ = np.linalg.lstsq(X, y[finite].astype(np.float64), rcond=None)
     alpha = float(coef[0])

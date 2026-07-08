@@ -57,7 +57,7 @@ def _softmax_rows(elpd: np.ndarray) -> np.ndarray:
     """Row-wise softmax with max-subtraction so summed elpd (can be huge / very negative) does not overflow exp."""
     m = elpd.max(axis=1, keepdims=True)
     e = np.exp(elpd - m)
-    return e / e.sum(axis=1, keepdims=True)
+    return np.asarray(e / e.sum(axis=1, keepdims=True))
 
 
 if _HAS_NUMBA:
@@ -83,7 +83,7 @@ if _HAS_NUMBA:
 
 def _row_softmax(elpd: np.ndarray) -> np.ndarray:
     if _HAS_NUMBA:
-        return _softmax_rows_njit(np.ascontiguousarray(elpd))
+        return np.asarray(_softmax_rows_njit(np.ascontiguousarray(elpd)))
     return _softmax_rows(elpd)
 
 
@@ -134,7 +134,7 @@ def _pointwise_lpd(
         sigma = np.sqrt((w[:, None] * resid * resid).sum(axis=0) / wsum)
     # Degenerate (perfect fit / n<K collinear) component: floor sigma so its lpd stays finite and it does not swamp others.
     sigma = np.maximum(sigma, _TINY_SIGMA)
-    return -0.5 * _LOG_2PI - np.log(sigma)[None, :] - 0.5 * (resid / sigma[None, :]) ** 2
+    return np.asarray(-0.5 * _LOG_2PI - np.log(sigma)[None, :] - 0.5 * (resid / sigma[None, :]) ** 2)
 
 
 def pseudo_bma_weights(
@@ -199,7 +199,7 @@ def pseudo_bma_weights(
 
     if bb_draws <= 0:
         elpd = (row_w[:, None] * lpd).sum(axis=0, keepdims=True) / temperature  # (1, K)
-        return _row_softmax(elpd)[0]
+        return np.asarray(_row_softmax(elpd)[0])
 
     # BB-pseudo-BMA: Dirichlet(1,...,1) over rows == normalized Exponential(1) draws, scaled by the base row weights so
     # sample_weight is honored. Each draw reweights the elpd; averaging the per-draw softmax weights stabilises the blend.
@@ -209,7 +209,7 @@ def pseudo_bma_weights(
     dir_w /= dir_w.sum(axis=1, keepdims=True)
     # elpd^(b)_k = n * sum_i dir_w[b,i] * lpd[i,k] keeps the summed-elpd scale so temperature acts as in the point path.
     elpd = (n * (dir_w @ lpd)) / temperature  # (bb_draws, K)
-    return _row_softmax(elpd).mean(axis=0)
+    return np.asarray(_row_softmax(elpd).mean(axis=0))
 
 
 def blend(preds, weights) -> np.ndarray:

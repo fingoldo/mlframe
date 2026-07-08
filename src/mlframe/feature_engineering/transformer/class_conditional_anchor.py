@@ -47,7 +47,7 @@ def _fit_kmeans(X: np.ndarray, n_anchors: int, seed: int) -> np.ndarray:
     n_anchors_actual = min(n_anchors, max(2, X.shape[0]))
     km = KMeans(n_clusters=n_anchors_actual, random_state=seed, n_init=5, max_iter=100)
     km.fit(X)
-    return km.cluster_centers_.astype(np.float32, copy=False)
+    return np.asarray(km.cluster_centers_.astype(np.float32, copy=False))
 
 
 def _squared_dists(X: np.ndarray, anchors: np.ndarray) -> np.ndarray:
@@ -60,7 +60,7 @@ def _squared_dists(X: np.ndarray, anchors: np.ndarray) -> np.ndarray:
     a_sq = np.einsum("ij,ij->i", anchors, anchors)[None, :]
     d = x_sq - 2.0 * (X @ anchors.T) + a_sq
     np.maximum(d, 0.0, out=d)
-    return d
+    return np.asarray(d)
 
 
 def _softmax_similarity(X: np.ndarray, anchors: np.ndarray, softmax_temp: float) -> np.ndarray:
@@ -69,7 +69,7 @@ def _softmax_similarity(X: np.ndarray, anchors: np.ndarray, softmax_temp: float)
     logits = -dists / (softmax_temp + 1e-9)
     logits -= logits.max(axis=1, keepdims=True)
     e = np.exp(logits)
-    return (e / e.sum(axis=1, keepdims=True)).astype(np.float32)
+    return np.asarray((e / e.sum(axis=1, keepdims=True)).astype(np.float32))
 
 
 def _compute_class_anchor_features(

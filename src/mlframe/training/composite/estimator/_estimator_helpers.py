@@ -67,11 +67,11 @@ def _carry_forward_fill(arr: "np.ndarray", keep: "np.ndarray") -> "np.ndarray":
     a = np.asarray(arr, dtype=np.float64).reshape(-1).copy()
     n = a.size
     if n == 0 or bool(keep.all()):
-        return a
+        return np.asarray(a)
     # Forward-fill the source index: idx[i] = last position <= i that is kept.
     idx = np.where(keep, np.arange(n), -1)
     np.maximum.accumulate(idx, out=idx)
     # Leading not-kept rows (idx still -1) back-fill from the first kept row.
     first_kept = int(np.argmax(keep)) if bool(keep.any()) else 0
     idx[idx < 0] = first_kept
-    return a[idx]
+    return np.asarray(a[idx])

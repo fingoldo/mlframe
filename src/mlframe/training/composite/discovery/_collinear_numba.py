@@ -303,14 +303,14 @@ def near_collinear_keep_mask_fast(
     if n_cols < 2 or n_rows < 3 or not (thr < 1.0):
         return np.ones(n_cols, dtype=bool)
     if not _HAS_NUMBA:
-        return reference_fn(feature_matrix, corr_threshold=thr)
+        return np.asarray(reference_fn(feature_matrix, corr_threshold=thr))
     # Backend choice goes through the kernel_tuning_cache (per-host measured crossover)
     # with the hardcoded _MIN_COLS / _MIN_ROWS gate as the fallback + an env-var
     # force-override; bit-identical either way (borderline columns re-decided exactly).
     from ._ktc_dispatch import choose_collinear_backend
 
     if choose_collinear_backend(n_rows, n_cols, min_rows=_MIN_ROWS, min_cols=_MIN_COLS) == "numpy":
-        return reference_fn(feature_matrix, corr_threshold=thr)
+        return np.asarray(reference_fn(feature_matrix, corr_threshold=thr))
 
     fm = np.ascontiguousarray(feature_matrix, dtype=np.float64)
     # Content-keyed cache hit -> a byte-identical matrix already produced this exact
@@ -320,7 +320,7 @@ def near_collinear_keep_mask_fast(
         _hit = _KEEP_MASK_CACHE.get(_ck)
         if _hit is not None:
             _KEEP_MASK_CACHE.move_to_end(_ck)
-            return _hit.copy()
+            return np.asarray(_hit.copy())
     finite = np.isfinite(fm)
     # All-finite fast path (the common case after the leakage filter): precompute
     # per-column mean+ssq once, then each kept pair costs ONE cross-term pass over
@@ -347,7 +347,7 @@ def near_collinear_keep_mask_fast(
         if len(_KEEP_MASK_CACHE) >= _KEEP_MASK_CACHE_MAX_ENTRIES:
             _KEEP_MASK_CACHE.popitem(last=False)
         _KEEP_MASK_CACHE[_ck] = keep.copy()
-    return keep
+    return np.asarray(keep)
 
 
 if _HAS_NUMBA:
@@ -379,11 +379,11 @@ def block_shuffle_gather(arr: np.ndarray, perm: np.ndarray, block_len: int) -> n
     unchanged vs the legacy inline path. Falls back to the numpy broadcast+mask gather when numba
     is unavailable; both produce identical element order, so the block shuffle is bit-identical."""
     if _HAS_NUMBA:
-        return _block_gather_kernel(arr, np.ascontiguousarray(perm, dtype=np.int64), int(block_len))
+        return np.asarray(_block_gather_kernel(arr, np.ascontiguousarray(perm, dtype=np.int64), int(block_len)))
     m = arr.size
     idx = (perm[:, None] * block_len + np.arange(block_len)[None, :]).ravel()
     idx = idx[idx < m]
-    return arr[idx]
+    return np.asarray(arr[idx])
 
 
 def _warm_collinear_kernel() -> None:

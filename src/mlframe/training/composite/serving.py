@@ -79,12 +79,12 @@ _MULTI_BASE["linear_residual_multi"] = True
 
 def _inv_diff(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
     # transforms/simple.py::_diff_inverse -> t + base
-    return t_hat + base
+    return np.asarray(t_hat + base)
 
 
 def _inv_additive_residual(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
     # _additive_residual_inverse -> t + base + beta
-    return t_hat + base + float(p.get("beta", 0.0))
+    return np.asarray(t_hat + base + float(p.get("beta", 0.0)))
 
 
 def _inv_linear_residual(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
@@ -111,7 +111,7 @@ def _inv_ratio(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.nda
     # the round-trip is exact on in-domain near-zero base rows.
     eps = float(p["eps"])
     safe_base = np.where(np.abs(base) < eps, np.sign(base + 1e-300) * eps, base)
-    return t_hat * safe_base
+    return np.asarray(t_hat * safe_base)
 
 
 def _inv_logratio(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
@@ -121,7 +121,7 @@ def _inv_logratio(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.
     k = float(p["soft_cap_k"])
     cap = k * mad
     t_capped = np.clip(t_hat, median_t - cap, median_t + cap)
-    return base * np.exp(t_capped)
+    return np.asarray(base * np.exp(t_capped))
 
 
 _INVERSE_TABLE: dict[str, Callable[[np.ndarray, np.ndarray, dict[str, Any]], np.ndarray]] = {
@@ -139,17 +139,17 @@ _INVERSE_TABLE: dict[str, Callable[[np.ndarray, np.ndarray, dict[str, Any]], np.
 # domain_check with y=None). Rows failing this route to the fallback at serve
 # time, exactly as the live predict path does. Default: finite base.
 def _domain_finite(base: np.ndarray) -> np.ndarray:
-    return np.isfinite(base) if base.ndim == 1 else np.all(np.isfinite(base), axis=1)
+    return np.asarray(np.isfinite(base) if base.ndim == 1 else np.all(np.isfinite(base), axis=1))
 
 
 def _domain_ratio(base: np.ndarray) -> np.ndarray:
     # _ratio_domain (y=None) -> finite & |base| > 0.
-    return np.isfinite(base) & (np.abs(base) > 0)
+    return np.asarray(np.isfinite(base) & (np.abs(base) > 0))
 
 
 def _domain_logratio(base: np.ndarray) -> np.ndarray:
     # _logratio_domain (y=None) -> finite & base > 0.
-    return np.isfinite(base) & (base > 0)
+    return np.asarray(np.isfinite(base) & (base > 0))
 
 
 _DOMAIN_TABLE: dict[str, Callable[[np.ndarray], np.ndarray]] = {

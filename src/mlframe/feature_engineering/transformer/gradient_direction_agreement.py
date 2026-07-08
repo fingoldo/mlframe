@@ -39,9 +39,9 @@ def _fit_3baselines(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int):
 
 def _predict(model, X: np.ndarray, is_binary: bool) -> np.ndarray:
     if is_binary:
-        return model.predict_proba(X)[:, 1].astype(np.float32)
+        return np.asarray(model.predict_proba(X)[:, 1].astype(np.float32))
     else:
-        return model.predict(X).astype(np.float32)
+        return np.asarray(model.predict(X).astype(np.float32))
 
 
 def _gradient(model, X: np.ndarray, is_binary: bool, eps: float) -> np.ndarray:

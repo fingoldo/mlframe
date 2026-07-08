@@ -320,7 +320,7 @@ def predict_pre_clip(self, X: Any) -> np.ndarray:
     contribution per split instead of folding the no-op train case into a falsely "improved" headline number.
     """
     y_hat_unclipped, _, _ = self._predict_unclipped(X)
-    return y_hat_unclipped
+    return np.asarray(y_hat_unclipped)
 
 
 def predict(self, X: Any) -> np.ndarray:
@@ -352,7 +352,7 @@ def predict(self, X: Any) -> np.ndarray:
         self, n, n_violation, low_hits, high_hits,
         meta["t_low_hits"], meta["t_high_hits"],
     )
-    return y_hat
+    return np.asarray(y_hat)
 
 
 def predict_quantile(

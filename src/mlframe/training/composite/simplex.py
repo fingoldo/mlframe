@@ -117,8 +117,8 @@ def _close(y: np.ndarray) -> np.ndarray:
     if bad.any():
         out = y / np.where(s <= 0.0, 1.0, s)
         out[bad] = 1.0 / y.shape[1]
-        return out
-    return y / s
+        return np.asarray(out)
+    return np.asarray(y / s)
 
 
 def alr_forward(y: np.ndarray, ref: int) -> np.ndarray:
@@ -130,7 +130,7 @@ def alr_forward(y: np.ndarray, ref: int) -> np.ndarray:
     """
     logy = np.log(y)
     keep = [j for j in range(y.shape[1]) if j != ref]
-    return logy[:, keep] - logy[:, ref : ref + 1]
+    return np.asarray(logy[:, keep] - logy[:, ref : ref + 1])
 
 
 def alr_inverse(z: np.ndarray, ref: int, k: int) -> np.ndarray:
@@ -158,7 +158,7 @@ def ilr_forward(y: np.ndarray, basis: np.ndarray) -> np.ndarray:
     """
     logy = np.log(y)
     clr = logy - logy.mean(axis=1, keepdims=True)
-    return clr @ basis
+    return np.asarray(clr @ basis)
 
 
 def ilr_inverse(z: np.ndarray, basis: np.ndarray) -> np.ndarray:
@@ -184,7 +184,7 @@ def aitchison_distance(a: np.ndarray, b: np.ndarray, delta: float = _DEFAULT_ZER
     pb = np.log(multiplicative_zero_replacement(_close(b), delta))
     ca = pa - pa.mean(axis=1, keepdims=True)
     cb = pb - pb.mean(axis=1, keepdims=True)
-    return np.sqrt(((ca - cb) ** 2).sum(axis=1))
+    return np.asarray(np.sqrt(((ca - cb) ** 2).sum(axis=1)))
 
 
 class CompositeSimplexEstimator(BaseEstimator, MultiOutputMixin, RegressorMixin):

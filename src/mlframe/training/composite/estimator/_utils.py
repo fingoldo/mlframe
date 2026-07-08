@@ -62,7 +62,7 @@ def feature_importances_(self) -> np.ndarray:
 
     Raises ``NotFittedError`` before ``fit`` and ``AttributeError`` if the fitted inner has none.
     """
-    return self._require_inner_attr("feature_importances_")
+    return np.asarray(self._require_inner_attr("feature_importances_"))
 
 
 def coef_(self) -> np.ndarray:
@@ -70,7 +70,7 @@ def coef_(self) -> np.ndarray:
 
     Raises ``NotFittedError`` before ``fit`` and ``AttributeError`` if the fitted inner has none.
     """
-    return self._require_inner_attr("coef_")
+    return np.asarray(self._require_inner_attr("coef_"))
 
 
 def intercept_(self) -> float:
