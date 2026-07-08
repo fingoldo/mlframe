@@ -223,7 +223,7 @@ def build_combined_html_report(
         out_path = base_path + "_report.html"
         build_combined_report(entries, title=title, out_path=out_path)
         _record(charts, "combined_html", True)
-        if isinstance(metrics_dict, dict):
+        if isinstance(metrics_dict, dict) and charts is not None:
             charts.setdefault("combined_report", out_path)
         return out_path
     except Exception:

@@ -551,7 +551,7 @@ def shap_summary_and_dependence(
 
         # Dependence panels GROUPED into grid figure(s) (>= DEPENDENCE_GRID_COLS per row) instead of one stacked
         # figure per feature, each panel auto-annotated with its monotone direction / impact / smooth-vs-step verdict.
-        cols = order[: max(int(top_k), 1)]
+        cols = order[: max(int(top_k), 1)].tolist()
         for fig_rank, dep_fig in enumerate(_dependence_grid_figs(shap_mat, vals_sample, cols, names, top_names)):
             figures.append(dep_fig)
             if plot_file:

@@ -470,7 +470,7 @@ def _kf_single_segment(
     if _NUMBA_AVAILABLE:
         # njit machine-code recurrence: ~165-290x over the Python loop,
         # bit-identical (fastmath=False). See _benchmarks/bench_kalman_filter_njit.py.
-        return _kf_inner(observations, prior_traj, Q, R, float(initial_variance))
+        return np.asarray(_kf_inner(observations, prior_traj, Q, R, float(initial_variance)))
     T = observations.size
     out = np.full((T, 5), np.nan, dtype=np.float64)
     if T == 0:

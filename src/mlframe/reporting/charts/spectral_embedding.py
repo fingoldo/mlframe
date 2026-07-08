@@ -92,7 +92,7 @@ def spectral_embedding_panel(n_nodes: int, edges, *, node_color=None, node_size=
     if node_size is None:
         sizes = np.full(n_nodes, 120.0, dtype=np.float64)
     else:
-        sizes = np.full(n_nodes, float(node_size), dtype=np.float64) if np.isscalar(node_size) else np.asarray(node_size, dtype=np.float64)
+        sizes = np.full(n_nodes, float(node_size), dtype=np.float64) if np.isscalar(node_size) else np.asarray(node_size, dtype=np.float64)  # type: ignore[arg-type]  # np.isscalar guards this to a real scalar; node_size's param type stays broad
     return NetworkPanelSpec(
         node_x=np.ascontiguousarray(coords[:, 0]),
         node_y=np.ascontiguousarray(coords[:, 1]),

@@ -425,10 +425,14 @@ def apply_quality_gate_kn(
                 # backslash inside a model tag round-trips verbatim. A plain string
                 # replacement would either crash on "invalid group reference" or silently
                 # inject backslashes into the ensemble label.
-                _label_value = _re_label
+                _label_value: str = _re_label
+
+                def _replace_bracket(_m: "_re_mod.Match[str]", _v: str = _label_value) -> str:
+                    return _v
+
                 ensemble_name = _re_mod.sub(
                     r"\[[^\]]+\]",
-                    lambda _m, _v=_label_value: _v,
+                    _replace_bracket,
                     ensemble_name,
                     count=1,
                 )
