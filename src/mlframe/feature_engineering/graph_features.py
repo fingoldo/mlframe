@@ -215,9 +215,9 @@ def graph_neighbor_aggregate(
         raise ValueError("graph_neighbor_aggregate: values length must equal n_nodes.")
     indptr, indices, data = _build_csr(n_nodes, edges, weights, directed)
     if agg == "count":
-        return (indptr[1:] - indptr[:-1]).astype(np.float64)
+        return np.asarray((indptr[1:] - indptr[:-1]).astype(np.float64))
     if agg == "wmean":
-        return _wmean_impl(indptr, indices, data, vals, float(fill))
+        return np.asarray(_wmean_impl(indptr, indices, data, vals, float(fill)))
     if agg == "mean":
         deg = (indptr[1:] - indptr[:-1]).astype(np.float64)
         s = _sum_impl(indptr, indices, vals, float(fill), False, False)
@@ -225,7 +225,7 @@ def graph_neighbor_aggregate(
         nz = deg > 0
         out[nz] = s[nz] / deg[nz]
         return out
-    return _sum_impl(indptr, indices, vals, float(fill), agg == "max", agg == "min")
+    return np.asarray(_sum_impl(indptr, indices, vals, float(fill), agg == "max", agg == "min"))
 
 
 def graph_structural_features(

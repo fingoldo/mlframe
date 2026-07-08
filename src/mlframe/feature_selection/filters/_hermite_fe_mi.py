@@ -263,7 +263,7 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     import cupy as cp
     X_gpu = cp.asarray(X_cols, dtype=cp.float64)
     y_gpu = cp.asarray(y, dtype=cp.int64)
-    return _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins)
+    return np.asarray(_plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins))
 
 
 # (id(y_gpu), y_min) -> shifted (y - y_min) device vector. y is a fit-constant, so the shift recurs identically
@@ -379,7 +379,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     _mi_v = binned_mi_from_values_gpu(X_gpu, interior, y_gpu, int(n_bins), int(n_classes), codes_trusted=True)
     if _mi_v is not None:
         return _mi_v
-    from ._gpu_resident_fe import _searchsorted_codes
+    from ._gpu_resident_fe import _searchsorted_codes  # type: ignore[attr-defined]  # dynamically re-exported via globals()
     X_binned = _searchsorted_codes(X_gpu, interior).astype(cp.int64, copy=False)
     # codes_trusted: X_binned is searchsorted-produced (dense 0..n_bins-1) and y_gpu was shifted to dense
     # 0-based above, so the in-range guard cannot fire -- skip its blocking min/max sync (FIX1), matching the
@@ -432,17 +432,17 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     forced = os.environ.get("MLFRAME_MI_BACKEND", "")
     n, k = X_cols.shape
     if forced == "njit":
-        return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
+        return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
     # Honor the global GPU off-switch (MLFRAME_DISABLE_GPU / CUDA_VISIBLE_DEVICES="") -- cupy's own
     # device detection ignores both, so without this a CPU-only / weak-GPU run still routes this HOT
     # batched orth-FE MI to cupy (37% of a 300k fit: cupy argsort + GPU-sync sleep, CPU idle).
     # An explicit MLFRAME_MI_BACKEND=cuda still wins (handled above / below).
     if forced == "cuda":
         if _CUDA_AVAILABLE:
-            return _plugin_mi_classif_batch_cuda(X_cols, y, n_bins)
-        return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
+            return np.asarray(_plugin_mi_classif_batch_cuda(X_cols, y, n_bins))
+        return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
     if not _CUDA_AVAILABLE or gpu_globally_disabled():
-        return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
+        return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
     # GROUND-TRUTH OVERRIDE: this batched FE-MI path defaults to njit regardless of the per-call tuner.
     # The tuner sweep was upgraded to measure BOTH backends under realistic joblib worker-thread CONTENTION
     # (_run_sweep_mi_classif_dispatch) -- and that DID surface a 5-7x cuda contention penalty (n=100k k=20:
@@ -463,7 +463,7 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     # 2 cached imports + 2 env reads + gpu_globally_disabled + shape) = 10.1 us/call -> 0.075% at the real
     # ~157-call F2 count; full-vs-njit A/B aggregate -0.78% (noise). COMPUTE-FLOOR: no wrapper/wasted-work/hoist
     # win here; see _benchmarks/bench_plugin_mi_batch_dispatch_overhead.py for the numbers.
-    return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
+    return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
 
 _CUDA_KERNELS: dict = {}
 
