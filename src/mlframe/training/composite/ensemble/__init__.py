@@ -6,7 +6,7 @@ import hashlib
 import logging
 from collections import OrderedDict
 from typing import (
-    Any, Dict, List, Optional, Sequence, Tuple, Union,
+    Any, Dict, List, Optional, Sequence, Tuple, Union, cast,
 )
 
 import numpy as np
@@ -300,7 +300,7 @@ def _compute_oof_with_external_holdout(
                 if spec is None:
                     raise ValueError("composite component with no spec")
                 base_full = base_train_full_per_spec.get(
-                    spec.get("name") or spec.get("base_column"),
+                    str(spec.get("name") or spec.get("base_column")),
                 )
                 if base_full is None:
                     raise ValueError(f"missing base column '{spec['base_column']}' " "for external-holdout OOF (train side)")
@@ -392,7 +392,7 @@ def _compute_oof_with_external_holdout(
             _surviving_n, _total_n, _total_n - _surviving_n, _dropped,
         )
     if not holdout_cols:
-        _empty: np.ndarray = (np.zeros((0, 0)), np.zeros(0), [])
+        _empty: tuple = (np.zeros((0, 0)), np.zeros(0), [])
         if full_key is not None:
             _oof_cache_put(full_key, _empty)
         return _empty
@@ -477,7 +477,7 @@ def compute_oof_holdout_predictions(
         _hit = _oof_cache_get(_full_key)
         if _hit is not None:
             logger.debug("compute_oof_holdout_predictions: cache HIT for key=%r", _full_key)
-            return _hit
+            return cast(Tuple[np.ndarray, np.ndarray, List[str]], _hit)
 
     # Forward-walking K-fold OOF. When kfold>1 AND time_ordering is
     # monotone (rows already in time order), use TimeSeriesSplit -- K expanding-
@@ -550,7 +550,7 @@ def compute_oof_holdout_predictions(
                     if isinstance(inner, CompositeTargetEstimator):
                         if spec is None:
                             raise ValueError("composite component with no spec")
-                        base_full = base_train_full_per_spec.get(spec.get("name") or spec.get("base_column"))
+                        base_full = base_train_full_per_spec.get(str(spec.get("name") or spec.get("base_column")))
                         if base_full is None:
                             raise ValueError(f"missing base column '{spec['base_column']}'")
                         base_stack = base_full[fold_train_idx]
@@ -664,7 +664,7 @@ def compute_oof_holdout_predictions(
                 buf[fold_holdout_idx] = preds
         if not oof_preds_by_name or not survived_set:
             # Shape consistency -- match the (0, 0) tiny-data short-circuit. No components survived.
-            _empty: np.ndarray = (np.zeros((0, 0)), np.zeros(0), [])
+            _empty: tuple = (np.zeros((0, 0)), np.zeros(0), [])
             if _full_key is not None:
                 _oof_cache_put(_full_key, _empty)
             return _empty
@@ -806,7 +806,7 @@ def compute_oof_holdout_predictions(
                 # Composite-target wrapper. Re-fit the inner on stack_train T values, then re-wrap and predict.
                 if spec is None:
                     raise ValueError("composite component with no spec")
-                base_full = base_train_full_per_spec.get(spec.get("name") or spec.get("base_column"))
+                base_full = base_train_full_per_spec.get(str(spec.get("name") or spec.get("base_column")))
                 if base_full is None:
                     raise ValueError(f"missing base column '{spec['base_column']}' for OOF")
                 base_stack = base_full[train_idx]

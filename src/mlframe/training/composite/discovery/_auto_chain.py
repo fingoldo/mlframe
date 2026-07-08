@@ -377,7 +377,7 @@ def discover_chains(
     res_names = tuple(residual_names) if residual_names else _RESIDUAL_STAGE_NAMES
     un_names = tuple(unary_names) if unary_names else tuple(_TAIL_UNARIES)
 
-    cv_kw = dict(
+    cv_kw: Dict[str, Any] = dict(
         y=y, base=base, x_matrix=x_matrix, cv_folds=cv_folds,
         random_state=random_state, family=family, n_estimators=n_estimators,
         num_leaves=num_leaves, learning_rate=learning_rate,
