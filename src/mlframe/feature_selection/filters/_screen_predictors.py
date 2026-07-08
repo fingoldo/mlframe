@@ -11,7 +11,7 @@ import logging
 from itertools import combinations
 from os.path import exists
 from timeit import default_timer as timer
-from typing import Iterable, Optional, Sequence
+from typing import TYPE_CHECKING, Iterable, Optional, Sequence
 
 import numba
 import numpy as np
@@ -27,6 +27,9 @@ from ._screen_predictors_prescreen import cardinality_prescreen, compute_fdr_gai
 from .evaluation import get_candidate_name
 from .info_theory import merge_vars
 from ._numba_warmup import warmup_typed_dict
+
+if TYPE_CHECKING:
+    from ._dynamic_cluster_discovery import DCDState
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +71,13 @@ def screen_predictors(
     # factors
     factors_data: np.ndarray,
     factors_nbins: Sequence[int],
-    factors_names: Sequence[str] = None,
-    factors_names_to_use: Sequence[str] = None,
-    factors_to_use: Sequence[int] = None,
+    factors_names: Sequence[str] | None = None,
+    factors_names_to_use: Sequence[str] | None = None,
+    factors_to_use: Sequence[int] | None = None,
     # targets
-    targets_data: np.ndarray = None,
-    targets_nbins: Sequence[int] = None,
-    y: Sequence[int] = None,
+    targets_data: np.ndarray | None = None,
+    targets_nbins: Sequence[int] | None = None,
+    y: Sequence[int] | None = None,
     # algorithm
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
@@ -82,12 +85,12 @@ def screen_predictors(
     # performance
     extra_x_shuffling: bool = True,
     dtype: type = np.int32,
-    random_seed: int = None,
+    random_seed: int | None = None,
     # ONE shared FE subsample (2026-06-25, "score the screen on the same rows"). When supplied, the
     # order-1 relevance SWEEP + its maxT FDR floor are computed on THESE rows (consistent estimator scale,
     # and the full-n permutation work disappears); the RETURNED target encodings (classes_y / freqs_y)
     # are recomputed at FULL n so the downstream FE pipeline stays row-aligned. None -> full-n screen.
-    subsample_idx: np.ndarray = None,
+    subsample_idx: np.ndarray | None = None,
     use_gpu: bool = False,
     n_workers: int = 1,
     # confidence
@@ -95,7 +98,7 @@ def screen_predictors(
     # caller -- and any consumer that does not override every knob (e.g. ad-hoc screening) -- gets the same
     # behaviour MRMR.fit produces, rather than the far-stricter legacy 1000/100 permutation counts that made
     # standalone screening ~300x slower and over-reject. MRMR.fit still explicitly overrides each of these.
-    min_occupancy: int = None,
+    min_occupancy: int | None = None,
     min_nonzero_confidence: float = 0.99,
     full_npermutations: int = 3,
     baseline_npermutations: int = 2,
@@ -131,41 +134,41 @@ def screen_predictors(
     # remains the raw plug-in value for downstream consumers).
     cardinality_bias_correction: bool = True,
     max_consec_unconfirmed: int = 10,
-    max_runtime_mins: float = None,
+    max_runtime_mins: float | None = None,
     interactions_min_order: int = 1,
     interactions_max_order: int = 1,
     interactions_order_reversed: bool = False,
     max_veteranes_interactions_order: int = 1,
     only_unknown_interactions: bool = False,
     # Confirmation-step cardinality cutoff. ``None`` falls back to ``MAX_CONFIRMATION_CAND_NBINS``; ``MRMR.fit`` overrides with ``quantization_nbins ** interactions_max_order * 2``.
-    max_confirmation_cand_nbins: int = None,
+    max_confirmation_cand_nbins: int | None = None,
     # When screening returns zero selected_vars, legacy FE fell back to running on ALL features. False skips FE instead (safer default: FE on empty screen amplifies noise). Aligned with the MRMR ctor default (False).
     fe_fallback_to_all: bool = False,
     # verbosity and formatting
     verbose: int = 0,
     ndigits: int = 5,
-    parallel_kwargs: dict = None,
-    stop_file: str = None,
+    parallel_kwargs: dict | None = None,
+    stop_file: str | None = None,
     # Aligned with the MRMR ctor (False): full Fleuret conditional-MI redundancy is the point of MRMR. True is the faster dedup-free path on very wide pools.
     use_simple_mode: bool = False,
     # ``engineered_lineage`` -- mapping ``{engineered_col_idx: frozenset(parent_indices)}``. When set, k-way candidate enumeration skips combinations of an engineered
     # column with one of its own parents (e.g. ``(orig_i, kway(orig_i, orig_j))`` is redundant since the engineered col already contains orig_i's info). Threaded
     # through ``should_skip_candidate``. ``None`` preserves legacy behaviour.
-    engineered_lineage: dict = None,
+    engineered_lineage: dict | None = None,
     # 2026-05-30 Wave 9 — Dynamic Cluster Discovery (DCD) config dict. When
     # not None, DCD is active for this screen call. Keys: enable, tau_cluster,
     # distance, cluster_size_threshold, swap_gain_threshold, swap_method,
     # pairwise_cache_max, min_cluster_size, max_cluster_size, X_raw,
     # quantization_method, quantization_nbins, quantization_dtype, factors_cols.
     # None preserves pre-Wave-9 behaviour bit-stable.
-    dcd_config: dict = None,
+    dcd_config: dict | None = None,
     # 2026-05-31 Layer 43 (PART A) — host-MRMR engineered_recipes dict (name ->
     # EngineeredRecipe). Threaded into ``commit_swap`` so the DCD PC1 aggregate
     # gets registered as a replayable recipe. Pre-fix it was hardcoded to None
     # at the commit_swap callsite -> aggregate appeared in ``selected_vars`` /
     # ``cols`` but the remap in _mrmr_fit_impl.py dropped it from
     # ``_engineered_recipes_`` so ``get_feature_names_out`` silently lost it.
-    engineered_recipes: dict = None,
+    engineered_recipes: dict | None = None,
     # 2026-06-02 — directed-FE tie-break (see ScreenContext.raw_feature_names).
     # ``raw_feature_names`` is the set of ORIGINAL (pre-FE) input column names;
     # any candidate whose ``factors_names`` entry is not in it is engineered.
@@ -215,7 +218,7 @@ def screen_predictors(
     # loop), the DCDState from the prior pass is threaded back in here so cluster
     # discovery accumulates across passes instead of being rebuilt empty each
     # time (which dropped the screen-1 dup cluster from the published summary).
-    existing_dcd_state: object = None,
+    existing_dcd_state: "DCDState | None" = None,
 ) -> tuple:
     """Finds best predictors for the target. ``factors_data`` must be an n-by-m array of integers (ordinal encoded).
 
@@ -263,6 +266,9 @@ def screen_predictors(
     if mrmr_redundancy_algo not in ("fleuret", "pld_max", "pld_mean"):
         raise ValueError(f"mrmr_redundancy_algo must be one of 'fleuret', 'pld_max', " f"'pld_mean'; got {mrmr_redundancy_algo!r}.")
 
+    if y is None:
+        raise ValueError("y (target column indices) must be provided.")
+
     if len(factors_data) < 10:
         raise ValueError(f"factors_data must have at least 10 rows; got {len(factors_data)}.")
     if targets_data is None:
@@ -294,6 +300,7 @@ def screen_predictors(
             raise ValueError(f"factors_data.shape[1]={factors_data.shape[1]} must equal " f"len(factors_names)={len(factors_names)}.")
 
     # Initialize x (factor indices to consider) with appropriate defaults
+    x: set[int] | list[int]
     if factors_to_use is not None:
         x = set(factors_to_use)
     elif factors_names_to_use is not None:
@@ -316,6 +323,7 @@ def screen_predictors(
                     if verbose > 2:
                         logger.info("Using only %d predefined factors: %s", len(factors_to_use), factors_to_use)
                 else:
+                    assert factors_names_to_use is not None  # guaranteed by the outer `factors_to_use is None and factors_names_to_use is None` check
                     x = [i for i, col_name in enumerate(factors_names) if col_name in factors_names_to_use and i not in y]
                     if verbose > 2:
                         logger.info("Using only %d predefined factors: %s", len(factors_names_to_use), factors_names_to_use)
@@ -395,17 +403,17 @@ def screen_predictors(
         if max_failed <= 1:
             max_failed = 1
 
-        selected_interactions_vars = []
-        selected_vars = []  # stores just indices. can't use set 'cause the order is important for efficient computing
-        predictors = []  # stores more details.
+        selected_interactions_vars: list = []
+        selected_vars: list = []  # stores just indices. can't use set 'cause the order is important for efficient computing
+        predictors: list = []  # stores more details.
 
         # True if inner confirmation loop hit ``max_consec_unconfirmed`` patience at least once. Surfaced at function exit so callers can distinguish "gave up confirming"
         # from "natural gain threshold reached".
         patience_triggered: bool = False
 
-        cached_MIs = dict()
+        cached_MIs: dict = dict()
         # cached_cond_MIs = dict()
-        cached_confident_MIs = dict()
+        cached_confident_MIs: dict = dict()
         # PERF NOTE (profiled 2026-07): constructing the first numba typed.Dict
         # (unicode->float64) in a process JIT-compiles the whole typed-dict method
         # suite -- ~5s of LLVM codegen (27% of a cold F2 fit wall), recurring per
@@ -633,9 +641,9 @@ def screen_predictors(
             max_failed=max_failed,
             min_relevance_gain=min_relevance_gain,
             max_consec_unconfirmed=max_consec_unconfirmed,
-            max_runtime_mins=max_runtime_mins,
+            max_runtime_mins=max_runtime_mins or 0.0,
             max_confirmation_cand_nbins=max_confirmation_cand_nbins,
-            random_seed=random_seed,
+            random_seed=random_seed or 0,
             verbose=verbose,
             ndigits=ndigits,
             start_time=start_time,
@@ -682,9 +690,9 @@ def screen_predictors(
 
             total_disproved = 0
             total_checked = 0
-            partial_gains = {}
-            added_candidates = set()
-            failed_candidates = set()
+            partial_gains: dict = {}
+            added_candidates: set = set()
+            failed_candidates: set = set()
             nconsec_unconfirmed = 0
 
             # Refresh the confirmation context for this interactions order.

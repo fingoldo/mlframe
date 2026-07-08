@@ -107,7 +107,7 @@ def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbin
         )
         _denom_su = entropy(freqs=_freqs_x_su) + entropy(freqs=_freqs_y_su)
         if _denom_su > 1e-12:
-            return 2.0 * direct_gain / _denom_su
+            return float(2.0 * direct_gain / _denom_su)
     except Exception:
         # SU denominator unavailable (degenerate joint) -> keep the raw debiased relevance. Log at DEBUG so a
         # GENUINE merge_vars/entropy bug (not just a degenerate joint) is diagnosable instead of silently
@@ -116,7 +116,7 @@ def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbin
     return direct_gain
 
 
-def get_candidate_name(candidate_indices: list, factors_names: list) -> str:
+def get_candidate_name(candidate_indices: Sequence, factors_names: Sequence[str]) -> str:
     cand_name = "-".join([factors_names[el] for el in candidate_indices])
     return cand_name
 
@@ -131,7 +131,7 @@ def should_skip_candidate(
     selected_vars: list,
     selected_interactions_vars: list,
     only_unknown_interactions: bool = True,
-    engineered_lineage: dict = None,
+    engineered_lineage: dict | None = None,
     dcd_state=None,
 ) -> tuple:
     """Decide if current candidate for predictors should be skipped (already accepted, failed, or computed).
@@ -198,9 +198,9 @@ def handle_best_candidate(
     factors_names: list,
     verbose: int = 1,
     ndigits: int = 5,
-    max_runtime_mins: float = None,
-    start_time: float = None,
-    min_relevance_gain: float = None,
+    max_runtime_mins: float | None = None,
+    start_time: float | None = None,
+    min_relevance_gain: float | None = None,
 ):
     # Save best known candidate, to enable early stopping.
     run_out_of_time = False
@@ -217,7 +217,7 @@ def handle_best_candidate(
         if min_relevance_gain and verbose > 2 and current_gain > min_relevance_gain:
             logger.info("\t\t%s current_gain=%.*f", get_candidate_name(X, factors_names=factors_names), ndigits, current_gain)
 
-    if max_runtime_mins and not run_out_of_time:
+    if max_runtime_mins and start_time is not None and not run_out_of_time:
         run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
 
     return best_gain, best_candidate, run_out_of_time
@@ -240,18 +240,18 @@ def evaluate_gain(
     max_veteranes_interactions_order: int = 2,
     extra_knowledge_multipler: float = -1.0,
     sink_threshold: float = -1.0,
-    entropy_cache: dict = None,
-    cached_cond_MIs: dict = None,
+    entropy_cache: dict | None = None,
+    cached_cond_MIs: dict | None = None,
     # 2026-06-19: JMIM joint-MI cache. Mirrors ``cached_cond_MIs`` but keyed on the
     # multiset ``{X} u Z`` only (``arr2str(xz_combined)``); y is fixed per fit so it
     # is not part of the key. Stores the RAW ``mi({X,Z}; y)``; the nexisting exponent
     # is applied at READ time, exactly as the plain-CMI branch does for its cache.
-    cached_jmim_MIs: dict = None,
+    cached_jmim_MIs: dict | None = None,
     # 2026-06-19: 1-element int64 array hit counter for the JMIM cache. An array
     # (not a scalar) so the @njit kernel can mutate it in place and the caller can
     # read the post-loop count -- proves the cache actually HITS, not just that it
     # is harmless. Counter[0] is incremented on every JMIM cache read-hit.
-    jmim_hit_counter: np.ndarray = None,
+    jmim_hit_counter: np.ndarray | None = None,
     can_use_x_cache=False,
     can_use_y_cache=False,
     dtype=np.int32,
@@ -307,8 +307,8 @@ def evaluate_gain(
                             # lets all nexisting tiers share the
                             # underlying CMI compute.
                             key = arr2str(X) + "|" + arr2str(Z)
-                            if key in cached_cond_MIs:
-                                additional_knowledge = cached_cond_MIs[key]
+                            if key in cached_cond_MIs:  # type: ignore[operator]  # caller always supplies a dict on the non-JMIM path (see docstring)
+                                additional_knowledge = cached_cond_MIs[key]  # type: ignore[index]
                                 # Apply the nexisting exponent at read time.
                                 if nexisting > 0:
                                     additional_knowledge = additional_knowledge ** (nexisting + 1)
@@ -415,7 +415,7 @@ def evaluate_gain(
                             # this guard also avoids a NameError under JMIM.
                             if not use_jmim:
                                 if not confidence_mode:
-                                    cached_cond_MIs[key] = additional_knowledge
+                                    cached_cond_MIs[key] = additional_knowledge  # type: ignore[index]  # caller always supplies a dict on the non-JMIM path
                                 if nexisting > 0:
                                     additional_knowledge = additional_knowledge ** (nexisting + 1)
 
@@ -464,17 +464,17 @@ def evaluate_candidate(
     partial_gains: dict,
     selected_vars: list,
     baseline_npermutations: int,
-    classes_y: np.ndarray = None,
-    classes_y_safe: np.ndarray = None,
-    freqs_y: np.ndarray = None,
-    freqs_y_safe: np.ndarray = None,
+    classes_y: np.ndarray | None = None,
+    classes_y_safe: np.ndarray | None = None,
+    freqs_y: np.ndarray | None = None,
+    freqs_y_safe: np.ndarray | None = None,
     use_gpu: bool = True,
-    cached_MIs: dict = None,
-    cached_confident_MIs: dict = None,
-    cached_cond_MIs: dict = None,
-    cached_jmim_MIs: dict = None,
-    jmim_hit_counter: np.ndarray = None,
-    entropy_cache: dict = None,
+    cached_MIs: dict | None = None,
+    cached_confident_MIs: dict | None = None,
+    cached_cond_MIs: dict | None = None,
+    cached_jmim_MIs: dict | None = None,
+    jmim_hit_counter: np.ndarray | None = None,
+    entropy_cache: dict | None = None,
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
     max_veteranes_interactions_order: int = 2,
@@ -485,10 +485,10 @@ def evaluate_candidate(
     ndigits: int = 5,
     use_simple_mode: bool = True,
 ) -> Tuple[float, set]:
-    sink_reasons = set()
+    sink_reasons: set = set()
 
     # Is this candidate any good for target 1-vs-1?
-    if X in cached_confident_MIs:  # cached_confident_MIs first -- more reliable (but don't fill them here).
+    if X in cached_confident_MIs:  # type: ignore[operator]  # caller always supplies a dict; cached_confident_MIs first -- more reliable (but don't fill them here).
         # cached_confident_MIs stores (bootstrapped_gain, confidence) tuples (see confirm_candidate); take the gain.
         # INVARIANT: a candidate only lands in cached_confident_MIs AFTER permutation confirmation, at which point its
         # cand_idx is in added_/failed_candidates and should_skip_candidate filters it out before re-entry here -- so under
@@ -501,25 +501,25 @@ def evaluate_candidate(
             "evaluate_candidate: confirmed candidate %s re-entered the cached_confident_MIs branch (skip-invariant broken); "
             "scoring it through the SU floor-scaling guard.", X,
         )
-        direct_gain, _ = cached_confident_MIs[X]
+        direct_gain, _ = cached_confident_MIs[X]  # type: ignore[index]
         direct_gain = _su_normalize_relevance(direct_gain, X, y, factors_data, factors_nbins, dtype)
     else:
         _gmi = get_group_mi()
         _grp_gain = float("nan")
-        if _gmi is not None and X not in cached_MIs:
+        if _gmi is not None and X not in cached_MIs:  # type: ignore[operator]  # caller always supplies a dict
             # Group-aware relevance: per-group I(X;Y|G) (MM-debiased) instead of the global MI. Bypasses the GPU +
             # permutation-null path (the per-group MM debias handles the small-sample bias). Returns nan when the
             # segments do not row-align (subsample), in which case we fall through to the global path. Default OFF.
             _si, _off, _mr, _sw = _gmi
             _grp_gain = group_relevance_mi(
-                factors_data, X, classes_y, factors_nbins, len(freqs_y),
+                factors_data, X, classes_y, factors_nbins, len(freqs_y),  # type: ignore[arg-type]  # caller always supplies classes_y/freqs_y together with a group-aware config
                 _si, _off, min_rows=_mr, size_weighted=_sw, dtype=dtype,
             )
         if _grp_gain == _grp_gain:  # not nan -> group-aware relevance succeeded
             direct_gain = _grp_gain
-            cached_MIs[X] = direct_gain
-        elif X in cached_MIs:
-            direct_gain = cached_MIs[X]
+            cached_MIs[X] = direct_gain  # type: ignore[index]
+        elif X in cached_MIs:  # type: ignore[operator]
+            direct_gain = cached_MIs[X]  # type: ignore[index]
         else:
             # 2026-05-30 Wave 9.1 fix (XOR-synergy regression):
             # use UNANIMOUS-rejection baseline (require ALL perms to
@@ -546,13 +546,13 @@ def evaluate_candidate(
             if use_gpu:
                 direct_gain, _, null_mean, p_value = mi_direct_gpu(
                     factors_data,
-                    x=X,
-                    y=y,
+                    x=tuple(X),
+                    y=tuple(y),
                     factors_nbins=factors_nbins,
-                    classes_y=classes_y,
-                    classes_y_safe=classes_y_safe,
-                    freqs_y=freqs_y,
-                    freqs_y_safe=freqs_y_safe,
+                    classes_y=classes_y,  # type: ignore[arg-type]  # caller always supplies these together when use_gpu is set
+                    classes_y_safe=classes_y_safe,  # type: ignore[arg-type]
+                    freqs_y=freqs_y,  # type: ignore[arg-type]
+                    freqs_y_safe=freqs_y_safe,  # type: ignore[arg-type]
                     min_nonzero_confidence=0.0,
                     max_failed=_bnp,
                     npermutations=_bnp,
@@ -572,8 +572,8 @@ def evaluate_candidate(
                 # null mean (the average MI of X against y-PERMUTATIONS the kernel already computes) AND the permutation p-value (the fraction of shuffles that tied/beat observed).
                 direct_gain, _, null_mean, p_value = mi_direct(
                     factors_data,
-                    x=X,
-                    y=y,
+                    x=tuple(X),
+                    y=tuple(y),
                     factors_nbins=factors_nbins,
                     classes_y=classes_y,
                     classes_y_safe=classes_y_safe,
@@ -598,7 +598,7 @@ def evaluate_candidate(
             # debiased relevance by the SU denominator 2/(H(X)+H(Y)) so the floor sees the cardinality-scrubbed score, matching the unit
             # SU definition. Done only when direct_gain > 0 (a zero stays zero) and the SU toggle is on; legacy path is byte-identical.
             direct_gain = _su_normalize_relevance(direct_gain, X, y, factors_data, factors_nbins, dtype)
-            cached_MIs[X] = direct_gain
+            cached_MIs[X] = direct_gain  # type: ignore[index]
 
     # Synergy candidates can have direct_gain == 0 (pure XOR, parity, etc.: the
     # marginal MI is zero by construction but the conditional MI given an
@@ -857,7 +857,7 @@ def find_best_partial_gain(
     # (sensor-mesh: 6 features -> 2, -4% downstream AUC). Skipping pruned
     # candidates here closes the redirect loop. ``None`` dcd_state is the
     # legacy/bit-stable path (no DCD).
-    _should_be_pruned = None
+    _should_be_pruned: Any = None
     if dcd_state is not None:
         try:
             from ._dynamic_cluster_discovery import should_be_pruned as _should_be_pruned
