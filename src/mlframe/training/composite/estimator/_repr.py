@@ -96,7 +96,7 @@ def _build_repr_html(self: Any) -> str:
     rows.append(_row("inner estimator", html.escape(inner_name)))
     rows.append(_row("fitted", "yes" if is_fitted else "no"))
 
-    if is_fitted:
+    if is_fitted and fitted is not None:
         n_valid = fitted.get("n_train_valid")
         if n_valid is not None:
             n_invalid = fitted.get("n_train_invalid", 0)
