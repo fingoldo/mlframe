@@ -227,7 +227,7 @@ Adjust if production data calibrates differently.
 
 
 # Back-compat alias for callers that consumed the pre-2026-05-22 flat constant.
-WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD: float = WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS["regression"]
+WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD: float = WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS["regression"] or 0.0
 """Deprecated -- use ``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS[target_type_group]``
 which is per-target-type. Kept for back-compat with callers that
 imported the flat constant before per-type thresholds landed."""
@@ -575,9 +575,9 @@ def _compute_categorical_psi(
         return float(np.sum((p_o - p_t) * np.log(p_o / p_t)))
     psi = 0.0
     for c in cats:
-        p_t = max(float(train_counts.get(c, 0)) / n_train, floor_train)
-        p_o = max(float(other_counts.get(c, 0)) / n_other, floor_other)
-        psi += (p_o - p_t) * math.log(p_o / p_t)
+        p_t_scalar = max(float(train_counts.get(c, 0)) / n_train, floor_train)
+        p_o_scalar = max(float(other_counts.get(c, 0)) / n_other, floor_other)
+        psi += (p_o_scalar - p_t_scalar) * math.log(p_o_scalar / p_t_scalar)
     return float(psi)
 
 
@@ -641,10 +641,10 @@ def _col_to_numpy(df: Any, col: str) -> Optional[np.ndarray]:
     """Best-effort 1-D numpy array for a single column across pandas / polars."""
     try:
         if hasattr(df, "loc"):
-            return df[col].to_numpy()
+            return np.asarray(df[col].to_numpy())
         if hasattr(df, "to_numpy") and hasattr(df, "columns"):
             # polars frame
-            return df[col].to_numpy()
+            return np.asarray(df[col].to_numpy())
     except Exception as exc:
         logger.debug("drift: to_numpy on col %r failed: %r", col, exc, exc_info=True)
         return None

@@ -326,8 +326,8 @@ def _recover_cb_feature_names(model: Any) -> tuple[list[str], list[str]]:
     """
     try:
         feat_names = list(getattr(model, "feature_names_", []) or [])
-        cat_idx = getattr(model, "_get_cat_feature_indices", lambda: [])() or []
-        text_idx = getattr(model, "_get_text_feature_indices", lambda: [])() or []
+        cat_idx: list = getattr(model, "_get_cat_feature_indices", lambda: [])() or []
+        text_idx: list = getattr(model, "_get_text_feature_indices", lambda: [])() or []
         if not feat_names:
             return [], []
         cat_feat = [feat_names[i] for i in cat_idx if 0 <= i < len(feat_names)]
@@ -413,7 +413,7 @@ def _predict_with_fallback(
                     method,
                 )
                 with phase(method, model=_model_type, n_rows=n_rows):
-                    return fn(_hit)
+                    return np.asarray(fn(_hit))
         except (AttributeError, KeyError, TypeError, ValueError) as _exc:
             logger.debug(
                 "[cb-val-pool-reuse] %s cache probe failed (%s: %s); "
@@ -426,7 +426,7 @@ def _predict_with_fallback(
     if _pl_df is not type(None) and isinstance(X, _pl_df) and _is_cb and getattr(model, "_mlframe_polars_fastpath_broken", False):
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
         with phase(method, model=_model_type, n_rows=n_rows):
-            return fn(X_pd)
+            return np.asarray(fn(X_pd))
 
     # ── 4. Normal path (with NaN guard + CB Polars fallback) ──────────
     try:
@@ -443,12 +443,12 @@ def _predict_with_fallback(
                     "one-shot imputation + scaling before retry.",
                     _model_type, method,
                 )
-                return _apply_nan_guard(model, X, fn, n_rows)
-        return result
+                return np.asarray(_apply_nan_guard(model, X, fn, n_rows))
+        return np.asarray(result)
     except ValueError as e:
         if "NaN" not in str(e) and "contains NaN" not in str(e):
             raise
-        return _apply_nan_guard(model, X, fn, n_rows)
+        return np.asarray(_apply_nan_guard(model, X, fn, n_rows))
     except TypeError as e:
         if not (_is_cb and _pl_df is not type(None) and isinstance(X, _pl_df) and "No matching signature found" in str(e)):
             raise
@@ -463,7 +463,7 @@ def _predict_with_fallback(
             pass
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
         with phase(method, model=_model_type, n_rows=n_rows):
-            return fn(X_pd)
+            return np.asarray(fn(X_pd))
 
 
 # Fix 9.4.3 + Fix Orch-1: process-wide CatBoost Pool cache. Keys: tuple
@@ -541,7 +541,7 @@ def _cached_gpu_info() -> list:
             _GPU_INFO_CACHE = []
             _GPU_INFO_PROBED = True
             return _GPU_INFO_CACHE
-        result = get_gpuinfo_gpu_info()
+        result = list(get_gpuinfo_gpu_info())
         _GPU_INFO_CACHE = result
         _GPU_INFO_PROBED = True
         return result
