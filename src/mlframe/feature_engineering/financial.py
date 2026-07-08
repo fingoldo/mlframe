@@ -22,7 +22,7 @@ import polars.selectors as cs
 # that only want the rolling-stats / market-wide helpers can import
 # mlframe.feature_engineering.financial without TA-Lib installed.
 try:
-    import polars_talib as plta  # type: ignore
+    import polars_talib as plta
 except ImportError:
     plta = None  # noqa: F841 - guarded use inside the TA-indicator functions
 

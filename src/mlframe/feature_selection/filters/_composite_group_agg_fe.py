@@ -494,7 +494,7 @@ def composite_group_agg_with_recipes(
 def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
     """Reuse the Layer 87 / composite_auto_detect int-as-cat detector."""
     try:
-        from .._grouped_agg_fe import _auto_detect_group_cols as _l87_detect  # type: ignore
+        from .._grouped_agg_fe import _auto_detect_group_cols as _l87_detect
     except Exception:
         _l87_detect = None
     if _l87_detect is not None:
