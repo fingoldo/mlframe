@@ -312,6 +312,7 @@ class CompositeMultiOutputEstimator(MultiOutputMixin, RegressorMixin, BaseEstima
         self.failed_columns_ = failed
         # Best-effort feature names (pandas / polars). An ndarray X lacks
         # ``.columns`` (AttributeError) -- not an error, just no names.
+        self.feature_names_in_: list | None
         try:
             self.feature_names_in_ = list(X.columns)
         except AttributeError:

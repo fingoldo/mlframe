@@ -241,11 +241,13 @@ class CompositeSimplexEstimator(BaseEstimator, MultiOutputMixin, RegressorMixin)
     def _forward(self, y: np.ndarray) -> np.ndarray:
         if self.transform == "alr":
             return alr_forward(y, self._ref_)
+        assert self._basis_ is not None  # set in fit() whenever transform == "ilr"
         return ilr_forward(y, self._basis_)
 
     def _inverse(self, z: np.ndarray) -> np.ndarray:
         if self.transform == "alr":
             return alr_inverse(z, self._ref_, self._k_)
+        assert self._basis_ is not None  # set in fit() whenever transform == "ilr"
         return ilr_inverse(z, self._basis_)
 
     def _build_inner(self, j: int) -> Any:
