@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, Callable, Mapping, Optional
+from typing import Any, Callable, Dict, Mapping, Optional
 
 import numpy as np
 from scipy import stats
@@ -686,7 +686,7 @@ def bootstrap_metrics(
         )
         samples_lists: dict[str, list] = {name: [] for name in _all_active}
         failures = {name: 0 for name in _all_active}
-        first_err = {name: None for name in _all_active}
+        first_err: Dict[str, Optional[str]] = {name: None for name in _all_active}
         for _ls, _fl, _fe in _parts:
             for name in _all_active:
                 samples_lists[name].extend(_ls[name])
@@ -710,7 +710,7 @@ def bootstrap_metrics(
                     _sz = int(_class_sizes[_c])
                     _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
                     _idx_buf[_class_offsets[_c] : _class_offsets[_c + 1]] = _groups_list[_c][_rand]
-                idx = _idx_buf
+                idx = _idx_buf  # type: ignore[assignment]  # numpy stubs mis-infer rng.integers(..., size=n) as scalar-returning above; idx is always an ndarray at runtime
             # Slice ONCE; every non-idx-aware metric reads the same resampled views.
             # Skipped entirely when all active metrics are idx-aware (re-gather internally).
             if _need_slice:
@@ -734,7 +734,7 @@ def bootstrap_metrics(
             # base structure (e.g. pre-sorted AUC) instead of re-deriving it.
             for name in active_idx:
                 try:
-                    v = float(metric_fns_idx[name](idx))
+                    v = float(metric_fns_idx[name](np.asarray(idx)))
                 except Exception as exc:
                     failures[name] += 1
                     if first_err[name] is None:

@@ -13,7 +13,7 @@ wrapper).
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple, cast
 
 import numpy as np
 
@@ -386,8 +386,8 @@ def build_calibration_spec(
     # bin-population histogram would reduce over an empty array. Emit an honest placeholder instead.
     finite_bin = np.isfinite(freqs_predicted) & np.isfinite(freqs_true)
     if freqs_predicted.size == 0 or not finite_bin.any():
-        ann = AnnotationPanelSpec(text=(plot_title + "\n" if plot_title else "") + "calibration unavailable: no finite bins", title=plot_title or "Calibration")
-        return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
+        empty_ann = AnnotationPanelSpec(text=(plot_title + "\n" if plot_title else "") + "calibration unavailable: no finite bins", title=plot_title or "Calibration")
+        return FigureSpec(suptitle="", panels=((empty_ann,),), figsize=figsize)
 
     if len(freqs_predicted) > 1:
         bar_width = float(np.mean(np.diff(np.sort(freqs_predicted))))
@@ -475,7 +475,7 @@ def build_calibration_spec(
         title="",
         xlabel=label_prob,
         ylabel=label_histogram,
-        yscale=resolved_yscale if resolved_yscale in ("linear", "log") else "linear",
+        yscale=cast(Literal["linear", "log"], resolved_yscale) if resolved_yscale in ("linear", "log") else "linear",
         density=False,
         xlim=_PROB_AXIS_RANGE,  # share the scatter's probability range so the populations line up under their bins
     )
