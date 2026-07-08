@@ -28,15 +28,25 @@ jobs:
       # itself) is EXACT-pinned, not range-pinned: `uvx --with` re-resolves
       # "latest compatible" fresh on every single run with no lockfile, so an
       # unpinned range (even "numpy<2.5") drifts silently over time and made
-      # this gate genuinely flaky -- the exact same source could pass or fail
-      # purely depending on what happened to resolve that moment (observed
-      # 2026-07-08: identical command gave 178 errors in CI but 0 locally,
-      # traced to a different numpy/scipy/scikit-learn/pydantic/mypy
-      # combination each side resolved). Versions below match the project's
-      # real dev env (confirmed clean against these exact files/dirs).
+      # this gate flaky on its own (observed 2026-07-08: identical command gave
+      # 178 errors in CI vs 0 locally on one occasion, purely from a different
+      # numpy/scipy/scikit-learn/pydantic/mypy resolve each side happened to get).
+      #
+      # --follow-imports=silent (2026-07-08): pinning alone did NOT close the gap --
+      # this isolated uvx sandbox has none of the beachhead files' heavy transitive
+      # deps installed (pandas/torch/lightning/numba/pyutilz), so mypy's default
+      # follow-imports="normal" walks into every module they import, collapses
+      # each missing-dep expression to Any, and reports "Returning Any" /
+      # "Unused type:ignore" noise from dozens of UNRELATED files never meant to
+      # be covered by this beachhead (trainer.py, neural/*, reporting/*, etc. --
+      # 165+ errors in 77+ files, none in the 10 actually-targeted files). Same
+      # pattern already solved for pyutilz's mypy.yml the same way. `silent`
+      # scopes real error-reporting to just the files/dirs listed below while
+      # still using their inferred types where available.
       - name: MyPy (strict-mode beachhead)
         run: >
           uvx --with "numpy==2.3.5" --with "scipy==1.17.1" --with "scikit-learn==1.8.0" --with "pydantic==2.13.4" mypy==2.1.0
+          --follow-imports=silent
           src/mlframe/system/_gpu_guard.py
           src/mlframe/metrics/_numba_params.py
           src/mlframe/metrics/rank_correlation.py
