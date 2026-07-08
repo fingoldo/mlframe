@@ -40,6 +40,7 @@ from typing import (
     List,
     Optional,
     Tuple,
+    cast,
 )
 
 import numpy as np
@@ -513,7 +514,7 @@ def _extract_column_values(df: Any, column: str) -> List:
     try:
         import pandas as pd
         if isinstance(df, pd.DataFrame):
-            return list(df[column].tolist())
+            return cast(List, df[column].tolist())
     except ImportError:  # pragma: no cover
         pass
     return list(df)

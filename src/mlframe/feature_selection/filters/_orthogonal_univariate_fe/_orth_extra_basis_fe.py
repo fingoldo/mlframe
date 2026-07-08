@@ -148,7 +148,7 @@ def _chirp_axis(x: np.ndarray, mean: float, std: float, lo: float, span: float) 
     (:func:`_chirp_axis_njit`, no fastmath) -- bit-identical to the numpy
     expression but with no length-n intermediate temporaries."""
     x = np.ascontiguousarray(np.asarray(x, dtype=np.float64).ravel())
-    return _chirp_axis_njit(x, float(mean), float(std), float(lo), float(span))
+    return np.asarray(_chirp_axis_njit(x, float(mean), float(std), float(lo), float(span)))
 
 
 @numba.njit(parallel=True, fastmath=True, cache=True)
@@ -241,7 +241,7 @@ def _corr_sq_centered(v: np.ndarray, y_centered: np.ndarray, y_ss: float) -> flo
     # ``v_ss << vv``. Reject when the centered SS is a negligible fraction of the raw SS.
     if v_ss <= 1e-12 * vv or v_ss < 1e-24 or y_ss < 1e-24:
         return 0.0
-    return (vy * vy) / (v_ss * y_ss)
+    return float((vy * vy) / (v_ss * y_ss))
 
 
 def _periodogram_power(z01: np.ndarray, y: np.ndarray, freq: float) -> float:
@@ -347,12 +347,12 @@ def _power_centered(z: np.ndarray, yc: np.ndarray, y_ss: float, freq: float) -> 
     # rel ~1e-15) -- the per-element sin/cos work amortises thread spawn. Gated below; serial numpy path stays
     # for small n. bench: _benchmarks/bench_power_centered_njit.py.
     if z.shape[0] >= _POWER_CENTERED_PAR_MIN_N:
-        return _power_centered_fused_par_njit(
+        return float(_power_centered_fused_par_njit(
             np.ascontiguousarray(z, dtype=np.float64), np.ascontiguousarray(yc, dtype=np.float64),
             float(y_ss), float(freq),
-        )
+        ))
     ang = 2.0 * np.pi * float(freq) * z
-    return _corr_sq_centered(np.sin(ang), yc, y_ss) + _corr_sq_centered(np.cos(ang), yc, y_ss)
+    return float(_corr_sq_centered(np.sin(ang), yc, y_ss) + _corr_sq_centered(np.cos(ang), yc, y_ss))
 
 
 def _refine_peak_freq(
@@ -396,11 +396,11 @@ def _deflate_sincos(z: np.ndarray, y: np.ndarray, freq: float) -> np.ndarray:
         # rank-deficient, where lstsq's min-norm solution is the robust choice). Same projection residual.
         AtA = A.T @ A
         coef = np.linalg.solve(AtA, A.T @ y)
-        return y - A @ coef
+        return np.asarray(y - A @ coef)
     except np.linalg.LinAlgError:
         try:
             coef, *_ = np.linalg.lstsq(A, y, rcond=None)
-            return y - A @ coef
+            return np.asarray(y - A @ coef)
         except Exception:
             return y
     except Exception:
@@ -489,7 +489,7 @@ def _detect_fourier_freqs_for_col(
         except Exception:
             _twin_ready = False
         if _twin_ready:
-            _dev_errs = []
+            _dev_errs: list = []
             try:
                 _dev_errs.append(np.linalg.LinAlgError)
                 import cupy as _cp  # type: ignore

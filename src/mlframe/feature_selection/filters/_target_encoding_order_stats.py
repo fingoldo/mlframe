@@ -82,14 +82,14 @@ def _segment_order_stats(
 def _seg_quantile(y_sorted: np.ndarray, start: int, k: int, p: float) -> float:
     """Quantile ``p`` of the ascending segment ``y_sorted[start:start+k]`` via numpy's ``linear`` interpolation."""
     if k == 1:
-        return y_sorted[start]
+        return float(y_sorted[start])
     pos = (k - 1) * p
     lo = int(pos)
     frac = pos - lo
     v = y_sorted[start + lo]
     if frac > 0.0 and lo + 1 < k:
         v += frac * (y_sorted[start + lo + 1] - v)
-    return v
+    return float(v)
 
 
 def per_category_order_stats(
@@ -152,6 +152,7 @@ def global_order_stats(y_arr: np.ndarray, stats: Sequence[str]) -> dict:
         elif stat == "q90":
             g[stat] = q90
         elif stat == "iqr":
+            assert q90 is not None and q10 is not None  # "iqr" wanted implies both were computed above
             g[stat] = q90 - q10
         elif stat == "min":
             g[stat] = float(np.min(y_arr))

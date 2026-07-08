@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 import numpy as np
 
@@ -42,6 +42,9 @@ from .screening import (
 )
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from . import CompositeTargetDiscovery
 
 
 def _auto_base(
@@ -521,7 +524,7 @@ def _auto_base(
                 ).astype(np.int64)
                 np.clip(col_codes, 0, _nbins - 1, out=col_codes)
             for p in range(n_perms):
-                if col_codes is not None:
+                if col_codes is not None and _y_codes_for_col is not None:
                     shuffled_codes = _block_shuffle(col_codes, rng_perm)
                     null_mis[p] = _mi_from_binned_pair(
                         shuffled_codes, _y_codes_for_col, nbins=_nbins,

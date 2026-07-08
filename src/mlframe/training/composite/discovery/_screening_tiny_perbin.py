@@ -195,6 +195,8 @@ def _tiny_cv_rmse_y_scale(
     _all_valid = bool(valid.all())
     finite_y = np.isfinite(np.asarray(y_train, dtype=np.float64))
     _emulate_fallback = (not _all_valid) and bool((finite_y & ~valid).any())
+    _split_valid_mask: np.ndarray | None = None
+    _group_mask: np.ndarray | None = None
     if _emulate_fallback:
         # Split population = all finite-y rows (raw-y parity); ``valid_pop`` flags which are on the transform's fitted domain (trainable). The rest are scored via the median fallback on the val side only.
         pop_mask = finite_y

@@ -235,7 +235,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
         if class_w is not None:
             cb = _mi_classif_batch_balanced(X, y, class_w, nbins=nbins)
             if cb is not None:
-                return cb
+                return np.asarray(cb)
     # bench-attempt-rejected (2026-06-23, GTX 1050 Ti, F2 100k MRMR wall /loop "drive CPU share -> 0"):
     # tried routing this CPU njit batch-MI (the #1 mlframe CPU-compute kernel: cProfile tottime 3.05s of a
     # 34.8s warm F2 100k fit, 157 calls via plugin_mi_classif_batch_dispatch, callers = _conditional_gate_fe
@@ -289,7 +289,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     # silently degrading a genuine OOB (illegal-address) bug to the CPU njit and DEFEATING the guard
     # added in 6c127567. Catch only genuine cupy/device faults below so a true device error still
     # falls back to CPU, while a ValueError/IndexError (real OOB / logic bug) propagates to surface.
-    _dev_errs = [np.linalg.LinAlgError]
+    _dev_errs: list = [np.linalg.LinAlgError]
     try:
         import cupy as _cp_e  # type: ignore
 
@@ -365,7 +365,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
                     if _rank_mi is not None:
                         return np.asarray(_rank_mi, dtype=np.float64)
             return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls), dtype=np.float64)
-    except (ImportError, *_DEV_ERRS):
+    except (ImportError, *_DEV_ERRS):  # type: ignore[misc]  # _DEV_ERRS is runtime-filtered to actual BaseException subclasses just above
         pass  # cupy/strict-module absent OR a genuine device fault -> exact CPU njit below.
         # NOTE (FIX1): ValueError / IndexError are intentionally NOT caught here -- a -1 / out-of-range
         # code raised by _assert_codes_in_range (illegal-address guard) must surface, not degrade to CPU.
@@ -401,7 +401,7 @@ def _mi_chunk_cols_for(n_rows: int) -> int:
     return int(min(1024, max(1, by_ram)))
 
 
-def mi_classif_batch_chunked(X, y, *, nbins: int = 10, chunk_cols: int = None) -> np.ndarray:
+def mi_classif_batch_chunked(X, y, *, nbins: int = 10, chunk_cols: int | None = None) -> np.ndarray:
     """Column-CHUNKED ``_mi_classif_batch`` for WIDE engineered matrices (2026-06-19).
 
     The FE MI-uplift scorers (univariate / pair-cross / triplet / quadruplet / adaptive-arity / mi-greedy)

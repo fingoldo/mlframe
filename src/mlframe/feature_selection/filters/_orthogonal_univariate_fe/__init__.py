@@ -104,7 +104,7 @@ def _source_from_engineered_name(name: str, raw_names) -> str:
             if best is None or len(raw) > len(best):
                 best = raw
     if best is not None:
-        return best
+        return str(best)
     return name.split("__", 1)[0] if "__" in name else name
 
 
@@ -179,7 +179,7 @@ def basis_route_by_signal(
     y: np.ndarray,
     *,
     degrees: Sequence[int] = (2, 3),
-    candidate_bases: Sequence[str] = _POLY_BASES,
+    candidate_bases: Sequence[str] = tuple(_POLY_BASES),
     aux_for_fit: Optional[np.ndarray] = None,
 ) -> str:
     """Signal-adaptive orthogonal-polynomial basis routing (2026-06-03).
@@ -506,7 +506,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
         cand_x.append(np.ascontiguousarray(x))
     if not cand_x:
         return None, [], _empty
-    from .._gpu_resident_fe import (
+    from .._gpu_resident_fe import (  # type: ignore[attr-defined]  # dynamically re-exported via globals()
         _gpu_evaluate_basis_matrix, fe_gpu_routing_enabled, _gpu_route_bases_batched,
     )
     # GPU ROUTING (opt-in, default OFF): decide every candidate column's basis on the device at once,
@@ -604,7 +604,7 @@ def score_features_by_mi_uplift(
     y: np.ndarray,
     *,
     nbins: int = 10,
-    meta: dict = None,
+    meta: dict | None = None,
 ) -> pd.DataFrame:
     """Score each engineered column by MI uplift vs its raw source column.
 

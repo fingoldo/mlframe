@@ -549,9 +549,9 @@ def _tiny_model_rerank(
         _any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False)) or (
             _groups_screen is None
             and any(
-                _is_monotone_nondecreasing(_per_base_cache.get(spec.base_column, (None, None))[0])
+                _is_monotone_nondecreasing(_base_arr)
                 for spec in kept_specs
-                if _per_base_cache.get(spec.base_column, (None, None))[0] is not None
+                if (_base_arr := _per_base_cache.get(spec.base_column, (None, None))[0]) is not None
             )
         )
         raw_per_seed_per_family: dict[str, np.ndarray] = {}
@@ -801,6 +801,7 @@ def _tiny_model_rerank(
                         try:
                             from scipy.stats import wilcoxon
 
+                            assert comp_per_seed is not None and raw_per_seed is not None
                             diff = comp_per_seed[_both_finite] - raw_per_seed[_both_finite]
                             # One-sided: composite better (less RMSE)
                             # so we want diff < 0; alternative='less'.
