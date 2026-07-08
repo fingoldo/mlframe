@@ -69,57 +69,57 @@ def _dispatch_default_scorer(
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "jmim":
-        from .._orthogonal_jmim_fe import (
+        from .._orthogonal_jmim_fe import (  # type: ignore[assignment]
             hybrid_orth_mi_jmim_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "tc":
-        from .._orthogonal_total_correlation_fe import (
+        from .._orthogonal_total_correlation_fe import (  # type: ignore[assignment]
             hybrid_orth_mi_tc_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "ksg":
-        from .._orthogonal_ksg_mi_fe import (
+        from .._orthogonal_ksg_mi_fe import (  # type: ignore[assignment]
             hybrid_orth_mi_ksg_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "copula":
-        from .._orthogonal_copula_mi_fe import (
+        from .._orthogonal_copula_mi_fe import (  # type: ignore[assignment]
             hybrid_orth_mi_copula_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "dcor":
-        from .._orthogonal_dcor_fe import (
+        from .._orthogonal_dcor_fe import (  # type: ignore[assignment]
             hybrid_orth_mi_dcor_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "hsic":
-        from .._orthogonal_hsic_fe import (
+        from .._orthogonal_hsic_fe import (  # type: ignore[assignment]
             hybrid_orth_mi_hsic_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "lasso":
-        from .._orthogonal_lasso_fe import (
+        from .._orthogonal_lasso_fe import (  # type: ignore[assignment]
             hybrid_orth_mi_lasso_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "elasticnet":
-        from .._orthogonal_elasticnet_fe import (
+        from .._orthogonal_elasticnet_fe import (  # type: ignore[assignment]
             hybrid_orth_mi_elasticnet_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "auto":
-        from .._orthogonal_scorer_auto_fe import (
+        from .._orthogonal_scorer_auto_fe import (  # type: ignore[assignment]
             hybrid_orth_mi_auto_scorer_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "ensemble":
-        from .._orthogonal_scorer_auto_fe import (
+        from .._orthogonal_scorer_auto_fe import (  # type: ignore[assignment]
             hybrid_orth_mi_ensemble_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "meta":
-        from .._orthogonal_meta_scorer_fe import (
+        from .._orthogonal_meta_scorer_fe import (  # type: ignore[assignment]
             hybrid_orth_mi_meta_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
@@ -138,7 +138,7 @@ def _dispatch_default_scorer(
         # routed through the plug_in builders below; any other resolved
         # scorer recurses into its own branch of this dispatcher.
         if _resolved == "plug_in":
-            from .._orthogonal_univariate_fe import (
+            from .._orthogonal_univariate_fe import (  # type: ignore[assignment]
                 hybrid_orth_mi_fe_with_recipes as _fn,
             )
             return _fn(
@@ -238,7 +238,7 @@ def _build_stability_replay_state(
     else:
         row_idx = np.arange(n_rows)
 
-    cand_codes = np.ascontiguousarray(data[np.ix_(row_idx, cand_cols)], dtype=np.int32)
+    cand_codes = np.ascontiguousarray(data[np.ix_(row_idx, np.asarray(cand_cols, dtype=np.int64))], dtype=np.int32)
     y_codes = np.ascontiguousarray(data[row_idx, t_idx], dtype=np.int32)
 
     # Per-recipe frozen bin codes for the unary_binary survival replay. ``data``

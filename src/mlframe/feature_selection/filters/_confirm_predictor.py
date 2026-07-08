@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from timeit import default_timer as timer
-from typing import Sequence
+from typing import Optional, Sequence
 
 import numba
 import numpy as np
@@ -129,16 +129,20 @@ class ScreenContext:
     jmim_hit_counter: object = None
     entropy_cache: object = None
     # --- per-interactions-order / per-node mutable state ---
-    candidates: list = None
+    # These five are ALWAYS populated by the orchestrator before use (never read as None at
+    # runtime); ``None`` is only a dataclass placeholder default (a required-after-defaulted-
+    # field constraint), so they stay typed as their concrete container rather than Optional
+    # -- which would force null-checks onto every one of their many non-nullable call sites.
+    candidates: list = None  # type: ignore[assignment]
     # 2026-05-30 Wave 9 — DCD state forwarded into ``should_skip_candidate``
     # for pool_pruned_mask check. ``None`` preserves legacy bit-stable.
     dcd_state: object = None
     interactions_order: int = 1
-    selected_vars: list = None
-    selected_interactions_vars: list = None
-    partial_gains: dict = None
-    added_candidates: set = field(default=None)
-    failed_candidates: set = field(default=None)
+    selected_vars: list = None  # type: ignore[assignment]
+    selected_interactions_vars: list = None  # type: ignore[assignment]
+    partial_gains: dict = None  # type: ignore[assignment]
+    added_candidates: set = field(default=None)  # type: ignore[assignment,arg-type]
+    failed_candidates: set = field(default=None)  # type: ignore[assignment,arg-type]
     # 2026-06-02 — directed-FE tie-break. ``raw_feature_names`` is the set of
     # ORIGINAL (pre-FE) column names; any ``factors_names[idx]`` not in it is an
     # engineered transform of its raw parent(s). On a near-tie in selection gain
@@ -243,7 +247,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
             expected_gains=expected_gains,
             selected_vars=selected_vars,
             selected_interactions_vars=selected_interactions_vars,
-            engineered_lineage=engineered_lineage,
+            engineered_lineage=engineered_lineage,  # type: ignore[arg-type]
             dcd_state=dcd_state,
         )
         if skip:
@@ -276,7 +280,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
         _pid_snapshot = float(_get_pid())
         _cmi_snapshot = _get_cmi()
         _mm_snapshot = bool(_use_mm())
-        res = workers_pool(
+        res = workers_pool(  # type: ignore[operator]
             delayed(evaluate_candidates)(
                 workload=workload,
                 y=y,
@@ -344,7 +348,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
                 (worker_entropy_cache, entropy_cache),
             ]:
                 for key, value in local_storage.items():
-                    global_storage[key] = value
+                    global_storage[key] = value  # type: ignore[index]
 
             for cand_idx, (worker_current_gain, worker_z_idx) in worker_partial_gains.items():
                 if cand_idx in partial_gains:
@@ -395,13 +399,13 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
                 nexisting=nexisting,
                 best_gain=best_gain,
                 factors_data=factors_data,
-                factors_nbins=factors_nbins,
+                factors_nbins=factors_nbins,  # type: ignore[arg-type]
                 factors_names=factors_names,
                 classes_y=classes_y,
-                classes_y_safe=classes_y_safe,
+                classes_y_safe=classes_y_safe,  # type: ignore[arg-type]
                 freqs_y=freqs_y,
                 use_gpu=use_gpu,
-                freqs_y_safe=freqs_y_safe,
+                freqs_y_safe=freqs_y_safe,  # type: ignore[arg-type]
                 partial_gains=partial_gains,
                 baseline_npermutations=baseline_npermutations,
                 mrmr_relevance_algo=mrmr_relevance_algo,
@@ -411,10 +415,10 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
                 selected_vars=selected_vars,
                 cached_MIs=cached_MIs,
                 cached_confident_MIs=cached_confident_MIs,
-                cached_cond_MIs=cached_cond_MIs,
+                cached_cond_MIs=cached_cond_MIs,  # type: ignore[arg-type]
                 cached_jmim_MIs=cached_jmim_MIs,
                 jmim_hit_counter=jmim_hit_counter,
-                entropy_cache=entropy_cache,
+                entropy_cache=entropy_cache,  # type: ignore[arg-type]
                 verbose=verbose,
                 ndigits=ndigits,
                 use_simple_mode=use_simple_mode,
@@ -425,7 +429,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
                 best_gain=best_gain,
                 X=X,
                 best_candidate=best_candidate,
-                factors_names=factors_names,
+                factors_names=factors_names,  # type: ignore[arg-type]
                 max_runtime_mins=max_runtime_mins,
                 start_time=start_time,
                 min_relevance_gain=min_relevance_gain,
@@ -528,12 +532,12 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                 bootstrapped_gain, confidence = mi_direct_gpu(
                     factors_data,
                     x=X,
-                    y=y,
-                    factors_nbins=factors_nbins,
+                    y=y,  # type: ignore[arg-type]
+                    factors_nbins=factors_nbins,  # type: ignore[arg-type]
                     classes_y=classes_y,
                     freqs_y=freqs_y,
-                    freqs_y_safe=freqs_y_safe,
-                    classes_y_safe=classes_y_safe,
+                    freqs_y_safe=freqs_y_safe,  # type: ignore[arg-type]
+                    classes_y_safe=classes_y_safe,  # type: ignore[arg-type]
                     min_nonzero_confidence=min_nonzero_confidence,
                     npermutations=full_npermutations,
                 )
@@ -543,11 +547,11 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                 bootstrapped_gain, confidence = mi_direct(
                     factors_data,
                     x=X,
-                    y=y,
-                    factors_nbins=factors_nbins,
+                    y=y,  # type: ignore[arg-type]
+                    factors_nbins=factors_nbins,  # type: ignore[arg-type]
                     classes_y=classes_y,
                     freqs_y=freqs_y,
-                    classes_y_safe=classes_y_safe,
+                    classes_y_safe=classes_y_safe,  # type: ignore[arg-type]
                     min_nonzero_confidence=min_nonzero_confidence,
                     npermutations=full_npermutations,
                     n_workers=n_workers,
@@ -613,9 +617,9 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
             if n_workers and n_workers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
                 bootstrapped_gain, confidence, parallel_entropy_cache = get_fleuret_criteria_confidence_parallel(
                     data_copy=data_copy,
-                    factors_nbins=factors_nbins,
+                    factors_nbins=factors_nbins,  # type: ignore[arg-type]
                     x=X,
-                    y=y,
+                    y=y,  # type: ignore[arg-type]
                     selected_vars=selected_vars,
                     bootstrapped_gain=next_best_gain,
                     npermutations=full_npermutations,
@@ -624,8 +628,8 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     mrmr_relevance_algo=mrmr_relevance_algo,
                     mrmr_redundancy_algo=mrmr_redundancy_algo,
                     max_veteranes_interactions_order=max_veteranes_interactions_order,
-                    cached_cond_MIs=cached_cond_MIs,
-                    entropy_cache=entropy_cache,
+                    cached_cond_MIs=cached_cond_MIs,  # type: ignore[arg-type]
+                    entropy_cache=entropy_cache,  # type: ignore[arg-type]
                     extra_x_shuffling=extra_x_shuffling,
                     n_workers=n_workers,
                     workers_pool=workers_pool,
@@ -633,7 +637,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
                     base_seed=_fleuret_base_seed,
                 )
                 for key, value in parallel_entropy_cache.items():
-                    entropy_cache[key] = value
+                    entropy_cache[key] = value  # type: ignore[index]
             else:
                 nfailed, nchecked = get_fleuret_criteria_confidence(
                     data_copy=data_copy,
