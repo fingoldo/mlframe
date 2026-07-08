@@ -69,6 +69,8 @@ def get_fleuret_criteria_confidence_parallel(
 ) -> tuple:
     if parallel_kwargs is None:
         parallel_kwargs = {}
+    if entropy_cache is None:
+        entropy_cache = {}
     nfailed = 0
 
     if workers_pool is None:
@@ -102,8 +104,8 @@ def get_fleuret_criteria_confidence_parallel(
             max_veteranes_interactions_order=max_veteranes_interactions_order,
             extra_knowledge_multipler=extra_knowledge_multipler,
             sink_threshold=sink_threshold,
-            cached_cond_MIs=dict(cached_cond_MIs),
-            entropy_cache=dict(entropy_cache),
+            cached_cond_MIs=dict(cached_cond_MIs or {}),
+            entropy_cache=dict(entropy_cache or {}),
             extra_x_shuffling=extra_x_shuffling,
             dtype=dtype,
             base_seed=int((int(base_seed) * 2654435761 + (_widx + 1)) & 0xFFFFFFFFFFFFFFFF),
