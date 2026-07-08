@@ -1,3 +1,4 @@
+"""Registry of supported social-choice ranking/election methods, their tunable parameter grids, and display names."""
 from __future__ import annotations
 
 RANKING_METHODS = ["mean", "plurality", "borda", "dowdall", "copeland", "minimax", "optimality_gap"]

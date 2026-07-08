@@ -1,3 +1,4 @@
+"""``Leaderboard``: aggregates a model x task score table into a consensus ranking via social-choice methods (mean, Borda, Copeland, minimax, etc.), with support for partial tables and grouped two-step rankings."""
 from __future__ import annotations
 
 from pyutilz.system import tqdmu as tqdm
@@ -18,6 +19,8 @@ from .settings import (
 
 
 class Leaderboard:
+    """Model x task score table plus per-task weights; ranks/elects models via the methods mixed in from ``_rules``/``_cw``."""
+
     from ._rules import (  # type: ignore[misc]  # class-scoped import binds these functions as unbound methods; mypy doesn't model this pattern
         mean_ranking,
         mean_election,
@@ -41,7 +44,7 @@ class Leaderboard:
     from ._cw import _get_tasks_onehot, _find_weights_for_majority_graph  # type: ignore[misc]  # same class-scoped-import pattern as above
 
     def __init__(self, table: pd.DataFrame, weights: Optional[Dict[str, float]] = None):
-
+        """Store the score table and per-task weights (default 1.0), then build ranks."""
         self.table = table
         self.tasks = list(self.table.columns)
         self.n_tasks = len(self.tasks)
@@ -61,6 +64,7 @@ class Leaderboard:
         self.build_ranks()
 
     def build_ranks(self):
+        """(Re)compute ``self.ranks``/``self.max_ranks`` from ``self.table`` and invalidate any cached majority graph."""
         # Perf split (2026-05-10): the prior single-step build_ranks ALWAYS
         # materialised the n_models x n_models majority_graph, which is the
         # dominant cost on wide tables (10k features = 100M entries / ~800MB
@@ -103,6 +107,7 @@ class Leaderboard:
         self.majority_graph = pd.DataFrame(wins).transpose() + 0.5 * pd.DataFrame(ties).transpose() + np.eye(self.n_models) * 0.5
 
     def elect_all(self, use_methods: Optional[Dict[str, Any]] = None, drop_mean=False):
+        """Run every applicable election method (or ``use_methods``' subset, each with its parameter grid) and return a DataFrame of (method, winners, n_winners)."""
         result = []
 
         if use_methods is not None:
@@ -135,6 +140,7 @@ class Leaderboard:
         return final
 
     def rank_all(self, task_groups=None, group_weights=None, insert_nan=True, use_methods: Optional[Dict[str, Any]] = None, drop_mean=False, return_tie_numbers=False):
+        """Run every applicable ranking method (optionally via a two-step grouped ranking) and return a "score: model" table, one column per method/param combo."""
         result = []
 
         if use_methods is not None:
@@ -205,6 +211,7 @@ class Leaderboard:
         ranking_params=None,
         insert_nan=True,
     ):
+        """Rank models within each ``task_groups`` group (a partition of ``self.tasks``) via ``ranking_method``, then wrap the per-group scores as a new :class:`Leaderboard`."""
         group_merged: list = sum(list(task_groups.values()), start=[])
         group_set, group_counts = np.unique(group_merged, return_counts=True)
         # Wave 31 (2026-05-20): assert -> ValueError. SILENT-CORRECTNESS
@@ -239,6 +246,7 @@ class Leaderboard:
         ranking_params=None,
         insert_nan=True,
     ):
+        """Two-step ranking: rank within task groups via :func:`get_meta_leaderboard`, then rank the resulting group leaderboard by ``ranking_method`` again."""
         meta_lb = self.get_meta_leaderboard(
             ranking_method,
             task_groups,
@@ -251,6 +259,7 @@ class Leaderboard:
         return func(**ranking_params)
 
     def find_weights_for_condorcet(self, winner_model: str, restrictions: Optional[Dict[str, List]] = None):
+        """Find task weights (if any) under which ``winner_model`` beats every other model pairwise (i.e. is the Condorcet winner)."""
         edge_list = []
         for model in self.models:
             if model == winner_model:
@@ -261,6 +270,7 @@ class Leaderboard:
         return self._find_weights_for_majority_graph(edge_list, restrictions=restrictions)
 
     def split_models_by_feasibility(self, restrictions: Optional[Dict[str, List]] = None):
+        """Partition all models into "feasible" (some task-weighting makes them the Condorcet winner) vs "infeasible", per :func:`find_weights_for_condorcet`."""
         result: Dict[str, list] = {"feasible": [], "infeasible": []}
         for model in tqdm(self.models):
             if self.find_weights_for_condorcet(model, restrictions) == "infeasible":

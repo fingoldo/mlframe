@@ -1,3 +1,10 @@
+"""Raw-leaderboard cleanup for the GLUE / SuperGLUE / VALUE benchmark tables consumed by ``votenrank``.
+
+Each ``preprocess_*`` function normalizes a differently-shaped scraped leaderboard CSV (dedupe
+duplicate model names, drop metadata columns, split "x/y" composite scores into separate metric
+columns) into a uniform ``(scores_df, metric_weights)`` pair ready for the leaderboard aggregation
+methods in :mod:`mlframe.votenrank.leaderboard`.
+"""
 from __future__ import annotations
 
 import pandas as pd
@@ -5,6 +12,12 @@ import numpy as np
 
 
 def preprocess_glue(glue, head=None):
+    """Clean a scraped GLUE leaderboard table into ``(scores, metric_weights)``.
+
+    Deduplicates repeated model names, drops metadata columns, splits the "x/y" composite MRPC/
+    STS-B/QQP scores into separate ``_n1``/``_n2`` columns (each weighted 0.5 so the pair counts as
+    one metric), and zeroes the diagnostic AX column's weight.
+    """
     for model, count in glue["Model"].value_counts().items():
         if count == 1:
             break
@@ -38,6 +51,11 @@ def preprocess_glue(glue, head=None):
 
 
 def preprocess_sglue(sglue):
+    """Clean a scraped SuperGLUE leaderboard table into ``(scores, metric_weights)``.
+
+    Same shape as :func:`preprocess_glue` but for SuperGLUE's CB/MultiRC/ReCoRD/AX-g composite
+    columns (also NaN-safe: unlike GLUE, SuperGLUE rows can have missing "x/y" scores).
+    """
     for model, count in sglue["Model"].value_counts().items():
         if count == 1:
             break
@@ -65,6 +83,12 @@ def preprocess_sglue(sglue):
 
 
 def preprocess_value(value):
+    """Clean a scraped VALUE leaderboard table into a model x metric score frame.
+
+    Drops the aggregate Mean-Rank/Meta-Ave columns and relabels the row index to the fixed
+    7-model VALUE leaderboard roster (Human + 6 submitted systems), matching the source table's
+    row order.
+    """
     value = value.set_index("Model").drop(columns=["Mean-Rank", "Meta-Ave"])
     value = value.replace({"-": np.nan})
     value = value.astype(float)

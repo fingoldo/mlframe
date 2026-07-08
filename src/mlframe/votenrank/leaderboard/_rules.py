@@ -1,3 +1,4 @@
+"""Social-choice ranking/election methods mixed into :class:`~mlframe.votenrank.Leaderboard`: mean, plurality, threshold, Borda, Dowdall, Condorcet, Baldwin, Copeland, minimax, and optimality-gap."""
 from __future__ import annotations
 
 import pandas as pd
@@ -9,6 +10,7 @@ from ..utils import ranking2top
 
 
 def mean_ranking(self, mean_type: str = "arithmetic"):
+    """Rank models by weighted arithmetic or geometric mean score across tasks; NaN cells filled with the task median when the table is partial."""
     table = self.table.copy()
     if self.is_partial:
         table = table.fillna(table.median())
@@ -23,10 +25,12 @@ def mean_ranking(self, mean_type: str = "arithmetic"):
 
 
 def mean_election(self, mean_type: str = "arithmetic"):
+    """Winning model(s) under :func:`mean_ranking`."""
     return ranking2top(self.mean_ranking(mean_type=mean_type))
 
 
 def _approval_ranking(self, acceptance_threshold: int, rank_type: str = "max"):
+    """Approval-style ranking: weighted count of tasks where a model's rank is at or above ``acceptance_threshold``."""
     if rank_type == "min":
         return ((self.ranks <= acceptance_threshold) * self.weights).sum(axis=1).sort_values(ascending=False)
     elif rank_type == "max":
@@ -36,14 +40,17 @@ def _approval_ranking(self, acceptance_threshold: int, rank_type: str = "max"):
 
 
 def plurality_ranking(self):
+    """Rank models by how often each is ranked 1st across tasks."""
     return self._approval_ranking(1)
 
 
 def plurality_election(self):
+    """Winning model(s) under :func:`plurality_ranking`."""
     return ranking2top(self.plurality_ranking())
 
 
 def threshold_election(self):
+    """Iteratively eliminate models ranked last-among-remaining, task-weighted, until only the joint winner(s) remain."""
     candidate_models = self.models
     for step in range(self.n_models, 1, -1):
         current_ranking = ((self.max_ranks.loc[candidate_models] != step) * self.weights).sum(axis=1)
@@ -53,27 +60,33 @@ def threshold_election(self):
 
 
 def borda_ranking(self):
+    """Rank models by Borda count: weighted sum of ``n_models - rank`` (points) across tasks."""
     return ((self.n_models - self.max_ranks) * self.weights).sum(axis=1).sort_values(ascending=False)
 
 
 def borda_election(self):
+    """Winning model(s) under :func:`borda_ranking`."""
     return ranking2top(self.borda_ranking())
 
 
 def dowdall_ranking(self):
+    """Rank models by Dowdall (reciprocal-rank) score: weighted sum of ``1/rank`` across tasks."""
     return ((1 / self.ranks) * self.weights).sum(axis=1).sort_values(ascending=False)
 
 
 def dowdall_election(self):
+    """Winning model(s) under :func:`dowdall_ranking`."""
     return ranking2top(self.dowdall_ranking())
 
 
 def condorcet_election(self):
+    """Model(s) that win every pairwise weighted-majority comparison against all others, if any exist."""
     self._ensure_majority_graph()
     return self.majority_graph.index[(self.majority_graph == 1).all(axis=1)].tolist()
 
 
 def baldwin_election(self):
+    """Iteratively eliminate the lowest-Borda-score model(s) and recompute Borda on the remainder until a unique winner (or tied set) remains."""
     current_borda = self.borda_ranking()
     while current_borda.min() != current_borda.max():
         candidates = current_borda.index[current_borda != current_borda.min()]
@@ -85,6 +98,7 @@ def baldwin_election(self):
 
 
 def copeland_ranking(self, slice_type: str = "lower_with_ties"):
+    """Rank models by Copeland score (wins minus losses in the pairwise majority graph), with several tie/slice conventions."""
     self._ensure_majority_graph()
     if slice_type == "lower_with_ties":
         return (self.majority_graph.sum(axis=1) - 1).sort_values(ascending=False)
@@ -101,10 +115,12 @@ def copeland_ranking(self, slice_type: str = "lower_with_ties"):
 
 
 def copeland_election(self, slice_type: str = "lower_with_ties"):
+    """Winning model(s) under :func:`copeland_ranking`."""
     return ranking2top(self.copeland_ranking(slice_type))
 
 
 def minimax_ranking(self, score_type: str = "winning_votes"):
+    """Rank models by minimax (Simpson-Kramer): each model's worst pairwise opposition score, negated so the least-bad model ranks first."""
     ranks = []
     for model in self.models:
         if score_type == "winning_votes":
@@ -129,10 +145,12 @@ def minimax_ranking(self, score_type: str = "winning_votes"):
 
 
 def minimax_election(self, score_type: str = "winning_votes"):
+    """Winning model(s) under :func:`minimax_ranking`."""
     return ranking2top(self.minimax_ranking(score_type))
 
 
 def optimality_gap_ranking(self, gamma: int):
+    """Rank models by weighted mean gap-to-``gamma`` score (``min(score, gamma) - gamma``, capping credit for scores above ``gamma``); NaN cells filled with the task median when partial."""
     table = self.table.copy()
     if self.is_partial:
         table = table.fillna(table.median())
@@ -143,4 +161,5 @@ def optimality_gap_ranking(self, gamma: int):
 
 
 def optimality_gap_election(self, gamma: int):
+    """Winning model(s) under :func:`optimality_gap_ranking`."""
     return ranking2top(self.optimality_gap_ranking(gamma))

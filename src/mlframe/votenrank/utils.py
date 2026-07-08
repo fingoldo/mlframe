@@ -1,3 +1,4 @@
+"""Ranking-comparison helpers (Kendall tau, top-k agreement rate) and an experiment-impact-tracker table loader."""
 from __future__ import annotations
 
 import scipy.stats as stats
@@ -7,10 +8,12 @@ from pyutilz.system import tqdmu as tqdm
 
 
 def ranking2top(ranking):
+    """Return the model name(s) tied for the top rank in a ``{model: rank}``-like Series."""
     return ranking[ranking == ranking.max()].index.tolist()
 
 
 def kendall_tau(df):
+    """Kendall tau rank correlation between the arithmetic-mean ("AM") ranking and every other ranking method in ``df``."""
     res_d = {}
     for method, subset in df.items():
         res_d[method] = subset.apply(lambda x: x.split(":")[1].strip()).tolist()
@@ -19,6 +22,7 @@ def kendall_tau(df):
 
 
 def agreement_rate(df, k, top_k=True):
+    """Fraction of each method's top/bottom-``k`` models that also appear in the "AM" ranking's top/bottom-``k`` (clamped to the smallest available subset)."""
     # Wave 60 (2026-05-20): clamp k to actual subset size so `iloc[-k:]` doesn't
     # silently return the WHOLE subset (and divide by k anyway, inflating the
     # agreement rate vs AM). The prior code on a 3-row leaderboard with k=10
@@ -36,10 +40,12 @@ def agreement_rate(df, k, top_k=True):
 
 
 def tracker_filename(model, task, dirpath):
+    """Build the experiment-impact-tracker output directory path for a given (model, task)."""
     return f"{dirpath}/{model}_{task}_0/"
 
 
 def get_tracker_table(data, dirpath):
+    """Load per-model/per-task compute-cost metrics (runtime, carbon, power, GPU-hours) from experiment-impact-tracker logs under ``dirpath`` into a DataFrame aligned to ``data``'s index."""
 
     from experiment_impact_tracker.data_interface import DataInterface
     from experiment_impact_tracker.data_utils import load_initial_info

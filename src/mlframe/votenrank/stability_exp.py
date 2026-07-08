@@ -1,3 +1,9 @@
+"""Leaderboard ranking stability under injected missing values.
+
+Repeatedly punches random NaN holes into a leaderboard's score table, re-ranks it with several
+aggregation methods, and measures the Spearman correlation between each noisy ranking and the
+clean-table ranking - quantifies how robust a ranking method is to incomplete benchmark data.
+"""
 from __future__ import annotations
 
 from scipy.stats import spearmanr
@@ -16,6 +22,7 @@ from . import Leaderboard
 
 
 def spearman_exp(lb, num_repeats, exp_range, top_k=7):
+    """Measure per-method Spearman correlation between clean and NaN-corrupted rankings across ``exp_range`` missingness fractions, averaged over ``num_repeats`` random corruption draws."""
     res_corrs = []
 
     with tqdm(total=num_repeats * len(exp_range)) as pbar:
@@ -89,12 +96,14 @@ def spearman_exp(lb, num_repeats, exp_range, top_k=7):
 
 
 def count_and_plot(lb, num_repeats, exp_range, top_k=7):
+    """Run :func:`spearman_exp` and plot each ranking method's correlation-vs-missingness curve onto the current axes."""
     exp_res = spearman_exp(lb, num_repeats, exp_range, top_k)
     for col, nums in exp_res.items():
         sns.lineplot(x=exp_range, y=nums, label=col)
 
 
 def get_res_df(exp_range, exp_res):
+    """Reshape a ``{method: correlations}`` mapping and its shared ``exp_range`` x-axis into a long-form DataFrame (``criterion``/``correlation``/``method``) for seaborn plotting."""
     dfs = []
     for name, nums in exp_res.items():
         df = pd.DataFrame()
@@ -107,6 +116,7 @@ def get_res_df(exp_range, exp_res):
 
 
 def create_exp_pic(exp_range, exp_res, filename=None):
+    """Render the stability curves as a formatted figure (custom legend labels for the mean/optimality-gap methods) and optionally save it to ``filename`` as PDF."""
     df = get_res_df(exp_range * 100, exp_res)
     fig, ax = plt.subplots(figsize=(7, 6))
 

@@ -1,3 +1,4 @@
+"""Constant-weights (CW) analysis: find task-metric weights (if any) for which a given ranking is consistent with the pairwise majority graph, via linear programming."""
 from __future__ import annotations
 
 import numpy as np
@@ -7,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 def _get_tasks_onehot(self, tasks: List[str]):
+    """One-hot indicator vector over ``self.tasks`` selecting the given task subset."""
     idxs = [0] * len(self.tasks)
     for task in tasks:
         if task not in self.tasks:
@@ -16,6 +18,7 @@ def _get_tasks_onehot(self, tasks: List[str]):
 
 
 def _find_weights_for_majority_graph(self, edge_list: List[Tuple[str, str]], restrictions: Optional[Dict[str, List]] = None):
+    """Solve for per-task weights (summing to 1, in [0,1]) consistent with the pairwise majority ``edge_list`` (loser, winner) and any ``restrictions`` (bounds/inequalities/objective), or return ``"infeasible"``."""
     params: Dict[str, Any] = {
         "weights_to_minimize": None,
         "weights_to_maximize": None,
