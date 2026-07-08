@@ -219,7 +219,7 @@ def _median_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
         return np.full_like(base, fallback, dtype=np.float64)
     idx = np.digitize(base, bin_edges[1:-1])
     idx = np.clip(idx, 0, bin_medians.size - 1)
-    return bin_medians[idx]
+    return np.asarray(bin_medians[idx])
 
 
 def _median_residual_forward(

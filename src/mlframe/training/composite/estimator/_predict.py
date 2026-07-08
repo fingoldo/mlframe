@@ -500,7 +500,7 @@ def predict_quantile(
         y_col = _inverse_with_fallback(
             self, transform, t_clipped, base_arr, domain_ok, params, inverse_kwargs,
         )
-        return np.clip(y_col, low, high)
+        return np.asarray(np.clip(y_col, low, high))
 
     n_violation = int((~domain_ok).sum())
 

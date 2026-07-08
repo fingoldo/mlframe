@@ -198,7 +198,7 @@ def _bin_y_codes(y: np.ndarray, nbins: int = 10) -> np.ndarray:
         uy = np.unique(y)
         return np.searchsorted(uy, y)
     edges_y = np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
-    return np.digitize(y, edges_y)
+    return np.asarray(np.digitize(y, edges_y))
 
 
 def _binnedmi_gpu_enabled() -> bool:
