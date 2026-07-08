@@ -60,7 +60,7 @@ def compute_row_attention(
     ann_ef_construction: int = DEFAULT_ANN_EF_CONSTRUCTION,
     ann_ef_search: int = DEFAULT_ANN_EF_SEARCH,
     num_threads: int | None = None,
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
     cache_dir: Path | None = None,
     release_memory_after: bool = True,
     dedupe_threshold: float | None = 0.99,
@@ -196,7 +196,7 @@ def build_key_bank(
     ann_M: int = DEFAULT_ANN_M,
     ann_ef_construction: int = DEFAULT_ANN_EF_CONSTRUCTION,
     num_threads: int | None = None,
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
     cache_dir: Path | None = None,
 ) -> KeyBank:
     """Build (and optionally cache to disk) the projected K-bank + per-head hnswlib indices for the FULL X_train.
@@ -281,7 +281,7 @@ def attend(
     ann_ef_search: int = DEFAULT_ANN_EF_SEARCH,
     num_threads: int | None = None,
     stage4_callable: Any = None,
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> dict[str, np.ndarray]:
     """Score a batch of query rows against the pre-built bank. Returns the same output-dict shape as ``kfold_attention_loop``.
 

@@ -155,10 +155,10 @@ def compute_relevance_score(
     byte-for-byte stable in the SU-off code path.
     """
     if use_su:
-        return compute_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
+        return float(compute_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
     if use_mm:
-        return compute_mi_mm_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
-    return compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
+        return float(compute_mi_mm_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
+    return float(compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
 
 
 def mi_or_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=np.int32) -> float:
@@ -169,7 +169,7 @@ def mi_or_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=np.int32
     the cardinality-bias-corrected scorer when ``MRMR(mi_normalization='su')``.
     """
     if use_su_normalization():
-        return compute_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
+        return float(compute_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
     if use_mi_miller_madow():
-        return compute_mi_mm_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
-    return compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
+        return float(compute_mi_mm_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
+    return float(compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))

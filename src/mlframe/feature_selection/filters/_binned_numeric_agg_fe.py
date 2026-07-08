@@ -193,7 +193,7 @@ def fit_binned_numeric_agg(
         codes = np.searchsorted(edges, gvals, side="right")
         n_cells = int(codes.max()) + 1
         # ``codes[test]`` depends on (gcol, f) but NOT acol -- hoist it out of the acol loop.
-        _ct_by_fold = None if recipe_only else [codes[_ft] for _ft in _fold_test]
+        _ct_by_fold = None if recipe_only else [codes[_ft] for _ft in _fold_test]  # type: ignore[union-attr]  # _fold_test is non-None exactly when recipe_only is False (same condition as this ternary)
         for acol in agg_num_cols:
             if acol == gcol:
                 continue
@@ -218,6 +218,7 @@ def fit_binned_numeric_agg(
                 # device from those recipes, then builds the OOF for the FEW survivors -- so the OOF of the
                 # dropped candidates is never computed. The ``full`` per-cell lookup + globals (the recipe
                 # fields) are cheap 1-pass njit and are always built.
+                assert _fold_ne is not None and _fold_test is not None and _ct_by_fold is not None  # populated whenever recipe_only is False
                 oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
                 for f in range(int(n_folds)):
                     tr = _fold_ne[f] & finite
@@ -357,7 +358,7 @@ def compute_mi_from_codes(a: np.ndarray, b: np.ndarray) -> float:
 
 def binned_numeric_agg_with_recipes(
     X: pd.DataFrame, y: np.ndarray, *,
-    group_num_cols: Sequence[str] = None, agg_num_cols: Sequence[str] = None,
+    group_num_cols: Sequence[str] | None = None, agg_num_cols: Sequence[str] | None = None,
     stats: Sequence[str] = SUPPORTED_STATS, nbins_base: int = 10,
     n_folds: int = 5, random_state: int = 0, max_pairs: int = 64,
     max_group_cols: int = 16, max_agg_cols: int = 16,
@@ -501,6 +502,7 @@ def binned_numeric_agg_with_recipes(
     # its OWN sources (cheap: at most two raw columns). Collapses spurious appends to zero on data with no
     # residual per-cell structure while preserving genuine cell-conditional features (where the per-cell shape
     # adds information the raw marginals cannot).
+    assert feat_df is not None and raw is not None  # both branches above (device-born survivors / host all-columns) populate them before falling through
     if redundancy_gate and feat_df.shape[1] > 0:
         from ._mi_greedy_cmi_fe import _cmi_from_binned, _cmi_gpu_enabled, _quantile_bin, _renumber_joint
         from ._unified_fe_gate import _coerce_y_classes

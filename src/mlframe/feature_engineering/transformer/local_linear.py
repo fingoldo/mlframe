@@ -40,7 +40,7 @@ def compute_local_linear_attention(
     standardize: bool = True,
     return_r2: bool = True,
     column_prefix: str = "loclr",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Local linear regression features. For each row, find its top-k neighbours and fit ridge regression on (X_neighbours -> y_neighbours).
 

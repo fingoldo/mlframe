@@ -47,7 +47,7 @@ def compute_multi_temperature_attention(
     aggregate: tuple[str, ...] = ("y_mean", "y_std"),
     projection: Literal["random", "pls", "importance"] = "pls",
     column_prefix: str = "mtemp",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Multi-temperature row-attention fusion.
 

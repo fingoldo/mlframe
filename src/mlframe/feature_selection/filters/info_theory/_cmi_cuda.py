@@ -106,7 +106,7 @@ def _cmi_forder_view(factors_data: np.ndarray) -> np.ndarray:
     with _FORDER_LOCK:
         ent = _FORDER_CACHE.get(key)
         if ent is not None and ent[0]() is factors_data:
-            return ent[1]
+            return np.asarray(ent[1])
         # Purge entries whose original array has been GC'd (frees their cached F-copy; also clears any
         # recycled-id collision) before inserting the fresh one.
         dead = [k for k, v in _FORDER_CACHE.items() if v[0]() is None]
@@ -163,7 +163,7 @@ def _get_kernel():
         if _cmi_joint_hist_cuda is not None:
             return _cmi_joint_hist_cuda
         module = sys.modules[__name__]
-        module._cmi_joint_hist_cuda = cp.RawKernel(
+        module._cmi_joint_hist_cuda = cp.RawKernel(  # type: ignore[attr-defined]
             r"""
         extern "C" __global__
         void cmi_joint_hist_cuda(
@@ -228,7 +228,7 @@ def _get_cmi_from_joint_kernel():
         if _cmi_from_joint_cuda is not None:
             return _cmi_from_joint_cuda
         module = sys.modules[__name__]
-        module._cmi_from_joint_cuda = cp.RawKernel(
+        module._cmi_from_joint_cuda = cp.RawKernel(  # type: ignore[attr-defined]
             r"""
         extern "C" __global__
         void cmi_from_joint(const int* __restrict__ joint, const double inv_n, const int p,
@@ -447,7 +447,7 @@ def conditional_mi_batched_cuda(
             (joint, 1.0 / float(n), np.int32(p), np.int32(nbins_x), np.int32(nbins_y), np.int32(nbins_z), cmi_g),
             shared_mem=shmem_bytes,
         )
-        return cp.asnumpy(cmi_g)
+        return np.asarray(cp.asnumpy(cmi_g))
     except Exception as _exc:  # noqa: BLE001
         logger.debug("cmi_from_joint kernel failed (%s); four-call entropy fallback", _exc)
         counts = joint.reshape(p, nbins_y, nbins_x, nbins_z)
@@ -455,7 +455,7 @@ def conditional_mi_batched_cuda(
         h_xz = _entropy_from_counts_axis(counts, (1,), n)
         h_yz = _entropy_from_counts_axis(counts, (2,), n)
         h_xyz = _entropy_from_counts_axis(counts, (), n)
-        return cp.asnumpy(cp.maximum(h_xz + h_yz - h_z - h_xyz, 0.0))
+        return np.asarray(cp.asnumpy(cp.maximum(h_xz + h_yz - h_z - h_xyz, 0.0)))
 
 
 @njit(parallel=True, cache=True)
@@ -577,12 +577,12 @@ def _cpu_cmi_loop(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int3
     import os as _os
     if _os.environ.get("MLFRAME_CMI_YZ_HOIST", "1").strip().lower() not in ("0", "false", "off", "no"):
         if p >= _CMI_PARALLEL_MIN_CANDS:
-            return _cpu_cmi_loop_hoisted_parallel(fd, cand_indices, y, z, factors_nbins, dtype)
-        return _cpu_cmi_loop_hoisted_serial(fd, cand_indices, y, z, factors_nbins, dtype)
+            return np.asarray(_cpu_cmi_loop_hoisted_parallel(fd, cand_indices, y, z, factors_nbins, dtype))
+        return np.asarray(_cpu_cmi_loop_hoisted_serial(fd, cand_indices, y, z, factors_nbins, dtype))
 
     # bench-attempt-baseline (MLFRAME_CMI_YZ_HOIST=0): un-hoisted recompute path kept for the A/B (REJECTED!=DELETED).
     if p >= _CMI_PARALLEL_MIN_CANDS:
-        return _cpu_cmi_loop_parallel(fd, cand_indices, y, z, factors_nbins, _vin)
+        return np.asarray(_cpu_cmi_loop_parallel(fd, cand_indices, y, z, factors_nbins, _vin))
     out = np.empty(p, dtype=np.float64)
     for i in range(p):
         out[i] = conditional_mi(fd, np.array([cand_indices[i]], dtype=np.int64), y, z, _vin, factors_nbins)

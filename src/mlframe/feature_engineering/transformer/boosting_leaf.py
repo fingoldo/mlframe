@@ -47,7 +47,7 @@ def compute_boosting_leaf_features(
     n_splits: int = 5,
     encoding: str = "ordinal",
     column_prefix: str = "leaf",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Boosting-leaf encoding: fits a small LightGBM, extracts per-row leaf indices, returns them as features.
 

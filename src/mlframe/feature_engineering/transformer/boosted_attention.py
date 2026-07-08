@@ -53,7 +53,7 @@ def compute_boosted_attention(
     projection: Literal["random", "pls"] = "pls",
     return_all_layers: bool = True,
     column_prefix: str = "boost",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
     learning_rate: float = 1.0,
 ) -> pl.DataFrame:
     """Multi-layer attention with residual target at each layer.
@@ -92,7 +92,7 @@ def compute_boosted_attention(
             projection=projection, gpu_stage4=False, dedupe_threshold=None,
             dtype=dtype,
         )
-        out_train = out_train_df.to_numpy().astype(dtype, copy=False)
+        out_train: np.ndarray = out_train_df.to_numpy().astype(dtype, copy=False)
         layer_outputs_train.append(out_train)
 
         if X_query is not None:
@@ -104,7 +104,7 @@ def compute_boosted_attention(
                 projection=projection, gpu_stage4=False, dedupe_threshold=None,
                 dtype=dtype,
             )
-            out_query = out_query_df.to_numpy().astype(dtype, copy=False)
+            out_query: np.ndarray = out_query_df.to_numpy().astype(dtype, copy=False)
             layer_outputs_query.append(out_query)
 
         # Update current target: average across heads (per row, single scalar prediction), subtract from current target.

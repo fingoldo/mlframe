@@ -51,7 +51,7 @@ def compute_adaptive_bandwidth_attention(
     standardize: bool = True,
     aggregate: tuple[str, ...] = ("y_mean", "y_std"),
     column_prefix: str = "abandw",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Row-attention with per-query softmax temperature derived from local neighbour density.
 

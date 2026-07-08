@@ -78,7 +78,7 @@ def compute_target_quantile_attention(
     rbf_gamma: Optional[float] = None,
     standardize: bool = True,
     column_prefix: str = "tq",
-    dtype: np.dtype = np.float32,
+    dtype: type = np.float32,
 ) -> pl.DataFrame:
     """Soft cluster-membership features for target-quantile clusters.
 
@@ -122,7 +122,7 @@ def compute_target_quantile_attention(
             if edges[i] <= edges[i - 1]:
                 edges[i] = edges[i - 1] + 1e-9
         sums, counts = _bucket_sums_counts(np.ascontiguousarray(X_pool), np.ascontiguousarray(y_pool), edges.astype(np.float64))
-        centroids = np.zeros((n_quantiles, d), dtype=dtype)
+        centroids: np.ndarray = np.zeros((n_quantiles, d), dtype=dtype)
         pool_mean = None
         for b in range(n_quantiles):
             if counts[b] == 0:
