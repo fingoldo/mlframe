@@ -120,7 +120,7 @@ def gpu_abscorr_batch(cols: "np.ndarray", v: np.ndarray) -> np.ndarray:
     valid = (col_std >= 1e-12) & (ssc > 0.0) & (denom > 0.0)
     r = cp.where(valid, num / cp.where(denom > 0.0, denom, 1.0), 0.0)
     r = cp.where(cp.isfinite(r), cp.abs(r), 0.0)
-    return cp.asnumpy(r).astype(np.float64)
+    return np.asarray(cp.asnumpy(r).astype(np.float64))
 
 
 def gpu_additive_basis_residual(fv: np.ndarray, xa: np.ndarray, xb: np.ndarray) -> np.ndarray:
@@ -152,7 +152,7 @@ def gpu_additive_basis_residual(fv: np.ndarray, xa: np.ndarray, xb: np.ndarray) 
     beta, *_ = cp.linalg.lstsq(Xc, yc, rcond=None)
     pred = ybar + Xc @ beta
     resid = dfv - pred
-    return cp.asnumpy(resid).astype(np.float64)
+    return np.asarray(cp.asnumpy(resid).astype(np.float64))
 
 
 __all__ = [
