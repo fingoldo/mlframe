@@ -226,7 +226,7 @@ def detect_hinge_breakpoints_gpu(
         if cand.size == 0:
             return []
         found: list = []
-        extra_legs = []
+        extra_legs: list = []
         # The candidate relu-leg block and row-guard mask depend only on (xg, cand); hoist them ONCE
         # out of the round loop (they are re-scored against each round's growing design via proj/r_yk).
         R_cand, ok_cand = _fwl_relu_legs(cp, xg, cand, n, min_seg_rows)
