@@ -83,7 +83,7 @@ class SelfAttention(nn.Module):
             q_dim=q_dim, kv_dim=q_dim, qk_out_dim=qk_out_dim, v_out_dim=v_out_dim, output_dim=q_dim, heads=heads, dropout=dropout
         )
 
-    def forward(self, x_q: torch.Tensor, attention_mask: torch.Tensor = None):
+    def forward(self, x_q: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
         x_q = self.norm(x_q)
         return self.attention(x_q=x_q, x_kv=x_q, attention_mask=attention_mask)
 

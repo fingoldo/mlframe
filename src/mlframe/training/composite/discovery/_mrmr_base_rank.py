@@ -60,6 +60,7 @@ def mrmr_rank_bases(
     def _red(i: int, j: int) -> float:
         if matrix is not None:
             return float(matrix[i, j])
+        assert callable(redundancy_fn_or_matrix)
         return float(redundancy_fn_or_matrix(i, j))
 
     target_k = min(k, n)

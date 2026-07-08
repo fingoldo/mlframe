@@ -303,7 +303,7 @@ def load_serving_spec(
         hand-edited / forward-compatible spec).
     """
     spec = _de_jsonify(dict(spec))
-    transform_name = spec.get("transform_name")
+    transform_name = str(spec.get("transform_name"))
     inverse_fn = _INVERSE_TABLE.get(transform_name)
     if inverse_fn is None:
         raise NotImplementedError(f"load_serving_spec: transform '{transform_name}' has no lightweight " f"numpy inverse. Supported: {sorted(_INVERSE_TABLE)}.")

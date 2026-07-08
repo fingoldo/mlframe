@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import multiprocessing
-import sys
 import threading
 from collections import OrderedDict
 from typing import Any
@@ -69,8 +68,7 @@ def _ensure_kernels_inited() -> None:
         if _KERNELS_INITED:
             return
         import cupy as cp
-        module = sys.modules[__name__]
-        module.row_attention_stage4_raw_kernel = cp.RawKernel(
+        row_attention_stage4_raw_kernel = cp.RawKernel(
             _ROW_ATTENTION_STAGE4_KERNEL_SRC,
             "row_attention_stage4_fused",
             options=("-std=c++14",),

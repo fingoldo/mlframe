@@ -104,7 +104,7 @@ def example_d_1():
     real_MIs = []
 
     for rou in np.arange(-0.9, 1, 0.1):
-        x, y = np.random.multivariate_normal(mean=[0, 0], cov=[[1, rou], [rou, 1]], size=seq_len).T
+        x, y = np.random.multivariate_normal(mean=[0, 0], cov=[[1.0, float(rou)], [float(rou), 1.0]], size=seq_len).T
         x = rankdata(x) / seq_len  #### important, data preprocessing is needed, using rankdata(x)/seq_len to map x and y to [0,1]
         y = rankdata(y) / seq_len
         result = estimate_mi(model, x, y).squeeze().cpu().numpy()

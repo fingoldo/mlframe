@@ -85,7 +85,7 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1):
     if not hasattr(self, "_mo_conformal_alphas_") or self._mo_conformal_alphas_ is None:
         self._mo_conformal_alphas_ = set()
     for a in alphas:
-        self._mo_conformal_alphas_.add(round(float(a), 6))
+        self._mo_conformal_alphas_.add(round(float(a), 6))  # type: ignore[arg-type]  # a is a scalar drawn from alphas (float | Sequence[float])
     return self
 
 

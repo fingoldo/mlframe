@@ -134,7 +134,7 @@ def _silence_tiny_model_output(family: str | None = None):
         ConvergenceWarning = UserWarning  # type: ignore[assignment]
     with warnings.catch_warnings():
         # Prepend the four ignore filters directly using precompiled message regexes (see ``_FEATURE_NAMES_RE`` note above). ``catch_warnings.__enter__`` has just copied the global filters into a fresh ``warnings.filters`` list, so a plain prepend (newest-first) reproduces the exact order four ``filterwarnings("ignore", ...)`` calls would leave -- last-inserted (RuntimeWarning) first. The second message filter squelches sklearn SimpleImputer's "Skipping features without any observed values" no-op warning (fires per CV fold * candidate spec in tiny-rerank); the actual remediation (drop fully-NaN columns) lives in the auto-base per-column NaN gate.
-        warnings.filters[:0] = [
+        warnings.filters[:0] = [  # type: ignore[index]  # warnings.filters is a private CPython list, not the Sequence the stub declares
             ("ignore", None, RuntimeWarning, None, 0),
             ("ignore", None, ConvergenceWarning, None, 0),
             ("ignore", _SKIPPING_FEATURES_RE, UserWarning, None, 0),
@@ -193,7 +193,7 @@ def _build_tiny_model(
     family_lower = family.lower()
     if family_lower in ("lgb", "lightgbm"):
         import lightgbm as lgb
-        kwargs = dict(
+        kwargs: dict[str, Any] = dict(
             n_estimators=n_estimators,
             num_leaves=num_leaves,
             learning_rate=learning_rate,
@@ -210,7 +210,7 @@ def _build_tiny_model(
         return lgb.LGBMRegressor(**kwargs)
     if family_lower in ("xgb", "xgboost"):
         import xgboost as xgb
-        kwargs = dict(
+        xgb_kwargs: dict[str, Any] = dict(
             n_estimators=n_estimators,
             max_depth=4,
             learning_rate=learning_rate,
@@ -218,11 +218,11 @@ def _build_tiny_model(
             n_jobs=inner_n_jobs, verbosity=0,
         )
         if deterministic:
-            kwargs["tree_method"] = "hist"
-        return xgb.XGBRegressor(**kwargs)
+            xgb_kwargs["tree_method"] = "hist"
+        return xgb.XGBRegressor(**xgb_kwargs)
     if family_lower in ("cb", "catboost"):
         import catboost as cb
-        kwargs = dict(
+        cb_kwargs: dict[str, Any] = dict(
             iterations=n_estimators,
             depth=4,
             learning_rate=learning_rate,
@@ -231,8 +231,8 @@ def _build_tiny_model(
             allow_writing_files=False,  # parallel fold/spec fits race on catboost_info/ (Windows file-lock -> silent NaN folds) and litter CWD
         )
         if deterministic:
-            kwargs["boosting_type"] = "Plain"
-        return cb.CatBoostRegressor(**kwargs)
+            cb_kwargs["boosting_type"] = "Plain"
+        return cb.CatBoostRegressor(**cb_kwargs)
     if family_lower in ("linear", "ridge"):
         from sklearn.impute import SimpleImputer
         from sklearn.linear_model import Ridge

@@ -77,6 +77,13 @@ class FeaturesAndTargetsExtractor:
     # mypy can type-check reads/writes of this one (checked/defaulted right after in __init__, and
     # mutated by subclasses' build_targets()).
     columns_to_drop: Optional[set]
+    ts_field: Optional[str]
+    datetime_features: Optional[dict]
+    group_field: Optional[str]
+    allowed_targets: Optional[Iterable]
+    verbose: int
+    sequence_columns: Optional[Tuple[str, ...]]
+    sequence_group_column: Optional[str]
 
     def __init__(
         self,
