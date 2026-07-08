@@ -255,7 +255,7 @@ def _build_operand_table(
         _resident_operands_on = fe_gpu_resident_operands_enabled() and _cuda_present()
     except Exception:
         _resident_operands_on = False
-    _operand_col_specs: list = [] if _resident_operands_on else None
+    _operand_col_specs: list | None = [] if _resident_operands_on else None
     i = 0
     for (raw_vars_pair, _pair_mi), _uplift in prospective_pairs.items():
         for var in raw_vars_pair:
@@ -382,7 +382,7 @@ def _build_operand_table(
     # materialise never reads them (operand indices are always < the used width), so their content is moot.
     if _operand_col_specs is not None and len(vars_transformations) > 0:
         try:
-            from .._gpu_resident_fe import build_resident_operand_table, register_prebuilt_operand_table
+            from .._gpu_resident_fe import build_resident_operand_table, register_prebuilt_operand_table  # type: ignore[attr-defined]  # dynamically re-exported via globals()
             # Build a FULL-WIDTH (n, n_operands) device mirror keyed on the SAME ``transformed_vars`` object
             # the materialise / _resolve_col paths pass: GPU-build the plain-unary columns from col_specs,
             # copy every other column (incl. any unused tail) from the host. Registered against the full

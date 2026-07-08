@@ -292,12 +292,12 @@ def apply_grouped_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         global_std = float(recipe.get("global_std", 1.0)) or 1.0
         per_row_std = _broadcast_lookup(g_keys, lookup_std, global_std)
         per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
-        return np.nan_to_num(
+        return np.asarray(np.nan_to_num(
             (x - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,
-        )
+        ))
     if op == "ratio":
         denom = np.where(np.abs(per_row_mean) > 1e-12, per_row_mean, np.nan)
-        return np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0)
+        return np.asarray(np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0))
     raise ValueError(f"apply_grouped_agg: unknown op {op!r}")
 
 
@@ -604,6 +604,7 @@ def hybrid_grouped_agg_fe(
         # supplied) are trusted as-is and never filtered. Best-effort: any failure falls back to the unfiltered auto set.
         num_cols = _filter_num_cols_by_relevance(X, y, num_cols, n_bins=n_bins)
     else:
+        assert num_cols is not None  # _num_cols_auto is False here, so num_cols was not None/empty above
         num_cols = [c for c in num_cols if c in X.columns]
     if not num_cols:
         return X.copy(), [], [], pd.DataFrame()

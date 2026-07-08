@@ -387,7 +387,7 @@ def compute_pair_maxt_floor(
     target K times, take the per-shuffle MAX joint MI via the SAME batched plug-in estimator the screen scores ``pair_mi`` with, floor at the q-th quantile. SELF-GATING: below
     ``fe_pair_maxt_min_pairs`` candidate pairs the floor is 0.0 (no-op => byte-identical narrow pools). ``fe_pair_maxt_null_permutations=0`` disables.
     """
-    _pair_maxt_floor = 0.0
+    _pair_maxt_floor: float | None = 0.0
     # MM-DEBIAS (2026-06-09, backlog #1 IRON RULE): per-pair Miller-Madow joint-MI bias
     # (sorted-index tuple -> bias). Subtracted from BOTH the floor's per-shuffle joint MIs
     # (inside the null kernel) AND the observed ``pair_mi`` at the gate-floor comparison,
@@ -480,6 +480,7 @@ def compute_pair_maxt_floor(
             )
             _pair_maxt_floor = 0.0
             _pair_mm_bias = {}
+    assert _pair_maxt_floor is not None  # resolved to a float by the None-check branch above, or reset to 0.0 in the except handler
     return _pair_maxt_floor, _pair_mm_bias
 
 

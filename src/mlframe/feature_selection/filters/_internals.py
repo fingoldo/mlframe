@@ -124,8 +124,8 @@ def smart_log(x: np.ndarray) -> np.ndarray:
     x_min = np.nanmin(x)
     with np.errstate(divide="ignore", invalid="ignore"):
         if x_min > 0:
-            return np.log(x)
-        return np.log(x + (1e-5 - x_min))
+            return np.asarray(np.log(x))
+        return np.asarray(np.log(x + (1e-5 - x_min)))
 
 
 def canonical_group_token(value) -> str:
@@ -179,10 +179,10 @@ def group_key_strings(col) -> np.ndarray:
         # fit/predict counterpart that arrived as integer dtype.
         uniq, inv = np.unique(arr, return_inverse=True)
         toks = np.array([canonical_group_token(u) for u in uniq], dtype=object)
-        return toks[inv]
+        return np.asarray(toks[inv])
     # object / categorical / string: per-value canonical (handles mixed dtypes,
     # python ints/floats embedded in object arrays, NaN sentinels via str()).
-    return col.astype(object).map(canonical_group_token).to_numpy()
+    return np.asarray(col.astype(object).map(canonical_group_token).to_numpy())
 
 
 # Process-global cache of already-njit-compiled dispatchers, keyed by the SOURCE
