@@ -49,7 +49,7 @@ def _render_fairness_calibration(
     pos_score: np.ndarray,
     plot_file: str,
     plot_outputs: str | None,
-    metrics: dict[str, Any] | None,
+    metrics: dict[int | str, Any] | None,
 ) -> None:
     """Render a per-subgroup calibration-fairness figure per group feature (binary positive-class score).
 
@@ -117,7 +117,7 @@ def _render_calibration_by_feature(
     pos_score: np.ndarray,
     plot_file: str,
     plot_outputs: str | None,
-    metrics: dict[str, Any] | None,
+    metrics: dict[int | str, Any] | None,
 ) -> None:
     """Render per-feature calibration (reliability + ECE by feature quantile bin) for the top-importance features.
 
@@ -169,7 +169,7 @@ def _render_calibration_heatmap_2d(
     pos_score: np.ndarray,
     plot_file: str,
     plot_outputs: str | None,
-    metrics: dict[str, Any] | None,
+    metrics: dict[int | str, Any] | None,
 ) -> None:
     """Render a 2D calibration-ECE heatmap over the quantile grid of the top-2-importance feature pair (binary target).
 
