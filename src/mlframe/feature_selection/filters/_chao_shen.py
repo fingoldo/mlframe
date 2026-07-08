@@ -148,7 +148,7 @@ def _joint_chao_shen_mi_njit(joint: np.ndarray) -> float:
     H_x = chao_shen_entropy_from_counts(row_sums, C_hat)
     H_y = chao_shen_entropy_from_counts(col_sums, C_hat)
     mi = H_x + H_y - H_xy
-    return max(0.0, mi)
+    return float(max(0.0, mi))
 
 
 def chao_shen_mi(x_binned: np.ndarray, y: np.ndarray) -> float:
