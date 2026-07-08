@@ -11,6 +11,7 @@ Re-imported at the parent's module bottom so historical
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 
@@ -107,6 +108,7 @@ def _build_feature_selection_report(
             if isinstance(_fi_dict, dict) and _fi_dict:
                 _acc: dict = {}
                 for _row in _fi_dict.values():
+                    _items: Any
                     if isinstance(_row, dict):
                         _items = _row.items()
                     elif _all_in is not None:

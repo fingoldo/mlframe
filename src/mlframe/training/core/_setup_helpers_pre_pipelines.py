@@ -100,7 +100,7 @@ def _build_pre_pipelines(
     per weight schema). When False (default), the marker is False and the suite skips weight forwarding so the
     FS cache stays valid across weight iterations and selected features reflect the uniform-weight assumption.
     """
-    pre_pipelines = []
+    pre_pipelines: list = []
     pre_pipeline_names = []
 
     if use_ordinary_models:

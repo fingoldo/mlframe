@@ -321,7 +321,7 @@ def _setup_per_target_mlframe_models(
         _dropped_high_card_data=_dropped_high_card_data,
         train_od_idx=train_od_idx,
         val_od_idx=val_od_idx,
-        plot_file=plot_file,
+        plot_file=plot_file or "",
         metadata=metadata,
         target_by_type=target_by_type,
         _split_preds_probs=_split_preds_probs,

@@ -63,7 +63,7 @@ def _resolve_weight_schemas_and_warn_val_placement(
                 "or switching back to val_placement='forward'.",
                 len(_non_uniform), _non_uniform,
             )
-    return weight_schemas
+    return dict(weight_schemas)
 
 
 def _clone_model_with_sticky_flags(

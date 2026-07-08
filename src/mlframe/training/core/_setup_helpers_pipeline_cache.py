@@ -95,7 +95,7 @@ def _pipeline_disk_cache_path() -> str:
     """
     override = _parent_attr("_PIPELINE_JSON_DISK_CACHE_PATH", None)
     if override is not None:
-        return override
+        return str(override)
     global _PIPELINE_JSON_DISK_CACHE_PATH
     if _PIPELINE_JSON_DISK_CACHE_PATH is not None:
         _parent_set("_PIPELINE_JSON_DISK_CACHE_PATH", _PIPELINE_JSON_DISK_CACHE_PATH)
