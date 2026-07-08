@@ -231,7 +231,7 @@ def _within_group_descending_index(group_ids: np.ndarray, n: int) -> np.ndarray:
         # Coerce to int64 so the numba kernel signature is stable.
         gi = np.ascontiguousarray(group_ids, dtype=np.int64)
         try:
-            return _numba_within_group_descending_rank(gi)
+            return np.asarray(_numba_within_group_descending_rank(gi))
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed in _dummy_compute_helpers.py:235: %s", e)
             pass
@@ -280,7 +280,7 @@ def _coerce_y(y: Any, target_type: str, target_name: str) -> np.ndarray | None:
                     target_name, target_type, e,
                 )
                 return None
-        return arr
+        return np.asarray(arr)
     arr = _to_1d_numpy(y)
     if arr.dtype == object:
         try:
