@@ -50,11 +50,11 @@ def _apply_orth_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
     """
     x = np.asarray(x, dtype=np.float64)
     if pre_transform in (None, "", "raw", "identity"):
-        return x
+        return np.asarray(x)
     if pre_transform == "log_abs":
-        return np.log(np.abs(x) + 1e-12)
+        return np.asarray(np.log(np.abs(x) + 1e-12))
     if pre_transform == "sqrt_abs":
-        return np.sign(x) * np.sqrt(np.abs(x))
+        return np.asarray(np.sign(x) * np.sqrt(np.abs(x)))
     if pre_transform == "tanh":
         sd = float(np.std(x))
         return np.tanh(x / sd) if sd > 1e-12 else np.tanh(x)
@@ -191,7 +191,7 @@ def _apply_orth_pair_cross(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     vals_j = _extract_column(X, name_j)
     h_a = _eval_orth_basis_column(vals_i, basis_i, deg_a, preprocess_params=pp_i)
     h_b = _eval_orth_basis_column(vals_j, basis_j, deg_b, preprocess_params=pp_j)
-    return h_a * h_b
+    return np.asarray(h_a * h_b)
 
 
 def _freeze_preprocess_params(params: Optional[dict]) -> Optional[dict]:
