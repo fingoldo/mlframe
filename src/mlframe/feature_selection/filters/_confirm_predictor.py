@@ -141,8 +141,8 @@ class ScreenContext:
     selected_vars: list = None  # type: ignore[assignment]
     selected_interactions_vars: list = None  # type: ignore[assignment]
     partial_gains: dict = None  # type: ignore[assignment]
-    added_candidates: set = field(default=None)  # type: ignore[assignment,arg-type]
-    failed_candidates: set = field(default=None)  # type: ignore[assignment,arg-type]
+    added_candidates: set = field(default=None)  # type: ignore[arg-type]
+    failed_candidates: set = field(default=None)  # type: ignore[arg-type]
     # 2026-06-02 — directed-FE tie-break. ``raw_feature_names`` is the set of
     # ORIGINAL (pre-FE) column names; any ``factors_names[idx]`` not in it is an
     # engineered transform of its raw parent(s). On a near-tie in selection gain

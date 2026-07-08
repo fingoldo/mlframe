@@ -101,13 +101,13 @@ def _run_cmi_sweep() -> list:
         "cuda": (lambda *a, **k: _cmi_variant(*a, backend="cuda")),
         "cpu": (lambda *a, **k: _cmi_variant(*a, backend="cpu")),
     }
-    return sweep_backend_grid(
+    return list(sweep_backend_grid(
         variants,
         {"n_samples": _CMI_SWEEP_N_SAMPLES, "p": _CMI_SWEEP_P},
         _make_cmi_inputs,
         reference="cpu",
         repeats=3, equiv_rtol=1e-5, equiv_atol=1e-6,
-    )
+    ))
 
 
 def _cmi_fallback_choice(n_samples: int, p: int = 64) -> str:

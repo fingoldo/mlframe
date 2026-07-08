@@ -12,7 +12,7 @@ try:
     import torch
 except (ImportError, OSError):  # pragma: no cover
     AutoTokenizer = None  # type: ignore[assignment,misc]
-    torch = None  # type: ignore[assignment,misc]
+    torch = None  # type: ignore[assignment]
 
 
 def naive_masking_score(model, tokenizer, sentence):

@@ -294,6 +294,10 @@ class _PostHocMultiCalibratedModel:
     List[(N, 2)] output to (N, K) before calibration.
     """
 
+    # Stamped externally (training/evaluation.py) after an AP12-calibration pass; not set in __init__.
+    calibrated_val_probs: Any
+    calibrated_test_probs: Any
+
     def __init__(self, base, calibrator: _PerClassIsotonicCalibrator, target_type, classes_=None):
         object.__setattr__(self, "base", base)
         object.__setattr__(self, "_calibrator", calibrator)

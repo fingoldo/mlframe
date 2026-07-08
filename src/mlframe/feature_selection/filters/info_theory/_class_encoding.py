@@ -1,6 +1,8 @@
 """Class-encoding histogram building blocks: collapse ordinal-encoded variables into a single 1-D class array and the 2-variable joint-frequency / joint-entropy fast paths."""
 from __future__ import annotations
 
+from typing import Optional
+
 import numpy as np
 from numba import njit
 
@@ -12,9 +14,9 @@ def merge_vars(
     var_is_nominal,
     factors_nbins,
     dtype=np.int32,
-    min_occupancy: int = None,
+    min_occupancy: Optional[int] = None,
     current_nclasses: int = 1,
-    final_classes: np.ndarray = None,
+    final_classes: Optional[np.ndarray] = None,
     verbose: bool = False,
 ) -> tuple:
     """Melt multiple ordinal-encoded variables into a single 1-D class array.
@@ -138,7 +140,7 @@ def joint_freqs_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb_b
         cls = ca + cb * nb_a
         freqs[cls] += 1
     nz = freqs[freqs > 0]
-    return nz / n
+    return np.asarray(nz / n)
 
 
 @njit(nogil=True, cache=True)

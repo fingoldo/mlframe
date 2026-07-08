@@ -157,7 +157,6 @@ def build_chain_transform(residual_name: str, unary_name: str) -> Transform:
     return _make_chain_transform(
         name=f"chain_{residual_name}_{unary_name}",
         short_name=_short(residual_name, unary_name),
-        bivariate_name=residual_name,
         bivariate_fit=biv.fit,
         bivariate_forward=biv.forward,
         bivariate_inverse=biv.inverse,

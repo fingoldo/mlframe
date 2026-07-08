@@ -124,7 +124,7 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
         tree_roots.append(base)
         # Flatten this tree depth-first; map local nodeid -> global id via a per-tree dict.
         # First pass: collect nodes by nodeid so children can be resolved to global ids.
-        nodes = {}
+        nodes: dict = {}
 
         def _collect(node, depth, nodes=nodes):
             nonlocal max_depth

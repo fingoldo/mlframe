@@ -30,7 +30,7 @@ import numpy as np
 try:
     import polars as pl
 except Exception:
-    pl = None
+    pl = None  # type: ignore[assignment]
 
 try:
     import pandas as pd
@@ -112,7 +112,7 @@ def compute_unsupervised_drops(
             try:
                 # Use <= rather than == because floating-point arithmetic on constant columns can
                 # yield var ~= 1e-28 instead of exact zero (numerical floor of float64 fma).
-                if float(var_val) <= _var_cutoff:
+                if float(var_val) <= _var_cutoff:  # type: ignore[arg-type]  # polars Series.var() is typed float|timedelta|None; the is_numeric() guard above rules out timedelta at runtime
                     drops.add(col_name)
             except (TypeError, ValueError):
                 pass

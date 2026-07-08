@@ -33,10 +33,10 @@ def _importance(est, X, y, *, n_perm_repeats: int = 3, random_state: int = 0) ->
     m = clone(est)
     m.fit(X, y)
     if hasattr(m, "feature_importances_"):
-        return np.abs(np.asarray(m.feature_importances_, dtype=float))
+        return np.asarray(np.abs(np.asarray(m.feature_importances_, dtype=float)))
     if hasattr(m, "coef_"):
         c = np.abs(np.asarray(m.coef_, dtype=float))
-        return c.max(axis=0) if c.ndim > 1 else c
+        return np.asarray(c.max(axis=0) if c.ndim > 1 else c)
     from sklearn.inspection import permutation_importance
     n = X.shape[0]
     idx = np.arange(n) if n <= 1000 else np.random.default_rng(random_state).choice(n, 1000, replace=False)

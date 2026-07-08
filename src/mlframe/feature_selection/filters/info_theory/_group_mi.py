@@ -134,10 +134,10 @@ def group_blocked_mi(
     cy = np.ascontiguousarray(codes_y)
     if int(group_offsets[-1]) != cx.shape[0] or cy.shape[0] != cx.shape[0]:
         return float("nan")
-    return _group_blocked_mi(
+    return float(_group_blocked_mi(
         cx, cy, np.ascontiguousarray(sort_idx), np.ascontiguousarray(group_offsets),
         int(n_bins_x), int(n_bins_y), int(min_rows), bool(size_weighted), bool(use_mm),
-    )
+    ))
 
 
 def group_relevance_mi(

@@ -24,7 +24,7 @@ a recorded note rather than aborting the whole report.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -191,6 +191,7 @@ def compare_selectors(
     if selectors is None:
         raise ValueError("compare_selectors requires a non-empty `selectors` sequence or mapping")
 
+    items: list[tuple[Optional[str], Any]]
     if isinstance(selectors, Mapping):
         items = list(selectors.items())
     else:

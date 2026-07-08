@@ -129,11 +129,11 @@ def _warmup_numba_kernels(verbose: bool = False) -> None:
         return
     if getattr(_warmup_numba_kernels, "_in_progress", False):
         return
-    _warmup_numba_kernels._in_progress = True
+    _warmup_numba_kernels._in_progress = True  # type: ignore[attr-defined]  # function-level reentrancy flag; Callable has no such attr statically
     try:
         _warmup_numba_kernels_body(verbose)
     finally:
-        _warmup_numba_kernels._in_progress = False
+        _warmup_numba_kernels._in_progress = False  # type: ignore[attr-defined]
 
 
 def _warmup_numba_kernels_body(verbose: bool = False) -> None:
