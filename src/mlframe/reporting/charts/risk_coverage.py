@@ -239,7 +239,7 @@ def build_risk_coverage_spec(
 
     if is_regression:
         flat = np.full_like(cov_p, full_risk)
-        markers = ()
+        markers: Tuple[Tuple[float, float, str, str, str], ...] = ()
         if np.isfinite(metric_at_80):
             markers = ((0.8, metric_at_80, f"err@80%={metric_at_80:.3g}", "#1f77b4", "*"),)
         line = LinePanelSpec(

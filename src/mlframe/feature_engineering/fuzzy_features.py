@@ -155,9 +155,9 @@ def fuzzy_partition_transform(x, recipe: dict) -> np.ndarray:
     centers = np.ascontiguousarray(recipe["centers"], dtype=np.float64)
     out = np.zeros((xx.shape[0], centers.shape[0]), dtype=np.float64)
     if recipe["kind"] == "triangular":
-        return _triangular_impl(xx, centers, out)
+        return np.asarray(_triangular_impl(xx, centers, out))
     sigmas = np.ascontiguousarray(recipe["sigmas"], dtype=np.float64)
-    return _gaussian_impl(xx, centers, sigmas, out)
+    return np.asarray(_gaussian_impl(xx, centers, sigmas, out))
 
 
 def fuzzy_partition_encode(

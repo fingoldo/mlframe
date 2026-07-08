@@ -44,10 +44,10 @@ def _recency_weight(m: int, pos: int, scheme_code: int, param: float) -> float:
     """Single oldest-first recency weight for position ``pos`` in a length-``m`` history (i = m-pos)."""
     i = m - pos
     if scheme_code == 0:
-        return ((m - i + 1) / m) ** param
+        return float(((m - i + 1) / m) ** param)
     elif scheme_code == 1:
-        return param**i
-    return 1.0 / (i**param)
+        return float(param**i)
+    return float(1.0 / (i**param))
 
 
 @njit(fastmath=False, cache=True, inline="always")

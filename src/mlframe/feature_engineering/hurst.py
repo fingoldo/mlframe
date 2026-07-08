@@ -48,7 +48,7 @@ def compute_hurst_rs(arr: np.ndarray) -> float:  # pragma: no cover
     S = np.sqrt(var)
     if R <= _ZERO_EPS or S <= _ZERO_EPS:
         return np.nan
-    return R / S
+    return float(R / S)
 
 
 @njit(fastmath=_FASTMATH, cache=True)
@@ -191,7 +191,7 @@ def _hurst_rs_single(x: np.ndarray) -> float:
     sd = x.std()
     if sd <= _ZERO_EPS or rng_v <= _ZERO_EPS:
         return np.nan
-    return np.log(rng_v / sd) / np.log(n)
+    return float(np.log(rng_v / sd) / np.log(n))
 
 
 @njit(cache=True, fastmath=True, parallel=True)

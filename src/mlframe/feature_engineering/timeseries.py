@@ -493,11 +493,11 @@ def compute_splitting_stats(
                     post_sum = col_sum - pre_sum
                 tot = pre_sum + post_sum
                 splitting_vals.append(pre_sum / tot if tot else 0)
-                if create_features_names:
+                if create_features_names and splitting_ratios_names is not None:
                     splitting_ratios_names.append(captions_vars_sep.join([cast(str, dataset_name), var, col, subvar, "split"]))
 
     row_features.extend(splitting_vals)
-    if create_features_names:
+    if create_features_names and splitting_ratios_names is not None:
         features_names.extend(splitting_ratios_names)
 
 
