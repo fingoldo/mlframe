@@ -98,13 +98,13 @@ def _polyeval_dispatch_njit(basis_id: int, x: np.ndarray, c: np.ndarray) -> np.n
     loop here is already cache-friendly on contiguous (n,) arrays.
     """
     if basis_id == BASIS_HERMITE:
-        return _hermeval_njit(x, c)
+        return np.asarray(_hermeval_njit(x, c))
     if basis_id == BASIS_LEGENDRE:
-        return _legval_njit(x, c)
+        return np.asarray(_legval_njit(x, c))
     if basis_id == BASIS_CHEBYSHEV:
-        return _chebval_njit(x, c)
+        return np.asarray(_chebval_njit(x, c))
     # BASIS_LAGUERRE
-    return _lagval_njit(x, c)
+    return np.asarray(_lagval_njit(x, c))
 
 
 @njit(cache=True, fastmath=True)
@@ -539,7 +539,7 @@ def _bf_names_to_ids(bf_names: Sequence[str]) -> np.ndarray:
 def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_trials: int, seed: int,
                               direction_only: bool, warm_start_seeds: Optional[Sequence[np.ndarray]], eval_kwargs: dict,
                               batch_size: int = 20, elitism_k: int = 4,
-                              perturb_sigma_frac: float = 0.1) -> dict:
+                              perturb_sigma_frac: float = 0.1) -> Optional[tuple]:
     """Single-pair entry point matching the ``_run_cma_search`` /
     ``_run_random_batch_search`` return contract so the dispatcher can
     swap it in via ``optimizer="numba_kernel"``.
