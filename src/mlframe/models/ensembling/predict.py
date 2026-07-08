@@ -15,7 +15,7 @@ threads through ``_WelfordAccumulator`` so we never materialise the full
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, cast
 
 import numpy as np
 
@@ -68,7 +68,7 @@ def _compute_outlier_gate(
     cached = _gate_cache.get(key)
     if cached is not None:
         # Retained refs (cached[0]) keep the arrays alive so the id()-key cannot alias a freed-then-reused array.
-        return cached[1]
+        return cast(tuple, cached[1])
 
     # Cross-member median used as outlier-filter anchor: median along the MEMBER axis (axis=0 of (M, N, K)). ``sample_weight``
     # is a per-ROW vector so it is meaningless on this member-axis reduction (the member axis is uniformly weighted by
@@ -163,12 +163,12 @@ def ensemble_probabilistic_predictions(
     # one position upstream of its actual prediction.
     _orig_preds = list(preds)
     _keep_mask = [p is not None for p in _orig_preds]
-    preds = [p for p, k in zip(_orig_preds, _keep_mask) if k]
-    if precomputed_weights is not None and len(_orig_preds) != len(preds):
+    preds_list: list = [p for p, k in zip(_orig_preds, _keep_mask) if k]
+    if precomputed_weights is not None and len(_orig_preds) != len(preds_list):
         precomputed_weights = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
         if precomputed_weights.shape[0] == len(_orig_preds):
             precomputed_weights = precomputed_weights[np.asarray(_keep_mask, dtype=bool)]
-    if len(preds) == 0:
+    if len(preds_list) == 0:
         raise ValueError(
             "ensemble_probabilistic_predictions: no non-None member predictions to ensemble "
             f"(received {len(_orig_preds)} member(s), all None). Provide at least one non-None prediction."
@@ -182,9 +182,9 @@ def ensemble_probabilistic_predictions(
     # but is intentionally NOT implemented today (Welford-median raises
     # NotImplementedError as a signal-to-caller; fuzz-sized data never hits the
     # budget). Revisit only when a real workload exceeds the configured budget.
-    _preds_arr = np.asarray(preds, dtype=np.float64)
+    _preds_arr = np.asarray(preds_list, dtype=np.float64)
 
-    if len(preds) > 2:
+    if len(preds_list) > 2:
 
         skipped_preds_indices = set()
 
@@ -208,7 +208,7 @@ def ensemble_probabilistic_predictions(
             _gate_skipped,
             median_mae, median_std, rel_mae_threshold, rel_std_threshold,
             per_member_mae, per_member_std,
-        ) = _compute_outlier_gate(preds, _preds_arr, max_mae, max_std, max_mae_relative, max_std_relative)
+        ) = _compute_outlier_gate(preds_list, _preds_arr, max_mae, max_std, max_mae_relative, max_std_relative)
         skipped_preds_indices = set(_gate_skipped)
 
         if verbose and skipped_preds_indices:
@@ -229,23 +229,23 @@ def ensemble_probabilistic_predictions(
                     i, tot_mae, tot_std, "; ".join(reason_parts),
                 )
         if skipped_preds_indices:
-            if len(skipped_preds_indices) < len(preds):
-                _kept_mask = np.array([i not in skipped_preds_indices for i in range(len(preds))], dtype=bool)
-                preds = [el for i, el in enumerate(preds) if _kept_mask[i]]
+            if len(skipped_preds_indices) < len(preds_list):
+                _kept_mask = np.array([i not in skipped_preds_indices for i in range(len(preds_list))], dtype=bool)
+                preds_list = [el for i, el in enumerate(preds_list) if _kept_mask[i]]
                 if precomputed_weights is not None:
                     _pw = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
                     if _pw.shape[0] == _kept_mask.shape[0]:
                         precomputed_weights = _pw[_kept_mask]
                 if verbose:
-                    logger.info("Using %d members of ensemble", len(preds))
+                    logger.info("Using %d members of ensemble", len(preds_list))
                 # Members were dropped -- re-materialise the cached tensor
                 # so downstream aggregations see only kept members.
-                _preds_arr = np.asarray(preds, dtype=np.float64)
+                _preds_arr = np.asarray(preds_list, dtype=np.float64)
             else:
                 if verbose:
                     logger.info(
                         "ensemble_probabilistic_predictions filters too restrictive (%d vs %d), skipping them",
-                        len(skipped_preds_indices), len(preds),
+                        len(skipped_preds_indices), len(preds_list),
                     )
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -364,13 +364,13 @@ def ensemble_probabilistic_predictions_streaming(
         )
 
     _n_received = len(preds)
-    preds = [p for p in preds if p is not None]
-    if len(preds) == 0:
+    preds_list: list = [p for p in preds if p is not None]
+    if len(preds_list) == 0:
         raise ValueError(
             "ensemble_probabilistic_predictions_streaming: no non-None member predictions to ensemble "
             f"(received {_n_received} member(s), all None). Provide at least one non-None prediction."
         )
-    if len(preds) > 2 and verbose:
+    if len(preds_list) > 2 and verbose:
         logger.warning(
             "ensemble_probabilistic_predictions_streaming: outlier-member "
             "filter is not applied in streaming mode (would require "
@@ -380,7 +380,7 @@ def ensemble_probabilistic_predictions_streaming(
 
     # Transform-per-model, feed Welford. Separate instances for each
     # moment we need (mean + the method-specific transform).
-    first = np.asarray(preds[0])
+    first = np.asarray(preds_list[0])
     shape = first.shape if first.ndim == 2 else (first.shape[0], 1)
 
     # Primary aggregator -- the ensemble method's target statistic
@@ -388,7 +388,7 @@ def ensemble_probabilistic_predictions_streaming(
     # Also accumulate raw preds mean + std for uncertainty reporting
     raw_acc = _WelfordAccumulator(shape=shape)
 
-    for p in preds:
+    for p in preds_list:
         p = np.asarray(p, dtype=np.float64)
         if p.ndim == 1:
             p = p.reshape(-1, 1)

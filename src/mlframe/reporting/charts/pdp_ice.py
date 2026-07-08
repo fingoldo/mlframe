@@ -46,7 +46,7 @@ ICE_CURVE_DRAW_CAP: int = 200
 DISCRETE_MAX_UNIQUE: int = 12
 
 
-def _predict_fn(model: Any) -> Tuple[Callable[[np.ndarray], np.ndarray], str]:
+def _predict_fn(model: Any) -> Tuple[Callable[[np.ndarray], Optional[np.ndarray]], str]:
     """Pick the model's per-row scalar output: ``predict_proba``[:, 1] for a binary classifier, else ``predict``.
 
     Returns ``(fn, kind)`` where ``kind`` is "proba" / "predict" for the panel y-label. For a multiclass
@@ -55,7 +55,7 @@ def _predict_fn(model: Any) -> Tuple[Callable[[np.ndarray], np.ndarray], str]:
     """
     proba = getattr(model, "predict_proba", None)
     if callable(proba):
-        def fn(arr: np.ndarray) -> np.ndarray:
+        def fn(arr: np.ndarray) -> Optional[np.ndarray]:
             # A bound ``predict_proba`` is not proof the model is a classifier: mlframe's PartialFitESWrapper always defines the method and only raises at CALL time when wrapping a regressor (no predict_proba / decision_function underneath). Treat that raise like the multiclass case -> return None so _scalar_predict falls back to predict, instead of failing the whole PDP/ICE diagnostic.
             try:
                 p = np.asarray(proba(arr))
@@ -221,13 +221,13 @@ def _categorical_grid(carrier: Any, col_name: Optional[str]) -> Tuple[Optional[l
         import polars as pl
         dt = carrier.schema.get(col_name) if hasattr(carrier, "schema") else None
         is_cat = dt is not None and (dt == pl.Categorical or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum)))
-        if is_cat:
+        if is_cat and dt is not None:
             labels = carrier[col_name].cat.get_categories().to_list() if dt == pl.Categorical else list(dt.categories)
             return labels, dt
     return None, None
 
 
-def _substitute_column(carrier_sample: Any, base_vals: np.ndarray, col_idx: int, value: Any,
+def _substitute_column(carrier_sample: Any, base_vals: Optional[np.ndarray], col_idx: int, value: Any,
                        col_name: Optional[str] = None, categorical_dtype: Any = None) -> Any:
     """Return a model-input block with column ``col_idx`` set to ``value`` for every row.
 
@@ -239,6 +239,7 @@ def _substitute_column(carrier_sample: Any, base_vals: np.ndarray, col_idx: int,
     For an ndarray carrier the float ``base_vals`` block path is exact and kept.
     """
     if isinstance(carrier_sample, np.ndarray):
+        assert base_vals is not None
         block = base_vals.copy()
         block[:, col_idx] = value
         return block
@@ -257,6 +258,7 @@ def _substitute_column(carrier_sample: Any, base_vals: np.ndarray, col_idx: int,
             expr = (pl.lit(value) if np.ndim(value) == 0 else pl.Series(name, list(value))).cast(categorical_dtype)
             return carrier_sample.with_columns(expr.alias(name))
         return carrier_sample.with_columns(pl.lit(value).alias(name))
+    assert base_vals is not None
     block = base_vals.copy()
     block[:, col_idx] = value
     return block

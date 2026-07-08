@@ -30,7 +30,7 @@ Public API:
 """
 from __future__ import annotations
 
-from typing import List, Tuple, Union
+from typing import Dict, List, Tuple, Union, cast
 
 import numpy as np
 
@@ -52,7 +52,7 @@ except ImportError:
 # are cached so subsequent calls don't re-touch pywt).
 # ---------------------------------------------------------------------
 
-_FILTER_CACHE: dict = {}
+_FILTER_CACHE: Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = {}
 
 
 def get_wavelet_filters(name: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -333,7 +333,7 @@ def wavedec(
     """
     if not _HAS_NUMBA:
         import pywt
-        return pywt.wavedec(signal, wavelet, level=max_level, mode="symmetric")
+        return cast(List[np.ndarray], pywt.wavedec(signal, wavelet, level=max_level, mode="symmetric"))
     lo, hi, _, _ = get_wavelet_filters(wavelet)
     sig = np.ascontiguousarray(signal, dtype=np.float64)
     details_lvl1_first: list = []
@@ -414,11 +414,14 @@ def set_wavedec_dispatch_threshold(n_signals: int) -> None:
 
 def wavedec_dispatch(
     signals: np.ndarray, wavelet: str, max_level: int,
-) -> Union[List[np.ndarray], List[List[np.ndarray]]]:
+) -> Union[List[np.ndarray], List[List[np.ndarray]], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """Auto-pick between single-signal loop and batched parallel DWT.
 
     1-D input -> single ``wavedec``. 2-D input with N below threshold
-    -> Python loop over ``wavedec``. N >= threshold -> ``wavedec_batched``.
+    -> Python loop over ``wavedec``. N >= threshold -> ``wavedec_batched``, whose flat
+    ``(approx, details_flat, out_lengths)`` layout is a DIFFERENT shape from the two list-of-arrays
+    forms above -- callers on the batched path must handle it separately (see ``wavedec_batched``'s
+    docstring for the layout).
     """
     if signals.ndim == 1:
         return wavedec(signals, wavelet, max_level)
@@ -444,7 +447,7 @@ def waverec(coeffs: List[np.ndarray], wavelet: str) -> np.ndarray:
     """
     if not _HAS_NUMBA:
         import pywt
-        return pywt.waverec(coeffs, wavelet, mode="symmetric")
+        return cast(np.ndarray, pywt.waverec(coeffs, wavelet, mode="symmetric"))
     _, _, rec_lo, rec_hi = get_wavelet_filters(wavelet)
     approx = np.ascontiguousarray(coeffs[0], dtype=np.float64)
     # Order details level-1-first: pywt returns

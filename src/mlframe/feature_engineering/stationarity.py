@@ -26,7 +26,7 @@ __all__ = [
     "quantile_normalize_per_group",
 ]
 
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Optional, Sequence, Tuple
 
 import numpy as np
 from numba import njit
@@ -198,14 +198,14 @@ def frac_diff(
     # per-group
     sort_idx, starts, ends = iter_group_segments(group_ids)
     if is_scalar:
-        out = np.full(n, np.nan, dtype=np.float64)
+        out_1d = np.full(n, np.nan, dtype=np.float64)
         arr_sorted = arr[sort_idx]
         for s, e in zip(starts, ends):
             seg = arr_sorted[s:e]
             if seg.size < K:
                 continue
-            out[sort_idx[s:e]] = _frac_diff_single(seg, weights[d_list[0]])
-        return out
+            out_1d[sort_idx[s:e]] = _frac_diff_single(seg, weights[d_list[0]])
+        return out_1d
     out = np.full((n, len(d_list)), np.nan, dtype=np.float64)
     arr_sorted = arr[sort_idx]
     for s, e in zip(starts, ends):
@@ -242,7 +242,7 @@ def ewma_residual(
     n = arr.size
 
     if isinstance(half_life, (int, float)):
-        hl_list = (float(half_life),)
+        hl_list: Tuple[float, ...] = (float(half_life),)
         is_scalar = True
     else:
         hl_list = tuple(float(h) for h in half_life)
@@ -262,11 +262,11 @@ def ewma_residual(
             w = (1.0 - alpha) ** np.arange(seg_f.size)
             w_cum = np.cumsum(w[::-1])
             ewma = ewma * w[::-1] / w_cum
-        return seg - ewma
+        return np.asarray(seg - ewma)
 
     if group_ids is None:
         if is_scalar:
-            return _ewma_single(arr, hl_list[0])
+            return np.asarray(_ewma_single(arr, hl_list[0]))
         out = np.full((n, len(hl_list)), np.nan, dtype=np.float64)
         for j, hl in enumerate(hl_list):
             out[:, j] = _ewma_single(arr, hl)
@@ -274,13 +274,13 @@ def ewma_residual(
 
     sort_idx, starts, ends = iter_group_segments(group_ids)
     if is_scalar:
-        out = np.full(n, np.nan, dtype=np.float64)
+        out_1d = np.full(n, np.nan, dtype=np.float64)
         for s, e in zip(starts, ends):
             idx_seg = sort_idx[s:e]
             if idx_seg.size < 2:
                 continue
-            out[idx_seg] = _ewma_single(arr[idx_seg], hl_list[0])
-        return out
+            out_1d[idx_seg] = _ewma_single(arr[idx_seg], hl_list[0])
+        return out_1d
     out = np.full((n, len(hl_list)), np.nan, dtype=np.float64)
     for s, e in zip(starts, ends):
         idx_seg = sort_idx[s:e]
@@ -458,4 +458,4 @@ def quantile_normalize_per_group(
     pct_clip = np.clip(pct, 1e-9, 1.0 - 1e-9)
     # Inverse standard normal CDF via erfinv.
     from scipy.special import ndtri
-    return ndtri(pct_clip)
+    return np.asarray(ndtri(pct_clip))
