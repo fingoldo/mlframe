@@ -27,7 +27,7 @@ from numba import njit, prange
 # (single-threaded estimator-API overhead) and ~12x faster than astropy.histogram
 # for the supported bin schemes. The legacy methods 'astropy' and 'discretizer'
 # still resolve via thin compat shims below.
-def _safe_code_dtype(n_bins: int, dtype: type) -> object:
+def _safe_code_dtype(n_bins: int, dtype: type) -> type:
     """Widen ``dtype`` to one that can hold ordinal codes ``0..n_bins-1``.
 
     Discretiser codes reach ``n_bins-1``; the default ``int8`` only holds 0..127, so an
@@ -36,7 +36,7 @@ def _safe_code_dtype(n_bins: int, dtype: type) -> object:
     corrupting: int8->int16->int32->int64 as the bin count grows. No-op for n_bins<=128.
     """
     try:
-        info = np.iinfo(np.dtype(dtype))  # type: ignore[arg-type]  # dtype may be non-integer; caught below
+        info = np.iinfo(np.dtype(dtype))  # type: ignore[type-var]  # dtype may be non-integer; caught below
     except (ValueError, TypeError):
         return dtype  # non-integer requested dtype: caller owns the contract
     if n_bins - 1 <= info.max:
@@ -454,7 +454,7 @@ def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: Optional[float] 
     if min_value is None or max_value is None:
         min_value, max_value = arrayMinMax(arr)
     n = arr.shape[0]
-    out = np.empty(n, dtype=dtype)
+    out: np.ndarray = np.empty(n, dtype=dtype)
     # Dedicated NaN bin code (one past the top real code n_bins-1), matching the
     # categorize_dataset / quantile-path convention so NaN rows do NOT collide with real
     # bin 0 and never produce a garbage cast. ``np.clip(NaN, ...)`` is a no-op on NaN, so
@@ -502,7 +502,7 @@ def discretize_uniform_parallel(arr: np.ndarray, n_bins: int, min_value: float, 
     are required here (the size-gating caller has already resolved them, avoiding a separate serial ``arrayMinMax`` scan).
     """
     n = arr.shape[0]
-    out = np.empty(n, dtype=dtype)
+    out: np.ndarray = np.empty(n, dtype=dtype)
     # Dedicated NaN bin (n_bins, one past the top real code) -- mirrors discretize_uniform so NaN rows
     # do not collide with real bin 0 and never hit the NaN-producing affine map + cast.
     nan_code = n_bins
@@ -560,8 +560,8 @@ def discretize_array(
         if arr.shape[0] >= _UNIFORM_PAR_THRESHOLD:
             if min_value is None or max_value is None:
                 min_value, max_value = arrayMinMax(arr)
-            return discretize_uniform_parallel(arr, n_bins, float(min_value), float(max_value), dtype=dtype)
-        return discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype)
+            return np.asarray(discretize_uniform_parallel(arr, n_bins, float(min_value), float(max_value), dtype=dtype))
+        return np.asarray(discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype))
     # quantile path -- raw numpy.
     # Wave 21 P0: nanpercentile so NaN-bearing columns don't collapse to a
     # constant via the all-NaN bin_edges trap. Same finding as the ``edges``
@@ -675,7 +675,7 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
                     _kths_set.add(int(_l)); _kths_set.add(int(_l) + 1)
             _kths = np.array(sorted(_kths_set), dtype=np.int64)
             _quantile_edges_2d_njit(np.ascontiguousarray(arr2d), quantiles, _kths, edges)
-    out = np.empty((n_rows, n_cols), dtype=dtype)
+    out: np.ndarray = np.empty((n_rows, n_cols), dtype=dtype)
     # njit per-column searchsorted (bit-identical to the numpy loop, incl. NaN
     # -> rightmost bin; see ``_searchsorted_2d_right_njit``). ``edges`` is float64 from
     # percentile and is small ((n_bins-1) x n_cols) so we make it C-contiguous float64.
@@ -724,10 +724,10 @@ def _discretize_array_impl(
     min_value: Optional[float] = None, max_value: Optional[float] = None, dtype: type = np.int8,
 ) -> np.ndarray:
     if method == "uniform":
-        return discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype)
+        return np.asarray(discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype))
     elif method == "quantile":
         bins_edges = get_binning_edges(arr=arr, n_bins=n_bins, method=method, min_value=min_value, max_value=max_value)
-    return quantize_search(arr, bins_edges).astype(dtype)
+    return np.asarray(quantize_search(arr, bins_edges).astype(dtype))
 
 
 # cache=True persists the parallel-fused artefact alongside the serial @njit kernels above.
@@ -746,7 +746,7 @@ def _discretize_2d_array_njit(
     dtype: type = np.int8,
 ) -> np.ndarray:
     """CPU prange backend; one column per worker thread."""
-    res = np.empty_like(arr, dtype=dtype)
+    res: np.ndarray = np.empty_like(arr, dtype=dtype)
     for col in prange(arr.shape[1]):
         res[:, col] = _discretize_array_impl(
             arr=arr[:, col],
@@ -798,10 +798,10 @@ def _run_discretize_sweep() -> list:
         def _cuda(arr):
             return discretize_2d_array_cuda(arr=arr, n_bins=10, method="quantile", dtype=np.int8)
         variants["cuda"] = _cuda
-    return sweep_backend_grid(
+    return list(sweep_backend_grid(
         variants, {"n_cells": _DISCRETIZE_SWEEP_CELLS}, _make_discretize_inputs,
         reference="cpu", repeats=2, equiv_rtol=1e-6, equiv_atol=1e-6,
-    )
+    ))
 
 
 def _discretize_fallback_choice(n_cells: int) -> str:
@@ -873,10 +873,10 @@ def discretize_2d_array(
         except ImportError:
             pass
 
-    return _discretize_2d_array_njit(
+    return np.asarray(_discretize_2d_array_njit(
         arr=arr, n_bins=n_bins, method=method, min_ncats=min_ncats,
         min_values=min_values, max_values=max_values, dtype=dtype,
-    )
+    ))
 
 
 def discretize_2d_array_cuda(
@@ -985,7 +985,7 @@ def discretize_2d_array_cuda(
         out = out_f.astype(_out_cp_dtype)
 
     # D2H the final tensor (single transfer, n_rows * n_cols bytes for int8).
-    return cp.asnumpy(out).astype(dtype, copy=False)
+    return np.asarray(cp.asnumpy(out).astype(dtype, copy=False))
 
 
 def _discretize_quantile_rawkernel(d_arr, bin_edges, n_bins, out_cp_dtype):
