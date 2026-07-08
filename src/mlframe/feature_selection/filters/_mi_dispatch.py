@@ -93,7 +93,7 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
         return float(fn(x, y_arr.astype(np.float64), **estimator_kwargs))
     if estimator in ("mine", "infonet", "mist"):
         from ._neural_mi import mine_mi, infonet_mi, mist_mi
-        fn_map = {"mine": mine_mi, "infonet": infonet_mi, "mist": mist_mi}
+        fn_map: dict = {"mine": mine_mi, "infonet": infonet_mi, "mist": mist_mi}
         return float(fn_map[estimator](x, y_arr.astype(np.float64), **estimator_kwargs))
     if estimator == "fastmi":
         from ._fastmi import fastmi
