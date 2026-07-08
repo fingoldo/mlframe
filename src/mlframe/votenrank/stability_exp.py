@@ -34,7 +34,7 @@ def spearman_exp(lb, num_repeats, exp_range, top_k=7):
             rng = np.random.default_rng(repeat_idxs)
 
             for nan_number in exp_range:
-                nan_number = int(round(nan_number * lb.table.count().sum()))
+                nan_number = round(nan_number * lb.table.count().sum())
                 table_nan = lb.table.copy()
 
                 nan_idxs_prod = rng.choice(
@@ -118,7 +118,7 @@ def get_res_df(exp_range, exp_res):
 def create_exp_pic(exp_range, exp_res, filename=None):
     """Render the stability curves as a formatted figure (custom legend labels for the mean/optimality-gap methods) and optionally save it to ``filename`` as PDF."""
     df = get_res_df(exp_range * 100, exp_res)
-    fig, ax = plt.subplots(figsize=(7, 6))
+    _fig, _ax = plt.subplots(figsize=(7, 6))
 
     sns.lineplot(
         x="criterion",
