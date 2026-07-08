@@ -9,6 +9,7 @@ stay reachable via the MRO.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -21,7 +22,21 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
 class _MRMRFitHelpersMixin:
-    """Fit-time helpers for :class:`MRMR` (see module docstring)."""
+    """Fit-time helpers for :class:`MRMR` (see module docstring).
+
+    ``get_params`` / ``fit`` resolve via the ``BaseEstimator`` / ``MRMR`` MRO; ``random_seed`` /
+    ``_effective_random_seed`` / ``get_feature_names_out`` resolve via the concrete ``MRMR`` /
+    ``_MRMRConfigMixin`` MRO. Declared here type-checking-only (not assigned/defined at runtime, so the
+    MRO's real implementations are never shadowed) so mypy resolves them on ``self``.
+    """
+
+    if TYPE_CHECKING:
+        get_params: Any
+        fit: Any
+        random_seed: Any
+        get_feature_names_out: Any
+
+        def _effective_random_seed(self) -> Any: ...
 
     # opt-in stability-selection outer-loop wrapper.
     # Routes to Faletto-Bien 2022 Cluster Stability Selection or
@@ -129,11 +144,12 @@ class _MRMRFitHelpersMixin:
         rng = np.random.default_rng(int(self._effective_random_seed() or 0))
         probs = sw / total
         idx = rng.choice(n_rows, size=n_rows, replace=True, p=probs)
-        # iloc preserves dtypes / category metadata; works on pandas + polars (via take) + numpy.
+        # iloc preserves dtypes / category metadata; works on pandas + polars + numpy. polars DataFrame has no
+        # ``.take()`` (removed upstream); row-select via ``__getitem__``, which every polars version supports.
         try:
             import polars as _pl
             if isinstance(X, _pl.DataFrame):
-                X_rs = X[idx.tolist()] if hasattr(X, "__getitem__") else X.take(idx)
+                X_rs = X[idx.tolist()]
             elif isinstance(X, pd.DataFrame):
                 X_rs = X.iloc[idx]
             else:
@@ -238,7 +254,7 @@ class _MRMRFitHelpersMixin:
                 "cache or a pre-retain_artifacts cached instance; refit with "
                 "MRMR._FIT_CACHE.clear() and mrmr_skip_when_prior_was_identity=False."
             )
-        return artifacts
+        return dict(artifacts)
 
     def _fit_identity_shortcut(self, X) -> None:
         """Populate the fit-result attributes as if MRMR returned the input X unchanged.
@@ -259,11 +275,12 @@ class _MRMRFitHelpersMixin:
         # crashed on every ndarray fit instead of short-circuiting.
         if hasattr(X, "columns"):
             _cols = X.columns
-            self.feature_names_in_ = _cols.tolist() if hasattr(_cols, "tolist") else list(_cols)
+            _names = _cols.tolist() if hasattr(_cols, "tolist") else list(_cols)
         else:
-            self.feature_names_in_ = [f"f{i}" for i in range(n_cols)]
-        self._engineered_features_ = []
-        self._engineered_recipes_ = []  # list invariant (matches the full-fit paths); consumers iterate it as a list
+            _names = [f"f{i}" for i in range(n_cols)]
+        self.feature_names_in_ = np.asarray(_names, dtype=object)
+        self._engineered_features_: list = []
+        self._engineered_recipes_: list = []  # list invariant (matches the full-fit paths); consumers iterate it as a list
         self.n_features_in_ = int(n_cols)
         self.n_features_ = int(n_cols)
         self.fallback_used_ = False
@@ -284,15 +301,15 @@ class _MRMRFitHelpersMixin:
         # meaningfully different from None, which would mean DCD disabled).
         # Identity shortcut bypasses DCD entirely, so the empty default is
         # the correct attribute-complete marker.
-        self.cluster_hierarchy_ = {}
+        self.cluster_hierarchy_: dict = {}
         self.mrmr_gains_ = np.array([], dtype=np.float64)
         self.friend_graph_ = None
         self.cluster_aggregate_ = None
         self.ran_out_of_time_ = False
-        self.provenance_ = None
+        self.provenance_: Optional[dict] = None
         self._feature_names_in_synthesized_ = not hasattr(X, "columns")
         # Mark for transform() to know we're in shortcut state. Some downstream code looks at .signature; safe-default to a stable string.
-        self.signature = f"_mrmr_identity_shortcut_n{n_cols}"
+        self.signature: Optional[str] = f"_mrmr_identity_shortcut_n{n_cols}"
 
     def _fit_multioutput(self, X, y, groups, sample_weight, strategy: str, fit_params):
         """Fit one single-target MRMR per output column of a 2D ``y`` and aggregate the selected RAW columns via ``strategy`` ('union'/'intersect').
