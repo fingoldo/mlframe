@@ -521,7 +521,7 @@ def per_feature_edges(
     # second call on the same X+y skip the per-column edge-builder. Cache failures are non-fatal:
     # we fall back to the un-cached path on any exception so a broken cache cannot break a fit.
     _cache = None
-    _y_key = None
+    _y_key: str | None = None
     if cache_dir is not None:
         try:
             from mlframe.utils.disk_cache import DiskCache, compose_key, hash_array_summary, hash_object
@@ -580,6 +580,7 @@ def per_feature_edges(
                 subsample_threshold=kwargs.get("bb_subsample_threshold", 0),
             )
         elif method_resolved == "fayyad_irani":
+            assert y is not None  # needs_y guard above raises for this method when y is None
             edges = edges_fayyad_irani(
                 col, y,
                 max_depth=kwargs.get("max_depth", 8),
@@ -594,11 +595,13 @@ def per_feature_edges(
                 scaled_min_split=kwargs.get("mdlp_scaled_min_split", False),
             )
         elif method_resolved == "mah":
+            assert y is not None  # needs_y guard above raises for this method when y is None
             edges = edges_mah(
                 col, y,
                 initial_k=int(kwargs.get("mah_initial_k", 16)),
             )
         elif method_resolved == "optimal_joint":
+            assert y is not None  # needs_y guard above raises for this method when y is None
             edges = edges_optimal_joint(
                 col, y,
                 candidates=kwargs.get("candidates", (4, 8, 16, 32)),
@@ -693,6 +696,7 @@ def per_feature_edges(
                 from mlframe.utils.disk_cache import hash_array_summary, compose_key
 
                 _col_summary = hash_array_summary(col)
+                assert _y_key is not None  # set together with _cache in the same cache_dir-guarded try block above
                 _col_cache_key = "nbin_" + compose_key(_col_summary, _y_key, _kw_key)
                 _hit = _cache.get(_col_cache_key)
                 if _hit is not None:
