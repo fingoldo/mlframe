@@ -321,7 +321,7 @@ _RADIX_STATIC_SHARED_BYTES = 4 * _RADIX_SELECT_MAXR * 8 + 2 * _RADIX_SELECT_MAXR
 # forces a specific count via this override (set/reset by _gpu_resident_radix_ktc._radix_edges_with_threads);
 # the production launch reads it when set, else looks the tuned count up from the kernel_tuning_cache. Block
 # size NEVER changes the order statistics (sum-reduction over the same values) -> edges/codes bit-identical.
-_RADIX_THREADS_OVERRIDE = None  # int set by the KTC sweep probe; None -> use the per-host KTC lookup
+_RADIX_THREADS_OVERRIDE: int | None = None  # int set by the KTC sweep probe; None -> use the per-host KTC lookup
 
 
 def _resolve_radix_threads(n: int) -> int:
@@ -702,7 +702,7 @@ def _get_radix_select_f32_bsearch_kernel():
 # probe forces a choice via this override; the production launch reads the per-host tuned variant). Both
 # produce BIT-IDENTICAL order statistics (the binary search only changes HOW a row finds its window) -> the
 # sweep ranks by WALL only and the base stays the fallback on any compile/launch failure. f64 is unaffected.
-_RADIX_F32_VARIANT_OVERRIDE = None  # "linear" / "bsearch" set by the KTC sweep probe; None -> per-host KTC
+_RADIX_F32_VARIANT_OVERRIDE: str | None = None  # "linear" / "bsearch" set by the KTC sweep probe; None -> per-host KTC
 
 
 def _resolve_radix_f32_variant(n: int) -> str:
