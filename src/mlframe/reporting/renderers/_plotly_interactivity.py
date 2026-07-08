@@ -27,14 +27,17 @@ _KEY_PANEL_TEMPLATES = (
 
 
 def _line_is_temporal(p: LinePanelSpec) -> bool:
+    """Whether the line panel's x-axis is a time axis (triggers the rangeslider)."""
     return bool(getattr(p, "x_is_time", False))
 
 
 def _line_is_multiseries(p: LinePanelSpec) -> bool:
+    """Whether the line panel plots more than one y-series (affects hovertemplate/legend handling)."""
     return isinstance(p.y, tuple) and len(p.y) > 1
 
 
 def _key_template(p: LinePanelSpec) -> str | None:
+    """Look up a nicer hovertemplate for known metric-pair panels (ROC, PR, calibration) by matching axis labels; returns None when no known template matches (generic x/y hover is then used)."""
     xl = (p.xlabel or "").lower()
     yl = (p.ylabel or "").lower()
     for (xkey, ykey), tmpl in _KEY_PANEL_TEMPLATES:

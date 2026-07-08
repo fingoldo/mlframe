@@ -48,6 +48,7 @@ def confusion_matrix_counts(
     sorted_labels = labels_arr[sorter]
 
     def _to_pos(a: np.ndarray) -> np.ndarray:
+        """Map raw label values in ``a`` to their 0..K-1 position in ``labels`` via binary search; a label not present in ``labels`` maps to -1 so it can be excluded, matching sklearn's ``confusion_matrix`` behavior."""
         pos = np.searchsorted(sorted_labels, a)
         pos_clipped = np.clip(pos, 0, K - 1)
         matched = sorted_labels[pos_clipped] == a

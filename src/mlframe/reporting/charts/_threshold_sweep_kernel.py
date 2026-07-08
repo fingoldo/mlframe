@@ -34,6 +34,7 @@ if _NUMBA_AVAILABLE:
         proba: np.ndarray,  # (N, K) float64
         T: int,
     ) -> np.ndarray:
+        """Parallel-over-K njit F1 sweep: for each of K label columns, histogram-bin predicted probabilities into T threshold buckets (positive/negative counts) and compute F1 at every threshold via a cumulative-sum pass, avoiding an O(N*T) per-threshold rescan."""
         n = y_true.shape[0]
         K = y_true.shape[1]
         scale = T - 1

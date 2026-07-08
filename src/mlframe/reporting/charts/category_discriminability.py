@@ -46,6 +46,7 @@ try:
 
     @numba.njit(cache=True)
     def _level_counts_njit(codes: np.ndarray, y: np.ndarray, n_levels: int):
+        """njit fast path: per-category-level positive-count + total-count in one pass over ``codes``, skipping missing (code < 0) rows."""
         # One row pass accumulating positive-count + total-count per level; codes < 0 (missing / NaN category) are skipped.
         pos = np.zeros(n_levels, dtype=np.float64)
         tot = np.zeros(n_levels, dtype=np.float64)
@@ -62,6 +63,7 @@ except Exception:  # numba unavailable: two-bincount numpy fallback (bit-identic
     _HAS_NUMBA = False
 
     def _level_counts_njit(codes: np.ndarray, y: np.ndarray, n_levels: int):
+        """numpy fallback (bit-identical accumulation to the njit path) when numba is unavailable: per-category-level positive-count + total-count via two ``np.bincount`` calls."""
         keep = codes >= 0
         kc = codes[keep]
         tot = np.bincount(kc, minlength=n_levels).astype(np.float64)

@@ -197,6 +197,7 @@ def build_risk_coverage_spec(
         aurc_random = full_risk
 
     def _interp_at(cov_target: float) -> float:
+        """Linearly interpolate risk (regression) or accuracy (classification) at ``cov_target`` coverage; NaN when the curve is empty or all-nonfinite."""
         if n == 0 or not np.isfinite(coverage).any():
             return float("nan")
         src = risk if is_regression else accuracy

@@ -593,6 +593,7 @@ MIN_ADV_ROWS_PER_SIDE: int = 4
 
 
 def _subsample_rows(n: int, cap: int, seed: int) -> np.ndarray:
+    """Return a sorted random index subsample of size ``min(n, cap)`` (sorted so downstream row-order-sensitive ops stay stable); the full index range if ``n`` is already within ``cap``."""
     if n <= cap:
         return np.arange(n, dtype=np.int64)
     return np.sort(np.random.default_rng(seed).choice(n, size=cap, replace=False))

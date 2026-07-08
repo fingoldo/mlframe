@@ -69,6 +69,7 @@ DEFAULT_DENSITY_BINS: int = 80
 
 
 def _finite_pair(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Flatten ``y_true``/``y_pred`` to float64 and drop any row where either value is non-finite, keeping the pair aligned."""
     yt = np.asarray(y_true, dtype=np.float64).ravel()
     yp = np.asarray(y_pred, dtype=np.float64).ravel()
     mask = np.isfinite(yt) & np.isfinite(yp)

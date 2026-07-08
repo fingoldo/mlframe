@@ -81,6 +81,7 @@ def _order_splits(names: Sequence[str]) -> List[str]:
 
 
 def _split_color(name: str, idx: int) -> str:
+    """Look up a split's chart color by its canonical name (train/val/test), falling back to a cycling palette entry keyed on position for any unrecognized split name."""
     return _SPLIT_COLORS.get(name.lower(), _FALLBACK_COLORS[idx % len(_FALLBACK_COLORS)])
 
 

@@ -31,6 +31,7 @@ _TITLE_FONTSIZE = 10
 
 
 def _set_panel_title(ax, title) -> None:
+    """Set an axes title, wrapping long titles to ``_TITLE_WRAP_CHARS``/line and capping the font size so a verbose diagnostic title can't overflow or dwarf a narrow panel. No-op when ``title`` is falsy."""
     if not title:
         return
     import textwrap
@@ -73,9 +74,12 @@ def _per_series_flags(flag, n: int):
 
 
 class MatplotlibRenderer:
+    """Renders a ``FigureSpec`` to a ``matplotlib.figure.Figure`` via a headless ``Figure`` + ``FigureCanvasAgg`` (never through pyplot), dispatching each panel to a per-type ``_<kind>`` method."""
+
     backend = "matplotlib"
 
     def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
+        """Build the grid of subplots described by ``spec`` (row/col ratios, optional suptitle/caption), render every panel into its cell, and return the assembled ``Figure``."""
         # static_legend is a plotly-only concept (see PlotlyRenderer.render); matplotlib legends
         # are always static, so this backend accepts and ignores the flag to satisfy the Renderer Protocol.
         del static_legend
@@ -170,6 +174,7 @@ class MatplotlibRenderer:
         return fig
 
     def save(self, fig: Any, path: str, fmt: str) -> None:
+        """Save ``fig`` to ``path`` in ``fmt`` (png/pdf/svg/jpg/jpeg), using a tight bbox + small padding so suptitles, y-tick labels and out-of-axes annotations aren't clipped."""
         fmt = fmt.lower()
         if fmt not in ("png", "pdf", "svg", "jpg", "jpeg"):
             raise ValueError(f"matplotlib doesn't support format {fmt!r}; " "supported: png/pdf/svg/jpg")
@@ -180,6 +185,7 @@ class MatplotlibRenderer:
         fig.savefig(path, format=fmt, bbox_inches="tight", pad_inches=0.15)
 
     def show(self, fig: Any) -> None:
+        """Display ``fig`` inline in an IPython/Jupyter kernel via ``IPython.display.display``, or best-effort pop a GUI window outside a kernel when matplotlib is in interactive mode; a no-op in headless / non-interactive contexts."""
         # The renderer builds figures via ``Figure()`` + ``FigureCanvasAgg`` (never through pyplot), so they
         # have no pyplot manager and no ``.number`` -- ``plt.figure(fig.number)`` would raise. In an IPython
         # kernel the right call is ``IPython.display.display(fig)``, which renders inline without pyplot. Outside
@@ -215,6 +221,7 @@ class MatplotlibRenderer:
     # ------------------------------------------------------------------
 
     def _render_panel(self, ax, panel, fig, cbar_axes=None) -> None:
+        """Dispatch a single panel spec to its rendering method by isinstance; raises ``TypeError`` for an unrecognized panel type."""
         if isinstance(panel, ScatterPanelSpec):
             self._scatter(ax, panel, fig, cbar_axes=cbar_axes)
         elif isinstance(panel, HistogramPanelSpec):
@@ -237,6 +244,7 @@ class MatplotlibRenderer:
             raise TypeError(f"unknown panel type: {type(panel).__name__}")
 
     def _annotation(self, ax, p: AnnotationPanelSpec) -> None:
+        """Render a free-text panel (no axes/data): centered wrapped text, no ticks, no spines."""
         ax.text(0.5, 0.5, p.text, ha="center", va="center", fontsize=p.fontsize, transform=ax.transAxes, wrap=True)
         _set_panel_title(ax, p.title)
         ax.set_xticks([])
@@ -245,6 +253,7 @@ class MatplotlibRenderer:
             spine.set_visible(False)
 
     def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
+        """Render a scatter panel: subsamples above ``_SCATTER_MAX_POINTS`` (preserving extremes, rasterized), then layers optional error bars, highlighted worst-K points, trend line, overlay band/line, y=x reference and inline labels/colorbar/legend on top."""
         import matplotlib
         x = np.asarray(p.x)
         y = np.asarray(p.y)
@@ -348,6 +357,7 @@ class MatplotlibRenderer:
             ax.grid(True, alpha=0.3)
 
     def _histogram(self, ax, p: HistogramPanelSpec) -> None:
+        """Render a histogram panel: uses pre-binned ``bin_centers`` when given (or pre-bins above ``_HIST_PREBIN_THRESHOLD`` rather than letting ``ax.hist`` re-scan the full array), else falls back to ``ax.hist`` on finite values only; optionally overlays a fitted Normal PDF."""
         import matplotlib
         overlay_x_lo = overlay_x_hi = None
         bin_centers = p.bin_centers
@@ -408,6 +418,7 @@ class MatplotlibRenderer:
             ax.grid(True, alpha=0.3)
 
     def _heatmap(self, ax, p: HeatmapPanelSpec, fig) -> None:
+        """Render a matrix heatmap: cell text (auto-flipped color by luminance) when the grid is small enough, iso-value threshold contours, and an optional trend/y=x line mapped from value-space into bin-index space via the panel's own binning range."""
         import matplotlib
         from mlframe.reporting.colors import resolve_heatmap_cmap
         cmap_name = resolve_heatmap_cmap(p.colormap)
@@ -463,6 +474,7 @@ class MatplotlibRenderer:
                 _hi = float(max(_xv[_fin].max(), _yv[_fin].max()))
                 if _hi > _lo:
                     def _to_idx(v: float) -> float:
+                        """Map a value-space coordinate to bin-index space using the panel's own (lo, hi) binning range."""
                         return (float(v) - _lo) / (_hi - _lo) * (_nb - 1)
                     # y=x reference in index space (origin="lower" -> bottom-left to top-right).
                     ax.plot([0, _nb - 1], [0, _nb - 1], color="0.4", linestyle=":", linewidth=1.0, label="y=x")
@@ -485,6 +497,7 @@ class MatplotlibRenderer:
         _set_panel_title(ax, p.title)
 
     def _confusion_margins(self, ax, p: ConfusionMarginsPanelSpec, fig) -> None:
+        """Render a confusion matrix as a 2x2 small-multiple (predicted-volume bar on top, true-support bar on the right) by subdividing the panel's own subplotspec into sub-axes, replacing the placeholder ``ax``."""
         import matplotlib
         from mlframe.reporting.colors import resolve_heatmap_cmap
         # The single panel cell hosts a 2x2 small-multiple: top bar (predicted volume), heatmap + right bar (true
@@ -538,6 +551,7 @@ class MatplotlibRenderer:
         ax_top.set_title(title, fontsize=10)
 
     def _bar(self, ax, p: BarPanelSpec) -> None:
+        """Render a bar panel: grouped bars when ``values`` is a tuple of series, single-series otherwise; supports a perpendicular reference line and thins x-tick labels above 25 categories so they don't overlap."""
         horizontal = p.orientation == "horizontal"
         pos = np.arange(len(p.categories))
         if isinstance(p.values, tuple):
@@ -602,6 +616,7 @@ class MatplotlibRenderer:
             ax.grid(True, alpha=0.3, axis="x" if horizontal else "y")
 
     def _line(self, ax, p: LinePanelSpec, fig=None) -> None:
+        """Render a multi-series line panel: per-series x grids, styles, colors, secondary y-axis (twinx, lazily created), fill bands, vspans/vlines, and point markers; merges legends from both axes and optionally places the legend outside the panel."""
         from mlframe.reporting.colors import line_color
 
         ys = p.y if isinstance(p.y, tuple) else (p.y,)
@@ -614,6 +629,7 @@ class MatplotlibRenderer:
         fills = _per_series_flags(p.fill_to_baseline, len(ys))
 
         def _xi(i):
+            """Return the x-array for series ``i``: per-series when ``p.x`` is a tuple of grids, else the shared grid."""
             return p.x[i] if xs_per_series else p.x
 
         # Lazily create the twin axis only when a series actually needs it.
@@ -683,6 +699,7 @@ class MatplotlibRenderer:
             fig.autofmt_xdate()
 
     def _violin(self, ax, p: ViolinPanelSpec) -> None:
+        """Render a per-group violin panel (medians shown when ``show_box``, extrema and mean markers suppressed)."""
         ax.violinplot(p.groups, showmeans=False, showextrema=False, showmedians=p.show_box)
         ax.set_xticks(range(1, len(p.group_labels) + 1))
         ax.set_xticklabels(p.group_labels, rotation=30, ha="right", fontsize=8)
@@ -693,6 +710,7 @@ class MatplotlibRenderer:
             ax.grid(True, alpha=0.3, axis="y")
 
     def _network(self, ax, p: NetworkPanelSpec, fig) -> None:
+        """Render a node-link network panel: edges as a single ``LineCollection`` (one draw call for O(E) edges, width+color both encoding weight), per-edge arrows for directed edges, then nodes on top with labels and an optional node-color legend."""
         import matplotlib
         from matplotlib.cm import ScalarMappable
         from matplotlib.collections import LineCollection

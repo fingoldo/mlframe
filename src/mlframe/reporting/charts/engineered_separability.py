@@ -31,6 +31,7 @@ try:
 
     @numba.njit(cache=True, fastmath=False)
     def _fisher_2d(z0: np.ndarray, z1: np.ndarray, y: np.ndarray) -> float:
+        """njit single-pass-pair 2-class Fisher discriminant ratio: squared Mahalanobis distance between class means under the pooled within-class 2x2 covariance."""
         # Two length-n passes: per-class means, then the pooled within-class 2x2 scatter. J = (m1-m0)^T Sw^-1 (m1-m0),
         # the squared Mahalanobis distance between class means -- the maximal 2-class Fisher separation on this plane.
         n = y.shape[0]
@@ -89,6 +90,7 @@ except Exception:  # numba unavailable: numpy two-pass reduction with the same p
     _HAS_NUMBA = False
 
     def _fisher_2d(z0, z1, y):
+        """numpy two-pass-reduction fallback for ``_fisher_2d`` when numba is unavailable; identical pooled-covariance Mahalanobis formula as the njit variant."""
         mask1 = y > 0.5
         n1 = int(mask1.sum())
         n0 = int(y.shape[0] - n1)

@@ -38,6 +38,7 @@ DIAG_MAX_FEATURES: int = 200
 
 
 def _record(charts: Optional[dict], name: str, ok: bool) -> None:
+    """Append ``name`` to ``charts["saved"]`` or ``charts["failed"]`` depending on ``ok``; no-op when ``charts`` isn't a dict (diagnostics run with tracking disabled)."""
     if not isinstance(charts, dict):
         return
     bucket = charts.setdefault("saved" if ok else "failed", [])
@@ -84,6 +85,7 @@ def _save_figure(fig, plot_outputs: str, base_path: str) -> bool:
 
 
 def _column_names(frame: Any) -> Optional[List[str]]:
+    """Stringified column names of ``frame`` (pandas/polars), or None if it has no ``.columns`` attribute."""
     cols = getattr(frame, "columns", None)
     if cols is None:
         return None
@@ -91,6 +93,7 @@ def _column_names(frame: Any) -> Optional[List[str]]:
 
 
 def _row_count(frame: Any) -> int:
+    """Row count of ``frame``, format-agnostic: prefers ``.shape[0]``, falls back to ``len()``, else 0."""
     shape = getattr(frame, "shape", None)
     if shape is not None:
         return int(shape[0])
