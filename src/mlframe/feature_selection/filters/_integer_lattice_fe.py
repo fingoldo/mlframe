@@ -116,7 +116,7 @@ def _to_int(x: np.ndarray) -> np.ndarray:
     to INT64_MIN; the caller masks those rows to NaN afterward, so the intermediate value is discarded. The
     errstate silences the harmless 'invalid value in cast' warning that would otherwise fire on that row."""
     with np.errstate(invalid="ignore"):
-        return np.rint(np.asarray(x, dtype=np.float64)).astype(np.int64)
+        return np.asarray(np.rint(np.asarray(x, dtype=np.float64)).astype(np.int64))
 
 
 def _nonfinite_mask(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -127,7 +127,7 @@ def _nonfinite_mask(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     garbage (a wrong, non-NaN value) into gcd/lcm/and. We instead NaN-out those rows: the lattice feature
     is undefined where an operand is not a finite integer, and a NaN is the honest, downstream-droppable
     signal for that, never INT64_MIN garbage."""
-    return ~(np.isfinite(np.asarray(a, dtype=np.float64)) & np.isfinite(np.asarray(b, dtype=np.float64)))
+    return np.asarray(~(np.isfinite(np.asarray(a, dtype=np.float64)) & np.isfinite(np.asarray(b, dtype=np.float64))))
 
 
 def _lattice_column(a: np.ndarray, b: np.ndarray, op: str) -> np.ndarray:
@@ -147,7 +147,7 @@ def _lattice_column(a: np.ndarray, b: np.ndarray, op: str) -> np.ndarray:
         raise ValueError(f"integer-lattice op must be one of {INTEGER_LATTICE_OPS}; got {op!r}")
     if bad.any():
         out[bad] = np.nan
-    return out
+    return np.asarray(out)
 
 
 def _lattice_columns_for_pair(a: np.ndarray, b: np.ndarray, ops: Sequence[str]) -> np.ndarray:
@@ -158,16 +158,18 @@ def _lattice_columns_for_pair(a: np.ndarray, b: np.ndarray, ops: Sequence[str]) 
     # Fused njit fast path for the default (gcd, lcm, bitwise_and) op set -- ~1.47x, bit-identical incl NaN (gcd
     # computed once + reused for lcm, no per-op temp arrays). Any other op subset/order falls to the numpy loop below.
     if tuple(ops) == INTEGER_LATTICE_OPS:
-        return _lattice_gcd_lcm_and_njit(np.ascontiguousarray(a, dtype=np.float64), np.ascontiguousarray(b, dtype=np.float64))
+        return np.asarray(_lattice_gcd_lcm_and_njit(np.ascontiguousarray(a, dtype=np.float64), np.ascontiguousarray(b, dtype=np.float64)))
     bad = _nonfinite_mask(a, b)  # all-False on the finite-integer fit data -> byte-identical there
     ai, bi = _to_int(a), _to_int(b)
     g = np.gcd(ai, bi) if ("gcd" in ops or "lcm" in ops) else None
     mat = np.empty((a.shape[0], len(ops)), dtype=np.float64)
     for j, op in enumerate(ops):
         if op == "gcd":
+            assert g is not None  # "gcd" in ops guaranteed g computed above
             mat[:, j] = g.astype(np.float64)
         elif op == "lcm":
             # lcm overflows int64 for large coprime pairs; compute |a|*|b|/gcd in float to keep it finite + monotone.
+            assert g is not None  # "lcm" in ops guaranteed g computed above
             safe_g = np.where(g == 0, 1, g)
             mat[:, j] = (np.abs(ai.astype(np.float64)) * np.abs(bi.astype(np.float64))) / safe_g
         elif op == "bitwise_and":
