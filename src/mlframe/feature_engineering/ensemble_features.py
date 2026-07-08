@@ -92,7 +92,7 @@ def _coerce_preds(preds: np.ndarray) -> np.ndarray:
 def predictor_consensus_mean(preds: np.ndarray) -> np.ndarray:
     """Simple mean across predictors per row. NaN-safe."""
     arr = _coerce_preds(preds)
-    return arr.mean(axis=1)
+    return np.asarray(arr.mean(axis=1))
 
 
 def predictor_disagreement_iqr(preds: np.ndarray) -> np.ndarray:
@@ -111,13 +111,13 @@ def predictor_disagreement_iqr(preds: np.ndarray) -> np.ndarray:
     fi75, ff75 = int(p75), p75 - int(p75)
     q25 = sorted_arr[:, fi25] * (1 - ff25) + sorted_arr[:, min(fi25 + 1, nc - 1)] * ff25
     q75 = sorted_arr[:, fi75] * (1 - ff75) + sorted_arr[:, min(fi75 + 1, nc - 1)] * ff75
-    return q75 - q25
+    return np.asarray(q75 - q25)
 
 
 def predictor_disagreement_var(preds: np.ndarray) -> np.ndarray:
     """Per-row unbiased sample variance across the N predictors."""
     arr = _coerce_preds(preds)
-    return arr.var(axis=1, ddof=1) if arr.shape[1] > 1 else np.zeros(arr.shape[0])
+    return np.asarray(arr.var(axis=1, ddof=1)) if arr.shape[1] > 1 else np.zeros(arr.shape[0])
 
 
 def predictor_pairwise_abs_diffs(preds: np.ndarray) -> np.ndarray:
@@ -132,7 +132,7 @@ def predictor_pairwise_abs_diffs(preds: np.ndarray) -> np.ndarray:
     n, k = arr.shape
     iu, ju = np.triu_indices(k, k=1)
     # Vectorised gather: shape (n, n_pairs)
-    return np.abs(arr[:, iu] - arr[:, ju])
+    return np.asarray(np.abs(arr[:, iu] - arr[:, ju]))
 
 
 def _bin_counts(arr: np.ndarray, n_bins: int) -> np.ndarray:
@@ -148,17 +148,17 @@ def _bin_counts(arr: np.ndarray, n_bins: int) -> np.ndarray:
         ((arr - lo) / span * n_bins).astype(np.int32),
         0, n_bins - 1,
     )
-    return _row_bin_histogram_njit(np.ascontiguousarray(binned), n_bins)
+    return np.asarray(_row_bin_histogram_njit(np.ascontiguousarray(binned), n_bins))
 
 
 def _entropy_from_counts(counts: np.ndarray) -> np.ndarray:
     probs = counts / counts.sum(axis=1, keepdims=True)
-    return -np.sum(probs * np.log(probs + 1e-12), axis=1)
+    return np.asarray(-np.sum(probs * np.log(probs + 1e-12), axis=1))
 
 
 def _top2_gap_from_counts(counts: np.ndarray, k: int) -> np.ndarray:
     sorted_counts = -np.sort(-counts, axis=1)
-    return (sorted_counts[:, 0] - sorted_counts[:, 1]) / float(k)
+    return np.asarray((sorted_counts[:, 0] - sorted_counts[:, 1]) / float(k))
 
 
 def predictor_consensus_entropy(
@@ -287,7 +287,7 @@ def predictor_max_pairwise_distance(preds: np.ndarray) -> np.ndarray:
     with the same IQR.
     """
     arr = _coerce_preds(preds)
-    return arr.max(axis=1) - arr.min(axis=1)
+    return np.asarray(arr.max(axis=1) - arr.min(axis=1))
 
 
 def predictor_quantile_spread(

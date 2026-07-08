@@ -12,7 +12,7 @@ __all__ = [
 ]
 
 import logging
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import polars as pl
 import polars.selectors as cs
@@ -57,6 +57,11 @@ _DEFAULT_WEIGHTING_COLUMNS: Tuple[str, ...] = ("volume", "qty")
 def _group_if_needed(expr: pl.Expr, over: str = "") -> pl.Expr:
     """Apply ``.over(over)`` only when ``over`` is truthy; otherwise pass through unchanged."""
     return expr.over(over) if over else expr
+
+
+def _ta_ns(expr: pl.Expr) -> Any:
+    """``.ta`` is a namespace registered at runtime by polars_talib; mypy's ``pl.Expr`` stub has no static knowledge of it."""
+    return getattr(expr, "ta")
 
 
 def add_ohlcv_ratios_rlags(
@@ -193,7 +198,7 @@ def add_fast_rolling_stats(
             exprs.extend(
                 [
                     pllib.clean_numeric(
-                        (all_num_cols / _group_if_needed(getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column) - 1),
+                        (all_num_cols / _group_if_needed(getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column or "") - 1),
                         nans_filler=nans_filler,
                     ).name.suffix(f"_r{short_name}{window}")
                     for window in rolling_windows
@@ -202,7 +207,7 @@ def add_fast_rolling_stats(
         else:
             exprs.extend(
                 [
-                    _group_if_needed(getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column).name.suffix(f"_{short_name}{window}")
+                    _group_if_needed(getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column or "").name.suffix(f"_{short_name}{window}")
                     for window in rolling_windows
                 ]
             )
@@ -343,7 +348,7 @@ def add_ohlcv_ta_indicators(
     for prefix in market_action_prefixes:
         # Prices are zero-filled here (not forward-filled) because polars-talib indicators apply
         # their own .over(ticker_column) downstream, and a nested window expression
-        # (forward-fill-over inside `getattr(close.ta, func)()`) raises
+        # (forward-fill-over inside `getattr(_ta_ns(close), func)()`) raises
         # `InvalidOperationError: window expression not allowed in aggregation` in polars 1.x.
         # If your input contains sporadic null prices, forward-fill them on the caller side
         # BEFORE passing to add_ohlcv_ta_indicators.
@@ -355,7 +360,7 @@ def add_ohlcv_ta_indicators(
 
         ta_expressions.extend(
             [
-                apply_ta_indicator(getattr(close.ta, func)(), func=func, window="", ticker_column=ticker_column, unnests=unnests, prefix=prefix)
+                apply_ta_indicator(getattr(_ta_ns(close), func)(), func=func, window="", ticker_column=ticker_column, unnests=unnests, prefix=prefix)
                 for func in _CYCLIC_TA_INDICATORS
             ]
         )
@@ -434,7 +439,7 @@ def add_ohlcv_ta_indicators(
             ta_expressions.extend(
                 [
                     apply_ta_indicator(
-                        getattr(close.ta, func)(window),
+                        getattr(_ta_ns(close), func)(window),
                         func=func,
                         window=window,
                         ticker_column=ticker_column,
@@ -448,7 +453,7 @@ def add_ohlcv_ta_indicators(
             ta_expressions.extend(
                 [
                     apply_ta_indicator(
-                        getattr(volume.ta, func)(window),
+                        getattr(_ta_ns(volume), func)(window),
                         func=func,
                         window=window,
                         ticker_column=ticker_column,
@@ -522,7 +527,7 @@ def add_ohlcv_ta_indicators(
             ta_expressions.extend(
                 [
                     apply_ta_indicator(
-                        getattr(close.ta, func)(fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod),
+                        getattr(_ta_ns(close), func)(fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod),
                         func=func,
                         window=0,
                         fastperiod=fastperiod,
@@ -609,7 +614,9 @@ def merge_perticker_and_wholemarket_features(
                     ).alias(f"{col}_wm_rnk")
                 )
 
-    joined = perticker_features.join(wholemarket_features, on=timestamp_column, how="left").sort(timestamp_column)
+    _pt_lazy = perticker_features.lazy() if isinstance(perticker_features, pl.DataFrame) else perticker_features
+    _wm_lazy = wholemarket_features.lazy() if isinstance(wholemarket_features, pl.DataFrame) else wholemarket_features
+    joined = _pt_lazy.join(_wm_lazy, on=timestamp_column, how="left").sort(timestamp_column)
 
     if rankings:
         joined = joined.with_columns(rankings)
