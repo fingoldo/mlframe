@@ -55,7 +55,8 @@ def _to_numpy_or_none(arr: Any) -> np.ndarray | None:
     Shape is preserved (no reshape). Use ``coerce_to_1d_numpy`` from
     ``training.utils`` directly if a 1-D contract is required.
     """
-    return _coerce_to_numpy(arr, allow_none=True)
+    _result = _coerce_to_numpy(arr, allow_none=True)
+    return np.asarray(_result) if _result is not None else None
 
 
 def _binary_split_summary(arr: np.ndarray) -> dict[str, float]:

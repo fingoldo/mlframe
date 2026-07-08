@@ -184,7 +184,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 _pp_name_stripped,
             )
             continue
-        ens_models = [] if use_mlframe_ensembles else None
+        ens_models: list | None = [] if use_mlframe_ensembles else None
         orig_pre_pipeline = pre_pipeline
 
         weight_schemas = _resolve_weight_schemas_and_warn_val_placement(

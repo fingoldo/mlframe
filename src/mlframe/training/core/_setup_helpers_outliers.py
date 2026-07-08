@@ -273,7 +273,8 @@ def _apply_outlier_detection_global(
         if val_kept < len(val_df):
             logger.info("Outlier rejection: %d val samples -> %d kept.", len(val_df), val_kept)
             filtered_val_df = _filter_df_by_mask(val_df, val_od_idx)
-            filtered_val_idx = val_idx[val_od_idx]
+            if val_idx is not None:
+                filtered_val_idx = val_idx[val_od_idx]
 
     baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-outlier-detection")
     if verbose:

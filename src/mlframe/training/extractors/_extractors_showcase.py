@@ -38,10 +38,11 @@ def showcase_features_and_targets(
     """
     print(get_dataframe_info(df))
 
-    head = df.head(5)
     if isinstance(df, pl.DataFrame):
         # Route through Arrow split-blocks bridge so pl.Enum / pl.Categorical / pl.Date columns keep their pandas-native dtypes (CategoricalDtype / DatetimeTZDtype) instead of collapsing to object; preserves the display contract for Jupyter rich rendering.
-        head = get_pandas_view_of_polars_df(head)
+        head: pd.DataFrame = get_pandas_view_of_polars_df(df.head(5))
+    else:
+        head = df.head(5)
 
     non_floats = head.select_dtypes(exclude=np.float32)
 

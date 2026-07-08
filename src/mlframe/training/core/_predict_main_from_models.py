@@ -141,7 +141,7 @@ def predict_from_models(
     # Replay suite-owned datetime decomposition before validation/pipeline so the predict frame has the SAME derived columns as training; FTE already handled its own ts_field on the line above.
     df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
 
-    df = _validate_input_columns_against_metadata(df, metadata, verbose=verbose)
+    df = _validate_input_columns_against_metadata(df, metadata, verbose=bool(verbose))
 
     # Preserve the pre-main-pipeline frame as a fallback for models whose
     # internal categorical handling (sklearn HGB's auto-detected
