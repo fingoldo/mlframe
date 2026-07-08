@@ -154,7 +154,7 @@ def _dispatch_batch_mi_with_noise_gate(
     _gpu_opted_out = (_cvd is not None and _cvd.strip() == "") or os.environ.get("MLFRAME_DISABLE_GPU", "") == "1"
     if _gpu_opted_out:
         _need_host_codes()  # CPU njit kernel reads host codes -> materialise the deferred D2H now
-        return _cpu_kernel(
+        return np.asarray(_cpu_kernel(
             disc_2d=disc_2d,
             factors_nbins=factors_nbins,
             classes_y=classes_y,
@@ -166,7 +166,7 @@ def _dispatch_batch_mi_with_noise_gate(
             use_su=bool(use_su),
             dtype=np.int32,
             classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 2 else np.int16,
-        )
+        ))
     # Under an explicit max_runtime_mins budget, skip the CPU-vs-GPU crossover sweep (blocking on first use, tens of
     # seconds at large n) and use the measurement-backed fallback; the sweep still runs on a normal no-budget fit so
     # per-host tuning is unaffected. Checked BEFORE the get_or_tune so the budgeted fit never pays the sweep.
@@ -242,7 +242,7 @@ def _dispatch_batch_mi_with_noise_gate(
                 ensure_host_codes=_need_host_codes,
             )
             if _res is not None:
-                return _res
+                return np.asarray(_res)
         except Exception as _exc:  # pragma: no cover - GPU optional
             _module_logger.debug(
                 "batch_mi_with_noise_gate GPU path failed (%s: %s); CPU fallback",
@@ -251,7 +251,7 @@ def _dispatch_batch_mi_with_noise_gate(
 
     # CPU njit-prange kernel (the required win and always-correct fallback).
     _need_host_codes()  # CPU kernel reads host codes -> materialise the deferred D2H now
-    return _cpu_kernel(
+    return np.asarray(_cpu_kernel(
         disc_2d=disc_2d,
         factors_nbins=factors_nbins,
         classes_y=classes_y,
@@ -267,7 +267,7 @@ def _dispatch_batch_mi_with_noise_gate(
         # cuts both the alloc (the 589MiB->147MiB classes_dense that OOM'd RAM-tight hosts) and
         # the per-permutation strided gather bandwidth. joint_counts (the real counter) stays int32.
         classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 2 else np.int16,
-    )
+    ))
 
 
 def _batch_mi_with_noise_gate_gpu(
