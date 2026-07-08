@@ -93,6 +93,12 @@ repos:
     hooks:
       - id: mypy
         files: '^src/mlframe/calibration/'
+        # --follow-imports=silent: this hook's isolated env has none of calibration's heavy
+        # transitive deps installed (pandas/torch/lightning/numba/pyutilz), so default
+        # follow-imports="normal" walks into every module they import, collapses each
+        # missing-dep expression to Any, and reports noise from dozens of files never meant
+        # to be covered by this beachhead. Mirrors the same fix in mypy.yml (2026-07-08).
+        args: ['--follow-imports=silent']
         # Every dep here is EXACT-pinned, not range-pinned: an unpinned/range-pinned resolve
         # in this isolated hook env drifts silently over time (observed 2026-07-06: picked up
         # numpy 2.5.1, whose bundled .pyi stubs use PEP 695 `type` statements that mypy rejects
