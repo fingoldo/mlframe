@@ -4,7 +4,7 @@ Covers:
 - _stratified_split: singleton class falls back to non-stratified with a warning (EDGE6).
 - carve_calib_conformal_temporal: time_values length mismatch raises (EDGE-P2).
 - carve_calib_conformal_grouped: non-zero frac flooring to 0 groups raises (EDGE-P2).
-- select_from_pareto: empty per-iteration shard is skipped, no np.quantile([]) (EDGE-P2).
+- select_from_pareto: empty per-iteration shard falls back to a mean/std risk quantile, no np.quantile([]) (EDGE-P2).
 """
 from __future__ import annotations
 

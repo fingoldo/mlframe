@@ -507,6 +507,21 @@ ignore-words-list = "nd,hist,te,ith,ba,thi,fpr,tre,strat,ser,clen,fo,anc,mis,als
 [tool.deptry]
 exclude = ["tests", "scripts", "legacy", "benchmarks", "_benchmarks", "profiling", ".venv", "build", "dist"]
 
+# ---------------------------------------------------------------------------
+# Interrogate (docstring coverage). Mirrors pyutilz's config. No --fail-under set
+# (advisory only, matches CI's non-blocking usage) -- 63.1% raw baseline before this
+# config existed included every dunder/private/init method interrogate's defaults
+# demand docstrings for; with these standard excludes the real baseline is lower and
+# meaningful (see CHANGELOG for the tracked number once measured).
+# ---------------------------------------------------------------------------
+[tool.interrogate]
+ignore-init-method = true
+ignore-init-module = true
+ignore-magic = true
+ignore-private = true
+exclude = ["tests", "scripts", "docs", "build", "dist", "**/_benchmarks/**", "**/benchmarks/**"]
+verbose = 1
+
 [tool.deptry.per_rule_ignores]
 # DEP002 (unused declared dependency): many optional extras are declared for callers who reach
 # the underlying package directly (or via a lazily-imported code path deptry's static scan can't

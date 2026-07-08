@@ -208,8 +208,8 @@ def compute_pareto_frontier(
 
 def select_from_pareto(
     frontier_indices: Sequence[int],
-    iter_means: Sequence[float],  # TODO: accepted but the risk quantile is computed from iter_shard_scores only; not read here
-    iter_stds: Sequence[float],  # TODO: accepted but the risk quantile is computed from iter_shard_scores only; not read here
+    iter_means: Sequence[float],
+    iter_stds: Sequence[float],
     iter_shard_scores: Sequence[Sequence[float]],
     *,
     risk_quantile: float = 0.9,
@@ -221,19 +221,30 @@ def select_from_pareto(
     K shard scores (upper quantile for ``direction="min"``, lower for ``"max"``), then return
     the global iteration index with the best risk-adjusted score. Smaller ``risk_quantile`` is
     aggressive (close to mean); ``0.9-0.95`` is conservative.
+
+    When an iteration has no shard scores, falls back to a normal-approximation risk quantile
+    from ``iter_means``/``iter_stds`` (``mean + z(risk_quantile) * std``) rather than skipping the
+    iteration outright -- so a frontier point whose per-shard scores weren't retained still
+    competes on its summary statistics instead of being silently excluded from selection.
     """
     if not frontier_indices:
         raise ValueError("select_from_pareto: empty frontier")
+    from scipy.stats import norm as _norm
+
     best_score: float | None = None
     best_iter: int = int(frontier_indices[0])
     sign_better = -1.0 if direction == "min" else 1.0
+    q = float(risk_quantile) if direction == "min" else 1.0 - float(risk_quantile)
     for idx in frontier_indices:
         scores = np.asarray(iter_shard_scores[idx], dtype=float)
-        # An iteration with no shard scores has no defined risk quantile (np.quantile([]) warns + returns NaN); skip it rather than poison the comparison.
         if scores.size == 0:
-            continue
-        q = float(risk_quantile) if direction == "min" else 1.0 - float(risk_quantile)
-        risk_score = float(np.quantile(scores, q))
+            mean_i = float(iter_means[idx]) if idx < len(iter_means) else None
+            std_i = float(iter_stds[idx]) if idx < len(iter_stds) else None
+            if mean_i is None or std_i is None or not np.isfinite(mean_i) or not np.isfinite(std_i):
+                continue
+            risk_score = mean_i + float(_norm.ppf(q)) * std_i
+        else:
+            risk_score = float(np.quantile(scores, q))
         if best_score is None or sign_better * (risk_score - best_score) > 0:
             best_score = risk_score
             best_iter = int(idx)

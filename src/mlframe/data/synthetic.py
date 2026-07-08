@@ -141,11 +141,11 @@ def generate_modelling_data(
     scale: float = 1.0,
     shuffle: bool = True,
     random_state: Optional[int] = None,
-    feature_noise: float = 0.05,  # TODO: accepted but not yet wired into the correlated-feature generation body
-    target_noise: float = 0.05,  # TODO: accepted but not yet wired into the mode-1 target generation body
-    timeseries: bool = False,  # TODO: accepted but not yet wired into the coefficient-drift-over-time body
+    feature_noise: float = 0.05,  # gaussian jitter (fraction of each correlated feature's std) added to singly/mutually correlated features
+    target_noise: float = 0.05,  # TODO: only meaningful for generation="formula", which itself is not yet implemented (raises NotImplementedError); wire together
+    timeseries: bool = False,  # when True, correlated features' dependence on their source predictor(s) drifts linearly (0.5x->1.5x) over the sample axis
     # how to create cat features?
-    min_cardinality: int = 2,  # TODO: accepted but not yet wired into cat-feature cardinality generation
+    min_cardinality: int = 2,  # used only when max_cardinality is set: unrelated_single features are then qcut-discretized to a random cardinality in [min_cardinality, max_cardinality]
     max_cardinality: Optional[int] = None,
     include_distributions: Optional[set] = None,
     return_dataframe: bool = True,
@@ -233,6 +233,11 @@ def generate_modelling_data(
     # Create correlated features
     # ----------------------------------------------------------------------------------------------------------------------------
 
+    # Coefficient-drift-over-time: when timeseries=True, treat the sample axis as a time axis and
+    # scale each correlated feature's dependence on its source predictor(s) by a factor drifting
+    # linearly from 0.5x (start) to 1.5x (end), so the correlation strength is not stationary.
+    time_drift = 1.0 + (np.linspace(0.0, 1.0, n_samples, dtype=np.float32) - 0.5) if timeseries else None
+
     if n_singly_correlated > 0:
         # dependent on a single (randomly chosen) predictor. cont.
 
@@ -241,6 +246,10 @@ def generate_modelling_data(
 
             k = generator.choice(range(n_informative))
             X[:, idx + j] *= X[:, k]
+            if time_drift is not None:
+                X[:, idx + j] *= time_drift
+            if feature_noise:
+                X[:, idx + j] += generator.normal(0.0, feature_noise * (np.std(X[:, idx + j]) or 1.0), size=n_samples).astype(np.float32)
 
             fnames.append(f"sc_{dist_name}_{k}")
     idx += n_singly_correlated
@@ -256,6 +265,10 @@ def generate_modelling_data(
 
             for k in current_combination:
                 X[:, idx + j] *= X[:, k]
+            if time_drift is not None:
+                X[:, idx + j] *= time_drift
+            if feature_noise:
+                X[:, idx + j] += generator.normal(0.0, feature_noise * (np.std(X[:, idx + j]) or 1.0), size=n_samples).astype(np.float32)
 
             fnames.append(f"mc_{dist_name}_{'-'.join(map(str,current_combination))}")
     idx += n_mutually_correlated
@@ -274,6 +287,12 @@ def generate_modelling_data(
         # features not dependent on any true predictor. cat or cont.
         for j in tqdmu(range(n_unrelated_single), desc=rpad("unrelated_single")):
             dist_name, X[:, idx + j] = sample_random_variable(kind="mixed", size=n_samples, shift=shift, scale=scale, include=include_distributions, random_state=generator)
+            if max_cardinality is not None:
+                # Discretize into a random cardinality within [min_cardinality, max_cardinality] so callers
+                # exercising cat-feature-cardinality-sensitive code paths (e.g. target/frequency encoders)
+                # get controllable categorical arity instead of the raw continuous/discrete draw's natural cardinality.
+                n_bins = generator.randint(min_cardinality, max_cardinality + 1)
+                X[:, idx + j] = pd.qcut(X[:, idx + j], q=n_bins, labels=False, duplicates="drop").astype(np.float32)
             fnames.append(f"unr_{dist_name}")
 
     idx += n_unrelated_single

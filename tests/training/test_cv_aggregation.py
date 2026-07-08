@@ -179,6 +179,18 @@ def test_select_from_pareto_empty_raises() -> None:
         select_from_pareto([], [], [], [], risk_quantile=0.9)
 
 
+def test_select_from_pareto_falls_back_to_mean_std_when_shard_scores_missing() -> None:
+    # Pre-fix: an iteration with no shard scores was skipped outright, ignoring iter_means/iter_stds
+    # entirely. Post-fix: it competes via a normal-approximation risk quantile from mean/std, so a
+    # frontier point that legitimately has no shard scores is not automatically excluded from selection.
+    frontier = [0, 1]
+    iter_means = [0.5, 2.0]  # iter 0 is much better on the mean alone
+    iter_stds = [0.01, 0.01]  # both tight, so mean should dominate the risk-quantile comparison
+    iter_shard_scores = [[], []]  # neither iteration has shard scores -> both must use the fallback
+    best = select_from_pareto(frontier, iter_means, iter_stds, iter_shard_scores, risk_quantile=0.9, direction="min")
+    assert best == 0, f"fallback should still pick the iteration with the better mean/std; got {best}"
+
+
 def test_nadeau_bengio_factor_matches_closed_form() -> None:
     # Standard K-fold: test_frac = 1/K, train_frac = (K-1)/K -> factor = sqrt(1 + K/(K-1)).
     for k in (2, 3, 5, 10, 20):

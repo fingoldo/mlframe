@@ -716,7 +716,7 @@ def optimize_finite_onedimensional_search_space(
     known_evaluations: Optional[Union[list, np.ndarray]] = None,
     # stopping conditions
     max_runtime_mins: Optional[float] = None,
-    predict_runtimes: bool = False,  # TODO: accepted but the runtime-prediction skip logic is not yet implemented in this function's body
+    predict_runtimes: bool = False,  # when True and max_runtime_mins is set, skip a candidate whose predicted duration (mean of past evals) would blow the budget
     max_fevals: Optional[int] = None,
     best_desired_score: Optional[float] = None,
     max_noimproving_iters: Optional[int] = None,
@@ -862,8 +862,22 @@ def optimize_finite_onedimensional_search_space(
                 logger.info("Search space fully checked, quitting")
             break
 
+        if predict_runtimes and max_runtime_mins and optimizer.evaluated_candidates:
+            mean_eval_duration = float(np.mean([c["duration"] for c in optimizer.evaluated_candidates if c["duration"] is not None]))
+            if np.isfinite(mean_eval_duration) and (timer() - start_time) + mean_eval_duration > max_runtime_mins * 60:
+                ran_out_of_time = True
+                if verbose:
+                    logger.info(
+                        "max_runtime_mins=%s would be exceeded by the next candidate (predicted duration=%.2fs); quitting preemptively.",
+                        f"{max_runtime_mins:_.1f}",
+                        mean_eval_duration,
+                    )
+                break
+
+        eval_start_time = timer()
         next_evaluation = eval_candidate_func(next_candidate)
-        optimizer.submit_evaluations(candidates=[next_candidate], evaluations=[next_evaluation], durations=[None])
+        next_duration = timer() - eval_start_time
+        optimizer.submit_evaluations(candidates=[next_candidate], evaluations=[next_evaluation], durations=[next_duration])
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Checking exit conditions

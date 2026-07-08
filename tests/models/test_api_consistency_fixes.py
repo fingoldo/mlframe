@@ -138,6 +138,36 @@ def test_api23_not_ready_does_not_terminate_search():
     assert calls["n"] > 3
 
 
+def test_predict_runtimes_preempts_before_exceeding_budget():
+    # predict_runtimes=True must stop the loop BEFORE running a candidate whose predicted duration
+    # (mean of past per-eval durations) would push elapsed time past max_runtime_mins, instead of
+    # only checking max_runtime_mins reactively after the eval already ran.
+    from mlframe.models import optimization as opt_mod
+    import time
+
+    calls = {"n": 0}
+
+    def evalfn(x):
+        calls["n"] += 1
+        time.sleep(0.05)
+        return float(x)
+
+    opt_mod.optimize_finite_onedimensional_search_space(
+        eval_candidate_func=evalfn,
+        search_space=np.arange(0, 200),
+        direction=opt_mod.OptimizationDirection.Maximize,
+        init_num_samples=3,
+        max_runtime_mins=0.05 / 60.0 * 4,  # budget for ~4 evals at 0.05s each
+        predict_runtimes=True,
+        model_name="ETR",
+        model_params={},
+        random_state=0,
+        verbose=0,
+    )
+    # Loop must have stopped near the predicted-exhaustion point, not run through the whole 200-item space.
+    assert calls["n"] < 50
+
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # API24 / API25 / API26 - get_model + justify_estimator
 # ----------------------------------------------------------------------------------------------------------------------------

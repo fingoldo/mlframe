@@ -81,3 +81,50 @@ def test_generate_modelling_data_labels_in_range_smoke():
             random_state=seed,
         )
         assert y.min() >= 0 and y.max() <= n_classes - 1, f"seed {seed}: label out of range {y.min()}..{y.max()}"
+
+
+def _generate(feature_noise=0.0, timeseries=False, max_cardinality=None, seed=0):
+    fast_dists = {"norm", "uniform", "expon", "laplace", "logistic"}
+    return generate_modelling_data(
+        n_samples=2000,
+        n_classes=3,
+        n_informative=3,
+        n_singly_correlated=2,
+        n_mutually_correlated=1,
+        n_unrelated_single=2,
+        n_unrelated_intercorrelated=0,
+        n_repeated=0,
+        include_distributions=fast_dists,
+        flip_y=0.0,
+        shuffle=False,
+        return_dataframe=False,
+        random_state=seed,
+        feature_noise=feature_noise,
+        timeseries=timeseries,
+        max_cardinality=max_cardinality,
+    )
+
+
+def test_feature_noise_perturbs_correlated_features():
+    """feature_noise=0 vs feature_noise>0 must produce DIFFERENT correlated-feature values (same seed);
+    pre-fix the parameter was accepted but silently ignored (bit-identical output regardless of its value)."""
+    X_clean, _, _ = _generate(feature_noise=0.0)
+    X_noisy, _, _ = _generate(feature_noise=0.5)
+    assert not np.allclose(X_clean, X_noisy), "feature_noise had no effect on generated features"
+
+
+def test_timeseries_drifts_correlated_feature_dependence():
+    """timeseries=True must make correlated features differ from the stationary (timeseries=False) generation."""
+    X_stationary, _, _ = _generate(timeseries=False)
+    X_drifting, _, _ = _generate(timeseries=True)
+    assert not np.allclose(X_stationary, X_drifting), "timeseries=True had no effect on generated features"
+
+
+def test_max_cardinality_bounds_unrelated_single_feature_cardinality():
+    """When max_cardinality is set, unrelated_single feature columns must be discretized to at most that many
+    distinct values (pre-fix the raw continuous/discrete draw's natural, unbounded cardinality was kept)."""
+    X, _, fnames = _generate(max_cardinality=4, seed=1)
+    unrelated_cols = [i for i, n in enumerate(fnames) if n.startswith("unr_")]
+    assert unrelated_cols, "no unrelated_single columns generated"
+    for i in unrelated_cols:
+        assert len(np.unique(X[:, i])) <= 4, f"column {fnames[i]} exceeds max_cardinality=4"
