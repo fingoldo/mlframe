@@ -69,6 +69,7 @@ def _build_csr(n_nodes: int, edges: np.ndarray, weights: np.ndarray | None, dire
 
 
 def _wmean_impl(indptr, indices, data, values, fill):
+    """CSR-graph edge-weighted mean of neighbour ``values`` per node; nodes with zero total edge weight (isolated or all-zero-weight neighbours) keep ``fill``."""
     n = indptr.shape[0] - 1
     out = np.full(n, fill, dtype=np.float64)
     for u in range(n):
@@ -84,6 +85,7 @@ def _wmean_impl(indptr, indices, data, values, fill):
 
 
 def _sum_impl(indptr, indices, values, fill, take_max, take_min):
+    """CSR-graph neighbour aggregate: sum by default, or max/min of neighbour ``values`` when ``take_max``/``take_min`` is set; isolated nodes (no neighbours) keep ``fill``."""
     n = indptr.shape[0] - 1
     out = np.full(n, fill, dtype=np.float64)
     for u in range(n):
@@ -110,6 +112,7 @@ def _sum_impl(indptr, indices, values, fill, take_max, take_min):
 
 
 def _clustering_impl(indptr, indices):
+    """Local clustering coefficient and triangle count per node via sorted-adjacency merge-intersection of each pair of neighbour lists (each node's CSR row is assumed sorted); nodes with degree < 2 get 0 for both."""
     n = indptr.shape[0] - 1
     clus = np.zeros(n, dtype=np.float64)
     tri = np.zeros(n, dtype=np.float64)
@@ -141,6 +144,7 @@ def _clustering_impl(indptr, indices):
 
 
 def _lp_features_impl(indptr, indices, deg, xs, ys):
+    """Link-prediction features for each candidate (x, y) pair: common-neighbour count (via sorted-adjacency merge), Adamic-Adar (sum of 1/log(deg) over shared neighbours), and resource-allocation index (sum of 1/deg over shared neighbours)."""
     m = xs.shape[0]
     cn = np.zeros(m, dtype=np.float64)
     aa = np.zeros(m, dtype=np.float64)

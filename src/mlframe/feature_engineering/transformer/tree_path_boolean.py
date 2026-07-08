@@ -27,6 +27,7 @@ def _extract_top_paths(booster, X_sample: np.ndarray, top_k: int = 8) -> list[li
     leaf_scores: list[float] = []
 
     def _walk(node: dict, conditions: list[tuple[int, float, bool]]):
+        """Recurse down LightGBM's dumped tree structure, accumulating split conditions until a leaf is reached, at which point the accumulated path and its (leaf_value * leaf_count) score are recorded."""
         if "leaf_value" in node:
             leaf_val = abs(float(node["leaf_value"]))
             leaf_cnt = float(node.get("leaf_count", 1))
@@ -73,6 +74,10 @@ def compute_tree_path_boolean_features(
     X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
     n_paths=8, baseline_max_depth=4, standardize=True, column_prefix="tpath", dtype=np.float32,
 ):
+    """Train a shallow LightGBM baseline, extract its top-K highest-impact root->leaf decision paths, and emit them as boolean-conjunction features (plus match count and the baseline's own prediction) for the query rows.
+
+    With ``X_query`` given, fits once on all of ``X_train`` and scores ``X_query`` (Mode B, inference). Without it, requires a ``splitter`` and produces out-of-fold features over ``X_train`` itself (Mode A, training-time FE), refitting per fold so no fold leaks its own rows into its baseline.
+    """
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -86,6 +91,7 @@ def compute_tree_path_boolean_features(
     n_features_out = n_paths + 2
 
     def _process(Xt, Xq, y_t, fold_seed):
+        """Fit the shallow baseline booster on ``(Xt, y_t)`` and emit query-row features for ``Xq``: the top-K path boolean matches, their count, and the booster's own prediction."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -113,6 +119,7 @@ def compute_tree_path_boolean_features(
         return np.column_stack([bool_matrix, n_matched, pred_q])
 
     def _make_df(feats):
+        """Slice the raw ``(n_rows, n_paths+2)`` feature matrix into named, dtype-cast columns for the output frame."""
         cols = {}
         for k in range(n_paths):
             cols[f"{column_prefix}_path{k}"] = feats[:, k].astype(dtype, copy=False)

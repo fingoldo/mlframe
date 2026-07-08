@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    """Fit a small LightGBM baseline (classifier for ``task="binary"``, regressor otherwise) on ``(Xt, y_t)`` and return both its in-sample train predictions and its query predictions."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -84,6 +85,7 @@ def compute_baseline_surprise_features(
     n_features = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the baseline on the (optionally scaled) train fold, compute a "surprise" score per train row (cross-entropy for binary, scaled squared residual for regression), then for each query row aggregate the surprise of its k nearest train neighbors into mean/max/std/high-fraction features plus the baseline's own query prediction."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -116,6 +118,7 @@ def compute_baseline_surprise_features(
         return np.column_stack([mean_surp, max_surp, std_surp, p_query, frac_high])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Slice the ``_process`` output columns into a name-tagged dict (nbr_mean/nbr_max/nbr_std/baseline_pred/frac_high), cast to the requested output dtype."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_nbr_mean"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_nbr_max"] = feats[:, 1].astype(dtype, copy=False)

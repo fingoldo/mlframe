@@ -71,6 +71,7 @@ class ShortlistTransformerAdapter(BaseEstimator, TransformerMixin):
         self.compute_kwargs = compute_kwargs
 
     def fit(self, X, y=None):
+        """Stash the train fold (and target, if the wrapped ``compute_fn`` needs it) for later use in ``transform``."""
         # Stash the train fold ONLY. No query rows are observed here -- the wrapped transformer fits its scaler / bandwidth / class banks against this fold at transform time and applies to whatever frame transform() receives.
         self._X_train_ = _to_2d_numeric(X)
         self._y_train_: np.ndarray | None
@@ -87,6 +88,7 @@ class ShortlistTransformerAdapter(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
+        """Mode B (out-of-sample): apply the wrapped ``compute_fn`` -- fit on the stashed train fold, evaluated on ``X`` as the query set -- auto-detecting the shortlist function's calling convention (supervised kNN-style vs. RFF-style)."""
         import inspect
 
         from sklearn.utils.validation import check_is_fitted
@@ -162,6 +164,7 @@ class ShortlistTransformerAdapter(BaseEstimator, TransformerMixin):
         return self._assemble(X, feats)
 
     def get_feature_names_out(self, input_features=None):
+        """Output column names for the sklearn ``set_output`` contract: the recorded post-transform names once a transform has run, else a fallback to the stashed input column names."""
         # Output column count is only known after a transform (it depends on the wrapped function's feature count). Return the recorded output names once available so sklearn's set_output relabelling matches the transformed width; before any transform, fall back to the stashed input names.
         if getattr(self, "_output_feature_names_", None) is not None:
             return np.asarray(self._output_feature_names_, dtype=object)

@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Temperature-scaled softmax over the last axis, numerically stabilized by subtracting the row max before exponentiating."""
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
@@ -48,6 +49,7 @@ def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
+    """Fit a small LightGBM baseline (classifier for ``task="binary"``, regressor otherwise) on ``(Xt, y_t)`` and return its in-sample predictions, used to rank training rows into prediction bands."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -96,6 +98,7 @@ def compute_prediction_band_attention_features(
     effective_n_bands = n_bands
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the baseline on the (optionally scaled) train fold, bucket training rows into ``effective_n_bands`` prediction-quantile bands, then attention-weight each query row against the band centroids to produce per-band weights, entropy, aggregated y-mean/std/pred and the best-matching band."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -145,6 +148,7 @@ def compute_prediction_band_attention_features(
         return np.column_stack([weights, entropy, agg_y_mean, agg_y_std, agg_pred, best_band])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Slice the ``_process`` output columns into a name-tagged dict of feature columns (per-band weights P1..Pn plus entropy/y_mean/y_std/pred/best_band), cast to the requested output dtype."""
         cols: dict[str, np.ndarray] = {}
         for b in range(effective_n_bands):
             band_tag = f"P{b+1}"  # P1 = lowest predicted, P5 = highest

@@ -54,6 +54,7 @@ def compute_geodesic_kgraph_features(
     n_features_out = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> np.ndarray:
+        """Build a symmetrized kNN graph on the (optionally scaled) train fold, run multi-source Dijkstra from the "target" rows (positive class, or bottom-quintile y for regression) to get each train row's geodesic distance to the target set, then for each query row aggregate its k nearest train neighbors' geodesic distances into mean/max/min/std/median features."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -105,6 +106,7 @@ def compute_geodesic_kgraph_features(
         return np.column_stack([mean_geo, max_geo, min_geo, std_geo, median_geo])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Slice the ``_process`` output columns into a name-tagged dict (mean/max/min/std/median geodesic distance), cast to the requested output dtype."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_mean"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_max"] = feats[:, 1].astype(dtype, copy=False)

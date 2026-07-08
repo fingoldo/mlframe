@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 @numba.njit(cache=True, fastmath=True, parallel=True)
 def _ks_w1_kernel(y_local_sorted: np.ndarray, y_global_sorted: np.ndarray, ks_out: np.ndarray, w1_out: np.ndarray) -> None:
+    """Parallel fused kernel: for each row of pre-sorted local samples, binary-search each sample's rank in the global sorted array to get the KS sup-distance and Wasserstein-1 integral in one pass, writing results into ``ks_out``/``w1_out`` in place."""
     n_q, k = y_local_sorted.shape
     n_g = y_global_sorted.shape[0]
     inv_k = np.float32(1.0) / np.float32(k)
@@ -124,6 +125,7 @@ def compute_ks_shift_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> dict[str, np.ndarray]:
+        """Core per-fold pipeline: scale, find each query row's k nearest train neighbours, then compute standardized mean-shift + log-variance-ratio of their y values vs the global distribution, plus (regression only) local KS/Wasserstein-1 distances against the global y CDF."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -158,6 +160,7 @@ def compute_ks_shift_features(
         return out
 
     def _make_df(feats: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+        """Prefix each ``_process`` output key with ``column_prefix`` and cast to the requested output ``dtype``."""
         return {f"{column_prefix}_{name}": arr.astype(dtype, copy=False) for name, arr in feats.items()}
 
     if X_query is not None:

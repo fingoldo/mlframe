@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def _fit_baseline(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int):
+    """Fit a shallow LightGBM baseline (classifier for ``task="binary"``, else regressor) and return ``(model, is_binary)``."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -67,6 +68,7 @@ def compute_robustness_budget_features(
     n_features = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the baseline on ``(Xt, y_t)``, then for each query row emit its original prediction plus the mean/std/range/flip-rate of ``n_perturbations`` re-predictions under per-feature-scaled Gaussian noise."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -107,6 +109,7 @@ def compute_robustness_budget_features(
         return np.column_stack([pred_orig, pred_mean, pred_std, pred_range, flip_rate])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Slice the raw ``(n_rows, 5)`` feature matrix into named, dtype-cast columns for the output frame."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_pred_orig"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_pred_mean"] = feats[:, 1].astype(dtype, copy=False)

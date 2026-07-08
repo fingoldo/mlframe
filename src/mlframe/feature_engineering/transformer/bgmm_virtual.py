@@ -82,6 +82,7 @@ def _fit_bgmm_and_sample(
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
+    """For each query row, distance to its k-th nearest neighbor in ``X_subset`` at every scale in ``_K_SCALES`` (clipped to the available neighbor count); returns a large sentinel distance (1e6) when ``X_subset`` is empty."""
     from sklearn.neighbors import NearestNeighbors
     n_sub = X_subset.shape[0]
     if n_sub == 0:
@@ -124,6 +125,7 @@ def compute_bgmm_virtual_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split rows into (positive-like, negative-like) subsets: the raw class partition for ``task="binary"``, or the top/bottom ``q_high`` quantile tails of ``y_sub`` for regression."""
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
@@ -132,6 +134,7 @@ def compute_bgmm_virtual_features(
         return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Per-fold feature block: fit a BGM on the positive-like subset, sample synthetic virtual positives, then for each query row compute k-th-neighbor distances to (real+virtual) positives and to negatives, plus the signed log-gap between them (positive gap = query closer to the positive manifold)."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -154,6 +157,7 @@ def compute_bgmm_virtual_features(
         return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Reshape the flat ``_process`` output block into named ``{prefix}_pos_k{k}`` / ``{prefix}_loggap_k{k}`` columns, one pair per ``_K_SCALES`` entry."""
         cols: dict[str, np.ndarray] = {}
         for j, k in enumerate(_K_SCALES):
             cols[f"{column_prefix}_pos_k{k}"] = feats[:, j].astype(dtype, copy=False)

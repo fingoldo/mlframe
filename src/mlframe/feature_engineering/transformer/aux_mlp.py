@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def _fit_aux_mlp(X: np.ndarray, y: np.ndarray, *, task: str, seed: int, hidden_size: int, max_iter: int):
+    """Standardize ``X`` and fit a single-hidden-layer MLP (classifier or regressor per ``task``) with early stopping on an internal validation split; returns ``(fitted model, fitted scaler)``."""
     from sklearn.neural_network import MLPClassifier, MLPRegressor
     from sklearn.preprocessing import StandardScaler
     scaler = StandardScaler().fit(X)
@@ -56,6 +57,7 @@ def _fit_aux_mlp(X: np.ndarray, y: np.ndarray, *, task: str, seed: int, hidden_s
 
 
 def _predict_aux_mlp(model, scaler, X: np.ndarray, task: str) -> tuple[np.ndarray, np.ndarray]:
+    """Score ``X`` with the fitted MLP; for binary tasks returns (clipped probability, logit), for regression returns (prediction, zeros) so the caller always gets a uniform 2-column output shape."""
     X_s = scaler.transform(X)
     if task == "binary":
         proba = model.predict_proba(X_s)[:, 1].astype(np.float32)

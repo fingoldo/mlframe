@@ -84,6 +84,7 @@ def compute_performer_attention_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Core per-fold pipeline: scale, project into Performer random-feature space, aggregate train-side numerator/denominator (linear-attention y estimate), then for each query row compute the kernel-weighted y estimate + its square, a sampled kernel-concentration (max similarity to a 200-row sample), and the log normalizer."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -115,6 +116,7 @@ def compute_performer_attention_features(
         return np.column_stack([y_estimate, y_estimate_sq, kernel_conc, normalizer_log])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the flat ``_process`` output into the 4 named output columns, cast to the requested output ``dtype``."""
         return {
             f"{column_prefix}_y_est": feats[:, 0].astype(dtype, copy=False),
             f"{column_prefix}_y_est_sq": feats[:, 1].astype(dtype, copy=False),

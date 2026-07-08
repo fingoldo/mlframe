@@ -78,6 +78,7 @@ def _density_weighted_smote_synthesize(X_minority: np.ndarray, n_synthetic: int,
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
+    """For each query row, return the distance to its k-th nearest neighbor in ``X_subset`` at every scale in ``_K_SCALES`` (clamped to the available neighbor count), giving a multi-scale local-density signature; empty ``X_subset`` returns a large sentinel distance so density-gap features stay well-defined."""
     from sklearn.neighbors import NearestNeighbors
     n_sub = X_subset.shape[0]
     if n_sub == 0:
@@ -120,6 +121,7 @@ def compute_density_weighted_smote_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split rows into (positive/high-y, negative/low-y) subsets: binary tasks use the {0,1} label directly; regression uses the top/bottom ``q_high``/``1-q_high`` quantile tails as a positive/negative analogue."""
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
@@ -128,6 +130,7 @@ def compute_density_weighted_smote_features(
         return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Synthesize SMOTE points for the positive/high-y class on ``Xt``, then emit query-row features: multi-scale distance to the augmented positive manifold, and the log-ratio gap against distance to the negative/low-y class (a signed local-density-based class-separation signal)."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -148,6 +151,7 @@ def compute_density_weighted_smote_features(
         return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Slice the raw feature matrix into named, dtype-cast columns (per-k positive distance, then per-k log-gap) for the output frame."""
         cols: dict[str, np.ndarray] = {}
         for j, k in enumerate(_K_SCALES):
             cols[f"{column_prefix}_pos_k{k}"] = feats[:, j].astype(dtype, copy=False)

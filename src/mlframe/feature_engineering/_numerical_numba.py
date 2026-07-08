@@ -459,6 +459,7 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
         directional_only: bool = False,
         return_lintrend_approx_stats: bool = True,
     ) -> tuple:  # pragma: no cover
+        """Compiled kernel body: computes mad/std/skew/kurt moments plus over/under linear-trend slopes (optionally weighted, optionally Kahan-compensated per the enclosing factory's ``KAHAN``/fastmath compile-time constants) in one fused pass."""
         slope_over, slope_under = 0.0, 0.0
         mad, std, skew, kurt = 0.0, 0.0, 0.0, 0.0
         # Kahan compensation counters. When KAHAN=False these stay 0.0 and get DCE'd along with

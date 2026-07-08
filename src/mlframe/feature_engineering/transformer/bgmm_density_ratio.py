@@ -97,6 +97,7 @@ def compute_bgmm_density_ratio_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split rows into a (positive, negative) pair: binary uses the label threshold; regression uses the top/bottom ``q_high``/``1 - q_high`` quantile tails as the pseudo-positive/negative classes."""
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
@@ -105,6 +106,7 @@ def compute_bgmm_density_ratio_features(
         return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """For each component-count scale, fit a Bayesian GMM on the positive class and one on the negative class, then emit each query row's log-density under both plus their log-ratio; returns all-zero features when either class has fewer than 2 train rows. Deliberately serial across scales (see the rejected-parallelization note above) since sklearn's EM fit is not thread-count-invariant."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -142,6 +144,7 @@ def compute_bgmm_density_ratio_features(
         return all_feats
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Label the per-scale logp_pos/logp_neg/log_ratio columns with ``column_prefix`` and the component-count tag, casting to the requested output dtype."""
         cols: dict[str, np.ndarray] = {}
         for scale_idx, n_comp in enumerate(component_counts):
             tag = f"K{n_comp}"

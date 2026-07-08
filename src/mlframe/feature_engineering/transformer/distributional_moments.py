@@ -17,6 +17,7 @@ def compute_distributional_moments_features(
     X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
     quantiles: Sequence[float] = _QUANTILES, standardize=True, column_prefix="distmom", dtype=np.float32,
 ):
+    """Fit one small LightGBM per quantile (7 quantile regressors, or 7 reweighted classifiers for binary), then derive skew/kurtosis/tail-asymmetry/tail-mass/median features from the predicted quantile spread per query row."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -30,6 +31,7 @@ def compute_distributional_moments_features(
     n_features_out = 5
 
     def _process(Xt, Xq, y_t, fold_seed):
+        """Per-fold feature block: fit the per-quantile models on the train fold, predict on the query rows, sort each row's predictions to resolve quantile crossing, then compute the skew/kurtosis/tail proxies from the resulting quantile spread."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -71,6 +73,7 @@ def compute_distributional_moments_features(
         return np.column_stack([skew_proxy, kurt_proxy, upper_asym, tail_mass, q50])
 
     def _make_df(feats):
+        """Reshape the flat ``_process`` output block into named ``{prefix}_skew`` / ``_kurt`` / ``_upper_asym`` / ``_tail_mass`` / ``_q50`` columns."""
         cols = {}
         cols[f"{column_prefix}_skew"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_kurt"] = feats[:, 1].astype(dtype, copy=False)

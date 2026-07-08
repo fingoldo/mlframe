@@ -165,6 +165,7 @@ def compute_anchor_attention(
         scaler_full = None
 
     def _build_output(scores_per_row: dict[str, np.ndarray], n_rows: int) -> dict[str, np.ndarray]:
+        """Slice the per-anchor similarity matrix and per-row soft-aggregate scores into a name-tagged output dict (``{prefix}_sim_a{k}`` per anchor, ``{prefix}_{agg}_soft`` per aggregate), cast to the requested output dtype."""
         out: dict[str, np.ndarray] = {}
         sim = scores_per_row["similarity"]  # (n_rows, K)
         for a in range(n_anchors):

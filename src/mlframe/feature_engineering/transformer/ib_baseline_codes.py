@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def _fit_3baselines_two(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int):
+    """Fit 3 diverse baselines (shallow LGB, deeper LGB, linear/logistic) on ``(Xt, y_t)`` and return their predictions on both train and query rows, stacked as ``(n, 3)`` arrays; the linear/logistic baseline falls back to the class prior on fit failure."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -80,6 +81,7 @@ def compute_ib_baseline_codes_features(
     n_features_out = 5
 
     def _process(Xt, Xq, y_t, fold_seed):
+        """Fit the 3 baselines, quantize each to an above/below-median bit and combine into an 8-cell code, then emit per-query the code id, the code's train-set y mean/std, the mean baseline prediction, and the shallow-LGB prediction."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -119,6 +121,7 @@ def compute_ib_baseline_codes_features(
         ])
 
     def _make_df(feats):
+        """Slice the raw ``(n_rows, 5)`` feature matrix into named, dtype-cast columns for the output frame."""
         cols = {}
         cols[f"{column_prefix}_code"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_code_y_mean"] = feats[:, 1].astype(dtype, copy=False)

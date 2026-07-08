@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Temperature-scaled softmax over the last axis, max-subtracted for numerical stability."""
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
@@ -69,6 +70,7 @@ def compute_quantile_band_attention_features(
     effective_n_bands = 2 if task == "binary" else n_bands
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Bin the train fold into y-bands (label split for binary, quantile bands for regression), compute each band's feature centroid and y-mean/std, then attend each query row over the band centroids (negative squared distance as the score) to produce per-band weights, entropy, weighted y-mean/std, and the argmax band."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -113,6 +115,7 @@ def compute_quantile_band_attention_features(
         return np.column_stack([weights, entropy, agg_y_mean, agg_y_std, best_band])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Label the raw band-weight/entropy/agg columns with ``column_prefix`` (band tags are Q1..Qn for regression, pos/neg for binary) and cast to the requested output dtype."""
         cols: dict[str, np.ndarray] = {}
         for b in range(effective_n_bands):
             tag = f"Q{b+1}" if task == "regression" else ("pos" if b == 0 else "neg")

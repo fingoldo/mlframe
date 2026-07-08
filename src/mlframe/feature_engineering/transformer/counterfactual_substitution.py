@@ -57,6 +57,7 @@ def compute_counterfactual_substitution_features(
     n_features_out = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Per-fold feature block: fit a baseline LightGBM, then for every feature j substitute the global train median and re-predict (batched into one stacked ``predict`` call when the perturbation matrix fits under ``_MAX_STACK_ELEMS``, else a per-feature loop) to get the per-feature prediction delta; aggregate into max-abs / signed-sum / L2-norm / top-k-mean / argmax-feature."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -117,6 +118,7 @@ def compute_counterfactual_substitution_features(
         return np.column_stack([max_abs_delta, signed_sum, l2_norm, top_k_abs_mean, argmax_feature])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Reshape the flat ``_process`` output block into named ``{prefix}_max_abs`` / ``_signed_sum`` / ``_l2_norm`` / ``_topk_abs_mean`` / ``_argmax_feat`` columns."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_max_abs"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_signed_sum"] = feats[:, 1].astype(dtype, copy=False)

@@ -56,6 +56,7 @@ def compute_sign_residual_baseline_features(
     n_features_out = 5
 
     def _process(Xt, Xq, y_t, fold_seed):
+        """Fit a baseline mean/probability model, then fit a second classifier to predict the SIGN of the train residual (whether ``y`` under-predicts the baseline); the second model's query-row probability minus 0.5 gives a directional bias signal, plus its absolute value as a magnitude-only feature."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -86,6 +87,7 @@ def compute_sign_residual_baseline_features(
         return np.column_stack([mu_query, p_pos, bias_signal, abs_bias, mu_query])
 
     def _make_df(feats):
+        """Slice the ``_process`` output columns into a name-tagged dict (mu/p_pos_residual/bias_signal/abs_bias/baseline_score), cast to the requested output dtype."""
         cols = {}
         cols[f"{column_prefix}_mu"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_p_pos_residual"] = feats[:, 1].astype(dtype, copy=False)

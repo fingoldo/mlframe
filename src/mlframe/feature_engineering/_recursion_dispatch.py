@@ -49,6 +49,7 @@ _DEFAULT_THRESHOLD = (8, 20_000)
 
 
 def _env_override() -> str | None:
+    """Force the recursion backend via ``MLFRAME_FE_RECURSION_BACKEND=serial|parallel`` (testing / diagnostics escape hatch); returns None to let the size-aware dispatcher decide."""
     forced = os.environ.get("MLFRAME_FE_RECURSION_BACKEND", "").strip().lower()
     if forced in ("serial", "parallel"):
         return forced

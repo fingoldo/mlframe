@@ -49,6 +49,7 @@ def recursion_code_version(kernel_name: str) -> str | None:
 
 
 def _make_data(n_groups: int, rows_per_group: int, seed: int = 0):
+    """Synthesize a group-structured observation series (a random walk with ~2% missing) plus a design matrix, for autotune sweep timing."""
     rng = np.random.default_rng(seed)
     N = n_groups * rows_per_group
     well = np.repeat(np.arange(n_groups), rows_per_group)
@@ -60,15 +61,18 @@ def _make_data(n_groups: int, rows_per_group: int, seed: int = 0):
 
 
 def _time_backend(kernel_name: str, backend: str, obs, X, well) -> float:
+    """Median wall-time (over ``_N_ITERS`` warm runs, after one JIT-warmup call) of the given recursion kernel forced onto ``backend`` ("serial"/"parallel"), used to pick the faster backend per grid point."""
     from . import bayesian
     # Select the backend via the explicit _force_backend arg rather than toggling the process-global
     # MLFRAME_FE_RECURSION_BACKEND env: the old set/del-in-finally globally flipped the backend that any
     # concurrently-running FE caller in another thread would read mid-computation.
     if kernel_name == "fe_bocpd":
         def fn():
+            """Run one bocpd_features call on the fixed synthetic data, forced onto the closed-over backend."""
             return bayesian.bocpd_features(obs, group_ids=well, hazard=1 / 250, _force_backend=backend)
     else:
         def fn():
+            """Run one online_bayesian_linear_regression call on the fixed synthetic data, forced onto the closed-over backend."""
             return bayesian.online_bayesian_linear_regression(obs, X, group_ids=well, _force_backend=backend)
     fn()  # warmup (jit compile)
     ts = []
@@ -125,6 +129,7 @@ def ensure_recursion_tuning(kernel_name: str, *, force: bool = False) -> None:
 
 
 def _cli() -> None:
+    """Command-line entrypoint: force-runs ``ensure_recursion_tuning`` for each requested kernel and logs the result."""
     import argparse
     logging.basicConfig(level=logging.INFO)
     p = argparse.ArgumentParser(description="Auto-tune FE recursion kernels.")

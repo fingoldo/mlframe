@@ -52,6 +52,7 @@ def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
+    """Fit a shallow LGBM baseline on (Xt, y_t) and return its in-sample train predictions (used to rank rows by residual magnitude, not for out-of-sample evaluation)."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -103,6 +104,7 @@ def compute_hard_row_attention_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the baseline, pick the top-``n_hard`` hardest (largest |residual|) train rows as anchors (lexsort-tiebroken by row index for determinism, padded with the last anchor if the fold has fewer rows than ``n_hard``), then attend each query row over the anchors to produce per-anchor weights, entropy, weighted y/residual aggregates, argmax anchor, and nearest-anchor distance."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -150,6 +152,7 @@ def compute_hard_row_attention_features(
         return np.column_stack([weights, entropy, agg_y, agg_abs_resid, agg_signed_resid, best_hard, min_dist])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Label the raw anchor-weight/entropy/aggregate columns with ``column_prefix`` and cast to the requested output dtype."""
         cols: dict[str, np.ndarray] = {}
         for a in range(n_hard):
             cols[f"{column_prefix}_w_h{a}"] = feats[:, a].astype(dtype, copy=False)

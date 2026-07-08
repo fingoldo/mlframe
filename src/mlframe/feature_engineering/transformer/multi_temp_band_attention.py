@@ -35,6 +35,7 @@ _DEFAULT_TEMPS: tuple[float, ...] = (0.3, 1.0, 3.0)
 
 
 def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Numerically-stable temperature-scaled softmax over the last axis (max-subtraction before ``exp``); ``temp`` controls how sharply the output concentrates on the highest-scoring band."""
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
@@ -73,6 +74,7 @@ def compute_multi_temp_band_attention_features(
     features_per_temp = effective_n_bands + 4
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Per-fold feature block: partition train rows into class (binary) or quantile (regression) bands, build per-band X centroids + y-stats, then for each temperature emit softmax band-membership weights + entropy + aggregated y-mean/y-std + argmax band for every query row."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -124,6 +126,7 @@ def compute_multi_temp_band_attention_features(
         return out_blocks
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Reshape the flat ``_process`` output block into named columns (``{prefix}_{temp}_w_{band}`` / ``_entropy`` / ``_y_mean`` / ``_y_std`` / ``_best_band`` per temperature)."""
         cols: dict[str, np.ndarray] = {}
         for ti, t in enumerate(temps_list):
             base = ti * features_per_temp

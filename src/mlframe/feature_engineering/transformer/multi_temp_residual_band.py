@@ -35,6 +35,7 @@ _DEFAULT_TEMPS: tuple[float, ...] = (0.3, 1.0, 3.0)
 
 
 def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
+    """Numerically-stable temperature-scaled softmax over the last axis (max-subtraction before ``exp``); ``temp`` controls how sharply the output concentrates on the highest-scoring band."""
     scaled = scores / max(temp, 1e-9)
     scaled = scaled - scaled.max(axis=-1, keepdims=True)
     e = np.exp(scaled)
@@ -42,6 +43,7 @@ def _softmax(scores: np.ndarray, temp: float) -> np.ndarray:
 
 
 def _fit_baseline_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, n_estimators: int = 50, max_depth: int = 3) -> np.ndarray:
+    """Fit a small (default 50-iter, depth-3) LightGBM baseline on ``(Xt, y_t)`` and return its IN-SAMPLE predictions (predicted probability for ``task="binary"``, else the raw regression prediction) -- the residual bands are computed against these."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -93,6 +95,7 @@ def compute_multi_temp_residual_band_features(
     features_per_temp = effective_n_bands + 4
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Compute the full per-fold feature block: fit the baseline, bin residuals into quintile bands, build per-band centroids/y-stats, then for each temperature in ``temps_list`` emit the softmax band-membership weights + entropy + aggregated y-mean/y-std + argmax band for every query row."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -148,6 +151,7 @@ def compute_multi_temp_residual_band_features(
         return out_blocks
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Reshape the flat ``_process`` output block into named columns (``{prefix}_{temp}_w_R{b}`` / ``_entropy`` / ``_y_mean`` / ``_y_std`` / ``_best_band`` per temperature) for the final DataFrame."""
         cols: dict[str, np.ndarray] = {}
         for ti, t in enumerate(temps_list):
             base = ti * features_per_temp

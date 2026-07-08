@@ -270,6 +270,7 @@ def dfa_alpha(x: np.ndarray) -> float:
 
 @njit(cache=True, fastmath=True, parallel=True)
 def _rolling_dfa_kernel(arr: np.ndarray, K: int, out: np.ndarray) -> None:
+    """Parallel rolling-window wrapper around ``dfa_alpha``: for each position i >= K-1, compute the DFA scaling exponent of the trailing K-length window, writing into ``out`` in place (leading K-1 entries left as-is)."""
     n = arr.size
     for i in prange(K - 1, n):
         out[i] = dfa_alpha(arr[i - K + 1 : i + 1])
@@ -316,6 +317,7 @@ def higuchi_fd(x: np.ndarray, kmax: int = 8) -> float:
 def _rolling_hfd_kernel(
     arr: np.ndarray, K: int, kmax: int, out: np.ndarray,
 ) -> None:
+    """Parallel rolling-window wrapper around ``higuchi_fd``: for each position i >= K-1, compute the Higuchi fractal dimension of the trailing K-length window, writing into ``out`` in place (leading K-1 entries left as-is)."""
     n = arr.size
     for i in prange(K - 1, n):
         out[i] = higuchi_fd(arr[i - K + 1 : i + 1], kmax)
@@ -451,6 +453,7 @@ def multi_scale_hurst(
         return (np.nan,) * 6
 
     def _fit(mask: np.ndarray) -> tuple:
+        """Least-squares fit log10(R/S) ~ log10(window) over the ``mask``-selected scale range, returning (Hurst exponent, intercept-derived constant); NaN pair if fewer than 2 scales fall in the mask."""
         if mask.sum() < 2:
             return (np.nan, np.nan)
         x = np.log10(ws[mask])

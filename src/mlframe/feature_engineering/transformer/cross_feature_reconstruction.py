@@ -20,6 +20,7 @@ def compute_cross_feature_reconstruction_features(
     X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
     n_estimators=30, max_depth=3, standardize=True, column_prefix="xfeat", dtype=np.float32,
 ):
+    """Fit one leave-one-feature-out LightGBM reconstructor per input feature (predicting x_j from all other features), standardize the residuals by their train-set MAD, then emit 5 aggregate outlierness stats over the per-feature z-residuals of each query row. Unsupervised (y is unused). See module docstring for the mechanism rationale."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -32,6 +33,7 @@ def compute_cross_feature_reconstruction_features(
     n_features_out = 5
 
     def _process(Xt, Xq, fold_seed):
+        """Core per-fold pipeline: scale, then for each feature j fit a LightGBM predicting it from the rest, MAD-standardize the reconstruction residual, and aggregate the per-feature z-residuals of each query row into sum-of-squares, max, mean, extreme-count, and log-L2-norm."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -62,6 +64,7 @@ def compute_cross_feature_reconstruction_features(
         return np.column_stack([sum_sq, max_z, mean_abs_z, n_extreme, log_l2])
 
     def _make_df(feats):
+        """Split the flat ``_process`` output into the 5 named output columns, cast to the requested output ``dtype``."""
         cols = {}
         cols[f"{column_prefix}_sum_sq_z"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_max_abs_z"] = feats[:, 1].astype(dtype, copy=False)

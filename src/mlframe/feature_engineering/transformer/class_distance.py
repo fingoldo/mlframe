@@ -136,11 +136,13 @@ def compute_class_distance_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split rows into (positive, negative) banks: binary tasks use the {0,1} label; regression uses the top/bottom ``q_high``/``q_low`` quantile tails."""
         if task == "binary":
             return _binary_class_slices(X_sub, y_sub)
         return _quantile_slices(X_sub, y_sub, q_low=q_low, q_high=q_high)
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Build the positive/negative class banks from ``(Xt, y_t)`` and compute each query row's multi-scale distance to both banks plus the log-gap; returns all-zero features when either bank is too small (<2 rows) to support a kNN query."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -157,6 +159,7 @@ def compute_class_distance_features(
         return _compute_features(Xt_pos, Xt_neg, Xq_s)
 
     def _make_df(pos_d: np.ndarray, neg_d: np.ndarray, log_gap: np.ndarray) -> dict[str, np.ndarray]:
+        """Interleave the pos/neg/log-gap matrices into named, dtype-cast per-k columns for the output frame."""
         cols: dict[str, np.ndarray] = {}
         for j, k in enumerate(_K_SCALES):
             cols[f"{column_prefix}_pos_k{k}"] = pos_d[:, j].astype(dtype, copy=False)

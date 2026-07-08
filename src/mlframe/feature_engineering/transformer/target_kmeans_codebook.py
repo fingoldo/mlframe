@@ -20,6 +20,7 @@ def compute_target_kmeans_codebook_features(
     X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
     n_clusters=20, standardize=True, column_prefix="tkmc", dtype=np.float32,
 ):
+    """Fit a fast LightGBM baseline per train fold, cluster [X, ŷ_baseline] jointly via MiniBatchKMeans, and emit per-query cluster id + cluster y-mean + cluster size + distance-to-nearest-centroid + log-distance-to-3rd-nearest-centroid (5 columns). See module docstring for the mechanism rationale."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -36,6 +37,7 @@ def compute_target_kmeans_codebook_features(
     n_features_out = 5
 
     def _process(Xt, Xq, y_t, fold_seed):
+        """Core per-fold pipeline: scale, fit a small LightGBM baseline to get ŷ, cluster the [X, ŷ*sqrt(d)] joint space (ŷ weighted so it isn't swamped by d feature dims), then compute each query row's cluster stats and centroid distances."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -78,6 +80,7 @@ def compute_target_kmeans_codebook_features(
         return np.column_stack([query_labels.astype(np.float32), agg_y, agg_size, nearest_d, log_d_3rd])
 
     def _make_df(feats):
+        """Split the flat ``_process`` output into the 5 named output columns, cast to the requested output ``dtype``."""
         cols = {}
         cols[f"{column_prefix}_cluster_id"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_cluster_y_mean"] = feats[:, 1].astype(dtype, copy=False)

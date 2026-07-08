@@ -93,6 +93,7 @@ def _cluster_smote_synthesize(X_pos: np.ndarray, n_clusters: int, n_synthetic_to
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
+    """For each query row, distance to its k-th nearest neighbor in ``X_subset`` at each scale in ``_K_SCALES`` (clamped to the available subset size); returns a large sentinel distance (1e6) when ``X_subset`` is empty."""
     from sklearn.neighbors import NearestNeighbors
     n_sub = X_subset.shape[0]
     if n_sub == 0:
@@ -136,6 +137,7 @@ def compute_cluster_smote_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Split ``X_sub`` into (positive, negative) row subsets: label>0.5 vs else for binary tasks, or the top/bottom ``q_high`` quantile tails of ``y_sub`` for regression."""
         if task == "binary":
             pos = y_sub > 0.5
             return X_sub[pos], X_sub[~pos]
@@ -144,6 +146,7 @@ def compute_cluster_smote_features(
         return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Generate cluster-SMOTE synthetic positives from the (optionally scaled) train fold, then for each query row compute its k-th-nearest-neighbor distances to the augmented positive set and to the negative set, plus the log-distance gap between them; returns zeros when either class has fewer than 2 rows."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -165,6 +168,7 @@ def compute_cluster_smote_features(
         return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Slice the ``_process`` output columns into a name-tagged dict: per-k-scale positive distances then per-k-scale log-gap columns, cast to the requested output dtype."""
         cols: dict[str, np.ndarray] = {}
         for j, k in enumerate(_K_SCALES):
             cols[f"{column_prefix}_pos_k{k}"] = feats[:, j].astype(dtype, copy=False)

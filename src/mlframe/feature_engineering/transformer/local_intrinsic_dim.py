@@ -61,6 +61,7 @@ def compute_local_intrinsic_dim_features(
     n_features = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray) -> np.ndarray:
+        """For each query row, build the local k-NN covariance from its neighborhood in ``Xt`` and derive local intrinsic-dimensionality features from its eigenvalue spectrum: participation ratio, top-1/top-2 eigenvalue ratios, spectral entropy, and its exponential (effective dimension)."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -99,6 +100,7 @@ def compute_local_intrinsic_dim_features(
         return out
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Slice the raw ``(n_rows, 5)`` feature matrix into named, dtype-cast columns for the output frame."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_participation_ratio"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_top1_ratio"] = feats[:, 1].astype(dtype, copy=False)

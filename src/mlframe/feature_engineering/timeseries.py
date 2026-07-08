@@ -80,6 +80,7 @@ def _find_next_cumsum_left_index_njit(
     min_samples: int,
     use_abs: bool,
 ) -> Tuple[int, float]:  # pragma: no cover
+    """Numba kernel: walk left from ``right_index`` accumulating (NaN-skipping) cumulative sum until it reaches ``amount`` (or ``|cumsum|`` when ``use_abs``) after at least ``min_samples`` steps; returns ``(0, total)`` when the threshold is never reached."""
     total = 0.0
     if right_index < 0:
         right_index = len(window_var_values)
@@ -121,6 +122,7 @@ def _find_next_cumsum_right_index_njit(
     min_samples: int,
     use_abs: bool,
 ) -> Tuple[int, float]:  # pragma: no cover
+    """Numba kernel: walk right from ``left_index`` accumulating (NaN-skipping) cumulative sum until it reaches ``amount`` (or ``|cumsum|`` when ``use_abs``) after at least ``min_samples`` steps; returns ``(length-1, total)`` when the threshold is never reached."""
     total = 0.0
     length = len(window_var_values)
     if left_index >= length - 1:

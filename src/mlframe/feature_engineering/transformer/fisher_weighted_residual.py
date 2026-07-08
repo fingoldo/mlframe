@@ -58,6 +58,7 @@ def compute_fisher_weighted_residual_features(
     n_features_out = 5
 
     def _gradient_norm(model, X: np.ndarray, is_binary: bool) -> np.ndarray:
+        """Finite-difference L2 norm of the model's prediction gradient per row (a Fisher-information proxy), batching all d per-feature perturbations into one stacked predict call when the stack fits under ``_MAX_STACK_ELEMS``, else falling back to d separate calls; both paths accumulate in the same feature order for bit-identical results."""
         n, d = X.shape
         if is_binary:
             p_base = model.predict_proba(X)[:, 1].astype(np.float32)
@@ -95,6 +96,7 @@ def compute_fisher_weighted_residual_features(
         return np.sqrt(grad_sq_sum) + 1e-9
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the baseline on the (optionally scaled) train fold, compute a residual proxy and Fisher-gradient norm per row, form the Fisher-weighted residual (``|residual| * sqrt(fisher_norm)``), bucket train rows into quantile bands of it, and assign each query row to a band + its aggregated y-mean plus its own Fisher/residual/weighted-residual values."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -165,6 +167,7 @@ def compute_fisher_weighted_residual_features(
         ])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Slice the ``_process`` output columns into a name-tagged dict (band/band_y_mean/fisher_norm/residual_proxy/weighted_residual), cast to the requested output dtype."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_band"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_band_y_mean"] = feats[:, 1].astype(dtype, copy=False)

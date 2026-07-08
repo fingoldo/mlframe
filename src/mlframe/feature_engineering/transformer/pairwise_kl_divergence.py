@@ -23,18 +23,21 @@ logger = logging.getLogger(__name__)
 
 
 def _bernoulli_kl(p: np.ndarray, q: np.ndarray) -> np.ndarray:
+    """Elementwise KL(Bernoulli(p) || Bernoulli(q)), with both probabilities clipped away from 0/1 to avoid log(0)."""
     p_c = np.clip(p, 1e-6, 1 - 1e-6)
     q_c = np.clip(q, 1e-6, 1 - 1e-6)
     return np.asarray(p_c * np.log(p_c / q_c) + (1 - p_c) * np.log((1 - p_c) / (1 - q_c)))
 
 
 def _gaussian_kl(mu_i: np.ndarray, mu_j: np.ndarray, sigma_i: float, sigma_j: float) -> np.ndarray:
+    """Elementwise KL(N(mu_i, sigma_i^2) || N(mu_j, sigma_j^2)), variances tiny-epsilon-floored against zero-residual baselines."""
     var_i = sigma_i**2 + 1e-9
     var_j = sigma_j**2 + 1e-9
     return np.asarray(np.log(sigma_j / sigma_i) + (var_i + (mu_i - mu_j) ** 2) / (2.0 * var_j) - 0.5)
 
 
 def _fit_3baselines_with_sigma(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, task: str, seed: int):
+    """Fit 3 deliberately-diverse baselines (shallow LGBM, deeper LGBM, linear/logistic) on the train fold and return their query-set predictions plus, for regression, each baseline's train-residual sigma (needed by the Gaussian KL)."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -105,6 +108,7 @@ def compute_pairwise_kl_features(
     n_features = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit the 3 baselines on one (fold-local or global) train slice, then compute the 5 pairwise-KL/JS features for the query rows."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -133,6 +137,7 @@ def compute_pairwise_kl_features(
         return np.column_stack([kl12, kl23, kl13, max_kl, js])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Cast the 5 raw feature columns to the requested output dtype and label them with the ``column_prefix``."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_kl_lgbd3_lgbd5"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_kl_lgbd5_linear"] = feats[:, 1].astype(dtype, copy=False)

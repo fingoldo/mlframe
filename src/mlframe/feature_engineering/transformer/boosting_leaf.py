@@ -85,6 +85,7 @@ def compute_boosting_leaf_features(
         task = "binary" if len(unique_y) == 2 else "regression"
 
     def _make_model():
+        """Construct a fresh LGBM classifier or regressor (per resolved ``task``) with the shared hyperparameters, leaf count capped at ``2**max_depth`` (and 63, LightGBM's default ceiling)."""
         if task == "binary":
             return lgb.LGBMClassifier(
                 n_estimators=n_estimators, max_depth=max_depth, learning_rate=learning_rate,

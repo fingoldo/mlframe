@@ -53,6 +53,7 @@ def compute_predictive_info_delta_features(
     n_features_out = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Per-fold feature block: fit a small baseline LightGBM, bin its train predictions into ``n_bins`` quantile buckets with a per-bin conditional entropy H(y|bin), assign query rows to bins, and return the marginal-minus-conditional information delta (H(y) - H(y|bin)) plus the baseline prediction, bin index, conditional entropy, and marginal entropy per query row."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -118,6 +119,7 @@ def compute_predictive_info_delta_features(
         ])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Reshape the flat ``_process`` output block into named ``{prefix}_delta`` / ``_baseline_pred`` / ``_bin`` / ... columns."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_delta"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_baseline_pred"] = feats[:, 1].astype(dtype, copy=False)

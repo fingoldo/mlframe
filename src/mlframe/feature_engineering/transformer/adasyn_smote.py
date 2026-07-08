@@ -78,6 +78,7 @@ def _adasyn_synthesize(X_minority: np.ndarray, X_full: np.ndarray, y_binary_full
 
 
 def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
+    """For each query row, return the distance to its k-th nearest neighbor in ``X_subset`` at every scale in ``_K_SCALES`` (clamped to the available neighbor count); empty ``X_subset`` returns a large sentinel distance so density-gap features stay well-defined."""
     from sklearn.neighbors import NearestNeighbors
     n_sub = X_subset.shape[0]
     if n_sub == 0:
@@ -121,6 +122,7 @@ def compute_adasyn_smote_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _slice_and_binarize(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Split rows into (positive, negative) subsets and a matching 0/1 label array: binary tasks use the {0,1} label directly; regression treats the top ``q_high`` quantile of y as the positive/minority analogue."""
         if task == "binary":
             pos_mask = y_sub > 0.5
             y_binary = pos_mask.astype(np.float32)
@@ -131,6 +133,7 @@ def compute_adasyn_smote_features(
         return X_sub[pos_mask], X_sub[~pos_mask], y_binary
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Generate ADASYN-weighted synthetic minority points on ``Xt``, then emit query-row features: multi-scale distance to the augmented positive manifold and its log-ratio gap against distance to the negative class."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -151,6 +154,7 @@ def compute_adasyn_smote_features(
         return np.asarray(np.concatenate([pos_d, log_gap], axis=1).astype(np.float32))
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Slice the raw feature matrix into named, dtype-cast columns (per-k positive distance, then per-k log-gap) for the output frame."""
         cols: dict[str, np.ndarray] = {}
         for j, k in enumerate(_K_SCALES):
             cols[f"{column_prefix}_pos_k{k}"] = feats[:, j].astype(dtype, copy=False)

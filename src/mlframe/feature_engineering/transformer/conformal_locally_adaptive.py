@@ -21,6 +21,7 @@ def compute_conformal_locally_adaptive_features(
     X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
     k_sigma=16, alphas=(0.1, 0.2), standardize=True, column_prefix="cla", dtype=np.float32,
 ):
+    """Mondrian split-conformal interval-width features: fit a baseline on half the train fold, compute nonconformity scores locally normalized by a kNN-MAD sigma_hat on the other half, and emit the resulting interval half-widths at each alpha plus sigma_hat, the point prediction, and a width ratio."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -36,6 +37,7 @@ def compute_conformal_locally_adaptive_features(
     n_features_out = 5
 
     def _local_sigma(Xt_s, residuals, X_target, k):
+        """kNN-local MAD of residuals: for each row in ``X_target``, find its ``k`` nearest neighbours in ``Xt_s`` and return the median absolute deviation of their residuals (epsilon-floored to avoid a zero denominator)."""
         k_eff = min(k, Xt_s.shape[0])
         nn = NearestNeighbors(n_neighbors=k_eff, n_jobs=-1).fit(Xt_s)
         _, idx = nn.kneighbors(X_target)
@@ -44,6 +46,7 @@ def compute_conformal_locally_adaptive_features(
         return np.median(np.abs(nbr_resid - nbr_med), axis=1).astype(np.float32) + 1e-6
 
     def _process(Xt, Xq, y_t, fold_seed):
+        """Split the train fold in half, fit the baseline on h1, compute locally-normalized nonconformity scores on h2, then derive per-query conformal widths at each alpha, sigma_hat, the point prediction, and their ratio. Returns an all-zero block on a tiny (n<4) train fold since an empty half would otherwise fail the fit / quantile opaquely."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -80,6 +83,7 @@ def compute_conformal_locally_adaptive_features(
         return np.column_stack([widths_q[:, 0], widths_q[:, 1], sigma_q, preds_q, widths_q[:, 0] / (widths_q[:, 1] + 1e-9)])
 
     def _make_df(feats):
+        """Label the 5 raw feature columns with ``column_prefix`` and cast to the requested output dtype."""
         cols = {}
         cols[f"{column_prefix}_width_a01"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_width_a02"] = feats[:, 1].astype(dtype, copy=False)

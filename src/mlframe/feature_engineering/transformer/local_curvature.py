@@ -54,6 +54,7 @@ def compute_local_curvature_features(
     n_features = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> np.ndarray:
+        """For each query row, fit a local linear and a local quadratic regression on its k nearest train neighbours (centred at the query point) and derive: the fitted Hessian's trace and Frobenius norm (curvature magnitude), the residual-sum-of-squares improvement of quadratic over linear (nonlinearity signal), and each fit's intercept (the local point prediction). Falls back to all-zero features on a singular local design matrix."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -118,6 +119,7 @@ def compute_local_curvature_features(
         return out
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Label the 5 raw curvature-feature columns with ``column_prefix`` and cast to the requested output dtype."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_trace_H"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_frob_H"] = feats[:, 1].astype(dtype, copy=False)

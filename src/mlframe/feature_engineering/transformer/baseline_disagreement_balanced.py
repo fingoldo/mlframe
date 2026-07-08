@@ -88,6 +88,7 @@ def compute_baseline_disagreement_balanced_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Core per-fold pipeline: scale, fit 3 balanced baselines (2 LightGBM depths + a linear model) and predict on the query rows, then derive disagreement stats (mean/std/range across the 3, LGBM-pair diff, LGBM-mean-vs-linear diff)."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -106,6 +107,7 @@ def compute_baseline_disagreement_balanced_features(
         return np.column_stack([p1, p2, p3, mean, std, rng, lgb_diff, lgb_vs_linear])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Split the flat ``_process`` output into the named output columns, cast to the requested output ``dtype``."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_p_lgbd3"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_p_lgbd5"] = feats[:, 1].astype(dtype, copy=False)

@@ -107,6 +107,7 @@ def compute_y_quintile_baseline_knn_features(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Stratify the train fold into ``_N_STRATA`` y-bands (quantile bands for regression, baseline-probability bands for binary), then for each stratum compute the mean/std of the in-band baseline predictions among each query row's k nearest in-band neighbours."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -141,6 +142,7 @@ def compute_y_quintile_baseline_knn_features(
         return feats
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Label the per-stratum mean/std columns with ``column_prefix`` and cast to the requested output dtype."""
         cols: dict[str, np.ndarray] = {}
         for q in range(_N_STRATA):
             cols[f"{column_prefix}_q{q}_mean"] = feats[:, q * 2 + 0].astype(dtype, copy=False)

@@ -21,6 +21,7 @@ def compute_multi_threshold_ordinal_features(
     X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
     standardize=True, column_prefix="multthr", dtype=np.float32,
 ):
+    """Multi-threshold ordinal stack: fit K binary LightGBM classifiers (regression quantile thresholds, or binary top-3-importance sub-population splits), then aggregate their per-query probabilities into max/mean/entropy, monotonicity-violation count, and interpolated quantile-rank features."""
     try:
         import lightgbm as lgb
     except ImportError as exc:
@@ -34,6 +35,7 @@ def compute_multi_threshold_ordinal_features(
     n_features_out = 5
 
     def _process(Xt, Xq, y_t, fold_seed):
+        """Fit the per-threshold (or per-sub-population) classifiers on the (optionally scaled) train fold and derive the 5 aggregate query-row features from their predicted probabilities."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -86,6 +88,7 @@ def compute_multi_threshold_ordinal_features(
         return np.column_stack([max_p, mean_p, entropy, n_violations, rank_pred])
 
     def _make_df(feats):
+        """Slice the ``_process`` output columns into a name-tagged dict (max_p/mean_p/entropy/n_violations/rank_pred), cast to the requested output dtype."""
         cols = {}
         cols[f"{column_prefix}_max_p"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_mean_p"] = feats[:, 1].astype(dtype, copy=False)

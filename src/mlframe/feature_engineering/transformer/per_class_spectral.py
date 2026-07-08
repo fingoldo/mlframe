@@ -86,6 +86,7 @@ def compute_per_class_spectral_attention(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> np.ndarray:
+        """Build separate positive-class and negative-class kNN graphs from ``Xt`` and embed each query row into both spectral bases, concatenating the two ``n_eigvecs_per_class``-wide embeddings into one query-row feature block."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)

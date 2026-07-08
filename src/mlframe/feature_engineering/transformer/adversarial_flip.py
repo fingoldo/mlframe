@@ -66,6 +66,7 @@ def compute_adversarial_flip_features(
     n_features_out = 5
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        """Fit a baseline model, then for each query row and feature probe additive perturbations at ±{0.5,1,2}σ to find the smallest scale that flips the prediction (class flip for binary, prediction-shift beyond the train 10th-percentile residual for regression); emits the min/mean/max flip distance across features, the most-fragile feature index, and the fraction of features flippable within 2σ. Batches all perturbation combos into one stacked predict call (bit-identical to per-combo predicts for tree models) when the stack fits within ``_MAX_STACK_ELEMS``, else falls back to a per-combo loop."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
@@ -140,6 +141,7 @@ def compute_adversarial_flip_features(
         return np.column_stack([min_dist, mean_dist, max_dist, argmin_feat, frac_flippable])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        """Label the 5 raw flip-distance feature columns with ``column_prefix`` and cast to the requested output dtype."""
         cols: dict[str, np.ndarray] = {}
         cols[f"{column_prefix}_min_dist"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_mean_dist"] = feats[:, 1].astype(dtype, copy=False)

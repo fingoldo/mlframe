@@ -119,6 +119,7 @@ def compute_quantile_neighbours(
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray) -> np.ndarray:
+        """Core per-fold pipeline: scale, find each query row's k nearest train neighbours, weight them by a distance-softmax (closer => higher weight), then compute the softmax-weighted quantiles of their y values at each grid point in ``quantile_grid``."""
         if standardize:
             from sklearn.preprocessing import RobustScaler
             scaler = RobustScaler().fit(Xt)
