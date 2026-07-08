@@ -1,0 +1,55 @@
+name: MyPy (full)
+
+# Whole-project mypy check, separate from the fast mypy.yml strict-mode beachhead. mypy.yml
+# runs against an isolated uvx sandbox with only numpy/scipy/scikit-learn/pydantic installed
+# (~20s), which is fast but meaningless for files outside the beachhead: their transitive
+# imports (pandas/torch/lightning/numba/pyutilz/...) aren't installed there, so mypy collapses
+# those expressions to Any and reports false "Returning Any" / "Unused type:ignore" noise
+# rather than real errors -- confirmed 2026-07-08 (171 errors in 93 files under the minimal
+# sandbox vs 0-2 real errors under a full install). This job installs the real [all,dev]
+# dependency graph (mirrors ci.yml's `test` job) so mypy has genuine type info everywhere and
+# the result is meaningful for the whole src/mlframe tree, not just the beachhead.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  mypy-full:
+    runs-on: ubuntu-latest
+    # The [all,dev] extras union is a ~5 GB, several-hundred-package graph (torch / mlflow /
+    # lightning / pysr+julia / ...); ci.yml's own comment on the identical install step clocks
+    # it at ~25 min via uv. Budget generously above that plus mypy's own scan time.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Clone & install pyutilz + mlframe[all,dev] in one uv resolution
+        # Mirrors ci.yml's `test` job install step exactly -- see its comment for why uv (not
+        # pip) is required here (pip's backtracking resolver hits resolution-too-deep on this
+        # graph on py3.13/3.14; uv has no depth ceiling and resolves ~10x faster).
+        run: |
+          git clone --depth 1 https://github.com/fingoldo/pyutilz.git
+          uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
+          uv pip install --system mypy==2.1.0
+
+      - name: MyPy (whole project)
+        run: mypy src/mlframe
