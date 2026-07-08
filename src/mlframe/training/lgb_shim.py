@@ -595,12 +595,12 @@ class _DatasetReuseMixin:
         if getattr(self, "n_jobs", None) is None:
             import os as _os
             self.n_jobs = _os.cpu_count() or 1
-        params: dict = self._process_params("fit")
+        params: dict = self._process_params("fit")  # type: ignore[attr-defined]  # provided by the LGBMModel sklearn base this mixin is combined with
         # Wave 14 P1 (re-opened 2026-05-20): same shape as xgb_shim --
         # pre-fix `or 100` silently rewrote n_estimators=0 to 100. lightgbm
         # accepts n_estimators=0 (means untrained booster); the shim
         # silently overrode that.
-        _n_est_raw = self.get_params().get("n_estimators", 100)
+        _n_est_raw = self.get_params().get("n_estimators", 100)  # type: ignore[attr-defined]  # provided by the LGBMModel sklearn base this mixin is combined with
         n_estimators = 100 if _n_est_raw is None else _n_est_raw
 
         # Translate eval_metric -> params["metric"] / feval. String /
@@ -674,7 +674,7 @@ class _DatasetReuseMixin:
             num_boost_round=int(n_estimators),
             valid_sets=valid_sets or None,
             valid_names=valid_names or None,
-            feval=feval,
+            feval=feval,  # type: ignore[arg-type]  # _EvalFunctionWrapper is runtime-callable-compatible; lightgbm stubs don't model wrapper classes
             callbacks=train_callbacks or None,
             init_model=init_model,
         )
@@ -751,7 +751,7 @@ class _DatasetReuseMixin:
         LightGBM requires the predict-time categorical categories to match those seen at fit;
         ``_align_cats_for_predict`` restores them before delegating to the base LGBM predict.
         """
-        return super().predict(self._align_cats_for_predict(X), *args, **kwargs)
+        return super().predict(self._align_cats_for_predict(X), *args, **kwargs)  # type: ignore[misc]  # cooperative mixin: predict provided by the sklearn LGBMModel base at the concrete subclass's MRO
 
 
 # ---------------------------------------------------------------------
@@ -760,7 +760,7 @@ class _DatasetReuseMixin:
 
 if _LGB_AVAILABLE:
 
-    class LGBMClassifierWithDatasetReuse(_DatasetReuseMixin, LGBMClassifier):
+    class LGBMClassifierWithDatasetReuse(_DatasetReuseMixin, LGBMClassifier):  # type: ignore[misc]  # cooperative mixin: _DatasetReuseMixin's fit/_Booster/n_jobs stubs intentionally shadow the sklearn base's
         """LGBMClassifier with cached Dataset across fits.
 
         See module docstring for the full rationale and migration path.
@@ -815,7 +815,7 @@ if _LGB_AVAILABLE:
             delegates to the base LGBMClassifier.predict_proba."""
             return super().predict_proba(self._align_cats_for_predict(X), *args, **kwargs)
 
-    class LGBMRegressorWithDatasetReuse(_DatasetReuseMixin, LGBMRegressor):
+    class LGBMRegressorWithDatasetReuse(_DatasetReuseMixin, LGBMRegressor):  # type: ignore[misc]  # cooperative mixin: _DatasetReuseMixin's fit/_Booster/n_jobs stubs intentionally shadow the sklearn base's
         """LGBMRegressor with cached Dataset across fits.
 
         See module docstring for the full rationale and migration path.
