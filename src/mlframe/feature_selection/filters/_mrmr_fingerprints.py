@@ -219,7 +219,7 @@ def _mrmr_compute_x_fingerprint(X) -> str:
         # Skip cell-sampling for LazyFrame: each column read triggers a full
         # materialisation, the cost dominates the schema-only fingerprint.
         # The schema+dtype repr above is already collision-resistant enough.
-        cell_sample = ()
+        cell_sample: tuple = ()
         try:
             n_sample = min(10, n_rows) if n_rows > 0 else 0
             if n_sample > 0 and hasattr(X, "columns") and not _is_lazy_polars:
@@ -343,7 +343,7 @@ def _target_to_numpy_values(y) -> np.ndarray:
     if hasattr(y, "to_numpy"):
         # Modern path: covers pandas Series/DataFrame and polars Series. Returned array is
         # caller-safe (pandas returns a copy or read-only view; polars converts).
-        return y.to_numpy()
+        return np.asarray(y.to_numpy())
     # ``.values`` fallback exists only for legacy duck-typed targets without ``to_numpy``
     # (custom wrappers around older sklearn arrays). Pandas/polars both flow through
     # the ``to_numpy`` branch above; the fallback can be dropped once legacy callers are gone.
@@ -468,10 +468,10 @@ def _full_x_content_hash(X) -> str:
         # intra-fit second call on the SAME X (id+shape+content all identical) still hits and skips the full hash.
         id_shape = (id(X), sh if sh is not None else (None,), _content_array_signature(arr))
         if _MRMR_LAST_X_HASH_CACHE["id_shape"] == id_shape:
-            return _MRMR_LAST_X_HASH_CACHE["hash"]
+            return str(_MRMR_LAST_X_HASH_CACHE["hash"])
         # blake2b reads the contiguous array via the buffer protocol directly
         # (no .tobytes() copy); bit-identical to hashing tobytes() bytes.
-        h = hashlib.blake2b(np.ascontiguousarray(arr), digest_size=16)
+        h = hashlib.blake2b(np.ascontiguousarray(arr), digest_size=16)  # type: ignore[arg-type]  # ndarray supports the buffer protocol; hashlib's Buffer stub doesn't recognize it
         h.update(str(arr.shape).encode())
         h.update(str(arr.dtype).encode())
         # Fold column names (DataFrame-only) so df vs df.rename produce different keys.
@@ -507,7 +507,7 @@ def _full_y_content_hash(y) -> str:
             arr = np.asarray(arr)
         # ascontiguousarray covers non-contiguous slices; blake2b then reads its
         # buffer directly (no .tobytes() copy), bit-identical to hashing the bytes.
-        h = hashlib.blake2b(np.ascontiguousarray(arr), digest_size=16)
+        h = hashlib.blake2b(np.ascontiguousarray(arr), digest_size=16)  # type: ignore[arg-type]  # ndarray supports the buffer protocol; hashlib's Buffer stub doesn't recognize it
         # Fold shape + dtype so reshape-only changes also bust the key.
         h.update(str(arr.shape).encode())
         h.update(str(arr.dtype).encode())

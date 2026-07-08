@@ -8,7 +8,7 @@ resolves transparently.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
     from ..feature_handling.config import FeatureHandlingConfig
@@ -396,7 +396,7 @@ def train_mlframe_models_suite(
         target_name=target_name,
         model_name=model_name,
         df_size_mb=df_size_mb,
-        verbose=verbose,
+        verbose=bool(verbose),
     )
     # ``del df`` drops the local rebound name so the only remaining strong reference
     # is ``ctx.df``; nulling that lets the GC reclaim the now-unreferenced source frame.
@@ -441,7 +441,7 @@ def train_mlframe_models_suite(
         feature_types_config=feature_types_config,
         preprocessing_extensions=preprocessing_extensions,
         metadata=metadata,
-        verbose=verbose,
+        verbose=bool(verbose),
         # Threaded through so apply_preprocessing_extensions can grab a 1-D
         # regression target for PySR symbolic feature discovery (used to be
         # silently None -> PySR-skip wiring bug). train_idx slices the
@@ -477,7 +477,7 @@ def train_mlframe_models_suite(
         pipeline_config=pipeline_config,
         feature_types_config=feature_types_config,
         metadata=metadata,
-        verbose=verbose,
+        verbose=bool(verbose),
         train_df_pandas_pre_meta=train_df_pandas_pre_meta,
     )
 
@@ -516,6 +516,7 @@ def train_mlframe_models_suite(
     # Propagate split-config random_seed so the default CatBoostEncoder is
     # deterministic across runs. fix audit row FE-P2-5.
     _seed_for_components = getattr(split_config, "random_seed", None) if split_config is not None else None
+    assert preprocessing_config is not None, "_main_train_suite: preprocessing_config must be resolved before pipeline component setup"
     category_encoder, imputer, scaler = _get_pipeline_components(
         preprocessing_config, cat_features, random_seed=_seed_for_components,
     )
@@ -569,13 +570,17 @@ def train_mlframe_models_suite(
         # default=True placeholder, to decide whether the polars-side cat fixes (Utf8 -> Categorical fills) need to be
         # mirrored back into the pandas-side frames before CatBoost Pool construction.
         polars_pipeline_applied=polars_pipeline_applied,
-        needs_polars_pre_clone=(was_polars_input and not pipeline_config.skip_categorical_encoding and pipeline_config.categorical_encoding is not None),
+        needs_polars_pre_clone=(
+            was_polars_input
+            and not (pipeline_config.get("skip_categorical_encoding") if isinstance(pipeline_config, dict) else pipeline_config.skip_categorical_encoding)
+            and (pipeline_config.get("categorical_encoding") if isinstance(pipeline_config, dict) else pipeline_config.categorical_encoding) is not None
+        ),
         mlframe_models=mlframe_models,
-        recurrent_models=recurrent_models,
+        recurrent_models=recurrent_models or [],
         rfecv_models=rfecv_models,
         baseline_rss_mb=baseline_rss_mb,
         df_size_mb=df_size_mb,
-        verbose=verbose,
+        verbose=bool(verbose),
         strategy_by_model=getattr(ctx, "strategy_by_model", None),
     )
     # Store cached sizes on ctx BEFORE the per-target loop so _train_one_target can read them.
@@ -643,7 +648,7 @@ def train_mlframe_models_suite(
             test_idx=test_idx,
             baseline_diagnostics_config=baseline_diagnostics_config,
             cat_features=cat_features,
-            verbose=verbose,
+            verbose=bool(verbose),
             discovery_cache_dir=_discovery_cache_dir,
             group_ids=group_ids,
             split_config=split_config,
@@ -688,8 +693,8 @@ def train_mlframe_models_suite(
     _finalize_and_save_metadata(ctx)
 
     # Maps slugified names back to originals for load_mlframe_suite.
-    slug_to_original_target_type = {}
-    slug_to_original_target_name = {}
+    slug_to_original_target_type: dict[str, Any] = {}
+    slug_to_original_target_name: dict[str, Any] = {}
 
     ctx._all_target_audits = pr.run_temporal_audit_batch(
         behavior_config=behavior_config,

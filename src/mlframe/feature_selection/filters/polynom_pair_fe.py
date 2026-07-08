@@ -132,7 +132,7 @@ def run_polynom_pair_fe(
     # draw, the inner-search subsample REUSES it verbatim instead of drawing its own per-pair slice, so
     # the polynom path scores the SAME rows as the pair-search / sufficiency floor (one draw per fit).
     # ``None`` keeps the legacy per-pair uniform/stratified draw below.
-    shared_subsample_idx: np.ndarray = None,
+    shared_subsample_idx: np.ndarray | None = None,
     # 2026-06-02 CHEAP-FIRST DISPATCH: the expensive CMA/Optuna orthogonal-poly
     # search only earns its cost on pairs whose signal a trivial library
     # unary/binary feature CANNOT already capture (non-monotone inners like
@@ -177,10 +177,9 @@ def run_polynom_pair_fe(
     """
     if not fe_smart_polynom_iters:
         return data, nbins, cols, X
+    pl: Any = None
     if is_polars_input:
         import polars as pl
-    else:
-        pl = None  # noqa: F841
 
     # ``prospective_pairs`` is keyed by ``(raw_vars_pair, _pair_mi)`` composite
     # tuples; the polynom-FE body only needs ``raw_vars_pair`` itself.
@@ -303,7 +302,6 @@ def run_polynom_pair_fe(
                 discrete_target=True,
                 mi_estimator=fe_mi_estimator,
                 plugin_n_bins=20,
-                n_neighbors=None,
             )
             if _t is not None:
                 _trivial_name, _trivial_feat, _trivial_baseline = _t

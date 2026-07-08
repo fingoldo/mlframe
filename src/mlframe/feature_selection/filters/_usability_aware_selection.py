@@ -285,6 +285,7 @@ def build_usability_candidate_pool(
         try:
             from ._usability_pool_resident import score_pair_combos_table_resident
 
+            assert _ub_codes is not None and _bn_codes is not None  # ua/ub/bn are set together at the same tuple-unpack site
             _res_ops = [(_f64(_scrub(X_df[n1].to_numpy())), _f64(_scrub(X_df[n2].to_numpy()))) for n1, n2 in pairs]
             _resident_table = score_pair_combos_table_resident(
                 _res_ops, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
@@ -583,6 +584,7 @@ def usability_greedy(
             ybar = float(ytr.mean())
             yc = ytr - ybar
             if sel_idx:
+                assert Xsel is not None  # Xsel is built from the same sel_idx truthiness check above
                 Str = Xsel[tr]; Sva = Xsel[va]
                 mu = Str.mean(axis=0)
                 Sc_tr = Str - mu
@@ -620,10 +622,10 @@ def usability_greedy(
                     rhs = np.empty(k + 1, dtype=np.float64)
                     rhs[:k] = bs; rhs[k] = bn
                     try:
-                        beta = np.linalg.solve(G, rhs)
+                        beta_vec = np.linalg.solve(G, rhs)
                     except np.linalg.LinAlgError:
                         singular = True; break
-                    pred = ybar + Sc_va @ beta[:k] + cc_va * beta[k]
+                    pred = ybar + Sc_va @ beta_vec[:k] + cc_va * beta_vec[k]
                 errs[fo] = float(np.mean(np.abs(y_cont[va] - pred)))
             if singular:
                 # exact fallback: refit through the standard pipeline for this candidate.

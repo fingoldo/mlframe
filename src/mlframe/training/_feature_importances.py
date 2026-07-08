@@ -392,7 +392,7 @@ def _first_layer_weight_importance(net) -> Optional[np.ndarray]:
         if isinstance(layer, (nn.BatchNorm1d, nn.LayerNorm, nn.Dropout, nn.Identity)):
             continue
         if isinstance(layer, nn.Linear):
-            return layer.weight.detach().abs().cpu().numpy().sum(axis=0).astype(np.float64)
+            return np.asarray(layer.weight.detach().abs().cpu().numpy().sum(axis=0).astype(np.float64))
         if hasattr(layer, "weight"):
             return None  # an unrecognised feature-mixing layer is in front
     return None
@@ -440,7 +440,7 @@ def _captum_integrated_gradients_importance(
     except Exception as exc:
         logger.warning("captum IntegratedGradients failed (%s); skipping.", exc)
         return None
-    return attrs.detach().abs().mean(axis=0).cpu().numpy().astype(np.float64)
+    return np.asarray(attrs.detach().abs().mean(axis=0).cpu().numpy().astype(np.float64))
 
 
 def _collapse_coef(coef: np.ndarray) -> np.ndarray:
@@ -456,7 +456,7 @@ def _collapse_coef(coef: np.ndarray) -> np.ndarray:
         return coef
     if coef.shape[0] == 1:
         return coef[0, :]
-    return np.abs(coef).mean(axis=0)
+    return np.asarray(np.abs(coef).mean(axis=0))
 
 
 def get_model_feature_importances(
@@ -639,16 +639,16 @@ def get_model_feature_importances(
                 # n_features justifies the warmup amortisation.
                 _n_feats = X.shape[1] if hasattr(X, "shape") and len(X.shape) == 2 else None
                 if net is not None and _n_feats is not None and _n_feats >= _CUDA_PERM_MIN_FEATURES:
-                    feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)
+                    feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
                 if feature_importances is None:
-                    feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True)
+                    feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
         elif nn_fi_method == "permutation_cuda" and net is not None and X is not None and y is not None:
-            feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)
+            feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
             if feature_importances is None:
                 logger.info("CUDA-batched FI unavailable; falling back to threading permutation.")
-                feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True)
+                feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
         elif X is not None and y is not None:
-            feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True)
+            feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
 
     if feature_importances is not None:
         feature_importances = np.asarray(feature_importances, dtype=np.float64)
@@ -677,7 +677,7 @@ def plot_model_feature_importances(
     columns: Sequence[str],
     model_name: Optional[str] = None,
     num_factors: int = 15,
-    figsize: Tuple[int, int] = DEFAULT_FI_FIGSIZE,
+    figsize: Tuple[float, float] = DEFAULT_FI_FIGSIZE,
     positive_fi_only: bool = False,
     show_plots: bool = True,
     plot_file: str = "",
@@ -717,14 +717,14 @@ def plot_model_feature_importances(
     """
     feature_importances, feature_importances_std = get_model_feature_importances(
         model=model, columns=columns, X=X, y=y, nn_fi_method=nn_fi_method, return_std=True,
-    )
+    )  # type: ignore[misc]  # return_std=True always returns the tuple form
 
     if feature_importances is not None:
         try:
             plot_feature_importance(
                 feature_importances=feature_importances,
                 columns=columns,
-                kind=model_name,
+                kind=model_name or "",
                 figsize=figsize,
                 plot_file=plot_file,
                 positive_fi_only=positive_fi_only,
