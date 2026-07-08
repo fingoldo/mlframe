@@ -245,7 +245,7 @@ def _join_base_columns(base_column: str, fitted_params: dict[str, Any]) -> str:
     n = fitted_params.get("n_bases")
     if n is None:
         alphas = fitted_params.get("alphas")
-        n = len(alphas) if hasattr(alphas, "__len__") else None
+        n = len(alphas) if alphas is not None and hasattr(alphas, "__len__") else None
     if n and n > 1:
         return f"[{base_column}, ...{int(n) - 1} more]"
     return base_column

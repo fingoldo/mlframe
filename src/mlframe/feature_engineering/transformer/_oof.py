@@ -149,6 +149,7 @@ def kfold_attention_loop(
                 dtype=dtype,
             )
         else:
+            assert projections_global is not None  # projection == "random" is the only path reaching this else, and that branch built projections_global above
             projections = projections_global
 
         # Project both fold subsets with the projection matrices.

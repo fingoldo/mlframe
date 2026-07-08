@@ -305,6 +305,7 @@ class TailCompositeEstimator(BaseEstimator, RegressorMixin):
         if not 0.0 < float(q) < 1.0:
             raise ValueError(f"q must be in (0, 1), got {q!r}")
         if self.gpd_fitted_ and float(q) > self.threshold_cov_:
+            assert self.gpd_shape_ is not None and self.gpd_scale_ is not None  # set together with gpd_fitted_=True
             return gpd_tail_quantile(
                 float(q),
                 self.threshold_,

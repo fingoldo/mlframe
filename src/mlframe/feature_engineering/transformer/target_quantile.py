@@ -146,6 +146,7 @@ def compute_target_quantile_attention(
             c_safe = np.maximum(c_norms, 1e-12)
             return np.asarray((X_anchor / a_safe) @ (centroids / c_safe).T)
         # RBF: exp(-gamma * ||x - c||^2). Vectorise via the identity ||x-c||^2 = ||x||^2 + ||c||^2 - 2 x.c.
+        assert rbf_gamma is not None  # set to a concrete float above whenever similarity == "rbf"
         a_sq = np.einsum("ij,ij->i", X_anchor, X_anchor)
         c_sq = np.einsum("ij,ij->i", centroids, centroids)
         dist_sq = a_sq[:, None] + c_sq[None, :] - 2.0 * (X_anchor @ centroids.T)

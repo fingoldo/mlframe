@@ -152,6 +152,7 @@ def compute_local_linear_attention(
             logger.info("local_linear fold %d done (%d val rows)", fold_idx + 1, len(va_idx))
     else:
         # Mode B: single-pass.
+        assert X_query_s is not None  # out_for_query is True only when X_query (hence X_query_s) is not None
         out = _fit_and_extract(X_query_s, X_train_s, y_train.astype(np.float32, copy=False))
 
     # Column names: intercept, slope per feature, r2.

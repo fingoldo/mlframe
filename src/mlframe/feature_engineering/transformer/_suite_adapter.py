@@ -73,6 +73,7 @@ class ShortlistTransformerAdapter(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
         # Stash the train fold ONLY. No query rows are observed here -- the wrapped transformer fits its scaler / bandwidth / class banks against this fold at transform time and applies to whatever frame transform() receives.
         self._X_train_ = _to_2d_numeric(X)
+        self._y_train_: np.ndarray | None
         if self.needs_y:
             if y is None:
                 raise ValueError(f"{type(self).__name__}: compute_fn requires y_train but fit() got y=None.")

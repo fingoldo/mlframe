@@ -170,7 +170,7 @@ def _gather(estimator: Any, X: Any, y: Any) -> dict[str, Any]:
     return facts
 
 
-def _interval_coverage(estimator: Any, X: Any, y: Any, facts: dict[str, Any]) -> Optional[dict]:
+def _interval_coverage(estimator: Any, X: Any, y: Any, facts: dict[str, Any]) -> Optional[list[dict]]:
     """Empirical coverage + mean width for each calibrated conformal / CQR level."""
     y_true = np.asarray(y, dtype=np.float64).reshape(-1)
     out: list[dict[str, Any]] = []

@@ -308,7 +308,7 @@ class CompositeQuantileEstimator(BaseEstimator, RegressorMixin):
         return self
 
     def predict_quantile(
-        self, X: Any, quantiles: Sequence[float] | None = None,
+        self, X: Any, quantiles: Sequence[float] | np.ndarray | None = None,
     ) -> np.ndarray:
         """Predict the y-scale quantiles; return an ``(n, n_q)`` matrix.
 

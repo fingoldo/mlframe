@@ -20,9 +20,9 @@ import pandas as pd
 from . import _is_polars_df
 
 try:
-    import polars as pl
+    import polars as pl  # type: ignore
 except ImportError:  # pragma: no cover - polars optional
-    pl = None
+    pl = None  # type: ignore
 
 
 def _subset_rows(X: Any, mask: np.ndarray) -> Any:

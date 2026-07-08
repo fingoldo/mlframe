@@ -24,10 +24,10 @@ from ._estimator_helpers import (  # noqa: E402,F401
 )
 
 try:
-    import polars as pl
+    import polars as pl  # type: ignore
     _HAS_POLARS = True
 except ImportError:
-    pl = None
+    pl = None  # type: ignore
     _HAS_POLARS = False
 
 # Parent helpers needed by CompositeTargetEstimator's methods. The parent's
@@ -225,7 +225,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         from . import _predict as _pred
         return _pred.predict(self, X)
 
-    def predict_quantile(self, X: Any, alpha: "float | Sequence[float]" = 0.5) -> "np.ndarray":
+    def predict_quantile(self, X: Any, alpha: "float | Sequence[float] | np.ndarray" = 0.5) -> "np.ndarray":
         """y-scale quantile prediction by inverting the inner's T-scale quantile. See ``_composite_target_estimator_predict.predict_quantile``."""
         from . import _predict as _pred
         return _pred.predict_quantile(self, X, alpha)

@@ -123,7 +123,7 @@ class RegionAdaptiveSpec:
         return out
 
 
-def assign_regions(base: np.ndarray, edges: Sequence[float]) -> np.ndarray:
+def assign_regions(base: np.ndarray, edges: Sequence[float] | np.ndarray) -> np.ndarray:
     """Route each ``base`` value to a region index in ``[0, len(edges)]``.
 
     Uses the frozen interior quantile ``edges`` (train-fitted). ``searchsorted``
