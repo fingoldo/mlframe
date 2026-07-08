@@ -65,7 +65,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Iterable, Optional, Sequence
+from typing import Any, Iterable, Optional, Sequence
 
 import numpy as np
 
@@ -256,7 +256,7 @@ def drop_redundant_raw_operands(
         except Exception:
             _gate_resident = False
 
-    def _dev_from_cont(_vals) -> "object | None":
+    def _dev_from_cont(_vals) -> Any:
         """RESIDENT int64 codes from CONTINUOUS values via the device equi-frequency binner (identical
         partition to ``_quantile_bin``), or ``None`` when residency is off / the column is non-finite / cupy
         faults -- the caller then keeps the host ``_quantile_bin`` codes."""
@@ -271,7 +271,7 @@ def drop_redundant_raw_operands(
         except Exception:
             return None
 
-    def _dev_from_codes(_codes) -> "object | None":
+    def _dev_from_codes(_codes) -> Any:
         """RESIDENT int64 codes for an ALREADY-BINNED host int column (the lossy ``data`` screening codes),
         uploaded ONCE and kept resident so the scored candidate's device sites read it without re-crossing
         H2D. Routed through the content-keyed resident cache (``cmi_cand_x``), so the SAME content the gate /
@@ -500,11 +500,11 @@ def drop_redundant_raw_operands(
         _rb_dev = _raw_dev(_rname, _ridx)  # RESIDENT candidate code (scored marginal) -> no re-upload; host otherwise
         _res = _excess_and_floor(_rb_dev if _rb_dev is not None else _rb, y_arr, None, seed=seed, kx=(int(_rb.max()) + 1 if getattr(_rb, "size", 0) else 1))
         _raw_marg_cache[_rname] = _res
-        return _res
+        return _res  # type: ignore[no-any-return]  # _excess_and_floor returns a tuple; its own annotation is loose (Any-heavy internals)
 
     def _raw_is_signal_bearing(_rname: str) -> bool:
         _mcmi, _mfloor, _mexc = _raw_marginal(_rname)
-        return _mcmi > _mfloor and _mexc > 0.0
+        return bool(_mcmi > _mfloor and _mexc > 0.0)
 
     # raw_name -> list of engineered survivor names that consume it (parsed earlier
     # as ``eng_consumers``). Build the set of distinct SIGNAL-BEARING raw parents of
@@ -544,7 +544,7 @@ def drop_redundant_raw_operands(
     # parse / replay falls back to the fused composite bin (the KEEP direction).
     _recipes = recipes or {}
     # (rname, ei) -> binned clean sub-expression conditioning column (or None).
-    _clean_subexpr_bin: dict[tuple, Optional[np.ndarray]] = {}
+    _clean_subexpr_bin: dict[tuple, np.ndarray] = {}
     # (rname, ei) -> RESIDENT (device) twin of the clean sub-expression code (None where host-binned), so a
     # conditioning support that uses the clean sub-expression can still be built DEVICE-BORN.
     _clean_subexpr_bin_dev: dict = {}
@@ -746,9 +746,9 @@ def drop_redundant_raw_operands(
                     cmi, floor, excess = _cmi_f, _floor_f, _excess_f
         _sibling_names: list = []
         for ei in consumers:
-            for _sp in _eng_signal_parents.get(ei, set()) - {rname}:
-                if _sp not in _sibling_names:
-                    _sibling_names.append(_sp)
+            for _sib in _eng_signal_parents.get(ei, set()) - {rname}:
+                if _sib not in _sibling_names:
+                    _sibling_names.append(_sib)
         if _sibling_names and excess > 0.0:  # same selection-exact short-circuit: excess already 0 -> no update possible
             _sibling_names.sort(key=lambda nm: -_raw_marginal(nm)[2])
             _budget = max(1, n_rows // _SUPPORT_FRAG_DIVISOR)
@@ -964,6 +964,7 @@ def drop_redundant_raw_operands(
         and _os.environ.get("MLFRAME_FE_DROP_NO_HARM", "1").strip().lower() in ("1", "true", "on", "yes")
     )
     if _guard_on:
+        assert _yv is not None  # _guard_on requires _yv is not None
         try:
             def _cont_of(i):
                 nm = cols[i]
