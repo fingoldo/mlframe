@@ -70,7 +70,7 @@ def _apply_method_nonlinear(Z: np.ndarray, method: str) -> np.ndarray:
         sign carried so cancellation across opposite-sign members works.
     """
     if method in ("median", "median_z"):
-        return np.median(Z, axis=1)
+        return np.asarray(np.median(Z, axis=1))
     if method == "signed_max_abs":
         abs_Z = np.abs(Z)
         idx = np.argmax(abs_Z, axis=1)
@@ -78,9 +78,9 @@ def _apply_method_nonlinear(Z: np.ndarray, method: str) -> np.ndarray:
         signs_row = np.sign(Z[rows, idx])
         # 0 sign collapses to +1 to avoid zeroing a max-abs of an exactly-zero row.
         signs_row = np.where(signs_row == 0.0, 1.0, signs_row)
-        return signs_row * abs_Z[rows, idx]
+        return np.asarray(signs_row * abs_Z[rows, idx])
     if method == "signed_l2_sum":
-        return np.sum(np.sign(Z) * (Z**2), axis=1)
+        return np.asarray(np.sum(np.sign(Z) * (Z**2), axis=1))
     raise ValueError(f"unknown non-linear cluster-aggregate method {method!r}")
 
 
@@ -155,7 +155,7 @@ def _svd_flip_pc1(Z: np.ndarray, svd_cache: dict | None = None) -> np.ndarray:
     _Zc, vt = _svd_compute(Z, svd_cache)
     v = vt[0]
     v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
-    return v
+    return np.asarray(v)
 
 
 def _svd_flip_pcN(Z: np.ndarray, idx: int, svd_cache: dict | None = None) -> np.ndarray:
@@ -172,7 +172,7 @@ def _svd_flip_pcN(Z: np.ndarray, idx: int, svd_cache: dict | None = None) -> np.
         idx = 0
     v = vt[idx]
     v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
-    return v
+    return np.asarray(v)
 
 
 def _pc1_communalities(Z: np.ndarray, svd_cache: dict | None = None) -> np.ndarray:
@@ -192,7 +192,7 @@ def _pc1_communalities(Z: np.ndarray, svd_cache: dict | None = None) -> np.ndarr
     """
     Zc, vt = _svd_compute(Z, svd_cache)
     if svd_cache is not None and "comm" in svd_cache:
-        return svd_cache["comm"]
+        return np.asarray(svd_cache["comm"])
     v = vt[0]
     v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
     score = Zc @ v
@@ -516,6 +516,8 @@ def run_cluster_aggregate_step(
             if best is None or agg_mi > best[0]:
                 best = (agg_mi, recipe, binned, method)
 
+        if best is None:
+            raise ValueError("_cluster_aggregate: methods must be a non-empty sequence")
         agg_mi, recipe, binned, method = best
         # Gate: the denoised aggregate must STRICTLY out-score the best single member (denoising claim).
         # 2026-06-03 (audit cluster-aggregate-9): reject on a TIE (``<=``), not
