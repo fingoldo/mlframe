@@ -126,7 +126,7 @@ def _als_solve_gpu(cp, A, b):
         return coef
 
 
-def _als_sweep_gpu(cp, Ba, Bb, yc, iters):
+def _als_sweep_gpu(cp, Ba, Bb, yc, iters) -> tuple:
     """Resident alternating sweep shared by both entry points. ``Ba``/``Bb``/``yc``
     are resident; returns the two host coefficient vectors (or ``(None, None)``)."""
     # Initialise g(b) from a plain 1-D least-squares fit on the b-basis (resident).

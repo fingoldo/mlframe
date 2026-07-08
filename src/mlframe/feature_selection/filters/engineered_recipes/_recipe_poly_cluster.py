@@ -65,12 +65,12 @@ def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         basis_info["apply"](vals_b, dict(recipe.extra["preprocess_b"])),
         dtype=np.float64,
     )
-    eval_dispatch = basis_info["eval_dispatch"]
+    eval_dispatch: Any = basis_info["eval_dispatch"]
     coef_a = np.ascontiguousarray(recipe.extra["coef_a"], dtype=np.float64)
     coef_b = np.ascontiguousarray(recipe.extra["coef_b"], dtype=np.float64)
     h_a = eval_dispatch(z_a, coef_a)
     h_b = eval_dispatch(z_b, coef_b)
-    bin_func = _DEFAULT_BIN_FUNCS[bin_func_name]
+    bin_func: Any = _DEFAULT_BIN_FUNCS[bin_func_name]
     return np.asarray(bin_func(h_a, h_b), dtype=np.float64).reshape(-1)
 
 
@@ -204,7 +204,7 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     # no quantile recomputation left to drift. ``recipe.quantization`` is kept for
     # provenance only; the downstream MRMR fit discretises the fit-time column for its
     # own MI matrix via ``_mrmr_fe_step`` (a separate path, unaffected).
-    return out
+    return np.asarray(out)
 
 
 def _apply_target_encoding(recipe: EngineeredRecipe, X: Any) -> np.ndarray:

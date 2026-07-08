@@ -79,7 +79,7 @@ def _apply_factorize(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             f"Set unknown_strategy='clip' or 'sentinel' to handle these "
             f"silently."
         )
-    return out
+    return np.asarray(out)
 
 
 def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
@@ -164,4 +164,4 @@ def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             f"have combinations not seen during fit. Set "
             f"unknown_strategy='clip' or 'sentinel' to handle silently."
         )
-    return running
+    return np.asarray(running)

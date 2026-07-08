@@ -28,7 +28,7 @@ def _extract_column(X: Any, name: str) -> np.ndarray:
     """Pull a single column from X by name as a 1-D ndarray, no full-frame copy. Supports pandas / polars DataFrame and numpy structured arrays."""
     if pd is not None and isinstance(X, pd.DataFrame):
         # ``.values`` is zero-copy for numeric dtypes; categorical/object materialises only the single column.
-        return X[name].to_numpy() if hasattr(X[name], "to_numpy") else X[name].values
+        return np.asarray(X[name].to_numpy() if hasattr(X[name], "to_numpy") else X[name].values)
     if pl is not None and isinstance(X, pl.DataFrame):
         return X[name].to_numpy()
     if isinstance(X, np.ndarray):
@@ -192,7 +192,7 @@ def _coerce_to_int_with_nan_handling(
         # Round to nearest before the int cast: a raw-integer ordinal source can arrive as float at replay (int->float
         # round-trip -- a NaN elsewhere promoted the column, a Parquet reload), and a bare astype(int64) truncates
         # toward zero (a fit-time code 3 that round-trips to 2.9999 would become 2), mismatching the fit assignment.
-        return np.rint(vals).astype(np.int64, copy=False)
+        return np.asarray(np.rint(vals).astype(np.int64, copy=False))
     if np.issubdtype(vals.dtype, np.integer):
         return vals.astype(np.int64, copy=False)
     # Object / categorical / string -- try int conversion
