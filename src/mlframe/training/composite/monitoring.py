@@ -218,7 +218,7 @@ class CompositeDriftMonitor:
         fp = self.estimator.fitted_params_
         existing = fp.get("_drift_sketch")
         if existing is not None:
-            return existing
+            return dict(existing)
         if reference is None:
             raise ValueError(
                 "CompositeDriftMonitor: the estimator carries no stored drift "

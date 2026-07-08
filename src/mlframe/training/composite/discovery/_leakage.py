@@ -91,7 +91,7 @@ def _abs_spearman(y: np.ndarray, base: np.ndarray) -> float:
     vb = float(np.dot(rb, rb))
     if vy <= 0.0 or vb <= 0.0:
         return 0.0
-    return abs(float(np.dot(ry, rb)) / np.sqrt(vy * vb))
+    return float(abs(float(np.dot(ry, rb)) / np.sqrt(vy * vb)))
 
 
 def _monotone_residual_frac(y: np.ndarray, base: np.ndarray) -> float:

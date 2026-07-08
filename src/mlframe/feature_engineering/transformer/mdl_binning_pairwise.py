@@ -98,7 +98,7 @@ def _best_mdl_split_kernel(y_sorted, x_sorted, n_classes, min_size):
 def _entropy_binary(p: float) -> float:
     if p <= 0 or p >= 1:
         return 0.0
-    return -p * np.log2(p) - (1 - p) * np.log2(1 - p)
+    return float(-p * np.log2(p) - (1 - p) * np.log2(1 - p))
 
 
 def _entropy_multi(y_subset: np.ndarray, n_classes: int) -> float:

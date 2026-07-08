@@ -181,7 +181,7 @@ def _align_group_labels(group_ids: Any, train_idx: np.ndarray) -> np.ndarray | N
     if g.shape[0] == n:
         return g
     try:
-        return g[train_idx]
+        return np.asarray(g[train_idx])
     except (IndexError, TypeError):
         return None
 
@@ -348,7 +348,7 @@ def stability_select_specs(
     for i in range(n_replicates):
         rng = np.random.default_rng(seed_seqs[i])
         if use_group:
-            sub_idx = _subsample_groups(train_idx, group_labels, frac, rng)
+            sub_idx = _subsample_groups(train_idx, group_labels, frac, rng)  # type: ignore[arg-type]  # group_labels is not None per use_group guard, mypy can't narrow the bool flag
         else:
             sub_idx = _subsample_indices(train_idx, frac, rng)
         try:

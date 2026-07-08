@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 def _auto_base(
-    self,
+    self: "CompositeTargetDiscovery",  # noqa: F821 -- forward ref to parent class
     df: Any,
     usable_features: Sequence[str],
     y_train: np.ndarray,

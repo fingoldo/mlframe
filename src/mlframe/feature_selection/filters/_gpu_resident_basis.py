@@ -987,7 +987,7 @@ def _run_fe_gpu_pairs_mi_sweep() -> list:
     def _gpu(cand, nbins, yc, fy):
         return gpu_pairs_fe_mi(cand, nbins, yc, yc, fy, 3, 0.0, False)
 
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         {"cpu": _cpu, "gpu": _gpu},
         {"n_rows": [50_000, 100_000, 300_000]},  # GPU path engages only at n >= analytic_null_min_n
         _make_fe_gpu_pairs_inputs,
@@ -997,7 +997,7 @@ def _run_fe_gpu_pairs_mi_sweep() -> list:
 
 def _fe_gpu_pairs_mi_code_version():
     try:
-        from ._gpu_resident_select import _gpu_resident_discretize_codes, gpu_discretize_codes_host  # lazy: cross-sibling
+        from ._gpu_resident_select import _gpu_resident_discretize_codes, gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
         return compute_code_version(gpu_pairs_fe_mi, gpu_discretize_codes_host, _gpu_resident_discretize_codes)
     except Exception:
@@ -1103,7 +1103,7 @@ def _run_fe_gpu_binning_sweep() -> list:
         return []
     from pyutilz.dev.benchmarking import sweep_backend_grid
     from .discretization import discretize_2d_quantile_batch
-    from ._gpu_resident_select import gpu_discretize_codes_host
+    from ._gpu_resident_select import gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals()
 
     def _cpu(cand, nbins):
         return discretize_2d_quantile_batch(cand, n_bins=nbins, dtype=np.int8, assume_finite=True)
@@ -1111,7 +1111,7 @@ def _run_fe_gpu_binning_sweep() -> list:
     def _gpu(cand, nbins):
         return gpu_discretize_codes_host(cand, nbins, dtype=np.int8)
 
-    return sweep_backend_grid(
+    return sweep_backend_grid(  # type: ignore[no-any-return]  # pyutilz helper returns the declared list of results
         {"cpu": _cpu, "gpu": _gpu},
         {"n_rows": [20_000, 50_000, 100_000, 300_000]},
         _make_fe_gpu_binning_inputs,
@@ -1121,7 +1121,7 @@ def _run_fe_gpu_binning_sweep() -> list:
 
 def _fe_gpu_binning_code_version():
     try:
-        from ._gpu_resident_select import _gpu_resident_discretize_codes, gpu_discretize_codes_host  # lazy: cross-sibling
+        from ._gpu_resident_select import _gpu_resident_discretize_codes, gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
         return compute_code_version(gpu_discretize_codes_host, _gpu_resident_discretize_codes)
     except Exception:
@@ -1160,7 +1160,7 @@ def ensure_fe_gpu_binning_tuning(force: bool = False) -> list | None:
         if not force:
             existing = cache.get_regions("fe_gpu_binning")
             if existing:
-                return existing
+                return existing  # type: ignore[no-any-return]  # cache stores the list[dict] regions this function returns
         regions = _run_fe_gpu_binning_sweep()
         if regions:
             cache.update("fe_gpu_binning", axes=["n_rows"], regions=regions, code_version=_fe_gpu_binning_code_version())
@@ -1211,7 +1211,7 @@ def grand_fused_pair_mi(
 
     import cupy as cp
 
-    from ._gpu_resident_select import _gpu_resident_discretize_codes  # lazy: cross-sibling, avoids cycle
+    from ._gpu_resident_select import _gpu_resident_discretize_codes  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling, avoids cycle
     from . import hermite_fe as _hf  # noqa: F401 -- full-init parent before the GPU MI import cycle
     from .batch_mi_noise_gate_gpu import dispatch_batch_mi_with_noise_gate_gpu
 

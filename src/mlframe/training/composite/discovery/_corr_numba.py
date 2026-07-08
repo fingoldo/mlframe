@@ -127,7 +127,7 @@ def _safe_corr_single(y_dev: np.ndarray, var_y: float, col: np.ndarray) -> float
     if var_x < _VAR_FLOOR:
         return 0.0
     cov = float(np.dot(x_dev, y_dev))
-    return abs(cov / np.sqrt(var_y * var_x))
+    return float(abs(cov / np.sqrt(var_y * var_x)))
 
 
 def safe_abs_corr_all_dispatch(

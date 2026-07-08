@@ -123,7 +123,7 @@ def _monotone_fraction(col: np.ndarray) -> float:
     if nonzero.size == 0:
         return 0.0
     pos = float((nonzero > 0).sum())
-    return max(pos, nonzero.size - pos) / nonzero.size
+    return float(max(pos, nonzero.size - pos) / nonzero.size)
 
 
 def structural_affinity_scores(

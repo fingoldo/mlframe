@@ -138,6 +138,13 @@ class CompositeTargetDiscovery:
     _tiny_rerank_scores: dict[str, float]
     _auto_chains_diag: list
     _alpha_drift_flags: dict[str, dict[str, float]]
+    train_idx_: np.ndarray
+    val_idx_: np.ndarray | None
+    test_idx_: np.ndarray | None
+    elapsed_seconds_: float
+    _df_ref: Any
+    _screen_time_ordered_: bool
+    _fit_data_signature: str
 
     def __init__(self, config: Any) -> None:
         if isinstance(config, dict):
@@ -169,14 +176,13 @@ class CompositeTargetDiscovery:
     # ``fit`` and the private helpers below are implemented in sibling modules and bound onto this
     # class at the bottom of this module (see the assignments after the class body); declared here
     # as Callable attributes so mypy resolves calls to them without duplicating their signatures.
-    fit: Callable[..., Any]
+    fit: Callable[..., "CompositeTargetDiscovery"]
     fit_stacked: Callable[..., Any]
     fit_stacked_on_residual: Callable[..., Any]
     _tiny_model_rerank: Callable[..., Any]
-    _auto_base: Callable[..., Any]
+    _auto_base: Callable[..., list[str]]
     _filter_features: Callable[..., Any]
     _target_col: str
-    _auto_base_pool: dict
 
     def iter_transform(self, df: Any) -> Iterator[tuple[str, np.ndarray]]:
         """Yield ``(spec_name, T_values)`` per discovered spec, applied
@@ -212,7 +218,7 @@ class CompositeTargetDiscovery:
                 base_full = np.column_stack([_extract_column_array(df, c) for c in (spec.base_column, *extra)])
             else:
                 base_full = _extract_column_array(df, spec.base_column)
-            valid = transform.domain_check(y_full, base_full)
+            valid = transform.domain_check(y_full, base_full)  # type: ignore[arg-type]  # base_full is None only when requires_base=False, whose domain_check tolerates it
             t = np.full(y_full.shape[0], np.nan, dtype=np.float64)
             if valid.any():
                 # Unary specs have ``base_full is None`` (the transform ignores
