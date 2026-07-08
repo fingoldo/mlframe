@@ -17,7 +17,7 @@ import logging
 import psutil
 import warnings
 from collections import OrderedDict
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -3053,11 +3053,11 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                     "when/where materialisation happens.",
                     UserWarning, stacklevel=2,
                 )
-                X = X.collect()
+                X = X.collect()  # type: ignore[union-attr]
             if type(X).__name__ == "DataFrame":
                 try:
                     import polars as _pl
-                    _struct_cols = [c for c, dt in zip(X.columns, X.dtypes) if dt == _pl.Struct]
+                    _struct_cols = [c for c, dt in zip(X.columns, X.dtypes) if dt == _pl.Struct]  # type: ignore[union-attr]
                 except Exception as exc:
                     logger.debug("mrmr: polars Struct-column detection failed; assuming none: %r", exc, exc_info=True)
                     _struct_cols = []
@@ -3087,10 +3087,10 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 try:
                     from mlframe.training.utils import get_pandas_view_of_polars_df
 
-                    _src = X.collect() if type(X).__name__ == "LazyFrame" else X
-                    X = get_pandas_view_of_polars_df(_src)
+                    _src = X.collect() if type(X).__name__ == "LazyFrame" else X  # type: ignore[union-attr]
+                    X = get_pandas_view_of_polars_df(_src)  # type: ignore[arg-type]
                     if str(type(y).__module__).startswith("polars"):
-                        y = y.to_pandas()
+                        y = y.to_pandas()  # type: ignore[union-attr]
                 except Exception as _pl_exc:  # fall through to the native path on any bridge failure
                     warnings.warn(
                         f"MRMR.fit: polars->pandas FE bridge failed ({_pl_exc!r}); proceeding on the "
@@ -3180,9 +3180,9 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # cross-suite reuse (CI matrices opt in via mrmr_identity_cache_scope="process").
         # Entries are legacy bool OR (is_id, prior_y_sample) tuples (see the store below); the module-level
         # dict is declared dict[str, bool] for its legacy shape, so widen the local view to match actual usage.
-        _cache_dict: dict = getattr(self, "_mlframe_identity_cache_override_", None)
+        _cache_dict: Optional[dict] = getattr(self, "_mlframe_identity_cache_override_", None)
         if _cache_dict is None:
-            _cache_dict = _MRMR_IDENTITY_FP_CACHE
+            _cache_dict = cast(dict, _MRMR_IDENTITY_FP_CACHE)
         _x_fp = None
         if _identity_skip:
             _x_fp = _mrmr_compute_x_fingerprint(X)

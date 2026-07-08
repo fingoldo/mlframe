@@ -86,3 +86,20 @@ def test_mrmr_fit_nonuniform_sample_weight_runs_without_error():
     assert len(sel.support_) >= 1
     assert getattr(sel, "_fit_sample_weight_", None) is not None
     assert sel._fit_sample_weight_.shape == (n,)
+
+
+def test_mrmr_fit_nonuniform_sample_weight_runs_without_error_on_polars_input():
+    """Regression sensor: the resample branch's polars row-select used ``.take()``, which polars removed
+    (replaced by ``__getitem__``/``.gather()``); a non-uniform weight on a polars X crashed with
+    ``AttributeError: 'DataFrame' object has no attribute 'take'`` before the fix in
+    ``_MRMRFitHelpersMixin._maybe_resample_for_sample_weight``."""
+    pl = pytest.importorskip("polars")
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    df, y = _toy_dataset()
+    n = len(df)
+    pl_df = pl.from_pandas(df)
+    rng = np.random.default_rng(0)
+    sw = rng.uniform(0.1, 2.0, size=n)
+    sel = MRMR(verbose=0, random_seed=42, max_runtime_mins=0.5).fit(pl_df, y, sample_weight=sw)
+    assert len(sel.support_) >= 1
