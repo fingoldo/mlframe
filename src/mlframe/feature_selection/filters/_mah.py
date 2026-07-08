@@ -88,7 +88,7 @@ def _stochastic_complexity(counts: np.ndarray) -> float:
         if c > 0:
             p = float(c) / N_f
             h -= p * math.log(p)
-    return N * h + _nml_regret(K_nonzero, N)
+    return float(N * h + _nml_regret(K_nonzero, N))
 
 
 @njit(nogil=True, cache=True)
@@ -166,7 +166,7 @@ def _greedy_merge_bins(joint: np.ndarray) -> np.ndarray:
                 else:
                     new[r, c] = cur[r + 1, c]
         cur = new
-    return cur
+    return np.asarray(cur)
 
 
 @njit(nogil=True, cache=True)
@@ -267,7 +267,7 @@ def _greedy_merge_with_history(joint: np.ndarray):
                 else:
                     new[r, c] = cur[r + 1, c]
         cur = new
-    return cur, row_merges, col_merges
+    return np.asarray(cur), row_merges, col_merges
 
 
 def _apply_merges_to_edges(initial_inner_edges: np.ndarray, row_merges) -> np.ndarray:
