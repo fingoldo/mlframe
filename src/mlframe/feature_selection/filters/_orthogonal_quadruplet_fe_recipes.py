@@ -65,7 +65,7 @@ def _apply_orth_quadruplet_cross(recipe: "EngineeredRecipe", X: Any) -> np.ndarr
     h_b = _eval_orth_basis_column(vals_j, basis_j, deg_b, preprocess_params=pp_j)
     h_c = _eval_orth_basis_column(vals_k, basis_k, deg_c, preprocess_params=pp_k)
     h_d = _eval_orth_basis_column(vals_l, basis_l, deg_d, preprocess_params=pp_l)
-    return h_a * h_b * h_c * h_d
+    return np.asarray(h_a * h_b * h_c * h_d)
 
 
 def build_orth_quadruplet_cross_recipe(
