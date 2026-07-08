@@ -61,7 +61,7 @@ def batched_binned_mi_gpu(code_cols: np.ndarray, y_codes: np.ndarray, kx_per_col
     with np.errstate(divide="ignore", invalid="ignore"):
         ratio = cp.where((pij > 0) & (denom > 0), pij / denom, 1.0)
         mi = cp.sum(cp.where(pij > 0, pij * cp.log(ratio), 0.0), axis=(1, 2))
-    return cp.asnumpy(cp.maximum(mi, 0.0))
+    return np.asarray(cp.asnumpy(cp.maximum(mi, 0.0)))
 
 
 def _dense_leg_codes(leg_sub: np.ndarray) -> "tuple[np.ndarray, int]":
@@ -230,7 +230,7 @@ def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: f
                 x, y, lo, span, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma,
             )
             if _dev is not None:
-                return _dev
+                return list(_dev)
     except Exception:  # nosec B110 - best-effort path
         pass
 
