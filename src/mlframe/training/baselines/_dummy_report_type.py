@@ -161,7 +161,7 @@ class BaselineReport(NamedTuple):
                     # correctly upstream, but the user-visible verdict was
                     # silently flipped).
                     from ..metrics_registry import metric_name_higher_is_better as _mhb
-                    _direction = _mhb(self.primary_metric)
+                    _direction = _mhb(self.primary_metric or "")
                     if _direction is True:
                         lift_pct = (primary_val - trivial_val) / abs(trivial_val) * 100
                     else:
@@ -190,7 +190,7 @@ class BaselineReport(NamedTuple):
                 ci = paired.get("delta_ci")
                 p = paired.get("p_strongest_beats")
                 if delta is not None and ci is not None and p is not None:
-                    metric_short = self.primary_metric.replace("val_", "")
+                    metric_short = (self.primary_metric or "").replace("val_", "")
                     lines.append(
                         f"[DUMMY_BASELINES] target='{self.target_name}'"
                         f" Delta_{metric_short} vs runner-up ({ru}) = {delta:+.4f}"

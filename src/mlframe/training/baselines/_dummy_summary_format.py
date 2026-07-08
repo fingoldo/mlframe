@@ -161,14 +161,14 @@ def format_suite_end_summary(
                     # (e.g. val_RMSE -> RMSE_val or vice versa). Caller is
                     # expected to pass model_metrics keyed compatibly.
                     model_val = model_metrics.get(primary_metric)
-                    best_model_name = model_metrics.get("model_name", "--")
+                    best_model_name = str(model_metrics.get("model_name", "--"))
             if cross_target_ensemble_metrics is not None:
                 _ens_key = (str(target_type), str(target_name))
                 _ens_m = cross_target_ensemble_metrics.get(_ens_key, {})
                 _ens_val = _ens_m.get(primary_metric) if _ens_m else None
                 if _better(_ens_val, model_val):
                     model_val = _ens_val
-                    best_model_name = _ens_m.get("model_name", "CT_ENSEMBLE")
+                    best_model_name = str(_ens_m.get("model_name", "CT_ENSEMBLE"))
 
             # Wave 20 fix: registry dispatcher. The previous substring
             # whitelist missed val_MAPE (MAPE not in 'MAE' substring),

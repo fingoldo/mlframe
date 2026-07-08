@@ -50,7 +50,7 @@ def _run_once():
                 df=df,
                 target_name="target",
                 model_name="prof_fs",
-                features_and_targets_extractor=fte,
+                features_and_targets_extractor=fte,  # type: ignore[arg-type]  # tests.training.shared.SimpleFeaturesAndTargetsExtractor is a duck-typed test double, not a real FeaturesAndTargetsExtractor subclass
                 mlframe_models=["lgb"],
                 feature_selection_config=fs_cfg,
                 use_ordinary_models=True,
@@ -61,7 +61,7 @@ def _run_once():
             models = res[0] if isinstance(res, tuple) else getattr(res, "models", None)
             metadata = res[1] if isinstance(res, tuple) else getattr(res, "metadata", None)
             try:
-                predict_from_models(df=df, models=models, metadata=metadata, features_and_targets_extractor=fte, verbose=0)
+                predict_from_models(df=df, models=models, metadata=metadata, features_and_targets_extractor=fte, verbose=0)  # type: ignore[arg-type]  # duck-typed test double, see above
             except Exception as e:
                 print("predict skipped:", type(e).__name__, str(e)[:120])
     return res

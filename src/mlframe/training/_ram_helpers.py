@@ -148,7 +148,7 @@ def estimate_df_size_mb(df) -> float:
 def get_process_rss_mb() -> float:
     """Current process RSS in MB."""
     try:
-        return psutil.Process().memory_info().rss / 1024**2
+        return float(psutil.Process().memory_info().rss / 1024**2)
     except Exception:
         return 0.0
 
@@ -189,7 +189,7 @@ def should_clean_ram(baseline_rss_mb: float, df_size_mb: float, min_growth_mb: f
     except Exception as e:
         logger.debug("should_clean_ram: free-RAM measurement failed, falling back to clean", exc_info=e)
         return True
-    return free_mb < 2 * df_size_mb
+    return bool(free_mb < 2 * df_size_mb)
 
 
 def maybe_clean_ram_and_gpu(

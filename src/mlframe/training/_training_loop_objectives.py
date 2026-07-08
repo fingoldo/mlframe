@@ -134,7 +134,7 @@ def _maybe_wrap_for_2d_target(model, train_target):
         # inner's early stopping so no internal val split happens.
         try:
             inner_params = model.get_params() if hasattr(model, "get_params") else {}
-            patch = {}
+            patch: dict = {}
             # HGB: ``early_stopping=True`` + no val => internal split on
             # 2-D y is incompatible with the per-label MOC slice.
             if "early_stopping" in inner_params and inner_params.get("early_stopping"):

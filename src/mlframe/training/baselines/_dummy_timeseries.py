@@ -75,7 +75,7 @@ def _normalize_timestamps(ts: Any) -> np.ndarray | None:
                 # into the 1970-epoch garbage band.
                 ts = _dti.to_numpy(dtype="datetime64[ns]").view("int64")
         # Else assume already numeric (epoch ints, floats).
-        return ts
+        return np.asarray(ts)
     except (TypeError, ValueError, AttributeError, pd.errors.OutOfBoundsDatetime) as _exc:
         # Narrow swallow: only the failures we expect from malformed timestamp input
         # (unsupported dtype, unparseable strings, out-of-range datetime, missing
@@ -96,7 +96,7 @@ def _is_temporally_monotonic(ts_train: np.ndarray, ts_val: np.ndarray, ts_test: 
     """Strict monotonic split: train.max() <= val.min() AND val.max() <= test.min()."""
     if len(ts_train) == 0 or len(ts_val) == 0 or len(ts_test) == 0:
         return False
-    return ts_train.max() <= ts_val.min() and ts_val.max() <= ts_test.min()
+    return bool(ts_train.max() <= ts_val.min() and ts_val.max() <= ts_test.min())
 
 
 def _infer_ts_step_periods(ts_train: np.ndarray) -> tuple[str, list[int]]:

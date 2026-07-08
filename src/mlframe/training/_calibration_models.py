@@ -241,7 +241,7 @@ class _PerClassIsotonicCalibrator:
                 # silently calibrate the wrong column, so prefer identity there.
                 col_labels = None
 
-        calibrators = {}
+        calibrators: dict = {}
         for k in range(K):
             # Per-class binary target
             if is_exclusive:
@@ -420,6 +420,7 @@ def calibrate_namespace_model(entry: Any, *, target_type: "TargetTypes | None" =
     if base is None:
         return False
 
+    wrapped: Any
     _is_multi = _cp.ndim == 2 and _cp.shape[1] != 2
     if _is_multi:
         from .configs import TargetTypes
