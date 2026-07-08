@@ -52,7 +52,7 @@ def _fourier_fit(x: np.ndarray):
 def _fourier_apply(x: np.ndarray, params: dict) -> np.ndarray:
     if params.get("degenerate"):
         return np.zeros_like(x, dtype=np.float64)
-    return (x - params["lo"]) / params["span"]
+    return np.asarray((x - params["lo"]) / params["span"])
 
 
 @njit(fastmath=True, cache=True)
@@ -258,7 +258,7 @@ def _pade_fit(x: np.ndarray):
 def _pade_apply(x: np.ndarray, params: dict) -> np.ndarray:
     if params.get("degenerate"):
         return np.zeros_like(x, dtype=np.float64)
-    return ((x - params["mean"]) / params["std"]).astype(np.float64)
+    return np.asarray(((x - params["mean"]) / params["std"]).astype(np.float64))
 
 
 @njit(fastmath=True, cache=True)
