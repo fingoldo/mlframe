@@ -21,7 +21,7 @@ import numpy as np
 
 def decide_ar1_failsafe_val_veto(
     oof_names: Sequence[str],
-    oof_rmses: Sequence[float],
+    oof_rmses: Sequence[float] | np.ndarray,
     lag_failsafe_tol: float,
     val_rmse_of: Callable[[int], float],
     *,
@@ -64,7 +64,7 @@ def decide_ar1_failsafe_val_veto(
 
 def compute_val_veto(
     oof_names: Sequence[str],
-    oof_rmses: Sequence[float],
+    oof_rmses: Sequence[float] | np.ndarray,
     oof_components: Sequence,
     filtered_val_df,
     filtered_val_idx,
