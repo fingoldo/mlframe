@@ -102,7 +102,7 @@ def report_probabilistic_model_perf(
     use_weights: bool = True,
     calib_report_ndigits: int = DEFAULT_CALIB_REPORT_NDIGITS,
     verbose: bool = False,
-    classes: Sequence | None = None,
+    classes: Sequence | np.ndarray | None = None,
     preds: np.ndarray | None = None,
     probs: np.ndarray | None = None,
     df: pd.DataFrame | None = None,
@@ -214,7 +214,7 @@ def report_probabilistic_model_perf(
             logger.warning("predict_proba not available for %s, using predict() instead", type(model).__name__, exc_info=True)
             preds_fallback = _predict_with_fallback(model, df, method="predict")
 
-            if hasattr(model, "classes_"):
+            if model is not None and hasattr(model, "classes_"):
                 n_classes = len(model.classes_)
                 # Wave 24 P2 fix (2026-05-20): pre-fix
                 # ``np.searchsorted(classes_, preds_fallback)`` had two
@@ -462,7 +462,7 @@ def report_probabilistic_model_perf(
         # Build kwargs for fast_calibration_report. title_metrics_tokens is the
         # post-validation tuple from ReportingConfig - if None, the function's
         # own DEFAULT_TITLE_METRICS_TOKENS applies.
-        _fcr_kwargs = dict(
+        _fcr_kwargs: dict[str, Any] = dict(
             y_true=y_true,
             y_pred=y_score,
             use_weights=use_weights,
@@ -852,7 +852,7 @@ def report_probabilistic_model_perf(
         with phase("compute_fairness_metrics"):
             fairness_report = compute_fairness_metrics(
                 subgroups=subgroups,
-                subset_index=subset_index,
+                subset_index=subset_index,  # type: ignore[arg-type]  # compute_fairness_metrics handles None internally (see its subset_index is None branch)
                 y_true=targets,
                 y_pred=probs,
                 metrics=subgroups_metrics,
