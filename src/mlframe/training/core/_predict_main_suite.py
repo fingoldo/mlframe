@@ -105,7 +105,7 @@ def predict_mlframe_models_suite(
             df, predict_batch_rows,
         )
 
-    results = {
+    results: dict[str, Any] = {
         "predictions": {},
         "probabilities": {},
         "ensemble_predictions": None,
@@ -197,9 +197,9 @@ def predict_mlframe_models_suite(
     _all_polars_native = False
     if _input_is_polars and _model_files_for_native_probe:
         _probe_results = []
-        for _f in _model_files_for_native_probe:
-            _mo = load_mlframe_model(_f)
-            _loaded_models_cache[_f] = _mo
+        for _model_file in _model_files_for_native_probe:
+            _mo = load_mlframe_model(_model_file)
+            _loaded_models_cache[_model_file] = _mo
             _probe_results.append(_is_polars_native_model(_mo))
         _all_polars_native = bool(_probe_results) and all(_probe_results)
     _pandas_view_cache: dict[int, pd.DataFrame] = {}
@@ -210,7 +210,7 @@ def predict_mlframe_models_suite(
     # Replay suite-owned datetime decomposition before validation/pipeline so the predict frame has the SAME derived columns as training; FTE already handled its own ts_field on the line above.
     df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
 
-    df = _validate_input_columns_against_metadata(df, metadata, verbose=verbose)
+    df = _validate_input_columns_against_metadata(df, metadata, verbose=bool(verbose))
 
     if pipeline is not None:
         if verbose:
