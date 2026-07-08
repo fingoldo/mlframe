@@ -77,7 +77,7 @@ def screen_dcd_discover_and_swap(
                 full_npermutations=int(full_npermutations or 0),
             )
             if _decision.accept:
-                _data_ref = {}
+                _data_ref: dict = {}
                 # 2026-05-31 Layer 43 (PART A) fix:
                 # pass the host MRMR's engineered_recipes
                 # dict so commit_swap registers the PC1
