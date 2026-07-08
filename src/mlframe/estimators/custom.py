@@ -598,7 +598,7 @@ def clip_to_quantiles(arr: np.ndarray, quantile: float = 0.01, method: str = "wi
         quantile_from, quantile_to = np.quantile(arr, q=[quantile, 1 - quantile])
 
     if method == "hard":
-        return np.clip(arr, quantile_from, quantile_to)
+        return np.asarray(np.clip(arr, quantile_from, quantile_to))
     elif method == "winsor_linear":
         return soft_winsorize(
             data=arr,

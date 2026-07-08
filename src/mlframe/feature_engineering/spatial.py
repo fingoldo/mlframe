@@ -569,7 +569,7 @@ def knn_label_dispersion_features(
         global_median = float(np.median(labels[np.isfinite(labels)]))
     else:
         labels = np.asarray(ref_labels)
-        finite_ref = np.isfinite(ref).all(axis=1)
+        finite_ref = np.asarray(np.isfinite(ref).all(axis=1))
     ref = ref[finite_ref]
     labels = labels[finite_ref]
     if ref_group_ids is not None:
