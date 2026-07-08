@@ -23,7 +23,7 @@ computed identically.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -34,7 +34,7 @@ import numpy as np
 _PERMNULL_TILE_CELLS = 24_000_000  # cc * pb * n upper bound (int64 cells); ~192MB per (joint) buffer
 
 
-def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, joint_card: np.ndarray, h_x: np.ndarray, mm_bias: np.ndarray, h_y: float, y_perms: object, inv_n: float) -> np.ndarray:
+def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, joint_card: np.ndarray, h_x: np.ndarray, mm_bias: np.ndarray, h_y: float, y_perms: Any, inv_n: float) -> np.ndarray:
     """Resident cupy twin of :func:`_permutation_null._pooled_gain_floor_perms_njit`. Same signature; returns
     a host ``(nperm,)`` float64 array of the per-shuffle MAX corrected marginal MI over the candidate pool.
 
@@ -116,7 +116,7 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
             d_best[p0:p1] = cp.maximum(d_best[p0:p1], cp.max(mi, axis=0))
             del joint, flat, counts_i, h_xy_flat, h_xy, mi
 
-    return cp.asnumpy(d_best)
+    return np.asarray(cp.asnumpy(d_best))
 
 
 def gen_target_shuffles_cupy(y_codes: np.ndarray, nperm: int, dtype: type, random_seed: Optional[int]) -> object:
