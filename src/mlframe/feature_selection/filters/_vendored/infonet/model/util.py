@@ -13,7 +13,7 @@ def lookup_value_grid(matrix, vector, mode):
     num = vector.shape[1]
     matrix = matrix.view(batchsize, 1, dim, dim)
     vector = vector.view(batchsize, num, 1, 2)
-    value = (F.grid_sample(matrix, vector, mode, padding_mode='border', align_corners=True)).squeeze()
+    value = (F.grid_sample(matrix, vector, mode, padding_mode="border", align_corners=True)).squeeze()
     return value
 
 def mutual_information(batch, matrix, num_resampling=5):
