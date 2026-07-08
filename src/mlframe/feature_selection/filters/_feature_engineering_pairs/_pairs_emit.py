@@ -203,7 +203,7 @@ def _emit_pair_features(
                     param_a = binary_transformations[_bin_name](_pa, _pb)
                     np.nan_to_num(param_a, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
-                best_valid_mi = -1
+                best_valid_mi = -1.0
                 config = (transformations_pair, bin_func_name, i)
 
                 # ``sorted`` first: a bare ``set`` difference iterates in hash order, which is
@@ -328,7 +328,7 @@ def _emit_pair_features(
                         try:
                             from ._pairs_core import _fe_gpu_binning_enabled
                             if _fe_gpu_binning_enabled(_ev_buf.shape[0], _ev_col):
-                                from .._gpu_resident_fe import gpu_discretize_codes_host
+                                from .._gpu_resident_fe import gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals()
                                 # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
                                 # whose resident-CUDA gate consumes the DEVICE codes in place; the host buffer is
                                 # filled lazily only on a host-reading branch. Skips the (n, K) codes D2H whenever
