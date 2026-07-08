@@ -224,7 +224,7 @@ def _occupied_bins_per_col(disc_2d: np.ndarray) -> np.ndarray:
 
 
 def analytic_batch_noise_gate(
-    disc_2d: np.ndarray,
+    disc_2d: "np.ndarray | None",
     observed_mi: np.ndarray,
     classes_y: np.ndarray,
     n_rows: int,
@@ -296,7 +296,7 @@ def analytic_batch_noise_gate(
     _reject = (fe_mi > 0.0) & _applicable & (_p >= alpha_reject)
     fe_mi[fe_mi <= 0.0] = 0.0
     fe_mi[_reject] = 0.0
-    return fe_mi
+    return np.asarray(fe_mi)
 
 
 __all__ = [
