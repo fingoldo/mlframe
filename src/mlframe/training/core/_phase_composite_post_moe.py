@@ -228,7 +228,7 @@ def run_composite_moe_and_value_report(
             # MoE gate wrap: needs the lag failsafe, group ids on the selection split, AND a predict-time group
             # column present in the val frame (else the deployed gate could only route globally to lag, which
             # is worse than the ensemble where composite wins -- so we no-op and ship the ensemble unchanged).
-            if not _moe_enabled or _lag_model is None or _groups_sel is None:
+            if not _moe_enabled or _lag_model is None or _groups_sel is None or _group_column is None:
                 continue
             if _extract_group_array(filtered_val_df, _group_column) is None:
                 continue

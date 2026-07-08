@@ -432,7 +432,7 @@ def export_votenrank_leaderboards(
     # Collection loop is NOT wrapped in a broad except: an AttributeError / KeyError
     # here is a real wiring bug (ctx.ensembles shape drift) that must surface, not a
     # WARN. Only ctx.ensembles being absent (older builds) is tolerated.
-    _leaderboards = {}
+    _leaderboards: dict = {}
     for _tt, _by_name in (getattr(ctx, "ensembles", None) or {}).items():
         for _tname, _ens_dict in (_by_name or {}).items():
             if not isinstance(_ens_dict, dict):

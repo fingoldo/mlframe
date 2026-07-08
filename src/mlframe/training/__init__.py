@@ -256,7 +256,7 @@ _LAZY_IMPORTS = {
     "_patch_lgb_feature_names_in_setter": ("._model_factories", "_patch_lgb_feature_names_in_setter"),
 }
 
-_cache = {}
+_cache: dict = {}
 
 
 def __getattr__(name):
