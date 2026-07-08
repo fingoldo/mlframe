@@ -255,7 +255,7 @@ def _quantile_bin(col: np.ndarray, nbins: int) -> np.ndarray:
         if _gpu_on:
             _g = _quantile_bin_gpu(a, nbins)
             if _g is not None:
-                return _g
+                return np.asarray(_g)
         edges = np.unique(np.quantile(a, qs))
         out = np.zeros(a.size, dtype=np.int64)
         if edges.size <= 2:
@@ -1239,7 +1239,7 @@ def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> floa
     h_xyz, k_xyz = _entc([dx, dy, dz], [Kx, ky, kz])
     cmi_plugin = h_xz + float(h_yz) - float(h_z) - h_xyz
     cmi_bias = (k_xyz + int(k_z) - k_xz - int(k_yz)) / (2.0 * float(n))
-    return max(0.0, cmi_plugin - cmi_bias)
+    return float(max(0.0, cmi_plugin - cmi_bias))
 
 
 # ---------------------------------------------------------------------------
@@ -1557,6 +1557,7 @@ def greedy_cmi_fe_construct(
             # of the (largest) marginal scan -- only the genuine per-candidate H(X) + H(X,Y) remain.
             _y_marg = precompute_marginal_y_terms(y_bin)
         if _have_z:
+            assert z_joint is not None  # _have_z guarantees this
             _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n = precompute_cmi_yz_terms(y_bin, z_joint)
             # Round-fixed dense (y,z) joint codes: reused per-candidate so H(X,Y,Z) is a 2-array
             # densify against this partition instead of a fresh 3-column renumber(x,y,z). One extra
@@ -1598,6 +1599,7 @@ def greedy_cmi_fe_construct(
                 if _have_z:
                     cmi = cmi_from_binned_fixed_yz(cand_bins[name], _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n, yz_i=_yz_dense)
                 else:
+                    assert _y_marg is not None  # not _have_z guarantees this was precomputed above
                     cmi = marginal_mi_binned_fixed_y(cand_bins[name], *_y_marg)
                 if cmi > best_cmi:
                     best_cmi = cmi
