@@ -1,0 +1,15 @@
+extends: default
+
+rules:
+  line-length:
+    max: 240
+  # GitHub Actions ${{ ... }} expression syntax is not a YAML flow mapping;
+  # yamllint's brace-spacing rule misreads it as one and false-positives on
+  # every matrix/context reference.
+  braces: disable
+  # Workflow files in this repo have mixed CRLF/LF line endings pre-dating
+  # this config; not yamllint's job to police that.
+  new-lines: disable
+  document-start: disable
+  truthy:
+    check-keys: false
