@@ -129,11 +129,11 @@ def _warmup_numba_kernels(verbose: bool = False) -> None:
         return
     if getattr(_warmup_numba_kernels, "_in_progress", False):
         return
-    _warmup_numba_kernels._in_progress = True
+    setattr(_warmup_numba_kernels, "_in_progress", True)
     try:
         _warmup_numba_kernels_body(verbose)
     finally:
-        _warmup_numba_kernels._in_progress = False
+        setattr(_warmup_numba_kernels, "_in_progress", False)
 
 
 def _warmup_numba_kernels_body(verbose: bool = False) -> None:
@@ -255,7 +255,7 @@ def _slugify(s: str) -> str:
 def _is_finite_mask(y: np.ndarray) -> np.ndarray:
     """Boolean mask of rows with finite numeric / non-null values."""
     if y.dtype.kind in "fc":
-        return np.isfinite(y)
+        return np.asarray(np.isfinite(y))
     if y.dtype == object:
         return np.array([v is not None and (not isinstance(v, float) or np.isfinite(v)) for v in y])
     # int / bool / etc. -- always finite for our purposes
@@ -723,7 +723,7 @@ def _compute_multi_output_regression(
                 if len(vals) >= max(1, K // 2)  # require coverage on >= half of outputs
             }
             if mean_norms:
-                best_name = min(mean_norms, key=mean_norms.get)
+                best_name = min(mean_norms, key=lambda _n: mean_norms[_n])
                 cross_output = {
                     "name": best_name,
                     "mean_normalized": mean_norms[best_name],

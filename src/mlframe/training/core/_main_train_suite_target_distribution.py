@@ -66,7 +66,8 @@ def _maybe_auto_drop_after_feature_analyzer(
                 # Each entry is dict {a, b, corr} from the analyzer return.
                 _a = str(entry.get("a") if isinstance(entry, dict) else entry[0])
                 _b = str(entry.get("b") if isinstance(entry, dict) else entry[1])
-                _c = float(entry.get("corr") if isinstance(entry, dict) else entry[2])
+                _corr_raw = entry.get("corr") if isinstance(entry, dict) else entry[2]
+                _c = float(_corr_raw) if _corr_raw is not None else 0.0
             except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
                 logger.debug("suppressed in _main_train_suite_target_distribution.py:70: %s", e)
                 continue
@@ -251,7 +252,7 @@ def _run_target_distribution_analyzer(
             _td_report = analyze_target_distribution(
                 _y_train,
                 group_ids=_g_train,
-                target_type=_picked_type_name,
+                target_type=_picked_type_name or "auto",  # type: ignore[arg-type]  # _picked_type_name only ever holds "regression"/"classification" by construction above
                 has_time_axis=_has_time,
             )
             if verbose:
@@ -301,6 +302,7 @@ def _run_target_distribution_analyzer(
                     for _knob_name, _stamp in _knobs.items():
                         _has_user = isinstance(_user_slot, dict) and _knob_name.split(".")[0] in _user_slot
                         if _has_user:
+                            assert isinstance(_user_slot, dict)  # guaranteed by the ``_has_user`` construction above
                             _slot_store[_knob_name] = {"value": _user_slot[_knob_name.split(".")[0]], "source": "user"}
                         else:
                             _slot_store[_knob_name] = dict(_stamp)
@@ -352,7 +354,7 @@ def _run_target_distribution_analyzer(
                     _fd_report = analyze_feature_distribution(
                         train_df,
                         y=_y_train,
-                        target_type=_picked_type_name,
+                        target_type=_picked_type_name or "auto",  # type: ignore[arg-type]  # _picked_type_name only ever holds "regression"/"classification" by construction above
                     )
                     if verbose:
                         logger.info(

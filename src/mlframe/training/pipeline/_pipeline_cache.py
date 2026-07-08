@@ -335,6 +335,7 @@ def _full_x_content_hash(arr) -> str:
             # c0051 16 hashes saves ~1.9 s). hash_rows() is Rust-side
             # deterministic, identical guarantees to blake2b(tobytes) for
             # cache-key collision resistance.
+            pd_row_sum: int | None
             if pl is not None and arr.shape[1] > 0:
                 # Guard against zero-column frames: polars' ``hash_rows`` panics
                 # at the Rust layer (``pyo3_runtime.PanicException: at least one
@@ -348,19 +349,19 @@ def _full_x_content_hash(arr) -> str:
                 try:
                     pl_df = pl.from_pandas(arr)
                     row_hashes = pl_df.hash_rows()
-                    row_sum = int(row_hashes.sum())
+                    pd_row_sum = int(row_hashes.sum())
                 except _HASH_FASTPATH_EXC:
                     # Tuple includes pyo3 PanicException (zero-column
                     # hash_rows). Fallback uses ``arr.to_numpy().tobytes()``.
                     pl_df = None
-                    row_sum = None
+                    pd_row_sum = None
             else:
                 pl_df = None
-                row_sum = None
-            if row_sum is not None:
+                pd_row_sum = None
+            if pd_row_sum is not None:
                 col_names = ",".join(str(c) for c in arr.columns)
                 h = hashlib.blake2b(digest_size=16)
-                h.update(str(row_sum).encode())
+                h.update(str(pd_row_sum).encode())
                 h.update(str(arr.shape).encode())
                 h.update(str(arr.dtypes.to_list()).encode())
                 if col_names:
@@ -399,7 +400,7 @@ def _full_x_content_hash(arr) -> str:
         # blake2b reads the contiguous array via the buffer protocol directly;
         # dropping the .tobytes() materialisation saves an O(nbytes) copy and is
         # bit-identical (the buffer bytes equal tobytes() for a C-contiguous array).
-        h = hashlib.blake2b(np.ascontiguousarray(np_arr), digest_size=16)
+        h = hashlib.blake2b(np.ascontiguousarray(np_arr), digest_size=16)  # type: ignore[arg-type]  # ndarray satisfies the buffer protocol at runtime; hashlib stubs only declare Buffer/bytes-like types
         h.update(str(np_arr.shape).encode())
         h.update(str(np_arr.dtype).encode())
         if col_names:
@@ -452,7 +453,7 @@ def _full_target_content_hash(arr) -> str:
         # blake2b reads the contiguous array via the buffer protocol directly;
         # dropping the .tobytes() materialisation saves an O(nbytes) copy and is
         # bit-identical (the buffer bytes equal tobytes() for a C-contiguous array).
-        h = hashlib.blake2b(np.ascontiguousarray(np_arr), digest_size=16)
+        h = hashlib.blake2b(np.ascontiguousarray(np_arr), digest_size=16)  # type: ignore[arg-type]  # ndarray satisfies the buffer protocol at runtime; hashlib stubs only declare Buffer/bytes-like types
         h.update(str(np_arr.shape).encode())
         h.update(str(np_arr.dtype).encode())
         _result = h.hexdigest()
