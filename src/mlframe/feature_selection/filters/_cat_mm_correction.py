@@ -57,10 +57,10 @@ def _entropy_for_mode(
         K = len(counts)
         total = float(n_samples) + 0.5 * K
         probs = counts / total
-        return entropy(probs)
+        return float(entropy(probs))
     if use_mm:
-        return entropy_miller_madow(freqs, n_samples)
-    return entropy(freqs)
+        return float(entropy_miller_madow(freqs, n_samples))
+    return float(entropy(freqs))
 
 
 def _should_apply_mm_for_pair_analytical(
@@ -168,7 +168,7 @@ def _compute_pair_ii_mm(
     if k_a <= 1 or k_b <= 1 or k_y <= 1:
         return ii_plugin
     ii_bias = (k_a - 1) * (k_b - 1) * (k_y - 1) / (2.0 * n_samples)
-    return ii_plugin - ii_bias
+    return float(ii_plugin - ii_bias)
 
 
 def _should_apply_mm_for_pair(
