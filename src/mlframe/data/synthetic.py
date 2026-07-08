@@ -1,3 +1,5 @@
+"""Synthetic data generation helpers: random-variable sampling, probability-to-class-label assignment, and full modelling dataset construction for tests/benchmarks."""
+
 from __future__ import annotations
 
 import time
@@ -23,7 +25,9 @@ except ImportError:
     _HAS_NUMBA = False
 
     def njit(*args, **kwargs):  # pragma: no cover
+        """No-op stand-in for ``numba.njit`` when numba isn't installed: returns the function unchanged, supporting both bare-decorator and decorator-with-args call forms."""
         def wrap(fn):
+            """Identity wrapper returning ``fn`` unchanged."""
             return fn
 
         if args and callable(args[0]):
@@ -33,6 +37,7 @@ except ImportError:
 
 @njit(cache=True)
 def _assign_classes_from_probability_kernel(predictors: np.ndarray, draw: np.ndarray, n_classes: int, out: np.ndarray) -> np.ndarray:
+    """For each row, walk its class-probability vector cumulatively and assign the class whose cumulative-sum boundary first exceeds the row's uniform ``draw``; float32 accumulation is intentional (see below) to bit-match the legacy Python loop."""
     # ``total`` is seeded as float32 to match the legacy Python loop bit-for-bit: there ``total`` started as a Python float
     # but ``py_float += np_float32`` follows numpy promotion and stays float32, so the cumulative walk rounded in float32.
     # A float64 accumulator here would flip the chosen class on rare draws landing within ~1e-8 of a cumulative boundary.

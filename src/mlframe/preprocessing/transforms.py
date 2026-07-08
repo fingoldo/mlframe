@@ -1,3 +1,4 @@
+"""DataFrame preprocessing transforms for CatBoost/XGBoost fit compatibility, and eval-set/val-split fit-param packing."""
 from __future__ import annotations
 
 # ----------------------------------------------------------------------------------------------------------------------------

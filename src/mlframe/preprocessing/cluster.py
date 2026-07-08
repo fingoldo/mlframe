@@ -1,3 +1,5 @@
+"""DBSCAN clustering demo/utility: run+plot a DBSCAN clustering with optional external metrics and printed cluster membership."""
+
 from __future__ import annotations
 
 import logging
@@ -8,6 +10,7 @@ from sklearn.cluster import DBSCAN
 logger = logging.getLogger(__name__)
 
 def list_cluster_members(labels:Sequence,true_lables:Sequence)->None:
+    """Print, for each non-negative cluster id in ``labels``, the list of ``true_lables`` entries assigned to it."""
     labels_arr = np.asarray(labels)
     if labels_arr.size == 0:
         return  # max([]) would raise; no clusters to list.
@@ -16,6 +19,7 @@ def list_cluster_members(labels:Sequence,true_lables:Sequence)->None:
 
 def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusterizer:Optional[Any]=None,dim_reducer:Optional[Any]=None,
                show_plot:Optional[bool]=True,show_metrics:Optional[bool]=True,list_members:Optional[bool]=True,title:Optional[str]=None):
+    """Fit a (DBSCAN by default) clusterizer on ``X`` (optionally after ``dim_reducer`` + standardization), log clustering-quality metrics, render a scatter plot of the clusters, and return the cluster labels. Generates a synthetic 3-blob dataset when ``X`` is not given (demo/exploratory use)."""
 
     from sklearn import metrics
     from sklearn.datasets import make_blobs

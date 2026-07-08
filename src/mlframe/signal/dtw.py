@@ -257,6 +257,7 @@ _CUPY_BANDED_KERNEL_CACHE: list = [None]
 
 
 def _get_cupy_kernel():
+    """Compile-once, cache-forever accessor for the full-matrix diagonal-sweep RawKernel (NVCC compile is ~30ms; reused across calls via a module-level cache list)."""
     if not _HAS_CUPY:
         raise ImportError("dtw_cupy requires cupy + a CUDA-capable GPU.")
     if _CUPY_KERNEL_CACHE[0] is None:
@@ -267,6 +268,7 @@ def _get_cupy_kernel():
 
 
 def _get_cupy_banded_kernel():
+    """Compile-once, cache-forever accessor for the Sakoe-Chiba-banded diagonal-sweep RawKernel."""
     if not _HAS_CUPY:
         raise ImportError("dtw_cupy requires cupy + a CUDA-capable GPU.")
     if _CUPY_BANDED_KERNEL_CACHE[0] is None:
@@ -295,6 +297,7 @@ def _backtrace_band(
     INF = np.float32(1e18)
 
     def C(i: int, j: int) -> float:
+        """Banded-coordinate cost lookup at (i, j), returning the out-of-band sentinel when the offset falls outside the stored band width."""
         b = j - i + w
         if 0 <= b < band.shape[1]:
             return float(band[i, b])

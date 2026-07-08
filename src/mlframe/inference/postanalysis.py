@@ -1,3 +1,4 @@
+"""Post-fit model introspection helpers (currently: XGBoost booster size/leaf-count summary)."""
 from __future__ import annotations
 
 import sys

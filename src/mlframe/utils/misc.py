@@ -80,6 +80,7 @@ def rng_hygienic_fit(fit_method: Callable) -> Callable:
     global RNG (the FS global-``np.random`` bug class)."""
     @functools.wraps(fit_method)
     def _wrapped(self, *args, **kwargs):
+        """Run the wrapped ``fit`` inside ``preserve_global_rng`` so any global RNG mutation it performs is invisible to the caller."""
         with preserve_global_rng():
             return fit_method(self, *args, **kwargs)
     return _wrapped
@@ -119,6 +120,7 @@ def hygienic_fit(fit_method):
     cat-cross / target-prefix FE), so ``X`` in == ``X`` out."""
     @functools.wraps(fit_method)
     def _wrapped(self, X, *args, **kwargs):
+        """Run the wrapped ``fit`` with global-RNG isolation, then drop any columns it materialised into ``X`` in place, regardless of success or exception."""
         original_cols = None
         try:
             import pandas as _pd

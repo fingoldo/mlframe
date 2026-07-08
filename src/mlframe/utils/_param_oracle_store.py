@@ -92,6 +92,7 @@ class _ParquetStore:
             lock = None
 
         def _do() -> None:
+            """Read-aggregate-write cycle, run inside the cross-process file lock (when available) so concurrent appenders don't clobber each other's writes."""
             existing = self.read_rows()
             merged = self._aggregate(existing + rows)
             self._write_rows(merged, self._path)

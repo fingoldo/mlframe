@@ -74,6 +74,7 @@ except Exception:  # pragma: no cover  -- numba is a hard dep, keep guard for st
     def _njit(*args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """No-op stand-in for ``numba.njit`` when numba is unavailable; the decorated function runs as plain Python."""
         def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+            """Identity decorator: returns ``fn`` unchanged so the caller runs as plain Python."""
             return fn
         return _decorator
 

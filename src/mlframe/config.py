@@ -1,3 +1,5 @@
+"""Shared constants and enums describing the ML pipeline configuration surface: supported model type-name tuples per backend, and the enums controlling how categoricals/missing values/numerics/early stopping/feature selection/HPT/sample weights/resampling/target transforms/class weights are handled natively vs via a wrapper."""
+
 from __future__ import annotations
 
 from enum import Enum, auto
@@ -30,12 +32,16 @@ TABNET_MODEL_TYPES = ("TabNetClassifier", "TabNetMultiTaskClassifier", "TabNetRe
 
 
 class CategoricalsAssigning(Enum):
+    """Controls which columns get flagged as categorical before backend-specific handling is decided."""
+
     NativeOnly = auto()  # only explicitly denoted as categorical
     NativeAndPotential = auto()  # plus potentially categorical, as found by analyse_and_clean_features in potentially_categorical_features
     All = auto()  # All features converted to Category. Use KBinsDiscretizer where needed.
 
 
 class CategoricalsHandling(Enum):
+    """Strategy for turning categorical columns into a form each backend can consume, falling back through native support, category-encoding (CE), or dropping."""
+
     Drop = auto()
     NativeOrDrop = auto()  # drop cat columns if no native possible
     NativeOrCE = auto()  # CE cat columns if no native possible
@@ -54,6 +60,8 @@ class CategoricalsHandling(Enum):
 
 
 class MissingHandling(Enum):
+    """Strategy for columns with missing values: drop them, rely on backend-native NaN handling, fall back to sklearn imputation, or always impute via sklearn."""
+
     Drop = auto()
     NativeOrDrop = auto()  # drop columns with missing values if no native possible
     NativeOrSklearn = auto()  # impute columns with missing values if no native possible
@@ -61,54 +69,72 @@ class MissingHandling(Enum):
 
 
 class NumericsHandling(Enum):
+    """Strategy for numeric columns: drop them, pass through unchanged, or route through sklearn FE/scaling/normalization/discretization."""
+
     Drop = auto()
     AsIs = auto()
     Sklearn = auto()  # FE;Scale;Normalize;Discretize in any combination
 
 
 class EarlyStopping(Enum):
+    """Whether/how early stopping is applied: disabled, backend-native-or-disabled, or backend-native-or-external-wrapper."""
+
     No = auto()
     NativeOrNo = auto()
     NativeOrWrapper = auto()
 
 
 class OutlierRemoval(Enum):  # OR
+    """Whether/how outlier removal is applied before training: disabled, backend-native-or-disabled, or backend-native-or-external-wrapper."""
+
     No = auto()
     NativeOrNo = auto()
     NativeOrWrapper = auto()
 
 
 class FeatureSelection(Enum):  # FS
+    """Whether/how feature selection is applied: disabled, backend-native-or-disabled, or backend-native-or-external-wrapper."""
+
     No = auto()
     NativeOrNo = auto()
     NativeOrWrapper = auto()
 
 
 class HyperParameterTuning(Enum):  # HPT
+    """Whether/how hyperparameter tuning is applied: disabled, backend-native-or-disabled, or backend-native-or-external-wrapper."""
+
     No = auto()
     NativeOrNo = auto()
     NativeOrWrapper = auto()
 
 
 class SampleWeights(Enum):  # SW
+    """Whether/how per-sample weights are supplied to the estimator: disabled, backend-native-or-disabled, or backend-native-or-external-wrapper."""
+
     No = auto()
     NativeOrNo = auto()
     NativeOrWrapper = auto()
 
 
 class Resampling(Enum):  # RS
+    """Whether/how imbalance resampling (over/under-sampling) is applied: disabled, backend-native-or-disabled, or backend-native-or-external-wrapper."""
+
     No = auto()
     NativeOrNo = auto()
     NativeOrWrapper = auto()
 
 
 class TargetTransformer(Enum):  # TT
+    """Whether/how a target transform (e.g. log/quantile) is applied before fitting: disabled, backend-native-or-disabled, or backend-native-or-external-wrapper."""
+
     No = auto()
     NativeOrNo = auto()
     NativeOrWrapper = auto()
 
 
 class ClassWeights(Enum):  # CW
+    """Whether/how class weighting for imbalanced targets is applied: disabled, backend-native-or-disabled, or backend-native-or-external-wrapper."""
+
     No = auto()
     NativeOrNo = auto()
     NativeOrWrapper = auto()

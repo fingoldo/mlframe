@@ -108,11 +108,14 @@ def combine_block_similarities(block_sims, weights, deformation: str = "linear")
 
 
 def _default_metric(classification):
+    """Default ``(metric_fn, greater_is_better)`` pair for the LOO-kNN score: accuracy for classification, negative MSE for regression (both "greater is better" so the coordinate-descent maximizer is uniform across tasks)."""
     if classification:
         def acc(y, yhat):
+            """Plain classification accuracy of the LOO-kNN predictions."""
             return float(np.mean(y == yhat))
         return acc, True
     def neg_mse(y, yhat):
+        """Negative MSE of the LOO-kNN predictions (negated so higher is always better, matching the accuracy branch)."""
         return -float(np.mean((y - yhat) ** 2))
     return neg_mse, True
 
@@ -161,6 +164,7 @@ def fit_composite_similarity(
     sign = 1.0 if greater_is_better else -1.0
 
     def score(w):
+        """Sign-adjusted LOO-kNN metric for a candidate per-block weight vector ``w`` (combine the blocks, run leave-one-out kNN prediction, score against ``yy``); the coordinate-descent loop below maximizes this."""
         S = combine_block_similarities(sims, w, deformation)
         pred = _knn_loo_predict_impl(S, yy, k, classification)
         return sign * metric(yy, pred)

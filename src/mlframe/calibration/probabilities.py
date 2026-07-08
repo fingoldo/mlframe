@@ -1,3 +1,5 @@
+"""Synthetic-probability generation for calibration testing: derive plausible predicted-probability vectors from binary outcomes (target discrimination/calibration), and perturb/rank-shuffle a probability vector while holding its statistics close to a reference."""
+
 from __future__ import annotations
 
 from typing import Optional

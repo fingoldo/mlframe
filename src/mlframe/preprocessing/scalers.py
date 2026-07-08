@@ -1,3 +1,5 @@
+"""Factory helpers for the standard sklearn scaler zoo, returning fresh unfitted instances per call to avoid cross-caller state pollution."""
+
 from __future__ import annotations
 
 # *****************************************************************************************************************************************************

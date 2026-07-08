@@ -1,3 +1,5 @@
+"""Numba-accelerated array primitives: NaN-aware min/max scans and counting-sort/argsort kernels used by the discretiser and MRMR's binning paths."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -23,6 +25,7 @@ _EMPTY_INT32_MASK = np.array([], np.int32)
 
 @njit(fastmath=_MINMAX_FASTMATH, cache=True)
 def arrayMinMax(x, lo=0, r=0):
+    """Scan ``x[lo:r]`` for (min, max), skipping NaN entries; returns (NaN, NaN) for an empty range or an all-NaN range."""
     n = len(x)
     if r == 0:
         r = n
@@ -58,6 +61,7 @@ def arrayMinMax(x, lo=0, r=0):
 # NaN sentinel the callers' ``_rng<=0 / NaN`` guards rely on.
 @njit(fastmath=True, parallel=True, cache=True)
 def arrayMinMaxParallel(array, lo=0, r=0, maxThreads=8):
+    """Chunk ``array[lo:r]`` across up to ``maxThreads`` prange workers, each running ``arrayMinMax``, then reduce the per-chunk extremes. Unused in mlframe (fastmath=True here assumes finite input, unlike the NaN-safe serial ``arrayMinMax``) -- see the module warning before wiring it into a NaN-sensitive path."""
     arrLen = len(array)
     if r == 0:
         r = arrLen
@@ -76,6 +80,7 @@ def arrayMinMaxParallel(array, lo=0, r=0, maxThreads=8):
 
 @njit(fastmath=True, parallel=True, cache=True)
 def npnbArrayMinMax(x):
+    """Thin njit wrapper around ``x.min()``/``x.max()`` for the finite-input case (no NaN handling)."""
     return x.min(), x.max()
 
 
@@ -84,6 +89,7 @@ def npnbArrayMinMax(x):
 ################################################################################################
 @njit(fastmath=True, cache=True)
 def arrayCountingSort(array, maxval):
+    """O(n + maxval) counting sort for a non-negative-integer array with known upper bound ``maxval``; faster than comparison sort when the value range is small relative to n."""
     res = np.empty(len(array), np.int32)
     m = maxval + 1
     count = np.zeros(m, np.int32)
@@ -102,11 +108,13 @@ def arrayCountingSort(array, maxval):
 ################################################################################################
 @njit(fastmath=True, cache=True)
 def emptyListOfInts():
+    """Return a typed-empty ``list[int]``; numba needs a concrete-typed constructor (not a bare ``[]``) to infer the reflected-list element type used by the bucket lists below."""
     return [i for i in range(0)]
 
 
 @njit(fastmath=True, cache=True)
 def BinByUniqueValues(array, lo, r, m, mask):
+    """Bucket the (optionally ``mask``-selected) indices of ``array[lo:r]`` into ``m`` lists keyed by value, i.e. one bucket per possible integer value 0..m-1. Building block for the counting-argsort kernels below."""
     groupedIndices = [emptyListOfInts() for k in range(m)]
     if len(mask) > 0:
         i = lo
@@ -130,6 +138,7 @@ def BinByUniqueValues(array, lo, r, m, mask):
 
 @njit(fastmath=True, cache=True)
 def arrayCountingArgSort(array, maxval, mask=_EMPTY_INT32_MASK):
+    """Argsort a non-negative-integer array via counting-sort buckets; ``mask`` restricts the sort to a subset of indices (empty mask = sort the whole array)."""
     m = maxval + 1
 
     # Allocate output array
@@ -153,6 +162,7 @@ def arrayCountingArgSort(array, maxval, mask=_EMPTY_INT32_MASK):
 
 @njit(fastmath=True, cache=True)
 def arrayCountingArgSortAndUniqueValues(array, maxval, mask=_EMPTY_INT32_MASK):
+    """Like ``arrayCountingArgSort`` but also returns the sorted unique values present and, for each, the start offset of its run in the argsorted output -- avoids a second pass to locate value-group boundaries."""
     m = maxval + 1
 
     # Allocate output array
@@ -180,6 +190,7 @@ def arrayCountingArgSortAndUniqueValues(array, maxval, mask=_EMPTY_INT32_MASK):
 
 @njit(fastmath=True, parallel=True, cache=True)
 def arrayCountingArgSortThreaded(array, maxval, mask=_EMPTY_INT32_MASK, maxThreads=2):
+    """Parallel counting-argsort: splits the range into per-thread chunks (each bucketed independently via ``BinByUniqueValues``), then merges bucket-by-bucket in value order. Falls back to a single thread when the array is small relative to the value range (``effectiveSize``), where thread spawn overhead would dominate."""
     m = maxval + 1
 
     # Allocate output array
@@ -217,6 +228,7 @@ def arrayCountingArgSortThreaded(array, maxval, mask=_EMPTY_INT32_MASK, maxThrea
 
 @njit(fastmath=True, parallel=True, cache=True)
 def arrayCountingArgSortAndUniqueValuesThreaded(array, maxval, mask=_EMPTY_INT32_MASK, maxThreads=2):
+    """Threaded counting-argsort that also returns sorted unique values + their run-start offsets (parallel counterpart of ``arrayCountingArgSortAndUniqueValues``); a ``seen`` boolean array gives O(1) dedup instead of scanning the growing unique-values list."""
     m = maxval + 1
     # Allocate output array
     if len(mask) > 0:
