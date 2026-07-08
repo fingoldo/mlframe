@@ -484,15 +484,15 @@ def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name
             if target_name is not None:
                 _fl = _by_tt.get(target_name) or _by_tt.get(str(target_name))
                 if _fl:
-                    return _fl
+                    return str(_fl)
             # Single-target fallback -- if there's only one entry, use it.
             if len(_by_tt) == 1:
-                return next(iter(_by_tt.values()))
+                return str(next(iter(_by_tt.values())))
         elif isinstance(_by_tt, str):
             return _by_tt
     # No (tt, tname) match in the dispatched bucket -- if the whole map has a single flavour
     # everywhere across BOTH buckets, use it.
-    _all = []
+    _all: list = []
     for _fam in _ec.values():
         if isinstance(_fam, dict):
             for _v in _fam.values():
@@ -506,7 +506,7 @@ def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name
     if len(_all_set) == 1:
         # Set with cardinality 1 is deterministic, but sort-then-pick documents the intent and survives the
         # accidental len==N>1 case if a future caller widens the guard.
-        return sorted(_all_set)[0]
+        return str(sorted(_all_set)[0])
     return None
 
 
@@ -544,7 +544,7 @@ def _replay_suite_datetime_decomposition(df, metadata, verbose: int = 0):
         _key = tuple(sorted((str(k), str(v)) for k, v in _m.items()))
         _by_methods.setdefault(_key, []).append(_src)
     for _methods_key, _srcs in _by_methods.items():
-        _resolved_methods = {}
+        _resolved_methods: dict[str, type] = {}
         for _accessor, _dtype_name in _methods_key:
             _resolved_methods[_accessor] = _dtype_resolvers.get(_dtype_name, _np.int8)
         if verbose:
@@ -592,7 +592,7 @@ def _run_batched(
     from the FIRST batch (they're row-count-invariant)."""
     n = len(df)
     if n == 0:
-        return entry_fn(df, *args, **kwargs)
+        return dict(entry_fn(df, *args, **kwargs))
     batch_outs: list[dict[str, Any]] = []
     _start = 0
     while _start < n:
@@ -610,7 +610,7 @@ def _run_batched(
         if _key in merged and isinstance(merged[_key], dict):
             merged[_key] = _concat_probs_dicts([b.get(_key, {}) or {} for b in batch_outs])
     for _key in ("ensemble_predictions", "ensemble_probabilities"):
-        _parts = [b.get(_key) for b in batch_outs if b.get(_key) is not None]
+        _parts: list = [b.get(_key) for b in batch_outs if b.get(_key) is not None]
         if _parts:
             try:
                 merged[_key] = np.concatenate(_parts, axis=0)
@@ -692,7 +692,7 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
 
     # Structure: models[target_type][target_name] = [model_obj, ...]
     # On-disk layout from _setup_model_directories: models_path/target_type/target_name/model.dump
-    models = defaultdict(lambda: defaultdict(list))
+    models: defaultdict = defaultdict(lambda: defaultdict(list))
     model_files = glob.glob(join(models_path, "**", "*.dump"), recursive=True)
 
     for model_file in model_files:
