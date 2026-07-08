@@ -23,7 +23,7 @@ except Exception:  # pragma: no cover - pandas is a hard dep in practice
 try:
     import polars as pl
 except Exception:
-    pl = None
+    pl = None  # type: ignore[assignment]
 
 
 def is_pandas(X: Any) -> bool:
