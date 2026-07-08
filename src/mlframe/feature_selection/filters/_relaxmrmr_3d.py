@@ -88,7 +88,7 @@ def _joint_cmi_xy_given_zw_njit(x: np.ndarray, y: np.ndarray, z1: np.ndarray, z2
     z_comp = np.empty(n, dtype=np.int64)
     for i in range(n):
         z_comp[i] = int(z1[i]) * K_z2 + int(z2[i])
-    return _cmi_xy_given_z_njit(x, y, z_comp, K_x, K_y, K_zz)
+    return float(_cmi_xy_given_z_njit(x, y, z_comp, K_x, K_y, K_zz))
 
 
 @njit(nogil=True, cache=True)
