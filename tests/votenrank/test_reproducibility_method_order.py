@@ -17,7 +17,7 @@ _SNIPPET = r"""
 import sys
 sys.path.insert(0, {src!r})
 import pandas as pd
-from mlframe.votenrank.leaderboard.Leaderboard import Leaderboard
+from mlframe.votenrank.leaderboard.leaderboard_impl import Leaderboard
 t = pd.DataFrame(
     {{"taskA": [0.9, 0.5, 0.2], "taskB": [0.8, 0.4, 0.6], "taskC": [0.3, 0.7, 0.5]}},
     index=["m1", "m2", "m3"],

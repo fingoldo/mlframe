@@ -41,7 +41,7 @@ majority-of-folds (>=75%) improvement gate, the same relative-MAE stop. Only the
 float reduction ORDER differs between cupy and numpy (~1e-12), to which the
 majority-of-folds gate is tolerant in practice (F2 selection-equivalent). NOTE: there
 is NO explicit near-tie detector here -- the only fall-throughs to the exact CPU path
-are the singular-border ``_ResidentFallback`` (refits exactly) and any cupy/device
+are the singular-border ``_ResidentFallbackError`` (refits exactly) and any cupy/device
 error (returns None); a pathological reduction-order tie that the gate cannot absorb
 is a theoretical residual, not a guarded case.
 
@@ -207,7 +207,7 @@ def usability_greedy_gpu_resident(
                 if beta is None:
                     # singular selected design on the train fold: fall back to the exact CPU shortlist for
                     # this round (selection correctness never depends on the fast path).
-                    raise _ResidentFallback()
+                    raise _ResidentFallbackError()
                 Sho = Vdev[ho][:, sel_idx]
                 pred = ybar + (Sho - mu) @ beta
                 resid = ydev[ho] - pred
@@ -288,7 +288,7 @@ def usability_greedy_gpu_resident(
             # scalar D2H that contradicts this round's "one coalesced D2H" contract). Instead accumulate each
             # candidate's MINIMUM fold cc_tr.cc_tr resident and coalesce ALL of them into the SAME single D2H
             # as the fold-MAE matrix below; the border is then checked host-side once per round. Same verdict:
-            # if any round-1 candidate-fold has cc_tr.cc_tr <= 1e-12 the round raises _ResidentFallback (the
+            # if any round-1 candidate-fold has cc_tr.cc_tr <= 1e-12 the round raises _ResidentFallbackError (the
             # whole resident path then refits exactly on CPU), identical to the prior mid-loop break.
             mind_rows = []  # resident scalar (min fold d) per candidate when Sc_tr is None; else None
             for i in cand_list:
@@ -331,7 +331,7 @@ def usability_greedy_gpu_resident(
                         pred = ybar + Sc_va @ beta[:k] + cc_va * beta[k]
                     errs_dev[fo] = cp.mean(cp.abs(yva - pred))
                 if singular:
-                    raise _ResidentFallback()
+                    raise _ResidentFallbackError()
                 errs_rows.append(errs_dev)
                 cand_keys.append(i)
                 mind_rows.append(cand_mind)
@@ -343,7 +343,7 @@ def usability_greedy_gpu_resident(
                 if any(m is not None for m in mind_rows):
                     mind_host = cp.asnumpy(cp.stack([m for m in mind_rows if m is not None]))
                     if float(mind_host.min()) <= 1e-12:
-                        raise _ResidentFallback()
+                        raise _ResidentFallbackError()
                 for r, i in enumerate(cand_keys):
                     out[i] = errs_host[r]
             return out
@@ -367,13 +367,13 @@ def usability_greedy_gpu_resident(
             selected.append(best_i)
             folds_cur, mae_cur = best_folds, best_mean
         return [pool[i] for i in selected]
-    except _ResidentFallback:
+    except _ResidentFallbackError:
         return None  # a singular border / degenerate fit -> take the exact CPU greedy
     except Exception:
         return None  # any cupy/device error -> exact CPU greedy
 
 
-class _ResidentFallback(Exception):
+class _ResidentFallbackError(Exception):
     """Internal signal: a singular/degenerate device fit was hit -> fall back to the exact CPU greedy
     (which has its own per-candidate refit fallback), so selection is never decided by the fast path."""
 

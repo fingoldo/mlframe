@@ -134,7 +134,6 @@ def waic_from_oof_residuals(
     """
     clean: list[np.ndarray] = []
     scale_resid: list[Optional[np.ndarray]] = []
-    have_scale = fold_scale_residuals is not None
     for j, arr in enumerate(fold_residuals):
         a = np.asarray(arr, dtype=np.float64).ravel()
         a = a[np.isfinite(a)]

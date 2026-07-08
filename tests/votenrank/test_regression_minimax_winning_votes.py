@@ -8,7 +8,7 @@ the score with the explicit duplicate, mirroring the pre-optimization code.
 import numpy as np
 import pandas as pd
 
-from mlframe.votenrank.leaderboard.Leaderboard import Leaderboard
+from mlframe.votenrank.leaderboard.leaderboard_impl import Leaderboard
 
 
 def _reference_winning_votes(lb):

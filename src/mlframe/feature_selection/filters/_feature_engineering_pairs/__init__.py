@@ -30,7 +30,7 @@ from ._pairs_gates import (
     _PREWARP_SPECS_RESULT_KEY,
     _PREWARP_UNARY,
     _gate_med_apply,
-    _neg_name_key,
+    _NegNameKey,
     _select_single_best,
 )
 from ._pairs_materialise import (
@@ -61,7 +61,7 @@ __all__ = [
     "UNIFIED_FE_SUBSAMPLE_N",
     "_gate_med_apply",
     "_select_single_best",
-    "_neg_name_key",
+    "_NegNameKey",
     "_dispatch_batch_mi_with_noise_gate",
     "_batch_mi_with_noise_gate_gpu",
     "_BATCH_MI_NOISE_GATE_CODE_VERSION",

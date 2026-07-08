@@ -82,7 +82,7 @@ def rmsle_loss(y_true, y_pred):
 rmsle_score = make_scorer(rmsle_loss, greater_is_better=False)
 
 
-class log_uniform:
+class LogUniform:
     """Log-uniform continuous distribution over ``[base**a, base**b]``.
 
     Compatible with scipy.stats random-variable interface expected by

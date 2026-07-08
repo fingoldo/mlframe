@@ -1,3 +1,3 @@
 from __future__ import annotations
 
-from .Leaderboard import Leaderboard
+from .leaderboard_impl import Leaderboard

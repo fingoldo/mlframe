@@ -146,7 +146,7 @@ class MRMRTreeRescued(MRMR):
                     ", ".join(str(cols[i]) for i in added[:8]) if cols else str(added[:8]),
                 )
         except Exception as e:  # never let the rescue break a successful MRMR fit
-            warnings.warn(f"MRMRTreeRescued: tree-rescue degraded ({type(e).__name__}: {e}); selection unchanged")
+            warnings.warn(f"MRMRTreeRescued: tree-rescue degraded ({type(e).__name__}: {e}); selection unchanged", stacklevel=2)
 
     def fit(self, X, y, *args, **kwargs):
         super().fit(X, y, *args, **kwargs)

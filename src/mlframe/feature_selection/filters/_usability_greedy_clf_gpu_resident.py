@@ -47,7 +47,7 @@ from typing import Optional
 import numpy as np
 
 
-class _ResidentClfFallback(Exception):
+class _ResidentClfFallbackError(Exception):
     """Internal signal: a non-convergent / singular / degenerate device logistic fit was hit ->
     fall back to the exact CPU greedy so selection is never decided by the fast path."""
 
@@ -212,14 +212,14 @@ def usability_greedy_clf_gpu_resident(
                 try:
                     step = cp.linalg.solve(H, grad)
                 except Exception:
-                    raise _ResidentClfFallback()
+                    raise _ResidentClfFallbackError()
                 wv = wv - step
                 if not bool(cp.all(cp.isfinite(wv))):
-                    raise _ResidentClfFallback()
+                    raise _ResidentClfFallbackError()
                 if float(cp.max(cp.abs(step))) < _NEWTON_TOL:
                     break
             else:
-                raise _ResidentClfFallback()  # did not converge -> defer to CPU
+                raise _ResidentClfFallbackError()  # did not converge -> defer to CPU
             return wv
 
         def _proba_binary(Xs, wv):
@@ -268,14 +268,14 @@ def usability_greedy_clf_gpu_resident(
                 try:
                     step = cp.linalg.solve(Hbig, grad)
                 except Exception:
-                    raise _ResidentClfFallback()
+                    raise _ResidentClfFallbackError()
                 Wm = Wm - step.reshape(d, n_classes)
                 if not bool(cp.all(cp.isfinite(Wm))):
-                    raise _ResidentClfFallback()
+                    raise _ResidentClfFallbackError()
                 if float(cp.max(cp.abs(step))) < _NEWTON_TOL:
                     break
             else:
-                raise _ResidentClfFallback()
+                raise _ResidentClfFallbackError()
             return Wm
 
         def _proba_multinomial(Xs, Wm):
@@ -303,7 +303,7 @@ def usability_greedy_clf_gpu_resident(
 
         def _fit_proba(Xtr_s, Xeval_list, ytr_codes_dev):
             """Fit on standardized train design, return list of eval-set probabilities (positive-class
-            (m,) for binary, (m,C) for multinomial). Raises _ResidentClfFallback on a bad fit."""
+            (m,) for binary, (m,C) for multinomial). Raises _ResidentClfFallbackError on a bad fit."""
             if n_classes == 2:
                 yb = (ytr_codes_dev == 1).astype(cp.float64)
                 wv = _fit_binary(Xtr_s, yb)
@@ -412,7 +412,7 @@ def usability_greedy_clf_gpu_resident(
             selected.append(best_i)
             folds_cur, cur = best_folds, best_mean
         return [pool[i] for i in selected]
-    except _ResidentClfFallback:
+    except _ResidentClfFallbackError:
         return None  # non-convergent / singular / degenerate device fit -> exact CPU greedy
     except Exception:
         return None  # any cupy/device error -> exact CPU greedy

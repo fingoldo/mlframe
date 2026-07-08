@@ -23,7 +23,7 @@ import numpy as np, pandas as pd
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def I(cond: np.ndarray) -> np.ndarray:
+def indicator(cond: np.ndarray) -> np.ndarray:
     # Indicator function
     return cond.astype(int)
 
@@ -55,7 +55,7 @@ def get_sapp_dataset(
     # Guard |X3| against zero to avoid log(-inf) contaminating target.
     _safe_abs_x3 = np.maximum(np.abs(df["X3"].values), 1e-12)
     target = df.eval(
-        "X1+sin(X2)+log(@_safe_abs_x3)+X4**2+X5*X6 +@I((X7*X8*X9)<0)+@I(X10>0)+X11*@I(X11>0)+sqrt(abs(X12)) +cos(X13)+2*X14+abs(X15)+@I(X16<-1)+X17*@I(X17<-1)-2*X18-X19*X20"
+        "X1+sin(X2)+log(@_safe_abs_x3)+X4**2+X5*X6 +@indicator((X7*X8*X9)<0)+@indicator(X10>0)+X11*@indicator(X11>0)+sqrt(abs(X12)) +cos(X13)+2*X14+abs(X15)+@indicator(X16<-1)+X17*@indicator(X17<-1)-2*X18-X19*X20"
     )
 
     if add_error:

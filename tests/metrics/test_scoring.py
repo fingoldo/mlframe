@@ -6,7 +6,7 @@ import pytest
 from mlframe.metrics.scoring import (
     ProbaScoreProxy,
     fast_rmse,
-    log_uniform,
+    LogUniform,
     rmse_loss,
     rmse_score,
     rmsle_loss,
@@ -117,7 +117,7 @@ def test_rmse_and_rmsle_scorers_greater_is_better_false():
 
 
 def test_log_uniform_bounds():
-    lu = log_uniform(a=-2, b=2, base=10)
+    lu = LogUniform(a=-2, b=2, base=10)
     samples = lu.rvs(size=500, random_state=42)
     assert samples.shape == (500,)
     assert np.all(samples >= 10 ** -2 - 1e-9)
@@ -125,14 +125,14 @@ def test_log_uniform_bounds():
 
 
 def test_log_uniform_scalar():
-    lu = log_uniform(a=0, b=1, base=10)
+    lu = LogUniform(a=0, b=1, base=10)
     val = lu.rvs(random_state=1)
     assert np.isscalar(val) or val.shape == ()
     assert 1 <= float(val) <= 10
 
 
 def test_log_uniform_random_state_reproducible():
-    lu = log_uniform(-1, 1, base=10)
+    lu = LogUniform(-1, 1, base=10)
     a = lu.rvs(size=10, random_state=7)
     b = lu.rvs(size=10, random_state=7)
     np.testing.assert_array_equal(a, b)

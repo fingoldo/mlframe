@@ -595,7 +595,7 @@ ignore-names = ["F", "L", "_F"]
 "src/mlframe/**/_smoke_*.py" = ["T201"]
 "src/mlframe/**/_*_showcase.py" = ["T201"]
 # Vendored third-party model code -- left at upstream shape.
-"src/mlframe/feature_selection/filters/_vendored/**" = ["T201", "A001", "A002"]
+"src/mlframe/feature_selection/filters/_vendored/**" = ["T201", "A001", "A002", "N801"]
 
 # ---------------------------------------------------------------------------
 # MyPy

@@ -13,7 +13,7 @@ This file is never imported by production code. Pass it alongside the real targe
 the vulture command line: ``vulture src/mlframe scripts/vulture_whitelist.py``.
 """
 
-# --- votenrank/leaderboard/Leaderboard.py: class-body imports invoked via
+# --- votenrank/leaderboard/leaderboard_impl.py: class-body imports invoked via
 # getattr(self, f"{method}_election") dynamic dispatch in elect_all(). ---
 from mlframe.votenrank.leaderboard._rules import (
     baldwin_election,

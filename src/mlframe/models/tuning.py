@@ -46,13 +46,13 @@ class MLTaskType(Enum):
 trained_models: dict = {}
 
 
-class hashabledict(dict):
+class HashableDict(dict):
     def __hash__(self):  # type: ignore[override]  # intentional: dict.__hash__ is None (unhashable); this recipe makes it hashable
         return hash(tuple(sorted(self.items())))
 
 
 def check_condition(condition, params: dict) -> bool:
-    if isinstance(condition, (dict, hashabledict)):
+    if isinstance(condition, (dict, HashableDict)):
         # must hold on all the conditions!
         for cond_field, cond_value in condition.items():
             if isinstance(cond_value, list):
@@ -137,7 +137,7 @@ def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_valu
                     if not check_condition(field_cond, params):
                         # print(f"allow_if_values_and cond {condition} NOT triggered for {field_cond}")
                         return False
-                # (hashabledict({"posterior_sampling": True}),): [
+                # (HashableDict({"posterior_sampling": True}),): [
                 # {"model_shrink_mode": "Constant"},  # Posterior Sampling requires Сonstant Model Shrink Mode
                 # {"langevin": True},  # Posterior Sampling requires Langevin boosting],
     return True
@@ -794,55 +794,55 @@ class CatboostParamsOptimizer(ParamsOptimizer):
         # No groups in dataset. Please disable sampling or use per object sampling
 
         self.skip_if_values_or = {
-            (hashabledict({"sampling_frequency": "PerTreeLevel"}),): [
+            (HashableDict({"sampling_frequency": "PerTreeLevel"}),): [
                 {"grow_policy": "Lossguide"}
             ],  # PerTreeLevel sampling is not supported for Lossguide grow policy.
-            (hashabledict({"bootstrap_type": "Poisson"}),): [not GPU_ENABLED],  # Error: poisson bootstrap is not supported on CPU
+            (HashableDict({"bootstrap_type": "Poisson"}),): [not GPU_ENABLED],  # Error: poisson bootstrap is not supported on CPU
             (not GPU_ENABLED,): [{"leaf_estimation_backtracking": "Armijo"}],  # Backtracking type Armijo is supported only on GPU
-            (hashabledict({"approx_on_full_history": True}),): [
+            (HashableDict({"approx_on_full_history": True}),): [
                 {"boosting_type": [None, "Plain"]}
             ],  # Can't use approx-on-full-history with Plain boosting-type
-            (hashabledict({"leaf_estimation_method": "Newton"}),): [
+            (HashableDict({"leaf_estimation_method": "Newton"}),): [
                 {
                     "loss_function": ["MAE", "MAPE", "Quantile", "MultiQuantile", "LogLinQuantile"]
                     + [el for el in self.params.get("loss_function", []) if el.startswith("Lq")]
                 }
             ],  # Newton leaves estimation method is not supoprted for MAPE loss function # Newton leaves estimation method is not supoprted for Lq loss function with q < 2 !TODO
-            (hashabledict({"leaf_estimation_method": "Exact"}),): [
+            (HashableDict({"leaf_estimation_method": "Exact"}),): [
                 {"approx_on_full_history": True}
             ],  # ApproxOnFullHistory option is not available within Exact method on CPU.
         }
 
         self.allow_if_values_or = {
-            (hashabledict({"bootstrap_type": "MVS"}),): [{"sampling_unit": "Object"}],  # MVS bootstrap supports per object sampling only.
-            (hashabledict({"boosting_type": "Ordered"}),): [{"grow_policy": "SymmetricTree"}],  # Ordered boosting is not supported for nonsymmetric trees.
+            (HashableDict({"bootstrap_type": "MVS"}),): [{"sampling_unit": "Object"}],  # MVS bootstrap supports per object sampling only.
+            (HashableDict({"boosting_type": "Ordered"}),): [{"grow_policy": "SymmetricTree"}],  # Ordered boosting is not supported for nonsymmetric trees.
             (not GPU_ENABLED,): [
                 {"score_function": "Cosine"},
                 {"score_function": "L2"},
                 {"score_function": None},
             ],  # Only Cosine and L2 score functions are supported for CPU.
-            (hashabledict({"leaf_estimation_method": "Exact"}),): [
+            (HashableDict({"leaf_estimation_method": "Exact"}),): [
                 {"loss_function": "Quantile"},
                 {"loss_function": "MAE"},
                 {"loss_function": "MAPE"},
                 {"loss_function": "LogCosh"},
             ],  # Exact method is only available for Quantile, MAE, MAPE and LogCosh loss functions.
-            (hashabledict({"auto_class_weights": "Balanced"}),): [
+            (HashableDict({"auto_class_weights": "Balanced"}),): [
                 {"loss_function": "Logloss"},
                 {"loss_function": "MultiClass"},
                 {"loss_function": "MultiClassOneVsAll"},
             ],  # class weights takes effect only with Logloss, MultiClass, MultiClassOneVsAll and user-defined loss functions
-            (hashabledict({"auto_class_weights": "SqrtBalanced"}),): [
+            (HashableDict({"auto_class_weights": "SqrtBalanced"}),): [
                 {"loss_function": "Logloss"},
                 {"loss_function": "MultiClass"},
                 {"loss_function": "MultiClassOneVsAll"},
             ],  # class weights takes effect only with Logloss, MultiClass, MultiClassOneVsAll and user-defined loss functions
-            (hashabledict({"boost_from_average": True}),): [
+            (HashableDict({"boost_from_average": True}),): [
                 {"loss_function": "MAE MAPE Quantile MultiQuantile RMSE".split()}
             ],  #  You can use boost_from_average only for these loss functions now:
         }
         self.allow_if_values_and = {
-            (hashabledict({"posterior_sampling": True}),): [
+            (HashableDict({"posterior_sampling": True}),): [
                 {"model_shrink_mode": "Constant"},  # Posterior Sampling requires Сonstant Model Shrink Mode
                 {"langevin": True},  # Posterior Sampling requires Langevin boosting
             ],

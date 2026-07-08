@@ -281,7 +281,7 @@ def _select_single_best(
                 _primary(kv[1]),
                 quantize_mi_tiebreak(kv[1]),
                 float(_sec.get(kv[0], 0.0)),
-                _neg_name_key(get_new_feature_name(fe_tuple=kv[0], cols_names=cols_names)),
+                _NegNameKey(get_new_feature_name(fe_tuple=kv[0], cols_names=cols_names)),
             ),
         )[0]
     return max(
@@ -291,12 +291,12 @@ def _select_single_best(
             float(_use.get(kv[0], 0.0)),
             quantize_mi_tiebreak(kv[1]),
             float(_sec.get(kv[0], 0.0)),
-            _neg_name_key(get_new_feature_name(fe_tuple=kv[0], cols_names=cols_names)),
+            _NegNameKey(get_new_feature_name(fe_tuple=kv[0], cols_names=cols_names)),
         ),
     )[0]
 
 
-class _neg_name_key:
+class _NegNameKey:
     """Reverse-ordering wrapper so a HIGHER MI still wins but, on an MI tie, the
     lexicographically-SMALLEST name wins (we negate the name comparison)."""
 
@@ -305,9 +305,9 @@ class _neg_name_key:
     def __init__(self, s: str):
         self.s = s
 
-    def __lt__(self, other: "_neg_name_key") -> bool:
+    def __lt__(self, other: "_NegNameKey") -> bool:
         # Inverted: smaller string sorts as "greater" so max() prefers it.
         return self.s > other.s
 
     def __eq__(self, other) -> bool:  # pragma: no cover - completeness
-        return isinstance(other, _neg_name_key) and self.s == other.s
+        return isinstance(other, _NegNameKey) and self.s == other.s

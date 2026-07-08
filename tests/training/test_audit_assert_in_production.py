@@ -187,7 +187,7 @@ def test_leaderboard_partition_check_raises_value_error():
     """SILENT-CORRECTNESS under -O: a bad task->group partition produced a wrong
     meta-table. get_meta_leaderboard must raise ValueError, not assert."""
     import pandas as pd
-    from mlframe.votenrank.leaderboard.Leaderboard import Leaderboard
+    from mlframe.votenrank.leaderboard.leaderboard_impl import Leaderboard
     table = pd.DataFrame({"t1": [1.0, 2.0], "t2": [3.0, 4.0], "t3": [5.0, 6.0]}, index=["m1", "m2"])
     lb = Leaderboard(table, weights={"t1": 1.0, "t2": 1.0, "t3": 1.0})
     with pytest.raises(ValueError, match="do not match"):

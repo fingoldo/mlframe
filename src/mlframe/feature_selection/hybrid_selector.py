@@ -321,7 +321,7 @@ class HybridSelector:
                     self._mrmr_member, self._eng_names, self._eng_rename = None, [], {}
             return selected, artifacts
         except Exception as e:
-            warnings.warn(f"HybridSelector: MRMR stage degraded ({type(e).__name__}: {e})")
+            warnings.warn(f"HybridSelector: MRMR stage degraded ({type(e).__name__}: {e})", stacklevel=2)
             return [], None
 
     def _tree_signals(self, X, y):
@@ -375,7 +375,7 @@ class HybridSelector:
                         pairs.append((a, b)); names.append(nm); self._tree_op_[nm] = (a, b, op)
                 self._tree_prod_pairs_, self._tree_prod_names_ = pairs, names
         except Exception as e:
-            warnings.warn(f"HybridSelector: tree-signal stage degraded ({type(e).__name__}: {e})")
+            warnings.warn(f"HybridSelector: tree-signal stage degraded ({type(e).__name__}: {e})", stacklevel=2)
             self._tree_ranked_, self._tree_prod_pairs_, self._tree_prod_names_, self._tree_op_ = [], [], [], {}
 
     def _admit_tree_products(self, relevant, raw_cols):
@@ -428,7 +428,7 @@ class HybridSelector:
                 for c in self._eng_names:
                     eng_cols[self._eng_rename[c]] = out[c].values
             except Exception as e:
-                warnings.warn(f"HybridSelector: FE augment failed ({type(e).__name__}: {e}); skipping MRMR eng cols")
+                warnings.warn(f"HybridSelector: FE augment failed ({type(e).__name__}: {e}); skipping MRMR eng cols", stacklevel=2)
                 eng_cols = {}
         tree_op = getattr(self, "_tree_op_", {})
         for nm in getattr(self, "_tree_prod_names_", []):
@@ -642,12 +642,12 @@ class HybridSelector:
         try:
             member_sel["shap"] = self._run_shap(X_aug, y, relevant, self.artifacts_)
         except Exception as e:
-            warnings.warn(f"HybridSelector: shap member degraded ({type(e).__name__}: {e})")
+            warnings.warn(f"HybridSelector: shap member degraded ({type(e).__name__}: {e})", stacklevel=2)
             member_sel["shap"] = []
         try:
             member_sel["boruta"] = self._run_boruta_premerge(X_aug, y, relevant)
         except Exception as e:
-            warnings.warn(f"HybridSelector: boruta member degraded ({type(e).__name__}: {e})")
+            warnings.warn(f"HybridSelector: boruta member degraded ({type(e).__name__}: {e})", stacklevel=2)
             member_sel["boruta"] = []
         # TREE member: votes for its top-k features by split importance, plus the (already gate-admitted, already in
         # the frame) co-occurrence PRODUCT columns. The product gating happened up front (tree_prod_gate), so the

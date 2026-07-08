@@ -484,7 +484,7 @@ def _first_group_column(df, names, max_card: int = 50):
             except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
                 logger.debug("suppressed in _diagnostics_dispatch_extra.py:483: %s", e)
                 continue
-        elif dt == object or str(dt).startswith("string"):
+        elif dt is object or str(dt).startswith("string"):
             try:
                 head = col.head(20_000) if hasattr(col, "head") else col
                 nun = int(head.nunique(dropna=True)) if hasattr(head, "nunique") else 0
