@@ -532,13 +532,13 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
             _hist, _mi = _get_mi_split_f32_kernels(cp) if _is_f32 else _get_mi_split_kernels(cp)
             _hist((K, S), (256,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), np.int32(S), gcounts), shared_mem=M * 4)
             _mi((K,), (32,), (gcounts, np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out))
-            return cp.asnumpy(mi_out)
+            return np.asarray(cp.asnumpy(mi_out))
         except Exception:
             import logging
             logging.getLogger(__name__).debug("mi split-n path failed; single-launch mi_from_values", exc_info=True)
     _single = _get_mi_from_values_f32_kernel() if _is_f32 else _get_mi_from_values_kernel()
     _single((K,), (256,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out), shared_mem=int(nbins) * Ky * 4)
-    return cp.asnumpy(mi_out)
+    return np.asarray(cp.asnumpy(mi_out))
 
 
 _MI_FROM_CODES_KERNEL = None  # module-level singleton (lazy-compiled; never on an instance -> pickle-safe)
@@ -591,7 +591,7 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
     self_kernel((K,), (threads,), (C.ravel(), y, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
                                    np.float64(1.0 / float(max(1, n))), mi_out),
                 shared_mem=Kx * Ky * 4)
-    return cp.asnumpy(mi_out)
+    return np.asarray(cp.asnumpy(mi_out))
 
 
 def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
