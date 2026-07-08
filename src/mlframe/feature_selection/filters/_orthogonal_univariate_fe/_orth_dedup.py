@@ -46,7 +46,7 @@ def _pc_corr_numpy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     # nan -> 'not a duplicate' for the caller. Mirror the legacy per-pair skips: <8 common rows, or either side
     # near-constant on the common rows (std <= 1e-12 => var <= 1e-24) -- otherwise a 0/~0 ratio could read as inf >= thr.
     corr[(n < 8) | (varx <= 1e-24) | (vary <= 1e-24)] = np.nan
-    return corr
+    return np.asarray(corr)
 
 
 @njit(parallel=True, cache=True)  # NO fastmath: the kernel relies on isfinite() for the NaN mask; nnan/ninf would elide it.
@@ -112,7 +112,7 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     vy = Syy - Sy * Sy / n
     corr = cp.abs(cov / cp.sqrt(vx * vy))
     corr[(n < 8) | (vx <= 1e-24) | (vy <= 1e-24)] = cp.nan
-    return cp.asnumpy(corr)
+    return np.asarray(cp.asnumpy(corr))
 
 
 def _pairwise_complete_abs_corr(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
@@ -126,7 +126,7 @@ def _pairwise_complete_abs_corr(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     FE pipeline's joblib-worker GPU contention (same lesson as ``lookup_mi_classif_backend``). cupy OOM -> numpy."""
     backend = _resolve_pc_backend(Q.shape[0], R.shape[0], Q.shape[1])
     if backend == "njit":
-        return _pc_corr_njit(np.ascontiguousarray(Q, dtype=np.float64), np.ascontiguousarray(R, dtype=np.float64))
+        return np.asarray(_pc_corr_njit(np.ascontiguousarray(Q, dtype=np.float64), np.ascontiguousarray(R, dtype=np.float64)))
     if backend == "cupy":
         try:
             return _pc_corr_cupy(Q, R)
@@ -266,6 +266,8 @@ def _dedup_collinear_source_cols(
     # other partial row. Empty when there are no partial columns (the common all-dense case is untouched -> bit-identical).
     partial_order = [i for i in range(len(cols)) if classes[i] == "partial_nan"]
     partial_pos = {i: p for p, i in enumerate(partial_order)}
+    pc_pd: np.ndarray | None
+    pc_pp: np.ndarray | None
     if partial_order:
         partial_mat = np.vstack([partial_arrays[i] for i in partial_order])
         dense_mat_for_pc = dense_matrix if dense_rows else np.empty((0, partial_mat.shape[1]), dtype=np.float64)
@@ -296,9 +298,11 @@ def _dedup_collinear_source_cols(
         if cls == "dense":
             row_idx = dense_idx[dense_pos]
             dense_pos += 1
+            assert abs_corr is not None  # this "dense" cls only occurs when dense_rows was non-empty, which set abs_corr
             is_dup = _hits(abs_corr[row_idx], kept_dense_rows)
             # Also compare against any kept partial-NaN columns (rare): pc_pd[p, row_idx] is partial-p vs this dense col.
             if not is_dup and kept_partial_pos:
+                assert pc_pd is not None  # kept_partial_pos non-empty implies partial_order was non-empty, which set pc_pd
                 col = pc_pd[:, row_idx]
                 is_dup = bool(np.any(np.isfinite(col[kept_partial_pos]) & (col[kept_partial_pos] >= corr_threshold)))
             if not is_dup:
@@ -307,6 +311,7 @@ def _dedup_collinear_source_cols(
             continue
         # cls == "partial_nan": vectorized lookups against kept dense + kept partial.
         p = partial_pos[i]
+        assert pc_pd is not None and pc_pp is not None  # this "partial_nan" cls only occurs when partial_order was non-empty, which set both
         is_dup = _hits(pc_pd[p], kept_dense_rows) or _hits(pc_pp[p], kept_partial_pos)
         if not is_dup:
             kept.append(c)

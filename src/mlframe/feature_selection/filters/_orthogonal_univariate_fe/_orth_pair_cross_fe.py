@@ -299,6 +299,7 @@ def score_pair_cross_basis_by_mi_uplift(
         raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
         # Column-chunked MI scoring -> bit-identical, bounds peak RAM on the wide pair-cross-basis matrix.
         eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
+    assert raw_mi_map is not None  # set by either the device-born path or the host fallback above
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
         # D1 (2026-06-22): recover legs against the raw-column set, not a blind first-"__"
