@@ -187,6 +187,7 @@ def compute_mrmr_artifacts(
             # ``data`` matrix so a later in-place edit (e.g. DCD aggregate
             # append) cannot corrupt the export. Cost: n_samples * dtype-bytes
             # per kept column.
+            assert bins_dict is not None and nbins_dict is not None  # retain_bins guarantees both were allocated above
             bins_dict[name] = np.ascontiguousarray(x_bins, dtype=dtype).copy()
             nbins_dict[name] = x_nb
 
