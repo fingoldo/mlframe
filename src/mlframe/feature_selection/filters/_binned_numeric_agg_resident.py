@@ -271,7 +271,8 @@ def build_binagg_oof_matrix_gpu(
             # rows excluded by the 0/1 weight (the weight already carries finite_g, so their contribution is 0).
             v_safe = cp.where(finite_g, av_g, 0.0)
             finite_f = finite_g.astype(cp.float64)
-            pc = (av_g, finite_g, v_safe, finite_f, {})
+            _fold_stat_cache_new: dict = {}
+            pc = (av_g, finite_g, v_safe, finite_f, _fold_stat_cache_new)
             pair_cache[(gcol, acol)] = pc
         av_g, finite_g, v_safe, finite_f, fold_stat_cache = pc
 
