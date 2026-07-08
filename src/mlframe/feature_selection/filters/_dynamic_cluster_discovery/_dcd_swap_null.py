@@ -52,7 +52,7 @@ def _entropy_col_onto_classes(x_col, nb_x, base_classes, base_nclasses, n_rows) 
     for row in range(n_rows):
         freqs[base_classes[row] + x_col[row] * base_nclasses] += 1
     nz = freqs[freqs > 0]
-    return entropy(nz / n_rows)
+    return float(entropy(nz / n_rows))
 
 
 @njit(cache=True)
@@ -70,7 +70,7 @@ def conditional_mi_col(x_col, nb_x, z_classes, z_nclasses, yz_classes, yz_nclass
     res = h_xz + entropy_yz - entropy_z - h_xyz
     if res < 0.0:
         res = 0.0
-    return res
+    return float(res)
 
 
 @njit(cache=True)
@@ -82,7 +82,7 @@ def mi_col(x_col, nb_x, y_classes, y_nclasses, entropy_x, entropy_y) -> float:
     res = entropy_x + entropy_y - h_xy
     if res < 0.0:
         res = 0.0
-    return res
+    return float(res)
 
 
 @njit(parallel=True, cache=True)
@@ -147,7 +147,7 @@ def _run_member_null_serial(*, state, member_idx, member_rel, B_, rng_m, target_
                 )
             if null_rel_m >= member_rel:
                 n_exceed_m += 1
-        return (n_exceed_m + 1) / (B_ + 1)
+        return float((n_exceed_m + 1) / (B_ + 1))
     except Exception as exc:
         logger.warning(f"DCD swap: member permutation null (serial) failed (B={B_}): {exc!r}")
         return 1.0
@@ -231,7 +231,7 @@ def run_member_null(*, state, member_idx: int, member_rel: float, B_: int, ancho
                 shuffles, nb_x, y_classes.astype(np.int64), int(y_nclasses),
                 entropy_x, entropy_y, float(member_rel),
             )
-        return (n_exceed + 1) / (B_ + 1)
+        return float((n_exceed + 1) / (B_ + 1))
     except Exception as exc:
         logger.warning(f"DCD swap: member permutation null (parallel) failed (B={B_}): {exc!r}")
         return 1.0  # conservative: fail closed
