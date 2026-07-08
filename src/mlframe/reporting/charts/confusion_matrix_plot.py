@@ -11,7 +11,7 @@ whole path is sklearn-free at runtime. Rendering uses the same Agg-safe ``Figure
 
 from __future__ import annotations
 
-from typing import Optional, Sequence, Tuple
+from typing import Any, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -157,6 +157,7 @@ def plot_confusion_matrix(
     cm = matplotlib.colormaps[cmap]
     im = ax.imshow(display, cmap=cm, aspect="auto")
 
+    _rotation: Any
     if xticks_rotation == "vertical":
         _rotation, _ha = 90, "center"
     elif xticks_rotation == "horizontal":

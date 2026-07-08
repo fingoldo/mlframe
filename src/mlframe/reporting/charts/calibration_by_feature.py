@@ -168,7 +168,7 @@ def compute_calibration_by_feature_heterogeneity(
     metric the biz_value test + the suite metrics dict consume. ``heterogeneity`` is NaN with <2 usable bins.
     """
     records, skipped = _per_bin_ece(
-        y_true, y_score, feature_values,
+        y_true, y_score, np.asarray(feature_values),
         n_feature_bins=n_feature_bins, n_prob_bins=n_prob_bins, random_state=random_state,
     )
     per_bin = {r["label"]: r["ece"] for r in records}
@@ -205,7 +205,7 @@ def compose_calibration_by_feature_figure(
     """
     title = f"Calibration by {feature_name}"
     records, skipped = _per_bin_ece(
-        y_true, y_score, feature_values,
+        y_true, y_score, np.asarray(feature_values),
         n_feature_bins=n_feature_bins, n_prob_bins=n_prob_bins, random_state=random_state,
     )
     skipped_note = ("  skipped: " + ", ".join(skipped)) if skipped else ""
