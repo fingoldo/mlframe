@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from timeit import default_timer as timer
 from os.path import join, exists
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -304,7 +304,7 @@ def _call_train_evaluate_with_configs(
     data, control, metrics, reporting, naming, confidence, predictions, output = _build_configs_from_params(**all_params)
 
     # Call train_and_evaluate_model with config objects
-    return train_and_evaluate_model(
+    _result = train_and_evaluate_model(
         model=model_obj,
         data=data,
         control=control,
@@ -321,6 +321,7 @@ def _call_train_evaluate_with_configs(
         oof_has_time=oof_has_time,
         oof_random_seed=oof_random_seed,
     )
+    return cast(Tuple[Any, Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]], _result)
 
 
 def process_model(
@@ -442,9 +443,10 @@ def process_model(
     use_cache_flag = bool(common_params.get("use_cache", True))
     use_cached_model = use_cache_flag and bool(fpath and exists(fpath))
     if use_cached_model:
+        assert fpath is not None  # guaranteed by the use_cached_model construction above
         if verbose:
             logger.info("Loading model from file %s", fpath)
-        loaded_model = load_mlframe_model(fpath)
+        loaded_model: Any = load_mlframe_model(fpath)
         if loaded_model is None:
             # Load returned None (e.g. _SafeUnpickler rejected an unsafe class,
             # file corrupted, version skew). The loader logs the root cause;
@@ -516,7 +518,7 @@ def process_model(
         skip_preprocessing=skip_preprocessing,
         model_name_prefix=pre_pipeline_name,
         just_evaluate=use_cached_model,
-        verbose=verbose,
+        verbose=bool(verbose),
         trainset_features_stats=trainset_features_stats,
     )
 

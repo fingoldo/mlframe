@@ -30,11 +30,11 @@ except ImportError:  # pragma: no cover
 try:
     from lightgbm import LGBMClassifier, LGBMRegressor
 except ImportError:  # pragma: no cover
-    LGBMClassifier = LGBMRegressor = None  # type: ignore[assignment]
+    LGBMClassifier = LGBMRegressor = None  # type: ignore[assignment,misc]
 try:
     from xgboost import XGBClassifier, XGBRegressor
 except ImportError:  # pragma: no cover
-    XGBClassifier = XGBRegressor = None  # type: ignore[assignment]
+    XGBClassifier = XGBRegressor = None  # type: ignore[assignment,misc]
 
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
 from .pipeline import (  # noqa: E402,F401
@@ -877,7 +877,7 @@ def _configure_recurrent_params(
     # Determine input mode based on available data
     has_sequences = sequences_train is not None and len(sequences_train) > 0
     has_features = features_train is not None
-    if hasattr(features_train, "shape"):
+    if features_train is not None and hasattr(features_train, "shape"):
         has_features = has_features and features_train.shape[1] > 0
 
     if has_sequences and has_features:
