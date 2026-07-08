@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 import numpy as np
 
@@ -107,7 +108,7 @@ def propose_additive_fusions_gpu(
     raw_name_set: set,
     cols: list,
     classes_y: np.ndarray,
-    X: object,
+    X: Any,
     nbins: int,
     seed: int = 0,
     verbose: int = 0,
