@@ -90,13 +90,14 @@ class PolynomialFeatureExpander:
         if X_np.ndim != 2:
             raise ValueError(f"X must be 2-D, got shape {X_np.shape}")
         self._n_features_in = X_np.shape[1]
+        _n_features_in = self._n_features_in
 
         cap = self.max_features_out
         eff_degree = int(self.degree)
         eff_interaction = bool(self.interaction_only)
 
         def _project(d: int, io: bool) -> int:
-            p = _projected_output_cols(self._n_features_in, d, io)
+            p = _projected_output_cols(_n_features_in, d, io)
             if self.include_bias:
                 p += 1
             return p
@@ -105,6 +106,7 @@ class PolynomialFeatureExpander:
 
         # Auto-tune ONLY when the cap is positive. None / 0 leaves the historical warn-only behaviour.
         if cap not in (None, 0):
+            assert cap is not None  # guaranteed by the ``cap not in (None, 0)`` check above
             if projected > cap and not eff_interaction:
                 logger.warning(
                     "[fhc] polynomial auto-tune: projected=%d > cap=%d at degree=%d, interaction_only=False; "
@@ -181,7 +183,8 @@ class PolynomialFeatureExpander:
         X_np = np.asarray(X, dtype=np.float32)
         if self._skipped:
             return X_np
-        return self._impl.transform(X_np).astype(np.float32, copy=False)
+        assert self._impl is not None, "PolynomialFeatureExpander: _impl must be fitted before transform"
+        return np.asarray(self._impl.transform(X_np).astype(np.float32, copy=False))
 
     def fit_transform(self, X: Any, feature_names: Optional[List[str]] = None) -> np.ndarray:
         return self.fit(X, feature_names=feature_names).transform(X)
