@@ -90,7 +90,17 @@ def test_get_sapp_dataset_no_global_pollution():
 # synthetic
 # ---------------------------------------------------------------------------
 
-def test_generate_modelling_data_reproducible():
+@pytest.mark.parametrize(
+    "feature_noise,timeseries,max_cardinality",
+    [
+        (0.05, False, None),  # library default
+        (0.0, False, None),  # feature_noise off
+        (0.3, False, None),  # feature_noise on
+        (0.05, True, None),  # timeseries drift on
+        (0.05, False, 4),  # cardinality-bounded
+    ],
+)
+def test_generate_modelling_data_reproducible(feature_noise, timeseries, max_cardinality):
     from mlframe.data.synthetic import generate_modelling_data
 
     kw = dict(
@@ -103,6 +113,9 @@ def test_generate_modelling_data_reproducible():
         n_classes=2,
         random_state=42,
         return_dataframe=False,
+        feature_noise=feature_noise,
+        timeseries=timeseries,
+        max_cardinality=max_cardinality,
     )
     X1, y1, f1 = generate_modelling_data(**kw)
     X2, y2, f2 = generate_modelling_data(**kw)
@@ -110,6 +123,10 @@ def test_generate_modelling_data_reproducible():
     # the key RNG fixes are in check_random_state-controlled paths).
     assert X1.shape == X2.shape
     assert len(y1) == len(y2)
+    # feature_noise/timeseries/max_cardinality are drawn from the same check_random_state-seeded
+    # generator as the rest of the pipeline, so they must reproduce identically under a fixed seed too.
+    assert np.array_equal(X1, X2, equal_nan=True), f"non-reproducible under feature_noise={feature_noise}, timeseries={timeseries}, max_cardinality={max_cardinality}"
+    assert np.array_equal(y1, y2)
 
 
 # ---------------------------------------------------------------------------

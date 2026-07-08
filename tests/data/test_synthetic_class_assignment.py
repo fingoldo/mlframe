@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from mlframe.data.synthetic import assign_classes_from_probability, generate_modelling_data
 
@@ -59,9 +60,21 @@ def test_assign_classes_fallthrough_row_gets_last_class_not_garbage():
     assert out[0] == 2, "draw 0.99 lands in the last bucket of [0.2,0.3,0.5]"
 
 
-def test_generate_modelling_data_labels_in_range_smoke():
-    """End-to-end smoke: labels stay in range. Fast distributions + minimal feature kinds keep it well
-    under the time budget (some scipy continuous dists, e.g. noncentral-t, are pathologically slow)."""
+@pytest.mark.parametrize(
+    "feature_noise,timeseries,min_cardinality,max_cardinality",
+    [
+        (0.05, False, 2, None),  # library default: noise on, no drift, no forced cardinality
+        (0.0, False, 2, None),  # feature_noise disabled
+        (0.3, False, 2, None),  # feature_noise heavy
+        (0.05, True, 2, None),  # timeseries drift on
+        (0.05, False, 2, 5),  # cardinality-bounded unrelated_single features
+        (0.3, True, 3, 6),  # all three knobs combined
+    ],
+)
+def test_generate_modelling_data_labels_in_range_smoke(feature_noise, timeseries, min_cardinality, max_cardinality):
+    """End-to-end smoke: labels stay in range under every combination of the feature_noise/timeseries/cardinality
+    knobs, not just their (silently-ignored, pre-fix) defaults. Fast distributions + minimal feature kinds keep
+    it well under the time budget (some scipy continuous dists, e.g. noncentral-t, are pathologically slow)."""
     n_classes = 3
     fast_dists = {"norm", "uniform", "expon", "laplace", "logistic"}
     for seed in range(20):
@@ -69,9 +82,9 @@ def test_generate_modelling_data_labels_in_range_smoke():
             n_samples=400,
             n_classes=n_classes,
             n_informative=n_classes,
-            n_singly_correlated=0,
-            n_mutually_correlated=0,
-            n_unrelated_single=0,
+            n_singly_correlated=1,
+            n_mutually_correlated=1,
+            n_unrelated_single=1,
             n_unrelated_intercorrelated=0,
             n_repeated=0,
             include_distributions=fast_dists,
@@ -79,8 +92,13 @@ def test_generate_modelling_data_labels_in_range_smoke():
             shuffle=False,
             return_dataframe=False,
             random_state=seed,
+            feature_noise=feature_noise,
+            timeseries=timeseries,
+            min_cardinality=min_cardinality,
+            max_cardinality=max_cardinality,
         )
         assert y.min() >= 0 and y.max() <= n_classes - 1, f"seed {seed}: label out of range {y.min()}..{y.max()}"
+        assert np.isfinite(X).all(), f"seed {seed}: non-finite feature value under feature_noise={feature_noise}, timeseries={timeseries}, max_cardinality={max_cardinality}"
 
 
 def _generate(feature_noise=0.0, timeseries=False, max_cardinality=None, seed=0):

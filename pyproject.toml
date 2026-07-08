@@ -345,6 +345,7 @@ dev = [
     "mypy>=1.0",
     "bandit>=1.7",
     "pre-commit>=3.3",
+    "pip-audit>=2.7",             # known-CVE scan of installed/declared deps; run via `python -m pip_audit --local` (or `-r pyproject.toml` for the declared-only, non-transitive set)
     # IPython is imported unconditionally by src/mlframe/evaluation/reports.py
     # and training/evaluation.py (for display_html / rich-shell detection).
     # Required so test collection of the modules that import them succeeds.
@@ -550,7 +551,7 @@ DEP002 = [
     "mkdocs-material", "mkdocs-jupyter",
     "pytest", "pytest-cov", "pytest-xdist", "pytest-timeout", "pytest-benchmark", "pytest-order",
     "pytest-randomly", "pytest-instafail", "pytest-progress", "pytest-split", "coverage", "freezegun",
-    "ruff", "black", "mypy", "bandit", "pre-commit",
+    "ruff", "black", "mypy", "bandit", "pre-commit", "pip-audit",
 ]
 
 # DEP001 (import missing from declared deps): genuinely optional third-party libs behind
@@ -615,7 +616,13 @@ select = [
     "DTZ",  # naive-datetime usage (real bug class: silent local/UTC ambiguity, deprecated utcnow())
     "A",    # builtin-shadowing names
     "T20",  # stray print() -- this project routes diagnostics through logger
+    "RUF",  # ruff-specific checks (unused noqa, mutable dataclass defaults, ambiguous unicode, etc.)
+    "G",    # flake8-logging-format: catches f-string/%-concat in logger.xxx() calls instead of lazy %-formatting
+    "ISC",  # implicit string concatenation: catches an accidentally-missing comma in a list/call
+    "PERF", # performance anti-patterns (quadratic list accumulation in a loop, etc.)
+    "C90",  # mccabe cyclomatic complexity
 ]
+
 ignore = [
     "E501",   # line-length: project uses 160 chars (CLAUDE.md repeated rule), black + black-line-length above enforce visually
     "E401",   # multiple imports on one line: explicit ``import a, b`` is project-idiomatic in a few helpers; not worth churn
@@ -640,7 +647,18 @@ ignore = [
     "UP035",  # collections.abc import modernization: 640 hits, pure import-source churn, no correctness value
     "N815",   # mixedCase class-scope variable: flags domain-abbreviation names like cached_MIs (MIs = mutual informations)
     "UP015",  # redundant open() mode arg: project prefers the explicit "r"/"rb" mode over the implicit default
+    # New 2026-07-09 (5-rule expansion: RUF/G/ISC/PERF/C90). Triaged before enabling broadly:
+    "ISC001", # single-line implicit string concat: ruff's OWN docs say disable this when a formatter (black) is in use -- black already normalizes this, ISC001 fights it
+    "RUF001", # ambiguous-unicode-character-string: false-positive-heavy on this math-heavy codebase's intentional Cyrillic/operator characters in string literals
+    "RUF002", # ambiguous-unicode-character-docstring: same -- flags legitimate set-notation (union/intersect) and Greek letters in docstrings, not typos
+    "RUF003", # ambiguous-unicode-character-comment: same as RUF002 but for comments
+    "RUF022", # unsorted __all__: cosmetic-only, no correctness value, would churn every namespace module's public-surface ordering for zero benefit
 ]
+
+[tool.ruff.lint.mccabe]
+# Advisory-first threshold: mlframe has several legitimately complex dispatch/config functions
+# (trainer setup, FE recipe builders). Start loose; tighten once the initial findings are triaged.
+max-complexity = 20
 
 [tool.ruff.lint.pep8-naming]
 # F/L are the universal, ecosystem-standard aliases for torch.nn.functional / lightning
