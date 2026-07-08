@@ -344,12 +344,12 @@ def predict_mlframe_models_suite(
                 # uniformly at inference. Direct model.predict_proba bypassed the CB pool cache -- 50-70s/predict on
                 # 7M rows.
                 try:
-                    probs = _predict_with_fallback(model, input_for_model, method="predict_proba", verbose=bool(verbose))
+                    probs = np.asarray(_predict_with_fallback(model, input_for_model, method="predict_proba", verbose=bool(verbose)))
                 except (TypeError, ValueError, AttributeError) as _polars_exc:
                     if isinstance(input_for_model, pl.DataFrame):
                         logger.warning("predict_proba on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160])
                         input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
-                        probs = _predict_with_fallback(model, input_for_model, method="predict_proba", verbose=bool(verbose))
+                        probs = np.asarray(_predict_with_fallback(model, input_for_model, method="predict_proba", verbose=bool(verbose)))
                     else:
                         raise
                 results["probabilities"][model_name] = probs
@@ -384,12 +384,12 @@ def predict_mlframe_models_suite(
                 per_target_preds.setdefault((_tt, _tn), []).append(preds)
             else:
                 try:
-                    preds = _predict_with_fallback(model, input_for_model, method="predict", verbose=bool(verbose))
+                    preds = np.asarray(_predict_with_fallback(model, input_for_model, method="predict", verbose=bool(verbose)))
                 except (TypeError, ValueError, AttributeError) as _polars_exc:
                     if isinstance(input_for_model, pl.DataFrame):
                         logger.warning("predict on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160])
                         input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
-                        preds = _predict_with_fallback(model, input_for_model, method="predict", verbose=bool(verbose))
+                        preds = np.asarray(_predict_with_fallback(model, input_for_model, method="predict", verbose=bool(verbose)))
                     else:
                         raise
                 results["predictions"][model_name] = preds
