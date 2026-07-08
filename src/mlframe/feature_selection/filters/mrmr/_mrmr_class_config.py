@@ -11,6 +11,7 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -18,7 +19,22 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
 class _MRMRConfigMixin:
-    """Config / defaults / seed / target-dtype helpers for :class:`MRMR` (see module docstring)."""
+    """Config / defaults / seed / target-dtype helpers for :class:`MRMR` (see module docstring).
+
+    The class attributes below are declared here (not assigned) so mypy resolves them on ``cls``/``self``;
+    the concrete values live on ``MRMR`` (the sibling class this mixin is combined with via multiple
+    inheritance), which sets ``_FIT_CACHE`` / ``_FAST_SEARCH_OVERRIDES`` / ``_DEFAULT_SCREEN_SUBSAMPLE_N`` as
+    class attributes and ``random_seed`` / ``verbose`` / ``cv`` / ``cv_shuffle`` as constructor params.
+    """
+
+    _FIT_CACHE: Any
+    _FAST_SEARCH_OVERRIDES: Any
+    _DEFAULT_SCREEN_SUBSAMPLE_N: ClassVar[int]
+    random_seed: Any
+    random_state: Any
+    verbose: Any
+    cv: Any
+    cv_shuffle: Any
 
     @classmethod
     def clear_fit_cache(cls) -> int:
