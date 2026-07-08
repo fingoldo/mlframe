@@ -58,10 +58,10 @@ def run_cat_interaction_step(
     freqs_y: np.ndarray,
     categorical_vars: list,
     cfg: CatFEConfig,
-    selected_so_far: list = None,
-    weights: np.ndarray = None,  # Per-row sample weights; None = uniform.
-    streaming_cache: dict = None,  # Prior-fit cache for incremental re-fit.
-    numeric_raw_values: dict = None,  # {orig_col_idx -> raw float values} for include_numeric quantile-binning.
+    selected_so_far: list | None = None,
+    weights: np.ndarray | None = None,  # Per-row sample weights; None = uniform.
+    streaming_cache: dict | None = None,  # Prior-fit cache for incremental re-fit.
+    numeric_raw_values: dict | None = None,  # {orig_col_idx -> raw float values} for include_numeric quantile-binning.
     dtype: type = np.int32,
     verbose: int = 0,
 ) -> tuple:
@@ -189,6 +189,7 @@ def run_cat_interaction_step(
     target_sig = _target_signature(data[:, target_indices])
     new_signatures: dict = {}
     if cache_active:
+        assert streaming_cache is not None  # cache_active requires streaming_cache is not None
         reusable_mask, mi_reused, new_signatures = _restore_cached_marginal_mis(
             factors_data=data, candidate_idxs=candidate_idxs_arr,
             nbins=nbins, cache=streaming_cache,
