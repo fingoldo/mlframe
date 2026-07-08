@@ -166,7 +166,7 @@ def pooled_pair_ii_null_floor(
         # y marginal counts are invariant under shuffle; entropy/H(y) cancels in MI so we score MI directly.
         best = 0.0
         # Cache per-column marginal MI under THIS shuffle (each column appears in many pairs).
-        mi_cache: dict[int, float] = {}
+        mi_cache: dict[int, tuple[float, int]] = {}
         for p in range(n_pairs):
             ia, ib = int(pa[p]), int(pb[p])
             ca, cb = col_codes[ia], col_codes[ib]

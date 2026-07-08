@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 try:
     import polars.selectors as cs
 except ImportError:  # pragma: no cover
-    cs = None
+    cs = None  # type: ignore[assignment]
 
 
 def _process_special_values(
     df: pl.DataFrame | pd.DataFrame,
-    expr_func: Callable[[], pl.Expr] | None = None,
+    expr_func: Callable[[], pl.Expr | None] | None = None,
     fill_func_name: str | None = None,
     kind: str = "",
     fill_value: float | None = None,
@@ -52,7 +52,10 @@ def _process_special_values(
 
     if is_polars:
         # Polars: use provided expr_func
-        qos_df = df.select(expr_func())
+        assert expr_func is not None, "_process_special_values: expr_func is required on the polars branch"
+        _expr = expr_func()
+        assert _expr is not None, "_process_special_values: expr_func must return a polars Expr on the polars branch"
+        qos_df = df.select(_expr)
 
         if drop_columns:
             # For constant detection, we get boolean indicators
@@ -79,14 +82,14 @@ def _process_special_values(
                 # which counts NaN as its own bucket: pure-NaN -> 1, mixed
                 # NaN+value -> 2+, all-equal numeric -> 1. Matches the polars
                 # branch which treats all-NaN columns as constant.
-                constant_cols = [col for col in df.select_dtypes(include="number").columns if df[col].nunique(dropna=False) <= 1]
+                constant_cols = [col for col in df.select_dtypes(include="number").columns if df[col].nunique(dropna=False) <= 1]  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
             else:
                 # Categorical constants: n_unique == 1
-                constant_cols = [col for col in df.select_dtypes(exclude="number").columns if df[col].nunique() == 1]
+                constant_cols = [col for col in df.select_dtypes(exclude="number").columns if df[col].nunique() == 1]  # type: ignore[union-attr]
             errors_df = pd.DataFrame({"column": constant_cols, "nerrors": [1] * len(constant_cols)})
         else:
             # For NaN/null/inf detection - use vectorized operations
-            numeric_df = df.select_dtypes(include="number")
+            numeric_df = df.select_dtypes(include="number")  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
             if "NaN" in kind:
                 nerrors_series = numeric_df.isna().sum()
             elif "null" in kind:
@@ -108,7 +111,7 @@ def _process_special_values(
             logger.info("\n%s", errors_df)
 
         if drop_columns:
-            cols_to_drop = errors_df["column"].to_list() if is_polars else errors_df["column"].tolist()
+            cols_to_drop = errors_df["column"].to_list() if is_polars else errors_df["column"].to_list()
             if cols_to_drop:
                 from .utils import filter_existing  # lazy: breaks cycle with .utils
                 # Only drop columns that actually exist in the dataframe
@@ -144,7 +147,7 @@ def _process_special_values(
                 # Restrict pandas fill to numeric columns -- mirrors the polars cs.numeric() gate.
                 # Unrestricted df.fillna(0.0) raises on Categorical columns
                 # ("Cannot setitem on a Categorical with a new category").
-                num_cols = df.select_dtypes(include="number").columns
+                num_cols = df.select_dtypes(include="number").columns  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
                 if "NaN" in kind or "null" in kind:
                     df[num_cols] = df[num_cols].fillna(fill_value)
                 elif "infinite" in kind:
@@ -242,7 +245,7 @@ def get_numeric_columns(df: pl.DataFrame | pd.DataFrame) -> list:
     if isinstance(df, pl.DataFrame):
         return [name for name, dtype in df.schema.items() if dtype.is_numeric()]
     else:
-        return df.select_dtypes(include="number").columns.tolist()
+        return list(df.select_dtypes(include="number").columns)
 
 
 def get_categorical_columns(df: pl.DataFrame | pd.DataFrame, include_string: bool = True) -> list:
@@ -274,9 +277,9 @@ def get_categorical_columns(df: pl.DataFrame | pd.DataFrame, include_string: boo
         # Function-local import (see note above) -- breaks strategies↔utils cycle.
         from .strategies import PANDAS_CATEGORICAL_SELECT_DTYPES
         if include_string:
-            return df.select_dtypes(include=list(PANDAS_CATEGORICAL_SELECT_DTYPES)).columns.tolist()
+            return list(df.select_dtypes(include=list(PANDAS_CATEGORICAL_SELECT_DTYPES)).columns)
         else:
-            return df.select_dtypes(include=["category"]).columns.tolist()
+            return list(df.select_dtypes(include=["category"]).columns)
     else:
         # A bare ndarray (or any other non-DataFrame carrier) has no column names/dtypes to inspect --
         # e.g. a pre_pipeline that outputs numpy (sklearn's default array output) reaches confidence-
@@ -337,7 +340,7 @@ def remove_constant_columns(df: pl.DataFrame | pd.DataFrame, verbose: int = 1) -
     else:
         # Pandas: match Polars semantics (min==max for numeric; n_unique==1 for others).
         # Per-column loop measured faster than df.agg(['min','max']) -- see audit 2026-04-14.
-        numeric_cols = df.select_dtypes(include="number").columns
+        numeric_cols = df.select_dtypes(include="number").columns  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
         # iter (2026-06-23, perf): fuse the per-column min/max into ONE numpy
         # ``nanmin``/``nanmax`` pass over the raw ndarray instead of pandas
         # ``Series.min()`` + ``Series.max()`` (two reductions, each with pandas
@@ -372,7 +375,7 @@ def remove_constant_columns(df: pl.DataFrame | pd.DataFrame, verbose: int = 1) -
                 if df[col].min() == df[col].max() or df[col].isna().all():
                     constant_num_cols.append(col)
 
-        non_numeric_cols = df.select_dtypes(exclude="number").columns
+        non_numeric_cols = df.select_dtypes(exclude="number").columns  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
         constant_cat_cols = []
         for col in non_numeric_cols:
             try:
@@ -456,8 +459,10 @@ def batch_scan_constants_and_inf_polars(
     # there's no downside and the code is shorter.
     num_sel = cs.numeric() if (detect_inf or detect_constant_numeric) else None
     if detect_inf:
+        assert num_sel is not None  # guaranteed by the ``detect_inf or detect_constant_numeric`` construction above
         exprs.append(num_sel.is_infinite().sum().name.prefix(_PFX_INF))
     if detect_constant_numeric:
+        assert num_sel is not None  # guaranteed by the ``detect_inf or detect_constant_numeric`` construction above
         exprs.append(num_sel.min().eq_missing(num_sel.max()).name.prefix(_PFX_CN))
     if detect_constant_nonnumeric:
         # bench-attempt-rejected (iter621, 2026-05-31): tried replacing

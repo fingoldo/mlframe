@@ -16,7 +16,7 @@ import logging
 import math
 import multiprocessing
 import sys
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -138,7 +138,7 @@ def init_kernels() -> None:
             _exc,
         )
 
-    module.compute_joint_hist_cuda = cp.RawKernel(
+    module.compute_joint_hist_cuda = cp.RawKernel(  # type: ignore[attr-defined]
         r"""
     extern "C" __global__
     void compute_joint_hist_cuda(const int *classes_x, const int *classes_y, int *joint_counts, int n, int nbins_y) {
@@ -156,7 +156,7 @@ def init_kernels() -> None:
     # global-memory bin; correctness-simple but global atomics are 10-100x
     # slower than shared-memory atomics on cc 6.x. Kept available for
     # back-compat + fall-back when joint_size exceeds the shared-mem budget.
-    module.compute_joint_hist_batched_cuda = cp.RawKernel(
+    module.compute_joint_hist_batched_cuda = cp.RawKernel(  # type: ignore[attr-defined]
         r"""
     extern "C" __global__
     void compute_joint_hist_batched_cuda(
@@ -189,7 +189,7 @@ def init_kernels() -> None:
     # See ``feedback_keep_all_kernel_versions``: ``compute_joint_hist_batched_cuda``
     # (the global-atomic version above) stays available; the dispatcher picks
     # this faster path only when joint_size fits.
-    module.compute_joint_hist_batched_shared_cuda = cp.RawKernel(
+    module.compute_joint_hist_batched_shared_cuda = cp.RawKernel(  # type: ignore[attr-defined]
         r"""
     extern "C" __global__
     void compute_joint_hist_batched_shared_cuda(
@@ -240,7 +240,7 @@ def init_kernels() -> None:
     #   joint_offsets: (n_pairs + 1,) prefix-sum into joint_counts_flat.
     #   joint_counts_flat: (sum(nbins_a*nbins_b),) flat output buffer.
     #   n_rows, n_pairs: grid dims.
-    module.compute_joint_hist_multi_pair_cuda = cp.RawKernel(
+    module.compute_joint_hist_multi_pair_cuda = cp.RawKernel(  # type: ignore[attr-defined]
         r"""
     extern "C" __global__
     void compute_joint_hist_multi_pair_cuda(
@@ -285,7 +285,7 @@ def init_kernels() -> None:
     # smaller joint_size only use the first slice of sm_hist; the rest is
     # wasted shared-mem -- acceptable when the variance across pairs is
     # bounded (mlframe cat-FE typically has uniform nbins).
-    module.compute_joint_hist_multi_pair_shared_cuda = cp.RawKernel(
+    module.compute_joint_hist_multi_pair_shared_cuda = cp.RawKernel(  # type: ignore[attr-defined]
         r"""
     extern "C" __global__
     void compute_joint_hist_multi_pair_shared_cuda(
@@ -339,7 +339,7 @@ def init_kernels() -> None:
         "compute_joint_hist_multi_pair_shared_cuda",
     )
 
-    module.compute_mi_from_classes_cuda = cp.RawKernel(
+    module.compute_mi_from_classes_cuda = cp.RawKernel(  # type: ignore[attr-defined]
         r"""
     extern "C" __global__
     void compute_mi_from_classes_cuda(const int *classes_x, const double *freqs_x,const int *classes_y, const double *freqs_y, int *joint_counts, double *totals, int n,int nbins_x,int nbins_y) {
@@ -440,8 +440,8 @@ def mi_direct_gpu_batched(
     npermutations: int = 100,
     batch_size: int = 64,
     dtype=np.int32,
-    classes_y: np.ndarray = None,
-    freqs_y: np.ndarray = None,
+    classes_y: Optional[np.ndarray] = None,
+    freqs_y: Optional[np.ndarray] = None,
     min_nonzero_confidence: float = 0.95,
 ) -> tuple:
     """Batched GPU permutation MI test.
@@ -468,6 +468,7 @@ def mi_direct_gpu_batched(
             factors_data=factors_data, vars_indices=y,
             var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
         )
+    assert freqs_y is not None  # the None branch above always sets classes_y/freqs_y together
 
     original_mi = compute_mi_from_classes(
         classes_x=classes_x, freqs_x=freqs_x,
@@ -657,8 +658,8 @@ def mi_direct_gpu_batched_streamed(
     npermutations: int = 100,
     batch_size: int = 64,
     dtype=np.int32,
-    classes_y: np.ndarray = None,
-    freqs_y: np.ndarray = None,
+    classes_y: Optional[np.ndarray] = None,
+    freqs_y: Optional[np.ndarray] = None,
     n_streams: int = 2,
     min_nonzero_confidence: float = 0.95,
 ) -> tuple:
@@ -702,6 +703,7 @@ def mi_direct_gpu_batched_streamed(
             factors_data=factors_data, vars_indices=y,
             var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
         )
+    assert freqs_y is not None  # the None branch above always sets classes_y/freqs_y together
 
     original_mi = compute_mi_from_classes(
         classes_x=classes_x, freqs_x=freqs_x,
@@ -857,15 +859,15 @@ def mi_direct_gpu(
     x: tuple,
     y: tuple,
     factors_nbins: np.ndarray,
-    min_occupancy: int = None,
+    min_occupancy: Optional[int] = None,
     dtype=np.int32,
     npermutations: int = 10,
-    max_failed: int = None,
+    max_failed: Optional[int] = None,
     min_nonzero_confidence: float = 0.95,
-    classes_y: np.ndarray = None,
-    classes_y_safe: np.ndarray = None,  # CuPy GPU array -- distinguished from the CPU classes_y_safe at the API boundary
-    freqs_y: np.ndarray = None,
-    freqs_y_safe: np.ndarray = None,
+    classes_y: Optional[np.ndarray] = None,
+    classes_y_safe: Optional[np.ndarray] = None,  # CuPy GPU array -- distinguished from the CPU classes_y_safe at the API boundary
+    freqs_y: Optional[np.ndarray] = None,
+    freqs_y_safe: Optional[np.ndarray] = None,
     use_gpu: bool = True,
     return_null_mean: bool = False,
 ) -> tuple:
@@ -936,6 +938,7 @@ def mi_direct_gpu(
             factors_data=factors_data, vars_indices=y,
             var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
         )
+    assert freqs_y is not None  # the None branch above always sets classes_y/freqs_y together
 
     original_mi = compute_mi_from_classes(
         classes_x=classes_x, freqs_x=freqs_x,
@@ -968,6 +971,10 @@ def mi_direct_gpu(
         nbins_x = len(freqs_x)
         nbins_y = len(freqs_y)
         _GPU_POOL.ensure(n=n, nbins_x=nbins_x, nbins_y=nbins_y)
+        # .ensure() allocates every buffer below unconditionally; narrows the pool's Optional[...] attrs for mypy.
+        assert _GPU_POOL.classes_x is not None and _GPU_POOL.classes_y is not None
+        assert _GPU_POOL.freqs_x is not None and _GPU_POOL.freqs_y is not None
+        assert _GPU_POOL.joint_counts is not None and _GPU_POOL.totals is not None
 
         # classes_y_safe override path (caller passed cached GPU arrays).
         if classes_y_safe is None:

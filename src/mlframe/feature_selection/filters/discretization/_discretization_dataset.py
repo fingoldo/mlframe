@@ -12,7 +12,7 @@ import hashlib
 import logging
 import os
 import threading
-from typing import Any, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -130,7 +130,7 @@ def _discretize_2d_array_col_cached(arr, *, n_bins, method, min_ncats, dtype, di
 def create_redundant_continuous_factor(
     df: pd.DataFrame,
     factors: Sequence[str],
-    agg_func: object = np.sum,
+    agg_func: Callable = np.sum,
     noise_percent: float = 5.0,
     dist: Optional[Any] = None,
     dist_args: tuple = (),

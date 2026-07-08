@@ -211,7 +211,7 @@ def build_composite_value_report(
     for name, arr in (("y_pred_raw", raw), ("y_pred_composite", comp)):
         if arr.shape[0] != n:
             raise ValueError(f"build_composite_value_report: {name} length {arr.shape[0]} != y_true length {n}")
-    if has_lag and lag.shape[0] != n:
+    if has_lag and lag is not None and lag.shape[0] != n:
         raise ValueError(f"build_composite_value_report: y_pred_lag length {lag.shape[0]} != y_true length {n}")
 
     codes, uniq = _factorize(group_ids)
@@ -258,7 +258,7 @@ def build_composite_value_report(
             "winner": None,
         }
         cands = [("raw", rr), ("composite", rc)]
-        if has_lag:
+        if has_lag and rmse_lag is not None:
             rl = float(rmse_lag[g])
             entry["rmse_lag"] = rl
             entry["lift_over_lag"] = (rl - rc) / rl if rl > 0 else 0.0
@@ -351,8 +351,8 @@ def _aggregate(rmse_raw, rmse_comp, rmse_lag, W, sse_raw, sse_comp, sse_lag, val
     pooled_raw = _pooled_rmse(sse_raw, W, valid)
     pooled_comp = _pooled_rmse(sse_comp, W, valid)
     pooled_lag = _pooled_rmse(sse_lag, W, valid) if has_lag else None
-    pooled_lift_raw = ((pooled_raw - pooled_comp) / pooled_raw) if (pooled_raw and pooled_raw > 0) else None
-    pooled_lift_lag = ((pooled_lag - pooled_comp) / pooled_lag) if (pooled_lag and pooled_lag > 0) else None
+    pooled_lift_raw = ((pooled_raw - pooled_comp) / pooled_raw) if (pooled_raw and pooled_raw > 0 and pooled_comp is not None) else None
+    pooled_lift_lag = ((pooled_lag - pooled_comp) / pooled_lag) if (pooled_lag and pooled_lag > 0 and pooled_comp is not None) else None
 
     net_raw = _net_lift(rmse_raw, rmse_comp, W, valid)
     net_lag = _net_lift(rmse_lag, rmse_comp, W, valid) if has_lag else None
