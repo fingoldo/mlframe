@@ -60,7 +60,7 @@ def _bands_for(K: int, n_bands: int = 3) -> Tuple[Tuple[int, int], ...]:
 
 def _detrend_zero_mean(wins: np.ndarray) -> np.ndarray:
     """Subtract per-window mean. Avoids DC dominating the spectrum."""
-    return wins - wins.mean(axis=1, keepdims=True)
+    return np.asarray(wins - wins.mean(axis=1, keepdims=True))
 
 
 def rolling_spectral_band_energies(
@@ -214,7 +214,7 @@ def rolling_hf_lf_ratio(
     return np.clip(ratio, clip_range[0], clip_range[1])
 
 
-def _spec_pow(seg_f: np.ndarray, K: int, detrend: bool) -> np.ndarray:
+def _spec_pow(seg_f: np.ndarray, K: int, detrend: bool) -> Tuple[np.ndarray, np.ndarray]:
     """Window into K-stride, optional zero-mean detrend, return |rfft|^2.
 
     Helper shared by centroid/bandwidth/rolloff/flatness/flux/periodicity.

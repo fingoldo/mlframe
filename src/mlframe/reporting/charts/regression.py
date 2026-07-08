@@ -45,7 +45,7 @@ Token catalogue:
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 
@@ -166,7 +166,7 @@ def _scatter_panel(
     density_bins: int = DEFAULT_DENSITY_BINS,
     seed: int = 42,
     worst_k_indices: Optional[np.ndarray] = None,
-    trend_line: Optional[str] = "theil-sen",
+    trend_line: Optional[Literal["theil-sen", "huber"]] = "theil-sen",
 ) -> PanelSpec:
     """Predictions-vs-true panel.
 
@@ -573,7 +573,7 @@ def compose_regression_figure(
     hexbin_threshold: int = DEFAULT_HEXBIN_THRESHOLD,
     seed: int = 42,
     worst_k_indices: Optional[np.ndarray] = None,
-    trend_line: Optional[str] = "theil-sen",
+    trend_line: Optional[Literal["theil-sen", "huber"]] = "theil-sen",
     max_cols: int = 2,
     cell_width: float = 6.0,
     cell_height: float = 4.0,
@@ -646,7 +646,7 @@ def build_regression_panel_spec(
     seed: int = 42,
     panels_template: str = DEFAULT_REGRESSION_PANELS,
     worst_k_indices: Optional[np.ndarray] = None,
-    trend_line: Optional[str] = "theil-sen",
+    trend_line: Optional[Literal["theil-sen", "huber"]] = "theil-sen",
 ) -> FigureSpec:
     """Thin adapter preserving the legacy 2-panel call signature.
 

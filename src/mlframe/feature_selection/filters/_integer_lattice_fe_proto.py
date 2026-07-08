@@ -59,18 +59,18 @@ def apply_integer_lattice(a: np.ndarray, b: np.ndarray, op: str) -> np.ndarray:
     """One integer-lattice column from a pair. Pure function of (a, b) -- leak-free at replay (no y)."""
     ai, bi = _to_int(a), _to_int(b)
     if op == "gcd":
-        return np.gcd(ai, bi).astype(np.float64)
+        return np.asarray(np.gcd(ai, bi).astype(np.float64))
     if op == "lcm":
         # lcm can overflow int64 for large coprime pairs; clip the product term via float to keep it finite + monotone.
         g = np.gcd(ai, bi)
         safe_g = np.where(g == 0, 1, g)
-        return (np.abs(ai.astype(np.float64)) * np.abs(bi.astype(np.float64))) / safe_g
+        return np.asarray((np.abs(ai.astype(np.float64)) * np.abs(bi.astype(np.float64))) / safe_g)
     if op == "and":
-        return np.bitwise_and(ai, bi).astype(np.float64)
+        return np.asarray(np.bitwise_and(ai, bi).astype(np.float64))
     if op == "or":
-        return np.bitwise_or(ai, bi).astype(np.float64)
+        return np.asarray(np.bitwise_or(ai, bi).astype(np.float64))
     if op == "xor":
-        return np.bitwise_xor(ai, bi).astype(np.float64)
+        return np.asarray(np.bitwise_xor(ai, bi).astype(np.float64))
     raise ValueError(f"apply_integer_lattice: unknown op {op!r}; expected one of {INTEGER_LATTICE_OPS}")
 
 

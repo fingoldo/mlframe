@@ -57,11 +57,11 @@ __all__ = [
 
 
 def _log_abs(x: np.ndarray) -> np.ndarray:
-    return np.log1p(np.abs(np.asarray(x, dtype=np.float64)))
+    return np.asarray(np.log1p(np.abs(np.asarray(x, dtype=np.float64))))
 
 
 def _sqrt_abs(x: np.ndarray) -> np.ndarray:
-    return np.sqrt(np.abs(np.asarray(x, dtype=np.float64)))
+    return np.asarray(np.sqrt(np.abs(np.asarray(x, dtype=np.float64))))
 
 
 def _square(x: np.ndarray) -> np.ndarray:
@@ -171,7 +171,7 @@ def _bin_ratio_log(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     because MI binning of the bare ratio is dominated by the tail."""
     av = np.asarray(a, dtype=np.float64)
     bv = np.asarray(b, dtype=np.float64)
-    return np.log1p(np.abs(av)) - np.log1p(np.abs(bv))
+    return np.asarray(np.log1p(np.abs(av)) - np.log1p(np.abs(bv)))
 
 
 BINARY_TRANSFORMS: dict[str, Callable[[np.ndarray, np.ndarray], np.ndarray]] = {
@@ -354,7 +354,7 @@ def _materialise_candidate(
         )
         return None
     out = np.asarray(out, dtype=np.float64)
-    return np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
 
 
 def generate_mi_greedy_features(
@@ -691,4 +691,4 @@ def apply_mi_greedy_transform(
     else:
         raise ValueError(f"apply_mi_greedy_transform: src_values length {len(src_values)} " f"unsupported (only unary / binary registered).")
     out = np.asarray(out, dtype=np.float64)
-    return np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
