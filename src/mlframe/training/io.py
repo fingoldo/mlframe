@@ -489,7 +489,7 @@ def load_save_meta_sidecar(bundle_path: str) -> Optional[Dict[str, Any]]:
     # the except below already handles missing sidecar. Drop the precheck so the
     # race window collapses to zero.
     try:
-        with open(sidecar, "r", encoding="utf-8") as f:
+        with open(sidecar, encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
             logger.warning(

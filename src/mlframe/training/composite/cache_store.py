@@ -139,7 +139,7 @@ class DiscoveryCache:
         if not os.path.exists(self._lru_path):
             return {}
         try:
-            with open(self._lru_path, "r", encoding="utf-8") as f:
+            with open(self._lru_path, encoding="utf-8") as f:
                 d = json.load(f)
             if isinstance(d, dict):
                 return {str(k): float(v) for k, v in d.items()}

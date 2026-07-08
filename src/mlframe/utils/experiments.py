@@ -60,7 +60,7 @@ def read_experiment(experiment) -> tuple:
     experiment_id, experiment_name, experiment_started_at, experiment_finished_at, *_ = experiment
 
     return experiment_id,experiment_name,experiment_started_at,experiment_finished_at
-    
+
 def read_route(route) -> tuple:
     route_id, route_name, route_audience, route_type, *_ = route
     if route_audience is None:

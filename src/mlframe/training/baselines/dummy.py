@@ -129,11 +129,11 @@ def _warmup_numba_kernels(verbose: bool = False) -> None:
         return
     if getattr(_warmup_numba_kernels, "_in_progress", False):
         return
-    setattr(_warmup_numba_kernels, "_in_progress", True)
+    _warmup_numba_kernels._in_progress = True
     try:
         _warmup_numba_kernels_body(verbose)
     finally:
-        setattr(_warmup_numba_kernels, "_in_progress", False)
+        _warmup_numba_kernels._in_progress = False
 
 
 def _warmup_numba_kernels_body(verbose: bool = False) -> None:

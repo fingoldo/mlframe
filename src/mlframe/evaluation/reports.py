@@ -333,7 +333,7 @@ def evaluate_estimators(
                                 fast_classification_report(y_test_test, preds, nclasses=nclasses)
                             )
                             classification_report_dict = {
-                                str((_tn[i] if _tn else i)): {
+                                str(_tn[i] if _tn else i): {
                                     "precision": float(precisions[i]),
                                     "recall": float(recalls[i]),
                                     "f1-score": float(f1s[i]),

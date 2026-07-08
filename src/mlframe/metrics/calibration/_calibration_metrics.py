@@ -58,7 +58,7 @@ def calibration_metrics_from_freqs(
             populated += 1
     calibration_coverage = (populated / nbins) if nbins > 0 else 0.0
     if len(hits) > 0:
-        diffs = np.abs((freqs_predicted - freqs_true))
+        diffs = np.abs(freqs_predicted - freqs_true)
         if use_weights:
 
             if use_log_weighting:
@@ -83,7 +83,7 @@ def calibration_metrics_from_freqs(
             calibration_std = np.sqrt(np.sum(((diffs - calibration_mae) ** 2) * weights))
         else:
             calibration_mae = np.mean(diffs)
-            calibration_std = np.sqrt(np.mean(((diffs - calibration_mae) ** 2)))
+            calibration_std = np.sqrt(np.mean((diffs - calibration_mae) ** 2))
     else:
         calibration_mae, calibration_std = 1.0, 1.0
 

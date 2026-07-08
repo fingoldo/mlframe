@@ -146,7 +146,7 @@ def _load_pipeline_disk_cache_into_memory() -> None:
                 data = _orjson.loads(fh.read())
         except ImportError:
             import json as _json
-            with open(path, "r", encoding="utf-8") as fh:
+            with open(path, encoding="utf-8") as fh:
                 data = _json.load(fh)
     except Exception:
         return  # corrupt file: ignore, will be overwritten on next save
