@@ -84,7 +84,7 @@ def _column_to_tokens(col) -> np.ndarray:
             toks[j] = _NAN_TOKEN
         else:
             toks[j] = canonical_group_token(v)
-    return toks[codes]
+    return np.asarray(toks[codes])
 
 
 def _contingency_svd_row_coords(M: np.ndarray, n_eff: int, normalize: str) -> np.ndarray:
@@ -118,7 +118,7 @@ def _contingency_svd_row_coords(M: np.ndarray, n_eff: int, normalize: str) -> np
         return np.ascontiguousarray(row_coords, dtype=np.float64)
     if normalize == "raw":
         U, _s, _Vt = np.linalg.svd(M, full_matrices=False)
-        return U[:, :n_eff].astype(np.float64, copy=True)
+        return np.asarray(U[:, :n_eff].astype(np.float64, copy=True))
     raise ValueError(f"normalize must be 'ca' or 'raw'; got {normalize!r}")
 
 
@@ -267,7 +267,7 @@ def apply_cat_cooccurrence_svd(
     for i, u in enumerate(uniques):
         vec = lookup.get(str(u))
         table[i, :] = default if vec is None else np.asarray(vec, dtype=np.float64)
-    return table[codes]
+    return np.asarray(table[codes])
 
 
 def cat_cooccurrence_svd_with_recipes(
