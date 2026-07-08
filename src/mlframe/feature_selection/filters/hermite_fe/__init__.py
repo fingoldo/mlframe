@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 from numpy.polynomial.hermite_e import hermeval  # probabilist's Hermite
@@ -243,7 +243,7 @@ def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None 
             (grid,), (block,),
             (x_gpu, c_gpu, c_gpu.shape[0], n, out_gpu),
         )
-        return cp.asnumpy(out_gpu)
+        return np.asarray(cp.asnumpy(out_gpu))
 
 
 def _polyeval_cuda_pick_devices(n: int) -> list:
@@ -262,6 +262,7 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
     # and passes even when the card is nearly full (the pool already ate it) -- letting the next launch fault on
     # a shared card. ADD an absolute free-VRAM floor (default >=1 GB free) per device so a near-full device is
     # dropped from the cascade -> empty list -> CPU. Pure ADD -- tightens, never loosens; permissive without it.
+    _cushion: Any = None
     try:
         from .._fe_gpu_vram import fe_gpu_has_vram_cushion as _cushion
     except Exception:  # noqa: BLE001
@@ -345,7 +346,7 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     n = x.shape[0]
     _par_threshold, _cuda_threshold = _lookup_polyeval_thresholds(basis, n)
     if forced == "njit":
-        return _NJIT_FUNCS[basis](x, c)
+        return np.asarray(_NJIT_FUNCS[basis](x, c))
     # CUDA path: kernel_tuning_cache-driven, with an OOM/driver-error auto-fallback to the CPU path. On a host that is
     # itself out of RAM (paging) cupy cannot allocate the pinned H2D staging buffer and raises cudaErrorMemoryAllocation;
     # without this guard the caller drops the ENTIRE engineered column ("...skipping") rather than computing it slower on
@@ -370,16 +371,16 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
                 _warn_polyeval_cuda_fallback_once(_cuda_exc)
         # every device failed -- fall through to the CPU njit / njit_par path.
     if forced == "njit_par":
-        return _NJIT_PAR_FUNCS[basis](x, c)
+        return np.asarray(_NJIT_PAR_FUNCS[basis](x, c))
     # CPU njit/njit_par crossover: oracle-driven when enabled, else the legacy
     # hardcoded/kernel_tuning_cache threshold.
     if forced == "" and _polyeval_oracle_enabled():
         if _polyeval_oracle_pick_cpu_backend(n) == "njit_par":
-            return _NJIT_PAR_FUNCS[basis](x, c)
-        return _NJIT_FUNCS[basis](x, c)
+            return np.asarray(_NJIT_PAR_FUNCS[basis](x, c))
+        return np.asarray(_NJIT_FUNCS[basis](x, c))
     if n < _par_threshold:
-        return _NJIT_FUNCS[basis](x, c)
-    return _NJIT_PAR_FUNCS[basis](x, c)
+        return np.asarray(_NJIT_FUNCS[basis](x, c))
+    return np.asarray(_NJIT_PAR_FUNCS[basis](x, c))
 
 
 # Polynomial basis registry. Each entry maps a name to (eval_func, preprocess_func, expected_input_distribution_doc).
@@ -607,7 +608,7 @@ class HermiteResult:
         coef_b = np.ascontiguousarray(self.coef_b, dtype=np.float64)
         h_a = eval_dispatch(z_a, coef_a)
         h_b = eval_dispatch(z_b, coef_b)
-        return self.bin_func(h_a, h_b)
+        return np.asarray(self.bin_func(h_a, h_b))
 
 
 def _safe_div(a, b):
