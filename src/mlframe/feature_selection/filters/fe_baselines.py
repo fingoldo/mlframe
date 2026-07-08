@@ -225,7 +225,7 @@ def best_trivial_pair(
     mi_estimator: str = "plugin",
     plugin_n_bins: int = 20,
     n_neighbors: int = 3,
-) -> tuple:
+) -> tuple | None:
     """Return ``(name, feature_array, mi_value)`` for the best trivial pair feature. ``None`` if all trivial features are non-finite.
 
     2026-05-18 PERFORMANCE: shares the same batch MI path as
