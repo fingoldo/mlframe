@@ -96,12 +96,12 @@ def jmim_score(x_cand: np.ndarray, selected_cols: list[np.ndarray], y: np.ndarra
         _assert_codes_in_range(_c, int(nbins_selected[_j]), "jmim_score selected_col")
     if not selected_cols:
         # Fall back to plug-in I(X; Y) for the first feature.
-        return _joint_mi_3d_njit(
+        return float(_joint_mi_3d_njit(
             x_cand.astype(np.int64),
             np.zeros(x_cand.size, dtype=np.int64),
             y.astype(np.int64),
             int(nbins_x), 1, int(nbins_y),
-        )
+        ))
     K_x = int(nbins_x)
     K_y = int(nbins_y)
     best = float("inf")
