@@ -181,7 +181,7 @@ def forward_stepwise_multi_base(
                 sentinel = float(np.std(_y_all_finite)) if _y_all_finite.size else 0.0
                 return sentinel, [sentinel]
             agg0 = aggregate_fold_scores(
-                fold0, mode=cv_selector_mode, direction="min",
+                fold0, mode=cv_selector_mode, direction="min",  # type: ignore[arg-type]  # cv_selector_mode is a validated str, not a narrowed Literal
                 alpha=cv_selector_alpha, confidence=cv_selector_confidence,
                 quantile_level=cv_selector_quantile_level,
             )

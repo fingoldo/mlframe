@@ -356,7 +356,7 @@ def predict(self, X: Any) -> np.ndarray:
 
 
 def predict_quantile(
-    self, X: Any, alpha: float | Sequence[float] = 0.5,
+    self, X: Any, alpha: float | Sequence[float] | np.ndarray = 0.5,
 ) -> np.ndarray:
     """y-scale quantile prediction by inverting the inner's
     T-scale quantile.
@@ -488,6 +488,7 @@ def predict_quantile(
     # vector and destroy the predictive interval downstream blenders need.
     low = params.get("y_clip_low", float("-inf"))
     high = params.get("y_clip_high", float("inf"))
+    _t_low_total = _t_high_total = 0
 
     def _invert_one(t_col: np.ndarray) -> np.ndarray:
         """T-clip (parity with predict) + domain-aware inverse + y-clip for one
@@ -501,7 +502,6 @@ def predict_quantile(
         )
         return np.clip(y_col, low, high)
 
-    _t_low_total = _t_high_total = 0
     n_violation = int((~domain_ok).sum())
 
     if alpha_is_scalar:

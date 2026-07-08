@@ -192,7 +192,7 @@ def build_key_bank(
     n_heads: int = 4,
     head_dim: int = 8,
     standardize: bool = True,
-    projection: Literal["random", "pls", "importance", "shap"] = "random",
+    projection: Literal["random", "pls", "importance", "shap", "nca"] = "random",
     ann_M: int = DEFAULT_ANN_M,
     ann_ef_construction: int = DEFAULT_ANN_EF_CONSTRUCTION,
     num_threads: int | None = None,

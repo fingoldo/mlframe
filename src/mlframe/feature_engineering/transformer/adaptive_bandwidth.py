@@ -151,12 +151,12 @@ def compute_adaptive_bandwidth_attention(
     for h in range(n_heads):
         for agg in aggregate:
             key = f"{agg}_h{h}"
-            arr = outputs.get(key)
-            if arr is None:
+            _arr = outputs.get(key)
+            if _arr is None:
                 continue
-            if arr.ndim == 1:
-                cols[f"{column_prefix}_h{h}_{agg}"] = arr
+            if _arr.ndim == 1:
+                cols[f"{column_prefix}_h{h}_{agg}"] = _arr
             else:
-                for d in range(arr.shape[1]):
-                    cols[f"{column_prefix}_h{h}_{agg}_d{d}"] = arr[:, d]
+                for d in range(_arr.shape[1]):
+                    cols[f"{column_prefix}_h{h}_{agg}_d{d}"] = _arr[:, d]
     return pl.DataFrame(cols)

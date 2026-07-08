@@ -72,6 +72,7 @@ def _paired_bootstrap_vs_runner_up(
         return None
 
     # Pick runner-up = second-best by primary_metric on the reference split.
+    ref_col: str | None
     if primary_metric in table.columns:
         ref_col = primary_metric
     else:
@@ -105,6 +106,7 @@ def _paired_bootstrap_vs_runner_up(
         y_ref, p1, p2 = test_y, sp_test, rp_test
     else:
         return None
+    assert y_ref is not None and p1 is not None and p2 is not None  # guaranteed by the use_val/use_test not-None checks above
 
     # Metric callable. Limited to RMSE / MAE / log_loss for robustness;
     # NDCG / AUC paired-bootstrap requires per-query / per-class plumbing
@@ -324,10 +326,10 @@ def _vectorized_bootstrap_logloss_samples(
         idx = rng.integers(0, n, size=(n_resamples, n))
         elem_r = elem_n[idx]
         if y.ndim == 1:
-            return elem_r.mean(axis=1)
+            return np.asarray(elem_r.mean(axis=1))
         if y.ndim == 2:
             # Macro mean: avg across rows + labels equally.
-            return elem_r.mean(axis=(1, 2))
+            return np.asarray(elem_r.mean(axis=(1, 2)))
         return None
     # (C) Multiclass: y (n,) integer class labels, p (n, K) class probs.
     # Per-row CE = -log(p[i, y[i]]). Vectorise the true-class lookup via
@@ -342,7 +344,7 @@ def _vectorized_bootstrap_logloss_samples(
         true_class_p = p_clip[np.arange(n, dtype=np.intp), y_int]
         elem_n = -np.log(true_class_p)
         idx = rng.integers(0, n, size=(n_resamples, n))
-        return elem_n[idx].mean(axis=1)
+        return np.asarray(elem_n[idx].mean(axis=1))
     return None
 
 

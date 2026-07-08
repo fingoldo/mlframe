@@ -44,11 +44,11 @@ except ImportError:  # pragma: no cover
 try:
     from lightgbm import LGBMClassifier, LGBMRegressor
 except ImportError:  # pragma: no cover
-    LGBMClassifier = LGBMRegressor = None  # type: ignore[assignment]
+    LGBMClassifier = LGBMRegressor = None  # type: ignore[assignment,misc]
 try:
     from xgboost import XGBClassifier, XGBRegressor
 except ImportError:  # pragma: no cover
-    XGBClassifier = XGBRegressor = None  # type: ignore[assignment]
+    XGBClassifier = XGBRegressor = None  # type: ignore[assignment,misc]
 
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
 from .pipeline import (  # noqa: E402,F401
@@ -659,7 +659,7 @@ def train_and_evaluate_model(
                         _ckpt_dir = os.path.splitext(model_file_name)[0]
                         _inner = getattr(model, "regressor", model)
                         if hasattr(_inner, "trainer_params"):
-                            _inner.checkpoint_dir_override = _ckpt_dir
+                            setattr(_inner, "checkpoint_dir_override", _ckpt_dir)
                 except Exception as e:
                     logger.debug("swallowed exception in _trainer_train_and_evaluate.py: %s", e)
                     pass
@@ -670,7 +670,7 @@ def train_and_evaluate_model(
                     train_df=train_df,
                     train_target=train_target,
                     fit_params=fit_params,
-                    verbose=verbose,
+                    verbose=bool(verbose),
                 )
 
                 # Handle failed model training (e.g., dtype incompatibility)
@@ -727,9 +727,9 @@ def train_and_evaluate_model(
                     )
                     try:
                         if _oof_preds is not None:
-                            model.oof_preds = _oof_preds
+                            setattr(model, "oof_preds", _oof_preds)
                         if _oof_probs is not None:
-                            model.oof_probs = _oof_probs
+                            setattr(model, "oof_probs", _oof_probs)
                             # Stamp the train-aligned target so post-hoc OOF
                             # calibration pairs each OOF prob with its OWN row's
                             # label. cross_val_predict returns predictions in
@@ -739,12 +739,12 @@ def train_and_evaluate_model(
                             # target_series slice that is correct only when train
                             # is the leading contiguous block (wrong under
                             # shuffled / group-aware splits).
-                            model.oof_target = _y_arr
+                            setattr(model, "oof_target", _y_arr)
                     except AttributeError:
                         # Some frozen-attribute estimators (sklearn 1.4+ slots) refuse new attrs; stamp on the wrapper carrier instead.
                         pass
 
-    metrics = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
+    metrics_out: dict[str, Any] = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
 
     if compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics:
         t0_metrics = timer()
@@ -854,7 +854,7 @@ def train_and_evaluate_model(
                     df=split_df,
                     target=split_target,
                     idx=split_idx,
-                    metrics_dict=metrics[split_name],
+                    metrics_dict=metrics_out[split_name],
                     preds=split_preds,
                     probs=split_probs,
                     details=split_details,
@@ -901,10 +901,10 @@ def train_and_evaluate_model(
         # heavy cumtime (binning, AUC, calibration plot save) runs concurrently.
         # Concurrent ThreadPoolExecutor was tried but matplotlib figure creation from concurrent threads races on pyplot's shared state even with Agg backend, producing "Argument must be an image or collection" errors in calibration plots. Sequential path is correct.
         with phase("compute_split_metrics", split="val"):
-            val_res = _run_val_split_metrics(_val_cfg, metrics, has_test, common_metrics_params)
+            val_res = _run_val_split_metrics(_val_cfg, metrics_out, has_test, common_metrics_params)
         with phase("compute_split_metrics", split="test"):
             test_res = _run_test_split_metrics(
-                _run_test, metrics, test_df, test_target, test_idx,
+                _run_test, metrics_out, test_df, test_target, test_idx,
                 test_preds, test_probs, test_details, common_metrics_params,
             )
 
@@ -960,7 +960,7 @@ def train_and_evaluate_model(
             calib_probs=_calib_probs_out,
             calib_target=_calib_target_out,
             calib_preds=_calib_preds_out,
-            metrics=metrics,
+            metrics=metrics_out,
             columns=columns,
             pre_pipeline=pre_pipeline,
             train_od_idx=train_od_idx,

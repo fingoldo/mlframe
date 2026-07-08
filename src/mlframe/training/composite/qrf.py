@@ -321,7 +321,7 @@ class _LeafResidualForest:
         """Conditional-mean prediction of ``T`` (forest mean, matches the leaf mean)."""
         return np.asarray(self.forest_.predict(np.asarray(X, dtype=np.float64)), dtype=np.float64)
 
-    def predict_quantile(self, X: Any, alpha: float | Sequence[float] = 0.5) -> np.ndarray:
+    def predict_quantile(self, X: Any, alpha: float | Sequence[float] | np.ndarray = 0.5) -> np.ndarray:
         """Conditional quantiles of ``T`` at ``alpha`` from the single fitted forest.
 
         ``alpha`` scalar -> ``(n_query,)``; ``alpha`` vector -> ``(n_query, K)``. Every
@@ -417,7 +417,7 @@ class _QuantileForestAdapter(BaseEstimator, RegressorMixin):  # pragma: no cover
         out = self.model.predict(np.asarray(X, dtype=np.float64), quantiles=[0.5])
         return np.asarray(out, dtype=np.float64).reshape(-1)
 
-    def predict_quantile(self, X: Any, alpha: float | Sequence[float] = 0.5) -> np.ndarray:
+    def predict_quantile(self, X: Any, alpha: float | Sequence[float] | np.ndarray = 0.5) -> np.ndarray:
         scalar = np.isscalar(alpha)
         levels = list(np.atleast_1d(np.asarray(alpha, dtype=np.float64)))
         out = np.asarray(self.model.predict(np.asarray(X, dtype=np.float64), quantiles=levels), dtype=np.float64)
@@ -536,7 +536,7 @@ class CompositeQRFEstimator(BaseEstimator, RegressorMixin):
         self._check_fitted()
         return self.predict_quantile(X, quantiles=[0.5]).reshape(-1)
 
-    def predict_quantile(self, X: Any, quantiles: Sequence[float] | None = None) -> np.ndarray:
+    def predict_quantile(self, X: Any, quantiles: Sequence[float] | np.ndarray | None = None) -> np.ndarray:
         """y-scale quantiles ``(n, n_q)`` for ANY ``quantiles`` from the ONE fit.
 
         Reads the forest's conditional ``T``-quantiles at the requested levels and

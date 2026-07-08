@@ -238,6 +238,7 @@ class HeteroscedasticCompositeEstimator(BaseEstimator, RegressorMixin):
         if self.backend_ == "ngboost":  # pragma: no cover - optional dep path
             sigma = self._ngboost_sigma(mean.estimator_, X)
         else:
+            assert self.variance_estimator_ is not None  # non-ngboost backends always fit a variance_estimator_
             sigma = np.exp(0.5 * np.asarray(self.variance_estimator_.predict(X), dtype=np.float64).reshape(-1))
         sigma = self.sigma_calibration_ * sigma
         return np.where(np.isfinite(sigma) & (sigma > 0), sigma, np.finfo(np.float64).tiny)

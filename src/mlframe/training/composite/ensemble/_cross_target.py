@@ -7,8 +7,11 @@ from __future__ import annotations
 import logging
 import math
 from typing import (
-    Any, Sequence, Union,
+    TYPE_CHECKING, Any, Sequence, Union,
 )
+
+if TYPE_CHECKING:
+    from ._calibration import OutputCalibrator
 
 import numpy as np
 from sklearn.linear_model import Ridge, RidgeCV
@@ -102,7 +105,7 @@ class CompositeCrossTargetEnsemble:
         # the raw blend bit-for-bit, so the feature is bit-identical when off (the default).
         self.calibrate_output = bool(calibrate_output)
         self.calibration_method = str(calibration_method)
-        self._output_calibrator = None
+        self._output_calibrator: "OutputCalibrator | None" = None
 
     # ------------------------------------------------------------------
     # Constructors / factory methods
@@ -562,7 +565,7 @@ class CompositeCrossTargetEnsemble:
         # Track surviving indices so linear_stack can refit Ridge on exactly the columns
         # whose components produced predictions for this batch.
         surviving_idx = [i for i, p in enumerate(per_component) if p is not None]
-        ok = [(per_component[i], self.weights[i]) for i in surviving_idx]
+        ok = [(p, self.weights[i]) for i, p in enumerate(per_component) if p is not None]
         if not ok:
             raise RuntimeError("CompositeCrossTargetEnsemble.predict: all components failed.")
         preds_matrix = np.column_stack([p for p, _ in ok])
