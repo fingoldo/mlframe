@@ -230,7 +230,7 @@ def _compute_one_fe_chunk(
                 # H2D LOSS. The real residency lever is making the per-chunk operand reads consume the
                 # phase-1 resident operand table (the 953-call / 60 MB floor), not widening this gate.
                 if _fe_gpu_discretize_enabled(transformed_vars.shape[0], col):
-                    from .._gpu_resident_fe import gpu_materialise_discretize_codes_host
+                    from .._gpu_resident_fe import gpu_materialise_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals()
                     _code_dtype_gpu = _narrow_code_dtype(quantization_nbins, quantization_dtype)
                     _gpu_disc_2d = gpu_materialise_discretize_codes_host(
                         transformed_vars,
@@ -349,7 +349,7 @@ def _compute_one_fe_chunk(
             # so the cheap, bit-identical op is no longer held hostage to the full MI path's crossover.
             from ._pairs_core import _fe_gpu_binning_enabled
             if _fe_gpu_binning_enabled(chunk_buffer.shape[0], col):
-                from .._gpu_resident_fe import gpu_discretize_codes_host
+                from .._gpu_resident_fe import gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals()
                 disc_2d = gpu_discretize_codes_host(chunk_buffer[:, :col], int(quantization_nbins), dtype=_code_dtype)
         except Exception:
             logger.debug("FE chunk GPU binning failed; CPU discretise", exc_info=True)
