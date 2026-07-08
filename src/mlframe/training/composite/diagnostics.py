@@ -415,7 +415,7 @@ def plot_per_fold_tiny_rmse(
 
 def plot_per_family_disagreement(
     per_family_scores: dict[str, Sequence[float]],
-    spec_names: Sequence[str],
+    spec_names: Sequence[str],  # TODO: accepted per the docstring's alignment contract but not read; the heatmap axes are labelled by family, not spec
     *,
     title: str = "Per-family rerank rank-correlation",
     figsize: tuple[float, float] = (6, 5),

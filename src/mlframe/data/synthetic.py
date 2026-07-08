@@ -141,11 +141,11 @@ def generate_modelling_data(
     scale: float = 1.0,
     shuffle: bool = True,
     random_state: Optional[int] = None,
-    feature_noise: float = 0.05,  # used additively when generating correlated features
-    target_noise: float = 0.05,  # used additively when generating target in mode 1
-    timeseries: bool = False,  # dependencies (coefficients, at least) are changing over time?
+    feature_noise: float = 0.05,  # TODO: accepted but not yet wired into the correlated-feature generation body
+    target_noise: float = 0.05,  # TODO: accepted but not yet wired into the mode-1 target generation body
+    timeseries: bool = False,  # TODO: accepted but not yet wired into the coefficient-drift-over-time body
     # how to create cat features?
-    min_cardinality: int = 2,
+    min_cardinality: int = 2,  # TODO: accepted but not yet wired into cat-feature cardinality generation
     max_cardinality: Optional[int] = None,
     include_distributions: Optional[set] = None,
     return_dataframe: bool = True,

@@ -208,8 +208,8 @@ def compute_pareto_frontier(
 
 def select_from_pareto(
     frontier_indices: Sequence[int],
-    iter_means: Sequence[float],
-    iter_stds: Sequence[float],
+    iter_means: Sequence[float],  # TODO: accepted but the risk quantile is computed from iter_shard_scores only; not read here
+    iter_stds: Sequence[float],  # TODO: accepted but the risk quantile is computed from iter_shard_scores only; not read here
     iter_shard_scores: Sequence[Sequence[float]],
     *,
     risk_quantile: float = 0.9,

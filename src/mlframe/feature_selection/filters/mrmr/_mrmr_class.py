@@ -349,6 +349,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         uaed_auto_size: bool = False,
         # D10 Conditional Permutation Test (Berrett 2020). Permutes X CONDITIONAL
         # on Z preserving X|Z; valid p-values under arbitrary confounding.
+        # TODO: toggle is stored and threaded through config levers but the permutation-test body itself is not yet implemented anywhere in the codebase.
         cpt_test: bool = False,
         cpt_n_permutations: int = 200,
         # E11 Cluster Stability Selection (Faletto-Bien 2022). Opt-in via

@@ -715,7 +715,7 @@ def optimize_finite_onedimensional_search_space(
     known_evaluations: Optional[Union[list, np.ndarray]] = None,
     # stopping conditions
     max_runtime_mins: Optional[float] = None,
-    predict_runtimes: bool = False,  # intellectual setting that skips candidates whose evaluation won't finish within current runtime limit
+    predict_runtimes: bool = False,  # TODO: accepted but the runtime-prediction skip logic is not yet implemented in this function's body
     max_fevals: Optional[int] = None,
     best_desired_score: Optional[float] = None,
     max_noimproving_iters: Optional[int] = None,

@@ -13,10 +13,10 @@ from typing import (
 import numpy as np
 
 try:
-    import numba as _numba  # type: ignore
+    import numba as _numba
     _HAS_NUMBA = True
 except Exception:  # pragma: no cover
-    _numba = None  # type: ignore
+    _numba = None
     _HAS_NUMBA = False
 
 logger = logging.getLogger("mlframe.training.composite_transforms")
@@ -132,11 +132,11 @@ if _HAS_NUMBA:
             out[i] = b
         return out
 else:
-    _ewma_kernel = None  # type: ignore
-    _ewma_kernel_njit_par_batched = None  # type: ignore
-    _frac_diff_inverse_kernel = None  # type: ignore
-    _frac_diff_inverse_kernel_njit_par_batched = None  # type: ignore
-    _quantile_assign_bins_kernel = None  # type: ignore
+    _ewma_kernel = None
+    _ewma_kernel_njit_par_batched = None
+    _frac_diff_inverse_kernel = None
+    _frac_diff_inverse_kernel_njit_par_batched = None
+    _quantile_assign_bins_kernel = None
 
 
 # Soft-cap MAD floor: when MAD(T_train) is below ``_MAD_FLOOR_FRAC * std(y_train)``, substitute the latter to keep the soft-cap bound numerically meaningful even if the transform produced a degenerate (near-constant) T on train. Without this, logratio's MAD-cap collapses to zero on degenerate train and every prediction inverts to ``base * exp(0) = base`` silently.
@@ -936,7 +936,6 @@ def _frac_diff_domain(
     return np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
 def _make_chain_transform(
     *, name: str, short_name: str,
-    bivariate_name: str,
     bivariate_fit, bivariate_forward, bivariate_inverse, bivariate_domain,
     unary_fit, unary_forward, unary_inverse,
     description: str,

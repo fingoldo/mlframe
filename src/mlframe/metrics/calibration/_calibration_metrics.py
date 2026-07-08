@@ -32,7 +32,7 @@ def calibration_metrics_from_freqs(
     freqs_true: np.ndarray,
     hits: np.ndarray,
     nbins: int,
-    array_size: int,
+    array_size: int,  # TODO: accepted by all callers (len(y_true)) but not read in this kernel body
     use_weights: bool = True,
     use_log_weighting: bool = False,
     use_sqrt_weighting: bool = False,
