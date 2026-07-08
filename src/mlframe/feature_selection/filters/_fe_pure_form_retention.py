@@ -185,10 +185,10 @@ def retain_usable_pure_forms(
         has_cross_mix = False
         has_pure_pair = False
         for r in existing:
-            uniq = _raw_operands(r)
-            if len(uniq) > 2:
+            ops_set = _raw_operands(r)
+            if len(ops_set) > 2:
                 has_cross_mix = True
-            elif len(uniq) == 2:
+            elif len(ops_set) == 2:
                 # For classification, a LOSSY existing pure pair form does NOT count as covering the pair
                 # (it cannot serve the logistic downstream) -- the pair stays trapped and recoverable.
                 if is_clf and not _clf_form_relevant(r):
