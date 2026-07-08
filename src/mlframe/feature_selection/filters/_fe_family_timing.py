@@ -57,7 +57,7 @@ def reset_fe_family_wall() -> None:
 
 def get_fe_family_wall() -> dict[str, tuple[float, int]]:
     with _LOCK:
-        return {k: (v[0], v[1]) for k, v in _FE_FAMILY_WALL.items()}
+        return {k: (v[0], int(v[1])) for k, v in _FE_FAMILY_WALL.items()}
 
 
 def log_fe_family_summary(*, reset: bool = True) -> None:
