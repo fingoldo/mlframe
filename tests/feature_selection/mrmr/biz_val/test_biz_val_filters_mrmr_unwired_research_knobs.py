@@ -1,11 +1,13 @@
-"""Live contract for three MRMR research-extension constructor knobs now WIRED into ``fit()``: ``relaxmrmr_alpha`` (RelaxMRMR 3-D MI, Vinh 2016),
-``pid_synergy_bonus`` (PID I_ccs synergy, Ince 2017) and ``cmi_perm_stop`` (+``cmi_perm_alpha`` / ``cmi_perm_n_permutations``; CMI-permutation stop, Yu-Principe 2019).
+"""Live contract for four MRMR research-extension constructor knobs now WIRED into ``fit()``: ``relaxmrmr_alpha`` (RelaxMRMR 3-D MI, Vinh 2016),
+``pid_synergy_bonus`` (PID I_ccs synergy, Ince 2017), ``cmi_perm_stop`` (+``cmi_perm_alpha`` / ``cmi_perm_n_permutations``; CMI-permutation stop, Yu-Principe 2019),
+and ``cpt_test`` (+``cpt_n_permutations``; D10 Conditional Permutation Test, Berrett-Wang-Barber-Samworth 2020).
 
 Each knob is read in the per-candidate scoring step (``evaluation.evaluate_candidate``) via thread-locals set by ``MRMR.fit`` -- mirroring the ``mi_correction`` /
-BUR precedent. RelaxMRMR replaces the complex-mode Fleuret score, PID adds a max-synergy bonus, and CMI-perm-stop drops a conditionally-insignificant candidate.
-All three default to a no-op (alpha=0 / bonus=0 / stop=False) so the default selection is byte-identical; these tests assert that ACTIVATING each knob changes the
-selected support (the standalone kernel checks below additionally prove the underlying capability). RelaxMRMR and CMI-perm-stop act on the conditional-MI redundancy
-term that only exists in complex mode, so their activation tests run with ``use_simple_mode=False``.
+BUR precedent. RelaxMRMR replaces the complex-mode Fleuret score, PID adds a max-synergy bonus, CMI-perm-stop drops a conditionally-insignificant candidate (permuting
+its UNCONDITIONAL marginal), and CPT does the same but via within-selected-stratum permutation (giving valid p-values under arbitrary confounding by the selected set).
+All four default to a no-op (alpha=0 / bonus=0 / stop=False / test=False) so the default selection is byte-identical; these tests assert that ACTIVATING each knob
+changes the selected support (the standalone kernel checks below additionally prove the underlying capability). RelaxMRMR and CMI-perm-stop act on the conditional-MI
+redundancy term that only exists in complex mode, so their activation tests run with ``use_simple_mode=False``.
 """
 from __future__ import annotations
 
@@ -89,6 +91,20 @@ def test_cmi_permutation_stop_kernel_discriminates_signal_from_noise():
     assert sig_p < noise_p, f"CMI-perm p-value must be smaller for the real signal (sig_p={sig_p:.3f} vs noise_p={noise_p:.3f})"
 
 
+def test_conditional_permutation_test_kernel_discriminates_signal_from_noise():
+    from mlframe.feature_selection.filters._conditional_permutation import conditional_permutation_test
+
+    rng = np.random.default_rng(4)
+    n = 800
+    z = rng.integers(0, 4, n)  # "selected" stratifying variable
+    y = (z + rng.integers(0, 2, n)) % 4
+    x_sig = (y + rng.integers(0, 2, n)) % 4  # depends on y even conditional on z
+    x_noise = rng.integers(0, 4, n)  # independent of y given z
+    _, sig_p = conditional_permutation_test(x_sig, y, z, nbins_x=4, nbins_y=4, nbins_z=4, n_permutations=60, seed=0)
+    _, noise_p = conditional_permutation_test(x_noise, y, z, nbins_x=4, nbins_y=4, nbins_z=4, n_permutations=60, seed=0)
+    assert sig_p < noise_p, f"CPT p-value must be smaller for the real conditional signal (sig_p={sig_p:.3f} vs noise_p={noise_p:.3f})"
+
+
 def test_pid_decomposition_kernel_finds_synergy_on_xor():
     from mlframe.feature_selection.filters._pid_decomposition import pid_decomposition
 
@@ -165,4 +181,49 @@ def test_cmi_perm_stop_fires_in_live_fit_and_prunes_candidates():
     assert len(pruned) >= 1, (
         f"an aggressive CMI-permutation stop (alpha=0.5) must flag >=1 conditionally-insignificant candidate as not-significant "
         f"and prune its gain; got {len(calls)} consultations, {len(pruned)} pruned"
+    )
+
+
+def test_cpt_test_fires_in_live_fit_and_prunes_candidates():
+    """``cpt_test=True`` must drive the wired D10 Conditional Permutation Test INSIDE a live fit: the kernel is consulted
+    from ``evaluation.evaluate_candidate`` and forces >=1 candidate's gain to 0 when its within-selected-stratum
+    permutation p-value is >= 0.05 -- the selection-affecting mechanism. The default (cpt_test=False) never consults it.
+    """
+    from mlframe.feature_selection.filters import _conditional_permutation as _cp
+
+    real_test = _cp.conditional_permutation_test
+    calls: list[tuple[float, float]] = []
+
+    def _spy(*a, **k):
+        res = real_test(*a, **k)
+        calls.append(res)
+        return res
+
+    X, y = _synth()
+    common = dict(verbose=0, random_seed=42, n_workers=1, use_simple_mode=False, quantization_nbins=8, max_runtime_mins=1, fe_max_steps=0)
+
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    # Default off: the kernel must NOT be consulted at all.
+    calls.clear()
+    _cp.conditional_permutation_test = _spy
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            MRMR(cpt_test=False, **common).fit(X, y)
+        assert len(calls) == 0, "with cpt_test=False the D10 CPT kernel must never be consulted (byte-identical no-op default)"
+
+        # Active: the kernel is consulted and prunes >=1 candidate whose conditional-permutation p-value is not significant.
+        calls.clear()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            MRMR(cpt_test=True, cpt_n_permutations=20, **common).fit(X, y)
+    finally:
+        _cp.conditional_permutation_test = real_test
+
+    assert len(calls) > 0, "with cpt_test=True the wired D10 CPT must be reached from evaluate_candidate during the live fit"
+    pruned = [c for c in calls if c[1] >= 0.05]  # p_value >= 0.05 -> candidate gain forced to 0
+    assert len(pruned) >= 1, (
+        f"D10 CPT must flag >=1 candidate as conditionally-insignificant given the selected set and prune its gain; "
+        f"got {len(calls)} consultations, {len(pruned)} pruned"
     )

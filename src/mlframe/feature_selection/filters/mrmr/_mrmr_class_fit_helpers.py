@@ -36,7 +36,9 @@ class _MRMRFitHelpersMixin:
         random_seed: Any
         get_feature_names_out: Any
 
-        def _effective_random_seed(self) -> Any: ...
+        def _effective_random_seed(self) -> Any:
+            """Type-checking-only stub; resolves at runtime via the concrete ``MRMR`` MRO."""
+            ...
 
     # opt-in stability-selection outer-loop wrapper.
     # Routes to Faletto-Bien 2022 Cluster Stability Selection or
@@ -44,6 +46,9 @@ class _MRMRFitHelpersMixin:
     # ``stability_selection_method != 'classic'``. The classic path falls
     # through to the legacy ``self.fit`` body.
     def _stability_outer_fit(self, X, y, **fit_kwargs):
+        """Run the opt-in stability-selection outer loop (cluster or complementary-pairs) when configured, persisting
+        ``support_``/``stability_freq_``/``stability_info_`` and returning ``self``; returns ``None`` for the
+        ``'classic'`` method so the caller falls through to the legacy ``fit`` body."""
         method = getattr(self, "stability_selection_method", "classic")
         if method == "classic":
             return None  # fall through to legacy fit
@@ -60,6 +65,7 @@ class _MRMRFitHelpersMixin:
         feature_names = list(X_df.columns)
 
         def _inner_selector(X_sub, y_sub):
+            """Fit a fresh classic-mode sibling MRMR on a bootstrap/pair row-subset and return its selected column indices (empty array if the sub-fit produced no support)."""
             # X_sub is a dtype-preserved frame row-subset (from .iloc) -> reset its index so it aligns with the default-indexed y_sub below; the
             # no-frame fallback (ndarray subset) wraps as before. (Wrapping a frame via pd.DataFrame(frame) would keep its non-default index and
             # mis-align against y_sub.)
@@ -75,6 +81,7 @@ class _MRMRFitHelpersMixin:
                            "stability_selection_corr_threshold",
                            "uaed_auto_size",
                            "cmi_perm_stop",
+                           "cpt_test",
                        )},
                     "stability_selection_method": "classic",
                     "verbose": 0,
@@ -187,7 +194,7 @@ class _MRMRFitHelpersMixin:
             eng = [n for n in names if "(" in n]
             n_raw = len(names) - len(eng)
             n_in = getattr(self, "n_features_in_", "?")
-            print(f"\n[MRMR] selected {len(names)} feature(s) " f"({n_raw} raw + {len(eng)} engineered) from {n_in} input(s)")  # noqa: T201 -- deliberately print(), not logger: "the one guaranteed-visible line of truth" per this method's docstring
+            print(f"\n[MRMR] selected {len(names)} feature(s) " f"({n_raw} raw + {len(eng)} engineered) from {n_in} input(s)")
             prov = getattr(self, "fe_provenance_", None)
             if prov is not None and hasattr(prov, "empty") and not prov.empty:
                 disp_cols = [c for c in ("support_rank", "feature_name", "origin", "mrmr_gain") if c in prov.columns]
@@ -198,13 +205,13 @@ class _MRMRFitHelpersMixin:
                     disp = disp.sort_values("support_rank", kind="stable")
                 if "mrmr_gain" in disp.columns:
                     disp["mrmr_gain"] = disp["mrmr_gain"].map(lambda v: f"{float(v):.4f}" if pd.notna(v) else "")
-                print(disp.to_string(index=False))  # noqa: T201
+                print(disp.to_string(index=False))
             else:
-                print("  " + ", ".join(names))  # noqa: T201
+                print("  " + ", ".join(names))
             if eng:
-                print(f"[MRMR] {len(eng)} engineered feature(s) discovered: " + ", ".join(eng))  # noqa: T201
+                print(f"[MRMR] {len(eng)} engineered feature(s) discovered: " + ", ".join(eng))
             else:
-                print("[MRMR] no engineered features survived the MI-prevalence gate " "(fe_min_engineered_mi_prevalence); selection is raw-only")  # noqa: T201
+                print("[MRMR] no engineered features survived the MI-prevalence gate " "(fe_min_engineered_mi_prevalence); selection is raw-only")
         except Exception as exc:
             logger.debug("mrmr: selection-summary print failed (diagnostic only): %r", exc, exc_info=True)
 

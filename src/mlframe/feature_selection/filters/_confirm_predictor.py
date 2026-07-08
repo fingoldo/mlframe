@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 
 # Re-export the full engineered-helper surface: ``confirm_one_predictor`` / ``confirm_candidate`` use three of them, and
 # ``_mrmr_fit_impl`` imports ``_extract_single_raw_parent`` from this module by name (raw-retention pass).
-from ._confirm_predictor_engineered import (  # noqa: F401
+from ._confirm_predictor_engineered import (
     _candidate_is_engineered,
     _confirmable_engineered_child,
     _conditioning_rows_per_cell,
@@ -269,7 +269,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
             use_su_normalization as _use_su, use_jmim_aggregator as _use_jmim,
             get_bur_lambda as _get_bur, get_relaxmrmr_alpha as _get_relax,
             get_pid_synergy_bonus as _get_pid, get_cmi_perm_stop as _get_cmi,
-            use_mi_miller_madow as _use_mm,
+            use_mi_miller_madow as _use_mm, get_cpt_test as _get_cpt,
         )
         from .info_theory._state_and_dispatch import get_group_mi as _get_gmi
         _gmi_snapshot = _get_gmi()
@@ -279,6 +279,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
         _relax_snapshot = float(_get_relax())
         _pid_snapshot = float(_get_pid())
         _cmi_snapshot = _get_cmi()
+        _cpt_snapshot = _get_cpt()
         _mm_snapshot = bool(_use_mm())
         res = workers_pool(  # type: ignore[operator]
             delayed(evaluate_candidates)(
@@ -320,6 +321,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
                 relaxmrmr_alpha=_relax_snapshot,
                 pid_synergy_bonus=_pid_snapshot,
                 cmi_perm=_cmi_snapshot,
+                cpt=_cpt_snapshot,
                 mi_miller_madow=_mm_snapshot,
                 group_mi=_gmi_snapshot,
             )

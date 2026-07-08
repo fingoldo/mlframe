@@ -27,8 +27,8 @@ from ._numba_utils import arr2str
 from .info_theory import (
     use_su_normalization, use_jmim_aggregator, get_bur_lambda,
     set_su_normalization, set_jmim_aggregator, set_bur_lambda,
-    get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop,
-    set_relaxmrmr_alpha, set_pid_synergy_bonus, set_cmi_perm_stop,
+    get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop, get_cpt_test,
+    set_relaxmrmr_alpha, set_pid_synergy_bonus, set_cmi_perm_stop, set_cpt_test,
     use_mi_miller_madow, set_mi_miller_madow,
     get_group_mi, set_group_mi,
 )
@@ -151,7 +151,7 @@ def _prefill_cond_MIs_gpu(
                     cached_cond_MIs[key] = float(val)
                     n_written += 1
         return n_written
-    except Exception as _exc:  # noqa: BLE001 - correctness over speed: any failure -> scalar path
+    except Exception as _exc:
         logger.debug("gpu cmi pre-fill skipped (%s); scalar CPU path used", _exc)
         return 0
 
@@ -199,10 +199,11 @@ def evaluate_candidates(
     relaxmrmr_alpha: float = 0.0,
     pid_synergy_bonus: float = 0.0,
     cmi_perm: tuple = (False, 0.05, 100),
+    cpt: tuple = (False, 200),
     mi_miller_madow: bool = False,
     group_mi=None,
 ) -> tuple:
-
+    """Thread-worker entry point: re-publish the Wave 8 ``threading.local`` toggles (SU/JMIM/Bur-lambda/relax-mrmr/PID/CMI-perm/CPT/Miller-Madow/group-MI) into this worker thread, run ``_evaluate_candidates_inner`` over the workload, then restore the prior thread-local values in ``finally`` so a reused worker doesn't leak this call's settings into the next dispatch."""
     # Worker-thread re-publish of Wave 8 toggles (iter 5 fix). The
     # try/finally guarantees we don't pollute the worker thread's locals
     # if the same worker is re-used for a subsequent dispatch with
@@ -216,6 +217,7 @@ def evaluate_candidates(
     _prev_relax = get_relaxmrmr_alpha()
     _prev_pid = get_pid_synergy_bonus()
     _prev_cmi = get_cmi_perm_stop()
+    _prev_cpt = get_cpt_test()
     _prev_mm = use_mi_miller_madow()
     _prev_gmi = get_group_mi()
     set_group_mi(group_mi)
@@ -225,6 +227,7 @@ def evaluate_candidates(
     set_relaxmrmr_alpha(float(relaxmrmr_alpha))
     set_pid_synergy_bonus(float(pid_synergy_bonus))
     set_cmi_perm_stop(bool(cmi_perm[0]), float(cmi_perm[1]), int(cmi_perm[2]))
+    set_cpt_test(bool(cpt[0]), int(cpt[1]))
     set_mi_miller_madow(bool(mi_miller_madow))
     try:
         return _evaluate_candidates_inner(
@@ -253,6 +256,7 @@ def evaluate_candidates(
         set_relaxmrmr_alpha(_prev_relax)
         set_pid_synergy_bonus(_prev_pid)
         set_cmi_perm_stop(_prev_cmi[0], _prev_cmi[1], _prev_cmi[2])
+        set_cpt_test(_prev_cpt[0], _prev_cpt[1])
         set_mi_miller_madow(_prev_mm)
         set_group_mi(_prev_gmi)
 
@@ -268,7 +272,7 @@ def _evaluate_candidates_inner(
     dtype=np.int32, max_runtime_mins=None, start_time=None,
     min_relevance_gain=None, verbose=1, ndigits=5, use_simple_mode=True,
 ) -> tuple:
-
+    """Score every candidate in ``workload`` (serial loop over ``evaluate_candidate``), tracking the running best gain/candidate and updating ``partial_gains``/the MI caches in place."""
     # lazy: parent-defined helpers + cache deque, imported here to avoid the
     # _evaluation_driver <-> evaluation module-level import cycle.
     from .evaluation import evaluate_candidate, handle_best_candidate, _JMIM_CACHE_STATS

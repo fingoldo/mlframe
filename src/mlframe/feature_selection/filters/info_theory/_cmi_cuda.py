@@ -85,6 +85,7 @@ except (TypeError, ValueError):
 
 
 def _cmi_forder_enabled() -> bool:
+    """True unless ``MLFRAME_CMI_FORDER`` explicitly disables the F-order caching path (default on)."""
     return _os_thr.environ.get("MLFRAME_CMI_FORDER", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
@@ -141,7 +142,7 @@ def cupy_available() -> bool:
         import cupy as cp
 
         _CUPY_OK = cp.cuda.runtime.getDeviceCount() > 0
-    except Exception as _exc:  # noqa: BLE001 - any cupy/CUDA failure -> CPU path
+    except Exception as _exc:
         logger.debug("cmi_cuda: cupy unavailable (%s); CPU fallback", _exc)
         _CUPY_OK = False
     return _CUPY_OK
@@ -219,6 +220,13 @@ _cmi_from_joint_cuda = None
 
 
 def _get_cmi_from_joint_kernel():
+    """Build (idempotently) and return the fused CMI-from-joint-counts RawKernel.
+
+    One block per candidate reads the global joint histogram once, accumulates the (X,Z)/(Y,Z)/(Z) marginals in
+    shared memory via ``atomicAdd``, and reduces all four plug-in entropies in a single launch -- replacing the
+    four separate ``_entropy_from_counts_axis`` launches (H(Z), H(X,Z), H(Y,Z), H(X,Y,Z)) that used to dominate
+    per-call CUDA launch count. Result is clamped to ``>= 0`` (plug-in CMI can go slightly negative from bias).
+    """
     global _cmi_from_joint_cuda
     if _cmi_from_joint_cuda is not None:
         return _cmi_from_joint_cuda
@@ -448,7 +456,7 @@ def conditional_mi_batched_cuda(
             shared_mem=shmem_bytes,
         )
         return np.asarray(cp.asnumpy(cmi_g))
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("cmi_from_joint kernel failed (%s); four-call entropy fallback", _exc)
         counts = joint.reshape(p, nbins_y, nbins_x, nbins_z)
         h_z = _entropy_from_counts_axis(counts, (1, 2), n)
@@ -620,7 +628,7 @@ def _cmi_cuda_shmem_fits(joint_size: int, nbins_x: int = 0, nbins_y: int = 0, nb
     return True
 
 
-def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y: int = 0, nbins_z: int = 0) -> bool:  # noqa: C901
+def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y: int = 0, nbins_z: int = 0) -> bool:
     """Size/HW gate. Routes to CUDA at large (n, p) where the batched launch wins; CPU otherwise.
 
     Integrates with the FS kernel_tuning_cache singleton (pyutilz). On cache hit the decision is the
@@ -643,7 +651,7 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
 
         free_b, _total = cp.cuda.runtime.memGetInfo()
         cap = min(cap, int(free_b * 0.5))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.debug("swallowed exception in _cmi_cuda.py: %s", e)
         pass
     if bytes_needed > cap:
@@ -655,7 +663,7 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
         from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
         if not fe_gpu_has_vram_cushion(bytes_needed):
             return False
-    except Exception as e:  # noqa: BLE001  -- cushion module unavailable: leave the existing gates in charge
+    except Exception as e:
         logger.debug("swallowed exception in _cmi_cuda.py: %s", e)
         pass
     # Shared-mem guard: cc 6.x has 48 KB/block and BOTH kernels must fit (see _cmi_cuda_shmem_fits).
@@ -669,7 +677,7 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
         from mlframe.feature_selection.filters._fe_gpu_strict import fe_gpu_strict_enabled
         if fe_gpu_strict_enabled():
             return True
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.debug("swallowed exception in _cmi_cuda.py: %s", e)
         pass
 
@@ -683,9 +691,9 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
                 decision = cache.lookup(_TUNING_REGION, key)
                 if decision is not None and "use_cuda" in decision:
                     return bool(decision["use_cuda"])
-            except Exception as _exc:  # noqa: BLE001
+            except Exception as _exc:
                 logger.debug("cmi_cuda: kernel_tuning_cache lookup failed (%s); hand fallback", _exc)
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("cmi_cuda: kernel_tuning_cache unavailable (%s); hand fallback", _exc)
 
     # MANDATE-1 (2026-06-23): per-host KTC-derived crossover (sibling _cmi_cuda_ktc). The legacy "FS
@@ -699,7 +707,7 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
         _decision = _ktc_cmi_use_cuda(n, p)
         if _decision is not None:
             return bool(_decision)
-    except Exception as _exc:  # noqa: BLE001
+    except Exception as _exc:
         logger.debug("cmi_cuda: KTC crossover unavailable (%s); hand fallback", _exc)
 
     # Hand bootstrap heuristic (un-tuned default ONLY): the batched launch amortizes its host<->device
@@ -763,7 +771,7 @@ def conditional_mi_batched_dispatch(
             y_g = _resident_upload(y, (_fid, "y", int(y_index), int(nbins_y)))
             z_g = _resident_upload(z, (_fid, "z", int(z_index), int(nbins_z)))
             return conditional_mi_batched_cuda(Xc, y, z, nbins_x, nbins_y, nbins_z, y_g=y_g, z_g=z_g)
-        except Exception as _exc:  # noqa: BLE001 - any GPU failure -> exact CPU fallback
+        except Exception as _exc:
             # Trip the process-level circuit breaker: a launch fault poisons the CUDA context, so every subsequent
             # GPU CMI would fault identically (the wellbore 1515-retry cascade). Route all further CMI to CPU.
             global _CMI_GPU_FAILED

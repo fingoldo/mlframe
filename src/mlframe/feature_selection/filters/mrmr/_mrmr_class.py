@@ -29,7 +29,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 # downstream callers continue to resolve historical names.
 # Pure-data constants carved out of this module (no class refs -> safe top-level import):
 # the constructor-param validation allow-lists and the legacy-pickle default-injection roster.
-from ._mrmr_param_constants import (  # noqa: E402,F401
+from ._mrmr_param_constants import (
     _VALID_QUANTIZATION_METHODS,
     _VALID_NAN_STRATEGIES,
     _VALID_MRMR_RELEVANCE_ALGOS,
@@ -48,9 +48,9 @@ from ._mrmr_param_constants import (  # noqa: E402,F401
     _VALID_RFECV_SELECTION_RULES,
     _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS,
 )
-from ._mrmr_setstate_defaults import build_setstate_defaults  # noqa: E402
+from ._mrmr_setstate_defaults import build_setstate_defaults
 
-from .._mrmr_fingerprints import (  # noqa: E402,F401
+from .._mrmr_fingerprints import (
     _astropy_histogram,
     histogram,
     _canonicalise_dtype_str,
@@ -75,31 +75,31 @@ from .._mrmr_fingerprints import (  # noqa: E402,F401
 # Bulk of the in-package imports that the ``MRMR`` class body relies on. The
 # sibling fingerprint module also imports them so it can stand alone; Python
 # caches module imports so the duplication has zero runtime cost.
-from numpy.polynomial.hermite import hermval  # noqa: F401
-from scipy import special as sp  # noqa: F401
-from scipy.stats import mode  # noqa: F401
+from numpy.polynomial.hermite import hermval
+from scipy import special as sp
+from scipy.stats import mode
 
-from catboost import CatBoostClassifier  # noqa: F401
+from catboost import CatBoostClassifier
 
-from pyutilz.numbalib import (  # noqa: F401
+from pyutilz.numbalib import (
     generate_combinations_recursive_njit,
     python_dict_2_numba_dict,
     set_numba_random_seed,
 )
-from pyutilz.parallel import mem_map_array, parallel_run, split_list_into_chunks  # noqa: F401
-from pyutilz.pythonlib import (  # noqa: F401
+from pyutilz.parallel import mem_map_array, parallel_run, split_list_into_chunks
+from pyutilz.pythonlib import (
     get_parent_func_args,
     sort_dict_by_value,
     store_params_in_object,
 )
-from pyutilz.system import tqdmu  # noqa: F401
+from pyutilz.system import tqdmu
 
-from mlframe.core.arrays import arrayMinMax  # noqa: F401
-from mlframe.feature_selection.wrappers import RFECV  # noqa: F401
-from mlframe.metrics.core import compute_probabilistic_multiclass_error  # noqa: F401
-from mlframe.utils.misc import set_random_seed, hygienic_fit  # noqa: F401
+from mlframe.core.arrays import arrayMinMax
+from mlframe.feature_selection.wrappers import RFECV
+from mlframe.metrics.core import compute_probabilistic_multiclass_error
+from mlframe.utils.misc import set_random_seed, hygienic_fit
 
-from .._internals import (  # noqa: F401
+from .._internals import (
     ENSURE_ARROW_DF_SUPPORT,
     GPU_MAX_BLOCK_SIZE,
     LARGE_CONST,
@@ -109,12 +109,12 @@ from .._internals import (  # noqa: F401
     NMAX_NONPARALLEL_ITERS,
     sanitize,
 )
-from .._numba_utils import arr2str, count_cand_nbins, unpack_and_sort  # noqa: F401
-from ..discretization import (  # noqa: F401
+from .._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
+from ..discretization import (
     categorize_dataset,
     discretize_array,
 )
-from ..feature_engineering import (  # noqa: F401
+from ..feature_engineering import (
     UNIFIED_FE_SUBSAMPLE_N,
     check_prospective_fe_pairs,
     compute_pairs_mis,
@@ -123,16 +123,16 @@ from ..feature_engineering import (  # noqa: F401
     get_existing_feature_name,
     get_new_feature_name,
 )
-from ..gpu import init_kernels, mi_direct_gpu  # noqa: F401
-from ..info_theory import (  # noqa: F401
+from ..gpu import init_kernels, mi_direct_gpu
+from ..info_theory import (
     compute_mi_from_classes,
     conditional_mi,
     entropy,
     merge_vars,
     mi,
 )
-from ..permutation import distribute_permutations, mi_direct, parallel_mi  # noqa: F401
-from ..evaluation import (  # noqa: F401
+from ..permutation import distribute_permutations, mi_direct, parallel_mi
+from ..evaluation import (
     evaluate_candidate,
     evaluate_candidates,
     evaluate_gain,
@@ -141,12 +141,12 @@ from ..evaluation import (  # noqa: F401
     handle_best_candidate,
     should_skip_candidate,
 )
-from ..fleuret import (  # noqa: F401
+from ..fleuret import (
     get_fleuret_criteria_confidence,
     get_fleuret_criteria_confidence_parallel,
     parallel_fleuret,
 )
-from ..screen import postprocess_candidates, screen_predictors, _preserve_global_numpy_rng_state  # noqa: F401
+from ..screen import postprocess_candidates, screen_predictors, _preserve_global_numpy_rng_state
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -183,9 +183,9 @@ def _mrmr_y_columns(y):
         yield f"y{k}", arr[:, k]
 
 
-from ._mrmr_class_config import _MRMRConfigMixin  # noqa: E402
-from ._mrmr_class_transform import _MRMRTransformMixin  # noqa: E402
-from ._mrmr_class_fit_helpers import _MRMRFitHelpersMixin  # noqa: E402
+from ._mrmr_class_config import _MRMRConfigMixin
+from ._mrmr_class_transform import _MRMRTransformMixin
+from ._mrmr_class_fit_helpers import _MRMRFitHelpersMixin
 
 # TransformerMixin (not SelectorMixin): MRMR's transform can add engineered features (_engineered_features_, FE pair-composites),
 # so it is not a pure mask-based selector and SelectorMixin's mask-only contract would be wrong here.
@@ -252,7 +252,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
     # do not leak; ``MRMR._FIT_CACHE.clear()`` between suites still drains the lot. Cache hit: replay all
     # fitted attributes onto ``self`` and return early; constructor params are NEVER overwritten (the key
     # already includes the params signature, so a hit guarantees matching state).
-    _FIT_CACHE: "OrderedDict[tuple, MRMR]" = OrderedDict()
+    _FIT_CACHE: "OrderedDict[tuple, MRMR]" = OrderedDict()  # noqa: RUF012 -- intentional shared class-level LRU cache, not a per-instance mutable-default bug
 
     # Fast-search sub-knob overrides applied for the duration of a fit when ``fe_fast_search=True``.
     # Each entry is (attr, fast_value). The override is applied ONLY when the current attr value still
@@ -347,9 +347,10 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # C9 UAED universal elbow detector (Llorente 2023). Auto-pick subset
         # size from the CMI-gain curve when ``n_features=None``.
         uaed_auto_size: bool = False,
-        # D10 Conditional Permutation Test (Berrett 2020). Permutes X CONDITIONAL
-        # on Z preserving X|Z; valid p-values under arbitrary confounding.
-        # TODO: toggle is stored and threaded through config levers but the permutation-test body itself is not yet implemented anywhere in the codebase.
+        # D10 Conditional Permutation Test (Berrett, Wang, Barber, Samworth 2020). Permutes the candidate WITHIN each
+        # already-selected-feature stratum (preserving X | selected), giving valid p-values under arbitrary confounding
+        # by the selected set. Complements cmi_perm_stop above: dropped candidate iff p >= 0.05. See evaluation.py's
+        # per-candidate scoring gate for the implementation (``_conditional_permutation.conditional_permutation_test``).
         cpt_test: bool = False,
         cpt_n_permutations: int = 200,
         # E11 Cluster Stability Selection (Faletto-Bien 2022). Opt-in via
@@ -3327,9 +3328,9 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         # crashing _fit_impl can't leak SU mode into subsequent fits.
         from ..info_theory import (
             set_su_normalization, set_jmim_aggregator, set_bur_lambda, set_mi_miller_madow,
-            set_relaxmrmr_alpha, set_pid_synergy_bonus, set_cmi_perm_stop,
+            set_relaxmrmr_alpha, set_pid_synergy_bonus, set_cmi_perm_stop, set_cpt_test,
             use_su_normalization, use_jmim_aggregator, get_bur_lambda, use_mi_miller_madow,
-            get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop,
+            get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop, get_cpt_test,
         )
         # Snapshot the MI thread-locals at fit ENTRY so the ``finally`` can restore the caller's values
         # instead of hardcoded literals: a nested / outer MRMR fit (the worker path already does this in
@@ -3337,7 +3338,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
         _toggles_snapshot = (
             use_su_normalization(), use_jmim_aggregator(), get_bur_lambda(),
             use_mi_miller_madow(), get_relaxmrmr_alpha(), get_pid_synergy_bonus(),
-            get_cmi_perm_stop(),
+            get_cmi_perm_stop(), get_cpt_test(),
         )
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):
@@ -3415,6 +3416,10 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             bool(getattr(self, "cmi_perm_stop", False)),
             float(getattr(self, "cmi_perm_alpha", 0.05)),
             int(getattr(self, "cmi_perm_n_permutations", 100)),
+        )
+        set_cpt_test(
+            bool(getattr(self, "cpt_test", False)),
+            int(getattr(self, "cpt_n_permutations", 200)),
         )
         # activate DCD thread-local. The DCDState dataclass
         # is constructed inside ``_screen_predictors`` (passed via dcd_config
@@ -3575,7 +3580,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
             # Restore the MI thread-locals to the values they held at fit ENTRY (snapshot above), not to
             # hardcoded literals: an inner fit must leave an outer fit's toggles intact. Mirrors the
             # _prev_* restore in _evaluation_driver.py's worker path.
-            _su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0 = _toggles_snapshot
+            _su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0 = _toggles_snapshot
             try:
                 set_su_normalization(_su0)
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
@@ -3605,6 +3610,7 @@ class MRMR(BaseEstimator, TransformerMixin, _MRMRConfigMixin, _MRMRTransformMixi
                 set_relaxmrmr_alpha(_relax0)
                 set_pid_synergy_bonus(_pid0)
                 set_cmi_perm_stop(_cmi0[0], _cmi0[1], _cmi0[2])
+                set_cpt_test(_cpt0[0], _cpt0[1])
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                 logger.debug("suppressed in _mrmr_class.py:3597: %s", e)
                 pass

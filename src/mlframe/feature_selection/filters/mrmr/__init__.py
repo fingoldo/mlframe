@@ -49,7 +49,7 @@ from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
 # Top-level helpers (histogram + fingerprint/hash + replay + chunker) live in
 # ``_mrmr_fingerprints.py``; re-imported here so downstream callers continue to
 # resolve the historical ``mrmr.<name>`` namespace.
-from .._mrmr_fingerprints import (  # noqa: E402,F401
+from .._mrmr_fingerprints import (
     _astropy_histogram,
     histogram,
     _canonicalise_dtype_str,
@@ -71,31 +71,31 @@ from .._mrmr_fingerprints import (  # noqa: E402,F401
     _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS,
 )
 
-from numpy.polynomial.hermite import hermval  # noqa: F401
-from scipy import special as sp  # noqa: F401
-from scipy.stats import mode  # noqa: F401
+from numpy.polynomial.hermite import hermval
+from scipy import special as sp
+from scipy.stats import mode
 
-from catboost import CatBoostClassifier  # noqa: F401
+from catboost import CatBoostClassifier
 
-from pyutilz.numbalib import (  # noqa: F401
+from pyutilz.numbalib import (
     generate_combinations_recursive_njit,
     python_dict_2_numba_dict,
     set_numba_random_seed,
 )
-from pyutilz.parallel import mem_map_array, parallel_run, split_list_into_chunks  # noqa: F401
-from pyutilz.pythonlib import (  # noqa: F401
+from pyutilz.parallel import mem_map_array, parallel_run, split_list_into_chunks
+from pyutilz.pythonlib import (
     get_parent_func_args,
     sort_dict_by_value,
     store_params_in_object,
 )
-from pyutilz.system import tqdmu  # noqa: F401
+from pyutilz.system import tqdmu
 
-from mlframe.core.arrays import arrayMinMax  # noqa: F401
-from mlframe.feature_selection.wrappers import RFECV  # noqa: F401
-from mlframe.metrics.core import compute_probabilistic_multiclass_error  # noqa: F401
-from mlframe.utils.misc import set_random_seed  # noqa: F401
+from mlframe.core.arrays import arrayMinMax
+from mlframe.feature_selection.wrappers import RFECV
+from mlframe.metrics.core import compute_probabilistic_multiclass_error
+from mlframe.utils.misc import set_random_seed
 
-from .._internals import (  # noqa: F401
+from .._internals import (
     ENSURE_ARROW_DF_SUPPORT,
     GPU_MAX_BLOCK_SIZE,
     LARGE_CONST,
@@ -105,12 +105,12 @@ from .._internals import (  # noqa: F401
     NMAX_NONPARALLEL_ITERS,
     sanitize,
 )
-from .._numba_utils import arr2str, count_cand_nbins, unpack_and_sort  # noqa: F401
-from ..discretization import (  # noqa: F401
+from .._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
+from ..discretization import (
     categorize_dataset,
     discretize_array,
 )
-from ..feature_engineering import (  # noqa: F401
+from ..feature_engineering import (
     UNIFIED_FE_SUBSAMPLE_N,
     check_prospective_fe_pairs,
     compute_pairs_mis,
@@ -119,16 +119,16 @@ from ..feature_engineering import (  # noqa: F401
     get_existing_feature_name,
     get_new_feature_name,
 )
-from ..gpu import init_kernels, mi_direct_gpu  # noqa: F401
-from ..info_theory import (  # noqa: F401
+from ..gpu import init_kernels, mi_direct_gpu
+from ..info_theory import (
     compute_mi_from_classes,
     conditional_mi,
     entropy,
     merge_vars,
     mi,
 )
-from ..permutation import distribute_permutations, mi_direct, parallel_mi  # noqa: F401
-from ..evaluation import (  # noqa: F401
+from ..permutation import distribute_permutations, mi_direct, parallel_mi
+from ..evaluation import (
     evaluate_candidate,
     evaluate_candidates,
     evaluate_gain,
@@ -137,16 +137,16 @@ from ..evaluation import (  # noqa: F401
     handle_best_candidate,
     should_skip_candidate,
 )
-from ..fleuret import (  # noqa: F401
+from ..fleuret import (
     get_fleuret_criteria_confidence,
     get_fleuret_criteria_confidence_parallel,
     parallel_fleuret,
 )
-from ..screen import postprocess_candidates, screen_predictors  # noqa: F401
+from ..screen import postprocess_candidates, screen_predictors
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
-from ._mrmr_class import MRMR  # noqa: E402
+from ._mrmr_class import MRMR
 
 # Pickle resolves a class via ``__module__`` + ``__qualname__``. The class object now lives in ``._mrmr_class``;
 # stamp the package facade path here so the private submodule never leaks into a pickle. ``filters/__init__.py``
@@ -157,19 +157,19 @@ MRMR.__module__ = "mlframe.feature_selection.filters.mrmr"
 
 # Bind the carved-out methods onto the class, preserving the original order. Each ``_*_func`` lives in a sibling
 # module as a module-level function taking ``self`` first; the binding makes ``self.<method>(...)`` resolve to it.
-from .._mrmr_fit_impl import _fit_impl as _fit_impl_func  # noqa: E402
+from .._mrmr_fit_impl import _fit_impl as _fit_impl_func
 MRMR._fit_impl = _fit_impl_func
 
-from .._mrmr_fe_step import _run_fe_step as _run_fe_step_func  # noqa: E402
+from .._mrmr_fe_step import _run_fe_step as _run_fe_step_func
 MRMR._run_fe_step = _run_fe_step_func
 
 # Gate-A SIS front-screen application (I/O + column subsetting around the standalone ``sis_screen`` kernel),
 # carved verbatim out of the class body into a filters-level sibling. ``self._apply_sis_screen(X, y)`` call site
 # in ``fit`` is unchanged; selection is byte-for-byte identical.
-from .._mrmr_sis_apply import _apply_sis_screen as _apply_sis_screen_func  # noqa: E402
+from .._mrmr_sis_apply import _apply_sis_screen as _apply_sis_screen_func
 MRMR._apply_sis_screen = _apply_sis_screen_func
 
-from .._mrmr_validate_transform import (  # noqa: E402
+from .._mrmr_validate_transform import (
     _validate_string_params as _validate_string_params_func,
     _validate_inputs as _validate_inputs_func,
     transform as _transform_func,
@@ -182,36 +182,36 @@ MRMR._validate_inputs = _validate_inputs_func
 # ``set_output(transform='pandas')`` for direct ndarray-input calls.
 MRMR._append_engineered = _append_engineered_func
 
-from .._mrmr_partial_fit import partial_fit as _partial_fit_func  # noqa: E402
+from .._mrmr_partial_fit import partial_fit as _partial_fit_func
 MRMR.partial_fit = _partial_fit_func
 
-from .._mrmr_fe_provenance import get_fe_report as _get_fe_report_func  # noqa: E402
+from .._mrmr_fe_provenance import get_fe_report as _get_fe_report_func
 MRMR.get_fe_report = _get_fe_report_func
 
 # W2 provenance self-audit accessor: surviving engineered recipe.kinds that
 # resolved to ``engineered_unknown`` (deliberate ``factorize`` on a clean fit;
 # anything else is an unregistered FE family).
-from .._mrmr_fe_provenance import get_unlabeled_recipe_kinds as _get_unlabeled_recipe_kinds_func  # noqa: E402
+from .._mrmr_fe_provenance import get_unlabeled_recipe_kinds as _get_unlabeled_recipe_kinds_func
 MRMR.get_unlabeled_recipe_kinds = _get_unlabeled_recipe_kinds_func
 
 # Per-gate FE rejection ledger accessor (the rejection side of get_fe_report).
-from .._fe_rejection_ledger import get_fe_rejection_report as _get_fe_rejection_report_func  # noqa: E402
+from .._fe_rejection_ledger import get_fe_rejection_report as _get_fe_rejection_report_func
 MRMR.get_fe_rejection_report = _get_fe_rejection_report_func
 
 # One-call SELECTION-STABILITY / CONFIDENCE report (W3): per-feature selection-frequency +
 # per-recipe survival-frequency, computed by REPLAY of the cheap MI screen on K bootstrap
 # resamples of the stored binned screening matrix -- no MRMR refit (the #15 replay-not-refit trick).
-from .._mrmr_stability_report import selection_stability_report as _selection_stability_report_func  # noqa: E402
+from .._mrmr_stability_report import selection_stability_report as _selection_stability_report_func
 MRMR.selection_stability_report = _selection_stability_report_func
 
 # One-call human-readable explanation: assembles fe_provenance_ (survivors) + fe_rejection_ledger_
 # (binding gate) + _fe_recommended_flags_ (Layer-99 chosen flags) into a one-screen narrative.
-from .._mrmr_explain import explain_selection as _explain_selection_func  # noqa: E402
+from .._mrmr_explain import explain_selection as _explain_selection_func
 MRMR.explain_selection = _explain_selection_func
 
 # Semi-supervised fit helper -- importable from the ``mrmr`` namespace so callers can
 # ``from mlframe.feature_selection.filters.mrmr import fit_with_unlabeled`` without reaching into the sibling path.
-from .._semi_supervised_fe import fit_with_unlabeled  # noqa: E402,F401
+from .._semi_supervised_fe import fit_with_unlabeled
 
 __all__ = [
     "MRMR",

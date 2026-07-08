@@ -25,10 +25,12 @@ _SU_STATE = _threading.local()
 
 
 def use_su_normalization() -> bool:
+    """True when the calling thread has SU (symmetric-uncertainty) normalization active for relevance/redundancy MI scoring."""
     return bool(getattr(_SU_STATE, "active", False))
 
 
 def set_su_normalization(active: bool) -> None:
+    """Flip SU normalization on/off for the calling thread; set by ``MRMR.fit`` when ``mi_normalization='su'``."""
     _SU_STATE.active = bool(active)
 
 
@@ -41,10 +43,13 @@ _BUR_STATE = _threading.local()
 
 
 def use_jmim_aggregator() -> bool:
+    """True when the calling thread has JMIM (joint mutual information maximisation) redundancy aggregation active,
+    replacing the default min/mean-based Fleuret aggregator with the joint-MI-based one."""
     return bool(getattr(_JMIM_STATE, "active", False))
 
 
 def set_jmim_aggregator(active: bool) -> None:
+    """Flip JMIM redundancy aggregation on/off for the calling thread; set by ``MRMR.fit`` when ``redundancy_aggregator='jmim'``."""
     _JMIM_STATE.active = bool(active)
 
 
@@ -54,6 +59,7 @@ def get_bur_lambda() -> float:
 
 
 def set_bur_lambda(weight: float) -> None:
+    """Set the calling thread's BUR (balanced uncertainty/redundancy) blending weight; 0.0 disables the term, set by ``MRMR.fit`` when ``bur_lambda > 0``."""
     _BUR_STATE.weight = float(weight)
 
 
@@ -64,10 +70,12 @@ _MM_STATE = _threading.local()
 
 
 def use_mi_miller_madow() -> bool:
+    """True when the calling thread has Miller-Madow small-sample bias correction active for relevance MI (skipped whenever SU is active, see the module comment above)."""
     return bool(getattr(_MM_STATE, "active", False))
 
 
 def set_mi_miller_madow(active: bool) -> None:
+    """Flip Miller-Madow bias-corrected MI on/off for the calling thread; set by ``MRMR.fit`` when ``mi_correction='miller_madow'``."""
     _MM_STATE.active = bool(active)
 
 
@@ -79,6 +87,7 @@ _GROUP_MI_STATE = _threading.local()
 
 
 def use_group_mi() -> bool:
+    """True when the calling thread has a group-MI payload published (i.e. group-aware relevance scoring is active); False = legacy global-MI relevance."""
     return getattr(_GROUP_MI_STATE, "payload", None) is not None
 
 
@@ -88,14 +97,17 @@ def get_group_mi():
 
 
 def set_group_mi(payload) -> None:
+    """Publish (or clear, with ``None``) the calling thread's group-MI payload; set by ``MRMR.fit``/``evaluate_candidates`` when ``group_aware_mi=True``."""
     _GROUP_MI_STATE.payload = payload
 
 
-# Research-knob thread-locals (RelaxMRMR 3-D redundancy, PID synergy bonus, CMI permutation early-stop). All default OFF so the legacy Fleuret score is byte-identical;
+# Research-knob thread-locals (RelaxMRMR 3-D redundancy, PID synergy bonus, CMI permutation early-stop,
+# D10 conditional permutation test). All default OFF so the legacy Fleuret score is byte-identical;
 # set by MRMR.fit from the matching constructor knobs, read in evaluation.py at the per-candidate scoring site, forwarded to joblib workers like the SU/JMIM/BUR toggles.
 _RELAXMRMR_STATE = _threading.local()
 _PID_STATE = _threading.local()
 _CMI_PERM_STATE = _threading.local()
+_CPT_STATE = _threading.local()
 
 
 def get_relaxmrmr_alpha() -> float:
@@ -104,6 +116,7 @@ def get_relaxmrmr_alpha() -> float:
 
 
 def set_relaxmrmr_alpha(alpha: float) -> None:
+    """Set the calling thread's RelaxMRMR 3-D-redundancy weight; 0.0 restores the classic Fleuret score."""
     _RELAXMRMR_STATE.alpha = float(alpha)
 
 
@@ -113,6 +126,7 @@ def get_pid_synergy_bonus() -> float:
 
 
 def set_pid_synergy_bonus(bonus: float) -> None:
+    """Set the calling thread's PID (partial-information-decomposition) synergy bonus weight; 0.0 adds no synergy term to the score."""
     _PID_STATE.bonus = float(bonus)
 
 
@@ -123,9 +137,28 @@ def get_cmi_perm_stop() -> tuple:
 
 
 def set_cmi_perm_stop(active: bool, alpha: float = 0.05, n_permutations: int = 100) -> None:
+    """Configure the calling thread's CMI permutation early-stop: ``active`` toggles it; ``alpha`` is the significance
+    threshold and ``n_permutations`` the permutation-null sample count used to decide whether a candidate's conditional MI
+    is distinguishable from chance before spending the full permutation budget."""
     _CMI_PERM_STATE.active = bool(active)
     _CMI_PERM_STATE.alpha = float(alpha)
     _CMI_PERM_STATE.n_permutations = int(n_permutations)
+
+
+def get_cpt_test() -> tuple:
+    """D10 conditional permutation test config (Berrett et al. 2020): ``(active, n_permutations)``; active=False = off."""
+    st = _CPT_STATE
+    return bool(getattr(st, "active", False)), int(getattr(st, "n_permutations", 200))
+
+
+def set_cpt_test(active: bool, n_permutations: int = 200) -> None:
+    """Configure the calling thread's D10 conditional permutation test: ``active`` toggles it; ``n_permutations`` is the
+    within-stratum permutation-null sample count. Unlike ``cmi_perm_stop`` (which permutes the candidate's UNCONDITIONAL
+    marginal), CPT permutes the candidate WITHIN each already-selected-feature stratum, giving valid p-values under
+    arbitrary confounding by the selected set -- the principled fix for Besag-Clifford-style early-stops inflating
+    Type-I error when the candidate is correlated with already-selected features."""
+    _CPT_STATE.active = bool(active)
+    _CPT_STATE.n_permutations = int(n_permutations)
 
 
 def mi_or_su(factors_data, x, y, factors_nbins, verbose=False, dtype=np.int32) -> float:

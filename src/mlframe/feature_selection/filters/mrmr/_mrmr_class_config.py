@@ -138,6 +138,7 @@ class _MRMRConfigMixin:
             _defaults = {}
 
         def _override(attr, fast_value):
+            """Set ``attr`` to ``fast_value`` unless the caller already customized it away from the package default."""
             cur = getattr(self, attr, None)
             # Only override when the user left it at the package default (or the attr is absent).
             if attr in _defaults and cur != _defaults[attr]:

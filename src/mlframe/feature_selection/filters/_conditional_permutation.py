@@ -59,6 +59,7 @@ def conditional_permutation_test(
     z = np.asarray(z).astype(np.int64).ravel()
     if statistic_fn is None:
         def _default_stat(_x, _y, _z):
+            """Plug-in conditional MI estimator used when the caller doesn't supply a custom statistic."""
             return float(_cmi_plugin_njit(_x, _y, _z, int(nbins_x), int(nbins_y), int(nbins_z)))
 
         statistic_fn = _default_stat

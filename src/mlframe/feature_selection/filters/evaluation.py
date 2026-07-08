@@ -31,7 +31,7 @@ from .info_theory import (
     use_jmim_aggregator, get_bur_lambda,
     # 2026-05-30 Wave 9.1 iter 5: setters for re-publishing the toggles into
     # joblib worker threads.
-    get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop,
+    get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop, get_cpt_test,
 )
 from .permutation import mi_direct
 from .info_theory._state_and_dispatch import get_group_mi
@@ -117,6 +117,7 @@ def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbin
 
 
 def get_candidate_name(candidate_indices: Sequence, factors_names: Sequence[str]) -> str:
+    """Render a candidate (single index or k-way interaction tuple) as a human-readable ``"-"``-joined name for logging, resolving each factor index against ``factors_names``."""
     cand_name = "-".join([factors_names[el] for el in candidate_indices])
     return cand_name
 
@@ -202,6 +203,7 @@ def handle_best_candidate(
     start_time: float | None = None,
     min_relevance_gain: float | None = None,
 ):
+    """Update the running best-candidate/best-gain tracker for the current MRMR search iteration, logging progress when verbose, and signal whether the ``max_runtime_mins`` budget has been exceeded (early-stop check). Returns ``(best_gain, best_candidate, run_out_of_time)``."""
     # Save best known candidate, to enable early stopping.
     run_out_of_time = False
 
@@ -485,6 +487,7 @@ def evaluate_candidate(
     ndigits: int = 5,
     use_simple_mode: bool = True,
 ) -> Tuple[float, set]:
+    """Score one MRMR candidate (relevance minus redundancy against already-selected vars, optionally confidence-gated by a permutation baseline) and update the ``expected_gains``/``partial_gains``/``failed_candidates`` bookkeeping in place; this is the per-candidate body invoked in the main selection loop's inner scan over ``combs``."""
     sink_reasons: set = set()
 
     # Is this candidate any good for target 1-vs-1?
@@ -835,6 +838,44 @@ def evaluate_candidate(
         except Exception as _cmi_exc:
             logger.warning("CMI permutation early-stop failed silently: %r", _cmi_exc)
 
+    # D10 Conditional Permutation Test (Berrett, Wang, Barber, Samworth 2020). Default off -> skipped (byte-identical).
+    # Complements cmi_perm_stop: uses the dedicated ``conditional_permutation_test`` primitive (within-selected-stratum
+    # permutation of the candidate, preserving X | selected), giving a valid p-value for H_0: candidate independent of
+    # Y given the already-selected set under ARBITRARY confounding by that set. A candidate whose observed conditional
+    # MI is not distinguishable from its conditional-permutation null (p >= 0.05) is dropped (gain forced to 0.0).
+    _cpt_active, _cpt_nperm = get_cpt_test()
+    if _cpt_active and selected_vars and current_gain > 0.0:
+        try:
+            from ._conditional_permutation import conditional_permutation_test
+            x_col, k_x = _materialize_var(factors_data, X, factors_nbins, dtype=dtype)
+            y_col, k_y = _materialize_var(factors_data, y, factors_nbins, dtype=dtype)
+            n = x_col.shape[0]
+            k_z = 1
+            z_comp = np.zeros(n, dtype=np.int64)
+            for _z in selected_vars:
+                _zc, _zk = _materialize_var(factors_data, _z, factors_nbins, dtype=dtype)
+                z_comp = z_comp * int(_zk) + _zc.astype(np.int64)
+                k_z = k_z * int(_zk)
+                if k_z > 1_000_000:
+                    # Same overflow guard as cmi_permutation_stop: coarsen via modulo rather than let
+                    # distinct conditioning states silently collide without any signal to the caller.
+                    logger.warning("CPT test: conditioning cardinality K_z exceeded 1_000_000; truncating z_comp via modulo.")
+                    z_comp = z_comp % 1_000_000
+                    k_z = 1_000_000
+                    break
+            _obs, _pval = conditional_permutation_test(
+                x_col, y_col, z_comp, nbins_x=int(k_x), nbins_y=int(k_y), nbins_z=int(k_z),
+                n_permutations=_cpt_nperm, seed=int(cand_idx),
+            )
+            if _pval >= 0.05:
+                current_gain = 0.0
+                if cand_idx in partial_gains:
+                    _g, _k = partial_gains[cand_idx]
+                    partial_gains[cand_idx] = (0.0, _k)
+                expected_gains[cand_idx] = 0.0
+        except Exception as _cpt_exc:
+            logger.warning("D10 conditional permutation test failed silently: %r", _cpt_exc)
+
     return current_gain, sink_reasons
 
 
@@ -842,6 +883,7 @@ def find_best_partial_gain(
     partial_gains: dict, failed_candidates: set, added_candidates: set, candidates: list, selected_vars: list, skip_indices: tuple = (),
     dcd_state=None,
 ) -> Tuple[float, Any]:
+    """Find the highest-scoring already-evaluated-but-not-yet-confirmed candidate in ``partial_gains`` (used to redirect the confirmation loop to the next-best option when the current top candidate fails confirmation), excluding failed/added/skip_indices candidates and any candidate DCD has since pruned."""
     # 2026-06-02 Wave 9 fix: a DCD-pruned candidate must NOT be returned as a
     # redirect target. ``partial_gains`` persists across the confirmation
     # ``while`` retries within one interactions-order; when DCD prunes a
@@ -893,7 +935,7 @@ def find_best_partial_gain(
 # top-level ``from .evaluation import evaluate_candidate, handle_best_candidate, _JMIM_CACHE_STATS``
 # resolves against the already-executed parent body (no circular-import hazard), and the public
 # API of ``mlframe.feature_selection.filters.evaluation`` stays byte-for-byte unchanged.
-from ._evaluation_driver import (  # noqa: E402,F401
+from ._evaluation_driver import (
     _gpu_cmi_prefill_enabled,
     _prefill_cond_MIs_gpu,
     evaluate_candidates,

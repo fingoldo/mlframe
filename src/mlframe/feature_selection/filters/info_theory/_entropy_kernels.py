@@ -193,7 +193,7 @@ def mi(
     )
     entropy_x = entropy(freqs=freqs_x)
     if verbose:
-        print(f"entropy_x={entropy_x}, nclasses_x={len(freqs_x)} ({classes_x.min()} to {classes_x.max()})")  # noqa: T201 -- inside @njit nopython mode, logging isn't supported here
+        print(f"entropy_x={entropy_x}, nclasses_x={len(freqs_x)} ({classes_x.min()} to {classes_x.max()})")
 
     _, freqs_y, _ = merge_vars(
         factors_data=factors_data, vars_indices=y, var_is_nominal=None,
@@ -201,7 +201,7 @@ def mi(
     )
     entropy_y = entropy(freqs=freqs_y)
     if verbose:
-        print(f"entropy_y={entropy_y}, nclasses_y={len(freqs_y)}")  # noqa: T201 -- inside @njit nopython mode, logging isn't supported here
+        print(f"entropy_y={entropy_y}, nclasses_y={len(freqs_y)}")
 
     vars_xy = np.unique(np.concatenate((x, y)))
 
@@ -211,7 +211,7 @@ def mi(
     )
     entropy_xy = entropy(freqs=freqs_xy)
     if verbose:
-        print(f"entropy_xy={entropy_xy}, nclasses_x={len(freqs_xy)} ({classes_xy.min()} to {classes_xy.max()})")  # noqa: T201 -- inside @njit nopython mode, logging isn't supported here
+        print(f"entropy_xy={entropy_xy}, nclasses_x={len(freqs_xy)} ({classes_xy.min()} to {classes_xy.max()})")
 
     return float(entropy_x + entropy_y - entropy_xy)
 
