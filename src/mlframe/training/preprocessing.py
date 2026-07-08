@@ -218,28 +218,39 @@ def _frame_contains_inf(df) -> bool:
 
 
 def load_and_prepare_dataframe(
-    df: Union[pl.DataFrame, str],
+    df: Union[pl.DataFrame, pd.DataFrame, str],
     config: PreprocessingConfig,
     verbose: int = 1,
-) -> pl.DataFrame:
+) -> Union[pl.DataFrame, pd.DataFrame]:
     """
-    Load and prepare dataframe for training (Polars only).
+    Load and prepare dataframe for training.
 
     Args:
-        df: Polars DataFrame or path to parquet file
+        df: Polars DataFrame, pandas DataFrame, or path to parquet file
         config: Preprocessing configuration
         verbose: Verbosity level
 
     Returns:
-        Polars DataFrame
+        Polars DataFrame (loaded-from-path or already-polars input), or the
+        caller's pandas DataFrame unchanged (see Notes).
 
     Notes:
-        - Only supports Polars (for efficiency)
+        - File loading (path input) and the n_rows/tail/streaming-collect logic below are
+          Polars-only, for efficiency. An already-in-memory pandas DataFrame is passed through
+          AS-IS -- ``train_mlframe_models_suite``'s public ``df`` parameter documents pandas as a
+          supported input, and converting it here would silently double peak RAM on a large frame
+          (frame-type conversions are the caller's responsibility, not this loader's -- see
+          ``preprocess_dataframe``, which already accepts + handles both formats natively).
         - Column dropping happens AFTER features_and_targets_extractor.transform() in core.py
           (columns might be needed by features_and_targets_extractor or created by it)
         - If both n_rows and tail are set, tail is applied AFTER n_rows. So n_rows=1000
           with tail=100 gives the last 100 of the first 1000 rows, not the last 100 of the file.
     """
+    if isinstance(df, pd.DataFrame):
+        # Already in memory, not polars -- nothing to load. n_rows/tail/columns trimming for an
+        # in-memory pandas frame is the caller's job (mirrors preprocess_dataframe's contract).
+        return df
+
     # Load from file if path provided
     _df: pl.DataFrame | pl.LazyFrame | str = df
     if isinstance(_df, str):

@@ -85,6 +85,22 @@ class TestDataLoading:
         assert isinstance(result, pl.DataFrame)
         assert len(result) == 3
 
+    def test_load_from_pandas_passes_through_unconverted(self):
+        """train_mlframe_models_suite's public df parameter documents pandas as a supported input
+        (Union[pl.DataFrame, pd.DataFrame, str]), but load_and_prepare_dataframe previously asserted
+        isinstance(_df, pl.DataFrame) unconditionally at the end -- a pandas DataFrame skipped both
+        the file-loading and LazyFrame-collect branches and hit the bare assert, raising a bare
+        AssertionError (fuzz c0086/c0100, input_type='pandas'). A pandas frame must pass through
+        AS-IS (no forced polars conversion -- avoids doubling peak RAM on a large frame)."""
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        config = PreprocessingConfig()
+
+        result = load_and_prepare_dataframe(df, config, verbose=0)
+
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 3
+        assert list(result.columns) == ["a", "b"]
+
 
 class TestDataCleaning:
     """Test data cleaning functions."""
