@@ -266,7 +266,7 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
                 toks[j] = "__nan__"
             else:
                 toks[j] = canonical_group_token(v)
-        return toks[codes]
+        return np.asarray(toks[codes])
     out = np.empty(len(arr), dtype=object)
     for i, v in enumerate(arr):
         if v is None:
@@ -480,7 +480,7 @@ def apply_target_encoding(
     # dict.get loop. Bit-identical (same key -> same value; the str-keyed lookup
     # and NaN-fill reproduce the dict.get(default) semantics exactly).
     out = pd.Series(cats, copy=False).map(lookup).fillna(global_mean).to_numpy(dtype=np.float64)
-    return out
+    return np.asarray(out)
 
 
 # ---------------------------------------------------------------------------
