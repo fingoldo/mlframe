@@ -25,6 +25,7 @@ class Decoder(nn.Module):
             q_dim=q_dim, kv_dim=latent_dim, qk_out_dim=qk_out_dim, v_out_dim=v_out_dim, heads=heads, widening_factor=cross_attn_widening_factor, dropout=dropout
         )
 
+        self.projection: nn.Module
         if projection_dim is not None:
             self.projection = nn.Linear(q_dim, projection_dim)
         else:
