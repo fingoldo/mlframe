@@ -122,10 +122,11 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
     leg_cache: dict = {}  # (col, basis, degree) -> (n,) cupy float64 leg values
     basis_of_col: dict = {}  # col -> routed basis (host moment route, computed once)
 
-    def _leg(col: str, degree: int, explicit_basis: str = None):
+    def _leg(col: str, degree: int, explicit_basis: str | None = None):
         # Ensure the mean-filled operand is materialised + cached for this col (needed by both routes).
         if ("_x", col) not in basis_of_col:
             basis_of_col[("_x", col)] = _operand_filled(X, col)
+        b: Any
         if explicit_basis is not None:
             # The engineered name already pins the host's chosen basis -> reproduce THAT basis exactly (do NOT
             # re-derive from moments, which can route a column to a different basis than the host generator did).

@@ -93,7 +93,7 @@ def _corr_sq_centered_gpu(cp, v, yc, y_ss: float) -> float:
     v_ss = vv - sv * sv / n
     if v_ss <= 1e-12 * vv or v_ss < 1e-24 or y_ss < 1e-24:
         return 0.0
-    return (vy * vy) / (v_ss * y_ss)
+    return float((vy * vy) / (v_ss * y_ss))
 
 
 def _power_centered_gpu(cp, z, yc, y_ss: float, freq: float) -> float:
