@@ -330,7 +330,7 @@ class OracleScorerSelector:
         }
 
     def __setstate__(self, state: dict) -> None:
-        self.__init__(
+        self.__init__(  # type: ignore[misc]  # standard __setstate__ re-init pattern; mypy's caution about subclass __init__ overrides doesn't apply here
             store_path=state["store_path"],
             min_observations=state["min_observations"],
             scorer_names=state["scorer_names"],
