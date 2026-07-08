@@ -64,7 +64,7 @@ def _select_swap_method_auto(
     cache_key = tuple(member_names)
     cached = cache.get(cache_key)
     if cached is not None:
-        return cached
+        return tuple(cached)
     # Resolve target -- prefer state's target index column.
     y_arr = None
     if state.target_indices is not None and state.target_indices.size > 0 and state.factors_data is not None:
@@ -76,7 +76,7 @@ def _select_swap_method_auto(
         y_arr = np.asarray(target_y, dtype=np.int64).ravel()
     if y_arr is None or y_arr.size != Z.shape[0]:
         # Cannot K-fold without a per-row target -> fall back to pca_pc1.
-        result = ("pca_pc1", {})
+        result: tuple = ("pca_pc1", {})
         cache[cache_key] = result
         return result
 
@@ -101,7 +101,7 @@ def _select_swap_method_auto(
     # consumes the SAME vt[0] / vt[1] / Zc / communalities arrays it would
     # have computed independently; the cache just hands back the precomputed
     # result instead of redoing it.
-    scores = {m: [] for m in _AUTO_METHOD_CANDIDATES}
+    scores: dict[str, list] = {m: [] for m in _AUTO_METHOD_CANDIDATES}
     # Per-fold Z_train cache slot (reset on every new fold). The dict is
     # reused as a sentinel: cleared at the top of each fold so methods
     # within the fold see the same SVD; methods across folds get a fresh
@@ -163,9 +163,9 @@ def _select_swap_method_auto(
     # order (mean_z first). Bit-equivalent to the pre-Layer-50 flow: same
     # MI values, same averaging, same tie-break -- the only change was the
     # loop nesting order to enable per-fold SVD caching.
-    scores = {m: (float(np.mean(v)) if v else 0.0) for m, v in scores.items()}
-    winner = max(_AUTO_METHOD_CANDIDATES, key=lambda m: (scores.get(m, 0.0), -_AUTO_METHOD_CANDIDATES.index(m)))
-    result = (winner, scores)
+    mean_scores = {m: (float(np.mean(v)) if v else 0.0) for m, v in scores.items()}
+    winner = max(_AUTO_METHOD_CANDIDATES, key=lambda m: (mean_scores.get(m, 0.0), -_AUTO_METHOD_CANDIDATES.index(m)))
+    result = (winner, mean_scores)
     cache[cache_key] = result
     return result
 
@@ -483,7 +483,7 @@ def evaluate_swap_candidate(
         try:
             rng = np.random.default_rng(int(getattr(state, "_perm_seed", 0)) + int(anchor))
             # Persist rolling seed so successive swaps don't reuse the same null draws.
-            state._perm_seed = int(getattr(state, "_perm_seed", 0)) + B + 1
+            state._perm_seed = int(getattr(state, "_perm_seed", 0)) + B + 1  # type: ignore[attr-defined]
             target_arr = np.asarray(target, dtype=np.int64)
             n_exceed = 0
             data_with_rep_perm = data_with_rep.copy()
@@ -650,6 +650,7 @@ def commit_swap(
             state.member_to_anchor[int(m)] = member_idx
         # Mark old anchor as pruned (it's now a member); unprune the new
         # anchor (it must be eligible for downstream confirm/select).
+        assert state.pool_pruned_mask is not None, "DCD swap application requires a populated DCDState.pool_pruned_mask"
         if int(anchor) < state.pool_pruned_mask.shape[0]:
             state.pool_pruned_mask[int(anchor)] = True
         if 0 <= member_idx < state.pool_pruned_mask.shape[0]:
@@ -686,6 +687,7 @@ def commit_swap(
     assert state.factors_data is not None, "DCD swap application requires a populated DCDState.factors_data"
     assert decision.binned_rep is not None, "aggregate branch requires the accepted decision to carry its binned representative"
     new_data = np.column_stack([state.factors_data, decision.binned_rep])
+    assert state.cols is not None, "DCD swap application requires a populated DCDState.cols"
     new_cols = list(state.cols) + [str(decision.aggregate_name)]
     new_nbins = np.concatenate([
         np.asarray(state.factors_nbins, dtype=np.int64),
