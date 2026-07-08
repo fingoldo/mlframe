@@ -84,7 +84,9 @@ class GroupBatchSampler(Sampler):
         # ``data_source=None`` falls through to ``object.__init__(data_source=None)``
         # which raises ``TypeError: takes exactly one argument``. Older torch
         # accepted the kwarg as a no-op; the bare call is correct under both.
-        super().__init__()
+        # Older torch's Sampler stub declares data_source as required -- the ignore is only
+        # "needed" against that stub; see the warn_unused_ignores override for this module.
+        super().__init__()  # type: ignore[call-arg]
         self.group_ids = np.asarray(group_ids)
         self.relevance = np.asarray(relevance)
         self.shuffle = shuffle

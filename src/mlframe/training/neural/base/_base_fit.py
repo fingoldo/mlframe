@@ -117,7 +117,7 @@ class _FitMixin(_FitPrepMixin):
             # suppresses noisy rank-zero chatter, so the on-disk log stays
             # essentially identical.)
             try:
-                L.seed_everything(int(self.random_state), workers=True, verbose=False)
+                L.seed_everything(int(self.random_state), workers=True, verbose=False)  # type: ignore[call-arg]
             except TypeError:
                 L.seed_everything(int(self.random_state), workers=True)
 
@@ -661,11 +661,11 @@ class _FitMixin(_FitPrepMixin):
             # Falls back to a SWA-as-EMA shim when WeightAveraging is not
             # in the installed Lightning (added in Lightning ~2.5).
             try:
-                from lightning.pytorch.callbacks import WeightAveraging  # noqa: F401
+                from lightning.pytorch.callbacks import WeightAveraging  # noqa: F401  # type: ignore[attr-defined]
                 _ema_has_native = True
             except ImportError:
                 _ema_has_native = False
-            from torch.optim.swa_utils import get_ema_avg_fn
+            from torch.optim.swa_utils import get_ema_avg_fn  # type: ignore[attr-defined]
             _ema_params = dict(self.ema_params or {})
             # ``decay`` is exposed at the mlframe level for ergonomics;
             # plumb it into get_ema_avg_fn. Default 0.999 mirrors the
@@ -673,7 +673,7 @@ class _FitMixin(_FitPrepMixin):
             _decay = float(_ema_params.pop("decay", 0.999))
             _ema_params.setdefault("avg_fn", get_ema_avg_fn(decay=_decay))
             if _ema_has_native:
-                from lightning.pytorch.callbacks import WeightAveraging
+                from lightning.pytorch.callbacks import WeightAveraging  # type: ignore[attr-defined]
                 callbacks.append(WeightAveraging(**_ema_params))
             else:
                 # SWA-as-EMA fallback: SWA accepts ``avg_fn`` (passes to

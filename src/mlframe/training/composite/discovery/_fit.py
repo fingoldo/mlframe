@@ -732,7 +732,10 @@ def fit(
                 _pa = [a for a in _pa if a.size > 2 and float(a.std()) > 0]
                 if len(_pa) >= 2:
                     _M = np.vstack(_pa)
-                    _C = np.corrcoef(_M)
+                    # np.corrcoef's return type is unioned with float64 (the 1-row degenerate case);
+                    # len(_pa) >= 2 above guarantees a real (>=2, >=2) matrix at runtime, but mypy
+                    # can't see that -- np.asarray narrows the static type back to ndarray.
+                    _C = np.asarray(np.corrcoef(_M))
                     _off = _C[~np.eye(_C.shape[0], dtype=bool)]
                     _off = np.abs(_off[np.isfinite(_off)])
                     if _off.size and float(_off.mean()) > _pool_corr_thresh:

@@ -435,10 +435,10 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         # so no LR-restart phase) when WeightAveraging is unavailable in
         # the installed Lightning (<2.5).
         if getattr(self._cfg, "use_ema", False):
-            from torch.optim.swa_utils import get_ema_avg_fn
+            from torch.optim.swa_utils import get_ema_avg_fn  # type: ignore[attr-defined]
             _ema_decay = getattr(self._cfg, "ema_decay", 0.999)
             try:
-                from lightning.pytorch.callbacks import WeightAveraging
+                from lightning.pytorch.callbacks import WeightAveraging  # type: ignore[attr-defined]
 
                 callbacks.append(WeightAveraging(avg_fn=get_ema_avg_fn(decay=_ema_decay)))
             except ImportError:
