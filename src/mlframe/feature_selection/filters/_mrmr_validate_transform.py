@@ -497,6 +497,26 @@ def _append_engineered(self, base_out, X, recipes):
                 type(_wrap_err).__name__, _wrap_err,
             )
             _X_for_recipes = X
+    else:
+        # Polars input: bridge to a zero-copy (Arrow-backed) pandas VIEW for recipe resolution only
+        # (base_out below stays polars-native; only this local variable changes). Without this, a polars
+        # frame fell into the single-pass "ndarray / polars path" branch below, which cannot resolve a
+        # CHAINED recipe (one whose src_names are another recipe's output, e.g. a fe_max_steps>=2 nested
+        # unary_binary-of-unary_binary) -- it raised RuntimeError on every chained recipe even though the
+        # recipe is perfectly reconstructable via the multi-pass topological replay a couple lines below.
+        # Confirmed live (2026-07): CompositeCrossTargetEnsemble's k-fold OOF refit passes the polars
+        # train_df through this path, so EVERY chained recipe MRMR selected made the refit + CompositeMoE
+        # evaluation fail for the whole target. get_pandas_view_of_polars_df is the project's sanctioned
+        # zero-copy polars->pandas bridge (see CLAUDE.md "polars FE path is ALREADY optimal"); using it
+        # here costs no extra copy and reuses the identical chained-resolution code the pandas branch
+        # already has, instead of duplicating it for polars.
+        try:
+            import polars as _pl
+            if isinstance(X, _pl.DataFrame):
+                from ...training.utils import get_pandas_view_of_polars_df
+                _X_for_recipes = get_pandas_view_of_polars_df(X)
+        except ImportError:
+            pass
     # Recipe replay must support multi-level chaining: a spline / fourier / hybrid
     # extra-basis recipe can carry ``src_names=('x__He2',)`` referencing a sibling
     # ``orth_univariate`` recipe rather than a raw input column. The fit-time pipeline
@@ -636,7 +656,13 @@ def _append_engineered(self, base_out, X, recipes):
     try:
         import polars as _pl
         if isinstance(base_out, _pl.DataFrame):
-            return base_out.with_columns([_pl.Series(r.name, col) for r, col in zip(recipes, engineered_cols)])
+            # Name through the SAME simplified-display-name canonicaliser get_feature_names_out uses (matches
+            # the pandas branch above); a prior version named these columns via the raw r.name, so a polars
+            # transform's output columns disagreed with get_feature_names_out for any recipe whose display
+            # name differs from its raw name.
+            from .engineered_recipes._recipe_name_simplify import simplified_recipe_names
+            _disp_names = simplified_recipe_names(recipes)
+            return base_out.with_columns([_pl.Series(nm, col) for nm, col in zip(_disp_names, engineered_cols)])
     except ImportError:
         pass
 
