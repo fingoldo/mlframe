@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77.0", "wheel"]
+requires = ["setuptools>=78.1.1,<82", "wheel"]  # PYSEC-2025-49 fixed in 78.1.1; torch pins setuptools<82
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -66,6 +66,9 @@ dependencies = [
     "numba>=0.59",  # numpy-2-compatible floor (numba <0.59 is built against the numpy 1.x ABI)
     "psutil>=5.9",
     "matplotlib>=3.7",
+    # Not imported directly; floors matplotlib's own transitive pillow resolution above the
+    # patched version for CVE-2026-25990/40192/42309/42310/42311 (PYSEC-2026-165).
+    "pillow>=12.2.0",
     # The four below are imported UNCONDITIONALLY at module load time across
     # src/mlframe/{feature_engineering/numerical,feature_selection/filters/*}
     # and would otherwise raise ImportError on `import mlframe`. Audited via
@@ -166,6 +169,9 @@ neural = [
     "torch>=2.0",
     "lightning>=2.0",
     "captum>=0.7",
+    # Not imported directly; floors torch's own transitive setuptools resolution above the
+    # patched version for PYSEC-2025-49 (torch itself caps setuptools<82).
+    "setuptools>=78.1.1,<82",
     # Frozen text-embedding path for neural models (HuggingFaceProvider: AutoTokenizer + AutoModel -> pooled vectors).
     "transformers>=4.30",
     # transformers >=5 builds the fast (Rust) tokenizer and converts slow tokenizers via sentencepiece;
@@ -227,11 +233,20 @@ viz = [
     "vegafusion[embed]>=1.5",
     "vl-convert-python>=1.0",
     "ipywidgets>=8.0",
+    # Not imported directly; floors hvplot -> bokeh's transitive tornado resolution above the
+    # patched version for GHSA-pw6j-qg29-8w7f.
+    "tornado>=6.5.7",
 ]
 
 # Experiment tracking.
 mlflow = [
     "mlflow>=2.5",
+    # Not imported directly; float mlflow's own transitive pins above patched versions:
+    # aiohttp (PYSEC-2026-237 + CVE-2026-54273/74/76/77/78/79/80), cryptography (GHSA-537c-gmf6-5ccf),
+    # starlette, pulled via mlflow-skinny (PYSEC-2026-248/249).
+    "aiohttp>=3.14.1",
+    "cryptography>=48.0.1,<49",  # mlflow itself caps cryptography<49
+    "starlette>=1.3.1",
 ]
 
 # Database and storage backends.
