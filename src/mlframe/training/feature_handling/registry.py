@@ -277,6 +277,10 @@ def prewarm(provider: FrozenFeaturizerProvider) -> Future:
                     entry.provider.acquire()
                     entry.is_loaded = True
         except BaseException:
+            # Runs on a background prewarm-executor thread with no other observer; BaseException (not just
+            # Exception) so a KeyboardInterrupt/SystemExit raised inside acquire() still triggers the registry
+            # cleanup below before propagating, instead of leaving the half-broken entry stuck for every later
+            # acquire_provider call. Always re-raises, so nothing is swallowed here.
             # Prewarm failure leaves the entry in a half-broken state:
             # ``refcount=0``, ``is_loaded=False``, but the registry
             # still has a weakref to the provider object whose

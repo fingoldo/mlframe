@@ -674,6 +674,27 @@ def bootstrap_metrics(
         if _nw == 1:
             _use_parallel = False
     if _use_parallel:
+        # metric_fns / metric_fns_idx are user-supplied callables; if any is GPU-bound (torch/cupy), fanning the
+        # resample loop out across threads or processes makes every worker independently contend for the single
+        # physical GPU device instead of parallelising -- same failure mode regardless of which backend the
+        # MLFRAME_BOOTSTRAP_BACKEND env override selects. Force the exact bit-identical serial loop in that case.
+        from mlframe.system._gpu_guard import callable_looks_gpu_bound
+
+        _gpu_bound_metric = any(callable_looks_gpu_bound(fn) for fn in (metric_fns or {}).values()) or any(
+            callable_looks_gpu_bound(fn) for fn in (metric_fns_idx or {}).values()
+        )
+        if _gpu_bound_metric:
+            import warnings
+
+            warnings.warn(
+                "bootstrap_metrics: a supplied metric_fns/metric_fns_idx callable looks GPU-bound "
+                "(torch/cupy reference detected); forcing the serial resample loop instead of parallelising "
+                "(any MLFRAME_BOOTSTRAP_BACKEND override is ignored) to avoid multi-worker GPU contention.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            _use_parallel = False
+    if _use_parallel:
         _seeds = np.random.SeedSequence(random_state).spawn(n_bootstrap)
         _strat_book = (_groups_list, _class_sizes, _class_offsets, _total_n) if stratify is not None else None
         _bounds = [(int(c[0]), int(c[-1]) + 1) for c in np.array_split(np.arange(n_bootstrap), _nw) if len(c)]

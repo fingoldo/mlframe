@@ -50,6 +50,8 @@ from joblib import delayed
 from pyutilz.parallel import cpu_count_physical, parallel_run
 from pyutilz.pythonlib import is_jupyter_notebook
 
+from mlframe.system._gpu_guard import callable_looks_gpu_bound
+
 # Use the parent module's logger name so caplog filters on
 # ``"mlframe.models.ensembling"`` continue to capture our records.
 # The sibling lives at ``mlframe.models.score`` but the public
@@ -428,6 +430,18 @@ def score_ensemble(
                 logger.warning(
                     "ensembling: falling back to sequential -- one of " "custom_ice_metric / custom_rice_metric / kwargs is not picklable: %s",
                     exc,
+                )
+                effective_n_jobs = 1
+
+        if len(ensembling_methods) > 1 and effective_n_jobs > 1:
+            # Each loky worker is a separate process; if custom_ice_metric/custom_rice_metric is GPU-bound
+            # (torch/cupy), every worker independently contends for the single physical GPU device instead of
+            # running in parallel -- process isolation prevents corruption but the run gets slower than serial.
+            if callable_looks_gpu_bound(custom_ice_metric) or callable_looks_gpu_bound(custom_rice_metric):
+                logger.warning(
+                    "ensembling: falling back to sequential -- custom_ice_metric / custom_rice_metric looks "
+                    "GPU-bound (torch/cupy reference detected); process-pool fan-out would contend for the "
+                    "single GPU device across workers instead of parallelising."
                 )
                 effective_n_jobs = 1
 
