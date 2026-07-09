@@ -558,6 +558,10 @@ verbose = 1
 # psycopg2-binary, pymongo, duckdb, hdbscan), and GPU-extras packages declared identically across
 # more than one optional-dependency group (nvidia-cuda-nvcc-cu11/-cu12, gpu-info, cupy-cuda11x)
 # which deptry double-reports once per group.
+# Extended again same day with: transitive-dependency SECURITY FLOORS. Each is pinned solely to
+# raise a vulnerable transitive resolution above its patched version (see the inline PYSEC/CVE/
+# GHSA comment next to each declaration in [project.optional-dependencies]/[build-system] above)
+# -- never imported directly by mlframe itself, by design.
 DEP002 = [
     "catboost", "xgboost", "lightgbm", "torch", "pytorch-lightning", "cupy", "shap", "optuna",
     "tqdm", "portalocker", "sentencepiece", "flaml", "altair", "hvplot", "vegafusion", "vl-convert-python", "ipywidgets",
@@ -567,6 +571,7 @@ DEP002 = [
     "pytest", "pytest-cov", "pytest-xdist", "pytest-timeout", "pytest-benchmark", "pytest-order",
     "pytest-randomly", "pytest-instafail", "pytest-progress", "pytest-split", "coverage", "freezegun",
     "ruff", "black", "mypy", "bandit", "pre-commit", "pip-audit",
+    "pillow", "setuptools", "tornado", "aiohttp", "cryptography", "starlette",
 ]
 
 # DEP001 (import missing from declared deps): genuinely optional third-party libs behind
