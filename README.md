@@ -2,10 +2,12 @@
 
 [![CI](https://github.com/fingoldo/mlframe/workflows/CI/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/ci.yml)
 [![MyPy](https://github.com/fingoldo/mlframe/workflows/MyPy/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/mypy.yml)
-[![MyPy (full)](https://github.com/fingoldo/mlframe/workflows/MyPy%20(full)/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/mypy-full.yml)
+[![MyPy-full](https://github.com/fingoldo/mlframe/actions/workflows/mypy-full.yml/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/mypy-full.yml)
 [![Black](https://github.com/fingoldo/mlframe/workflows/Black/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/black-filtered.yml)
 [![sklearn-matrix](https://github.com/fingoldo/mlframe/workflows/sklearn-matrix/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/sklearn-matrix-ci.yml)
+[![numba coverage](https://github.com/fingoldo/mlframe/actions/workflows/numba-coverage.yml/badge.svg)](https://github.com/fingoldo/mlframe/actions/workflows/numba-coverage.yml)
 [![codecov](https://codecov.io/gh/fingoldo/mlframe/branch/master/graph/badge.svg)](https://codecov.io/gh/fingoldo/mlframe)
+[![codecov-full](https://codecov.io/gh/fingoldo/mlframe/branch/master/graph/badge.svg?flag=numba-disabled)](https://codecov.io/gh/fingoldo/mlframe/flags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-mkdocs-blue.svg)](https://fingoldo.github.io/mlframe/)
 

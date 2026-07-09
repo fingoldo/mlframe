@@ -1,4 +1,4 @@
-name: MyPy (full)
+name: MyPy-full
 
 # Whole-project mypy check, separate from the fast mypy.yml strict-mode beachhead. mypy.yml
 # runs against an isolated uvx sandbox with only numpy/scipy/scikit-learn/pydantic installed

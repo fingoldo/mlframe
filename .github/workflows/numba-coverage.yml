@@ -13,7 +13,12 @@ jobs:
   numba-disabled-coverage:
     name: pytest with NUMBA_DISABLE_JIT=1 (kernel-body coverage)
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # 340 (near the 360min hosted-runner hard ceiling): under NUMBA_DISABLE_JIT=1, kernel-heavy
+    # fixtures (permutation-null loops, discretization, orthogonal-basis FE) run 10-1000x slower
+    # than under normal JIT, since the whole point of the run is to make @njit bodies visible to
+    # coverage.py by NOT compiling them. 120min was consistently insufficient (10 consecutive
+    # nightly failures/cancellations 2026-06-29..2026-07-08 before this fix).
+    timeout-minutes: 340
     strategy:
       fail-fast: false
       matrix:
@@ -50,13 +55,22 @@ jobs:
 
       - name: Run kernel-heavy test suites with NUMBA_DISABLE_JIT=1
         run: |
+          # -n 4 (not auto): xdist workers here each run full MRMR.fit() calls that internally
+          # spawn their own joblib parallelism; `-n auto` (one worker per core) oversubscribed
+          # the runner and crashed a worker mid-run (pytest-xdist INTERNALERROR, 2026-07-08).
+          # --ignore=biz_val: those 50 files are quantitative ML-trick accuracy tests (see
+          # CLAUDE.md's biz_value section), already covered under normal JIT by the main CI
+          # matrix; running them here just burns the nightly's time budget on multi-minute
+          # full-model fits without adding kernel-BODY coverage the non-biz_val unit tests don't
+          # already provide.
           pytest -m "not slow and not gpu and not multigpu" \
-            -n auto \
+            -n 4 \
             --cov=src/mlframe \
             --cov-report=xml \
             --cov-report=term-missing \
             -p no:randomly \
-            --timeout=600 \
+            --timeout=1200 \
+            --ignore=tests/feature_selection/biz_val \
             tests/feature_engineering/ \
             tests/feature_selection/ \
             tests/metrics/ \
