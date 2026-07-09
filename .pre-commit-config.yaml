@@ -152,6 +152,15 @@ repos:
         entry: python -m ruff check --ignore C901
         language: system
         types: [python]
+        # pre-commit passes matching files as explicit CLI args, which BYPASSES ruff's own
+        # top-level `exclude` list in pyproject.toml (explicit paths override `exclude`; only
+        # `force-exclude = true`, which this repo does not set, would apply it to explicit args
+        # too). Mirror that exclude list here at the pre-commit level so tests/scripts/legacy/
+        # benchmarks/profiling stay out of this hook exactly as pyproject.toml intends -- found
+        # 2026-07-09 while verifying the blocking-gate expansion locally (tests/ was silently
+        # never covered, ~4600 findings under the current full select/ignore, wholly unrelated
+        # to this repo's src/mlframe cleanup).
+        exclude: (^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/
         stages: [pre-commit]
 
   # Warn-only style gate: formatting + style lint (E/W/N/UP/I), never blocks.
