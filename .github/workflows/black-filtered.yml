@@ -14,27 +14,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Extracted to fingoldo/py-ci-shared (2026-07-09): identical logic to pyutilz's own Black
+# workflow, script now lives in the shared py_ci_shared package instead of scripts/ here.
 jobs:
   black:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      # uvx runs black from uv's cache with no explicit install step.
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      # Flags any Black finding EXCEPT blank-line insertion and arg/import-list
-      # explosion, which the project deliberately keeps -- see
-      # scripts/black_filtered_apply.py docstring for the excluded-class rationale.
-      - name: Black format check, filtered
-        run: python scripts/black_filtered_apply.py --config pyproject.toml --check src/mlframe
-        env:
-          BLACK_CMD: "uvx black"
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@main
+    with:
+      check-path: src/mlframe

@@ -415,7 +415,7 @@ def plot_per_fold_tiny_rmse(
 
 def plot_per_family_disagreement(
     per_family_scores: dict[str, Sequence[float]],
-    spec_names: Sequence[str],  # TODO: accepted per the docstring's alignment contract but not read; the heatmap axes are labelled by family, not spec
+    spec_names: Sequence[str],
     *,
     title: str = "Per-family rerank rank-correlation",
     figsize: tuple[float, float] = (6, 5),
@@ -429,6 +429,12 @@ def plot_per_family_disagreement(
     disagree on which composite is best -- this heatmap surfaces how
     aligned they are. High off-diagonal correlation = consensus is
     safe; low = "union" or "borda" aggregation matters.
+
+    ``spec_names`` is not used for axis labels (the heatmap is family x family,
+    not spec x spec) but its declared alignment to ``per_family_scores`` IS
+    enforced: a length mismatch means the caller built the two arguments from
+    different spec sets, which would silently corrupt every correlation in the
+    matrix, so it is checked eagerly here instead.
     """
     plt = _lazy_pyplot()
     from scipy.stats import spearmanr
@@ -441,6 +447,8 @@ def plot_per_family_disagreement(
     # Lower CV-RMSE is better -> rank ascending.
     score_matrix = np.array([list(per_family_scores[f]) for f in families], dtype=np.float64)
     n_specs = score_matrix.shape[1]
+    if len(spec_names) != n_specs:
+        raise ValueError(f"spec_names has {len(spec_names)} entries but per_family_scores has {n_specs} scores per family; they must be aligned 1:1.")
     if n_specs < 2:
         fig, ax = plt.subplots(figsize=figsize)
         ax.text(0.5, 0.5, "need >= 2 specs for disagreement plot", ha="center", va="center", transform=ax.transAxes)

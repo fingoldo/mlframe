@@ -432,6 +432,7 @@ def _prewarm_numba_cache_body():
     _skip_heavy = _prewarm_heavy in {"0", "false", "no", "skip"}
     if not _skip_heavy:
         try:
+            import importlib
             import importlib.util as _ilu
             if _ilu.find_spec("lightning") is not None:
                 try:
@@ -439,7 +440,11 @@ def _prewarm_numba_cache_body():
                 except Exception:  # nosec B110 - optional dependency import guard
                     pass
                 try:
-                    import mlframe.lightninglib
+                    # importlib.import_module (not a bound `import` statement): this is a pure
+                    # side-effect warmup, the module's name is never referenced afterward, and a
+                    # bound import of a same-package submodule (unlike the third-party imports
+                    # above) reads as dead code to vulture's unused-import check.
+                    importlib.import_module("mlframe.lightninglib")
                 except Exception:  # nosec B110 - optional dependency import guard
                     pass
             # `pytorch_lightning` is a separate package from `lightning` (legacy alias kept for back-compat); cold import is ~500s on Windows for the currently-pinned version.

@@ -190,117 +190,37 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  lint:
-    name: lint + security
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+  # Blocking gate + advisory bundle, both extracted to fingoldo/py-ci-shared reusable workflows
+  # (2026-07-09) since their logic is identical across mlframe/pyutilz -- see
+  # https://github.com/fingoldo/py-ci-shared and this repo's pyproject.toml `[tool.ruff] extend`.
+  ruff-blocking:
+    name: Ruff (real bugs - blocking)
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@main
+    with:
+      ignore: "C901"
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+  lint-blocking:
+    name: lint + security (blocking, triaged clean)
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@main
+    with:
+      source-path: src/mlframe
+      codespell-paths: src/mlframe
+      vulture-whitelist-path: scripts/vulture_whitelist.py
+      interrogate-source-path: src/mlframe
+      interrogate-fail-under: 100
+      # The original ~37k-finding number (see [tool.deptry] comment) was itself an artifact of
+      # running deptry without the project's real extras installed -- deptry's DEP001/DEP002/
+      # DEP003 rules are meaningless in a bare environment (confirmed 2026-07-09: re-run with
+      # [all,dev] actually installed via `python -m deptry .` surfaced exactly 1 real finding).
+      deptry-install-command: |
+        git clone --depth 1 https://github.com/fingoldo/pyutilz.git
+        uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev]"
 
-      # uvx runs each tool from uv's cache with no explicit install step;
-      # nothing to resolve into an environment.
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      # Blocking gate: the project's FULL configured select/ignore (pyproject.toml), minus C901
-      # (complexity, kept advisory-only -- see the dedicated step below). Closed to 0 findings on
-      # 2026-07-09 after fixing every RUF/G/ISC/PERF finding (previously advisory-only alongside
-      # C90). Mirrors the pre-commit "ruff (real bugs block)" hook exactly (same command) so a
-      # commit that passes locally cannot fail this check and vice versa.
-      #
-      # CRITICAL: do NOT use `--select ...` here or in the pre-commit hook. `--select` REPLACES
-      # the effective rule set rather than narrowing pyproject.toml's configured select, which
-      # silently drops the `ignore` list too (RUF001/002/003/022, ISC001, etc. would all
-      # reappear) and breaks RUF100's "is this noqa still needed" determination (it evaluates
-      # against whatever rule set is active in THIS invocation -- see the CLAUDE.md section on
-      # the 2026-07-09 RUF100 incident). `--ignore` only ADDS to the configured ignore list, so
-      # it is safe to use here.
-      - name: Ruff (real bugs - blocking)
-        run: uvx ruff check . --ignore C901
-
-      - name: Run ruff (full - advisory)
-        run: uvx ruff check src/mlframe
-        continue-on-error: true
-
-      # Advisory-only: cyclomatic complexity (mccabe). Not a blocking gate -- at ruff's
-      # default threshold this repo has ~850 findings, dominated by the monolith files
-      # CLAUDE.md's "Build new code in focused submodules" section already tracks
-      # (_fit_impl_core, _mrmr_class). This makes that existing carve-before-900-LOC
-      # discipline measurable rather than adding a new hard requirement.
-      - name: Ruff mccabe complexity (advisory)
-        run: uvx ruff check src/mlframe --select C90 --statistics
-        continue-on-error: true
-
-      # Advisory: prose typo scan. This codebase carries an unusually large volume of
-      # long inline rationale comments (CLAUDE.md's 160-char-comment convention) --
-      # real hit-surface for genuine typos. [tool.codespell] in pyproject.toml is the
-      # single source of truth for the ignore-words-list (legitimate ML/numeric jargon
-      # and identifier-fragment false positives that would otherwise flag).
-      - name: Codespell (advisory)
-        run: uvx codespell --toml pyproject.toml src/mlframe
-        continue-on-error: true
-
-      # deptry NOT wired in as a CI step yet: a local dry run against [tool.deptry] below
-      # produced ~37k DEP001 findings, dominated by PyPI-name-vs-import-name mismatches
-      # (scikit-learn -> sklearn, etc.) deptry needs an explicit package_module_name_map
-      # for -- broken signal, not advisory noise. [tool.deptry] config is left in
-      # pyproject.toml so `uvx deptry .` is available for a deliberate local tuning pass;
-      # add the CI step once that mapping exists and the finding count is sane.
-
-      # Advisory: general YAML style/schema hygiene, complementary to actionlint's
-      # GH-Actions-semantic checks (contexts, expressions) which don't cover generic
-      # indentation/duplicate-key/trailing-whitespace issues.
-      - name: yamllint workflow files (advisory)
-        run: uvx yamllint .github/workflows .pre-commit-config.yaml
-        continue-on-error: true
-
-      # MyPy strict-mode beachhead moved to its own workflow (mypy.yml) so it gets
-      # an independent, honest badge instead of being buried as a step inside this
-      # combined lint job.
-
-      - name: Run bandit security scan
-        run: uvx bandit -r src/mlframe -ll -f json -o bandit-report.json
-        continue-on-error: true
-
-      - name: Upload bandit results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: bandit-report
-          path: bandit-report.json
-
-      # Blocking: mirrors the pre-commit actionlint hook so a workflow-file bug
-      # (bad expression, duplicate key, unknown runner label, shell-syntax error
-      # in a run: block) can't reach master even via --no-verify. Custom
-      # self-hosted runner labels are allow-listed in .github/actionlint.yaml.
-      - name: Actionlint (workflow files)
-        run: uvx --from actionlint-py actionlint
-
-      # Advisory: dead-code scan. Real false-positive rate on dynamic-dispatch
-      # code (lazy-import proxies, pydantic fields, pytest fixtures) makes this
-      # unsuitable as a blocking gate; mirrors the bandit step's posture.
-      - name: Vulture dead-code scan
-        run: uvx vulture src/mlframe scripts/vulture_whitelist.py --min-confidence 80
-        continue-on-error: true
-
-      # Advisory: known-vulnerability scan against installed dependency versions
-      # (bandit only checks code PATTERNS, not whether a pinned dependency has a
-      # published CVE -- a different and complementary risk class).
-      - name: pip-audit dependency vulnerability scan
-        run: uvx pip-audit --desc -f json -o pip-audit-report.json || true
-        continue-on-error: true
-
-      - name: Upload pip-audit results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: pip-audit-report
-          path: pip-audit-report.json
+  lint-advisory:
+    name: lint (advisory)
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@main
+    with:
+      source-path: src/mlframe
 
   build:
     name: build sdist + wheel + install smoke

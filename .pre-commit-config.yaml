@@ -75,8 +75,9 @@ repos:
   # explosion, blank-line insertion -- see CLAUDE.md "Black repo-wide reformat").
   # Missing `stages: [manual]` here previously meant this hook ran on every
   # commit and would silently reapply both excluded classes. Use
-  # `scripts/black_filtered_apply.py --write <files>` for the sanctioned,
-  # filtered formatting pass instead of `pre-commit run --hook-stage manual black`.
+  # `python -m py_ci_shared.black_filtered_apply --write <files>` for the
+  # sanctioned, filtered formatting pass instead of
+  # `pre-commit run --hook-stage manual black`.
   - repo: https://github.com/psf/black
     rev: 25.1.0
     hooks:
@@ -164,42 +165,69 @@ repos:
         stages: [pre-commit]
 
   # Warn-only style gate: formatting + style lint (E/W/N/UP/I), never blocks.
-  # Runs after the blocking gate. See scripts/format_warn.py for the wrapper.
+  # Runs after the blocking gate. Wrapper script lives in the shared py_ci_shared
+  # package (fingoldo/py-ci-shared) -- `pip install -e ".[dev]"` installs it.
   - repo: local
     hooks:
       - id: format-lint-warn
         name: "ruff format + style lint (warn-only)"
-        entry: python scripts/format_warn.py
+        entry: python -m py_ci_shared.format_warn
         language: system
         types: [python]
         verbose: true
         stages: [pre-commit]
 
-  # Warn-only security-lint gate: bandit -ll (medium+ severity), mirroring the
-  # advisory CI step (continue-on-error) so findings surface locally too, before
-  # only showing up later in the CI artifact. See scripts/bandit_warn.py.
+  # Security-lint gate: bandit -ll (medium+ severity). Blocking since 2026-07-09 -- triaged to 0
+  # findings (see the CI lint-blocking job), so this mirrors that CI gate exactly instead of only
+  # warning locally and failing later in CI. Called directly (not through the warn-only wrapper
+  # -- that one is py_ci_shared.bandit_warn, kept for repos still working down a backlog).
   - repo: local
     hooks:
-      - id: bandit-warn
-        name: "bandit security scan (warn-only)"
-        entry: python scripts/bandit_warn.py
+      - id: bandit-blocking
+        name: "bandit security scan (blocking)"
+        entry: python -m bandit -r src/mlframe -ll
         language: system
         types: [python]
-        files: '^src/mlframe/'
-        verbose: true
+        pass_filenames: false
         stages: [pre-commit]
 
-  # Warn-only dead-code gate: vulture --min-confidence 80, mirroring the advisory
-  # CI step (continue-on-error). See scripts/vulture_warn.py.
+  # Dead-code gate: vulture --min-confidence 80. Blocking since 2026-07-09 -- triaged to 0
+  # findings (see the CI lint-blocking job). The whitelist stays local to this repo
+  # (project-specific dynamic-dispatch names).
   - repo: local
     hooks:
-      - id: vulture-warn
-        name: "vulture dead-code scan (warn-only)"
-        entry: python scripts/vulture_warn.py
+      - id: vulture-blocking
+        name: "vulture dead-code scan (blocking)"
+        entry: python -m vulture src/mlframe scripts/vulture_whitelist.py --min-confidence 80
         language: system
         types: [python]
-        files: '^src/mlframe/'
-        verbose: true
+        pass_filenames: false
+        stages: [pre-commit]
+
+  # Docstring-coverage gate: 100% (see [tool.interrogate] in pyproject.toml). Blocking since
+  # 2026-07-09, mirroring the CI lint-blocking job.
+  - repo: local
+    hooks:
+      - id: interrogate-blocking
+        name: "interrogate docstring coverage (blocking, 100%)"
+        entry: python -m interrogate --fail-under 100 src/mlframe
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+
+  # Dependency-drift gate: deptry (unused/missing/transitive). Blocking since 2026-07-09,
+  # mirroring the CI lint-blocking job -- see [tool.deptry] for the per_rule_ignores this relies
+  # on. Assumes the local dev env has the [all,dev] extras (+ sibling pyutilz) installed, same
+  # assumption CI makes via its explicit install step; deptry's DEP001/DEP002/DEP003 are
+  # meaningless without a real environment to check imports against.
+  - repo: local
+    hooks:
+      - id: deptry-blocking
+        name: "deptry dependency check (blocking)"
+        entry: python -m deptry .
+        language: system
+        pass_filenames: false
         stages: [pre-commit]
 
   # Optional: a "fast" alias that runs the static (non-Hypothesis) meta-

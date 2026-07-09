@@ -1,14 +1,16 @@
 name: MyPy-full
 
-# Whole-project mypy check, separate from the fast mypy.yml strict-mode beachhead. mypy.yml
-# runs against an isolated uvx sandbox with only numpy/scipy/scikit-learn/pydantic installed
-# (~20s), which is fast but meaningless for files outside the beachhead: their transitive
-# imports (pandas/torch/lightning/numba/pyutilz/...) aren't installed there, so mypy collapses
-# those expressions to Any and reports false "Returning Any" / "Unused type:ignore" noise
-# rather than real errors -- confirmed 2026-07-08 (171 errors in 93 files under the minimal
-# sandbox vs 0-2 real errors under a full install). This job installs the real [all,dev]
-# dependency graph (mirrors ci.yml's `test` job) so mypy has genuine type info everywhere and
-# the result is meaningful for the whole src/mlframe tree, not just the beachhead.
+# Whole-project mypy check, separate from the fast mypy.yml strict-mode beachhead. Extracted to
+# fingoldo/py-ci-shared (2026-07-09); the install-command below mirrors ci.yml's `test` job
+# install step PLUS [gpu] (cupy/numba.cuda) -- mypy needs cupy/numba.cuda's real stubs to
+# type-check the GPU-optional code paths (``try: import cupy as cp / except ImportError: cp =
+# None``); without them every such module mis-resolves the fallback branch as a type error
+# (confirmed 2026-07-08: 48 errors in 21 files, all numba.cuda/cupy-shaped, with [gpu] excluded).
+# cupy imports fine on a GPU-less CPU runner -- it only fails when you actually touch the device
+# (see gpu-extras-install-matrix.yml) -- so this is safe on ubuntu-latest despite there being no
+# GPU here. `advisory: false` because this backlog was closed to 0 as of 2026-07-08 -- this is a
+# real blocking gate, not advisory (see the reusable workflow's header comment for why that's a
+# per-repo choice, never a hardcoded default).
 
 on:
   push:
@@ -19,48 +21,15 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Unlike ci.yml's `test` job (which deliberately keeps push-to-master runs alive to completion
-  # so codecov actually gets an upload -- see that job's comment), this is a pure lint/type gate
-  # with no artifact dependent on a specific run finishing. Under heavy concurrent push volume a
-  # non-cancelling queue serializes every push's run one-at-a-time behind the group and can back
-  # up for 30+ minutes (observed 2026-07-08) with nothing to show for the wait -- only the latest
-  # commit's result matters, so always cancel a superseded in-progress/queued run.
   cancel-in-progress: true
 
 jobs:
   mypy-full:
-    runs-on: ubuntu-latest
-    # The [all,dev] extras union is a ~5 GB, several-hundred-package graph (torch / mlflow /
-    # lightning / pysr+julia / ...); ci.yml's own comment on the identical install step clocks
-    # it at ~25 min via uv. Budget generously above that plus mypy's own scan time.
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: pyproject.toml
-
-      - name: Clone & install pyutilz + mlframe[all,dev,gpu] in one uv resolution
-        # Mirrors ci.yml's `test` job install step, PLUS [gpu] (cupy/numba.cuda) -- unlike
-        # ci.yml's test matrix, mypy needs cupy/numba.cuda's real stubs to type-check the GPU-
-        # optional code paths (``try: import cupy as cp / except ImportError: cp = None``);
-        # without them every such module mis-resolves the fallback branch as a type error
-        # (confirmed 2026-07-08: 48 errors in 21 files, all numba.cuda/cupy-shaped, with [gpu]
-        # excluded). cupy imports fine on a GPU-less CPU runner -- it only fails when you
-        # actually touch the device (see gpu-extras-install-matrix.yml) -- so this is safe on
-        # ubuntu-latest despite there being no GPU here.
-        run: |
-          git clone --depth 1 https://github.com/fingoldo/pyutilz.git
-          uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev,gpu]"
-          uv pip install --system mypy==2.1.0
-
-      - name: MyPy (whole project)
-        run: mypy src/mlframe
+    uses: fingoldo/py-ci-shared/.github/workflows/mypy-full.yml@main
+    with:
+      package-name: mlframe
+      mypy-version: "2.1.0"
+      advisory: false
+      install-command: |
+        git clone --depth 1 https://github.com/fingoldo/pyutilz.git
+        uv pip install --system "./pyutilz[system,pandas,polars,database]" -e ".[all,dev,gpu]"

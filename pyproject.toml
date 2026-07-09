@@ -365,6 +365,10 @@ dev = [
     # and training/evaluation.py (for display_html / rich-shell detection).
     # Required so test collection of the modules that import them succeeds.
     "ipython>=8.0",
+    # Shared CI/lint tooling (black_filtered_apply / format_warn / bandit_warn / vulture_warn),
+    # consumed by .pre-commit-config.yaml's `language: system` local hooks. Not yet on PyPI --
+    # install from GitHub, mirroring the existing pyutilz dependency pattern.
+    "py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared.git",
 ]
 
 [project.scripts]
@@ -514,11 +518,15 @@ skips = ["B101"]
 ignore-words-list = "nd,hist,te,ith,ba,thi,fpr,tre,strat,ser,clen,fo,anc,mis,als,mis,mape,lama,aci,coo,oll,ot,qest,ttest,disjointness,unparseable,numer,sav,bu,ans,re-use,re-used,re-using,re-uses,compilability,accreting,lightening,addres"
 
 # ---------------------------------------------------------------------------
-# Deptry (unused / missing / transitive dependency scan). NOT wired into CI yet -- a local
-# `uvx deptry .` dry run (2026-07-08) produced ~37k DEP001 findings, almost entirely PyPI-name
-# vs. import-name mismatches (e.g. scikit-learn -> sklearn) deptry needs an explicit
-# [tool.deptry.package_module_name_map] for. Config kept here so the tool is available for a
-# deliberate local tuning pass; see the ci.yml lint job comment for the deferred-CI-step note.
+# Deptry (unused / missing / transitive dependency scan). Blocking since 2026-07-09 (see the CI
+# lint-blocking job's deptry-install-command). The ~37k-finding number from an early `uvx deptry .`
+# dry run (2026-07-08) was itself an artifact of running deptry without the project's real extras
+# installed -- deptry infers a package's import name from its INSTALLED metadata (e.g.
+# scikit-learn -> sklearn), so a bare/isolated environment makes every such package look both
+# "missing" and mis-guessed at once. No [tool.deptry.package_module_name_map] needed: re-running
+# with `pip install -e ".[all,dev]"` actually done first (`python -m deptry .`, not `uvx deptry .`
+# -- uvx's own isolated tool venv has the same bare-environment problem) surfaced exactly 1 real
+# finding, resolved via the per_rule_ignores below.
 # ---------------------------------------------------------------------------
 [tool.deptry]
 # deptry's exclude uses re.match() (anchored at the START of the relative path), so a bare
@@ -572,6 +580,7 @@ DEP002 = [
     "pytest-randomly", "pytest-instafail", "pytest-progress", "pytest-split", "coverage", "freezegun",
     "ruff", "black", "mypy", "bandit", "pre-commit", "pip-audit",
     "pillow", "setuptools", "tornado", "aiohttp", "cryptography", "starlette",
+    "py-ci-shared",  # invoked as `python -m py_ci_shared.*` CLI/pre-commit-hook commands, never `import py_ci_shared`
 ]
 
 # DEP001 (import missing from declared deps): genuinely optional third-party libs behind
@@ -619,60 +628,24 @@ exclude = '''
 # ---------------------------------------------------------------------------
 # Ruff
 # ---------------------------------------------------------------------------
+# Base select/ignore (E,W,F,I,N,UP,B,DTZ,A,T20,RUF,G,ISC,PERF,C90 + the generic ignores this
+# repo helped establish) is pulled in from ../py-ci-shared/configs/ruff-base.toml via `extend`
+# -- a real config merge, not copy-paste. See that file's header comment and
+# https://github.com/fingoldo/py-ci-shared for the full rationale, and this repo's own
+# CLAUDE.md "RUF100" section for why `extend`/`extend-ignore` (never `--select`) is the only
+# safe way to layer local settings on top. Everything below is mlframe-specific: dir excludes,
+# target-version floor, the two additional ignores this codebase specifically needs, and the
+# MEASURED mccabe threshold (complexity distributions differ per codebase; never copy another
+# repo's number).
 [tool.ruff]
-line-length = 160
+extend = "../py-ci-shared/configs/ruff-base.toml"
 target-version = "py39"
 exclude = ["tests", "scripts", ".git", "__pycache__", "build", "dist", "legacy", "benchmarks", "_benchmarks", "profiling"]
 
 [tool.ruff.lint]
-select = [
-    "E",    # pycodestyle errors
-    "W",    # pycodestyle warnings
-    "F",    # pyflakes
-    "I",    # isort
-    "N",    # pep8-naming
-    "UP",   # pyupgrade
-    "B",    # flake8-bugbear
-    "DTZ",  # naive-datetime usage (real bug class: silent local/UTC ambiguity, deprecated utcnow())
-    "A",    # builtin-shadowing names
-    "T20",  # stray print() -- this project routes diagnostics through logger
-    "RUF",  # ruff-specific checks (unused noqa, mutable dataclass defaults, ambiguous unicode, etc.)
-    "G",    # flake8-logging-format: catches f-string/%-concat in logger.xxx() calls instead of lazy %-formatting
-    "ISC",  # implicit string concatenation: catches an accidentally-missing comma in a list/call
-    "PERF", # performance anti-patterns (quadratic list accumulation in a loop, etc.)
-    "C90",  # mccabe cyclomatic complexity
-]
-
-ignore = [
-    "E501",   # line-length: project uses 160 chars (CLAUDE.md repeated rule), black + black-line-length above enforce visually
-    "E401",   # multiple imports on one line: explicit ``import a, b`` is project-idiomatic in a few helpers; not worth churn
-    "E402",   # module-level import not at top: legitimate for try/except optional-dep gates (cupy, polars, torch)
-    "E701",   # multiple statements on one line (colon): used in compact one-liners like ``if x: continue``
-    "E702",   # multiple statements on one line (semicolon): used in compact one-liners like ``a = 1; b = 2``
-    "I001",   # unsorted imports: isort runs separately; ruff's isort variant collides with our black + manual section order
-    "N802",   # function name should be lowercase: legitimately mixed-case in math identifiers (e.g. ``computeFFT`` interop)
-    "N803",   # arg name should be lowercase: sklearn-API surface uses X / Y / Xt convention required by check_estimator
-    "N806",   # variable in function should be lowercase: same as N803 -- X / Y / Xt locals throughout estimator wrappers
-    "B006",   # mutable default arg: kept open; some configs use dataclass-like helpers where caller never mutates; consider re-enabling case-by-case
-    "F541",   # f-string without placeholders: tolerated in log lines that get placeholders added later in dev
-    "UP031",  # printf-style %: keep for ``logger.info("... %s ...", val)`` lazy-format pattern (mandatory under structured logging)
-    "UP006",  # use ``list`` / ``dict`` over typing.List: project targets 3.9 minimum where the deferred annotation form needs from __future__ import; keep typing.List for ABI clarity
-    "UP007",  # use ``X | Y`` over Union: same 3.9 concern; ``Union`` evaluates eagerly without ``from __future__ import annotations``
-    "UP045",  # use ``X | None`` over Optional: same 3.9 concern
-    "UP037",  # quoted annotation: leave because we use forward references in dataclass slots heavily
-    "F403",   # ``from x import *``: intentional in several namespace modules
-    "F405",   # name may be undefined / from star-import: consequence of intentional F403, not a bug
-    "B904",   # raise ... from inside except: stylistic, not a correctness issue
-    "B009",   # getattr(x, "const"): stylistic
+extend-ignore = [
     "UP035",  # collections.abc import modernization: 640 hits, pure import-source churn, no correctness value
     "N815",   # mixedCase class-scope variable: flags domain-abbreviation names like cached_MIs (MIs = mutual informations)
-    "UP015",  # redundant open() mode arg: project prefers the explicit "r"/"rb" mode over the implicit default
-    # New 2026-07-09 (5-rule expansion: RUF/G/ISC/PERF/C90). Triaged before enabling broadly:
-    "ISC001", # single-line implicit string concat: ruff's OWN docs say disable this when a formatter (black) is in use -- black already normalizes this, ISC001 fights it
-    "RUF001", # ambiguous-unicode-character-string: false-positive-heavy on this math-heavy codebase's intentional Cyrillic/operator characters in string literals
-    "RUF002", # ambiguous-unicode-character-docstring: same -- flags legitimate set-notation (union/intersect) and Greek letters in docstrings, not typos
-    "RUF003", # ambiguous-unicode-character-comment: same as RUF002 but for comments
-    "RUF022", # unsorted __all__: cosmetic-only, no correctness value, would churn every namespace module's public-surface ordering for zero benefit
 ]
 
 [tool.ruff.lint.mccabe]
@@ -681,13 +654,11 @@ ignore = [
 # 70 findings, including the genuinely pathological outliers (_fit_impl at 1227, materialise_and_
 # finalise_fe_candidates at 141, _score_one_pair at 117) without flagging routine 20-40 dispatch/
 # config functions that are complex by the nature of a config-driven ML pipeline, not by neglect.
+# NOT shared via ruff-base.toml -- this is mlframe's own measured number (pyutilz's is 20).
 max-complexity = 40
 
-[tool.ruff.lint.pep8-naming]
-# F/L are the universal, ecosystem-standard aliases for torch.nn.functional / lightning
-# (every PyTorch/Lightning tutorial and codebase uses them); flagging them as bad casing
-# would push this codebase away from a convention every contributor already expects.
-ignore-names = ["F", "L", "_F"]
+# pep8-naming ignore-names = ["F", "L", "_F"] is inherited from ruff-base.toml -- no local
+# declaration needed.
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "F403"]
