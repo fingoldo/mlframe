@@ -11,8 +11,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+import numpy as np
+
 from sklearn.utils.validation import check_array, check_is_fitted
-from sklearn.base import RegressorMixin, ClassifierMixin, BaseEstimator, clone
+from sklearn.base import RegressorMixin, ClassifierMixin, BaseEstimator, clone, is_classifier
 from sklearn.utils import check_random_state
 
 from sklearn.model_selection import train_test_split
@@ -26,9 +28,49 @@ class EstimatorWithEarlyStopping(BaseEstimator):
         self.base_estimator = base_estimator
         self.test_size, self.train_size, self.random_state, self.shuffle, self.stratify = test_size, train_size, random_state, shuffle, stratify
 
+    def _resolve_stratify(self, y):
+        """Auto-detect a stratify vector for the internal train/val split when the caller left ``stratify=None``.
+
+        Mirrors ``EarlyStoppingWrapper._split`` (estimators/early_stopping.py): ``stratify`` cannot be passed at
+        construction time since ``y`` only exists at ``fit``-time, so an explicit-``None`` default silently produced
+        an unstratified split on every imbalanced classification target. Stratifies on ``y`` whenever the base
+        estimator is a classifier (or ``y`` is low-cardinality -- some wrapped estimators like a bare CatBoostClassifier
+        don't reliably report ``is_classifier``), every class has >=2 members, and the requested val split is large
+        enough to hold at least one row per class; falls back to ``None`` (plain shuffle) otherwise.
+        """
+        y_arr = np.asarray(y)
+        n = len(y_arr)
+        try:
+            is_clf_estimator = is_classifier(self.base_estimator)
+        except Exception:
+            is_clf_estimator = False
+        low_cardinality = y_arr.dtype.kind in "OUS" or np.unique(y_arr).size <= max(2, min(20, n // 10))
+        if not (is_clf_estimator or low_cardinality):
+            return None
+        classes, counts = np.unique(y_arr, return_counts=True)
+        if counts.min() < 2:
+            return None
+        if isinstance(self.test_size, float):
+            n_val = max(1, round(self.test_size * n))
+        elif self.test_size is not None:
+            n_val = int(self.test_size)
+        else:
+            n_val = n
+        if n_val < classes.size:
+            return None
+        return y
+
     def fit(self, X, y, **fit_params):
         """Carve an internal validation split from ``X``/``y`` and fit the cloned base estimator with early stopping via ``eval_set``."""
-        X = check_array(X)
+        # A bare check_array(X) here would silently drop DataFrame column names / dtypes before the CatBoost/eval_set
+        # dispatch, defeating native categorical-feature handling (cat_features indices matching named columns) and
+        # any downstream reliance on feature_names_in_. Preserve the caller's frame; only ndarray-like inputs get validated.
+        if hasattr(X, "columns"):
+            self.feature_names_in_ = np.asarray(X.columns, dtype=object)
+        else:
+            X = check_array(X)
+
+        stratify = self.stratify if self.stratify is not None else self._resolve_stratify(y)
 
         random_state = check_random_state(self.random_state)
 
@@ -42,7 +84,7 @@ class EstimatorWithEarlyStopping(BaseEstimator):
             sample_weight = fit_params.pop("sample_weight", None)
             arrays = [X, y] if sample_weight is None else [X, y, sample_weight]
             splits = train_test_split(
-                *arrays, test_size=self.test_size, train_size=self.train_size, random_state=random_state, shuffle=self.shuffle, stratify=self.stratify
+                *arrays, test_size=self.test_size, train_size=self.train_size, random_state=random_state, shuffle=self.shuffle, stratify=stratify
             )
             if sample_weight is None:
                 X_train, X_val, y_train, y_val = splits
@@ -61,7 +103,7 @@ class EstimatorWithEarlyStopping(BaseEstimator):
             sample_weight = fit_params.pop("sample_weight", None)
             arrays = [X, y] if sample_weight is None else [X, y, sample_weight]
             splits = train_test_split(
-                *arrays, test_size=self.test_size, train_size=self.train_size, random_state=random_state, shuffle=self.shuffle, stratify=self.stratify
+                *arrays, test_size=self.test_size, train_size=self.train_size, random_state=random_state, shuffle=self.shuffle, stratify=stratify
             )
             if sample_weight is None:
                 X_train, X_val, y_train, y_val = splits
@@ -85,9 +127,10 @@ class EstimatorWithEarlyStopping(BaseEstimator):
         return self
 
     def predict(self, X):
-        """Delegate prediction to the fitted base estimator."""
+        """Delegate prediction to the fitted base estimator, preserving DataFrame columns like ``fit`` does."""
         check_is_fitted(self)
-        X = check_array(X)
+        if not hasattr(X, "columns"):
+            X = check_array(X)
 
         return self.fitted_estimator_.predict(X)
 

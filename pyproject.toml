@@ -672,6 +672,8 @@ ignore-names = ["F", "L", "_F"]
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "F403"]
 "tests/**" = ["N801"]
+# Tutorial notebooks: print() is the intended interactive display, not a lint issue.
+"docs/**/*.ipynb" = ["T201"]
 # B023 (loop-variable closure capture): profiling scripts define ad-hoc closures per
 # iteration purely to time/print that iteration's inputs immediately, never storing the
 # closure for later -- exactly the case B023 can't distinguish from a real deferred-call bug.

@@ -139,14 +139,17 @@ repos:
     hooks:
       - id: ruff
         name: "ruff (real bugs block)"
-        # --select F,E9 = pyflakes + syntax, blocking. Previously re-applied a
-        # taste-ignore (F401/F403/F405/F541/F841) via CLI --ignore, which let
-        # unused-import / star-import / empty-fstring / unused-var slip past
-        # pre-commit while CI's ``ruff check . --select F,E9`` (no ignore) still
-        # caught them -- a real config drift that let genuine lint debt land on
-        # master between the two gates disagreeing. Both gates now run the
-        # identical command.
-        entry: python -m ruff check --select F,E9
+        # The project's FULL configured select/ignore (pyproject.toml), minus C901 (complexity,
+        # advisory-only). Closed to 0 findings on 2026-07-09 after fixing every RUF/G/ISC/PERF
+        # finding. Mirrors CI's ``ruff check . --ignore C901`` exactly so a commit that passes
+        # locally cannot fail CI and vice versa.
+        #
+        # CRITICAL: never use ``--select`` here. ``--select`` REPLACES the effective rule set
+        # instead of narrowing pyproject.toml's configured select, silently dropping the
+        # ``ignore`` list too (RUF001/002/003/022, ISC001, etc. would all reappear) and breaking
+        # RUF100's "is this noqa still needed" determination (see CLAUDE.md's 2026-07-09 RUF100
+        # incident). ``--ignore`` only ADDS to the configured ignore list, so it is safe.
+        entry: python -m ruff check --ignore C901
         language: system
         types: [python]
         stages: [pre-commit]
