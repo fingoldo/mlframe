@@ -11,7 +11,9 @@ Per query emit 5 leakage-free features:
 - p_positive_residual (probability of under-prediction at query)
 - bias_signal = p_positive_residual - 0.5 (signed bias)
 - abs_bias = |bias_signal|
-- baseline_score = mu_query
+- baseline_score = mu_query + bias_signal * residual_scale (bias-corrected point estimate; residual_scale is the
+  train-fold residual std of the mu-model, so a detected directional bias nudges the raw prediction toward the
+  side the sign-classifier expects the true residual to fall on)
 
 Captures asymmetric bias the squared-error boosting cannot detect.
 """
@@ -84,7 +86,9 @@ def compute_sign_residual_baseline_features(
             p_pos = m_sign.predict_proba(Xq_s)[:, 1].astype(np.float32)
         bias_signal = (p_pos - 0.5).astype(np.float32)
         abs_bias = np.abs(bias_signal).astype(np.float32)
-        return np.column_stack([mu_query, p_pos, bias_signal, abs_bias, mu_query])
+        residual_scale = np.float32(np.std(y_t - mu_train))
+        baseline_score = (mu_query + bias_signal * residual_scale).astype(np.float32)
+        return np.column_stack([mu_query, p_pos, bias_signal, abs_bias, baseline_score])
 
     def _make_df(feats):
         """Slice the ``_process`` output columns into a name-tagged dict (mu/p_pos_residual/bias_signal/abs_bias/baseline_score), cast to the requested output dtype."""
