@@ -33,6 +33,23 @@ class DummyModel:
         return np.tile([0.4, 0.6], (len(X), 1))
 
 
+class DummyCatBoostModel:
+    """Stand-in for a fitted CatBoost estimator: no ``feature_names_in_``, only ``feature_names_``."""
+
+    def __init__(self, feats):
+        self.feature_names_ = list(feats)
+
+    def predict_proba(self, X):
+        return np.tile([0.4, 0.6], (len(X), 1))
+
+
+class DummyNoFeatureNamesModel:
+    """Stand-in for a model exposing neither name attribute at all."""
+
+    def predict_proba(self, X):
+        return np.tile([0.4, 0.6], (len(X), 1))
+
+
 # ---------------------------------------------------------------------------
 # _load_features_file
 # ---------------------------------------------------------------------------
@@ -84,7 +101,7 @@ def X():
     return pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
 
 
-def _make_featureset(tmp_path, name, feats_json, model_fname, model_feats):
+def _make_featureset(tmp_path, name, feats_json, model_fname, model_feats, model_cls=DummyModel):
     infer = tmp_path / "infer"
     fsdir = infer / name
     fsdir.mkdir(parents=True)
@@ -92,7 +109,8 @@ def _make_featureset(tmp_path, name, feats_json, model_fname, model_feats):
         (fsdir / "features.dump.json").write_text(json.dumps(feats_json))
     if model_fname is not None:
         mp = fsdir / model_fname
-        joblib.dump(DummyModel(model_feats), str(mp))
+        model = model_cls(model_feats) if model_feats is not None else model_cls()
+        joblib.dump(model, str(mp))
         write_sidecar(str(mp))
     return str(infer)
 
@@ -107,6 +125,36 @@ def test_read_feature_mismatch_skips_model(tmp_path, X):
     infer = _make_featureset(tmp_path, "fs1", ["a", "b"], "model.pkl", ["z"])
     models, Xo = read_trained_models("fs1", X, inference_folder=infer)
     assert models == {}, "model whose feature_names_in_ differs from the featureset must be skipped"
+    assert list(Xo.columns) == ["a", "b"]
+
+
+def test_read_feature_mismatch_skips_catboost_model_via_feature_names_(tmp_path, X, caplog):
+    """CatBoost exposes ``feature_names_`` instead of ``feature_names_in_``; a reordered/renamed
+    features file must still be caught via that attribute (P0: this check used to silently no-op
+    for any model lacking ``feature_names_in_``, letting a mismatched CatBoost model load unflagged).
+    """
+    infer = _make_featureset(tmp_path, "fscb1", ["a", "b"], "model.pkl", ["z"], model_cls=DummyCatBoostModel)
+    with caplog.at_level("ERROR"):
+        models, Xo = read_trained_models("fscb1", X, inference_folder=infer)
+    assert models == {}, "CatBoost-style model whose feature_names_ differs from the featureset must be skipped"
+    assert any("different features" in r.message for r in caplog.records)
+    assert list(Xo.columns) == ["a", "b"]
+
+
+def test_read_feature_match_loads_catboost_model(tmp_path, X):
+    infer = _make_featureset(tmp_path, "fscb2", ["a", "b"], "model.pkl", ["a", "b"], model_cls=DummyCatBoostModel)
+    models, Xo = read_trained_models("fscb2", X, inference_folder=infer)
+    assert list(models.keys()) == ["model"]
+    assert isinstance(models["model"], DummyCatBoostModel)
+    assert list(Xo.columns) == ["a", "b"]
+
+
+def test_read_no_feature_names_attribute_warns_but_still_loads(tmp_path, X, caplog):
+    infer = _make_featureset(tmp_path, "fscb3", ["a", "b"], "model.pkl", None, model_cls=DummyNoFeatureNamesModel)
+    with caplog.at_level("WARNING"):
+        models, Xo = read_trained_models("fscb3", X, inference_folder=infer)
+    assert list(models.keys()) == ["model"]
+    assert any("exposes neither" in r.message for r in caplog.records)
     assert list(Xo.columns) == ["a", "b"]
 
 
