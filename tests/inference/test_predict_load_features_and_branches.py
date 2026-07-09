@@ -57,13 +57,24 @@ class DummyNoFeatureNamesModel:
 
 def test_load_features_json_list(tmp_path):
     fp = tmp_path / "features.dump"
-    (tmp_path / "features.dump.json").write_text(json.dumps(["a", "b", "c"]))
+    json_path = tmp_path / "features.dump.json"
+    json_path.write_text(json.dumps(["a", "b", "c"]))
+    write_sidecar(str(json_path))
     assert _load_features_file(str(fp)) == ["a", "b", "c"]
+
+
+def test_load_features_json_sidecar_without_sha256_refused(tmp_path):
+    # JSON features file with no .sha256 companion -> default-strict refusal -> None.
+    fp = tmp_path / "features.dump"
+    (tmp_path / "features.dump.json").write_text(json.dumps(["a", "b", "c"]))
+    assert _load_features_file(str(fp)) is None
 
 
 def test_load_features_json_non_list_returns_none(tmp_path):
     fp = tmp_path / "features.dump"
-    (tmp_path / "features.dump.json").write_text(json.dumps({"x": 1}))
+    json_path = tmp_path / "features.dump.json"
+    json_path.write_text(json.dumps({"x": 1}))
+    write_sidecar(str(json_path))
     assert _load_features_file(str(fp)) is None
 
 
@@ -72,7 +83,9 @@ def test_load_features_invalid_json_raises(tmp_path):
     # json.JSONDecodeError). read_trained_models wraps this call in try/except; at the
     # helper level the parse error propagates rather than being swallowed.
     fp = tmp_path / "features.dump"
-    (tmp_path / "features.dump.json").write_text("{not valid json")
+    json_path = tmp_path / "features.dump.json"
+    json_path.write_text("{not valid json")
+    write_sidecar(str(json_path))
     with pytest.raises(ValueError):
         _load_features_file(str(fp))
 
@@ -106,7 +119,9 @@ def _make_featureset(tmp_path, name, feats_json, model_fname, model_feats, model
     fsdir = infer / name
     fsdir.mkdir(parents=True)
     if feats_json is not None:
-        (fsdir / "features.dump.json").write_text(json.dumps(feats_json))
+        json_path = fsdir / "features.dump.json"
+        json_path.write_text(json.dumps(feats_json))
+        write_sidecar(str(json_path))
     if model_fname is not None:
         mp = fsdir / model_fname
         model = model_cls(model_feats) if model_feats is not None else model_cls()

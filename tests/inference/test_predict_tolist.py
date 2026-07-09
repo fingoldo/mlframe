@@ -22,6 +22,11 @@ def test_load_features_file_json_path_returns_list(tmp_path):
     json_path = str(features_path) + ".json"
     with open(json_path, "wb") as f:
         f.write(orjson.dumps(feats))
+    # Generate the .sha256 sidecar so the strict loader accepts the JSON sidecar (mirrors production load contract).
+    with open(json_path, "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    with open(json_path + ".sha256", "w", encoding="utf-8") as f:
+        f.write(digest + "  features.dump.json\n")
     loaded = _load_features_file(str(features_path))
     assert loaded == feats
 

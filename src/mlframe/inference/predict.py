@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 from typing import Iterable, Optional
 
-import joblib
 import os
 import pandas as pd, numpy as np
 from os.path import join, isfile, isdir, splitext
@@ -29,6 +28,7 @@ from mlframe.utils.safe_pickle import (
     _sha256_of_file as _safe_pickle_sha256_of_file,
     verify_sidecar as _safe_pickle_verify_sidecar,
 )
+from mlframe.training.io import safe_joblib_load
 
 # Allow-listed extensions for joblib model deserialization. Anything outside
 # this set is skipped to make "drop a planted .pkl in the dir" attacks harder.
@@ -45,11 +45,55 @@ def _verify_sidecar(path: str) -> bool:
     return _safe_pickle_verify_sidecar(path)
 
 
+def _model_feature_names(model) -> Optional[list]:
+    """Return the fitted feature-name list a model exposes (sklearn-API ``feature_names_in_``, or
+    CatBoost's own ``feature_names_``), normalised to a plain ``list[str]``. Returns None when the model
+    exposes neither -- callers must treat that as "cannot validate", not "matches"."""
+    if hasattr(model, "feature_names_in_"):
+        names = model.feature_names_in_
+    elif hasattr(model, "feature_names_"):
+        names = model.feature_names_
+    else:
+        return None
+    if isinstance(names, np.ndarray):
+        names = names.tolist()
+    return list(names)
+
+
+def _check_model_feature_order(model, expected_features: list, context: str) -> bool:
+    """Validate that ``model``'s own fitted feature-name attribute matches ``expected_features`` (order and
+    names). Returns False (with an ERROR log) on a genuine mismatch, True when it matches or the model
+    exposes no name attribute at all (logged as a WARN so an escaped model type is at least visible, per
+    the "no name attribute => WARN, not silent pass" fix direction)."""
+    names = _model_feature_names(model)
+    if names is None:
+        logger.warning(
+            "model %s of type %s exposes neither feature_names_in_ nor feature_names_; "
+            "column-order/name mismatch cannot be validated (%s)",
+            model,
+            type(model).__name__,
+            context,
+        )
+        return True
+    if names != expected_features:
+        logger.error(
+            "model %s was trained on different features %s than expected: %s (%s)",
+            model,
+            names,
+            expected_features,
+            context,
+        )
+        return False
+    return True
+
+
 def _load_features_file(features_file: str):
     """Prefer orjson-based sidecar (``features_file + '.json'`` or a ``.json`` twin),
-    fall back to joblib. Returns a list[str], or None when no features file / sidecar is present
-    or the sha256 sidecar mismatches. Malformed sidecar JSON propagates the decode error -- the
-    sole caller, ``read_trained_models``, wraps this call in try/except and logs a warning.
+    fall back to joblib. Both paths require a matching ``<candidate>.sha256`` sidecar (via
+    ``_verify_sidecar``) before the content is trusted. Returns a list[str], or None when no features
+    file / sidecar is present or the sha256 sidecar mismatches. Malformed sidecar JSON propagates the
+    decode error -- the sole caller, ``read_trained_models``, wraps this call in try/except and logs a
+    warning.
     """
     json_candidates = []
     base, ext = splitext(features_file)
@@ -59,6 +103,9 @@ def _load_features_file(features_file: str):
 
     for candidate in json_candidates:
         if isfile(candidate):
+            if not _verify_sidecar(candidate):
+                logger.error("sha256 mismatch for features JSON sidecar %s; refusing to load", candidate)
+                return None
             try:
                 import orjson
                 with open(candidate, "rb") as f:
@@ -77,7 +124,7 @@ def _load_features_file(features_file: str):
         return None
 
     # Trusts the sha256 sidecar verified just above: an integrity/corruption gate, NOT authenticity (an attacker with dir write access rewrites both).
-    features = joblib.load(features_file)
+    features = safe_joblib_load(features_file)
     if isinstance(features, pd.core.indexes.base.Index):
         # ``.to_list()`` is the pandas-modern path (handles nullable dtypes); ``.values.tolist()`` round-trips through ndarray needlessly.
         features = features.to_list()
@@ -172,10 +219,8 @@ def read_trained_models(
         if not _verify_sidecar(model_file):
             logger.error("sha256 mismatch for model %s; skipping", model_file)
             continue
-        # Wave 19 P1: validate the .meta.json sidecar (written since
-        # 2026-05-20) before unpickling so library-version drift gets a
-        # WARN log instead of producing a cryptic AttributeError deep
-        # inside predict(). Non-fatal: legacy bundles (no sidecar) keep
+        # Validate the .meta.json sidecar before unpickling so library-version drift gets a WARN log instead of
+        # producing a cryptic AttributeError deep inside predict(). Non-fatal: legacy bundles (no sidecar) keep
         # loading silently per back-compat contract.
         try:
             from mlframe.training.io import validate_load_meta_sidecar as _vlms
@@ -187,48 +232,15 @@ def read_trained_models(
             )
         try:
             # Trusts the sha256 sidecar verified above: integrity/corruption gate, NOT authenticity (dir-write attacker rewrites payload+sidecar).
-            model = joblib.load(model_file)
+            # Routed through the same _SafeUnpickler-derived module/class allowlist training/io.py uses for
+            # dill bundles, so infer/ models get the RCE-surface restriction, not just the integrity gate.
+            model = safe_joblib_load(model_file)
         except Exception as e:
             logger.warning("Could not read model file %s of featureset %s: %s", model_file, featureset, e)
             continue
 
-        if hasattr(model, "feature_names_in_"):
-            feature_names_in_ = model.feature_names_in_
-            if isinstance(feature_names_in_, np.ndarray):
-                feature_names_in_ = feature_names_in_.tolist()
-            if feature_names_in_ != features:
-                logger.error(
-                    "model %s was trained on different features %s than featureset %s states: %s",
-                    model,
-                    model.feature_names_in_,
-                    featureset,
-                    features,
-                )
-                continue
-        elif hasattr(model, "feature_names_"):
-            # Raw CatBoost estimators expose no sklearn-standard feature_names_in_ at all, so the check
-            # above silently never fires for them. CatBoost's own equivalent is feature_names_ (a plain
-            # list of str), which we validate the same way here.
-            feature_names_ = model.feature_names_
-            if isinstance(feature_names_, np.ndarray):
-                feature_names_ = feature_names_.tolist()
-            if feature_names_ != features:
-                logger.error(
-                    "model %s was trained on different features %s than featureset %s states: %s",
-                    model,
-                    feature_names_,
-                    featureset,
-                    features,
-                )
-                continue
-        else:
-            logger.warning(
-                "model %s of type %s exposes neither feature_names_in_ nor feature_names_; "
-                "column-order/name mismatch cannot be validated for featureset %s",
-                model_file,
-                type(model).__name__,
-                featureset,
-            )
+        if not _check_model_feature_order(model, features, f"featureset {featureset}, file {model_file}"):
+            continue
 
         models[splitext(model_name)[0]] = model
 
@@ -246,9 +258,20 @@ def get_models_raw_predictions(trained_models: dict, X, Y):
     For classifiers this returns PROBABILITIES (not hard labels): the positive-class column for binary,
     the full (n, n_classes) matrix for multiclass -- consistent with ``explainability.py`` which scores on
     ``predict_proba``. A model without ``predict_proba`` (a regressor) falls back to ``predict``.
+
+    ``read_trained_models`` already validates column order for models it loads, but this function is a public,
+    directly-importable entry point with no caller-independent guard of its own -- it re-checks each model's own
+    fitted feature-name attribute against ``X``'s columns so a caller that skips ``read_trained_models`` (builds
+    ``trained_models``/``X`` itself) still gets the same silent-wrong-prediction protection.
     """
     predictions = {}
+    expected_features = list(X.columns) if hasattr(X, "columns") else None
     for model_name, model in tqdmu(trained_models.items(), desc="Getting raw predictions"):
+        if expected_features is not None:
+            if not _check_model_feature_order(model, expected_features, f"model {model_name!r} in get_models_raw_predictions"):
+                raise ValueError(
+                    f"get_models_raw_predictions: model {model_name!r} was trained on different features than X provides; refusing to predict"
+                )
         if hasattr(model, "predict_proba"):
             proba = np.asarray(model.predict_proba(X))
             # Binary -> positive-class column; multiclass -> full matrix. Shape guard so a degenerate

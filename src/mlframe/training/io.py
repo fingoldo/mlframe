@@ -34,6 +34,8 @@ from typing import Callable, Optional, Dict, Any
 
 import dill  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 import zstandard as zstd
+from joblib.numpy_pickle import NumpyUnpickler as _JoblibNumpyUnpickler
+from joblib.numpy_pickle import _validate_fileobject_and_memmap as _joblib_validate_fileobject_and_memmap
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +230,10 @@ _SAFE_MODULE_PREFIXES: tuple = (
     # (observed 2026-05-20 in test_roundtrip_complex_nested_object on S:).
     # pyarrow is a first-party Apache project, safe to allow.
     "pyarrow",
+    # joblib's own NumpyArrayWrapper persists large ndarrays out-of-band inside a joblib.dump pickle
+    # stream; needed for safe_joblib_load (inference/predict.py's restricted joblib.load replacement)
+    # to reconstruct arrays, and harmless for dill bundles too since it carries no code-execution surface.
+    "joblib",
 )
 
 # Specific safe names. `typing.TypeAlias` lands in pickled MLPRegressor
@@ -296,27 +302,92 @@ def _safe_setattr(obj, name, value):
     setattr(obj, name, value)
 
 
+def _resolve_restricted_class(module: str, name: str, real_find_class: Callable) -> Any:
+    """Shared allowlist logic behind both :class:`_SafeUnpickler` (dill) and :class:`_SafeJoblibUnpickler`
+    (joblib/numpy_pickle) -- resolves a pickled (module, name) reference only if it is on the allowlist
+    (exact pair, allowed module prefix, or the restricted ``getattr``/``setattr`` reconstructors);
+    raises ``UnpicklingError`` for anything else, including code-exec builtins. ``real_find_class`` is the
+    underlying unpickler's own ``find_class`` (bound method), used once a pair/prefix is allowed."""
+    # Block code-exec builtins even though ``builtins`` is allowlisted for data containers.
+    if module in ("builtins", "__builtin__") and name in _UNSAFE_BUILTINS:
+        raise dill.UnpicklingError(f"Unsafe builtin blocked by allowlist: {module}.{name}")
+    # ``getattr`` / ``setattr`` are allowed but via restricted reconstructors (dangerous attr names denied).
+    if module in ("builtins", "__builtin__") and name == "getattr":
+        return _safe_getattr
+    if module in ("builtins", "__builtin__") and name == "setattr":
+        return _safe_setattr
+    # Allow exact specific pairs.
+    if (module, name) in _SAFE_SPECIFIC:
+        return real_find_class(module, name)
+    # Allow by module prefix (module == prefix or module startswith prefix + ".").
+    for prefix in _SAFE_MODULE_PREFIXES:
+        if module == prefix or module.startswith(prefix + "."):
+            return real_find_class(module, name)
+    raise dill.UnpicklingError(f"Unsafe class blocked by allowlist: {module}.{name}")
+
+
 class _SafeUnpickler(dill.Unpickler):
     """Restricted unpickler that only allows a conservative allowlist of modules."""
 
     def find_class(self, module: str, name: str):
-        """Resolve a pickled (module, name) reference only if it is on the allowlist (exact pair, allowed module prefix, or the restricted ``getattr``/``setattr`` reconstructors); raises ``UnpicklingError`` for anything else, including code-exec builtins."""
-        # Block code-exec builtins even though ``builtins`` is allowlisted for data containers.
-        if module in ("builtins", "__builtin__") and name in _UNSAFE_BUILTINS:
-            raise dill.UnpicklingError(f"Unsafe builtin blocked by _SafeUnpickler allowlist: {module}.{name}")
-        # ``getattr`` / ``setattr`` are allowed but via restricted reconstructors (dangerous attr names denied).
-        if module in ("builtins", "__builtin__") and name == "getattr":
-            return _safe_getattr
-        if module in ("builtins", "__builtin__") and name == "setattr":
-            return _safe_setattr
-        # Allow exact specific pairs.
-        if (module, name) in _SAFE_SPECIFIC:
-            return super().find_class(module, name)
-        # Allow by module prefix (module == prefix or module startswith prefix + ".").
-        for prefix in _SAFE_MODULE_PREFIXES:
-            if module == prefix or module.startswith(prefix + "."):
-                return super().find_class(module, name)
-        raise dill.UnpicklingError(f"Unsafe class blocked by _SafeUnpickler allowlist: {module}.{name}")
+        return _resolve_restricted_class(module, name, super().find_class)
+
+
+# Modules whose classes/callables give straightforward code-exec / filesystem / process / network
+# capability once resolved by an unpickler -- distinct from _SAFE_MODULE_PREFIXES's allowlist because
+# inference/predict.py's ``infer/`` directory intentionally hosts arbitrary custom model/wrapper classes
+# (raw Booster handles, project-specific estimator subclasses) that an ML-library allowlist would wrongly
+# reject. The sha256 sidecar is that loader's documented trust boundary (integrity, not authenticity); this
+# denylist adds a second, narrower layer specifically against the classic pickle RCE gadgets.
+_DENYLISTED_MODULE_PREFIXES: frozenset = frozenset({
+    "os", "posix", "nt", "subprocess", "sys", "shutil", "socket", "ctypes", "importlib", "runpy",
+    "code", "pty", "multiprocessing", "webbrowser", "signal", "pdb", "pickle", "dill", "shelve",
+    "marshal", "pip", "setuptools", "distutils",
+})
+
+
+def _resolve_denylisted_class(module: str, name: str, real_find_class: Callable) -> Any:
+    """Denylist-based restriction for loaders (``safe_joblib_load``) that must permit arbitrary custom
+    classes but still refuse the classic pickle RCE gadgets: code-exec builtins, the restricted
+    ``getattr``/``setattr`` reconstructors, and a fixed set of modules with direct filesystem/process/
+    network/import capability. Anything else resolves normally via ``real_find_class``."""
+    if module in ("builtins", "__builtin__") and name in _UNSAFE_BUILTINS:
+        raise dill.UnpicklingError(f"Unsafe builtin blocked by denylist: {module}.{name}")
+    if module in ("builtins", "__builtin__") and name == "getattr":
+        return _safe_getattr
+    if module in ("builtins", "__builtin__") and name == "setattr":
+        return _safe_setattr
+    for prefix in _DENYLISTED_MODULE_PREFIXES:
+        if module == prefix or module.startswith(prefix + "."):
+            raise dill.UnpicklingError(f"Unsafe module blocked by denylist: {module}.{name}")
+    return real_find_class(module, name)
+
+
+class _SafeJoblibUnpickler(_JoblibNumpyUnpickler):
+    """``joblib.numpy_pickle.NumpyUnpickler`` restricted through :func:`_resolve_denylisted_class`.
+    Model bundles written by ``training/io.py`` go through the stricter, allowlist-based dill
+    ``_SafeUnpickler``; plain ``joblib.dump`` artefacts (e.g. ``inference/predict.py``'s ``infer/`` model
+    directory) intentionally support arbitrary custom model classes, so this uses the denylist instead."""
+
+    def find_class(self, module: str, name: str):
+        return _resolve_denylisted_class(module, name, super().find_class)
+
+
+def safe_joblib_load(filename: str) -> Any:
+    """Restricted drop-in replacement for ``joblib.load`` that routes deserialization through
+    :class:`_SafeJoblibUnpickler` instead of the unrestricted ``NumpyUnpickler``, blocking the classic
+    pickle RCE gadgets (eval/exec/os/subprocess/etc.) while still permitting arbitrary custom model/
+    wrapper classes -- the loader's threat model documented in ``inference/predict.py`` treats the sha256
+    sidecar as the integrity gate, not authenticity, and intentionally supports non-allowlisted classes.
+    Does not support ``mmap_mode`` (models loaded this way are read fully into memory, matching how
+    ``inference/predict.py`` already used plain ``joblib.load``)."""
+    with open(filename, "rb") as fobj:
+        with _joblib_validate_fileobject_and_memmap(fobj, filename, mmap_mode=None) as (validated_fobj, _):
+            if isinstance(validated_fobj, str):
+                raise dill.UnpicklingError(f"safe_joblib_load: legacy pre-0.10 joblib pickle format is not supported: {filename}")
+            unpickler = _SafeJoblibUnpickler(filename, validated_fobj, ensure_native_byte_order=True)
+            obj = unpickler.load()
+    return obj
 
 
 _SIDECAR_META_VERSION = 1
@@ -697,6 +768,8 @@ __all__ = [
     "load_mlframe_model",
     "clean_mlframe_model",
     "_SafeUnpickler",
+    "_SafeJoblibUnpickler",
+    "safe_joblib_load",
     "_load_model_cache_clear",
 ]
 
