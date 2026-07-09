@@ -263,7 +263,7 @@ signal = [
     "antropy>=0.1.4",
     "astropy>=5.3",
     "entropy-estimators>=0.0.1",
-    "pywavelets>=1.4",
+    "pywavelets>=1.8.0",
     "ruptures>=1.1",
 ]
 
