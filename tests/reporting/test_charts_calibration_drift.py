@@ -74,6 +74,31 @@ def test_sparse_window_yields_nan_ece():
     assert np.all(np.isnan(res.window_ece))
 
 
+def test_sparse_windows_report_n_excluded_windows():
+    """Regression: under-populated windows must be countable, not just visible as NaN gaps in the chart.
+
+    Pre-fix, ``CalibrationDriftResult`` carried no field for how many windows were excluded for under-population,
+    so a caller comparing two runs' "% of timeline usable for drift monitoring" had nothing to read.
+    """
+    rng = np.random.default_rng(1)
+    n = MIN_WINDOW_SAMPLES * 2  # 60
+    yt, score = _well_calibrated(n, rng)
+    ts = np.arange(n)
+    res = calibration_drift(yt, score, ts, n_windows=10, n_bins=10)
+    assert res.n_excluded_windows == 10
+    assert res.usable_window_fraction == 0.0
+
+
+def test_fully_populated_windows_report_zero_excluded():
+    rng = np.random.default_rng(0)
+    n = 6_000
+    yt, score = _well_calibrated(n, rng)
+    ts = np.arange(n)
+    res = calibration_drift(yt, score, ts, n_windows=10, n_bins=10)
+    assert res.n_excluded_windows == 0
+    assert res.usable_window_fraction == 1.0
+
+
 def test_unsorted_timestamps_are_ordered_before_windowing():
     rng = np.random.default_rng(2)
     n = 6_000

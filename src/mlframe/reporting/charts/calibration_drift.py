@@ -40,7 +40,9 @@ class CalibrationDriftResult:
     ``window_ece`` is the scalar ECE per window (NaN for under-populated windows); ``window_centers``
     is the representative timestamp of each window (midpoint of its time span, or the index midpoint
     for non-temporal axes). ``reliability_curves`` carries the per-window (mean_pred, obs_freq) pairs
-    for the small-multiple overlay; empty when ``collect_curves=False``.
+    for the small-multiple overlay; empty when ``collect_curves=False``. ``n_excluded_windows`` is the
+    count of windows below ``MIN_WINDOW_SAMPLES`` (NaN ECE) so a caller comparing two runs' "% of the
+    timeline usable for drift monitoring" has a field to read instead of having to count NaNs itself.
     """
 
     window_ece: np.ndarray
@@ -51,6 +53,14 @@ class CalibrationDriftResult:
     reliability_curves: Tuple[Tuple[np.ndarray, np.ndarray], ...] = field(default_factory=tuple)
     n_windows: int = 0
     n_bins: int = 0
+    n_excluded_windows: int = 0
+
+    @property
+    def usable_window_fraction(self) -> float:
+        """Fraction of windows with a computed (non-NaN) ECE -- 1.0 minus the under-population exclusion rate."""
+        if self.n_windows == 0:
+            return float("nan")
+        return 1.0 - (self.n_excluded_windows / self.n_windows)
 
     @property
     def ece_trend(self) -> float:
@@ -141,6 +151,7 @@ def calibration_drift(
     centers = np.empty(n_eff, dtype=ts_sorted.dtype)
     counts = np.zeros(n_eff, dtype=np.int64)
     curves: List[Tuple[np.ndarray, np.ndarray]] = []
+    n_excluded = 0
 
     for w in range(n_eff):
         lo, hi = int(edges[w]), int(edges[w + 1])
@@ -149,6 +160,7 @@ def calibration_drift(
         # Window center = time midpoint of its samples (first/last in the sorted slice); robust for datetime + numeric.
         centers[w] = ts_sorted[lo + cnt // 2] if cnt > 0 else ts_sorted[min(lo, n - 1)]
         if cnt < MIN_WINDOW_SAMPLES:
+            n_excluded += 1
             if collect_curves:
                 curves.append((np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)))
             continue
@@ -172,6 +184,7 @@ def calibration_drift(
         reliability_curves=tuple(curves),
         n_windows=n_eff,
         n_bins=n_bins,
+        n_excluded_windows=n_excluded,
     )
 
 
