@@ -541,11 +541,11 @@ exclude = [
 ]
 
 # ---------------------------------------------------------------------------
-# Interrogate (docstring coverage). Mirrors pyutilz's config. No --fail-under set
-# (advisory only, matches CI's non-blocking usage) -- 63.1% raw baseline before this
-# config existed included every dunder/private/init method interrogate's defaults
-# demand docstrings for; with these standard excludes the real baseline is lower and
-# meaningful (see CHANGELOG for the tracked number once measured).
+# Interrogate (docstring coverage). Mirrors pyutilz's config. Blocking at --fail-under=100 since
+# 2026-07-09 (see the CI lint-blocking job and the .pre-commit-config.yaml interrogate-blocking
+# hook) -- reached 100% before this gate was wired up to enforce it. 63.1% raw baseline before
+# THIS config existed included every dunder/private/init method interrogate's defaults demand
+# docstrings for; with these standard excludes the real baseline was lower and meaningful.
 # ---------------------------------------------------------------------------
 [tool.interrogate]
 ignore-init-method = true
@@ -592,7 +592,7 @@ DEP001 = [
     "ml_insights", "dirichletcal", "pycaret", "sklearnex", "hnswlib", "xxhash", "ndd", "BorutaShap",
     "powershap", "ngboost", "autogluon", "lightautoml", "quantile_forest", "sksurv", "tensorflow",
     "keras", "experiment_impact_tracker", "concepts", "gudhi", "loky", "mist_statinf",
-    "infer", "model",
+    "infer", "model", "finance",
 ]
 
 # DEP003 (transitive dependency imported directly): mirrors DEP002's stance -- these are pulled in
@@ -601,6 +601,13 @@ DEP001 = [
 # networkx/llvmlite/dtaidistance/mlxtend/sympy/bottleneck/ortools/yaml via the sklearn/scipy/numba
 # ecosystem, model_diagnostics via the calibration reporting extras), and pinning them as direct
 # deps would duplicate version constraints already owned by their parent package.
+# `finance` is a DIFFERENT case entirely (flagged in a 2026-07-09 CI/CD architecture review as
+# looking stale/unjustified under this section's own rationale -- correctly so, it doesn't fit):
+# it's a private sibling library (github.com/fingoldo/finance, never on PyPI), try/except-guarded
+# in evaluation/reports.py, genuinely not a transitive dep of anything. It's ignored under BOTH
+# DEP001 and DEP003 because deptry's classification of it flips depending on whether the sibling
+# checkout happens to be resolvable in the environment deptry runs in (DEP003 when resolvable
+# locally, as in this dev environment; DEP001 "missing" in a clean CI checkout that never has it).
 DEP003 = [
     "filelock", "cpuinfo", "kaleido", "torchvision", "torchmetrics", "lightning_fabric",
     "pytorch_lightning", "triton", "networkx", "llvmlite", "dtaidistance", "mlxtend", "sympy",
@@ -655,6 +662,12 @@ extend-ignore = [
 # finalise_fe_candidates at 141, _score_one_pair at 117) without flagging routine 20-40 dispatch/
 # config functions that are complex by the nature of a config-driven ML pipeline, not by neglect.
 # NOT shared via ruff-base.toml -- this is mlframe's own measured number (pyutilz's is 20).
+#
+# Honest framing (flagged in a 2026-07-09 CI/CD architecture review): 40 is a NOISE-SUPPRESSION
+# threshold calibrated to this codebase's CURRENT complexity distribution, not a deliberate
+# "acceptable complexity budget" -- a median of 30 is itself high. The 70 remaining findings are
+# real, tracked debt (see CLAUDE.md's module-size-limit / monolith-split rule for the mechanism
+# already used to break up the worst offenders), not a design choice to leave permanently open.
 max-complexity = 40
 
 # pep8-naming ignore-names = ["F", "L", "_F"] is inherited from ruff-base.toml -- no local
@@ -662,7 +675,6 @@ max-complexity = 40
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "F403"]
-"tests/**" = ["N801"]
 # Tutorial notebooks: print() is the intended interactive display, not a lint issue.
 "docs/**/*.ipynb" = ["T201"]
 # B023 (loop-variable closure capture): profiling scripts define ad-hoc closures per

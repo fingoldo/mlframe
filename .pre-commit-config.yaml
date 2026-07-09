@@ -85,15 +85,23 @@ repos:
         language_version: python3
         stages: [manual]
 
-  # Mypy: scoped strictly to src/mlframe/calibration/ (the Wave 5 strict
-  # beachhead per [tool.mypy.overrides] in pyproject.toml). Expanding this
-  # files= regex is gated on a separate review per the gradual-typing
-  # policy in CONTRIBUTING.md.
+  # Mypy: scoped to the full strict-mode beachhead per [tool.mypy.overrides] in pyproject.toml
+  # and mirrored exactly in .github/workflows/mypy.yml's `modules:` list. Expanding this files=
+  # regex further is gated on a separate review per the gradual-typing policy in CONTRIBUTING.md.
+  #
+  # CRITICAL: this regex must stay a superset of every module in [[tool.mypy.overrides]] with
+  # disallow_untyped_defs=true (the actual beachhead) and of mypy.yml's `modules:` list. Found
+  # 2026-07-09 (CI/CD architecture review): the beachhead had already expanded twice (calibration
+  # -> +safe_pickle -> +_gpu_guard/_numba_params/rank_correlation/_core_precision_mape) without
+  # this regex ever being updated -- 5 of 6 beachhead modules were invisible to this hook, so an
+  # edit to any of them passed pre-commit locally and only failed in CI's mypy-beachhead job. See
+  # tests/test_meta/test_precommit_mypy_beachhead_coverage.py for the meta-test that now pins
+  # this regex against pyproject.toml's actual override list.
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v2.1.0
     hooks:
       - id: mypy
-        files: '^src/mlframe/calibration/'
+        files: '^src/mlframe/(calibration/|utils/safe_pickle\.py$|system/_gpu_guard\.py$|metrics/(_numba_params|rank_correlation|_core_precision_mape)\.py$)'
         # --follow-imports=silent: this hook's isolated env has none of calibration's heavy
         # transitive deps installed (pandas/torch/lightning/numba/pyutilz), so default
         # follow-imports="normal" walks into every module they import, collapses each
