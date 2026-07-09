@@ -153,6 +153,19 @@ def test_error_bias_feature_subset(reg_clean):
     assert list(res.group_means.index) == ["f1"]
 
 
+def test_error_bias_unmatched_feature_name_is_surfaced_not_silently_dropped(reg_clean):
+    """Regression: a requested feature name with a typo (e.g. renamed upstream) must not vanish with zero trace.
+
+    Pre-fix, ``[names.index(f) for f in features if f in names]`` silently excluded "f1_typo" -- the returned figure
+    had exactly the same panels as a clean ``features=["f1"]`` call, no note anywhere that a request was dropped.
+    """
+    X, yt, yp = reg_clean
+    res = error_bias_per_feature(X, yt, yp, features=["f1", "f1_typo"])
+    assert list(res.group_means.index) == ["f1"]  # only the real feature is plotted
+    assert "f1_typo" in res.figure.suptitle  # but the miss must be named, not silently absent
+    assert "not found" in res.figure.suptitle or "skipped" in res.figure.suptitle
+
+
 def test_biz_val_error_bias_over_group_mean_shifts_high():
     """Overestimates injected at HIGH feat0 values: the OVER group's feat0 mean MUST sit materially above MAJORITY.
 

@@ -87,6 +87,24 @@ def test_leaderboard_external_baseline_label():
     assert abs(ref - 0.5) < 1e-9 and label == "baseline"
 
 
+def test_leaderboard_partial_metric_miss_is_surfaced_not_silently_dropped():
+    """Regression: one of three models lacks the headline metric key (typo'd/renamed/failed-to-compute).
+
+    Pre-fix, the missing model's bar vanished with zero indication (only the ALL-missing case was annotated).
+    The bar chart must both keep dropping the bar (a NaN can't be plotted) AND name the skipped model in the title.
+    """
+    per_model = {
+        "A": _binary_entry([0, 1], [0.1, 0.9], roc_auc=0.95),
+        "B": _binary_entry([0, 1], [0.4, 0.6]),  # no roc_auc key at all -- the failure mode under test
+        "C": _binary_entry([0, 1], [0.3, 0.7], roc_auc=0.85),
+    }
+    fig = mc.compose_model_comparison_figure(per_model, "binary", metric="roc_auc")
+    bar = next(p for row in fig.panels for p in row if isinstance(p, BarPanelSpec))
+    assert bar.categories == ("A", "C")  # B still can't be plotted (no finite value)
+    assert "B" in bar.title  # but must be named as skipped, not silently absent
+    assert "N/A for" in bar.title
+
+
 def test_non_binary_uses_sorted_prediction_overlay():
     rng = np.random.default_rng(2)
     per_model = {
