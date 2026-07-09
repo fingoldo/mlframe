@@ -146,6 +146,35 @@ def test_honest_oof_collapse_returns_inf():
     assert res[huge.name] == float("inf") or res[huge.name] > 1e3
 
 
+def test_domain_check_crash_logs_warning(caplog, monkeypatch):
+    """``domain_check`` raising must be logged at WARNING, not silently treated as a clean no-restriction result.
+
+    Pre-fix: the ``except Exception:`` branch around ``transform.domain_check`` had no logging at all, so a
+    genuinely broken domain guard (e.g. a future shape bug) failed OPEN with zero operator-visible signal.
+    """
+    df, groups, y, levels = _frame()
+    screen_idx, holdout_idx = _split_upper_tail(groups, levels)
+    disc = _disc(groups, holdout_idx)
+    spec = _spec("y-linres-basefull", "linear_residual", "base_full", {"alpha": 1.0, "beta": 0.0})
+
+    import dataclasses
+
+    from mlframe.training.composite.discovery import _honest_oof_select as _mod
+
+    broken_transform = dataclasses.replace(
+        get_transform(spec.transform_name), domain_check=lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
+    monkeypatch.setattr(_mod, "get_transform", lambda name: broken_transform)
+
+    with caplog.at_level("WARNING", logger="mlframe.training.composite.discovery._honest_oof_select"):
+        res = honest_oof_reconstruction_rmse(disc, df, "y", [spec], _FEATS, screen_idx, holdout_idx, y)
+
+    assert spec.name in res  # still scored (fails open, as before)
+    assert any("domain_check" in rec.message for rec in caplog.records), (
+        "a crashing domain_check must be logged at WARNING so a broken domain guard is operator-visible"
+    )
+
+
 def test_honest_oof_noop_without_group_ids():
     df, groups, y, levels = _frame()
     screen_idx, holdout_idx = _split_upper_tail(groups, levels)

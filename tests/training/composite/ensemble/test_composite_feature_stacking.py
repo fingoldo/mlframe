@@ -88,6 +88,40 @@ class TestPredictionsAsFeature:
         with pytest.raises(KeyError):
             composite_predictions_as_feature(wrapper, df_bad)
 
+    def test_fallback_on_predict_failure_logs_warning(self, caplog) -> None:
+        """A predict-time failure swallowed into the constant fallback must be visible to operators.
+
+        Pre-fix: the except branch had no logger call at all, so a schema-drift / shape-mismatch bug was
+        indistinguishable from the intentional abstain-with-fallback path.
+        """
+        df, y = _make_dataset()
+        wrapper = _fit_wrapper(df, y)
+        df_bad = df.drop(columns=["base"])
+        with caplog.at_level("WARNING", logger="mlframe.training.composite.ensemble.feature_stacking"):
+            composite_predictions_as_feature(wrapper, df_bad, column_name="pred", fallback_value=0.0)
+        assert any("predict failed" in rec.message for rec in caplog.records), (
+            "wrapper.predict failure must be logged at WARNING, not silently swallowed"
+        )
+
+    def test_large_frame_copy_raises_without_opt_in(self, monkeypatch) -> None:
+        """A pandas frame above the large-frame threshold must raise instead of silently doubling RAM via ``df.copy()``."""
+        from mlframe.training.composite.ensemble import feature_stacking as fs_mod
+
+        df, y = _make_dataset()
+        wrapper = _fit_wrapper(df, y)
+        monkeypatch.setattr(fs_mod, "_FEATURE_STACK_LARGE_FRAME_BYTES", 1)  # force every frame to look "large"
+        with pytest.raises(RuntimeError, match="allow_large_frame_copy"):
+            composite_predictions_as_feature(wrapper, df)
+
+    def test_large_frame_copy_allowed_with_opt_in(self, monkeypatch) -> None:
+        from mlframe.training.composite.ensemble import feature_stacking as fs_mod
+
+        df, y = _make_dataset()
+        wrapper = _fit_wrapper(df, y)
+        monkeypatch.setattr(fs_mod, "_FEATURE_STACK_LARGE_FRAME_BYTES", 1)
+        out = composite_predictions_as_feature(wrapper, df, allow_large_frame_copy=True)
+        assert len(out) == len(df)
+
 
 # ===========================================================================
 # composite_oof_predictions
