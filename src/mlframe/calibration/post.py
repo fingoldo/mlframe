@@ -106,6 +106,7 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
     calibrator: object
     fit_method_name: str
     transform_method_name: str
+    needs_2d_probs: Optional[bool]
     _resolved_transform_method_name: str
 
     def __init__(
@@ -113,16 +114,22 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         calibrator: object,
         fit_method_name: str = "fit",
         transform_method_name: str = "transform",
+        needs_2d_probs: Optional[bool] = None,
     ) -> None:
         store_params_in_object(obj=self, params=get_parent_func_args())
 
-    @staticmethod
-    def _calibrator_needs_2d_probs(calibrator: object) -> bool:
+    def _calibrator_needs_2d_probs(self, calibrator: object) -> bool:
         """Returns True if the wrapped calibrator expects a 2D (n_samples, n_classes) prob matrix.
 
-        Replaces substring-matching on the class name with isinstance checks against the
-        relevant calibrator classes (imported lazily so optional deps can be missing).
+        Uses isinstance checks against the relevant calibrator classes (imported lazily so optional
+        deps can be missing) rather than substring-matching on the class name. Any calibrator NOT in
+        the hardcoded ``_NEEDS_2D_CALIBRATORS`` list -- a caller-supplied custom calibrator, or a class
+        added to a supported library in a future release -- silently defaults to the 1D path here, so
+        ``self.needs_2d_probs`` (set at construction via ``named_calibrator``) is checked first as an
+        explicit caller override; only when it is ``None`` do we fall back to the isinstance/name guess.
         """
+        if self.needs_2d_probs is not None:
+            return self.needs_2d_probs
         # Late imports: some of these are optional (dirichletcal) or may be reshuffled upstream.
         needs_2d_types = [cls for module_path, class_name in _NEEDS_2D_CALIBRATORS if (cls := _try_import_class(module_path, class_name)) is not None]
         # "Top" calibrators (e.g. TopLabelCalibrator style) preserve 2D shape; match by class-name
@@ -243,7 +250,9 @@ def named_calibrator(
     """Wrap a raw calibrator object into a ``NamedCalibrator`` (with a ``BinaryPostCalibrator`` adapter).
 
     ``name``/``param_str``/``lib`` feed the display identifier; extra kwargs are forwarded to the
-    ``BinaryPostCalibrator`` (e.g. ``fit_method_name``, ``transform_method_name``).
+    ``BinaryPostCalibrator`` (e.g. ``fit_method_name``, ``transform_method_name``, ``needs_2d_probs``
+    to override the isinstance-based 2D-probs auto-detection for a calibrator not in the hardcoded
+    ``_NEEDS_2D_CALIBRATORS`` list).
     """
     return NamedCalibrator(
         calibrator=BinaryPostCalibrator(calibrator=calibrator_obj, **postcal_kwargs),
@@ -387,6 +396,20 @@ def compare_postcalibrators(
     if selection not in ("inner_cv", "self_eval"):
         raise ValueError(f"compare_postcalibrators: selection must be 'inner_cv' or 'self_eval'; got {selection!r}")
 
+    # get_postcalibrators/BinaryPostCalibrator wrap third-party BINARY calibrators only (see class
+    # docstring): postcalibrate_probs unconditionally reduces to a positive-class column and reshapes
+    # 1D output into a (n, 2) matrix, which is only correct for exactly 2 classes. A 3+-class or
+    # single-class calib_target must raise here rather than silently mis-fit deep inside sklearn/netcal.
+    _classes_check = np.unique(np.asarray(calib_target))
+    if _classes_check.size != 2:
+        raise ValueError(
+            f"compare_postcalibrators: calib_target must have exactly 2 distinct classes (got {_classes_check.size}: "
+            f"{_classes_check.tolist()!r}). The calibrator zoo (BinaryPostCalibrator/get_postcalibrators) is binary-only; "
+            "a 3+-class target silently mis-fits some wrapped calibrators, and a single-class target crashes deep "
+            "inside third-party fit() calls (e.g. sklearn's 'needs samples of at least 2 classes'). Provide a "
+            "2-class calib_target, or route multi-class calibration through a one-vs-rest wrapper upstream."
+        )
+
     logger.info(
         "Calib set size=%d, oos set size=%d, num_bins=%s.",
         len(calib_target),
@@ -455,14 +478,34 @@ def compare_postcalibrators(
 
     calibrators = get_postcalibrators(calib_target=calib_target, num_bins=num_bins)
 
+    _seen_names: dict[str, int] = {}
     for nc in tqdmu(calibrators, desc="calibrator"):
         clf = nc.calibrator
         calibrator_name = nc.full_name()
+
+        # full_name() collisions (two zoo entries resolving to the same lib.Name[param_str] key,
+        # e.g. a caller-added custom calibrator without a distinguishing name/param_str) would
+        # otherwise silently overwrite one calibrator's row in metrics/fit_calibrators -- disambiguate
+        # with a numeric suffix and warn, rather than dropping a result with no error (P1-5).
+        if calibrator_name in _seen_names:
+            _seen_names[calibrator_name] += 1
+            _disambiguated_name = f"{calibrator_name}#{_seen_names[calibrator_name]}"
+            logger.warning(
+                "compare_postcalibrators: calibrator name %r collides with a previously-seen entry; "
+                "renaming this one to %r to avoid silently overwriting its result. Give it a distinguishing "
+                "name/param_str in get_postcalibrators/named_calibrator to fix at the source.",
+                calibrator_name,
+                _disambiguated_name,
+            )
+            calibrator_name = _disambiguated_name
+        else:
+            _seen_names[calibrator_name] = 0
 
         if not should_run(calibrator_name, include_patterns, skip_patterns):
             # logger.info(f"Skipping calibrator: {calibrator_name} due to matching skip pattern.")
             continue
 
+        _calibrator_start = timer()
         try:
             with config_context(transform_output="default"):
 
@@ -491,7 +534,7 @@ def compare_postcalibrators(
                         fold_clf.fit(calib_probs_np[train_idx], calib_target_np[train_idx])
                         fold_pred = np.asarray(fold_clf.postcalibrate_probs(calib_probs_np[held_idx]))
                         if oof_calibrated is None:
-                            oof_calibrated = np.empty((calib_target_np.shape[0],) + fold_pred.shape[1:], dtype=fold_pred.dtype)
+                            oof_calibrated = np.empty((calib_target_np.shape[0], *fold_pred.shape[1:]), dtype=fold_pred.dtype)
                         oof_calibrated[held_idx] = fold_pred
                     calibrated_probs = oof_calibrated
                     fitting_time = timer() - start
@@ -512,9 +555,13 @@ def compare_postcalibrators(
                     predicting_time = timer() - start
                     _row_eval_target = _eval_target
         except Exception as exc:
+            # Elapsed time up to the point of failure -- a calibrator that hangs/is unusually slow
+            # before crashing otherwise leaves no partial timing signal to diagnose which one (P2-1).
+            _elapsed = timer() - _calibrator_start
             logger.warning(
-                "compare_postcalibrators: calibrator %s failed to fit/predict and is skipped: %r",
+                "compare_postcalibrators: calibrator %s failed to fit/predict after %.3fs and is skipped: %r",
                 calibrator_name,
+                _elapsed,
                 exc,
                 exc_info=True,
             )
@@ -559,9 +606,31 @@ def compare_postcalibrators(
         # (a dict of per-metric scores); we flatten it into wide-form columns and drop the
         # feature_importances column which isn't useful for calibrator comparison.
         PERF_DICT_COL = 1
-        metrics_df = (
-            metrics_df.drop(columns=[PERF_DICT_COL]).join(metrics_df[PERF_DICT_COL].apply(pd.Series)).drop(columns=["feature_importances"]).sort_values("ice")
-        )
+        perf_dict_df = metrics_df[PERF_DICT_COL].apply(pd.Series)
+        # report_model_perf's per-calibrator dict shape may vary across task types/configs (e.g. a
+        # metric undefined for a degenerate/constant prediction). Taking the UNION of keys means a
+        # calibrator missing a key gets a NaN there instead of raising -- surface that explicitly
+        # rather than letting it silently rank the calibrator via NaN sort placement (P1-4).
+        _row_key_counts = perf_dict_df.notna().sum(axis=1)
+        _expected_keys = perf_dict_df.shape[1]
+        _incomplete_rows = _row_key_counts[_row_key_counts < _expected_keys]
+        if not _incomplete_rows.empty:
+            logger.warning(
+                "compare_postcalibrators: %d calibrator(s) have a narrower metric-key set than the rest "
+                "(missing metrics NaN-filled rather than computed): %s",
+                len(_incomplete_rows),
+                {name: _expected_keys - int(cnt) for name, cnt in _incomplete_rows.items()},
+            )
+        metrics_df = metrics_df.drop(columns=[PERF_DICT_COL]).join(perf_dict_df)
+        metrics_df = metrics_df.drop(columns=["feature_importances"], errors="ignore")
+        if "ice" in metrics_df.columns:
+            metrics_df = metrics_df.sort_values("ice")
+        else:
+            logger.warning(
+                "compare_postcalibrators: expected 'ice' metric column not found in report_model_perf output "
+                "(got columns=%s); skipping the ice-based sort.",
+                list(metrics_df.columns),
+            )
 
     return metrics_df, fit_calibrators, failed_calibrators
 
@@ -805,7 +874,7 @@ def train_postcalibrators(
         verbose=bool(verbose),
     )
 
-    first_model = list(models.values())[0]
+    first_model = next(iter(models.values()))
     columns = first_model.columns
 
     calib_test_metrics, test_calibrators, failed_calibrators = compare_postcalibrators(
@@ -827,17 +896,14 @@ def train_postcalibrators(
             failed_calibrators,
         )
 
-    # Wave 46 (2026-05-20): raw caller-supplied target/featureset/task/model names
-    # plumbed into os.path.join is a path-traversal vector (one absolute component
-    # eats the prefix, "../../etc" escapes). Mirror the slugify discipline used at
-    # _setup_helpers.py:852 and _phase_finalize.py:71.
-    from pyutilz.strings import slugify as _slugify
+    # Raw caller-supplied target/featureset/task/model names plumbed into os.path.join is a
+    # path-traversal vector (one absolute component eats the prefix, "../../etc" escapes).
     final_models_dir = join(
         models_dir,
-        _slugify(target_name),
-        _slugify(featureset_name),
-        _slugify(str(task_type)),
-        _slugify(model_name),
+        slugify(target_name),
+        slugify(featureset_name),
+        slugify(str(task_type)),
+        slugify(model_name),
     )
 
     for calib_name, calibrator in test_calibrators.items():

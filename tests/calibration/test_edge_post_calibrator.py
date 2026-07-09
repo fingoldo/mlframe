@@ -128,8 +128,18 @@ def test_predict_proba_alias_matches_postcalibrate(calib_data):
 
 def test_top_prefix_routes_to_2d_and_identity_does_not():
     # A "Top*"-named calibrator preserves the 2D shape; a plain 1D calibrator does not.
-    assert BinaryPostCalibrator._calibrator_needs_2d_probs(TopFoo()) is True
-    assert BinaryPostCalibrator._calibrator_needs_2d_probs(_IdentityCal()) is False
+    assert BinaryPostCalibrator(TopFoo())._calibrator_needs_2d_probs(TopFoo()) is True
+    assert BinaryPostCalibrator(_IdentityCal())._calibrator_needs_2d_probs(_IdentityCal()) is False
+
+
+def test_needs_2d_probs_override_wins_over_isinstance_guess():
+    # Explicit caller override (via named_calibrator's needs_2d_probs kwarg) must win regardless of
+    # what the isinstance/name-prefix guess would otherwise conclude -- this is the escape hatch for
+    # custom/unlisted calibrators (P1-6: unlisted calibrators default to the possibly-wrong 1D guess).
+    forced_2d = BinaryPostCalibrator(_IdentityCal(), needs_2d_probs=True)
+    assert forced_2d._calibrator_needs_2d_probs(_IdentityCal()) is True
+    forced_1d = BinaryPostCalibrator(TopFoo(), needs_2d_probs=False)
+    assert forced_1d._calibrator_needs_2d_probs(TopFoo()) is False
 
 
 def test_is_venn_abers_false_when_dep_absent_or_unrelated():
