@@ -468,7 +468,10 @@ def find_underdelivering_pairs(
     if np.unique(y_dense).size < 2:
         return out
     nbq = int(self.quantization_nbins)
-    raw_names = set(getattr(self, "feature_names_in_", []) or [])
+    # feature_names_in_ is an ndarray (sklearn convention); "or []" on it would test its truthiness and raise
+    # ("truth value of an array... is ambiguous") once it holds more than one element -- getattr's own default
+    # already covers the missing-attribute case, so no "or" fallback is needed.
+    raw_names = set(getattr(self, "feature_names_in_", []))
     eng_cont = getattr(self, "_engineered_continuous_", None)
     seed = int(getattr(self, "random_seed", 0) or 0)
     excess_frac = float(getattr(self, "fe_escalation_underdelivery_excess_frac", 0.05))
@@ -589,7 +592,7 @@ def run_fe_auto_escalation(
         info["skipped"] = f"n_rows={n_rows} < fe_escalation_min_rows={min_rows}"
         return []
 
-    raw_names = set(getattr(self, "feature_names_in_", []) or [])
+    raw_names = set(getattr(self, "feature_names_in_", []))
     eng_cont = getattr(self, "_engineered_continuous_", None)
     max_pairs = int(getattr(self, "fe_escalation_max_pairs", 8))
     min_val_corr = float(getattr(self, "fe_escalation_min_val_corr", 0.15))

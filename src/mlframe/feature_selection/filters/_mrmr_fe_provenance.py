@@ -353,7 +353,9 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
         names.append(s)
 
     support = getattr(mrmr_self, "support_", None)
-    feature_names_in = getattr(mrmr_self, "feature_names_in_", None) or []
+    # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
+    _fni_prov = getattr(mrmr_self, "feature_names_in_", None)
+    feature_names_in = _fni_prov if _fni_prov is not None else []
     if support is not None and len(feature_names_in):
         try:
             for idx in np.asarray(support).tolist():

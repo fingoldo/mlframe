@@ -106,7 +106,8 @@ def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> Non
     if y_cont.size == 0 or not np.isfinite(y_cont).any() or float(np.nanstd(y_cont)) < 1e-12:
         return
 
-    feature_names = list(getattr(mrmr, "feature_names_in_", []) or [])
+    # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
+    feature_names = list(getattr(mrmr, "feature_names_in_", []))
     if not feature_names:
         return
     df = _raw_numeric_frame(X, feature_names)

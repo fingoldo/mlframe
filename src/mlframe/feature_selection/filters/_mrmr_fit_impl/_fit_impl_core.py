@@ -683,6 +683,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     fourier_adaptive_min_val_corr=_fourier_adaptive_mvc,
                     fourier_chirp=_fourier_chirp,
                     fourier_chirp_min_val_corr=_fourier_chirp_mvc,
+                    max_adaptive_cols=getattr(self, "fe_univariate_fourier_adaptive_max_cols", None),
                 )
                 _e_appended = [c for c in X_e.columns if c not in _X_before_extra_cols]
                 if _e_appended:
@@ -4419,6 +4420,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     max_legs=int(getattr(self, "fe_wavelet_max_legs", 6)),
                     top_k=int(getattr(self, "fe_wavelet_top_k", 8)),
                     feature_dtype=getattr(self, "usability_feature_dtype", np.float32),
+                    max_cols=getattr(self, "fe_wavelet_max_cols", None),
                 )
                 _wv_appended = [c for c in _wv_appended if c not in _X_before_wv_cols]
                 if _wv_appended:
@@ -5113,9 +5115,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # indices are re-appended to ``support_`` at fit-end so transform re-emits them.
     _names_source = getattr(self, "_passthrough_full_columns_", None) if self._passthrough_features_ else None
     if _names_source is not None:
-        self.feature_names_in_ = [c for c in _names_source if c not in _engineered_names_set]
+        _fni = [c for c in _names_source if c not in _engineered_names_set]
     else:
-        self.feature_names_in_ = [c for c in _all_cols if c not in _engineered_names_set]
+        _fni = [c for c in _all_cols if c not in _engineered_names_set]
+    # ndarray (not list) to match sklearn's own feature_names_in_ contract (BaseEstimator._check_feature_names) and
+    # every other MRMR fit-path assignment (_mrmr_class_fit_helpers.py); a plain list here was the one straggler
+    # that made ``==`` comparisons against a list/array ambiguous for callers expecting the canonical type.
+    self.feature_names_in_ = np.asarray(_fni, dtype=object)
     self.n_features_in_ = len(self.feature_names_in_)
 
     # FE AUTO-ESCALATION fitting target (2026-06-10): a RANK transform of the raw
@@ -5581,7 +5587,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # columns to data / cols / X before this step. Crossing those is unreplayable -- the engineered source
         # is absent from the user's raw frame at transform time -> NaN column / silent feature drop. Restrict to
         # ``feature_names_in_`` (the raw user columns, set above, excludes engineered names).
-        _raw_name_set = set(getattr(self, "feature_names_in_", None) or [])
+        # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
+        _fni_raw = getattr(self, "feature_names_in_", None)
+        _raw_name_set = set(_fni_raw) if _fni_raw is not None else set()
         _num_raw_values = {}
         for _ci in range(len(cols)):
             if _ci in _cat_idx_set or _ci in _tgt_idx_set:
@@ -5725,9 +5733,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # confirm-rescreen so cluster discovery (anchor graph, pruned mask,
     # swap_log) accumulates instead of being rebuilt empty each iteration.
     _persisted_dcd_state = None
+    # Carries the prior round's relevance/redundancy caches into the next screen_predictors() call
+    # (2026-07-09 fix) -- see screen_predictors' ``seed_caches`` docstring. Mirrors the DCD-state
+    # threading immediately above; before this fix each round rebuilt all 4 caches from scratch, fully
+    # rescoring every raw column's relevance/entropy/conditional-MI even though those values cannot
+    # change round-to-round (the data they're computed from is stable; only new columns get appended).
+    _persisted_screen_caches = None
+    # Cross-round cache for the maxT permutation-null gain floor (2026-07-09 fix; see
+    # compute_fdr_gain_floor's ``maxt_floor_cache`` docstring) -- a plain dict, mutated in place by
+    # every screen_predictors() call this fit, so a raw-pool floor computed in round 1 is not
+    # recomputed identically in round 2/3.
+    _persisted_maxt_floor_cache: dict = {}
+    # Carries the warmed joblib worker pool (n_workers>1 only) into the next screen_predictors() call
+    # (2026-07-09 fix) -- see screen_predictors' ``seed_workers_pool`` docstring. ``None`` at n_workers<=1
+    # (no pool built) or before round 1.
+    _persisted_workers_pool = None
+    # Declared BEFORE the loop (2026-07-09 fix) so per-binary-func timing accumulates across ALL
+    # screen/FE rounds of this fit, not just the last one -- previously reset to empty at the top of
+    # every iteration, so the end-of-fit log only ever reflected the FINAL round's timing even though
+    # this loop typically runs 2-3 rounds per fit (raw screen, FE step(s), confirm-rescreen).
+    times_spent: defaultdict = defaultdict(float)
     while True:
         n_recommended_features = 0
-        times_spent: defaultdict = defaultdict(float)
         # Resolve the fit's ONE shared row draw BEFORE the screen so the order-1 relevance sweep + FDR
         # floor score on it (screen is the first consumer -> caches the draw -> the FE step reuses the
         # SAME rows). None at small n -> full-n screen, unchanged.
@@ -5750,6 +5777,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             classes_y_safe,
             freqs_y,
             _dcd_state,
+            _persisted_workers_pool,
         ) = screen_predictors(
             factors_data=data,
             y=target_indices,  # type: ignore[arg-type]
@@ -5876,9 +5904,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # rebuilds an empty state and the published dcd_ summary loses
             # the screen-1 dup cluster (n_pruned/cluster_anchors reset).
             existing_dcd_state=_persisted_dcd_state,
+            seed_caches=_persisted_screen_caches,
+            seed_maxt_floor_cache=_persisted_maxt_floor_cache,
+            seed_workers_pool=_persisted_workers_pool,
         )
         if _dcd_state is not None:
             _persisted_dcd_state = _dcd_state
+        _persisted_screen_caches = (entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs)
         # 2026-05-30 Wave 9 — stash DCD summary on the estimator for the
         # public ``dcd_`` attribute (None when DCD was disabled).
         try:
@@ -5935,6 +5967,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             except Exception:  # nosec B110 - non-trivial body
                 # Best-effort -- if DCDState is malformed, fall through.
                 pass
+
+        # MEMORY: prune fit-time ``_engineered_continuous_`` scratch for engineered columns that did not
+        # survive THIS round's screen -- see ``_prune_engineered_continuous_store`` docstring for why this
+        # is safe (the FE operand pool only widens beyond ``selected_vars`` on the very first FE step,
+        # before any engineered column exists). No-op when the store is empty/absent.
+        if getattr(self, "_engineered_continuous_", None):
+            from ._helpers import _prune_engineered_continuous_store
+            _prune_engineered_continuous_store(self, cols, selected_vars)
 
         if fe_max_steps == 0 or num_fs_steps >= fe_max_steps:
             break
@@ -6139,8 +6179,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except Exception:
             self._engineered_continuous_ = {}
 
-    if verbose > 2:
-        logger.info("time spent by binary func: %s", sort_dict_by_value(times_spent))
+    # Surfaced at verbose>=1 (2026-07-09; was gated behind verbose>2, an unrealistically high bar that
+    # left this cumulative-per-operator timing breakdown effectively invisible to normal production runs).
+    if verbose and times_spent:
+        logger.info("MRMR FE time spent by binary func (cumulative across all rounds): %s", sort_dict_by_value(times_spent))
     # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -6947,7 +6989,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _rp_rel_frac = float(getattr(self, "min_relevance_gain_relative_to_first", 0.0) or 0.0)
                 _rp_max_mi = max((float(_v) for _v in cached_MIs.values()), default=0.0) if isinstance(cached_MIs, dict) else 0.0
                 _rp_floor = max(_rp_rel_floor, _rp_max_mi * _rp_rel_frac)
-                for _rn in getattr(self, "feature_names_in_", None) or []:
+                # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
+                _fni_rp = getattr(self, "feature_names_in_", None)
+                for _rn in (_fni_rp if _fni_rp is not None else []):
                     _ridx = _cols_index_r.get(_rn)
                     if _ridx is None or _ridx in _sv_set_r or _rn not in X.columns:
                         continue
@@ -7642,9 +7686,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self._engineered_recipes_ = []
     original_indices = []
     engineered_without_recipe = []
+    # feature_names_in_ is an ndarray (sklearn convention); list() once so .index() below (an ndarray has no
+    # .index() method) works and the loop below doesn't rebuild it every iteration.
+    _fni_list = list(self.feature_names_in_)
     for col in selected_vars_names:
         if col in self.feature_names_in_:
-            original_indices.append(self.feature_names_in_.index(col))
+            original_indices.append(_fni_list.index(col))
         else:
             self._engineered_features_.append(col)
             recipe = engineered_recipes.get(col)
@@ -7679,9 +7726,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # but always survive to the estimator (the learnable-embedding network + boundary encoder consume them).
     if self._passthrough_features_:
         _existing = set(selected_vars)
+        _fni_list = list(self.feature_names_in_)
         for _pname in self._passthrough_features_:
             if _pname in self.feature_names_in_:
-                _pidx = self.feature_names_in_.index(_pname)
+                _pidx = _fni_list.index(_pname)
                 if _pidx not in _existing:
                     selected_vars.append(_pidx)
                     _existing.add(_pidx)
@@ -7818,8 +7866,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 new_features = np.array(temp_columns)[cb_num_rfecv.support_]
                 if verbose:
                     logger.info("RFECV selected %d additional feature(s): %s", cb_num_rfecv.n_features_, new_features)
+                _fni_list = list(self.feature_names_in_)
                 for feature in new_features:
-                    selected_vars.append(self.feature_names_in_.index(feature))
+                    selected_vars.append(_fni_list.index(feature))
             else:
                 if verbose:
                     logger.info("RFECV selected no additional features.")
@@ -7948,7 +7997,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     # the same translation the main selection does at the ``selected_vars_names`` split. Assigning the raw cols-space index directly let an
                     # out-of-range index (>= n_features_in_) reach ``support_`` and crashed ``transform`` with IndexError when feature_names_in_ was narrower.
                     _operand_name_ne = cols[_best_idx_ne]
-                    selected_vars = [self.feature_names_in_.index(_operand_name_ne)]
+                    selected_vars = [list(self.feature_names_in_).index(_operand_name_ne)]
                     if verbose:
                         logger.info(
                             "MRMR never-empty raw representative: support_ would be empty (only engineered "
@@ -8676,7 +8725,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 if _rr_excl_names:
                     _raw_extra = [_nm for _nm in _raw_extra if str(_nm) not in _rr_excl_names]
             if _raw_extra:
-                _name_to_in_idx = {nm: i for i, nm in enumerate(getattr(self, "feature_names_in_", []) or [])}
+                # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
+                _name_to_in_idx = {nm: i for i, nm in enumerate(getattr(self, "feature_names_in_", []))}
                 # Append to the local ``selected_vars`` (the canonical raw-support list every downstream
                 # step -- n_features_, the marginal-MI augmentation, the elbow trim, and the final
                 # ``self.support_ = np.array(selected_vars)`` -- reads), NOT directly to ``self.support_``:
@@ -8823,7 +8873,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 if _rel > _bf_rel:
                                     _bf_rel, _bf_idx = _rel, _dn
                             if _bf_idx is not None and _bf_idx in self.feature_names_in_:
-                                selected_vars = [self.feature_names_in_.index(_bf_idx)]
+                                selected_vars = [list(self.feature_names_in_).index(_bf_idx)]
                                 self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) - {_bf_idx}
                         self.support_ = np.array(selected_vars, dtype=np.int64)
                         if verbose:

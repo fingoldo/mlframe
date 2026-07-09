@@ -499,7 +499,8 @@ def check_sufficient_summary_for_mrmr(
         yv = np.asarray(yv, dtype=np.float64).reshape(-1)
 
         cols_list = list(cols)
-        raw_name_set = set(getattr(self, "feature_names_in_", []) or [])
+        # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
+        raw_name_set = set(getattr(self, "feature_names_in_", []))
         raw_cols_idx = [i for i, nm in enumerate(cols_list) if nm in raw_name_set and i not in set(int(t) for t in target_indices)]
 
         # Continuous values for selected columns: raw from X (by name), engineered from the

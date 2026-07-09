@@ -41,6 +41,16 @@ from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 from ._helpers import _synergy_bootstrap_can_supply_pool
 
 
+def _should_serialize_fe_pair_check(n_prospective_pairs: int, gpu_fe_active: bool, serial_min_pairs_per_worker: int) -> bool:
+    """Route ``check_prospective_fe_pairs`` to the serial-main-thread branch instead of the joblib
+    threading fan-out. True when the GPU-discretize path is active (N threads would otherwise all
+    contend for the single device -- see the GPU-FE SERIALIZE comment at this module's main call site) OR
+    when there are too few prospective pairs to fill the worker pool. Extracted as a pure, directly
+    testable predicate (2026-07-09, MRMR audit finding #27 regression coverage); behavior is unchanged.
+    """
+    return bool(gpu_fe_active) or int(n_prospective_pairs) < int(serial_min_pairs_per_worker)
+
+
 def _free_gpu_fe_mempool() -> bool:
     """Free the cupy default pool's UNUSED blocks at GPU FE-step teardown; return whether a free was issued.
 
@@ -538,7 +548,10 @@ def _run_fe_step(
     # block so the standard pipeline always runs after the Hermite block;
     # users get the unary/binary FE they asked for via
     # ``fe_unary_preset='medium'`` regardless of whether Hermite ran.
-    original_cols = {i: self.feature_names_in_.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
+    # feature_names_in_ is an ndarray (sklearn convention) -- list() once so .index() works (ndarray has none)
+    # and the comprehension below doesn't rebuild it per element.
+    _fni_list = list(self.feature_names_in_)
+    original_cols = {i: _fni_list.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
     if verbose >= 1:
         logger.info("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
 
@@ -669,7 +682,7 @@ def _run_fe_step(
         _gpu_fe_active = bool(_fe_gpu_disc_gate(int(getattr(X, "shape", [0])[0] or 0), 256))
     except Exception:
         _gpu_fe_active = False
-    if _gpu_fe_active or len(prospective_pairs) < _fe_serial_min_pairs_per_worker:
+    if _should_serialize_fe_pair_check(len(prospective_pairs), _gpu_fe_active, _fe_serial_min_pairs_per_worker):
         prospective_additions = check_prospective_fe_pairs(
             prospective_pairs,
             X,

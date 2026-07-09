@@ -77,7 +77,7 @@ def run():
             m = MRMR(max_runtime_mins=1.5, random_seed=sd, verbose=0)
             m.fit(X, y); nfit += 1
             yc = getattr(m, "_fe_prewarp_y_continuous_", None)
-            feat_in = list(getattr(m, "feature_names_in_", []) or [])
+            feat_in = list(getattr(m, "feature_names_in_", []))
             sup = np.asarray(getattr(m, "support_", []), dtype=int).ravel()
             raw_cols = [feat_in[i] for i in sup if 0 <= i < len(feat_in)]
             base_recipes = list(getattr(m, "_engineered_recipes_", []) or [])

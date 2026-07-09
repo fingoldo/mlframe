@@ -46,7 +46,10 @@ def test_identity_shortcut_ndarray_no_attribute_error():
     # the shortcut path itself).
     sel._fit_identity_shortcut(X)
     assert sel.support_.tolist() == list(range(4))
-    assert sel.feature_names_in_ == [f"f{i}" for i in range(4)]
+    # feature_names_in_ is an ndarray (sklearn's own convention, BaseEstimator._check_feature_names) --
+    # compare via .tolist(), not a bare ``==`` against a list (which broadcasts elementwise and raises
+    # "truth value of an array... is ambiguous" under assert).
+    assert list(sel.feature_names_in_) == [f"f{i}" for i in range(4)]
     assert sel.n_features_in_ == 4
 
 
@@ -60,7 +63,7 @@ def test_identity_shortcut_dataframe_preserves_column_names():
     )
     sel = MRMR(verbose=0)
     sel._fit_identity_shortcut(X)
-    assert sel.feature_names_in_ == ["alpha", "beta", "gamma", "delta"]
+    assert list(sel.feature_names_in_) == ["alpha", "beta", "gamma", "delta"]
 
 
 def test_identity_shortcut_ndarray_via_cache_hit_completes_without_crash():

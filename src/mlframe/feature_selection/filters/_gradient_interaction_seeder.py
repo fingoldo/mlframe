@@ -398,7 +398,8 @@ def propose_gradient_interaction_pairs(
 
     n_rows = int(data.shape[0]) if hasattr(data, "shape") else 0
     # build the raw-numeric candidate pool (mirror apply_synergy_bootstrap's filtering)
-    _raw_names = set(getattr(self, "feature_names_in_", []) or [])
+    # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
+    _raw_names = set(getattr(self, "feature_names_in_", []))
     _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
     _cat_set = set(categorical_vars)
     _raw_numeric_idx = {i for i, nm in enumerate(cols) if nm in _raw_names and i not in _target_idx_set and i not in _cat_set}

@@ -23,27 +23,37 @@ import numpy as np
 
 @numba.njit(cache=True, fastmath={"reassoc", "contract", "arcp", "afn", "nsz"})
 def _abs_pearson_njit(y, v):
-    """One-pass ``|Pearson corr|`` over jointly-finite rows: accumulate sums/sum-sq/cross in a single walk, no
-    isfinite-mask + boolean-index copies + two np.std + a mean temp. FP-equivalent to the numpy form to ~1e-15
-    (selection-safe for the wide usability |corr| thresholds). 0.0 on <2 valid rows or a (near-)constant side.
+    """TWO-PASS ``|Pearson corr|`` over jointly-finite rows: pass 1 gets the finite count + means, pass 2 accumulates
+    MEAN-CENTERED sums-of-squares/cross. No isfinite-mask + boolean-index copies (each pass is branchless). 0.0 on
+    <2 valid rows or a (near-)constant side.
 
-    Accepts f32 OR f64 arrays: each value is promoted to float64 BEFORE the squares/products, so the arithmetic (and the
-    result) is bit-identical whatever the input dtype -- letting the caller pass an f32 array WITHOUT a full-length f64
-    copy, while the sum-of-squares still runs in f64 (no catastrophic cancellation on a large-mean column).
+    Accepts f32 OR f64 arrays: each value is promoted to float64 before arithmetic, so the result is bit-identical
+    whatever the input dtype -- letting the caller pass an f32 array without a full-length f64 copy.
 
-    Perf (2026-07): BRANCHLESS + REASSOC-fastmath accumulation -> 2.1-2.5x over the plain-branch fastmath=False form at
-    n=600..30000 (bench ``_benchmarks/bench_abs_pearson_fastmath.py``). The per-row ``if isfinite: accumulate`` control
-    flow blocked SIMD vectorisation; replacing it with a select (``av = a if finite else 0.0``; a non-finite row
-    contributes 0 to every sum and 0 to ``n``) removes the branch so the reduction vectorises, and the ``reassoc``
-    fastmath flag lets LLVM tree-reduce the sums. The NaN-drop semantics are PRESERVED EXACTLY (a NaN/inf operand
-    zeroes its own row's contribution and is excluded from ``n`` -- verified vs the numpy masked-pearson reference on
-    NaN-injected data), because ``nnan``/``ninf`` are DELIBERATELY EXCLUDED from the fastmath set: a full
-    ``fastmath=True`` here would let LLVM assume no-NaN and drop the ``isfinite`` test, silently admitting the NaN rows
-    the ratio forms produce and CORRUPTING the |corr| (a selection-BREAKING ~1e-2 error, not the ~1e-16 reassoc ULP
-    delta this safe set gives). Result diverges from the old order by <=~1e-16 (single ULP), selection-equivalent under
-    the wide usability thresholds (min_corr 0.6; tail-concentration gap ~0.99 vs ~0.06)."""
+    Perf (2026-07): BRANCHLESS + REASSOC-fastmath accumulation -> 2.1-2.5x over the plain-branch fastmath=False
+    one-pass form at n=600..30000 (bench ``_benchmarks/bench_abs_pearson_fastmath.py``). The per-row
+    ``if isfinite: accumulate`` control flow blocked SIMD vectorisation; replacing it with a select
+    (``av = a if finite else <fill>``; a non-finite row contributes 0 to every accumulator) removes the branch so
+    each pass vectorises, and ``reassoc`` lets LLVM tree-reduce the sums.
+
+    MEAN-CENTERED, not raw-sum (2026-07-10 fix): a ONE-PASS raw-sum formula (``sum(x^2) - sum(x)^2/n``) computes
+    variance/covariance as the DIFFERENCE of two O(n*mean^2)-magnitude terms -- for a large-mean-relative-to-spread
+    column (e.g. ``arange(100)+1e8``) or a near-constant column (spread ~1e-15 of the mean) this catastrophically
+    cancels, losing most or all significant digits and either corrupting the correlation VALUE (observed: a
+    perfectly self-correlated large-mean column came back ~1.3e-4 off from 1.0) or letting cancellation NOISE slip
+    a genuinely-degenerate column past a ``variance <= 0`` guard (observed: a sub-1e-15-relative-variance column
+    returned a bogus ~2.4e-8 |corr| instead of 0.0). Centering on the mean FIRST (pass 2 uses ``x - mean``, computed
+    once means are known from pass 1) keeps every accumulated term at the SPREAD's own scale regardless of the
+    data's absolute magnitude, so there is no large-number cancellation to guard against in the first place --
+    ``saa <= 0.0`` / ``svv <= 0.0`` is then an exact (not noise-prone) degenerate test, and the extra pass costs one
+    more branchless vectorised read, not a control-flow or precision compromise. The NaN-drop semantics are
+    PRESERVED EXACTLY (a NaN/inf operand zeroes its own row's contribution and is excluded from ``n`` in BOTH
+    passes -- verified vs the numpy masked-pearson reference on NaN-injected data), because ``nnan``/``ninf`` are
+    DELIBERATELY EXCLUDED from the fastmath set: a full ``fastmath=True`` here would let LLVM assume no-NaN and drop
+    the ``isfinite`` test, silently admitting the NaN rows the ratio forms produce and CORRUPTING the |corr| (a
+    selection-BREAKING ~1e-2 error, not the ~1e-16 reassoc ULP delta this safe set gives)."""
     n = 0
-    sa = 0.0; sv = 0.0; saa = 0.0; svv = 0.0; sav = 0.0
+    sa = 0.0; sv = 0.0
     for i in range(y.shape[0]):
         a = np.float64(y[i]); b = np.float64(v[i])
         finite = np.isfinite(a) and np.isfinite(b)
@@ -51,18 +61,34 @@ def _abs_pearson_njit(y, v):
         av = a if finite else 0.0
         bv = b if finite else 0.0
         n += finite
-        sa += av; sv += bv; saa += av * av; svv += bv * bv; sav += av * bv
+        sa += av; sv += bv
     if n < 2:
         return 0.0
     inv = 1.0 / n
-    va = saa - sa * sa * inv
-    vv2 = svv - sv * sv * inv
-    if va <= 0.0 or vv2 <= 0.0:
+    ma = sa * inv
+    mv = sv * inv
+    saa = 0.0; svv = 0.0; sav = 0.0
+    for i in range(y.shape[0]):
+        a = np.float64(y[i]); b = np.float64(v[i])
+        finite = np.isfinite(a) and np.isfinite(b)
+        da = (a - ma) if finite else 0.0
+        db = (b - mv) if finite else 0.0
+        saa += da * da; svv += db * db; sav += da * db
+    # Practically-constant floor, not just exactly-zero (2026-07-10 fix): a column whose coefficient of variation
+    # (std/|mean|) is below ~1e-8 is indistinguishable from constant at float64 precision -- its few surviving
+    # significant digits are quantization artefacts of the fixture, not a trustworthy signal (e.g. a
+    # ``1.0 + linspace(0, 1e-15, 100)`` column: mean-centered deviations ARE now computed accurately by the
+    # two-pass form above with no cancellation noise, but many of its 100 values collapse onto the SAME float64
+    # bit pattern since 1e-17-scale increments are below machine epsilon near 1.0, so any "correlation" recovered
+    # from what's left is meaningless, not a real ~0.5). ``saa <= 0.0`` alone (exact-zero test) still applies
+    # when the mean is 0, where there is no large-magnitude-relative-to-spread quantization risk to begin with.
+    _cv2 = 1e-16  # (coefficient-of-variation floor 1e-8)^2
+    if saa <= n * _cv2 * ma * ma or svv <= n * _cv2 * mv * mv:
         return 0.0
-    den = (va * vv2) ** 0.5
+    den = (saa * svv) ** 0.5
     if den <= 0.0:
         return 0.0
-    c = (sav - sa * sv * inv) / den
+    c = sav / den
     if not np.isfinite(c):
         return 0.0
     return -c if c < 0.0 else c
@@ -87,7 +113,8 @@ def usability_operand_continuous(self, X, cols, var_idx):
             if _nm in getattr(X, "columns", []):
                 return np.asarray(X[_nm], dtype=_crit_np_dtype()).ravel()
             return None
-        _names = list(getattr(self, "feature_names_in_", []) or [])
+        # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
+        _names = list(getattr(self, "feature_names_in_", []))
         if _nm in _names:
             return np.asarray(X[:, _names.index(_nm)], dtype=_crit_np_dtype()).ravel()
         return None
